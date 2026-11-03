@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Sets up Convex Auth on the selected deployment: signing keys,
+ *   the credential encryption key and SITE_URL (`npm run setup:auth`).
+ * Layer: Script. Operator tooling, never imported; it never prints a key.
+ * Dependencies: jose, node:child_process, node:crypto, the Convex CLI.
+ *
+ * Safe to repeat: an existing key is kept, so a failed read must stop the run.
+ * Treating it as unset would replace a working key.
+ */
 import { generateKeyPair, exportPKCS8, exportJWK } from "jose";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -14,10 +23,7 @@ function convex(args, input) {
   return result.stdout;
 }
 // Do not rotate a configured deployment's signing keys on a repeat invocation.
-let existing = "";
-try {
-  existing = convex(["env", "get", "JWT_PRIVATE_KEY"]).trim();
-} catch {}
+const existing = convex(["env", "get", "JWT_PRIVATE_KEY"]).trim();
 if (existing && existing !== "null") {
   console.log("Existing signing key retained.");
 } else {
@@ -35,10 +41,7 @@ if (existing && existing !== "null") {
 }
 // Encrypts stored third-party credentials. Never rotate it here: existing
 // ciphertext would become unreadable.
-let encryption = "";
-try {
-  encryption = convex(["env", "get", "CREDENTIALS_ENCRYPTION_KEY"]).trim();
-} catch {}
+const encryption = convex(["env", "get", "CREDENTIALS_ENCRYPTION_KEY"]).trim();
 if (encryption && encryption !== "null") {
   console.log("Existing credential encryption key retained.");
 } else {
