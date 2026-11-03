@@ -1,10 +1,16 @@
-/* Administration screens: Administration (src/components/Admin.tsx) and the
- * Flight Program administrator view (src/components/ProgramUsers.tsx).
- * Every class is prefixed `adm-`. Rows and group cards also carry the
- * legacy `list-row` class as a test hook, so the selectors below pair it
- * with an `adm-` class to override the global `.list-row` layout.
- * Buttons use the global `.button` primitives (styled in src/styles.css);
- * only layout and geometry are set here. */
+/*
+ * Responsibility: Styles for the Administration screen and the Flight
+ *   Program administrator view.
+ * Layer: UI. Every selector is scoped by an `adm-` class, so nothing here
+ *   restyles another screen.
+ * Dependencies: src/styles/tokens.css (colours, radii, motion),
+ *   src/styles/design.css (ds-*), src/styles.css (.button, .list-row).
+ *
+ * Rows and group cards also carry the legacy `list-row` class as a test
+ * hook, so the selectors below pair it with an `adm-` class to override the
+ * global `.list-row` layout. Buttons keep the global `.button` look; only
+ * layout and geometry are set here.
+ */
 
 .adm-page {
   min-width: 0;
