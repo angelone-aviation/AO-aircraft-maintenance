@@ -12,6 +12,8 @@ import { registerSW } from "virtual:pwa-register";
 import { AirplaneTilt, ArrowRight } from "@phosphor-icons/react";
 import { api } from "../convex/_generated/api";
 import { renewDemoAccess, useWorkspace } from "./data/store";
+import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
+import { warmPdfViewer } from "./data/pdfOffline";
 import { convexBackend } from "./data/backend";
 import { offlineValid, OFFLINE_WINDOW } from "./domain/model";
 import { AsyncForm, Field, download, value } from "./components/ui";
@@ -54,7 +56,11 @@ function Root() {
       <DemoRoot
         onExit={() => {
           sessionStorage.removeItem("angel-one-demo");
-          window.location.assign("/");
+          // Signing out of the demo removes its kept manuals, as signing out
+          // of a connected workspace does.
+          void removeAllKeptManuals(useWorkspace.getState().namespace).finally(
+            () => window.location.assign("/"),
+          );
         }}
       />
     );
@@ -372,6 +378,14 @@ function Loading() {
   );
 }
 registerSW({
+  onRegisteredSW() {
+    // An update gives the PDF viewer files new addresses: cache them again
+    // while online so kept manuals keep opening offline.
+    if (navigator.onLine)
+      void hasKeptManuals().then((kept) => {
+        if (kept) void warmPdfViewer();
+      });
+  },
   onOfflineReady() {
     useWorkspace.setState({
       notice:

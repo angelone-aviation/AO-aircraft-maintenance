@@ -114,6 +114,7 @@ import {
   validateFlight,
 } from "../domain/flights";
 import * as local from "./local";
+import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
 import { demoSnapshot, withDemoUser } from "./demo";
 import { validateOwnerGroup } from "../domain/ownerView";
 import {
@@ -248,6 +249,7 @@ export const useWorkspace = create<Workspace>((set, get) => ({
         connected: demo && navigator.onLine,
         backend: demo ? demoBackend() : get().backend,
       });
+      if (snapshot) void reconcileKeptManuals(namespace, snapshot);
       if (snapshot && demo) await local.saveSnapshot(namespace, snapshot);
     } catch {
       set({
@@ -270,9 +272,14 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       await local.saveSnapshot(namespace, snapshot);
       if (sequence !== receiveSequence) return;
       set({ snapshot, favorites, blocked: false });
+      // Kept manuals follow the snapshot: access revoked, aircraft transferred
+      // or program switched away removes the device copy.
+      void reconcileKeptManuals(namespace, snapshot);
       void get().flush();
     } else {
+      // The session ended: nobody on this device may open kept manuals.
       await local.clearSnapshot(namespace);
+      await removeAllKeptManuals(namespace);
       if (sequence !== receiveSequence) return;
       set({ snapshot: null, blocked: true });
     }
@@ -385,8 +392,9 @@ export const useWorkspace = create<Workspace>((set, get) => ({
     const { namespace } = get();
     await local.clearSnapshot(namespace);
     // The outbox stays (entries are tied to their author and sync after the
-    // same user signs in again); unsent form drafts do not.
+    // same user signs in again); unsent form drafts and kept manuals do not.
     clearDeviceDrafts(namespace);
+    await removeAllKeptManuals(namespace);
     set({ snapshot: null, blocked: true, favorites: [] });
   },
 }));

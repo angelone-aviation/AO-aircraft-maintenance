@@ -316,6 +316,11 @@
   .shop-table-card.shop-stack table.shop-table .shop-actions-cell {
     grid-column: 1 / -1;
   }
+  /* The table-cell ellipsis trick (max-width: 0) would collapse the stacked
+   * lead cell to nothing. */
+  .shop-table-card.shop-stack.shop-list-look .shop-lead-cell {
+    max-width: none;
+  }
   .shop-table-card.shop-stack table.shop-table .shop-actions {
     justify-content: flex-start;
   }
@@ -683,6 +688,12 @@
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     width: 100%;
   }
+  /* Stacked rows: the cell spans the card instead of shrinking to 1%. */
+  .shop-table-card.shop-stack
+    table.shop-table
+    td.shop-actions-cell:has(.shop-manual-actions) {
+    width: auto;
+  }
 }
 .shop-viewer-actions {
   display: flex;
@@ -693,6 +704,94 @@
 }
 .shop-viewer-actions > .button {
   margin: 0;
+}
+/* Keep on this device: row state and errors, viewer panel, storage summary. */
+.shop-keep-status,
+.shop-keep-progress {
+  display: flex;
+  margin-top: 8px;
+}
+.shop-keep-progress {
+  flex-direction: column;
+  gap: 6px;
+  min-width: 120px;
+}
+.shop-keep-progress > .ds-progress {
+  width: 100%;
+}
+.shop-keep-progress > .ds-progress > .ds-progress-fill {
+  animation: none;
+  transition: width 0.2s linear;
+}
+.shop-keep-note {
+  margin: 0;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.shop-keep-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-basis: 100%;
+  margin: 10px 0 0;
+  font-size: var(--fs-meta);
+  line-height: 1.4;
+  color: var(--danger);
+  text-align: left;
+  white-space: normal;
+}
+.shop-keep-error > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.shop-keep-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 4px 22px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  transition: background var(--dur-theme);
+}
+.shop-keep-panel > .ds-list-row {
+  border-top: 0;
+  padding: 12px 0 0;
+}
+.shop-keep-panel .ds-list-sub,
+.shop-keep-summary .ds-list-sub {
+  white-space: normal;
+}
+/* Under the row's text, past the 44px icon tile and its 14px gap. */
+.shop-keep-panel > .shop-keep-progress,
+.shop-keep-panel > .shop-keep-error {
+  margin: 0 0 0 58px;
+}
+.shop-keep-panel > .shop-keep-progress {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+.shop-keep-summary {
+  margin-bottom: 18px;
+}
+.shop-keep-summary > .ds-list-row {
+  padding: 16px 0;
+}
+@media (max-width: 759px) {
+  .shop-keep-panel {
+    padding: 4px 18px 14px;
+  }
+  /* Stack the button under the text, as other list rows do on phones. */
+  section.shop-keep-panel > .ds-list-row:not(:has(.ds-list-meta)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shop-keep-panel > .shop-keep-progress,
+  .shop-keep-panel > .shop-keep-error {
+    margin-left: 0;
+  }
 }
 
 /* ---------- Costs ---------- */

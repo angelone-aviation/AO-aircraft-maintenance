@@ -8,11 +8,18 @@ export function PdfReader({
   url,
   initialPage,
   title,
+  onLoadError,
 }: {
   url: string;
   initialPage: number;
   title: string;
+  /** The document could not be opened (not called for password prompts). */
+  onLoadError?: () => void;
 }) {
+  const loadErrorHandler = useRef(onLoadError);
+  useEffect(() => {
+    loadErrorHandler.current = onLoadError;
+  });
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(initialPage);
   const [entry, setEntry] = useState(String(initialPage));
@@ -40,6 +47,7 @@ export function PdfReader({
   }, []);
   useEffect(() => {
     let canceled = false;
+    let passworded = false;
     let task:
       ReturnType<(typeof import("pdfjs-dist"))["getDocument"]> | undefined;
     setDocument(null);
@@ -60,6 +68,7 @@ export function PdfReader({
           stopAtErrors: true,
         });
         task.onPassword = () => {
+          passworded = true;
           if (!canceled) {
             setError(
               "This PDF requires a password. Download it to open it in a PDF reader.",
@@ -75,6 +84,8 @@ export function PdfReader({
         if (!canceled) {
           setError(e instanceof Error ? e.message : "Unable to load PDF.");
           setLoading(false);
+          // Only the document itself failing, not the viewer runtime.
+          if (task && !passworded) loadErrorHandler.current?.();
         }
       });
     return () => {

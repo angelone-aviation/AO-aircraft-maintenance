@@ -18,6 +18,17 @@ import {
 } from "./design";
 import { ShopLead, ShopTableCard } from "./ShopList";
 import {
+  DeviceCopyNotice,
+  KeepManualButton,
+  KeepManualError,
+  KeepManualPanel,
+  KeepManualStatus,
+  KeptManualsSummary,
+  openManualFile,
+  useKeptManualsRefresh,
+} from "./KeepOnDevice";
+import { keptManualsSupported } from "../data/deviceManuals";
+import {
   ArrowSquareOut,
   BookOpen,
   DownloadSimple,
@@ -177,6 +188,8 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
   const [renaming, setRenaming] = useState<Manual | null>(null);
   const [search, setSearch] = useState("");
   const [progress, setProgress] = useState("");
+  useKeptManualsRefresh();
+  const keeping = keptManualsSupported();
   const aircraft = s!.aircraft.filter(
     (a) =>
       can(s!, a.uuid, "maintenance") &&
@@ -223,10 +236,12 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
       </Toolbar>
       {demo && (
         <NoticeBar tone="neutral" icon={Info}>
-          Demo manuals are saved in this browser. Connected workspaces store
-          manuals in the shared reference library.
+          Demo manuals are saved in this browser, so they open offline without
+          keeping them. Connected workspaces store manuals in the shared
+          reference library; Keep on this device works the same way here.
         </NoticeBar>
       )}
+      {keeping && !!s!.manuals?.length && <KeptManualsSummary />}
       {manuals.length ? (
         <ShopTableCard
           label="Reference manuals"
@@ -266,6 +281,7 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
                       <FilePdf size={16} aria-hidden="true" />
                       {`${m.pageCount.toLocaleString()} pages · ${(m.size / 1024 / 1024).toFixed(1)} MB`}
                     </small>
+                    {keeping && <KeepManualStatus manual={m} />}
                   </td>
                   <td className="shop-actions-cell">
                     <span className="shop-actions shop-manual-actions">
@@ -277,6 +293,7 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
                       >
                         Open manual
                       </Link>
+                      {keeping && <KeepManualButton manual={m} />}
                       {can(s!, m.aircraftUuid, "maintenance") && (
                         <button
                           className="button small"
@@ -289,6 +306,7 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
                       <ManualDiscoveryButton manual={m} />
                       <MaintenanceCsvImportButton manual={m} />
                     </span>
+                    {keeping && <KeepManualError manual={m} />}
                   </td>
                 </tr>
               ))}
@@ -519,23 +537,33 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
   );
 }
 export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
-  const { snapshot, backend } = useWorkspace();
+  const { snapshot, backend, namespace } = useWorkspace();
   const manual = snapshot?.manuals?.find((m) => m.uuid === uuid);
+  const userId = snapshot?.user.id;
   const [url, setUrl] = useState("");
+  const [fromDevice, setFromDevice] = useState(false);
+  // Set when the kept copy fails to open: use the online file instead.
+  const [failedCopy, setFailedCopy] = useState("");
+  const deviceFailed = failedCopy === `${namespace}\n${userId}\n${uuid}`;
   const [error, setError] = useState("");
   useEffect(() => {
     let canceled = false;
     let objectUrl = "";
     setUrl("");
+    setFromDevice(false);
     setError("");
+    // A kept copy opens first, from this device and without waiting on the
+    // network; otherwise the online file opens as before.
     if (manual && backend)
-      backend
-        .openManual(uuid)
-        .then((url) => {
-          objectUrl = url;
+      openManualFile(uuid, { useDevice: !deviceFailed })
+        .then((file) => {
+          objectUrl = file.url;
           if (canceled) {
-            if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-          } else setUrl(url);
+            if (file.url.startsWith("blob:")) URL.revokeObjectURL(file.url);
+          } else {
+            setFromDevice(file.fromDevice);
+            setUrl(file.url);
+          }
         })
         .catch((e) => {
           if (!canceled)
@@ -545,7 +573,7 @@ export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
       canceled = true;
       if (objectUrl.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
     };
-  }, [uuid, backend, !!manual]);
+  }, [uuid, backend, !!manual, namespace, userId, deviceFailed]);
   if (!manual)
     return (
       <EmptyState title="Manual unavailable">
@@ -572,6 +600,8 @@ export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
           </>
         }
       />
+      <KeepManualPanel manual={manual} fromDevice={fromDevice} />
+      {deviceFailed && <DeviceCopyNotice />}
       {error && (
         <NoticeBar tone="danger" icon={WarningCircle} role="alert">
           {error}
@@ -599,7 +629,16 @@ export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
               Download PDF
             </a>
           </div>
-          <PdfReader url={url} initialPage={page} title={manual.title} />
+          <PdfReader
+            url={url}
+            initialPage={page}
+            title={manual.title}
+            onLoadError={
+              fromDevice
+                ? () => setFailedCopy(`${namespace}\n${userId}\n${uuid}`)
+                : undefined
+            }
+          />
         </>
       )}
     </>

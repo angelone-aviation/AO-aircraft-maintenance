@@ -20,6 +20,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [ ] Replace the placeholder aircraft drawing (`public/branding/cessna-oblique.svg`, see `public/branding/SOURCE.txt`).
 - [ ] Deploy and run the post-deploy commands in the README "Deployment" section.
 - [ ] Upload the reference manuals to the app's Reference library (optimize large PDFs first).
+  - [ ] On each hangar tablet and phone, add the app to the Home Screen, use **Keep on this device** for the manuals that crew needs, and confirm they open in airplane mode.
 - [ ] Acceptance testing on real phones and tablets (iOS 16.4 or Chrome 111 and newer), real aircraft data checked against logbooks, and training.
 
 ## Backup setup (remaining)
