@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { version as pdfVersion } from "pdfjs-dist/package.json";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -32,6 +33,18 @@ export default defineConfig({
     __PDF_VIEWER_FILES__: JSON.stringify(
       [...decoderFiles.keys()].filter((name) => !/LICENSE|quickjs/.test(name)),
     ),
+  },
+  resolve: {
+    // Load zod with eval-free parsing so the app runs under the production
+    // Content-Security-Policy without violations (src/cspSafeZod.ts).
+    alias: [
+      {
+        find: /^zod$/,
+        replacement: fileURLToPath(
+          new URL("./src/cspSafeZod.ts", import.meta.url),
+        ),
+      },
+    ],
   },
   server: {
     port: 5173,

@@ -7,6 +7,7 @@ Fill in each row. Names or roles only: never passwords, keys or card numbers her
 | Convex (team + production project) | Database, backend functions, auth, file storage | | | Transfer = invite program owner to the Convex team as admin, then remove the old owner; deploy keys must be re-issued |
 | Domain registrar | Owns the web address | | | Registrar transfer or just move the login |
 | DNS | Points the address at the site | | | Will move to Cloudflare if the hosting decision goes that way |
+| Cloudflare account and API token | Hosts the website; the "Edit Cloudflare Workers" token in the GitHub `production` environment publishes it | | | Token expiry: ____ ([release runbook](release.md)) |
 | cPanel at A2 Hosting | Publishes the website today | | | Retired once Cloudflare hosting is live; keep until then |
 | GitHub `angelone-aviation/AO-aircraft-maintenance` | Source code and issue tracker | Angel One (organization) | Done | Moved from a personal test fork on 2026-11-03 |
 | Resend | Sends the daily alert email digest | | | Which sending domain is verified? |

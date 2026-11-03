@@ -9,6 +9,7 @@ dist/
 
 # Application build/test artifacts
 .convex/
+.wrangler/
 test-results/
 playwright-report/
 coverage/
