@@ -4,6 +4,16 @@ Date: 2026-11-01. Scope: the whole repository, weighted toward recent change hot
 
 This report decides nothing. Its priorities were decided in [ADR-0006](../adr/0006-architecture-cleanup-priorities-before-launch.md).
 
+## Done since this report (2026-11-03)
+
+The sections below describe the code as reviewed on 2026-11-01. Since then, as refactors with no change to what the server stores or returns:
+
+- **A and B, `runCommand`.** [`convex/runCommand.ts`](../../convex/runCommand.ts) is the one transaction for applier-backed mutations: program check before the payload is read, parse, request-id replay, load (with `hydrate(ctx, state, needs)` for program-scoped collections), apply with an explicit policy for which domain errors become `ConvexError`, persist, then the command's change-log rows written once through `writeAudit` (`convex/access.ts`), the only insert into the audit table. Twenty-one mutations use it: `management.execute`, `fleet.save`, `costs.execute`, `partsRequests.execute`, `purchaseOrders.execute`, `checklists.save`, `flightPlans.save`, `componentTemplates.save`/`apply`, `inspectionTemplates.save`/`activate`/`remove`, `taskImports.save`, `airworthiness.save`, `taskCards.save`, `workOrders.save`, `engineTrends.execute`, `programs.transfer`, and `operations.submit`/`deferDiscrepancy`/`saveDiscrepancyParts`. The seven raw audit inserts write the same rows through `writeAudit`. `convex/runCommand.test.ts` covers the transaction itself; the existing suites cover each command unchanged.
+- **C, flight submission.** [`src/domain/flightSubmission.ts`](../../src/domain/flightSubmission.ts) (`submitOperation`) is the one sequence for flights and problem reports from the outbox; `operations.submit` loads and persists for it on the server, the demo adapter in its snapshot. The demo now follows the server where they had drifted: it checks the pilot and copilot, validates the checklist before the plan, trims the flight's problem report, refuses an entry id reused by another author or a report linked to another aircraft's flight, and, as on the server, its held-flight change-log entry carries the hold reason only in the flight's values. Dispatch-gate and oil-stock refusals are `FlightRejection`, which the server exposes as `ConvexError` as before.
+- **D, the move.** The demo adapter is in [`src/data/demoBackend.ts`](../../src/data/demoBackend.ts); `store.ts` keeps the workspace and outbox.
+
+Not yet done from ADR-0003, because each changes stored data or what a client sees: request ids for every command (only management and fleet have them; the table is still `managementRequests`), uniform stale-version rejection, dropping per-mutation summary rows, `programUuid` on the rows costs and recurring parts write without one, `undefined` for collections a command did not load, and partial-Snapshot typing (G). Not moved onto `runCommand`, having no domain applier: `operations.reviewFlight` (flight review still exists in both adapters; the next candidate for `flightSubmission.ts`), `operations.resolveDiscrepancy`, `faa.command`, `savedAddresses.save`, `programs.select`, the administration and upload mutations (they keep `audit()`), and the internal job mutations.
+
 ## 1. The system in one picture
 
 ```mermaid

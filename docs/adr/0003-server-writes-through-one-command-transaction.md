@@ -30,3 +30,7 @@ The module's interface fixes these invariants for every command:
 - The per-mutation convex-test glue suites are replaced by one `runCommand` suite covering hydrate, persist, audit stamping, idempotency and version rejection for each persistence shape, plus one happy-path test per command.
 - Command schemas that lack a request id or a version field gain them; the client already generates request ids for offline operations.
 - `docs/maintenance-workflows.md`'s promise that every write checks record versions and audits in the same transaction becomes true in one place.
+
+## Status
+
+- 2026-11-03: implemented in part. `convex/runCommand.ts` owns the transaction and `writeAudit` is the single audit insert; the applier-backed mutations run through it with their stored data, audit rows and errors unchanged. Uniform request ids and version rejection, removing the summary rows, stamping every row with `programUuid`, `undefined` for unloaded collections and the partial-Snapshot type are still to do (see `docs/architecture/README.md`).
