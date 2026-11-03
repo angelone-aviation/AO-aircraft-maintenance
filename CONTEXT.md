@@ -54,7 +54,7 @@ flowchart LR
   Nightly --> Dropbox
 ```
 
-The browser never calls an outside service: the CSP `connect-src` allows only the site and `*.convex.cloud`/`*.convex.site`. Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
+The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and `*.convex.cloud`/`*.convex.site`. Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
 
 ## 3. Code layers and directory ownership
 
@@ -63,9 +63,9 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | Directory | Layer | Owns | Must not |
 |---|---|---|---|
 | `src/main.tsx`, `src/App.tsx` | UI (entry) | Demo or live root, Convex client and auth provider, sign-in screen, 7-day access gate, service-worker registration (`main.tsx`); shell and lazy route table (`App.tsx`) | Hold business rules |
-| `src/components` | UI | Screens and forms. Read `useWorkspace().snapshot`; write through `backend.<method>()` or `enqueue()`; derive visibility from domain (`can`, `programPermission`, `isPilotView`) | Import `convex/` or `src/data/local.ts`; re-implement a rule that exists in `src/domain`; write the snapshot |
+| `src/components` | UI | Screens and forms. Read `useWorkspace().snapshot`; write through `backend.<method>()` or `enqueue()`; derive visibility from domain (`can`, `programPermission`, `isPilotView`) | Import `convex/` (except `ConvexError` in `ui.tsx`, §5) or `src/data/local.ts`; re-implement a rule that exists in `src/domain`; write the snapshot |
 | `src/styles` | UI | Tokens, shared design, per-screen CSS (`screens/`) | Encode behaviour |
-| `src/domain` | Domain | Types and zod schemas for stored payloads (`model.ts` plus one module per feature); appliers `(snapshot, command) => …` that mutate a working snapshot and push audit entries; rules (status, dispatch gate, due dates, close-out, flight submission); permissions (`can`, `scopedSnapshot`) | Import React, Zustand, Convex, `src/data` or `src/components`; touch browser storage; do network I/O (see §5 for current exceptions) |
+| `src/domain` | Domain | Types and zod schemas for stored payloads (`model.ts` plus one module per feature); appliers `(snapshot, command) => …` that mutate a working snapshot (some also push their own audit entries; for the rest the Convex mutation's `audit` hook composes the rows); rules (status, dispatch gate, due dates, close-out, flight submission); permissions (`can`, `scopedSnapshot`) | Import React, Zustand, Convex, `src/data` or `src/components`; touch browser storage; do network I/O (see §5 for current exceptions) |
 | `src/data` | Data | Workspace store and outbox (`store.ts`); `Backend` interface and Convex adapter (`backend.ts`); demo adapter (`demoBackend.ts`) and seed (`demo.ts`); IndexedDB (`local.ts`); kept manuals (`deviceManuals.ts`); PDFs and reports (`*Pdf.ts`, `adReport.ts`, `aircraftStatusReport.ts`); file importers (`adImport.ts`, `fmd.ts`) | Render UI or import `src/components`; decide a permission the server does not also decide |
 | `convex` | Server | Schema, auth, every public function, permission checks (`access.ts`, `programContext.ts`), the command transaction (`runCommand.ts`), the audit writer, crons, auth HTTP routes, integrations, credential encryption (`secrets.ts`) | Import `src/data` or `src/components` outside tests; return a secret; insert into `audit` except through `writeAudit` |
 | `convex/_generated` | Generated | Convex codegen (`api`, `dataModel`) | Be edited by hand |
@@ -111,16 +111,17 @@ sequenceDiagram
   UI->>B: backend.workOrder(command)
   B->>M: { payload: JSON, programUuid }
   M->>RC: parse, load, apply, persist, audit
-  RC->>RC: checkContext (program, read, not owner view), parse, request-id replay
+  RC->>RC: checkContext (program, read, not owner view), parse, delegate (optional hand-off to another transaction shape), request-id replay check
   RC->>T: load or hydrate(needs), record-level authorized()
   RC->>D: apply(working, command)
   RC->>T: persist changed documents
   RC->>T: writeAudit() for each change-log row
+  RC->>T: record the request id (commands that carry one)
   T-->>UI: snapshot query re-runs
 ```
 
 - A Convex mutation is one transaction: any throw writes nothing. Expected domain rejections become `ConvexError` (the `expose` option) so users see the message in production.
-- 21 mutations use `runCommand`. Administration, upload and a few others check access themselves and call `audit()`. The list, and what ADR-0003 still asks for (request ids on every command, uniform stale-version rejection), is in the architecture report's "Done since this report".
+- 21 mutations use `runCommand`. Administration, upload and a few others check access themselves and write the change log through `audit()`, or `writeAudit()` directly. The list, and what ADR-0003 still asks for (request ids on every command, uniform stale-version rejection), is in the architecture report's "Done since this report".
 - Demo: `demoBackend.modify()` clones the full snapshot, runs the same applier, saves it, and calls `receive(scopedSnapshot(s))`. Demo writes need `online`.
 
 **Offline outbox** (`src/data/store.ts`, `src/domain/flightSubmission.ts`, `convex/operations.ts` `submit`):
@@ -140,7 +141,10 @@ Allowed import directions (anything else is a violation):
 src/main.tsx, src/App.tsx, src/components ──► src/data ──► src/domain
 src/components ───────────────────────────────────────────► src/domain
 convex ──► src/domain            scripts/backup ──► src/domain
-tests and *.test.ts may also import src/data/demo.ts (demoSnapshot) as a fixture
+src/main.tsx, src/data/backend.ts ──► convex/_generated (api; dataModel types), convex/react
+src/main.tsx ──► @convex-dev/auth/react (sign-in, before the workspace exists)
+src/data, src/components/ui.tsx ──► convex/values (ConvexError only; ui.tsx for the one shared message helper)
+tests, *.test.ts and test fixtures (scripts/backup/exportFixture.ts) may also import src/data/demo.ts (demoSnapshot)
 ```
 
 No linter enforces these yet (`.oxlintrc.json` has no import rules). Check with:
@@ -163,29 +167,29 @@ Invariants:
 
 Current violations and exceptions (2026-11-03). Record fixes in `REFACTOR_ROADMAP.md`:
 
-- Domain modules that do network I/O (invariant: no I/O in `src/domain`), called only from Convex: `src/domain/addressLookup.ts:68` (`fetchAddressSuggestions`, global `fetch` at :86); `src/domain/faa.ts:146` (`fetchDrsFiltered`, default `fetch` at :150) and `:207` (`fetchDrsCandidates`, :210); `src/domain/faaSearch.ts:166` (`searchFAA`, :169); `src/domain/faaMonitoringSearch.ts:87` (`fetchMonitoringCandidates`, :90).
+- Domain modules that do network I/O (invariant: no I/O in `src/domain`). Called from Convex: `src/domain/addressLookup.ts:68` (`fetchAddressSuggestions`, global `fetch` at :86; `convex/addressVerification.ts`), `src/domain/faaSearch.ts:166` (`searchFAA`, :169; `convex/faaSearch.ts`) and `src/domain/faaMonitoringSearch.ts:87` (`fetchMonitoringCandidates`, :90; `convex/faa.ts`). Called only from the domain: `src/domain/faa.ts:146` (`fetchDrsFiltered`, default `fetch` at :150), used by `searchFAA`, `fetchMonitoringCandidates` and `fetchDrsCandidates`. Test-only: `src/domain/faa.ts:207` (`fetchDrsCandidates`, :210) has no production caller; only `src/domain/airworthiness.test.ts` uses it.
 - Rules written twice, once per adapter (invariants 1 and 4), and drifted: flight review `src/data/demoBackend.ts:965` vs `convex/operations.ts:509` (the demo skips the program-administrator check, the aircraft and problem-report change refusals, pilot membership and `validateFlight`); discrepancy resolve `src/data/demoBackend.ts:943` vs `convex/operations.ts:445` (the demo skips the `resolve` permission, the 5,000-character limit and trimming); FAA monitor command `src/data/demoBackend.ts:544` vs `convex/faa.ts:72`.
-- UI importing Convex directly: `src/components/SignInMethods.tsx:7-11` (`useQuery(api.identities.providers)` at :104, `useAuthActions` at :105; a pre-workspace sign-in screen like `main.tsx`). `ConvexError` message extraction is repeated in `src/components/ui.tsx:47`, `EngineTrends.tsx:25`, `SavedAddresses.tsx:40` and `AircraftSpruce.tsx:15`.
+- UI importing Convex directly: `src/components/SignInMethods.tsx:7-11` (`useQuery(api.identities.providers)` at :104, `useAuthActions` at :105; a pre-workspace sign-in screen like `main.tsx`). `ConvexError` message extraction is written six times: the same shape, each with its own fallback text, in `src/components/ui.tsx:47`, `EngineTrends.tsx:25`, `SavedAddresses.tsx:40` and `SignInMethods.tsx:29`; a variant in `AircraftSpruce.tsx:15` (the fallback is an argument, with no `Error.message` branch); and the outbox's stored sync error in `src/data/store.ts:317`. Each component copy imports `convex/values` for it.
 - Form-to-command shaping stays in components, for example the close-out readings in `WorkOrders.tsx`; ADR-0006 moves only those readings into the domain, after launch.
 - Minor: `src/data/auditHistory.ts:1` is a React hook in the data layer; `src/data/store.ts:64-68` hard-codes draft-key prefixes owned by `GuidedFlight.tsx:45`, `FlightSession.tsx:49` and `Checklists.tsx:67`.
 
 ## 6. Core domain glossary
 
-The 34 terms you meet first. Full definitions and words to avoid: [GLOSSARY.md](GLOSSARY.md).
+The 34 terms you meet first. Full definitions and words to avoid: [GLOSSARY.md](GLOSSARY.md). Terms marked "(not in GLOSSARY.md yet)" are defined only here.
 
 | Term | Meaning |
 |---|---|
 | Flight Program | The organization unit that owns aircraft, locations, stock and memberships; the first access boundary. Not "tenant". |
 | Permission group | Named bundle of permissions (`read`, `flight`, `discrepancy`, `resolve`, `maintenance`) over all or selected aircraft of one program. Not "role". |
-| Aircraft scope | A group's `aircraftIds`; empty means every aircraft in the program, except owner groups, which must name theirs (`groupCoversAircraft`). |
+| Aircraft scope (not in GLOSSARY.md yet) | A group's `aircraftIds`; empty means every aircraft in the program, except owner groups, which must name theirs (`groupCoversAircraft`). |
 | Flight Program administrator | Member of a `programAdmin` group: manages the whole program. |
 | System administrator | `isAdmin` account: manages every program, user and group; only one that sees unassigned records. |
-| Owner view | Read-only owner portal for an aircraft owner group; `checkContext` refuses its writes. |
-| Snapshot | The scoped read model (`src/domain/model.ts`) the server sends and the device caches. |
+| Owner portal (owner view) | Read-only view for an aircraft owner group; `checkContext` refuses its calls, so owners read only the snapshot. |
+| Snapshot (not in GLOSSARY.md yet) | The scoped read model (`src/domain/model.ts`) the server sends and the device caches. |
 | Command | Validated request to change records in one step; applied by a domain applier, idempotent where it carries a request id. |
-| Outbox / pending entry | Flights and problem reports recorded on the device, waiting to sync (Sync center). |
-| Held flight | A synced flight that conflicts with the aircraft's counters; `status: "review"` until an administrator accepts or rejects it (conflict review). |
-| Counter change | An administrator's correction of aircraft counters, recorded as a counter event; flights before it need chronology review. |
+| Pending entry (outbox) | Flights and problem reports recorded on the device, waiting to sync (Sync center). |
+| Held flight (not in GLOSSARY.md yet) | A synced flight that conflicts with the aircraft's counters; `status: "review"` until an administrator accepts or rejects it (conflict review). |
+| Counter change (not in GLOSSARY.md yet) | An administrator's correction of aircraft counters, recorded as a counter event; flights before it need chronology review. |
 | Aircraft status | Computed airworthy, due soon or grounded, with reasons. |
 | Dispatch gate | Check that blocks a flight on a grounded aircraft; a dispatch override records the reason with the flight. |
 | Discrepancy | A reported defect, open until resolved or deferred. Not "squawk". |
@@ -203,10 +207,10 @@ The 34 terms you meet first. Full definitions and words to avoid: [GLOSSARY.md](
 | Close-out | Completing a work order: applies component movements, freezes readings, produces the summary. |
 | Logbook entry | Generated, unsigned 43.9/43.11 text or PDF for signature in the aircraft logbook. |
 | Correction | Audited change to a completed record that keeps the original and a reason. |
-| Change log (audit entry) | Who changed what and when, with before, after and reason; shown in History. |
+| Audit entry (change log) | Who changed what and when, with before, after and reason; shown in History. |
 | Status records (91.417) | The six permanent records the operator keeps: total time, life-limited parts, time since overhaul, inspection status, AD status, Form 337 copies. |
-| Form 337 | FAA major repair and alteration form; copies are kept on the aircraft record and archived, never deleted. |
-| Kept manual | A reference manual stored on the device (Cache Storage) to open offline. |
+| Form 337 (not in GLOSSARY.md yet) | FAA major repair and alteration form; copies are kept on the aircraft record and archived, never deleted. |
+| Kept manual (not in GLOSSARY.md yet) | A reference manual stored on the device (Cache Storage) to open offline. |
 | Demo mode | Labelled in-browser mode with fictional data, isolated from live data. |
 | Off-site copy | Nightly encrypted export in R2 (90 days; first of each month forever). |
 

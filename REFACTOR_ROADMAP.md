@@ -2,7 +2,7 @@
 
 Brings the whole codebase up to [CONSTRAINTS.md](CONSTRAINTS.md) in small, safe, dependency-ordered batches. Read [CONTEXT.md](CONTEXT.md) and [CLAUDE.md](CLAUDE.md) first. The audit behind this plan (2026-11-03) is in [docs/architecture/metrics-2026-11-03.md](docs/architecture/metrics-2026-11-03.md) (size, churn, dependency graph, function metrics, duplication) and [docs/architecture/tier2-candidates.md](docs/architecture/tier2-candidates.md) (the deep-module review).
 
-**Progress:** 0 of 409 batches done. Tier 1: 251 · Tier 2: 73 · Tier 3: 85.
+**Progress:** 1 of 414 batches done. Tier 1: 251 · Tier 2: 78 · Tier 3: 85. Batches 410–414 (T21) close Tier 2 but are numbered after Tier 3, so batches 1–409 keep their numbers.
 
 ## How to run a batch
 
@@ -10,7 +10,7 @@ One batch is one to three closely related files. For each batch:
 
 1. Apply 100% of the standards: architectural header, TSDoc on every export (`@param`, `@returns`, `@throws`, side effects), WHY-only comments, guard clauses (nesting of 2 or less), functions of 40 lines or fewer through verb-first private helpers, `SCREAMING_SNAKE_CASE` constants for magic values, explicit errors, no suppressions.
 2. Preserve every exported name, signature and runtime behaviour. A real bug found on the way gets a failing test and its own commit, and a line under [Findings](#findings).
-3. Prove it: `npx tsc --noEmit`, `npx oxlint <files>`, `npx vitest run --related <files>` (or the colocated test), `node .claude/hooks/check-standards.mjs <files>`, and `npx prettier --check <files>`. Tier 3 parts 2 and 3 of a screen also run that screen's Playwright spec.
+3. Prove it: `npx tsc --noEmit`, `npx oxlint <files>`, `npx vitest related <files> --run` (or the colocated test), `node .claude/hooks/check-standards.mjs <files>`, and `npx prettier --check <files>`. Tier 3 parts 2 and 3 of a screen also run that screen's Playwright spec.
 4. Commit: `refactor: Batch N (<lane>): <short description>`. Tick the box here.
 
 Repeatable prompt for one batch:
@@ -29,7 +29,8 @@ Execute the next unchecked `[ ]` batch in REFACTOR_ROADMAP.md:
 
 - **Lanes.** Tier 1 and Tier 3 batches carry a lane: `domain-a`, `domain-b`, `server`, `ui-a`, `ui-b` or `platform`. Lanes own disjoint files, so they run in parallel, each in its own git worktree and branch. Within a lane, take batches in order.
 - **Phase A:** Tier 1 and Tier 3, all six lanes at once. Tier 3 files are decomposed behind barrels, so no importer in another lane has to change.
-- **Phase B:** Tier 2, in the order listed below (it follows each candidate's dependencies), at most three batches at a time and never two that touch the same file. Files that Tier 2 restructures are left out of Phase A: `src/data/demoBackend.ts`, `convex/operations.ts`, `convex/runCommand.ts` (and its test), `scripts/backup/recordsWorkbook.ts` (and its test) and `scripts/backup/exportFixture.ts`.
+- **Phase B:** Tier 2, in the order listed below (it follows each candidate's dependencies), at most three batches at a time and never two that touch the same file. The files Tier 2 rewrites most heavily are owned by Tier 2 and left out of Phase A entirely: `src/data/demoBackend.ts`, `convex/operations.ts` (and its test, `convex/operations.test.ts`), `convex/runCommand.ts` (and its test), `scripts/backup/recordsWorkbook.ts` (and its test) and `scripts/backup/exportFixture.ts`. Other files that a Tier 2 batch also restructures keep their Tier 1 batch or Tier 3 part 1 in Phase A.
+- **Tier 3 parts that wait:** a Tier 3 part 2 or 3 marked `(after Tn bm)` restructures a file that this Tier 2 batch also changes, so lanes skip it until that batch lands, while the file's part 1 standards pass still runs in Phase A.
 - **Exception:** Tier 2 batches 252 and 253 (T10 b1–b2, so production shows users the real rejection message instead of "Server Error") run first, alongside Phase A, because they matter for go-live. Their files are locked in the lanes until they merge.
 - **Checkpoints,** every few hours: merge the lanes, run `npm run check`, the full Playwright suite, the bug-hunt repro scripts and `npm run test:backup`, then push to `main`.
 
@@ -46,8 +47,10 @@ Execute the next unchecked `[ ]` batch in REFACTOR_ROADMAP.md:
 | Inline suppressions | 7 (plus 3 `shellcheck disable`, not yet checked) |
 | Import cycles | 5 strongly connected groups; the largest holds 40 `src/domain` modules around `model.ts` |
 | Copy-paste clusters (5+ lines) | 34 in source, 36 in tests |
-| Largest files | `src/domain/commonPasswords.ts` 2,502 (data); `src/components/Components.tsx` 1,966; `Management.tsx` 1,838; `WorkOrders.tsx` 1,720; `PurchaseOrders.tsx` 1,705; `TaskCards.tsx` 1,664; `PartsRequests.tsx` 1,619; `Airworthiness.tsx` 1,526; `src/data/demoBackend.ts` 1,459 |
-| Most-changed files (6 months) | `src/data/store.ts` 24 commits; `store.test.ts` 17; `backend.ts` 15; `convex/schema.ts` 14; `src/styles.css` 13; `convex/operations.ts` 11 |
+| Largest files | `src/styles.css` 2,844; `src/domain/commonPasswords.ts` 2,502 (data); `scripts/backup/recordsWorkbook.ts` 2,289; `src/components/Components.tsx` 1,966; `Management.tsx` 1,838; `WorkOrders.tsx` 1,720; `scripts/backup/exportFixture.ts` 1,713; `PurchaseOrders.tsx` 1,705; `TaskCards.tsx` 1,664; `PartsRequests.tsx` 1,619; `Airworthiness.tsx` 1,526; `src/data/demoBackend.ts` 1,459 |
+| Most-changed files (6 months, including the `legacy/main` history; `main` alone has 30 commits) | `src/data/store.ts` 24 commits; `store.test.ts` 17; `backend.ts` 15; `convex/schema.ts` 14; `src/styles.css` 13; `convex/operations.ts` 11 |
+
+Scope: the 534 files are the code, tests, styles, scripts, workflows and config outside `docs/` and `.claude/`; each is in a batch or owned by Tier 2. The header-check and metrics figures (570 files) use the metrics report's scope: `.ts .tsx .mjs .js .css .sh` only, including 41 bug-hunt repro scripts under `docs/qa/`. `docs/` (the architecture HTML and the bug-hunt repro scripts) is out of scope for this roadmap.
 
 ## Findings
 
@@ -57,15 +60,22 @@ Raised by the audit; not batches. Update as batches find more.
 2. **The owner portal and alerts may list ADs on removed Components** that the Dispatch gate excludes (`aircraftStatus.ts:107`), and some callers of `requirementStatus` do not catch its throw. Unconfirmed; T13 adds the test.
 3. **The demo's Conflict review and discrepancy resolution lack server rules** (administrator check, crew checks, `validateFlight`, the `resolve` permission, the 5,000-character limit). T11 and T2 fix them.
 4. **Guided flight skips the tenths-of-an-hour rule** (`GuidedFlight.tsx:441-446`). T7.
-5. **ADR-0006's browser tests against a real Convex backend do not exist yet.** The Playwright suite runs the demo build only.
+5. **ADR-0006's real-Convex browser tests are not in the automated checks.** `tests/e2e/live.spec.ts` has two tests against a real local Convex backend (sign-in, offline reload, discrepancy sync, offline sign-out), but it skips itself unless `npm run test:local` has provisioned a local administrator, so CI runs the demo build only. Logging a flight and closing a work order are not covered.
 6. **Owner-only items in `.claude/hooks/`** (agents may not edit it): `check-standards.mjs` nests three levels in one function; the suppression check has no rule for `shellcheck disable`; the hook reminder still lists `improve-codebase-architecture`, which only a person can start.
 7. **The architecture report's counts are out of date** (`docs/architecture/README.md`): 54 specs, 52 convex-test suites, about 91 domain modules and 90 component files today.
+8. **Address lookup refuses valid stored addresses** (Batch 1). `addressLookupSchema` (`src/domain/addressLookup.ts:4-8`) caps the postal code at 100 characters and the country at 150, but `addressSchema` allows 300, so `lookupInput` throws on an address the app has already saved.
+9. **ZIP and Canadian postal codes are checked untrimmed** (Batch 1). `addressIssues` refuses " 20500" although the schema trims it on save. A characterization test in `src/domain/addresses.test.ts` pins this; fix it as a small bug fix in its own commit, updating that test.
+10. **The phone message promises more than the check** (Batch 1). It asks for an area or country code, but any 7 digits pass. A product decision: tighten the check or change the message.
+11. **The street length limit is redundant** (Batch 1). The 2,000-character street limit never decides on its own: the 1,900-character combined cap already rejects a street over about 1,890 characters.
+12. **`addressFromForm` is form shaping in the domain** (Batch 1). It reads `FormData` for `Fleet.tsx` and `Management.tsx` only, and the input name `"addressDetails"` is written separately in `Fleet.tsx:799` and `Management.tsx:1646`. It belongs with the components (CONTEXT.md §5).
+13. **`src/domain/addresses.test.ts` also holds the address-lookup tests** (Batch 1): `lookupInput`, `fetchAddressSuggestions`, `parseAddressSuggestions`. Move them to a new `src/domain/addressLookup.test.ts` when that module's batch (Batch 44) runs.
+14. **Production started empty on 2026-11-03; no data was migrated** (README "Deployment", `docs/go-live-checklist.md`). Code that only migrates or repairs data written by earlier versions may now be removable; T21 inventories it.
 
 ## Tier 1: foundation and leaf modules
 
 Dependency order: modules with no internal imports first, most-imported first. Each batch is a module with its colocated test, or up to three small sibling modules.
 
-- [ ] Batch 1 (domain-a): `src/domain/addresses.ts`, `src/domain/addresses.test.ts`
+- [x] Batch 1 (domain-a): `src/domain/addresses.ts`, `src/domain/addresses.test.ts`
 - [ ] Batch 2 (domain-b): `src/domain/ata.ts`, `src/domain/csv.ts`, `src/domain/accountRules.ts`
 - [ ] Batch 3 (domain-a): `src/domain/aircraftSpruce.ts`, `src/domain/aircraftSpruce.test.ts`
 - [ ] Batch 4 (server): `convex/memberships.ts`, `convex/memberships.test.ts`
@@ -331,7 +341,7 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 
 - [ ] Batch 252 (T10 b1): `src/domain/rejection.ts` (new), `src/domain/flightSubmission.ts`, `src/domain/components.ts` (the classes; existing errors re-parented)
 - [ ] Batch 253 (T10 b2): `convex/runCommand.ts`, `convex/runCommand.test.ts` (default `expose` = `Rejection`, from `load` too)
-- [ ] Batch 254 (T10 b3, b4…): ≤3 domain modules each, leaf first: `taskCards.ts`, `flightPlans.ts`, `inspectionTemplates.ts`; then `workOrders.ts`, `partsRequests.ts`, `fleet.ts`; then the rest (`assertCurrent` and `Rejection` at each site)
+- [ ] Batch 254 (T10 b3, b4…): ≤3 domain modules each, leaf first: `src/domain/taskCards.ts`, `src/domain/flightPlans.ts`, `src/domain/inspectionTemplates.ts`; then `src/domain/workOrders.ts`, `src/domain/partsRequests.ts`, `src/domain/fleet.ts`; then the rest (`assertCurrent` and `Rejection` at each site)
 
 ### T1. Collection codec: a stored row ⇄ a Snapshot collection, once
 
@@ -343,7 +353,7 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 
 ### T9. Changed-row writer: `runCommand` owns persist
 
-- [ ] Batch 260 (T9 b1): `convex/runCommand.ts`: `writeChanged` plus its tests in `runCommand.test.ts` (after T1 b1)
+- [ ] Batch 260 (T9 b1): `convex/runCommand.ts`: `writeChanged` plus its tests in `convex/runCommand.test.ts` (after T1 b1)
 - [ ] Batch 261 (T9 b2): `convex/partsRequests.ts`, `convex/purchaseOrders.ts`, `convex/costs.ts`
 - [ ] Batch 262 (T9 b3): `convex/airworthiness.ts`, `convex/taskCards.ts`, `convex/fleet.ts`
 - [ ] Batch 263 (T9 b4): `convex/management.ts`, `convex/inspectionTemplates.ts`; adds the missing guard, a behaviour change recorded in a test
@@ -359,7 +369,7 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 
 ### T3. Attachment rules shared by both adapters
 
-- [ ] Batch 270 (T3 b1): `src/domain/taskCards.ts`, `src/domain/attachments.ts`, with tests (the new domain rules)
+- [ ] Batch 270 (T3 b1): `src/domain/taskCards.ts`, `src/domain/attachments.ts` (new), with tests (the new domain rules)
 - [ ] Batch 271 (T3 b2): `convex/taskCards.ts`, `convex/attachments.ts` (the server uses the domain rules; output unchanged)
 - [ ] Batch 272 (T3 b3): `convex/workOrders.ts` (one shared "open work order" access check)
 - [ ] Batch 273 (T3 b4): `src/data/demoBackend.ts` (the demo applies the cap and the evidence rule)
@@ -422,9 +432,9 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 
 ### T8. Split the records workbook
 
-- [ ] Batch 306 (T8 b1): `scripts/backup/xlsxWriter.ts` (new), `recordsWorkbook.ts` (moves the writer out)
-- [ ] Batch 307 (T8 b2): `scripts/backup/exportSnapshot.ts` (new), `recordsWorkbook.ts` (moves decoding out)
-- [ ] Batch 308 (T8 b3): `recordsWorkbook.ts` (`dueItems` replaced by the domain module)
+- [ ] Batch 306 (T8 b1): `scripts/backup/xlsxWriter.ts` (new), `scripts/backup/recordsWorkbook.ts` (moves the writer out)
+- [ ] Batch 307 (T8 b2): `scripts/backup/exportSnapshot.ts` (new), `scripts/backup/recordsWorkbook.ts` (moves decoding out)
+- [ ] Batch 308 (T8 b3): `scripts/backup/recordsWorkbook.ts` (`dueItems` replaced by the domain module)
 
 ### T17. Status-record documents: content separate from PDF layout
 
@@ -453,55 +463,65 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 
 ### T19. Network calls out of the business-rules layer
 
-Found by the boundary check in CONTEXT.md §5: five functions in `src/domain` call `fetch`, and only Convex actions use them. Move each into the Convex module that calls it; the parsing and validation stay in the domain.
+Found by the boundary check in CONTEXT.md §5: five functions in `src/domain` call `fetch`. Convex actions call `fetchAddressSuggestions`, `searchFAA` and `fetchMonitoringCandidates`; `fetchDrsFiltered` is called only from those domain functions; `fetchDrsCandidates` has no production caller (only `src/domain/airworthiness.test.ts`). Move the called ones into the Convex module that uses them and delete `fetchDrsCandidates`; the parsing and validation stay in the domain.
 
 - [ ] Batch 322 (T19 b1): `src/domain/addressLookup.ts`, `convex/addressVerification.ts` (`fetchAddressSuggestions` moves to the server)
-- [ ] Batch 323 (T19 b2): `src/domain/faa.ts`, `src/domain/faaSearch.ts`, `src/domain/faaMonitoringSearch.ts` (`fetchDrsFiltered`, `fetchDrsCandidates`, `searchFAA` and `fetchMonitoringCandidates` move behind one server module; coordinate with T6 b3)
+- [ ] Batch 323 (T19 b2): `src/domain/faa.ts`, `src/domain/faaSearch.ts`, `src/domain/faaMonitoringSearch.ts` (`fetchDrsFiltered`, `searchFAA` and `fetchMonitoringCandidates` move behind one server module; `fetchDrsCandidates` and its tests in `src/domain/airworthiness.test.ts` are deleted; coordinate with T6 b3)
 
 ### T20. One server-error message helper for the UI
 
-The same `ConvexError` message extraction is written four times. Keep the one in `ui.tsx` and import it everywhere.
+The same `ConvexError` message extraction is written five times in components: `ui.tsx`, `EngineTrends.tsx`, `SavedAddresses.tsx` and `SignInMethods.tsx`, each with its own fallback text, and a variant in `AircraftSpruce.tsx`. Export one helper from `ui.tsx` that takes the fallback text as a parameter, so each screen keeps its current message, and import it everywhere. `src/data/store.ts:317` keeps its own copy, because the data layer may not import `src/components`.
 
-- [ ] Batch 324 (T20 b1): `src/components/ui.tsx`, `src/components/EngineTrends.tsx`, `src/components/SavedAddresses.tsx` (and `src/components/AircraftSpruce.tsx` in the same commit if it is still separate)
+- [ ] Batch 324 (T20 b1): `src/components/ui.tsx`, `src/components/EngineTrends.tsx`, `src/components/SavedAddresses.tsx`, `src/components/SignInMethods.tsx` (and `src/components/AircraftSpruce.tsx` in the same commit if it is still separate)
+
+### T21. Fresh start: remove migration-only code
+
+Production started empty on 2026-11-03 and no data was migrated (Finding 14), so code that exists only to migrate or repair data written by earlier versions may be dead. Every removal needs the b1 inventory first. A removal batch takes at most 3 source files, removes or updates their tests, and drops the README's one-off data-repair step for what it removes.
+
+- [ ] Batch 410 (T21 b1): read-only inventory, no code change. For each candidate, confirm that it touches stored server data only, not data on devices or demo seeds, and record keep or remove: the reseal path in `convex/secretsMigration.ts` and the plaintext and `enc:v1` acceptance in `convex/secrets.ts`; `convex/workOrderCleanup.ts` and `src/domain/workOrderCleanup.ts`; `management:backfillOilMarker` (`convex/management.ts`); `memberships:backfill` (`convex/memberships.ts`); `counterEvents:recordChanges` (`convex/counterEvents.ts`); `groupAudit:findWidenedGroups` (`convex/groupAudit.ts`); legacy unscoped-group handling (`src/domain/groupAircraft.ts`); legacy job-card steps (`src/domain/taskCards.ts`); cached-snapshot format checks such as `programScopeVersion` (`src/data/store.ts`, `src/domain/model.ts`).
+- [ ] Batch 411 (T21 b2, needs b1): `convex/secretsMigration.ts`, `convex/secrets.ts`, `convex/secrets.test.ts` (the reseal path; plaintext and `enc:v1` acceptance)
+- [ ] Batch 412 (T21 b3, needs b1): `convex/workOrderCleanup.ts`, `src/domain/workOrderCleanup.ts`, with `convex/workOrderCleanup.test.ts` and `src/domain/workOrderCleanup.test.ts`
+- [ ] Batch 413 (T21 b4, needs b1): `convex/management.ts` (`backfillOilMarker`), `convex/memberships.ts` (`backfill`), `convex/counterEvents.ts` (`recordChanges`), with `convex/oilMarkerBackfill.test.ts`, `convex/memberships.test.ts` and `convex/counterEvents.test.ts`
+- [ ] Batch 414 (T21 b5, needs b1): `convex/groupAudit.ts` (`findWidenedGroups`), `src/domain/groupAircraft.ts` (legacy unscoped-group handling), `src/domain/taskCards.ts` (legacy job-card steps), with their tests. The cached-snapshot format checks guard snapshots cached on devices, so expect b1 to keep them; any it clears for removal get a batch of their own.
 
 ## Tier 3: monoliths and god files (over 500 lines)
 
 Each file is decomposed behind a backward-compatible barrel: the original path keeps exporting everything it exports today, so no importer changes. Parts run in order.
 
 - [ ] Batch 325 (server): `convex/schema.ts` (599 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 326 (server): `convex/schema.ts` (599 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 326 (server): `convex/schema.ts` (599 lines), part 2 of 2 (after T18 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 327 (ui-a): `src/components/design.tsx` (906 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 328 (ui-a): `src/components/design.tsx` (906 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 329 (domain-a): `src/domain/management.ts`, `src/domain/management.test.ts` (789 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 330 (domain-a): `src/domain/management.ts` (789 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 331 (domain-b): `src/domain/components.ts`, `src/domain/components.test.ts` (837 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 332 (domain-b): `src/domain/components.ts` (837 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 332 (domain-b): `src/domain/components.ts` (837 lines), part 2 of 2 (after T10 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 333 (domain-a): `src/domain/workOrders.ts`, `src/domain/workOrders.test.ts` (704 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 334 (domain-a): `src/domain/workOrders.ts` (704 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 334 (domain-a): `src/domain/workOrders.ts` (704 lines), part 2 of 2 (after T10 b4, T15 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 335 (domain-b): `src/domain/airworthiness.ts`, `src/domain/airworthiness.test.ts` (737 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 336 (domain-b): `src/domain/airworthiness.ts` (737 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 336 (domain-b): `src/domain/airworthiness.ts` (737 lines), part 2 of 2 (after T12 b4): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 337 (domain-a): `src/domain/taskCards.ts`, `src/domain/taskCards.test.ts` (696 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 338 (domain-a): `src/domain/taskCards.ts` (696 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 338 (domain-a): `src/domain/taskCards.ts` (696 lines), part 2 of 2 (after T10 b3, T3 b1, T12 b4, T21 b5): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 339 (domain-b): `src/domain/partsRequests.ts`, `src/domain/partsRequests.test.ts` (784 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 340 (domain-b): `src/domain/partsRequests.ts` (784 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 340 (domain-b): `src/domain/partsRequests.ts` (784 lines), part 2 of 2 (after T10 b4, T12 b3, T14 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 341 (domain-a): `src/domain/purchaseOrders.ts`, `src/domain/purchaseOrders.test.ts` (989 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 342 (domain-a): `src/domain/purchaseOrders.ts` (989 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 342 (domain-a): `src/domain/purchaseOrders.ts` (989 lines), part 2 of 2 (after T12 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 343 (domain-b): `src/domain/costs.ts`, `src/domain/costs.test.ts` (597 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 344 (domain-b): `src/domain/costs.ts` (597 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 344 (domain-b): `src/domain/costs.ts` (597 lines), part 2 of 2 (after T12 b2): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 345 (domain-a): `src/domain/workOrderCloseout.ts`, `src/domain/workOrderCloseout.test.ts` (522 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 346 (domain-a): `src/domain/workOrderCloseout.ts` (522 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 347 (platform): `src/data/backend.ts` (680 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 348 (platform): `src/data/backend.ts` (680 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 348 (platform): `src/data/backend.ts` (680 lines), part 2 of 2 (after T5 b1, T18 b2): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 349 (server): `convex/sampleProgram.ts`, `convex/sampleProgram.test.ts` (680 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 350 (server): `convex/sampleProgram.ts` (680 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 351 (ui-b): `src/components/AircraftSpruce.tsx` (522 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 352 (ui-b): `src/components/AircraftSpruce.tsx` (522 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 352 (ui-b): `src/components/AircraftSpruce.tsx` (522 lines), part 2 of 2 (after T20 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 353 (ui-a): `src/components/ChecklistEditor.tsx` (526 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 354 (ui-a): `src/components/ChecklistEditor.tsx` (526 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 355 (ui-b): `src/components/EngineTrends.tsx` (507 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 356 (ui-b): `src/components/EngineTrends.tsx` (507 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 356 (ui-b): `src/components/EngineTrends.tsx` (507 lines), part 2 of 2 (after T20 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 357 (server): `convex/admin.ts` (531 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 358 (server): `convex/admin.ts` (531 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 358 (server): `convex/admin.ts` (531 lines), part 2 of 2 (after T5 b3, T16 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 359 (ui-a): `src/components/FlightForm.tsx`, `src/components/FlightForm.test.ts` (745 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 360 (ui-a): `src/components/FlightForm.tsx` (745 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 361 (ui-b): `src/components/PurchaseOrders.tsx` (1705 lines), part 1 of 3: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
@@ -512,7 +532,7 @@ Each file is decomposed behind a backward-compatible barrel: the original path k
 - [ ] Batch 366 (ui-b): `src/components/Checklists.tsx` (627 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 367 (ui-b): `src/components/Checklists.tsx` (627 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 368 (ui-a): `src/components/GuidedFlight.tsx` (944 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 369 (ui-a): `src/components/GuidedFlight.tsx` (944 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 369 (ui-a): `src/components/GuidedFlight.tsx` (944 lines), part 2 of 2 (after T7 b2): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 370 (ui-b): `src/components/PartsRequests.tsx` (1619 lines), part 1 of 3: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 371 (ui-b): `src/components/PartsRequests.tsx` (1619 lines), part 2 of 3: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 372 (ui-b): `src/components/PartsRequests.tsx` (1619 lines), part 3 of 3: split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel.
@@ -527,16 +547,16 @@ Each file is decomposed behind a backward-compatible barrel: the original path k
 - [ ] Batch 381 (ui-b): `src/components/WorkOrders.tsx` (1720 lines), part 2 of 3: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 382 (ui-b): `src/components/WorkOrders.tsx` (1720 lines), part 3 of 3: split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel.
 - [ ] Batch 383 (ui-a): `src/components/Components.tsx` (1966 lines), part 1 of 3: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 384 (ui-a): `src/components/Components.tsx` (1966 lines), part 2 of 3: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
-- [ ] Batch 385 (ui-a): `src/components/Components.tsx` (1966 lines), part 3 of 3: split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel.
+- [ ] Batch 384 (ui-a): `src/components/Components.tsx` (1966 lines), part 2 of 3 (after T13 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 385 (ui-a): `src/components/Components.tsx` (1966 lines), part 3 of 3 (after T13 b3): split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel.
 - [ ] Batch 386 (ui-b): `src/components/InspectionTemplates.tsx` (847 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 387 (ui-b): `src/components/InspectionTemplates.tsx` (847 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 388 (ui-a): `src/components/ManualDiscovery.tsx` (930 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 389 (ui-a): `src/components/ManualDiscovery.tsx` (930 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 389 (ui-a): `src/components/ManualDiscovery.tsx` (930 lines), part 2 of 2 (after T7 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 390 (ui-b): `src/components/MaintenanceCsvImport.tsx` (738 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 391 (ui-b): `src/components/MaintenanceCsvImport.tsx` (738 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 392 (ui-a): `src/components/Fleet.tsx` (918 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 393 (ui-a): `src/components/Fleet.tsx` (918 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 393 (ui-a): `src/components/Fleet.tsx` (918 lines), part 2 of 2 (after T7 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 394 (ui-b): `src/components/Management.tsx` (1838 lines), part 1 of 3: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 395 (ui-b): `src/components/Management.tsx` (1838 lines), part 2 of 3: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 396 (ui-b): `src/components/Management.tsx` (1838 lines), part 3 of 3: split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel.
@@ -551,5 +571,5 @@ Each file is decomposed behind a backward-compatible barrel: the original path k
 - [ ] Batch 405 (ui-b): `src/components/Settings.tsx` (838 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 406 (ui-b): `src/components/Settings.tsx` (838 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 407 (ui-a): `src/components/Dashboard.tsx`, `src/components/Dashboard.test.ts` (1012 lines), part 1 of 3: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 408 (ui-a): `src/components/Dashboard.tsx` (1012 lines), part 2 of 3: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
-- [ ] Batch 409 (ui-a): `src/components/Dashboard.tsx` (1012 lines), part 3 of 3: split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel.
+- [ ] Batch 408 (ui-a): `src/components/Dashboard.tsx` (1012 lines), part 2 of 3 (after T13 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [ ] Batch 409 (ui-a): `src/components/Dashboard.tsx` (1012 lines), part 3 of 3 (after T13 b3): split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel.
