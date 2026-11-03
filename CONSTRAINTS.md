@@ -51,6 +51,8 @@ Exempt, because they cannot hold a comment or are not ours: JSON, Markdown, lock
 - what it throws (`@throws`), including `ConvexError` messages users see;
 - side effects and guarantees: writes, audit entries, transactions, idempotency, offline behavior.
 
+Document throws and side effects only where they exist: no `@throws Never`, no `@returns Nothing` on `void`, and no "Pure: no side effects" on each function when the file header already says the module is pure. See §10 for length and style.
+
 ## 4. Comments explain WHY
 
 Write comments for business rules, regulations (cite them, e.g. 14 CFR 91.417), non-obvious edge cases, performance tradeoffs and history. Never narrate what the syntax already says. Delete "what" comments when you touch them.
@@ -95,7 +97,23 @@ npm run test:e2e         # browser tests against the production build
 npm run test:backup      # when scripts/backup changes
 ```
 
-## 10. Enforcement and its limits
+## 10. House style
+
+Set by the review of the first refactor batch (2026-11-03). The goal is high signal, not more words.
+
+- **Header:** the three labels, about one line each; at most about 7 lines with an optional WHY paragraph. `Layer:` is the layer and its boundary only, never a list of consumers. `Dependencies:` lists imported modules only.
+- **Say each fact once.** A module-wide WHY goes in the header; don't repeat it in type, function and constant docs.
+- **TSDoc:** a one-sentence purpose in domain terms, then tags. Aim for 2–6 lines for a simple function and at most 10 for a complex one. Never list callers: they go stale, and `rg` finds them.
+- **`@returns` and `@throws` state the contract** (order, uniqueness, exact user-facing messages, error class), not a prose replay of the body.
+- **Extract a constant only when it earns it:** a domain limit or rule, a value used more than once, or a name that explains what the literal doesn't. Single-use defaults, idiomatic regexes (`/\D/g`) and one-off messages stay inline. Never create a module-level regex with the `g` flag.
+- **A constant's comment adds a WHY its name lacks** (the source of the number, the regulation, the consequence), or it doesn't exist. `US_ZIP_CODE` needs no comment.
+- **Verify every comment against the code.** Run an example for any regex or parser you describe. A wrong comment is a defect.
+- **Wrap comments at 80 columns,** the same as Prettier wraps the code.
+- **Helpers:** extract only to meet the 40-line or 2-level limits, or to name a real concept. Use verb-first names, place them below the exports, and inline single-use temporaries.
+- **Tests pin what the docs promise.** If a docstring states an order, limit or quirk, a test fails when it changes; check by flipping it once. Label quirks "Characterizes current behaviour". No comments that restate the next assertion, and no assertions that cannot fail.
+- **Size budget:** a standards pass rarely grows a file by more than about 50%, and comment lines stay well under code lines.
+
+## 11. Enforcement and its limits
 
 - **On every edit** (Claude Code): the `PostToolUse` hook checks the edited file. A missing or incomplete header, or a suppression comment, exits with code 2: the agent sees the problem at once and must fix it. `UserPromptSubmit` and `SessionStart` (after compaction) hooks restate these rules.
 - **On every push and pull request** (CI): the same check runs on every changed file, however it was written. A failure blocks a green build.
