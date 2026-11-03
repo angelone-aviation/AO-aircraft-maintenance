@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins manual uploads and edits: the ticket handshake, which
+ *   blobs a ticket may claim or the sweep may delete, access, rate limits, and
+ *   that the storage-reference list covers the schema.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/manuals, convex/storageReferences, convex/schema,
+ *   src/data/demo, tests/fixtures/taskCards.
+ */
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
 import schema from "./schema";
@@ -7,6 +15,7 @@ import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { MANUAL_UPLOADS_PER_HOUR } from "./manuals";
 import { STORAGE_REFERENCES } from "./storageReferences";
 import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -51,6 +60,17 @@ async function fixture() {
   };
 }
 const pdf = new Blob(["%PDF-1.4\nmanual test"], { type: "application/pdf" });
+// convex-test's storeBlob omits contentType, which real signed PDF uploads
+// include; the system table's type does not allow patching it, hence the cast.
+async function storePdf(ctx: MutationCtx, blob: Blob): Promise<Id<"_storage">> {
+  const id = await ctx.storage.store(blob);
+  const patchSystem = ctx.db.patch.bind(ctx.db) as unknown as (
+    id: Id<"_storage">,
+    value: { contentType: string },
+  ) => Promise<void>;
+  await patchSystem(id, { contentType: "application/pdf" });
+  return id;
+}
 // Same base64 SHA-256 Convex records in `_storage.sha256`.
 async function sha256(blob: Blob) {
   const hash = new Uint8Array(
@@ -82,13 +102,7 @@ it("stores immutable manual revisions, scopes access and binds upload completion
     tech.mutation(api.manuals.beginUpload, { ...args, programUuid: "wrong" }),
   ).rejects.toThrow("Program changed");
   const { ticket } = await tech.mutation(api.manuals.beginUpload, args);
-  const storageId = await t.run(async (ctx) => {
-    const id = await ctx.storage.store(pdf);
-    // convex-test storeBlob omits contentType; real signed PDF uploads include it.
-    // @ts-expect-error Test-only repair of convex-test system metadata; never used in production.
-    await ctx.db.patch(id, { contentType: "application/pdf" });
-    return id;
-  });
+  const storageId = await t.run((ctx) => storePdf(ctx, pdf));
   await expect(
     reader.action(api.manuals.finishUpload, {
       ticket,
@@ -151,13 +165,7 @@ it("rejects mismatched uploads and invalid reference pages, and persists linked 
       programUuid: "demo-program",
     }),
   ).rejects.toThrow("does not match");
-  const storageId = await t.run(async (ctx) => {
-    const id = await ctx.storage.store(pdf);
-    // convex-test storeBlob omits contentType; real signed PDF uploads include it.
-    // @ts-expect-error Test-only repair of convex-test system metadata; never used in production.
-    await ctx.db.patch(id, { contentType: "application/pdf" });
-    return id;
-  });
+  const storageId = await t.run((ctx) => storePdf(ctx, pdf));
   const manualUuid = await tech.action(api.manuals.finishUpload, {
     ticket,
     storageId,
@@ -321,7 +329,7 @@ it("edits reference metadata while preserving file identity and validates access
     ...before,
     ...details,
   });
-  const { applicability, ...cleared } = details;
+  const { applicability: _applicability, ...cleared } = details;
   await tech.mutation(api.manuals.edit, {
     ...args,
     payload: JSON.stringify(cleared),
@@ -332,13 +340,7 @@ it("edits reference metadata while preserving file identity and validates access
 });
 it("claims only the blob uploaded for its own ticket and never deletes blobs it did not create", async () => {
   const { t, tech } = await fixture();
-  const store = (blob: Blob) =>
-    t.run(async (ctx) => {
-      const id = await ctx.storage.store(blob);
-      // @ts-expect-error Test-only repair of convex-test system metadata.
-      await ctx.db.patch(id, { contentType: "application/pdf" });
-      return id;
-    });
+  const store = (blob: Blob) => t.run((ctx) => storePdf(ctx, blob));
   const exists = (id: Id<"_storage">) =>
     t.run(async (ctx) => !!(await ctx.storage.getUrl(id)));
   const finish = (ticket: Id<"manualUploads">, storageId: Id<"_storage">) =>
@@ -411,6 +413,49 @@ it("claims only the blob uploaded for its own ticket and never deletes blobs it 
   // Saved, attached, earlier and unrelated blobs are untouched.
   for (const id of [own, attached, earlier, foreign, unrelated])
     expect(await exists(id)).toBe(true);
+});
+it("keeps a matching blob that another record refers to when sweeping its ticket", async () => {
+  const { t, tech } = await fixture();
+  const { ticket } = await tech.mutation(api.manuals.beginUpload, {
+    payload: JSON.stringify(input),
+    sha256: await sha256(pdf),
+    programUuid: "demo-program",
+  });
+  const attached = await t.run(async (ctx) => {
+    const id = await storePdf(ctx, pdf);
+    await ctx.db.insert("workOrderFiles", {
+      workOrderUuid: "wo",
+      storageId: id,
+      name: "evidence.pdf",
+      size: pdf.size,
+      uploadedAt: 1,
+    });
+    return id;
+  });
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(Date.now() + 25 * 3600000);
+    await t.mutation(internal.manuals.cleanupUploads, {});
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(await t.run((ctx) => ctx.db.get(ticket))).toBeNull();
+  expect(await t.run((ctx) => ctx.storage.getUrl(attached))).toBeTruthy();
+});
+it("sweeps at most 50 expired tickets a run", async () => {
+  const { t } = await fixture();
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 51; i++)
+      await ctx.db.insert("manualUploads", {
+        payload: JSON.stringify(input),
+        userId: "user",
+        createdAt: 1,
+      });
+  });
+  await t.mutation(internal.manuals.cleanupUploads, {});
+  expect(
+    await t.run((ctx) => ctx.db.query("manualUploads").collect()),
+  ).toHaveLength(1);
 });
 it("rate-limits upload tickets per user", async () => {
   const { tech } = await fixture();
