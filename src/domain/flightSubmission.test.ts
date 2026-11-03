@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins submitting outbox entries: checks in the server's order,
+ *   held flights, stored changes, change-log entries and refusal classes.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/flightSubmission.ts, src/domain/flights.ts,
+ *   src/domain/rejection.ts, src/data/demo.ts (fixture).
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { Flight, Snapshot } from "./model";
@@ -9,6 +16,7 @@ import {
   type DiscrepancyOperation,
 } from "./flightSubmission";
 import { applyFlight } from "./flights";
+import { Rejection } from "./rejection";
 
 const now = Date.parse("2026-10-20T12:00:00Z");
 const options = { now, today: "2026-10-20" };
@@ -198,6 +206,7 @@ describe("submitting a flight", () => {
       submitOperation(tire, flight(tire, oilAdded("tire")), options),
     );
     expect(notOil).toBeInstanceOf(FlightRejection);
+    expect(notOil).toBeInstanceOf(Rejection);
     expect((notOil as Error).message).toMatch(/TIRE-1 is not marked as oil/);
     const expired = world();
     expired.management = [location, oilStock({ expirationDate: "2026-09-20" })];
@@ -224,6 +233,7 @@ describe("submitting a flight", () => {
     ];
     const grounded = rejection(() => submitOperation(s, flight(s), options));
     expect(grounded).toBeInstanceOf(FlightRejection);
+    expect(grounded).toBeInstanceOf(Rejection);
     expect((grounded as Error).message).toMatch(
       /is grounded: Open discrepancy/,
     );
@@ -312,6 +322,34 @@ describe("submitting a flight", () => {
         ][i],
       });
     }
+  });
+  it("checks active crew before the dispatch gate, and the gate before oil stock", () => {
+    const s = world();
+    s.management = [location, oilStock({ expirationDate: "2026-09-20" })];
+    s.discrepancies = [
+      {
+        uuid: "grounding",
+        aircraftUuid: s.aircraft[0].uuid,
+        description: "Cracked windshield",
+        grounding: true,
+        status: "open",
+        authorId: s.user.id,
+        createdAt: now,
+      },
+    ];
+    const grounded = flight(s, oilAdded());
+    s.members = s.members.map((m) =>
+      m.id === s.user.id ? { ...m, active: false } : m,
+    );
+    expect(() => submitOperation(s, grounded, options)).toThrow(
+      "Select an active pilot.",
+    );
+    s.members = demoSnapshot().members;
+    expect(() => submitOperation(s, grounded, options)).toThrow(/is grounded/);
+    const override = { dispatchOverrideReason: "Ferry flight to the shop" };
+    expect(() =>
+      submitOperation(s, flight(s, oilAdded(), override), options),
+    ).toThrow(/expired/);
   });
   it("reports a resubmitted entry's status and never lets another author reuse its id", () => {
     const s = world();
