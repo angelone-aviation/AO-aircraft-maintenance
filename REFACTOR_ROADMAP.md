@@ -2,7 +2,7 @@
 
 Brings the whole codebase up to [CONSTRAINTS.md](CONSTRAINTS.md) in small, safe, dependency-ordered batches. Read [CONTEXT.md](CONTEXT.md) and [CLAUDE.md](CLAUDE.md) first. The audit behind this plan (2026-11-03) is in [docs/architecture/metrics-2026-11-03.md](docs/architecture/metrics-2026-11-03.md) (size, churn, dependency graph, function metrics, duplication) and [docs/architecture/tier2-candidates.md](docs/architecture/tier2-candidates.md) (the deep-module review).
 
-**Progress:** 1 of 414 batches done. Tier 1: 251 · Tier 2: 78 · Tier 3: 85. Batches 410–414 (T21) close Tier 2 but are numbered after Tier 3, so batches 1–409 keep their numbers.
+**Progress:** 41 of 415 batches done. Tier 1: 251 · Tier 2: 79 · Tier 3: 85. Batches 410–415 (T21 and the server half of T10) are numbered after Tier 3, so batches 1–409 keep their numbers.
 
 ## How to run a batch
 
@@ -71,58 +71,69 @@ Raised by the audit; not batches. Update as batches find more.
 13. **`src/domain/addresses.test.ts` also holds the address-lookup tests** (Batch 1): `lookupInput`, `fetchAddressSuggestions`, `parseAddressSuggestions`. Move them to a new `src/domain/addressLookup.test.ts` when that module's batch (Batch 44) runs.
 14. **Production started empty on 2026-11-03; no data was migrated** (README "Deployment", `docs/go-live-checklist.md`). Code that only migrates or repairs data written by earlier versions may now be removable; T21 inventories it.
 
+15. **Logbook PDFs drop text after a tab** (`src/data/logbookPdf.ts`; jsPDF writes only the characters before a tab), and a lone carriage return joins two words. Pinned by a characterization test; fixing it (expand tabs to spaces) changes the document a mechanic signs, so it needs a yes.
+16. **Expected refusals still show "Server Error" in production** until each throw site uses `Rejection` (domain) or `ConvexError` (server). Batch 415 covers the server's own checks; lanes convert domain refusals as part of each file's standards pass (see the lane brief), and T10 b3+ covers what remains.
+17. **`deleteBlobIfUnused` checks 5 tables, `STORAGE_REFERENCES` lists 10** (`convex/attachments.ts`): a blob shared with an unchecked table could be deleted while in use. T4 b1 fixes it.
+18. **A rate-limit check can be half-applied** (`identities.recordRefusal`): the per-identity count is saved even when the global cap then refuses.
+19. **Convex validators repeat the domain's zod schemas** (`convex/validators.ts` against `src/domain/model.ts` and others), with nothing checking they agree.
+20. **Small messages and limits that disagree:** the aircraft photo limit is 5 MiB but the message says 5 MB; the months-in-service message caps at 11991.786 but accepts up to 11991.802; `parseHours` says "positive" but accepts 0; ATA chapter 67 reads "Rotory".
+21. **Duplicated values:** the $1 billion price cap in four files; the tenth-of-an-hour rule in `flightChecklistSchema.ts` and `model.ts` with different messages (T7); on-order arithmetic in `programs.ts` and `purchaseOrders.ts`; the default "Performed" phrase in `LogbookWording.tsx`.
+22. **Dead or legacy code:** `assertPassword` has no caller; `resolveExplicitEvents` in `flights.ts` handles counter events from before the fresh start (T21); unused CSS (`.ad-register-toolbar`, `.po-history`, `.flight-fluid-fields p`) and orphaned comments in `src/styles.css`.
+23. **Test gaps** where docs now promise behaviour no test pins: `model.ts` (date limits, offline window, `can`), `flights.ts` (`version + 1`, chronology boundaries), `rateLimits.consume`, `sampleDocuments.upload` clean-up, `secretsMigration` partial re-seal, and `dropboxUpload.test.ts` (retries, upload-session resume, refusals).
+
+
 ## Tier 1: foundation and leaf modules
 
 Dependency order: modules with no internal imports first, most-imported first. Each batch is a module with its colocated test, or up to three small sibling modules.
 
 - [x] Batch 1 (domain-a): `src/domain/addresses.ts`, `src/domain/addresses.test.ts`
-- [ ] Batch 2 (domain-b): `src/domain/ata.ts`, `src/domain/csv.ts`, `src/domain/accountRules.ts`
-- [ ] Batch 3 (domain-a): `src/domain/aircraftSpruce.ts`, `src/domain/aircraftSpruce.test.ts`
-- [ ] Batch 4 (server): `convex/memberships.ts`, `convex/memberships.test.ts`
-- [ ] Batch 5 (server): `convex/secrets.ts`, `convex/secrets.test.ts`
-- [ ] Batch 6 (domain-b): `src/domain/signInMethods.ts`, `src/domain/signInMethods.test.ts`
-- [ ] Batch 7 (domain-a): `src/domain/logbookWording.ts`, `src/domain/logbookWording.test.ts`
-- [ ] Batch 8 (domain-b): `src/domain/componentCalendar.ts`, `src/domain/componentCalendar.test.ts`
-- [ ] Batch 9 (domain-a): `src/domain/offsiteBackups.ts`, `src/domain/offsiteBackups.test.ts`
-- [ ] Batch 10 (ui-a): `src/styles/screens/maintenance.css`
-- [ ] Batch 11 (server): `convex/validators.ts`
-- [ ] Batch 12 (domain-b): `src/domain/releaseStatements.ts`, `src/domain/aircraftPhotos.ts`, `src/domain/flightChecklistSchema.ts`
-- [ ] Batch 13 (ui-b): `src/styles/screens/dashboard.css`
-- [ ] Batch 14 (ui-a): `src/styles/screens/operations.css`
-- [ ] Batch 15 (server): `convex/rateLimits.ts`, `convex/attachments.ts`, `convex/storageReferences.ts`
-- [ ] Batch 16 (ui-b): `src/components/costs.css`, `src/components/engineTrends.css`, `src/components/ScheduleTracking.tsx`
-- [ ] Batch 17 (platform): `src/data/flightPlanDiagnostics.ts`, `src/data/flightPlanDiagnostics.test.ts`
-- [ ] Batch 18 (ui-a): `src/styles/screens/admin.css`
-- [ ] Batch 19 (platform): `scripts/backup/convexExport.ts`
-- [ ] Batch 20 (ui-b): `src/components/adRegister.css`
-- [ ] Batch 21 (ui-a): `src/components/checklists.css`
-- [ ] Batch 22 (ui-b): `src/components/ComponentIcon.tsx`, `src/components/drsComboBox.css`, `src/components/faaSearch.css`
-- [ ] Batch 23 (ui-a): `src/components/InspectionIcon.tsx`, `src/components/MissionSlogan.tsx`, `src/components/partsRequests.css`
-- [ ] Batch 24 (ui-b): `src/components/pdfReader.css`, `src/components/planning.css`, `src/components/purchaseOrders.css`
-- [ ] Batch 25 (platform): `src/data/pdfText.ts`, `src/data/logbookPdf.ts`, `src/data/pdfCompatibility.js`
-- [ ] Batch 26 (ui-a): `src/styles.css`
-- [ ] Batch 27 (ui-b): `src/styles/design.css`
+- [x] Batch 2 (domain-b): `src/domain/ata.ts`, `src/domain/csv.ts`, `src/domain/accountRules.ts`
+- [x] Batch 3 (domain-a): `src/domain/aircraftSpruce.ts`, `src/domain/aircraftSpruce.test.ts`
+- [x] Batch 4 (server): `convex/memberships.ts`, `convex/memberships.test.ts`
+- [x] Batch 5 (server): `convex/secrets.ts`, `convex/secrets.test.ts`
+- [x] Batch 6 (domain-b): `src/domain/signInMethods.ts`, `src/domain/signInMethods.test.ts`
+- [x] Batch 7 (domain-a): `src/domain/logbookWording.ts`, `src/domain/logbookWording.test.ts`
+- [x] Batch 8 (domain-b): `src/domain/componentCalendar.ts`, `src/domain/componentCalendar.test.ts`
+- [x] Batch 9 (domain-a): `src/domain/offsiteBackups.ts`, `src/domain/offsiteBackups.test.ts`
+- [x] Batch 10 (ui-a): `src/styles/screens/maintenance.css`
+- [x] Batch 11 (server): `convex/validators.ts`
+- [x] Batch 12 (domain-b): `src/domain/releaseStatements.ts`, `src/domain/aircraftPhotos.ts`, `src/domain/flightChecklistSchema.ts`
+- [x] Batch 13 (ui-b): `src/styles/screens/dashboard.css`
+- [x] Batch 14 (ui-a): `src/styles/screens/operations.css`
+- [x] Batch 15 (server): `convex/rateLimits.ts`, `convex/attachments.ts`, `convex/storageReferences.ts`
+- [x] Batch 16 (ui-b): `src/components/costs.css`, `src/components/engineTrends.css`, `src/components/ScheduleTracking.tsx`
+- [x] Batch 17 (platform): `src/data/flightPlanDiagnostics.ts`, `src/data/flightPlanDiagnostics.test.ts`
+- [x] Batch 18 (ui-a): `src/styles/screens/admin.css`
+- [x] Batch 19 (platform): `scripts/backup/convexExport.ts`
+- [x] Batch 20 (ui-b): `src/components/adRegister.css`
+- [x] Batch 21 (ui-a): `src/components/checklists.css`
+- [x] Batch 22 (ui-b): `src/components/ComponentIcon.tsx`, `src/components/drsComboBox.css`, `src/components/faaSearch.css`
+- [x] Batch 23 (ui-a): `src/components/InspectionIcon.tsx`, `src/components/MissionSlogan.tsx`, `src/components/partsRequests.css`
+- [x] Batch 24 (ui-b): `src/components/pdfReader.css`, `src/components/planning.css`, `src/components/purchaseOrders.css`
+- [x] Batch 25 (platform): `src/data/pdfText.ts`, `src/data/logbookPdf.ts`, `src/data/pdfCompatibility.js`
+- [x] Batch 26 (ui-a): `src/styles.css`
+- [x] Batch 27 (ui-b): `src/styles/design.css`
 - [ ] Batch 28 (ui-a): `src/styles/screens/flight.css`
 - [ ] Batch 29 (ui-b): `src/styles/screens/records.css`
 - [ ] Batch 30 (ui-a): `src/styles/screens/settings.css`
 - [ ] Batch 31 (ui-b): `src/styles/screens/shop.css`
 - [ ] Batch 32 (ui-a): `src/styles/tokens.css`
-- [ ] Batch 33 (server): `convex/auth.config.ts`, `convex/crons.ts`, `convex/sampleDocuments.ts`
-- [ ] Batch 34 (platform): `scripts/backup/dropbox-upload.mjs`
-- [ ] Batch 35 (platform): `scripts/backup/nightly.sh`
-- [ ] Batch 36 (platform): `scripts/backup/nightly.test.sh`
+- [x] Batch 33 (server): `convex/auth.config.ts`, `convex/crons.ts`, `convex/sampleDocuments.ts`
+- [x] Batch 34 (platform): `scripts/backup/dropbox-upload.mjs`
+- [x] Batch 35 (platform): `scripts/backup/nightly.sh`
+- [x] Batch 36 (platform): `scripts/backup/nightly.test.sh`
 - [ ] Batch 37 (platform): `scripts/bootstrap-admin.mjs`, `scripts/check-csp-origin.mjs`, `scripts/configure-auth.mjs`
 - [ ] Batch 38 (platform): `scripts/peer-testing-transfer.mjs`
 - [ ] Batch 39 (platform): `scripts/serve-dist.mjs`
 - [ ] Batch 40 (platform): `scripts/setup-peer-testing.sh`
 - [ ] Batch 41 (platform): `scripts/smoke-local.mjs`
 - [ ] Batch 42 (ui-b): `src/components/FlightParts.tsx`
-- [ ] Batch 43 (domain-a): `src/domain/passwordRules.ts`, `src/domain/passwordRules.test.ts`
-- [ ] Batch 44 (domain-b): `src/domain/workOrderCloseoutSchema.ts`, `src/domain/savedAddresses.ts`, `src/domain/addressLookup.ts`
-- [ ] Batch 45 (server): `convex/secretsMigration.ts`
-- [ ] Batch 46 (domain-a): `src/domain/model.ts`
-- [ ] Batch 47 (domain-b): `src/domain/programs.ts`
-- [ ] Batch 48 (domain-a): `src/domain/flights.ts`
+- [x] Batch 43 (domain-a): `src/domain/passwordRules.ts`, `src/domain/passwordRules.test.ts`
+- [x] Batch 44 (domain-b): `src/domain/workOrderCloseoutSchema.ts`, `src/domain/savedAddresses.ts`, `src/domain/addressLookup.ts`
+- [x] Batch 45 (server): `convex/secretsMigration.ts`
+- [x] Batch 46 (domain-a): `src/domain/model.ts`
+- [x] Batch 47 (domain-b): `src/domain/programs.ts`
+- [x] Batch 48 (domain-a): `src/domain/flights.ts`
 - [ ] Batch 49 (domain-b): `src/domain/inspectionTemplates.ts`, `src/domain/inspectionTemplates.test.ts`
 - [ ] Batch 50 (domain-a): `src/domain/checklists.ts`, `src/domain/checklists.test.ts`
 - [ ] Batch 51 (domain-b): `src/domain/requiredParts.ts`, `src/domain/requiredParts.test.ts`
@@ -189,7 +200,7 @@ Dependency order: modules with no internal imports first, most-imported first. E
 - [ ] Batch 112 (server): `convex/faaCredentials.ts`, `convex/faaCredentials.test.ts`
 - [ ] Batch 113 (domain-b): `src/domain/faaCandidateReview.ts`, `src/domain/faaCandidateReview.test.ts`
 - [ ] Batch 114 (domain-a): `src/domain/faaMonitoringSearch.ts`, `src/domain/faaMonitoringSearch.test.ts`
-- [ ] Batch 115 (domain-b): `src/domain/flightSubmission.ts`, `src/domain/flightSubmission.test.ts`
+- [x] Batch 115 (domain-b): `src/domain/flightSubmission.ts`, `src/domain/flightSubmission.test.ts` (done with Batch 252)
 - [ ] Batch 116 (server): `convex/identities.ts`
 - [ ] Batch 117 (server): `convex/recurringParts.ts`, `convex/recurringParts.test.ts`
 - [ ] Batch 118 (platform): `src/data/demoAircraftFiles.ts`, `src/data/poPdf.ts`, `src/data/inventoryPrintDocument.ts`
@@ -339,9 +350,11 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 
 ### T10. One rejection type, exposed by default, with a stale-version guard
 
-- [ ] Batch 252 (T10 b1): `src/domain/rejection.ts` (new), `src/domain/flightSubmission.ts`, `src/domain/components.ts` (the classes; existing errors re-parented)
-- [ ] Batch 253 (T10 b2): `convex/runCommand.ts`, `convex/runCommand.test.ts` (default `expose` = `Rejection`, from `load` too)
+- [x] Batch 252 (T10 b1): `src/domain/rejection.ts` (new), `src/domain/flightSubmission.ts`, `src/domain/components.ts` (the classes; existing errors re-parented)
+- [x] Batch 253 (T10 b2): `convex/runCommand.ts`, `convex/runCommand.test.ts` (default `expose` = `Rejection`, from `load` too)
 - [ ] Batch 254 (T10 b3, b4…): ≤3 domain modules each, leaf first: `src/domain/taskCards.ts`, `src/domain/flightPlans.ts`, `src/domain/inspectionTemplates.ts`; then `src/domain/workOrders.ts`, `src/domain/partsRequests.ts`, `src/domain/fleet.ts`; then the rest (`assertCurrent` and `Rejection` at each site)
+
+- [ ] Batch 415 (T10 b-server): `convex/programContext.ts`, `convex/access.ts`, `convex/runCommand.ts`: expected refusals raised by the server itself reach users as `ConvexError` (stale Flight Program, read-only owner access, permission denied, no active session, record not found, request-id reuse, and the collision messages thrown in `persist`). Bugs stay hidden. Found by Batch 253's survey; the server lane leaves these files to this batch.
 
 ### T1. Collection codec: a stored row ⇄ a Snapshot collection, once
 
@@ -494,7 +507,7 @@ Each file is decomposed behind a backward-compatible barrel: the original path k
 - [ ] Batch 328 (ui-a): `src/components/design.tsx` (906 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 329 (domain-a): `src/domain/management.ts`, `src/domain/management.test.ts` (789 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 330 (domain-a): `src/domain/management.ts` (789 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
-- [ ] Batch 331 (domain-b): `src/domain/components.ts`, `src/domain/components.test.ts` (837 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
+- [x] Batch 331 (domain-b): `src/domain/components.ts`, `src/domain/components.test.ts` (837 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin. (done with Batch 252)
 - [ ] Batch 332 (domain-b): `src/domain/components.ts` (837 lines), part 2 of 2 (after T10 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 333 (domain-a): `src/domain/workOrders.ts`, `src/domain/workOrders.test.ts` (704 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [ ] Batch 334 (domain-a): `src/domain/workOrders.ts` (704 lines), part 2 of 2 (after T10 b4, T15 b1): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
