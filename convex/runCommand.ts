@@ -3,7 +3,7 @@
  *   (ADR-0003), and the hydration of the records a command reads.
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   src/domain (model, programs, rejection and the stored-record schemas).
+ *   ./collections, src/domain (model, programs, rejection).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -16,15 +16,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 import { activeProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
-import { recordSchema } from "../src/domain/management";
-import { taskCardSchema } from "../src/domain/taskCards";
-import { workOrderSchema } from "../src/domain/workOrders";
-import { adSchema } from "../src/domain/airworthiness";
-import { partsRequestSchema } from "../src/domain/partsRequests";
-import { poSchema } from "../src/domain/purchaseOrders";
-import { checklistRecordSchema } from "../src/domain/checklists";
-import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
-import { costRecordSchema } from "../src/domain/costs";
+import { decode } from "./collections";
 import {
   checkContext,
   managementDocs,
@@ -283,20 +275,12 @@ type Hydrator = (
   into: Hydrating,
 ) => Promise<void>;
 
-const payload =
-  <T>(schema: { parse(value: unknown): T }) =>
-  (d: { payload: string }) =>
-    schema.parse(JSON.parse(d.payload));
-
-// Component templates and setups are stored as written, without a schema.
-const unparsed = (d: { payload: string }) => JSON.parse(d.payload);
-
 // Reads one collection within the Flight Program and decodes it into the
 // snapshot, keeping the stored documents for persist.
 const HYDRATORS: Record<Need, Hydrator> = {
   management: async (ctx, { program }, { docs, snapshot }) => {
     docs.management = await managementDocs(ctx, program);
-    snapshot.management = docs.management.map(payload(recordSchema));
+    snapshot.management = decode("management", docs.management);
   },
   // Inspections of removed components are found through their component.
   inspections: async (ctx, { program, aircraft }, { docs, snapshot }) => {
@@ -309,17 +293,18 @@ const HYDRATORS: Record<Need, Hydrator> = {
   },
   taskCards: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.taskCards = await taskCardDocs(ctx, aircraft);
-    snapshot.taskCards = docs.taskCards.map(payload(taskCardSchema));
+    snapshot.taskCards = decode("taskCards", docs.taskCards);
   },
   archivedTaskCards: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.archivedTaskCards = await archivedTaskCardDocs(ctx, aircraft);
-    snapshot.archivedTaskCards = docs.archivedTaskCards.map(
-      payload(taskCardSchema),
+    snapshot.archivedTaskCards = decode(
+      "archivedTaskCards",
+      docs.archivedTaskCards,
     );
   },
   workOrders: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.workOrders = await workOrderDocs(ctx, aircraft);
-    snapshot.workOrders = docs.workOrders.map(payload(workOrderSchema));
+    snapshot.workOrders = decode("workOrders", docs.workOrders);
   },
   discrepancies: async (ctx, { aircraft }, { docs, snapshot }) => {
     snapshot.discrepancies = docs.discrepancies = await discrepancyDocs(
@@ -329,39 +314,41 @@ const HYDRATORS: Record<Need, Hydrator> = {
   },
   airworthiness: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.airworthiness = await airworthinessDocs(ctx, aircraft);
-    snapshot.airworthiness = docs.airworthiness.map(payload(adSchema));
+    snapshot.airworthiness = decode("airworthiness", docs.airworthiness);
   },
   partsRequests: async (ctx, { program }, { docs, snapshot }) => {
     docs.partsRequests = await partsRequestDocs(ctx, program);
-    snapshot.partsRequests = docs.partsRequests.map(
-      payload(partsRequestSchema),
-    );
+    snapshot.partsRequests = decode("partsRequests", docs.partsRequests);
   },
   purchaseOrders: async (ctx, { program }, { docs, snapshot }) => {
     docs.purchaseOrders = await purchaseOrderDocs(ctx, program);
-    snapshot.purchaseOrders = docs.purchaseOrders.map(payload(poSchema));
+    snapshot.purchaseOrders = decode("purchaseOrders", docs.purchaseOrders);
   },
   checklists: async (ctx, { program }, { docs, snapshot }) => {
     docs.checklists = await checklistDocs(ctx, program);
-    snapshot.checklists = docs.checklists.map(payload(checklistRecordSchema));
+    snapshot.checklists = decode("checklists", docs.checklists);
   },
   componentTemplates: async (ctx, { program }, { docs, snapshot }) => {
     docs.componentTemplates = await componentTemplateDocs(ctx, program);
-    snapshot.componentTemplates = docs.componentTemplates.map(unparsed);
+    snapshot.componentTemplates = decode(
+      "componentTemplates",
+      docs.componentTemplates,
+    );
   },
   componentSetups: async (ctx, { program }, { docs, snapshot }) => {
     docs.componentSetups = await componentSetupDocs(ctx, program);
-    snapshot.componentSetups = docs.componentSetups.map(unparsed);
+    snapshot.componentSetups = decode("componentSetups", docs.componentSetups);
   },
   inspectionTemplates: async (ctx, { program }, { docs, snapshot }) => {
     docs.inspectionTemplates = await inspectionTemplateDocs(ctx, program);
-    snapshot.inspectionTemplates = docs.inspectionTemplates.map(
-      payload(inspectionTemplateSchema),
+    snapshot.inspectionTemplates = decode(
+      "inspectionTemplates",
+      docs.inspectionTemplates,
     );
   },
   costs: async (ctx, { program, aircraft }, { docs, snapshot }) => {
     docs.costs = await costDocs(ctx, program, aircraft);
-    snapshot.costs = docs.costs.map(payload(costRecordSchema));
+    snapshot.costs = decode("costs", docs.costs);
   },
 };
 
