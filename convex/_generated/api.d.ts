@@ -48,6 +48,7 @@ import type * as programUsers from "../programUsers.js";
 import type * as programs from "../programs.js";
 import type * as purchaseOrders from "../purchaseOrders.js";
 import type * as recurringParts from "../recurringParts.js";
+import type * as runCommand from "../runCommand.js";
 import type * as sampleDocuments from "../sampleDocuments.js";
 import type * as sampleProgram from "../sampleProgram.js";
 import type * as savedAddresses from "../savedAddresses.js";
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   programs: typeof programs;
   purchaseOrders: typeof purchaseOrders;
   recurringParts: typeof recurringParts;
+  runCommand: typeof runCommand;
   sampleDocuments: typeof sampleDocuments;
   sampleProgram: typeof sampleProgram;
   savedAddresses: typeof savedAddresses;

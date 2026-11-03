@@ -4,6 +4,7 @@ import { context } from "./programContext";
 import { getAuthUserId, getAuthSessionId } from "@convex-dev/auth/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import type { WithoutSystemFields } from "convex/server";
 import type { Permission, Member, Group } from "../src/domain/model";
 export function member(user: Doc<"users">): Member {
   return {
@@ -86,20 +87,28 @@ export async function aircraftByUuid(
   if (!aircraft) throw new Error("Aircraft not found.");
   return aircraft;
 }
-export async function audit(
-  ctx: MutationCtx,
+// Change-log rows are append-only (ADR-0005). writeAudit is the one insert
+// into the audit table: commands write through runCommand's log, everything
+// else through audit() below.
+export type AuditRow = WithoutSystemFields<Doc<"audit">>;
+export async function writeAudit(ctx: MutationCtx, row: AuditRow) {
+  await ctx.db.insert("audit", row);
+}
+export interface AuditFields {
+  programUuid?: string;
+  aircraftUuid?: string;
+  reason?: string;
+  before?: unknown;
+  after?: unknown;
+}
+// A new row by `actorId`, now; before and after are stored as JSON.
+export function auditRow(
   actorId: string,
   action: string,
   entityUuid: string,
-  options: {
-    programUuid?: string;
-    aircraftUuid?: string;
-    reason?: string;
-    before?: unknown;
-    after?: unknown;
-  } = {},
-) {
-  await ctx.db.insert("audit", {
+  options: AuditFields = {},
+): AuditRow {
+  return {
     programUuid: options.programUuid,
     uuid: crypto.randomUUID(),
     actorId,
@@ -112,5 +121,14 @@ export async function audit(
       options.before === undefined ? undefined : JSON.stringify(options.before),
     after:
       options.after === undefined ? undefined : JSON.stringify(options.after),
-  });
+  };
+}
+export async function audit(
+  ctx: MutationCtx,
+  actorId: string,
+  action: string,
+  entityUuid: string,
+  options: AuditFields = {},
+) {
+  await writeAudit(ctx, auditRow(actorId, action, entityUuid, options));
 }

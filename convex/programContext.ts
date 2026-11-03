@@ -219,6 +219,28 @@ export const componentSetupDocs = (ctx: Ctx, programUuid?: string) =>
         .withIndex("program", (q) => q.eq("programUuid", programUuid))
         .collect()
     : Promise.resolve([]);
+// Cost rows for the program's aircraft plus the program's settings row.
+export async function costDocs(
+  ctx: Ctx,
+  programUuid: string | undefined,
+  aircraft: Aircraft,
+) {
+  const rows = await perAircraft(aircraft, (id) =>
+    ctx.db
+      .query("costs")
+      .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
+      .collect(),
+  );
+  const settings = programUuid
+    ? await ctx.db
+        .query("costs")
+        .withIndex("program", (q) =>
+          q.eq("programUuid", programUuid).eq("aircraftUuid", ""),
+        )
+        .collect()
+    : [];
+  return [...rows, ...settings];
+}
 export const inspectionTemplateDocs = (ctx: Ctx, programUuid?: string) =>
   ctx.db
     .query("inspectionTemplates")
