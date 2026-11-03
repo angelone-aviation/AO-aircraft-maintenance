@@ -1,4 +1,28 @@
+/**
+ * Responsibility: Convex validators for the aircraft, flight, outbox and
+ *   deferral shapes shared by convex/schema.ts and function arguments.
+ * Layer: Server. Declarations only; no functions.
+ * Dependencies: convex/values.
+ *
+ * The domain types and zod schemas in src/domain describe the same records;
+ * change both together.
+ */
 import { v } from "convex/values";
+
+const meter = v.union(
+  v.literal("hobbs"),
+  v.literal("tach"),
+  v.literal("cyclic"),
+  v.literal("flightTimeLog"),
+);
+const engine = v.union(
+  v.literal("single"),
+  v.literal("left"),
+  v.literal("right"),
+);
+const placard = v.string();
+
+/** A permission a group grants within its Flight Program. */
 export const permission = v.union(
   v.literal("read"),
   v.literal("flight"),
@@ -6,6 +30,10 @@ export const permission = v.union(
   v.literal("resolve"),
   v.literal("maintenance"),
 );
+
+/**
+ * Fields of an aircraft document, as stored and as an administrator creates it.
+ */
 export const aircraftFields = {
   twin: v.optional(v.boolean()),
   turbine: v.optional(v.boolean()),
@@ -20,25 +48,13 @@ export const aircraftFields = {
   serial: v.string(),
   program: v.string(),
   programUuid: v.optional(v.string()),
-  baselineMeter: v.optional(
-    v.union(
-      v.literal("hobbs"),
-      v.literal("tach"),
-      v.literal("cyclic"),
-      v.literal("flightTimeLog"),
-    ),
-  ),
+  baselineMeter: v.optional(meter),
   baselineAdjustmentSeconds: v.optional(v.number()),
   counterEvents: v.optional(
     v.array(
       v.object({
         at: v.string(),
-        meter: v.union(
-          v.literal("hobbs"),
-          v.literal("tach"),
-          v.literal("cyclic"),
-          v.literal("flightTimeLog"),
-        ),
+        meter: meter,
         adjustmentSeconds: v.number(),
         currentHobbs: v.number(),
         currentTach: v.number(),
@@ -63,14 +79,7 @@ export const aircraftFields = {
         ),
         previous: v.optional(
           v.object({
-            meter: v.optional(
-              v.union(
-                v.literal("hobbs"),
-                v.literal("tach"),
-                v.literal("cyclic"),
-                v.literal("flightTimeLog"),
-              ),
-            ),
+            meter: v.optional(meter),
             adjustmentSeconds: v.optional(v.number()),
             currentHobbs: v.optional(v.number()),
             currentTach: v.optional(v.number()),
@@ -83,12 +92,7 @@ export const aircraftFields = {
       }),
     ),
   ),
-  meter: v.union(
-    v.literal("hobbs"),
-    v.literal("tach"),
-    v.literal("cyclic"),
-    v.literal("flightTimeLog"),
-  ),
+  meter: meter,
   adjustmentSeconds: v.number(),
   baselineHobbs: v.number(),
   baselineTach: v.number(),
@@ -111,11 +115,17 @@ export const aircraftFields = {
     v.literal("grounded"),
   ),
 };
+
 const fluidValues = {
   start: v.optional(v.number()),
   added: v.optional(v.number()),
   end: v.optional(v.number()),
 };
+
+/**
+ * Fields of a flight as the pilot records it: the flight document's input
+ * columns, and the input of an offline flight entry.
+ */
 export const flightFields = {
   fuel: v.optional(
     v.object({
@@ -131,11 +141,7 @@ export const flightFields = {
   oil: v.optional(
     v.array(
       v.object({
-        engine: v.union(
-          v.literal("single"),
-          v.literal("left"),
-          v.literal("right"),
-        ),
+        engine: engine,
         unit: v.union(v.literal("US qt"), v.literal("L"), v.literal("range")),
         addedUnit: v.optional(v.union(v.literal("US qt"), v.literal("L"))),
         inventory: v.optional(
@@ -171,11 +177,7 @@ export const flightFields = {
   engineStarts: v.optional(
     v.array(
       v.object({
-        engine: v.union(
-          v.literal("single"),
-          v.literal("left"),
-          v.literal("right"),
-        ),
+        engine: engine,
         durationSeconds: v.optional(v.number()),
         maxEgtC: v.optional(v.number()),
       }),
@@ -208,6 +210,11 @@ export const flightFields = {
   remarks: v.string(),
   discrepancy: v.string(),
 };
+
+/**
+ * An offline outbox entry: a flight or a problem report (discrepancy), each
+ * stamped with its author and the Flight Program it was recorded in.
+ */
 export const operationValidator = v.union(
   v.object({
     programUuid: v.optional(v.string()),
@@ -229,13 +236,20 @@ export const operationValidator = v.union(
     grounding: v.optional(v.boolean()),
   }),
 );
+
+/** Who dispatched a grounded aircraft anyway, and why; kept with the flight. */
 export const dispatchOverrideValidator = v.object({
   by: v.string(),
   name: v.string(),
   reason: v.string(),
   at: v.number(),
 });
-const placard = v.string();
+
+/**
+ * A discrepancy deferral: under an MEL item and category, or under 14 CFR
+ * 91.213(d), which requires a determination that the inoperative equipment is
+ * not a hazard (`notHazard`).
+ */
 export const deferralValidator = v.union(
   v.object({
     type: v.literal("mel"),
