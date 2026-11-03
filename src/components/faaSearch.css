@@ -1,3 +1,8 @@
+/*
+ * Responsibility: Styles the FAA AD search form and its result groups.
+ * Layer: UI. Component styles, imported by the components that use them.
+ * Dependencies: src/styles/tokens.css.
+ */
 .faa-search-form fieldset,
 .faa-search-results fieldset {
   border: 1px solid var(--border);

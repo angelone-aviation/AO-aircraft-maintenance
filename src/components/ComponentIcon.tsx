@@ -1,6 +1,24 @@
+/**
+ * Responsibility: The Components navigation icon, a three-blade propeller
+ *   drawn to stand in for a Phosphor icon.
+ * Layer: UI. Presentational SVG; no state.
+ * Dependencies: @phosphor-icons/react (IconWeight type).
+ */
 import type { IconWeight } from "@phosphor-icons/react";
-// Custom outline icon in the Phosphor style: accepts the same size/weight
-// props (regular, bold, duotone; other weights render as regular).
+
+const BLADE_PATH =
+  "M11.4 10.8C10.9 8 10.8 3.5 11.2 1.2C14.4 3.2 15.4 8.2 12.8 10.8";
+
+/**
+ * A propeller outline that takes Phosphor's `size` and `weight` props, so
+ * navigation renders it like any Phosphor icon. Always hidden from assistive
+ * technology: `aria-hidden` is accepted and ignored.
+ *
+ * @param props.size - Width and height; defaults to 18.
+ * @param props.weight - bold thickens the stroke, light and thin thin it,
+ *   duotone adds a tinted disc, and fill draws as regular.
+ * @returns An inline SVG on a 24-unit grid, stroked in `currentColor`.
+ */
 export function ComponentIcon({
   size = 18,
   weight = "regular",
@@ -9,13 +27,6 @@ export function ComponentIcon({
   weight?: IconWeight;
   "aria-hidden"?: boolean | "true" | "false";
 }) {
-  const stroke =
-    weight === "bold"
-      ? 2.2
-      : weight === "light" || weight === "thin"
-        ? 1.2
-        : 1.6;
-  const duotone = weight === "duotone";
   return (
     <svg
       width={size}
@@ -23,13 +34,13 @@ export function ComponentIcon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={stroke}
+      strokeWidth={strokeWidthFor(weight)}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
-      {duotone && (
+      {weight === "duotone" && (
         <circle
           cx="12"
           cy="13"
@@ -39,17 +50,17 @@ export function ComponentIcon({
           stroke="none"
         />
       )}
-      <path d="M11.4 10.8C10.9 8 10.8 3.5 11.2 1.2C14.4 3.2 15.4 8.2 12.8 10.8" />
-      <path
-        d="M11.4 10.8C10.9 8 10.8 3.5 11.2 1.2C14.4 3.2 15.4 8.2 12.8 10.8"
-        transform="rotate(120 12 13)"
-      />
-      <path
-        d="M11.4 10.8C10.9 8 10.8 3.5 11.2 1.2C14.4 3.2 15.4 8.2 12.8 10.8"
-        transform="rotate(240 12 13)"
-      />
+      <path d={BLADE_PATH} />
+      <path d={BLADE_PATH} transform="rotate(120 12 13)" />
+      <path d={BLADE_PATH} transform="rotate(240 12 13)" />
       <circle cx="12" cy="13" r="2.3" />
       <circle cx="12" cy="13" r="1" fill="currentColor" stroke="none" />
     </svg>
   );
+}
+
+function strokeWidthFor(weight: IconWeight): number {
+  if (weight === "bold") return 2.2;
+  if (weight === "light" || weight === "thin") return 1.2;
+  return 1.6;
 }

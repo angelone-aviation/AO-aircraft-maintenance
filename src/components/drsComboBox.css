@@ -1,3 +1,9 @@
+/*
+ * Responsibility: Styles the FAA DRS make and model combobox: its input, the
+ *   source note under it and the suggestion menu.
+ * Layer: UI. Component styles, imported by the components that use them.
+ * Dependencies: src/styles/tokens.css.
+ */
 .drs-combobox {
   position: relative;
   min-width: 0;
