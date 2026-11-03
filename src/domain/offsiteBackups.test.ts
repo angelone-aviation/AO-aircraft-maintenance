@@ -1,3 +1,9 @@
+/**
+ * Responsibility: Pins the off-site backup freshness rule and its wording, and
+ *   the backup warning in the daily alert email.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/offsiteBackups.ts, src/domain/alertDigest.ts.
+ */
 import { describe, expect, it } from "vitest";
 import { offsiteFreshness, OFFSITE_STALE_AFTER_MS } from "./offsiteBackups";
 import { backupWarningEmail, digestEmail } from "./alertDigest";
@@ -40,6 +46,12 @@ describe("off-site backup freshness", () => {
     expect(at(2 * 24 * hour + 5 * hour).message).toBe(
       "No off-site backup for 2 days. Check the Nightly backup job in GitHub Actions.",
     );
+  });
+
+  it("words ages in hours under two days, then in whole days", () => {
+    expect(at(37 * hour).message).toMatch(/^No .* for 37 hours\./);
+    expect(at(2 * 24 * hour).message).toMatch(/^No .* for 2 days\./);
+    expect(at(3 * 24 * hour - 1).message).toMatch(/^No .* for 2 days\./);
   });
 
   it("words short ages plainly, including a clock slightly ahead", () => {
