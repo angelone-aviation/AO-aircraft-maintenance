@@ -1,5 +1,19 @@
+/**
+ * Responsibility: Aircraft status (airworthy, due soon or grounded, with
+ *   reasons) and the dispatch gate that blocks flights on a grounded aircraft.
+ * Layer: Domain. Pure rules shared by the browser and Convex; no I/O, no React.
+ * Dependencies: ./airworthiness, ./components, ./deferrals, ./maintenance,
+ *   ./management, ./model, ./programs, ./rejection.
+ *
+ * Status is derived from recorded data only. A missing or uncomputable
+ * schedule adds no reason here; it never implies readiness elsewhere.
+ */
 import { adAircraftUuid, adTaskStatus } from "./airworthiness";
-import { requirementStatus } from "./components";
+import {
+  requirementStatus,
+  type Component,
+  type ComponentRequirement,
+} from "./components";
 import {
   deferralDaysRemaining,
   deferralLabel,
@@ -7,34 +21,54 @@ import {
 } from "./deferrals";
 import { inspectionStatus } from "./maintenance";
 import { inspectionCounters } from "./management";
-import { localDate, type Snapshot } from "./model";
+import { localDate, type Aircraft, type Snapshot } from "./model";
 import { programPermission } from "./programs";
+import { Rejection } from "./rejection";
 
+const OVERRIDE_REASON_MAX = 1000;
+const DISCREPANCY_LABEL_MAX = 80;
+const INACTIVE_AD_APPLICABILITY = ["Not applicable", "Superseded"];
+const EARLIEST_ZONE_OFFSET_MS = 12 * 3600000;
+
+/** How fit an aircraft is to fly (GLOSSARY "Aircraft status"). */
 export type AircraftStatusLevel = "airworthy" | "due-soon" | "grounded";
+
+/** One reason for a status level: the record's kind, a label and its uuid. */
 export interface AircraftStatusReason {
   kind:
     "profile" | "inspection" | "ad" | "component" | "discrepancy" | "deferral";
   label: string;
   entityUuid: string;
 }
+
+/** An aircraft's status level and the reasons for that level. */
 export interface AircraftStatus {
   level: AircraftStatusLevel;
   /** Reasons for the reported level only (grounding reasons when grounded). */
   reasons: AircraftStatusReason[];
 }
+
+/** Display name of each status level. */
 export const aircraftStatusLabels: Record<AircraftStatusLevel, string> = {
   airworthy: "Airworthy",
   "due-soon": "Due soon",
   grounded: "Grounded",
 };
-/** MEL deferrals expiring within this many days are flagged as due soon. */
+
+/** Deferrals expiring within this many days are flagged as due soon. */
 export const DEFERRAL_WARNING_DAYS = 3;
-const short = (text: string) =>
-  text.length > 80 ? text.slice(0, 77).trimEnd() + "…" : text;
 
 /**
- * Airworthiness summary derived from recorded data. Missing schedules never
- * imply readiness elsewhere in the app; here they simply add no reason.
+ * Computes an aircraft's status. It is grounded by its profile, an overdue
+ * inspection, component limit or AD, an expired deferral or an open grounding
+ * discrepancy, and due soon when any of these is near.
+ *
+ * @param s - Snapshot holding the aircraft and its records.
+ * @param aircraftUuid - The aircraft.
+ * @param today - Local date (YYYY-MM-DD) that calendar limits are judged on.
+ * @returns The level, with its reasons in the order profile, inspections,
+ *   components, ADs, then discrepancies; none when airworthy.
+ * @throws {Error} "Aircraft not found." for an unknown aircraft.
  */
 export function aircraftStatus(
   s: Snapshot,
@@ -43,121 +77,66 @@ export function aircraftStatus(
 ): AircraftStatus {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid);
   if (!a) throw new Error("Aircraft not found.");
-  const grounded: AircraftStatusReason[] = [];
-  const soon: AircraftStatusReason[] = [];
-  if (a.operationalStatus === "grounded")
-    grounded.push({
-      kind: "profile",
-      label: "Marked grounded in the aircraft profile",
-      entityUuid: a.uuid,
-    });
-  for (const i of s.inspections) {
-    if (i.archived || i.aircraftUuid !== a.uuid) continue;
-    let status;
-    try {
-      status = inspectionStatus(
-        i,
-        a,
-        today,
-        inspectionCounters(i, a, s.management),
-      ).status;
-    } catch {
-      // Uncomputable schedules stay unverified, as on the Dashboard.
-      continue;
-    }
-    const reason = { kind: "inspection" as const, entityUuid: i.uuid };
-    if (status === "overdue")
-      grounded.push({ ...reason, label: `${i.reference} overdue` });
-    else if (status === "due-soon")
-      soon.push({ ...reason, label: `${i.reference} due soon` });
-  }
-  const records = s.management ?? [];
-  for (const c of records) {
-    if (c.kind !== "component" || !c.installed || c.aircraftUuid !== a.uuid)
-      continue;
-    for (const r of records) {
-      if (r.kind !== "componentRequirement" || r.componentUuid !== c.uuid)
-        continue;
-      let status;
-      try {
-        status = requirementStatus(r, c, a, today).status;
-      } catch {
-        continue;
-      }
-      const name = `${c.componentType}${c.serial ? ` S/N ${c.serial}` : ""}: ${r.description}`;
-      const reason = { kind: "component" as const, entityUuid: r.uuid };
-      // "Due now" is a usage limit with nothing left: it grounds, as an
-      // inspection at 0 h does. A calendar limit due today is "Due soon".
-      if (status === "Past due" || status === "Due now")
-        grounded.push({ ...reason, label: `${name} ${status.toLowerCase()}` });
-      else if (status === "Due soon")
-        soon.push({ ...reason, label: `${name} due soon` });
-    }
-  }
-  for (const r of s.airworthiness ?? []) {
-    if (
-      adAircraftUuid(s, r) !== a.uuid ||
-      r.applicability === "Not applicable" ||
-      r.applicability === "Superseded"
-    )
-      continue;
-    const component = records.find(
-      (c) => c.kind === "component" && c.uuid === r.componentUuid,
-    );
-    if (component?.kind === "component" && !component.installed) continue;
-    const statuses = r.tasks.map((t) => adTaskStatus(s, r, t, today));
-    const reason = { kind: "ad" as const, entityUuid: r.uuid };
-    if (statuses.includes("Overdue"))
-      grounded.push({ ...reason, label: `AD ${r.source.number} overdue` });
-    else if (statuses.includes("Due soon"))
-      soon.push({ ...reason, label: `AD ${r.source.number} due soon` });
-  }
-  for (const d of s.discrepancies) {
-    if (d.aircraftUuid !== a.uuid || d.status !== "open") continue;
-    if (d.deferral) {
-      const days = deferralDaysRemaining(d.deferral, today);
-      const reason = { kind: "deferral" as const, entityUuid: d.uuid };
-      const label = deferralLabel(d.deferral as Deferral);
-      if (days !== undefined && days < 0)
-        grounded.push({
-          ...reason,
-          label: `${label} deferral expired ${d.deferral.expiresOn}`,
-        });
-      else if (days !== undefined && days <= DEFERRAL_WARNING_DAYS)
-        soon.push({
-          ...reason,
-          label: `${label} deferral expires ${d.deferral.expiresOn}`,
-        });
-    } else if (d.grounding)
-      grounded.push({
-        kind: "discrepancy",
-        label: `Open discrepancy: ${short(d.description)}`,
-        entityUuid: d.uuid,
-      });
-  }
-  return grounded.length
-    ? { level: "grounded", reasons: grounded }
-    : soon.length
-      ? { level: "due-soon", reasons: soon }
-      : { level: "airworthy", reasons: [] };
+  const findings = [
+    ...listProfileFindings(a),
+    ...listInspectionFindings(s, a, today),
+    ...listComponentFindings(s, a, today),
+    ...listAdFindings(s, a, today),
+    ...listDiscrepancyFindings(s, a, today),
+  ];
+  const grounded = reasonsAt(findings, "grounded");
+  if (grounded.length) return { level: "grounded", reasons: grounded };
+  const soon = reasonsAt(findings, "due-soon");
+  if (soon.length) return { level: "due-soon", reasons: soon };
+  return { level: "airworthy", reasons: [] };
 }
 
-/** Earliest local date in any zone (UTC-12); server-safe "overdue" limit. */
+/**
+ * Gets the earliest calendar date anywhere (UTC-12), so the server, which
+ * does not know a device's time zone, never finds a limit overdue that the
+ * device still accepted.
+ *
+ * @param now - Time in epoch milliseconds.
+ * @returns The date as YYYY-MM-DD.
+ */
 export function earliestLocalDate(now = Date.now()) {
-  return new Date(now - 12 * 3600000).toISOString().slice(0, 10);
+  return new Date(now - EARLIEST_ZONE_OFFSET_MS).toISOString().slice(0, 10);
 }
+
+/** Shortest dispatch-override reason accepted, in characters after trimming. */
 export const MIN_OVERRIDE_REASON = 10;
+
+/** An administrator's override of the dispatch gate, stored with the flight. */
 export interface DispatchOverride {
   by: string;
   name: string;
   reason: string;
   at: number;
 }
+
+/**
+ * Tells whether the user may override the dispatch gate.
+ *
+ * @param s - Snapshot, for the user and the active program.
+ * @returns True for an active Flight Program or system administrator.
+ */
 export const canOverrideDispatch = (s: Snapshot) =>
   programPermission(s, "admin");
+
 /**
- * Blocks logging a flight for a grounded aircraft unless a Flight Program
- * administrator records a reason. Returns the override to store, if used.
+ * Blocks logging a flight on a grounded aircraft unless a Flight Program
+ * administrator records a reason.
+ *
+ * @param s - Snapshot holding the user and the aircraft's records.
+ * @param aircraftUuid - The aircraft.
+ * @param overrideReason - The administrator's reason, or undefined for none.
+ * @param today - Local date for {@link aircraftStatus}.
+ * @param now - Time stamped on the override.
+ * @returns The override to store with the flight, or undefined when the
+ *   aircraft is not grounded (a reason given is then unused).
+ * @throws {Rejection} When a non-administrator gives a reason (even if not
+ *   grounded); "<registration> is grounded: <reasons>. …" without a reason;
+ *   "Explain the dispatch override in 10–1000 characters." for a bad reason.
  */
 export function dispatchGate(
   s: Snapshot,
@@ -167,7 +146,7 @@ export function dispatchGate(
   now = Date.now(),
 ): DispatchOverride | undefined {
   if (overrideReason !== undefined && !canOverrideDispatch(s))
-    throw new Error(
+    throw new Rejection(
       "Only a Flight Program administrator can override a grounded aircraft.",
     );
   const status = aircraftStatus(s, aircraftUuid, today);
@@ -176,13 +155,145 @@ export function dispatchGate(
     s.aircraft.find((a) => a.uuid === aircraftUuid)?.registration ??
     "This aircraft";
   if (overrideReason === undefined)
-    throw new Error(
+    throw new Rejection(
       `${registration} is grounded: ${status.reasons.map((r) => r.label).join("; ")}. Resolve these items or ask a Flight Program administrator to override.`,
     );
   const reason = overrideReason.trim();
-  if (reason.length < MIN_OVERRIDE_REASON || reason.length > 1000)
-    throw new Error(
-      `Explain the dispatch override in ${MIN_OVERRIDE_REASON}–1000 characters.`,
+  if (
+    reason.length < MIN_OVERRIDE_REASON ||
+    reason.length > OVERRIDE_REASON_MAX
+  )
+    throw new Rejection(
+      `Explain the dispatch override in ${MIN_OVERRIDE_REASON}–${OVERRIDE_REASON_MAX} characters.`,
     );
   return { by: s.user.id, name: s.user.name, reason, at: now };
+}
+
+interface Finding {
+  level: Exclude<AircraftStatusLevel, "airworthy">;
+  reason: AircraftStatusReason;
+}
+type ReasonKind = AircraftStatusReason["kind"];
+
+function reasonsAt(findings: Finding[], level: Finding["level"]) {
+  return findings.filter((f) => f.level === level).map((f) => f.reason);
+}
+
+function flagGrounded(kind: ReasonKind, entityUuid: string, label: string) {
+  return [{ level: "grounded", reason: { kind, label, entityUuid } } as const];
+}
+
+function flagDueSoon(kind: ReasonKind, entityUuid: string, label: string) {
+  return [{ level: "due-soon", reason: { kind, label, entityUuid } } as const];
+}
+
+function listProfileFindings(a: Aircraft): Finding[] {
+  if (a.operationalStatus !== "grounded") return [];
+  const label = "Marked grounded in the aircraft profile";
+  return flagGrounded("profile", a.uuid, label);
+}
+
+function listInspectionFindings(s: Snapshot, a: Aircraft, today: string) {
+  return s.inspections.flatMap((i): Finding[] => {
+    if (i.archived || i.aircraftUuid !== a.uuid) return [];
+    const counters = () => inspectionCounters(i, a, s.management);
+    const status = computeOrSkip(
+      () => inspectionStatus(i, a, today, counters()).status,
+    );
+    if (status === "overdue")
+      return flagGrounded("inspection", i.uuid, `${i.reference} overdue`);
+    if (status !== "due-soon") return [];
+    return flagDueSoon("inspection", i.uuid, `${i.reference} due soon`);
+  });
+}
+
+function listComponentFindings(s: Snapshot, a: Aircraft, today: string) {
+  const records = s.management ?? [];
+  return records.flatMap((c) => {
+    if (c.kind !== "component" || !c.installed || c.aircraftUuid !== a.uuid)
+      return [];
+    return records.flatMap((r) =>
+      r.kind === "componentRequirement" && r.componentUuid === c.uuid
+        ? listRequirementFindings(r, c, a, today)
+        : [],
+    );
+  });
+}
+
+function listRequirementFindings(
+  r: ComponentRequirement,
+  c: Component,
+  a: Aircraft,
+  today: string,
+): Finding[] {
+  const status = computeOrSkip(() => requirementStatus(r, c, a, today).status);
+  const name = `${c.componentType}${c.serial ? ` S/N ${c.serial}` : ""}: ${r.description}`;
+  // "Due now" is a usage limit with nothing left: it grounds, as an
+  // inspection at 0 h does. A calendar limit due today is "Due soon".
+  if (status === "Past due" || status === "Due now")
+    return flagGrounded("component", r.uuid, `${name} ${status.toLowerCase()}`);
+  if (status !== "Due soon") return [];
+  return flagDueSoon("component", r.uuid, `${name} due soon`);
+}
+
+function listAdFindings(s: Snapshot, a: Aircraft, today: string) {
+  const records = s.management ?? [];
+  return (s.airworthiness ?? []).flatMap((r): Finding[] => {
+    if (
+      adAircraftUuid(s, r) !== a.uuid ||
+      INACTIVE_AD_APPLICABILITY.includes(r.applicability)
+    )
+      return [];
+    const component = records.find(
+      (c) => c.kind === "component" && c.uuid === r.componentUuid,
+    );
+    // An AD on a removed component does not ground the aircraft it came off.
+    if (component?.kind === "component" && !component.installed) return [];
+    const statuses = r.tasks.map((t) => adTaskStatus(s, r, t, today));
+    if (statuses.includes("Overdue"))
+      return flagGrounded("ad", r.uuid, `AD ${r.source.number} overdue`);
+    if (!statuses.includes("Due soon")) return [];
+    return flagDueSoon("ad", r.uuid, `AD ${r.source.number} due soon`);
+  });
+}
+
+function listDiscrepancyFindings(s: Snapshot, a: Aircraft, today: string) {
+  return s.discrepancies.flatMap((d): Finding[] => {
+    if (d.aircraftUuid !== a.uuid || d.status !== "open") return [];
+    if (d.deferral) return listDeferralFindings(d.uuid, d.deferral, today);
+    if (!d.grounding) return [];
+    const label = `Open discrepancy: ${shortenDescription(d.description)}`;
+    return flagGrounded("discrepancy", d.uuid, label);
+  });
+}
+
+function listDeferralFindings(
+  uuid: string,
+  deferral: Deferral,
+  today: string,
+): Finding[] {
+  const days = deferralDaysRemaining(deferral, today);
+  const name = deferralLabel(deferral);
+  if (days === undefined || days > DEFERRAL_WARNING_DAYS) return [];
+  const expired = days < 0;
+  const label = `${name} deferral ${expired ? "expired" : "expires"} ${deferral.expiresOn}`;
+  return expired
+    ? flagGrounded("deferral", uuid, label)
+    : flagDueSoon("deferral", uuid, label);
+}
+
+// A schedule that cannot be computed stays unverified, as on the Dashboard,
+// instead of failing the whole status.
+function computeOrSkip<T>(compute: () => T): T | undefined {
+  try {
+    return compute();
+  } catch {
+    return undefined;
+  }
+}
+
+function shortenDescription(text: string) {
+  return text.length > DISCREPANCY_LABEL_MAX
+    ? text.slice(0, DISCREPANCY_LABEL_MAX - 3).trimEnd() + "…"
+    : text;
 }
