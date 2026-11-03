@@ -20,6 +20,7 @@ import type * as airworthiness from "../airworthiness.js";
 import type * as audit from "../audit.js";
 import type * as auditHistory from "../auditHistory.js";
 import type * as auth from "../auth.js";
+import type * as backups from "../backups.js";
 import type * as certifications from "../certifications.js";
 import type * as checklists from "../checklists.js";
 import type * as componentTemplates from "../componentTemplates.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   audit: typeof audit;
   auditHistory: typeof auditHistory;
   auth: typeof auth;
+  backups: typeof backups;
   certifications: typeof certifications;
   checklists: typeof checklists;
   componentTemplates: typeof componentTemplates;

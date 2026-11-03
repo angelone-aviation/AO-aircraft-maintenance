@@ -209,6 +209,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Off-site backups status line (System) */
+.set-backup-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.set-backup-status > .ds-pill {
+  flex: none;
+}
+.set-backup-status > p {
+  flex: 1 1 240px;
+  min-width: 0;
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 /* Device-only note: a quiet footer band on the section card */
 .set-block-note {
   padding-top: 18px;

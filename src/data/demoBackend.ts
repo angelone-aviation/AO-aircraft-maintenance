@@ -726,6 +726,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       throw Error("Connect to the live app.");
     },
     addressSettings: async () => ({ configured: false, version: 0 }),
+    // Off-site backups run only on the production deployment.
+    latestOffsiteCopy: async () => null,
     setAddressKey: async () => {
       throw Error("Connect to the live app to configure address verification.");
     },

@@ -27,10 +27,12 @@ import {
   WifiSlash,
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
+import { formatBytes } from "../data/deviceManuals";
 import { localDate, type Snapshot } from "../domain/model";
 import { activeProgram, programPermission } from "../domain/programs";
 import { isPilotView } from "../domain/pilotView";
 import { wantsAlertEmails } from "../domain/alerts";
+import { offsiteFreshness, type OffsiteCopy } from "../domain/offsiteBackups";
 import {
   certificationLabels,
   normalizeCertifications,
@@ -49,6 +51,7 @@ import {
   NoticeBar,
   PageHeader,
   Segmented,
+  StatusPill,
   Switch,
   useTheme,
   type IconType,
@@ -705,6 +708,7 @@ function SystemSection() {
       <div className="set-block set-embed">
         <AddressVerificationSettings />
       </div>
+      <OffsiteBackups />
       <div className="set-block set-embed">
         <CsvExportCard
           title="Download data backup"
@@ -737,5 +741,98 @@ function SystemSection() {
         </p>
       </Block>
     </Section>
+  );
+}
+
+/** The newest nightly off-site backup (ADR-0008), which the backup job
+ * records through backups:recordOffsiteCopy. */
+function OffsiteBackups() {
+  const { snapshot, backend, connected, demo } = useWorkspace();
+  const s = snapshot!;
+  // The newest copy and when it was loaded (the age is shown as of then).
+  const [loaded, setLoaded] = useState<{
+    copy: OffsiteCopy | null;
+    at: number;
+  }>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (!demo && backend && connected)
+      backend.latestOffsiteCopy().then(
+        (copy) => {
+          if (active) {
+            setLoaded({ copy, at: Date.now() });
+            setFailed(false);
+          }
+        },
+        () => {
+          if (active) setFailed(true);
+        },
+      );
+    return () => {
+      active = false;
+    };
+  }, [backend, connected, demo]);
+  const copy = loaded?.copy;
+  const freshness = loaded && offsiteFreshness(loaded.copy, loaded.at);
+  return (
+    <Block
+      title="Off-site backups"
+      description="Every night an encrypted copy of all records and files is uploaded to Cloudflare R2. The daily alert email warns system administrators when the newest copy is more than 36 hours old."
+    >
+      {demo ? (
+        <p className="set-empty">
+          Off-site backups run only on the production deployment.
+        </p>
+      ) : freshness ? (
+        <>
+          <div className="set-backup-status">
+            <StatusPill tone={freshness.status === "ok" ? "good" : "warn"}>
+              {freshness.status === "ok" ? "OK" : "Warning"}
+            </StatusPill>
+            <p>{freshness.message}</p>
+          </div>
+          {copy && (
+            <dl className="set-facts">
+              <div>
+                <dt>Last copy</dt>
+                <dd>{dateTime(copy.completedAt)}</dd>
+              </div>
+              <div>
+                <dt>Size</dt>
+                <dd>{formatBytes(copy.bytes)}</dd>
+              </div>
+              <div>
+                <dt>Last monthly copy</dt>
+                <dd>
+                  {copy.monthlyCompletedAt
+                    ? dateTime(copy.monthlyCompletedAt)
+                    : "None yet"}
+                </dd>
+              </div>
+            </dl>
+          )}
+          {!wantsAlertEmails(s.user, s.groups, s.activeProgramUuid) && (
+            <p className="set-hint">
+              Your alert email is off, so backup warnings show only here. Turn
+              on “Email me a daily alert digest” under My account to get them by
+              email.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="set-hint">
+          {failed
+            ? "Could not load the off-site backup status. Reconnect and reload."
+            : connected
+              ? "Checking off-site backups…"
+              : "Reconnect to see the off-site backup status."}
+        </p>
+      )}
+      <p className="set-hint">
+        Restore steps are in docs/runbooks/backup-restore.md in the Angel One
+        repository.
+      </p>
+    </Block>
   );
 }

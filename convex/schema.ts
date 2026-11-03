@@ -304,6 +304,16 @@ export default defineSchema({
     version: v.number(),
     updatedAt: v.number(),
   }),
+  // One row per successful nightly off-site copy (convex/backups.ts).
+  backupRuns: defineTable({
+    completedAt: v.number(),
+    objectKey: v.string(),
+    bytes: v.number(),
+    sha256: v.string(),
+    monthlyKey: v.optional(v.string()),
+    envUploaded: v.boolean(),
+    recordedAt: v.number(),
+  }).index("completedAt", ["completedAt"]),
   faaMonitors: defineTable({
     aircraftUuid: v.string(),
     payload: v.string(),

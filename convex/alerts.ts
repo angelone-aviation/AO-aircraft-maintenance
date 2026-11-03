@@ -19,7 +19,8 @@ import {
   faaMonitorDocs,
 } from "./programContext";
 import { computeAlerts, wantsAlertEmails } from "../src/domain/alerts";
-import { digestEmail } from "../src/domain/alertDigest";
+import { backupWarningEmail, digestEmail } from "../src/domain/alertDigest";
+import { offsiteFreshness } from "../src/domain/offsiteBackups";
 import { adSchema } from "../src/domain/airworthiness";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { recordSchema } from "../src/domain/management";
@@ -192,6 +193,37 @@ export const digestRecipients = internalQuery({
   },
 });
 
+// The newest off-site copy (ADR-0008) and who is warned when it is stale:
+// active system administrators whose alert email is on, by the rule and
+// default the switch in Settings and My certifications shows them. Nobody
+// else ever gets the warning.
+export const digestBackupWarning = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const latest = await ctx.db
+      .query("backupRuns")
+      .withIndex("completedAt")
+      .order("desc")
+      .first();
+    const programs = await ctx.db.query("programs").collect();
+    const groups = (await ctx.db.query("groups").collect()).map(group);
+    const admins = (await ctx.db.query("users").collect())
+      .filter((u) => u.active && u.isAdmin && u.email)
+      .filter((u) => {
+        const user = member(u);
+        return wantsAlertEmails(
+          user,
+          groups,
+          activeProgram({ user, groups, programs }),
+        );
+      });
+    return {
+      latest: latest && { completedAt: latest.completedAt },
+      admins: admins.map((u) => ({ userId: u._id, email: u.email! })),
+    };
+  },
+});
+
 // Records what was emailed and forgets deliveries for alerts that cleared.
 export const recordDeliveries = internalMutation({
   args: {
@@ -256,6 +288,14 @@ export const sendDigests = internalAction({
     const today = localDate();
     let sent = 0;
     let failed = 0;
+    const backup = await ctx.runQuery(internal.alerts.digestBackupWarning, {});
+    const freshness = offsiteFreshness(backup.latest, Date.now());
+    const backupWarning =
+      freshness.status === "ok" ? undefined : freshness.message;
+    // Warned admins get it at the top of each digest they receive, or alone
+    // when they have no maintenance alerts that day.
+    const admins = new Set<string>(backup.admins.map((a) => a.userId));
+    const warned = new Set<string>();
     for (const program of await ctx.runQuery(
       internal.alerts.digestPrograms,
       {},
@@ -265,12 +305,15 @@ export const sendDigests = internalAction({
         today,
       });
       for (const r of recipients) {
+        const warning = admins.has(r.userId) ? backupWarning : undefined;
         const email = digestEmail(r.alerts, {
           programName: program.name,
           siteUrl: process.env.SITE_URL,
+          backupWarning: warning,
         });
         try {
           await sendEmail(apiKey, from, r.email, email);
+          if (warning) warned.add(r.userId);
         } catch (error) {
           failed++;
           console.error(
@@ -289,6 +332,28 @@ export const sendDigests = internalAction({
         sent++;
       }
     }
+    if (backupWarning)
+      for (const a of backup.admins) {
+        if (warned.has(a.userId)) continue;
+        try {
+          await sendEmail(
+            apiKey,
+            from,
+            a.email,
+            backupWarningEmail(backupWarning, {
+              siteUrl: process.env.SITE_URL,
+            }),
+          );
+          sent++;
+        } catch (error) {
+          failed++;
+          console.error(
+            "Off-site backup warning not sent",
+            a.userId,
+            error instanceof Error ? error.message : "unknown error",
+          );
+        }
+      }
     return { sent, failed, skipped: false };
   },
 });
