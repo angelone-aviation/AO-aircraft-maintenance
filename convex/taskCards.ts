@@ -17,6 +17,7 @@ import {
   discrepancyDocs,
 } from "./programContext";
 import { authorized, audit } from "./access";
+import { runCommand, hydrate } from "./runCommand";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
@@ -54,36 +55,50 @@ async function taskState(ctx: QueryCtx | MutationCtx, programUuid?: string) {
 }
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const state = await taskState(ctx, args.programUuid);
-    const command = taskCardCommandSchema.parse(JSON.parse(args.payload));
-    const archived = await ctx.db
-      .query("archivedTaskCards")
-      .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
-      .unique();
-    if (archived) throw new Error("Archived job cards are read-only.");
-    const before = state.taskCards.find((t) => t.uuid === command.uuid);
-    const next = saveTaskCard(state, command);
-    const existing = await ctx.db
-      .query("taskCards")
-      .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
-      .unique();
-    const fields = {
-      uuid: next.uuid,
-      aircraftUuid: next.aircraftUuid,
-      payload: JSON.stringify(next),
-    };
-    // A uuid outside the active program is never overwritten.
-    if (existing && !before) throw new Error("Job card not found.");
-    if (existing) await ctx.db.replace(existing._id, fields);
-    else await ctx.db.insert("taskCards", fields);
-    await audit(ctx, state.user.id, "taskCard." + command.action, next.uuid, {
-      aircraftUuid: next.aircraftUuid,
-      before,
-      after: next,
-    });
-    return next.uuid;
-  },
+  handler: (ctx, args) =>
+    runCommand(ctx, {
+      programUuid: args.programUuid,
+      parse: () => taskCardCommandSchema.parse(JSON.parse(args.payload)),
+      load: async ({ ctx, state }, command) => {
+        const { snapshot } = await hydrate(ctx, state, [
+          "taskCards",
+          "workOrders",
+          "inspections",
+          "discrepancies",
+          "management",
+        ]);
+        const archived = await ctx.db
+          .query("archivedTaskCards")
+          .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
+          .unique();
+        if (archived) throw new Error("Archived job cards are read-only.");
+        const before = snapshot.taskCards!.find((t) => t.uuid === command.uuid);
+        return { snapshot, before };
+      },
+      apply: ({ snapshot }, command) => saveTaskCard(snapshot, command),
+      persist: async ({ ctx }, { before }, next) => {
+        const existing = await ctx.db
+          .query("taskCards")
+          .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
+          .unique();
+        const fields = {
+          uuid: next.uuid,
+          aircraftUuid: next.aircraftUuid,
+          payload: JSON.stringify(next),
+        };
+        // A uuid outside the active program is never overwritten.
+        if (existing && !before) throw new Error("Job card not found.");
+        if (existing) await ctx.db.replace(existing._id, fields);
+        else await ctx.db.insert("taskCards", fields);
+      },
+      audit: (log, { before }, next, command) =>
+        log.entry("taskCard." + command.action, next.uuid, {
+          aircraftUuid: next.aircraftUuid,
+          before,
+          after: next,
+        }),
+      returns: (next) => next.uuid,
+    }),
 });
 const fileArgs = {
   taskCardUuid: v.string(),

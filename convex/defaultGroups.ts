@@ -1,11 +1,14 @@
 import { v } from "convex/values";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { admin, audit } from "./access";
+import type { CommandLog } from "./runCommand";
 import { missingDefaultGroups } from "../src/domain/defaultPermissionGroups";
+// Inside a command, pass its log so the rows are written with the command's.
 export async function ensureDefaultGroups(
   ctx: MutationCtx,
   programUuid: string,
   actorId: string,
+  log?: CommandLog,
 ) {
   const existing = await ctx.db
     .query("groups")
@@ -15,10 +18,9 @@ export async function ensureDefaultGroups(
   for (const group of missing) {
     const fields = { ...group, programUuid };
     const id = await ctx.db.insert("groups", fields);
-    await audit(ctx, actorId, "group.saved", id, {
-      programUuid,
-      after: fields,
-    });
+    const entry = { programUuid, after: fields };
+    if (log) log.entry("group.saved", id, entry);
+    else await audit(ctx, actorId, "group.saved", id, entry);
   }
   return {
     created: missing.map((g) => g.name),

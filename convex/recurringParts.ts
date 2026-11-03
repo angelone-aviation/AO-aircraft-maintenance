@@ -1,5 +1,5 @@
 import type { MutationCtx } from "./_generated/server";
-import type { Snapshot } from "../src/domain/model";
+import type { AuditEntry, Snapshot } from "../src/domain/model";
 import type { WorkOrder } from "../src/domain/workOrders";
 import { partsRequestSchema } from "../src/domain/partsRequests";
 import { generateRecurringRequests } from "../src/domain/recurringParts";
@@ -8,15 +8,16 @@ import { recordSchema } from "../src/domain/management";
 import { airworthinessDocs } from "./programContext";
 
 // Keep request reads program-scoped and load only sources needing a new occurrence.
+// Returns the change-log entries, as recorded, for the caller to write.
 export async function prepareRecurringParts(
   ctx: MutationCtx,
   state: Snapshot,
   order: WorkOrder,
-) {
+): Promise<AuditEntry[]> {
   const program = state.aircraft.find(
     (a) => a.uuid === order.aircraftUuid,
   )?.programUuid;
-  if (!program) return;
+  if (!program) return [];
   const docs = await ctx.db
     .query("partsRequests")
     .withIndex("program", (q) => q.eq("programUuid", program))
@@ -43,7 +44,7 @@ export async function prepareRecurringParts(
       ),
   );
   if (!pending.length || ["completed", "cancelled"].includes(order.status))
-    return;
+    return [];
   const inspections = [];
   const management = [...(state.management ?? [])];
   for (const task of pending) {
@@ -83,5 +84,5 @@ export async function prepareRecurringParts(
       payload: JSON.stringify(r),
     });
   }
-  for (const a of s.audit) await ctx.db.insert("audit", a);
+  return s.audit;
 }

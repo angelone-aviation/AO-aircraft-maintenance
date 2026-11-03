@@ -1,3 +1,4 @@
+import { writeAudit } from "./access";
 import { ensureDefaultGroups } from "./defaultGroups";
 /** Explicit, internal-only provisioning of fictional training data. Never runs automatically. */
 import { internalMutation } from "./_generated/server";
@@ -558,7 +559,7 @@ export const seed = internalMutation({
         programUuid: PROGRAM,
         payload: JSON.stringify(po),
       });
-      await ctx.db.insert("audit", {
+      await writeAudit(ctx, {
         uuid: crypto.randomUUID(),
         programUuid: PROGRAM,
         aircraftUuid,

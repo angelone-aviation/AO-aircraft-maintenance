@@ -1,95 +1,73 @@
-import { partsRequestSchema } from "../src/domain/partsRequests";
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import {
-  checkContext,
-  managementDocs,
-  inspectionDocs,
-  workOrderDocs,
-  partsRequestDocs,
-  purchaseOrderDocs,
-} from "./programContext";
+import { checkContext } from "./programContext";
+import { runCommand, hydrate, plainErrors } from "./runCommand";
 import { assertNewManagementUuid } from "./management";
-import { applyPOCommand, poSchema } from "../src/domain/purchaseOrders";
-import { recordSchema } from "../src/domain/management";
-import { workOrderSchema } from "../src/domain/workOrders";
+import { applyPOCommand } from "../src/domain/purchaseOrders";
 import { programPermission } from "../src/domain/programs";
-import type { Snapshot } from "../src/domain/model";
 export const execute = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const state = await checkContext(ctx, args.programUuid);
-    const documents = await managementDocs(ctx, args.programUuid);
-    const requestDocs = await partsRequestDocs(ctx, args.programUuid);
-    const pos = await purchaseOrderDocs(ctx, args.programUuid);
-    const s: Snapshot = {
-      ...state,
-      partsRequests: requestDocs.map((d) =>
-        partsRequestSchema.parse(JSON.parse(d.payload)),
-      ),
-      purchaseOrders: pos.map((p) => poSchema.parse(JSON.parse(p.payload))),
-      management: documents.map((d) =>
-        recordSchema.parse(JSON.parse(d.payload)),
-      ),
-      inspections: await inspectionDocs(ctx, state.aircraft, documents),
-      workOrders: (await workOrderDocs(ctx, state.aircraft)).map((w) =>
-        workOrderSchema.parse(JSON.parse(w.payload)),
-      ),
-    };
-    const command = JSON.parse(args.payload);
-    let changes;
-    try {
-      changes = applyPOCommand(s, command);
-    } catch (error) {
+  handler: (ctx, args) =>
+    runCommand(ctx, {
+      programUuid: args.programUuid,
+      parse: () => JSON.parse(args.payload),
+      load: ({ ctx, state }) =>
+        hydrate(ctx, state, [
+          "partsRequests",
+          "purchaseOrders",
+          "management",
+          "inspections",
+          "workOrders",
+        ]),
+      apply: ({ snapshot }, command) => applyPOCommand(snapshot, command),
       // Explicit domain validation messages are safe, actionable user feedback.
       // Unexpected parser/schema/runtime errors retain server-side details only.
-      if (error instanceof Error && error.constructor === Error)
-        throw new ConvexError(error.message);
-      throw error;
-    }
-    for (const p of changes) {
-      const prior = pos.find((d) => d.uuid === p.uuid);
-      const fields = {
-        uuid: p.uuid,
-        programUuid: p.programUuid,
-        payload: JSON.stringify(p),
-      };
-      if (prior) await ctx.db.replace(prior._id, fields);
-      else if (
-        await ctx.db
-          .query("purchaseOrders")
-          .withIndex("uuid", (q) => q.eq("uuid", p.uuid))
-          .first()
-      )
-        throw new ConvexError("PO not found.");
-      else await ctx.db.insert("purchaseOrders", fields);
-    }
-    for (const r of s.management ?? []) {
-      const prior = documents.find((d) => d.uuid === r.uuid);
-      const payload = JSON.stringify(r);
-      if (prior?.payload === payload) continue;
-      const fields = {
-        uuid: r.uuid,
-        programUuid: r.programUuid,
-        kind: r.kind,
-        aircraftUuid: "aircraftUuid" in r ? r.aircraftUuid : undefined,
-        payload,
-      };
-      if (prior) await ctx.db.replace(prior._id, fields);
-      else {
-        await assertNewManagementUuid(ctx, r.uuid);
-        await ctx.db.insert("management", fields);
-      }
-    }
-    for (const r of s.partsRequests ?? []) {
-      const prior = requestDocs.find((d) => d.uuid === r.uuid);
-      if (prior && prior.payload !== JSON.stringify(r))
-        await ctx.db.patch(prior._id, { payload: JSON.stringify(r) });
-    }
-    for (const a of s.audit)
-      await ctx.db.insert("audit", { ...a, programUuid: args.programUuid });
-    return changes.map((p) => p.uuid);
-  },
+      expose: plainErrors,
+      persist: async ({ ctx }, { snapshot: s, docs }, changes) => {
+        for (const p of changes) {
+          const prior = docs.purchaseOrders.find((d) => d.uuid === p.uuid);
+          const fields = {
+            uuid: p.uuid,
+            programUuid: p.programUuid,
+            payload: JSON.stringify(p),
+          };
+          if (prior) await ctx.db.replace(prior._id, fields);
+          else if (
+            await ctx.db
+              .query("purchaseOrders")
+              .withIndex("uuid", (q) => q.eq("uuid", p.uuid))
+              .first()
+          )
+            throw new ConvexError("PO not found.");
+          else await ctx.db.insert("purchaseOrders", fields);
+        }
+        for (const r of s.management ?? []) {
+          const prior = docs.management.find((d) => d.uuid === r.uuid);
+          const payload = JSON.stringify(r);
+          if (prior?.payload === payload) continue;
+          const fields = {
+            uuid: r.uuid,
+            programUuid: r.programUuid,
+            kind: r.kind,
+            aircraftUuid: "aircraftUuid" in r ? r.aircraftUuid : undefined,
+            payload,
+          };
+          if (prior) await ctx.db.replace(prior._id, fields);
+          else {
+            await assertNewManagementUuid(ctx, r.uuid);
+            await ctx.db.insert("management", fields);
+          }
+        }
+        for (const r of s.partsRequests ?? []) {
+          const prior = docs.partsRequests.find((d) => d.uuid === r.uuid);
+          if (prior && prior.payload !== JSON.stringify(r))
+            await ctx.db.patch(prior._id, { payload: JSON.stringify(r) });
+        }
+      },
+      audit: (log, { snapshot }) =>
+        log.record(snapshot.audit, { programUuid: args.programUuid }),
+      returns: (changes) => changes.map((p) => p.uuid),
+    }),
 });
 export const files = query({
   args: { poUuid: v.string(), programUuid: v.optional(v.string()) },

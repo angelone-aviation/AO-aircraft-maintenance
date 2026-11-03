@@ -1,3 +1,4 @@
+import { writeAudit } from "./access";
 import {
   query,
   mutation,
@@ -137,7 +138,7 @@ async function logAccount(
   programUuid: string,
   action: "spruce.account.linked" | "spruce.account.disconnected",
 ) {
-  await ctx.db.insert("audit", {
+  await writeAudit(ctx, {
     uuid: crypto.randomUUID(),
     programUuid,
     at: Date.now(),

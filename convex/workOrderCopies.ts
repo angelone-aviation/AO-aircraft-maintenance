@@ -9,7 +9,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { audit } from "./access";
+import { audit, writeAudit } from "./access";
 import { checkContext } from "./programContext";
 import { can, type Snapshot } from "../src/domain/model";
 import {
@@ -188,7 +188,8 @@ export async function startCopy(
     command.action === "copyTemplates" ? undefined : before,
     state,
   );
-  await prepareRecurringParts(ctx, state, next);
+  for (const entry of await prepareRecurringParts(ctx, state, next))
+    await writeAudit(ctx, entry);
   await ctx.db.patch(doc._id, { payload: JSON.stringify(next) });
   await audit(ctx, state.user.id, "workOrder." + command.action, next.uuid, {
     aircraftUuid: next.aircraftUuid,

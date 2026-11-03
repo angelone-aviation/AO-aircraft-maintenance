@@ -1,3 +1,4 @@
+import { writeAudit } from "./access";
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { checkContext, managementDocs } from "./programContext";
@@ -102,7 +103,7 @@ export const save = mutation({
         );
       await ctx.db.insert("savedAddresses", { ...saved, nameKey });
     }
-    await ctx.db.insert("audit", {
+    await writeAudit(ctx, {
       uuid: crypto.randomUUID(),
       at: Date.now(),
       actorId: s.user.id,

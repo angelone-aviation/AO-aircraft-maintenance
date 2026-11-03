@@ -1,6 +1,7 @@
+import { runCommand, hydrate } from "./runCommand";
 import { partsRequestSchema } from "../src/domain/partsRequests";
 import { costRecordSchema } from "../src/domain/costs";
-import { costDocs } from "./costs";
+import { costDocs } from "./programContext";
 import { poSchema } from "../src/domain/purchaseOrders";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { adSchema } from "../src/domain/airworthiness";
@@ -581,27 +582,34 @@ export const resolveDiscrepancy = mutation({
 });
 export const deferDiscrepancy = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
-  handler: async (ctx, { payload, programUuid }) => {
-    const state = await checkContext(ctx, programUuid);
-    const command = deferCommandSchema.parse(JSON.parse(payload));
-    const d = await ctx.db
-      .query("discrepancies")
-      .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
-      .unique();
-    if (!d) throw new Error("Report not found.");
-    // Scopes the report to the caller's active program before any change.
-    const user = await authorized(ctx, d.aircraftUuid, "resolve", state);
-    const { _id, _creationTime, ...report } = d;
-    const next = applyDeferral({ ...state, discrepancies: [report] }, command);
-    await ctx.db.patch(_id, { deferral: next.deferral });
-    await audit(ctx, user._id, "discrepancy.deferred", d.uuid, {
+  handler: (ctx, { payload, programUuid }) =>
+    runCommand(ctx, {
       programUuid,
-      aircraftUuid: d.aircraftUuid,
-      reason: next.deferral!.placard,
-      before: d,
-      after: next.deferral,
-    });
-  },
+      parse: () => deferCommandSchema.parse(JSON.parse(payload)),
+      load: async ({ ctx, state }, command) => {
+        const d = await ctx.db
+          .query("discrepancies")
+          .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
+          .unique();
+        if (!d) throw new Error("Report not found.");
+        // Scopes the report to the caller's active program before any change.
+        await authorized(ctx, d.aircraftUuid, "resolve", state);
+        const { _id, _creationTime, ...report } = d;
+        return { d, s: { ...state, discrepancies: [report] } };
+      },
+      apply: ({ s }, command) => applyDeferral(s, command),
+      persist: async ({ ctx }, { d }, next) => {
+        await ctx.db.patch(d._id, { deferral: next.deferral });
+      },
+      audit: (log, { d }, next) =>
+        log.entry("discrepancy.deferred", d.uuid, {
+          programUuid,
+          aircraftUuid: d.aircraftUuid,
+          reason: next.deferral!.placard,
+          before: d,
+          after: next.deferral,
+        }),
+    }),
 });
 export const reviewFlight = mutation({
   args: {
@@ -767,33 +775,40 @@ export const saveDiscrepancyParts = mutation({
     payload: v.string(),
     programUuid: v.optional(v.string()),
   },
-  handler: async (ctx, { uuid, version, payload, programUuid }) => {
-    const state: Snapshot = await checkContext(ctx, programUuid);
-    const d = await ctx.db
-      .query("discrepancies")
-      .withIndex("uuid", (q) => q.eq("uuid", uuid))
-      .unique();
-    if (!d) throw new Error("Report not found.");
-    state.discrepancies = [d];
-    state.management = (await managementDocs(ctx, activeProgram(state))).map(
-      (d) => recordSchema.parse(JSON.parse(d.payload)),
-    );
-    const before = structuredClone(d);
-    const result = applyDiscrepancyParts(
-      state,
-      uuid,
-      version,
-      requiredPartsSchema.parse(JSON.parse(payload)),
-    );
-    await ctx.db.patch(d._id, {
-      requiredParts: result.requiredParts,
-      partsVersion: result.partsVersion,
-    });
-    await audit(ctx, state.user.id, "discrepancy.parts", uuid, {
-      aircraftUuid: d.aircraftUuid,
-      before,
-      after: result,
-      reason: "Required parts updated",
-    });
-  },
+  handler: (ctx, { uuid, version, payload, programUuid }) =>
+    runCommand(ctx, {
+      programUuid,
+      parse: () => payload,
+      load: async ({ ctx, state }) => {
+        const d = await ctx.db
+          .query("discrepancies")
+          .withIndex("uuid", (q) => q.eq("uuid", uuid))
+          .unique();
+        if (!d) throw new Error("Report not found.");
+        const { snapshot } = await hydrate(ctx, state, ["management"]);
+        snapshot.discrepancies = [d];
+        return { d, snapshot, before: structuredClone(d) };
+      },
+      // The domain checks maintenance permission and the parts version.
+      apply: ({ snapshot }, payload) =>
+        applyDiscrepancyParts(
+          snapshot,
+          uuid,
+          version,
+          requiredPartsSchema.parse(JSON.parse(payload)),
+        ),
+      persist: async ({ ctx }, { d }, result) => {
+        await ctx.db.patch(d._id, {
+          requiredParts: result.requiredParts,
+          partsVersion: result.partsVersion,
+        });
+      },
+      audit: (log, { d, before }, result) =>
+        log.entry("discrepancy.parts", uuid, {
+          aircraftUuid: d.aircraftUuid,
+          before,
+          after: result,
+          reason: "Required parts updated",
+        }),
+    }),
 });
