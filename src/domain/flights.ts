@@ -12,6 +12,13 @@ import {
   type AircraftCounterEvent,
   type CounterField,
 } from "./fleet";
+/** A flight's review status as Flight records writes it; the screen shows
+ * it with a capital first letter. */
+export const flightStatusLabels: Record<Flight["status"], string> = {
+  accepted: "accepted",
+  review: "Needs review",
+  rejected: "rejected",
+};
 export function flightEnginePositions(
   aircraft: Pick<Aircraft, "turbine" | "twin">,
   flight?: Pick<FlightInput, "engineStarts">,

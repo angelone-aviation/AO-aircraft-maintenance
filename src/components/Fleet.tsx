@@ -1,6 +1,6 @@
 import { AircraftCostSummary } from "./Costs";
 import { AircraftStatusReasons } from "./AircraftStatus";
-import { aircraftStatus } from "../domain/aircraftStatus";
+import { aircraftStatus, aircraftStatusLabels } from "../domain/aircraftStatus";
 import { AircraftPhoto } from "./AircraftPhoto";
 import { AddressFields } from "./AddressFields";
 import { addressFromForm } from "../domain/addresses";
@@ -52,11 +52,7 @@ const statusTone = {
   "due-soon": "warn",
   grounded: "danger",
 } as const;
-const statusLabel = {
-  airworthy: "Airworthy",
-  "due-soon": "Due soon",
-  grounded: "Grounded",
-} as const;
+const statusLabel = aircraftStatusLabels;
 // The manual assessment, worded as in the aircraft form's Status select.
 const profileLabel: Record<Aircraft["operationalStatus"], string> = {
   unknown: "Unverified",

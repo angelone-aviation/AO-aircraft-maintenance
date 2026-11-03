@@ -52,7 +52,11 @@ import {
   type Stock,
   type Location,
 } from "../domain/management";
-import { inspectionDueDate, inspectionStatus } from "../domain/maintenance";
+import {
+  inspectionDueDate,
+  inspectionStatus,
+  inspectionStatusLabels,
+} from "../domain/maintenance";
 import { inspectionProjections } from "../domain/forecast";
 import { daysPerServiceMonth } from "../domain/componentCalendar";
 import { AsyncForm, Field, Modal, value } from "./ui";
@@ -144,19 +148,20 @@ function inspectionLook(
       tile: "neutral",
       icon: Archive,
     };
+  const label = inspectionStatusLabels[status];
   if (status === "overdue")
-    return { label: "Overdue", tone: "danger", tile: "danger", icon: Warning };
+    return { label, tone: "danger", tile: "danger", icon: Warning };
   if (status === "due-soon")
-    return { label: "Due soon", tone: "warn", tile: "warn", icon: Clock };
+    return { label, tone: "warn", tile: "warn", icon: Clock };
   if (status === "scheduled")
     return {
-      label: "Scheduled",
+      label,
       tone: "neutral",
       tile: "neutral",
       icon: CalendarCheck,
     };
   return {
-    label: "Unknown",
+    label,
     tone: "neutral",
     tile: "neutral",
     icon: CalendarBlank,
