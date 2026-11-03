@@ -1,9 +1,25 @@
+/**
+ * Responsibility: Pins credential sealing: v1 and v2 formats, the binding to
+ *   table, program and field, key rotation, configuration errors, and the
+ *   migration that re-seals old values.
+ * Layer: Test. Vitest and convex-test suite; never shipped in the build.
+ * Dependencies: convex/secrets.ts, convex/schema.ts, convex/_generated,
+ *   src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { openSecret, sealSecret, type SecretContext } from "./secrets";
+import {
+  activeKeyId,
+  isSealed,
+  needsReseal,
+  openSecret,
+  sealSecret,
+  SEALED_V2,
+  type SecretContext,
+} from "./secrets";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -52,6 +68,13 @@ it("still opens v1 values sealed with the original key", async () => {
   );
 });
 
+it("opens a v2 value sealed by an earlier release", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
+  const stored =
+    "enc:v2:k1:USfuXPteXSoUsAxW:px6cnPx1olZ0UfP/HWwXYy/Pe0hF/7nXCvc=";
+  expect(await openSecret(stored, spruce("a", "apikey"))).toBe("golden-key");
+});
+
 it("round-trips v2 values bound to their table, program and field", async () => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
   const sealed = await sealSecret("private-key", spruce("a", "apikey"));
@@ -92,6 +115,62 @@ it("rejects unprefixed values unless legacy plaintext is explicitly allowed", as
   expect(await openSecret("plain", faa, { legacyPlaintext: true })).toBe(
     "plain",
   );
+});
+
+it("tells sealed values from plaintext, and which ones need re-sealing", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
+  const v1 = await sealV1("older");
+  const k1 = await sealSecret("current", faa);
+  expect(k1).toMatch(SEALED_V2);
+  expect([v1, k1, "plain"].map(isSealed)).toEqual([true, true, false]);
+  expect([v1, k1, "plain"].map(needsReseal)).toEqual([true, false, true]);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `k2=${K2}`);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", " k2 ");
+  expect(activeKeyId()).toBe("k2");
+  expect(needsReseal(k1)).toBe(true);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", " ");
+  expect(activeKeyId()).toBe("k1");
+});
+
+it("names the misconfigured key setting", async () => {
+  const seal = () => sealSecret("value", faa);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", "");
+  await expect(seal()).rejects.toThrow(
+    "Credential encryption is not configured. Set CREDENTIALS_ENCRYPTION_KEY in the Convex environment (see README) before saving third-party credentials.",
+  );
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", btoa("too short"));
+  await expect(seal()).rejects.toThrow(
+    "Credential encryption key k1 must be 32 random bytes, base64-encoded.",
+  );
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "k2");
+  await expect(seal()).rejects.toThrow(
+    "Credential encryption key k2 is not configured (see docs/runbooks/credentials-key.md).",
+  );
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "K2");
+  expect(activeKeyId).toThrow(
+    "CREDENTIALS_ENCRYPTION_KEY_ID must be a short lowercase key id.",
+  );
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "");
+  for (const keys of ["k2", `k1=${K2}`, `K2=${K2}`, `k2=${K2},k2=${K2}`]) {
+    vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", keys);
+    await expect(seal()).rejects.toThrow(
+      "CREDENTIALS_ENCRYPTION_KEYS must list distinct key ids as id=base64 pairs (see docs/runbooks/credentials-key.md).",
+    );
+  }
+});
+
+it("warns on accepted plaintext without logging the value", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await openSecret("hunter2", faa, { legacyPlaintext: true });
+    expect(warn).toHaveBeenCalledWith(
+      "Unencrypted legacy credential read from faaCredentials.key; run secretsMigration:reseal.",
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("hunter2");
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 it("re-seals v1 and plaintext rows to v2, then refuses plaintext", async () => {

@@ -1,3 +1,13 @@
+/**
+ * Responsibility: Keeps the memberships index of (user, group, program) rows in
+ *   step with users.groupIds, and reads a program's accounts from it.
+ * Layer: Server. Convex helpers and one internal mutation; no public function.
+ * Dependencies: convex/values, convex/_generated (server, api, dataModel).
+ *
+ * users.groupIds stays the source of truth for authorization. The index exists
+ * only to find a program's users without scanning every account, so every
+ * write to groupIds or groups calls syncMemberships for the affected users.
+ */
 import { v } from "convex/values";
 import {
   internalMutation,
@@ -6,11 +16,21 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-// users.groupIds stays the source of truth for authorization. This index of
-// (user, group, program) rows exists only to find a program's users without
-// scanning every account, so every write to groupIds or groups calls
-// syncMemberships for the affected users.
-export async function syncMemberships(ctx: MutationCtx, userId: Id<"users">) {
+
+const BACKFILL_BATCH = 100;
+
+/**
+ * Rewrites one account's membership rows to match its groupIds: inserts the
+ * missing rows and deletes stale and duplicate ones. Writes no audit entry.
+ *
+ * @param ctx - Mutation context.
+ * @param userId - Account to resync. Deleted groups get no row, and a deleted
+ *   account loses all its rows.
+ */
+export async function syncMemberships(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+): Promise<void> {
   const user = await ctx.db.get(userId);
   const groups = (
     await Promise.all(
@@ -22,6 +42,7 @@ export async function syncMemberships(ctx: MutationCtx, userId: Id<"users">) {
     .query("memberships")
     .withIndex("user", (q) => q.eq("userId", userId))
     .collect();
+  // A matching row leaves `wanted`, so a duplicate of it is deleted.
   for (const row of existing) {
     if (wanted.has(row.groupId) && wanted.get(row.groupId) === row.programUuid)
       wanted.delete(row.groupId);
@@ -30,11 +51,18 @@ export async function syncMemberships(ctx: MutationCtx, userId: Id<"users">) {
   for (const [groupId, programUuid] of wanted)
     await ctx.db.insert("memberships", { userId, groupId, programUuid });
 }
-// Removes index rows for a deleted group, including any left by stale data.
+
+/**
+ * Deletes a deleted group's membership rows, including rows whose account no
+ * longer lists the group. Writes no audit entry.
+ *
+ * @param ctx - Mutation context.
+ * @param group - The group's id and the program its rows are indexed under.
+ */
 export async function removeGroupMemberships(
   ctx: MutationCtx,
   group: Pick<Doc<"groups">, "_id" | "programUuid">,
-) {
+): Promise<void> {
   const rows = await ctx.db
     .query("memberships")
     .withIndex("program", (q) =>
@@ -43,12 +71,21 @@ export async function removeGroupMemberships(
     .collect();
   for (const row of rows) await ctx.db.delete(row._id);
 }
-// Accounts holding any group (or the given group) of a Flight Program.
+
+/**
+ * Lists the accounts holding any group of a Flight Program, or one group.
+ *
+ * @param ctx - Query or mutation context.
+ * @param programUuid - The program; undefined matches groups not yet assigned
+ *   to one.
+ * @param groupId - Narrows the list to this group's holders.
+ * @returns Each existing account once.
+ */
 export async function programUsers(
   ctx: QueryCtx | MutationCtx,
   programUuid: string | undefined,
   groupId?: Id<"groups">,
-) {
+): Promise<Doc<"users">[]> {
   const rows = await ctx.db
     .query("memberships")
     .withIndex("program", (q) =>
@@ -63,10 +100,16 @@ export async function programUsers(
     )
   ).filter((u): u is Doc<"users"> => u !== null);
 }
-const BACKFILL_BATCH = 100;
-// Idempotent: run once after deploying the memberships table with
-// `npx convex run memberships:backfill`. It walks every account in batches,
-// scheduling itself until done, and rewrites each user's rows from groupIds.
+
+/**
+ * Rebuilds every account's membership rows from groupIds, one page of accounts
+ * per transaction, scheduling the next page until done. Idempotent; run once
+ * after deploying the memberships table with
+ * `npx convex run memberships:backfill`.
+ *
+ * @param cursor - Page to resume from; omitted or null starts at the first.
+ * @returns How many accounts this page synced, and whether it was the last.
+ */
 export const backfill = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   handler: async (ctx, { cursor }) => {

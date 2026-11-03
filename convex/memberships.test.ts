@@ -1,9 +1,22 @@
+/**
+ * Responsibility: Pins the memberships index: it matches users.groupIds through
+ *   account, group and program changes, the backfill rebuilds it, and
+ *   programUsers reads a program's accounts from it.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/memberships.ts, convex/schema.ts, convex/_generated,
+ *   src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import type { Id } from "./_generated/dataModel";
+import {
+  programUsers,
+  removeGroupMemberships,
+  syncMemberships,
+} from "./memberships";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -192,7 +205,10 @@ it("backfills idempotently in scheduled batches and repairs stale rows", async (
       };
       await ctx.db.insert("memberships", bobRow);
     });
-    await t.mutation(internal.memberships.backfill, {});
+    expect(await t.mutation(internal.memberships.backfill, {})).toEqual({
+      synced: 100,
+      isDone: false,
+    });
     await t.finishAllScheduledFunctions(() => vi.runAllTimers());
     const once = await assertInSync();
     expect(once).toHaveLength(before.length + 230);
@@ -207,4 +223,53 @@ it("backfills idempotently in scheduled batches and repairs stale rows", async (
   } finally {
     vi.useRealTimers();
   }
+});
+it("drops rows for deleted groups and accounts, and lists each account once", async () => {
+  const { t, ids, assertInSync } = await setup();
+  const { groups, users } = ids;
+  await t.run(async (ctx) => {
+    const unassigned = await ctx.db.insert("groups", {
+      name: "Unassigned",
+      aircraftIds: [],
+      permissions: ["read"],
+    });
+    await ctx.db.patch(users.manager, {
+      groupIds: [groups.managers, groups.readers, unassigned],
+    });
+    await syncMemberships(ctx, users.manager);
+    const listed = async (programUuid?: string, groupId?: Id<"groups">) =>
+      (await programUsers(ctx, programUuid, groupId)).map((u) => u._id);
+    expect(await listed("A")).toEqual([users.manager]);
+    expect(await listed(undefined, unassigned)).toEqual([users.manager]);
+    await ctx.db.delete(unassigned);
+    await syncMemberships(ctx, users.manager);
+  });
+  expect(
+    (await assertInSync()).filter((m) => m.startsWith(users.manager)),
+  ).toHaveLength(2);
+  await t.run(async (ctx) => {
+    await ctx.db.delete(users.manager);
+    expect(await programUsers(ctx, "A")).toEqual([]);
+    await syncMemberships(ctx, users.manager);
+    const rows = await ctx.db.query("memberships").collect();
+    expect(rows.some((m) => m.userId === users.manager)).toBe(false);
+  });
+});
+it("removes a deleted group's rows, including ones its accounts no longer list", async () => {
+  const { t, ids } = await setup();
+  const { groups, users } = ids;
+  await t.run(async (ctx) => {
+    await ctx.db.insert("memberships", {
+      userId: users.alice,
+      groupId: groups.managers,
+      programUuid: "A",
+    });
+    await ctx.db.delete(groups.managers);
+    await removeGroupMemberships(ctx, {
+      _id: groups.managers,
+      programUuid: "A",
+    });
+    expect(await programUsers(ctx, "A", groups.managers)).toEqual([]);
+    expect(await programUsers(ctx, "B", groups.b)).toHaveLength(1);
+  });
 });
