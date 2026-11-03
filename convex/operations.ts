@@ -1,20 +1,16 @@
-import { runCommand, hydrate } from "./runCommand";
+import { runCommand, hydrate, errorsOf } from "./runCommand";
+import {
+  submitOperation,
+  FlightRejection,
+} from "../src/domain/flightSubmission";
 import { partsRequestSchema } from "../src/domain/partsRequests";
 import { costRecordSchema } from "../src/domain/costs";
 import { costDocs } from "./programContext";
 import { poSchema } from "../src/domain/purchaseOrders";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { adSchema } from "../src/domain/airworthiness";
-import {
-  oilInventoryDeductions,
-  oilUsageAudit,
-  preserveOilInventory,
-} from "../src/domain/oilInventory";
-import { recordSchema as oilStockRecordSchema } from "../src/domain/management";
-import {
-  validateChecklistFlight,
-  preserveChecklistLink,
-} from "../src/domain/flightChecklistLink";
+import { preserveOilInventory } from "../src/domain/oilInventory";
+import { preserveChecklistLink } from "../src/domain/flightChecklistLink";
 import { checklistRecordSchema } from "../src/domain/checklists";
 import {
   saveDiscrepancyParts as applyDiscrepancyParts,
@@ -67,8 +63,8 @@ import {
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { programUsers } from "./memberships";
-import { ConvexError, v } from "convex/values";
-import { dispatchGate, earliestLocalDate } from "../src/domain/aircraftStatus";
+import { v } from "convex/values";
+import { earliestLocalDate } from "../src/domain/aircraftStatus";
 import {
   deferCommandSchema,
   deferDiscrepancy as applyDeferral,
@@ -87,12 +83,11 @@ import {
   operationSchema,
   type Aircraft,
   type Flight,
+  type Operation,
   type Snapshot,
 } from "../src/domain/model";
 import {
   validateFlight,
-  conflictReason,
-  applyFlight,
   rebuildFlights,
   resequencedFlights,
   resequenceReason,
@@ -285,266 +280,164 @@ export const snapshot = query({
     return isOwnerView(snapshot) ? ownerSnapshot(snapshot) : snapshot;
   },
 });
-// Loads only what the airworthiness status needs for one aircraft.
-async function statusState(
+// Loads what submitting an outbox entry reads (see submitOperation): the
+// entry's earlier submission, or else the records it refers to, its crew and
+// the aircraft's airworthiness state for the dispatch gate.
+async function submissionState(
   ctx: MutationCtx,
   state: Snapshot,
-  aircraftUuid: string,
-): Promise<Snapshot> {
-  const aircraft = state.aircraft.filter((a) => a.uuid === aircraftUuid);
+  operation: Operation,
+) {
+  const aircraftUuid =
+    operation.kind === "flight"
+      ? operation.input.aircraftUuid
+      : operation.aircraftUuid;
+  const user = await authorized(
+    ctx,
+    aircraftUuid,
+    operation.kind === "flight" ? "flight" : "discrepancy",
+    state,
+  );
+  if (user._id !== operation.authorId)
+    throw new Error(
+      "This offline entry belongs to a different user. Sign in with the original account.",
+    );
+  const aircraft = await aircraftByUuid(ctx, aircraftUuid);
+  if (operation.kind === "discrepancy") {
+    const existing = await ctx.db
+      .query("discrepancies")
+      .withIndex("uuid", (q) => q.eq("uuid", operation.uuid))
+      .unique();
+    const flight =
+      !existing && operation.flightUuid
+        ? await ctx.db
+            .query("flights")
+            .withIndex("uuid", (q) => q.eq("uuid", operation.flightUuid!))
+            .unique()
+        : null;
+    return {
+      aircraft,
+      management: [],
+      snapshot: {
+        ...state,
+        discrepancies: existing ? [existing] : [],
+        flights: flight ? [flight] : [],
+      },
+    };
+  }
+  const { input } = operation;
+  const existing = await ctx.db
+    .query("flights")
+    .withIndex("uuid", (q) => q.eq("uuid", operation.uuid))
+    .unique();
+  if (existing)
+    return {
+      aircraft,
+      management: [],
+      snapshot: { ...state, flights: [existing] },
+    };
+  const checklist = input.checklistRun
+    ? await ctx.db
+        .query("checklists")
+        .withIndex("uuid", (q) =>
+          q.eq("uuid", input.checklistRun!.checklistUuid),
+        )
+        .unique()
+    : null;
+  const plan = input.flightPlanUuid
+    ? await ctx.db
+        .query("flightPlans")
+        .withIndex("uuid", (q) => q.eq("uuid", input.flightPlanUuid!))
+        .unique()
+    : null;
+  const crew = await Promise.all(
+    [input.pilotId, input.copilotId].filter(Boolean).map((id) => {
+      const userId = ctx.db.normalizeId("users", id!);
+      return userId ? ctx.db.get(userId) : null;
+    }),
+  );
+  // The airworthiness status of this aircraft (program-wide airworthiness so
+  // ADs that follow an installed component are included), and the program's
+  // stock for oil drawn down on the flight line.
+  const only = state.aircraft.filter((a) => a.uuid === aircraftUuid);
   const management = await managementDocs(ctx, activeProgram(state));
   return {
-    ...state,
-    management: management.map((d) =>
-      recordSchema.parse(JSON.parse(d.payload)),
-    ),
-    inspections: await inspectionDocs(ctx, aircraft, management),
-    // Program-wide so ADs that follow an installed component are included.
-    airworthiness: (await airworthinessDocs(ctx, state.aircraft)).map((d) =>
-      adSchema.parse(JSON.parse(d.payload)),
-    ),
-    discrepancies: await discrepancyDocs(ctx, aircraft),
+    aircraft,
+    management,
+    snapshot: {
+      ...state,
+      management: management.map((d) =>
+        recordSchema.parse(JSON.parse(d.payload)),
+      ),
+      inspections: await inspectionDocs(ctx, only, management),
+      airworthiness: (await airworthinessDocs(ctx, state.aircraft)).map((d) =>
+        adSchema.parse(JSON.parse(d.payload)),
+      ),
+      discrepancies: await discrepancyDocs(ctx, only),
+      checklists: checklist
+        ? [checklistRecordSchema.parse(JSON.parse(checklist.payload))]
+        : [],
+      flightPlans: plan
+        ? [flightPlanSchema.parse(JSON.parse(plan.payload))]
+        : [],
+      flights: input.flightPlanUuid
+        ? await ctx.db
+            .query("flights")
+            .withIndex("plan", (q) =>
+              q.eq("flightPlanUuid", input.flightPlanUuid!),
+            )
+            .collect()
+        : [],
+      members: crew.filter((u): u is Doc<"users"> => u !== null).map(member),
+    },
   };
 }
 export const submit = mutation({
   args: { operation: operationValidator },
   handler: async (ctx, { operation: raw }) => {
     const operation = operationSchema.parse(raw);
-    const programContext = await checkContext(ctx, operation.programUuid);
-    const aircraftUuid =
-      operation.kind === "flight"
-        ? operation.input.aircraftUuid
-        : operation.aircraftUuid;
-    const user = await authorized(
-      ctx,
-      aircraftUuid,
-      operation.kind === "flight" ? "flight" : "discrepancy",
-      programContext,
-    );
-    if (user._id !== operation.authorId)
-      throw new Error(
-        "This offline entry belongs to a different user. Sign in with the original account.",
-      );
-    const aircraft = await aircraftByUuid(ctx, aircraftUuid);
-    if (operation.kind === "flight") {
-      const existing = await ctx.db
-        .query("flights")
-        .withIndex("uuid", (q) => q.eq("uuid", operation.uuid))
-        .unique();
-      if (existing) {
-        if (existing.authorId !== user._id)
-          throw new Error("Entry ID already used.");
-        return { status: existing.status };
-      }
-      if (operation.input.checklistRun) {
-        const checklist = await ctx.db
-          .query("checklists")
-          .withIndex("uuid", (q) =>
-            q.eq("uuid", operation.input.checklistRun!.checklistUuid),
-          )
-          .unique();
-        validateChecklistFlight(
-          {
-            ...programContext,
-            checklists: checklist
-              ? [checklistRecordSchema.parse(JSON.parse(checklist.payload))]
-              : [],
-          },
-          operation.input,
-        );
-      }
-      if (operation.input.flightPlanUuid) {
-        const plan = await ctx.db
-          .query("flightPlans")
-          .withIndex("uuid", (q) =>
-            q.eq("uuid", operation.input.flightPlanUuid!),
-          )
-          .unique();
-        validatePlanFlight(
-          {
-            ...programContext,
-            flightPlans: plan
-              ? [flightPlanSchema.parse(JSON.parse(plan.payload))]
-              : [],
-            flights: await ctx.db
-              .query("flights")
-              .withIndex("plan", (q) =>
-                q.eq("flightPlanUuid", operation.input.flightPlanUuid!),
-              )
-              .collect(),
-          },
-          operation.input,
-        );
-      }
-      for (const id of [
-        operation.input.pilotId,
-        operation.input.copilotId,
-      ].filter(Boolean)) {
-        const memberId = ctx.db.normalizeId("users", id!);
-        const pilot = memberId ? await ctx.db.get(memberId) : null;
-        if (
-          !pilot ||
-          (!pilot.isAdmin &&
-            !programIds(member(pilot), programContext.groups).includes(
-              aircraft.programUuid ?? "",
-            ))
-        )
-          throw new Error("Pilot must belong to this Flight Program.");
-      }
-      validateFlight(aircraft, operation.input);
-      const pilotId = ctx.db.normalizeId("users", operation.input.pilotId);
-      if (!pilotId || !(await ctx.db.get(pilotId))?.active)
-        throw new Error("Select an active pilot.");
-      if (operation.input.copilotId) {
-        const copilotId = ctx.db.normalizeId(
-          "users",
-          operation.input.copilotId,
-        );
-        if (!copilotId || !(await ctx.db.get(copilotId))?.active)
-          throw new Error("Select an active copilot.");
-      }
-      let dispatchOverride;
-      try {
-        // Re-check at sync: offline entries were gated on a local snapshot.
-        // The earliest zone's date never rejects what the device accepted.
-        dispatchOverride = dispatchGate(
-          await statusState(ctx, programContext, aircraftUuid),
-          aircraftUuid,
-          operation.dispatchOverrideReason,
-          earliestLocalDate(),
-        );
-      } catch (error) {
-        throw new ConvexError(
-          error instanceof Error ? error.message : "Flight dispatch rejected.",
-        );
-      }
-      const reviewReason = conflictReason(
-        aircraft,
-        operation.input,
-        operation.baseVersion,
-      );
-      const flight: Flight = {
-        ...operation.input,
-        dispatchOverride,
-        uuid: operation.uuid,
-        authorId: user._id,
-        submittedAt: Date.now(),
-        status: reviewReason ? "review" : "accepted",
-        reviewReason,
-        hobbsOff: aircraft.currentHobbs,
-        tachOff: aircraft.currentTach,
-        cyclicHobbsOff: aircraft.currentCyclicHobbs,
-        flightTimeLogOff: aircraft.currentFlightTimeLog,
-      };
-      if (operation.input.oil?.some((o) => o.inventory)) {
-        const documents = await managementDocs(
-          ctx,
-          activeProgram(programContext),
-        );
-        const management = documents.map((d) =>
-          oilStockRecordSchema.parse(JSON.parse(d.payload)),
-        );
-        let changes;
-        try {
-          changes = oilInventoryDeductions(
-            { ...programContext, management },
-            operation.input,
-          );
-        } catch (error) {
-          // Expired, insufficient or non-oil stock: keep the reason through
-          // production error redaction so the Sync center can show it.
-          if (error instanceof Error && error.constructor === Error)
-            throw new ConvexError(error.message);
-          throw error;
-        }
-        for (const change of changes) {
-          const document = documents.find(
-            (d) => d.uuid === change.before.uuid,
-          )!;
-          await ctx.db.patch(document._id, {
+    return runCommand(ctx, {
+      programUuid: operation.programUuid,
+      parse: () => operation,
+      load: ({ ctx, state }) => submissionState(ctx, state, operation),
+      apply: ({ snapshot }) =>
+        submitOperation(snapshot, operation, {
+          now: Date.now(),
+          // The earliest zone's date never rejects what the device accepted.
+          today: earliestLocalDate(),
+        }),
+      expose: errorsOf(FlightRejection),
+      persist: async ({ ctx }, { aircraft, management }, { changes }) => {
+        if (!changes) return;
+        for (const change of changes.stock) {
+          const doc = management.find((d) => d.uuid === change.before.uuid)!;
+          await ctx.db.patch(doc._id, {
             payload: JSON.stringify(change.after),
           });
-          await audit(ctx, user._id, "stock.oil_used", change.before.uuid, {
-            programUuid: operation.programUuid,
-            aircraftUuid,
-            reason: `Oil added for flight ${operation.uuid}`,
-            ...oilUsageAudit(change),
+        }
+        if (changes.flight) await ctx.db.insert("flights", changes.flight);
+        if (changes.aircraft) {
+          const next = changes.aircraft;
+          await ctx.db.patch(aircraft._id, {
+            currentHobbs: next.currentHobbs,
+            currentTach: next.currentTach,
+            currentCyclicHobbs: next.currentCyclicHobbs,
+            currentFlightTimeLog: next.currentFlightTimeLog,
+            cycles: next.cycles,
+            landings: next.landings,
+            latestFlightAt: next.latestFlightAt,
+            version: next.version,
           });
         }
-      }
-      await ctx.db.insert("flights", flight);
-      if (!reviewReason) {
-        const next = applyFlight(aircraft, operation.input);
-        await ctx.db.patch(aircraft._id, {
-          currentHobbs: next.currentHobbs,
-          currentTach: next.currentTach,
-          currentCyclicHobbs: next.currentCyclicHobbs,
-          currentFlightTimeLog: next.currentFlightTimeLog,
-          cycles: next.cycles,
-          landings: next.landings,
-          latestFlightAt: next.latestFlightAt,
-          version: next.version,
-        });
-      }
-      if (operation.input.discrepancy.trim())
-        await ctx.db.insert("discrepancies", {
-          uuid: operation.uuid + "-discrepancy",
-          aircraftUuid,
-          flightUuid: operation.uuid,
-          description: operation.input.discrepancy.trim(),
-          status: "open",
-          authorId: user._id,
-          createdAt: Date.now(),
-        });
-      await audit(
-        ctx,
-        user._id,
-        reviewReason ? "flight.held" : "flight.created",
-        operation.uuid,
-        { aircraftUuid, after: flight },
-      );
-      if (dispatchOverride)
-        await audit(ctx, user._id, "flight.dispatch_override", operation.uuid, {
-          programUuid: operation.programUuid,
-          aircraftUuid,
-          reason: dispatchOverride.reason,
-          after: dispatchOverride,
-        });
-      return { status: flight.status };
-    }
-    const existing = await ctx.db
-      .query("discrepancies")
-      .withIndex("uuid", (q) => q.eq("uuid", operation.uuid))
-      .unique();
-    if (existing) {
-      if (existing.authorId !== user._id)
-        throw new Error("Entry ID already used.");
-      return { status: "accepted" as const };
-    }
-    if (operation.flightUuid) {
-      const flight = await ctx.db
-        .query("flights")
-        .withIndex("uuid", (q) => q.eq("uuid", operation.flightUuid!))
-        .unique();
-      if (!flight || flight.aircraftUuid !== aircraftUuid)
-        throw new Error("Linked flight does not belong to this aircraft.");
-    }
-    const report = {
-      uuid: operation.uuid,
-      aircraftUuid,
-      flightUuid: operation.flightUuid,
-      description: operation.description,
-      grounding: operation.grounding,
-      status: "open" as const,
-      authorId: user._id,
-      createdAt: Date.now(),
-    };
-    await ctx.db.insert("discrepancies", report);
-    await audit(ctx, user._id, "discrepancy.created", operation.uuid, {
-      aircraftUuid,
-      after: report,
+        if (changes.discrepancy)
+          await ctx.db.insert("discrepancies", changes.discrepancy);
+      },
+      audit: (log, _, { changes }) => {
+        for (const entry of changes?.audit ?? [])
+          log.entry(entry.action, entry.entityUuid, entry);
+      },
+      returns: ({ status }) => ({ status }),
     });
-    return { status: "accepted" as const };
   },
 });
 export const resolveDiscrepancy = mutation({

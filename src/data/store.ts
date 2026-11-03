@@ -32,11 +32,8 @@ import {
   applyADCommand,
 } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
-import {
-  oilInventoryDeductions,
-  oilUsageAudit,
-  preserveOilInventory,
-} from "../domain/oilInventory";
+import { preserveOilInventory } from "../domain/oilInventory";
+import { submitOperation } from "../domain/flightSubmission";
 import {
   validateChecklistFlight,
   preserveChecklistLink,
@@ -97,7 +94,6 @@ import { ConvexError } from "convex/values";
 import type {
   Aircraft,
   AuditEntry,
-  Flight,
   Operation,
   QueuedOperation,
   Snapshot,
@@ -106,8 +102,6 @@ import { can, localDate, offlineValid } from "../domain/model";
 import { dispatchGate } from "../domain/aircraftStatus";
 import { deferDiscrepancy } from "../domain/deferrals";
 import {
-  applyFlight,
-  conflictReason,
   rebuildFlights,
   resequencedFlights,
   resequenceReason,
@@ -1213,112 +1207,33 @@ function demoBackend(): Backend {
             )
           )
             throw new Error("Flight Program access denied.");
-          if (op.kind === "flight") {
-            const existing = s.flights.find((f) => f.uuid === op.uuid);
-            if (existing) {
-              status = existing.status;
-              return;
-            }
-            validatePlanFlight(s, op.input);
-            validateChecklistFlight(s, op.input);
-            const aircraft = s.aircraft.find(
-              (a) => a.uuid === op.input.aircraftUuid,
-            )!;
-            validateFlight(aircraft, op.input);
-            const dispatchOverride = dispatchGate(
-              s,
-              aircraft.uuid,
-              op.dispatchOverrideReason,
-              localDate(),
+          const result = submitOperation(s, op, {
+            now: Date.now(),
+            today: localDate(),
+          });
+          status = result.status;
+          if (!result.changes) return;
+          const { stock, flight, aircraft, discrepancy } = result.changes;
+          for (const change of stock)
+            s.management = s.management?.map((r) =>
+              r.uuid === change.before.uuid ? change.after : r,
             );
-            const reason = conflictReason(aircraft, op.input, op.baseVersion);
-            const f: Flight = {
-              ...op.input,
-              dispatchOverride,
-              uuid: op.uuid,
-              authorId: op.authorId,
-              submittedAt: Date.now(),
-              status: reason ? "review" : "accepted",
-              reviewReason: reason,
-              hobbsOff: aircraft.currentHobbs,
-              tachOff: aircraft.currentTach,
-              cyclicHobbsOff: aircraft.currentCyclicHobbs,
-              flightTimeLogOff: aircraft.currentFlightTimeLog,
-            };
-            const changes = oilInventoryDeductions(s, op.input);
-            for (const change of changes) {
-              s.management = s.management?.map((r) =>
-                r.uuid === change.before.uuid ? change.after : r,
-              );
-              const entry = oilUsageAudit(change);
-              audit(
-                s,
-                "stock.oil_used",
-                change.before.uuid,
-                aircraft.uuid,
-                `Oil added for flight ${op.uuid}`,
-                entry.before,
-                entry.after,
-              );
-            }
-            s.flights.push(f);
-            status = f.status;
-            if (!reason)
-              s.aircraft = s.aircraft.map((a) =>
-                a.uuid === aircraft.uuid ? applyFlight(a, op.input) : a,
-              );
-            if (op.input.discrepancy.trim())
-              s.discrepancies.push({
-                uuid: op.uuid + "-discrepancy",
-                aircraftUuid: aircraft.uuid,
-                flightUuid: op.uuid,
-                authorId: op.authorId,
-                description: op.input.discrepancy,
-                status: "open",
-                createdAt: Date.now(),
-              });
+          if (flight) s.flights.push(flight);
+          if (aircraft)
+            s.aircraft = s.aircraft.map((a) =>
+              a.uuid === aircraft.uuid ? aircraft : a,
+            );
+          if (discrepancy) s.discrepancies.push(discrepancy);
+          for (const e of result.changes.audit)
             audit(
               s,
-              reason ? "flight.held" : "flight.created",
-              op.uuid,
-              aircraft.uuid,
-              reason,
-              undefined,
-              f,
+              e.action,
+              e.entityUuid,
+              e.aircraftUuid,
+              e.reason,
+              e.before,
+              e.after,
             );
-            if (dispatchOverride)
-              audit(
-                s,
-                "flight.dispatch_override",
-                op.uuid,
-                aircraft.uuid,
-                dispatchOverride.reason,
-                undefined,
-                dispatchOverride,
-              );
-          } else {
-            if (s.discrepancies.some((d) => d.uuid === op.uuid)) return;
-            const report = {
-              uuid: op.uuid,
-              aircraftUuid: op.aircraftUuid,
-              flightUuid: op.flightUuid,
-              authorId: op.authorId,
-              description: op.description,
-              grounding: op.grounding,
-              status: "open" as const,
-              createdAt: Date.now(),
-            };
-            s.discrepancies.push(report);
-            audit(
-              s,
-              "discrepancy.created",
-              op.uuid,
-              op.aircraftUuid,
-              undefined,
-              undefined,
-              report,
-            );
-          }
         }),
       );
       return { status };
