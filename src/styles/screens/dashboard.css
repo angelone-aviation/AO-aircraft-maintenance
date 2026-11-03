@@ -1,8 +1,12 @@
-/* Dashboard (route "/"), its aircraft detail dialog and the shared aircraft
- * status pieces in src/components/AircraftStatus.tsx. Every class is prefixed
- * `dash-`. Tokens come from src/styles/tokens.css; shared blocks (`ds-*`)
- * from src/styles/design.css. styles.css loads after this file, so rules that
- * adjust a global class (.text-button, .button) use two classes to win. */
+/*
+ * Responsibility: Styles the Dashboard (route "/"), its aircraft detail dialog
+ *   and the aircraft status and files pieces it shares with other screens.
+ * Layer: UI. Screen styles; every selector is scoped by a `dash-` class.
+ * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`).
+ *
+ * styles.css loads after this file, so rules that adjust a global class
+ * (.button, .list-row) use two classes to win.
+ */
 
 .dash {
   min-width: 0;

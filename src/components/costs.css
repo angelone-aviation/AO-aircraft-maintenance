@@ -1,6 +1,12 @@
-/* Work-order and aircraft cost summaries (tokens from src/styles/tokens.css).
- * The annual budget bar on the Costs screen is styled in
- * src/styles/screens/shop.css (.shop-budget). */
+/*
+ * Responsibility: Styles the cost totals and the unit-cost editor in the
+ *   aircraft and work-order cost summaries.
+ * Layer: UI. Component styles, imported by the components that use them.
+ * Dependencies: src/styles/tokens.css.
+ *
+ * The Costs screen's annual budget bar is styled in
+ * src/styles/screens/shop.css (.shop-budget).
+ */
 .cost-totals {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

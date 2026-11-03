@@ -1,3 +1,9 @@
+/*
+ * Responsibility: Styles the airworthiness directive register, one collapsible
+ *   group per aircraft or component, and the AD tool panels beside it.
+ * Layer: UI. Component styles, imported by the components that use them.
+ * Dependencies: src/styles/tokens.css.
+ */
 .ad-register {
   display: grid;
   gap: 10px;

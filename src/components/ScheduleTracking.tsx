@@ -1,13 +1,31 @@
+/**
+ * Responsibility: "Track by" choice of the dimensions an inspection or
+ *   component requirement is tracked by, with the limit inputs for each.
+ * Layer: UI. A section of an enclosing form, which reads the inputs on submit.
+ * Dependencies: react.
+ */
 import { useState, type ReactNode } from "react";
 
+/** A measure an inspection or component requirement can fall due by. */
 export type ScheduleDimension = "hours" | "calendar" | "cycles" | "landings";
-const labels: Record<ScheduleDimension, string> = {
+
+const DIMENSION_LABELS: Record<ScheduleDimension, string> = {
   hours: "Hours",
   calendar: "Calendar",
   cycles: "Cycles",
   landings: "Landings",
 };
-/** Disabled fieldsets keep typed values while excluding deselected limits from FormData. */
+const DIMENSIONS = Object.keys(DIMENSION_LABELS) as ScheduleDimension[];
+
+/**
+ * A checkbox per dimension and a fieldset of its limit inputs. Disabled
+ * fieldsets keep typed values while excluding deselected limits from FormData.
+ *
+ * @param props.initial - Which dimensions are checked on first render.
+ * @param props.children - The limit inputs for each dimension.
+ * @returns The "Track by" heading, the checkboxes and one fieldset per
+ *   dimension.
+ */
 export function ScheduleTracking({
   initial,
   children,
@@ -20,7 +38,7 @@ export function ScheduleTracking({
     <>
       <h3>Track by</h3>
       <div className="management-actions">
-        {(Object.keys(labels) as ScheduleDimension[]).map((key) => (
+        {DIMENSIONS.map((key) => (
           <label className="checkbox" key={key}>
             <input
               type="checkbox"
@@ -29,13 +47,13 @@ export function ScheduleTracking({
                 setEnabled({ ...enabled, [key]: event.target.checked })
               }
             />
-            {labels[key]}
+            {DIMENSION_LABELS[key]}
           </label>
         ))}
       </div>
-      {(Object.keys(labels) as ScheduleDimension[]).map((key) => (
+      {DIMENSIONS.map((key) => (
         <fieldset key={key} hidden={!enabled[key]} disabled={!enabled[key]}>
-          <legend>{labels[key]}</legend>
+          <legend>{DIMENSION_LABELS[key]}</legend>
           <div className="form-grid">{children[key]}</div>
         </fieldset>
       ))}

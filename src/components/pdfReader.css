@@ -1,3 +1,9 @@
+/*
+ * Responsibility: Styles the in-app PDF reader: the page and zoom toolbar, the
+ *   scrolling page viewport and the page-text disclosure.
+ * Layer: UI. Component styles, imported by the components that use them.
+ * Dependencies: src/styles/tokens.css.
+ */
 .pdf-reader {
   min-width: 0;
 }

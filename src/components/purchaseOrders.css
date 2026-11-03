@@ -1,4 +1,9 @@
-/* Purchase order editor and detail (tokens from src/styles/tokens.css). */
+/*
+ * Responsibility: Styles the part-line fieldsets and preformatted text in the
+ *   purchase order editor and detail.
+ * Layer: UI. Component styles, imported by the components that use them.
+ * Dependencies: src/styles/tokens.css.
+ */
 .po-line {
   border: 1px solid var(--border);
   border-radius: var(--radius-tile);

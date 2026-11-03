@@ -1,6 +1,10 @@
-/* Styles for the shared building blocks in src/components/design.tsx.
- * Every class is prefixed `ds-` so screen styles never collide with them.
- * Tokens come from src/styles/tokens.css. */
+/*
+ * Responsibility: Styles the shared building blocks in
+ *   src/components/design.tsx.
+ * Layer: UI. Design-system styles; every selector is scoped by a `ds-` class
+ *   so screen styles never collide with them.
+ * Dependencies: src/styles/tokens.css (tokens and keyframes).
+ */
 
 /* ---------- Page header ---------- */
 .ds-page-header {

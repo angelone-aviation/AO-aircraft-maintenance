@@ -1,8 +1,14 @@
-/* Planning print layout: only the forecast prints. The app shell (sidebar,
- * tablet rail, phone tab bar, More sheet, top bar, footer) and the screen
- * controls are hidden, and a dark theme prints with the light palette so
- * text stays dark on paper. Screen styles live in
- * src/styles/screens/operations.css. */
+/*
+ * Responsibility: Print layout for the Planning screen: only the forecast
+ *   prints, without the app shell or the screen controls (.no-print).
+ * Layer: UI. Print-only; the screen styles are the shared `ops-*` rules in
+ *   src/styles/screens/operations.css.
+ * Dependencies: src/styles/tokens.css, src/styles.css (shell),
+ *   src/styles/design.css (`ds-*`).
+ *
+ * A dark theme prints with the light palette, on white with darker borders,
+ * so text stays dark on paper.
+ */
 @media print {
   .sidebar,
   .rail,
