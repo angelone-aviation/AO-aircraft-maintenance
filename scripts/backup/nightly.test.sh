@@ -239,6 +239,9 @@ run_backup() { # run_backup <name> [VAR=value...]
     CONVEX_DEPLOY_KEY="$deploy_key" BACKUP_AGE_PUBLIC_KEY="$public_key" \
     R2_ACCOUNT_ID="$r2_account" R2_ACCESS_KEY_ID="$r2_key_id" R2_SECRET_ACCESS_KEY="$r2_secret" \
     "$@" bash "$script" >"$out" 2>&1 || status=$?
+  # Object names carry the export's second, so the next run must start in a
+  # later second than this one finished in, even on a slow, busy machine.
+  last_second=$(date -u +%s)
 }
 
 bucket_dir() { echo "$state/r2/angelone-backups"; }
