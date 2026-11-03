@@ -349,6 +349,7 @@ export const templateLandingCsvHeaders = [
  * review before saving. Choice columns match case-insensitively; blank ones
  * take the {@link emptyTemplate} defaults.
  *
+ * @param text - The CSV file's text.
  * @param scope - Applicability given to every template.
  * @param group - Group given to every template.
  * @returns Per record, in file order: its CSV `row`, then the `template` or a
