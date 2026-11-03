@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
+# Responsibility: Tests scripts/backup/nightly.sh and decrypt.sh end to end,
+#   including the Dropbox step, without credentials or network.
+# Layer: Test. Never shipped; never touches a real bucket or deployment.
+# Dependencies: bash, age, age-keygen, zip, unzip, jq, sha256sum, cmp;
+#   scripts/backup/nightly.sh, scripts/backup/decrypt.sh.
 #
-# Tests scripts/backup/nightly.sh without credentials or network: fake `npx`
-# (Convex CLI) and `aws` (R2) commands come first on PATH, the bucket is a
-# folder, and the age key pair is thrown away afterwards.
-# Needs bash, age, age-keygen, zip, unzip, jq and sha256sum. Run: npm run test:backup
-#
+# Fake `npx` (Convex CLI), `aws` (R2) and `node` commands come first on PATH,
+# the bucket is a folder, and the age key pair is thrown away afterwards.
+# Run: npm run test:backup.
+
 # Single-quoted jq programs and bash -c snippets are expanded by jq or the inner
 # shell, on purpose.
 # shellcheck disable=SC2016
