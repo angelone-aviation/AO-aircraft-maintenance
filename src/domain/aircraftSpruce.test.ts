@@ -63,7 +63,7 @@ describe("Aircraft Spruce imports", () => {
   });
 });
 
-// Mirror the private limits in aircraftSpruce.ts; a change to either fails here.
+// Mirror the private limits in aircraftSpruce.ts; changing either fails here.
 const SEARCH_RESULT_LIMIT = 30;
 const MAX_ORDER_LINES = 1000;
 const CATALOG_HEADER = "PN,DESCRIPTION,NETPRICE,UOM";

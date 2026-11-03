@@ -247,7 +247,8 @@ export function priceCents(value: string): number | undefined {
  * @param order - A supplier order number, already trimmed, or "" to use `po`.
  * @returns The matching lines, in export order.
  * @throws {Error} "Too many order lines. Select an individual order." when the
- *   export has over 1,000 lines, matching or not; the {@link csvRecords} errors.
+ *   export has over 1,000 lines, matching or not; the {@link csvRecords}
+ *   errors.
  */
 export function parseOrders(
   text: string,

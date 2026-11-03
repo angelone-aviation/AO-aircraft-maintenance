@@ -135,7 +135,7 @@ it("validates editable phrases", () => {
   expect(logbookPhrasesSchema.safeParse([]).success).toBe(false);
 });
 
-// Mirrors the private limit in logbookWording.ts; a change to either fails here.
+// Mirrors the private limit in logbookWording.ts; changing either fails here.
 const PHRASE_MAX_LENGTH = 200;
 const AC_43_13 = "IAW Standard Practice found in AC43.13";
 

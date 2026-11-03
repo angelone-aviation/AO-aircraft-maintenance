@@ -28,7 +28,7 @@ export interface OffsiteCopy {
   monthlyCompletedAt?: number;
 }
 
-/** `ok`, `stale` once the newest copy is too old, or `none` before the first. */
+/** `ok`, `stale` once the newest copy is too old, or `none` before any. */
 export type OffsiteStatus = "ok" | "stale" | "none";
 
 /** The backup's status, with one plain sentence for system administrators. */
