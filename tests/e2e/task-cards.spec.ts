@@ -267,12 +267,27 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
   await editor
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
-  // Record a certificate type and number under My certifications.
-  await page
+  // A pilot certificate is not a maintenance certificate.
+  const myCertifications = page
     .locator(".profile-links")
-    .getByRole("button", { name: "My certifications", exact: true })
-    .click();
+    .getByRole("button", { name: "My certifications", exact: true });
   const profile = page.getByRole("dialog", { name: "My certifications" });
+  await myCertifications.click();
+  await profile.getByRole("checkbox", { name: "Pilot", exact: true }).check();
+  await profile
+    .getByLabel("Pilot certificate number", { exact: true })
+    .fill("P-98765");
+  await profile
+    .getByRole("button", { name: "Save certifications", exact: true })
+    .click();
+  await expect(profile).toHaveCount(0);
+  await expect(compact).toBeDisabled();
+  await expect(compact).toHaveAttribute(
+    "title",
+    "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.",
+  );
+  // Record a mechanic certificate type and number under My certifications.
+  await myCertifications.click();
   await profile
     .getByRole("checkbox", { name: "Certified mechanic", exact: true })
     .check();

@@ -12,6 +12,7 @@ import { checkContext } from "./programContext";
 import { audit } from "./access";
 import { can, type Snapshot } from "../src/domain/model";
 import {
+  aircraftFileArchive,
   assertAircraftFileRoom,
   assertAircraftFileWriter,
   MAX_AIRCRAFT_FILES,
@@ -34,7 +35,8 @@ async function access(
   )?.programUuid;
   return { user: state.user, programUuid };
 }
-/** Files of every aircraft the snapshot's reader can read. */
+/** Files of every aircraft the snapshot's reader can read, archived ones
+ * included; screens and owner views show current copies by default. */
 export async function aircraftFileList(
   ctx: QueryCtx,
   s: Snapshot,
@@ -46,7 +48,7 @@ export async function aircraftFileList(
         const files = await ctx.db
           .query("aircraftFiles")
           .withIndex("aircraft", (q) => q.eq("aircraftUuid", a.uuid))
-          .take(MAX_AIRCRAFT_FILES);
+          .collect();
         return Promise.all(
           files.map(async (f) => ({
             uuid: f._id,
@@ -56,6 +58,9 @@ export async function aircraftFileList(
             type: f.type,
             size: f.size,
             uploadedAt: f.uploadedAt,
+            archivedAt: f.archivedAt,
+            archivedBy: f.archivedBy,
+            archiveReason: f.archiveReason,
             url: (await ctx.storage.getUrl(f.storageId)) ?? "",
           })),
         );
@@ -86,6 +91,7 @@ export const finishUpload = internalMutation({
         await ctx.db
           .query("aircraftFiles")
           .withIndex("aircraft", (q) => q.eq("aircraftUuid", args.aircraftUuid))
+          .filter((q) => q.eq(q.field("archivedAt"), undefined))
           .take(MAX_AIRCRAFT_FILES)
       ).length,
     );
@@ -142,8 +148,14 @@ export const upload = action({
     }
   },
 });
-export const remove = mutation({
-  args: { id: v.id("aircraftFiles"), programUuid: v.optional(v.string()) },
+// Status records are never deleted (ADR-0004): archiving hides a copy from the
+// current list and keeps its stored file. There is no delete path.
+export const archive = mutation({
+  args: {
+    id: v.id("aircraftFiles"),
+    reason: v.string(),
+    programUuid: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.id);
     if (!file) throw new Error("Document not found.");
@@ -151,17 +163,22 @@ export const remove = mutation({
       aircraftUuid: file.aircraftUuid,
       programUuid: args.programUuid,
     });
-    await ctx.db.delete(file._id);
-    // Each upload stores its own blob; no other record refers to it.
-    await ctx.storage.delete(file.storageId);
+    const archived = aircraftFileArchive(
+      file,
+      owner.user,
+      args.reason,
+      Date.now(),
+    );
+    await ctx.db.patch(file._id, archived);
     await audit(
       ctx,
       owner.user.id,
-      "aircraft.file_removed",
+      "aircraft.file_archived",
       file.aircraftUuid,
       {
         programUuid: owner.programUuid,
         aircraftUuid: file.aircraftUuid,
+        reason: archived.archiveReason,
         before: {
           category: file.category,
           name: file.name,
@@ -169,6 +186,7 @@ export const remove = mutation({
           size: file.size,
           uploadedAt: file.uploadedAt,
         },
+        after: { category: file.category, name: file.name, ...archived },
       },
     );
   },

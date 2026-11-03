@@ -664,4 +664,77 @@ describe("inspection signoff certificate (the 43.7 signer)", () => {
     };
     expect(inspect(s, t).inspectionSignoff?.userId).toBe("inspector");
   });
+  const maintenanceHint =
+    "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.";
+  it("refuses a pilot certificate: only maintenance certificates sign inspections", () => {
+    const { s, t } = technicianSigned();
+    const pilot = { kind: "pilot" as const, number: "P-98765", issuedOn: "" };
+    s.user = {
+      ...s.user,
+      id: "inspector",
+      name: "Inspector",
+      certifications: [pilot],
+    };
+    expect(() => inspect(s, t)).toThrow(maintenanceHint);
+    // An unnumbered mechanic record does not make up for it.
+    s.user = {
+      ...s.user,
+      certifications: [
+        pilot,
+        { kind: "mechanic", number: "", issuedOn: "", airframe: true },
+      ],
+    };
+    expect(() => inspect(s, t)).toThrow(maintenanceHint);
+    // Older single-license fields: pilot and unrecognized types are refused.
+    for (const certificateType of [
+      "Pilot",
+      "Private pilot",
+      "Commercial pilot",
+      "ATP",
+      "AME",
+      "CRS",
+    ]) {
+      s.user = {
+        ...s.user,
+        certifications: undefined,
+        licenseNumber: "3456789",
+        certificateType,
+      };
+      expect(() => inspect(s, t), certificateType).toThrow(maintenanceHint);
+    }
+    expect(
+      s.taskCards!.find((x) => x.uuid === t.uuid)?.inspectionSignoff,
+    ).toBeNull();
+    // A numbered mechanic certificate beside the pilot certificate signs.
+    s.user = {
+      ...s.user,
+      certifications: [
+        pilot,
+        { kind: "mechanic", number: "3456789", issuedOn: "" },
+      ],
+    };
+    expect(inspect(s, t).inspectionSignoff?.userId).toBe("inspector");
+  });
+  it.each([
+    "A&P",
+    "A & P",
+    "A&P IA",
+    "Airframe (A)",
+    "Powerplant (P)",
+    "Mechanic",
+    "IA",
+    "Inspection Authorization",
+    "Repairman",
+    "Pilot, A&P",
+  ])("accepts the older certificate type %s", (certificateType) => {
+    const { s, t } = technicianSigned();
+    s.user = {
+      ...s.user,
+      id: "inspector",
+      name: "Inspector",
+      licenseNumber: "3456789",
+      certificateType,
+    };
+    expect(inspect(s, t).inspectionSignoff?.userId).toBe("inspector");
+  });
 });

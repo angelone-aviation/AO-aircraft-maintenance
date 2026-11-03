@@ -863,6 +863,22 @@
   font-size: 13.5px;
   color: var(--muted);
 }
+.dash-file-archive {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 6px;
+  padding-top: 4px;
+}
+.dash-file-archive label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.dash-file-archive input {
+  min-height: 40px;
+}
+.dash-files-toggle {
+  margin: 0 0 8px;
+}
 .dash-files-status {
   margin: 8px 0 0;
   font-size: 14px;

@@ -2,7 +2,9 @@ import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { scopedSnapshot } from "./programs";
 import {
+  aircraftFileArchive,
   assertAircraftFileRoom,
+  isCurrentAircraftFile,
   assertAircraftFileWriter,
   MAX_AIRCRAFT_FILES,
   validateAircraftFile,
@@ -62,4 +64,25 @@ it("lets maintenance upload and delete while readers only see the files", () => 
   expect(scopedSnapshot(pilot).aircraftFiles?.map((f) => f.uuid)).toEqual([
     "f",
   ]);
+});
+
+it("archives a current copy only with a reason, recording who and when", () => {
+  const user = { id: "u1", name: "Casey Tech" };
+  expect(() => aircraftFileArchive({}, user, "  ", 5)).toThrow(
+    "Enter a reason for archiving this copy.",
+  );
+  expect(() => aircraftFileArchive({}, user, "x".repeat(501), 5)).toThrow(
+    "500 characters",
+  );
+  const archived = aircraftFileArchive({}, user, " Superseded ", 5);
+  expect(archived).toEqual({
+    archivedAt: 5,
+    archivedBy: { userId: "u1", name: "Casey Tech" },
+    archiveReason: "Superseded",
+  });
+  expect(isCurrentAircraftFile({})).toBe(true);
+  expect(isCurrentAircraftFile(archived)).toBe(false);
+  expect(() => aircraftFileArchive(archived, user, "Again", 6)).toThrow(
+    "already archived",
+  );
 });

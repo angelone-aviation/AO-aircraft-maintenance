@@ -110,33 +110,86 @@ test("keeps Form 337 copies on the aircraft record and lists them in the status 
   expect(text).toContain("FORM 337 COPIES");
   expect(text).toContain("icao-flight-plan.pdf");
   expect(text).not.toContain("No Form 337 copies on file");
-  // Aircraft owners read the copy without upload or delete controls.
-  await detail.getByRole("button", { name: "Close dialog" }).click();
-  await page
-    .getByRole("button", { name: "Preview owner portal", exact: true })
-    .click();
+  // Aircraft owners read the copy without upload or archive controls.
+  const openDetail = () =>
+    page
+      .getByRole("article")
+      .filter({ hasText: "N206MA" })
+      .getByRole("button", { name: /View aircraft/i })
+      .click();
+  const ownerPreview = async (check: () => Promise<void>) => {
+    await detail.getByRole("button", { name: "Close dialog" }).click();
+    await page
+      .getByRole("button", { name: "Preview owner portal", exact: true })
+      .click();
+    await check();
+    await page
+      .getByRole("button", { name: "Exit owner preview", exact: true })
+      .click();
+    await openDetail();
+  };
   const owner = page.getByRole("region", { name: "Form 337 copies" });
-  await expect(owner).toContainText("icao-flight-plan.pdf");
-  await expect(owner.getByLabel("Upload Form 337 copy")).toHaveCount(0);
-  await expect(
-    owner.getByRole("button", { name: "Delete icao-flight-plan.pdf" }),
-  ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Exit owner preview", exact: true })
+  await ownerPreview(async () => {
+    await expect(owner).toContainText("icao-flight-plan.pdf");
+    await expect(owner.getByLabel("Upload Form 337 copy")).toHaveCount(0);
+    await expect(owner.getByRole("button")).toHaveCount(0);
+  });
+  // Archiving follows maintenance permission and needs a reason; nothing is
+  // deleted, and there is no delete control.
+  await expect(copies.getByRole("button", { name: /Delete/ })).toHaveCount(0);
+  await list
+    .getByRole("button", { name: "Archive icao-flight-plan.pdf", exact: true })
     .click();
-  // Deleting follows maintenance permission and asks for confirmation.
-  await page
-    .getByRole("article")
-    .filter({ hasText: "N206MA" })
-    .getByRole("button", { name: /View aircraft/i })
+  const reason = copies.getByLabel(
+    "Reason for archiving icao-flight-plan.pdf",
+    { exact: true },
+  );
+  await expect(reason).toBeFocused();
+  await copies.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(reason).toHaveCount(0);
+  await list
+    .getByRole("button", { name: "Archive icao-flight-plan.pdf", exact: true })
     .click();
-  page.once("dialog", (dialog) => void dialog.accept());
+  await reason.fill("Superseded by the corrected Form 337");
   await copies
-    .getByRole("button", { name: "Delete icao-flight-plan.pdf", exact: true })
+    .getByRole("button", { name: "Archive copy", exact: true })
     .click();
+  await expect(copies.getByRole("status")).toHaveText(
+    "icao-flight-plan.pdf archived.",
+  );
   await expect(copies).toContainText("No Form 337 copies on file.");
-  // Upload and deletion are audited.
+  // Archived copies are hidden until shown, then listed read-only with who
+  // archived them, when and why; they can still be opened.
+  const archived = copies.getByRole("list", {
+    name: "N206MA archived Form 337 copies",
+  });
+  await expect(archived).toHaveCount(0);
+  await copies
+    .getByRole("switch", { name: "Show archived (1)", exact: true })
+    .check();
+  await expect(archived).toContainText("icao-flight-plan.pdf");
+  await expect(archived).toContainText(
+    "by Alex Morgan: Superseded by the corrected Form 337",
+  );
+  await expect(
+    archived.getByRole("link", { name: "Open icao-flight-plan.pdf" }),
+  ).toHaveAttribute("href", /^blob:/);
+  await expect(archived.getByRole("button")).toHaveCount(0);
+  // The status sheet lists current copies and counts archived ones.
+  const afterArchive = await statusSheetText(page);
+  expect(afterArchive).toContain("No Form 337 copies on file");
+  expect(afterArchive).toContain(
+    "1 archived Form 337 copy is not listed. Archived copies are kept in Angel One",
+  );
+  expect(afterArchive).not.toContain("icao-flight-plan.pdf");
+  // Owners see only current copies.
+  await ownerPreview(async () => {
+    await expect(owner).toContainText("No Form 337 copies on file.");
+    await expect(owner).not.toContainText("icao-flight-plan.pdf");
+    await expect(owner.getByRole("switch")).toHaveCount(0);
+  });
+  // Upload and archiving are audited.
   await page.goto("/history");
-  for (const title of ["Aircraft · file uploaded", "Aircraft · file removed"])
+  for (const title of ["Aircraft · file uploaded", "Aircraft · file archived"])
     await expect(page.getByText(title, { exact: true })).toBeVisible();
 });

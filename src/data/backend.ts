@@ -202,7 +202,7 @@ export interface Backend {
     category: import("../domain/aircraftFiles").AircraftFileCategory,
     file: File,
   ): Promise<unknown>;
-  removeAircraftFile(id: string): Promise<unknown>;
+  archiveAircraftFile(id: string, reason: string): Promise<unknown>;
   createUser(email: string, name: string, password: string): Promise<string>;
   updateUser(user: Member): Promise<unknown>;
   saveCertifications(
@@ -568,9 +568,10 @@ export function convexBackend(client: ConvexReactClient): Backend {
         bytes: await file.arrayBuffer(),
         programUuid: programUuid(),
       }),
-    removeAircraftFile: (id) =>
-      client.mutation(api.aircraftFiles.remove, {
+    archiveAircraftFile: (id, reason) =>
+      client.mutation(api.aircraftFiles.archive, {
         id: id as Id<"aircraftFiles">,
+        reason,
         programUuid: programUuid(),
       }),
     createUser: (email, name, password) =>

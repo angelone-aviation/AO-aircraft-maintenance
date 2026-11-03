@@ -219,6 +219,18 @@ it("rejects an inspection signoff until the inspector has a certificate on file"
     ]),
   });
   await expect(inspect()).rejects.toThrow("My certifications");
+  // A pilot certificate is not a maintenance certificate.
+  await inspector.mutation(api.certifications.save, {
+    userId: inspectorId,
+    payload: JSON.stringify([
+      { kind: "pilot", number: "P-98765", issuedOn: "" },
+    ]),
+  });
+  await expect(inspect()).rejects.toThrow(
+    "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.",
+  );
+  card = await getCard();
+  expect(card.inspectionSignoff).toBeNull();
   await inspector.mutation(api.certifications.save, {
     userId: inspectorId,
     payload: JSON.stringify([

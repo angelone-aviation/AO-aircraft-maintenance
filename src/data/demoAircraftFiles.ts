@@ -1,6 +1,8 @@
 import type { Snapshot } from "../domain/model";
 import {
+  aircraftFileArchive,
   assertAircraftFileRoom,
+  isCurrentAircraftFile,
   assertAircraftFileWriter,
   validateAircraftFile,
   type AircraftFileCategory,
@@ -34,8 +36,9 @@ export const demoAircraftFiles = {
     await modify((s) => {
       assertAircraftFileWriter(s, aircraftUuid);
       assertAircraftFileRoom(
-        (s.aircraftFiles ?? []).filter((f) => f.aircraftUuid === aircraftUuid)
-          .length,
+        (s.aircraftFiles ?? []).filter(
+          (f) => f.aircraftUuid === aircraftUuid && isCurrentAircraftFile(f),
+        ).length,
       );
       s.aircraftFiles = [
         ...(s.aircraftFiles ?? []),
@@ -61,20 +64,23 @@ export const demoAircraftFiles = {
       );
     });
   },
-  remove(modify: Modify, audit: Audit, id: string) {
+  // Status records are never deleted (ADR-0004); the copy and its file stay.
+  archive(modify: Modify, audit: Audit, id: string, reason: string) {
     return modify((s) => {
       const file = s.aircraftFiles?.find((f) => f.uuid === id);
       if (!file) throw new Error("Document not found.");
       assertAircraftFileWriter(s, file.aircraftUuid);
-      s.aircraftFiles = s.aircraftFiles!.filter((f) => f.uuid !== id);
-      const { url: _url, uuid: _uuid, aircraftUuid, ...before } = file;
+      const archived = aircraftFileArchive(file, s.user, reason, Date.now());
+      Object.assign(file, archived);
+      const { category, name, type, size, uploadedAt } = file;
       audit(
         s,
-        "aircraft.file_removed",
-        aircraftUuid,
-        aircraftUuid,
-        undefined,
-        before,
+        "aircraft.file_archived",
+        file.aircraftUuid,
+        file.aircraftUuid,
+        archived.archiveReason,
+        { category, name, type, size, uploadedAt },
+        { category, name, ...archived },
       );
     });
   },

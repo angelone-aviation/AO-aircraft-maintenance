@@ -1596,7 +1596,8 @@ function demoBackend(): Backend {
       }),
     uploadAircraftFile: (aircraftUuid, category, file) =>
       demoAircraftFiles.upload(modify, audit, aircraftUuid, category, file),
-    removeAircraftFile: (id) => demoAircraftFiles.remove(modify, audit, id),
+    archiveAircraftFile: (id, reason) =>
+      demoAircraftFiles.archive(modify, audit, id, reason),
     createUser: async (email, name, password) => {
       const id = crypto.randomUUID();
       await modify((s) => {

@@ -3,7 +3,7 @@ import { recordProgram } from "./programs";
 import { manualReferenceSchema, validateManualReference } from "./manuals";
 import { z } from "zod";
 import { can, latestLocalDate, type Member, type Snapshot } from "./model";
-import { memberLicense } from "./certifications";
+import { certificateOptions, memberLicense } from "./certifications";
 import { ataChapterSchema } from "./ata";
 import { isOpenWorkOrder } from "./workOrders";
 import { expiredForUse } from "./shelfLife";
@@ -189,16 +189,43 @@ export function hasTaskExecution(t: TaskCardFields) {
 }
 export const inspectorCertificateRequired =
   "Add your certificate type and number under My certifications to sign as inspector.";
-/** The inspection signoff is the 14 CFR 43.7 person's signature, so the signer
- * needs a certificate type and number on file (ADR-0004). Technician signoffs
- * stay open: 43.3(d) lets supervised uncertificated workers perform work. */
-export function hasInspectorCertificate(
-  user: Pick<Member, "certifications" | "licenseNumber" | "certificateType">,
+export const inspectorMaintenanceCertificateRequired =
+  "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.";
+// Free-text certificate types on the older single-license profile fields that
+// name a mechanic (A&P, airframe, powerplant), inspection authorization or
+// repairman certificate. Pilot and unrecognized types (e.g. AME, CRS) do not.
+const maintenanceCertificateType =
+  /\b(a\s*(&|\/|and)\s*p|airframe|power\s*plant|mechanic|ia|inspection\s+authori[sz]ation|repairman)\b/i;
+type CertificateHolder = Pick<
+  Member,
+  "certifications" | "licenseNumber" | "certificateType"
+>;
+/** Why `user` cannot record an inspection signoff, or undefined if they can.
+ * The inspection signoff is the 14 CFR 43.7 person's signature, so it needs a
+ * numbered maintenance certificate on file (ADR-0004); a pilot certificate is
+ * not enough. Technician signoffs stay open: 43.3(d) lets supervised
+ * uncertificated workers perform work. Logbook export's own certificate
+ * lookup (memberLicense) is unchanged. */
+export function inspectorCertificateProblem(
+  user: CertificateHolder,
   asOf: string,
 ) {
+  const eligible =
+    user.certifications === undefined
+      ? !!user.licenseNumber?.trim() &&
+        maintenanceCertificateType.test(user.certificateType ?? "")
+      : // Airframe, powerplant and IA records are folded into "mechanic".
+        certificateOptions(user, asOf).some((c) => c.key === "mechanic");
+  if (eligible) return undefined;
   const { licenseNumber, certificateType } = memberLicense(user, asOf);
-  return !!licenseNumber.trim() && !!certificateType.trim();
+  return licenseNumber.trim() && certificateType.trim()
+    ? inspectorMaintenanceCertificateRequired
+    : inspectorCertificateRequired;
 }
+export const hasInspectorCertificate = (
+  user: CertificateHolder,
+  asOf: string,
+) => !inspectorCertificateProblem(user, asOf);
 export const isTaskClosed = (t: Pick<TaskCard, "status">) =>
   t.status === "completed" || t.status === "canceled";
 export function taskWritable(s: Snapshot, t: TaskCard) {
@@ -448,8 +475,11 @@ export function saveTaskCard(
           throw new Error(
             "Inspection signoff must be by a different person than the technician.",
           );
-        if (!hasInspectorCertificate(s.user, latestLocalDate(now)))
-          throw new Error(inspectorCertificateRequired);
+        const certificate = inspectorCertificateProblem(
+          s.user,
+          latestLocalDate(now),
+        );
+        if (certificate) throw new Error(certificate);
         next.inspectionSignoff = signature;
       }
     }

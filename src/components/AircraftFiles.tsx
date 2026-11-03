@@ -1,12 +1,13 @@
-import { useEffect, useId, useState } from "react";
-import { FileText, UploadSimple } from "@phosphor-icons/react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { Archive, FileText, UploadSimple } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { can, type Aircraft, type Snapshot } from "../domain/model";
 import {
+  isCurrentAircraftFile,
   validateAircraftFile,
   type AircraftFile,
 } from "../domain/aircraftFiles";
-import { DeleteFileButton } from "./ui";
+import { Switch } from "./design";
 import "../styles/screens/dashboard.css";
 
 /** Opens stored files; demo data URLs become blob URLs, since browsers block
@@ -27,14 +28,76 @@ function useOpenableUrl(file: AircraftFile) {
   return url;
 }
 
-function Form337Row({
+/** Archiving needs a reason; the copy and its stored file are kept. */
+function ArchiveForm({
   file,
-  onDelete,
+  onArchive,
+  onCancel,
 }: {
   file: AircraftFile;
-  onDelete?: () => Promise<unknown>;
+  onArchive: (reason: string) => Promise<unknown>;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const id = useId();
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => input.current?.focus(), []);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await onArchive(reason);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to archive.");
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="dash-file-archive" onSubmit={(e) => void submit(e)}>
+      <label htmlFor={id}>Reason for archiving {file.name}</label>
+      <input
+        ref={input}
+        id={id}
+        required
+        maxLength={500}
+        value={reason}
+        disabled={busy}
+        onChange={(e) => setReason(e.target.value)}
+      />
+      <span className="dash-file-actions">
+        <button className="button small primary" disabled={busy}>
+          {busy ? "Archiving…" : "Archive copy"}
+        </button>
+        <button
+          type="button"
+          className="button small"
+          disabled={busy}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </span>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+function Form337Row({
+  file,
+  onArchive,
+}: {
+  file: AircraftFile;
+  onArchive?: (reason: string) => Promise<unknown>;
 }) {
   const url = useOpenableUrl(file);
+  const [archiving, setArchiving] = useState(false);
   return (
     <li className="dash-file">
       <FileText size={20} aria-hidden="true" />
@@ -44,6 +107,12 @@ function Form337Row({
           Uploaded {new Date(file.uploadedAt).toLocaleDateString()} ·{" "}
           {Math.ceil(file.size / 1024)} KB
         </small>
+        {file.archivedAt !== undefined && (
+          <small>
+            Archived {new Date(file.archivedAt).toLocaleDateString()} by{" "}
+            {file.archivedBy?.name ?? "Unknown user"}: {file.archiveReason}
+          </small>
+        )}
       </span>
       <span className="dash-file-actions">
         {url ? (
@@ -59,14 +128,31 @@ function Form337Row({
         ) : (
           <small>Reconnect to open.</small>
         )}
-        {onDelete && <DeleteFileButton name={file.name} onDelete={onDelete} />}
+        {onArchive && !archiving && (
+          <button
+            type="button"
+            className="text-button"
+            aria-label={`Archive ${file.name}`}
+            onClick={() => setArchiving(true)}
+          >
+            <Archive size={16} aria-hidden="true" /> Archive
+          </button>
+        )}
       </span>
+      {onArchive && archiving && (
+        <ArchiveForm
+          file={file}
+          onArchive={onArchive}
+          onCancel={() => setArchiving(false)}
+        />
+      )}
     </li>
   );
 }
 
 /** Form 337 copies (major repair and alteration) on the aircraft record:
- * readers see them; maintenance permission uploads and deletes. */
+ * readers see them; maintenance permission uploads and archives. Copies are
+ * never deleted (ADR-0004). */
 export function AircraftForm337({
   state: s,
   aircraft: a,
@@ -78,10 +164,17 @@ export function AircraftForm337({
   const heading = useId();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [message, setMessage] = useState("");
-  const files = (s.aircraftFiles ?? [])
-    .filter((f) => f.aircraftUuid === a.uuid && f.category === "form-337")
+    [message, setMessage] = useState(""),
+    [showArchived, setShowArchived] = useState(false);
+  const all = (s.aircraftFiles ?? []).filter(
+    (f) => f.aircraftUuid === a.uuid && f.category === "form-337",
+  );
+  const files = all
+    .filter(isCurrentAircraftFile)
     .sort((x, z) => z.uploadedAt - x.uploadedAt);
+  const archived = all
+    .filter((f) => !isCurrentAircraftFile(f))
+    .sort((x, z) => (z.archivedAt ?? 0) - (x.archivedAt ?? 0));
   const writer = can(s, a.uuid, "maintenance") && !!backend;
   const live = online && connected;
   async function upload(file?: File) {
@@ -117,9 +210,12 @@ export function AircraftForm337({
             <Form337Row
               key={f.uuid}
               file={f}
-              onDelete={
+              onArchive={
                 writer && live
-                  ? () => backend!.removeAircraftFile(f.uuid)
+                  ? async (reason) => {
+                      await backend!.archiveAircraftFile(f.uuid, reason);
+                      setMessage(`${f.name} archived.`);
+                    }
                   : undefined
               }
             />
@@ -127,6 +223,24 @@ export function AircraftForm337({
         </ul>
       ) : (
         <p className="dash-detail-empty">No Form 337 copies on file.</p>
+      )}
+      {!!archived.length && (
+        <Switch
+          className="dash-files-toggle"
+          checked={showArchived}
+          onChange={setShowArchived}
+          label={`Show archived (${archived.length})`}
+        />
+      )}
+      {showArchived && !!archived.length && (
+        <ul
+          className="dash-files-list"
+          aria-label={`${a.registration} archived Form 337 copies`}
+        >
+          {archived.map((f) => (
+            <Form337Row key={f.uuid} file={f} />
+          ))}
+        </ul>
       )}
       {writer && (
         <div className="dash-files-upload">
@@ -149,7 +263,7 @@ export function AircraftForm337({
           <small id={heading + "-hint"}>
             {live
               ? "PDF, JPEG, PNG or WebP, up to 7 MB."
-              : "Reconnect to upload or delete Form 337 copies."}
+              : "Reconnect to upload or archive Form 337 copies."}
           </small>
         </div>
       )}
