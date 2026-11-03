@@ -1088,6 +1088,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       requestedGroups,
     ) => {
       const id = crypto.randomUUID();
+      const { passwordProblem } = await import("../domain/passwordRules");
       await modify((s) => {
         if (
           activeProgram(s) !== programUuid ||
@@ -1113,8 +1114,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           name.length > 150
         )
           throw Error("A valid email and name are required.");
-        if (password.length < 12 || password.length > 128)
-          throw Error("Use a password between 12 and 128 characters.");
+        const problem = passwordProblem(password, email);
+        if (problem) throw Error(problem);
         if (s.members.some((m) => m.email.toLowerCase() === email))
           throw Error(EMAIL_UNAVAILABLE);
         const groupIds = [...new Set(requestedGroups)];
@@ -1181,9 +1182,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       demoAircraftFiles.archive(modify, audit, id, reason),
     createUser: async (email, name, password) => {
       const id = crypto.randomUUID();
+      const { passwordProblem } = await import("../domain/passwordRules");
       await modify((s) => {
-        if (password.length < 12)
-          throw new Error("Use at least 12 characters.");
+        const problem = passwordProblem(password, email);
+        if (problem) throw new Error(problem);
         if (
           s.members.some(
             (m) => m.email.toLowerCase() === email.trim().toLowerCase(),
@@ -1422,6 +1424,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       throw new Error(
         "The local demo has no real accounts or passwords. Configure Convex to manage credentials.",
       );
+    },
+    // Demo users cannot sign in, so none has a linked Google or Microsoft account.
+    linkedIdentities: async () => [],
+    removeIdentity: async () => {
+      throw new Error("The local demo has no linked sign-in accounts.");
     },
     alertReads: async (programUuid) =>
       (await local.readFavorites(demoAlertReadsKey(workspace, programUuid))) ??

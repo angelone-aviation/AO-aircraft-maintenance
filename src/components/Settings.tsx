@@ -55,6 +55,7 @@ import {
   type Theme,
 } from "./design";
 import { MyCertifications } from "./UserProfile";
+import { SignInMethodList } from "./SignInMethods";
 import { ProgramDialog } from "./Fleet";
 import { AircraftSpruceAccount } from "./AircraftSpruce";
 import { CsvExportCard } from "./ProgramUsers";
@@ -71,7 +72,8 @@ const sectionMeta: Record<
   account: {
     label: "My account",
     icon: UserCircle,
-    description: "Who you are signed in as, your certifications and alerts.",
+    description:
+      "Who you are signed in as, how you sign in, your certifications and alerts.",
   },
   device: {
     label: "This device",
@@ -333,6 +335,12 @@ function AccountSection() {
         <p className="set-hint">
           Your name, email and access are set by an administrator.
         </p>
+      </Block>
+      <Block
+        title="Sign-in methods"
+        description="Your password always works. A Google or Microsoft account whose verified email matches yours is linked the first time you sign in with it. For two-step verification, sign in with one that has it turned on."
+      >
+        <SignInMethodList />
       </Block>
       <Block
         title="Certifications"

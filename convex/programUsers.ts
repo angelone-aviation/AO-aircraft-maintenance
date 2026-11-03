@@ -20,6 +20,7 @@ import {
 } from "../src/domain/accountRules";
 import {
   assertCreatedHere,
+  assertNewPassword,
   consumeAccountRequest,
   normalizeEmail,
   reserveNewAccount,
@@ -144,8 +145,8 @@ export const create = action({
       name = args.name.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !name || name.length > 150)
       throw Error("A valid email and name are required.");
-    if (args.password.length < 12 || args.password.length > 128)
-      throw Error("Use a password between 12 and 128 characters.");
+    // 15 or more characters, not a common one (ADR-0009).
+    assertNewPassword(args.password, email);
     const { available, checkedAt } = await ctx.runMutation(
       internal.programUsers.reserve,
       { ...scope, email },

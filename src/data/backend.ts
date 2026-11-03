@@ -229,6 +229,12 @@ export interface Backend {
   ): Promise<unknown>;
   createAircraft(aircraft: Aircraft): Promise<unknown>;
   resetPassword(id: string, password: string): Promise<unknown>;
+  /** Linked Google or Microsoft accounts: the signed-in user's own, or with
+   * `userId` (system administrators) that user's. */
+  linkedIdentities(
+    userId?: string,
+  ): Promise<import("../domain/signInMethods").LinkedIdentity[]>;
+  removeIdentity(userId: string, id: string): Promise<unknown>;
   alertReads(programUuid: string | undefined): Promise<string[]>;
   markAlertsRead(
     programUuid: string | undefined,
@@ -646,6 +652,17 @@ export function convexBackend(client: ConvexReactClient): Backend {
       client.action(api.admin.resetPassword, {
         id: id as Id<"users">,
         password,
+      }),
+    linkedIdentities: (userId) =>
+      userId
+        ? client.query(api.identities.forUser, {
+            userId: userId as Id<"users">,
+          })
+        : client.query(api.identities.mine, {}),
+    removeIdentity: (userId, id) =>
+      client.mutation(api.identities.remove, {
+        userId: userId as Id<"users">,
+        id: id as Id<"authAccounts">,
       }),
     alertReads: (programUuid) =>
       client.query(api.alerts.readKeys, { programUuid }),

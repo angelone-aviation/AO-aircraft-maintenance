@@ -36,6 +36,7 @@ import { aircraftInputSchema } from "../src/domain/fleet";
 import { EMAIL_UNAVAILABLE } from "../src/domain/accountRules";
 import {
   assertCreatedHere,
+  assertNewPassword,
   clearSignInLockout,
   endSessions,
   normalizeEmail,
@@ -54,8 +55,8 @@ function validateAccount(email: string, name: string, password: string) {
     name.length > 150
   )
     throw new Error("A valid email and name are required.");
-  if (password.length < 12 || password.length > 128)
-    throw new Error("Use a password between 12 and 128 characters.");
+  // 15 or more characters, not a common one (ADR-0009).
+  assertNewPassword(password, email);
 }
 export const checkAdmin = internalQuery({
   args: {},

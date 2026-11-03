@@ -1,7 +1,9 @@
 // Helpers for account administration (issue #29). No Convex functions here.
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { ConvexError } from "convex/values";
 import { consume, MINUTE } from "./rateLimits";
+import { passwordProblem } from "../src/domain/passwordRules";
 import {
   ACCOUNT_REQUESTS_LIMITED,
   ACCOUNT_REQUESTS_PER_HOUR,
@@ -9,6 +11,13 @@ import {
 } from "../src/domain/accountRules";
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
+// A password an administrator sets on create or reset: 15 or more characters
+// and not a common one (ADR-0009). The message reaches the administrator.
+export function assertNewPassword(password: string, email: string) {
+  const problem = passwordProblem(password, email);
+  if (problem) throw new ConvexError(problem);
+}
 
 // True when any user or password login already holds this email.
 export async function emailInUse(ctx: QueryCtx, email: string) {
