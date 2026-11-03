@@ -21,7 +21,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [x] Architecture cleanups: one command transaction on the server, one flight-submission module.
 - [ ] Google and Microsoft sign-in (built): create the Google Cloud sign-in client and the Microsoft Entra app registration, set their environment variables on production and test each with a real account ([accounts runbook](runbooks/accounts.md#google-and-microsoft-sign-in)).
 - [ ] Replace the placeholder aircraft drawing (`public/branding/cessna-oblique.svg`, see `public/branding/SOURCE.txt`).
-- [ ] Deploy (fresh deployment: `npm run setup:auth` with `SITE_URL`, then `npm run setup:admin`; the README's one-off data-repair commands are not needed on a fresh deployment).
+- [ ] Deploy (fresh deployment: run the **First-time setup** workflow, then **Deploy**, following [First-time setup (no terminal)](runbooks/release.md#first-time-setup-no-terminal); the README's one-off data-repair commands are not needed on a fresh deployment).
 - [ ] Upload the reference manuals to the app's Reference library (optimize large PDFs first).
   - [ ] On each hangar tablet and phone, add the app to the Home Screen, use **Keep on this device** for the manuals that crew needs, and confirm they open in airplane mode.
 - [ ] Acceptance testing on real phones and tablets (iOS 16.4 or Chrome 111 and newer), real aircraft data checked against logbooks, and training.

@@ -8,6 +8,7 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 |---|---|---|---|
 | CI | `.github/workflows/ci.yml` | Every pull request and every push to `main` | None |
 | Deploy | `.github/workflows/deploy.yml` | By hand, from `main` only | `production` environment |
+| First-time setup | `.github/workflows/first-time-setup.yml` | By hand, once, from `main` only, on a new empty deployment | `production` environment |
 | Nightly backup | `.github/workflows/backup.yml` | Every night at 08:41 UTC, or by hand ([backup runbook](backup-restore.md)) | `backups` environment |
 | Dependency updates | `.github/dependabot.yml` | Weekly, grouped minor/patch pull requests | None |
 | Website hosting | `wrangler.jsonc`, `public/_headers`, `public/.assetsignore` | On deploy | — |
@@ -24,6 +25,17 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 6. if `PRODUCTION_URL` is set, checks the live site answers with the security headers.
 
 The backend goes live a few seconds before the website, so Convex functions must keep working for the previous website version (and for installed apps that have not reloaded yet).
+
+## First-time setup (no terminal)
+
+A new, empty production deployment can be set up entirely from the Convex dashboard and the GitHub website; secrets are typed only into GitHub settings. Prepare Cloudflare first ([Cloudflare](#cloudflare) below gives the API token and account ID). Then, in order:
+
+1. **Create the Convex production deploy key:** Convex dashboard → the project's **Production** deployment → Settings → **Generate Production Deploy Key**. It starts with `prod:`.
+2. **Create the GitHub `production` environment** (Settings → Environments → **New environment**, deployment branches `main` only; details in [GitHub](#github) below) with the environment secrets `CONVEX_DEPLOY_KEY` (from step 1), `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the environment variable `PRODUCTION_URL` (the website's address exactly, for example `https://app.example.org`, no trailing slash), and the temporary environment secret `FIRST_ADMIN_PASSWORD`: the first administrator's password, 15 to 128 characters, not a common one and not containing their email.
+3. **Run First-time setup:** Actions → **First-time setup** → **Run workflow** → branch `main`, enter the administrator's name and email, tick **This is a new, empty production deployment**. It checks the key, the address and the password, stops without changing anything if the deployment already has users, then runs `npm run setup:auth` with `SITE_URL` = `PRODUCTION_URL`, deploys the Convex functions and schema, and creates the administrator with `npm run setup:admin`. If it fails before the administrator exists, fix the cause and run it again.
+4. **Delete `FIRST_ADMIN_PASSWORD`** from the `production` environment as soon as the run is green.
+5. **Run Deploy** to publish the website, as described under [Release](#release).
+6. **Sign in** at `PRODUCTION_URL` with the administrator's email and password.
 
 ## First-time setup
 
@@ -49,7 +61,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
    unset CONVEX_DEPLOY_KEY
    ```
 
-   `SITE_URL` must be the website's address exactly (no trailing slash): sign-in redirects and email links use it. Create the first administrator with `npm run setup:admin` the same way, only on an empty database. See [Connect Convex and create accounts](../../README.md#connect-convex-and-create-accounts).
+   `SITE_URL` must be the website's address exactly (no trailing slash): sign-in redirects and email links use it. Create the first administrator with `npm run setup:admin` the same way, only on an empty database. See [Connect Convex and create accounts](../../README.md#connect-convex-and-create-accounts). Without a terminal, use [First-time setup (no terminal)](#first-time-setup-no-terminal) instead.
 3. If you give the Convex deployment a custom domain, add it to `connect-src` (and `img-src`) in `public/_headers` first; the deploy refuses a Convex URL the policy does not allow.
 
 ### GitHub
