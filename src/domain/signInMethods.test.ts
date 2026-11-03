@@ -1,8 +1,15 @@
+/**
+ * Responsibility: Pins which provider claims prove an email, and how little a
+ *   refused Google or Microsoft sign-in tells the sign-in screen.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/signInMethods.ts.
+ */
 import { expect, it } from "vitest";
 import {
   ACCOUNTS_MANAGED,
   MICROSOFT_PERSONAL_TENANT,
   googleProfile,
+  isSsoProvider,
   microsoftProfile,
   signInErrorCode,
   signInErrorMessage,
@@ -53,4 +60,42 @@ it("tells the sign-in screen as little as it needs", () => {
   expect(signInErrorMessage("failed", "<b>")?.title).toBe(
     "Sign-in with Google or Microsoft did not finish.",
   );
+});
+
+it("requires an account id and drops a blank or non-text email", () => {
+  for (const sub of [undefined, "", 7])
+    expect(() => microsoftProfile({ sub, email: "pat@example.test" })).toThrow(
+      Error("The sign-in provider returned no account id."),
+    );
+  for (const email of ["  ", 7, undefined])
+    expect(googleProfile({ sub: "1", email, email_verified: true })).toEqual({
+      id: "1",
+      email: undefined,
+      emailVerified: true,
+    });
+});
+
+it("recognizes only the supported provider ids", () => {
+  expect(isSsoProvider("google")).toBe(true);
+  expect(isSsoProvider("microsoft-entra-id")).toBe(true);
+  for (const id of ["password", "Google", null, undefined])
+    expect(isSsoProvider(id)).toBe(false);
+});
+
+it("explains each error code, naming the provider", () => {
+  expect(signInErrorMessage("account", "microsoft-entra-id")).toEqual({
+    title: ACCOUNTS_MANAGED,
+    detail:
+      "No active Angel One account uses the email of that Microsoft account. Sign in with your password, or ask your administrator.",
+  });
+  expect(signInErrorMessage("unverified", "google")).toEqual({
+    title: "Google did not confirm that email address.",
+    detail:
+      "A Google account is linked only by an email address Google has verified. Sign in with your password.",
+  });
+  expect(signInErrorMessage("failed", null)).toEqual({
+    title: "Sign-in with Google or Microsoft did not finish.",
+    detail: "Try again, or sign in with your password.",
+  });
+  expect(signInErrorMessage(null, "google")).toBeUndefined();
 });

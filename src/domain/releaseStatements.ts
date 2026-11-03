@@ -1,5 +1,20 @@
+/**
+ * Responsibility: A user's release statements: the named return-to-service
+ *   wordings offered at work-order close-out, and the starter set.
+ * Layer: Domain. Pure zod schema and data; no I/O, no React.
+ * Dependencies: zod. No internal imports.
+ */
 import { z } from "zod";
 
+/**
+ * A user's release statements, as saved to their account. Trims each label
+ * and text.
+ *
+ * @throws {z.ZodError} From `parse()` on a blank label or text, a label over
+ *   200 or a text over 10,000 characters, more than 100 statements, or two
+ *   labels that match ignoring case ("Use a unique name for each release
+ *   statement.").
+ */
 export const releaseStatementsSchema = z
   .array(
     z.object({
@@ -14,7 +29,14 @@ export const releaseStatementsSchema = z
       items.length,
     "Use a unique name for each release statement.",
   );
+
+/** One named release statement. */
 export type ReleaseStatement = z.infer<typeof releaseStatementsSchema>[number];
+
+/**
+ * The starter statements shown until a user saves their own. The annual
+ * inspection text keeps a fixed date, October 2, 2026, for the user to edit.
+ */
 export const defaultReleaseStatements: ReleaseStatement[] = [
   {
     label: "Manufacturer’s inspection program — return to service",

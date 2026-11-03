@@ -1,5 +1,22 @@
+/**
+ * Responsibility: The close-out a completed work order keeps: aircraft
+ *   readings, signer, component work, and the compliance it recorded.
+ * Layer: Domain. Pure zod schemas; no I/O, no React.
+ * Dependencies: zod. No internal imports.
+ *
+ * A close-out is kept as recorded, so a field added later is optional and
+ * older close-outs still parse. Times are in seconds, calendar ages in days.
+ */
 import { z } from "zod";
+
 const count = z.number().int().nonnegative();
+
+/**
+ * The aircraft's meters and counters when a work order is completed.
+ *
+ * @throws {z.ZodError} From `parse()` on a missing, negative or fractional
+ *   reading.
+ */
 export const completionReadingsSchema = z.object({
   totalSeconds: count,
   hobbs: count,
@@ -9,12 +26,36 @@ export const completionReadingsSchema = z.object({
   cycles: count,
   landings: count.optional(),
 });
+
+/** Parsed {@link completionReadingsSchema} readings. */
 export type CompletionReadings = z.infer<typeof completionReadingsSchema>;
+
+/**
+ * A component's tracked records as JSON before and after a close-out's work,
+ * and the movement records the work created: where a later tracking
+ * correction starts from.
+ */
 export const trackingBaselineSchema = z.object({
   before: z.string(),
   after: z.string(),
   movementUuids: z.array(z.string()),
 });
+
+const componentLifeSchema = z.object({
+  timeSinceNew: count,
+  timeSinceOverhaul: count.nullable(),
+  timeSinceRepair: count.nullable(),
+  cyclesSinceNew: count,
+  serviceDays: count,
+  calendarOverhaulDays: count.nullable().optional(),
+});
+
+/**
+ * A work order's close-out, as recorded when it was completed.
+ *
+ * @throws {z.ZodError} From `parse()` on a missing field, a negative or
+ *   fractional count, or an unknown component action or compliance kind.
+ */
 export const closeoutSchema = z.object({
   recordedAt: z.number(),
   aircraft: completionReadingsSchema.extend({
@@ -38,6 +79,7 @@ export const closeoutSchema = z.object({
         trackingBaseline: trackingBaselineSchema.optional(),
         componentUuid: z.string(),
         version: count,
+        // "both" is a repair and an overhaul in one.
         action: z.enum([
           "service",
           "repair",
@@ -49,22 +91,8 @@ export const closeoutSchema = z.object({
         description: z.string(),
         reference: z.string(),
         date: z.iso.date(),
-        before: z.object({
-          timeSinceNew: count,
-          timeSinceOverhaul: count.nullable(),
-          timeSinceRepair: count.nullable(),
-          cyclesSinceNew: count,
-          serviceDays: count,
-          calendarOverhaulDays: count.nullable().optional(),
-        }),
-        after: z.object({
-          timeSinceNew: count,
-          timeSinceOverhaul: count.nullable(),
-          timeSinceRepair: count.nullable(),
-          cyclesSinceNew: count,
-          serviceDays: count,
-          calendarOverhaulDays: count.nullable().optional(),
-        }),
+        before: componentLifeSchema,
+        after: componentLifeSchema,
       }),
     )
     .optional(),
@@ -106,4 +134,6 @@ export const closeoutSchema = z.object({
     }),
   ),
 });
+
+/** A parsed {@link closeoutSchema} close-out. */
 export type WorkOrderCloseout = z.infer<typeof closeoutSchema>;

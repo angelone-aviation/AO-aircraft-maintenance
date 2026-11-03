@@ -1,11 +1,62 @@
+/**
+ * Responsibility: Flight Program access: the programs a user belongs to, the
+ *   active one, their permissions in it, and the snapshot they may read.
+ * Layer: Domain. Pure functions; no I/O, no React.
+ * Dependencies: src/domain/model.ts and management.ts (types), adOwnership.ts,
+ *   ownerView.ts, partsRequests.ts, requiredParts.ts.
+ *
+ * The snapshot query and the demo adapter both send scopedSnapshot(), so what
+ * it strips never reaches the browser.
+ */
 import { requestPurchases } from "./partsRequests";
 import { adAircraftUuid } from "./adOwnership";
 import { partsInventory } from "./requiredParts";
-import type { AuditEntry, Snapshot, Member, Group, Permission } from "./model";
+import type {
+  Aircraft,
+  AuditEntry,
+  Snapshot,
+  Member,
+  Group,
+  Permission,
+} from "./model";
 import type { ManagedRecord } from "./management";
 import { isOwnerView, ownerSnapshot } from "./ownerView";
-// Empty aircraftIds means every program aircraft, except for owner groups,
-// which must name their aircraft explicitly.
+
+// Inventory records are administrator data: they hold costs, vendors and
+// invoices.
+const INVENTORY_KINDS: readonly string[] = ["stock", "location", "vendor"];
+const INVENTORY_AUDIT_ACTION = /^(stock|location|vendor|inventory)\./;
+
+type CostRecord = NonNullable<Snapshot["costs"]>[number];
+type PurchaseOrder = NonNullable<Snapshot["purchaseOrders"]>[number];
+type LineEvents = { lines: { lineUuid: string; quantity: number }[] }[];
+
+/** What the user may see in the active program, before it is assembled. */
+interface VisibleScope {
+  active: string | undefined;
+  admin: boolean;
+  aircraft: Aircraft[];
+  ids: Set<string>;
+  management: ManagedRecord[];
+  checklists: NonNullable<Snapshot["checklists"]>;
+  costs: CostRecord[];
+  componentTemplates: NonNullable<Snapshot["componentTemplates"]>;
+  componentSetups: NonNullable<Snapshot["componentSetups"]>;
+  inspectionTemplates: NonNullable<Snapshot["inspectionTemplates"]>;
+  partsRequests: NonNullable<Snapshot["partsRequests"]>;
+  purchaseOrders: PurchaseOrder[];
+  canSeeAudit: (a: AuditEntry) => boolean;
+}
+
+/**
+ * Tells whether a permission group reaches an aircraft. An empty aircraft list
+ * means every aircraft, except for owner groups, which must name theirs;
+ * program-administrator groups reach every aircraft.
+ *
+ * @param g - The group; its program is not checked here.
+ * @param aircraftUuid - The aircraft.
+ * @returns True when the group's permissions apply to the aircraft.
+ */
 export function groupCoversAircraft(g: Group, aircraftUuid: string) {
   return (
     !!g.programAdmin ||
@@ -13,6 +64,15 @@ export function groupCoversAircraft(g: Group, aircraftUuid: string) {
     (!g.owner && !g.aircraftIds.length)
   );
 }
+
+/**
+ * Lists the Flight Programs a member can read, through their groups with
+ * `read`.
+ *
+ * @param user - The member.
+ * @param groups - All groups; only the member's count.
+ * @returns Program uuids, each once, in group order.
+ */
 export function programIds(user: Member, groups: Group[]) {
   return [
     ...new Set(
@@ -27,6 +87,15 @@ export function programIds(user: Member, groups: Group[]) {
     ),
   ];
 }
+
+/**
+ * Picks the Flight Program the user is working in: the one they chose if they
+ * may read it, else the first they may. A system administrator may read every
+ * program, and choosing "" leaves them in none.
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns The program uuid, or undefined when there is none.
+ */
 export function activeProgram(
   s: Pick<Snapshot, "user" | "groups" | "programs">,
 ) {
@@ -39,6 +108,17 @@ export function activeProgram(
     ? s.user.activeProgramUuid
     : allowed[0];
 }
+
+/**
+ * Tells whether the user holds a permission in a Flight Program. A group
+ * counts only with `read`; a program-administrator group grants everything.
+ *
+ * @param s - The snapshot, for its user and groups.
+ * @param permission - A group permission, or "admin" for program administrator.
+ * @param program - The program; the active one by default.
+ * @returns False for an inactive user; true for an active system
+ *   administrator, even with no program; otherwise false without a program.
+ */
 export function programPermission(
   s: Snapshot,
   permission: Permission | "admin",
@@ -56,6 +136,16 @@ export function programPermission(
         (permission !== "admin" && g.permissions.includes(permission))),
   );
 }
+
+/**
+ * Tells whether a record's program is the active one and the user belongs to
+ * it.
+ *
+ * @param s - The snapshot.
+ * @param program - The record's program. A record without one passes only for
+ *   a system administrator working in no program.
+ * @returns True when the record is in the active program's scope.
+ */
 export function ownsActive(s: Snapshot, program?: string) {
   return (
     program === activeProgram(s) &&
@@ -63,6 +153,16 @@ export function ownsActive(s: Snapshot, program?: string) {
       (!!program && programIds(s.user, s.groups).includes(program)))
   );
 }
+
+/**
+ * Finds the Flight Program a managed record belongs to: its own tag, else its
+ * location's (stock), its component's (requirements and movements), or its
+ * aircraft's.
+ *
+ * @param s - The snapshot holding the related records.
+ * @param r - The record.
+ * @returns The program uuid, or undefined when nothing ties it to one.
+ */
 export function recordProgram(
   s: Snapshot,
   r: ManagedRecord,
@@ -84,112 +184,174 @@ export function recordProgram(
     ? s.aircraft.find((a) => a.uuid === r.aircraftUuid)?.programUuid
     : undefined;
 }
-// What the caller may see in the active program; shared by the snapshot and
-// the paginated history so both apply the same audit rules.
-function visibleScope(s: Snapshot) {
+
+/**
+ * The change-log filter scopedSnapshot applies, for history read page by
+ * page.
+ *
+ * @param s - The full snapshot.
+ * @returns A predicate, true for each audit entry the user may read.
+ */
+export const auditVisible = (s: Snapshot) => visibleScope(s).canSeeAudit;
+
+/**
+ * Cuts a full snapshot down to what the user may read in the active program:
+ * its aircraft and their records, inventory, purchasing and costs as their
+ * permissions allow, and other members reduced to what working with them
+ * needs. An aircraft owner gets the owner view instead.
+ *
+ * @param s - The full snapshot; it is not changed.
+ * @returns The scoped snapshot, with `activeProgramUuid` and
+ *   `programScopeVersion` set.
+ */
+export function scopedSnapshot(s: Snapshot): Snapshot {
+  const scope = visibleScope(s);
+  // The spread order sets the key order of fields the full snapshot lacks.
+  const scoped: Snapshot = {
+    ...s,
+    ...scopeAccountData(s, scope),
+    ...scopeAircraftRecords(s, scope),
+    ...scopePurchasing(s, scope),
+    ...scopeMaintenance(s, scope),
+    ...scopePeople(s, scope),
+  };
+  return isOwnerView(scoped) ? ownerSnapshot(scoped) : scoped;
+}
+
+// Shared by the snapshot and the paginated history so both apply the same
+// audit rules.
+function visibleScope(s: Snapshot): VisibleScope {
   const active = activeProgram(s);
-  const aircraft = s.aircraft.filter(
-    (a) =>
-      ownsActive(s, a.programUuid) &&
-      (s.user.isAdmin ||
-        s.groups.some(
-          (g) =>
-            s.user.groupIds.includes(g.id) &&
-            g.programUuid === active &&
-            g.permissions.includes("read") &&
-            groupCoversAircraft(g, a.uuid),
-        )),
-  );
+  const admin = programPermission(s, "admin");
+  const aircraft = s.aircraft.filter((a) => canReadAircraft(s, active, a));
   const ids = new Set(aircraft.map((a) => a.uuid));
-  const management = (s.management ?? []).filter(
-    (r) =>
-      ownsActive(s, recordProgram(s, r)) &&
-      (!["stock", "location", "vendor"].includes(r.kind) ||
-        programPermission(s, "admin")) &&
-      (() => {
-        const owner =
-          "componentUuid" in r
-            ? (s.management?.find(
-                (c) => c.kind === "component" && c.uuid === r.componentUuid,
-              ) ?? r)
-            : r;
-        return (
-          !("aircraftUuid" in owner) ||
-          !owner.aircraftUuid ||
-          ids.has(owner.aircraftUuid)
-        );
-      })(),
+  const scope = {
+    active,
+    admin,
+    aircraft,
+    ids,
+    management: (s.management ?? []).filter((r) =>
+      canSeeManagedRecord(s, ids, admin, r),
+    ),
+    checklists: keepActiveProgram(s, s.checklists).filter(
+      (c) => !c.aircraftUuid || ids.has(c.aircraftUuid),
+    ),
+    costs: (s.costs ?? []).flatMap((r) => scopeCost(r, active, ids, admin)),
+    componentTemplates: keepActiveProgram(s, s.componentTemplates),
+    componentSetups: keepActiveProgram(s, s.componentSetups).filter((t) =>
+      ids.has(t.aircraftUuid),
+    ),
+    inspectionTemplates: keepActiveProgram(s, s.inspectionTemplates),
+    partsRequests: keepActiveProgram(s, s.partsRequests).filter((r) =>
+      canSeeRequest(r, ids, admin),
+    ),
+    purchaseOrders: admin ? keepActiveProgram(s, s.purchaseOrders) : [],
+  };
+  return { ...scope, canSeeAudit: buildAuditFilter(s, scope) };
+}
+
+function canReadAircraft(
+  s: Snapshot,
+  active: string | undefined,
+  a: Aircraft,
+): boolean {
+  if (!ownsActive(s, a.programUuid)) return false;
+  return (
+    s.user.isAdmin ||
+    s.groups.some(
+      (g) =>
+        s.user.groupIds.includes(g.id) &&
+        g.programUuid === active &&
+        g.permissions.includes("read") &&
+        groupCoversAircraft(g, a.uuid),
+    )
   );
-  const checklists = (s.checklists ?? []).filter(
-    (c) =>
-      ownsActive(s, c.programUuid) &&
-      (!c.aircraftUuid || ids.has(c.aircraftUuid)),
+}
+
+function canSeeManagedRecord(
+  s: Snapshot,
+  ids: Set<string>,
+  admin: boolean,
+  r: ManagedRecord,
+): boolean {
+  if (!ownsActive(s, recordProgram(s, r))) return false;
+  if (INVENTORY_KINDS.includes(r.kind) && !admin) return false;
+  const owner = findOwningRecord(s, r);
+  return (
+    !("aircraftUuid" in owner) ||
+    !owner.aircraftUuid ||
+    ids.has(owner.aircraftUuid)
   );
-  // Cost records are administrator data; maintenance users only see labor
-  // hours (no rates) so they can record their time on a work order.
-  const costs = (s.costs ?? []).flatMap((r): NonNullable<Snapshot["costs"]> => {
-    if (r.kind === "settings")
-      return r.programUuid === active && programPermission(s, "admin")
-        ? [r]
-        : [];
-    if (!ids.has(r.aircraftUuid)) return [];
-    if (programPermission(s, "admin")) return [r];
-    return r.kind === "workOrder"
-      ? [
-          {
-            ...r,
-            labor: r.labor.map(({ rateCents: _rate, ...e }) => e),
-            other: [],
-            partUnitCosts: [],
-          },
-        ]
-      : [];
-  });
-  const entities = new Set([
-    ...(programPermission(s, "admin") ? costs.map((r) => r.uuid) : []),
-    ...(s.partsRequests ?? [])
-      .filter(
-        (r) =>
-          ownsActive(s, r.programUuid) &&
-          (r.aircraftUuid
-            ? ids.has(r.aircraftUuid)
-            : programPermission(s, "admin")),
-      )
-      .map((r) => r.uuid),
-    ...(s.purchaseOrders ?? [])
-      .filter(
-        (p) => ownsActive(s, p.programUuid) && programPermission(s, "admin"),
-      )
-      .map((p) => p.uuid),
-    ...checklists.map((c) => c.uuid),
-    ...(s.componentTemplates ?? [])
-      .filter((t) => ownsActive(s, t.programUuid))
-      .map((t) => t.uuid),
-    ...(s.componentSetups ?? [])
-      .filter((t) => ownsActive(s, t.programUuid) && ids.has(t.aircraftUuid))
-      .map((t) => t.uuid),
-    ...(s.inspectionTemplates ?? [])
-      .filter((t) => ownsActive(s, t.programUuid))
-      .map((t) => t.uuid),
-    ...management.map((r) => r.uuid),
-    ...(s.programs?.filter((p) => p.uuid === active).map((p) => p.uuid) ?? []),
-  ]);
-  // Stock, location and vendor records are administrator data, and older
-  // change-log rows about them hold the full record (cost, vendor, invoice).
-  // Rows are never rewritten (ADR-0005), so hide them from everyone without
+}
+
+// Requirements and movements go with their component's aircraft.
+function findOwningRecord(s: Snapshot, r: ManagedRecord): ManagedRecord {
+  if (!("componentUuid" in r)) return r;
+  return (
+    s.management?.find(
+      (c) => c.kind === "component" && c.uuid === r.componentUuid,
+    ) ?? r
+  );
+}
+
+function keepActiveProgram<T extends { programUuid?: string }>(
+  s: Snapshot,
+  records: T[] | undefined,
+): T[] {
+  return (records ?? []).filter((r) => ownsActive(s, r.programUuid));
+}
+
+function canSeeRequest(
+  r: { aircraftUuid?: string },
+  ids: Set<string>,
+  admin: boolean,
+): boolean {
+  return r.aircraftUuid ? ids.has(r.aircraftUuid) : admin;
+}
+
+// Cost records are administrator data; maintenance users only see labor
+// hours (no rates) so they can record their time on a work order.
+function scopeCost(
+  r: CostRecord,
+  active: string | undefined,
+  ids: Set<string>,
+  admin: boolean,
+): CostRecord[] {
+  if (r.kind === "settings")
+    return r.programUuid === active && admin ? [r] : [];
+  if (!ids.has(r.aircraftUuid)) return [];
+  if (admin) return [r];
+  if (r.kind !== "workOrder") return [];
+  return [
+    {
+      ...r,
+      labor: r.labor.map(({ rateCents: _rate, ...e }) => e),
+      other: [],
+      partUnitCosts: [],
+    },
+  ];
+}
+
+function buildAuditFilter(
+  s: Snapshot,
+  scope: Omit<VisibleScope, "canSeeAudit">,
+): (a: AuditEntry) => boolean {
+  const { active, admin, ids } = scope;
+  const entities = collectVisibleEntities(s, scope);
+  // Older change-log rows about inventory records hold the full record. Rows
+  // are never rewritten (ADR-0005), so hide them from everyone without
   // program-admin permission, even when they carry an aircraft tag. The
   // action prefix covers rows whose record is not loaded.
   const inventoryRecords = new Set(
     (s.management ?? [])
-      .filter((r) => ["stock", "location", "vendor"].includes(r.kind))
+      .filter((r) => INVENTORY_KINDS.includes(r.kind))
       .map((r) => r.uuid),
   );
-  const inventoryAdmin = programPermission(s, "admin");
-  const canSeeAudit = (a: AuditEntry) => {
+  return (a) => {
     if (
-      !inventoryAdmin &&
+      !admin &&
       (inventoryRecords.has(a.entityUuid) ||
-        /^(stock|location|vendor|inventory)\./.test(a.action))
+        INVENTORY_AUDIT_ACTION.test(a.action))
     )
       return false;
     // A row's program tag records where it was written, not who may read it:
@@ -203,134 +365,137 @@ function visibleScope(s: Snapshot) {
     if (a.aircraftUuid) return ids.has(a.aircraftUuid);
     return entities.has(a.entityUuid) || (s.user.isAdmin && !active);
   };
-  return {
-    active,
-    aircraft,
-    ids,
-    management,
-    checklists,
-    costs,
-    canSeeAudit,
-  };
 }
-export const auditVisible = (s: Snapshot) => visibleScope(s).canSeeAudit;
-export function scopedSnapshot(s: Snapshot): Snapshot {
-  const { active, aircraft, ids, management, checklists, costs, canSeeAudit } =
-    visibleScope(s);
-  const historicalPilots = new Set(
-    s.flights
-      .filter((f) => ids.has(f.aircraftUuid))
-      .flatMap((f) => [f.pilotId, f.copilotId]),
-  );
-  const scoped: Snapshot = {
-    ...s,
+
+function collectVisibleEntities(
+  s: Snapshot,
+  scope: Omit<VisibleScope, "canSeeAudit">,
+): Set<string> {
+  const records: { uuid: string }[] = [
+    ...(scope.admin ? scope.costs : []),
+    ...scope.partsRequests,
+    ...scope.purchaseOrders,
+    ...scope.checklists,
+    ...scope.componentTemplates,
+    ...scope.componentSetups,
+    ...scope.inspectionTemplates,
+    ...scope.management,
+    ...(s.programs?.filter((p) => p.uuid === scope.active) ?? []),
+  ];
+  return new Set(records.map((r) => r.uuid));
+}
+
+function scopeAccountData(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
+  return {
     certificationFiles: s.certificationFiles?.filter(
       (f) => s.user.isAdmin || f.userId === s.user.id,
     ),
     savedAddresses: (s.savedAddresses ?? []).filter(
-      (a) => a.programUuid === active,
+      (a) => a.programUuid === scope.active,
     ),
     partsInventory: partsInventory({ ...s, partsInventory: undefined }),
     programScopeVersion: 1,
-    activeProgramUuid: active,
-    programs: (s.programs ?? [])
-      .filter(
-        (p) => s.user.isAdmin || programIds(s.user, s.groups).includes(p.uuid),
-      )
-      .map((p) =>
-        s.user.isAdmin || p.uuid === active
-          ? p
-          : { ...p, address: "", email: "", contactName: "", website: "" },
-      ),
-    aircraft,
-    componentTemplates: (s.componentTemplates ?? []).filter((t) =>
-      ownsActive(s, t.programUuid),
-    ),
-    componentSetups: (s.componentSetups ?? []).filter(
-      (t) => ownsActive(s, t.programUuid) && ids.has(t.aircraftUuid),
-    ),
-    inspectionTemplates: (s.inspectionTemplates ?? []).filter((t) =>
-      ownsActive(s, t.programUuid),
-    ),
-    manuals: (s.manuals ?? []).filter((m) => ids.has(m.aircraftUuid)),
-    aircraftFiles: (s.aircraftFiles ?? []).filter((f) =>
-      ids.has(f.aircraftUuid),
-    ),
-    taskCards: (s.taskCards ?? []).filter((t) => ids.has(t.aircraftUuid)),
-    archivedTaskCards: (s.archivedTaskCards ?? []).filter((t) =>
-      ids.has(t.aircraftUuid),
-    ),
+    activeProgramUuid: scope.active,
+    programs: scopePrograms(s, scope.active),
+    aircraft: scope.aircraft,
+  };
+}
+
+// Only system administrators see other programs' contact details.
+function scopePrograms(
+  s: Snapshot,
+  active: string | undefined,
+): Snapshot["programs"] {
+  return (s.programs ?? [])
+    .filter(
+      (p) => s.user.isAdmin || programIds(s.user, s.groups).includes(p.uuid),
+    )
+    .map((p) =>
+      s.user.isAdmin || p.uuid === active
+        ? p
+        : { ...p, address: "", email: "", contactName: "", website: "" },
+    );
+}
+
+function scopeAircraftRecords(
+  s: Snapshot,
+  scope: VisibleScope,
+): Partial<Snapshot> {
+  const onAircraft = matchesAircraft(scope.ids);
+  const cards = [...(s.taskCards ?? []), ...(s.archivedTaskCards ?? [])];
+  return {
+    componentTemplates: scope.componentTemplates,
+    componentSetups: scope.componentSetups,
+    inspectionTemplates: scope.inspectionTemplates,
+    manuals: (s.manuals ?? []).filter(onAircraft),
+    aircraftFiles: (s.aircraftFiles ?? []).filter(onAircraft),
+    taskCards: (s.taskCards ?? []).filter(onAircraft),
+    archivedTaskCards: (s.archivedTaskCards ?? []).filter(onAircraft),
     taskEvidence: (s.taskEvidence ?? []).filter((f) =>
-      [...(s.taskCards ?? []), ...(s.archivedTaskCards ?? [])].some(
-        (t) => t.uuid === f.taskCardUuid && ids.has(t.aircraftUuid),
-      ),
+      cards.some((t) => t.uuid === f.taskCardUuid && onAircraft(t)),
     ),
-    faaMonitors: (s.faaMonitors ?? []).filter((r) => ids.has(r.aircraftUuid)),
+    faaMonitors: (s.faaMonitors ?? []).filter(onAircraft),
     airworthiness: (s.airworthiness ?? []).filter((r) =>
-      ids.has(adAircraftUuid(s, r)),
+      scope.ids.has(adAircraftUuid(s, r)),
     ),
-    partsOnOrder: (s.purchaseOrders ?? [])
-      .filter((p) => ownsActive(s, p.programUuid) && p.phase === "issued")
-      .flatMap((p) =>
-        p.lines
-          .filter((l) => l.stockUuid)
-          .map((l) => ({
-            stockUuid: l.stockUuid,
-            quantity: Math.max(
-              0,
-              l.quantity -
-                l.cancelled -
-                p.receipts
-                  .flatMap((r) => r.lines)
-                  .filter((r) => r.lineUuid === l.uuid)
-                  .reduce((n, r) => n + r.quantity, 0),
-            ),
-            shipped: Math.max(
-              0,
-              p.shipments
-                .flatMap((r) => r.lines)
-                .filter((r) => r.lineUuid === l.uuid)
-                .reduce((n, r) => n + r.quantity, 0) -
-                p.receipts
-                  .flatMap((r) => r.lines)
-                  .filter((r) => r.lineUuid === l.uuid)
-                  .reduce((n, r) => n + r.quantity, 0),
-            ),
-          })),
-      ),
+  };
+}
+
+function scopePurchasing(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
+  const { ids, admin } = scope;
+  const orders = keepActiveProgram(s, s.purchaseOrders);
+  return {
+    partsOnOrder: orders
+      .filter((p) => p.phase === "issued")
+      .flatMap(listPartsOnOrder),
     purchaseOrderFiles: (s.purchaseOrderFiles ?? []).filter(
-      (f) =>
-        (s.purchaseOrders ?? []).some(
-          (p) => p.uuid === f.poUuid && ownsActive(s, p.programUuid),
-        ) && programPermission(s, "admin"),
+      (f) => orders.some((p) => p.uuid === f.poUuid) && admin,
     ),
-    partsRequests: (s.partsRequests ?? []).filter(
-      (r) =>
-        ownsActive(s, r.programUuid) &&
-        (r.aircraftUuid
-          ? ids.has(r.aircraftUuid)
-          : programPermission(s, "admin")),
-    ),
-    partsRequestPurchases: requestPurchases(
-      (s.purchaseOrders ?? []).filter((p) => ownsActive(s, p.programUuid)),
-    ).filter((a) =>
+    partsRequests: scope.partsRequests,
+    partsRequestPurchases: requestPurchases(orders).filter((a) =>
       (s.partsRequests ?? []).some(
-        (r) =>
-          r.uuid === a.requestUuid &&
-          (r.aircraftUuid
-            ? ids.has(r.aircraftUuid)
-            : programPermission(s, "admin")),
+        (r) => r.uuid === a.requestUuid && canSeeRequest(r, ids, admin),
       ),
     ),
-    purchaseOrders: (s.purchaseOrders ?? []).filter(
-      (p) => ownsActive(s, p.programUuid) && programPermission(s, "admin"),
-    ),
-    checklists,
-    costs,
-    workOrders: (s.workOrders ?? []).filter((w) => ids.has(w.aircraftUuid)),
+    purchaseOrders: scope.purchaseOrders,
+  };
+}
+
+function listPartsOnOrder(
+  order: PurchaseOrder,
+): NonNullable<Snapshot["partsOnOrder"]> {
+  return order.lines
+    .filter((l) => l.stockUuid)
+    .map((l) => {
+      const received = sumLineQuantity(order.receipts, l.uuid);
+      return {
+        stockUuid: l.stockUuid,
+        quantity: Math.max(0, l.quantity - l.cancelled - received),
+        shipped: Math.max(
+          0,
+          sumLineQuantity(order.shipments, l.uuid) - received,
+        ),
+      };
+    });
+}
+
+function sumLineQuantity(events: LineEvents, lineUuid: string): number {
+  return events
+    .flatMap((e) => e.lines)
+    .filter((l) => l.lineUuid === lineUuid)
+    .reduce((n, l) => n + l.quantity, 0);
+}
+
+function scopeMaintenance(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
+  const { admin, management } = scope;
+  const onAircraft = matchesAircraft(scope.ids);
+  return {
+    checklists: scope.checklists,
+    costs: scope.costs,
+    workOrders: (s.workOrders ?? []).filter(onAircraft),
     inventoryAttachments: (s.inventoryAttachments ?? []).filter(
       (f) =>
-        programPermission(s, "admin") &&
+        admin &&
         management.some(
           (r) =>
             (r.kind === "stock" || r.kind === "component") &&
@@ -339,20 +504,35 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
     ),
     workOrderAttachments: (s.workOrderAttachments ?? []).filter((f) =>
       (s.workOrders ?? []).some(
-        (w) => w.uuid === f.workOrderUuid && ids.has(w.aircraftUuid),
+        (w) => w.uuid === f.workOrderUuid && onAircraft(w),
       ),
     ),
-    flightPlans: (s.flightPlans ?? []).filter((p) => ids.has(p.aircraftUuid)),
-    flights: s.flights.filter((f) => ids.has(f.aircraftUuid)),
-    discrepancies: s.discrepancies.filter((d) => ids.has(d.aircraftUuid)),
-    inspections: s.inspections.filter((i) => ids.has(i.aircraftUuid)),
+    flightPlans: (s.flightPlans ?? []).filter(onAircraft),
+    flights: s.flights.filter(onAircraft),
+    discrepancies: s.discrepancies.filter(onAircraft),
+    inspections: s.inspections.filter(onAircraft),
     management,
-    audit: s.audit.filter(canSeeAudit),
+    audit: s.audit.filter(scope.canSeeAudit),
+  };
+}
+
+function matchesAircraft(ids: Set<string>) {
+  return (record: { aircraftUuid: string }) => ids.has(record.aircraftUuid);
+}
+
+function scopePeople(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
+  const { active, admin, ids } = scope;
+  const historicalPilots = new Set(
+    s.flights
+      .filter((f) => ids.has(f.aircraftUuid))
+      .flatMap((f) => [f.pilotId, f.copilotId]),
+  );
+  return {
     groups: s.groups.filter(
       (g) =>
         s.user.isAdmin ||
         s.user.groupIds.includes(g.id) ||
-        (g.programUuid === active && programPermission(s, "admin")),
+        (g.programUuid === active && admin),
     ),
     members: s.members
       .filter(
@@ -362,36 +542,27 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
           historicalPilots.has(m.id) ||
           (m.active && programIds(m, s.groups).includes(active ?? "")),
       )
-      .map((m) =>
-        s.user.isAdmin || m.id === s.user.id
-          ? {
-              ...m,
-              availableAsPilot:
-                m.active &&
-                (m.isAdmin || programIds(m, s.groups).includes(active ?? "")),
-            }
-          : {
-              id: m.id,
-              name: m.name,
-              email:
-                programPermission(s, "admin") &&
-                programIds(m, s.groups).includes(active ?? "")
-                  ? m.email
-                  : "",
-              availableAsPilot:
-                m.active &&
-                (m.isAdmin || programIds(m, s.groups).includes(active ?? "")),
-              active: m.active,
-              isAdmin: false,
-              groupIds: programPermission(s, "admin")
-                ? m.groupIds.filter((id) =>
-                    s.groups.some(
-                      (g) => g.id === id && g.programUuid === active,
-                    ),
-                  )
-                : [],
-            },
-      ),
+      .map((m) => redactMember(s, scope, m)),
   };
-  return isOwnerView(scoped) ? ownerSnapshot(scoped) : scoped;
+}
+
+// Other members keep their name, status and pilot availability; their email
+// and program groups show only to program administrators.
+function redactMember(s: Snapshot, scope: VisibleScope, m: Member): Member {
+  const inProgram = programIds(m, s.groups).includes(scope.active ?? "");
+  const availableAsPilot = m.active && (m.isAdmin || inProgram);
+  if (s.user.isAdmin || m.id === s.user.id) return { ...m, availableAsPilot };
+  return {
+    id: m.id,
+    name: m.name,
+    email: scope.admin && inProgram ? m.email : "",
+    availableAsPilot,
+    active: m.active,
+    isAdmin: false,
+    groupIds: scope.admin
+      ? m.groupIds.filter((id) =>
+          s.groups.some((g) => g.id === id && g.programUuid === scope.active),
+        )
+      : [],
+  };
 }
