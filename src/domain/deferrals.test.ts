@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins deferral expiry by MEL category, days remaining, labels,
+ *   and the refusals when deferring a discrepancy.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/deferrals.ts, ./model, ./rejection,
+ *   src/data/demo.ts (seed).
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -5,8 +12,10 @@ import {
   deferralDaysRemaining,
   deferralExpired,
   deferralExpiry,
+  deferralLabel,
 } from "./deferrals";
 import { localDate } from "./model";
+import { Rejection } from "./rejection";
 
 const mel = (category: "A" | "B" | "C" | "D", days?: number) => ({
   type: "mel" as const,
@@ -36,6 +45,26 @@ describe("deferral expiry", () => {
     expect(deferralDaysRemaining(d, "2026-01-05")).toBe(-1);
     expect(deferralExpired(d, "2026-01-05")).toBe(true);
     expect(deferralExpired({}, "2099-01-01")).toBe(false);
+    expect(deferralDaysRemaining({}, "2026-01-01")).toBeUndefined();
+  });
+  it("names MEL and 91.213(d) deferrals", () => {
+    const recorded = {
+      deferredOn: "2026-01-01",
+      deferredAt: 0,
+      deferredBy: "u",
+      deferredByName: "U",
+    };
+    expect(deferralLabel({ ...mel("C"), ...recorded })).toBe(
+      "MEL 33-1 (Category C)",
+    );
+    expect(
+      deferralLabel({
+        type: "91.213d",
+        placard: "INOP",
+        notHazard: true,
+        ...recorded,
+      }),
+    ).toBe("14 CFR 91.213(d) inoperative equipment");
   });
 });
 
@@ -111,5 +140,43 @@ describe("deferring a discrepancy", () => {
     expect(() =>
       deferDiscrepancy(demoSnapshot(), { ...command(mel("C")), uuid: "x" }),
     ).toThrow("Report not found");
+  });
+  it("refuses each case as a Rejection", () => {
+    const refusal = (s: ReturnType<typeof demoSnapshot>, raw: unknown) => {
+      try {
+        deferDiscrepancy(s, raw);
+      } catch (error) {
+        return error;
+      }
+    };
+    const deferred = demoSnapshot();
+    deferred.discrepancies[0] = deferDiscrepancy(deferred, command(mel("B")));
+    const resolved = demoSnapshot();
+    resolved.discrepancies[0].status = "resolved";
+    const pilot = demoSnapshot();
+    pilot.user = { ...pilot.members[1] };
+    for (const [s, raw, message] of [
+      [
+        demoSnapshot(),
+        { ...command(mel("C")), uuid: "x" },
+        "Report not found.",
+      ],
+      [
+        pilot,
+        command(mel("C")),
+        "You do not have permission for this aircraft.",
+      ],
+      [resolved, command(mel("C")), "Only open discrepancies can be deferred."],
+      [deferred, command(mel("C")), "This discrepancy is already deferred."],
+      [
+        demoSnapshot(),
+        { ...command(mel("B")), deferredOn: "2020-01-01" },
+        "The deferral date must be today.",
+      ],
+    ] as const) {
+      const error = refusal(s, raw);
+      expect(error).toBeInstanceOf(Rejection);
+      expect(error).toHaveProperty("message", message);
+    }
   });
 });
