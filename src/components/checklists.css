@@ -1,6 +1,13 @@
-/* Checklist reader, library, editor and guided-flight panels (UI redesign
- * v2). Colours come from src/styles/tokens.css only, so the light and dark
- * themes both follow; the navy banner keeps the fixed brand accents. */
+/*
+ * Responsibility: Styles for the checklist reader, library and editor, and
+ *   the legacy layout of the guided-flight panel.
+ * Layer: UI. Checklists page styles; no behaviour.
+ * Dependencies: src/styles/tokens.css (colours, radii, shadows, motion),
+ *   src/styles.css (.button, .management-actions).
+ *
+ * Colours are tokens so the light and dark themes both follow, except the
+ * navy banner's fixed brand accents and the active category tab's shadow.
+ */
 
 .checklist-file-input {
   position: absolute;
