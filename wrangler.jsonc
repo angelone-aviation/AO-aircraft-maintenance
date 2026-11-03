@@ -14,8 +14,11 @@
   // Each uploaded version would otherwise get its own public preview URL.
   // Previews are not set up yet (see the runbook).
   "preview_urls": false,
-  // Add the production hostname once its DNS zone is on Cloudflare, then set
-  // "workers_dev" to false so the site has a single public address:
-  // "routes": [{ "pattern": "app.example.org", "custom_domain": true }],
+  // Production address. The angeloneaviation.org zone is on Cloudflare in the
+  // same account, so each deploy keeps the DNS record and certificate for it.
+  // Do not create an "ops" DNS record by hand: a custom domain needs none.
+  "routes": [{ "pattern": "ops.angeloneaviation.org", "custom_domain": true }],
+  // Kept on until the custom domain is confirmed working; then set to false so
+  // the site has a single public address.
   "workers_dev": true,
 }

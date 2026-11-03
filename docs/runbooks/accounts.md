@@ -5,8 +5,8 @@ Fill in each row. Names or roles only: never passwords, keys or card numbers her
 | Account | What it does for the app | Owner today (name/role) | Must move to the program before launch? | How hard is the move / notes |
 |---|---|---|---|---|
 | Convex (new Pro account and production project) | Database, backend functions, auth, file storage | | Created new; one administrator (ADR-0010) | The old test project is retired, not transferred (go-live checklist). Deploy keys come from the new account only |
-| Domain registrar | Owns the web address | | | Registrar transfer or just move the login |
-| DNS | Points the address at the site | | | Will move to Cloudflare if the hosting decision goes that way |
+| Domain registrar | Owns `angeloneaviation.org` | | | Find which registrar holds it and who has the login |
+| DNS | `angeloneaviation.org` zone, including `ops` for the app | | Already on Cloudflare (nameservers `nancy`, `rustam.ns.cloudflare.com`) | The Worker must deploy into the same Cloudflare account as the zone; the app's `ops` record and certificate are created by the deploy |
 | Cloudflare account and API token | Hosts the website; the "Edit Cloudflare Workers" token in the GitHub `production` environment publishes it | | | Token expiry: ____ ([release runbook](release.md)) |
 | cPanel at A2 Hosting | Published the old test website | | No: retire it | Decided 2026-11-03: the old site and its Convex project are retired, not migrated (test data only). Remove the site files; cancel the hosting when nothing else uses it |
 | GitHub `angelone-aviation/AO-aircraft-maintenance` | Source code and issue tracker | Angel One (organization) | Done | Moved from a personal test fork on 2026-11-03 |
@@ -14,7 +14,7 @@ Fill in each row. Names or roles only: never passwords, keys or card numbers her
 | FAA DRS API key | Daily airworthiness-directive checks | | | Who requested it; expiry date; renewal path |
 | Geoapify | Address lookup for purchase orders | | | Login stored encrypted in the app settings |
 | Aircraft Spruce | Parts catalogue and ordering | | | Login stored encrypted in the app settings |
-| Google Workspace or Microsoft 365 | Would provide Google/Microsoft sign-in and enforce MFA | | | Does the program have its own tenant staff already sign in to? |
+| Google Workspace | Organization email (`angeloneaviation.org` MX is Google); can provide Google sign-in and enforce two-step sign-in | | | Google sign-in (ADR-0009) can be limited to the Workspace domain |
 | Google Cloud project with the sign-in client | Google sign-in ([setup](#google-cloud-sign-in-client)) | | | Owned by an organization account, not a personal one |
 | Microsoft Entra app registration | Microsoft sign-in ([setup](#microsoft-entra-app-registration)) | | | Client secret expiry date: |
 | Dropbox account with the "Angel One records" app | Holds the readable records copy ([ADR-0011](../adr/0011-readable-records-copy-in-dropbox.md), [setup](dropbox-records-copy.md)) | | | Organization account with two-step sign-in; refresh token in the GitHub `backups` environment |

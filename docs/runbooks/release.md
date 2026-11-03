@@ -31,7 +31,7 @@ The backend goes live a few seconds before the website, so Convex functions must
 A new, empty production deployment can be set up entirely from the Convex dashboard and the GitHub website; secrets are typed only into GitHub settings. Prepare Cloudflare first ([Cloudflare](#cloudflare) below gives the API token and account ID). Then, in order:
 
 1. **Create the Convex production deploy key:** Convex dashboard → the project's **Production** deployment → Settings → **Generate Production Deploy Key**. It starts with `prod:`.
-2. **Create the GitHub `production` environment** (Settings → Environments → **New environment**, deployment branches `main` only; details in [GitHub](#github) below) with the environment secrets `CONVEX_DEPLOY_KEY` (from step 1), `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the environment variable `PRODUCTION_URL` (the website's address exactly, for example `https://app.example.org`, no trailing slash), and the temporary environment secret `FIRST_ADMIN_PASSWORD`: the first administrator's password, 15 to 128 characters, not a common one and not containing their email.
+2. **Create the GitHub `production` environment** (Settings → Environments → **New environment**, deployment branches `main` only; details in [GitHub](#github) below) with the environment secrets `CONVEX_DEPLOY_KEY` (from step 1), `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the environment variable `PRODUCTION_URL` (the website's address exactly, `https://ops.angeloneaviation.org`, no trailing slash), and the temporary environment secret `FIRST_ADMIN_PASSWORD`: the first administrator's password, 15 to 128 characters, not a common one and not containing their email.
 3. **Run First-time setup:** Actions → **First-time setup** → **Run workflow** → branch `main`, enter the administrator's name and email, tick **This is a new, empty production deployment**. It checks the key, the address and the password, stops without changing anything if the deployment already has users, then runs `npm run setup:auth` with `SITE_URL` = `PRODUCTION_URL`, deploys the Convex functions and schema, and creates the administrator with `npm run setup:admin`. If it fails before the administrator exists, fix the cause and run it again.
 4. **Delete `FIRST_ADMIN_PASSWORD`** from the `production` environment as soon as the run is green.
 5. **Run Deploy** to publish the website, as described under [Release](#release).
@@ -45,7 +45,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
 
 1. Use the organization's Cloudflare account, not a personal one, with two-factor sign-in on. Copy its **Account ID** (Workers & Pages overview, right-hand column).
 2. Create an API token from the **Edit Cloudflare Workers** template. Prefer an account-owned token (Manage Account → Account API Tokens) so it does not depend on one person's login. Limit **Account Resources** to this account and **Zone Resources** to the app's zone. Give it an expiry date and note the renewal date in `accounts.md`.
-3. **Domain and DNS.** The app's DNS zone must be on Cloudflare (add the site and switch the nameservers at the registrar). Pick the hostname, for example `app.example.org`, and make sure no DNS record exists for it yet. In `wrangler.jsonc`, uncomment `routes` with that hostname (`"custom_domain": true`). Cloudflare creates the DNS record and certificate on the next deploy. Once the site works there, set `"workers_dev": false` so the `*.workers.dev` address stops serving it.
+3. **Domain and DNS.** The app's address is `ops.angeloneaviation.org`. The `angeloneaviation.org` zone is already on Cloudflare (nameservers `nancy` and `rustam.ns.cloudflare.com`), and `wrangler.jsonc` declares the hostname as a custom domain. Use the Cloudflare account that holds that zone: a custom domain only works in the same account as the Worker. Do not create an `ops` DNS record; the first deploy creates the record and its certificate. Once the site works there, set `"workers_dev": false` so the `*.workers.dev` address stops serving it. The API token's zone resources must include `angeloneaviation.org`; if a deploy fails on the custom domain with a permission error, add **Zone → DNS → Edit** for that zone to the token.
 4. HSTS: the site sends `Strict-Transport-Security: max-age=63072000; includeSubDomains`. If the app is on the bare domain, every subdomain of it must then be HTTPS. Adding `preload` is a separate decision for the domain owner and is hard to undo.
 
 ### Convex production deployment
@@ -55,7 +55,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
 
    ```sh
    read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY
-   SITE_URL=https://app.example.org npm run setup:auth
+   SITE_URL=https://ops.angeloneaviation.org npm run setup:auth
    npx convex env set RESEND_API_KEY re_...            # optional: alert emails
    npx convex env set RESEND_FROM "Angel One <alerts@your-domain>"
    unset CONVEX_DEPLOY_KEY
@@ -70,7 +70,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
    - **Deployment branches and tags**: selected branches, `main` only.
    - **Required reviewers**: the technical owner. (On GitHub Free this rule is only available for public repositories; then keep write access to the repository limited.)
    - **Environment secrets**: `CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Do not add them as repository secrets.
-   - **Environment variable** `PRODUCTION_URL` = `https://app.example.org` (turns on the smoke check).
+   - **Environment variable** `PRODUCTION_URL` = `https://ops.angeloneaviation.org` (turns on the smoke check).
 2. Protect `main`: require a pull request and the **Check and browser tests** status check.
 3. Settings → Code security: turn on Dependabot alerts and security updates. Version updates come from `.github/dependabot.yml`.
 
