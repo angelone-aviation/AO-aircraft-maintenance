@@ -80,6 +80,15 @@ export function inspectionStatus(
           : "scheduled",
   } as const;
 }
+export const inspectionStatusLabels: Record<
+  ReturnType<typeof inspectionStatus>["status"],
+  string
+> = {
+  overdue: "Overdue",
+  "due-soon": "Due soon",
+  scheduled: "Scheduled",
+  unknown: "Unknown",
+};
 /** How near each tracked limit an inspection becomes due soon. */
 const dueSoonWithin = { hours: 10, days: 30, cycles: 10, landings: 10 };
 export type InspectionDimension = keyof typeof dueSoonWithin;

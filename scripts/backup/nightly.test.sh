@@ -424,6 +424,56 @@ check "the backup is in the bucket" test "$(object_count '^daily/.*\.zip\.age$')
 check "no plaintext left after exit" no_plaintext_left record-fails
 check "no secret in the output" no_secrets_in "$out"
 
+echo "# readable copy in Dropbox (ADR-0011)"
+nodebin="$tmp/nodebin"
+mkdir -p "$nodebin"
+cat >"$nodebin/node" <<'FAKE'
+#!/usr/bin/env bash
+# Fake node for the Dropbox step: records which script ran and whether it could
+# see the Dropbox credentials, and never contacts Dropbox.
+echo "$1 key=${DROPBOX_APP_KEY:+set} secret=${DROPBOX_APP_SECRET:+set} token=${DROPBOX_REFRESH_TOKEN:+set} args=${*:2}" >>"$FAKE_STATE/node-calls.log"
+case "$1" in
+  scripts/backup/records-workbook.mjs)
+    [[ "${FAKE_WORKBOOK:-ok}" == fail ]] && { echo "workbook failed" >&2; exit 1; }
+    while (($#)); do [[ "$1" == --out ]] && { : >"$2"; break; }; shift; done ;;
+  scripts/backup/dropbox-upload.mjs)
+    [[ "${FAKE_DROPBOX:-ok}" == fail ]] && { echo "Dropbox refused the upload" >&2; exit 1; } ;;
+esac
+exit 0
+FAKE
+chmod +x "$nodebin/node"
+dropbox_token="dbx-refresh-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+dropbox_secret="dbx-secret-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+no_dropbox_secrets_in() { ! grep -qF -e "$dropbox_token" -e "$dropbox_secret" "$@"; }
+
+fresh_bucket dropbox-unset
+: >"$state/node-calls.log"
+run_backup dropbox-unset PATH="$nodebin:$bin:$PATH"
+check "without Dropbox settings: succeeds" exited_ok
+check "without Dropbox settings: says the copy was skipped" output_says "Dropbox copy skipped"
+check "without Dropbox settings: no workbook or upload ran" test ! -s "$state/node-calls.log"
+
+fresh_bucket dropbox-ok
+: >"$state/node-calls.log"
+run_backup dropbox-ok PATH="$nodebin:$bin:$PATH" DROPBOX_APP_KEY=dbx-app DROPBOX_APP_SECRET="$dropbox_secret" DROPBOX_REFRESH_TOKEN="$dropbox_token" RECORDS_TIME_ZONE=America/Chicago
+check "with Dropbox set up: succeeds" exited_ok
+check "the workbook is built from the export, in the chosen time zone" grep -qE '^scripts/backup/records-workbook\.mjs .*--zip .*backup\.zip .*--tz America/Chicago' "$state/node-calls.log"
+check "the workbook step cannot see the Dropbox credentials" grep -qE '^scripts/backup/records-workbook\.mjs key= secret= token= ' "$state/node-calls.log"
+check "only the upload step gets the Dropbox credentials" grep -qE '^scripts/backup/dropbox-upload\.mjs key=set secret=set token=set ' "$state/node-calls.log"
+check "the copy was recorded in the app before the Dropbox step" test "$(records)" -ge 1
+check "no plaintext left after exit" no_plaintext_left dropbox-ok
+check "no Dropbox secret in the output" no_dropbox_secrets_in "$out" "$tmp/summary-dropbox-ok.md"
+check "no Dropbox secret on any Convex or R2 command line" no_dropbox_secrets_in "$state/npx-calls.log" "$state/aws-calls.log"
+
+fresh_bucket dropbox-fails
+before=$(records)
+run_backup dropbox-fails PATH="$nodebin:$bin:$PATH" DROPBOX_APP_KEY=dbx-app DROPBOX_APP_SECRET="$dropbox_secret" DROPBOX_REFRESH_TOKEN="$dropbox_token" FAKE_DROPBOX=fail
+check "a failed Dropbox upload fails the run" exited_failed
+check "and says the R2 backup succeeded and is recorded" output_says "R2 backup succeeded and is recorded"
+check "and the R2 copy was still recorded" test "$(records)" -gt "$before"
+check "no plaintext left after exit" no_plaintext_left dropbox-fails
+check "no Dropbox secret in the output" no_dropbox_secrets_in "$out"
+
 echo
 if ((failures > 0)); then
   echo "$failures check(s) failed."

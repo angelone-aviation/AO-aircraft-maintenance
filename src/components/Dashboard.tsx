@@ -24,7 +24,11 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { isPilotView } from "../domain/pilotView";
-import { aircraftStatus, type AircraftStatus } from "../domain/aircraftStatus";
+import {
+  aircraftStatus,
+  aircraftStatusLabels,
+  type AircraftStatus,
+} from "../domain/aircraftStatus";
 import { requirementStatus } from "../domain/components";
 import { inspectionCounters } from "../domain/management";
 import {
@@ -257,11 +261,7 @@ const statusTone: Record<AircraftStatus["level"], Tone> = {
   "due-soon": "warn",
   grounded: "danger",
 };
-const statusLabel: Record<AircraftStatus["level"], string> = {
-  airworthy: "Airworthy",
-  "due-soon": "Due soon",
-  grounded: "Grounded",
-};
+const statusLabel = aircraftStatusLabels;
 const operationalTone = (a: Aircraft): Tone =>
   a.operationalStatus === "grounded"
     ? "danger"

@@ -47,6 +47,11 @@ export function canPageAuditFilter(
 }
 export const clampAuditPageSize = (n: number) =>
   Math.min(MAX_AUDIT_PAGE_SIZE, Math.max(1, Math.floor(n) || 1));
+// How Change history names an action ("flight.reviewed" → "Flight · reviewed").
+export function auditActionLabel(action: string) {
+  const text = action.replaceAll(".", " · ").replaceAll("_", " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 // Offset paging over an in-memory log (demo mode and offline fallback).
 export function pageAuditEntries(
   entries: AuditEntry[],

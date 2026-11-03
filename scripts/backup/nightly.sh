@@ -79,6 +79,11 @@ endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 r2_key_id=$R2_ACCESS_KEY_ID
 r2_secret=$R2_SECRET_ACCESS_KEY
 unset CONVEX_DEPLOY_KEY R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
+# The optional Dropbox copy (ADR-0011): only its upload step sees these.
+dropbox_app_key=${DROPBOX_APP_KEY:-}
+dropbox_app_secret=${DROPBOX_APP_SECRET:-}
+dropbox_refresh_token=${DROPBOX_REFRESH_TOKEN:-}
+unset DROPBOX_APP_KEY DROPBOX_APP_SECRET DROPBOX_REFRESH_TOKEN
 
 for cmd in npx aws age unzip jq sha256sum; do
   command -v "$cmd" >/dev/null || fail "$cmd is not installed."
@@ -282,10 +287,6 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Readable copy (Dropbox) runs here when DROPBOX_REFRESH_TOKEN is set.
-# It reads the plaintext export at "$EXPORT_ZIP" (still in the temp dir).
-
-# ---------------------------------------------------------------------------
 # f. Record the copy in the app (Settings > System and the 36-hour warning).
 
 completed_at=$(($(date -u +%s) * 1000))
@@ -304,5 +305,26 @@ summary
 echo "Recording the copy in the app..."
 if ! CONVEX_DEPLOY_KEY="$deploy_key" npx convex run backups:recordOffsiteCopy "$record"; then
   fail "The backup itself succeeded and is in R2 (listed above), but recording it in the app failed (backups:recordOffsiteCopy). The app will not know about this copy and will warn after 36 hours. Check that the function is deployed and the deploy key works, then run the workflow again."
+fi
+
+# ---------------------------------------------------------------------------
+# g. Readable copy in Dropbox (ADR-0011), only when it is set up. It runs after
+# the R2 copy is recorded, so a Dropbox failure fails the run (and emails the
+# owner) without hiding a good off-site copy. It reads the plaintext export,
+# which stays in the temp dir until the trap removes it.
+
+if [[ -n "$dropbox_refresh_token" ]]; then
+  echo "Making the readable records workbook for Dropbox..."
+  records_tz=${RECORDS_TIME_ZONE:-America/New_York}
+  records_xlsx="$work/angel-one-records.xlsx"
+  node scripts/backup/records-workbook.mjs --zip "$EXPORT_ZIP" --out "$records_xlsx" --tz "$records_tz" ||
+    fail "The R2 backup succeeded and is recorded, but the readable workbook could not be made (scripts/backup/records-workbook.mjs). See docs/runbooks/dropbox-records-copy.md."
+  DROPBOX_APP_KEY="$dropbox_app_key" DROPBOX_APP_SECRET="$dropbox_app_secret" \
+    DROPBOX_REFRESH_TOKEN="$dropbox_refresh_token" \
+    node scripts/backup/dropbox-upload.mjs --file "$records_xlsx" --tz "$records_tz" ||
+    fail "The R2 backup succeeded and is recorded, but the Dropbox copy failed (scripts/backup/dropbox-upload.mjs). See docs/runbooks/dropbox-records-copy.md."
+  rm -f "$records_xlsx"
+else
+  echo "Dropbox copy skipped: DROPBOX_REFRESH_TOKEN is not set (docs/runbooks/dropbox-records-copy.md)."
 fi
 echo "Done."

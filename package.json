@@ -19,6 +19,7 @@
     "setup:admin": "node scripts/bootstrap-admin.mjs",
     "test:local": "node scripts/smoke-local.mjs",
     "test:backup": "bash scripts/backup/nightly.test.sh",
+    "backup:workbook": "node scripts/backup/records-workbook.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts"
   },
@@ -51,6 +52,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
     "convex-test": "^0.0.66",
+    "exceljs": "4.4.0",
     "fake-indexeddb": "^6.2.7",
     "jose": "^6.2.15",
     "jsqr": "^1.4.0",
@@ -64,5 +66,10 @@
   },
   "engines": {
     "node": ">=22.12.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   }
 }

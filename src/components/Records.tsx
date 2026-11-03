@@ -37,6 +37,8 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { useAuditHistory } from "../data/auditHistory";
+import { auditActionLabel } from "../domain/auditHistory";
+import { flightStatusLabels } from "../domain/flights";
 import { HistoryPager } from "./ManagementShared";
 import {
   can,
@@ -96,9 +98,7 @@ const flightTone = (f: Flight): Tone =>
 function FlightStatus({ flight }: { flight: Flight }) {
   return (
     <StatusPill tone={flightTone(flight)}>
-      <span className="rec-cap">
-        {flight.status === "review" ? "Needs review" : flight.status}
-      </span>
+      <span className="rec-cap">{flightStatusLabels[flight.status]}</span>
     </StatusPill>
   );
 }
@@ -959,10 +959,6 @@ function auditLook(action: string): { icon: IconType; tone: Tone } {
     tone: /deferred|held|override/.test(verb) ? "warn" : "blue",
   };
 }
-const auditTitle = (action: string) => {
-  const text = action.replaceAll(".", " · ").replaceAll("_", " ");
-  return text.charAt(0).toUpperCase() + text.slice(1);
-};
 function AuditValues({ entry }: { entry: AuditEntry }) {
   return (
     <details>
@@ -1038,7 +1034,7 @@ export function History() {
               <ListRow
                 icon={look.icon}
                 tone={look.tone}
-                title={auditTitle(entry.action)}
+                title={auditActionLabel(entry.action)}
                 sub={
                   <>
                     {s!.members.find((m) => m.id === entry.actorId)?.name ??

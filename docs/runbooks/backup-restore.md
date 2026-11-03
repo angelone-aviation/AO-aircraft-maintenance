@@ -10,6 +10,7 @@ Policy: [ADR-0008](../adr/0008-daily-backups-off-site-90-days-monthly-forever.md
 | Nightly export (encrypted) | R2 bucket `angelone-backups`, `daily/` | 90 days, locked |
 | Monthly archive (encrypted) | Same bucket, `monthly/` | Forever, locked |
 | Environment variables (encrypted) | Same bucket, `env/` | Forever, locked |
+| Readable records workbook (Excel, **not** encrypted or locked), optional | Dropbox app folder, `/Daily/` and `/Monthly/` ([runbook](dropbox-records-copy.md), [ADR-0011](../adr/0011-readable-records-copy-in-dropbox.md)) | 90 days daily; monthly forever |
 
 Who holds the decryption key: the technical owner (named in `accounts.md`) in their password manager, plus a sealed copy held by the organization, not by a Convex user (ADR-0010), at: _______.
 
@@ -22,9 +23,10 @@ The **Nightly backup** workflow (`.github/workflows/backup.yml`) runs `scripts/b
 3. uploads it to `daily/` with a manifest, and checks that the object is there at the right size;
 4. on the first successful night of each month, uploads the same file to `monthly/` (if the 1st was missed, the next good night counts);
 5. saves the environment variables, encrypted, to `env/` when they have changed since the last copy;
-6. records the copy in the app (`backups:recordOffsiteCopy`), which shows it under Settings → System → Off-site backups.
+6. records the copy in the app (`backups:recordOffsiteCopy`), which shows it under Settings → System → Off-site backups;
+7. if Dropbox is set up (`DROPBOX_REFRESH_TOKEN` in the `backups` environment), builds the readable Excel workbook from the same export and adds it to Dropbox ([Dropbox records copy](dropbox-records-copy.md)). This runs after step 6, so a Dropbox problem fails the run without hiding a good R2 copy.
 
-The job never deletes or overwrites a backup; deletion after 90 days is the bucket's lifecycle rule. The plaintext export exists only on GitHub's runner, which is discarded after each run. Its secrets are in the GitHub environment `backups`. To test the script without credentials: `npm run test:backup` (needs `age`, `zip`, `unzip` and `jq`).
+The job never deletes or overwrites a backup in R2; deletion after 90 days is the bucket's lifecycle rule. The plaintext export exists only on GitHub's runner, which is discarded after each run. The one readable copy that leaves the runner is the optional Dropbox workbook, which by design is not encrypted: anyone with access to that Dropbox folder can read names, emails and costs (ADR-0011). Its secrets are in the GitHub environment `backups`. To test the script without credentials: `npm run test:backup` (needs `age`, `zip`, `unzip` and `jq`).
 
 ### What is in the bucket
 
@@ -68,6 +70,7 @@ Open the failed run and read the red error line. Running the workflow again is a
 | `Upload to s3://… failed` or `Could not check s3://…` | The R2 token expired, was deleted, or lacks object read and write on the bucket; or `R2_BUCKET` / `R2_ACCOUNT_ID` is wrong. |
 | `… after upload, expected … bytes` | The upload was cut short. Run again. |
 | `The backup itself succeeded … but recording it in the app failed` | The copy is in R2. Deploy the app if `backups:recordOffsiteCopy` is not live yet, then run again so the app sees a fresh copy. |
+| `The R2 backup succeeded and is recorded, but the readable workbook could not be made` or `… the Dropbox copy failed` | The R2 copy is safe. See [Dropbox records copy](dropbox-records-copy.md) for the Dropbox error table. Running again adds the day's workbook if it is still missing. |
 
 ## When an environment variable changes
 

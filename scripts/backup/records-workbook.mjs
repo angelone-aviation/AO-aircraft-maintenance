@@ -1,0 +1,44 @@
+#!/usr/bin/env node
+// Builds the readable records workbook (ADR-0011) from a Convex export ZIP.
+//
+//   node scripts/backup/records-workbook.mjs --zip <convex export zip> \
+//     --out <file.xlsx> [--tz America/New_York] [--deployment <name>]
+//
+// The workbook applies the app's own rules from src/domain, which is
+// TypeScript. This launcher bundles recordsWorkbook.ts with esbuild (installed
+// with the convex package) on each run, then runs it. Run `npm ci` first.
+import { build } from "esbuild";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+// Under node_modules so the bundle's imports (exceljs, zod, fflate) resolve.
+const cache = path.resolve(
+  here,
+  "../../node_modules/.cache/angel-one-records-workbook",
+);
+const bundle = path.join(cache, `records-workbook-${process.pid}.mjs`);
+try {
+  const result = await build({
+    entryPoints: [path.join(here, "recordsWorkbook.ts")],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node22",
+    packages: "external",
+    write: false,
+    logLevel: "silent",
+  });
+  await mkdir(cache, { recursive: true });
+  await writeFile(bundle, result.outputFiles[0].contents);
+  const { main } = await import(pathToFileURL(bundle).href);
+  await main(process.argv.slice(2));
+} catch (error) {
+  console.error(
+    `records-workbook: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  process.exitCode = 1;
+} finally {
+  await rm(bundle, { force: true });
+}

@@ -22,6 +22,11 @@ export interface AircraftStatus {
   /** Reasons for the reported level only (grounding reasons when grounded). */
   reasons: AircraftStatusReason[];
 }
+export const aircraftStatusLabels: Record<AircraftStatusLevel, string> = {
+  airworthy: "Airworthy",
+  "due-soon": "Due soon",
+  grounded: "Grounded",
+};
 /** MEL deferrals expiring within this many days are flagged as due soon. */
 export const DEFERRAL_WARNING_DAYS = 3;
 const short = (text: string) =>

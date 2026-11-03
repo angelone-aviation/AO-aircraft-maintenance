@@ -17,6 +17,7 @@ Fill in each row. Names or roles only: never passwords, keys or card numbers her
 | Google Workspace or Microsoft 365 | Would provide Google/Microsoft sign-in and enforce MFA | | | Does the program have its own tenant staff already sign in to? |
 | Google Cloud project with the sign-in client | Google sign-in ([setup](#google-cloud-sign-in-client)) | | | Owned by an organization account, not a personal one |
 | Microsoft Entra app registration | Microsoft sign-in ([setup](#microsoft-entra-app-registration)) | | | Client secret expiry date: |
+| Dropbox account with the "Angel One records" app | Holds the readable records copy ([ADR-0011](../adr/0011-readable-records-copy-in-dropbox.md), [setup](dropbox-records-copy.md)) | | | Organization account with two-step sign-in; refresh token in the GitHub `backups` environment |
 | Billing | One card or budget for all of the above | | | |
 
 Unknowns to find out: (list who to ask for each blank row)
