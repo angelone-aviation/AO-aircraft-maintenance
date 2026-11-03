@@ -18,6 +18,7 @@ import {
   manualReferenceFromForm,
 } from "./Manuals";
 import { AsyncForm, Field, Modal, value } from "./ui";
+import { openManualFile } from "./KeepOnDevice";
 import {
   NumberField,
   num,
@@ -132,7 +133,7 @@ export function ApplicabilityEditor({
   );
 }
 function ManualDiscovery({ manualUuid }: { manualUuid: string }) {
-  const { snapshot: s, backend, online, connected } = useWorkspace();
+  const { snapshot: s, online, connected } = useWorkspace();
   const manual = s!.manuals?.find((m) => m.uuid === manualUuid);
   const scope =
     manual &&
@@ -235,7 +236,8 @@ function ManualDiscovery({ manualUuid }: { manualUuid: string }) {
           let found: ManualCandidate[] = [];
           try {
             const { searchManualPdf } = await import("../data/manualPdf");
-            url = await backend!.openManual(manual.uuid);
+            // A copy kept on this device saves downloading the manual again.
+            url = (await openManualFile(manual.uuid)).url;
             if (abort.signal.aborted) return;
             const result = await searchManualPdf(
               url,

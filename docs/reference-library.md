@@ -12,9 +12,26 @@ A reference opens the application's manual viewer, which resolves the stored doc
 
 Linked task cards inherit a source inspection or component requirement's manual reference when created using the linked-card flow. Task-card edits continue to use the existing version, signoff invalidation and closed-record rules. Reusable task templates and automatic work-order task generation remain separate future work; manual search creates reviewed schedules and service requirements.
 
-Manuals follow the uploading aircraft's access when that aircraft transfers programs. A reference to a manual outside current access remains stored and displays an unavailable message; it does not bypass aircraft permissions. Connected manual files require connectivity; demo files persist locally. Failed uploads may leave unreferenced storage objects/upload tickets; automated orphan cleanup is not included yet.
+Manuals follow the uploading aircraft's access when that aircraft transfers programs. A reference to a manual outside current access remains stored and displays an unavailable message; it does not bypass aircraft permissions. Connected manual files open online unless they are [kept on this device](#keep-on-this-device); demo files persist locally. Failed uploads may leave unreferenced storage objects/upload tickets; automated orphan cleanup is not included yet.
 
 Validation covers upload authorization, ownership and one-time ticket completion, metadata mismatch rejection, library/read scoping, reference page bounds and persisted task references. Browser coverage uploads from an aircraft, reloads the library, saves an inspection reference and reopens it after reload; when the supplied Cessna file exists, it uses the real 2,937-page PDF and page 79.
+
+## Keep on this device
+
+Select **Keep on this device** on a manual in the Reference library, or in the manual viewer, to download it once for use without a connection. The library row shows the manual's size, then the download progress with **Cancel download**, then **On this device**. A kept manual opens from the device first, instantly and offline, from the library, the viewer and every inspection, component requirement and task-card reference; **Find maintenance items** also reads the kept copy instead of downloading the manual again. The viewer says when it opened the device copy. If the copy is missing or cannot be read, the manual opens online as before, which needs a connection. **Remove from this device** deletes the copy. Keeping a manual needs a connection and uses the same authorized file request as opening one.
+
+The library shows how many manuals are kept on the device and the space they use and, where the browser reports it, the space left for the app. Keeping a manual asks the browser to protect the app's storage from automatic clean-up (persistent storage); the library shows whether it is protected.
+
+Kept copies are stored in the browser's Cache Storage, separately for each deployment and each user, keyed by the manual's UUID rather than a temporary file URL. Manuals are immutable records, so a kept copy never needs refreshing; a new revision is a separate manual to keep. A copy is only opened for a manual in the signed-in user's current snapshot that their aircraft and Flight Program permissions allow, and it is removed:
+
+- when the user signs out, or the session ends on the server;
+- when the snapshot no longer allows the manual: access revoked, aircraft transferred to another program, or another Flight Program selected;
+- for any other user of the same deployment on the device;
+- on request, with **Remove from this device**.
+
+Limits: browser storage quotas apply and vary by browser and free disk space; a manual larger than the space left is refused with a message, and nothing is kept from a canceled, failed or incomplete download. Without persistent storage the browser may remove kept manuals when the device runs low on storage, and Safari may clear a website's storage after some days without use unless the app is added to the Home Screen; an evicted manual opens online again until it is kept once more. Private browsing windows may not keep files, or clear them when closed. The PDF viewer files are cached when a manual is kept; after an app update, open the app once online so they are cached again for offline use. Demo uploads are already saved in the browser and open offline without keeping them; Keep on this device works in the demo as it does in a connected workspace, and signing out of the demo removes its kept copies.
+
+Unit tests cover keeping, reading back, removal, per-user and per-deployment isolation, quota and download failures, cancellation and purging; browser coverage keeps a manual, opens it offline from the library and from an inspection reference, removes it and checks that sign-out removes it.
 
 ## Find maintenance items
 

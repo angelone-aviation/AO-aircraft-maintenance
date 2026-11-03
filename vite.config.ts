@@ -26,6 +26,13 @@ decoderFiles.set(
   ]),
 );
 export default defineConfig({
+  define: {
+    // The PDF viewer files fetched on demand, which src/data/pdfOffline.ts
+    // caches ahead of need for manuals kept on the device.
+    __PDF_VIEWER_FILES__: JSON.stringify(
+      [...decoderFiles.keys()].filter((name) => !/LICENSE|quickjs/.test(name)),
+    ),
+  },
   server: {
     port: 5173,
     strictPort: true,

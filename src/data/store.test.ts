@@ -570,3 +570,56 @@ it("keeps renewed demo access after the next demo change", async () => {
   expect(offlineValid((await readSnapshot(namespace + ":all"))!)).toBe(true);
   vi.unstubAllGlobals();
 });
+it("removes kept manuals on sign-out, when the session ends and when a snapshot no longer allows them", async () => {
+  const { MemoryCacheStorage, pdfBytes, streamedResponse } =
+    await import("../../tests/fixtures/cacheStorage");
+  const { keepManual, listKeptManuals } = await import("./deviceManuals");
+  vi.stubGlobal("navigator", { onLine: true });
+  vi.stubGlobal("caches", new MemoryCacheStorage());
+  const { useWorkspace } = await import("./store");
+  const namespace = "kept-manuals-test";
+  const manual = (uuid: string) => ({
+    uuid,
+    aircraftUuid: "demo-206",
+    title: "Manual",
+    documentNumber: "",
+    revision: "1",
+    revisionDate: "",
+    filename: "manual.pdf",
+    size: 64,
+    pageCount: 1,
+    uploadedAt: 1,
+    uploadedBy: "demo-admin",
+  });
+  const a = crypto.randomUUID(),
+    b = crypto.randomUUID();
+  const snapshot = { ...demoSnapshot(), manuals: [manual(a), manual(b)] };
+  const keep = (uuid: string) =>
+    keepManual({
+      namespace,
+      snapshot,
+      uuid,
+      download: async () => streamedResponse(pdfBytes(64)),
+    });
+  const kept = async () =>
+    (await listKeptManuals(namespace, snapshot)).map((m) => m.uuid).sort();
+  await useWorkspace.getState().initialize(namespace, false);
+  await useWorkspace.getState().receive(snapshot);
+  await keep(a);
+  await keep(b);
+  expect(await kept()).toEqual([a, b].sort());
+
+  // Program switched away from b's aircraft: the next snapshot drops it.
+  await useWorkspace.getState().receive({ ...snapshot, manuals: [manual(a)] });
+  await vi.waitFor(async () => expect(await kept()).toEqual([a]));
+
+  // The session ended on the server.
+  await useWorkspace.getState().receive(null);
+  expect(await kept()).toEqual([]);
+
+  await useWorkspace.getState().receive(snapshot);
+  await keep(a);
+  await useWorkspace.getState().signOutLocal();
+  expect(await kept()).toEqual([]);
+  vi.unstubAllGlobals();
+});
