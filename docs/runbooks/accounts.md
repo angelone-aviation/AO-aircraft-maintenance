@@ -4,11 +4,11 @@ Fill in each row. Names or roles only: never passwords, keys or card numbers her
 
 | Account | What it does for the app | Owner today (name/role) | Must move to the program before launch? | How hard is the move / notes |
 |---|---|---|---|---|
-| Convex (team + production project) | Database, backend functions, auth, file storage | | | Transfer = invite program owner to the Convex team as admin, then remove the old owner; deploy keys must be re-issued |
+| Convex (new Pro account and production project) | Database, backend functions, auth, file storage | | Created new; one administrator (ADR-0010) | The old test project is retired, not transferred (go-live checklist). Deploy keys come from the new account only |
 | Domain registrar | Owns the web address | | | Registrar transfer or just move the login |
 | DNS | Points the address at the site | | | Will move to Cloudflare if the hosting decision goes that way |
 | Cloudflare account and API token | Hosts the website; the "Edit Cloudflare Workers" token in the GitHub `production` environment publishes it | | | Token expiry: ____ ([release runbook](release.md)) |
-| cPanel at A2 Hosting | Publishes the website today | | | Retired once Cloudflare hosting is live; keep until then |
+| cPanel at A2 Hosting | Published the old test website | | No: retire it | Decided 2026-11-03: the old site and its Convex project are retired, not migrated (test data only). Remove the site files; cancel the hosting when nothing else uses it |
 | GitHub `angelone-aviation/AO-aircraft-maintenance` | Source code and issue tracker | Angel One (organization) | Done | Moved from a personal test fork on 2026-11-03 |
 | Resend | Sends the daily alert email digest | | | Which sending domain is verified? |
 | FAA DRS API key | Daily airworthiness-directive checks | | | Who requested it; expiry date; renewal path |

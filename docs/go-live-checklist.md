@@ -8,7 +8,11 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [x] Convex plan: Pro, **one** member, the technical owner ([ADR-0010](adr/0010-one-convex-administrator.md)).
 - [x] Hosting: the website will run on **Cloudflare**; the backend stays on Convex.
 - [x] New Convex Pro account created.
-- [ ] Old production deployment (owned by the original project owner): deploy the security fixes there if it stays in use before the cutover, or retire it.
+- [ ] Retire the old production deployment (decided 2026-11-03: it held only test data, so nothing is migrated and the new Convex Pro account starts empty). It still runs `@convex-dev/auth` 0.0.95, which lets anyone delete records without signing in (security review S1), so shut it down rather than patch it:
+  - [ ] Optional: download a final copy for reference (old Convex dashboard → the production deployment → Settings → Backups → Backup now → Download).
+  - [ ] Delete the old Convex project (old Convex dashboard → the project → Project settings → Delete project). Pausing the deployment (Deployment settings → Pause) is the quicker interim step if deleting has to wait.
+  - [ ] Take the old website off A2 Hosting (cPanel → File Manager: remove the site files, or put up a one-line page that points to the new address once it is live).
+  - [ ] Revoke any API keys used only by the old deployment (for example its Resend key); create fresh ones for the new deployment.
 - [ ] Accounts inventory: fill in [`docs/runbooks/accounts.md`](runbooks/accounts.md) after connecting the new Convex account.
 - [ ] Backups: the nightly backup job is built; finish the setup below.
 - [ ] Release process: CI checks, preview deployments, Cloudflare hosting with security headers, rollback, dependency updates.
