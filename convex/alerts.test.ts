@@ -206,3 +206,156 @@ it("skips email without configuration and records nothing on provider failure", 
   expect(await deliveries(t)).toEqual([]);
   error.mockRestore();
 });
+
+// The off-site backup warning (ADR-0008) goes only to system administrators
+// whose alert email is on; program members and program admins never get it.
+const hour = 3_600_000;
+async function systemAdmins(t: Awaited<ReturnType<typeof setup>>["t"]) {
+  const ids = await t.run(async (ctx) => {
+    const groupId = await ctx.db.insert("groups", {
+      programUuid: "demo-program",
+      name: "System admins in the program",
+      programAdmin: true,
+      aircraftIds: [],
+      permissions: ["read"],
+    });
+    const user = (name: string, extra: object) =>
+      ctx.db.insert("users", {
+        active: true,
+        isAdmin: true,
+        name,
+        email: name + "@example.test",
+        groupIds: [],
+        activeProgramUuid: "demo-program",
+        ...extra,
+      });
+    return {
+      // Program admin of its active program: alert email on by default.
+      member: await user("sys-member", { groupIds: [groupId] }),
+      // In no program: alert email on only because it was turned on.
+      optedIn: await user("sys-opted-in", { emailAlerts: true }),
+      // The switch shows off (never turned on), or it was turned off.
+      unset: await user("sys-unset", {}),
+      optedOut: await user("sys-opted-out", {
+        groupIds: [groupId],
+        emailAlerts: false,
+      }),
+    };
+  });
+  await t.mutation(internal.memberships.backfill, {});
+  return ids;
+}
+const recordCopy = (
+  t: Awaited<ReturnType<typeof setup>>["t"],
+  completedAt: number,
+) =>
+  t.mutation(internal.backups.recordOffsiteCopy, {
+    completedAt,
+    objectKey: "daily/2026/11/04/angelone-20261104T084112Z.zip.age",
+    bytes: 1000,
+    sha256: "0".repeat(64),
+    envUploaded: true,
+  });
+const emails = (request: ReturnType<typeof stubResend>) =>
+  new Map(
+    request.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return [body.to[0] as string, body];
+    }),
+  );
+
+it("warns system administrators when no off-site backup is recorded, and nobody else", async () => {
+  const { t, reader } = await setup();
+  await systemAdmins(t);
+  await reader.mutation(api.alerts.setEmailPreference, { enabled: true });
+  const request = stubResend();
+  expect(await t.action(internal.alerts.sendDigests, {})).toEqual({
+    sent: 5,
+    failed: 0,
+    skipped: false,
+  });
+  const sent = emails(request);
+  expect([...sent.keys()].sort()).toEqual([
+    "admin@example.test",
+    "other@example.test",
+    "reader@example.test",
+    "sys-member@example.test",
+    "sys-opted-in@example.test",
+  ]);
+  const warning = "No off-site backup has been recorded yet.";
+  // At the top of the digest a system administrator gets anyway...
+  const member = sent.get("sys-member@example.test");
+  expect(member.subject).toBe("Mission operations: 2 maintenance alerts");
+  expect(member.text.startsWith(`Off-site backups: ${warning}\n`)).toBe(true);
+  expect(member.html).toMatch(/^<p><strong>Off-site backups:<\/strong> No /);
+  expect(member.html).toContain("Annual N206MA");
+  // ...or on its own when they have no maintenance alerts.
+  const optedIn = sent.get("sys-opted-in@example.test");
+  expect(optedIn.subject).toBe("Off-site backup warning");
+  expect(optedIn.text).toContain(warning);
+  expect(optedIn.html).toContain(
+    'href="https://app.example.test/settings#system"',
+  );
+  for (const to of [
+    "admin@example.test",
+    "other@example.test",
+    "reader@example.test",
+  ]) {
+    expect(sent.get(to).html).not.toContain("Off-site");
+    expect(sent.get(to).text).not.toContain("Off-site");
+  }
+});
+
+it("warns system administrators every day while the newest copy is stale", async () => {
+  const { t } = await setup();
+  await systemAdmins(t);
+  await recordCopy(t, Date.now() - 37 * hour);
+  const request = stubResend();
+  expect(await t.action(internal.alerts.sendDigests, {})).toMatchObject({
+    sent: 4,
+    failed: 0,
+  });
+  const first = emails(request);
+  const warning =
+    "No off-site backup for 37 hours. Check the Nightly backup job in GitHub Actions.";
+  expect(first.get("sys-member@example.test").text).toContain(warning);
+  expect(first.get("sys-opted-in@example.test").text).toContain(warning);
+  expect(first.get("admin@example.test").text).not.toContain("Off-site");
+  expect(first.get("other@example.test").text).not.toContain("Off-site");
+  // The next run has no new maintenance alerts, so the warning comes alone,
+  // and only to the system administrators.
+  request.mockClear();
+  expect(await t.action(internal.alerts.sendDigests, {})).toMatchObject({
+    sent: 2,
+  });
+  const second = emails(request);
+  expect([...second.keys()].sort()).toEqual([
+    "sys-member@example.test",
+    "sys-opted-in@example.test",
+  ]);
+  for (const email of second.values()) {
+    expect(email.subject).toBe("Off-site backup warning");
+    expect(email.text).toContain(warning);
+  }
+});
+
+it("sends no backup warning while the newest copy is fresh", async () => {
+  const { t } = await setup();
+  await systemAdmins(t);
+  await recordCopy(t, Date.now() - 2 * hour);
+  const request = stubResend();
+  expect(await t.action(internal.alerts.sendDigests, {})).toMatchObject({
+    sent: 3,
+    failed: 0,
+  });
+  const sent = emails(request);
+  expect([...sent.keys()].sort()).toEqual([
+    "admin@example.test",
+    "other@example.test",
+    "sys-member@example.test",
+  ]);
+  for (const email of sent.values()) {
+    expect(email.html).not.toContain("Off-site");
+    expect(email.text).not.toContain("Off-site");
+  }
+});

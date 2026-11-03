@@ -112,6 +112,7 @@ test("system administrators see all four sections with the moved panels", async 
     "Export program data",
     "FAA API key and renewal",
     "Address verification",
+    "Off-site backups",
     "Download data backup",
     "Full demo backup for cloud transfer",
   ])
@@ -119,6 +120,14 @@ test("system administrators see all four sections with the moved panels", async 
       page.getByRole("heading", { level: 3, name: heading, exact: true }),
     ).toBeVisible();
   await expect(page.getByText("See “Deployment” in the README.")).toBeVisible();
+  // The nightly off-site backup is recorded only by the production job.
+  await expect(
+    page
+      .locator("#system")
+      .getByText("Off-site backups run only on the production deployment.", {
+        exact: true,
+      }),
+  ).toBeVisible();
   const download = page.waitForEvent("download");
   await page
     .locator("#system")
@@ -168,6 +177,7 @@ test("program administrators get Flight Program settings but not System", async 
   for (const heading of [
     "FAA API key and renewal",
     "Address verification",
+    "Off-site backups",
     "Download data backup",
   ])
     await expect(

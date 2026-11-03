@@ -14,19 +14,40 @@ const escapeHtml = (text: string) =>
       ]!,
   );
 const oneLine = (text: string) => text.replace(/[\r\n]+/g, " ").trim();
+const siteBase = (siteUrl?: string) =>
+  /^https?:\/\/[^\s"'<>]+$/i.test(siteUrl ?? "")
+    ? siteUrl!.replace(/\/+$/, "")
+    : "";
+const FOOTER = "Turn these emails off under My certifications in the app.";
 
-/** One plain digest listing at most DIGEST_LIMIT alerts. */
+/** The off-site backup warning (system administrators only), as the first
+ * lines of an email. Empty when there is no warning. */
+function backupLines(warning: string | undefined, base: string) {
+  if (!warning) return { text: [], html: [] };
+  const line = `Off-site backups: ${oneLine(warning)}`;
+  const link = base && `${base}/settings#system`;
+  return {
+    text: [line, ...(link ? [link] : []), ""],
+    html: [
+      `<p><strong>Off-site backups:</strong> ${escapeHtml(oneLine(warning))}${
+        link ? ` <a href="${escapeHtml(link)}">Settings → System</a>` : ""
+      }</p>`,
+    ],
+  };
+}
+
+/** One plain digest listing at most DIGEST_LIMIT alerts. `backupWarning`
+ * puts the off-site backup warning above them. */
 export function digestEmail<T extends DigestAlert>(
   alerts: T[],
-  options: { programName: string; siteUrl?: string },
+  options: { programName: string; siteUrl?: string; backupWarning?: string },
 ) {
   const shown = alerts.slice(0, DIGEST_LIMIT);
   const more = alerts.length - shown.length;
-  const base = /^https?:\/\/[^\s"'<>]+$/i.test(options.siteUrl ?? "")
-    ? options.siteUrl!.replace(/\/+$/, "")
-    : "";
+  const base = siteBase(options.siteUrl);
   const program = oneLine(options.programName);
   const subject = `${program}: ${alerts.length} maintenance alert${alerts.length === 1 ? "" : "s"}`;
+  const backup = backupLines(options.backupWarning, base);
   const groups = (["danger", "warning", "info"] as const)
     .map((severity) => ({
       label: severityLabels[severity],
@@ -35,6 +56,7 @@ export function digestEmail<T extends DigestAlert>(
     .filter((g) => g.rows.length);
   const moreText = more > 0 ? `and ${more} more in the app.` : "";
   const text = [
+    ...backup.text,
     `${program} maintenance alerts`,
     ...groups.flatMap((g) => [
       "",
@@ -46,9 +68,10 @@ export function digestEmail<T extends DigestAlert>(
     ]),
     ...(moreText ? ["", moreText] : []),
     "",
-    "Turn these emails off under My certifications in the app.",
+    FOOTER,
   ].join("\n");
   const html = [
+    ...backup.html,
     `<p>${escapeHtml(program)} maintenance alerts</p>`,
     ...groups.map(
       (g) =>
@@ -60,7 +83,21 @@ export function digestEmail<T extends DigestAlert>(
           .join("")}</ul>`,
     ),
     ...(moreText ? [`<p>${escapeHtml(moreText)}</p>`] : []),
-    "<p>Turn these emails off under My certifications in the app.</p>",
+    `<p>${FOOTER}</p>`,
   ].join("");
   return { subject, html, text, shown };
+}
+
+/** The off-site backup warning on its own, for a system administrator with
+ * no maintenance alerts to send that day. */
+export function backupWarningEmail(
+  warning: string,
+  options: { siteUrl?: string },
+) {
+  const backup = backupLines(warning, siteBase(options.siteUrl));
+  return {
+    subject: "Off-site backup warning",
+    text: [...backup.text, FOOTER].join("\n"),
+    html: [...backup.html, `<p>${FOOTER}</p>`].join(""),
+  };
 }

@@ -60,6 +60,11 @@ export interface Backend {
     order: string,
   ): Promise<number>;
   addressSettings(): Promise<{ configured: boolean; version: number }>;
+  /** System administrators: the newest nightly off-site backup (ADR-0008);
+   * null before the first one, and always in the demo. */
+  latestOffsiteCopy(): Promise<
+    import("../domain/offsiteBackups").OffsiteCopy | null
+  >;
   setAddressKey(input: { key: string; version: number }): Promise<unknown>;
   lookupAddress(
     input: import("../domain/addressLookup").AddressLookupInput,
@@ -277,6 +282,7 @@ export function convexBackend(client: ConvexReactClient): Backend {
         programUuid: programUuid(),
       }),
     addressSettings: () => client.query(api.addressVerification.status, {}),
+    latestOffsiteCopy: () => client.query(api.backups.latestOffsiteCopy, {}),
     setAddressKey: (input) =>
       client.action(api.addressVerification.setKey, input),
     lookupAddress: (input) =>
