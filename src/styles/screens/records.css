@@ -1,6 +1,9 @@
-/* Records screens: Flight log, Discrepancies, Sync center and Change history
- * (src/components/Records.tsx). Every class is prefixed `rec-`; tokens come
- * from src/styles/tokens.css and shared blocks from src/styles/design.css. */
+/*
+ * Responsibility: Styles the Records screens in src/components/Records.tsx
+ *   (Flight log, Discrepancies, Sync center, Change history) and their dialogs.
+ * Layer: UI. Screen styles; every selector is scoped by a `rec-` class.
+ * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`).
+ */
 
 /* Status words are stored lower-case ("accepted", "open"); show them
  * sentence-case without changing the text that assistive tech reads. */
