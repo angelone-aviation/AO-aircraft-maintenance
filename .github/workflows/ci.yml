@@ -1,7 +1,11 @@
-# Checks every pull request and every push to main. Needs no secrets: the
-# browser tests run the production build in demo mode, served with the
-# Cloudflare headers in public/_headers (scripts/serve-dist.mjs), and fail on
-# any Content-Security-Policy violation.
+# Responsibility: Checks every pull request and every push to main: engineering standards on
+#   changed files, typecheck, lint, unit and server tests, build, backup-job tests and browser tests.
+# Layer: Tooling (CI). Needs no secrets and never deploys.
+# Dependencies: npm, Playwright Chromium, age, .claude/hooks/check-standards.mjs,
+#   scripts/serve-dist.mjs (serves the build with the Cloudflare headers in public/_headers).
+#
+# The browser tests run the production build in demo mode and fail on any
+# Content-Security-Policy violation.
 name: CI
 
 on:
@@ -27,6 +31,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full history, so the standards check can diff against the push or pull-request base.
+          fetch-depth: 0
+
+      - name: Engineering standards on changed files (CONSTRAINTS.md)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node .claude/hooks/check-standards.mjs --changed-since "$BASE_SHA"
 
       - name: Set up Node.js 22
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

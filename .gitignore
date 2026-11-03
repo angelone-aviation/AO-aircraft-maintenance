@@ -19,6 +19,8 @@ dist-peer-testing/
 
 # Local tool settings
 .*/settings.local.json
+# Agent worktrees (one per parallel task); never committed
+.claude/worktrees/
 
 # Customer aircraft records, sample data, reference manuals and build zips stay
 # local and are never committed. Manuals belong in the app's Reference library

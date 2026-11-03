@@ -1,6 +1,7 @@
-# Releases main to production: Convex functions and schema first, then the
-# website on Cloudflare. Started by hand only (Actions > Deploy > Run
-# workflow). Runbook: docs/runbooks/release.md.
+# Responsibility: Releases main to production: Convex functions and schema first, then the
+#   website on Cloudflare.
+# Layer: Tooling (release workflow). Started by hand only (Actions > Deploy > Run workflow).
+# Dependencies: the Convex CLI, wrangler, and the secrets below. Runbook: docs/runbooks/release.md.
 #
 # Secrets live on the protected "production" environment, not the repository:
 #   CONVEX_DEPLOY_KEY      Convex production deploy key

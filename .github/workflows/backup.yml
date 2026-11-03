@@ -1,8 +1,9 @@
-# Nightly off-site backup (ADR-0008): exports production with its files,
-# encrypts the export with age and uploads it to Cloudflare R2, then records
-# the copy in the app. Also runs by hand (Actions > Nightly backup > Run
-# workflow). Script: scripts/backup/nightly.sh. Runbook:
-# docs/runbooks/backup-restore.md.
+# Responsibility: Nightly off-site backup (ADR-0008): exports production with its files,
+#   encrypts the export with age and uploads it to Cloudflare R2, records the copy in the app,
+#   and adds the readable Excel copy to Dropbox when that is set up (ADR-0011).
+# Layer: Tooling (scheduled workflow). Also runs by hand (Actions > Nightly backup > Run workflow).
+# Dependencies: scripts/backup/nightly.sh, the Convex CLI, the AWS CLI, age, and the secrets below.
+#   Runbook: docs/runbooks/backup-restore.md.
 #
 # Secrets live on the "backups" environment, not the repository:
 #   CONVEX_BACKUP_DEPLOY_KEY  Convex production deploy key (prod:...)
