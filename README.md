@@ -22,7 +22,7 @@ See [the agreed scope](docs/first-delivery.md), [original requirements](requirem
 **Not yet in production use.** The app is going through a pre-launch hardening program, with the remaining work in the [go-live checklist](docs/go-live-checklist.md).
 
 - **Standing decisions** are in [`docs/adr/`](docs/adr/), for example administrator-provisioned accounts, the app as a status-record system and not the signed maintenance record, change-log protection, the Convex plan, backups and sign-in methods.
-- **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. Any deployment built before then must be redeployed; see [Deployment](#deployment).
+- **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code.
 - **Operations**: the runbooks are [release and rollback](docs/runbooks/release.md), [accounts](docs/runbooks/accounts.md), [production database access](docs/runbooks/database-access.md), [backup and restore](docs/runbooks/backup-restore.md), [Dropbox records copy](docs/runbooks/dropbox-records-copy.md) and the [credential encryption key](docs/runbooks/credentials-key.md).
 - **Architecture**: see the [architecture report](docs/architecture/README.md).
 
@@ -125,7 +125,9 @@ Before deploying, take a Convex backup (dashboard > Backups) and save the deploy
 
 Production is also copied off-site every night by the **Nightly backup** workflow (encrypted, to Cloudflare R2, plus an optional readable Excel workbook in Dropbox); running it by hand, checking it and restoring are in the [backup runbook](docs/runbooks/backup-restore.md), and `npm run test:backup` tests it without credentials.
 
-**After every deploy, run these one-off steps.** Each is safe to rerun and does nothing once complete:
+**Fresh deployments skip this section.** The production deployment started empty on 2026-11-03 (no data was migrated; the old test deployment was deleted), so the one-off steps below have nothing to do there. They repair data written by earlier versions and stay documented for any deployment that holds such data.
+
+**After every deploy of a deployment with older data, run these one-off steps.** Each is safe to rerun and does nothing once complete:
 
 ```bash
 npx convex run memberships:backfill
