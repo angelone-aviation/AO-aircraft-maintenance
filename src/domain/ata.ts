@@ -1,6 +1,19 @@
+/**
+ * Responsibility: The ATA chapter catalog that maintenance records are filed
+ *   under, and how a chapter is labelled.
+ * Layer: Domain. Pure data, zod schema and function; no I/O, no React.
+ * Dependencies: zod. No internal imports.
+ *
+ * The owner's chapter list, not the full ATA index. Stored payloads and
+ * convex/schema.ts validate against these codes, so a code can be added but
+ * not removed or renamed while a record uses it.
+ */
 import { z } from "zod";
 
-// User-specified chapter catalog. Codes stay as strings to retain leading zeroes.
+/**
+ * The chapters offered for selection, grouped as the chapter picker shows them.
+ * Codes are strings so leading zeros survive ("05", not 5).
+ */
 export const ATA_GROUPS = [
   {
     label: "Aircraft General (00–18)",
@@ -106,10 +119,27 @@ export const ATA_GROUPS = [
     ],
   },
 ] as const;
+
+/** Every `[code, title]` pair of {@link ATA_GROUPS}, in group order. */
 export const ATA_CHAPTERS = ATA_GROUPS.flatMap((group) => [...group.chapters]);
+
+/**
+ * A chapter code as stored on a record.
+ *
+ * @throws {z.ZodError} From `parse()` on a code outside the catalog.
+ */
 export const ataChapterSchema = z.enum(ATA_CHAPTERS.map(([code]) => code));
+
+/** A catalog chapter code, such as "05". */
 export type AtaChapter = z.infer<typeof ataChapterSchema>;
-export function ataLabel(code?: AtaChapter) {
+
+/**
+ * Names a record's chapter for display.
+ *
+ * @param code - The record's chapter, if it has one.
+ * @returns "ATA <code>: <title>", or "Unassigned" when there is no chapter.
+ */
+export function ataLabel(code?: AtaChapter): string {
   const chapter = ATA_CHAPTERS.find(([value]) => value === code);
   return chapter ? `ATA ${chapter[0]}: ${chapter[1]}` : "Unassigned";
 }
