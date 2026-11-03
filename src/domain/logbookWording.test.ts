@@ -1,11 +1,25 @@
-import { expect, it } from "vitest";
+/**
+ * Responsibility: Pins logbook wording: the phrase lists, a task's logbook
+ *   choice, and the work lines selected tasks and job cards add at close-out.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/logbookWording.ts, src/domain/taskCards.ts,
+ *   src/domain/workOrders.ts, src/domain/workOrderCloseout.ts,
+ *   src/data/demo.ts and tests/fixtures (fixtures).
+ */
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { demoSnapshot } from "../data/demo";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
 import { saveTaskCard } from "./taskCards";
 import { newWorkTask, saveWorkOrder } from "./workOrders";
 import { workPerformedText } from "./workOrderCloseout";
-import { logbookPhrasesSchema } from "./logbookWording";
+import {
+  defaultLogbookPhrases,
+  logbookPhrasesSchema,
+  logbookSelectionFields,
+  logbookWorkLine,
+} from "./logbookWording";
 
 it("copies procedure logbook choices to job cards and includes only selected completed procedures", () => {
   const s = demoSnapshot();
@@ -119,4 +133,79 @@ it("validates editable phrases", () => {
     logbookPhrasesSchema.safeParse(["Inspected", "inspected"]).success,
   ).toBe(false);
   expect(logbookPhrasesSchema.safeParse([]).success).toBe(false);
+});
+
+// Mirrors the private limit in logbookWording.ts; a change to either fails here.
+const PHRASE_MAX_LENGTH = 200;
+const AC_43_13 = "IAW Standard Practice found in AC43.13";
+
+describe("logbookWorkLine", () => {
+  it("writes the line with trimmed parts, lowercasing a standard phrase", () => {
+    expect(
+      logbookWorkLine(2, "Inspected", " Cabin fittings ", " AMM 25-10 "),
+    ).toBe("Task #2 Cabin fittings: inspected IAW AMM 25-10");
+    expect(
+      logbookWorkLine("TC-7", "Complied with", "AD 2020-01-01", "AD"),
+    ).toBe("Task #TC-7 AD 2020-01-01: complied with IAW AD");
+  });
+  it("uses Performed for a blank phrase and AC 43.13 for a blank reference", () => {
+    expect(logbookWorkLine(1, undefined, "Wash", " ")).toBe(
+      `Task #1 Wash: performed ${AC_43_13}`,
+    );
+    expect(logbookWorkLine(1, "", "Wash", "")).toBe(
+      `Task #1 Wash: performed ${AC_43_13}`,
+    );
+  });
+  it("keeps any other phrase as written", () => {
+    expect(logbookWorkLine(3, "Overhauled per SB", "Pump", "SB 12")).toBe(
+      "Task #3 Pump: Overhauled per SB IAW SB 12",
+    );
+    // Characterizes current behaviour: only the listed capitalization matches.
+    expect(logbookWorkLine(3, "INSPECTED", "Pump", "SB 12")).toBe(
+      "Task #3 Pump: INSPECTED IAW SB 12",
+    );
+  });
+});
+
+describe("phrase lists and selections", () => {
+  it("starts users on the standard phrases, in menu order", () => {
+    expect(defaultLogbookPhrases).toEqual([
+      "Performed",
+      "Inspected",
+      "Repaired",
+      "Complied with",
+      "Installed",
+      "Removed",
+      "Updated",
+    ]);
+  });
+  it("limits a saved list to 100 phrases of up to 200 characters", () => {
+    const accepts = (phrases: string[]) =>
+      logbookPhrasesSchema.safeParse(phrases).success;
+    const many = (count: number) =>
+      Array.from({ length: count }, (_, i) => `Phrase ${i}`);
+    expect(accepts(many(100))).toBe(true);
+    expect(accepts(many(101))).toBe(false);
+    expect(accepts(["x".repeat(PHRASE_MAX_LENGTH)])).toBe(true);
+    expect(accepts(["x".repeat(PHRASE_MAX_LENGTH + 1)])).toBe(false);
+    expect(accepts(["  "])).toBe(false);
+  });
+  it("refuses phrases that repeat once trimmed, ignoring case", () => {
+    const result = logbookPhrasesSchema.safeParse([" Repaired", "repaired "]);
+    expect(result.error?.issues.map((issue) => issue.message)).toEqual([
+      "Remove duplicate phrases.",
+    ]);
+  });
+  it("leaves a task's choice optional and trims its phrase", () => {
+    const selection = z.object(logbookSelectionFields);
+    expect(selection.parse({})).toEqual({});
+    expect(
+      selection.parse({ includeInLogbook: false, logbookPhrase: " Repaired " }),
+    ).toEqual({ includeInLogbook: false, logbookPhrase: "Repaired" });
+    expect(selection.safeParse({ logbookPhrase: " " }).success).toBe(false);
+    expect(
+      selection.safeParse({ logbookPhrase: "x".repeat(PHRASE_MAX_LENGTH + 1) })
+        .success,
+    ).toBe(false);
+  });
 });
