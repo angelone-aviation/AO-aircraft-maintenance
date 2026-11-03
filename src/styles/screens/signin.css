@@ -1,0 +1,95 @@
+/* Sign-in methods (src/components/SignInMethods.tsx): the Google and
+ * Microsoft buttons and the notice on the sign-in screen, and the list of a
+ * user's sign-in methods in Settings → My account and Administration. Every
+ * class is prefixed `sgn-`; colours, radii and spacing come from
+ * src/styles/tokens.css. The providers' marks keep their own colours. */
+
+/* ---------- Sign-in screen ---------- */
+.sgn-sso {
+  display: grid;
+  gap: 10px;
+}
+.sgn-sso > .welcome-divider {
+  margin: 8px 0 4px !important;
+}
+.sgn-sso-button.button {
+  width: 100%;
+  min-height: 48px;
+  gap: 12px;
+  font-size: 16px;
+  font-weight: 500;
+}
+.sgn-mark {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.sgn-notice {
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.sgn-notice strong {
+  color: var(--text);
+}
+
+/* ---------- Sign-in method list ---------- */
+.sgn-methods > ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sgn-methods li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 44px;
+}
+/* The size of the password row's small IconTile, holding a brand mark on
+ * a neutral surface so its colours read in both themes. */
+.sgn-method-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.sgn-method-mark .sgn-mark {
+  width: 18px;
+  height: 18px;
+}
+.sgn-method-text {
+  flex: 1;
+  min-width: 0;
+}
+.sgn-method-text strong {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.sgn-method-text small {
+  display: block;
+  font-size: 13.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.sgn-remove.button {
+  flex: none;
+  min-height: 40px;
+}
+.sgn-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+.sgn-empty > svg {
+  flex: none;
+}

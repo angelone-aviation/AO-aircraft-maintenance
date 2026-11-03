@@ -14,3 +14,10 @@ export const ADD_EXISTING_RESULT =
 export const ACCOUNT_REQUESTS_PER_HOUR = 20;
 export const ACCOUNT_REQUESTS_LIMITED =
   "Too many account requests. Try again within the hour.";
+
+// Passwords an administrator sets (ADR-0009, NIST SP 800-63B): a length rule
+// and no composition rules; passwordRules.ts also refuses common passwords.
+// Sign-in does not check these, so a shorter existing password keeps working
+// until the user's next reset.
+export const PASSWORD_MIN_LENGTH = 15;
+export const PASSWORD_MAX_LENGTH = 128;

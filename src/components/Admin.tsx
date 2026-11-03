@@ -16,6 +16,7 @@ import {
   Key,
   PencilSimple,
   Plus,
+  SignIn,
   Users,
   WifiSlash,
 } from "@phosphor-icons/react";
@@ -23,6 +24,11 @@ import { useWorkspace } from "../data/store";
 import { aircraftMeterLabels, type Group, type Member } from "../domain/model";
 import type { GroupAccessReport } from "../domain/groupAccessReview";
 import { AsyncForm, Field, Modal } from "./ui";
+import { SignInMethodList } from "./SignInMethods";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../domain/accountRules";
 import {
   EmptyState,
   IconTile,
@@ -53,6 +59,7 @@ export function Administration() {
       "user" | "aircraft" | "group" | Member | Group | null
     >(null),
     [reset, setReset] = useState<Member | null>(null),
+    [methods, setMethods] = useState<Member | null>(null),
     // Bumped when a group form closes, so the access check runs again even
     // when a save left the group's fields as they were.
     [groupSaves, setGroupSaves] = useState(0);
@@ -193,6 +200,15 @@ export function Administration() {
                   >
                     <Key size={16} aria-hidden="true" />
                   </button>
+                  <button
+                    className="button small adm-icon-button"
+                    aria-label="Sign-in methods"
+                    title="Sign-in methods"
+                    disabled={!enabled}
+                    onClick={() => setMethods(user)}
+                  >
+                    <SignIn size={16} aria-hidden="true" />
+                  </button>
                 </div>
               </div>
             );
@@ -332,12 +348,15 @@ export function Administration() {
               setReset(null);
             }}
           >
-            <Field label="New password">
+            <Field
+              label="New password"
+              hint={`At least ${PASSWORD_MIN_LENGTH} characters. A short phrase is easier to remember than a jumble; common passwords are refused.`}
+            >
               <input
                 type="password"
                 name="password"
-                minLength={12}
-                maxLength={128}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
                 required
                 autoComplete="new-password"
               />
@@ -346,6 +365,19 @@ export function Administration() {
               Existing sessions will be revoked when the device reconnects.
             </p>
           </AsyncForm>
+        </Modal>
+      )}
+      {methods && (
+        <Modal
+          title={`Sign-in methods · ${methods.name}`}
+          onClose={() => setMethods(null)}
+        >
+          <p className="muted">
+            Google or Microsoft accounts are linked when the person first signs
+            in with one whose verified email is {methods.email}. Every sign-in
+            and change is in the change log.
+          </p>
+          <SignInMethodList member={methods} />
         </Modal>
       )}
     </div>

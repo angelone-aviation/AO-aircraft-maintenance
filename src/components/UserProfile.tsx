@@ -12,6 +12,10 @@ import {
 } from "../domain/certifications";
 import type { Member } from "../domain/model";
 import { wantsAlertEmails } from "../domain/alerts";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../domain/accountRules";
 import { AsyncForm, Field, Modal } from "./ui";
 
 type PendingCopy = { id: string; kind: CertificationKind; file: File };
@@ -348,13 +352,13 @@ export function UserProfileForm({
       {!initial && !createdId && (
         <Field
           label="Initial password"
-          hint="At least 12 characters. Share privately with the user."
+          hint={`At least ${PASSWORD_MIN_LENGTH} characters; common passwords are refused. Share privately with the user.`}
         >
           <input
             name="password"
             type="password"
-            minLength={12}
-            maxLength={128}
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
             required
             autoComplete="new-password"
           />

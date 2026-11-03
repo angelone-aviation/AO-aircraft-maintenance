@@ -17,6 +17,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [ ] Data on shared or lost devices: offline copy, sign-out, device unlock.
 - [ ] Per-aircraft records export (FAA inspection access and aircraft sale).
 - [ ] Ready to build: Google and Microsoft sign-in (needs a Google Cloud sign-in client and a Microsoft Entra app registration); FAA scope changes (inspection sign-off certificate, "Performed by" line, Form 337 attachments); two architecture cleanups.
+- [ ] Google and Microsoft sign-in (built): create the Google Cloud sign-in client and the Microsoft Entra app registration, set their environment variables on production and test each with a real account ([accounts runbook](runbooks/accounts.md#google-and-microsoft-sign-in)).
 - [ ] Replace the placeholder aircraft drawing (`public/branding/cessna-oblique.svg`, see `public/branding/SOURCE.txt`).
 - [ ] Deploy and run the post-deploy commands in the README "Deployment" section.
 - [ ] Upload the reference manuals to the app's Reference library (optimize large PDFs first).

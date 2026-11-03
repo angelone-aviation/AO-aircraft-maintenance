@@ -13,6 +13,10 @@ import {
   EMAIL_UNAVAILABLE,
 } from "../src/domain/accountRules";
 import { MAX_FAILED_SIGN_INS_PER_HOUR } from "./auth";
+import {
+  PASSWORD_COMMON_MESSAGE,
+  PASSWORD_LENGTH_MESSAGE,
+} from "../src/domain/passwordRules";
 import type { Id } from "./_generated/dataModel";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -439,4 +443,26 @@ it("rate-limits addExisting per actor, counting unknown emails", async () => {
       groupIds: [f.ids.own],
     }),
   ).rejects.toThrow(/Too many/);
+});
+
+it("program account creation refuses short and common passwords before reserving the email", async () => {
+  const f = await fixture();
+  const create = (password: string) =>
+    message(
+      f.program.action(api.programUsers.create, {
+        email: "new@example.test",
+        name: "New user",
+        password,
+        programUuid: "home",
+        groupIds: [f.ids.own],
+      }),
+    );
+  expect(await create("fourteen-chars")).toBe(PASSWORD_LENGTH_MESSAGE);
+  expect(await create("1q2w3e4r5t6y7u8i9o0p")).toBe(PASSWORD_COMMON_MESSAGE);
+  expect(
+    await f.t.run(async (ctx) => ({
+      users: (await ctx.db.query("users").collect()).length,
+      limits: await ctx.db.query("rateLimits").collect(),
+    })),
+  ).toEqual({ users: 2, limits: [] });
 });

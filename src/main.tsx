@@ -20,6 +20,7 @@ import "./styles/tokens.css";
 import "./styles.css";
 import { AircraftArt, Wordmark, initTheme } from "./components/design";
 import { ThemeToggle } from "./components/AppShell";
+import { SignInNotice, SsoSignIn } from "./components/SignInMethods";
 initTheme();
 const configuredUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
 // Production builds offer the local demo only when built with VITE_DEMO_MODE
@@ -217,6 +218,7 @@ function LiveRoot({
     <Welcome>
       <h1>Welcome back.</h1>
       <p>Sign in to your aircraft operations workspace.</p>
+      <SignInNotice />
       <AsyncForm
         submitLabel="Sign in"
         disabled={!online}
@@ -233,6 +235,7 @@ function LiveRoot({
         </Field>
         <PasswordField />
       </AsyncForm>
+      <SsoSignIn disabled={!online} />
       {!online && (
         <p className="callout">
           Connect to sign in for the first time on this device.

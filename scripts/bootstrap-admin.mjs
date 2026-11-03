@@ -6,7 +6,7 @@ const name = (await rl.question("Administrator name: ")).trim();
 rl.close();
 if (!process.stdin.isTTY)
   throw new Error("Run this setup in an interactive terminal.");
-process.stdout.write("Password (12–128 characters, hidden): ");
+process.stdout.write("Password (15–128 characters, hidden): ");
 const password = await new Promise((resolve) => {
   let secret = "";
   process.stdin.setRawMode(true);

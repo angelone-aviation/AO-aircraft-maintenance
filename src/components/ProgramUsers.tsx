@@ -19,6 +19,10 @@ import {
 import { useWorkspace } from "../data/store";
 import { activeProgram } from "../domain/programs";
 import { groupAircraftLabel } from "../domain/groupAircraft";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../domain/accountRules";
 import { AsyncForm, Field, Modal, value } from "./ui";
 import { IconTile, NoticeBar, PageHeader, StatusPill } from "./design";
 import "../styles/screens/admin.css";
@@ -464,13 +468,16 @@ export function ProgramUsers() {
             <Field label="Email">
               <input name="email" type="email" required autoComplete="off" />
             </Field>
-            <Field label="Initial password">
+            <Field
+              label="Initial password"
+              hint={`At least ${PASSWORD_MIN_LENGTH} characters; common passwords are refused.`}
+            >
               <input
                 name="password"
                 type="password"
                 required
-                minLength={12}
-                maxLength={128}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_LENGTH}
                 autoComplete="new-password"
               />
             </Field>
