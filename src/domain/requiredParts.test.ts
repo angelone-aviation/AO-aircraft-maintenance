@@ -1,11 +1,20 @@
+/**
+ * Responsibility: Pins required-parts rules: list checks, availability
+ *   against usable stock, and saving a discrepancy's parts.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/requiredParts.ts, ./management, ./programs,
+ *   ./partsPlanning, ./rejection, tests/fixtures (parts and work orders).
+ */
 import { workOrderComponent } from "../../tests/fixtures/workOrders";
 import { describe, expect, it } from "vitest";
 import { partsFixture, neededPart } from "../../tests/fixtures/requiredParts";
 import {
   partsAvailability,
+  partsInventory,
   validateRequiredParts,
   saveDiscrepancyParts,
 } from "./requiredParts";
+import { Rejection } from "./rejection";
 import { applyManagement } from "./management";
 import { scopedSnapshot } from "./programs";
 import { maintenancePartsPlans } from "./partsPlanning";
@@ -208,4 +217,122 @@ it("saves component service parts and flags upcoming installed component require
   expect(maintenancePartsPlans(s).some((p) => p.uuid === "service")).toBe(
     false,
   );
+});
+
+it("refuses bad lists and stale or closed reports as a Rejection", () => {
+  const s = partsFixture();
+  const refusal = (attempt: () => unknown) => {
+    try {
+      attempt();
+    } catch (error) {
+      return error;
+    }
+  };
+  const save = (uuid: string, version: number) => () =>
+    saveDiscrepancyParts(s, uuid, version, []);
+  const resolved = () => {
+    s.discrepancies[0].status = "resolved";
+    return saveDiscrepancyParts(s, "parts-report", 0, []);
+  };
+  for (const [attempt, message] of [
+    [
+      () => validateRequiredParts(s, [neededPart], "other-program"),
+      "Select a part and inventory location in this Flight Program.",
+    ],
+    [
+      () => validateRequiredParts(s, [neededPart, neededPart], "demo-program"),
+      "This part is already listed. Update its quantity instead.",
+    ],
+    [save("missing", 0), "Report not found."],
+    [
+      save("parts-report", 1),
+      "Parts changed. Reopen the report and try again.",
+    ],
+    [resolved, "Resolved reports are read-only."],
+  ] as const) {
+    const error = refusal(attempt);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toHaveProperty("message", message);
+  }
+  s.discrepancies[0].status = "open";
+  s.user.isAdmin = false;
+  expect(refusal(save("parts-report", 0))).toEqual(
+    new Rejection("Permission denied."),
+  );
+  expect(refusal(save("parts-report", 0))).toBeInstanceOf(Rejection);
+});
+
+it("moves the parts version on by one and keeps the parsed list", () => {
+  const s = partsFixture();
+  const d = saveDiscrepancyParts(s, "parts-report", 0, [
+    { ...neededPart, partNumber: "dropped" },
+  ]);
+  expect(d).toBe(s.discrepancies[0]);
+  expect(d).toMatchObject({ partsVersion: 1, requiredParts: [neededPart] });
+  expect(validateRequiredParts(s, undefined, "demo-program")).toEqual([]);
+});
+
+it("adds up the need for one lot and labels missing stock", () => {
+  const s = partsFixture();
+  const rows = partsAvailability(s, [
+    neededPart,
+    { ...neededPart, quantity: 1 },
+    { ...neededPart, stockUuid: "missing", locationUuid: "nowhere" },
+  ]);
+  expect(rows.map((r) => [r.available, r.shortage, r.expired])).toEqual([
+    [2, 2, 0],
+    [2, 2, 0],
+    [undefined, undefined, undefined],
+  ]);
+  expect(rows[2]).toMatchObject({
+    partNumber: "Unavailable part",
+    location: "Unavailable location",
+  });
+  expect(rows[0]).toMatchObject({
+    partNumber: "FILTER-1",
+    location: "Main hangar",
+  });
+});
+
+it("counts serviceable lots of a part number, at its location if given", () => {
+  const s = partsFixture();
+  const inventory = partsInventory(s);
+  const lot = (uuid: string, locationUuid: string, condition?: string) => ({
+    ...inventory.stock[0],
+    uuid,
+    locationUuid,
+    condition,
+  });
+  inventory.stock.push(
+    lot("overhauled", "other-location", "overhauled"),
+    lot("unmarked", "other-location"),
+    lot("as-removed", "other-location", "as removed"),
+  );
+  s.partsInventory = inventory;
+  const byNumber = {
+    stockUuid: "",
+    locationUuid: "",
+    partNumber: "FILTER-1",
+    quantity: 7,
+  };
+  expect(partsAvailability(s, [byNumber])[0]).toMatchObject({
+    location: "All locations",
+    available: 6,
+    shortage: 1,
+  });
+  expect(
+    partsAvailability(s, [
+      { ...byNumber, locationUuid: "other-location", quantity: 1 },
+    ])[0],
+  ).toMatchObject({ location: "Remote hangar", available: 4, shortage: 0 });
+});
+
+it("prefers a snapshot's own parts inventory and defaults reservations to 0", () => {
+  const s = partsFixture();
+  expect(partsInventory(s).stock[0]).toMatchObject({
+    uuid: "parts-stock",
+    reservedQuantity: 0,
+  });
+  s.partsInventory = { locations: [], stock: [] };
+  expect(partsInventory(s)).toBe(s.partsInventory);
 });
