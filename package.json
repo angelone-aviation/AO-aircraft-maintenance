@@ -18,6 +18,7 @@
     "setup:auth": "node scripts/configure-auth.mjs",
     "setup:admin": "node scripts/bootstrap-admin.mjs",
     "test:local": "node scripts/smoke-local.mjs",
+    "test:backup": "bash scripts/backup/nightly.test.sh",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts"
   },

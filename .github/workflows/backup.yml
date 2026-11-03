@@ -1,0 +1,80 @@
+# Nightly off-site backup (ADR-0008): exports production with its files,
+# encrypts the export with age and uploads it to Cloudflare R2, then records
+# the copy in the app. Also runs by hand (Actions > Nightly backup > Run
+# workflow). Script: scripts/backup/nightly.sh. Runbook:
+# docs/runbooks/backup-restore.md.
+#
+# Secrets live on the "backups" environment, not the repository:
+#   CONVEX_BACKUP_DEPLOY_KEY  Convex production deploy key (prod:...)
+#   BACKUP_AGE_PUBLIC_KEY     age public key (age1...); the private key never
+#                             goes to GitHub
+#   R2_ACCOUNT_ID             Cloudflare account ID
+#   R2_ACCESS_KEY_ID          R2 API token with object read and write on the
+#   R2_SECRET_ACCESS_KEY      bucket only
+# Optional environment variable R2_BUCKET (default angelone-backups).
+#
+# A failed run emails the person who last changed the schedule below (see the
+# runbook). The app also warns when the newest copy is older than 36 hours.
+name: Nightly backup
+
+on:
+  schedule:
+    # 08:41 UTC, about 3:41 am US Eastern; off the hour, when GitHub is busiest.
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Back up production to R2
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: backups
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # The Convex CLI version comes from package-lock.json.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install age
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends age
+          age --version
+
+      - name: Export, encrypt, upload and record
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_BACKUP_DEPLOY_KEY }}
+          BACKUP_AGE_PUBLIC_KEY: ${{ secrets.BACKUP_AGE_PUBLIC_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ vars.R2_BUCKET || 'angelone-backups' }}
+        run: bash scripts/backup/nightly.sh
+
+      - name: Point to the runbook
+        if: ${{ failure() }}
+        run: |
+          {
+            echo "### Nightly backup failed"
+            echo ""
+            echo "Read the error above, then follow \"When a nightly run fails\" in docs/runbooks/backup-restore.md."
+            echo "The job never deletes or overwrites a backup, so running it again is safe."
+          } >> "$GITHUB_STEP_SUMMARY"
