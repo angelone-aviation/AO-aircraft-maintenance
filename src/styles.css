@@ -1,3 +1,15 @@
+/*
+ * Responsibility: App-wide styles: base elements, the app shell, global
+ *   primitives (.button, .panel, tables, forms), the welcome screen and the
+ *   legacy screen styles.
+ * Layer: UI. Loaded at startup; unscoped selectors match on any screen.
+ * Dependencies: src/styles/tokens.css (custom properties, keyframes),
+ *   src/styles/design.css (ds-* markup that some rules here adjust).
+ *
+ * Import order decides where this sheet lands: after design.css and some
+ * screen sheets, before others and every lazily loaded route sheet. Override
+ * a class from here with one more class, not by position.
+ */
 :root {
   /* Design tokens live in src/styles/tokens.css. Legacy aliases: */
   --green: var(--blue);
