@@ -124,6 +124,9 @@ export const useWorkspace = create<Workspace>((set, get) => ({
             : null
         : null;
       if (demo && full) await local.saveSnapshot(namespace + ":all", full);
+      // Persist before showing the workspace, so once it renders no startup
+      // write is still pending that could overwrite a newer one.
+      if (snapshot && demo) await local.saveSnapshot(namespace, snapshot);
       const favorites = snapshot
         ? ((await local.readFavorites(namespace + ":" + snapshot.user.id)) ??
           [])
@@ -139,7 +142,6 @@ export const useWorkspace = create<Workspace>((set, get) => ({
         backend: demo ? demoBackend(useWorkspace) : get().backend,
       });
       if (snapshot) void reconcileKeptManuals(namespace, snapshot);
-      if (snapshot && demo) await local.saveSnapshot(namespace, snapshot);
     } catch {
       set({
         ready: true,

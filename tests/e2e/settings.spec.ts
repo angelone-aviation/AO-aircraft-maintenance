@@ -30,6 +30,9 @@ async function becomeMember(
     programAdmin?: boolean;
   },
 ) {
+  // Edit the stored snapshot only once the app has started, or its own
+  // startup save can land after this edit and undo it.
+  await expect(page.getByRole("main")).toBeVisible();
   await page.evaluate(
     (g) =>
       new Promise<void>((resolve, reject) => {
