@@ -27,6 +27,8 @@ import {
   canUnlinkTaskCard,
   evidenceCategories,
   evidenceRemovable,
+  hasInspectorCertificate,
+  inspectorCertificateRequired,
   isTaskClosed,
   isTaskTemplate,
   linkField,
@@ -176,6 +178,8 @@ function JobCardSignoffs({ card }: { card: TaskCard }) {
     connected &&
     taskWritable(snapshot, card);
   const sameSigner = card.technicianSignoff?.userId === snapshot?.user.id;
+  const certified =
+    !!snapshot && hasInspectorCertificate(snapshot.user, localDate());
 
   async function sign(kind: "technician" | "inspection") {
     if (!backend || !writable || busy) return;
@@ -230,15 +234,20 @@ function JobCardSignoffs({ card }: { card: TaskCard }) {
               card.status === "draft" ||
               !card.technicianSignoff ||
               !!card.inspectionSignoff ||
-              sameSigner
+              sameSigner ||
+              !certified
             }
             onClick={() => void sign("inspection")}
             title={
               card.inspectionSignoff
                 ? `${card.inspectionSignoff.name} · ${new Date(card.inspectionSignoff.at).toLocaleString()}`
-                : sameSigner
-                  ? "Inspection must be signed by a different person"
-                  : "Technician signoff is required first"
+                : !certified
+                  ? inspectorCertificateRequired
+                  : sameSigner
+                    ? "Inspection must be signed by a different person"
+                    : !card.technicianSignoff
+                      ? "Technician signoff is required first"
+                      : "Record inspection signoff"
             }
           >
             {busy === "inspection"
@@ -850,6 +859,7 @@ function TaskCardEditor({
     : [];
   const signingWarnings =
     !template && writable ? taskCardSigningWarnings(f, dirty, initial) : [];
+  const certified = hasInspectorCertificate(s.user, localDate());
   const components = (s.management ?? []).filter(
     (c) =>
       c.kind === "component" &&
@@ -1540,12 +1550,23 @@ function TaskCardEditor({
               busy ||
               dirty ||
               !initial.technicianSignoff ||
-              initial.technicianSignoff.userId === s.user.id
+              initial.technicianSignoff.userId === s.user.id ||
+              !certified
+            }
+            aria-describedby={
+              !initial.inspectionSignoff && !certified
+                ? `inspector-certificate-${initial.uuid}`
+                : undefined
             }
             onClick={() => void sign("inspection")}
           >
             Inspection signoff
           </button>
+          {!initial.inspectionSignoff && !certified && (
+            <p className="muted" id={`inspector-certificate-${initial.uuid}`}>
+              {inspectorCertificateRequired}
+            </p>
+          )}
           {!initial.inspectionSignoff &&
             initial.technicianSignoff?.userId === s.user.id && (
               <p className="muted">

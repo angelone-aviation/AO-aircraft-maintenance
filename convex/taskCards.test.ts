@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { taskCardFieldsSchema } from "../src/domain/taskCards";
@@ -18,7 +19,10 @@ async function fixture() {
     for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
     await ctx.db.insert("programs", s.programs![0]);
     for (const i of s.inspections) await ctx.db.insert("inspections", i);
-    const makeUser = async (permissions: ("read" | "maintenance")[]) => {
+    const makeUser = async (
+      permissions: ("read" | "maintenance")[],
+      name = "Tech",
+    ) => {
       const group = await ctx.db.insert("groups", {
         programUuid: "demo-program",
         name: permissions.join(","),
@@ -26,7 +30,7 @@ async function fixture() {
         permissions,
       });
       const user = await ctx.db.insert("users", {
-        name: "Tech",
+        name,
         active: true,
         isAdmin: false,
         groupIds: [group],
@@ -40,12 +44,15 @@ async function fixture() {
     return {
       tech: await makeUser(["read", "maintenance"]),
       reader: await makeUser(["read"]),
+      inspector: await makeUser(["read", "maintenance"], "Inspector"),
     };
   });
   return {
     t,
     tech: t.withIdentity(identities.tech),
     reader: t.withIdentity(identities.reader),
+    inspector: t.withIdentity(identities.inspector),
+    inspectorId: identities.inspector.subject.split("|")[0] as Id<"users">,
   };
 }
 it("persists cards, enforces access and prevents forged signoffs", async () => {
@@ -156,6 +163,79 @@ it("records real signer identity, invalidates signatures on evidence upload, and
   await expect(tech.action(api.taskCards.upload, file)).rejects.toThrow(
     "open job card",
   );
+});
+it("rejects an inspection signoff until the inspector has a certificate on file", async () => {
+  const { tech, inspector, inspectorId } = await fixture(),
+    command = taskCardCommand();
+  command.fields.steps = [];
+  const save = (client: typeof tech, payload: unknown) =>
+    client.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(payload),
+    });
+  const getCard = async () =>
+    (await tech.query(api.operations.snapshot, {}))!.taskCards![0];
+  await save(tech, command);
+  let card = await getCard();
+  await save(tech, {
+    action: "save",
+    uuid: card.uuid,
+    version: card.version,
+    fields: {
+      ...taskCardFieldsSchema.parse(card),
+      status: "in-progress",
+      actualWork: "Replaced seal",
+      completionDate: new Date().toISOString().slice(0, 10),
+      inspectionSignoffRequired: true,
+    },
+  });
+  card = await getCard();
+  // The technician has no certificate on file and may still sign the work.
+  await save(tech, {
+    action: "sign",
+    uuid: card.uuid,
+    version: card.version,
+    kind: "technician",
+  });
+  card = await getCard();
+  expect(card.technicianSignoff?.name).toBe("Tech");
+  const inspect = () =>
+    save(inspector, {
+      action: "sign",
+      uuid: card.uuid,
+      version: card.version,
+      kind: "inspection",
+    });
+  await expect(inspect()).rejects.toThrow(
+    "Add your certificate type and number under My certifications to sign as inspector.",
+  );
+  card = await getCard();
+  expect(card.inspectionSignoff).toBeNull();
+  // A selected certification without a number is still not enough.
+  await inspector.mutation(api.certifications.save, {
+    userId: inspectorId,
+    payload: JSON.stringify([
+      { kind: "mechanic", number: "", issuedOn: "", airframe: true },
+    ]),
+  });
+  await expect(inspect()).rejects.toThrow("My certifications");
+  await inspector.mutation(api.certifications.save, {
+    userId: inspectorId,
+    payload: JSON.stringify([
+      {
+        kind: "mechanic",
+        number: "3456789",
+        issuedOn: "",
+        airframe: true,
+        powerplant: true,
+      },
+    ]),
+  });
+  await inspect();
+  card = await getCard();
+  expect(card.inspectionSignoff?.name).toBe("Inspector");
+  const audit = (await tech.query(api.operations.snapshot, {}))!.audit;
+  expect(audit.filter((a) => a.action === "taskCard.sign")).toHaveLength(2);
 });
 
 it("unlinks templates with maintenance access, preserves the card, and audits the change", async () => {

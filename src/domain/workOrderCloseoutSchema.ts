@@ -69,6 +69,11 @@ export const closeoutSchema = z.object({
     )
     .optional(),
   workPerformed: z.string(),
+  // Technician signers named on the entry's "Performed by" line. Absent on
+  // orders closed before it was recorded; their entries stay as they were.
+  performers: z
+    .array(z.object({ userId: z.string(), name: z.string() }))
+    .optional(),
   components: z.array(
     z.object({
       componentUuid: z.string(),

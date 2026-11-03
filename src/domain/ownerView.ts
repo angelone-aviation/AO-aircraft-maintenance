@@ -115,5 +115,9 @@ export function ownerSnapshot(s: Snapshot): Snapshot {
     workOrders: (s.workOrders ?? [])
       .filter((w) => w.status === "completed" && ids.has(w.aircraftUuid))
       .map(ownerWorkOrder),
+    // Form 337 copies are status records kept for the owner (91.417(a)(2)(vi)).
+    aircraftFiles: (s.aircraftFiles ?? []).filter((f) =>
+      ids.has(f.aircraftUuid),
+    ),
   };
 }

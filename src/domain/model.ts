@@ -197,6 +197,7 @@ export interface AuditEntry {
   after?: string;
 }
 export interface Snapshot {
+  aircraftFiles?: import("./aircraftFiles").AircraftFile[];
   certificationFiles?: (import("./certifications").CertificationFile & {
     url: string;
   })[];

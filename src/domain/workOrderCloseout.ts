@@ -46,16 +46,39 @@ const stepResults = (card: Card) =>
         ]
       : [],
   );
+// Job cards whose work the logbook entry describes.
+const entryCards = (s: Snapshot, order: WorkOrder, preview: boolean) =>
+  (s.taskCards ?? []).filter(
+    (t) =>
+      t.workOrderUuid === order.uuid &&
+      (t.status === "completed" || (preview && t.status !== "canceled")),
+  );
+/** Each distinct technician signer on the job cards included in the entry, in
+ * signing order: the persons who performed the work (14 CFR 43.9(a)(3)). */
+export function logbookPerformers(
+  s: Snapshot,
+  order: WorkOrder,
+  preview = false,
+) {
+  const performers = new Map<string, { userId: string; name: string }>();
+  for (const { technicianSignoff: signed } of entryCards(s, order, preview)
+    .filter((card) => card.includeInLogbook !== false)
+    .sort(
+      (a, b) => (a.technicianSignoff?.at ?? 0) - (b.technicianSignoff?.at ?? 0),
+    ))
+    if (signed && !performers.has(signed.userId))
+      performers.set(signed.userId, {
+        userId: signed.userId,
+        name: signed.name,
+      });
+  return [...performers.values()];
+}
 export function workPerformedText(
   s: Snapshot,
   order: WorkOrder,
   preview = false,
 ) {
-  const cards = (s.taskCards ?? []).filter(
-    (t) =>
-      t.workOrderUuid === order.uuid &&
-      (t.status === "completed" || (preview && t.status !== "canceled")),
-  );
+  const cards = entryCards(s, order, preview);
   const seen = new Set<string>();
   const cardText = (card: (typeof cards)[number]) => {
     seen.add(card.uuid);
@@ -492,6 +515,7 @@ export function completeWorkOrder(
     ]
       .filter(Boolean)
       .join("\n\n"),
+    performers: logbookPerformers(s, order),
     components,
     compliance,
   });

@@ -174,6 +174,128 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
   ).toHaveValue("Pressure stable at 15 psi.");
 });
 
+test("inspection signoff waits for a certificate on file, technician signoff does not", async ({
+  page,
+}) => {
+  const hint =
+    "Add your certificate type and number under My certifications to sign as inspector.";
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/task-cards");
+  await page.getByRole("button", { name: "New job card", exact: true }).click();
+  let editor = page.getByRole("dialog", { name: "New job card", exact: true });
+  await editor
+    .getByLabel("Card number (automatic if blank)")
+    .fill("TC-INSPECT");
+  await editor.getByLabel("Title", { exact: true }).fill("Control cable");
+  await editor
+    .getByRole("button", { name: "Save job card", exact: true })
+    .click();
+  editor = page.getByRole("dialog", {
+    name: "Job card TC-INSPECT",
+    exact: true,
+  });
+  await editor
+    .getByLabel("Task status", { exact: true })
+    .selectOption("in-progress");
+  await editor
+    .getByLabel("Actual work performed")
+    .fill("Adjusted cable tension");
+  await editor.getByLabel("Completion date", { exact: true }).fill(localDate());
+  await editor
+    .getByRole("button", { name: "Save job card", exact: true })
+    .click();
+  // The demo user has no certificate on file and can still sign the work.
+  await editor
+    .getByRole("button", { name: "Technician signoff", exact: true })
+    .click();
+  await expect(editor.getByText(/Technician: Alex Morgan/)).toBeVisible();
+  await editor
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  // Another technician signed this card, so only the certificate is missing.
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open("angel-one-v1");
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result,
+          tx = db.transaction("snapshots", "readwrite"),
+          cursor = tx.objectStore("snapshots").openCursor();
+        cursor.onsuccess = () => {
+          const entry = cursor.result;
+          if (!entry) return;
+          const s = entry.value;
+          for (const card of s.taskCards ?? [])
+            if (card.cardNumber === "TC-INSPECT")
+              card.technicianSignoff = {
+                userId: "demo-pilot",
+                name: "Jordan Lee",
+                at: Date.now(),
+              };
+          entry.update(s);
+          entry.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  });
+  await page.reload();
+  const row = page.getByRole("row").filter({ hasText: "TC-INSPECT" });
+  const compact = row.getByRole("button", {
+    name: "Inspection signoff",
+    exact: true,
+  });
+  await expect(compact).toBeDisabled();
+  await expect(compact).toHaveAttribute("title", hint);
+  await row
+    .getByRole("button", { name: "Details for TC-INSPECT", exact: true })
+    .click();
+  const inspect = editor.getByRole("button", {
+    name: "Inspection signoff",
+    exact: true,
+  });
+  await expect(editor.getByText(/Technician: Jordan Lee/)).toBeVisible();
+  await expect(inspect).toBeDisabled();
+  await expect(inspect).toHaveAccessibleDescription(hint);
+  await expect(editor.getByText(hint, { exact: true })).toBeVisible();
+  await editor
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  // Record a certificate type and number under My certifications.
+  await page
+    .locator(".profile-links")
+    .getByRole("button", { name: "My certifications", exact: true })
+    .click();
+  const profile = page.getByRole("dialog", { name: "My certifications" });
+  await profile
+    .getByRole("checkbox", { name: "Certified mechanic", exact: true })
+    .check();
+  await profile
+    .getByLabel("Certified mechanic certificate number", { exact: true })
+    .fill("3456789");
+  await profile
+    .getByRole("group", { name: "Mechanic ratings and authorization" })
+    .getByRole("checkbox", { name: "Airframe", exact: true })
+    .check();
+  await profile
+    .getByRole("button", { name: "Save certifications", exact: true })
+    .click();
+  await expect(profile).toHaveCount(0);
+  await expect(compact).toBeEnabled();
+  await row
+    .getByRole("button", { name: "Details for TC-INSPECT", exact: true })
+    .click();
+  await expect(editor.getByText(hint, { exact: true })).toHaveCount(0);
+  await inspect.click();
+  await expect(editor.getByText(/Inspection: Alex Morgan/)).toBeVisible();
+});
+
 test("job-card stock picker shows usable quantity and refuses expired lots", async ({
   page,
 }) => {

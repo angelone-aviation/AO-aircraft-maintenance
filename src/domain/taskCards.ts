@@ -2,7 +2,8 @@ import { logbookSelectionFields } from "./logbookWording";
 import { recordProgram } from "./programs";
 import { manualReferenceSchema, validateManualReference } from "./manuals";
 import { z } from "zod";
-import { can, latestLocalDate, type Snapshot } from "./model";
+import { can, latestLocalDate, type Member, type Snapshot } from "./model";
+import { memberLicense } from "./certifications";
 import { ataChapterSchema } from "./ata";
 import { isOpenWorkOrder } from "./workOrders";
 import { expiredForUse } from "./shelfLife";
@@ -185,6 +186,18 @@ export function hasTaskExecution(t: TaskCardFields) {
     ["pass", "fail"].includes(t.functionalTestOutcome) ||
     t.steps.some((step) => step.result || step.measurement !== null)
   );
+}
+export const inspectorCertificateRequired =
+  "Add your certificate type and number under My certifications to sign as inspector.";
+/** The inspection signoff is the 14 CFR 43.7 person's signature, so the signer
+ * needs a certificate type and number on file (ADR-0004). Technician signoffs
+ * stay open: 43.3(d) lets supervised uncertificated workers perform work. */
+export function hasInspectorCertificate(
+  user: Pick<Member, "certifications" | "licenseNumber" | "certificateType">,
+  asOf: string,
+) {
+  const { licenseNumber, certificateType } = memberLicense(user, asOf);
+  return !!licenseNumber.trim() && !!certificateType.trim();
 }
 export const isTaskClosed = (t: Pick<TaskCard, "status">) =>
   t.status === "completed" || t.status === "canceled";
@@ -435,6 +448,8 @@ export function saveTaskCard(
           throw new Error(
             "Inspection signoff must be by a different person than the technician.",
           );
+        if (!hasInspectorCertificate(s.user, latestLocalDate(now)))
+          throw new Error(inspectorCertificateRequired);
         next.inspectionSignoff = signature;
       }
     }

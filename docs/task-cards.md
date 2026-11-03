@@ -18,7 +18,9 @@ Statuses are draft, ready, in progress, awaiting parts, awaiting inspection, com
 2. Record technician signoff, then inspection signoff when required.
 3. Select completed and save.
 
-Signoffs record the authenticated maintenance user's identity and server timestamp. Inspection signoff follows technician signoff. Step, prerequisite-card and functional-test checks are no longer part of the simplified completion flow. These are recorded account attestations; separate certification/credential roles are not introduced.
+Signoffs record the authenticated maintenance user's identity and server timestamp. Inspection signoff follows technician signoff and must be by a different person. Step, prerequisite-card and functional-test checks are no longer part of the simplified completion flow. These are recorded account attestations, not approvals for return to service ([ADR-0004](adr/0004-logbook-generator-and-status-record-system.md)).
+
+Inspection signoff is the signature of the person who may approve the work under 14 CFR 43.7, so it requires a certificate type and number on the signer's profile: a numbered certification under **My certifications** (issued on or before today), or the older single license number and certificate type. Without one, the **Inspection signoff** button is disabled with the hint "Add your certificate type and number under My certifications to sign as inspector.", and the server refuses the signoff with the same message. Technician signoff needs no certificate, because 14 CFR 43.3(d) lets supervised uncertificated workers perform the work. Signoffs recorded before this rule stay as they are.
 
 Save content changes before signing. Content edits or new evidence invalidate existing signatures; status-only changes retain them. Completed and canceled cards are read-only. Work orders cannot be completed or canceled until their linked cards are completed or canceled. Work-order lists show requested-work counts separately from detailed task-card counts and include task-card parts delays and originating discrepancies.
 

@@ -393,6 +393,22 @@ export function aircraftStatusReport(
         })
       : [["No AD records", "-", "-", "-", "-"]],
   );
+  // Status record under 14 CFR 91.417(a)(2)(vi).
+  const form337 = (state.aircraftFiles ?? [])
+    .filter((f) => f.aircraftUuid === a.uuid && f.category === "form-337")
+    .sort((x, z) => x.uploadedAt - z.uploadedAt);
+  table(
+    "Form 337 copies",
+    ["Document", "Uploaded", "Size"],
+    [170, 50, 39],
+    form337.length
+      ? form337.map((f) => [
+          f.name,
+          localDate(f.uploadedAt),
+          `${Math.ceil(f.size / 1024)} KB`,
+        ])
+      : [["No Form 337 copies on file", "-", "-"]],
+  );
   const discrepancies = state.discrepancies.filter(
     (d) => d.aircraftUuid === a.uuid && d.status === "open",
   );

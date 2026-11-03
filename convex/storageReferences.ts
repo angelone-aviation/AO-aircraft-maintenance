@@ -4,6 +4,7 @@ import type { Id, TableNames } from "./_generated/dataModel";
 // manuals.test.ts checks this list against the schema, so a new file table
 // cannot be missed by code that deletes blobs no record refers to.
 export const STORAGE_REFERENCES: { table: TableNames; field: string }[] = [
+  { table: "aircraftFiles", field: "storageId" },
   { table: "aircraftPhotos", field: "storageId" },
   { table: "certificationFiles", field: "storageId" },
   { table: "inventoryFiles", field: "storageId" },

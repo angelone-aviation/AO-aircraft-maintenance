@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Snapshot } from "./model";
 import type { WorkOrder } from "./workOrders";
-import { workPerformedText } from "./workOrderCloseout";
+import { logbookPerformers, workPerformedText } from "./workOrderCloseout";
 export const licenseSchema = z.object({
   licenseNumber: z.string().trim().min(1).max(100),
   certificateType: z.string().trim().min(1).max(100),
@@ -39,7 +39,12 @@ export function logbookText(
   s: Snapshot,
   order: WorkOrder,
   template: LogbookTemplate,
-  signer: { name: string; licenseNumber: string; certificateType: string },
+  signer: {
+    userId?: string;
+    name: string;
+    licenseNumber: string;
+    certificateType: string;
+  },
   inspection: InspectionEntry = emptyInspectionEntry,
   component: ComponentEntry = emptyComponentEntry,
   preview = false,
@@ -49,6 +54,19 @@ export function logbookText(
       "Complete the work order before generating a logbook entry.",
     );
   const final = order.closeout;
+  // 43.9(a)(3): name who performed the work when it is not the approver.
+  // Closed orders use the performers frozen at close-out; orders closed
+  // before they were recorded keep their entry without the line.
+  const approver = signer.name.trim().toLowerCase();
+  const performers = (
+    preview ? logbookPerformers(s, order, true) : (final?.performers ?? [])
+  )
+    .filter((p) =>
+      signer.userId
+        ? p.userId !== signer.userId
+        : p.name.trim().toLowerCase() !== approver,
+    )
+    .map((p) => p.name);
   const a = final?.aircraft ?? order.aircraft;
   const components =
     final?.components ??
@@ -139,6 +157,7 @@ export function logbookText(
           "",
         ]
       : []),
+    ...(performers.length ? [`Performed by: ${performers.join(", ")}`] : []),
     `${template === "component" ? "Name" : "Certifying person"}: ${signer.name}`,
     `Certificate / license: ${signer.certificateType || "[enter certificate type]"} ${signer.licenseNumber || "[enter license number]"}`,
     "Signature: ______________________________",

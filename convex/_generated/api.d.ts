@@ -12,6 +12,7 @@ import type * as access from "../access.js";
 import type * as addressVerification from "../addressVerification.js";
 import type * as admin from "../admin.js";
 import type * as alerts from "../alerts.js";
+import type * as aircraftFiles from "../aircraftFiles.js";
 import type * as aircraftPhotos from "../aircraftPhotos.js";
 import type * as aircraftSpruce from "../aircraftSpruce.js";
 import type * as aircraftSpruceActions from "../aircraftSpruceActions.js";
@@ -71,6 +72,7 @@ declare const fullApi: ApiFromModules<{
   addressVerification: typeof addressVerification;
   admin: typeof admin;
   alerts: typeof alerts;
+  aircraftFiles: typeof aircraftFiles;
   aircraftPhotos: typeof aircraftPhotos;
   aircraftSpruce: typeof aircraftSpruce;
   aircraftSpruceActions: typeof aircraftSpruceActions;

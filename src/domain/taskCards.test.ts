@@ -184,7 +184,13 @@ describe("job cards", () => {
         now,
       ),
     ).toThrow("different person than the technician");
-    s.user = { ...s.user, id: "inspector", name: "Inspector" };
+    s.user = {
+      ...s.user,
+      id: "inspector",
+      name: "Inspector",
+      licenseNumber: "3456789",
+      certificateType: "A&P IA",
+    };
     t = saveTaskCard(
       s,
       { action: "sign", uuid: t.uuid, version: t.version, kind: "inspection" },
@@ -549,4 +555,113 @@ it("signs and completes a stored card whose legacy required step was never signe
   expect(
     saveTaskCard(s, edit(legacy, { status: "completed" }), now).status,
   ).toBe("completed");
+});
+describe("inspection signoff certificate (the 43.7 signer)", () => {
+  const hint =
+    "Add your certificate type and number under My certifications to sign as inspector.";
+  function technicianSigned() {
+    const s = demoSnapshot();
+    let t = saveTaskCard(s, taskCardCommand(), now);
+    t = saveTaskCard(
+      s,
+      edit(t, {
+        steps: [],
+        status: "in-progress",
+        actualWork: "Replaced seal",
+        completionDate: "2026-10-01",
+        inspectionSignoffRequired: true,
+      }),
+      now,
+    );
+    // The demo technician has no certificate on file: 43.3(d) lets
+    // supervised uncertificated workers perform work.
+    expect(s.user.certifications).toBeUndefined();
+    expect(s.user.licenseNumber).toBeUndefined();
+    t = saveTaskCard(
+      s,
+      { action: "sign", uuid: t.uuid, version: t.version, kind: "technician" },
+      now,
+    );
+    expect(t.technicianSignoff?.userId).toBe(s.user.id);
+    return { s, t };
+  }
+  const inspect = (s: ReturnType<typeof demoSnapshot>, t: TaskCard) =>
+    saveTaskCard(
+      s,
+      { action: "sign", uuid: t.uuid, version: t.version, kind: "inspection" },
+      now,
+    );
+  it("accepts a technician signoff without a certificate on file", () => {
+    expect(technicianSigned().t.technicianSignoff).not.toBeNull();
+  });
+  it("rejects an inspection signoff without a certificate on file", () => {
+    const { s, t } = technicianSigned();
+    s.user = { ...s.user, id: "inspector", name: "Inspector" };
+    expect(() => inspect(s, t)).toThrow(hint);
+    // A selected certification without a number is not a certificate on file.
+    s.user = {
+      ...s.user,
+      certifications: [
+        { kind: "mechanic", number: "", issuedOn: "", airframe: true },
+      ],
+    };
+    expect(() => inspect(s, t)).toThrow(hint);
+    // A certificate issued after today is not yet held.
+    s.user = {
+      ...s.user,
+      certifications: [
+        { kind: "mechanic", number: "3456789", issuedOn: "2027-01-01" },
+      ],
+    };
+    expect(() => inspect(s, t)).toThrow(hint);
+    // The older single-license profile fields need both a type and a number.
+    s.user = {
+      ...s.user,
+      certifications: undefined,
+      licenseNumber: "3456789",
+      certificateType: "",
+    };
+    expect(() => inspect(s, t)).toThrow(hint);
+    expect(
+      s.taskCards!.find((x) => x.uuid === t.uuid)?.inspectionSignoff,
+    ).toBeNull();
+  });
+  it("accepts an inspection signoff with a certificate type and number on file", () => {
+    const { s, t } = technicianSigned();
+    s.user = {
+      ...s.user,
+      id: "inspector",
+      name: "Inspector",
+      certifications: [
+        {
+          kind: "mechanic",
+          number: "3456789",
+          issuedOn: "2020-05-01",
+          airframe: true,
+          powerplant: true,
+          ia: true,
+        },
+      ],
+    };
+    const signed = inspect(s, t);
+    expect(signed.inspectionSignoff).toEqual({
+      userId: "inspector",
+      name: "Inspector",
+      at: now,
+    });
+    expect(
+      saveTaskCard(s, edit(signed, { status: "completed" }), now).status,
+    ).toBe("completed");
+  });
+  it("accepts the older single-license profile fields", () => {
+    const { s, t } = technicianSigned();
+    s.user = {
+      ...s.user,
+      id: "inspector",
+      name: "Inspector",
+      licenseNumber: "3456789",
+      certificateType: "A&P IA",
+    };
+    expect(inspect(s, t).inspectionSignoff?.userId).toBe("inspector");
+  });
 });

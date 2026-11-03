@@ -253,6 +253,9 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
       ownsActive(s, t.programUuid),
     ),
     manuals: (s.manuals ?? []).filter((m) => ids.has(m.aircraftUuid)),
+    aircraftFiles: (s.aircraftFiles ?? []).filter((f) =>
+      ids.has(f.aircraftUuid),
+    ),
     taskCards: (s.taskCards ?? []).filter((t) => ids.has(t.aircraftUuid)),
     archivedTaskCards: (s.archivedTaskCards ?? []).filter((t) =>
       ids.has(t.aircraftUuid),

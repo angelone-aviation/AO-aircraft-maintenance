@@ -197,6 +197,12 @@ export interface Backend {
   ): Promise<string>;
   uploadAircraftPhoto(aircraftUuid: string, file: File): Promise<unknown>;
   removeAircraftPhoto(aircraftUuid: string): Promise<unknown>;
+  uploadAircraftFile(
+    aircraftUuid: string,
+    category: import("../domain/aircraftFiles").AircraftFileCategory,
+    file: File,
+  ): Promise<unknown>;
+  removeAircraftFile(id: string): Promise<unknown>;
   createUser(email: string, name: string, password: string): Promise<string>;
   updateUser(user: Member): Promise<unknown>;
   saveCertifications(
@@ -551,6 +557,20 @@ export function convexBackend(client: ConvexReactClient): Backend {
     removeAircraftPhoto: (aircraftUuid) =>
       client.mutation(api.aircraftPhotos.remove, {
         aircraftUuid,
+        programUuid: programUuid(),
+      }),
+    uploadAircraftFile: async (aircraftUuid, category, file) =>
+      client.action(api.aircraftFiles.upload, {
+        aircraftUuid,
+        category,
+        name: file.name,
+        type: file.type,
+        bytes: await file.arrayBuffer(),
+        programUuid: programUuid(),
+      }),
+    removeAircraftFile: (id) =>
+      client.mutation(api.aircraftFiles.remove, {
+        id: id as Id<"aircraftFiles">,
         programUuid: programUuid(),
       }),
     createUser: (email, name, password) =>

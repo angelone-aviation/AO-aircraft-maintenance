@@ -17,6 +17,18 @@ export default defineSchema({
   })
     .index("aircraft", ["aircraftUuid"])
     .index("storage", ["storageId"]),
+  // Documents kept on the aircraft record, such as Form 337 copies.
+  aircraftFiles: defineTable({
+    aircraftUuid: v.string(),
+    category: v.literal("form-337"),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    type: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+  })
+    .index("aircraft", ["aircraftUuid"])
+    .index("storage", ["storageId"]),
   savedAddresses: defineTable({
     uuid: v.string(),
     programUuid: v.string(),

@@ -7,6 +7,7 @@ import {
   EMAIL_UNAVAILABLE,
 } from "../domain/accountRules";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
+import { demoAircraftFiles } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
 import {
   certificationsSchema,
@@ -1593,6 +1594,9 @@ function demoBackend(): Backend {
           a.uuid === aircraftUuid ? { ...a, photoUrl: undefined } : a,
         );
       }),
+    uploadAircraftFile: (aircraftUuid, category, file) =>
+      demoAircraftFiles.upload(modify, audit, aircraftUuid, category, file),
+    removeAircraftFile: (id) => demoAircraftFiles.remove(modify, audit, id),
     createUser: async (email, name, password) => {
       const id = crypto.randomUUID();
       await modify((s) => {
