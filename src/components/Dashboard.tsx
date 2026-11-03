@@ -47,6 +47,7 @@ import {
 } from "../domain/model";
 import { FaaRenewalAlert } from "./FaaKeySettings";
 import { ExportAircraftStatus } from "./ExportAircraftStatus";
+import { AircraftForm337 } from "./AircraftFiles";
 import { AircraftInspectionSchedules } from "./AircraftInspectionSchedules";
 import { PartsAvailability } from "./RequiredParts";
 import { FlightForm } from "./FlightForm";
@@ -983,6 +984,7 @@ function AircraftDetail({
           <ADAlerts aircraftUuid={a.uuid} />
         </Suspense>
       </div>
+      <AircraftForm337 state={s} aircraft={a} />
       {!pilotView && (
         <section
           className="dash-detail-section"

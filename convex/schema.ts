@@ -17,6 +17,22 @@ export default defineSchema({
   })
     .index("aircraft", ["aircraftUuid"])
     .index("storage", ["storageId"]),
+  // Documents kept on the aircraft record, such as Form 337 copies. Status
+  // records are never deleted: archiving hides a copy and keeps its file.
+  aircraftFiles: defineTable({
+    aircraftUuid: v.string(),
+    category: v.literal("form-337"),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    type: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+    archivedAt: v.optional(v.number()),
+    archivedBy: v.optional(v.object({ userId: v.string(), name: v.string() })),
+    archiveReason: v.optional(v.string()),
+  })
+    .index("aircraft", ["aircraftUuid"])
+    .index("storage", ["storageId"]),
   savedAddresses: defineTable({
     uuid: v.string(),
     programUuid: v.string(),

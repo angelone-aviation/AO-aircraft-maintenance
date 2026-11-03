@@ -11,6 +11,7 @@ import { componentTotals } from "../domain/components";
 import { daysPerServiceMonth } from "../domain/componentCalendar";
 import { adAircraftUuid, adStatus } from "../domain/airworthiness";
 import { adRemaining } from "../domain/adRemaining";
+import { isCurrentAircraftFile } from "../domain/aircraftFiles";
 
 export function aircraftStatusReport(
   state: Snapshot,
@@ -393,6 +394,31 @@ export function aircraftStatusReport(
         })
       : [["No AD records", "-", "-", "-", "-"]],
   );
+  // Status record under 14 CFR 91.417(a)(2)(vi): current copies are listed;
+  // archived ones are counted, since they are kept but hidden.
+  const all337 = (state.aircraftFiles ?? []).filter(
+    (f) => f.aircraftUuid === a.uuid && f.category === "form-337",
+  );
+  const form337 = all337
+    .filter(isCurrentAircraftFile)
+    .sort((x, z) => x.uploadedAt - z.uploadedAt);
+  const archived337 = all337.length - form337.length;
+  table(
+    "Form 337 copies",
+    ["Document", "Uploaded", "Size"],
+    [170, 50, 39],
+    form337.length
+      ? form337.map((f) => [
+          f.name,
+          localDate(f.uploadedAt),
+          `${Math.ceil(f.size / 1024)} KB`,
+        ])
+      : [["No Form 337 copies on file", "-", "-"]],
+  );
+  if (archived337)
+    note(
+      `${archived337} archived Form 337 ${archived337 === 1 ? "copy is" : "copies are"} not listed. Archived copies are kept in Angel One (View aircraft > Form 337 copies > Show archived).`,
+    );
   const discrepancies = state.discrepancies.filter(
     (d) => d.aircraftUuid === a.uuid && d.status === "open",
   );

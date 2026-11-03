@@ -161,6 +161,7 @@ export function LogbookSample({
     },
     "maintenance",
     {
+      userId: s.user.id,
       name: s.user.name,
       licenseNumber: memberLicense(s.user, order.completionDate || undefined)
         .licenseNumber,

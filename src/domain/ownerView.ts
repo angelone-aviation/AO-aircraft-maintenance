@@ -3,6 +3,7 @@ import type { ManagedRecord } from "./management";
 import type { WorkOrder } from "./workOrders";
 import { activeProgram } from "./programs";
 import { adAircraftUuid } from "./adOwnership";
+import { isCurrentAircraftFile } from "./aircraftFiles";
 
 /** Owner groups are explicit (`owner: true`) and always read-only. */
 export function validateOwnerGroup(
@@ -115,5 +116,10 @@ export function ownerSnapshot(s: Snapshot): Snapshot {
     workOrders: (s.workOrders ?? [])
       .filter((w) => w.status === "completed" && ids.has(w.aircraftUuid))
       .map(ownerWorkOrder),
+    // Form 337 copies are status records kept for the owner
+    // (91.417(a)(2)(vi)); owners see only current, not archived, copies.
+    aircraftFiles: (s.aircraftFiles ?? []).filter(
+      (f) => ids.has(f.aircraftUuid) && isCurrentAircraftFile(f),
+    ),
   };
 }

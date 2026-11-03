@@ -4,6 +4,7 @@ import {
 } from "../domain/groupDeletion";
 import { ADD_EXISTING_RESULT, EMAIL_UNAVAILABLE } from "../domain/accountRules";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
+import { demoAircraftFiles } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
 import {
   certificationsSchema,
@@ -1174,6 +1175,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           a.uuid === aircraftUuid ? { ...a, photoUrl: undefined } : a,
         );
       }),
+    uploadAircraftFile: (aircraftUuid, category, file) =>
+      demoAircraftFiles.upload(modify, audit, aircraftUuid, category, file),
+    archiveAircraftFile: (id, reason) =>
+      demoAircraftFiles.archive(modify, audit, id, reason),
     createUser: async (email, name, password) => {
       const id = crypto.randomUUID();
       await modify((s) => {

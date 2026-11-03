@@ -38,8 +38,15 @@ for (const date of ["", "2026-09-30"]) {
     expect(card.actualLabor).toBeNull();
     expect(card.technicianSignoff?.at).toBe(now);
     const version = card.version;
-    // Inspection signoff must come from someone other than the technician.
-    state.user = { ...state.user, id: "inspector", name: "Inspector" };
+    // Inspection signoff must come from someone other than the technician,
+    // with a certificate on file.
+    state.user = {
+      ...state.user,
+      id: "inspector",
+      name: "Inspector",
+      licenseNumber: "3456789",
+      certificateType: "A&P IA",
+    };
     await signTaskCard(
       card,
       "inspection",

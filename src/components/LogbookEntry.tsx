@@ -87,6 +87,7 @@ function LogbookEntry({
     order,
     template,
     {
+      userId: s!.user.id,
       name: s!.user.name,
       licenseNumber,
       certificateType,
@@ -104,7 +105,12 @@ function LogbookEntry({
         s!,
         order,
         template,
-        { name: s!.user.name, licenseNumber, certificateType },
+        {
+          userId: s!.user.id,
+          name: s!.user.name,
+          licenseNumber,
+          certificateType,
+        },
         next,
         nextComponent,
       ).split("\n");

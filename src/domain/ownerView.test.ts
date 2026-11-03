@@ -183,6 +183,33 @@ describe("owner view", () => {
     expect(JSON.stringify(o)).not.toMatch(/Internal|Private vendor/);
   });
 
+  it("shows the owner the current Form 337 copies of owned aircraft only", () => {
+    const s = ownerState();
+    const file = (aircraftUuid: string) => ({
+      uuid: aircraftUuid + "-337",
+      aircraftUuid,
+      category: "form-337" as const,
+      name: "337.pdf",
+      type: "application/pdf",
+      size: 10,
+      uploadedAt: 1,
+      url: "https://files.example.test/337.pdf",
+    });
+    s.aircraftFiles = [
+      ...s.aircraft.map((a) => file(a.uuid)),
+      // Archived copies stay in the app but are not shown to owners.
+      {
+        ...file(owned),
+        uuid: "archived-337",
+        archivedAt: 2,
+        archivedBy: { userId: "demo-admin", name: "Alex Morgan" },
+        archiveReason: "Superseded",
+      },
+    ];
+    expect(s.aircraft.length).toBeGreaterThan(1);
+    expect(scopedSnapshot(s).aircraftFiles).toEqual([file(owned)]);
+  });
+
   it("treats an owner group without aircraft as no aircraft", () => {
     const s = ownerState([]);
     expect(scopedSnapshot(s).aircraft).toEqual([]);

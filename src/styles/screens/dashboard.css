@@ -805,6 +805,105 @@
 .dash-detail-export {
   margin-right: auto;
 }
+/* Form 337 copies on the aircraft record (AircraftFiles.tsx). */
+.dash-files-note {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.dash-files-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.dash-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface2);
+  color: var(--text);
+}
+.dash-file > svg {
+  flex: none;
+  color: var(--muted);
+}
+.dash-file-text {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.dash-file-text strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 600;
+}
+.dash-file-text small {
+  display: block;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.dash-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.dash-files-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.dash-files-upload small {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.dash-file-archive {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 6px;
+  padding-top: 4px;
+}
+.dash-file-archive label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.dash-file-archive input {
+  min-height: 40px;
+}
+.dash-files-toggle {
+  margin: 0 0 8px;
+}
+.dash-files-status {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--good);
+}
+.dash-file-button {
+  position: relative;
+  cursor: pointer;
+}
+.dash-file-button:focus-within {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+.dash-file-button:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.dash-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
 @media (max-width: 759px) {
   /* Bottom sheet: keep the grab handle visible on the navy header. */
   .dash-detail .ds-dialog-panel::before {

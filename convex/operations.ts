@@ -55,6 +55,7 @@ import {
   validateMaintenanceTotals,
 } from "../src/domain/management";
 import { isOwnerView, ownerSnapshot } from "../src/domain/ownerView";
+import { aircraftFileList } from "./aircraftFiles";
 import {
   query,
   mutation,
@@ -276,6 +277,7 @@ export const snapshot = query({
         }),
       )
     ).flat();
+    snapshot.aircraftFiles = await aircraftFileList(ctx, snapshot);
     // Re-apply the owner whitelist after attachment URLs are added above.
     return isOwnerView(snapshot) ? ownerSnapshot(snapshot) : snapshot;
   },

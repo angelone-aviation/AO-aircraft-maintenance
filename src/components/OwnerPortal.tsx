@@ -10,6 +10,7 @@ import {
 import { ownerDueItems, type DueItem } from "../domain/ownerDue";
 import { AircraftStatusSummary } from "./AircraftStatus";
 import { ExportAircraftStatus } from "./ExportAircraftStatus";
+import { AircraftForm337 } from "./AircraftFiles";
 import { Badge, Empty, PageTitle } from "./ui";
 
 const RECENT_WORK_ORDERS = 5;
@@ -145,6 +146,7 @@ function OwnerAircraft({
       ) : (
         <p className="muted">No completed work orders.</p>
       )}
+      <AircraftForm337 state={state} aircraft={a} />
       <div className="filters">
         <ExportAircraftStatus state={state} aircraftUuid={a.uuid} />
         <ADReportButton state={state} aircraft={a} />
