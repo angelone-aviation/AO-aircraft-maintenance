@@ -1,7 +1,14 @@
+/**
+ * Responsibility: Pins the rules for a password an administrator sets: length,
+ *   no composition rules, and the common, repeated and email checks.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/passwordRules.ts, src/domain/commonPasswords.ts.
+ */
 import { expect, it } from "vitest";
 import {
   PASSWORD_COMMON_MESSAGE,
   PASSWORD_LENGTH_MESSAGE,
+  assertPassword,
   passwordProblem,
 } from "./passwordRules";
 import { COMMON_PASSWORDS } from "./commonPasswords";
@@ -56,4 +63,35 @@ it("keeps the bundled list small, lower-case and at least 15 characters", () => 
     expect(entry).toBe(entry.toLowerCase());
     expect(Array.from(entry).length).toBeGreaterThanOrEqual(15);
   }
+});
+
+it("compares in lower case after Unicode compatibility folding", () => {
+  // Full-width digits fold to "123456789012345", which is on the list.
+  expect(
+    passwordProblem(
+      "\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19\uff10\uff11\uff12\uff13\uff14\uff15",
+    ),
+  ).toBe(PASSWORD_COMMON_MESSAGE);
+  expect(passwordProblem("ABCABCABCABCABC")).toBe(PASSWORD_COMMON_MESSAGE);
+});
+
+it("trims the email, and ignores a blank one", () => {
+  expect(passwordProblem("pat@example.test-2026", " pat@example.test ")).toBe(
+    PASSWORD_COMMON_MESSAGE,
+  );
+  expect(passwordProblem("plain lower case words", "  ")).toBeUndefined();
+});
+
+it("checks the length before anything else", () => {
+  expect(passwordProblem("a".repeat(14))).toBe(PASSWORD_LENGTH_MESSAGE);
+});
+
+it("throws the refusal as an Error from assertPassword", () => {
+  expect(() => assertPassword("fourteen chars")).toThrow(
+    Error(PASSWORD_LENGTH_MESSAGE),
+  );
+  expect(() =>
+    assertPassword("pat@example.test-2026", "pat@example.test"),
+  ).toThrow(Error(PASSWORD_COMMON_MESSAGE));
+  expect(() => assertPassword("plain lower case words")).not.toThrow();
 });
