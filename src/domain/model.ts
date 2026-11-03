@@ -1,7 +1,33 @@
+/**
+ * Responsibility: The core records (aircraft, flights, discrepancies,
+ *   inspections, audit entries), the Snapshot read model, the offline outbox
+ *   entry, and the shared permission, meter, hours and local-date rules.
+ * Layer: Domain. Pure types, zod schemas and functions; no I/O, no React.
+ * Dependencies: zod; src/domain/flightFluids.ts, flightChecklistSchema.ts and
+ *   programs.ts; types from the feature modules.
+ */
 import { fuelSchema, oilSchema } from "./flightFluids";
 import { checklistFlightSchema } from "./flightChecklistSchema";
 import { ownsActive, activeProgram, groupCoversAircraft } from "./programs";
 import { z } from "zod";
+
+const HOUR_SECONDS = 3600;
+const HOUR_MS = HOUR_SECONDS * 1000;
+
+// Meters read in tenths of an hour; readings are stored in seconds.
+const TENTH_HOUR_SECONDS = 360;
+
+// The world's time zones run from UTC-12 to UTC+14.
+const FURTHEST_BEHIND_UTC_MS = 12 * HOUR_MS;
+const FURTHEST_AHEAD_OF_UTC_MS = 14 * HOUR_MS;
+
+const NOTE_MAX_LENGTH = 5000;
+const FLIGHT_COUNT_MAX = 1000;
+
+/**
+ * The permissions a group grants over its aircraft (GLOSSARY "Permission
+ * group").
+ */
 export const permissionSchema = z.enum([
   "read",
   "flight",
@@ -9,17 +35,27 @@ export const permissionSchema = z.enum([
   "resolve",
   "maintenance",
 ]);
+
+/** One permission a group can grant. */
 export type Permission = z.infer<typeof permissionSchema>;
+
+/**
+ * A permission group of one Flight Program. It covers the aircraft in
+ * `aircraftIds`, or all of them when the list is empty, except that an owner
+ * group then covers none; a program-administrator group covers all.
+ */
 export interface Group {
   programUuid?: string;
   programAdmin?: boolean;
-  /** Aircraft owner: read-only portal limited to `aircraftIds` (none if empty). */
+  /** Aircraft owner: a read-only portal for the covered aircraft. */
   owner?: boolean;
   id: string;
   name: string;
   aircraftIds: string[];
   permissions: Permission[];
 }
+
+/** A user as the Flight Program sees them, with their own preferences. */
 export interface Member {
   certifications?: import("./certifications").Certification[];
   licenseNumber?: string;
@@ -27,7 +63,7 @@ export interface Member {
   releaseStatements?: { label: string; text: string }[];
   certificateType?: string;
   availableAsPilot?: boolean;
-  // Unset: program administrators receive alert digests, others do not.
+  /** Unset: program administrators receive alert digests, others do not. */
   emailAlerts?: boolean;
   activeProgramUuid?: string;
   id: string;
@@ -37,6 +73,12 @@ export interface Member {
   isAdmin: boolean;
   groupIds: string[];
 }
+
+/**
+ * An aircraft and its counters. Times are seconds; `meter` is the meter its
+ * hours are read from, and `adjustmentSeconds` turns that reading into total
+ * time (GLOSSARY "Total time").
+ */
 export interface Aircraft {
   photoUrl?: string;
   twin?: boolean;
@@ -77,13 +119,28 @@ const meterSchema = z
   .number()
   .int()
   .nonnegative()
-  .refine((n) => n % 360 === 0, "Meter readings must use tenths of an hour");
+  .refine(
+    (n) => n % TENTH_HOUR_SECONDS === 0,
+    "Meter readings must use tenths of an hour",
+  );
+
+/** One engine start logged with a flight: the engine, duration and peak EGT. */
 export const engineStartSchema = z.object({
   engine: z.enum(["single", "left", "right"]),
   durationSeconds: z.number().finite().nonnegative().optional(),
   maxEgtC: z.number().finite().optional(),
 });
+
+/** A parsed engine start. */
 export type EngineStart = z.infer<typeof engineStartSchema>;
+
+/**
+ * A flight as the pilot logs it. Meter readings are seconds in whole tenths of
+ * an hour; engine starts name one single engine, or distinct left and right.
+ *
+ * @throws {z.ZodError} From `parse()` on a missing or malformed field,
+ *   including "Meter readings must use tenths of an hour".
+ */
 export const flightInputSchema = z.object({
   fuel: fuelSchema.optional(),
   oil: oilSchema.optional(),
@@ -108,8 +165,8 @@ export const flightInputSchema = z.object({
   tachOn: meterSchema.optional(),
   cyclicHobbsOn: meterSchema.optional(),
   flightTimeLogOn: meterSchema.optional(),
-  landings: z.number().int().nonnegative().max(1000),
-  cycles: z.number().int().nonnegative().max(1000),
+  landings: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
+  cycles: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
   origin: z.string().max(100),
   destination: z.string().max(100),
   operation: z.enum([
@@ -120,22 +177,33 @@ export const flightInputSchema = z.object({
     "Private",
   ]),
   flightRules: z.enum(["VFR", "IFR"]),
-  remarks: z.string().max(5000),
-  discrepancy: z.string().max(5000),
+  remarks: z.string().max(NOTE_MAX_LENGTH),
+  discrepancy: z.string().max(NOTE_MAX_LENGTH),
 });
+
+/** A parsed flight log entry. */
 export type FlightInput = z.infer<typeof flightInputSchema>;
+
+/**
+ * A submitted flight and its outcome: accepted, held for review with the
+ * reason (a held flight), or rejected.
+ */
 export interface Flight extends FlightInput {
   uuid: string;
   authorId: string;
   submittedAt: number;
   status: "accepted" | "review" | "rejected";
   reviewReason?: string;
+  /** The aircraft's readings when the flight was submitted: where it started.
+   * The pilot's `hobbsOn` and the other `*On` readings are where it ended. */
   hobbsOff?: number;
   tachOff?: number;
   cyclicHobbsOff?: number;
   flightTimeLogOff?: number;
   dispatchOverride?: import("./aircraftStatus").DispatchOverride;
 }
+
+/** A reported defect, open until resolved; it may ground or be deferred. */
 export interface Discrepancy {
   grounding?: boolean;
   deferral?: import("./deferrals").Deferral;
@@ -152,6 +220,11 @@ export interface Discrepancy {
   resolvedBy?: string;
   resolvedAt?: number;
 }
+
+/**
+ * A recurring or one-time requirement on an aircraft or component, due by
+ * hours (seconds), cycles, landings or calendar (GLOSSARY "Inspection").
+ */
 export interface Inspection {
   calendarExempt?: boolean;
   calendarExemptReason?: string;
@@ -184,6 +257,8 @@ export interface Inspection {
   dueLandings?: number;
   dueDate?: string;
 }
+
+/** One change-log row: who changed what and when, with before and after. */
 export interface AuditEntry {
   programUuid?: string;
   uuid: string;
@@ -196,6 +271,12 @@ export interface AuditEntry {
   before?: string;
   after?: string;
 }
+
+/**
+ * The scoped read model the server sends and the device caches: the active
+ * Flight Program's records the user may see. Optional collections are absent
+ * where the program or the user's permissions leave them out.
+ */
 export interface Snapshot {
   aircraftFiles?: import("./aircraftFiles").AircraftFile[];
   certificationFiles?: (import("./certifications").CertificationFile & {
@@ -253,6 +334,13 @@ export interface Snapshot {
   management?: import("./management").ManagedRecord[];
   costs?: import("./costs").CostRecord[];
 }
+
+/**
+ * An offline outbox entry: a flight or a problem report recorded on the
+ * device. The server applies each `uuid` once.
+ *
+ * @throws {z.ZodError} From `parse()` on an unknown kind or a malformed field.
+ */
 export const operationSchema = z.discriminatedUnion("kind", [
   z.object({
     programUuid: z.string().optional(),
@@ -270,17 +358,35 @@ export const operationSchema = z.discriminatedUnion("kind", [
     authorId: z.string(),
     aircraftUuid: z.string(),
     flightUuid: z.string().optional(),
-    description: z.string().trim().min(1).max(5000),
+    description: z.string().trim().min(1).max(NOTE_MAX_LENGTH),
     grounding: z.boolean().optional(),
   }),
 ]);
+
+/** A parsed outbox entry. */
 export type Operation = z.infer<typeof operationSchema>;
+
+/** An outbox entry with when it was queued and its sync error, if any. */
 export interface QueuedOperation {
   operation: Operation;
   queuedAt: number;
   error?: string;
 }
-export const OFFLINE_WINDOW = 7 * 24 * 60 * 60 * 1000;
+
+/** How long after sign-in a device may open its cached snapshot offline. */
+export const OFFLINE_WINDOW = 7 * 24 * HOUR_MS;
+
+/**
+ * Whether the user may act on an aircraft: an active user, the aircraft in the
+ * active Flight Program, and a system administrator or a group of that program
+ * covering the aircraft with `read` plus the permission (program-administrator
+ * groups hold every one). A convenience: the server checks again.
+ *
+ * @param snapshot - The user's snapshot.
+ * @param aircraftUuid - The aircraft acted on.
+ * @param permission - The permission the action needs.
+ * @returns True when allowed.
+ */
 export function can(
   snapshot: Snapshot,
   aircraftUuid: string,
@@ -302,6 +408,15 @@ export function can(
       ))
   );
 }
+
+/**
+ * Whether a cached snapshot may open: an active user, signed in no later than
+ * `now` and less than {@link OFFLINE_WINDOW} before it.
+ *
+ * @param snapshot - The cached snapshot.
+ * @param now - The current time (epoch ms).
+ * @returns True while the offline window is open.
+ */
 export function offlineValid(snapshot: Snapshot, now = Date.now()): boolean {
   return (
     snapshot.user.active &&
@@ -309,12 +424,23 @@ export function offlineValid(snapshot: Snapshot, now = Date.now()): boolean {
     now < snapshot.authenticatedAt + OFFLINE_WINDOW
   );
 }
+
+/** The display name of each meter an aircraft's hours can be read from. */
 export const aircraftMeterLabels = {
   hobbs: "Hobbs",
   tach: "Tach",
   cyclic: "Collective hourmeter",
   flightTimeLog: "Flight time log",
 };
+
+/**
+ * The aircraft's current reading on its own meter.
+ *
+ * @param aircraft - The aircraft's meter and current readings.
+ * @returns The reading in seconds.
+ * @throws {Error} "Flight time log reading is required." or "Collective
+ *   hourmeter reading is required." when that meter has no reading.
+ */
 export function aircraftMeterReading(
   aircraft: Pick<
     Aircraft,
@@ -324,7 +450,7 @@ export function aircraftMeterReading(
     | "currentCyclicHobbs"
     | "currentFlightTimeLog"
   >,
-) {
+): number {
   if (aircraft.meter === "flightTimeLog") {
     if (aircraft.currentFlightTimeLog === undefined)
       throw new Error("Flight time log reading is required.");
@@ -339,36 +465,89 @@ export function aircraftMeterReading(
     ? aircraft.currentHobbs
     : aircraft.currentTach;
 }
-/** Device-local calendar date (YYYY-MM-DD). The Convex server's zone is UTC. */
-export function localDate(now = Date.now()) {
+
+/**
+ * The calendar date in the runtime's time zone: the device's in the browser,
+ * UTC on the Convex server.
+ *
+ * @param now - The time (epoch ms).
+ * @returns The date as YYYY-MM-DD.
+ */
+export function localDate(now = Date.now()): string {
   const d = new Date(now);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const hourMs = 3600000;
-const utcDate = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-/** Latest local date in any zone (UTC+14); server-safe "not in the future" limit. */
-export function latestLocalDate(now = Date.now()) {
-  return utcDate(now + 14 * hourMs);
+
+/**
+ * The latest date that is today anywhere: the server's limit for "not in the
+ * future", whatever the user's time zone.
+ *
+ * @param now - The time (epoch ms).
+ * @returns The date as YYYY-MM-DD.
+ */
+export function latestLocalDate(now = Date.now()): string {
+  return formatUtcDate(now + FURTHEST_AHEAD_OF_UTC_MS);
 }
-/** Whether a date is today's local date in some zone (UTC-12 to UTC+14). */
-export function isLocalToday(d: string, now = Date.now()) {
-  return d >= utcDate(now - 12 * hourMs) && d <= latestLocalDate(now);
+
+/**
+ * Whether a date is today in some time zone.
+ *
+ * @param d - The date as YYYY-MM-DD.
+ * @param now - The time (epoch ms).
+ * @returns True for the dates from the furthest-behind zone's to the
+ *   furthest-ahead zone's.
+ */
+export function isLocalToday(d: string, now = Date.now()): boolean {
+  return (
+    d >= formatUtcDate(now - FURTHEST_BEHIND_UTC_MS) &&
+    d <= latestLocalDate(now)
+  );
 }
-export function totalSeconds(aircraft: Aircraft) {
+
+/**
+ * The aircraft's total time in service (GLOSSARY "Total time").
+ *
+ * @param aircraft - The aircraft.
+ * @returns Its meter reading plus its adjustment, in seconds.
+ * @throws {Error} The {@link aircraftMeterReading} errors.
+ */
+export function totalSeconds(aircraft: Aircraft): number {
   return aircraftMeterReading(aircraft) + aircraft.adjustmentSeconds;
 }
-export function hours(seconds: number) {
-  return (seconds / 3600).toLocaleString("en-US", {
+
+/**
+ * Formats seconds as hours for display.
+ *
+ * @param seconds - The time in seconds.
+ * @returns Hours rounded to one decimal, with US thousands separators, such
+ *   as "1,234.5".
+ */
+export function hours(seconds: number): string {
+  return (seconds / HOUR_SECONDS).toLocaleString("en-US", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
 }
+
+/**
+ * Reads hours as typed, with at most one decimal, as whole seconds.
+ *
+ * @param value - The typed hours, such as "1234.5".
+ * @returns The seconds, or undefined when the value is blank.
+ * @throws {Error} "Use positive hours with at most one decimal place." for any
+ *   other text (spaces around a number included); "Meter reading is too
+ *   large." past the largest safe integer.
+ */
 export function parseHours(value: string): number | undefined {
   if (!value.trim()) return undefined;
   if (!/^\d+(\.\d)?$/.test(value))
     throw new Error("Use positive hours with at most one decimal place.");
-  const result = Math.round(Number(value) * 3600);
+  const result = Math.round(Number(value) * HOUR_SECONDS);
   if (!Number.isSafeInteger(result))
     throw new Error("Meter reading is too large.");
   return result;
+}
+
+function formatUtcDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
 }
