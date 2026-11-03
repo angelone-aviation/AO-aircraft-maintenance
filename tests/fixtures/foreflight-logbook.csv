@@ -1,0 +1,18 @@
+ForeFlight Logbook Import,This row is required for importing into ForeFlight. Do not delete or modify.
+
+Aircraft Table
+Text,Text,Text,YYYY,Text,Text,Text,Text,Text,Text,Boolean,Boolean,Boolean,Boolean
+AircraftID,EquipmentType,TypeCode,Year,Make,Model,Category,Class,GearType,EngineType,Complex,HighPerformance,Pressurized,TAA
+N206MA,aircraft,C206,1998,Cessna,206 Stationair,airplane,airplane_single_engine_land,fixed_tricycle,Piston,FALSE,TRUE,FALSE,FALSE
+N999ZZ,aircraft,P28A,1979,Piper,PA-28-181,airplane,airplane_single_engine_land,fixed_tricycle,Piston,FALSE,FALSE,FALSE,FALSE
+
+Flights Table
+Date,Text,Text,Text,Text,hh:mm,hh:mm,hh:mm,hh:mm,Decimal,Decimal,Decimal,Number,Number,Number,Number,Number,Decimal,Decimal,Decimal,Decimal,Text
+Date,AircraftID,From,To,Route,TimeOut,TimeOff,TimeOn,TimeIn,TotalTime,PIC,Night,DayTakeoffs,DayLandingsFullStop,NightTakeoffs,NightLandingsFullStop,AllLandings,HobbsStart,HobbsEnd,TachStart,TachEnd,PilotComments
+2026-09-14,N206MA,KPAO,KSQL,,14:30,14:38,15:35,15:42,1.2,1.2,0,2,1,0,0,2,2341.2,2342.4,2261.2,2262.2,"Pattern work, one touch and go"
+2026-09-15,N206MA,KSQL,KHAF,,09:00,09:05,09:45,09:48,0.8,0.8,0,1,1,0,0,1,2342.4,2343.2,,,
+2026-09-15,N999ZZ,KHAF,KHAF,,,,,,1.0,1.0,0,1,1,0,0,1,,,,,Rental
+2026-09-16,N206MA,KHAF,KPAO,,,,,,,,,,,,,1,,2344.0,,,
+2026-09-17,n-206ma,KPAO,KOAK,,,,,,0.5,0.5,0,1,0,1,1,1,2343.2,2344.25,,,
+2099-01-01,N206MA,KPAO,KSQL,,,,,,0.5,0.5,0,1,1,0,0,1,2343.2,2343.7,,,
+2026-09-18,N182MA,KPAO,KSQL,,,,,,0.9,0.9,0.4,1,0,1,1,1,,,,,Night currency

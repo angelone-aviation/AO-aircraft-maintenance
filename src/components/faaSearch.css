@@ -1,0 +1,28 @@
+.faa-search-form fieldset,
+.faa-search-results fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin: 14px 0;
+}
+.faa-search-form legend,
+.faa-search-results legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.faa-search-form fieldset > label,
+.faa-search-results fieldset > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 18px 10px 0;
+}
+.faa-search-form button,
+.faa-search-results button {
+  margin: 8px 8px 0 0;
+}
+.faa-search-results fieldset > a {
+  display: inline-block;
+  text-decoration: underline;
+  margin: 8px 16px 8px 0;
+}

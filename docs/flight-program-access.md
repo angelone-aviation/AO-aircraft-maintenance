@@ -1,0 +1,59 @@
+# Flight Program access
+
+Flight Program is the first access boundary. Each aircraft and storage location has one owning program. Flights, discrepancies, and aircraft inspections follow the aircraft. Components retain program ownership in inventory; component requirements and movement history follow the component. Stock belongs to its location's program.
+
+## Setup
+
+1. As a system administrator, create the Flight Programs and their contact details.
+2. Choose the active Flight Program in the header. New aircraft, components, locations, and stock inherit it automatically. Aircraft's program field is read-only in its normal edit form.
+3. In Administration → Permission groups, create a group for that program. Set read/flight/discrepancy/resolve/maintenance permissions, or select **Flight Program administrator**. Under **Aircraft access**, choose **All aircraft in this program** to cover all current and future aircraft in the program, or **Only selected aircraft** and check the aircraft to restrict ordinary permissions. Every program aircraft is never implied by an empty checklist: the form and the server refuse to save a group with no aircraft checked unless all aircraft was chosen, and refuse to open a restricted group to all aircraft without that choice. Flight Program administrators cover the entire program.
+4. Create users or use **Edit access** to select Flight Programs and permission groups. Every program appears, including newly created programs with no groups. Selecting a program without an applicable selected group creates or reuses a read-only group for that program. Select additional groups for flight, maintenance or other permissions. A user can belong to multiple programs with different permissions in each.
+5. To assign existing records, choose **Unassigned records** in the header and use **Flight Programs → Transfer Flight Program**. Assign existing unscoped permission groups to a program before expecting them to grant access: in **Unassigned records**, edit the group and choose its Flight Program. Only system administrators can do this, any aircraft the group names must already belong to that program, and the assignment is recorded in the change log. A group's program cannot be changed after that. No memberships or operational ownership are guessed from names.
+
+Unassigned aircraft, locations, and components are visible only to system administrators. Existing aircraft-linked components inherit their aircraft's program when an explicit component owner is absent. Stock without an explicit owner inherits its location's owner. No records are deleted.
+
+## Working in one program
+
+The header lists only the user's assigned programs; a user with one program enters it automatically. The last selected program is remembered on the account, including across devices. Switching requires a connection and refreshes open screens, lists, forms, and the cached snapshot. System administrators can additionally select unassigned records and manage the global program directory and user access.
+
+The server filters aircraft, flights, inspections, components, discrepancies, inventory, pilot directory, and audit history before sending them to a client. Mutations independently recheck program ownership and permissions. A stale form or queued entry from another program is rejected. Membership alone does not grant maintenance or flight-entry rights.
+
+Flight Program administrators can add/edit aircraft, edit their program's contact details, maintain components and inspections, manage inventory/locations, resolve discrepancies, and review flights within their program. Only system administrators create programs/accounts, assign group membership, reset passwords, or transfer ownership between programs. Inventory and stock history are restricted to program/system administrators. Ordinary maintenance users can work on components and inspections within their aircraft scope.
+
+## Explicit transfers
+
+The Flight Programs page provides a system-administrator transfer form with source record, destination program, and a required transfer reason. Transfers are atomic and audited.
+
+- Aircraft transfers carry their flights, discrepancies, inspections, and associated components (including components retaining that aircraft association while in inventory). Historical records remain attached to the aircraft; its version increments to invalidate stale flight drafts.
+- Aircraft transfers wait until the aircraft's open parts requests are cancelled or fulfilled.
+- Location transfers carry their stock lots. Component shelf text is not a location reference, so components must be transferred separately when appropriate. A location is refused while any of its stock is reserved for a parts request, or while an issued purchase-order line still delivers to it (not fully received or cancelled); the message lists the blocking parts, requests and orders.
+- A standalone component must be removed before transfer. Its service requirements, movement records, and audit history transfer with it; accumulated counters remain unchanged. Components with aircraft-linked inspection schedules transfer with the associated aircraft instead.
+
+Transfers never edit existing change-log entries (ADR-0005); each transfer appends one `program.transferred` entry. History follows each record's current owner instead of the program an entry was written in: an entry is visible in the active program when its record, or its aircraft, currently belongs to that program and is visible to the user. Entries without a program tag keep the older rule: an entry with an aircraft follows that aircraft; one without follows its record, and system administrators in **Unassigned records** see every untagged entry. So after a transfer the destination program sees the moved records' history, and the source program keeps only entries that also concern an aircraft it still holds (such as a moved component's removal from one of its other aircraft). Entries about a record that no longer exists follow their aircraft; with no aircraft they stay hidden, as before. Older entries the destination's own program and aircraft indexes would not reach are listed for it in `transferredAudit`, so they appear in its History feed.
+
+History paging refuses a record or aircraft outside the user's view with the same "History not found." answer as an unknown id, and builds its cursor only from visible entries.
+
+Normal aircraft edits and component installations cannot change Flight Program ownership. Program transfers do not change user memberships or grant access to destination aircraft. Existing aircraft restrictions still apply: a group limited to aircraft that have all left its program grants no aircraft. Administration lists it as "No aircraft in this program", and its edit form says so until you choose aircraft or all aircraft.
+
+## Groups opened to all aircraft before the fix
+
+Until the fix for #34 (November 2026), editing a group whose selected aircraft had all moved to another program saved it with no aircraft listed, which opened it to every aircraft in its program. The fix prevents new cases, but a group's record cannot show whether an existing empty list was intended. Its change log can:
+
+- Every `group.saved` entry records the group's fields before and after the save. Saves made since this check was added also record the administrator's aircraft access choice in `after`: `allAircraft: true` for **All aircraft in this program**, `false` for **Only selected aircraft**.
+- An ordinary group that now lists no aircraft is checked from its newest `group.saved` entry back to the save where its all-aircraft access began:
+  - **Opened to all aircraft**: that save emptied a list of selected aircraft, or turned an aircraft owner group with no aircraft into an ordinary group. If the save recorded no before-state, the previous entry's after-state is used.
+  - **Review** ("Cannot determine"): it was created with all aircraft before the choice was recorded; the log does not show its aircraft before that save; it reached all aircraft without a `group.saved` entry; or it has no entries at all.
+  - Not listed: a save since then recorded an explicit all-aircraft choice; the group was a Flight Program administrator group before; or it is a default group a new program receives (Observers, Pilots, Maintenance technicians) created with its default name and permissions.
+- Saves made before the choice was recorded cannot prove it, even saves made after the #34 fix reached production, because the server cannot tell when that was. Such a group is listed until an administrator chooses once more.
+- System administrators see these groups above the group cards in **Administration → Permission groups**: the aircraft the group listed before and the program each is in now, who saved it and when, and its members. **Edit group** opens the group form, switching to the group's Flight Program first if needed, with neither aircraft access option chosen, so it cannot be saved until you choose aircraft or all aircraft. Saving either choice removes the group from the list. Nothing is changed automatically.
+- The same check is the read-only post-deploy command `npx convex run groupAudit:findWidenedGroups` (README, Deployment); see the [accounts runbook](runbooks/accounts.md#permission-groups-opened-to-all-aircraft-before-the-34-fix).
+
+## Offline behavior
+
+Only the active program's authorized snapshot is cached for operational use. Queued flight/discrepancy additions retain both their author and original program. Sync and the Sync center work on the active program's entries; entries for another program stay on the device until that program is selected. Switching programs is disabled offline. Revoked access is checked again at sync time, and the existing seven-day offline lease remains in force.
+
+Snapshots cached before program isolation require an online refresh before offline access resumes. Older pending entries without a program tag are preserved; they are never automatically reassigned to a program. System administrators should resolve/export such entries from unassigned context before transferring their aircraft. The fictional local demo stores a separate full demo dataset to support switching; it is not an authentication system.
+
+## Verification
+
+Backend tests cover filtered snapshots and pilot directories, raw cross-program write attempts, program-specific roles, stale/offline requests, permission revocation, protected system administration, stock/audit isolation, and transfers with dependent records. Browser tests cover program selection, automatic aircraft assignment, switching between isolated lists, and disabled offline switching. Outbox tests verify that entries from inactive programs remain queued.

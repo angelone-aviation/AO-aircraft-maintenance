@@ -1,0 +1,759 @@
+/* Shop screens: work orders, parts & repair requests, purchase orders,
+ * vendors, saved addresses, reference library and costs.
+ * Every class is prefixed `shop-`; tokens come from src/styles/tokens.css and
+ * the shared ds- building blocks from src/styles/design.css. */
+
+/* ---------- Table card (README "Flight log" table pattern) ---------- */
+.shop-table-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  margin-bottom: 28px;
+  color: var(--text);
+  animation: rise 0.5s 0.1s var(--ease) both;
+  transition: background var(--dur-theme);
+}
+.shop-table-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.shop-table-head h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  line-height: 1.25;
+}
+.shop-table-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.shop-table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.shop-table-card table.shop-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: var(--shop-table-min, 760px);
+  text-align: left;
+  white-space: normal;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text);
+  background: transparent;
+}
+.shop-table-card table.shop-table > thead > tr > th {
+  padding: 16px 22px;
+  font-size: 12px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--faint);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.shop-table-card table.shop-table > tbody > tr {
+  background: transparent;
+  transition: background var(--dur-fast);
+}
+.shop-table-card table.shop-table > tbody > tr:hover {
+  background: color-mix(in srgb, var(--surface2) 60%, transparent);
+}
+.shop-table-card table.shop-table > tbody > tr > td {
+  padding: 18px 22px;
+  font-size: 15px;
+  color: var(--text);
+  border: 0;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+.shop-table-card table.shop-table > tbody > tr:first-child > td {
+  border-top: 0;
+}
+@media (min-width: 760px) {
+  .shop-table-card.shop-compact table.shop-table > thead > tr > th,
+  .shop-table-card.shop-compact table.shop-table > tbody > tr > td {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .shop-table-card.shop-compact table.shop-table > thead > tr > th {
+    font-size: 11.5px;
+    letter-spacing: 1.1px;
+  }
+  .shop-table-card.shop-compact table.shop-table > thead > tr > th:first-child,
+  .shop-table-card.shop-compact table.shop-table > tbody > tr > td:first-child {
+    padding-left: 22px;
+  }
+  .shop-table-card.shop-compact table.shop-table > thead > tr > th:last-child,
+  .shop-table-card.shop-compact table.shop-table > tbody > tr > td:last-child {
+    padding-right: 22px;
+  }
+}
+.shop-table-card table.shop-table td small,
+.shop-table-card table.shop-table .shop-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 13.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.shop-table-card table.shop-table td strong {
+  font-weight: 600;
+}
+.shop-table-card table.shop-table .shop-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.shop-table-card table.shop-table th.shop-num {
+  text-align: right;
+  white-space: normal;
+  min-width: 7ch;
+}
+.shop-table-card table.shop-table .shop-nowrap {
+  white-space: nowrap;
+}
+.shop-table-card table.shop-table .shop-actions-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+.shop-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.shop-table-card table.shop-table td .button {
+  margin: 0;
+}
+/* Rows dressed as a list card: the header row stays for screen readers. */
+.shop-table-card.shop-list-look table.shop-table > thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.shop-table-card.shop-list-look {
+  padding: 4px 26px;
+}
+.shop-table-card.shop-list-look table.shop-table > tbody > tr > td {
+  padding: 20px 0 20px 20px;
+}
+.shop-table-card.shop-list-look table.shop-table > tbody > tr > td:first-child {
+  padding-left: 0;
+}
+.shop-table-card.shop-list-look table.shop-table > tbody > tr:hover {
+  background: transparent;
+}
+.shop-table-card.shop-list-look table.shop-table {
+  --shop-table-min: 0px;
+}
+.shop-lead {
+  min-width: 0;
+}
+.shop-lead .ds-list-title {
+  max-width: 46ch;
+}
+.shop-lead .ds-list-sub {
+  max-width: 64ch;
+}
+.shop-list-look .shop-lead .ds-list-title,
+.shop-list-look .shop-lead .ds-list-sub {
+  max-width: none;
+}
+.shop-list-look .shop-lead-cell {
+  width: 100%;
+  max-width: 0; /* lets the title/sub ellipsis work inside a table cell */
+}
+/* The record number as the row's title control (PO / request numbers). */
+.shop-title-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin: -8px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 16.5px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition:
+    color var(--dur-fast),
+    text-decoration-color var(--dur-fast);
+}
+.shop-title-button:hover {
+  color: var(--blue-ink);
+  text-decoration-color: currentColor;
+}
+.shop-title-button:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.shop-cap {
+  display: inline-block;
+}
+.shop-cap::first-letter {
+  text-transform: uppercase;
+}
+.shop-check {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--blue-fill);
+  cursor: pointer;
+}
+.shop-check:disabled {
+  cursor: not-allowed;
+}
+.shop-table-empty {
+  padding: 8px 22px 22px;
+}
+.shop-table-empty .ds-empty {
+  margin: 14px 0 0;
+}
+.shop-table-card .shop-table-empty > p {
+  margin: 14px 0 0;
+  color: var(--muted);
+}
+.shop-overdue {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* Phones: rows become stacked cards; cells show their column label. */
+@media (max-width: 759px) {
+  .shop-table-card.shop-stack table.shop-table {
+    display: block;
+    min-width: 0;
+  }
+  .shop-table-card.shop-stack table.shop-table > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+  }
+  .shop-table-card.shop-stack table.shop-table > tbody {
+    display: block;
+  }
+  .shop-table-card.shop-stack table.shop-table > tbody > tr {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(130px, 100%), 1fr));
+    gap: 14px 16px;
+    padding: 18px;
+    border-top: 1px solid var(--border);
+  }
+  .shop-table-card.shop-stack table.shop-table > tbody > tr:first-child {
+    border-top: 0;
+  }
+  .shop-table-card.shop-stack
+    table.shop-table
+    > tbody
+    > tr:has(> .shop-select-cell) {
+    position: relative;
+    padding-right: 64px;
+  }
+  .shop-table-card.shop-stack
+    table.shop-table
+    > tbody
+    > tr
+    > td.shop-select-cell {
+    position: absolute;
+    top: 20px;
+    right: 18px;
+  }
+  .shop-table-card.shop-stack table.shop-table > tbody > tr > td {
+    display: block;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .shop-table-card.shop-stack
+    table.shop-table
+    > tbody
+    > tr
+    > td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 10.5px;
+    letter-spacing: 1.3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .shop-table-card.shop-stack table.shop-table .shop-wide,
+  .shop-table-card.shop-stack table.shop-table .shop-actions-cell {
+    grid-column: 1 / -1;
+  }
+  .shop-table-card.shop-stack table.shop-table .shop-actions {
+    justify-content: flex-start;
+  }
+  .shop-table-card.shop-stack
+    table.shop-table
+    > tbody
+    > tr
+    > td.shop-actions-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .shop-table-card.shop-stack .shop-actions {
+    display: flex;
+    width: 100%;
+  }
+  .shop-table-card.shop-stack .shop-actions > .button,
+  .shop-table-card.shop-stack .shop-actions-cell > .button {
+    flex: 1 1 140px;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .shop-table-card.shop-stack table.shop-table .shop-num {
+    text-align: left;
+  }
+  .shop-table-card.shop-list-look {
+    padding: 2px 18px;
+  }
+  .shop-table-card.shop-list-look table.shop-table > tbody > tr {
+    padding: 18px 0;
+  }
+  .shop-lead .ds-list-title,
+  .shop-lead .ds-list-sub {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .shop-table-head {
+    padding: 16px 18px 14px;
+  }
+}
+
+/* ---------- Filter controls ---------- */
+.shop-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14.5px;
+  max-width: 100%;
+  transition: border-color var(--dur-fast);
+}
+.shop-select:hover,
+.shop-select:focus-within {
+  border-color: var(--blue);
+}
+.shop-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 0 20px 0 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+}
+.shop-select select option {
+  color: var(--text);
+  background: var(--surface);
+}
+.shop-select-caret {
+  position: absolute;
+  right: 12px;
+  pointer-events: none;
+  color: var(--faint);
+}
+.shop-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14.5px;
+}
+.shop-date:focus-within {
+  border-color: var(--blue);
+}
+.shop-date input {
+  min-height: 42px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+  box-shadow: none;
+}
+.shop-toolbar.ds-toolbar {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.shop-toolbar .ds-search {
+  flex: 0 1 300px;
+}
+@media (max-width: 759px) {
+  .shop-toolbar .ds-search {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .shop-toolbar .shop-select,
+  .shop-toolbar .shop-date {
+    flex: 1 1 150px;
+    max-width: none;
+  }
+  .shop-toolbar .shop-select select {
+    flex: 1;
+  }
+  .shop-toolbar .ds-toolbar-end {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* ---------- Page header actions & stats ---------- */
+.shop-icon-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.shop-stat-foot {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--faint);
+}
+.ds-stat-value.shop-tone-warn {
+  color: var(--warn);
+}
+.ds-stat-value.shop-tone-danger {
+  color: var(--danger);
+}
+.ds-stat-value.shop-tone-good {
+  color: var(--good);
+}
+.shop-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  margin: -8px 0 14px;
+  color: var(--muted);
+  font-size: 14.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.shop-back-link:hover {
+  color: var(--blue-ink);
+}
+
+@media (max-width: 759px) {
+  .shop-stats.ds-stats-strip {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  }
+  .shop-stats .ds-stat-tile {
+    padding: 14px 16px;
+  }
+  .shop-stats .ds-stat-label {
+    white-space: normal;
+    font-size: 13px;
+    line-height: 1.3;
+  }
+  .shop-stats .ds-stat-value {
+    font-size: 24px;
+  }
+}
+
+/* ---------- Cards below a list (settings, integrations) ---------- */
+.shop-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 24px 26px;
+  margin-bottom: 24px;
+  color: var(--text);
+  animation: rise 0.5s 0.16s var(--ease) both;
+  transition: background var(--dur-theme);
+}
+.shop-card > h2,
+.shop-card > section > h2 {
+  margin: 0 0 6px;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+/* auto-fill: the annual budget keeps its column width now that the labor
+ * rate card beside it lives in Settings. */
+.shop-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: 24px;
+  align-items: start;
+}
+.shop-card-grid > .shop-card {
+  margin-bottom: 0;
+}
+.shop-card-grid {
+  margin-bottom: 28px;
+}
+@media (max-width: 759px) {
+  .shop-card {
+    padding: 20px 18px;
+  }
+}
+
+/* ---------- Work orders ---------- */
+.shop-wo-progress {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 72px;
+}
+.shop-wo-progress .ds-progress {
+  width: 72px;
+}
+.shop-zero {
+  color: var(--faint);
+}
+.shop-meta-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.shop-count-warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.shop-count-danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+.shop-priority {
+  display: block;
+}
+.shop-priority::first-letter {
+  text-transform: uppercase;
+}
+@media (max-width: 759px) {
+  .shop-wo-progress {
+    align-items: flex-start;
+  }
+}
+
+/* Work-order editor: roomier task summaries (44px targets) and a reading
+ * grid; the shared workspace classes are tokenised in styles.css. */
+.shop-wo-dialog .work-order-panel {
+  border-radius: 12px;
+}
+.shop-wo-dialog .work-order-task-card {
+  padding: 0;
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.shop-wo-dialog .work-order-task-summary {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.shop-wo-dialog .work-order-task-number {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.shop-wo-dialog dl.shop-readings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 14px 0 18px;
+}
+.shop-wo-dialog dl.shop-readings > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.shop-wo-dialog dl.shop-readings dt {
+  font-size: 11px;
+  letter-spacing: 1.3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.shop-wo-dialog dl.shop-readings dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* ---------- Parts & repair requests ---------- */
+.shop-pr-lines {
+  display: grid;
+  gap: 4px;
+}
+.shop-pr-line {
+  font-size: 14.5px;
+}
+.shop-pr-line strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Reference library ---------- */
+.shop-manuals .shop-lead .ds-list-sub {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.shop-manuals .shop-icon-text {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.shop-table-card
+  table.shop-table
+  td.shop-actions-cell:has(.shop-manual-actions) {
+  width: 1%;
+}
+.shop-manual-actions {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  justify-content: end;
+  gap: 8px;
+}
+.shop-manual-actions > :is(.button, a.button) {
+  margin: 0;
+  justify-content: center;
+}
+@media (max-width: 759px) {
+  .shop-manual-actions {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    width: 100%;
+  }
+}
+.shop-viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.shop-viewer-actions > .button {
+  margin: 0;
+}
+
+/* ---------- Costs ---------- */
+@media (max-width: 759px) {
+  .shop-cost-stats.ds-stats-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---------- Vendors ---------- */
+.shop-editor-card {
+  max-width: 920px;
+}
+.shop-editor-card > section > h2 {
+  margin: 0 0 18px;
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+}
+
+/* ---------- Shared bits used across the screens ---------- */
+.shop-count {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.shop-lead .ds-list-title:has(> .shop-title-button) {
+  overflow: visible;
+}
+.shop-table-card table.shop-table td.shop-select-cell {
+  width: 1%;
+  padding-right: 0;
+}
+.shop-check-hit {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: -10px;
+  cursor: pointer;
+}
+.shop-budget > p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 14px 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+.shop-budget > p strong {
+  font-size: 19px;
+  font-weight: 500;
+}
+.shop-budget.over > p strong {
+  color: var(--danger);
+}
+.shop-budget + form,
+.shop-card .muted + form {
+  margin-top: 18px;
+}

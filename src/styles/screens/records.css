@@ -1,0 +1,623 @@
+/* Records screens: Flight log, Discrepancies, Sync center and Change history
+ * (src/components/Records.tsx). Every class is prefixed `rec-`; tokens come
+ * from src/styles/tokens.css and shared blocks from src/styles/design.css. */
+
+/* Status words are stored lower-case ("accepted", "open"); show them
+ * sentence-case without changing the text that assistive tech reads. */
+.rec-cap {
+  display: inline-block;
+}
+.rec-cap::first-letter {
+  text-transform: uppercase;
+}
+
+/* ---------- Toolbar pieces ---------- */
+.rec-sync-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: var(--radius-control);
+  background: var(--blue-soft);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.3;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.rec-sync-chip:hover {
+  transform: translateY(-1px);
+}
+.rec-sync-chip > svg {
+  color: var(--blue-on-soft);
+  flex: none;
+}
+.rec-sync-chip-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--blue-on-soft);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* The shared switch paints its track over the hidden checkbox; lift the
+ * checkbox so pointer clicks land on the control itself. */
+.ds-switch.rec-switch input {
+  z-index: 1;
+}
+.ds-pill.rec-count {
+  font-size: 14px;
+  padding: 7px 13px;
+}
+
+/* ---------- Flight log: table card (≥760px) ---------- */
+.rec-table-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  transition: background var(--dur-theme);
+}
+.rec-table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.rec-table-scroll:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: -3px;
+}
+.rec-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 900px;
+  text-align: left;
+  white-space: nowrap;
+}
+.rec-table th {
+  padding: 16px 22px;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  vertical-align: bottom;
+}
+.rec-table td {
+  padding: 18px 22px;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.4;
+  vertical-align: top;
+}
+.rec-table tbody tr:first-child td {
+  border-top: 0;
+}
+.rec-table tbody tr {
+  transition: background var(--dur-fast);
+}
+.rec-table tbody tr:hover {
+  background: var(--surface2);
+}
+.rec-table .rec-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rec-table td.rec-num {
+  font-size: 14.5px;
+}
+/* Status and Correct / Review stay in view while the wide table scrolls
+ * sideways; the action column has a fixed width so Status can sit beside it. */
+.rec-table .rec-status,
+.rec-table .rec-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  transition: background var(--dur-fast);
+}
+.rec-table .rec-status {
+  box-shadow: inset 1px 0 0 var(--border);
+}
+.rec-table .rec-status.before-actions {
+  right: 124px;
+}
+.rec-table .rec-actions {
+  width: 124px;
+  min-width: 124px;
+  max-width: 124px;
+  padding-left: 12px;
+  text-align: right;
+}
+.rec-table tbody tr:hover .rec-status,
+.rec-table tbody tr:hover .rec-actions {
+  background: var(--surface2);
+}
+.rec-reg {
+  display: block;
+  font-size: 16.5px;
+  font-weight: 600;
+}
+.rec-when {
+  display: block;
+  margin-top: 2px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.rec-from {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.rec-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-variant-numeric: tabular-nums;
+}
+.rec-route > svg {
+  color: var(--faint);
+  flex: none;
+}
+.rec-unset {
+  color: var(--faint);
+}
+.rec-starts > div + div {
+  margin-top: 4px;
+}
+.rec-starts,
+.rec-fluids {
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.rec-fluids {
+  white-space: normal;
+  min-width: 220px;
+  max-width: 300px;
+}
+.rec-fluids strong {
+  display: block;
+  font-weight: 600;
+}
+.rec-fluids small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.rec-fluids > div + div,
+.rec-fluids > div + small {
+  margin-top: 8px;
+}
+
+/* ---------- Flight log: stacked cards (<760px) ---------- */
+.rec-flight-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rec-flight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  transition: background var(--dur-theme);
+}
+.rec-flight-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rec-flight-card-head > div {
+  min-width: 0;
+}
+.rec-flight-card-head strong {
+  display: block;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.rec-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px 10px;
+  margin: 0;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.rec-facts > div {
+  min-width: 0;
+}
+.rec-facts dt {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.rec-facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.rec-card-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.rec-card-extra > h3 {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.rec-card-extra .rec-fluids {
+  max-width: none;
+  min-width: 0;
+}
+.rec-card-action.button {
+  width: 100%;
+  min-height: 44px;
+}
+
+/* ---------- Discrepancies ---------- */
+.rec-disc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.rec-disc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  transition: background var(--dur-theme);
+}
+.rec-disc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rec-disc-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.rec-disc-id strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.rec-disc-id span {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.rec-disc-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rec-disc-text {
+  margin: 4px 0 0;
+  font-size: 16.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.rec-disc-meta {
+  margin: -6px 0 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--faint);
+}
+.rec-note-block {
+  padding: 16px 18px;
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: 14.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.rec-note-block p {
+  margin: 0;
+}
+.rec-note-block small {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.rec-resolution {
+  background: var(--good-bg);
+}
+.rec-resolution p {
+  white-space: pre-wrap;
+}
+.rec-deferral {
+  background: var(--warn-bg);
+}
+.rec-deferral p + p {
+  margin-top: 6px;
+}
+.rec-deferral .muted {
+  color: var(--muted);
+}
+.rec-note-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--good);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.rec-disc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.rec-disc-tools:empty {
+  display: none;
+}
+.rec-disc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.rec-disc-actions > .button {
+  flex: 1 1 200px;
+  min-height: 46px;
+  white-space: nowrap;
+}
+.rec-disc-actions > .rec-resolve {
+  flex-basis: 180px;
+}
+
+/* ---------- Generic list screens (Sync center, Change history) ---------- */
+.rec-stat-date {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.rec-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 18px 0 4px;
+}
+.rec-list-head h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+.rec-list-note {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 72ch;
+}
+.rec-list-note:last-child {
+  margin-bottom: 18px;
+}
+.rec-entry {
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.ds-list-card > .rec-entry:first-child {
+  border-top: 0;
+}
+.rec-entry > .ds-list-row {
+  border-top: 0;
+}
+.rec-entry > .ds-list-row:has(+ .rec-entry-extra) {
+  padding-bottom: 6px;
+}
+@media (min-width: 1100px) {
+  .rec-entry > .ds-list-row:not(:has(.ds-list-action)) {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .rec-entry > .ds-list-row:not(:has(.ds-list-action, .ds-list-badge)) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+.rec-entry-extra {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 0 12px 58px;
+  font-size: 14.5px;
+  color: var(--muted);
+  min-width: 0;
+}
+.rec-entry-extra > * {
+  max-width: 100%;
+}
+.rec-entry-extra p {
+  margin: 0;
+}
+.rec-reason {
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rec-entry-extra details {
+  width: 100%;
+}
+.rec-entry-extra summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rec-entry-extra pre {
+  margin: 4px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.rec-audit-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.rec-audit-values h4 {
+  margin: 8px 0 4px;
+  color: var(--faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.rec-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 6px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--faint);
+  transition: border-color var(--dur-fast);
+}
+.rec-select:hover,
+.rec-select:focus-within {
+  border-color: var(--blue);
+}
+.rec-select > label {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.rec-select > select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 42px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  text-overflow: ellipsis;
+}
+.rec-select > select option {
+  background: var(--surface);
+  color: var(--text);
+}
+.rec-list-status {
+  padding: 12px 0;
+  color: var(--muted);
+}
+.rec-pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 0 20px;
+  border-top: 1px solid var(--border);
+}
+.rec-pager:empty {
+  display: none;
+}
+.rec-pager > p {
+  margin: 0;
+}
+.rec-list-card .ds-empty {
+  margin: 18px 0 22px;
+}
+
+/* ---------- Dialog content ---------- */
+.rec-dialog .ds-dialog-body > .muted:first-child {
+  margin: 0 0 18px;
+  line-height: 1.55;
+}
+.rec-dialog .ds-dialog-body h3 {
+  margin: 26px 0 12px;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 759px) {
+  .rec-disc-card {
+    padding: 20px;
+    gap: 16px;
+  }
+  .rec-disc-text {
+    font-size: 16px;
+  }
+  .rec-entry-extra {
+    padding-left: 0;
+  }
+  .rec-audit-values {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rec-select {
+    width: 100%;
+  }
+  .rec-select > select {
+    flex: 1;
+  }
+  .rec-sync-chip {
+    width: 100%;
+  }
+}

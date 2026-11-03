@@ -1,0 +1,39 @@
+/* Work-order and aircraft cost summaries (tokens from src/styles/tokens.css).
+ * The annual budget bar on the Costs screen is styled in
+ * src/styles/screens/shop.css (.shop-budget). */
+.cost-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+.cost-totals div {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+.cost-totals dt {
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cost-totals dd {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.unit-cost-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.unit-cost-editor input {
+  width: 7em;
+}

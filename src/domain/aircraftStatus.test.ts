@@ -1,0 +1,333 @@
+import { describe, expect, it } from "vitest";
+import { demoSnapshot } from "../data/demo";
+import {
+  aircraftStatus,
+  dispatchGate,
+  earliestLocalDate,
+} from "./aircraftStatus";
+import { blankAD, blankADTask } from "./airworthiness";
+import { componentSchema, requirementSchema } from "./components";
+import { deferDiscrepancy } from "./deferrals";
+import { localDate, totalSeconds, type Snapshot } from "./model";
+
+const today = localDate();
+const N206 = "demo-206";
+function setup() {
+  const s = demoSnapshot();
+  // Start from a clean, airworthy N206MA.
+  s.inspections = s.inspections.filter((i) => i.aircraftUuid !== N206);
+  return s;
+}
+function component(s: Snapshot, dueSeconds: number) {
+  const a = s.aircraft[0];
+  const c = componentSchema.parse({
+    uuid: "pump",
+    kind: "component",
+    version: 1,
+    aircraftUuid: a.uuid,
+    componentType: "Pump",
+    partNumber: "PN",
+    serial: "SN1",
+    manufacturer: "",
+    notes: "",
+    trackTime: true,
+    trackCycles: true,
+    trackCalendar: true,
+    installed: true,
+    installedDate: "2026-01-01",
+    installedSeconds: totalSeconds(a),
+    installedCycles: a.cycles,
+    timeSinceNew: 100 * 3600,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+    cyclesSinceNew: 20,
+    serviceDaysBase: 0,
+  });
+  const r = requirementSchema.parse({
+    uuid: "pump-life",
+    kind: "componentRequirement",
+    version: 1,
+    componentUuid: c.uuid,
+    aircraftUuid: a.uuid,
+    requirementType: "Life Limits",
+    description: "Life limit",
+    notes: "",
+    calendarIntervalUnit: "MONTHS",
+    timeBasis: "TSN",
+    timeLimitMode: "ABSOLUTE",
+    cycleLimitMode: "ABSOLUTE",
+    dueSeconds,
+    warningCalendarMonths: 0,
+    warningSeconds: 10 * 3600,
+    warningCycles: 0,
+  });
+  s.management = [c, r];
+}
+function ad(s: Snapshot, dueDate: string) {
+  const r = blankAD(N206);
+  r.source.number = "2026-07-01";
+  r.applicability = "Applicable";
+  r.reviewRequired = false;
+  r.tasks = [{ ...blankADTask(), description: "Inspect", dueDate }];
+  s.airworthiness = [r];
+  return r;
+}
+const addDays = (n: number) =>
+  new Date(Date.parse(today + "T00:00:00Z") + n * 86400000)
+    .toISOString()
+    .slice(0, 10);
+
+describe("aircraft status", () => {
+  it("is airworthy with no findings and ignores non-grounding discrepancies", () => {
+    const s = setup();
+    s.discrepancies.push({
+      uuid: "d1",
+      aircraftUuid: N206,
+      description: "Seat cushion torn",
+      status: "open",
+      authorId: s.user.id,
+      createdAt: 0,
+    });
+    expect(aircraftStatus(s, N206, today)).toEqual({
+      level: "airworthy",
+      reasons: [],
+    });
+  });
+  it("reports due-soon items with reasons when nothing grounds", () => {
+    const s = demoSnapshot();
+    const status = aircraftStatus(s, N206, today);
+    expect(status.level).toBe("due-soon");
+    expect(status.reasons).toEqual([
+      {
+        kind: "inspection",
+        label: "100-hour inspection due soon",
+        entityUuid: "demo-insp-1",
+      },
+    ]);
+  });
+  it("grounds on overdue inspections and lists only grounding reasons", () => {
+    const s = demoSnapshot();
+    s.inspections.push({
+      uuid: "late",
+      aircraftUuid: N206,
+      reference: "Annual",
+      description: "",
+      dueDate: addDays(-1),
+    });
+    const status = aircraftStatus(s, N206, today);
+    expect(status.level).toBe("grounded");
+    expect(status.reasons).toEqual([
+      { kind: "inspection", label: "Annual overdue", entityUuid: "late" },
+    ]);
+    // Archived schedules are ignored.
+    s.inspections = s.inspections.map((i) =>
+      i.uuid === "late" ? { ...i, archived: true } : i,
+    );
+    expect(aircraftStatus(s, N206, today).level).toBe("due-soon");
+  });
+  it("grounds on a past-due installed component and warns when due soon", () => {
+    const s = setup();
+    component(s, 105 * 3600);
+    expect(aircraftStatus(s, N206, today)).toMatchObject({
+      level: "due-soon",
+      reasons: [{ kind: "component", entityUuid: "pump-life" }],
+    });
+    component(s, 99 * 3600);
+    expect(aircraftStatus(s, N206, today)).toEqual({
+      level: "grounded",
+      reasons: [
+        {
+          kind: "component",
+          label: "Pump S/N SN1: Life limit past due",
+          entityUuid: "pump-life",
+        },
+      ],
+    });
+    s.management = s.management!.map((r) =>
+      r.kind === "component" ? { ...r, installed: false } : r,
+    );
+    expect(aircraftStatus(s, N206, today).level).toBe("airworthy");
+  });
+  it("grounds on a component exactly at its limit, like an inspection at 0 h", () => {
+    const s = setup();
+    component(s, 100 * 3600);
+    expect(aircraftStatus(s, N206, today)).toEqual({
+      level: "grounded",
+      reasons: [
+        {
+          kind: "component",
+          label: "Pump S/N SN1: Life limit due now",
+          entityUuid: "pump-life",
+        },
+      ],
+    });
+    // The dispatch gate follows the aircraft status.
+    expect(() => dispatchGate(s, N206, undefined, today)).toThrow(
+      "N206MA is grounded: Pump S/N SN1: Life limit due now.",
+    );
+    expect(
+      dispatchGate(s, N206, "Ferry flight to repair shop", today, 7),
+    ).toMatchObject({ reason: "Ferry flight to repair shop" });
+  });
+  it("grounds on an overdue AD task and skips non-applicable ADs", () => {
+    const s = setup();
+    const r = ad(s, addDays(-1));
+    expect(aircraftStatus(s, N206, today)).toEqual({
+      level: "grounded",
+      reasons: [
+        { kind: "ad", label: "AD 2026-07-01 overdue", entityUuid: r.uuid },
+      ],
+    });
+    s.airworthiness = [{ ...r, applicability: "Not applicable" }];
+    expect(aircraftStatus(s, N206, today).level).toBe("airworthy");
+    ad(s, addDays(10));
+    expect(aircraftStatus(s, N206, today).level).toBe("due-soon");
+  });
+  it("grounds on an open grounding discrepancy until resolved or deferred", () => {
+    const s = setup();
+    s.discrepancies.push({
+      uuid: "d1",
+      aircraftUuid: N206,
+      description: "Alternator inoperative",
+      status: "open",
+      grounding: true,
+      authorId: s.user.id,
+      createdAt: 0,
+    });
+    expect(aircraftStatus(s, N206, today)).toEqual({
+      level: "grounded",
+      reasons: [
+        {
+          kind: "discrepancy",
+          label: "Open discrepancy: Alternator inoperative",
+          entityUuid: "d1",
+        },
+      ],
+    });
+    const deferred = deferDiscrepancy(s, {
+      uuid: "d1",
+      deferredOn: today,
+      deferral: {
+        type: "mel",
+        melItem: "24-1",
+        category: "C",
+        placard: "INOP",
+      },
+    });
+    s.discrepancies = s.discrepancies.map((d) =>
+      d.uuid === "d1" ? deferred : d,
+    );
+    expect(aircraftStatus(s, N206, today).level).toBe("airworthy");
+    // Expiring MEL deferrals warn, expired ones ground.
+    expect(aircraftStatus(s, N206, addDays(8))).toMatchObject({
+      level: "due-soon",
+      reasons: [{ kind: "deferral", entityUuid: "d1" }],
+    });
+    expect(aircraftStatus(s, N206, addDays(10)).level).toBe("due-soon");
+    expect(aircraftStatus(s, N206, addDays(11))).toEqual({
+      level: "grounded",
+      reasons: [
+        {
+          kind: "deferral",
+          label: `MEL 24-1 (Category C) deferral expired ${addDays(10)}`,
+          entityUuid: "d1",
+        },
+      ],
+    });
+    s.discrepancies = s.discrepancies.map((d) =>
+      d.uuid === "d1" ? { ...d, status: "resolved" as const } : d,
+    );
+    expect(aircraftStatus(s, N206, addDays(11)).level).toBe("airworthy");
+  });
+  it("grounds when the profile is marked grounded and ranks grounding over due-soon", () => {
+    const s = demoSnapshot();
+    s.aircraft[0] = { ...s.aircraft[0], operationalStatus: "grounded" };
+    expect(aircraftStatus(s, N206, today)).toEqual({
+      level: "grounded",
+      reasons: [
+        {
+          kind: "profile",
+          label: "Marked grounded in the aircraft profile",
+          entityUuid: N206,
+        },
+      ],
+    });
+  });
+  it("rejects unknown aircraft", () => {
+    expect(() => aircraftStatus(setup(), "nope", today)).toThrow(
+      "Aircraft not found",
+    );
+  });
+});
+
+describe("dispatch gate", () => {
+  function grounded() {
+    const s = setup();
+    s.discrepancies.push({
+      uuid: "d1",
+      aircraftUuid: N206,
+      description: "Alternator inoperative",
+      status: "open",
+      grounding: true,
+      authorId: s.user.id,
+      createdAt: 0,
+    });
+    return s;
+  }
+  function pilot(s: Snapshot) {
+    return {
+      ...s,
+      user: { ...s.members[1], groupIds: ["demo-pilots"] },
+    };
+  }
+  it("allows airworthy and due-soon aircraft without an override", () => {
+    expect(dispatchGate(demoSnapshot(), N206, undefined, today)).toBe(
+      undefined,
+    );
+  });
+  it("blocks grounded aircraft with the reasons", () => {
+    expect(() => dispatchGate(grounded(), N206, undefined, today)).toThrow(
+      "N206MA is grounded: Open discrepancy: Alternator inoperative.",
+    );
+  });
+  it("lets an administrator override with a reason of at least 10 characters", () => {
+    const s = grounded();
+    expect(() => dispatchGate(s, N206, "too short", today)).toThrow(
+      "10–1000 characters",
+    );
+    expect(
+      dispatchGate(s, N206, "  Ferry flight to repair shop  ", today, 42),
+    ).toEqual({
+      by: "demo-admin",
+      name: "Alex Morgan",
+      reason: "Ferry flight to repair shop",
+      at: 42,
+    });
+    // An override is unused on an aircraft that is not grounded.
+    expect(
+      dispatchGate(demoSnapshot(), N206, "Ferry flight to repair shop", today),
+    ).toBe(undefined);
+  });
+  it("rejects overrides from non-administrators, even when not grounded", () => {
+    expect(() =>
+      dispatchGate(pilot(grounded()), N206, "Ferry flight approved", today),
+    ).toThrow("Only a Flight Program administrator");
+    expect(() =>
+      dispatchGate(pilot(setup()), N206, "Ferry flight approved", today),
+    ).toThrow("Only a Flight Program administrator");
+    expect(() =>
+      dispatchGate(pilot(grounded()), N206, undefined, today),
+    ).toThrow("is grounded");
+  });
+  it("treats program administrators as able to override", () => {
+    const s = pilot(grounded());
+    s.groups = s.groups.map((g) => ({ ...g, programAdmin: true }));
+    expect(dispatchGate(s, N206, "Ferry flight approved", today)?.by).toBe(
+      "demo-pilot",
+    );
+  });
+  it("computes a lenient server date no later than any local date", () => {
+    const now = Date.parse("2026-10-30T06:00:00Z");
+    expect(earliestLocalDate(now)).toBe("2026-10-29");
+  });
+});

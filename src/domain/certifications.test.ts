@@ -1,0 +1,118 @@
+import { it, expect } from "vitest";
+import {
+  certificationsSchema,
+  memberLicense,
+  certificateOptions,
+  validateCertificationFile,
+  type Certification,
+} from "./certifications";
+import { demoSnapshot } from "../data/demo";
+import { scopedSnapshot } from "./programs";
+const cert = (
+  kind: Certification["kind"],
+  number = "12345",
+): Certification => ({ kind, number, issuedOn: "2020-01-01", expiresOn: "" });
+it("uses one mechanic license with its ratings and keeps pilot separate", () => {
+  const certifications = certificationsSchema.parse([
+    cert("pilot", "P-1"),
+    {
+      ...cert("mechanic", "M-123"),
+      airframe: true,
+      powerplant: true,
+      ia: true,
+      renewalDate: "2026-03-01",
+    },
+  ]);
+  expect(certificateOptions({ certifications })).toEqual([
+    { key: "pilot", licenseNumber: "P-1", certificateType: "Pilot" },
+    { key: "mechanic", licenseNumber: "M-123", certificateType: "A&P IA" },
+  ]);
+  expect(memberLicense({ certifications })).toEqual({
+    licenseNumber: "M-123",
+    certificateType: "A&P IA",
+  });
+});
+it("folds old rating records into the mechanic record without losing their original details", () => {
+  const certifications = certificationsSchema.parse([
+    cert("mechanic", "M-123"),
+    cert("airframe", "A-1"),
+    cert("powerplant", "P-2"),
+    { ...cert("ia"), renewalDate: "2026-03-01" },
+  ]);
+  expect(certifications).toHaveLength(1);
+  expect(certifications[0]).toMatchObject({
+    kind: "mechanic",
+    number: "M-123",
+    airframe: true,
+    powerplant: true,
+    ia: true,
+    renewalDate: "2026-03-01",
+  });
+  expect(certifications[0].legacyQualifications?.map((c) => c.number)).toEqual([
+    "A-1",
+    "P-2",
+    "12345",
+  ]);
+  expect(certificationsSchema.parse(certifications)).toEqual(certifications);
+});
+it("uses issue dates for logbooks without applying removed expiration dates", () => {
+  const certifications = [{ ...cert("mechanic"), expiresOn: "2025-12-31" }];
+  expect(memberLicense({ certifications }, "2025-06-01").licenseNumber).toBe(
+    "12345",
+  );
+  expect(memberLicense({ certifications }, "2026-10-22").licenseNumber).toBe(
+    "12345",
+  );
+  expect(memberLicense({ certifications }, "2019-01-01").licenseNumber).toBe(
+    "",
+  );
+  expect(
+    memberLicense({ licenseNumber: "OLD", certificateType: "AME" }),
+  ).toEqual({ licenseNumber: "OLD", certificateType: "AME" });
+});
+it("validates dates, duplicate selections and license copy formats and limits", () => {
+  expect(() =>
+    certificationsSchema.parse([{ ...cert("ia"), renewalDate: "2019-01-01" }]),
+  ).toThrow(/Renewal/);
+  expect(() =>
+    certificationsSchema.parse([cert("pilot"), cert("pilot")]),
+  ).toThrow(/once/);
+  expect(() =>
+    validateCertificationFile("license.pdf", "application/pdf", 100),
+  ).not.toThrow();
+  expect(() =>
+    validateCertificationFile("license.jpg", "image/jpeg", 100),
+  ).not.toThrow();
+  expect(() =>
+    validateCertificationFile("script.html", "text/html", 100),
+  ).toThrow(/Upload/);
+  expect(() =>
+    validateCertificationFile(
+      "license.pdf",
+      "application/pdf",
+      6 * 1024 * 1024,
+    ),
+  ).toThrow(/5 MB/);
+});
+it("does not expose other users' certification details or license copies to ordinary members", () => {
+  const s = demoSnapshot();
+  s.members[0].certifications = [cert("mechanic")];
+  s.certificationFiles = [
+    {
+      id: "private",
+      userId: s.members[0].id,
+      kind: "mechanic",
+      name: "license.pdf",
+      type: "application/pdf",
+      size: 100,
+      uploadedAt: 0,
+      url: "private-url",
+    },
+  ];
+  s.user = s.members[1];
+  const visible = scopedSnapshot(s);
+  expect(visible.certificationFiles).toEqual([]);
+  expect(
+    visible.members.find((m) => m.id === "demo-admin")?.certifications,
+  ).toBeUndefined();
+});

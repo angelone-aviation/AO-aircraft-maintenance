@@ -1,0 +1,179 @@
+.ad-register {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+.ad-register-group {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.ad-register-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 14px;
+  background: var(--blue-soft);
+  color: var(--blue-on-soft);
+  cursor: pointer;
+}
+.ad-register-group > summary::before {
+  content: "▸";
+}
+.ad-register-group[open] > summary::before {
+  content: "▾";
+}
+.ad-register-group > summary span {
+  font-size: 12px;
+}
+.ad-register-group > summary b {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.ad-register-scroll {
+  overflow-x: auto;
+}
+.ad-register-group > summary .ad-review-count {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--good-bg);
+  color: var(--good);
+}
+.ad-register-group > summary .ad-review-count.pending {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.ad-register table {
+  width: 100%;
+  min-width: 950px;
+  border-collapse: collapse;
+  margin: 0;
+  font-size: 12px;
+}
+.ad-register th {
+  background: var(--surface2);
+  color: var(--text);
+  padding: 8px;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--border);
+}
+.ad-register td {
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+.ad-register tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface2) 45%, var(--surface));
+}
+.ad-register tbody tr:hover {
+  background: var(--surface2);
+}
+.ad-register-subject {
+  width: 36%;
+  min-width: 220px;
+}
+.ad-register small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+.ad-register button {
+  min-height: 28px;
+  padding: 3px 7px;
+  font-size: 12px;
+  margin: 0 3px 3px 0;
+}
+.ad-register .ad-register-link {
+  color: var(--blue);
+  text-decoration: underline;
+  font-weight: 700;
+  border: 0;
+  background: none;
+  padding: 0;
+  white-space: nowrap;
+}
+.ad-register a {
+  color: var(--blue);
+  white-space: nowrap;
+}
+.ad-tools {
+  margin: 10px 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.ad-tools > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 0;
+}
+@media (max-width: 650px) {
+  .ad-register-group > summary {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .ad-register-group > summary strong {
+    flex: 1;
+  }
+}
+.ad-register-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin: 14px 0;
+}
+.ad-register-toolbar > label {
+  flex: 1 1 260px;
+  max-width: 360px;
+}
+.ad-register-toolbar button,
+.ad-register-toolbar > details > summary,
+.ad-register td button:not(.ad-register-link) {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.ad-register-toolbar button:disabled,
+.ad-register td button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ad-register caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.ad-register-group > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  flex-shrink: 0;
+}
+.ad-register-group[open] > summary::before {
+  content: "";
+  transform: rotate(45deg);
+}
+.ad-register td:last-child {
+  min-width: 100px;
+}
+.ad-register small.ad-stale-limit,
+.ad-stale-limit {
+  color: var(--warn);
+  font-weight: 550;
+}

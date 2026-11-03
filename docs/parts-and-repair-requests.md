@@ -1,0 +1,32 @@
+# Parts and repair requests
+
+Use **Parts & repair requests** in the sidebar, or the **Parts / repair requests** button on a discrepancy, inspection, saved work-order task, job card, component, component requirement, or inventory stock item.
+
+1. Create a request. The source and aircraft identity are carried into the request; existing required-parts lists and manual references prefill where available. Review quantities, priority, needed date, vendor and delivery address.
+2. Check on-hand, reserved and available stock by location. Stock past its expiration date is never available: it cannot be reserved or issued, so it counts toward the shortage and its quantity is shown as expired. An inventory administrator can reserve stock, release a reservation, or issue reserved parts. A listed alternate requires explicit confirmation. Each reservation, release and issue is also recorded in the stock item's Record history, naming the request.
+3. Select requests with matching vendor, currency and ship-to address and choose **Add selected to purchase order**. Use a new PO or select an existing draft. Each request keeps its own allocation. Reduce a line quantity to order only part of the shortage.
+4. Issue the PO. Record shipments and tracking, then receive partial or full deliveries. Parts received against requests are reserved automatically for those requests. Issue the reserved parts when used. Receipt documents attach through the existing PO attachments control.
+5. For repair, choose an existing, uninstalled serialized component. Enter its defect, work requested, estimated cost, addresses and shipping instructions. Add the service to a PO. Download the repair order/tag, packing slip and PO from its detail screen.
+6. Record the outbound repair shipment. The component is marked **Out for repair** and cannot be installed or edited while away. Record its return using the original serial number and verified total hours/cycles. The existing component is updated in its receiving location; no duplicate component or automatic installation is created. Shipping and return appear in component movement history.
+
+Maintenance users can create requests for aircraft they can maintain. Inventory administrators manage reservations, stock issues, cancellation and purchasing. Users see requests only within their accessible Flight Program and aircraft; maintenance users can see PO progress without access to full purchasing records.
+
+Cancelling a request releases its reservations but retains issues and history. Cancel outstanding PO quantities first. A repair PO cannot be cancelled while its component is away. Request lines and purchasing details become fixed once reserved, issued or allocated to a PO; release reservations and remove draft allocations before editing unused lines. Historical fulfilled/cancelled PO links remain immutable.
+
+The PDFs use the fields supplied in `parts order form and repair order form.pdf` and `packing slip.pdf`. Signature/date lines are provided for document signoff. These are generated forms; vendor API ordering and tracking integrations are outside this release.
+
+Preferred vendor searches names in the current program vendor directory. Select a match to fill the name; saved contact details are carried in the background without showing address fields in the request form. Inventory administrators can choose **Create custom vendor** to save a new name in the directory. Maintenance users can use a custom name on their request without changing directory permissions.
+
+## Recurring maintenance parts
+
+Parts requests are the shared entry point for inventory checks, reservations, purchasing, receiving and issuing. Requests can link directly to discrepancies, inspections, component service requirements, components, job cards, AD tasks, and any saved work-order task (including requested work and installation/removal).
+
+Select **Recurring — required each time this inspection/service/AD task is performed** to save a reusable parts list. This option follows the linked maintenance schedule; it does not create a separate calendar. It is available for inspections with intervals, repeating component services, and reviewed, applicable recurring AD tasks. AD task recurrence and its days/hours/cycles intervals remain editable on the AD. A request started from a work-order task or job card uses its parent inspection/service/AD as the recurring source when applicable.
+
+A recurring list displays **Recurring · [inspection/service/AD]**. Adding that work to a work order creates a separate occurrence request. Saving a new recurring list also creates requests for matching tasks already on open work orders. Completed/cancelled work and tasks are excluded. Repeat saves cannot create another request for the same list and work-order task, even if the earlier request was cancelled. Cancelling a recurring list stops future generation and retains existing occurrence requests and their history; cancel those requests separately when needed.
+
+Reserve, order, receive and issue against occurrence requests. Recurring lists themselves cannot reserve stock or be allocated to POs. Editing a list changes future occurrences only. Existing requests retain their quantities, vendor, allocations and usage. New occurrences start with no reservations, orders or issues; their needed-by date is reviewed for that occurrence.
+
+Maintenance and aircraft shortage displays use the request lines, credit their issued/reserved quantities, and avoid counting an active occurrence and its recurring list twice. Outside an active work order, the list forecasts the next occurrence. Exact part-number availability covers serviceable stock across locations; alternate selection remains explicit. Forecasts do not reserve stock.
+
+Existing required-parts data is retained. Opening a new request from its inspection, service or discrepancy prefills the saved parts and quantities. For scheduled recurring work that prefilled request defaults to recurring; uncheck it for a one-time request. Once requests exist for the source, their demand drives its maintenance display. The previous required-parts editor now directs users to the shared request form.

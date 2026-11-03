@@ -1,0 +1,974 @@
+import type { ManagedRecord } from "../src/domain/management";
+import { convexTest } from "convex-test";
+import { describe, it, expect } from "vitest";
+import { api } from "./_generated/api";
+import schema from "./schema";
+import { demoSnapshot } from "../src/data/demo";
+import type { FlightInput } from "../src/domain/model";
+const modules = import.meta.glob([
+  "./**/*.ts",
+  "./_generated/*.js",
+  "!./**/*.test.ts",
+  "!./**/*.d.ts",
+]);
+async function fixture() {
+  const t = convexTest(schema, modules);
+  const a = demoSnapshot().aircraft[0];
+  const ids = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", demoSnapshot().programs![0]);
+    const group = await ctx.db.insert("groups", {
+      programUuid: "demo-program",
+      name: "Pilots",
+      aircraftIds: [a.uuid],
+      permissions: ["read", "flight", "discrepancy"],
+    });
+    const user = await ctx.db.insert("users", {
+      name: "Pilot",
+      email: "pilot@example.test",
+      active: true,
+      isAdmin: false,
+      groupIds: [group],
+    });
+    const admin = await ctx.db.insert("users", {
+      name: "Admin",
+      email: "admin@example.test",
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const outsider = await ctx.db.insert("users", {
+      name: "Other",
+      active: true,
+      isAdmin: false,
+      groupIds: [],
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: user,
+      expirationTime: Date.now() + 86400000,
+    });
+    await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("aircraft", {
+      ...a,
+      uuid: "secret-aircraft",
+      registration: "SECRET",
+    });
+    const adminSession = await ctx.db.insert("authSessions", {
+      userId: admin,
+      expirationTime: Date.now() + 86400000,
+    });
+    const outsiderSession = await ctx.db.insert("authSessions", {
+      userId: outsider,
+      expirationTime: Date.now() + 86400000,
+    });
+    return {
+      user,
+      admin,
+      outsider,
+      group,
+      session,
+      adminSession,
+      outsiderSession,
+    };
+  });
+  const pilot = t.withIdentity({ subject: ids.user + "|" + ids.session });
+  const admin = t.withIdentity({ subject: ids.admin + "|" + ids.adminSession });
+  const outsider = t.withIdentity({
+    subject: ids.outsider + "|" + ids.outsiderSession,
+  });
+  const input: FlightInput = {
+    aircraftUuid: a.uuid,
+    pilotId: ids.user,
+    startTime: "2026-01-01T10:00:00Z",
+    hobbsOn: a.currentHobbs + 3600,
+    landings: 1,
+    cycles: 1,
+    origin: "AAA",
+    destination: "BBB",
+    operation: "Mission",
+    flightRules: "VFR",
+    remarks: "",
+    discrepancy: "",
+  };
+  const op = () => ({
+    programUuid: "demo-program",
+    kind: "flight" as const,
+    uuid: crypto.randomUUID(),
+    authorId: ids.user,
+    baseVersion: 0,
+    input,
+  });
+  return { t, pilot, admin, outsider, ids, a, input, op };
+}
+describe("server authorization", () => {
+  it("rejects anonymous writes and aircraft access outside the user group", async () => {
+    const { t, pilot, outsider, op } = await fixture();
+    await expect(
+      t.mutation(api.operations.submit, { operation: op() }),
+    ).rejects.toThrow("active");
+    await expect(
+      outsider.mutation(api.operations.submit, { operation: op() }),
+    ).rejects.toThrow("permission");
+    await expect(
+      pilot.mutation(api.operations.submit, {
+        operation: {
+          ...op(),
+          input: { ...op().input, aircraftUuid: "secret-aircraft" },
+        },
+      }),
+    ).rejects.toThrow("permission");
+  });
+  it("filters cached snapshots by aircraft access and hides other user emails", async () => {
+    const { pilot, ids } = await fixture();
+    const s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.aircraft.map((a) => a.uuid)).toEqual(["demo-206"]);
+    expect(s!.members.find((m) => m.id === ids.admin)).toBeUndefined();
+    expect(s!.authenticatedAt).toBeGreaterThan(0);
+  });
+  it("rechecks revoked permissions when offline entries reconnect", async () => {
+    const { t, pilot, ids, op } = await fixture();
+    await t.run(async (ctx) => ctx.db.patch(ids.user, { groupIds: [] }));
+    await expect(
+      pilot.mutation(api.operations.submit, { operation: op() }),
+    ).rejects.toThrow("permission");
+    expect(
+      (await pilot.query(api.operations.snapshot, {}))!.aircraft,
+    ).toHaveLength(0);
+  });
+  it("rejects author spoofing and inactive users", async () => {
+    const { t, pilot, ids, op } = await fixture();
+    await expect(
+      pilot.mutation(api.operations.submit, {
+        operation: { ...op(), authorId: ids.admin },
+      }),
+    ).rejects.toThrow("different user");
+    await t.run(async (ctx) => ctx.db.patch(ids.user, { active: false }));
+    expect(await pilot.query(api.operations.snapshot, {})).toBeNull();
+    await expect(
+      pilot.mutation(api.operations.submit, { operation: op() }),
+    ).rejects.toThrow("active");
+  });
+  it("does not allow pilots to grant themselves admin or group access", async () => {
+    const { pilot, ids } = await fixture();
+    await expect(
+      pilot.mutation(api.admin.updateUser, {
+        id: ids.user,
+        active: true,
+        isAdmin: true,
+        groupIds: [],
+      }),
+    ).rejects.toThrow(/[Aa]dministrator/);
+    await expect(
+      pilot.mutation(api.admin.saveGroup, {
+        name: "Elevated",
+        aircraftIds: ["secret-aircraft"],
+        permissions: ["read", "resolve"],
+      }),
+    ).rejects.toThrow(/[Aa]dministrator/);
+  });
+  it("keeps at least one active administrator", async () => {
+    const { admin, ids } = await fixture();
+    await expect(
+      admin.mutation(api.admin.updateUser, {
+        id: ids.admin,
+        active: false,
+        isAdmin: false,
+        groupIds: [],
+      }),
+    ).rejects.toThrow("at least one");
+  });
+  it("blocks the public password signup flow at the server", async () => {
+    const { t } = await fixture();
+    await expect(
+      t.action(api.auth.signIn, {
+        provider: "password",
+        params: {
+          flow: "signUp",
+          email: "intruder@example.test",
+          password: "a-long-enough-password",
+        },
+      }),
+    ).rejects.toThrow("managed by your administrator");
+  });
+});
+describe("flight submissions and reviews", () => {
+  it("deduplicates retries including the linked discrepancy and increments totals once", async () => {
+    const { t, pilot, op, a } = await fixture();
+    const operation = op();
+    operation.input = {
+      ...operation.input,
+      discrepancy: "Landing light failed",
+    };
+    await pilot.mutation(api.operations.submit, { operation });
+    await pilot.mutation(api.operations.submit, { operation });
+    const state = await t.run(async (ctx) => ({
+      a: await ctx.db
+        .query("aircraft")
+        .withIndex("uuid", (q) => q.eq("uuid", a.uuid))
+        .unique(),
+      flights: await ctx.db.query("flights").collect(),
+      reports: await ctx.db.query("discrepancies").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+    expect(state.a!.cycles).toBe(a.cycles + 1);
+    expect(state.flights).toHaveLength(1);
+    expect(state.reports).toHaveLength(1);
+    expect(state.audit).toHaveLength(1);
+  });
+  it("holds stale submissions without changing totals and preserves both records", async () => {
+    const { pilot, op, a } = await fixture();
+    await pilot.mutation(api.operations.submit, { operation: op() });
+    const second = op();
+    second.input = {
+      ...second.input,
+      startTime: "2026-01-02T00:00:00Z",
+      hobbsOn: a.currentHobbs + 7200,
+    };
+    expect(
+      await pilot.mutation(api.operations.submit, { operation: second }),
+    ).toEqual({ status: "review" });
+    const s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.flights).toHaveLength(2);
+    expect(s!.aircraft[0].cycles).toBe(a.cycles + 1);
+    expect(s!.flights.find((f) => f.uuid === second.uuid)?.status).toBe(
+      "review",
+    );
+  });
+  it("admin review accepts a valid backdated flight and rebuilds subsequent starting counters", async () => {
+    const { pilot, admin, op, a } = await fixture();
+    const later = op();
+    later.input = {
+      ...later.input,
+      startTime: "2026-01-03T00:00:00Z",
+      hobbsOn: a.currentHobbs + 7200,
+    };
+    await pilot.mutation(api.operations.submit, { operation: later });
+    const earlier = op();
+    earlier.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: earlier });
+    await expect(
+      pilot.mutation(api.operations.reviewFlight, {
+        programUuid: "demo-program",
+        uuid: earlier.uuid,
+        decision: "accept",
+        reason: "Verified the paper log",
+        input: earlier.input,
+      }),
+    ).rejects.toThrow(/[Aa]dministrator/);
+    await admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: earlier.uuid,
+      decision: "accept",
+      reason: "Verified the paper log",
+      input: earlier.input,
+    });
+    const s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.aircraft[0].currentHobbs).toBe(a.currentHobbs + 7200);
+    expect(s!.aircraft[0].cycles).toBe(a.cycles + 2);
+    expect(s!.flights.find((f) => f.uuid === later.uuid)?.hobbsOff).toBe(
+      earlier.input.hobbsOn,
+    );
+    expect(
+      s!.audit.some(
+        (e) =>
+          e.action === "flight.reviewed" && e.before && e.after && e.reason,
+      ),
+    ).toBe(true);
+  });
+  it("rejects a correction that would invalidate a later flight atomically", async () => {
+    const { pilot, admin, op, a } = await fixture();
+    const first = op();
+    await pilot.mutation(api.operations.submit, { operation: first });
+    const second = {
+      ...op(),
+      baseVersion: 1,
+      input: {
+        ...op().input,
+        startTime: "2026-01-03T00:00:00Z",
+        hobbsOn: a.currentHobbs + 7200,
+      },
+    };
+    await pilot.mutation(api.operations.submit, { operation: second });
+    await expect(
+      admin.mutation(api.operations.reviewFlight, {
+        programUuid: "demo-program",
+        uuid: first.uuid,
+        decision: "accept",
+        reason: "Attempt correction",
+        input: { ...first.input, hobbsOn: a.currentHobbs + 10800 },
+      }),
+    ).rejects.toThrow("lower");
+    const s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.flights.find((f) => f.uuid === first.uuid)?.hobbsOn).toBe(
+      first.input.hobbsOn,
+    );
+  });
+});
+describe("discrepancy resolution", () => {
+  it("restricts resolution and retains the explanation and actor", async () => {
+    const { pilot, admin, ids, a } = await fixture();
+    const operation = {
+      programUuid: "demo-program",
+      kind: "discrepancy" as const,
+      uuid: crypto.randomUUID(),
+      authorId: ids.user,
+      aircraftUuid: a.uuid,
+      description: "Oil leak",
+    };
+    await pilot.mutation(api.operations.submit, { operation });
+    await expect(
+      pilot.mutation(api.operations.resolveDiscrepancy, {
+        programUuid: "demo-program",
+        uuid: operation.uuid,
+        resolution: "Fixed",
+      }),
+    ).rejects.toThrow("permission");
+    await expect(
+      admin.mutation(api.operations.resolveDiscrepancy, {
+        programUuid: "demo-program",
+        uuid: operation.uuid,
+        resolution: " ",
+      }),
+    ).rejects.toThrow("repair");
+    await admin.mutation(api.operations.resolveDiscrepancy, {
+      programUuid: "demo-program",
+      uuid: operation.uuid,
+      resolution: "Replaced damaged seal",
+    });
+    const s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.discrepancies[0]).toMatchObject({
+      status: "resolved",
+      resolvedBy: ids.admin,
+      resolution: "Replaced damaged seal",
+    });
+  });
+});
+
+it("rejects a revoked session even while its access JWT remains unexpired", async () => {
+  const { t, pilot, ids, op } = await fixture();
+  await t.run(async (ctx) => ctx.db.delete(ids.session));
+  expect(await pilot.query(api.operations.snapshot, {})).toBeNull();
+  await expect(
+    pilot.mutation(api.operations.submit, { operation: op() }),
+  ).rejects.toThrow("session");
+});
+
+it("scopes PDF plans, rejects duplicate imports and logs a plan only once", async () => {
+  const { t, pilot, outsider, a, op } = await fixture();
+  const plan = {
+    uuid: crypto.randomUUID(),
+    version: 0,
+    aircraftUuid: a.uuid,
+    registration: a.registration,
+    departureAt: "2026-09-30T22:05:00Z",
+    origin: "MZBZ",
+    destination: "KCHA",
+    alternate: "KRZR",
+    durationMinutes: 293,
+    cycles: 1,
+    landings: 1,
+    flightRules: "I",
+    aircraftType: "C441",
+    flightType: "G",
+    speed: "N0255",
+    level: "F270",
+    route: "DCT",
+    pilotText: "Demo",
+    equipment: "SGR / CB1",
+    otherInformation: "",
+    sourceName: "test.pdf",
+    sourceHash: "a".repeat(64),
+    status: "proposed",
+    createdAt: Date.now(),
+  };
+  const save = {
+    programUuid: "demo-program",
+    payload: JSON.stringify({ plan, baseVersion: 0 }),
+  };
+  await expect(outsider.mutation(api.flightPlans.save, save)).rejects.toThrow();
+  await pilot.mutation(api.flightPlans.save, save);
+  expect(
+    (await pilot.query(api.operations.snapshot))?.flightPlans,
+  ).toHaveLength(1);
+  await expect(
+    pilot.mutation(api.flightPlans.save, {
+      ...save,
+      payload: JSON.stringify({
+        plan: { ...plan, uuid: crypto.randomUUID() },
+        baseVersion: 0,
+      }),
+    }),
+  ).rejects.toThrow("already been imported");
+  const flight = op();
+  flight.input = { ...flight.input, flightPlanUuid: plan.uuid };
+  await pilot.mutation(api.operations.submit, { operation: flight });
+  await pilot.mutation(api.operations.submit, { operation: flight }); // replay is idempotent
+  await expect(
+    pilot.mutation(api.operations.submit, {
+      operation: { ...flight, uuid: crypto.randomUUID() },
+    }),
+  ).rejects.toThrow("already has a logged flight");
+  await expect(
+    pilot.mutation(api.flightPlans.save, {
+      ...save,
+      payload: JSON.stringify({
+        plan: { ...plan, status: "cancelled", version: 1 },
+        baseVersion: 1,
+      }),
+    }),
+  ).rejects.toThrow("already has a logged flight");
+  expect(
+    await t.run(
+      async (ctx) =>
+        (await ctx.db.query("flights").collect()).filter(
+          (f) => f.flightPlanUuid === plan.uuid,
+        ).length,
+    ),
+  ).toBe(1);
+});
+
+it("persists turbine start readings and amphibious landing surfaces through submit and correction", async () => {
+  const { pilot, admin, op } = await fixture();
+  const operation = op();
+  operation.input = {
+    ...operation.input,
+    engineStarts: [
+      { engine: "left", durationSeconds: 12.5, maxEgtC: 670 },
+      { engine: "right", durationSeconds: 14, maxEgtC: 690 },
+    ],
+    landingSurface: "sea",
+  };
+  await pilot.mutation(api.operations.submit, { operation });
+  let saved = (await pilot.query(api.operations.snapshot, {}))!.flights.find(
+    (f) => f.uuid === operation.uuid,
+  )!;
+  expect(saved.engineStarts).toEqual(operation.input.engineStarts);
+  expect(saved.landingSurface).toBe("sea");
+  await admin.mutation(api.operations.reviewFlight, {
+    uuid: operation.uuid,
+    programUuid: "demo-program",
+    decision: "accept",
+    reason: "Corrected engine start readings",
+    input: {
+      ...operation.input,
+      engineStarts: [
+        { engine: "left", durationSeconds: 13, maxEgtC: 675 },
+        { engine: "right" },
+      ],
+      landingSurface: "land",
+    },
+  });
+  saved = (await pilot.query(api.operations.snapshot, {}))!.flights.find(
+    (f) => f.uuid === operation.uuid,
+  )!;
+  expect(saved.engineStarts).toEqual([
+    { engine: "left", durationSeconds: 13, maxEgtC: 675 },
+    { engine: "right" },
+  ]);
+  expect(saved.landingSurface).toBe("land");
+  await admin.mutation(api.operations.reviewFlight, {
+    uuid: operation.uuid,
+    programUuid: "demo-program",
+    decision: "accept",
+    reason: "Surface was not recorded",
+    input: { ...operation.input, landingSurface: null },
+  });
+  expect(
+    (await pilot.query(api.operations.snapshot, {}))!.flights.find(
+      (f) => f.uuid === operation.uuid,
+    )!.landingSurface,
+  ).toBeNull();
+});
+
+it("saves helicopter profiles and cyclic readings through live flight submission", async () => {
+  const { pilot, admin, a, input, op } = await fixture();
+  const { aircraftInputSchema } = await import("../src/domain/fleet");
+  const { totalSeconds } = await import("../src/domain/model");
+  await admin.mutation(api.fleet.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      action: "aircraft.save",
+      requestUuid: crypto.randomUUID(),
+      reason: "Configure helicopter meter",
+      aircraft: {
+        ...aircraftInputSchema.parse(a),
+        helicopter: true,
+        meter: "cyclic",
+        currentCyclicHobbs: 100 * 3600,
+        adjustmentSeconds: totalSeconds(a) - 100 * 3600,
+      },
+    }),
+  });
+  const configured = (await pilot.query(api.operations.snapshot, {}))!
+    .aircraft[0];
+  expect(configured).toMatchObject({
+    helicopter: true,
+    meter: "cyclic",
+    currentCyclicHobbs: 360000,
+  });
+  expect(totalSeconds(configured)).toBe(totalSeconds(a));
+  const request = {
+    ...op(),
+    baseVersion: configured.version,
+    input: {
+      ...input,
+      startTime: new Date(Date.now() + 1000).toISOString(),
+      hobbsOn: undefined,
+      cyclicHobbsOn: 101 * 3600,
+    },
+  };
+  await pilot.mutation(api.operations.submit, { operation: request });
+  const saved = (await pilot.query(api.operations.snapshot, {}))!;
+  expect(saved.aircraft[0].currentCyclicHobbs).toBe(101 * 3600);
+  expect(totalSeconds(saved.aircraft[0])).toBe(totalSeconds(a) + 3600);
+  expect(saved.flights[0]).toMatchObject({
+    cyclicHobbsOff: 100 * 3600,
+    cyclicHobbsOn: 101 * 3600,
+    status: "accepted",
+  });
+  await admin.mutation(api.operations.reviewFlight, {
+    uuid: request.uuid,
+    programUuid: "demo-program",
+    decision: "accept",
+    reason: "Correct ending reading",
+    input: { ...request.input, cyclicHobbsOn: 101.5 * 3600 },
+  });
+  const corrected = (await pilot.query(api.operations.snapshot, {}))!;
+  expect(corrected.aircraft[0].currentCyclicHobbs).toBe(101.5 * 3600);
+  expect(corrected.flights[0].cyclicHobbsOff).toBe(100 * 3600);
+  expect(totalSeconds(corrected.aircraft[0])).toBe(totalSeconds(a) + 5400);
+});
+
+it("stores guided checklist and fluid readings, deduplicates and preserves provenance through review", async () => {
+  const { t, pilot, admin, a, op } = await fixture();
+  const { emptyChecklist } = await import("../src/domain/checklists");
+  const record = {
+    uuid: crypto.randomUUID(),
+    version: 1,
+    programUuid: "demo-program",
+    aircraftUuid: a.uuid,
+    document: emptyChecklist(),
+    sourceName: "test.fmd",
+    updatedAt: 0,
+    updatedBy: "test",
+  };
+  await t.run((ctx) =>
+    ctx.db.insert("checklists", {
+      uuid: record.uuid,
+      programUuid: record.programUuid,
+      aircraftUuid: a.uuid,
+      payload: JSON.stringify(record),
+    }),
+  );
+  const operation = op();
+  operation.input = {
+    ...operation.input,
+    fuel: { unit: "US gal", start: 30, added: 10, end: 25 },
+    oil: [{ engine: "single", unit: "US qt", start: 6, added: 0, end: 5.5 }],
+    checklistRun: {
+      sessionUuid: operation.uuid,
+      checklistUuid: record.uuid,
+      checklistVersion: 1,
+      checklistName: "Test checklist",
+      startedAt: operation.input.startTime,
+      metersVerifiedAt: operation.input.startTime,
+      preflight: { hobbs: a.currentHobbs, tach: a.currentTach },
+      checked: [],
+      skipped: [],
+      totalChecks: 0,
+    },
+  };
+  expect(await pilot.mutation(api.operations.submit, { operation })).toEqual({
+    status: "accepted",
+  });
+  await pilot.mutation(api.operations.submit, { operation });
+  let snapshot = await pilot.query(api.operations.snapshot);
+  expect(snapshot!.flights).toHaveLength(1);
+  expect(snapshot!.flights[0]).toMatchObject({
+    fuel: operation.input.fuel,
+    oil: operation.input.oil,
+    checklistRun: operation.input.checklistRun,
+  });
+  await expect(
+    admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: operation.uuid,
+      decision: "accept",
+      reason: "Correct fluid reading",
+      input: { ...operation.input, checklistRun: undefined },
+    }),
+  ).rejects.toThrow("cannot change");
+  await admin.mutation(api.operations.reviewFlight, {
+    programUuid: "demo-program",
+    uuid: operation.uuid,
+    decision: "accept",
+    reason: "Correct fluid reading",
+    input: { ...operation.input, fuel: { ...operation.input.fuel!, end: 24 } },
+  });
+  snapshot = await pilot.query(api.operations.snapshot);
+  expect(snapshot!.flights[0].fuel?.end).toBe(24);
+  const invalid = op();
+  invalid.input = {
+    ...operation.input,
+    fuel: { unit: "L", start: 10, added: 0, end: 20 },
+  };
+  await expect(
+    pilot.mutation(api.operations.submit, { operation: invalid }),
+  ).rejects.toThrow("Shutdown");
+});
+
+it("persists range oil levels and their separate added quantity through submission and correction", async () => {
+  const { pilot, admin, op } = await fixture();
+  const operation = op();
+  operation.input.oil = [
+    {
+      engine: "single",
+      unit: "range",
+      start: 0,
+      added: 1,
+      addedUnit: "US qt",
+      end: 100,
+    },
+  ];
+  await pilot.mutation(api.operations.submit, { operation });
+  expect((await pilot.query(api.operations.snapshot))!.flights[0].oil).toEqual(
+    operation.input.oil,
+  );
+  const corrected = {
+    ...operation.input,
+    oil: [{ ...operation.input.oil[0], end: 75 }],
+  };
+  await admin.mutation(api.operations.reviewFlight, {
+    programUuid: "demo-program",
+    uuid: operation.uuid,
+    decision: "accept",
+    reason: "Correct shutdown range",
+    input: corrected,
+  });
+  expect((await pilot.query(api.operations.snapshot))!.flights[0].oil).toEqual(
+    corrected.oil,
+  );
+});
+
+async function oilStockFixture(
+  t: Awaited<ReturnType<typeof fixture>>["t"],
+  quantity = 3,
+  expirationDate?: string,
+) {
+  const records: ManagedRecord[] = [
+    {
+      kind: "location",
+      uuid: "oil-store",
+      version: 0,
+      programUuid: "demo-program",
+      name: "Oil store",
+      address: "",
+      contact: "",
+    },
+    {
+      kind: "stock",
+      uuid: "oil-part",
+      version: 0,
+      programUuid: "demo-program",
+      locationUuid: "oil-store",
+      partNumber: "OIL-1",
+      description: "Oil bottle",
+      category: "supply",
+      condition: "new",
+      alternates: "",
+      quantity,
+      minimum: 0,
+      oil: true,
+      vendor: "Secret Vendor",
+      invoiceNumber: "INV-9",
+      poRef: "PO-9",
+      cost: 12.5,
+      expirationDate,
+    },
+    {
+      kind: "stock",
+      uuid: "tire-part",
+      version: 0,
+      programUuid: "demo-program",
+      locationUuid: "oil-store",
+      partNumber: "TIRE-1",
+      description: "Main tire",
+      category: "part",
+      condition: "new",
+      alternates: "",
+      quantity: 4,
+      minimum: 0,
+    },
+  ];
+  await t.run(async (ctx) => {
+    for (const r of records)
+      await ctx.db.insert("management", {
+        uuid: r.uuid,
+        kind: r.kind,
+        programUuid: r.programUuid,
+        payload: JSON.stringify(r),
+      });
+  });
+}
+it("issues oil once for a held flight, aggregates engines, and keeps physical usage on rejection", async () => {
+  const { t, pilot, admin, op } = await fixture();
+  await oilStockFixture(t);
+  const operation = op();
+  operation.baseVersion = 999;
+  operation.input.oil = [
+    {
+      engine: "left",
+      unit: "US qt",
+      start: 6,
+      added: 1,
+      inventory: {
+        locationUuid: "oil-store",
+        stockUuid: "oil-part",
+        quantity: 1,
+      },
+    },
+    {
+      engine: "right",
+      unit: "range",
+      start: 50,
+      added: 1,
+      addedUnit: "US qt",
+      inventory: {
+        locationUuid: "oil-store",
+        stockUuid: "oil-part",
+        quantity: 1,
+      },
+    },
+  ];
+  expect(
+    (await pilot.mutation(api.operations.submit, { operation })).status,
+  ).toBe("review");
+  await pilot.mutation(api.operations.submit, { operation });
+  const stock = () =>
+    t.run(async (ctx) =>
+      JSON.parse(
+        (await ctx.db
+          .query("management")
+          .withIndex("uuid", (q) => q.eq("uuid", "oil-part"))
+          .unique())!.payload,
+      ),
+    );
+  expect(await stock()).toMatchObject({ quantity: 1, version: 1 });
+  await expect(
+    admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: operation.uuid,
+      decision: "reject",
+      reason: "Reject meter entry",
+      input: { ...operation.input, oil: undefined },
+    }),
+  ).rejects.toThrow("posted oil inventory");
+  await admin.mutation(api.operations.reviewFlight, {
+    programUuid: "demo-program",
+    uuid: operation.uuid,
+    decision: "reject",
+    reason: "Reject meter entry",
+    input: operation.input,
+  });
+  expect((await stock()).quantity).toBe(1);
+  const audit = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(audit.filter((a) => a.action === "stock.oil_used")).toHaveLength(1);
+});
+it("records oil usage without admin-only stock details and hides stock rows from flight users", async () => {
+  const { t, pilot, admin, op } = await fixture();
+  await oilStockFixture(t);
+  const operation = op();
+  operation.input.oil = [
+    {
+      engine: "single",
+      unit: "US qt",
+      start: 6,
+      added: 1,
+      inventory: {
+        locationUuid: "oil-store",
+        stockUuid: "oil-part",
+        quantity: 1,
+      },
+    },
+  ];
+  await pilot.mutation(api.operations.submit, { operation });
+  const [row] = await t.run((ctx) =>
+    ctx.db
+      .query("audit")
+      .filter((q) => q.eq(q.field("action"), "stock.oil_used"))
+      .collect(),
+  );
+  expect(JSON.parse(row.before!)).toEqual({
+    stockUuid: "oil-part",
+    quantity: 3,
+  });
+  expect(JSON.parse(row.after!)).toEqual({
+    stockUuid: "oil-part",
+    quantity: 2,
+  });
+  expect(row.aircraftUuid).toBe(operation.input.aircraftUuid);
+  // A historic row written before the fix with the full stock record.
+  await t.run((ctx) =>
+    ctx.db.insert("audit", {
+      ...(({ _id: _i, _creationTime: _c, ...rest }) => rest)(row),
+      uuid: "historic",
+      before: JSON.stringify({
+        uuid: "oil-part",
+        vendor: "Secret Vendor",
+        cost: 12.5,
+      }),
+    }),
+  );
+  const history = (client: typeof pilot) =>
+    client.query(api.auditHistory.page, {
+      programUuid: "demo-program",
+      cursor: null,
+      numItems: 40,
+    });
+  const pilotRows = (await history(pilot)).page;
+  expect(pilotRows.some((a) => a.entityUuid === "oil-part")).toBe(false);
+  expect(pilotRows.some((a) => a.action === "flight.created")).toBe(true);
+  expect(
+    (await pilot.query(api.operations.snapshot))!.audit.some(
+      (a) => a.entityUuid === "oil-part",
+    ),
+  ).toBe(false);
+  const adminRows = (await history(admin)).page.filter(
+    (a) => a.entityUuid === "oil-part",
+  );
+  expect(adminRows).toHaveLength(2);
+  expect(adminRows.some((a) => a.before?.includes("Secret Vendor"))).toBe(true);
+});
+it("refuses flight-line deduction of stock that is not oil", async () => {
+  const { t, pilot, op } = await fixture();
+  await oilStockFixture(t);
+  const operation = op();
+  operation.input.oil = [
+    {
+      engine: "single",
+      unit: "US qt",
+      start: 6,
+      added: 1,
+      inventory: {
+        locationUuid: "oil-store",
+        stockUuid: "tire-part",
+        quantity: 1,
+      },
+    },
+  ];
+  await expect(
+    pilot.mutation(api.operations.submit, { operation }),
+  ).rejects.toThrow("not marked as oil");
+  const tire = await t.run(async (ctx) =>
+    JSON.parse(
+      (await ctx.db
+        .query("management")
+        .withIndex("uuid", (q) => q.eq("uuid", "tire-part"))
+        .unique())!.payload,
+    ),
+  );
+  expect(tire.quantity).toBe(4);
+});
+it("refuses flight-line deduction of an expired oil lot and saves nothing (#47)", async () => {
+  const { t, pilot, op } = await fixture();
+  const expired = new Date(Date.now() - 30 * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  await oilStockFixture(t, 3, expired);
+  const operation = op();
+  operation.input.oil = [
+    {
+      engine: "single",
+      unit: "US qt",
+      start: 6,
+      added: 1,
+      inventory: {
+        locationUuid: "oil-store",
+        stockUuid: "oil-part",
+        quantity: 1,
+      },
+    },
+  ];
+  await expect(
+    pilot.mutation(api.operations.submit, { operation }),
+  ).rejects.toThrow(
+    `OIL-1 expired on ${expired}. Expired stock cannot be issued or reserved.`,
+  );
+  const { oil, flights, audit } = await t.run(async (ctx) => ({
+    oil: JSON.parse(
+      (await ctx.db
+        .query("management")
+        .withIndex("uuid", (q) => q.eq("uuid", "oil-part"))
+        .unique())!.payload,
+    ),
+    flights: await ctx.db.query("flights").collect(),
+    audit: await ctx.db.query("audit").collect(),
+  }));
+  expect(oil).toMatchObject({ quantity: 3, version: 0 });
+  expect(flights).toHaveLength(0);
+  expect(audit.some((a) => a.action === "stock.oil_used")).toBe(false);
+});
+it("rejects insufficient or foreign oil stock atomically and retries after replenishment", async () => {
+  const { t, pilot, op, a } = await fixture();
+  await oilStockFixture(t, 1);
+  const operation = op();
+  operation.input.oil = [
+    {
+      engine: "single",
+      unit: "US qt",
+      start: 6,
+      added: 2,
+      inventory: {
+        locationUuid: "oil-store",
+        stockUuid: "oil-part",
+        quantity: 2,
+      },
+    },
+  ];
+  await expect(
+    pilot.mutation(api.operations.submit, { operation }),
+  ).rejects.toThrow("Insufficient stock");
+  expect((await pilot.query(api.operations.snapshot))!.flights).toHaveLength(0);
+  expect(
+    (await pilot.query(api.operations.snapshot))!.aircraft.find(
+      (x) => x.uuid === a.uuid,
+    )!.version,
+  ).toBe(0);
+  await t.run(async (ctx) => {
+    const doc = (await ctx.db
+      .query("management")
+      .withIndex("uuid", (q) => q.eq("uuid", "oil-part"))
+      .unique())!;
+    await ctx.db.patch(doc._id, {
+      payload: JSON.stringify({
+        ...JSON.parse(doc.payload),
+        quantity: 3,
+        programUuid: "foreign",
+      }),
+    });
+  });
+  await expect(
+    pilot.mutation(api.operations.submit, { operation }),
+  ).rejects.toThrow("Flight Program");
+  await t.run(async (ctx) => {
+    const doc = (await ctx.db
+      .query("management")
+      .withIndex("uuid", (q) => q.eq("uuid", "oil-part"))
+      .unique())!;
+    await ctx.db.patch(doc._id, {
+      payload: JSON.stringify({
+        ...JSON.parse(doc.payload),
+        programUuid: "demo-program",
+      }),
+    });
+  });
+  await pilot.mutation(api.operations.submit, { operation });
+  const result = await t.run(async (ctx) =>
+    JSON.parse(
+      (await ctx.db
+        .query("management")
+        .withIndex("uuid", (q) => q.eq("uuid", "oil-part"))
+        .unique())!.payload,
+    ),
+  );
+  expect(result.quantity).toBe(1);
+});

@@ -1,0 +1,261 @@
+import { convexTest } from "convex-test";
+import { it, expect } from "vitest";
+import schema from "./schema";
+import { api } from "./_generated/api";
+import { demoSnapshot } from "../src/data/demo";
+import { adSchema, blankAD, blankADTask } from "../src/domain/airworthiness";
+const modules = import.meta.glob([
+  "./**/*.ts",
+  "./_generated/*.js",
+  "!./**/*.test.ts",
+  "!./**/*.d.ts",
+]);
+it("persists AD records atomically and enforces maintenance access and version checks", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const identities = await t.run(async (ctx) => {
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("programs", s.programs![0]);
+    async function user(maintenance: boolean) {
+      const group = await ctx.db.insert("groups", {
+        programUuid: "demo-program",
+        name: "AD testers",
+        aircraftIds: [s.aircraft[0].uuid],
+        permissions: maintenance ? ["read", "maintenance"] : ["read"],
+      });
+      const id = await ctx.db.insert("users", {
+        active: true,
+        isAdmin: false,
+        name: "Tester",
+        groupIds: [group],
+        activeProgramUuid: "demo-program",
+      });
+      const session = await ctx.db.insert("authSessions", {
+        userId: id,
+        expirationTime: Date.now() + 86400000,
+      });
+      return { subject: `${id}|${session}` };
+    }
+    return { editor: await user(true), reader: await user(false) };
+  });
+  const editor = t.withIdentity(identities.editor),
+    reader = t.withIdentity(identities.reader);
+  const r = blankAD(s.aircraft[0].uuid);
+  r.source.number = "2026-01-01";
+  r.source.subject = "Inspect";
+  const args = {
+    programUuid: "demo-program",
+    payload: JSON.stringify({ kind: "save", record: r }),
+  };
+  await expect(reader.mutation(api.airworthiness.save, args)).rejects.toThrow(
+    "permission",
+  );
+  await editor.mutation(api.airworthiness.save, args);
+  await expect(editor.mutation(api.airworthiness.save, args)).rejects.toThrow(
+    "changed",
+  );
+  const docs = await t.run((ctx) => ctx.db.query("airworthiness").collect());
+  expect(docs).toHaveLength(1);
+  expect(JSON.parse(docs[0].payload).version).toBe(1);
+  // Due-limit edits are recorded with the values before and after.
+  const saved = JSON.parse(docs[0].payload);
+  saved.applicability = "Applicable";
+  saved.reviewRequired = false;
+  saved.tasks = [
+    {
+      ...blankADTask(),
+      description: "Inspect fittings",
+      recurrence: "One-time",
+      dueHours: 2300,
+    },
+  ];
+  await editor.mutation(api.airworthiness.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({ kind: "save", record: saved }),
+  });
+  const applicable = JSON.parse(
+    (await t.run((ctx) => ctx.db.query("airworthiness").first()))!.payload,
+  );
+  applicable.tasks[0].dueHours = 3000;
+  // Changing a decided AD is a correction and needs a reason (issue #21).
+  await expect(
+    editor.mutation(api.airworthiness.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ kind: "save", record: applicable }),
+    }),
+  ).rejects.toThrow("reason");
+  await editor.mutation(api.airworthiness.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      kind: "save",
+      record: applicable,
+      reason: "Due hours corrected from paragraph (g)",
+    }),
+  });
+  const audits = (await t.run((ctx) => ctx.db.query("audit").collect())).filter(
+    (a) => a.action === "ad.save",
+  );
+  expect(audits).toHaveLength(3);
+  expect(audits[0].before).toBeUndefined();
+  expect(JSON.parse(audits[0].after!)).toMatchObject({
+    uuid: r.uuid,
+    source: { number: "2026-01-01" },
+    version: 1,
+  });
+  expect(JSON.parse(audits[2].before!)).toMatchObject({
+    version: 2,
+    applicability: "Applicable",
+    tasks: [{ dueHours: 2300 }],
+  });
+  expect(JSON.parse(audits[2].after!)).toMatchObject({
+    version: 3,
+    tasks: [{ dueHours: 3000 }],
+  });
+  expect(audits[1].reason).toBeUndefined();
+  expect(audits[2].reason).toBe("Due hours corrected from paragraph (g)");
+  await expect(
+    reader.mutation(api.faa.command, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({
+        kind: "configure",
+        aircraftUuid: r.aircraftUuid,
+        enabled: true,
+        terms: ["441"],
+      }),
+    }),
+  ).rejects.toThrow("permission");
+  await editor.mutation(api.faa.command, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      kind: "configure",
+      aircraftUuid: r.aircraftUuid,
+      enabled: true,
+      terms: ["441"],
+    }),
+  });
+  expect(
+    await t.run((ctx) => ctx.db.query("faaMonitors").collect()),
+  ).toHaveLength(1);
+});
+
+it("lets maintenance record AD compliance but only a Flight Program administrator correct it", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const identities = await t.run(async (ctx) => {
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("programs", s.programs![0]);
+    async function user(programAdmin: boolean) {
+      const group = await ctx.db.insert("groups", {
+        programUuid: "demo-program",
+        name: programAdmin ? "Administrators" : "Maintenance",
+        programAdmin,
+        aircraftIds: [],
+        permissions: programAdmin ? ["read"] : ["read", "maintenance"],
+      });
+      const id = await ctx.db.insert("users", {
+        active: true,
+        isAdmin: false,
+        name: programAdmin ? "Program admin" : "Mechanic",
+        groupIds: [group],
+        activeProgramUuid: "demo-program",
+      });
+      const session = await ctx.db.insert("authSessions", {
+        userId: id,
+        expirationTime: Date.now() + 86400000,
+      });
+      return { subject: `${id}|${session}` };
+    }
+    return { mechanic: await user(false), admin: await user(true) };
+  });
+  const mechanic = t.withIdentity(identities.mechanic),
+    admin = t.withIdentity(identities.admin);
+  const send = (as: typeof admin, command: object) =>
+    as.mutation(api.airworthiness.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(command),
+    });
+  const stored = async () =>
+    adSchema.parse(
+      JSON.parse(
+        (await t.run((ctx) => ctx.db.query("airworthiness").first()))!.payload,
+      ),
+    );
+  const r = blankAD(s.aircraft[0].uuid);
+  r.source.number = "2026-07-07";
+  r.source.subject = "Inspect fittings";
+  r.applicability = "Applicable";
+  r.reviewRequired = false;
+  r.tasks = [
+    {
+      ...blankADTask(),
+      description: "Inspect fittings",
+      recurrence: "Recurring",
+      intervalHours: 100,
+      dueHours: 2400,
+    },
+  ];
+  await send(mechanic, { kind: "save", record: r });
+  const original = {
+    uuid: crypto.randomUUID(),
+    taskUuid: r.tasks[0].uuid,
+    date: "2026-01-02",
+    hours: 2340,
+    cycles: null,
+    method: "Inspected per paragraph (g)",
+    serviceBulletin: "",
+    terminatedBy: "",
+    workOrderUuid: "",
+    mechanic: "Mechanic",
+    certificate: "A&P 123",
+    evidence: "Logbook page 4",
+    recordedAt: 0,
+    recordedBy: "",
+  };
+  // Recording new compliance keeps maintenance permission.
+  await send(mechanic, {
+    kind: "comply",
+    uuid: r.uuid,
+    version: 1,
+    entry: original,
+  });
+  expect((await stored()).tasks[0].dueHours).toBe(2440);
+  const correction = {
+    kind: "correct",
+    uuid: r.uuid,
+    version: 2,
+    corrects: original.uuid,
+    reason: "Hours copied from the wrong logbook page",
+    entry: { ...original, uuid: crypto.randomUUID(), hours: 2330 },
+  };
+  await expect(send(mechanic, correction)).rejects.toThrow(
+    "Flight Program administrator",
+  );
+  await expect(send(admin, { ...correction, reason: " " })).rejects.toThrow();
+  expect((await stored()).history).toHaveLength(1);
+  await send(admin, correction);
+  const corrected = await stored();
+  expect(corrected.history).toHaveLength(2);
+  expect(corrected.history[0]).toMatchObject({
+    uuid: original.uuid,
+    hours: 2340,
+  });
+  expect(corrected.history[1]).toMatchObject({
+    corrects: original.uuid,
+    correctionReason: "Hours copied from the wrong logbook page",
+    hours: 2330,
+  });
+  expect(corrected.tasks[0].dueHours).toBe(2430);
+  const [entry] = (
+    await t.run((ctx) => ctx.db.query("audit").collect())
+  ).filter((a) => a.action === "ad.correct");
+  expect(entry.reason).toBe("Hours copied from the wrong logbook page");
+  expect(JSON.parse(entry.before!)).toMatchObject({
+    tasks: [{ dueHours: 2440 }],
+    complianceEntries: 1,
+  });
+  expect(JSON.parse(entry.after!)).toMatchObject({
+    tasks: [{ dueHours: 2430 }],
+    complianceEntries: 2,
+    latestCompliance: { corrects: original.uuid, hours: 2330 },
+  });
+});

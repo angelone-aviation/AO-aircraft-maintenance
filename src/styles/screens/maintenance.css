@@ -1,0 +1,888 @@
+/* Maintenance screens: Inspections, Components, Inventory and Alerts.
+ * Every class is prefixed `mx-` so nothing collides with other screens.
+ * Colours, radii and motion come from src/styles/tokens.css; shared
+ * building blocks (ds-*) from src/styles/design.css.
+ *
+ * Record lists (inspections, inventory, components) keep real <table>
+ * markup for assistive technology and the existing tests, and lay each row
+ * out as a CSS-grid card. The header row is visually hidden; each fact cell
+ * carries its own visible caption (.mx-fact-label, aria-hidden). */
+
+/* ---------- Shared helpers ---------- */
+.mx-num {
+  font-variant-numeric: tabular-nums;
+}
+.mx-nowrap {
+  white-space: nowrap;
+}
+.mx-capitalize::first-letter {
+  text-transform: uppercase;
+}
+.mx-tone-warn,
+.mx-tone-warning {
+  --mx-tone: var(--warn);
+  --mx-tone-bg: var(--warn-bg);
+}
+.mx-tone-danger {
+  --mx-tone: var(--danger);
+  --mx-tone-bg: var(--danger-bg);
+}
+.mx-tone-good {
+  --mx-tone: var(--good);
+  --mx-tone-bg: var(--good-bg);
+}
+.mx-tone-neutral {
+  --mx-tone: var(--muted);
+  --mx-tone-bg: var(--surface2);
+}
+
+/* ---------- Filter row ---------- */
+.mx-filters.ds-toolbar {
+  justify-content: flex-start;
+  animation: rise 0.5s 0.06s var(--ease) both;
+}
+.mx-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14.5px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast),
+    background var(--dur-theme);
+}
+.mx-select:hover,
+.mx-select:focus-within {
+  border-color: var(--blue);
+}
+.mx-select:has(select:focus-visible) {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+.mx-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 0 22px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.mx-select select:focus-visible {
+  outline: none;
+}
+.mx-select select option {
+  background: var(--surface);
+  color: var(--text);
+}
+.mx-select-caret {
+  position: absolute;
+  right: 12px;
+  color: var(--faint);
+  pointer-events: none;
+}
+.mx-search.ds-search {
+  flex: 1 1 340px;
+  max-width: 520px;
+}
+@media (max-width: 759px) {
+  .mx-filters > .mx-select {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+  }
+  .mx-filters > .mx-select:first-child,
+  .mx-search.ds-search {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .mx-filters > .mx-select select {
+    flex: 1;
+  }
+  .mx-filters > .ds-toolbar-end {
+    margin-left: 0;
+    max-width: 100%;
+  }
+  .mx-stats.ds-stats-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mx-stats .ds-stat-tile {
+    padding: 16px 18px;
+  }
+  .mx-stats .ds-stat-value {
+    font-size: 26px;
+  }
+}
+
+/* ---------- Inspections: one card per schedule ---------- */
+table.mx-insp-table {
+  display: block;
+  width: 100%;
+  white-space: normal;
+  border-collapse: separate;
+}
+/* Rows share their column tracks (subgrid), so the due and action columns
+ * line up from card to card. */
+.mx-insp-table > tbody {
+  --mx-insp-cols: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+  display: grid;
+  grid-template-columns: var(--mx-insp-cols);
+  gap: 14px 24px;
+}
+.mx-insp-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: var(--mx-insp-cols);
+  gap: 18px 24px;
+  align-items: center;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: rise 0.45s calc(0.08s + var(--i, 0) * 50ms) var(--ease) both;
+  transition:
+    background var(--dur-theme),
+    transform var(--dur-fast) var(--ease);
+}
+.mx-insp-row:hover {
+  transform: translateX(2px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mx-insp-row:hover {
+    transform: none;
+  }
+}
+@supports (grid-template-columns: subgrid) {
+  .mx-insp-row {
+    grid-template-columns: subgrid;
+  }
+}
+.mx-insp-row > td {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  font-size: 15px;
+}
+.mx-insp-row > .mx-insp-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.mx-insp-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mx-insp-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mx-insp-sub {
+  font-size: 14px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.mx-insp-note {
+  font-size: 13px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+.mx-insp-note:empty {
+  display: none;
+}
+.mx-insp-row > .mx-insp-due {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mx-due-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 12px;
+  font-size: 14px;
+}
+.mx-due-what {
+  min-width: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.mx-due-basis {
+  display: block;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.mx-due-left {
+  color: var(--muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.mx-due-left.lead {
+  color: var(--text);
+}
+.mx-due-left.lead.mx-tone-warn,
+.mx-due-left.lead.mx-tone-danger {
+  color: var(--mx-tone);
+}
+.mx-insp-progress.ds-progress {
+  height: 5px;
+  margin: 4px 0 2px;
+}
+.mx-insp-row > .mx-insp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mx-insp-actions > .ds-pill {
+  margin-right: 2px;
+}
+/* Secondary parts and work actions sit in a quieter card footer band. */
+.mx-insp-row > .mx-insp-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 -24px -22px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 calc(var(--radius-card) - 1px)
+    calc(var(--radius-card) - 1px);
+  background: color-mix(in srgb, var(--surface2) 45%, var(--surface));
+}
+.mx-insp-row > .mx-insp-tools:empty {
+  display: none;
+}
+.mx-insp-tools > .parts-availability {
+  flex: 1 1 100%;
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+@media (max-width: 1099px) {
+  .mx-insp-table > tbody {
+    --mx-insp-cols: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .mx-insp-row > .mx-insp-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 759px) {
+  .mx-insp-table > tbody {
+    --mx-insp-cols: minmax(0, 1fr);
+  }
+  .mx-insp-row {
+    gap: 16px;
+    padding: 18px;
+  }
+  .mx-insp-row > .mx-insp-tools {
+    margin: 0 -18px -18px;
+    padding: 12px 18px;
+  }
+  .mx-insp-row > .mx-insp-main {
+    align-items: flex-start;
+  }
+}
+
+/* ---------- Record rows (inventory, components) ---------- */
+.mx-records-card.ds-list-card {
+  padding: 4px 26px;
+}
+table.mx-records {
+  display: block;
+  width: 100%;
+  white-space: normal;
+  border-collapse: separate;
+}
+.mx-records > tbody {
+  display: block;
+}
+.mx-records > tbody > tr {
+  display: grid;
+  column-gap: 16px;
+  row-gap: 16px;
+  align-items: start;
+  padding: 22px 0;
+  border-top: 1px solid var(--border);
+}
+.mx-records > tbody > tr:first-child {
+  border-top: 0;
+}
+.mx-records > tbody > tr > td {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  font-size: 15px;
+}
+.mx-records td.mx-cell-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.mx-main-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 1px;
+}
+.mx-main-title {
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mx-main-sub {
+  font-size: 14px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.mx-main-note {
+  font-size: 13px;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+.mx-records td.mx-fact,
+.mx-records td.mx-cell-qty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.mx-fact-label {
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.mx-fact-value {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.mx-fact-note {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.mx-fact-note .ds-pill {
+  margin-left: 2px;
+  vertical-align: 1px;
+}
+.mx-fact-pill {
+  margin-top: 4px;
+}
+.mx-records td.mx-cell-qty {
+  align-items: flex-end;
+  text-align: right;
+}
+.mx-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.mx-qty > strong {
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.mx-records td.mx-cell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Inventory: identity + quantity, six labelled facts, then actions. */
+.mx-inv-row {
+  grid-template-columns: 44px repeat(6, minmax(0, 1fr));
+}
+.mx-inv-row > .mx-cell-main {
+  grid-area: 1 / 1 / 2 / 6;
+}
+.mx-inv-row > .mx-cell-qty {
+  grid-area: 1 / 6 / 2 / 8;
+}
+.mx-inv-row > :nth-child(2) {
+  grid-area: 2 / 2;
+}
+.mx-inv-row > :nth-child(3) {
+  grid-area: 2 / 3;
+}
+.mx-inv-row > :nth-child(5) {
+  grid-area: 2 / 4;
+}
+.mx-inv-row > :nth-child(6) {
+  grid-area: 2 / 5;
+}
+.mx-inv-row > :nth-child(7) {
+  grid-area: 2 / 6;
+}
+.mx-inv-row > :nth-child(8) {
+  grid-area: 2 / 7;
+}
+.mx-inv-row > .mx-cell-actions {
+  grid-area: 3 / 2 / 4 / -1;
+}
+@media (max-width: 1099px) {
+  .mx-inv-row {
+    grid-template-columns: 44px repeat(3, minmax(0, 1fr));
+  }
+  .mx-inv-row > .mx-cell-main {
+    grid-area: 1 / 1 / 2 / 4;
+  }
+  .mx-inv-row > .mx-cell-qty {
+    grid-area: 1 / 4 / 2 / 5;
+  }
+  .mx-inv-row > :nth-child(5) {
+    grid-area: 2 / 4;
+  }
+  .mx-inv-row > :nth-child(6) {
+    grid-area: 3 / 2;
+  }
+  .mx-inv-row > :nth-child(7) {
+    grid-area: 3 / 3;
+  }
+  .mx-inv-row > :nth-child(8) {
+    grid-area: 3 / 4;
+  }
+  .mx-inv-row > .mx-cell-actions {
+    grid-area: 4 / 2 / 5 / -1;
+  }
+}
+@media (max-width: 759px) {
+  .mx-records-card.ds-list-card {
+    padding: 2px 18px;
+  }
+  .mx-inv-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 14px;
+  }
+  .mx-inv-row > .mx-cell-main {
+    grid-area: 1 / 1 / 2 / -1;
+  }
+  .mx-records .mx-inv-row > td.mx-cell-qty {
+    grid-area: 2 / 1 / 3 / -1;
+    align-items: flex-start;
+    text-align: left;
+  }
+  .mx-inv-row > :nth-child(2) {
+    grid-area: 3 / 1;
+  }
+  .mx-inv-row > :nth-child(3) {
+    grid-area: 3 / 2;
+  }
+  .mx-inv-row > :nth-child(5) {
+    grid-area: 4 / 1;
+  }
+  .mx-inv-row > :nth-child(6) {
+    grid-area: 4 / 2;
+  }
+  .mx-inv-row > :nth-child(7) {
+    grid-area: 5 / 1;
+  }
+  .mx-inv-row > :nth-child(8) {
+    grid-area: 5 / 2;
+  }
+  .mx-inv-row > .mx-cell-actions {
+    grid-area: 6 / 1 / 7 / -1;
+  }
+}
+
+/* Components: identity + three labelled facts, then actions. */
+.mx-comp-row {
+  grid-template-columns: 44px minmax(0, 1.3fr) repeat(3, minmax(0, 1fr));
+}
+.mx-comp-row > .mx-cell-main {
+  grid-column: 1 / 3;
+}
+.mx-comp-row > .mx-cell-actions {
+  grid-column: 2 / -1;
+}
+@media (max-width: 1099px) {
+  .mx-comp-row {
+    grid-template-columns: 44px repeat(3, minmax(0, 1fr));
+  }
+  .mx-comp-row > .mx-cell-main {
+    grid-column: 1 / -1;
+  }
+  .mx-comp-row > :nth-child(2) {
+    grid-column: 2;
+  }
+}
+@media (max-width: 759px) {
+  .mx-comp-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 14px;
+  }
+  .mx-comp-row > .mx-cell-main,
+  .mx-comp-row > .mx-cell-actions {
+    grid-column: 1 / -1;
+  }
+  .mx-comp-row > :nth-child(2) {
+    grid-column: auto;
+  }
+}
+
+/* Component groups: one collapsible card per aircraft / inventory. */
+.mx-comp-group.component-group {
+  margin: 0 0 20px;
+  padding: 0 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: rise 0.5s 0.1s var(--ease) both;
+  transition: background var(--dur-theme);
+}
+.mx-comp-group > .mx-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+  padding: 18px 0;
+  list-style: none;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.mx-comp-group > .mx-group-summary::-webkit-details-marker {
+  display: none;
+}
+.mx-comp-group[open] > .mx-group-summary {
+  border-bottom: 1px solid var(--border);
+}
+.mx-group-title {
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+.mx-group-count {
+  font-size: 13px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.mx-group-caret {
+  margin-left: auto;
+  color: var(--faint);
+  transition: transform 0.32s var(--ease);
+}
+.mx-comp-group:not([open]) .mx-group-caret {
+  transform: rotate(-90deg);
+}
+.mx-comp-group > .mx-records > tbody > tr:first-child {
+  border-top: 0;
+}
+@media (max-width: 759px) {
+  .mx-comp-group.component-group {
+    padding: 0 18px;
+  }
+  .mx-group-title {
+    font-size: 19px;
+  }
+}
+
+/* ---------- Inventory: storage locations ---------- */
+.mx-locations {
+  margin-top: clamp(32px, 4vw, 48px);
+}
+.mx-section-title {
+  margin: 0 0 18px;
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+.mx-location-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 20px;
+}
+.mx-location-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  gap: 14px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  transition: background var(--dur-theme);
+}
+.mx-location-card > .button {
+  grid-column: 2;
+  justify-self: start;
+}
+.mx-location-text h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.mx-location-text p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+.mx-location-address {
+  white-space: pre-line;
+}
+.mx-notice-action {
+  margin-top: 10px;
+}
+
+/* ---------- Component detail dialog ---------- */
+.mx-detail-list {
+  display: grid;
+  grid-template-columns: minmax(130px, max-content) minmax(0, 1fr);
+  gap: 10px 22px;
+  margin: 0 0 22px;
+  font-size: 15px;
+}
+.mx-detail-list dt {
+  color: var(--muted);
+  font-size: 14px;
+}
+.mx-detail-list dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.mx-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+.mx-dialog-section {
+  margin-top: 26px;
+}
+.mx-dialog-section > h3 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.mx-dialog-empty {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+.mx-table-card {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+table.mx-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  white-space: normal;
+}
+.mx-table th {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mx-table td {
+  padding: 14px 16px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  font-size: 14.5px;
+  vertical-align: top;
+}
+.mx-table tr:last-child td {
+  border-bottom: 0;
+}
+.mx-table-kicker {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.mx-table-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.mx-table-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.mx-table-note:empty {
+  display: none;
+}
+.mx-table td:first-child {
+  min-width: 190px;
+}
+.mx-table-actions {
+  min-width: 200px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+@media (max-width: 759px) {
+  .mx-detail-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .mx-detail-list dd {
+    margin-bottom: 10px;
+  }
+}
+
+/* ---------- Alerts ---------- */
+.mx-alerts {
+  max-width: 860px;
+}
+.mx-alert-group {
+  margin-bottom: 20px;
+  padding: 10px 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: rise 0.5s 0.08s var(--ease) both;
+  transition: background var(--dur-theme);
+}
+.mx-alert-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 0 12px;
+}
+.mx-alert-group-head h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--mx-tone, var(--muted));
+}
+.mx-alert-count {
+  font-size: 13px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.mx-alert-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 14px 16px;
+  align-items: center;
+  padding: 20px 0;
+  border-top: 1px solid var(--border);
+}
+.mx-alert-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mx-tone, var(--muted));
+  box-shadow: 0 0 0 4px var(--mx-tone-bg, var(--surface2));
+  transition:
+    background var(--dur),
+    box-shadow var(--dur);
+}
+.mx-alert-row.is-read .mx-alert-dot {
+  background: var(--border);
+  box-shadow: none;
+}
+.mx-alert-text strong {
+  display: block;
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.mx-alert-text p {
+  margin: 2px 0 0;
+  font-size: 14.5px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+/* Read rows step back through weight and colour rather than opacity, so
+ * their text keeps 4.5:1 contrast in both themes. */
+.mx-alert-row.is-read .mx-alert-text strong {
+  font-weight: 500;
+  color: var(--muted);
+}
+.mx-alert-row.is-read .mx-alert-text p {
+  color: var(--faint);
+}
+.mx-alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mx-alert-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+.mx-alert-mark:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+@media (max-width: 759px) {
+  .mx-alert-group {
+    padding: 6px 18px;
+  }
+  .mx-alert-row {
+    grid-template-columns: 12px minmax(0, 1fr);
+    align-items: start;
+  }
+  .mx-alert-dot {
+    margin-top: 8px;
+  }
+  .mx-alert-actions {
+    grid-column: 2;
+  }
+}

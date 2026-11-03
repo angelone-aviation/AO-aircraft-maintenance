@@ -1,0 +1,27 @@
+/* Purchase order editor and detail (tokens from src/styles/tokens.css). */
+.po-line {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tile);
+  background: var(--surface);
+  color: var(--text);
+  padding: 16px;
+  margin: 16px 0;
+}
+.po-line legend {
+  font-weight: 600;
+  padding: 0 8px;
+  color: var(--text);
+}
+.po-pre {
+  white-space: pre-wrap;
+}
+.po-history {
+  max-height: 320px;
+  overflow: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.po-line > .text-button {
+  margin-left: 10px;
+}

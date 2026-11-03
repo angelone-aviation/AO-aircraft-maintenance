@@ -1,0 +1,64 @@
+.drs-combobox {
+  position: relative;
+  min-width: 0;
+}
+.drs-combobox-input {
+  position: relative;
+}
+.drs-combobox-input input {
+  width: 100%;
+  padding-right: 28px;
+}
+.drs-combobox-input > span {
+  position: absolute;
+  right: 12px;
+  top: 16px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  pointer-events: none;
+  color: var(--muted);
+}
+.drs-combobox > small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.drs-combobox-menu {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: var(--shadow);
+}
+.drs-combobox [role="listbox"] {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.drs-combobox [role="option"] {
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.drs-combobox [role="option"]:hover,
+.drs-combobox [aria-selected="true"] {
+  background: var(--blue-soft);
+}
+.drs-combobox [role="option"] small {
+  display: block;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.drs-combobox-hint {
+  display: block;
+  padding: 8px;
+  color: var(--muted);
+}

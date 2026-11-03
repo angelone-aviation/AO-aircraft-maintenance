@@ -1,0 +1,80 @@
+import { convexTest } from "convex-test";
+import { it, expect } from "vitest";
+import schema from "./schema";
+import { api } from "./_generated/api";
+import { demoSnapshot } from "../src/data/demo";
+import { emptyChecklist, type ChecklistRecord } from "../src/domain/checklists";
+const modules = import.meta.glob([
+  "./**/*.ts",
+  "./_generated/*.js",
+  "!./**/*.test.ts",
+  "!./**/*.d.ts",
+]);
+it("persists checklist definitions and audits, rejects read-only and stale mutations", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const users = await t.run(async (ctx) => {
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("programs", s.programs![0]);
+    const user = async (maintenance: boolean) => {
+      const group = await ctx.db.insert("groups", {
+        programUuid: s.programs![0].uuid,
+        name: "Checklist access",
+        aircraftIds: [s.aircraft[0].uuid],
+        permissions: maintenance ? ["read", "maintenance"] : ["read"],
+      });
+      const id = await ctx.db.insert("users", {
+        active: true,
+        isAdmin: false,
+        name: "Checklist tester",
+        groupIds: [group],
+      });
+      const session = await ctx.db.insert("authSessions", {
+        userId: id,
+        expirationTime: Date.now() + 86400000,
+      });
+      return { subject: `${id}|${session}` };
+    };
+    return { editor: await user(true), reader: await user(false) };
+  });
+  const editor = t.withIdentity(users.editor),
+    reader = t.withIdentity(users.reader);
+  const record: ChecklistRecord = {
+    uuid: crypto.randomUUID(),
+    version: 0,
+    programUuid: s.programs![0].uuid,
+    aircraftUuid: s.aircraft[0].uuid,
+    document: emptyChecklist(),
+    sourceName: "test.fmd",
+    updatedAt: 0,
+    updatedBy: "",
+  };
+  const args = {
+    programUuid: record.programUuid,
+    payload: JSON.stringify({ record, baseVersion: 0 }),
+  };
+  await expect(reader.mutation(api.checklists.save, args)).rejects.toThrow(
+    "permission",
+  );
+  await editor.mutation(api.checklists.save, args);
+  await expect(editor.mutation(api.checklists.save, args)).rejects.toThrow(
+    "changed",
+  );
+  const snapshot = await reader.query(api.operations.snapshot);
+  expect(snapshot!.checklists).toHaveLength(1);
+  expect(snapshot!.checklists![0]).toMatchObject({
+    version: 1,
+    uuid: record.uuid,
+  });
+  await expect(
+    editor.mutation(api.checklists.save, {
+      ...args,
+      payload: JSON.stringify({
+        record: { ...record, aircraftUuid: s.aircraft[1].uuid },
+        baseVersion: 1,
+      }),
+    }),
+  ).rejects.toThrow("permission");
+  const docs = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(docs.some((d) => d.action === "checklist.saved")).toBe(true);
+});

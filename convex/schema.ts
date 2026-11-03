@@ -1,0 +1,573 @@
+import { ATA_CHAPTERS } from "../src/domain/ata";
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
+import {
+  aircraftFields,
+  deferralValidator,
+  dispatchOverrideValidator,
+  flightFields,
+  permission,
+} from "./validators";
+export default defineSchema({
+  ...authTables,
+  aircraftPhotos: defineTable({
+    aircraftUuid: v.string(),
+    storageId: v.id("_storage"),
+  })
+    .index("aircraft", ["aircraftUuid"])
+    .index("storage", ["storageId"]),
+  savedAddresses: defineTable({
+    uuid: v.string(),
+    programUuid: v.string(),
+    version: v.number(),
+    name: v.string(),
+    nameKey: v.string(),
+    address: v.object({
+      addressName: v.optional(v.string()),
+      organization: v.string(),
+      street: v.string(),
+      street2: v.string(),
+      city: v.string(),
+      region: v.string(),
+      postalCode: v.string(),
+      country: v.string(),
+      contactName: v.string(),
+      email: v.string(),
+      phone: v.string(),
+      confirmed: v.boolean(),
+    }),
+  })
+    .index("program", ["programUuid"])
+    .index("uuid", ["uuid"])
+    .index("name", ["programUuid", "nameKey"]),
+  spruceAccounts: defineTable({
+    programUuid: v.string(),
+    version: v.number(),
+    credentials: v.optional(
+      v.object({
+        userid: v.string(),
+        password: v.string(),
+        apikey: v.string(),
+        currency: v.string(),
+      }),
+    ),
+    catalogId: v.optional(v.id("_storage")),
+    catalogAt: v.optional(v.number()),
+    catalogCount: v.optional(v.number()),
+  })
+    .index("program", ["programUuid"])
+    .index("storage", ["catalogId"]),
+  spruceOrders: defineTable({
+    programUuid: v.string(),
+    poUuid: v.string(),
+    accountVersion: v.number(),
+    fetchedAt: v.number(),
+    order: v.string(),
+    rows: v.array(v.record(v.string(), v.string())),
+  }).index("po", ["programUuid", "poUuid"]),
+  certificationFiles: defineTable({
+    userId: v.id("users"),
+    kind: v.string(),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    type: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+  })
+    .index("user", ["userId"])
+    .index("storage", ["storageId"]),
+  users: defineTable({
+    certifications: v.optional(
+      v.array(
+        v.object({
+          kind: v.string(),
+          number: v.string(),
+          issuedOn: v.string(),
+          expiresOn: v.optional(v.string()),
+          renewalDate: v.optional(v.string()),
+          airframe: v.optional(v.boolean()),
+          powerplant: v.optional(v.boolean()),
+          ia: v.optional(v.boolean()),
+          legacyQualifications: v.optional(
+            v.array(
+              v.object({
+                kind: v.string(),
+                number: v.string(),
+                issuedOn: v.string(),
+                expiresOn: v.optional(v.string()),
+                renewalDate: v.optional(v.string()),
+              }),
+            ),
+          ),
+        }),
+      ),
+    ),
+    licenseNumber: v.optional(v.string()),
+    logbookPhrases: v.optional(v.array(v.string())),
+    releaseStatements: v.optional(
+      v.array(v.object({ label: v.string(), text: v.string() })),
+    ),
+    certificateType: v.optional(v.string()),
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    image: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
+    active: v.optional(v.boolean()),
+    isAdmin: v.optional(v.boolean()),
+    activeProgramUuid: v.optional(v.string()),
+    emailAlerts: v.optional(v.boolean()),
+    groupIds: v.optional(v.array(v.id("groups"))),
+  }).index("email", ["email"]),
+  alertReads: defineTable({
+    userId: v.id("users"),
+    programUuid: v.string(),
+    key: v.string(),
+    readAt: v.number(),
+  }).index("user_program", ["userId", "programUuid", "key"]),
+  alertDeliveries: defineTable({
+    userId: v.id("users"),
+    programUuid: v.string(),
+    key: v.string(),
+    sentAt: v.number(),
+  }).index("user_program", ["userId", "programUuid", "key"]),
+  // Derived index of users.groupIds (the authorization source of truth),
+  // kept in sync by convex/memberships.ts.
+  memberships: defineTable({
+    userId: v.id("users"),
+    groupId: v.id("groups"),
+    programUuid: v.optional(v.string()),
+  })
+    .index("program", ["programUuid", "groupId"])
+    .index("user", ["userId"]),
+  groups: defineTable({
+    programUuid: v.optional(v.string()),
+    programAdmin: v.optional(v.boolean()),
+    owner: v.optional(v.boolean()),
+    name: v.string(),
+    aircraftIds: v.array(v.string()),
+    permissions: v.array(permission),
+  }).index("program", ["programUuid"]),
+  programs: defineTable({
+    uuid: v.string(),
+    version: v.number(),
+    name: v.string(),
+    addressDetails: v.optional(
+      v.object({
+        organization: v.string(),
+        street: v.string(),
+        street2: v.string(),
+        city: v.string(),
+        region: v.string(),
+        postalCode: v.string(),
+        country: v.string(),
+        contactName: v.string(),
+        email: v.string(),
+        phone: v.string(),
+        confirmed: v.boolean(),
+      }),
+    ),
+    address: v.string(),
+    email: v.string(),
+    contactName: v.string(),
+    website: v.string(),
+  }).index("uuid", ["uuid"]),
+  aircraft: defineTable(aircraftFields)
+    .index("uuid", ["uuid"])
+    .index("registration", ["registration"])
+    .index("program", ["programUuid"]),
+  componentTemplates: defineTable({
+    uuid: v.string(),
+    programUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
+  componentSetups: defineTable({
+    uuid: v.string(),
+    programUuid: v.string(),
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
+  inspectionTemplates: defineTable({
+    uuid: v.string(),
+    programUuid: v.optional(v.string()),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
+  manuals: defineTable({
+    applicability: v.optional(
+      v.object({
+        kind: v.union(v.literal("aircraft"), v.literal("component")),
+        manufacturer: v.string(),
+        model: v.string(),
+        partNumber: v.string(),
+      }),
+    ),
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    title: v.string(),
+    documentNumber: v.string(),
+    revision: v.string(),
+    revisionDate: v.string(),
+    filename: v.string(),
+    size: v.number(),
+    pageCount: v.number(),
+    storageId: v.id("_storage"),
+    uploadedAt: v.number(),
+    uploadedBy: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("storage", ["storageId"])
+    .index("aircraft", ["aircraftUuid"]),
+  manualUploads: defineTable({
+    payload: v.string(),
+    userId: v.string(),
+    createdAt: v.number(),
+    // Base64 SHA-256 the browser declared; only a blob with these bytes can be claimed.
+    sha256: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+  })
+    .index("createdAt", ["createdAt"])
+    .index("storage", ["storageId"]),
+  archivedTaskCards: defineTable({
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"]),
+  taskCards: defineTable({
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"]),
+  taskEvidence: defineTable({
+    taskCardUuid: v.string(),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+    category: v.union(
+      v.literal("photo"),
+      v.literal("supporting-document"),
+      v.literal("parts-traceability"),
+    ),
+  })
+    .index("taskCard", ["taskCardUuid"])
+    .index("storage", ["storageId"]),
+  rateLimits: defineTable({
+    key: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("key", ["key"]),
+  addressVerificationSettings: defineTable({
+    key: v.optional(v.string()),
+    version: v.number(),
+    day: v.string(),
+    used: v.number(),
+    lastLookupAt: v.number(),
+  }),
+  // One row per completed credential migration (see secretsMigration.ts).
+  credentialMigrations: defineTable({
+    name: v.string(),
+    keyId: v.string(),
+    completedAt: v.number(),
+  }).index("name", ["name"]),
+  faaCredentials: defineTable({
+    key: v.optional(v.string()),
+    expiresOn: v.string(),
+    version: v.number(),
+    updatedAt: v.number(),
+  }),
+  faaMonitors: defineTable({
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  }).index("aircraft", ["aircraftUuid"]),
+  airworthiness: defineTable({
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    programUuid: v.optional(v.string()),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"]),
+  checklists: defineTable({
+    uuid: v.string(),
+    programUuid: v.string(),
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
+  workOrderCopyJobs: defineTable({
+    uuid: v.string(),
+    workOrderUuid: v.string(),
+    aircraftUuid: v.string(),
+    actorId: v.string(),
+    programUuid: v.optional(v.string()),
+    status: v.union(
+      v.literal("running"),
+      v.literal("failed"),
+      v.literal("completed"),
+    ),
+    completed: v.number(),
+    total: v.number(),
+    batch: v.number(),
+    error: v.optional(v.string()),
+    scheduledId: v.optional(v.id("_scheduled_functions")),
+  }).index("workOrder", ["workOrderUuid"]),
+  workOrderCopyBatches: defineTable({
+    jobId: v.id("workOrderCopyJobs"),
+    batch: v.number(),
+    // Immutable template contents captured in the same transaction as the request.
+    cards: v.array(
+      v.object({
+        payload: v.string(),
+        uuid: v.string(),
+        workTaskUuid: v.string(),
+      }),
+    ),
+  }).index("jobBatch", ["jobId", "batch"]),
+  workOrders: defineTable({
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"]),
+  inventoryFiles: defineTable({
+    stockUuid: v.string(),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    type: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+  })
+    .index("stock", ["stockUuid"])
+    .index("storage", ["storageId"]),
+  workOrderFiles: defineTable({
+    workOrderUuid: v.string(),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+  })
+    .index("workOrder", ["workOrderUuid"])
+    .index("storage", ["storageId"]),
+  flightPlans: defineTable({
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"]),
+  flights: defineTable({
+    ...flightFields,
+    uuid: v.string(),
+    authorId: v.string(),
+    submittedAt: v.number(),
+    status: v.union(
+      v.literal("accepted"),
+      v.literal("review"),
+      v.literal("rejected"),
+    ),
+    reviewReason: v.optional(v.string()),
+    hobbsOff: v.optional(v.number()),
+    tachOff: v.optional(v.number()),
+    cyclicHobbsOff: v.optional(v.number()),
+    flightTimeLogOff: v.optional(v.number()),
+    dispatchOverride: v.optional(dispatchOverrideValidator),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"])
+    .index("plan", ["flightPlanUuid"]),
+  discrepancies: defineTable({
+    partsVersion: v.optional(v.number()),
+    requiredParts: v.optional(
+      v.array(
+        v.object({
+          locationUuid: v.string(),
+          stockUuid: v.string(),
+          quantity: v.number(),
+        }),
+      ),
+    ),
+
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    flightUuid: v.optional(v.string()),
+    description: v.string(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    authorId: v.string(),
+    createdAt: v.number(),
+    resolution: v.optional(v.string()),
+    resolvedBy: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    grounding: v.optional(v.boolean()),
+    deferral: v.optional(deferralValidator),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"]),
+  partsRequests: defineTable({
+    uuid: v.string(),
+    programUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
+  purchaseOrders: defineTable({
+    uuid: v.string(),
+    programUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
+  poFiles: defineTable({
+    poUuid: v.string(),
+    programUuid: v.string(),
+    receiptUuid: v.optional(v.string()),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    type: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+  })
+    .index("po", ["poUuid"])
+    .index("storage", ["storageId"]),
+  management: defineTable({
+    programUuid: v.optional(v.string()),
+    uuid: v.string(),
+    kind: v.union(
+      v.literal("component"),
+      v.literal("componentRequirement"),
+      v.literal("componentMovement"),
+      v.literal("stock"),
+      v.literal("location"),
+      v.literal("vendor"),
+    ),
+    aircraftUuid: v.optional(v.string()),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
+  // Maintenance cost records (work-order costs, budgets, labor rate settings).
+  // Aircraft rows travel with the aircraft; settings rows use aircraftUuid "".
+  costs: defineTable({
+    uuid: v.string(),
+    programUuid: v.string(),
+    aircraftUuid: v.string(),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"])
+    .index("program", ["programUuid", "aircraftUuid"]),
+  managementRequests: defineTable({
+    uuid: v.string(),
+    actorId: v.string(),
+    payload: v.string(),
+  }).index("uuid", ["uuid"]),
+  inspections: defineTable({
+    calendarExempt: v.optional(v.boolean()),
+    calendarExemptReason: v.optional(v.string()),
+    calendarExemptChangedAt: v.optional(v.number()),
+    calendarExemptChangedBy: v.optional(v.string()),
+    requiredParts: v.optional(
+      v.array(
+        v.object({
+          locationUuid: v.string(),
+          stockUuid: v.string(),
+          quantity: v.number(),
+        }),
+      ),
+    ),
+
+    sourceKey: v.optional(v.string()),
+    manualReference: v.optional(
+      v.union(
+        v.null(),
+        v.object({
+          manualUuid: v.string(),
+          section: v.string(),
+          printedPage: v.string(),
+          pdfPage: v.number(),
+        }),
+      ),
+    ),
+    programUuid: v.optional(v.string()),
+    ataChapter: v.optional(
+      v.union(...ATA_CHAPTERS.map(([code]) => v.literal(code))),
+    ),
+    usageMeter: v.optional(
+      v.union(v.literal("aircraft"), v.literal("collective")),
+    ),
+    componentUuid: v.optional(v.string()),
+    version: v.optional(v.number()),
+    intervalSeconds: v.optional(v.number()),
+    intervalCycles: v.optional(v.number()),
+    intervalLandings: v.optional(v.number()),
+    intervalMonths: v.optional(v.number()),
+    lastSeconds: v.optional(v.number()),
+    lastCycles: v.optional(v.number()),
+    lastLandings: v.optional(v.number()),
+    lastDate: v.optional(v.string()),
+    materials: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    reference: v.string(),
+    description: v.string(),
+    dueSeconds: v.optional(v.number()),
+    dueCycles: v.optional(v.number()),
+    dueLandings: v.optional(v.number()),
+    dueDate: v.optional(v.string()),
+  })
+    .index("uuid", ["uuid"])
+    .index("aircraft", ["aircraftUuid"])
+    .index("component", ["componentUuid"]),
+  audit: defineTable({
+    programUuid: v.optional(v.string()),
+    uuid: v.string(),
+    aircraftUuid: v.optional(v.string()),
+    actorId: v.string(),
+    at: v.number(),
+    action: v.string(),
+    entityUuid: v.string(),
+    reason: v.optional(v.string()),
+    before: v.optional(v.string()),
+    after: v.optional(v.string()),
+  })
+    .index("aircraft", ["aircraftUuid"])
+    .index("program", ["programUuid"])
+    .index("entity", ["entityUuid"]),
+  // Change-log rows about records transferred into a program that its own
+  // program and aircraft indexes would not reach. Transfers never re-tag audit
+  // rows (ADR-0005); this lists them so the program's History feed includes
+  // them. Read access is still decided by the record's current owner.
+  transferredAudit: defineTable({
+    programUuid: v.string(),
+    auditId: v.id("audit"),
+    auditCreationTime: v.number(),
+  }).index("program", ["programUuid", "auditCreationTime"]),
+  // One summary per imported engine-monitor file; raw samples are not kept.
+  engineTrends: defineTable({
+    uuid: v.string(),
+    aircraftUuid: v.string(),
+    programUuid: v.optional(v.string()),
+    payload: v.string(),
+  }).index("aircraft", ["aircraftUuid"]),
+  engineTrendLimits: defineTable({
+    aircraftUuid: v.string(),
+    programUuid: v.optional(v.string()),
+    chtMaxF: v.number(),
+    oilPressureMinPsi: v.number(),
+  }).index("aircraft", ["aircraftUuid"]),
+});

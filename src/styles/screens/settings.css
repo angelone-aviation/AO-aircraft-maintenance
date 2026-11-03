@@ -1,0 +1,427 @@
+/* Settings (src/components/Settings.tsx). Every class is prefixed `set-`;
+ * colours, radii, spacing and motion come from src/styles/tokens.css.
+ *
+ * Each section is one surface card (h2 header + blocks divided by
+ * hairlines). Panels moved here from other screens (FAA key, address
+ * verification, Aircraft Spruce, CSV exports, demo backup) keep their own
+ * markup; inside `.set-embed` their card chrome is dropped so they read as
+ * blocks of the section card. Breakpoints: ≥1100 desktop, 760–1099 tablet,
+ * <760 phone. */
+
+.set-page {
+  min-width: 0;
+  max-width: 1040px;
+}
+
+/* ---------- In-page section list (anchor links on the segmented track) ---------- */
+.set-jump {
+  --i: 0;
+  margin-bottom: var(--space-6);
+}
+.set-jump > a[aria-current="location"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.set-jump > a > svg {
+  flex: none;
+}
+
+/* ---------- Section cards ---------- */
+.set-sections {
+  display: grid;
+  gap: var(--space-6);
+}
+.set-section {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card-lg);
+  /* Clear the sticky 64px top bar when a #hash scrolls a section into view. */
+  scroll-margin-top: calc(64px + var(--space-4));
+  transition: background var(--dur-theme);
+}
+.set-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: var(--space-6) 26px 22px;
+}
+.set-section-head h2 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--fs-h2);
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+}
+.set-section-head p {
+  margin: 0;
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* ---------- Blocks ---------- */
+.set-block {
+  min-width: 0;
+  padding: 22px 26px var(--space-6);
+  border-top: 1px solid var(--border);
+}
+.set-block:empty {
+  display: none;
+}
+.set-block > * {
+  margin: 0;
+}
+.set-block > * + * {
+  margin-top: 14px;
+}
+.set-block > h3 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.set-block > h3 + .set-hint {
+  margin-top: var(--space-1);
+}
+.set-hint {
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+.set-empty {
+  color: var(--muted);
+  font-size: 15px;
+}
+.set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.set-actions .button > svg,
+.set-offline-row .button > svg {
+  flex: none;
+}
+
+/* Name / value pairs (account, program details) */
+.set-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 18px var(--space-6);
+}
+.set-facts > div {
+  min-width: 0;
+}
+.set-facts dt {
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.set-facts dd {
+  margin: var(--space-1) 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.set-facts dd small {
+  display: block;
+  margin-top: 2px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.set-facts dd a {
+  color: var(--blue);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.set-line {
+  display: block;
+}
+
+/* Certifications summary */
+.set-certs {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+.set-certs li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.set-certs li > span:last-child {
+  min-width: 0;
+}
+.set-certs strong {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.set-certs small {
+  display: block;
+  font-size: 13.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* Alert email */
+.set-offline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.set-offline > svg {
+  flex: none;
+}
+
+/* Theme segmented control */
+.set-theme > button {
+  min-width: 112px;
+  justify-content: center;
+}
+
+/* Offline data line */
+.set-offline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+.set-offline-row > p {
+  flex: 1 1 260px;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  color: var(--muted);
+}
+.set-offline-row strong {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Device-only note: a quiet footer band on the section card */
+.set-block-note {
+  padding-top: 18px;
+  padding-bottom: 20px;
+  background: var(--surface2);
+  border-radius: 0 0 calc(var(--radius-card-lg) - 1px)
+    calc(var(--radius-card-lg) - 1px);
+  transition: background var(--dur-theme);
+}
+.set-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.set-note > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--blue);
+}
+
+/* Notice used inside a block (no program selected) */
+.set-inline-notice.ds-notice {
+  margin: 0;
+}
+
+/* Related pages */
+.set-links {
+  display: grid;
+}
+.set-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+}
+.set-link:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.set-link:last-child {
+  padding-bottom: 0;
+}
+.set-link-text {
+  flex: 1;
+  min-width: 0;
+}
+.set-link-text strong {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.set-link-text small {
+  display: block;
+  font-size: 14px;
+  color: var(--muted);
+}
+.set-link-caret {
+  flex: none;
+  color: var(--faint);
+  transition:
+    color var(--dur-fast),
+    transform var(--dur-fast) var(--ease);
+}
+.set-link:hover .set-link-caret,
+.set-link:focus-visible .set-link-caret {
+  color: var(--blue);
+  transform: translateX(3px);
+}
+.set-link:hover strong {
+  color: var(--blue);
+}
+
+/* Labor rate form */
+.set-form {
+  max-width: 440px;
+}
+.set-form .field {
+  margin-bottom: var(--space-2);
+}
+.set-form .form-footer {
+  justify-content: flex-start;
+  border-top: 0;
+  padding-top: var(--space-2);
+  margin-top: 0;
+}
+
+/* ---------- Panels moved from other screens ---------- */
+.set-embed:empty {
+  display: none;
+}
+.set-embed > .panel,
+.set-embed > .adm-card {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+.set-embed > .panel > * {
+  margin: 0;
+}
+.set-embed > .panel > * + * {
+  margin-top: 12px;
+}
+.set-embed > .panel > h3 + p {
+  margin-top: var(--space-1);
+}
+.set-embed > .panel > p:not(.error):not(.callout):not([role="alert"]) {
+  max-width: 75ch;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.set-embed > .panel > a,
+.set-embed > .panel > p > a {
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.set-embed > .panel > a {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 40px;
+}
+.set-embed > .panel > form {
+  max-width: 560px;
+}
+.set-embed > .panel > form .form-footer {
+  justify-content: flex-start;
+  border-top: 0;
+  padding-top: var(--space-2);
+  margin-top: 0;
+}
+.set-embed .adm-card-head {
+  margin-bottom: var(--space-1);
+}
+.set-embed .adm-card-head h3 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.set-embed .adm-card-text {
+  margin-bottom: 14px;
+  font-size: 14.5px;
+}
+
+/* ---------- Tablet (760–1099px) ---------- */
+@media (max-width: 1099px) {
+  .set-page {
+    max-width: none;
+  }
+}
+
+/* ---------- Phone (<760px) ---------- */
+@media (max-width: 759px) {
+  /* Every section stays one tap away: two columns, no sideways scroll. */
+  .set-jump.ds-segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    border-radius: var(--radius-tile);
+  }
+  .set-jump > a {
+    justify-content: center;
+    gap: 6px;
+    padding-inline: 10px;
+    border-radius: calc(var(--radius-tile) - 4px);
+  }
+  .set-sections {
+    gap: var(--space-4);
+  }
+  .set-section-head {
+    padding: 20px 18px 18px;
+  }
+  .set-section-head h2 {
+    font-size: 21px;
+  }
+  .set-block {
+    padding: 18px 18px 20px;
+  }
+  .set-theme.ds-segmented {
+    display: flex;
+  }
+  .set-theme > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .set-offline-row .button {
+    width: 100%;
+  }
+  .set-form {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .set-section,
+  .set-block-note,
+  .set-link-caret {
+    transition: none;
+  }
+  .set-link:hover .set-link-caret,
+  .set-link:focus-visible .set-link-caret {
+    transform: none;
+  }
+}

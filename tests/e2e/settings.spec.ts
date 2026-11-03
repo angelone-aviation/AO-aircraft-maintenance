@@ -1,0 +1,450 @@
+import { test, expect, type Page } from "@playwright/test";
+
+// Settings changes how the app behaves; Administration decides who can do
+// what. These tests pin which sections each role sees and that the panels
+// moved out of Administration, Costs and Vendors still work from Settings.
+
+const sections = ["My account", "This device", "Flight Program", "System"];
+
+async function openDemo(page: Page, path = "/settings") {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto(path);
+}
+
+async function expectSettings(page: Page) {
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Settings", exact: true }),
+  ).toBeVisible();
+}
+
+/** Replaces the demo user's access with one permission group in the demo
+ * program (stored snapshot, like the pilot-view and admin-layout specs). */
+async function becomeMember(
+  page: Page,
+  group: {
+    id: string;
+    name: string;
+    permissions: string[];
+    programAdmin?: boolean;
+  },
+) {
+  await page.evaluate(
+    (g) =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open("angel-one-v1");
+        request.onsuccess = () => {
+          const db = request.result,
+            tx = db.transaction("snapshots", "readwrite"),
+            cursor = tx.objectStore("snapshots").openCursor();
+          cursor.onsuccess = () => {
+            const entry = cursor.result;
+            if (!entry) return;
+            const s = entry.value;
+            s.groups.push({
+              ...g,
+              programUuid: "demo-program",
+              aircraftIds: [],
+            });
+            s.user = {
+              ...s.user,
+              isAdmin: false,
+              groupIds: [g.id],
+              activeProgramUuid: "demo-program",
+            };
+            s.members = s.members.map((m: { id: string }) =>
+              m.id === s.user.id ? s.user : m,
+            );
+            entry.update(s);
+            entry.continue();
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    group,
+  );
+  await page.reload();
+}
+
+const programAdmin = {
+  id: "program-admin",
+  name: "Program administrators",
+  permissions: ["read"],
+  programAdmin: true,
+};
+const pilot = {
+  id: "pilot-only",
+  name: "Pilots",
+  permissions: ["read", "flight", "discrepancy"],
+};
+
+async function expectSections(page: Page, visible: string[]) {
+  const jump = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(jump.getByRole("link")).toHaveText(visible);
+  for (const name of sections)
+    await expect(
+      page.getByRole("heading", { level: 2, name, exact: true }),
+    ).toHaveCount(visible.includes(name) ? 1 : 0);
+}
+
+test("system administrators see all four sections with the moved panels", async ({
+  page,
+}) => {
+  await openDemo(page);
+  await expectSettings(page);
+  await expectSections(page, sections);
+  for (const heading of [
+    "Certifications",
+    "Alert email",
+    "Theme",
+    "Offline data",
+    "Program details",
+    "Default labor rate",
+    "Aircraft Spruce account",
+    "Export program data",
+    "FAA API key and renewal",
+    "Address verification",
+    "Download data backup",
+    "Full demo backup for cloud transfer",
+  ])
+    await expect(
+      page.getByRole("heading", { level: 3, name: heading, exact: true }),
+    ).toBeVisible();
+  await expect(page.getByText("See “Deployment” in the README.")).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page
+    .locator("#system")
+    .getByRole("button", { name: "Download aircraft.csv", exact: true })
+    .click();
+  expect((await download).suggestedFilename()).toMatch(
+    /^angel-one-aircraft-.+\.csv$/,
+  );
+  // Settings is the last Manage link and sits beside My certifications.
+  await expect(page.locator("#nav-group-manage a").last()).toHaveText(
+    "Settings",
+  );
+  await expect(
+    page.getByRole("link", { name: "Administration", exact: true }),
+  ).toBeVisible();
+  const footer = page.locator(".profile-links");
+  await expect(
+    footer.getByRole("link", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  await footer
+    .getByRole("button", { name: "My certifications", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "My certifications" }),
+  ).toBeVisible();
+  // Administration keeps users, groups and aircraft only.
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("link", { name: "Administration", exact: true }).click();
+  for (const heading of [
+    "Download data backup",
+    "FAA API key and renewal",
+    "Address verification",
+  ])
+    await expect(
+      page.getByRole("heading", { name: heading, exact: true }),
+    ).toHaveCount(0);
+});
+
+test("program administrators get Flight Program settings but not System", async ({
+  page,
+}) => {
+  await openDemo(page);
+  await expectSettings(page);
+  await becomeMember(page, programAdmin);
+  await expectSettings(page);
+  await expectSections(page, ["My account", "This device", "Flight Program"]);
+  for (const heading of [
+    "FAA API key and renewal",
+    "Address verification",
+    "Download data backup",
+  ])
+    await expect(
+      page.getByRole("heading", { name: heading, exact: true }),
+    ).toHaveCount(0);
+  await expect(
+    page.locator("#account").getByText("Flight Program administrator"),
+  ).toBeVisible();
+  // The Flight Programs edit form, opened from Settings.
+  await page
+    .getByRole("button", { name: "Edit program details", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Edit Flight Program" });
+  await dialog
+    .getByLabel("Flight Program name", { exact: true })
+    .fill("Mission operations west");
+  await dialog
+    .getByRole("button", { name: "Save Flight Program", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator("#program")).toContainText(
+    "Mission operations west",
+  );
+  const download = page.waitForEvent("download");
+  await page
+    .locator("#program")
+    .getByRole("button", { name: "Download flights.csv", exact: true })
+    .click();
+  expect((await download).suggestedFilename()).toBe("demo-program-flights.csv");
+  await page.getByRole("link", { name: "Users and access" }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(
+    page.getByRole("heading", { name: "Administration", exact: true }),
+  ).toBeVisible();
+});
+
+test("pilots see only My account and This device", async ({ page }) => {
+  await openDemo(page);
+  await expectSettings(page);
+  await becomeMember(page, pilot);
+  await expectSettings(page);
+  await expectSections(page, ["My account", "This device"]);
+  for (const heading of ["Default labor rate", "Aircraft Spruce account"])
+    await expect(
+      page.getByRole("heading", { name: heading, exact: true }),
+    ).toHaveCount(0);
+  await expect(page.locator("#account")).toContainText("Pilot");
+  await expect(
+    page.getByRole("link", { name: "Administration", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator("#nav-group-manage a").last()).toHaveText(
+    "Settings",
+  );
+  await page
+    .getByRole("button", { name: "Edit my certifications", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "My certifications" }),
+  ).toBeVisible();
+});
+
+test("the owner view has no Settings link and keeps its portal", async ({
+  page,
+}) => {
+  await openDemo(page, "/");
+  await page
+    .getByRole("button", { name: "Preview owner portal", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Your aircraft", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Settings", exact: true }),
+  ).toHaveCount(0);
+  await page.goto("/settings");
+  await expect(
+    page.getByRole("heading", { name: "Your aircraft", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Settings", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Exit owner preview", exact: true })
+    .click();
+  await expect(
+    page.getByRole("link", { name: "Settings", exact: true }).first(),
+  ).toBeVisible();
+});
+
+test("the theme chosen in Settings persists across reload", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("angel-one-demo", "true");
+    if (!sessionStorage.getItem("theme-seeded")) {
+      localStorage.setItem("angelone-theme", "light");
+      sessionStorage.setItem("theme-seeded", "true");
+    }
+  });
+  await page.goto("/settings#device");
+  await expectSettings(page);
+  const theme = page.getByRole("group", { name: "Theme", exact: true });
+  await expect(
+    theme.getByRole("button", { name: "Light", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await theme.getByRole("button", { name: "Dark", exact: true }).click();
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+  await page.reload();
+  await expectSettings(page);
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+  await expect(
+    theme.getByRole("button", { name: "Dark", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  // The top-bar toggle stays and drives the same setting.
+  await page
+    .getByRole("button", { name: "Switch to light theme", exact: true })
+    .click();
+  await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
+  await expect(
+    theme.getByRole("button", { name: "Light", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("a labor rate saved in Settings shows on Costs", async ({ page }) => {
+  await openDemo(page, "/settings#program");
+  await expectSettings(page);
+  const program = page.locator("#program");
+  await program
+    .getByLabel("Rate per hour (USD)", { exact: true })
+    .fill("95.50");
+  await program.getByRole("button", { name: "Save rate", exact: true }).click();
+  await expect(
+    program.getByText("Current rate $95.50 per hour."),
+  ).toBeVisible();
+  await page.goto("/costs");
+  await expect(
+    page.getByRole("heading", { name: "Costs", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Default rate $95.50 per hour.")).toBeVisible();
+  await expect(page.getByLabel("Rate per hour (USD)")).toHaveCount(0);
+});
+
+test("the alert digest switch uses the My certifications preference and needs a connection", async ({
+  page,
+  context,
+}) => {
+  await openDemo(page);
+  await expectSettings(page);
+  const digest = page.getByRole("switch", {
+    name: "Email me a daily alert digest",
+  });
+  await expect(digest).not.toBeChecked();
+  await digest.check();
+  await expect(digest).toBeChecked();
+  await page.reload();
+  await expect(digest).toBeChecked();
+  await page
+    .getByRole("button", { name: "Edit my certifications", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "My certifications" });
+  await expect(
+    dialog.getByRole("checkbox", {
+      name: "Email me maintenance alerts (daily digest)",
+    }),
+  ).toBeChecked();
+  await dialog.getByRole("button", { name: "Close dialog" }).click();
+  await context.setOffline(true);
+  await expect(digest).toBeDisabled();
+  await expect(
+    page.getByText("Reconnect to change alert email."),
+  ).toBeVisible();
+  await context.setOffline(false);
+  await expect(digest).toBeEnabled();
+});
+
+test("moved-panel notices and deep links open the right Settings section", async ({
+  page,
+}) => {
+  await openDemo(page, "/admin");
+  await expect(
+    page.getByText(
+      "Integration keys and data backups are in Settings → System.",
+    ),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Open System settings" }).click();
+  await expect(page).toHaveURL(/\/settings#system$/);
+  await expect(
+    page.getByRole("heading", { level: 2, name: "System", exact: true }),
+  ).toBeInViewport();
+
+  await page.goto("/costs");
+  await expect(page.getByText("Labor rate moved to Settings.")).toBeVisible();
+  await page
+    .getByRole("link", { name: "Open Flight Program settings" })
+    .click();
+  await expect(page).toHaveURL(/\/settings#program$/);
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Flight Program",
+      exact: true,
+    }),
+  ).toBeInViewport();
+
+  await page.goto("/vendors");
+  await expect(
+    page.getByText("Aircraft Spruce account is in Settings."),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Open Flight Program settings" })
+    .click();
+  await expect(page).toHaveURL(/\/settings#program$/);
+  await expect(
+    page.getByRole("heading", { name: "Aircraft Spruce account", exact: true }),
+  ).toBeVisible();
+
+  // Deep link straight into a section (a fresh page load, not a hash change
+  // on the open page), then jump with the section list.
+  await page.goto("/sync");
+  await page.goto("/settings#system");
+  await expect(
+    page.getByRole("heading", { level: 2, name: "System", exact: true }),
+  ).toBeInViewport();
+  const jump = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(
+    jump.getByRole("link", { name: "System", exact: true }),
+  ).toHaveAttribute("aria-current", "location");
+  await jump.getByRole("link", { name: "This device", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings#device$/);
+  await expect(
+    jump.getByRole("link", { name: "This device", exact: true }),
+  ).toHaveAttribute("aria-current", "location");
+  await expect(
+    page.getByRole("heading", { level: 2, name: "This device", exact: true }),
+  ).toBeInViewport();
+
+  // Program administrators reach the same section from their Administration.
+  await page.goto("/admin");
+  await becomeMember(page, programAdmin);
+  await expect(
+    page.getByText(
+      "Program details, labor rate and exports are in Settings → Flight Program.",
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Open Flight Program settings" })
+    .click();
+  await expect(page).toHaveURL(/\/settings#program$/);
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Flight Program",
+      exact: true,
+    }),
+  ).toBeInViewport();
+});
+
+test("phones reach Settings from the More sheet, not the tab bar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDemo(page, "/");
+  await expect(
+    page.getByRole("navigation", { name: "Primary" }).getByRole("link", {
+      name: "Settings",
+    }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "All sections" })
+    .getByRole("link", { name: "Settings", exact: true })
+    .click();
+  await expectSettings(page);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  const box = await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("link", { name: "System", exact: true })
+    .boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+});

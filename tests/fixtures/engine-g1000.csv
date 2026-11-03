@@ -1,0 +1,7 @@
+#airframe_info, log_version="1.00", airframe_name="Cessna 182T", unit_software_part_number="006-B0544-3C", unit_software_version="14.03", system_id="SYNTHETIC", mode=NORMAL,
+#yyy-mm-dd, hh:mm:ss,   hh:mm,  ident,      degrees,      degrees,  ft msl, deg C,     kt,   gph,  deg F,   psi,    Hg,   rpm,  deg F,  deg F,  deg F,  deg F,  deg F,  deg F,  deg F,  deg F,  deg F,  deg F,  deg F,  deg F
+  Lcl Date, Lcl Time, UTCOfst, AtvWpt,     Latitude,    Longitude,  AltMSL,   OAT,    IAS, E1 FFlow, E1 OilT, E1 OilP, E1 MAP, E1 RPM, E1 CHT1, E1 CHT2, E1 CHT3, E1 CHT4, E1 CHT5, E1 CHT6, E1 EGT1, E1 EGT2, E1 EGT3, E1 EGT4, E1 EGT5, E1 EGT6
+2026-10-02, 09:15:00,  -05:00,       ,   35.0350000,  -85.2030000,   680.0,  15.0,    0.0,     ,     ,     ,     ,     ,     ,     ,     ,     ,     ,     ,     ,     ,     ,     ,     ,
+2026-10-02, 09:15:01,  -05:00,       ,   35.0350000,  -85.2030000,   680.0,  15.0,    0.0,  3.0,  120,   65,  15.2,  1000,  200,  205,  210,  198,  202,  207, 1000, 1010, 1020,  990, 1005, 1015
+2026-10-02, 09:45:01,  -05:00,   KCHA,   35.2000000,  -85.4000000,  6500.0,   2.0,  140.0, 13.5,  185,   58,  23.0,  2300,  370,  375,  380,  365,  372,  378, 1420, 1430, 1440, 1410, 1425, 1435
+2026-10-02, 10:15:01,  -05:00,   KCHA,   35.4000000,  -85.6000000,  6500.0,   2.0,  141.0, 13.0,  190,   22,  23.0,  2300,  372,  378,  385,  368,  375,  380, 1425, 1435, 1445, 1415, 1430, 1440

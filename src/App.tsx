@@ -1,0 +1,343 @@
+import { isOwnerView } from "./domain/ownerView";
+import { AppShell } from "./components/AppShell";
+import { createContext, useContext, lazy, Suspense } from "react";
+import {
+  Link,
+  Outlet,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { X } from "@phosphor-icons/react";
+import { useWorkspace } from "./data/store";
+import { Dashboard } from "./components/Dashboard";
+// Screens load on demand so older phones parse less code at startup.
+const OwnerPortal = lazy(() =>
+  import("./components/OwnerPortal").then((m) => ({ default: m.OwnerPortal })),
+);
+const AlertsPage = lazy(() =>
+  import("./components/Alerts").then((m) => ({ default: m.AlertsPage })),
+);
+const SavedAddresses = lazy(() =>
+  import("./components/SavedAddresses").then((m) => ({
+    default: m.SavedAddresses,
+  })),
+);
+const Vendors = lazy(() =>
+  import("./components/Vendors").then((m) => ({ default: m.Vendors })),
+);
+const PartsRequests = lazy(() =>
+  import("./components/PartsRequests").then((m) => ({
+    default: m.PartsRequests,
+  })),
+);
+const ImportedComponents = lazy(() =>
+  import("./components/ComponentTemplates").then((m) => ({
+    default: m.ImportedComponents,
+  })),
+);
+const PurchaseOrders = lazy(() =>
+  import("./components/PurchaseOrders").then((m) => ({
+    default: m.PurchaseOrders,
+  })),
+);
+const Airworthiness = lazy(() =>
+  import("./components/Airworthiness").then((m) => ({
+    default: m.Airworthiness,
+  })),
+);
+const InspectionTemplates = lazy(() =>
+  import("./components/InspectionTemplates").then((m) => ({
+    default: m.InspectionTemplates,
+  })),
+);
+const ReferenceLibrary = lazy(() =>
+  import("./components/Manuals").then((m) => ({ default: m.ReferenceLibrary })),
+);
+const ManualViewer = lazy(() =>
+  import("./components/Manuals").then((m) => ({ default: m.ManualViewer })),
+);
+const Checklists = lazy(() =>
+  import("./components/Checklists").then((m) => ({ default: m.Checklists })),
+);
+const AircraftPage = lazy(() =>
+  import("./components/Fleet").then((m) => ({ default: m.AircraftPage })),
+);
+const ProgramsPage = lazy(() =>
+  import("./components/Fleet").then((m) => ({ default: m.ProgramsPage })),
+);
+const TaskCards = lazy(() =>
+  import("./components/TaskCards").then((m) => ({ default: m.TaskCards })),
+);
+const WorkOrders = lazy(() =>
+  import("./components/WorkOrders").then((m) => ({ default: m.WorkOrders })),
+);
+const FlightPlans = lazy(() =>
+  import("./components/FlightPlans").then((m) => ({ default: m.FlightPlans })),
+);
+const Flights = lazy(() =>
+  import("./components/Records").then((m) => ({ default: m.Flights })),
+);
+const Discrepancies = lazy(() =>
+  import("./components/Records").then((m) => ({ default: m.Discrepancies })),
+);
+const SyncCenter = lazy(() =>
+  import("./components/Records").then((m) => ({ default: m.SyncCenter })),
+);
+const History = lazy(() =>
+  import("./components/Records").then((m) => ({ default: m.History })),
+);
+const Administration = lazy(() =>
+  import("./components/Admin").then((m) => ({ default: m.Administration })),
+);
+const Settings = lazy(() =>
+  import("./components/Settings").then((m) => ({ default: m.Settings })),
+);
+const Planning = lazy(() =>
+  import("./components/Planning").then((m) => ({ default: m.Planning })),
+);
+const Inspections = lazy(() =>
+  import("./components/Management").then((m) => ({ default: m.Inspections })),
+);
+const Components = lazy(() =>
+  import("./components/Management").then((m) => ({ default: m.Components })),
+);
+const CostsPage = lazy(() =>
+  import("./components/Costs").then((m) => ({ default: m.CostsPage })),
+);
+const ScanPage = lazy(() =>
+  import("./components/InventoryScanner").then((m) => ({
+    default: m.ScanPage,
+  })),
+);
+const Inventory = lazy(() =>
+  import("./components/Management").then((m) => ({ default: m.Inventory })),
+);
+const ExitContext = createContext<() => void>(() => {});
+function Shell() {
+  const { snapshot: s, demo, error, notice } = useWorkspace();
+  const exit = useContext(ExitContext);
+  const ownerView = isOwnerView(s!);
+  return (
+    <AppShell exit={exit}>
+      <main>
+        {demo && (
+          <div className="demo-banner">
+            Demo workspace · Fictional aircraft and local browser data.
+          </div>
+        )}
+        {notice && (
+          <div className="notice" role="status">
+            <span>{notice}</span>
+            <button
+              className="icon-button"
+              aria-label="Dismiss notification"
+              onClick={() => useWorkspace.setState({ notice: "" })}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <Suspense fallback={<p className="muted">Opening page…</p>}>
+          {ownerView ? (
+            <OwnerPortal key={s!.activeProgramUuid ?? "unassigned"} />
+          ) : (
+            <Outlet key={s!.activeProgramUuid ?? "unassigned"} />
+          )}
+        </Suspense>
+      </main>
+    </AppShell>
+  );
+}
+const rootRoute = createRootRoute({
+  component: Shell,
+  notFoundComponent: () => (
+    <p>
+      Page not found. <Link to="/">Return to overview</Link>
+    </p>
+  ),
+});
+const manualRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/manuals/$manualUuid",
+  validateSearch: (search: Record<string, unknown>) => ({
+    page:
+      Number.isInteger(Number(search.page)) && Number(search.page) > 0
+        ? Number(search.page)
+        : 1,
+  }),
+  component: () => {
+    const { manualUuid } = manualRoute.useParams();
+    const { page } = manualRoute.useSearch();
+    return <ManualViewer uuid={manualUuid} page={page} />;
+  },
+});
+const routes = [
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/airworthiness",
+    component: Airworthiness,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/checklists",
+    component: Checklists,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/inspection-templates",
+    component: InspectionTemplates,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/purchase-orders",
+    component: PurchaseOrders,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/vendors",
+    component: Vendors,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/costs",
+    component: CostsPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/parts-requests",
+    component: PartsRequests,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/saved-addresses",
+    component: SavedAddresses,
+  }),
+  manualRoute,
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/manuals",
+    component: ReferenceLibrary,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/task-cards",
+    component: TaskCards,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/work-orders",
+    component: WorkOrders,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/flight-plans",
+    component: FlightPlans,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/aircraft",
+    component: AircraftPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/programs",
+    component: ProgramsPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/inspections",
+    component: Inspections,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/planning",
+    component: Planning,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/components",
+    validateSearch: (search: Record<string, unknown>): { item?: string } => ({
+      item: typeof search.item === "string" ? search.item : undefined,
+    }),
+    component: Components,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/scan",
+    component: ScanPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/components/imported",
+    component: ImportedComponents,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/inventory",
+    validateSearch: (search: Record<string, unknown>) => ({
+      item: typeof search.item === "string" ? search.item : undefined,
+      program: typeof search.program === "string" ? search.program : undefined,
+    }),
+    component: Inventory,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: Dashboard,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/flights",
+    component: Flights,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/discrepancies",
+    component: Discrepancies,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/sync",
+    component: SyncCenter,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/history",
+    component: History,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/alerts",
+    component: AlertsPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/admin",
+    component: Administration,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/settings",
+    component: Settings,
+  }),
+];
+const router = createRouter({ routeTree: rootRoute.addChildren(routes) });
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
+export function App({ onExit }: { onExit: () => void }) {
+  return (
+    <ExitContext.Provider value={onExit}>
+      <RouterProvider router={router} />
+    </ExitContext.Provider>
+  );
+}

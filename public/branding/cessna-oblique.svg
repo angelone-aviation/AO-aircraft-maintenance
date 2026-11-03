@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Placeholder line drawing of a high-wing light aircraft. Replace with the public-domain
+       "Cessna 172 line drawing oblique" (Wikimedia Commons, Werneuchen) at this same path; see SOURCE.txt. -->
+  <path d="M60 170 C120 150 220 140 330 142 L470 150 C510 153 540 160 560 172 C540 182 500 188 450 188 L250 192 C170 194 110 188 60 170 Z"/>
+  <path d="M120 146 L560 112 L580 120 L150 160"/>
+  <path d="M250 142 L262 104 L320 102 L332 142"/>
+  <path d="M478 152 L520 96 L548 96 L540 160"/>
+  <path d="M500 166 L590 150 L596 158 L520 178"/>
+  <path d="M60 170 L40 164 L34 176 L60 178"/>
+  <path d="M34 150 L34 196"/>
+  <path d="M230 192 L215 236 M215 236 a10 10 0 1 0 0.1 0 M300 190 L320 236 M320 236 a10 10 0 1 0 0.1 0 M110 186 L104 222 M104 222 a8 8 0 1 0 0.1 0"/>
+  <path d="M270 146 L300 146 L300 160 L270 162 Z M310 146 L344 147 L344 160 L310 160 Z"/>
+</svg>

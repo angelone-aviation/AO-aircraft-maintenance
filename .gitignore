@@ -1,0 +1,38 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.local/aircraft-spruce/
+*.log
+.DS_Store
+
+# Application build/test artifacts
+.convex/
+test-results/
+playwright-report/
+coverage/
+
+# Peer-testing website build
+dist-peer-testing/
+
+# Local tool settings
+.*/settings.local.json
+
+# Customer aircraft records, sample data, reference manuals and build zips stay
+# local and are never committed. Manuals belong in the app's Reference library
+# (docs/reference-library.md).
+/*.pdf
+/PAMAS reference manuals/
+/*.zip
+/*.xlsx
+/*.docx
+/*.mp4
+/*.csv
+/*.fpl
+/*.gplts
+/angel-one-pending-entries.json
+/releases/
+/reviews/
+/.local/
+/tests/fixtures/CompReport_N626KB.docx

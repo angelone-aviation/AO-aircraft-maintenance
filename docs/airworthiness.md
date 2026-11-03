@@ -1,0 +1,72 @@
+# Airworthiness directives
+
+Open **Airworthiness directives** from the navigation and select an aircraft.
+
+## Import and review
+
+Import a `.docx` compliance report. The importer supports the table layout in `CompReport_N626KB.docx` (29 airframe, 20 engine, and 2 propeller entries). Original table contents are retained as source notes. Older `.doc` files must first be saved as `.docx`.
+
+Preview the registration, warnings, and records. Assign engine/propeller/appliance sections to specific components; selecting both engines creates independent compliance records. A section may be explicitly skipped and imported later. Blank report compliance fields never establish compliance. Populated source compliance text is preserved for manual review, rather than silently generating signed records.
+
+Matching uses normalized AD number **including revision suffix** plus asset identity. Unchanged imports are idempotent. Changes retain prior source versions, existing required actions, and compliance history, and require a new review. Circular supersession references are flagged. Supersession does not automatically delete or terminate an AD.
+
+Review applicability and record the reason for a not-applicable decision. For applicable ADs, add each required action, its recurrence, and initial due limits. Use aircraft total time or component time since new for hour thresholds. Due-soon warnings are currently 30 days/hours/cycles. As for inspections and component requirements, an hours, cycles or landings limit is reached at 0 remaining (the next flight would exceed it), so the action is Overdue and grounds the aircraft, and its remaining value reads **Due now**; a due date stays valid through that day, so the action is due soon on the date and overdue from the next day. Unknown recurrence is never assumed to be completed permanently.
+
+## Work orders and compliance
+
+Reviewed applicable AD actions appear in the work order's requested-work selection. They can be included in existing work-order logbook wording. Closing the work order does not automatically certify AD compliance: use **Record compliance** to enter method, completion date/counters, mechanic/certificate, service bulletin, evidence/logbook reference, and work-order link. Repeating thresholds advance from that completion; initial limits without a repeat interval are satisfied by it and cleared. A recorded terminating action ends recurrence for that action. Compliance history is append-only; editing an AD cannot overwrite it. **Change history** records each AD save, import and compliance entry with the recorded values before and after, including applicability and every action's due limits.
+
+Changing an AD once its applicability is decided, or once compliance is recorded on it, is a correction: **Save AD** then requires a **Reason for change**, which Change history keeps with the values before and after. The first review of an imported or newly added AD needs no reason.
+
+Recorded compliance is corrected, never edited. Anyone with aircraft maintenance permission records new compliance, but only a Flight Program administrator can correct an entry: **Correct entry** in the AD's compliance history takes the corrected values and a required **Reason for correction**. The correction is appended to the history; the original entry stays there, in the compliance report and in Change history. The correction takes the original's place for status and due limits, and correcting an action's latest entry recalculates its next due. A correction must stay on the same action and fit between that action's previous and next entries.
+
+Compliance recorded before the fix for issue #42 left one-time initial limits in place, so an AD could stay Overdue after compliance. Such limits are flagged, never cleared automatically, because a stored record cannot tell a stale limit from one entered on purpose after compliance. An action of an applicable or PCW AD is flagged when it has a repeat interval, its latest compliance entry is not a terminating action, and it still has a due date, hours, cycles or landings limit without its own repeat interval. The AD page shows how many ADs are affected; the register row, the AD details and the AD alerts on the overview and aircraft pages say: "This one-time limit (…) was not cleared when compliance was recorded on (date). If compliance satisfied it, clear it." **Clear initial limit** (for users who can edit the AD) removes only those limits through the normal AD save, with a prefilled reason that can be edited, so Change history records it.
+
+Component AD records follow the component's installed aircraft for visibility. Removed components retain their history on the last recorded aircraft and are labeled removed rather than appearing as active overdue alerts. Daily aircraft FAA matching uses installed components; inventory-wide monitoring is not included in this version.
+
+## Aircraft reports
+
+**Save compliance PDF** downloads a dated report. **Print compliance report** opens its printable PDF (allow the print tab). Reports group airframe, engine, propeller, and appliance records, identify components, include compliance histories and due limits, and show unresolved review states and the last FAA check. These are records of entered information, not automatically generated mechanic signatures. Save the PDF to retain a dated snapshot; generated PDFs are not automatically archived on the server.
+
+## FAA monitoring setup
+
+1. Request a key at <https://drs.faa.gov/help>, under **DRS API → Request / Renew API Key**. Keys expire and may need renewal.
+2. As an administrator, open **Airworthiness directives → FAA API key and renewal → Update FAA API key** (also available in **Settings → System**). Enter the replacement key and its FAA-provided expiration date. The backend verifies the key with FAA before saving it. The existing environment key remains a fallback until a replacement is saved; subsequent checks use the saved replacement. Keys stay in server-only storage and are excluded from snapshots, offline caches, and audit records.
+3. On the AD page, enable daily checks for an aircraft and save monitoring settings. Add model aliases or other equipment identifiers as needed. Click **Check FAA now** and verify a successful check.
+4. Daily checks run at 10:00 UTC only for enabled aircraft, while the backend is running. A local backend cannot check while the computer is off. Deploy the backend for unattended monitoring.
+
+All Flight Programs share one FAA key. Each FAA request, from a search or a monitoring check, counts against the program's allowance of 500 per UTC day and the deployment's 5,000 per UTC day; a monitoring check counts one per equipment or keyword query it runs. When an allowance is used, the check stops before contacting the FAA and shows the reason; the last successful check is kept. A Flight Program can enable daily monitoring on at most 25 aircraft; turn monitoring off on one aircraft before enabling another.
+
+The adapter uses the FAA DRS documented filtered metadata API, authenticated by the server-side `x-api-key` header. It checks **ADFRAWD** (final rules) and **ADFREAD** (emergency ADs), paginates, and includes current/historical records. It does not mix proposed rules into compliance requirements. Full keyword searches each run also find older ADs after equipment or search terms change. Terms come from aircraft model, installed component model/part numbers, tracked AD numbers, and additional saved terms. This is broad candidate discovery, not a complete automated applicability determination; serial applicability, configurations, modifications, and omitted equipment require review.
+
+Changed candidate metadata reopens its review. Candidate review does not silently update compliance records; use **Review / import candidate**, or edit the matching AD, and retain existing history. FAA HTTP errors, malformed pages, authentication errors, and incomplete pagination do not advance the successful-check time. Result sets exceeding 400 documents are rejected with an explicit error instead of being silently truncated. This bounded initial implementation may need a larger catalog design for broad fleet searches.
+
+Protocol reference: FAA **DRS API Technical Design Document**, version 6, August 7, 2025, available through DRS Help. The development environment could read the FAA-authored copy at <https://github.com/cldixon/faa-drs/blob/main/spec/drs-api-technical-design.pdf>; the official Help download returned HTTP 403. The adapter has mocked protocol tests and a successful live authenticated model-based search for 441 (24 unique current AD results on October 14, 2026).
+
+## Renewal reminders
+
+The current key expires October 14, 2027. The overview shows an in-app reminder beginning 60 days before expiration and keeps it visible through expiry. The AD page and Settings → System always show the expiration date and remaining days. These are in-app notices, not email or push notifications. Request/renew the key on the FAA website, then use **Update FAA API key** to store the new key and expiration date. On the recorded expiry date, automatic checks report a renewal error until updated. Updating credentials requires an active administrator session and online access; demo mode never accepts keys.
+
+## Search FAA ADs & Import
+
+Select the aircraft and click **Search FAA ADs & Import**. The form fills aircraft and installed component models, manufacturers, serials, and part numbers from profiles. Search edits do not change profiles; **Reset from profiles** restores them. Components without a model use their part number as an initial keyword; missing model and part data are flagged. Choose up to 20 assets per search.
+
+Default filters are model and Current status, searching both final-rule and emergency ADs. Manufacturer filtering is opt-in to avoid missing records under earlier type-certificate holders. Keywords narrow a model search when both fields are filled. Historical status, specific AD number, subject, product type/subtype, amendment, docket, affected AD, superseded-by reference, and effective/issue/publication date ranges are available. FAA accepts no more than five populated filters per request including status, so excessive combinations are rejected before requests. FAA model designations may differ from profile display names; users can adjust search values.
+
+Identical asset queries are reused. Results are combined by AD number (preserving revision suffix), retain related final/emergency document links, and show matched assets, effective date, FAA status, and already-tracked indicators. Prefer current metadata over historical and a final rule over an emergency document at the same status. Select individual asset assignments or all matches, then import up to 500 assignments. Existing source data can be updated while preserving compliance history; new/changed imports require review. Importing an AD does not populate compliance deadlines or signoffs. Missing deadlines must be entered from the reviewed directive.
+
+Search checks aircraft maintenance access and verifies selected components are still installed both before and after the FAA lookup. No partial results are returned on failed pagination or an oversized result set. Live FAA search is disabled in demo mode. The older Word importer remains under **Other import options**.
+
+## Searchable make/model reference lists
+
+Aircraft and component profile forms, plus the FAA search dialog, use searchable single-value comboboxes. `src/data/drsCatalog.json` is a copy of the user-supplied `FAA_DRS_Makes_Models.json` (854 makes and 6,800 models; corresponding text files supplied alongside it). These are independent suggestion lists, not make/model relationships or product-type mappings. They are a static reference snapshot, not automatically synchronized with DRS.
+
+Unlisted values remain valid. Suggestions distinguish DRS values from custom values already saved in the current workspace; typing a new value offers “Use …”. Existing records are not rewritten or automatically matched. An unlisted model or an empty search result does not establish that no AD applies.
+
+The optional `faaSearchModel` on aircraft and components overrides the profile model for direct FAA searches and monitoring terms. Blank uses the profile model. Aircraft/component identity, reports, and displayed profile models remain unchanged. Search-dialog edits still do not modify profiles. Manufacturer filtering remains optional.
+
+To update the reference suggestions, replace the bundled JSON with a reviewed export retaining `makes` and `models` arrays. Existing profile values and custom values must remain usable after any catalog refresh.
+
+Monitoring uses the same model/product-type filters as direct search, honors FAA search model overrides, and deduplicates identical equipment queries. A component part number is used as a keyword only when its model is missing. Existing ADs are checked by document number (including historical status to detect supersession), while manually added terms remain separate keyword searches. Search errors identify the affected equipment or keyword. Success timestamps update only after every query and candidate persistence completes; partial results are not treated as successful coverage.
+
+AD task details include **Parts / repair requests**, parts availability, task recurrence, and days/hours/cycles intervals. One-time requests are supported for every AD task. Reviewed, applicable recurring tasks also support reusable recurring parts lists; work-order occurrences receive separate requests with independent purchasing and usage history. Terminating compliance or changing the task to one-time stops future recurring generation. See [Parts and repair requests](parts-and-repair-requests.md).

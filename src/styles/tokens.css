@@ -1,0 +1,228 @@
+/* Angel One design tokens (UI redesign v2).
+ *
+ * Colours, typography, spacing, radii and motion shared by every screen.
+ * Light is the default; the `.dark` class on <html> switches the palette
+ * (see useTheme in src/components/design.tsx). Outfit is self-hosted through
+ * @fontsource so the offline PWA never fetches fonts at runtime. */
+@import "@fontsource/outfit/300.css";
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "@fontsource/outfit/700.css";
+
+:root {
+  /* Colour: light */
+  --bg: #f3f4f8;
+  --surface: #ffffff;
+  --surface2: #eef0f6;
+  --border: #e1e4ee;
+  --text: #0b1434;
+  --muted: #4f586f;
+  --faint: #646c82; /* brief #7c849b: darkened for 4.5:1 on --bg/--surface2 */
+  --navy: #0b1434;
+  --side: #0b1434;
+  --blue: #1830f8;
+  --blue-ink: #1226c9;
+  --blue-soft: #e8ebff;
+  --good: #13773a; /* brief #15803d: 4.44:1 on --good-bg */
+  --good-bg: #dff7e6;
+  --warn: #b45309; /* brief #d97706: 2.9:1 on --warn-bg */
+  --warn-bg: #fff3d6;
+  --danger: #c81e1e; /* brief #dc2626: 4.0:1 on --danger-bg */
+  --danger-bg: #ffe3e3;
+  --shadow:
+    0 1px 2px rgba(11, 20, 52, 0.05), 0 8px 24px -12px rgba(11, 20, 52, 0.12);
+  --shadow-lift:
+    0 2px 4px rgba(11, 20, 52, 0.06), 0 20px 40px -18px rgba(11, 20, 52, 0.25);
+  --scrim: rgba(7, 11, 28, 0.55);
+
+  /* Brand accents fixed in both themes (navy surfaces) */
+  --brand-blue: #1830f8;
+  --on-navy-icon: #8a97ff;
+  --on-navy-icon-active: #9aa6ff;
+  --on-navy-muted: #8c97bf;
+  --on-navy-text: #c3cae0;
+
+  /* Typography */
+  --font:
+    Outfit, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fs-eyebrow: 11.5px;
+  --fs-meta: 13.5px;
+  --fs-body: 16px;
+  --fs-h1: clamp(30px, 3.6vw, 44px);
+  --fs-h1-hero: clamp(32px, 4.2vw, 52px);
+  --fs-h2: 23px;
+  --fs-kpi: 42px;
+
+  /* Spacing (8pt rhythm) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --page-pad-top: clamp(24px, 3.5vw, 48px);
+  --page-pad-x: clamp(20px, 3.5vw, 44px);
+  --page-gap: clamp(26px, 3.5vw, 44px);
+
+  /* Radii */
+  --radius-card: 14px;
+  --radius-card-lg: 16px;
+  --radius-control: 10px;
+  --radius-tile: 12px;
+  --radius-pill: 999px;
+  --radius-modal: 16px;
+  --radius-sheet: 18px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 0.2s;
+  --dur: 0.25s;
+  --dur-theme: 0.35s;
+
+  color-scheme: light;
+}
+
+:root.dark,
+.dark {
+  --bg: #0c1222;
+  --surface: #131a30;
+  --surface2: #1b2340;
+  --border: #28324f;
+  --text: #f1f3fa;
+  --muted: #b4bbd1;
+  --faint: #828ba8;
+  --side: #080d1b;
+  --blue: #6b7cff;
+  --blue-ink: #9aa6ff;
+  --blue-soft: #1f2a5c;
+  --good: #4ade80;
+  --good-bg: #0f3a22;
+  --warn: #fbbf24;
+  --warn-bg: #3f2d0a;
+  --danger: #f87171;
+  --danger-bg: #471515;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+  --shadow-lift:
+    0 2px 4px rgba(0, 0, 0, 0.4), 0 20px 44px -16px rgba(0, 0, 0, 0.7);
+  --scrim: rgba(3, 6, 16, 0.7);
+  color-scheme: dark;
+}
+
+/* Fills that carry white text (primary buttons, badges, active tab icon).
+ * Light: the brand blue. Dark: --blue (#6b7cff) only reaches 3.5:1 under
+ * white text, so fills use a deeper blue there. */
+:root {
+  --blue-fill: #1830f8;
+  --on-blue: #ffffff;
+  /* Blue text on a --blue-soft surface */
+  --blue-on-soft: var(--blue);
+}
+:root.dark,
+.dark {
+  --blue-fill: #4d5ef0;
+  --blue-on-soft: #9aa6ff;
+}
+
+/* Motion keyframes */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes grow {
+  from {
+    width: 0;
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sheet {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes drift {
+  0% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-14px, 8px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+/* Entrance helper: add class="rise" (and optionally style={{"--i": n}} for a
+ * 60ms stagger) to any block. */
+.rise {
+  animation: rise 0.5s calc(var(--i, 0) * 60ms) var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Base typography */
+html {
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  transition:
+    background-color var(--dur-theme) ease,
+    color var(--dur-theme) ease;
+}
+.tabular,
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.eyebrow {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: 2.2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--blue);
+}

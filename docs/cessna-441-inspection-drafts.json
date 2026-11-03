@@ -1,0 +1,817 @@
+{
+  "format": "manual-extraction-draft-v1",
+  "activeRecordsCreated": false,
+  "source": {
+    "file": "16802162-Cessna_441_Maintenance_Manual_D2518-15-13_Mm.pdf",
+    "sha256": "c2a6b8dd41c2299bfd1759a0b93e25574fcc8eae29c3b8948c5f8bfde7953664",
+    "pageCount": 2937,
+    "baseRevision": "15, July 1 2002",
+    "chapter5TemporaryRevisions": ["5-1 December 1 2003", "5-2 February 2 2004"]
+  },
+  "reviewRequired": [
+    "Current manual revision and subsequent publications",
+    "Aircraft serial, modifications, equipment and component applicability",
+    "Inspection program method and phase sequencing",
+    "Initial threshold versus repeating interval and counter basis",
+    "Actual compliance dates/readings; do not use current readings as compliance",
+    "Calendar-month end policy must not silently extend manufacture-age or shelf-life limits"
+  ],
+  "inspectionTemplates": [
+    {
+      "id": "cessna441-phase-d",
+      "title": "Cessna 441 Phase D",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "D",
+      "initialThresholdHours": null,
+      "repeatHours": 600,
+      "repeatMonths": 24,
+      "combination": "whichever-occurs-first",
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "method-2-combines-4-5-6",
+      "source": {
+        "section": "5-12-0D",
+        "pdfPages": [68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase D consists of 600-hour or 24 clendar months, whichever occurs first interval inspection items. This special phase is a combination of Phases 4, 5 and 6 provided for the convenience of those perators performing the three phases at the same time.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-2",
+      "title": "Cessna 441 Phase 2",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "2",
+      "initialThresholdHours": null,
+      "repeatHours": 100,
+      "repeatMonths": 12,
+      "combination": "whichever-occurs-first",
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-02",
+        "pdfPages": [79, 80],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 2 consists of 100-hour or 12 calendar months, whichever occurs first, interval inspection items.",
+      "checklistExtraction": "phase-2-text-draft",
+      "lastCompliance": null,
+      "due": null,
+      "tasks": [
+        {
+          "itemCode": "A243003",
+          "description": "Batteries - Inspect overboard vents and vent lines for damage and obstructions.",
+          "zones": ["131"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A245002",
+          "description": "Emergency Bus Fuses - Check Condition.",
+          "zones": ["131"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "D243001",
+          "description": "Battery - Recondition.",
+          "zones": ["131"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A215002",
+          "description": "Air Cycle Machine Oil Level- Inspect oil level.",
+          "zones": ["132"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A306001",
+          "description": "Propeller Deice Slip Rings, Brushes and Boots - Check for condition and security of attachment.",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A720000",
+          "description": "Engine - (refer to Garrett Engine Maintenance Manual for Periodic Inspection Requirements and Checks.",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A731001",
+          "description": "Fuel Lines - Inspect fuel supply lines for deterioration, chafing, fuel leaks and security of installation.",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A761001",
+          "description": "Engine Controls - Check travel and security of installation, routing and evidence of damage (engine compartment).",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 79,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A781001",
+          "description": "Engine Exhaust System - Inspect for cracks, distortion, security of installation and evidence of damage.",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 80,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A801001",
+          "description": "Starter-Generator Brush Holders - Inspect for cracks, wear, cleanliness; brush springs for proper tension and looseness.",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 80,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A801002",
+          "description": "Starter-Generator Brushes - Inspect for cracks, wear and cleanliness.",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 80,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A801004",
+          "description": "Starter-Generators - Inspect for security of installation, terminal block and electrical connections for cleanliness, evidence of heat or electrical arcing and evidence of damage.",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 80,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "C611001",
+          "description": "Propeller Blade Clamps - Lubricate (Hartzell only).",
+          "zones": ["410", "420"],
+          "sourcePdfPage": 80,
+          "status": "draft-review-required"
+        },
+        {
+          "itemCode": "A324002",
+          "description": "Tires - Inspect for pressure, wear and cuts.",
+          "zones": ["710", "720", "730"],
+          "sourcePdfPage": 80,
+          "status": "draft-review-required"
+        }
+      ]
+    },
+    {
+      "id": "cessna441-phase-3",
+      "title": "Cessna 441 Phase 3",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "3",
+      "initialThresholdHours": null,
+      "repeatHours": 200,
+      "repeatMonths": 12,
+      "combination": "whichever-occurs-first",
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-03",
+        "pdfPages": [81, 82, 83, 84, 85, 86, 87, 88, 89, 90],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 3 consists of 200-hour or 12 calendar months, whichever occurs first, interval inspection items.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-4",
+      "title": "Cessna 441 Phase 4",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "4",
+      "initialThresholdHours": null,
+      "repeatHours": 600,
+      "repeatMonths": 24,
+      "combination": "whichever-occurs-first",
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "method-1",
+      "source": {
+        "section": "5-12-04",
+        "pdfPages": [91, 92, 93, 94, 95],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 4 consists of 600-hour or 24 calendar months, whichever occurs first, interval inspection items wich are located in the nose and tailcone areas.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-5",
+      "title": "Cessna 441 Phase 5",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "5",
+      "initialThresholdHours": null,
+      "repeatHours": 600,
+      "repeatMonths": 24,
+      "combination": "whichever-occurs-first",
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "method-1",
+      "source": {
+        "section": "5-12-05",
+        "pdfPages": [96, 97, 98, 99, 100, 101],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 5 consists of 600-hour or 24 calendar months, whichever occurs first, interval inspection items wich are located mainly in the cockpit and cabin areas.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-6",
+      "title": "Cessna 441 Phase 6",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "6",
+      "initialThresholdHours": null,
+      "repeatHours": 600,
+      "repeatMonths": 24,
+      "combination": "whichever-occurs-first",
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "method-1",
+      "source": {
+        "section": "5-12-06",
+        "pdfPages": [102, 103, 104],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 6 consists of 600-hour or 24 calendar months, whichever occurs first, interval inspection items wich are located mainly in the wing, engines, landing gear and hydraulic system.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-8",
+      "title": "Cessna 441 Phase 8",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "8",
+      "initialThresholdHours": 1900,
+      "repeatHours": 600,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-08",
+        "pdfPages": [105],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 8 consists of items to be inspected at 1900 hours and every 600 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-9",
+      "title": "Cessna 441 Phase 9",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "9",
+      "initialThresholdHours": null,
+      "repeatHours": 1000,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-09",
+        "pdfPages": [106],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 9 consists of items to be inspected every 1000 hours.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-11",
+      "title": "Cessna 441 Phase 11",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "11",
+      "initialThresholdHours": 1300,
+      "repeatHours": 1200,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-11",
+        "pdfPages": [107],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 11 consists of items to be inspected at 1300 hours and every 1200 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-12",
+      "title": "Cessna 441 Phase 12",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "12",
+      "initialThresholdHours": null,
+      "repeatHours": null,
+      "repeatMonths": 24,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-12",
+        "pdfPages": [108],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 12 consists of items to be inspected every two years.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-13",
+      "title": "Cessna 441 Phase 13",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "13",
+      "initialThresholdHours": null,
+      "repeatHours": null,
+      "repeatMonths": 36,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-13",
+        "pdfPages": [109],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 13 consists of items to be inspected every three years.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-14",
+      "title": "Cessna 441 Phase 14",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "14",
+      "initialThresholdHours": null,
+      "repeatHours": null,
+      "repeatMonths": 60,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-14",
+        "pdfPages": [110],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 14 consists of items to be inspected every five years.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-16",
+      "title": "Cessna 441 Phase 16",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "16",
+      "initialThresholdHours": null,
+      "repeatHours": 400,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-16",
+        "pdfPages": [111],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 16 consists of items to be inspected every 400 hours.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-17",
+      "title": "Cessna 441 Phase 17",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "17",
+      "initialThresholdHours": null,
+      "repeatHours": 900,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-17",
+        "pdfPages": [112],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 17 consists of items to be inspected every 900 hours.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-18",
+      "title": "Cessna 441 Phase 18",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "18",
+      "initialThresholdHours": 4000,
+      "repeatHours": 2000,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-18",
+        "pdfPages": [113],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 18 consists of items to be inspected at 4000 hours and every 2000 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-19",
+      "title": "Cessna 441 Phase 19",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "19",
+      "initialThresholdHours": 5000,
+      "repeatHours": 2000,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-19",
+        "pdfPages": [114],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 19 consists of items to be inspected at 5000 hours and every 2000 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-20",
+      "title": "Cessna 441 Phase 20",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "20",
+      "initialThresholdHours": 6000,
+      "repeatHours": 2000,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-20",
+        "pdfPages": [115],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 20 consists of items to be inspected at 6000 hours and every 2000 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-23",
+      "title": "Cessna 441 Phase 23",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "23",
+      "initialThresholdHours": 4000,
+      "repeatHours": 200,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-23",
+        "pdfPages": [116],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 23 consists of items to be inspected at 4000 hours and every 200 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-24",
+      "title": "Cessna 441 Phase 24",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "24",
+      "initialThresholdHours": 4000,
+      "repeatHours": 400,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-24",
+        "pdfPages": [117],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 24 consists of items to be inspected at 4000 hours and every 400 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-25",
+      "title": "Cessna 441 Phase 25",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "25",
+      "initialThresholdHours": null,
+      "repeatHours": 3000,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-25",
+        "pdfPages": [118],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 25 consists of items to be inspected every 3000 hours.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-26",
+      "title": "Cessna 441 Phase 26",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "26",
+      "initialThresholdHours": null,
+      "repeatHours": null,
+      "repeatMonths": 144,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-26",
+        "pdfPages": [119],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 26 consists of items to be inspected every twelve years.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-27",
+      "title": "Cessna 441 Phase 27",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "27",
+      "initialThresholdHours": null,
+      "repeatHours": null,
+      "repeatMonths": 72,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-27",
+        "pdfPages": [120],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 27 consists of items to be inspected every six years.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    },
+    {
+      "id": "cessna441-phase-28",
+      "title": "Cessna 441 Phase 28",
+      "status": "draft-review-required",
+      "aircraftRegistration": "N626KB",
+      "phase": "28",
+      "initialThresholdHours": 3000,
+      "repeatHours": 2000,
+      "repeatMonths": null,
+      "combination": null,
+      "intervalBasisReviewRequired": true,
+      "programApplicability": "review-applicability",
+      "source": {
+        "section": "5-12-28",
+        "pdfPages": [121],
+        "intervalCrossReferencePdfPages": [33, 34]
+      },
+      "sourceIntervalText": "A. Phase 28 consists of items to be inspected at 3000 hours and every 2000 hours thereafter.",
+      "checklistExtraction": "source-reference-only",
+      "lastCompliance": null,
+      "due": null
+    }
+  ],
+  "componentRequirementCandidates": [
+    {
+      "title": "Kidde fire extinguisher cartridge 873364",
+      "limits": {
+        "serviceMonths": 36,
+        "combinedShelfAndServiceMonths": 60
+      },
+      "notes": "Shelf storage conditions change shelf-life limit; assess manufacture, storage and installation dates.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 62
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "HTL fire extinguisher cartridge 13083-5",
+      "limits": {
+        "serviceMonths": 48,
+        "combinedShelfAndServiceMonths": 72
+      },
+      "notes": "Requires shelf and service age.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 62
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Kidde fire extinguisher cartridge 873364-1",
+      "limits": {
+        "monthsFromManufacture": 120
+      },
+      "notes": "Total shelf and service life.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 62
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Rudder trim tab actuator",
+      "limits": {
+        "hours": 1000,
+        "months": 36,
+        "combination": "whichever-first"
+      },
+      "notes": "Overhaul or replace.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 62
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Aileron trim tab actuator",
+      "limits": {
+        "hours": 1000,
+        "months": 36,
+        "combination": "whichever-first"
+      },
+      "notes": "Overhaul or replace.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 62
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "DOT3HT1850 oxygen cylinder, Puritan-Bennett 176122-115",
+      "limits": {
+        "years": 24,
+        "cycles": 4380,
+        "combination": "whichever-first"
+      },
+      "notes": "Confirm age and cycle baselines.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 62
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Aileron hinge brackets 5824400-3/-4/-5/-6/-7",
+      "limits": {
+        "hoursTimeInService": 10000
+      },
+      "notes": "Airplane serials 441-0001 through 441-0362 and 698 only.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 63
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Cessna-installed engine compartment rubber hoses, excluding drain hoses",
+      "limits": {
+        "months": 60,
+        "event": "engine-overhaul",
+        "combination": "whichever-first"
+      },
+      "notes": "Specific oil supply/return and fuel-control hoses listed; drain hoses on condition.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 63
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Starter-generator",
+      "limits": {
+        "hours": 1000
+      },
+      "notes": "Overhaul or replace; consult referenced Lucas manual.",
+      "source": {
+        "section": "5-11-00",
+        "pdfPage": 63
+      },
+      "status": "draft-review-required"
+    }
+  ],
+  "externalIntervalReferences": [
+    "Hamilton Standard air cycle machine SIR R70-3W-13",
+    "Hartzell propeller overhaul manual",
+    "McCauley propeller service manual and latest service bulletin",
+    "Woodward propeller governor service bulletin",
+    "Garrett engine maintenance manual and TPE 331-72-0405; turbine wheel limits"
+  ],
+  "otherConditionalRequirement": {
+    "title": "Locator beacon battery",
+    "rule": "Replace after more than one cumulative hour transmitting or after 50 percent useful battery life expires.",
+    "sourcePdfPage": 62
+  },
+  "eventInspectionCandidates": [
+    {
+      "title": "Hard or overweight landing",
+      "source": {
+        "section": "5-50-00",
+        "pdfPages": [160, 161, 162, 163]
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Overspeed",
+      "source": {
+        "section": "5-50-00",
+        "pdfPages": [160, 161, 162, 163]
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Landing gear blowdown",
+      "source": {
+        "section": "5-50-00",
+        "pdfPages": [160, 161, 162, 163]
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Severe turbulence or maneuvers",
+      "source": {
+        "section": "5-50-00",
+        "pdfPages": [160, 161, 162, 163]
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Lightning strike",
+      "source": {
+        "section": "5-50-00",
+        "pdfPages": [160, 161, 162, 163]
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Foreign object damage",
+      "source": {
+        "section": "5-50-00",
+        "pdfPages": [160, 161, 162, 163]
+      },
+      "status": "draft-review-required"
+    },
+    {
+      "title": "Towing with large fuel imbalance or ground-handling drag/side loads",
+      "source": {
+        "section": "5-50-00",
+        "pdfPages": [160, 161, 162, 163]
+      },
+      "status": "draft-review-required"
+    }
+  ]
+}

@@ -1,0 +1,251 @@
+import { it, expect } from "vitest";
+import { demoSnapshot } from "../data/demo";
+import { blankAD, blankADTask } from "./airworthiness";
+import {
+  applyRequestCommand,
+  requestDraftSchema,
+  recurringRequestSource,
+  requestStatus,
+} from "./partsRequests";
+import { generateRecurringRequests } from "./recurringParts";
+import { saveWorkOrder, newWorkTask } from "./workOrders";
+import { workOrderCommand } from "../../tests/fixtures/workOrders";
+import { requestedParts, maintenancePartsPlans } from "./partsPlanning";
+import { requestPODraft } from "../components/PartsRequests";
+
+function fixture() {
+  const s = demoSnapshot();
+  s.user.isAdmin = true;
+  const ad = blankAD(s.aircraft[0].uuid);
+  ad.source.number = "2026-01-01";
+  ad.applicability = "Applicable";
+  ad.reviewRequired = false;
+  const task = {
+    ...blankADTask(),
+    description: "Recurring inspection",
+    recurrence: "Recurring" as const,
+    intervalHours: 100,
+  };
+  ad.tasks = [task];
+  s.airworthiness = [ad];
+  const source = {
+    kind: "airworthiness" as const,
+    uuid: task.uuid,
+    workOrderUuid: "",
+  };
+  const draft = requestDraftSchema.parse({
+    uuid: "template",
+    version: 0,
+    source,
+    recurring: true,
+    mode: "parts",
+    date: "2026-10-20",
+    engineer: "Tech",
+    priority: "P2 Routine",
+    requiredBy: "",
+    currency: "USD",
+    lines: [
+      {
+        uuid: "filter",
+        partNumber: "FILTER",
+        description: "Filter",
+        quantity: 2,
+      },
+    ],
+  });
+  const template = applyRequestCommand(s, {
+    kind: "save",
+    requestUuid: "create",
+    draft,
+  });
+  const command = workOrderCommand();
+  command.tasks = [
+    newWorkTask({ kind: "airworthiness", uuid: task.uuid }, task.description),
+  ];
+  const order = saveWorkOrder(s, command);
+  return { s, ad, task, source, draft, template, order, command };
+}
+it("creates separate AD occurrence requests, keeps fulfilled history, and never duplicates a retried or cancelled occurrence", () => {
+  const { s, order, template, command } = fixture();
+  const [first] = generateRecurringRequests(s, order);
+  expect(first).toMatchObject({
+    templateUuid: template.uuid,
+    recurring: false,
+    source: { kind: "workTask", workOrderUuid: order.uuid },
+  });
+  expect(generateRecurringRequests(s, order)).toEqual([]);
+  first.issues.push({
+    lineUuid: "filter",
+    stockUuid: "stock",
+    quantity: 2,
+    at: Date.now(),
+    actorId: s.user.id,
+  });
+  expect(requestStatus(s, first)).toBe("Fulfilled");
+  order.status = "completed";
+  const next = saveWorkOrder(s, {
+    ...command,
+    uuid: crypto.randomUUID(),
+    tasks: [newWorkTask(command.tasks[0].source, "Next occurrence")],
+  });
+  const [second] = generateRecurringRequests(s, next);
+  expect(second.issues).toEqual([]);
+  expect(second.uuid).not.toBe(first.uuid);
+  second.cancelled = true;
+  expect(generateRecurringRequests(s, next)).toEqual([]);
+  expect(first.issues).toHaveLength(1);
+});
+it("AD recurrence and ownership are validated and one-time AD requests remain supported", () => {
+  const { s, task, source, draft, ad } = fixture();
+  task.recurrence = "One-time" as typeof task.recurrence;
+  expect(recurringRequestSource(s, source)).toBeUndefined();
+  expect(() =>
+    applyRequestCommand(s, {
+      kind: "save",
+      requestUuid: "bad",
+      draft: { ...draft, uuid: "bad" },
+    }),
+  ).toThrow(/recurring/i);
+  expect(
+    applyRequestCommand(s, {
+      kind: "save",
+      requestUuid: "once",
+      draft: { ...draft, uuid: "once", recurring: false },
+    }).sourceLabel,
+  ).toContain("AD 2026-01-01");
+  ad.aircraftUuid = "foreign";
+  expect(() =>
+    applyRequestCommand(s, {
+      kind: "save",
+      requestUuid: "foreign",
+      draft: { ...draft, uuid: "foreign", recurring: false },
+    }),
+  ).toThrow(/Flight Program/);
+});
+it("recurring lists cannot reserve stock or become purchase orders", () => {
+  const { s, template } = fixture();
+  expect(() =>
+    applyRequestCommand(s, {
+      kind: "reserve",
+      requestUuid: "reserve",
+      uuid: template.uuid,
+      version: template.version,
+      lineUuid: "filter",
+      stockUuid: "stock",
+      quantity: 1,
+      alternateConfirmed: false,
+    }),
+  ).toThrow(/occurrence/);
+  expect(() => requestPODraft(s, [template.uuid])).toThrow(/occurrence/);
+});
+it("forecasts count the active occurrence once and credit its reserved and issued parts", () => {
+  const { s, source, order } = fixture();
+  expect(requestedParts(s, source)?.[0].quantity).toBe(2);
+  const [r] = generateRecurringRequests(s, order);
+  expect(requestedParts(s, source)?.map((p) => p.quantity)).toEqual([2]);
+  r.reservations.push({ lineUuid: "filter", stockUuid: "stock", quantity: 1 });
+  r.issues.push({
+    lineUuid: "filter",
+    stockUuid: "stock",
+    quantity: 1,
+    actorId: s.user.id,
+    at: Date.now(),
+  });
+  expect(requestedParts(s, source)).toEqual([]);
+  order.status = "completed";
+  expect(requestedParts(s, source)?.[0].quantity).toBe(2);
+  expect(maintenancePartsPlans(s).some((p) => p.uuid === source.uuid)).toBe(
+    true,
+  );
+});
+it("template edits leave existing occurrences unchanged and apply to the next occurrence", () => {
+  const { s, template, order, draft, command } = fixture();
+  const [first] = generateRecurringRequests(s, order);
+  applyRequestCommand(s, {
+    kind: "save",
+    requestUuid: "edit",
+    draft: {
+      ...draft,
+      version: template.version,
+      lines: draft.lines.map((l) => ({ ...l, quantity: 4 })),
+    },
+  });
+  expect(generateRecurringRequests(s, order)).toEqual([]);
+  const secondOrder = saveWorkOrder(s, {
+    ...command,
+    uuid: crypto.randomUUID(),
+    tasks: [newWorkTask(command.tasks[0].source, "Next")],
+  });
+  expect(generateRecurringRequests(s, secondOrder)[0].lines[0].quantity).toBe(
+    4,
+  );
+  expect(first.lines[0].quantity).toBe(2);
+});
+
+it("stops generation after cancellation or terminating AD compliance and enforces maintenance permissions", () => {
+  const { s, ad, task, source, order, draft } = fixture();
+  ad.history.push({
+    uuid: crypto.randomUUID(),
+    taskUuid: task.uuid,
+    date: "2026-10-20",
+    hours: 2400,
+    cycles: null,
+    method: "Terminated",
+    serviceBulletin: "",
+    terminatedBy: "Terminating modification",
+    workOrderUuid: "",
+    mechanic: "Tech",
+    certificate: "",
+    evidence: "",
+    recordedAt: Date.now(),
+    recordedBy: s.user.id,
+  });
+  expect(recurringRequestSource(s, source)).toBeUndefined();
+  expect(generateRecurringRequests(s, order)).toEqual([]);
+  ad.history = [];
+  s.partsRequests![0].cancelled = true;
+  expect(generateRecurringRequests(s, order)).toEqual([]);
+  s.user.isAdmin = false;
+  s.user.groupIds = ["demo-pilots"];
+  expect(() =>
+    applyRequestCommand(s, {
+      kind: "save",
+      requestUuid: "unauthorized",
+      draft: { ...draft, uuid: "unauthorized", recurring: false },
+    }),
+  ).toThrow(/Maintenance access/);
+});
+
+it("supports repeating component overhaul requirements on resettable counters without recurring life limits", () => {
+  const { s } = fixture();
+  s.management = [
+    {
+      kind: "componentRequirement",
+      uuid: "service",
+      version: 1,
+      componentUuid: "engine",
+      aircraftUuid: s.aircraft[0].uuid,
+      requirementType: "Overhaul Requirement",
+      description: "Overhaul",
+      notes: "",
+      calendarIntervalUnit: "MONTHS",
+      intervalSeconds: 360000,
+      timeBasis: "TSO",
+      timeLimitMode: "ABSOLUTE",
+      cycleLimitMode: "ABSOLUTE",
+      warningCalendarMonths: 1,
+      warningSeconds: 0,
+      warningCycles: 0,
+    },
+  ];
+  const source = {
+    kind: "componentRequirement" as const,
+    uuid: "service",
+    workOrderUuid: "",
+  };
+  expect(recurringRequestSource(s, source)).toEqual(source);
+  const requirement = s.management[0];
+  if (requirement.kind !== "componentRequirement") throw Error("Fixture");
+  requirement.requirementType = "Life Limits";
+  expect(recurringRequestSource(s, source)).toBeUndefined();
+});

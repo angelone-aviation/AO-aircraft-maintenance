@@ -1,0 +1,50 @@
+/* Planning print layout: only the forecast prints. The app shell (sidebar,
+ * tablet rail, phone tab bar, More sheet, top bar, footer) and the screen
+ * controls are hidden, and a dark theme prints with the light palette so
+ * text stays dark on paper. Screen styles live in
+ * src/styles/screens/operations.css. */
+@media print {
+  .sidebar,
+  .rail,
+  .tabbar,
+  .more-sheet,
+  .nav-scrim,
+  .topbar,
+  .app-footer,
+  .no-print {
+    display: none !important;
+  }
+  .main-area {
+    margin-left: 0;
+    width: 100%;
+  }
+  .app-layout,
+  .main-area,
+  .planning {
+    background: #fff;
+  }
+  .planning {
+    --bg: #fff;
+    --surface: #fff;
+    --surface2: #eef0f6;
+    --border: #c8ccd8;
+    --text: #0b1434;
+    --muted: #4f586f;
+    --faint: #646c82;
+    --good: #13773a;
+    --good-bg: #dff7e6;
+    --warn: #b45309;
+    --warn-bg: #fff3d6;
+    --danger: #c81e1e;
+    --danger-bg: #ffe3e3;
+    --blue: #1830f8;
+    --blue-soft: #e8ebff;
+    --blue-on-soft: #1830f8;
+    color: var(--text);
+  }
+  .planning .ds-list-card,
+  .planning .ds-stats-strip {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+}

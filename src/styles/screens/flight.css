@@ -1,0 +1,813 @@
+/* Flight screens (UI redesign v2): the Log a flight form, fuel and oil,
+ * oil inventory, guided flight and Start / End flight.
+ * Every class is prefixed `flight-`. Tokens come from src/styles/tokens.css.
+ * Layout follows the space the form actually has (container queries), so the
+ * same markup works in the centred dialog, the phone bottom sheet and the
+ * guided-flight panel on the Checklists page. */
+
+.flight-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.flight-form,
+.flight-fluids,
+.flight-guided,
+.flight-guided-readings,
+.flight-session {
+  container: flight / inline-size;
+  /* Contain the visually hidden spans so they never overflow (and scroll)
+   * a positioned dialog panel outside the scrolling body. */
+  position: relative;
+}
+
+/* Flight panels are surface cards in both themes. */
+.panel.flight-guided,
+.panel.flight-session {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* ---------- Form shell: sections 30px apart, sticky footer ---------- */
+.flight-form > form > fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  min-width: 0;
+}
+.flight-form > form > .error {
+  margin: 22px 0 0;
+}
+.flight-form > form > .form-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px;
+  margin: 30px 0 0;
+  padding: 16px 0 calc(2px + env(safe-area-inset-bottom));
+  border: 0;
+  background: var(--surface);
+  /* Paint the footer bar edge to edge of the scrolling dialog body (whatever
+   * its padding) with a hairline on top; ink overflow, so no extra scroll. */
+  border-image: linear-gradient(var(--border) 0 1px, var(--surface) 1px 100%)
+    fill 0 / 0 / 0 100vw 100vw;
+}
+.flight-form > form > .form-footer > .button {
+  min-height: 48px;
+  padding-inline: 20px;
+  font-size: 16px;
+}
+@container flight (max-width: 539px) {
+  .flight-form > form > .form-footer > .button {
+    flex: 1 1 140px;
+  }
+}
+/* In a dialog the footer sticks to the scrolling body's content edge, so it
+ * covers its own height (16px + 2px padding plus the safe area, and a 48px
+ * button row) and the body's bottom padding below it. A field reached with
+ * Tab (or scrolled into view) stops 16px above that. */
+.ds-dialog-body:has(.flight-form > form > .form-footer) {
+  scroll-padding-bottom: calc(
+    18px + env(safe-area-inset-bottom) + 48px + 30px + 16px
+  );
+}
+@media (max-width: 759px) {
+  .ds-dialog-body:has(.flight-form > form > .form-footer) {
+    scroll-padding-bottom: calc(
+      18px + 48px + 24px + 2 * env(safe-area-inset-bottom) + 16px
+    );
+  }
+}
+/* On the narrowest phones the two buttons wrap onto two rows (10px gap);
+ * 340px leaves room for a classic scrollbar. */
+@media (max-width: 340px) {
+  .ds-dialog-body:has(.flight-form > form > .form-footer) {
+    scroll-padding-bottom: calc(
+      18px + 48px * 2 + 10px + 24px + 2 * env(safe-area-inset-bottom) + 16px
+    );
+  }
+}
+
+/* ---------- Notices ---------- */
+.ds-notice.flight-notice {
+  margin: 0 0 18px;
+}
+.flight-form > form > fieldset > .ds-notice.flight-notice,
+.flight-form > form > fieldset > .dispatch-gate {
+  margin: 0 0 -14px;
+}
+.flight-section > .ds-notice.flight-notice,
+.flight-guided > .ds-notice.flight-notice,
+.flight-guided-draft > .ds-notice.flight-notice {
+  margin: 0;
+}
+.flight-notice .button {
+  margin-top: 8px;
+}
+:is(.flight-form, .flight-fluids, .flight-guided, .flight-session)
+  p.flight-note {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---------- Sections ---------- */
+.flight-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.flight-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.flight-section-head > .flight-section-title,
+.flight-paused > .flight-section-title {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 1.8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.flight-section-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.flight-section-hint svg {
+  flex: none;
+}
+
+/* ---------- Grids ---------- */
+.flight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+}
+.flight-grid > .flight-wide {
+  grid-column: 1 / -1;
+}
+.flight-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.flight-engines {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+@container flight (max-width: 539px) {
+  .flight-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Fields (labels 14px muted, inputs 48px on --bg) ---------- */
+.flight-field,
+.field.flight-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.field.flight-field > label,
+.flight-field-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.flight-optional {
+  font-weight: 400;
+  color: var(--faint);
+}
+.field.flight-field > small {
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--faint);
+}
+.field.flight-field
+  :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  outline: 2px solid transparent;
+  transition:
+    border-color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+.field.flight-field textarea {
+  min-height: 72px;
+  padding: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.field.flight-field input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+.field.flight-field :is(input, select, textarea):focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+.field.flight-field :is(input, select, textarea)::placeholder {
+  color: var(--faint);
+  opacity: 1;
+}
+.field.flight-field :is(input, select, textarea):disabled,
+.field.flight-field input[readonly] {
+  background: var(--surface2);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.flight-discrepancy-icon {
+  flex: none;
+  color: var(--warn);
+}
+.field.flight-field.flight-discrepancy textarea:focus {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-bg);
+}
+
+/* ---------- Flight rules: segmented radio group ---------- */
+.flight-segmented {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+}
+.flight-segmented > label {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+.flight-rules .flight-segmented input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.flight-segmented span {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+.flight-segmented input:checked + span {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(11, 20, 52, 0.12);
+}
+.flight-segmented input:focus-visible + span {
+  outline: 3px solid var(--blue);
+  outline-offset: 1px;
+}
+.flight-segmented input:disabled + span {
+  opacity: 0.6;
+}
+
+/* ---------- Meter readings: read-only start → ending input ---------- */
+.flight-meters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+}
+@container flight (max-width: 539px) {
+  .flight-meters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.flight-meter {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--radius-tile);
+  background: var(--surface2);
+  min-width: 0;
+}
+.flight-meter.start-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+.flight-meter-start,
+.flight-meter-end {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.flight-meter-label {
+  display: block;
+  text-wrap: balance;
+  font-size: 12px;
+  line-height: 1.3;
+  letter-spacing: 1.3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.flight-meter-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: 46px;
+  padding-top: 10px;
+  white-space: nowrap;
+}
+.flight-meter .flight-meter-readout input,
+.flight-meter .flight-meter-readout strong {
+  min-width: 3ch;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 22px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  field-sizing: content;
+}
+.flight-meter .flight-meter-readout input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.flight-meter-unit {
+  font-size: 13px;
+  color: var(--muted);
+}
+.flight-meter-arrow {
+  display: inline-flex;
+  padding-bottom: 14px;
+  color: var(--muted);
+}
+.flight-meter .flight-meter-end input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  outline: 2px solid transparent;
+  transition:
+    border-color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+.flight-meter .flight-meter-end input::placeholder {
+  color: var(--faint);
+  opacity: 1;
+}
+.flight-meter .flight-meter-end input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+.flight-meter .flight-meter-end input:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+/* Very narrow (guided panel on a phone): stack start above the ending. */
+@container flight (max-width: 329px) {
+  .flight-meter {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .flight-meter-arrow {
+    display: none;
+  }
+}
+.flight-meter-hint {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* ---------- Live flight time ---------- */
+.flight-delta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 14.5px;
+  transition:
+    background var(--dur),
+    color var(--dur);
+}
+.flight-delta.good {
+  background: var(--good-bg);
+  color: var(--good);
+}
+.flight-delta.danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.flight-delta-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.flight-delta-meter {
+  font-size: 13px;
+}
+.flight-delta strong {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Fuel and oil ---------- */
+.flight-fluid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tile);
+  background: color-mix(in srgb, var(--surface2) 40%, var(--surface));
+  min-width: 0;
+}
+.flight-fluid > .flight-fluid-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: var(--text);
+}
+.flight-fluid-title svg {
+  color: var(--blue);
+}
+.flight-fluid
+  .field.flight-field
+  :where(input:not([type="checkbox"]):not([type="radio"]), select) {
+  background: var(--surface);
+}
+.flight-fluid .field.flight-field :where(input, select):disabled {
+  background: var(--surface2);
+}
+.flight-oil-inventory {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ds-switch.flight-switch {
+  align-self: flex-start;
+  color: var(--text);
+}
+/* Keep the native checkbox above the decorative track so it is the element
+ * that receives the pointer (the shared Switch paints its track on top). */
+.ds-switch.flight-switch input,
+.ds-switch.flight-guided-switch input {
+  z-index: 1;
+}
+
+/* ---------- Attestation checkboxes and recorded readings ---------- */
+.flight-attest {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 48px;
+  margin: 0;
+  padding: 13px 14px;
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.flight-attest > input[type="checkbox"] {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--blue-fill);
+  cursor: pointer;
+}
+.flight-attest:has(input:checked) {
+  background: var(--good-bg);
+}
+.flight-attest:has(input:focus-visible) {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+.flight-readings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.flight-readings > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-tile);
+  background: var(--surface2);
+  min-width: 0;
+}
+.flight-readings dt {
+  font-size: 11.5px;
+  line-height: 1.3;
+  letter-spacing: 1.3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.flight-readings dd {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+/* ---------- Actions ---------- */
+.flight-actions,
+.flight-guided-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.flight-actions .button,
+.flight-guided-steps .button,
+.button.flight-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.flight-actions .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+}
+.flight-actions-quiet {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.button.flight-back {
+  margin: 0 0 22px;
+}
+
+/* ---------- Guided flight (Checklists page) ---------- */
+.flight-guided {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.flight-guided-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-switch.flight-guided-switch {
+  align-self: flex-start;
+  color: var(--text);
+  font-size: 16.5px;
+  font-weight: 600;
+}
+.flight-guided-setup,
+.flight-guided-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.flight-guided-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+}
+.flight-guided-title {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.flight-guided .flight-guided-title > h2 {
+  margin: 0 0 2px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+}
+.flight-paused {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.flight-paused-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.flight-paused-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.flight-paused-text strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.flight-guided-readings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 16px 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- Start flight / End flight (Flight log) ---------- */
+.flight-session {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.flight-session-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 16px;
+}
+.flight-session-intro {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.flight-session .flight-session-intro > h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+}
+.flight-session-intro > p {
+  margin: 4px 0 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.flight-session-head > .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.flight-session-list {
+  display: flex;
+  flex-direction: column;
+}
+.flight-session .flight-session-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.flight-session .flight-session-row > div {
+  flex: initial;
+  min-width: 0;
+}
+.flight-session-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 15px;
+}
+.flight-session-route strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+.flight-session .flight-session-row small {
+  display: block;
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.flight-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.flight-session-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.flight-session-verify {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+@container flight (max-width: 559px) {
+  .flight-session .flight-session-row,
+  .flight-paused-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .flight-session-actions,
+  .flight-paused-row > .button {
+    grid-column: 1 / -1;
+  }
+  .flight-session-actions .button {
+    flex: 1 1 140px;
+  }
+  .flight-session-head > .button {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flight-delta,
+  .flight-attest,
+  .flight-segmented span,
+  .field.flight-field :is(input, select, textarea),
+  .flight-meter .flight-meter-end input {
+    transition: none;
+  }
+}

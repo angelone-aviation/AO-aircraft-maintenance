@@ -1,0 +1,17 @@
+# Purchase orders
+
+Purchase orders belong to the active Flight Program and require inventory administrator access, matching inventory permissions. One PO represents one vendor/order. Create them under **Purchase orders** or from an inspection’s **Create PO for parts** button.
+
+Inspection orders display the required, available and on-order quantities. Suggested quantities deduct stock on hand, outstanding issued quantities and existing draft quantities for that inspection. They remain editable; stock is never reserved. Assign different vendors to lines (or split a line) to create separate drafts in one transaction. A single-vendor inspection order can instead be appended to a matching existing draft. Shipping charges are reviewed separately when creating multiple vendor POs.
+
+Save draft → Issue → Record shipment → Receive parts → Close. Partial shipments and receipts are supported. Shipment records contain date, carrier, tracking and line quantities. Receipts can be entered directly when shipment details were not recorded. Only confirmed receipts increase inventory. Outstanding quantities exclude receipts and cancelled quantities. The register shows overdue expected deliveries and supports vendor/PO/part search and status filters.
+
+Issued orders can return to draft with a reason before shipment or receipt; old revisions remain in history. After delivery activity, quantities cannot be silently edited. Cancel remaining quantities with a reason; received items stay in inventory. Full receipts can be closed. Cancelled and closed orders remain readable.
+
+Receipts increase the selected stock item in its original location/condition. A different condition creates a separate lot. New part lines create stock on receipt. Existing lot cost/vendor/invoice fields are not overwritten; the receipt, PO and inventory audit retain the new transaction’s information. New stock receives PO, vendor, invoice and unit-cost references. No automatic currency conversion or accounting valuation is performed.
+
+Trackable component receipts require a unique part/serial pair and verified total hours/cycles for each unit. Components arrive uninstalled in the chosen inventory location. Installation still uses a work order. Component records can subsequently be edited to configure additional tracking and attach supporting documentation.
+
+PDF output shows the vendor, delivery address, line quantities/costs, currency, shipping, notes, revision and draft/issued status. Print PO opens a PDF preview; Save PO PDF downloads it. PDFs/photos may be attached to the whole PO or a receipt; receipt attachments also appear on the received inventory items. Attachments use existing PDF/JPEG/PNG/WebP validation and a 7 MB per-file limit. Sending to vendors is manual.
+
+Order commands use version checks. Receipt, inventory movement and audit updates commit together in one backend transaction. Repeating the same request is idempotent; reusing its ID with altered data is rejected. The demo uses the same domain rules and stores receipt attachments locally.
