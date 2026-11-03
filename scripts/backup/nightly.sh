@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
+# Responsibility: Nightly off-site backup of the production Convex deployment
+#   to R2 (ADR-0008), then the readable Dropbox copy when set up (ADR-0011).
+# Layer: Script. Never deletes or overwrites a backup in the bucket, and never
+#   prints a secret or the environment variables.
+# Dependencies: npx convex, aws, age, unzip, jq, sha256sum, node;
+#   scripts/backup/records-workbook.mjs, scripts/backup/dropbox-upload.mjs.
 #
-# Nightly off-site backup of the production Convex deployment (ADR-0008).
-# Run by .github/workflows/backup.yml. Runbook: docs/runbooks/backup-restore.md.
-#
+# Runbook: docs/runbooks/backup-restore.md. Tests: npm run test:backup.
+
+# Steps:
 #   a. `npx convex export --include-file-storage`, checked with `unzip -t`;
 #   b. encrypted with age to BACKUP_AGE_PUBLIC_KEY;
 #   c. uploaded to R2 under daily/YYYY/MM/DD/ with a manifest, then checked;
 #   d. also uploaded to monthly/YYYY-MM/ when that month has no copy yet;
 #   e. environment variables, encrypted, uploaded to env/ when they changed;
-#   f. recorded in the app with `npx convex run backups:recordOffsiteCopy`.
+#   f. recorded in the app with `npx convex run backups:recordOffsiteCopy`;
+#   g. turned into the records workbook and uploaded to Dropbox, when set up.
 #
 # Environment:
 #   CONVEX_DEPLOY_KEY      production deploy key (prod:...)
@@ -17,12 +24,13 @@
 #   R2_ACCESS_KEY_ID       R2 API token: object read and write on the bucket
 #   R2_SECRET_ACCESS_KEY
 #   R2_BUCKET              optional, default angelone-backups
+#   DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN
+#                          optional; step g runs only when the token is set
+#   RECORDS_TIME_ZONE      optional, default America/New_York
 #
 # The plaintext export is kept in this script's temp dir (mode 700) until it
-# exits, then removed with it. The script never deletes or overwrites a backup
-# in the bucket; the only object it replaces is state/env-fingerprint.txt.
-# It prints object keys and sizes, never a secret or the environment variables.
-# Tests: npm run test:backup.
+# exits, then removed with it. The only bucket object it replaces is
+# state/env-fingerprint.txt. It prints object keys and sizes.
 
 set -euo pipefail
 shopt -s inherit_errexit
@@ -109,6 +117,7 @@ r2() {
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/angelone-backup.XXXXXX")
 cleanup() { rm -rf -- "$work"; }
 trap cleanup EXIT
+# 128 + the signal number: the status a shell reports for a killed command.
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -161,8 +170,7 @@ summary() {
       echo "| Object in \`$bucket\` | Bytes |"
       echo "|---|---|"
       for line in "${uploaded[@]}"; do
-        # shellcheck disable=SC2016 # Markdown backticks, not a command.
-        printf '| `%s` | %s |\n' "${line% *}" "${line##* }"
+        printf "| \`%s\` | %s |\n" "${line% *}" "${line##* }"
       done
       [[ "$env_uploaded" == true ]] || echo "| env/: unchanged, not uploaded | |"
     } >>"$GITHUB_STEP_SUMMARY"
@@ -209,7 +217,8 @@ plain_sha=$(sha256_of "$EXPORT_ZIP")
 plain_bytes=$(file_size "$EXPORT_ZIP")
 enc_file="$work/${base}.zip.age"
 age -r "$recipient" -o "$enc_file" "$EXPORT_ZIP" || fail "age could not encrypt the export."
-[[ "$(head -c 21 "$enc_file")" == "age-encryption.org/v1" ]] || fail "The encrypted file is not an age file."
+AGE_HEADER="age-encryption.org/v1"
+[[ "$(head -c "${#AGE_HEADER}" "$enc_file")" == "$AGE_HEADER" ]] || fail "The encrypted file is not an age file."
 enc_sha=$(sha256_of "$enc_file")
 enc_bytes=$(file_size "$enc_file")
 
@@ -248,9 +257,10 @@ upload_new "$manifest" "$daily_manifest_key" application/json
 # d. The first successful night of each month is also the monthly copy.
 
 monthly_key=""
-# shellcheck disable=SC2016 # JMESPath literal, not a command.
+# An empty prefix lists no Contents at all; the JMESPath literal `[]` makes
+# that a count of 0.
 monthly_count=$(r2 s3api list-objects-v2 --bucket "$bucket" --prefix "$monthly_prefix" \
-  --max-keys 1 --no-paginate --query 'length(Contents || `[]`)' --output text) ||
+  --max-keys 1 --no-paginate --query "length(Contents || \`[]\`)" --output text) ||
   fail "Could not list s3://$bucket/$monthly_prefix."
 [[ "$monthly_count" =~ ^[0-9]+$ ]] || fail "Unexpected answer listing s3://$bucket/$monthly_prefix."
 if ((monthly_count == 0)); then
