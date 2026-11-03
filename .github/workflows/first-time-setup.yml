@@ -1,0 +1,193 @@
+# Responsibility: Sets up a new, empty production Convex deployment: auth keys,
+#   site address, functions and schema, and the first system administrator.
+# Layer: Tooling (setup workflow). Manual, once, from main only; refuses a
+#   deployment that has users and never publishes the website (Deploy does).
+# Dependencies: the Convex CLI, scripts/configure-auth.mjs,
+#   scripts/bootstrap-admin.mjs. Runbook: docs/runbooks/release.md.
+#
+# On the "production" environment; each secret goes only to steps that use it:
+#   CONVEX_DEPLOY_KEY     secret: Convex production deploy key (as for Deploy)
+#   FIRST_ADMIN_PASSWORD  secret: first administrator's password; delete after
+#   PRODUCTION_URL        variable: https://... website address, no trailing /
+name: First-time setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_name:
+        description: "First administrator's full name"
+        type: string
+        required: true
+      admin_email:
+        description: "First administrator's email address (used to sign in)"
+        type: string
+        required: true
+      empty_deployment:
+        description: "This is a new, empty production deployment"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+# Deploy's group: both change the production deployment and must not overlap.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    name: Set up production
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Require confirmation
+        if: ${{ !inputs.empty_deployment }}
+        run: |
+          echo "::error::Tick \"This is a new, empty production deployment\" and run the workflow again. To release to a deployment that is already set up, use the Deploy workflow."
+          exit 1
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the production deploy key
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          case "$CONVEX_DEPLOY_KEY" in
+            prod:*) ;;
+            *)
+              echo "::error::CONVEX_DEPLOY_KEY must be a production deploy key (prod:...)."
+              exit 1
+              ;;
+          esac
+
+      # Sign-in redirects and email links use this address exactly.
+      - name: Check the website address
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          case "$PRODUCTION_URL" in
+            "")
+              echo "::error::Set the production environment variable PRODUCTION_URL to the website's address, for example https://app.example.org."
+              exit 1
+              ;;
+            https://*/)
+              echo "::error::Remove the trailing slash from PRODUCTION_URL."
+              exit 1
+              ;;
+            https://?*) ;;
+            *)
+              echo "::error::PRODUCTION_URL must start with https://."
+              exit 1
+              ;;
+          esac
+
+      # Stops before the deployment changes if the password breaks the rule.
+      - name: Check the administrator details
+        env:
+          BOOTSTRAP_ADMIN_NAME: ${{ inputs.admin_name }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ inputs.admin_email }}
+          FIRST_ADMIN_PASSWORD: ${{ secrets.FIRST_ADMIN_PASSWORD }}
+        run: node scripts/bootstrap-admin.mjs --check
+
+      # admin:bootstrap also refuses a deployment with users, but only after the
+      # steps below have changed it, so this read-only check runs first.
+      # `convex data` needs no deployed functions, so it works on a brand-new
+      # deployment. A rerun after a failed attempt passes: the users table
+      # exists by then but is still empty.
+      - name: Refuse a deployment that already has users
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          tables=$(npx convex data)
+          if ! grep -qx users <<< "$tables"; then
+            echo "The deployment has no users table: it is empty."
+            exit 0
+          fi
+          # Never printed: a user document holds personal data.
+          first_user=$(npx convex data users --limit 1 --format jsonLines)
+          if [ -n "$first_user" ]; then
+            echo "::error::This production deployment already has users, so first-time setup stopped without changing it. To release to it, use the Deploy workflow."
+            exit 1
+          fi
+          echo "The users table is empty: the deployment has no accounts yet."
+
+      # Keeps signing and encryption keys that exist and never prints a key.
+      - name: Configure sign-in keys and the site address
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          SITE_URL: ${{ vars.PRODUCTION_URL }}
+        run: npm run setup:auth
+
+      # No --cmd: the website is built and published by the Deploy workflow.
+      - name: Deploy the Convex functions and schema
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: npx convex deploy
+
+      # The password reaches the deployment over stdin in the temporary
+      # BOOTSTRAP_ADMIN_PASSWORD variable, which the script removes, also on
+      # failure.
+      - name: Create the first system administrator
+        id: admin
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          BOOTSTRAP_ADMIN_NAME: ${{ inputs.admin_name }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ inputs.admin_email }}
+          FIRST_ADMIN_PASSWORD: ${{ secrets.FIRST_ADMIN_PASSWORD }}
+        run: node scripts/bootstrap-admin.mjs
+
+      # A cancelled run can stop the script before its own clean-up. Removing an
+      # unset variable does nothing, so this is safe after every attempt.
+      - name: Remove the temporary password from the deployment
+        id: cleanup
+        if: ${{ always() && steps.admin.outcome != 'skipped' }}
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: npx convex env remove BOOTSTRAP_ADMIN_PASSWORD
+
+      - name: Summary
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          ADMIN_OUTCOME: ${{ steps.admin.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          {
+            echo "### First-time setup: ${JOB_STATUS}"
+            echo ""
+            if [ "$CLEANUP_OUTCOME" = failure ]; then
+              echo "**First remove the temporary password:** Convex dashboard > production deployment > Settings > Environment Variables > delete BOOTSTRAP_ADMIN_PASSWORD."
+              echo ""
+            fi
+            if [ "$ADMIN_OUTCOME" = success ]; then
+              echo "The first system administrator exists. Next:"
+              echo ""
+              echo "1. Delete the FIRST_ADMIN_PASSWORD secret now: [Settings > Environments > production](${REPOSITORY_URL}/settings/environments)."
+              echo "2. Run the [Deploy workflow](${REPOSITORY_URL}/actions/workflows/deploy.yml) from main to publish the website. It asks for a backup first: Convex dashboard > Backups > Backup now, and save the environment variables (docs/runbooks/backup-restore.md)."
+              echo "3. Sign in at ${PRODUCTION_URL:-PRODUCTION_URL} with the administrator's email and that password."
+            else
+              echo "The administrator was not created. Read the failed step, fix the cause, and run First-time setup again: every step is safe to repeat while the deployment has no users."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
