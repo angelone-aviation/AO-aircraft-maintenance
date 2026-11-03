@@ -130,14 +130,19 @@ it("checks the caller's Flight Program before reading the command", async () => 
   const f = await fixture();
   const parse = vi.fn(() => "plan-1");
   const load = vi.fn();
-  await expect(
-    f.outsider.run(planCommand(f.aircraft, { parse, load })),
-  ).rejects.toThrow(
-    "Flight Program changed. Reopen the form in the correct program.",
-  );
-  await expect(
+  const stale =
+    "Flight Program changed. Reopen the form in the correct program.";
+  expect(
+    await refusal(f.outsider.run(planCommand(f.aircraft, { parse, load }))),
+  ).toMatchObject({ name: "ConvexError", data: stale });
+  // The session refusal stays a plain Error (see convex/access.ts).
+  const signedOut = await refusal(
     f.t.run((ctx) => runCommand(ctx, planCommand(f.aircraft, { parse }))),
-  ).rejects.toThrow("An active account and session are required.");
+  );
+  expect(signedOut).toMatchObject({
+    message: "An active account and session are required.",
+  });
+  expect(signedOut).not.toBeInstanceOf(ConvexError);
   expect(parse).not.toHaveBeenCalled();
   expect(load).not.toHaveBeenCalled();
   expect(await f.flightPlans()).toEqual([]);
@@ -289,9 +294,10 @@ it("applies a request id once and refuses its reuse for another payload", async 
   expect(await f.requests()).toMatchObject([
     { uuid: "request-1", actorId: f.mechanic.id, payload: "first" },
   ]);
-  await expect(f.mechanic.run(command("second"))).rejects.toThrow(
-    "Request identifier already used.",
-  );
+  expect(await refusal(f.mechanic.run(command("second")))).toMatchObject({
+    name: "ConvexError",
+    data: "Request identifier already used.",
+  });
   // Nothing is recorded for a request whose command was refused.
   await expect(
     f.mechanic.run(
@@ -358,6 +364,42 @@ it("shows a domain Rejection from apply or load as a ConvexError with its messag
   expect(fromLoad).toBeInstanceOf(ConvexError);
   expect(fromLoad).toMatchObject({ message: cycle, data: cycle });
   expect(apply).not.toHaveBeenCalled();
+  expect(await f.flightPlans()).toEqual([]);
+  expect(await f.rows()).toEqual([]);
+});
+
+it("shows a Rejection from persist as a ConvexError and writes nothing", async () => {
+  const f = await fixture();
+  const collision = "Record belongs to another Flight Program.";
+  const refused = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, {
+        persist: async ({ ctx }, _, uuid) => {
+          await ctx.db.insert("flightPlans", {
+            uuid,
+            aircraftUuid: f.aircraft,
+            payload: "{}",
+          });
+          throw new Rejection(collision);
+        },
+      }),
+    ),
+  );
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({ message: collision, data: collision });
+  const fault = new Error(collision);
+  const hidden = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, {
+        persist: async () => {
+          throw fault;
+        },
+        expose: plainErrors,
+      }),
+    ),
+  );
+  // A command's `expose` covers apply only, so a plain Error stays hidden.
+  expect(hidden).toBe(fault);
   expect(await f.flightPlans()).toEqual([]);
   expect(await f.rows()).toEqual([]);
 });

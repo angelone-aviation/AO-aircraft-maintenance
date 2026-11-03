@@ -108,10 +108,11 @@ export interface Transaction {
  * Convex mutation is one transaction, so a throw at any step writes nothing.
  *
  * @returns What `returns` gives; undefined for a replayed request.
- * @throws {ConvexError} With the message of a Rejection thrown in `load` or
- *   `apply`, or the message `expose` gives for another `apply` error.
- * @throws {Error} "Request identifier already used." for a request id reused
- *   by another caller or with another payload. Other errors pass unchanged.
+ * @throws {ConvexError} The message of a Rejection thrown in `load`, `apply`
+ *   or `persist`, or the one `expose` gives for another `apply` error;
+ *   "Request identifier already used." for a request id reused by another
+ *   caller or with another payload; checkContext's program refusals.
+ * @throws {Error} checkContext's session refusal. Other errors pass unchanged.
  */
 export async function runCommand<C, W, R, Out = void>(
   ctx: MutationCtx,
@@ -134,7 +135,7 @@ export async function runCommand<C, W, R, Out = void>(
   const log = new CommandLog(state.user.id);
   const tx: Transaction = { ctx, state, log };
   const { working, result } = await loadAndApply(tx, command, parsed);
-  await command.persist(tx, working, result, parsed);
+  await persistCommand(tx, command, working, result, parsed);
   command.audit(log, working, result, parsed);
   for (const row of log.rows) await writeAudit(ctx, row);
   if (request)
@@ -377,7 +378,7 @@ async function isReplayed(
     .unique();
   if (!prior) return false;
   if (prior.actorId !== state.user.id || prior.payload !== request.payload)
-    throw new Error("Request identifier already used.");
+    throw new ConvexError("Request identifier already used.");
   return true;
 }
 
@@ -396,6 +397,20 @@ async function loadAndApply<C, W, R, Out>(
     return { working, result: command.apply(working, parsed) };
   } catch (error) {
     throw exposed(error, command.expose);
+  }
+}
+
+async function persistCommand<C, W, R, Out>(
+  tx: Transaction,
+  command: Command<C, W, R, Out>,
+  working: W,
+  result: R,
+  parsed: C,
+) {
+  try {
+    await command.persist(tx, working, result, parsed);
+  } catch (error) {
+    throw exposed(error);
   }
 }
 
