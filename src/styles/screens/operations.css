@@ -1,10 +1,18 @@
-/* Operations screens (UI redesign v2): Aircraft, Flight Programs, Flight
- * plans, Checklists, Planning, Airworthiness directives and Scan label.
- * Every class is prefixed `ops-`. Rules that restyle older markup kept for
- * behaviour or tests (checklist reader, AD register, flight-plan groups) are
- * scoped under an `ops-` container and carry one more class than the rule
- * they replace, so they win regardless of stylesheet order. Colours come from
- * src/styles/tokens.css only, so both themes follow. */
+/*
+ * Responsibility: Styles for the operations screens: Aircraft, Flight
+ *   Programs, Flight plans, Checklists, Planning, Airworthiness directives
+ *   and Scan label.
+ * Layer: UI. Every selector is scoped by an `ops-` class, so nothing here
+ *   restyles another screen.
+ * Dependencies: src/styles/tokens.css (colours, radii, motion),
+ *   src/styles/design.css (ds-* building blocks).
+ *
+ * Rules that restyle shared markup (.panel, .button.primary, .error,
+ * .dash-status-reasons) carry one more class than the rule they replace, so
+ * they win regardless of stylesheet order. Colours are tokens so both themes
+ * follow, except the camera panel, which is navy in both themes, and the
+ * print border.
+ */
 
 /* ───────────────────────────── Shared bits ───────────────────────────── */
 
