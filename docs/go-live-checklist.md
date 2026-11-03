@@ -12,6 +12,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [ ] Accounts inventory: fill in [`docs/runbooks/accounts.md`](runbooks/accounts.md) after connecting the new Convex account.
 - [ ] Backups: finish the setup below, then build the nightly backup job.
 - [ ] Release process: CI checks, preview deployments, Cloudflare hosting with security headers, rollback, dependency updates.
+  - [ ] Set up Cloudflare, the Convex deploy key and the GitHub `production` environment, then make the first release, following the [release runbook](runbooks/release.md). CI, the security headers, the manual Deploy workflow, rollback steps and Dependabot are already in the repository; preview deployments are not built yet.
 - [ ] Error monitoring: service, alerts and who receives them.
 - [ ] Ownership and runbooks: technical owner, plus onboarding, release and incident-response runbooks.
 - [ ] Data on shared or lost devices: offline copy, sign-out, device unlock.

@@ -23,7 +23,7 @@ See [the agreed scope](docs/first-delivery.md), [original requirements](requirem
 
 - **Standing decisions** are in [`docs/adr/`](docs/adr/), for example administrator-provisioned accounts, the app as a status-record system and not the signed maintenance record, change-log protection, the Convex plan, backups and sign-in methods.
 - **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. Any deployment built before then must be redeployed; see [Deployment](#deployment).
-- **Operations**: the runbooks are [accounts](docs/runbooks/accounts.md), [production database access](docs/runbooks/database-access.md), [backup and restore](docs/runbooks/backup-restore.md) (policy decided, automation not yet built) and the [credential encryption key](docs/runbooks/credentials-key.md).
+- **Operations**: the runbooks are [release and rollback](docs/runbooks/release.md), [accounts](docs/runbooks/accounts.md), [production database access](docs/runbooks/database-access.md), [backup and restore](docs/runbooks/backup-restore.md) (policy decided, automation not yet built) and the [credential encryption key](docs/runbooks/credentials-key.md).
 - **Architecture**: see the [architecture report](docs/architecture/README.md).
 
 ## Start the app
@@ -103,7 +103,7 @@ Reference manuals are not stored in the repository; upload them to the app's Ref
 
 The Dev Container includes Chromium runtime libraries after a rebuild. On a Linux host, install Playwright system dependencies with `npx playwright install-deps chromium` using administrator privileges.
 
-Browser tests run against the production build; run `npm run build` after changes. They cover offline reload/sync, conflict review, expiry, mobile navigation, administration, read-only starting meter verification, inspection completion, component service, and inventory movements. The optional live-browser test runs when `.env.local-admin.json` exists and a local Convex backend is running.
+Browser tests run against the production build, served with the production security headers (`scripts/serve-dist.mjs`); any Content-Security-Policy violation fails the run. Run `npm run build` after changes. They cover offline reload/sync, conflict review, expiry, mobile navigation, administration, read-only starting meter verification, inspection completion, component service, and inventory movements. The optional live-browser test runs when `.env.local-admin.json` exists and a local Convex backend is running.
 
 With `npm run dev:local` running, test actual authentication and database behavior:
 
@@ -117,7 +117,7 @@ iOS Add to Home Screen still needs verification on a physical device.
 
 ## Deployment
 
-Set `VITE_CONVEX_URL` to your production deployment, configure Convex Auth signing keys and `SITE_URL` there, deploy Convex functions, and publish `dist/` on an HTTPS host with SPA fallback to `index.html`. Keep demo mode off (`VITE_DEMO_MODE=false`) and never upload `.env.*`, local backend state, or test credentials. No production deployment is performed by the setup scripts.
+The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.jsonc`, with the security headers in `public/_headers`) and the backend on Convex. Releases go through the manual **Deploy** workflow in GitHub Actions: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare. First-time setup (Cloudflare account and API token, domain, Convex deploy key, GitHub secrets and the `production` environment), releasing and rollback are in the [release runbook](docs/runbooks/release.md). Never upload `.env.*`, local backend state, or test credentials. No production deployment is performed by the setup scripts.
 
 Some settings are set on the deployment, not in the app's **Settings** page: alert email sending (`RESEND_API_KEY`, `RESEND_FROM`), `SITE_URL` and `CREDENTIALS_ENCRYPTION_KEY` (see [Connect Convex and create accounts](#connect-convex-and-create-accounts)). Settings → System holds the FAA and Geoapify keys and data backups; Settings → Flight Program holds each program's details, labor rate and Aircraft Spruce account.
 
