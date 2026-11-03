@@ -1,10 +1,30 @@
+/**
+ * Responsibility: Pins the command transaction: context check, rollback,
+ *   change-log rows, request ids, hand-off, and which errors reach the user.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/runCommand.ts, convex/schema.ts, src/domain/model.ts,
+ *   src/domain/rejection.ts, src/domain/flightSubmission.ts,
+ *   src/domain/components.ts, src/data/demo.ts (fixture).
+ *
+ * convex-test does not redact errors as production does, so these tests
+ * check the error class: only a ConvexError keeps its message in production.
+ */
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
 import { ConvexError } from "convex/values";
 import schema from "./schema";
 import { demoSnapshot } from "../src/data/demo";
 import type { AuditEntry } from "../src/domain/model";
-import { runCommand, hydrate, plainErrors, type Command } from "./runCommand";
+import { Rejection } from "../src/domain/rejection";
+import { FlightRejection } from "../src/domain/flightSubmission";
+import { ComponentUsageError } from "../src/domain/components";
+import {
+  runCommand,
+  hydrate,
+  plainErrors,
+  errorsOf,
+  type Command,
+} from "./runCommand";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -66,6 +86,14 @@ async function fixture() {
     flightPlans,
   };
 }
+// The error a run rejects with.
+const refusal = (run: Promise<unknown>) =>
+  run.then(
+    () => {
+      throw new Error("Expected a refusal.");
+    },
+    (error: unknown) => error,
+  );
 // A command that saves one flight plan document and audits it.
 function planCommand(
   aircraftUuid: string,
@@ -291,4 +319,90 @@ it("hands delegated commands to their own transaction", async () => {
   ).toBe("queued");
   expect(load).not.toHaveBeenCalled();
   expect(await f.rows()).toEqual([]);
+});
+
+it("shows a domain Rejection from apply or load as a ConvexError with its message", async () => {
+  const f = await fixture();
+  const stale = "Work order changed. Reopen it before saving.";
+  const fromApply = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, {
+        load: async ({ ctx }) => {
+          await ctx.db.insert("flightPlans", {
+            uuid: "written-before-the-refusal",
+            aircraftUuid: f.aircraft,
+            payload: "{}",
+          });
+          return { found: 0 };
+        },
+        apply: () => {
+          throw new Rejection(stale);
+        },
+      }),
+    ),
+  );
+  expect(fromApply).toBeInstanceOf(ConvexError);
+  expect(fromApply).toMatchObject({ message: stale, data: stale });
+  const apply = vi.fn();
+  const cycle = "Component attachment cycle detected.";
+  const fromLoad = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, {
+        load: async () => {
+          throw new ComponentUsageError(cycle);
+        },
+        apply,
+      }),
+    ),
+  );
+  expect(fromLoad).toBeInstanceOf(ConvexError);
+  expect(fromLoad).toMatchObject({ message: cycle, data: cycle });
+  expect(apply).not.toHaveBeenCalled();
+  expect(await f.flightPlans()).toEqual([]);
+  expect(await f.rows()).toEqual([]);
+});
+
+it("keeps any other error hidden, from load or apply, and unchanged", async () => {
+  const f = await fixture();
+  const fault = new Error("Cannot read the stored payload.");
+  const fromApply = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, {
+        apply: () => {
+          throw fault;
+        },
+      }),
+    ),
+  );
+  expect(fromApply).toBe(fault);
+  // Characterizes current behaviour: a command's `expose` covers apply only.
+  const fromLoad = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, {
+        load: async () => {
+          throw fault;
+        },
+        expose: plainErrors,
+      }),
+    ),
+  );
+  expect(fromLoad).toBe(fault);
+  expect(fromLoad).not.toBeInstanceOf(ConvexError);
+});
+
+it("shows a Rejection even when the command's expose names another class", async () => {
+  const f = await fixture();
+  class OtherRefusal extends Error {}
+  const refused = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, {
+        apply: () => {
+          throw new FlightRejection("Flight dispatch rejected.");
+        },
+        expose: errorsOf(OtherRefusal),
+      }),
+    ),
+  );
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({ data: "Flight dispatch rejected." });
 });
