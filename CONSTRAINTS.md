@@ -14,9 +14,11 @@ Before editing any file, load and apply these skills (installed in `.claude/skil
 | `code-review-and-quality` | Review your own diff before you call it done: correctness, tests, naming, error paths. |
 | `api-and-interface-design` | Shape every exported function, type, Convex function and backend method as a deliberate contract. |
 | `codebase-design` | Keep modules deep: small interfaces over substantial behavior, one responsibility each. |
-| `improve-codebase-architecture` | Notice coupling, duplication and misplaced responsibilities near your change, and fix or record them. |
+| `improve-codebase-architecture` | Notice coupling, duplication and misplaced responsibilities near your change, and fix or record them in `REFACTOR_ROADMAP.md`. |
 
 Skipping a skill is a review finding, the same as skipping a test.
+
+`improve-codebase-architecture` can only be started by a person (`/improve-codebase-architecture`); agents cannot load it. Agents meet that row by applying `codebase-design`'s vocabulary and the deletion test to the code they touch, and by adding what they find to `REFACTOR_ROADMAP.md`.
 
 ## 2. File header [enforced]
 
