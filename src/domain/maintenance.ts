@@ -105,13 +105,7 @@ export function inspectionStatus(
       ? undefined
       : inspection.dueLandings - aircraft.landings;
   const dueDate = inspectionDueDate(inspection);
-  const daysRemaining = dueDate
-    ? Math.round(
-        (Date.parse(dueDate + "T00:00:00Z") -
-          Date.parse(today + "T00:00:00Z")) /
-          DAY_MS,
-      )
-    : undefined;
+  const daysRemaining = dueDate ? daysBetween(today, dueDate) : undefined;
   const remaining = {
     hoursRemaining,
     cyclesRemaining,
@@ -186,6 +180,11 @@ function inspectionLimits(remaining: Remaining) {
       ];
     },
   );
+}
+
+function daysBetween(from: string, to: string) {
+  const ms = Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z");
+  return Math.round(ms / DAY_MS);
 }
 
 // A calendar-exempt inspection with no hour or cycle limit has no active
