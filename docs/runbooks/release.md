@@ -8,10 +8,11 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 |---|---|---|---|
 | CI | `.github/workflows/ci.yml` | Every pull request and every push to `main` | None |
 | Deploy | `.github/workflows/deploy.yml` | By hand, from `main` only | `production` environment |
+| Nightly backup | `.github/workflows/backup.yml` | Every night at 08:41 UTC, or by hand ([backup runbook](backup-restore.md)) | `backups` environment |
 | Dependency updates | `.github/dependabot.yml` | Weekly, grouped minor/patch pull requests | None |
 | Website hosting | `wrangler.jsonc`, `public/_headers`, `public/.assetsignore` | On deploy | — |
 
-**CI** runs `npm ci`, `npm run check` and the Playwright suite. The browser tests serve the production build with the production headers (`scripts/serve-dist.mjs` applies `public/_headers` the way Cloudflare does) and fail on any Content-Security-Policy violation. On failure, the run keeps the Playwright report and traces as the `playwright-report` artifact for 14 days.
+**CI** runs `npm ci`, `npm run check`, the backup job's tests (`npm run test:backup`) and the Playwright suite. The browser tests serve the production build with the production headers (`scripts/serve-dist.mjs` applies `public/_headers` the way Cloudflare does) and fail on any Content-Security-Policy violation. On failure, the run keeps the Playwright report and traces as the `playwright-report` artifact for 14 days.
 
 **Deploy** refuses to run unless you confirm a backup, then:
 

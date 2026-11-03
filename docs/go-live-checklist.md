@@ -10,7 +10,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [x] New Convex Pro account created.
 - [ ] Old production deployment (owned by the original project owner): deploy the security fixes there if it stays in use before the cutover, or retire it.
 - [ ] Accounts inventory: fill in [`docs/runbooks/accounts.md`](runbooks/accounts.md) after connecting the new Convex account.
-- [ ] Backups: finish the setup below, then build the nightly backup job.
+- [ ] Backups: the nightly backup job is built; finish the setup below.
 - [ ] Release process: CI checks, preview deployments, Cloudflare hosting with security headers, rollback, dependency updates.
   - [ ] Set up Cloudflare, the Convex deploy key and the GitHub `production` environment, then make the first release, following the [release runbook](runbooks/release.md). CI, the security headers, the manual Deploy workflow, rollback steps and Dependabot are already in the repository; preview deployments are not built yet.
 - [ ] Error monitoring: service, alerts and who receives them.
@@ -33,9 +33,10 @@ Policy: [ADR-0008](adr/0008-daily-backups-off-site-90-days-monthly-forever.md). 
 - [x] Convex Pro account.
 - [ ] Turn on the **daily scheduled backup, including file storage**, on the production deployment (Convex dashboard → Backups).
 - [ ] Create a Cloudflare R2 bucket `angelone-backups` in the organization's Cloudflare account.
-- [ ] Add R2 bucket lock rules: `daily/` 90 days; `monthly/` and `env/` indefinite. Add a lifecycle rule deleting `daily/` objects after 91 days.
-- [ ] Create an R2 API token with object read and write on that bucket only; save it as GitHub repository secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_ACCOUNT_ID`.
-- [ ] Generate an `age` key pair. Public key → GitHub secret `BACKUP_AGE_PUBLIC_KEY`. Private key → the technical owner's password manager plus a sealed copy held by the organization (ADR-0010).
-- [ ] Create a production deploy key for backups → GitHub secret `CONVEX_BACKUP_DEPLOY_KEY`.
-- [ ] Export the production environment variables once, encrypted, as the runbook describes.
-- [ ] Then: build the nightly backup workflow and its freshness alert, and run the first restore rehearsal.
+- [ ] Add R2 bucket lock rules: `daily/` 90 days; `monthly/` and `env/` indefinite. Leave `state/` unlocked (the job replaces a small file there). Add a lifecycle rule deleting `daily/` objects after 91 days.
+- [ ] In GitHub, Settings → Environments → **New environment** `backups`. Deployment branches: `main` only. No required reviewers (they would hold every nightly run). The secrets below go into this environment as **environment secrets**, not repository secrets.
+- [ ] Create an R2 API token with object read and write on that bucket only; save it as `backups` environment secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_ACCOUNT_ID`. If the bucket is not `angelone-backups`, add the environment variable `R2_BUCKET`.
+- [ ] Generate an `age` key pair (`age-keygen -o key.txt`). Public key → `backups` environment secret `BACKUP_AGE_PUBLIC_KEY`. Private key → the technical owner's password manager plus a sealed copy held by the organization (ADR-0010); then delete `key.txt`.
+- [ ] Create a production deploy key for backups → `backups` environment secret `CONVEX_BACKUP_DEPLOY_KEY`. It must be able to export data, read environment variables and run functions.
+- [ ] Make sure failed runs email the technical owner ([runbook](runbooks/backup-restore.md#who-is-told-when-it-fails)).
+- [ ] Run the workflow by hand once (Actions → **Nightly backup** → **Run workflow**), confirm the object appears in R2 under `daily/` (and `monthly/` and `env/`), and do the first [restore rehearsal](runbooks/backup-restore.md#quarterly-restore-rehearsal).

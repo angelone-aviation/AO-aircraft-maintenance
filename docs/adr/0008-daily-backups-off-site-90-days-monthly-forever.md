@@ -42,3 +42,7 @@ Maintenance records must survive for the life of the aircraft (14 CFR 91.417(b)(
 - **Convex scheduled backups only**: rejected; 7-day retention, and a lost Convex account loses the backups too.
 - **Google Drive or OneDrive** as the off-site store: workable but harder to lock against deletion from automation; R2 chosen because the program will already hold a Cloudflare account. Any S3-compatible store can replace R2 without changing the policy.
 - **Weekly instead of daily off-site copies**: rejected; a day is the most entries the program is willing to re-key.
+
+## Status
+
+- 2026-11-03: the nightly job is built. `.github/workflows/backup.yml` runs `scripts/backup/nightly.sh` at 08:41 UTC with the secrets of the GitHub `backups` environment; the app records each copy and warns after 36 hours. The monthly copy is the first successful night of each month, so a missed 1st is covered the next night. Environment variables are uploaded only when they change; the job keeps their fingerprint in an unlocked `state/` folder. It is not live until the bucket, lock rules, key pair and environment are set up by hand and the first restore rehearsal passes ([go-live checklist](../go-live-checklist.md#backup-setup-remaining), [runbook](../runbooks/backup-restore.md)).

@@ -123,6 +123,8 @@ Some settings are set on the deployment, not in the app's **Settings** page: ale
 
 Before deploying, take a Convex backup (dashboard > Backups) and save the deployment's environment variables as described in the [backup runbook](docs/runbooks/backup-restore.md).
 
+Production is also copied off-site every night by the **Nightly backup** workflow (encrypted, to Cloudflare R2); running it by hand, checking it and restoring are in the [backup runbook](docs/runbooks/backup-restore.md), and `npm run test:backup` tests it without credentials.
+
 **After every deploy, run these one-off steps.** Each is safe to rerun and does nothing once complete:
 
 ```bash
