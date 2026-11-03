@@ -1,8 +1,17 @@
+/**
+ * Responsibility: Pins component usage, requirement limits and status, and
+ *   the component edit, service and attachment rules.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/components.ts, src/domain/management.ts,
+ *   src/domain/model.ts, src/domain/rejection.ts, src/data/demo.ts and
+ *   tests/fixtures/componentMovement.ts (fixtures).
+ */
 import { applyThroughWorkOrder } from "../../tests/fixtures/componentMovement";
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement } from "./management";
 import {
+  ComponentUsageError,
   serviceComponent,
   validateComponent,
   calendarDue,
@@ -10,10 +19,14 @@ import {
   componentTotals,
   requirementStatus,
   moveRequirement,
+  componentDescendants,
+  movement,
+  rebaseServicedRequirements,
   type Component,
   type ComponentRequirement,
 } from "./components";
-import { totalSeconds } from "./model";
+import { localDate, totalSeconds } from "./model";
+import { Rejection } from "./rejection";
 const now = Date.parse("2026-09-29T12:00:00Z");
 const common = () => ({
   requestUuid: crypto.randomUUID(),
@@ -714,4 +727,110 @@ it("accepts any time zone's local today for current-reading service dates", () =
   expect(() =>
     serviceComponent(s, c, { operation: "repair", date: "2026-10-01" }, now),
   ).toThrow("today");
+});
+it("warns 10 landings ahead by default and asks for a landing baseline before a time baseline", () => {
+  const s = demoSnapshot(),
+    a = s.aircraft[0];
+  const c = {
+    ...base(a.uuid),
+    installed: true,
+    installedDate: "2026-09-19",
+    installPosition: "LEFT" as const,
+    installedSeconds: totalSeconds(a),
+    installedCycles: a.cycles,
+  };
+  const r: ComponentRequirement = {
+    ...requirement(a.uuid),
+    lastDate: undefined,
+    calendarIntervalValue: undefined,
+    dueCycles: undefined,
+  };
+  const status = (patch: Partial<ComponentRequirement>, on = c) =>
+    requirementStatus({ ...r, ...patch }, on, a, "2026-09-29").status;
+  expect(status({ dueLandings: a.landings + 10 })).toBe("Due soon");
+  expect(status({ dueLandings: a.landings + 11 })).toBe("Tracked");
+  expect(status({ dueLandings: a.landings + 11, warningLandings: 11 })).toBe(
+    "Due soon",
+  );
+  const unknownTso = { timeBasis: "TSO" as const, dueSeconds: 3600 };
+  expect(status(unknownTso)).toBe("Set time baseline");
+  expect(
+    status({ ...unknownTso, dueLandings: 600 }, { ...c, installed: false }),
+  ).toBe("Set landing baseline");
+});
+it("refuses calendar intervals that leave the supported dates", () => {
+  expect(() => calendarDue("9999-12-15", 1, "MONTHS")).toThrow(
+    "Calendar interval exceeds supported dates.",
+  );
+  expect(() => calendarDue("0001-01-15", -1, "MONTHS")).toThrow(
+    "Calendar interval exceeds supported dates.",
+  );
+  expect(() => calendarDue("2026-02-30", 1, "DAYS")).toThrow(/date/);
+});
+it("lists attached parts parent-first, and refuses a corrupt attachment cycle as a Rejection", () => {
+  const s = demoSnapshot();
+  const part = (uuid: string, parentComponentUuid?: string) => ({
+    ...base(),
+    uuid,
+    parentComponentUuid,
+  });
+  s.management = [
+    part("engine"),
+    part("magneto", "engine"),
+    part("harness", "magneto"),
+    part("starter", "engine"),
+  ];
+  expect(componentDescendants(s, "engine").map((c) => c.uuid)).toEqual([
+    "magneto",
+    "harness",
+    "starter",
+  ]);
+  s.management = [part("left", "right"), part("right", "left")];
+  const cycle = (() => {
+    try {
+      return componentDescendants(s, "left");
+    } catch (error) {
+      return error;
+    }
+  })();
+  expect(cycle).toBeInstanceOf(ComponentUsageError);
+  expect(cycle).toBeInstanceOf(Rejection);
+  expect((cycle as Error).message).toBe("Component attachment cycle detected.");
+});
+it("records a movement as a first-version entry named after the request, dated the local date", () => {
+  const s = demoSnapshot();
+  expect(
+    movement(base(), "REMOVE", s, "request-1", "Removed for repair", now),
+  ).toMatchObject({
+    uuid: "request-1-movement",
+    version: 1,
+    action: "REMOVE",
+    date: localDate(now),
+    timeSinceNew: 100 * 3600,
+    note: "Removed for repair",
+    actorId: s.user.id,
+    at: now,
+  });
+});
+it("re-bases only the reset counters, and refuses work dated before a later compliance", () => {
+  const s = demoSnapshot();
+  const c = base();
+  const tsn = { ...requirement(), uuid: "tsn", timeBasis: "TSN" as const };
+  s.management = [c, tsn, requirement()];
+  const before = componentTotals(c);
+  const repair = { overhaul: false, repair: true, date: "2026-09-29" };
+  expect(
+    rebaseServicedRequirements(s, c, before, repair, now).map((r) => r.uuid),
+  ).toEqual(["requirement"]);
+  expect(() =>
+    rebaseServicedRequirements(
+      s,
+      c,
+      before,
+      { ...repair, date: "2026-01-01" },
+      now,
+    ),
+  ).toThrow(
+    "A component requirement has later compliance. Review its tracking before backdating this repair or overhaul.",
+  );
 });
