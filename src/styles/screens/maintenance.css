@@ -1,12 +1,16 @@
-/* Maintenance screens: Inspections, Components, Inventory and Alerts.
- * Every class is prefixed `mx-` so nothing collides with other screens.
- * Colours, radii and motion come from src/styles/tokens.css; shared
- * building blocks (ds-*) from src/styles/design.css.
+/*
+ * Responsibility: Styles for the maintenance screens: Inspections,
+ *   Components, Inventory and Alerts.
+ * Layer: UI. Every selector is scoped by an `mx-` class, so nothing here
+ *   restyles another screen.
+ * Dependencies: src/styles/tokens.css (colours, radii, motion, `rise`),
+ *   src/styles/design.css (ds-* building blocks).
  *
  * Record lists (inspections, inventory, components) keep real <table>
  * markup for assistive technology and the existing tests, and lay each row
  * out as a CSS-grid card. The header row is visually hidden; each fact cell
- * carries its own visible caption (.mx-fact-label, aria-hidden). */
+ * carries its own visible caption (.mx-fact-label, aria-hidden).
+ */
 
 /* ---------- Shared helpers ---------- */
 .mx-num {

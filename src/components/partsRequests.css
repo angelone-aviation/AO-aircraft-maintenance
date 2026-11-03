@@ -1,4 +1,9 @@
-/* Parts & repair request workspace (tokens from src/styles/tokens.css). */
+/*
+ * Responsibility: Styles for the Parts & repair requests workspace.
+ * Layer: UI. Screen styles; no behaviour.
+ * Dependencies: src/styles/tokens.css (colours, radii),
+ *   src/styles.css (.management-actions, .management-toolbar).
+ */
 .parts-requests .request-grid,
 .request-grid {
   display: grid;
