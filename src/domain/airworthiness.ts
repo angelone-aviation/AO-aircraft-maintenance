@@ -175,8 +175,11 @@ export const CLOSED_APPLICABILITY: readonly AD["applicability"][] = [
   "Superseded",
 ];
 
-// The decisions under which an AD's actions are tracked and complied with.
-const TRACKED_APPLICABILITY: readonly AD["applicability"][] = [
+/**
+ * The applicability decisions under which an AD's actions are tracked, worked
+ * and complied with.
+ */
+export const TRACKED_APPLICABILITY: readonly AD["applicability"][] = [
   "Applicable",
   "Previously Complied With (PCW)",
 ];

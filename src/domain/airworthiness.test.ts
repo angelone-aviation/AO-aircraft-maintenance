@@ -22,6 +22,7 @@ import {
   blankAD,
   blankADTask,
   CLOSED_APPLICABILITY,
+  TRACKED_APPLICABILITY,
   type AD,
   type ADCompliance,
   type ADTask,
@@ -865,6 +866,19 @@ it("reports not applicable and superseded ADs by their applicability", () => {
   expect(CLOSED_APPLICABILITY).toEqual(["Not applicable", "Superseded"]);
   for (const applicability of CLOSED_APPLICABILITY)
     expect(adStatus(s, { ...r, applicability })).toBe(applicability);
+});
+
+it("offers a reviewed AD's actions for work only when it is tracked", () => {
+  const { s, r } = setup();
+  const offered = (applicability: AD["applicability"]) => {
+    s.airworthiness = [{ ...r, applicability }];
+    return workSources(s, r.aircraftUuid).some(
+      (x) => x.source.kind === "airworthiness",
+    );
+  };
+  const tracked = ["Applicable", "Previously Complied With (PCW)"];
+  expect(adSchema.shape.applicability.options.filter(offered)).toEqual(tracked);
+  expect(TRACKED_APPLICABILITY).toEqual(tracked);
 });
 
 function installedEngine(a: Aircraft, fields: Partial<Component>) {
