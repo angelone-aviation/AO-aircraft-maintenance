@@ -280,19 +280,24 @@ export interface Backend {
   saveChecklist(command: ChecklistCommand): Promise<unknown>;
   /**
    * Imports reviewed task CSV rows, all or none: into a template as its next
-   * version, or onto an inspection as draft job cards.
+   * version, or onto an inspection as draft job cards; a replayed request id
+   * changes nothing.
    */
   importTaskCsv(input: TaskCsvImport): Promise<unknown>;
-  /** Saves templates into the program's library, all or none. */
+  /**
+   * Saves templates into the program's library, all or none; a replayed
+   * request id changes nothing.
+   */
   saveInspectionTemplates(records: InspectionTemplate[]): Promise<unknown>;
   /**
    * Activates a template on an aircraft or a component, with a draft job card
-   * for each template task.
+   * for each template task; a replayed request id changes nothing.
    */
   activateTemplate(input: ActivateTemplateInput): Promise<unknown>;
   /**
    * Deletes templates with the reusable job cards made from them and those
-   * cards' evidence, all or none; activated inspections stay.
+   * cards' evidence, all or none; activated inspections stay, and a replayed
+   * request id changes nothing.
    *
    * @param input - The templates and cards the preview showed, at the
    *   versions it showed.
@@ -765,13 +770,22 @@ function bindTemplateCalls(client: ConvexReactClient) {
     saveChecklist: (command) =>
       client.mutation(api.checklists.save, requestedCommand(command)),
     importTaskCsv: (input) =>
-      client.mutation(api.taskImports.save, programCommand(input)),
+      client.mutation(api.taskImports.save, requested(programCommand(input))),
     saveInspectionTemplates: (records) =>
-      client.mutation(api.inspectionTemplates.save, programCommand(records)),
+      client.mutation(
+        api.inspectionTemplates.save,
+        requested(programCommand(records)),
+      ),
     activateTemplate: (input) =>
-      client.mutation(api.inspectionTemplates.activate, programCommand(input)),
+      client.mutation(
+        api.inspectionTemplates.activate,
+        requested(programCommand(input)),
+      ),
     deleteInspectionTemplates: (input) =>
-      client.mutation(api.inspectionTemplates.remove, programCommand(input)),
+      client.mutation(
+        api.inspectionTemplates.remove,
+        requested(programCommand(input)),
+      ),
     saveComponentTemplate: (input) =>
       client.mutation(api.componentTemplates.save, requestedCommand(input)),
     applyComponentTemplate: (input) =>

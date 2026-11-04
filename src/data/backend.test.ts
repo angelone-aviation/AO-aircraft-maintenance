@@ -284,28 +284,28 @@ const CASES: Case[] = [
     call: (b) => b.importTaskCsv(opaque()),
     kind: "mutation",
     name: "taskImports:save",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "deleteInspectionTemplates",
     call: (b) => b.deleteInspectionTemplates(opaque()),
     kind: "mutation",
     name: "inspectionTemplates:remove",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "activateTemplate",
     call: (b) => b.activateTemplate(opaque()),
     kind: "mutation",
     name: "inspectionTemplates:activate",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "saveInspectionTemplates",
     call: (b) => b.saveInspectionTemplates(opaque()),
     kind: "mutation",
     name: "inspectionTemplates:save",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "saveComponentTemplate",
@@ -864,7 +864,7 @@ it("sends a new request id with each AD, checklist, engine-trend, cost, job-card
   for (const id of ids) expect(id).toMatch(UUID);
 });
 
-it("sends a new request id beside the arguments of a resolution, a parts list, a flight review and a transfer", async () => {
+it("sends a new request id beside the arguments of a resolution, a parts list, a flight review, a transfer, a task import and template commands", async () => {
   vi.restoreAllMocks();
   const { backend, calls } = recordingBackend();
   await backend.resolve("report-1", "Fixed");
@@ -872,8 +872,12 @@ it("sends a new request id beside the arguments of a resolution, a parts list, a
   await backend.saveDiscrepancyParts("report-1", 4, opaque());
   await backend.review("flight-1", "accept", "Checked", opaque());
   await backend.transferProgram(TRANSFER);
+  await backend.importTaskCsv(opaque());
+  await backend.saveInspectionTemplates(opaque());
+  await backend.activateTemplate(opaque());
+  await backend.deleteInspectionTemplates(opaque());
   const ids = calls.map((c) => c.args.requestUuid);
-  expect(new Set(ids).size).toBe(5);
+  expect(new Set(ids).size).toBe(9);
   for (const id of ids) expect(id).toMatch(UUID);
 });
 

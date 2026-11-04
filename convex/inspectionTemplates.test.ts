@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the inspection template library on the server:
  *   program-scoped saving, authorization, activation with draft job cards,
- *   and deletion with cards, evidence and change log.
+ *   deletion with cards, evidence and change log, and replayed request ids.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/inspectionTemplates, convex/schema, src/domain
  *   (inspectionTemplates, deleteInspectionTemplates), tests/fixtures.
@@ -310,9 +310,11 @@ async function activationFixture(onComponent: boolean) {
     });
     return `${id}|${session}`;
   });
-  const activate = () =>
-    t.withIdentity({ subject }).mutation(api.inspectionTemplates.activate, {
+  const admin = t.withIdentity({ subject });
+  const activate = (requestUuid?: string) =>
+    admin.mutation(api.inspectionTemplates.activate, {
       programUuid: a.programUuid,
+      ...(requestUuid && { requestUuid }),
       payload: JSON.stringify({
         templateUuid: template.uuid,
         templateVersion: 1,
@@ -323,7 +325,7 @@ async function activationFixture(onComponent: boolean) {
         reviewed: true,
       }),
     });
-  return { t, activate };
+  return { t, activate, admin, template, programUuid: a.programUuid };
 }
 
 // The guard activation gained in Batch 263: before it, each case stored a
@@ -370,3 +372,56 @@ it.each([
     expect(await count()).toEqual(before);
   },
 );
+
+it("activates, saves and deletes once per request id: a replay writes nothing", async () => {
+  const { templateDeletionPreview } =
+    await import("../src/domain/deleteInspectionTemplates");
+  const { t, activate, admin, template, programUuid } =
+    await activationFixture(false);
+  const stored = () =>
+    t.run(async (ctx) => ({
+      templates: await ctx.db.query("inspectionTemplates").collect(),
+      inspections: await ctx.db.query("inspections").collect(),
+      taskCards: await ctx.db.query("taskCards").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+    }));
+  // ADR-0003: each replay succeeds with no payload and writes nothing.
+  const replays = async (run: () => Promise<unknown>) => {
+    await run();
+    const saved = await stored();
+    await expect(run()).resolves.toBeNull();
+    expect(await stored()).toEqual(saved);
+  };
+  const activation = crypto.randomUUID();
+  await replays(() => activate(activation));
+  const [storedTemplate] = (await stored()).templates;
+  const save = {
+    programUuid,
+    requestUuid: crypto.randomUUID(),
+    payload: JSON.stringify([
+      { ...JSON.parse(storedTemplate.payload), name: "Pump check B" },
+    ]),
+  };
+  await replays(() => admin.mutation(api.inspectionTemplates.save, save));
+  const snapshot = (await admin.query(api.operations.snapshot, {}))!;
+  const remove = {
+    programUuid,
+    requestUuid: crypto.randomUUID(),
+    payload: JSON.stringify(templateDeletionPreview(snapshot, [template.uuid])),
+  };
+  await replays(() => admin.mutation(api.inspectionTemplates.remove, remove));
+  const done = await stored();
+  expect(done.templates).toEqual([]);
+  expect(done.commandRequests.map((r) => r.uuid)).toEqual([
+    activation,
+    save.requestUuid,
+    remove.requestUuid,
+  ]);
+  await expect(
+    admin.mutation(api.inspectionTemplates.save, {
+      ...save,
+      payload: JSON.stringify([]),
+    }),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+});
