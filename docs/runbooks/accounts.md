@@ -51,7 +51,7 @@ Why no global budget in the app: `@convex-dev/auth` 0.0.96 has no hook that runs
 
 ## Disabling a user
 
-A system administrator unticks **Active** on the user. Saving:
+A system administrator unticks **Account active** on the user. Saving:
 
 - deletes every session and refresh token the user has, so every device they are signed in on loses access at its next request (the change log records `user.sessions_ended` with the number of sessions);
 - refuses every later sign-in, by password or by Google or Microsoft, without creating a session.

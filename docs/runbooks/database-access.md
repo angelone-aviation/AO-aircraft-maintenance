@@ -17,7 +17,7 @@ A direct edit is any change to production data that does not go through the app:
 They are banned, with two exceptions:
 
 1. **A restore** from a backup, following [Backup and restore](backup-restore.md#real-restore-production).
-2. **A repair the app cannot make**, when a record blocks the app or is wrong in a way no correction command can fix. Raise it as an issue first, with what is wrong and the exact change, and have the second administrator agree to it in writing (the issue is enough).
+2. **A repair the app cannot make**, when a record blocks the app or is wrong in a way no correction command can fix. Raise it as an issue first, with what is wrong and the exact change. The issue is the written record: there is one Convex administrator and no second approver ([ADR-0010](../adr/0010-one-convex-administrator.md)).
 
 Never edit or delete a change-log (`audit`) row, for any reason. A wrong entry is answered with a new entry, not by changing the old one.
 
