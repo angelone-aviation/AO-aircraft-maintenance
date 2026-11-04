@@ -64,10 +64,16 @@ it("writes plan.saved, then plan.cancelled with the plan before and after", asyn
     status: "proposed",
     version: 1,
   });
+  expect(JSON.parse(rows[1].before!)).toEqual(JSON.parse(rows[0].after!));
   expect(JSON.parse(rows[1].after!)).toMatchObject({
     status: "cancelled",
     version: 2,
   });
+  // Characterizes current behaviour: the rows name the aircraft, no program.
+  for (const row of rows) {
+    expect(row.aircraftUuid).toBe(plan.aircraftUuid);
+    expect(row).not.toHaveProperty("programUuid");
+  }
 });
 
 it("refuses a plan uuid stored on another aircraft, and writes nothing", async () => {

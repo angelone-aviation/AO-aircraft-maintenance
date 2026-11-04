@@ -1,10 +1,11 @@
 /**
  * Responsibility: Imported ICAO flight plans: the stored plan, each aircraft's
- *   queue, saving a plan, the plan a flight is logged against, and what the
- *   queue would do to the aircraft's due items.
+ *   queue, saving a plan with its change-log entry, the plan a flight is
+ *   logged against, and what the queue would do to the aircraft's due items.
  * Layer: Domain. Zod schema, rules and an applier on a working snapshot; no
  *   I/O, no React.
- * Dependencies: zod, src/domain/model.ts, dueItems.ts, rejection.ts.
+ * Dependencies: zod, src/domain/model.ts, dueItems.ts, rejection.ts,
+ *   changeLog.ts.
  */
 import { z } from "zod";
 import {
@@ -16,6 +17,7 @@ import {
 } from "./model";
 import { dueItems, type MaintenanceDue, type RequirementDue } from "./dueItems";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
 
 const MINUTE_SECONDS = 60;
 const MINUTE_MS = 60_000;
@@ -105,9 +107,11 @@ export function queuedPlans(s: Snapshot, aircraftUuid: string) {
 }
 
 /**
- * Saves a plan as the next version, with the aircraft's current registration.
+ * Saves a plan as the next version, with the aircraft's current registration,
+ * and adds a "plan.saved" or "plan.cancelled" change-log entry with the plan
+ * before and after.
  *
- * @param s - The working snapshot; its `flightPlans` are replaced.
+ * @param s - The working snapshot; its `flightPlans` and change log change.
  * @param command - The plan and the version it was opened at (0 for new).
  * @returns The saved plan, which replaces any earlier one with its uuid.
  * @throws {z.ZodError} When the plan does not parse.
@@ -148,6 +152,7 @@ export function saveFlightPlan(s: Snapshot, command: PlanCommand) {
     ...(s.flightPlans ?? []).filter((x) => x.uuid !== p.uuid),
     next,
   ];
+  s.audit.unshift(planEntry(s, previous, next));
   return next;
 }
 
@@ -240,6 +245,20 @@ function isDuplicateImport(s: Snapshot, p: FlightPlan) {
       x.sourceHash === p.sourceHash &&
       x.status !== "cancelled",
   );
+}
+
+function planEntry(
+  s: Snapshot,
+  previous: FlightPlan | undefined,
+  next: FlightPlan,
+) {
+  return auditEntry(s, {
+    action: next.status === "cancelled" ? "plan.cancelled" : "plan.saved",
+    entityUuid: next.uuid,
+    aircraftUuid: next.aircraftUuid,
+    before: previous,
+    after: next,
+  });
 }
 
 // An estimate: every meter the aircraft keeps advances by the planned time.

@@ -31,9 +31,9 @@ const commandSchema = z.object({
 const PLAN_ID_USED = "Plan ID already used.";
 
 /**
- * Saves a flight plan on one aircraft and writes a "plan.saved" or
- * "plan.cancelled" change-log row with the plan before and after. A replayed
- * request id changes nothing.
+ * Saves a flight plan on one aircraft and writes the "plan.saved" or
+ * "plan.cancelled" row saveFlightPlan records. A replayed request id changes
+ * nothing.
  *
  * @param payload - The plan and the version it was edited from, as JSON,
  *   with its request id.
@@ -54,16 +54,8 @@ export const save = mutation({
       apply: ({ s }, command) => saveFlightPlan(s, command),
       persist: ({ ctx }, { plans }, next) =>
         writeChanged(ctx, "flightPlans", plans, [next]),
-      audit: (log, { existing }, next) =>
-        log.entry(
-          next.status === "cancelled" ? "plan.cancelled" : "plan.saved",
-          next.uuid,
-          {
-            aircraftUuid: next.aircraftUuid,
-            before: existing ? JSON.parse(existing.payload) : undefined,
-            after: next,
-          },
-        ),
+      // The row has always named no program.
+      audit: (log, { s }) => log.replay(s.audit, { programUuid: undefined }),
       returns: (next) => next.uuid,
     }),
 });
@@ -90,7 +82,6 @@ async function loadPlan(
     )
     .collect();
   return {
-    existing,
     plans,
     s: {
       ...state,

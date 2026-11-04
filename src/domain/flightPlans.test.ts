@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins ICAO plan import, saving and copying plans, each
- *   aircraft's queue, and the queue's projection onto due items.
+ * Responsibility: Pins ICAO plan import, saving and copying plans with their
+ *   change-log entries, each aircraft's queue, and the queue's projection
+ *   onto due items.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/flightPlans.ts, pdf/icao.ts, model.ts,
  *   components.ts, programs.ts, rejection.ts, src/data/demo.ts and
@@ -305,6 +306,31 @@ describe("ICAO import and flight queue", () => {
     expect(() => saveFlightPlan(s, { plan: saved, baseVersion: 1 })).toThrow(
       "access denied",
     );
+  });
+  it("records plan.saved, then plan.cancelled, with the plan before and after", () => {
+    const s = demoSnapshot();
+    const logged = s.audit.length;
+    const saved = saveFlightPlan(s, { plan: draft(), baseVersion: 0 });
+    const cancelled = saveFlightPlan(s, {
+      plan: { ...saved, status: "cancelled" },
+      baseVersion: 1,
+    });
+    const entry = (action: string, before: unknown, after: FlightPlan) => ({
+      uuid: expect.any(String),
+      programUuid: s.aircraft[0].programUuid,
+      actorId: s.user.id,
+      at: expect.any(Number),
+      action,
+      entityUuid: saved.uuid,
+      aircraftUuid: saved.aircraftUuid,
+      before: before && JSON.stringify(before),
+      after: JSON.stringify(after),
+    });
+    expect(s.audit).toHaveLength(logged + 2);
+    expect(s.audit.slice(0, 2)).toEqual([
+      entry("plan.cancelled", saved, cancelled),
+      entry("plan.saved", undefined, saved),
+    ]);
   });
   it("keeps held-flight estimates until accepted and prevents double logging", () => {
     const s = demoSnapshot(),

@@ -738,17 +738,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     savePlan: (command) =>
       modify((s) => {
-        const before = s.flightPlans?.find((p) => p.uuid === command.plan.uuid);
-        const after = saveFlightPlan(s, command);
-        audit(
-          s,
-          after.status === "cancelled" ? "plan.cancelled" : "plan.saved",
-          after.uuid,
-          after.aircraftUuid,
-          undefined,
-          before,
-          after,
-        );
+        saveFlightPlan(s, command);
       }),
     transferProgram: (input) => modify((s) => transferProgram(s, input)),
     selectProgram: (programUuid) =>

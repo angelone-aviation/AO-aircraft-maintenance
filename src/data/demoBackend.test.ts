@@ -1,16 +1,15 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, deferral
- *   and parts, checklist and job-card saves, flight review, AD changes,
- *   attachments, manual edits, saved addresses, FAA monitor commands, program
- *   selection, membership and group saves, and recurring parts lists against
- *   the server's rules: the same refusals, stored records and change-log
- *   rows.
+ *   and parts, checklist, job-card and flight-plan saves, flight review, AD
+ *   changes, attachments, manual edits, saved addresses, FAA monitor
+ *   commands, program selection, membership and group saves, and recurring
+ *   parts lists against the server's rules: the same refusals, stored records
+ *   and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
- *   checklists, taskCards, workOrders, purchaseOrders, manuals, addresses,
- *   faa),
- *   tests/fixtures.
+ *   checklists, taskCards, flightPlans, workOrders, purchaseOrders, manuals,
+ *   addresses, faa), tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -19,9 +18,9 @@
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
  * and crashed on a missing flight. Before Batch 296 its AD, deferral,
- * resolution, parts, checklist and job-card rows named no Flight Program, and
- * a resolution row held the whole report after, where the server keeps the
- * resolved fields.
+ * resolution, parts, checklist, job-card and flight-plan rows named no Flight
+ * Program, and a resolution row held the whole report after, where the
+ * server keeps the resolved fields.
  * Before Batch 273 it took any number of attachments. Before Batch 285 it
  * audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
@@ -35,7 +34,7 @@ import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
 import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
-import type { Flight, FlightInput, Snapshot } from "../domain/model";
+import type { Aircraft, Flight, FlightInput, Snapshot } from "../domain/model";
 import { localDate } from "../domain/model";
 import { applyFlight } from "../domain/flights";
 import {
@@ -48,6 +47,7 @@ import { Rejection } from "../domain/rejection";
 import { MAX_ATTACHMENTS } from "../domain/attachments";
 import { saveTaskCard } from "../domain/taskCards";
 import { emptyChecklist } from "../domain/checklists";
+import type { FlightPlan } from "../domain/flightPlans";
 import { newWorkTask, saveWorkOrder } from "../domain/workOrders";
 import { requestDraftSchema } from "../domain/partsRequests";
 import { poSchema } from "../domain/purchaseOrders";
@@ -223,6 +223,66 @@ it("saves a job card and audits it as the server does, with the program", async 
   });
   expect(s.audit[0]).not.toHaveProperty("reason");
 });
+
+it("saves and cancels a flight plan, auditing each as the server does, with the program", async () => {
+  const { backend, stored } = await demo("demo-flight-plan");
+  const plan = flightPlan(demoSnapshot().aircraft[0]);
+  await backend.savePlan({ plan, baseVersion: 0 });
+  const saved = (await stored()).flightPlans!.find(
+    (p) => p.uuid === plan.uuid,
+  )!;
+  await backend.savePlan({
+    plan: { ...saved, status: "cancelled" },
+    baseVersion: 1,
+  });
+  const s = await stored();
+  const cancelled = s.flightPlans!.find((p) => p.uuid === plan.uuid)!;
+  const entry = (action: string, before: unknown, after: unknown) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    action,
+    entityUuid: plan.uuid,
+    aircraftUuid: plan.aircraftUuid,
+    before: before && JSON.stringify(before),
+    after: JSON.stringify(after),
+  });
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry("plan.cancelled", saved, cancelled),
+    entry("plan.saved", undefined, saved),
+  ]);
+});
+
+// A proposed plan as a PDF import produces it.
+function flightPlan(aircraft: Aircraft): FlightPlan {
+  return {
+    uuid: crypto.randomUUID(),
+    version: 0,
+    aircraftUuid: aircraft.uuid,
+    registration: aircraft.registration,
+    departureAt: "2026-09-30T22:05:00Z",
+    origin: "MZBZ",
+    destination: "KCHA",
+    alternate: "",
+    durationMinutes: 293,
+    cycles: 1,
+    landings: 1,
+    flightRules: "I",
+    aircraftType: "C441",
+    flightType: "G",
+    speed: "N0255",
+    level: "F270",
+    route: "DCT",
+    pilotText: "",
+    equipment: "",
+    otherInformation: "",
+    sourceName: "plan.pdf",
+    sourceHash: "a".repeat(64),
+    status: "proposed",
+    createdAt: 0,
+  };
+}
 
 it.each([
   [
