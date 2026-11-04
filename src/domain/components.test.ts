@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins component usage, requirement limits and status, and
- *   the component edit, service and attachment rules.
+ * Responsibility: Pins component usage, requirement limits and status, field
+ *   limits, and the component edit, service and attachment rules.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/components.ts, src/domain/management.ts,
  *   src/domain/model.ts, src/domain/rejection.ts, src/data/demo.ts and
@@ -8,6 +8,7 @@
  */
 import { applyThroughWorkOrder } from "../../tests/fixtures/componentMovement";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement } from "./management";
 import {
@@ -24,6 +25,16 @@ import {
   rebaseServicedRequirements,
   saveRequirement,
   componentAircraftSeconds,
+  componentSchema,
+  requirementSchema,
+  serviceFields,
+  COMPONENT_NOTES_MAX_LENGTH,
+  COMPONENT_TYPE_MAX_LENGTH,
+  COMPONENT_PART_ID_MAX_LENGTH,
+  PARTS_LOCATION_MAX_LENGTH,
+  INCOMING_TAG_FIELD_MAX_LENGTH,
+  REQUIREMENT_DESCRIPTION_MAX_LENGTH,
+  REQUIREMENT_WARNING_DEFAULTS,
   type Component,
   type ComponentRequirement,
 } from "./components";
@@ -760,6 +771,73 @@ it("warns 10 landings ahead by default and asks for a landing baseline before a 
     status({ ...unknownTso, dueLandings: 600 }, { ...c, installed: false }),
   ).toBe("Set landing baseline");
 });
+it("starts a new requirement's due-soon warnings at 25 h, 10 cycles, 10 landings and 1 month", () => {
+  expect(REQUIREMENT_WARNING_DEFAULTS).toEqual({
+    warningSeconds: 25 * 3600,
+    warningCycles: 10,
+    warningLandings: 10,
+    warningCalendarMonths: 1,
+  });
+});
+
+const parsesComponent = (patch: Partial<Component>) =>
+  componentSchema.safeParse({ ...base(), ...patch }).success;
+const parsesRequirement = (patch: Partial<ComponentRequirement>) =>
+  requirementSchema.safeParse({ ...requirement(), ...patch }).success;
+const parsesService = (partsLocation: string) =>
+  z
+    .object(serviceFields)
+    .safeParse({ operation: "remove", date: "2026-01-01", partsLocation })
+    .success;
+const TEXT_LIMITS: [string, number, (text: string) => boolean][] = [
+  [
+    "component notes",
+    COMPONENT_NOTES_MAX_LENGTH,
+    (notes) => parsesComponent({ notes }),
+  ],
+  [
+    "component type",
+    COMPONENT_TYPE_MAX_LENGTH,
+    (componentType) => parsesComponent({ componentType }),
+  ],
+  [
+    "part number",
+    COMPONENT_PART_ID_MAX_LENGTH,
+    (partNumber) => parsesComponent({ partNumber }),
+  ],
+  [
+    "serial number",
+    COMPONENT_PART_ID_MAX_LENGTH,
+    (serial) => parsesComponent({ serial }),
+  ],
+  [
+    "parts location",
+    PARTS_LOCATION_MAX_LENGTH,
+    (partsLocation) => parsesComponent({ partsLocation }),
+  ],
+  ["service parts location", PARTS_LOCATION_MAX_LENGTH, parsesService],
+  [
+    "incoming-tag field",
+    INCOMING_TAG_FIELD_MAX_LENGTH,
+    (company) => parsesComponent({ incomingTag: { company } }),
+  ],
+  [
+    "requirement description",
+    REQUIREMENT_DESCRIPTION_MAX_LENGTH,
+    (description) => parsesRequirement({ description }),
+  ],
+  [
+    "requirement notes",
+    COMPONENT_NOTES_MAX_LENGTH,
+    (notes) => parsesRequirement({ notes }),
+  ],
+];
+
+it.each(TEXT_LIMITS)("caps the %s at its exported limit", (_, max, parses) => {
+  expect(parses("x".repeat(max))).toBe(true);
+  expect(parses("x".repeat(max + 1))).toBe(false);
+});
+
 it("refuses calendar intervals that leave the supported dates", () => {
   expect(() => calendarDue("9999-12-15", 1, "MONTHS")).toThrow(
     "Calendar interval exceeds supported dates.",

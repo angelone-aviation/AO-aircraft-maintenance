@@ -61,6 +61,12 @@ import {
   tracking,
   requirementDueDate,
   POSITIONS,
+  COMPONENT_NOTES_MAX_LENGTH,
+  COMPONENT_PART_ID_MAX_LENGTH,
+  PARTS_LOCATION_MAX_LENGTH,
+  INCOMING_TAG_FIELD_MAX_LENGTH,
+  REQUIREMENT_DESCRIPTION_MAX_LENGTH,
+  REQUIREMENT_WARNING_DEFAULTS,
   type Component,
   type ComponentRequirement,
   type ComponentMovement,
@@ -113,18 +119,6 @@ import {
 } from "./ManagementShared";
 
 const SECONDS_PER_HOUR = 3600;
-// Input limits mirror componentSchema and requirementSchema
-// (src/domain/components/records.ts), which refuse longer values on save.
-const NOTES_MAX_LENGTH = 10_000;
-const PART_ID_MAX_LENGTH = 100;
-const PARTS_LOCATION_MAX_LENGTH = 150;
-const TAG_FIELD_MAX_LENGTH = 2000;
-const DESCRIPTION_MAX_LENGTH = 255;
-// What a new requirement's due-soon warnings start at.
-const DEFAULT_WARNING_SECONDS = 25 * SECONDS_PER_HOUR;
-const DEFAULT_WARNING_CYCLES = 10;
-const DEFAULT_WARNING_LANDINGS = 10;
-const DEFAULT_WARNING_MONTHS = 1;
 const COMPONENT_TYPES = [
   "Appliance",
   "Engine",
@@ -951,7 +945,7 @@ function NotesField({ label, initial }: { label: string; initial?: string }) {
       <textarea
         name="notes"
         defaultValue={initial}
-        maxLength={NOTES_MAX_LENGTH}
+        maxLength={COMPONENT_NOTES_MAX_LENGTH}
       />
     </Field>
   );
@@ -1006,7 +1000,7 @@ function ComponentIdentityFields({
           name="partNumber"
           defaultValue={record?.partNumber ?? defaults?.partNumber}
           required={inventoryOnly}
-          maxLength={PART_ID_MAX_LENGTH}
+          maxLength={COMPONENT_PART_ID_MAX_LENGTH}
         />
       </Field>
       <ModelFields record={record} defaults={defaults} />
@@ -1081,7 +1075,7 @@ function SerialFields({
         <input
           name="serial"
           defaultValue={record?.serial}
-          maxLength={PART_ID_MAX_LENGTH}
+          maxLength={COMPONENT_PART_ID_MAX_LENGTH}
           required={inventoryOnly}
         />
       </Field>
@@ -1254,7 +1248,7 @@ function IncomingTagFields({ record }: { record?: Component }) {
           <input
             name={`incomingTag_${key}`}
             defaultValue={record?.incomingTag?.[key] ?? ""}
-            maxLength={TAG_FIELD_MAX_LENGTH}
+            maxLength={INCOMING_TAG_FIELD_MAX_LENGTH}
           />
         </Field>
       ))}
@@ -1502,7 +1496,8 @@ function complianceFromForm(
     landingLimitMode: (value(d, "landingLimitMode") ||
       "FROM_LAST_COMPLIED") as ComponentRequirement["landingLimitMode"],
     landingReferenceAircraftUuid: track.landings ? c.aircraftUuid : undefined,
-    warningLandings: num(d, "warningLandings") ?? DEFAULT_WARNING_LANDINGS,
+    warningLandings:
+      num(d, "warningLandings") ?? REQUIREMENT_WARNING_DEFAULTS.warningLandings,
   };
 }
 
@@ -1557,7 +1552,7 @@ function RequirementBasics({ record }: { record?: RequirementInput }) {
         <input
           name="description"
           defaultValue={record?.description}
-          maxLength={DESCRIPTION_MAX_LENGTH}
+          maxLength={REQUIREMENT_DESCRIPTION_MAX_LENGTH}
           required
         />
       </Field>
@@ -1641,8 +1636,8 @@ function TimeLimits({ tracked, record }: LimitProps) {
           label="Due soon: component hours"
           decimal
           initial={
-            (record?.warningSeconds ?? DEFAULT_WARNING_SECONDS) /
-            SECONDS_PER_HOUR
+            (record?.warningSeconds ??
+              REQUIREMENT_WARNING_DEFAULTS.warningSeconds) / SECONDS_PER_HOUR
           }
           required
         />
@@ -1727,7 +1722,9 @@ function CycleLimits({ tracked, record }: LimitProps) {
         <NumberField
           name="warningCycles"
           label="Due soon: component cycles"
-          initial={record?.warningCycles ?? DEFAULT_WARNING_CYCLES}
+          initial={
+            record?.warningCycles ?? REQUIREMENT_WARNING_DEFAULTS.warningCycles
+          }
           required
         />
       </div>
@@ -1768,7 +1765,10 @@ function LandingLimits({ tracked, record }: LimitProps) {
         <NumberField
           name="warningLandings"
           label="Due soon: landings"
-          initial={record?.warningLandings ?? DEFAULT_WARNING_LANDINGS}
+          initial={
+            record?.warningLandings ??
+            REQUIREMENT_WARNING_DEFAULTS.warningLandings
+          }
         />
       </div>
     </TrackedFieldset>
@@ -1797,7 +1797,10 @@ function CalendarLimits({ tracked, record }: LimitProps) {
         <NumberField
           name="warningCalendarMonths"
           label="Due soon: calendar months"
-          initial={record?.warningCalendarMonths ?? DEFAULT_WARNING_MONTHS}
+          initial={
+            record?.warningCalendarMonths ??
+            REQUIREMENT_WARNING_DEFAULTS.warningCalendarMonths
+          }
           required
         />
       </div>

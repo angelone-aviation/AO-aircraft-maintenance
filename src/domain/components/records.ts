@@ -1,6 +1,7 @@
 /**
- * Responsibility: The stored shapes of components, their service requirements
- *   and movement history, and the error class for their usage refusals.
+ * Responsibility: The stored shapes and field limits of components, their
+ *   service requirements and movement history, and the error class for their
+ *   usage refusals.
  * Layer: Domain. Zod schemas and types; no I/O, no React.
  * Dependencies: zod; ../requiredParts, ../manuals, ../ata, ../rejection.
  */
@@ -10,7 +11,18 @@ import { manualReferenceSchema } from "../manuals";
 import { ataChapterSchema } from "../ata";
 import { Rejection } from "../rejection";
 
-const NOTES_MAX_LENGTH = 10_000;
+/** The longest notes a component or a requirement records. */
+export const COMPONENT_NOTES_MAX_LENGTH = 10_000;
+/** The longest component type a component records. */
+export const COMPONENT_TYPE_MAX_LENGTH = 100;
+/** The longest part number or serial number a component records. */
+export const COMPONENT_PART_ID_MAX_LENGTH = 100;
+/** The longest shelf, bin or room a component records within its location. */
+export const PARTS_LOCATION_MAX_LENGTH = 150;
+/** The longest value of one incoming-tag field. */
+export const INCOMING_TAG_FIELD_MAX_LENGTH = 2000;
+/** The longest description a requirement records. */
+export const REQUIREMENT_DESCRIPTION_MAX_LENGTH = 255;
 // About 1,000 years: a sanity bound on stored day counts, not a service rule.
 const MAX_SERVICE_DAYS = 365_000;
 
@@ -44,7 +56,9 @@ export const POSITIONS = [
 export const componentSchema = z.strictObject({
   outForRepair: z.object({ poUuid: z.string(), date: z.iso.date() }).optional(),
   parentComponentUuid: z.string().trim().min(1).optional(),
-  incomingTag: z.record(z.string(), z.string().max(2000)).optional(),
+  incomingTag: z
+    .record(z.string(), z.string().max(INCOMING_TAG_FIELD_MAX_LENGTH))
+    .optional(),
   model: z.string().trim().max(150).optional(),
   faaSearchModel: z.string().trim().max(150).optional(),
   manualReference: manualReferenceSchema.nullable().optional(),
@@ -55,12 +69,12 @@ export const componentSchema = z.strictObject({
   ataChapter: ataChapterSchema.optional(),
   aircraftUuid: z.string(),
   createdAt: count.optional(),
-  componentType: z.string().trim().min(1).max(100),
-  partNumber: z.string().trim().max(100),
-  serial: z.string().trim().max(100),
+  componentType: z.string().trim().min(1).max(COMPONENT_TYPE_MAX_LENGTH),
+  partNumber: z.string().trim().max(COMPONENT_PART_ID_MAX_LENGTH),
+  serial: z.string().trim().max(COMPONENT_PART_ID_MAX_LENGTH),
   expirationDate: date.optional(),
   manufacturer: z.string().trim().max(150),
-  notes: z.string().max(NOTES_MAX_LENGTH),
+  notes: z.string().max(COMPONENT_NOTES_MAX_LENGTH),
   usageMeter: z.enum(["aircraft", "collective"]).optional(),
   trackTime: z.boolean(),
   trackCycles: z.boolean(),
@@ -70,7 +84,7 @@ export const componentSchema = z.strictObject({
   removedDate: date.optional(),
   installPosition: z.enum(POSITIONS).optional(),
   locationUuid: z.string().trim().min(1).optional(),
-  partsLocation: z.string().trim().max(150).optional(),
+  partsLocation: z.string().trim().max(PARTS_LOCATION_MAX_LENGTH).optional(),
   installedSeconds: count,
   installedCycles: count,
   timeSinceNew: count,
@@ -106,8 +120,8 @@ export const requirementSchema = z.object({
     "Overhaul Requirement",
     "Inspection Requirement",
   ]),
-  description: z.string().trim().min(1).max(255),
-  notes: z.string().max(NOTES_MAX_LENGTH),
+  description: z.string().trim().min(1).max(REQUIREMENT_DESCRIPTION_MAX_LENGTH),
+  notes: z.string().max(COMPONENT_NOTES_MAX_LENGTH),
   lastDate: date.optional(),
   // A reset can place the previous compliance before zero on the new counter.
   lastSeconds: z.number().int().safe().optional(),
@@ -215,7 +229,12 @@ export const serviceFields = {
   aircraftUuid: z.string().optional(),
   installPosition: z.enum(POSITIONS).optional(),
   locationUuid: z.string().trim().min(1).optional(),
-  partsLocation: z.string().trim().min(1).max(150).optional(),
+  partsLocation: z
+    .string()
+    .trim()
+    .min(1)
+    .max(PARTS_LOCATION_MAX_LENGTH)
+    .optional(),
 };
 
 /** A service action as `serviceComponent` takes it. */

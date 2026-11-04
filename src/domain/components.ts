@@ -9,6 +9,12 @@
 export {
   ComponentUsageError,
   POSITIONS,
+  COMPONENT_NOTES_MAX_LENGTH,
+  COMPONENT_TYPE_MAX_LENGTH,
+  COMPONENT_PART_ID_MAX_LENGTH,
+  PARTS_LOCATION_MAX_LENGTH,
+  INCOMING_TAG_FIELD_MAX_LENGTH,
+  REQUIREMENT_DESCRIPTION_MAX_LENGTH,
   componentSchema,
   requirementSchema,
   movementSchema,
@@ -24,7 +30,11 @@ export {
   componentTotals,
 } from "./components/usage";
 export { calendarDue } from "./components/calendar";
-export { requirementDueDate, requirementStatus } from "./components/status";
+export {
+  REQUIREMENT_WARNING_DEFAULTS,
+  requirementDueDate,
+  requirementStatus,
+} from "./components/status";
 export {
   validateComponent,
   componentDescendants,
