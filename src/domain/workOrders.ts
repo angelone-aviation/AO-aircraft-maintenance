@@ -46,6 +46,7 @@ import {
 import { componentTotals, type Component } from "./components";
 import type { TaskCard } from "./taskCards";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
 
 const TEXT_MAX_LENGTH = 10_000;
 const ID_MAX_LENGTH = 200;
@@ -1079,18 +1080,19 @@ function archivedCardEntry(
   card: TaskCard,
   { programUuid, now }: Removal,
 ): AuditEntry {
-  return {
-    uuid: crypto.randomUUID(),
-    programUuid,
-    actorId: s.user.id,
-    at: now,
-    action: "taskCard.archived_with_task",
-    entityUuid: card.uuid,
-    aircraftUuid: next.aircraftUuid,
-    reason:
-      "Job card archived with its removed work-order task; signatures and evidence retained.",
-    before: JSON.stringify(card),
-  };
+  return auditEntry(
+    s,
+    {
+      programUuid,
+      action: "taskCard.archived_with_task",
+      entityUuid: card.uuid,
+      aircraftUuid: next.aircraftUuid,
+      reason:
+        "Job card archived with its removed work-order task; signatures and evidence retained.",
+      before: card,
+    },
+    now,
+  );
 }
 
 function assertItemsCompletable(
