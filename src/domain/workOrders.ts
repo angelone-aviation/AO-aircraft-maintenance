@@ -697,11 +697,10 @@ export function saveWorkOrder(
       command.action === "copyTemplates" ? undefined : existing,
       now,
     );
-  for (const task of next.tasks)
-    if (task.status === "completed") {
-      const issue = workItemCompletionIssue(isolated, next.uuid, task);
-      if (issue) throw new Error(issue);
-    }
+  for (const task of itemsCompletedNow(existing, next)) {
+    const issue = workItemCompletionIssue(isolated, next.uuid, task);
+    if (issue) throw new Error(issue);
+  }
   if (next.status === "completed") {
     next = {
       ...next,
@@ -755,4 +754,16 @@ export function validateWorkOrderFile(
     size > MAX_ACTION_FILE_BYTES
   )
     throw new Rejection("Choose a PDF, JPEG or PNG file up to 7 MB.");
+}
+
+// An item's job cards are checked on the save that completes it, not on every
+// later save: a template added to the library afterwards must neither lock the
+// order nor stop its copy being added to the completed item.
+function itemsCompletedNow(existing: WorkOrder | undefined, next: WorkOrder) {
+  return next.tasks.filter(
+    (task) =>
+      task.status === "completed" &&
+      existing?.tasks.find((prior) => prior.uuid === task.uuid)?.status !==
+        "completed",
+  );
 }
