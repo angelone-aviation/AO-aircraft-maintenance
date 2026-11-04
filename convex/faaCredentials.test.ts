@@ -1,9 +1,16 @@
+/**
+ * Responsibility: Pins the FAA key settings: who may replace the key, the FAA
+ *   check before a working key is discarded, the renewal date, and the
+ *   deployment key used until one is saved.
+ * Layer: Test. convex-test suite with a stubbed fetch; never shipped.
+ * Dependencies: convex/faaCredentials, convex/secrets, convex/schema.
+ */
 import { convexTest } from "convex-test";
-import { it, expect, vi } from "vitest";
+import { afterEach, it, expect, vi } from "vitest";
 import schema from "./schema";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { openSecret } from "./secrets";
-import { FAA_SECRET } from "./faaCredentials";
+import { FAA_SECRET, faaSecret } from "./faaCredentials";
 const ENCRYPTION_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -84,4 +91,118 @@ it("validates replacements, rejects non-admin and stale updates, and never expos
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   }
+});
+
+async function setupAdmin() {
+  const t = convexTest(schema, modules);
+  const subject = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("users", { active: true, isAdmin: true });
+    const session = await ctx.db.insert("authSessions", {
+      userId: id,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${id}|${session}`;
+  });
+  return { t, admin: t.withIdentity({ subject }) };
+}
+
+function stubFaa(body: string) {
+  const fetchMock = vi
+    .fn<typeof fetch>()
+    .mockImplementation(async () => new Response(body));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+it("needs a renewal date after today's UTC date, before contacting the FAA", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-03T23:30:00Z"));
+  // Ahead of UTC, so the local date is already November 4.
+  vi.stubEnv("TZ", "Pacific/Auckland");
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
+  const { admin } = await setupAdmin();
+  const fetchMock = stubFaa(JSON.stringify({ summary: {}, documents: [] }));
+  const args = { key: "synthetic-test-key-000001", version: 0 };
+  await expect(
+    admin.action(api.faaCredentials.replace, {
+      ...args,
+      expiresOn: "2026-11-03",
+    }),
+  ).rejects.toThrow("The renewal date must be in the future.");
+  expect(fetchMock).not.toHaveBeenCalled();
+  await admin.action(api.faaCredentials.replace, {
+    ...args,
+    expiresOn: "2026-11-04",
+  });
+});
+
+it("keeps the previous key when the FAA answers without results", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
+  const { t, admin } = await setupAdmin();
+  for (const body of [
+    "null",
+    JSON.stringify({ summary: {}, documents: {} }),
+    JSON.stringify({ summary: {}, documents: [], errorMessage: "Denied" }),
+  ]) {
+    stubFaa(body);
+    await expect(
+      admin.action(api.faaCredentials.replace, {
+        key: "synthetic-test-key-000001",
+        expiresOn: "2099-10-14",
+        version: 0,
+      }),
+    ).rejects.toThrow(
+      "FAA returned an unexpected response. The previous key is unchanged.",
+    );
+  }
+  expect(
+    await t.run((ctx) => ctx.db.query("faaCredentials").collect()),
+  ).toEqual([]);
+});
+
+it("uses the deployment key until an administrator saves one", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
+  vi.stubEnv("FAA_DRS_API_KEY", "deployment-key");
+  const { t, admin } = await setupAdmin();
+  expect(await t.action((ctx) => faaSecret(ctx))).toEqual({
+    key: "deployment-key",
+    expiresOn: "",
+  });
+  await t.mutation(internal.faaCredentials.initializeExpiry, {
+    expiresOn: "2099-01-31",
+  });
+  expect(await t.action((ctx) => faaSecret(ctx))).toEqual({
+    key: "deployment-key",
+    expiresOn: "2099-01-31",
+  });
+  stubFaa(JSON.stringify({ summary: {}, documents: [] }));
+  await admin.action(api.faaCredentials.replace, {
+    key: "synthetic-saved-key-0001",
+    expiresOn: "2099-10-14",
+    version: 1,
+  });
+  expect(await t.action((ctx) => faaSecret(ctx))).toEqual({
+    key: "synthetic-saved-key-0001",
+    expiresOn: "2099-10-14",
+  });
+});
+
+it("records an expiry only in YYYY-MM-DD form and only once", async () => {
+  const { t } = await setupAdmin();
+  await expect(
+    t.mutation(internal.faaCredentials.initializeExpiry, {
+      expiresOn: "2099-1-31",
+    }),
+  ).rejects.toThrow("Invalid date.");
+  for (const expiresOn of ["2099-01-31", "2099-12-31"])
+    await t.mutation(internal.faaCredentials.initializeExpiry, { expiresOn });
+  expect(
+    await t.run((ctx) => ctx.db.query("faaCredentials").unique()),
+  ).toMatchObject({ expiresOn: "2099-01-31", version: 1 });
 });
