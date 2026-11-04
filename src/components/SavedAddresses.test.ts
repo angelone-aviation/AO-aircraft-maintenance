@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins what the saved-address picker offers and fills in,
- *   when it saves an address first, and how the directory searches.
+ *   when it saves an address first, how the directory searches, and that both
+ *   clear a load error once a reload succeeds.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/SavedAddresses.tsx, react-dom/server,
  *   src/data/demo.ts (seed), src/domain/addresses.ts.
@@ -191,6 +192,12 @@ async function mount(element: Parameters<typeof renderToStaticMarkup>[0]) {
   return render(element);
 }
 
+// Sends the event every save sends, then runs the reload it starts.
+function reload(element: Parameters<typeof renderToStaticMarkup>[0]) {
+  window.dispatchEvent(new Event("saved-addresses-changed"));
+  return mount(element);
+}
+
 const picker = (props: Partial<Parameters<typeof SavedAddressPicker>[0]>) =>
   h(SavedAddressPicker, {
     label: "Ship to",
@@ -296,4 +303,25 @@ describe("SavedAddresses", () => {
     ui.workspace.snapshot = { ...s, activeProgramUuid: "" };
     expect(render(h(SavedAddresses))).toContain("No Flight Program selected");
   });
+});
+
+describe("both views", () => {
+  it.each([
+    ["picker", () => picker({})],
+    ["directory", () => h(SavedAddresses)],
+  ])(
+    "the %s clears a load error after a successful reload",
+    async (_, view) => {
+      const backend = ui.workspace.backend as { addressChoices: () => unknown };
+      const load = backend.addressChoices;
+      backend.addressChoices = async () => {
+        throw Error("Network down.");
+      };
+      expect(await mount(view())).toContain("Network down.");
+      backend.addressChoices = load;
+      const html = await reload(view());
+      expect(html).toContain("Main hangar");
+      expect(html).not.toContain("Network down.");
+    },
+  );
 });

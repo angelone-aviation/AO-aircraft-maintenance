@@ -110,6 +110,36 @@ function useAddressRevision() {
   return revision;
 }
 
+// Reloads after every save; a successful load clears the error shown.
+function useAddressChoices(programUuid: string) {
+  const { backend, connected } = useWorkspace();
+  const revision = useAddressRevision();
+  const [loaded, setLoaded] = useState(false);
+  const [choices, setChoices] = useState<AddressChoices>(EMPTY_CHOICES);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    if (backend && connected)
+      void backend
+        .addressChoices(programUuid)
+        .then((c) => {
+          if (!active) return;
+          setChoices(c);
+          setLoaded(true);
+          setError("");
+        })
+        .catch((e) => {
+          if (active) setError(errorText(e, LOAD_FAILED));
+        });
+    return () => {
+      active = false;
+    };
+  }, [backend, connected, programUuid, revision]);
+  const addSaved = (saved: SavedAddress) =>
+    setChoices((c) => ({ ...c, entries: withSaved(c.entries, saved) }));
+  return { choices, addSaved, loaded, error, setError };
+}
+
 function newSavedAddress(name = "", address = blankAddress()) {
   const input: SavedAddressInput = {
     uuid: crypto.randomUUID(),
@@ -244,40 +274,13 @@ function usePicker(
   inventoryLocationName: string | undefined,
   onChange: (address: Address) => void,
 ) {
-  const loaded = usePickerChoices(programUuid);
+  const loaded = useAddressChoices(programUuid);
   const [edit, setEdit] = useState<SavedAddressInput>();
   const [mode, setMode] = useState(inventoryLocationName ? "" : "saved");
   const location = loaded.choices.locations.find(
     (l) => l.name === inventoryLocationName,
   );
   return { ...loaded, edit, setEdit, mode, setMode, location, onChange };
-}
-
-function usePickerChoices(programUuid: string) {
-  const { backend, connected } = useWorkspace();
-  const revision = useAddressRevision();
-  const [loaded, setLoaded] = useState(false);
-  const [choices, setChoices] = useState<AddressChoices>(EMPTY_CHOICES);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    if (backend && connected)
-      void backend
-        .addressChoices(programUuid)
-        .then((c) => {
-          if (!active) return;
-          setChoices(c);
-          setLoaded(true);
-          setError("");
-        })
-        .catch((e) => {
-          if (active) setError(errorText(e, LOAD_FAILED));
-        });
-    return () => {
-      active = false;
-    };
-  }, [backend, connected, programUuid, revision]);
-  return { choices, setChoices, loaded, error, setError };
 }
 
 // A document's address matches an entry by name, text and confirmation.
@@ -344,7 +347,7 @@ function chooseSaved(p: Picker, choice: string) {
 }
 
 function applySaved(p: Picker, saved: SavedAddress) {
-  p.setChoices((c) => ({ ...c, entries: withSaved(c.entries, saved) }));
+  p.addSaved(saved);
   p.setMode("saved");
   p.onChange(structuredClone(saved.address));
   p.setEdit(undefined);
@@ -435,7 +438,8 @@ function PickerButtons({ p, view }: PartProps) {
 
 function Directory({ programUuid }: { programUuid: string }) {
   const { online, connected } = useWorkspace();
-  const { entries, setEntries, error } = useDirectoryEntries(programUuid);
+  const { choices, addSaved, error } = useAddressChoices(programUuid);
+  const { entries } = choices;
   const [search, setSearch] = useState("");
   const [edit, setEdit] = useState<SavedAddressInput>();
   const offline = !online || !connected;
@@ -465,37 +469,13 @@ function Directory({ programUuid }: { programUuid: string }) {
           initial={edit}
           onClose={() => setEdit(undefined)}
           onSaved={(saved) => {
-            setEntries((old) => withSaved(old, saved));
+            addSaved(saved);
             setEdit(undefined);
           }}
         />
       )}
     </>
   );
-}
-
-// Unlike the picker, a later successful load keeps an earlier load error.
-function useDirectoryEntries(programUuid: string) {
-  const revision = useAddressRevision();
-  const { backend, connected } = useWorkspace();
-  const [entries, setEntries] = useState<SavedAddress[]>([]);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    if (backend && connected)
-      void backend
-        .addressChoices(programUuid)
-        .then((c) => {
-          if (active) setEntries(c.entries);
-        })
-        .catch((e) => {
-          if (active) setError(errorText(e, LOAD_FAILED));
-        });
-    return () => {
-      active = false;
-    };
-  }, [backend, connected, programUuid, revision]);
-  return { entries, setEntries, error };
 }
 
 function matchesSearch(e: SavedAddress, search: string) {
