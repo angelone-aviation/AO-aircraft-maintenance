@@ -4,7 +4,7 @@
  *   queue would do to the aircraft's due items.
  * Layer: Domain. Zod schema, rules and an applier on a working snapshot; no
  *   I/O, no React.
- * Dependencies: zod, src/domain/model.ts, maintenance.ts, components.ts,
+ * Dependencies: zod, src/domain/model.ts, maintenance.ts, dueItems.ts,
  *   rejection.ts.
  */
 import { z } from "zod";
@@ -16,11 +16,7 @@ import {
   type Flight,
 } from "./model";
 import { inspectionStatus } from "./maintenance";
-import {
-  requirementStatus,
-  type Component,
-  type ComponentRequirement,
-} from "./components";
+import { dueItems, type RequirementDue } from "./dueItems";
 import { Rejection } from "./rejection";
 
 const MINUTE_SECONDS = 60;
@@ -292,6 +288,9 @@ function listFlags(
   ];
 }
 
+// Measured on the aircraft's own meters, not dueItems' counters: a component
+// inspection compares its limit with aircraft hours, and a missing component
+// is not flagged (characterized in the tests; T13 decides).
 function listInspectionFlags(
   s: Snapshot,
   projected: Aircraft,
@@ -312,39 +311,32 @@ function listInspectionFlags(
     });
 }
 
+// The requirements as they would stand after the queued flights, grouped by
+// component in record order.
 function listComponentFlags(
   s: Snapshot,
   projected: Aircraft,
   endDate: string,
 ): string[] {
   const records = s.management ?? [];
-  return records.flatMap((c) => {
-    if (c.kind !== "component" || !c.installed) return [];
-    if (c.aircraftUuid !== projected.uuid) return [];
-    return records.flatMap((r) =>
-      r.kind === "componentRequirement" && r.componentUuid === c.uuid
-        ? flagRequirement(r, c, projected, endDate)
-        : [],
-    );
-  });
+  const aircraft = s.aircraft.map((a) =>
+    a.uuid === projected.uuid ? projected : a,
+  );
+  return dueItems({ ...s, aircraft }, projected.uuid, endDate)
+    .filter((item) => item.kind === "componentRequirement")
+    .sort((x, y) => records.indexOf(x.component) - records.indexOf(y.component))
+    .flatMap(flagRequirement);
 }
 
-function flagRequirement(
-  r: ComponentRequirement,
-  c: Component,
-  projected: Aircraft,
-  endDate: string,
-): string[] {
-  // A projection that cannot be computed (for example, readings before the
-  // install baseline) is a flag, not a failure of the whole queue.
-  try {
-    const { status } = requirementStatus(r, c, projected, endDate);
-    return status === "Tracked"
-      ? []
-      : [`${c.componentType} / ${r.description}: ${status}`];
-  } catch {
+// A projection that cannot be computed (for example, readings before the
+// install baseline) is a flag, not a failure of the whole queue.
+function flagRequirement(item: RequirementDue): string[] {
+  const { requirement: r, component: c, due } = item;
+  if (!due)
     return [
       `${c.componentType}: verify installation baseline for planned date`,
     ];
-  }
+  return due.status === "Tracked"
+    ? []
+    : [`${c.componentType} / ${r.description}: ${due.status}`];
 }
