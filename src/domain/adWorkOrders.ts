@@ -3,14 +3,18 @@
  * Layer: Domain. Pure functions over the snapshot; no I/O, no React.
  * Dependencies: src/domain/airworthiness.ts, src/domain/model.ts (types).
  */
-import { adStatus, adTaskStatus, type AD, type ADTask } from "./airworthiness";
+import {
+  TRACKED_APPLICABILITY,
+  adStatus,
+  adTaskStatus,
+  isTrackedAD,
+  type AD,
+  type ADTask,
+} from "./airworthiness";
 import type { Snapshot } from "./model";
 
 /** The applicability decisions under which an AD's actions are tracked. */
-export const TRACKED_AD_APPLICABILITY: readonly AD["applicability"][] = [
-  "Applicable",
-  "Previously Complied With (PCW)",
-];
+export const TRACKED_AD_APPLICABILITY = TRACKED_APPLICABILITY;
 
 /** The action and AD statuses with something due for a work order to do. */
 export const OPEN_AD_STATUSES: readonly string[] = [
@@ -34,12 +38,7 @@ export function adWorkOrderTasks(
   r: AD,
   taskUuid?: string,
 ): ADTask[] {
-  if (
-    r.reviewRequired ||
-    !TRACKED_AD_APPLICABILITY.includes(r.applicability) ||
-    adStatus(s, r) === "Removed component"
-  )
-    return [];
+  if (!isTrackedAD(r) || adStatus(s, r) === "Removed component") return [];
   return r.tasks.filter(
     (task) =>
       (!taskUuid || task.uuid === taskUuid) &&

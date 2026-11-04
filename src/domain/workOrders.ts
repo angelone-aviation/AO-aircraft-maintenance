@@ -4,7 +4,7 @@
  *   every work-order command runs through (saveWorkOrder).
  * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
  * Dependencies: zod, ./model, ./programs, ./components, ./adOwnership,
- *   ./airworthiness, ./componentInventory, ./inventoryAttachments,
+ *   ./airworthiness, ./changeLog, ./componentInventory, ./inventoryAttachments,
  *   ./logbookWording, ./rejection, ./taskCards (types) and the ./workOrder*
  *   modules.
  */
