@@ -7,29 +7,21 @@
  *   ./programContext, src/domain/costs.
  */
 import { mutation, type MutationCtx } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
+import { v } from "convex/values";
 import {
   managementDocs,
   partsRequestDocs,
   taskCardDocs,
   archivedTaskCardDocs,
 } from "./programContext";
-import { runCommand, hydrate, plainErrors } from "./runCommand";
-import { decode } from "./collections";
+import { runCommand, hydrate, plainErrors, writeChanged } from "./runCommand";
+import { decode, encode } from "./collections";
 import type { Snapshot } from "../src/domain/model";
 import {
   applyCostCommand,
   costCommandSchema,
   type CostCommand,
-  type CostRecord,
 } from "../src/domain/costs";
-
-const row = (next: CostRecord) => ({
-  uuid: next.uuid,
-  programUuid: next.programUuid,
-  aircraftUuid: next.kind === "settings" ? "" : next.aircraftUuid,
-  payload: JSON.stringify(next),
-});
 
 /**
  * Applies one cost command to the active Flight Program's cost records. An
@@ -56,27 +48,18 @@ export const execute = mutation({
       apply: ({ s }, command) => applyCostCommand(s, command),
       // Explicit domain validation messages are safe, actionable feedback.
       expose: plainErrors,
-      persist: async ({ ctx }, { docs }, next) => {
-        const fields = row(next);
-        const prior = docs.find((d) => d.uuid === next.uuid);
-        if (prior) {
-          if (prior.payload !== fields.payload)
-            await ctx.db.replace(prior._id, fields);
-        } else if (
-          await ctx.db
-            .query("costs")
-            .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
-            .first()
-        )
-          // A uuid outside the active program is never overwritten.
-          throw new ConvexError(
-            "Cost record belongs to another Flight Program.",
-          );
-        else await ctx.db.insert("costs", fields);
-      },
+      persist: ({ ctx }, { docs }, next) =>
+        writeChanged(
+          ctx,
+          "costs",
+          docs,
+          [next],
+          "Cost record belongs to another Flight Program.",
+        ),
       audit: (log, { s, docs }, next) => {
         const prior = docs.find((d) => d.uuid === next.uuid);
-        if (prior?.payload !== row(next).payload) log.record(s.audit);
+        if (prior?.payload !== encode("costs", next).payload)
+          log.record(s.audit);
       },
       returns: (next) => next.uuid,
     }),

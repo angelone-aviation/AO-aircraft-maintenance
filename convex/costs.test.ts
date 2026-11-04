@@ -1,12 +1,13 @@
 /**
  * Responsibility: Pins cost records: who may see and set money, how labor
- *   is stored, program isolation, closed work orders and part unit costs.
+ *   is stored, program isolation, closed work orders, part unit costs, and a
+ *   record uuid another Flight Program holds.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/costs, convex/workOrders, convex/operations,
  *   src/data/demo, src/domain/costs, tests/fixtures/workOrders.
  */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
@@ -313,6 +314,33 @@ it("sets and clears a part's unit cost for parts issued to the work order or its
   expect(
     view!.audit.filter((a) => a.action === "cost.part.unitCost"),
   ).toHaveLength(3);
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+it("refuses a new cost record whose uuid another Flight Program holds, and writes nothing", async () => {
+  const { t, admin, outsider } = await fixture();
+  await run(
+    outsider,
+    { action: "settings.laborRate", laborRateCents: 1 },
+    "other",
+  );
+  const stored = () =>
+    t.run(async (ctx) => ({
+      costs: await ctx.db.query("costs").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  const before = await stored();
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(
+    before.costs[0].uuid as ReturnType<typeof crypto.randomUUID>,
+  );
+  await expect(
+    run(admin, { action: "settings.laborRate", laborRateCents: 9500 }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Cost record belongs to another Flight Program.",
+  });
+  expect(await stored()).toEqual(before);
 });
 
 // Issues stock-0 to a task of the order, and stock-1 to a job card the order
