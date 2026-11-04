@@ -1,7 +1,8 @@
 /**
  * Responsibility: The core records (aircraft, flights, discrepancies,
  *   inspections, audit entries), the Snapshot read model, the offline outbox
- *   entry, and the shared permission, meter, hours and local-date rules.
+ *   entry, and the shared permission, pilot, counter, hours and local-date
+ *   rules.
  * Layer: Domain. Pure types, zod schemas and functions; no I/O, no React.
  * Dependencies: zod; src/domain/flightFluids.ts, flightChecklistSchema.ts,
  *   programs.ts, readings.ts and rejection.ts; types from the feature modules.
@@ -23,8 +24,13 @@ const HOUR_MS = HOUR_SECONDS * 1000;
 const FURTHEST_BEHIND_UTC_MS = 12 * HOUR_MS;
 const FURTHEST_AHEAD_OF_UTC_MS = 14 * HOUR_MS;
 
-const NOTE_MAX_LENGTH = 5000;
-const FLIGHT_COUNT_MAX = 1000;
+/** The longest flight remark, flight discrepancy or problem report. */
+export const NOTE_MAX_LENGTH = 5000;
+/** The most landings, or cycles, that one flight may log. */
+export const FLIGHT_COUNT_MAX = 1000;
+/** The longest origin or destination a flight may name. */
+export const FLIGHT_PLACE_MAX_LENGTH = 100;
+const ENGINE_START_CYCLES_MODEL = "R66";
 
 /**
  * The permissions a group grants over its aircraft (GLOSSARY "Permission
@@ -160,8 +166,8 @@ export const flightInputSchema = z.object({
   flightTimeLogOn: meterReadingSchema.optional(),
   landings: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
   cycles: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
-  origin: z.string().max(100),
-  destination: z.string().max(100),
+  origin: z.string().max(FLIGHT_PLACE_MAX_LENGTH),
+  destination: z.string().max(FLIGHT_PLACE_MAX_LENGTH),
   operation: z.enum([
     "Gov medical",
     "Mission medical",
@@ -403,6 +409,19 @@ export function can(
 }
 
 /**
+ * Whether a member may be chosen as a flight's pilot or copilot: active, and
+ * not marked unavailable for the active Flight Program.
+ *
+ * @param m - The member.
+ * @returns True when available.
+ */
+export function isAvailablePilot(
+  m: Pick<Member, "active" | "availableAsPilot">,
+): boolean {
+  return m.active && m.availableAsPilot !== false;
+}
+
+/**
  * Whether a cached snapshot may open: an active user, signed in no later than
  * `now` and less than {@link OFFLINE_WINDOW} before it.
  *
@@ -425,6 +444,16 @@ export const aircraftMeterLabels = {
   cyclic: "Collective hourmeter",
   flightTimeLog: "Flight time log",
 };
+
+/**
+ * Whether an aircraft model's cycles are its engine starts, as on the R66.
+ *
+ * @param model - The aircraft model, matched trimmed and ignoring case.
+ * @returns True for the R66.
+ */
+export function logsEngineStartsAsCycles(model: string): boolean {
+  return model.trim().toUpperCase() === ENGINE_START_CYCLES_MODEL;
+}
 
 /**
  * The aircraft's current reading on its own meter.

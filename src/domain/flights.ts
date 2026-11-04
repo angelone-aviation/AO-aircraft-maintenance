@@ -1,7 +1,7 @@
 /**
- * Responsibility: Flight rules on an aircraft's counters: the reading a flight
- *   needs, when it is held for review, how it advances the counters, and the
- *   replay of the flight history after a correction.
+ * Responsibility: Flight rules on an aircraft's counters: the readings and
+ *   entries a flight needs, when it is held for review, how it advances the
+ *   counters, and the replay of the flight history after a correction.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts, src/domain/fleet.ts,
  *   src/domain/rejection.ts.
@@ -93,6 +93,38 @@ export function flightEnginePositions(
       : ["single"];
   if (!aircraft.turbine) return [];
   return aircraft.twin ? ["left", "right"] : ["single"];
+}
+
+/**
+ * The entries beyond Hobbs and tach that a flight records: the collective
+ * hourmeter on a helicopter, the flight time log on an aircraft that keeps
+ * one, and the landing surface on an amphibian. Each is also recorded when it
+ * is the meter the flight needs, or when the flight already holds it, so a
+ * correction keeps it.
+ *
+ * @param aircraft - The aircraft's profile.
+ * @param meter - The meter the flight's hours are read from, if known.
+ * @param flight - The flight being edited or prefilled, if any.
+ * @returns Whether each entry is recorded.
+ */
+export function flightOptionalEntries(
+  aircraft: Pick<Aircraft, "helicopter" | "flightTimeLog" | "amphibious">,
+  meter?: Aircraft["meter"],
+  flight?: Partial<
+    Pick<FlightInput, "cyclicHobbsOn" | "flightTimeLogOn" | "landingSurface">
+  >,
+): { cyclic: boolean; flightTimeLog: boolean; landingSurface: boolean } {
+  return {
+    cyclic:
+      !!aircraft.helicopter ||
+      meter === "cyclic" ||
+      flight?.cyclicHobbsOn !== undefined,
+    flightTimeLog:
+      !!aircraft.flightTimeLog ||
+      meter === "flightTimeLog" ||
+      flight?.flightTimeLogOn !== undefined,
+    landingSurface: !!aircraft.amphibious || flight?.landingSurface != null,
+  };
 }
 
 /**
