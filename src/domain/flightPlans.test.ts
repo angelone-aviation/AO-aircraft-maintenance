@@ -509,11 +509,8 @@ describe("plan refusals and queue order", () => {
 });
 
 describe("queue flags on the due fleet", () => {
-  // Characterizes current behaviour: inspections are measured on the
-  // aircraft's own meters, so a component inspection (i-gear) compares its
-  // component-hour limit with aircraft hours, and one whose component is
-  // missing (i-missing) is not flagged. Component flags follow component
-  // order, so r-early's flag comes after the pump's.
+  // Component flags follow component order, so r-early's flag comes after
+  // the pump's.
   it("flags inspections, then each component's requirements", () => {
     const { s, a } = dueFleet();
     const early = s.management!.find((r) => r.uuid === "r-early")!;
@@ -528,13 +525,33 @@ describe("queue flags on the due fleet", () => {
       "i-zero: Due before further Flight",
       "i-cycles: due-soon",
       ": unknown",
-      "i-gear: Due before further Flight",
+      "i-missing: Inspection component not found.",
       "Type pump / r-now limit: Past due",
       "Type pump / r-today limit: Past due",
       "Type pump / r-landing limit: Set landing baseline",
       "Type early / r-early limit: Due now",
       "Type gear / r-gear-tso limit: Set time baseline",
     ]);
+  });
+
+  it("measures a component inspection on the component's hours", () => {
+    const { s, a } = dueFleet();
+    const gearCheck = s.inspections.find((i) => i.uuid === "i-gear")!;
+    s.flightPlans = [{ ...draft(), durationMinutes: 60 }];
+    const flagged = () =>
+      projectQueue(s, a.uuid)[0].flags.filter((f) => f.startsWith("i-gear"));
+    expect(totalSeconds(a)).toBeGreaterThan(210 * 3600);
+    expect(flagged()).toEqual([]);
+    gearCheck.dueSeconds = 100.5 * 3600;
+    expect(flagged()).toEqual(["i-gear: Due before further Flight"]);
+  });
+
+  it("flags an inspection it cannot project instead of failing the queue", () => {
+    const { s, c } = dueFleet();
+    s.flightPlans = [{ ...draft(), aircraftUuid: c.uuid, durationMinutes: 60 }];
+    expect(projectQueue(s, c.uuid)[0].flags).toContain(
+      "i-collective: Collective component tracking requires a helicopter collective hourmeter reading.",
+    );
   });
 
   it("flags a requirement it cannot project instead of failing the queue", () => {

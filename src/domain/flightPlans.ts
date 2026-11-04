@@ -4,8 +4,7 @@
  *   queue would do to the aircraft's due items.
  * Layer: Domain. Zod schema, rules and an applier on a working snapshot; no
  *   I/O, no React.
- * Dependencies: zod, src/domain/model.ts, maintenance.ts, dueItems.ts,
- *   rejection.ts.
+ * Dependencies: zod, src/domain/model.ts, dueItems.ts, rejection.ts.
  */
 import { z } from "zod";
 import {
@@ -15,8 +14,7 @@ import {
   type Snapshot,
   type Flight,
 } from "./model";
-import { inspectionStatus } from "./maintenance";
-import { dueItems, type RequirementDue } from "./dueItems";
+import { dueItems, type MaintenanceDue, type RequirementDue } from "./dueItems";
 import { Rejection } from "./rejection";
 
 const MINUTE_SECONDS = 60;
@@ -185,7 +183,7 @@ export function validatePlanFlight(
  *   cumulative minutes and cycles, its end time, the projected total seconds,
  *   and flags for a flight awaiting review, a status other than airworthy,
  *   open discrepancies, inspections and component requirements due by the
- *   flight's end (UTC date).
+ *   flight's end (UTC date), and those it cannot measure.
  */
 export function projectQueue(s: Snapshot, aircraftUuid: string) {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
@@ -281,48 +279,45 @@ function listFlags(
   for (const d of s.discrepancies)
     if (d.aircraftUuid === projected.uuid && d.status === "open")
       flags.push(`Open discrepancy: ${d.description}`);
+  const due = listProjectedDue(s, projected, endDate);
   return [
     ...flags,
-    ...listInspectionFlags(s, projected, endDate),
-    ...listComponentFlags(s, projected, endDate),
+    ...due.flatMap(flagInspection),
+    ...listComponentFlags(s, due),
   ];
 }
 
-// Measured on the aircraft's own meters, not dueItems' counters: a component
-// inspection compares its limit with aircraft hours, and a missing component
-// is not flagged (characterized in the tests; T13 decides).
-function listInspectionFlags(
-  s: Snapshot,
-  projected: Aircraft,
-  endDate: string,
-): string[] {
-  return s.inspections
-    .filter((i) => i.aircraftUuid === projected.uuid && !i.archived)
-    .flatMap((i) => {
-      const due = inspectionStatus(i, projected, endDate);
-      if (due.status === "scheduled") return [];
-      const passed =
-        (due.daysRemaining !== undefined && due.daysRemaining < 0) ||
-        (due.hoursRemaining !== undefined && due.hoursRemaining <= 0);
-      if (passed) return [`${i.reference}: Due before further Flight`];
-      const message =
-        due.status === "overdue" ? "due by flight end" : due.status;
-      return [`${i.reference}: ${message}`];
-    });
-}
-
-// The requirements as they would stand after the queued flights, grouped by
-// component in record order.
-function listComponentFlags(
-  s: Snapshot,
-  projected: Aircraft,
-  endDate: string,
-): string[] {
-  const records = s.management ?? [];
+// The due items as they would stand after the queued flights.
+function listProjectedDue(s: Snapshot, projected: Aircraft, endDate: string) {
   const aircraft = s.aircraft.map((a) =>
     a.uuid === projected.uuid ? projected : a,
   );
-  return dueItems({ ...s, aircraft }, projected.uuid, endDate)
+  return dueItems({ ...s, aircraft }, projected.uuid, endDate);
+}
+
+// A component inspection is measured on its component's hours and cycles. One
+// that cannot be measured (its component missing, a meter reading absent) is
+// a flag with the refusal's message, not a failure of the whole queue.
+function flagInspection(item: MaintenanceDue): string[] {
+  if (item.kind !== "inspection") return [];
+  const { inspection: i, due, error } = item;
+  if (!due) {
+    if (!(error instanceof Rejection)) throw error;
+    return [`${i.reference}: ${error.message}`];
+  }
+  if (due.status === "scheduled") return [];
+  const passed =
+    (due.daysRemaining !== undefined && due.daysRemaining < 0) ||
+    (due.hoursRemaining !== undefined && due.hoursRemaining <= 0);
+  if (passed) return [`${i.reference}: Due before further Flight`];
+  const message = due.status === "overdue" ? "due by flight end" : due.status;
+  return [`${i.reference}: ${message}`];
+}
+
+// Grouped by component in record order.
+function listComponentFlags(s: Snapshot, due: MaintenanceDue[]): string[] {
+  const records = s.management ?? [];
+  return due
     .filter((item) => item.kind === "componentRequirement")
     .sort((x, y) => records.indexOf(x.component) - records.indexOf(y.component))
     .flatMap(flagRequirement);
