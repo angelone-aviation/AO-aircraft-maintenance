@@ -3,10 +3,10 @@
  *   components and their requirements, inspections) changed as one command.
  * Layer: Server. A public mutation through runCommand; the rules are the
  *   domain's applyManagement.
- * Dependencies: convex/runCommand, convex/access, src/domain (programs,
+ * Dependencies: convex/runCommand, convex/access, src/domain (changeLog,
  *   management, model).
  */
-import { activeProgram } from "../src/domain/programs";
+import { auditEntry } from "../src/domain/changeLog";
 import { mutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { currentUser } from "./access";
@@ -31,9 +31,9 @@ type ManagementDocs = Pick<LoadedDocs, "management" | "inspections">;
 
 /**
  * Applies one inventory or inspection command in the caller's Flight Program;
- * a replayed request id changes nothing. Audits the command's action, and
- * `inspection.component_transferred` for each inspection that moved with its
- * component.
+ * a replayed request id changes nothing. Logs an
+ * `inspection.component_transferred` row for each inspection that moved with
+ * its component, then the applier's entry for the command.
  *
  * @param payload - JSON, as `managementCommandSchema`.
  * @param programUuid - The caller's active Flight Program.
@@ -56,21 +56,19 @@ export const execute = mutation({
         else await writeInspection(ctx, docs.inspections, result.next);
       },
       audit: (log, { snapshot, docs }, result, command) => {
-        if ("kind" in result.next)
-          for (const inspection of result.updatedInspections)
-            log.entry("inspection.component_transferred", inspection.uuid, {
+        log.replay(
+          result.updatedInspections.map((inspection) =>
+            auditEntry(snapshot, {
+              action: "inspection.component_transferred",
+              entityUuid: inspection.uuid,
               aircraftUuid: inspection.aircraftUuid,
               reason: command.reason,
               before: docs.inspections.find((i) => i.uuid === inspection.uuid),
               after: inspection,
-            });
-        log.entry(snapshot.audit[0].action, result.next.uuid, {
-          programUuid: activeProgram(snapshot),
-          aircraftUuid: result.aircraftUuid,
-          reason: command.reason,
-          before: result.before,
-          after: result.next,
-        });
+            }),
+          ),
+        );
+        log.replay(snapshot.audit);
       },
     }),
 });

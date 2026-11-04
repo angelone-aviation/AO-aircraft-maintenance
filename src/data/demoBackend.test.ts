@@ -21,8 +21,8 @@
  * resolution, parts, checklist, job-card, flight-plan and template-deletion
  * rows named no Flight Program, a resolution row held the whole report after,
  * where the server keeps the resolved fields, and it logged no component
- * template save or setup. Before T12's final round its flight submission and
- * review rows named none either.
+ * template save or setup. Before T12's final round its flight submission,
+ * flight review and work-order rows named none either.
  * Before Batch 273 it took any number of attachments. Before Batch 285 it
  * audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
@@ -1182,6 +1182,19 @@ it.each<[string, Partial<typeof GROUP> & { allAircraft?: boolean }, string]>([
     expect(await stored()).toEqual(before);
   },
 );
+
+it("logs a work-order save under the aircraft's program, as the server does", async () => {
+  const { backend, stored } = await demo("demo-work-order");
+  const command = workOrderCommand();
+  await backend.workOrder(command);
+  const [row] = (await stored()).audit;
+  expect(row).toMatchObject({
+    action: "workOrder.save",
+    entityUuid: command.uuid,
+    programUuid: "demo-program",
+    aircraftUuid: command.fields.aircraftUuid,
+  });
+});
 
 it("serves each open work order once when a recurring parts list is saved", async () => {
   let order = "";

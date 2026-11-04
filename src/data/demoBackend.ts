@@ -52,6 +52,7 @@ import { applyFaaCommand, emptyMonitor, faaCommandSchema } from "../domain/faa";
 import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
+import { auditEntry } from "../domain/changeLog";
 import { reviewFlight } from "../domain/flightReview";
 import { saveChecklist } from "../domain/checklists";
 import {
@@ -413,16 +414,19 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         const before = s.workOrders?.find((w) => w.uuid === command.uuid);
         const after = saveWorkOrder(s, command);
         generateRecurringRequests(s, after);
-        audit(
-          s,
-          "workOrder." + command.action,
-          after.uuid,
-          after.aircraftUuid,
-          command.action === "revise" || command.action === "correctComponent"
-            ? command.reason
-            : undefined,
-          before,
-          after,
+        s.audit.unshift(
+          auditEntry(s, {
+            action: "workOrder." + command.action,
+            entityUuid: after.uuid,
+            aircraftUuid: after.aircraftUuid,
+            reason:
+              command.action === "revise" ||
+              command.action === "correctComponent"
+                ? command.reason
+                : undefined,
+            before,
+            after,
+          }),
         );
       }),
     attachInventoryFile: async (stockUuid, file) => {

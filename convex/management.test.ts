@@ -695,3 +695,74 @@ it("refuses a new record or inspection whose uuid another program uses, as a Con
       data: "Record belongs to another Flight Program.",
     });
 });
+
+it("logs an inspection that follows its component under the aircraft's program", async () => {
+  const { t, admin, ids } = await fixture();
+  const b = { ...ids.a, uuid: "aircraft-b", registration: "TEST-B" };
+  const execute = (command: unknown) =>
+    admin.mutation(api.management.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(command),
+    });
+  const baseline = {
+    installedSeconds: 0,
+    installedCycles: 0,
+    timeSinceNew: 360000,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+    cyclesSinceNew: 100,
+    serviceDaysBase: 10,
+  };
+  await execute({
+    ...common(),
+    action: "record.save",
+    record: {
+      kind: "component",
+      uuid: "tracked",
+      version: 0,
+      aircraftUuid: ids.a.uuid,
+      componentType: "Pump",
+      notes: "",
+      partNumber: "PUMP",
+      serial: "S",
+      manufacturer: "Example",
+      trackTime: true,
+      trackCycles: true,
+      trackCalendar: true,
+      installed: false,
+      partsLocation: "Shelf A",
+      ...baseline,
+    },
+  });
+  // Damaged data: the component's inspection was left on another aircraft.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("aircraft", b);
+    await ctx.db.insert("inspections", {
+      uuid: "linked",
+      version: 0,
+      aircraftUuid: b.uuid,
+      componentUuid: "tracked",
+      reference: "Pump inspection",
+      description: "Inspect pump",
+      materials: "",
+      archived: false,
+      dueSeconds: 540000,
+    });
+  });
+  await execute({
+    ...common(),
+    action: "component.baseline",
+    uuid: "tracked",
+    version: 1,
+    reason: "Logbook reconciliation",
+    ...baseline,
+  });
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(rows.map((r) => [r.action, r.entityUuid, r.programUuid])).toEqual([
+    ["record.save", "tracked", "demo-program"],
+    // Named no program before T12's final round.
+    ["inspection.component_transferred", "linked", "demo-program"],
+    ["component.baseline", "tracked", "demo-program"],
+  ]);
+  expect(rows[1].aircraftUuid).toBe(ids.a.uuid);
+});

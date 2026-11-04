@@ -5,11 +5,12 @@
  *   attachment functions check access themselves. Every change is audited.
  * Dependencies: convex (runCommand, programContext, access, attachments,
  *   management, recurringParts, workOrderCopies, userErrors), src/domain
- *   (workOrders, model).
+ *   (workOrders, model, changeLog).
  */
 import { prepareRecurringParts } from "./recurringParts";
 import { ConvexError, v } from "convex/values";
 import { can, type Snapshot } from "../src/domain/model";
+import { auditEntry } from "../src/domain/changeLog";
 import { queueTemplateCopies } from "./workOrderCopies";
 import {
   mutation,
@@ -87,18 +88,22 @@ export const save = mutation({
       }),
       afterApply: scheduleJobs,
       persist: persistWorkOrder,
-      audit: (log, { working, previous }, { next }, command) => {
-        log.replay(working.audit);
-        log.entry("workOrder." + command.action, next.uuid, {
-          aircraftUuid: next.aircraftUuid,
-          before: previous,
-          after: next,
-          reason:
-            command.action === "revise" || command.action === "correctComponent"
-              ? command.reason
-              : undefined,
-        });
-      },
+      audit: (log, { working, previous }, { next }, command) =>
+        log.replay([
+          ...working.audit,
+          auditEntry(working, {
+            action: "workOrder." + command.action,
+            entityUuid: next.uuid,
+            aircraftUuid: next.aircraftUuid,
+            before: previous,
+            after: next,
+            reason:
+              command.action === "revise" ||
+              command.action === "correctComponent"
+                ? command.reason
+                : undefined,
+          }),
+        ]),
       returns: ({ next }) => next.uuid,
     }),
 });

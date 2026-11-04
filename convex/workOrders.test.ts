@@ -89,6 +89,10 @@ it("persists work orders and audit entries; rejects unauthorized, stale and cros
     demoSnapshot().aircraft[0].registration,
   );
   expect(snapshot?.audit.some((a) => a.action === "workOrder.save")).toBe(true);
+  // The row names the aircraft's program (none before T12's final round).
+  expect(
+    snapshot?.audit.find((a) => a.action === "workOrder.save")?.programUuid,
+  ).toBe(PROGRAM);
   await expect(tech.mutation(api.workOrders.save, args)).rejects.toThrow(
     "changed",
   );
