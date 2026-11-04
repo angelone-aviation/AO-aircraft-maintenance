@@ -27,6 +27,27 @@ import {
   searchFAA,
   type FaaSearchResult,
 } from "../src/domain/faaSearch";
+
+/** FAA requests one Flight Program may make per UTC day. */
+export const FAA_PROGRAM_DAILY = 500;
+
+/** FAA requests all Flight Programs together may make per UTC day. */
+export const FAA_GLOBAL_DAILY = 5000;
+
+const USER_SEARCHES_PER_MINUTE = 10;
+
+/**
+ * Checks a search before the FAA is asked: maintenance permission on the
+ * aircraft, and every selected component still installed on it.
+ *
+ * @param payload - JSON, as `faaSearchSchema`.
+ * @param programUuid - The caller's active Flight Program.
+ * @returns The parsed search.
+ * @throws {ConvexError} "Aircraft maintenance permission required."; "A
+ *   selected component is no longer installed on this aircraft. Refresh the
+ *   search form."
+ * @throws As `checkContext`, first; a ZodError for an invalid payload.
+ */
 export const authorize = internalQuery({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -46,9 +67,17 @@ export const authorize = internalQuery({
     return input;
   },
 });
-export const FAA_PROGRAM_DAILY = 500;
-export const FAA_GLOBAL_DAILY = 5000;
-// FAA requests per UTC day, shared by searches and monitoring runs.
+
+/**
+ * Spends `requests` of the program's daily FAA allowance, then of the global
+ * one; searches and monitoring runs share both.
+ *
+ * @param programUuid - The program charged.
+ * @param requests - How many FAA requests to count.
+ * @throws {ConvexError} "This Flight Program's FAA search allowance for today
+ *   is used. Try again tomorrow."; "Today's FAA search allowance is used. Try
+ *   again tomorrow."
+ */
 export async function chargeFaaAllowance(
   ctx: MutationCtx,
   programUuid: string,
@@ -71,7 +100,18 @@ export async function chargeFaaAllowance(
     requests,
   );
 }
-// Shares one FAA key across tenants; keep each user and program to a fair slice.
+
+/**
+ * Admits one search: at most 10 a minute per user, then one request of the
+ * daily allowances. Every program shares the one FAA key, so each user and
+ * program is kept to a fair slice.
+ *
+ * @param programUuid - The caller's active Flight Program.
+ * @returns null.
+ * @throws {ConvexError} "Too many FAA searches. Wait a minute and try
+ *   again."; the {@link chargeFaaAllowance} refusals.
+ * @throws As `checkContext`, first.
+ */
 export const reserve = internalMutation({
   args: { programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -79,7 +119,7 @@ export const reserve = internalMutation({
     await consume(
       ctx,
       `faa:user:${s.user.id}`,
-      10,
+      USER_SEARCHES_PER_MINUTE,
       MINUTE,
       "Too many FAA searches. Wait a minute and try again.",
     );
@@ -87,6 +127,18 @@ export const reserve = internalMutation({
     return null;
   },
 });
+
+/**
+ * Searches FAA DRS for ADs matching the aircraft and its selected components.
+ *
+ * @param payload - JSON, as `faaSearchSchema`.
+ * @param programUuid - The caller's active Flight Program.
+ * @returns The matching ADs, as `searchFAA` merges them.
+ * @throws {ConvexError} In order: {@link authorize}'s refusals; "Configure the
+ *   FAA API key …"; "Renew the FAA API key before searching." from its expiry
+ *   date on; {@link reserve}'s; `searchFAA`'s; {@link authorize}'s again.
+ * @throws As `searchFAA`, for an FAA failure.
+ */
 export const search = action({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
   handler: async (ctx, args): Promise<FaaSearchResult[]> => {
@@ -105,6 +157,8 @@ export const search = action({
       programUuid: args.programUuid,
     });
     const result = await exposeRejections(searchFAA(credential.key, input));
+    // The search can take many FAA requests; access or the installed
+    // components may have changed meanwhile.
     await ctx.runQuery(internal.faaSearch.authorize, args);
     return result;
   },
