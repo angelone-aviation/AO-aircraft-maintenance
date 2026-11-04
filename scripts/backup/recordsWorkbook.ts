@@ -11,7 +11,12 @@
  * what the app says.
  */
 import { parseArgs } from "node:util";
-import { readExportSnapshot } from "./exportSnapshot";
+import {
+  readExportSnapshot,
+  type DamagedRecord,
+  type RecordCollection,
+  type StoredPayload,
+} from "./exportSnapshot";
 import {
   aircraftStatus,
   aircraftStatusLabels,
@@ -1425,8 +1430,9 @@ function peopleSheet({ s, names }: Context): SheetSpec {
 
 // ----------------------------------------------------- change history --
 
+// Personal licence and account numbers stay out too, as on every sheet.
 const SECRET_KEY =
-  /pass(word)?|secret|token|api_?key|credential|^key$|private|hash|sha256|storage_?id|catalogId|url$|^image$/i;
+  /pass(word)?|secret|token|api_?key|credential|^key$|private|hash|sha256|storage_?id|catalogId|url$|^image$|licen[cs]eNumber|accountNumber/i;
 const SECONDS_KEY =
   /seconds$|^(current|baseline)?(hobbs|tach|cyclicHobbs|flightTimeLog)(On|Off)?$|^timeSince(New|Overhaul|Repair)$/i;
 const EPOCH_KEY = /(^at$|At$|Time$)/;
@@ -1567,7 +1573,15 @@ function changeWriter(names: Namer, clock: Clock, storageIds: Set<string>) {
     ]
       .filter(Boolean)
       .join("\n");
-  return { scrub, parse, summary, detail };
+  // Text that is not JSON keeps its punctuation; each quoted piece is hidden or
+  // named as a change-log value would be.
+  const stored = (payload: StoredPayload) => {
+    if (payload.kind === "missing") return "(no payload)";
+    if (payload.kind === "text")
+      return payload.text.split('"').map(scrubText).join('"');
+    return render(scrub(payload.value)).join("\n");
+  };
+  return { scrub, parse, summary, detail, stored };
 }
 
 function* historyRows(
@@ -1620,6 +1634,59 @@ const historyColumns: Column[] = [
   { header: "Full before and after", width: 60, fmt: "wrap" },
 ];
 
+// --------------------------------------------------------- damaged records --
+
+const RECORD_LABELS: Record<RecordCollection, string> = {
+  management: "inventory and component",
+  airworthiness: "AD",
+  workOrders: "work order",
+  taskCards: "job card",
+  costs: "cost",
+  purchaseOrders: "purchase order",
+  partsRequests: "parts request",
+};
+const DAMAGE_NOTES: Record<StoredPayload["kind"], string> = {
+  json: "Does not match the app's current format.",
+  text: "Not JSON; shown as the stored text.",
+  missing: "The row has no payload.",
+};
+
+// One note per record type, in the order the records are listed.
+function damageWarnings(damaged: DamagedRecord[]) {
+  const counts = new Map<RecordCollection, number>();
+  for (const d of damaged)
+    counts.set(d.collection, (counts.get(d.collection) ?? 0) + 1);
+  return [...counts].map(
+    ([collection, n]) =>
+      `${n} ${RECORD_LABELS[collection]} record${n === 1 ? "" : "s"} did not match the app's current format; shown as stored on the Damaged records sheet.`,
+  );
+}
+
+function damagedSheet(
+  damaged: DamagedRecord[],
+  writer: ReturnType<typeof changeWriter>,
+): SheetSpec {
+  return {
+    name: "Damaged records",
+    title: "Damaged records",
+    about:
+      "Records that no longer match the app's format, as stored, so no other sheet shows them.",
+    columns: [
+      { header: "Record type", width: 22, fmt: "wrap" },
+      { header: "Note", width: 30, fmt: "wrap" },
+      { header: "As stored", width: 80, fmt: "wrap" },
+    ],
+    rows: damaged.map((d) => ({
+      cells: [
+        sentence(RECORD_LABELS[d.collection]),
+        DAMAGE_NOTES[d.payload.kind],
+        writer.stored(d.payload),
+      ],
+    })),
+    count: damaged.length,
+  };
+}
+
 // ----------------------------------------------------------------- build --
 
 // What the colours mean, for Read me.
@@ -1649,8 +1716,9 @@ export async function buildRecordsWorkbook(
   const clock = zoneClock(options.timeZone);
   const today = clock.today(now);
   const decoded = await readExportSnapshot(zipPath, now);
-  const { snapshot: s, programs, transferred, warnings } = decoded;
+  const { snapshot: s, programs, transferred, damaged } = decoded;
   const { storageIds, storageFiles } = decoded;
+  const warnings = damageWarnings(damaged);
   const names = namer(s, programs, decoded.labels, clock);
   // Newest first; the export order is by document ID, not by time.
   const audit = decoded.audit.sort((a, b) => b.at - a.at);
@@ -1695,6 +1763,7 @@ export async function buildRecordsWorkbook(
         count: to - from,
       };
     }),
+    ...(damaged.length ? [damagedSheet(damaged, writer)] : []),
   ];
   const made = clock.dateTimeText(now);
   const zone = `${clock.name} (${clock.zone})`;

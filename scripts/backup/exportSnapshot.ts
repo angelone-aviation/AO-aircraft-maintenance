@@ -6,11 +6,7 @@
  *   src/domain/model (types).
  */
 import { exportContents, readDocuments } from "./convexExport";
-import {
-  decodeLenient,
-  type PayloadCollection,
-  type StoredRecord,
-} from "../../convex/collections";
+import { decodeLenient, type StoredRecord } from "../../convex/collections";
 import type {
   Aircraft,
   AuditEntry,
@@ -21,6 +17,29 @@ import type {
   Member,
   Snapshot,
 } from "../../src/domain/model";
+
+/** The payload collections the records copy decodes, in the order it lists
+ * their damaged records. */
+export type RecordCollection =
+  | "management"
+  | "airworthiness"
+  | "workOrders"
+  | "taskCards"
+  | "costs"
+  | "purchaseOrders"
+  | "partsRequests";
+
+/** A stored payload: JSON, text that is not JSON, or none at all. */
+export type StoredPayload =
+  | { kind: "json"; value: unknown }
+  | { kind: "text"; text: string }
+  | { kind: "missing" };
+
+/** A payload row that no longer decodes into its collection. */
+export interface DamagedRecord {
+  collection: RecordCollection;
+  payload: StoredPayload;
+}
 
 /** An export, decoded for the records copy. */
 export interface ExportSnapshot {
@@ -34,9 +53,9 @@ export interface ExportSnapshot {
   /** Names for manuals, checklists, inspection templates and flight plans,
    * by uuid. */
   labels: (readonly [string, string])[];
-  /** Notes for Read me: one per collection with records that no longer
-   * match the app, in collection order. */
-  warnings: string[];
+  /** Rows left out of the snapshot because they no longer decode, in
+   * collection order, then row order. */
+  damaged: DamagedRecord[];
   /** Stored-file ids, so a change-log value that names one can hide it. */
   storageIds: Set<string>;
   /** How many stored files the export holds. */
@@ -49,10 +68,10 @@ export interface ExportSnapshot {
  *
  * @param zipPath - The Convex snapshot export.
  * @param now - When the copy is made: the view's sign-in and sync time.
- * @returns The snapshot; a payload record that no longer matches its schema
- *   is kept as stored.
+ * @returns The snapshot. A payload row that is not JSON, has no payload or no
+ *   longer matches its schema is left out and listed in `damaged`, so the
+ *   records the snapshot holds always match the app's types.
  * @throws {Error} From ./convexExport, when the ZIP is not a readable export.
- * @throws {SyntaxError} When a payload is not JSON.
  */
 export async function readExportSnapshot(
   zipPath: string,
@@ -64,7 +83,13 @@ export async function readExportSnapshot(
 
 type Doc = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
-const payloadOf = (d: Doc) => JSON.parse(String(d.payload)) as unknown;
+// A label row's payload, or {} when it is damaged: it only names a record.
+const labelPayload = (d: Doc) => {
+  const p = storedPayload(d);
+  return p.kind === "json" && p.value && typeof p.value === "object"
+    ? (p.value as Doc)
+    : {};
+};
 // The tables read from the export, with the fields kept from each document.
 // Anything not listed here (sign-in tables, credentials, stored-file tables,
 // upload staging, request and job bookkeeping) is never decompressed.
@@ -95,7 +120,7 @@ const TABLES: Record<string, (d: Doc) => Doc> = {
   // Names only, for the Record column of Change history.
   manuals: (d) => ({ uuid: d.uuid, label: `Manual: ${str(d.title) ?? ""}` }),
   checklists: (d) => {
-    const p = payloadOf(d) as {
+    const p = labelPayload(d) as {
       document?: { payload?: { metadata?: { name?: string } } };
     };
     return {
@@ -105,10 +130,10 @@ const TABLES: Record<string, (d: Doc) => Doc> = {
   },
   inspectionTemplates: (d) => ({
     uuid: d.uuid,
-    label: `Inspection template: ${(payloadOf(d) as { name?: string }).name ?? ""}`,
+    label: `Inspection template: ${(labelPayload(d) as { name?: string }).name ?? ""}`,
   }),
   flightPlans: (d) => {
-    const p = payloadOf(d) as { origin?: string; destination?: string };
+    const p = labelPayload(d) as { origin?: string; destination?: string };
     return {
       uuid: d.uuid,
       label: `Flight plan ${p.origin ?? ""} → ${p.destination ?? ""}`,
@@ -135,7 +160,7 @@ async function loadExport(zipPath: string) {
 }
 
 function decode(tables: Map<string, Doc[]>, now: number) {
-  const warnings: string[] = [];
+  const damaged: DamagedRecord[] = [];
   const t = (name: string) => tables.get(name) ?? [];
   const programs = new Map(
     t("programs").map((p) => [String(p.uuid), String(p.name ?? "")]),
@@ -149,7 +174,7 @@ function decode(tables: Map<string, Doc[]>, now: number) {
     discrepancies: t("discrepancies") as unknown as Discrepancy[],
     inspections: t("inspections") as unknown as Inspection[],
     audit: [],
-    ...decodeRecords(t, warnings),
+    ...decodeRecords(t, damaged),
   };
   const audit = t("audit") as unknown as (AuditEntry & { _id?: string })[];
   const transferred = new Map<string, string[]>();
@@ -163,7 +188,7 @@ function decode(tables: Map<string, Doc[]>, now: number) {
   const labels = ["manuals", "checklists", "inspectionTemplates", "flightPlans"]
     .flatMap((name) => t(name))
     .map((d) => [String(d.uuid), String(d.label)] as const);
-  return { snapshot, programs, audit, transferred, labels, warnings };
+  return { snapshot, programs, audit, transferred, labels, damaged };
 }
 
 function recordsCopyView(programs: Map<string, string>, now: number) {
@@ -223,52 +248,46 @@ function decodeAircraft(a: Doc, programs: Map<string, string>): Aircraft {
   };
 }
 
-// Warnings come in this order on Read me.
-function decodeRecords(t: (name: string) => Doc[], warnings: string[]) {
+// Damaged rows are listed in this order.
+function decodeRecords(t: (name: string) => Doc[], damaged: DamagedRecord[]) {
+  const records = <N extends RecordCollection>(collection: N) =>
+    decodeRows(collection, t(collection), damaged);
   return {
-    management: parsed(
-      "management",
-      t("management"),
-      "inventory and component",
-      warnings,
-    ),
-    airworthiness: parsed("airworthiness", t("airworthiness"), "AD", warnings),
-    workOrders: parsed("workOrders", t("workOrders"), "work order", warnings),
-    taskCards: parsed("taskCards", t("taskCards"), "job card", warnings),
+    management: records("management"),
+    airworthiness: records("airworthiness"),
+    workOrders: records("workOrders"),
+    taskCards: records("taskCards"),
     archivedTaskCards: [],
-    costs: parsed("costs", t("costs"), "cost", warnings),
-    purchaseOrders: parsed(
-      "purchaseOrders",
-      t("purchaseOrders"),
-      "purchase order",
-      warnings,
-    ),
-    partsRequests: parsed(
-      "partsRequests",
-      t("partsRequests"),
-      "parts request",
-      warnings,
-    ),
+    costs: records("costs"),
+    purchaseOrders: records("purchaseOrders"),
+    partsRequests: records("partsRequests"),
   };
 }
 
-function parsed<N extends PayloadCollection>(
+// The sheets assume the app's types, so a row that does not decode is listed
+// as stored instead of reaching them (finding 48).
+function decodeRows<N extends RecordCollection>(
   collection: N,
   docs: Doc[],
-  label: string,
-  warnings: string[],
+  damaged: DamagedRecord[],
 ): StoredRecord<N>[] {
-  let failed = 0;
-  const out = docs.map((d) => {
-    const value = d.payload === undefined ? d : payloadOf(d);
-    const result = decodeLenient(collection, value);
-    if (result.valid) return result.record;
-    failed++;
-    return result.stored as StoredRecord<N>;
+  return docs.flatMap((d) => {
+    const payload = storedPayload(d);
+    const result =
+      payload.kind === "json" && decodeLenient(collection, payload.value);
+    if (result && result.valid) return [result.record];
+    damaged.push({ collection, payload });
+    return [];
   });
-  if (failed)
-    warnings.push(
-      `${failed} ${label} record${failed === 1 ? "" : "s"} did not match the app's current format; shown as stored, and their status may be missing.`,
-    );
-  return out;
+}
+
+function storedPayload(d: Doc): StoredPayload {
+  if (typeof d.payload !== "string") return { kind: "missing" };
+  try {
+    return { kind: "json", value: JSON.parse(d.payload) };
+  } catch (error) {
+    // JSON.parse throws SyntaxError only: the payload is not JSON.
+    if (!(error instanceof SyntaxError)) throw error;
+    return { kind: "text", text: d.payload };
+  }
 }
