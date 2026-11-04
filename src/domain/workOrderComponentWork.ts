@@ -99,6 +99,21 @@ export const componentWorkLabels = {
 };
 
 /**
+ * Whether a component's work repairs it, overhauls it, or both. At close-out
+ * a repair resets time since repair; an overhaul resets time since overhaul
+ * and its calendar days.
+ *
+ * @param choice - The work chosen for the component.
+ * @returns `repair` and `overhaul` flags; "both" sets each.
+ */
+export function serviceDone(choice: Pick<ComponentWork, "action">) {
+  return {
+    repair: choice.action === "repair" || choice.action === "both",
+    overhaul: choice.action === "overhaul" || choice.action === "both",
+  };
+}
+
+/**
  * The components a work order covers: those with readings, those it moves
  * by a task, those on its task cards, and those its inspection and component
  * requirement tasks are for.
@@ -219,13 +234,6 @@ function applyChoice(work: Work) {
 
 function isMovement(work: Pick<ComponentWork, "action">) {
   return work.action === "install" || work.action === "remove";
-}
-
-function serviceDone(choice: ComponentWork) {
-  return {
-    repair: choice.action === "repair" || choice.action === "both",
-    overhaul: choice.action === "overhaul" || choice.action === "both",
-  };
 }
 
 // A repair or overhaul restarts its own counters; lifetime usage carries on.

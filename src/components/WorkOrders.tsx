@@ -21,13 +21,17 @@ import { WorkOrderComponentWork } from "./WorkOrderComponentWork";
 import {
   workOrderComponentIds,
   componentWorkLabels,
+  serviceDone,
   type ComponentWork,
 } from "../domain/workOrderComponentWork";
 import { ReleaseStatements } from "./ReleaseStatements";
 import { LogbookWording } from "./LogbookWording";
 import { LogbookSample } from "./LogbookSample";
 import { LogbookEntryButton } from "./LogbookEntry";
-import { workItemCompletionIssue } from "../domain/workOrderCards";
+import {
+  copiesJobCardTemplates,
+  workItemCompletionIssue,
+} from "../domain/workOrderCards";
 import {
   ArchivedJobCardButton,
   LinkedTaskCards,
@@ -45,17 +49,24 @@ import {
   type Aircraft,
   type Snapshot,
 } from "../domain/model";
-import { componentTotals, type Component } from "../domain/components";
+import type { Component } from "../domain/components";
 import {
+  componentReading,
   installedComponents,
   isOpenWorkOrder,
+  isPreparingJobCards,
   newWorkTask,
+  openingReading,
   taskStatuses,
+  unusedWorkSources,
+  workOrderCounts,
   workOrderFieldsSchema,
   workOrderProgress,
+  workOrdersTaking,
   workOrderStatuses,
-  workSources,
   validateWorkOrderFile,
+  WORK_ORDER_NUMBER_MAX_LENGTH,
+  WORK_ORDER_TEXT_MAX_LENGTH,
   type WorkOrder,
   type WorkSource,
   type WorkTask,
@@ -135,7 +146,9 @@ export function AddToWorkOrder({
   const choices = {
     ...{ sources, sourceUuid: dialog.sourceUuid, selectedSource },
     onSource: dialog.setSourceUuid,
-    orders: openOrdersFor(s, aircraftUuid, selectedSource),
+    orders: selectedSource
+      ? workOrdersTaking(s, aircraftUuid, selectedSource)
+      : [],
     onAdded: dialog.setSubmittedOrder,
   };
   return (
@@ -225,24 +238,6 @@ function useAddDialog(sources: SourceChoice[] | undefined) {
     ...{ open, setOpen, submittedOrder, setSubmittedOrder },
     ...{ sourceUuid, setSourceUuid, start },
   };
-}
-
-// Orders that can take the item: open, prepared, and without it already.
-function openOrdersFor(
-  s: Snapshot,
-  aircraftUuid: string,
-  selected: WorkSource | undefined,
-) {
-  return (s.workOrders ?? []).filter(
-    (w) =>
-      w.aircraftUuid === aircraftUuid &&
-      isOpenWorkOrder(w) &&
-      (!w.templateCopy || w.templateCopy.status === "completed") &&
-      !w.tasks.some(
-        (t) =>
-          t.source.kind === selected?.kind && t.source.uuid === selected?.uuid,
-      ),
-  );
 }
 
 // React events bubble through a portal to the screen around the button, which
@@ -476,18 +471,12 @@ function WorkOrdersHeader({
 }
 
 function WorkOrderCounts({ scoped }: { scoped: WorkOrder[] }) {
-  const month = today().slice(0, 7);
-  const closedThisMonth = scoped.filter(
-    (w) => w.status === "completed" && w.completionDate.startsWith(month),
-  ).length;
+  const counts = workOrderCounts(scoped, today());
   return (
     <StatsStrip className="shop-stats">
-      <StatTile label="Open" value={scoped.filter(isOpenWorkOrder).length} />
-      <StatTile
-        label="In progress"
-        value={scoped.filter((w) => w.status === "in-progress").length}
-      />
-      <StatTile label="Closed this month" value={closedThisMonth} />
+      <StatTile label="Open" value={counts.open} />
+      <StatTile label="In progress" value={counts.inProgress} />
+      <StatTile label="Closed this month" value={counts.closedThisMonth} />
     </StatsStrip>
   );
 }
@@ -728,9 +717,9 @@ function ReadingHeader({
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid);
   if (!a) return null;
   // A saved order shows the readings it captured when it was opened.
-  const r = initial?.aircraft ?? currentReadings(a);
+  const r = initial?.aircraft ?? openingReading(a);
   const components = selectedComponents.map((uuid) =>
-    componentReading(s, a, initial, uuid),
+    headerReading(s, a, initial, uuid),
   );
   return (
     <div className="panel">
@@ -750,22 +739,12 @@ function ReadingHeader({
   );
 }
 
-function currentReadings(a: Aircraft) {
-  return {
-    ...a,
-    totalSeconds: totalSeconds(a),
-    hobbs: a.currentHobbs,
-    tach: a.currentTach,
-    cyclicHobbs: a.currentCyclicHobbs,
-    flightTimeLog: a.currentFlightTimeLog,
-  };
-}
-
 type Reading = WorkOrder["componentReadings"][number];
 
 // A saved order keeps the readings it captured; a component added since is
-// read now.
-function componentReading(
+// read now. Its preview label leaves out the install position the saved
+// reading adds.
+function headerReading(
   s: Snapshot,
   a: Aircraft,
   initial: WorkOrder | undefined,
@@ -777,14 +756,8 @@ function componentReading(
   if (prior) return prior;
   const c = installedComponents(s, a.uuid).find((c) => c.uuid === uuid);
   if (!c) return undefined;
-  return {
-    ...componentTotals(c, a),
-    recordedAt: Date.now(),
-    componentUuid: uuid,
-    label: c.componentType,
-    serial: c.serial,
-    partNumber: c.partNumber,
-  };
+  const reading = componentReading(c, a, today(), Date.now());
+  return { ...reading, label: c.componentType };
 }
 
 function AircraftReadings({
@@ -960,9 +933,9 @@ function describeDraft(
   online: boolean,
 ) {
   const { aircraftUuid, tasks, componentWork, status, uuid } = draft;
-  const preparation = s.workOrders?.find((w) => w.uuid === uuid)?.templateCopy;
+  const stored = s.workOrders?.find((w) => w.uuid === uuid);
   const writable =
-    (!preparation || preparation.status === "completed") &&
+    (!stored || !isPreparingJobCards(stored)) &&
     online &&
     can(s, aircraftUuid, "maintenance") &&
     (!initial || isOpenWorkOrder(initial));
@@ -985,19 +958,9 @@ function describeDraft(
     selectedComponentWork: componentWork.filter((item) =>
       closeoutComponentIds.includes(item.componentUuid),
     ),
-    sources: unusedSources(s, aircraftUuid, tasks),
+    sources: unusedWorkSources(s, aircraftUuid, tasks),
     choices: componentChoices(s, aircraftUuid, initial),
   };
-}
-
-function unusedSources(s: Snapshot, aircraftUuid: string, tasks: WorkTask[]) {
-  return workSources(s, aircraftUuid).filter(
-    (x) =>
-      !tasks.some(
-        (t) =>
-          t.source.kind === x.source.kind && t.source.uuid === x.source.uuid,
-      ),
-  );
 }
 
 // Installed components, then components the saved order recorded that have
@@ -1166,8 +1129,7 @@ function closeConfirmation(draft: Draft, view: DraftView) {
 
 function componentResetLine(view: DraftView, item: ComponentWork) {
   const c = view.choices.find((c) => c.uuid === item.componentUuid);
-  const repair = item.action === "repair" || item.action === "both";
-  const overhaul = item.action === "overhaul" || item.action === "both";
+  const { repair, overhaul } = serviceDone(item);
   return `${c?.label ?? item.componentUuid}: ${componentWorkLabels[item.action]}${repair ? "; TSR → 0.0 h" : ""}${overhaul ? "; TSO → 0.0 h" : ""}`;
 }
 
@@ -1277,7 +1239,7 @@ function WorkOrderHeaderFields({ s, initial, draft }: FormProps) {
           placeholder="Automatic if blank"
           title="Leave blank to assign the next available number."
           defaultValue={initial?.number}
-          maxLength={100}
+          maxLength={WORK_ORDER_NUMBER_MAX_LENGTH}
         />
       </Field>
       <AircraftField s={s} initial={initial} draft={draft} />
@@ -1295,7 +1257,7 @@ function WorkOrderHeaderFields({ s, initial, draft }: FormProps) {
           name="supervisor"
           aria-label="Assigned supervisor"
           defaultValue={initial?.supervisor}
-          maxLength={10000}
+          maxLength={WORK_ORDER_TEXT_MAX_LENGTH}
         />
       </Field>
       <PriorityField initial={initial} />
@@ -1571,7 +1533,7 @@ function ManualWorkRow({ draft }: { draft: Draft }) {
       <Field label="Additional requested work">
         <input
           value={draft.manual}
-          maxLength={10000}
+          maxLength={WORK_ORDER_TEXT_MAX_LENGTH}
           onChange={(e) => draft.setManual(e.target.value)}
         />
       </Field>
@@ -1688,7 +1650,7 @@ function TaskReferenceField({ draft, task: t, index }: TaskProps) {
     >
       <input
         value={t.maintenanceReference ?? ""}
-        maxLength={10000}
+        maxLength={WORK_ORDER_TEXT_MAX_LENGTH}
         onChange={(e) =>
           updateTask(draft, t.uuid, { maintenanceReference: e.target.value })
         }
@@ -1708,7 +1670,7 @@ function TaskProgressFields({ s, draft, task: t, index }: TaskProps) {
         <Field label={`Task ${index + 1} parts delay`}>
           <input
             value={t.partsDelay}
-            maxLength={10000}
+            maxLength={WORK_ORDER_TEXT_MAX_LENGTH}
             onChange={(e) => update({ partsDelay: e.target.value })}
           />
         </Field>
@@ -1716,7 +1678,7 @@ function TaskProgressFields({ s, draft, task: t, index }: TaskProps) {
       <Field label={`Task ${index + 1} work notes`}>
         <textarea
           value={t.notes}
-          maxLength={10000}
+          maxLength={WORK_ORDER_TEXT_MAX_LENGTH}
           onChange={(e) => update({ notes: e.target.value })}
         />
       </Field>
@@ -1764,8 +1726,7 @@ function TaskJobCards({ initial, draft, task: t }: TaskProps) {
       {saved ? (
         <SavedTaskLinks orderUuid={draft.uuid} task={t} />
       ) : (
-        t.source.kind !== "manual" &&
-        t.source.kind !== "airworthiness" && (
+        copiesJobCardTemplates(t.source.kind) && (
           <p className="muted">
             Save the work order to create this item’s job cards from its
             templates.

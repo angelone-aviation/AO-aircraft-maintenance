@@ -115,6 +115,12 @@ const taskSchema = z.object({
   partsDelay: text,
 });
 
+/** The longest work order number a user may enter. */
+export const WORK_ORDER_NUMBER_MAX_LENGTH = 100;
+
+/** The longest free text a work order or one of its items holds. */
+export const WORK_ORDER_TEXT_MAX_LENGTH = TEXT_MAX_LENGTH;
+
 /**
  * The fields a user edits on a work order; `completionDate` stays "" until
  * the order is completed.
@@ -122,7 +128,7 @@ const taskSchema = z.object({
  * @throws {z.ZodError} From `parse()` on an invalid field.
  */
 export const workOrderFieldsSchema = z.object({
-  number: z.string().trim().max(100),
+  number: z.string().trim().max(WORK_ORDER_NUMBER_MAX_LENGTH),
   aircraftUuid: id,
   dateOpened: z.iso.date(),
   supervisor: text,
@@ -307,6 +313,40 @@ export const isOpenWorkOrder = (w: WorkOrder) =>
   !CLOSED_STATUSES.includes(w.status);
 
 /**
+ * Whether a work order's job cards are still being copied from templates;
+ * until they finish, the order takes no edits.
+ *
+ * @param w - The work order.
+ * @returns True while a template copy is running or has failed.
+ */
+export function isPreparingJobCards(w: WorkOrder): boolean {
+  return !!w.templateCopy && w.templateCopy.status !== "completed";
+}
+
+/**
+ * The work orders an item can be added to.
+ *
+ * @param s - The snapshot.
+ * @param aircraftUuid - The item's aircraft.
+ * @param source - The item.
+ * @returns The aircraft's open orders that are not preparing job cards and
+ *   do not hold the item already, in record order.
+ */
+export function workOrdersTaking(
+  s: Snapshot,
+  aircraftUuid: string,
+  source: WorkSource,
+): WorkOrder[] {
+  return (s.workOrders ?? []).filter(
+    (w) =>
+      w.aircraftUuid === aircraftUuid &&
+      isOpenWorkOrder(w) &&
+      !isPreparingJobCards(w) &&
+      !holdsWorkItem(w.tasks, source),
+  );
+}
+
+/**
  * The components installed on an aircraft.
  *
  * @param s - The snapshot.
@@ -339,6 +379,24 @@ export function workSources(
     ...inspectionSources(s, aircraftUuid),
     ...requirementSources(s, aircraftUuid),
   ];
+}
+
+/**
+ * The work items an aircraft offers that a work order does not hold yet.
+ *
+ * @param s - The snapshot.
+ * @param aircraftUuid - The aircraft.
+ * @param tasks - The order's items.
+ * @returns As {@link workSources}, without the items' sources.
+ */
+export function unusedWorkSources(
+  s: Snapshot,
+  aircraftUuid: string,
+  tasks: WorkTask[],
+): { source: WorkSource; description: string }[] {
+  return workSources(s, aircraftUuid).filter(
+    (x) => !holdsWorkItem(tasks, x.source),
+  );
 }
 
 /**
@@ -420,6 +478,36 @@ export function workOrderProgress(s: Snapshot, w: WorkOrder) {
     partsDelays:
       w.tasks.filter((t) => t.status === "parts-delay").length +
       cards.filter((t) => t.status === "awaiting-parts").length,
+  };
+}
+
+/** The tallies {@link workOrderCounts} returns. */
+export interface WorkOrderCounts {
+  open: number;
+  inProgress: number;
+  closedThisMonth: number;
+}
+
+/**
+ * Tallies work orders by state; a cancelled order never counts as closed this
+ * month.
+ *
+ * @param orders - The orders to count.
+ * @param today - The local date, as YYYY-MM-DD.
+ * @returns Open orders, those in progress, and those completed in today's
+ *   month.
+ */
+export function workOrderCounts(
+  orders: WorkOrder[],
+  today: string,
+): WorkOrderCounts {
+  const month = today.slice(0, "YYYY-MM".length);
+  return {
+    open: orders.filter(isOpenWorkOrder).length,
+    inProgress: orders.filter((w) => w.status === "in-progress").length,
+    closedThisMonth: orders.filter(
+      (w) => w.status === "completed" && w.completionDate.startsWith(month),
+    ).length,
   };
 }
 
@@ -617,6 +705,14 @@ function requirementSources(s: Snapshot, aircraftUuid: string): OfferedWork[] {
     const description = `${c.componentType} (${c.serial}) / ${r.description}`;
     return [{ source, description }];
   });
+}
+
+// Items from the same record are the same work, as finishDraft's duplicate
+// check holds.
+function holdsWorkItem(tasks: WorkTask[], source: WorkSource): boolean {
+  return tasks.some(
+    (t) => t.source.kind === source.kind && t.source.uuid === source.uuid,
+  );
 }
 
 // Every command passes these checks first, in this order.

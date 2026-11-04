@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins work orders in the domain: saving, adding work items,
- *   access and attachment rules, and every refusal's message and class.
+ *   which orders take an item, counts, field limits, access and attachment
+ *   rules, and every refusal's message and class.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/workOrders.ts, ./model, ./programs, ./rejection,
  *   ./taskCards, ./workOrderComponentWork (types), tests/fixtures (work
@@ -10,11 +11,19 @@ import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
   addInspectionTask,
+  isPreparingJobCards,
   saveWorkOrder,
   newWorkTask,
+  unusedWorkSources,
+  workOrderCounts,
+  workOrderFieldsSchema,
+  workOrdersTaking,
   workSources,
   workOrderProgress,
   validateWorkOrderFile,
+  WORK_ORDER_NUMBER_MAX_LENGTH,
+  WORK_ORDER_TEXT_MAX_LENGTH,
+  type WorkOrder,
   type WorkOrderCommand,
 } from "./workOrders";
 import type { ComponentWork } from "./workOrderComponentWork";
@@ -287,6 +296,130 @@ describe("work orders", () => {
       expect(refusal).toThrow(Rejection);
       expect(refusal).toThrow("Work item is unavailable for this aircraft.");
     }
+  });
+});
+
+describe("which orders take an item", () => {
+  const preparing = (status: "running" | "failed" | "completed") => ({
+    jobId: "job",
+    status,
+    completed: 0,
+    total: 1,
+  });
+  function setup() {
+    const s = demoSnapshot();
+    const order = saveWorkOrder(s, workOrderCommand(), now);
+    const [offered] = workSources(s, order.aircraftUuid);
+    const holding = {
+      ...order,
+      uuid: "holding",
+      tasks: [newWorkTask(offered.source, "x")],
+    };
+    return { s, order, offered, holding };
+  }
+
+  it("is preparing job cards while a template copy runs or has failed", () => {
+    const { order } = setup();
+    expect(isPreparingJobCards(order)).toBe(false);
+    expect(
+      (["running", "failed", "completed"] as const).map((status) =>
+        isPreparingJobCards({ ...order, templateCopy: preparing(status) }),
+      ),
+    ).toEqual([true, true, false]);
+  });
+
+  it("offers the aircraft's open, prepared orders without the item, in record order", () => {
+    const { s, order, offered, holding } = setup();
+    const other = s.aircraft[1].uuid;
+    const orders: WorkOrder[] = [
+      { ...order, uuid: "ready", templateCopy: preparing("completed") },
+      { ...order, uuid: "running", templateCopy: preparing("running") },
+      { ...order, uuid: "failed", templateCopy: preparing("failed") },
+      { ...order, uuid: "done", status: "completed" },
+      { ...order, uuid: "cancelled", status: "cancelled" },
+      { ...order, uuid: "elsewhere", aircraftUuid: other },
+      holding,
+      { ...order, uuid: "busy", status: "parts-delay" },
+      {
+        ...order,
+        uuid: "same-uuid",
+        tasks: [
+          newWorkTask({ kind: "manual", uuid: offered.source.uuid }, "x"),
+        ],
+      },
+    ];
+    s.workOrders = orders;
+    expect(
+      workOrdersTaking(s, order.aircraftUuid, offered.source).map(
+        (w) => w.uuid,
+      ),
+    ).toEqual(["ready", "busy", "same-uuid"]);
+  });
+
+  it("leaves out the items an order already holds, keeping the offered order", () => {
+    const { s, order } = setup();
+    s.discrepancies.push({
+      uuid: "defect",
+      aircraftUuid: order.aircraftUuid,
+      description: "Oil leak",
+      status: "open",
+      authorId: s.user.id,
+      createdAt: now,
+    });
+    const all = workSources(s, order.aircraftUuid);
+    const held = [newWorkTask(all[1].source, "x")];
+    expect(all.length).toBeGreaterThan(2);
+    expect(unusedWorkSources(s, order.aircraftUuid, held)).toEqual([
+      all[0],
+      ...all.slice(2),
+    ]);
+    expect(unusedWorkSources(s, order.aircraftUuid, [])).toEqual(all);
+  });
+});
+
+describe("work order counts and limits", () => {
+  it("counts open and in-progress orders, and orders completed this month", () => {
+    const order = saveWorkOrder(demoSnapshot(), workOrderCommand(), now);
+    const closed = (status: "completed" | "cancelled", date: string) => ({
+      ...order,
+      status,
+      completionDate: date,
+    });
+    const orders: WorkOrder[] = [
+      order,
+      { ...order, status: "in-progress" },
+      closed("completed", "2026-10-01"),
+      closed("completed", "2026-10-31"),
+      closed("completed", "2026-09-30"),
+      closed("cancelled", "2026-10-02"),
+    ];
+    expect(workOrderCounts(orders, "2026-10-15")).toEqual({
+      open: 2,
+      inProgress: 1,
+      closedThisMonth: 2,
+    });
+  });
+
+  it("limits the number and free text a work order holds", () => {
+    const { fields } = workOrderCommand();
+    const parses = (over: Partial<typeof fields>) =>
+      workOrderFieldsSchema.safeParse({ ...fields, ...over }).success;
+    const longest = (n: number) => "x".repeat(n);
+    expect([WORK_ORDER_NUMBER_MAX_LENGTH, WORK_ORDER_TEXT_MAX_LENGTH]).toEqual([
+      100, 10_000,
+    ]);
+    expect(parses({ number: longest(WORK_ORDER_NUMBER_MAX_LENGTH) })).toBe(
+      true,
+    );
+    expect(parses({ number: longest(WORK_ORDER_NUMBER_MAX_LENGTH + 1) })).toBe(
+      false,
+    );
+    expect(parses({ supervisor: longest(WORK_ORDER_TEXT_MAX_LENGTH) })).toBe(
+      true,
+    );
+    expect(
+      parses({ supervisor: longest(WORK_ORDER_TEXT_MAX_LENGTH + 1) }),
+    ).toBe(false);
   });
 });
 

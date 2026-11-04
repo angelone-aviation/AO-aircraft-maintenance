@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins copying task-card templates into job cards and the
- *   job-card checks on completing a work item.
+ * Responsibility: Pins copying task-card templates into job cards, which
+ *   items get them, and the job-card checks on completing a work item.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/workOrderCards.ts, taskCards.ts, workOrders.ts,
  *   src/data/demo.ts and tests/fixtures (task cards, work orders).
@@ -20,6 +20,7 @@ import {
 } from "./taskCards";
 import { saveWorkOrder, newWorkTask, type WorkTask } from "./workOrders";
 import {
+  copiesJobCardTemplates,
   copyWorkOrderTemplates,
   taskCardMatchesWorkItem,
   workItemCompletionIssue,
@@ -527,5 +528,20 @@ describe("job cards for one work order", () => {
       "AD",
     );
     expect(taskCardMatchesWorkItem(template, airworthiness)).toBe(false);
+  });
+
+  it("copies templates for inspections, requirements and discrepancies only", () => {
+    const kinds = [
+      "inspection",
+      "componentRequirement",
+      "discrepancy",
+      "airworthiness",
+      "manual",
+    ] as const;
+    expect(kinds.filter(copiesJobCardTemplates)).toEqual([
+      "inspection",
+      "componentRequirement",
+      "discrepancy",
+    ]);
   });
 });
