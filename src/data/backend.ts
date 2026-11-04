@@ -1,3 +1,14 @@
+/**
+ * Responsibility: The Backend contract between the workspace and its two
+ *   adapters, and the Convex adapter that sends each call to one server
+ *   function.
+ * Layer: Data. A thin client over convex/_generated/api; no rules, no UI.
+ * Dependencies: convex/react, convex/_generated (api, dataModel),
+ *   src/data/store, src/domain (command, input and record types), zod (types).
+ *
+ * The server re-checks every argument. Ids arrive from the server snapshot as
+ * strings; the `Id` casts are safe because Convex checks each id's table.
+ */
 import type { GroupDeletionPlan } from "../domain/groupDeletion";
 import type { GroupAccessReport } from "../domain/groupAccessReview";
 import type { DeferCommand } from "../domain/deferrals";
@@ -15,13 +26,7 @@ import type { ProgramTransfer } from "../domain/programTransfers";
 import { useWorkspace } from "./store";
 import type { FleetCommand } from "../domain/fleet";
 import type { ManagementCommand } from "../domain/management";
-import type {
-  Aircraft,
-  FlightInput,
-  Group,
-  Member,
-  Operation,
-} from "../domain/model";
+import type { FlightInput, Group, Member, Operation } from "../domain/model";
 import type { ConvexReactClient } from "convex/react";
 import type { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
@@ -232,7 +237,6 @@ export interface Backend {
   saveGroup(
     group: Omit<Group, "id"> & { id?: string; allAircraft?: boolean },
   ): Promise<unknown>;
-  createAircraft(aircraft: Aircraft): Promise<unknown>;
   resetPassword(id: string, password: string): Promise<unknown>;
   /** Linked Google or Microsoft accounts: the signed-in user's own, or with
    * `userId` (system administrators) that user's. */
@@ -648,11 +652,6 @@ export function convexBackend(client: ConvexReactClient): Backend {
       client.mutation(api.admin.saveGroup, {
         ...group,
         id: group.id as Id<"groups"> | undefined,
-      }),
-    createAircraft: (aircraft) =>
-      client.mutation(api.admin.createAircraft, {
-        aircraft,
-        programUuid: programUuid(),
       }),
     resetPassword: (id, password) =>
       client.action(api.admin.resetPassword, {

@@ -88,7 +88,7 @@ import {
 } from "../domain/engineTrends";
 import { applyManagement } from "../domain/management";
 import { ConvexError } from "convex/values";
-import type { Aircraft, AuditEntry, Snapshot } from "../domain/model";
+import type { AuditEntry, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
 import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import * as local from "./local";
@@ -1382,18 +1382,6 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             { programUuid: null },
             { programUuid: group.programUuid },
           );
-      }),
-    createAircraft: (aircraft: Aircraft) =>
-      modify((s) => {
-        if (
-          !programPermission(s, "admin") ||
-          aircraft.programUuid !== activeProgram(s)
-        )
-          throw Error("Flight Program administrator required.");
-        if (s.aircraft.some((a) => a.registration === aircraft.registration))
-          throw new Error("Registration already exists.");
-        s.aircraft.push(aircraft);
-        audit(s, "aircraft.created", aircraft.uuid, aircraft.uuid);
       }),
     resetPassword: async () => {
       throw new Error(
