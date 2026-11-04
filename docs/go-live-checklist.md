@@ -15,6 +15,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
   - [ ] Set up Cloudflare, the Convex deploy key and the GitHub `production` environment, then make the first release, following the [release runbook](runbooks/release.md). CI, the security headers, the manual Deploy workflow, rollback steps and Dependabot are already in the repository; preview deployments are not built yet.
 - [ ] Error monitoring: service, alerts and who receives them.
 - [ ] Ownership and runbooks: technical owner, plus onboarding, release and incident-response runbooks.
+  - [ ] Fill in the names and places left blank in [incident response](runbooks/incident-response.md) (including who reads accounts@angeloneonline.org, the [`SECURITY.md`](../SECURITY.md) contact) and [break-glass administrator access](runbooks/break-glass-admin.md), and set up the break-glass account.
 - [ ] Data on shared or lost devices: offline copy, sign-out, device unlock.
 - [ ] Per-aircraft records export (FAA inspection access and aircraft sale).
 - [x] FAA scope changes: inspection sign-off certificate, "Performed by" line, Form 337 attachments.
@@ -42,3 +43,11 @@ Policy: [ADR-0008](adr/0008-daily-backups-off-site-90-days-monthly-forever.md). 
 - [ ] The technical owner turns on **Email me a daily alert digest** (Settings → My account). The app's "no off-site backup for over 36 hours" warning goes only to system administrators with this switch on, and it is off by default for a system administrator who is not also a Flight Program administrator.
 - [ ] Optional readable copy in Dropbox ([runbook](runbooks/dropbox-records-copy.md), ADR-0011): from an **organization** Dropbox account with two-step sign-in, create an App-folder app, get its refresh token, and add `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN` as `backups` environment secrets (and the variable `RECORDS_TIME_ZONE` if the program is not on US Eastern time). Decide who may open the folder: the workbook is readable, not encrypted.
 - [ ] Run the workflow by hand once (Actions → **Nightly backup** → **Run workflow**), confirm the object appears in R2 under `daily/` (and `monthly/` and `env/`), and do the first [restore rehearsal](runbooks/backup-restore.md#quarterly-restore-rehearsal).
+
+## Recurring tasks
+
+| When              | Task                                                                                                                                                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Before 2027-09-04 | Renew `public/.well-known/security.txt`: set `Expires` about 11 months ahead (it now expires 2027-10-04, and RFC 9116 treats an expired file as stale), check `Contact` still reaches someone, and deploy. |
+| Twice a year      | [Test break-glass administrator access](runbooks/break-glass-admin.md#test-twice-a-year).                                                                                                                  |
+| Every quarter     | [Restore rehearsal](runbooks/backup-restore.md#quarterly-restore-rehearsal).                                                                                                                               |
