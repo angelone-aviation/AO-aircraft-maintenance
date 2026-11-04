@@ -458,6 +458,16 @@ describe("records workbook", () => {
     expect(fill(hundred.cells.Detail)).toBe(AMBER);
     expect(hundred.cells["Hours left"].value).toBeCloseTo(8.8, 5);
 
+    // A component limit has the colour its status has on the Due list.
+    const limit = (part: string) =>
+      rows("Components").find(
+        (r) => text(r.cells["Part number"].value) === part,
+      )!.cells.Status;
+    expect(text(limit("452-0133").value)).toBe("Past due");
+    expect(fill(limit("452-0133"))).toBe(RED);
+    expect(text(limit("655410").value)).toBe("Tracked");
+    expect(fill(limit("655410"))).toBe(GREEN);
+
     const stock = rows("Inventory");
     const sealant = stock.find(
       (r) => text(r.cells["Part number"].value) === "PR-1422-B2",

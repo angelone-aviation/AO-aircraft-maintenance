@@ -50,6 +50,7 @@ import {
 import {
   adLevel,
   dueItems,
+  requirementLevel,
   type AdDue,
   type DueLevel,
   type InspectionDue,
@@ -1326,7 +1327,7 @@ function limitRow(
       q?.days,
       q?.status ?? "Unknown",
     ],
-    tone: LEVEL_TONE[requirementLevel(q?.status)],
+    tone: q && LEVEL_TONE[requirementLevel(q.status)],
     statusColumn: 13,
   };
 }
@@ -1344,15 +1345,6 @@ function limitText(
   ]
     .filter(Boolean)
     .join(" · ");
-}
-
-// The domain due list's level for a requirement status, so a limit has the
-// colour it has on the Due list. GLOSSARY "Overdue": a usage limit at exactly
-// 0 is "Due now".
-function requirementLevel(status: string | undefined): DueLevel {
-  if (status === "Past due" || status === "Due now") return "overdue";
-  if (status === "Due soon") return "due-soon";
-  return status === "Tracked" ? "ok" : "unknown";
 }
 
 function inventorySheet(ctx: Context): SheetSpec {
