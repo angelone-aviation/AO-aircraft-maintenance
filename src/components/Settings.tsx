@@ -4,10 +4,10 @@
  * Layer: UI. React components; Administration (Admin.tsx) decides who can do
  *   what.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
- *   src/data (store, deviceManuals), src/domain (alerts, certifications,
- *   costs, csv, model, offsiteBackups, pilotView, programs), the panels it
- *   embeds (./AddressVerificationSettings, ./AircraftSpruce, ./DemoBackup,
- *   ./FaaKeySettings, ./Fleet, ./ProgramUsers, ./SignInMethods,
+ *   src/data (store, deviceManuals, pendingEntries), src/domain (alerts,
+ *   certifications, costs, csv, model, offsiteBackups, pilotView, programs),
+ *   the panels it embeds (./AddressVerificationSettings, ./AircraftSpruce,
+ *   ./DemoBackup, ./FaaKeySettings, ./Fleet, ./ProgramUsers, ./SignInMethods,
  *   ./UserProfile), ./design, ./ui, src/styles/screens/settings.css.
  *
  * Every signed-in user except the owner view reaches this page; each section
@@ -47,6 +47,7 @@ import {
 import { useWorkspace } from "../data/store";
 import type { Backend } from "../data/backend";
 import { formatBytes } from "../data/deviceManuals";
+import { ownEntries } from "../data/pendingEntries";
 import { localDate, type Snapshot } from "../domain/model";
 import { activeProgram, programPermission } from "../domain/programs";
 import { isPilotView } from "../domain/pilotView";
@@ -422,11 +423,7 @@ function useAlertEmailChoice(backend: Backend | null, emailAlerts: boolean) {
 function DeviceSection() {
   const s = useWorkspace((x) => x.snapshot)!;
   const queue = useWorkspace((x) => x.queue);
-  // Only this user's entries count: the outbox keeps other users' entries
-  // until they sign in again.
-  const pending = queue.filter(
-    (q) => q.operation.authorId === s.user.id,
-  ).length;
+  const pending = ownEntries(queue, s.user.id).length;
   return (
     <Section id="device" index={1}>
       <ThemeBlock />
