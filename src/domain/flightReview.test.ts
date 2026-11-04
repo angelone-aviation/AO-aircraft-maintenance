@@ -357,6 +357,34 @@ describe("reviewFlight changes", () => {
       after: { hobbsOff: opening.currentHobbs },
     });
   });
+
+  // The entries FlightForm can send undefined over a stored value.
+  it.each<[keyof FlightInput, FlightInput[keyof FlightInput]]>([
+    ["copilotId", "demo-admin"],
+    ["tachOn", h(2262.2)],
+    ["cyclicHobbsOn", h(100)],
+    ["flightTimeLogOn", h(100)],
+    ["landingSurface", null],
+    ["engineStarts", []],
+  ])(
+    "clears %s when the input leaves it out, the same as undefined",
+    (key, value) => {
+      const { s, held, input } = fixture();
+      s.flights[1] = { ...held, [key]: value };
+      const review = (corrected: FlightInput) =>
+        reviewFlight(s, {
+          uuid: held.uuid,
+          decision: "accept",
+          reason: REASON,
+          input: corrected,
+        });
+      // The server receives the form's cleared field absent.
+      const absent = review(input);
+      expect(absent).toStrictEqual(review({ ...input, [key]: undefined }));
+      expect(Object.keys(absent.reviewed)).toContain(key);
+      expect(absent.audit[0].after).toMatchObject({ [key]: undefined });
+    },
+  );
 });
 
 function checklistRun() {

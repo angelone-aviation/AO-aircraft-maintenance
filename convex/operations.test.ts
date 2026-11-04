@@ -425,6 +425,44 @@ describe("flight review on runCommand", () => {
     expect(JSON.parse(log!.before!)).toEqual(original);
     expect(JSON.parse(log!.after!)).toEqual(reviewed);
   });
+
+  it("clears the copilot and a reading the review leaves blank, as the demo does", async () => {
+    const { t, pilot, admin, op, ids, a } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    held.input = {
+      ...held.input,
+      copilotId: ids.admin,
+      tachOn: a.currentTach + 3600,
+    };
+    await pilot.mutation(api.operations.submit, { operation: held });
+    // FlightForm sends a cleared field as undefined, which Convex drops.
+    await admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: held.uuid,
+      decision: "accept",
+      reason: "No copilot aboard",
+      input: { ...held.input, copilotId: undefined, tachOn: undefined },
+    });
+    const stored = await t.run(async (ctx) => ({
+      flight: (await ctx.db.query("flights").first())!,
+      aircraft: await ctx.db
+        .query("aircraft")
+        .withIndex("uuid", (q) => q.eq("uuid", a.uuid))
+        .unique(),
+      log: (await ctx.db.query("audit").collect()).find(
+        (r) => r.action === "flight.reviewed",
+      )!,
+    }));
+    expect(stored.flight).not.toHaveProperty("copilotId");
+    expect(stored.flight).not.toHaveProperty("tachOn");
+    expect(stored.aircraft!.currentTach).toBe(a.currentTach);
+    expect(JSON.parse(stored.log.before!)).toMatchObject({
+      copilotId: ids.admin,
+      tachOn: a.currentTach + 3600,
+    });
+    expect(JSON.parse(stored.log.after!)).toEqual(stored.flight);
+  });
 });
 
 describe("discrepancy resolution", () => {

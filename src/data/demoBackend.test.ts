@@ -191,6 +191,34 @@ it("reviews a held flight: replays the aircraft and audits the review and each m
   });
 });
 
+// The server receives FlightForm's cleared fields absent; the demo, undefined.
+it.each([
+  ["left out", {}],
+  ["set undefined", { copilotId: undefined, tachOn: undefined }],
+])(
+  "clears the copilot and a reading the review has %s, as the server does",
+  async (_, cleared) => {
+    let input!: FlightInput;
+    const { backend, stored } = await demo(`demo-clear-${_}`, (seed) => {
+      input = heldFlight(seed);
+      seed.flights[1].copilotId = seed.user.id;
+      seed.flights[1].tachOn = seed.aircraft[0].currentTach + 3600;
+    });
+    const opening = (await stored()).aircraft[0];
+    await backend.review("demo-held", "accept", REASON, {
+      ...input,
+      ...cleared,
+    });
+    const s = await stored();
+    const flight = s.flights.find((f) => f.uuid === "demo-held")!;
+    expect(flight.copilotId).toBeUndefined();
+    expect(flight.tachOn).toBeUndefined();
+    expect(s.aircraft[0].currentTach).toBe(opening.currentTach);
+    const log = s.audit.find((e) => e.action === "flight.reviewed")!;
+    expect(JSON.parse(log.after!)).toEqual(flight);
+  },
+);
+
 it.each([
   [
     "a member who is not an administrator",

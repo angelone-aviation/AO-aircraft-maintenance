@@ -12,6 +12,7 @@
  */
 import {
   can,
+  flightInputSchema,
   type Aircraft,
   type Flight,
   type FlightInput,
@@ -33,6 +34,9 @@ import { validateMaintenanceTotals } from "./management";
 
 const MIN_REASON_LENGTH = 5;
 const MAX_REASON_LENGTH = 5000;
+const FLIGHT_ENTRIES = Object.keys(flightInputSchema.shape) as Array<
+  keyof FlightInput
+>;
 
 /** An administrator's decision on a flight, with its corrected entries. */
 export interface FlightReview {
@@ -41,10 +45,12 @@ export interface FlightReview {
   /** Why, for the change log: 5 characters or more once trimmed, and at most
    * 5000 as entered. */
   reason: string;
+  /** All of the flight's entries: one left out or undefined is cleared. */
   input: FlightInput;
 }
 
-/** The fields a review sets on the reviewed flight; the rest stay stored. */
+/** The fields a review sets on the reviewed flight, a cleared entry as
+ * undefined; the rest stay stored. */
 export type ReviewedFields = FlightInput &
   Pick<
     Flight,
@@ -104,15 +110,16 @@ export function reviewFlight(s: Snapshot, review: FlightReview): ReviewChanges {
   assertLinksKept(s, flight, review);
   assertCrew(s, aircraft, flight, review.input);
   refuseAs(() => validateFlight(aircraft, review.input));
+  const entries = listCorrectedEntries(flight, review.input);
   const next: Flight = {
     ...flight,
-    ...review.input,
+    ...entries,
     status: review.decision === "accept" ? "accepted" : "rejected",
     reviewReason: review.reason,
   };
   const stored = s.flights.filter((f) => f.aircraftUuid === aircraft.uuid);
   const rebuilt = replayFlights(s, aircraft, stored, next);
-  const reviewed = listReviewedFields(review, next, flight, rebuilt.flights);
+  const reviewed = listReviewedFields(entries, next, flight, rebuilt.flights);
   const moved = resequencedFlights(stored, rebuilt.flights, review.uuid);
   return {
     reviewed,
@@ -229,19 +236,33 @@ function refuseAs<T>(check: () => T): T {
   }
 }
 
+// Convex drops a field sent as undefined, which is how FlightForm clears the
+// copilot or a reading, so the server receives a cleared entry absent. Each
+// stored entry the input lacks is set undefined, which the server's patch
+// removes, so a review replaces the entries rather than merging them.
+function listCorrectedEntries(flight: Flight, input: FlightInput): FlightInput {
+  const cleared = FLIGHT_ENTRIES.filter(
+    (key) => input[key] === undefined && flight[key] !== undefined,
+  );
+  return {
+    ...input,
+    ...Object.fromEntries(cleared.map((key) => [key, undefined])),
+  };
+}
+
 // Starting readings come from the replay; a rejected flight, which the replay
 // leaves out, keeps those it had.
 function listReviewedFields(
-  review: FlightReview,
+  entries: FlightInput,
   next: Flight,
   flight: Flight,
   rebuilt: Flight[],
 ): ReviewedFields {
-  const corrected = rebuilt.find((f) => f.uuid === review.uuid);
+  const corrected = rebuilt.find((f) => f.uuid === next.uuid);
   return {
-    ...review.input,
+    ...entries,
     status: next.status,
-    reviewReason: review.reason,
+    reviewReason: next.reviewReason,
     hobbsOff: corrected?.hobbsOff ?? flight.hobbsOff,
     tachOff: corrected?.tachOff ?? flight.tachOff,
     cyclicHobbsOff: corrected?.cyclicHobbsOff ?? flight.cyclicHobbsOff,
