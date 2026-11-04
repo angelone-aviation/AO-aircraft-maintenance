@@ -2,54 +2,37 @@
  * Responsibility: Pins the inventory scanner: typed codes refused or opened,
  *   a label link opened from the Scan dialog, and a QR code read by the camera.
  * Layer: Test. Playwright spec against the demo in a production build.
- * Dependencies: @playwright/test, qrcode, node:fs/promises, node:path.
+ * Dependencies: @playwright/test, qrcode.
  *
- * Chromium's fake camera plays a generated still of one QR code. Camera access
- * is denied unless a test grants it, so the typed-code test sees no camera.
+ * The camera is stubbed in the page, because Chromium builds differ: CI's
+ * headless shell neither refuses the camera as the full browser does nor
+ * plays the fake-device video. The stub refuses access, or streams a canvas
+ * showing one QR code, which the scanner decodes with jsQR like any frame.
  */
-import {
-  test as base,
-  expect,
-  type Locator,
-  type Page,
-} from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import QRCode from "qrcode";
 
 const CAMERA_PART = "SCAN-CAM-1";
 const TYPED_PART = "SCAN-TYPED-1";
-// A 4:2:0 frame needs even dimensions; the scanner decodes 640 px wide frames.
+// The scanner decodes frames scaled to at most 640 px wide.
 const FRAME_WIDTH = 640;
 const FRAME_HEIGHT = 480;
 // The blank margin ISO/IEC 18004 requires around a QR code, in modules.
 const QUIET_ZONE_MODULES = 4;
-// Black and white in video-range luma (BT.601); chroma 128 adds no colour.
-const LUMA_BLACK = 16;
-const LUMA_WHITE = 235;
-const CHROMA_NEUTRAL = 128;
+// The stub redraws its canvas so the stream keeps delivering frames, as a
+// camera does, rather than resting on its first frame.
+const REDRAW_INTERVAL_MS = 100;
 
-// Adds the fake camera to the configured browser; Chromium reads the video
-// file from its command line, so it is written before the browser starts.
-const test = base.extend({
-  launchOptions: [
-    async ({ launchOptions }, use, workerInfo) => {
-      const { outputDir } = workerInfo.project;
-      const video = path.join(outputDir, "scan-camera.y4m");
-      await mkdir(outputDir, { recursive: true });
-      await writeFile(video, qrVideo(CAMERA_PART));
-      await use({
-        ...launchOptions,
-        args: [
-          ...(launchOptions.args ?? []),
-          "--use-fake-device-for-media-stream",
-          `--use-file-for-fake-video-capture=${video}`,
-        ],
-      });
-    },
-    { scope: "worker" },
-  ],
-});
+/** The stubbed camera's picture: a QR code's dark modules on a frame. */
+interface QrFrame {
+  width: number;
+  height: number;
+  /** Modules per side, plus the quiet zone on each side. */
+  span: number;
+  /** Dark modules as [column, row], counted from the frame's top left. */
+  dark: [number, number][];
+  redrawMs: number;
+}
 
 test("refuses blank, foreign and unknown codes, then opens typed codes and label links", async ({
   page,
@@ -57,6 +40,7 @@ test("refuses blank, foreign and unknown codes, then opens typed codes and label
   await page.addInitScript(() =>
     sessionStorage.setItem("angel-one-demo", "true"),
   );
+  await denyCamera(page);
   await createStockItem(page, TYPED_PART);
   await page.goto("/scan");
   await expect(page.getByRole("alert")).toHaveText(
@@ -90,30 +74,27 @@ test("refuses blank, foreign and unknown codes, then opens typed codes and label
   await expectStockItem(page, TYPED_PART);
 });
 
-test.describe("with camera access", () => {
-  test.use({ permissions: ["camera"] });
-
-  test("reports a camera code that matches nothing, then opens the item once it exists", async ({
-    page,
-  }) => {
-    await page.addInitScript(() =>
-      sessionStorage.setItem("angel-one-demo", "true"),
-    );
-    await page.goto("/scan");
-    // Characterizes current behaviour: the camera's refusal shows under the
-    // typed-code form, and the camera keeps running.
-    await expect(
-      page
-        .getByRole("form", { name: "Enter a label manually" })
-        .getByRole("alert"),
-    ).toHaveText(`No inventory item you can access matches “${CAMERA_PART}”.`);
-    await expect(
-      page.getByLabel("Camera preview for scanning inventory labels"),
-    ).toBeVisible();
-    await createStockItem(page, CAMERA_PART);
-    await page.goto("/scan");
-    await expectStockItem(page, CAMERA_PART);
-  });
+test("reports a camera code that matches nothing, then opens the item once it exists", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await streamQrCode(page, CAMERA_PART);
+  await page.goto("/scan");
+  // Characterizes current behaviour: the camera's refusal shows under the
+  // typed-code form, and the camera keeps running.
+  await expect(
+    page
+      .getByRole("form", { name: "Enter a label manually" })
+      .getByRole("alert"),
+  ).toHaveText(`No inventory item you can access matches “${CAMERA_PART}”.`);
+  await expect(
+    page.getByLabel("Camera preview for scanning inventory labels"),
+  ).toBeVisible();
+  await createStockItem(page, CAMERA_PART);
+  await page.goto("/scan");
+  await expectStockItem(page, CAMERA_PART);
 });
 
 /** Creates a storage location and one stock item in it, on /inventory. */
@@ -157,27 +138,61 @@ async function closeDialog(page: Page) {
   await expect(page.getByRole("dialog")).not.toBeVisible();
 }
 
-/**
- * A one-frame YUV4MPEG2 video of `text` as a black-on-white QR code, centred;
- * Chromium's fake camera repeats the frame.
- */
-function qrVideo(text: string): Buffer {
+/** Refuses every camera request, as a user who blocks the camera would. */
+async function denyCamera(page: Page) {
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () =>
+      Promise.reject(
+        new DOMException("Blocked by the test", "NotAllowedError"),
+      );
+  });
+}
+
+/** Makes the camera a stream of `text` as a black-on-white QR code. */
+async function streamQrCode(page: Page, text: string) {
   const { modules } = QRCode.create(text);
-  const scale = Math.floor(
-    FRAME_HEIGHT / (modules.size + 2 * QUIET_ZONE_MODULES),
+  const cells = Array.from(
+    { length: modules.size ** 2 },
+    (_, i): [number, number] => [
+      i % modules.size,
+      Math.floor(i / modules.size),
+    ],
   );
-  const side = modules.size * scale;
-  const left = Math.floor((FRAME_WIDTH - side) / 2);
-  const top = Math.floor((FRAME_HEIGHT - side) / 2);
-  const luma = Buffer.alloc(FRAME_WIDTH * FRAME_HEIGHT, LUMA_WHITE);
-  for (let pixel = 0; pixel < side * side; pixel++) {
-    const row = Math.floor(pixel / side);
-    const column = pixel % side;
-    if (modules.get(Math.floor(row / scale), Math.floor(column / scale)))
-      luma[(top + row) * FRAME_WIDTH + left + column] = LUMA_BLACK;
-  }
-  // Two quarter-size chroma planes, U then V.
-  const chroma = Buffer.alloc((FRAME_WIDTH * FRAME_HEIGHT) / 2, CHROMA_NEUTRAL);
-  const header = `YUV4MPEG2 W${FRAME_WIDTH} H${FRAME_HEIGHT} F30:1 Ip A1:1 C420jpeg\nFRAME\n`;
-  return Buffer.concat([Buffer.from(header), luma, chroma]);
+  await page.addInitScript(installQrCamera, {
+    width: FRAME_WIDTH,
+    height: FRAME_HEIGHT,
+    span: modules.size + 2 * QUIET_ZONE_MODULES,
+    dark: cells
+      .filter(([column, row]) => modules.get(row, column))
+      .map(([column, row]) => [
+        column + QUIET_ZONE_MODULES,
+        row + QUIET_ZONE_MODULES,
+      ]),
+    redrawMs: REDRAW_INTERVAL_MS,
+  } satisfies QrFrame);
+}
+
+// Runs in the page, so it uses only its argument and browser globals. The
+// code is centred in square modules as wide as the frame height allows.
+function installQrCamera(qr: QrFrame) {
+  const canvas = document.createElement("canvas");
+  canvas.width = qr.width;
+  canvas.height = qr.height;
+  const context = canvas.getContext("2d")!;
+  const size = Math.floor(qr.height / qr.span);
+  const left = Math.floor((qr.width - qr.span * size) / 2);
+  const top = Math.floor((qr.height - qr.span * size) / 2);
+  const draw = () => {
+    context.fillStyle = "white";
+    context.fillRect(0, 0, qr.width, qr.height);
+    context.fillStyle = "black";
+    for (const [column, row] of qr.dark)
+      context.fillRect(left + column * size, top + row * size, size, size);
+  };
+  let timer: number | undefined;
+  navigator.mediaDevices.getUserMedia = async () => {
+    draw();
+    timer ??= window.setInterval(draw, qr.redrawMs);
+    return canvas.captureStream();
+  };
 }
