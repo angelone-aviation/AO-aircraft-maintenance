@@ -380,21 +380,6 @@ it("runs a command sent without a request id every time, recording none", async 
   ).toEqual([]);
 });
 
-it("hands delegated commands to their own transaction", async () => {
-  const f = await fixture();
-  const load = vi.fn();
-  expect(
-    await f.mechanic.run(
-      planCommand(f.aircraft, {
-        delegate: async () => "queued",
-        load,
-      }),
-    ),
-  ).toBe("queued");
-  expect(load).not.toHaveBeenCalled();
-  expect(await f.rows()).toEqual([]);
-});
-
 it("runs afterApply between apply and persist, and continues with what it returns", async () => {
   const f = await fixture();
   const steps: string[] = [];

@@ -67,11 +67,6 @@ export interface Command<C, W, R, Out = void> {
    * Undefined runs the command unrecorded (see {@link requestOf}).
    */
   request?(command: C): CommandRequest | undefined;
-  /**
-   * Hands the command to another transaction shape, such as the scheduled
-   * work-order template copies. Return undefined to run this one.
-   */
-  delegate?(state: ProgramContext, command: C): Promise<Out> | undefined;
   /** Reads the working state and checks record-level access. */
   load(tx: Transaction, command: C): Promise<W>;
   /** The domain applier: pure apart from mutating the working state. */
@@ -118,10 +113,9 @@ export interface Transaction {
 
 /**
  * Runs a command in the caller's mutation, in order: check the caller's Flight
- * Program context before the payload is read; parse; hand off (`delegate`);
- * return early for a replayed request id; load; apply; afterApply; persist;
- * write the change-log rows once through the audit writer; record the request
- * id. A Convex mutation is one transaction, so a throw at any step writes
+ * Program context before the payload is read; parse; return early for a
+ * replayed request id; load; apply; afterApply; persist; write the change-log
+ * rows once through the audit writer; record the request id. A Convex mutation is one transaction, so a throw at any step writes
  * nothing.
  *
  * @returns What `returns` gives; undefined for a replayed request.
@@ -145,8 +139,6 @@ export async function runCommand<C, W, R, Out = void>(
 ): Promise<Out | undefined> {
   const state = await checkContext(ctx, command.programUuid, command.actor);
   const parsed = command.parse(state);
-  const delegated = command.delegate?.(state, parsed);
-  if (delegated) return delegated;
   const request = command.request?.(parsed);
   if (request && (await isReplayed(ctx, state, request))) return undefined;
   const log = new CommandLog(state.user.id);
