@@ -55,6 +55,7 @@ import { HistoryPager } from "./ManagementShared";
 import {
   can,
   hours,
+  NOTE_MAX_LENGTH,
   type Aircraft,
   type AuditEntry,
   type Discrepancy,
@@ -89,8 +90,6 @@ import { FlightLogImportButton } from "./FlightLogImport";
 // Cards and rows enter one after another; the cap lets long lists settle
 // quickly.
 const STAGGER_CAP = 8;
-// The outbox schema's limit on a report's description (model.ts).
-const REPORT_TEXT_MAX_LENGTH = 5000;
 const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   hour: "2-digit",
   minute: "2-digit",
@@ -1004,7 +1003,7 @@ function ReportFields({ aircraft }: { aircraft: Aircraft[] }) {
         <textarea
           name="description"
           rows={5}
-          maxLength={REPORT_TEXT_MAX_LENGTH}
+          maxLength={NOTE_MAX_LENGTH}
           required
           placeholder="Describe the problem and where you noticed it."
         />
