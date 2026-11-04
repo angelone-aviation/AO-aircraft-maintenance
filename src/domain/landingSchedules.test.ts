@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Pins landing-based limits on inspections, work-order
+ *   compliance, component services and AD actions, kept apart from cycles.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/activateTemplate.ts, ./inspectionTemplates,
+ *   ./management, ./maintenance, ./flights, ./model, ./components,
+ *   ./workOrders, ./airworthiness, ./adRemaining, src/data/demo.ts,
+ *   tests/fixtures/workOrders.ts.
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { emptyTemplate, inspectionTemplateSchema } from "./inspectionTemplates";
@@ -5,10 +14,17 @@ import { activateTemplate } from "./activateTemplate";
 import { applyManagement, validateMaintenanceTotals } from "./management";
 import { inspectionStatus } from "./maintenance";
 import { applyFlight } from "./flights";
-import { totalSeconds } from "./model";
+import {
+  totalSeconds,
+  type Aircraft,
+  type FlightInput,
+  type Inspection,
+  type Snapshot,
+} from "./model";
 import {
   requirementStatus,
   saveRequirement,
+  type Component,
   type ComponentRequirement,
 } from "./components";
 import {
@@ -19,6 +35,7 @@ import {
   newWorkTask,
   saveWorkOrder,
   workOrderFieldsSchema,
+  type WorkOrder,
 } from "./workOrders";
 import {
   applyADCommand,
@@ -27,7 +44,12 @@ import {
   blankADTask,
 } from "./airworthiness";
 import { adRemaining } from "./adRemaining";
+
 const now = Date.parse("2026-10-26T12:00:00Z");
+const HOUR_SECONDS = 3600;
+
+/** The demo aircraft at 1,200 landings, with a 500-landing Phase 34 template
+ * and its activation from compliance at 1,000 landings. */
 function setup() {
   const s = demoSnapshot();
   const a = s.aircraft[0];
@@ -57,6 +79,120 @@ function setup() {
   };
   return { s, a, t, input };
 }
+/** A one-hour flight with this many landings and no cycles. */
+const landingFlight = (
+  s: Snapshot,
+  a: Aircraft,
+  landings: number,
+): FlightInput => ({
+  aircraftUuid: a.uuid,
+  pilotId: s.user.id,
+  startTime: "2026-10-26T11:00:00Z",
+  hobbsOn: a.currentHobbs + HOUR_SECONDS,
+  tachOn: a.currentTach + HOUR_SECONDS,
+  cycles: 0,
+  landings,
+  origin: "AAA",
+  destination: "BBB",
+  operation: "Mission",
+  flightRules: "VFR",
+  remarks: "",
+  discrepancy: "",
+});
+/** Records the inspection done on 2026-10-26 at 1,500 landings and the
+ * aircraft's other readings. */
+const completeInspection = (inspection: Inspection, a: Aircraft) => ({
+  action: "inspection.complete" as const,
+  uuid: inspection.uuid,
+  version: inspection.version!,
+  date: "2026-10-26",
+  seconds: totalSeconds(a),
+  cycles: a.cycles,
+  landings: 1500,
+  requestUuid: crypto.randomUUID(),
+  reason: "Verified compliance",
+});
+/** Completes the order and its tasks on 2026-10-25 at the aircraft's current
+ * readings, except landings. */
+function completeOrder(order: WorkOrder, a: Aircraft, landings: number) {
+  return {
+    action: "save" as const,
+    uuid: order.uuid,
+    version: order.version,
+    componentUuids: [],
+    fields: {
+      ...workOrderFieldsSchema.parse(order),
+      status: "completed" as const,
+      completionDate: "2026-10-25",
+      releaseOutcome: "Reviewed",
+    },
+    tasks: order.tasks.map((t) => ({ ...t, status: "completed" as const })),
+    completionReadings: {
+      totalSeconds: totalSeconds(a),
+      hobbs: a.currentHobbs,
+      tach: a.currentTach,
+      cycles: a.cycles,
+      landings,
+    },
+  };
+}
+/** A landing gear service due every 500 landings from compliance at 1,000. */
+const landingService = (c: Component, a: Aircraft): ComponentRequirement => ({
+  uuid: "landing-service",
+  version: 0,
+  kind: "componentRequirement",
+  componentUuid: c.uuid,
+  aircraftUuid: a.uuid,
+  requirementType: "Inspection Requirement",
+  description: "Landing gear service",
+  notes: "",
+  intervalLandings: 500,
+  lastLandings: 1000,
+  landingLimitMode: "FROM_LAST_COMPLIED",
+  timeBasis: "TSN",
+  timeLimitMode: "ABSOLUTE",
+  cycleLimitMode: "ABSOLUTE",
+  calendarIntervalUnit: "MONTHS",
+  warningCalendarMonths: 1,
+  warningSeconds: 36000,
+  warningCycles: 10,
+});
+/** A reviewed AD whose action repeats every 500 landings, first due at
+ * 1,200. */
+function landingAD(a: Aircraft) {
+  const r = blankAD(a.uuid);
+  r.source.number = "2026-01-01";
+  r.applicability = "Applicable";
+  r.reviewRequired = false;
+  r.tasks = [
+    {
+      ...blankADTask(),
+      description: "Inspect landing gear",
+      recurrence: "Recurring",
+      intervalLandings: 500,
+      dueLandings: 1200,
+    },
+  ];
+  return r;
+}
+/** AD compliance recorded at 1,200 landings, with no hours or cycles. */
+const landingCompliance = (taskUuid: string) => ({
+  uuid: crypto.randomUUID(),
+  taskUuid,
+  date: "2026-10-26",
+  hours: null,
+  cycles: null,
+  landings: 1200,
+  method: "Inspected",
+  serviceBulletin: "",
+  terminatedBy: "",
+  workOrderUuid: "",
+  mechanic: "Mechanic",
+  certificate: "123",
+  evidence: "",
+  recordedAt: 0,
+  recordedBy: "",
+});
 it("activates a 500-landing inspection, consumes flight landings independently of cycles, and renews from compliance", () => {
   const { s, a, input } = setup();
   const { record } = activateTemplate(s, input);
@@ -70,38 +206,14 @@ it("activates a 500-landing inspection, consumes flight landings independently o
     landingsRemaining: 300,
     status: "scheduled",
   });
-  const flown = applyFlight(a, {
-    aircraftUuid: a.uuid,
-    pilotId: s.user.id,
-    startTime: "2026-10-26T11:00:00Z",
-    hobbsOn: a.currentHobbs + 3600,
-    tachOn: a.currentTach + 3600,
-    cycles: 0,
-    landings: 300,
-    origin: "AAA",
-    destination: "BBB",
-    operation: "Mission",
-    flightRules: "VFR",
-    remarks: "",
-    discrepancy: "",
-  });
+  const flown = applyFlight(a, landingFlight(s, a, 300));
   expect(flown.cycles).toBe(a.cycles);
   expect(inspectionStatus(inspection, flown)).toMatchObject({
     landingsRemaining: 0,
     status: "overdue",
   });
   s.aircraft[0] = flown;
-  const command = {
-    action: "inspection.complete" as const,
-    uuid: inspection.uuid,
-    version: inspection.version!,
-    date: "2026-10-26",
-    seconds: totalSeconds(flown),
-    cycles: flown.cycles,
-    landings: 1500,
-    requestUuid: crypto.randomUUID(),
-    reason: "Verified compliance",
-  };
+  const command = completeInspection(inspection, flown);
   expect(() =>
     applyManagement(s, { ...command, landings: undefined }, now),
   ).toThrow("landings");
@@ -145,52 +257,15 @@ it("captures backdated work-order landing compliance and rejects missing or out-
   ];
   const order = saveWorkOrder(s, cmd, now);
   a.landings = 1400;
-  const completion = {
-    action: "save" as const,
-    uuid: order.uuid,
-    version: order.version,
-    componentUuids: [],
-    fields: {
-      ...workOrderFieldsSchema.parse(order),
-      status: "completed" as const,
-      completionDate: "2026-10-25",
-      releaseOutcome: "Reviewed",
-    },
-    tasks: order.tasks.map((t) => ({ ...t, status: "completed" as const })),
-    completionReadings: {
-      totalSeconds: totalSeconds(a),
-      hobbs: a.currentHobbs,
-      tach: a.currentTach,
-      cycles: a.cycles,
-      landings: 1300,
-    },
-  };
-  expect(() =>
-    saveWorkOrder(
-      s,
-      {
-        ...completion,
-        completionReadings: {
-          ...completion.completionReadings,
-          landings: undefined,
-        },
-      },
-      now,
-    ),
-  ).toThrow("landings");
-  expect(() =>
-    saveWorkOrder(
-      s,
-      {
-        ...completion,
-        completionReadings: {
-          ...completion.completionReadings,
-          landings: 1500,
-        },
-      },
-      now,
-    ),
-  ).toThrow("landings");
+  const completion = completeOrder(order, a, 1300);
+  const withLandings = (landings: number | undefined) => ({
+    ...completion,
+    completionReadings: { ...completion.completionReadings, landings },
+  });
+  expect(() => saveWorkOrder(s, withLandings(undefined), now)).toThrow(
+    "landings",
+  );
+  expect(() => saveWorkOrder(s, withLandings(1500), now)).toThrow("landings");
   const completed = saveWorkOrder(s, completion, now);
   expect(completed.closeout?.aircraft.landings).toBe(1300);
   expect(completed.closeout?.compliance[0]).toMatchObject({
@@ -207,26 +282,7 @@ it("uses aircraft totals for component services and detects a different installa
   const c = workOrderComponent();
   c.trackCycles = false;
   s.management = [c];
-  const raw: ComponentRequirement = {
-    uuid: "landing-service",
-    version: 0,
-    kind: "componentRequirement",
-    componentUuid: c.uuid,
-    aircraftUuid: a.uuid,
-    requirementType: "Inspection Requirement",
-    description: "Landing gear service",
-    notes: "",
-    intervalLandings: 500,
-    lastLandings: 1000,
-    landingLimitMode: "FROM_LAST_COMPLIED",
-    timeBasis: "TSN",
-    timeLimitMode: "ABSOLUTE",
-    cycleLimitMode: "ABSOLUTE",
-    calendarIntervalUnit: "MONTHS",
-    warningCalendarMonths: 1,
-    warningSeconds: 36000,
-    warningCycles: 10,
-  };
+  const raw = landingService(c, a);
   const saved = saveRequirement(s, raw, now);
   expect(saved).toMatchObject({
     dueLandings: 1500,
@@ -245,38 +301,9 @@ it("uses aircraft totals for component services and detects a different installa
 });
 it("renews landing-based AD actions independently of cycles", () => {
   const { s, a } = setup();
-  const r = blankAD(a.uuid);
-  r.source.number = "2026-01-01";
-  r.applicability = "Applicable";
-  r.reviewRequired = false;
-  r.tasks = [
-    {
-      ...blankADTask(),
-      description: "Inspect landing gear",
-      recurrence: "Recurring",
-      intervalLandings: 500,
-      dueLandings: 1200,
-    },
-  ];
-  applyADCommand(s, { kind: "save", record: r }, now);
+  applyADCommand(s, { kind: "save", record: landingAD(a) }, now);
   const saved = s.airworthiness![0];
-  const entry = {
-    uuid: crypto.randomUUID(),
-    taskUuid: saved.tasks[0].uuid,
-    date: "2026-10-26",
-    hours: null,
-    cycles: null,
-    landings: 1200,
-    method: "Inspected",
-    serviceBulletin: "",
-    terminatedBy: "",
-    workOrderUuid: "",
-    mechanic: "Mechanic",
-    certificate: "123",
-    evidence: "",
-    recordedAt: 0,
-    recordedBy: "",
-  };
+  const entry = landingCompliance(saved.tasks[0].uuid);
   expect(() =>
     applyADCommand(
       s,
