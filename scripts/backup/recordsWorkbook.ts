@@ -1,14 +1,24 @@
-// The readable records copy (ADR-0011): one formatted Excel workbook built
-// from the nightly Convex export, for administrators, inspectors and board
-// members. It is a convenience copy; the aircraft logbooks and the encrypted
-// R2 backup (ADR-0008) are the records.
-//
-// Every status and label comes from src/domain, so the workbook says what the
-// app says. Only allow-listed tables are read: sign-in data, credentials,
-// stored files and request bookkeeping never reach the workbook.
+/**
+ * Responsibility: Builds the readable records copy (ADR-0011), one formatted
+ *   Excel workbook, from the nightly Convex export.
+ * Layer: Script. Node only: reads the export ZIP, writes one .xlsx file.
+ * Dependencies: exceljs, ./convexExport, convex/collections (decoding),
+ *   src/domain (statuses, labels and rules).
+ *
+ * It is a convenience copy for administrators, inspectors and board members;
+ * the aircraft logbooks and the encrypted R2 backup (ADR-0008) are the
+ * records. Every status and label comes from src/domain, so the workbook says
+ * what the app says. Only allow-listed tables are read: sign-in data,
+ * credentials, stored files and request bookkeeping never reach the workbook.
+ */
 import ExcelJS from "exceljs";
 import { parseArgs } from "node:util";
 import { exportContents, readDocuments } from "./convexExport";
+import {
+  decodeLenient,
+  type PayloadCollection,
+  type StoredRecord,
+} from "../../convex/collections";
 import {
   aircraftStatus,
   aircraftStatusLabels,
@@ -17,11 +27,9 @@ import {
 import {
   adAircraftUuid,
   adCounters,
-  adSchema,
   adStatus,
   adTaskStatus,
   effectiveCompliance,
-  type AD,
 } from "../../src/domain/airworthiness";
 import { auditActionLabel } from "../../src/domain/auditHistory";
 import {
@@ -31,11 +39,7 @@ import {
   type Component,
   type ComponentRequirement,
 } from "../../src/domain/components";
-import {
-  costRecordSchema,
-  flightSeconds,
-  workOrderCosts,
-} from "../../src/domain/costs";
+import { flightSeconds, workOrderCosts } from "../../src/domain/costs";
 import {
   deferralDaysRemaining,
   deferralLabel,
@@ -49,12 +53,7 @@ import {
   inspectionStatus,
   inspectionStatusLabels,
 } from "../../src/domain/maintenance";
-import {
-  inspectionCounters,
-  recordSchema,
-  type ManagedRecord,
-  type Stock,
-} from "../../src/domain/management";
+import { inspectionCounters, type Stock } from "../../src/domain/management";
 import {
   hours,
   totalSeconds,
@@ -67,33 +66,35 @@ import {
   type Member,
   type Snapshot,
 } from "../../src/domain/model";
-import { partsRequestSchema } from "../../src/domain/partsRequests";
 import { groupCoversAircraft, recordProgram } from "../../src/domain/programs";
 import {
   outstanding,
-  poSchema,
   poStatus,
   poTotal,
   received,
 } from "../../src/domain/purchaseOrders";
 import { shelfLifeLabels, shelfLifeStatus } from "../../src/domain/shelfLife";
-import { taskCardSchema, type TaskCard } from "../../src/domain/taskCards";
+import type { TaskCard } from "../../src/domain/taskCards";
 import { logbookPerformers } from "../../src/domain/workOrderCloseout";
-import { workOrderSchema, type WorkOrder } from "../../src/domain/workOrders";
 
 /** Excel's row limit, less the title and header rows of each sheet. */
 export const MAX_DATA_ROWS = 1_048_576 - 2;
 const MAX_CELL_TEXT = 32_000;
 
+/** How to build the workbook. */
 export interface WorkbookOptions {
+  /** The .xlsx file to write. */
   out: string;
+  /** The IANA time zone for every date, time and "today". */
   timeZone: string;
   /** Which deployment the export came from, as shown on Read me. */
   deployment: string;
+  /** When the copy is made; defaults to now. */
   now?: number;
   /** Data rows per Change history sheet; tests lower it. */
   maxRowsPerSheet?: number;
 }
+/** What the build wrote: rows per sheet, and the notes shown on Read me. */
 export interface WorkbookSummary {
   sheets: { name: string; rows: number }[];
   warnings: string[];
@@ -175,6 +176,13 @@ async function loadExport(zipPath: string) {
 
 // ------------------------------------------------------------------ time --
 
+/**
+ * Dates and times in one IANA time zone, as the workbook shows them.
+ *
+ * @param timeZone - An IANA name, such as "America/New_York".
+ * @returns The zone's formatters.
+ * @throws {RangeError} For a time zone Intl does not know.
+ */
 export function zoneClock(timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -319,60 +327,43 @@ const permissionLabels: Record<string, string> = {
   maintenance: "manage maintenance",
 };
 
-function parsed<T>(
-  schema: { safeParse(v: unknown): { success: boolean; data?: T } },
-  docs: Doc[],
-  table: string,
-  warnings: string[],
-): T[] {
-  let failed = 0;
-  const out = docs.map((d) => {
-    const value = d.payload === undefined ? d : payloadOf(d);
-    const result = schema.safeParse(value);
-    if (result.success) return result.data as T;
-    failed++;
-    return value as T;
-  });
-  if (failed)
-    warnings.push(
-      `${failed} ${table} record${failed === 1 ? "" : "s"} did not match the app's current format; shown as stored, and their status may be missing.`,
-    );
-  return out;
-}
-
+// A system administrator's view of every program, aircraft and record. Payload
+// rows decode through the app's codec; one that no longer matches its schema
+// is shown as stored, with a note on Read me.
 function decode(tables: Map<string, Doc[]>, now: number) {
   const warnings: string[] = [];
   const t = (name: string) => tables.get(name) ?? [];
   const programs = new Map(
     t("programs").map((p) => [String(p.uuid), String(p.name ?? "")]),
   );
-  const members: Member[] = t("users").map((u) => ({
-    id: String(u._id),
-    name: str(u.name)?.trim() || "Unnamed user",
-    email: str(u.email) ?? "",
-    active: u.active === true,
-    isAdmin: u.isAdmin === true,
-    groupIds: (u.groupIds as string[] | undefined) ?? [],
-  }));
-  const groups: Group[] = t("groups").map((g) => ({
-    id: String(g._id),
-    programUuid: str(g.programUuid),
-    programAdmin: g.programAdmin as boolean | undefined,
-    owner: g.owner as boolean | undefined,
-    name: String(g.name ?? ""),
-    aircraftIds: (g.aircraftIds as string[] | undefined) ?? [],
-    permissions: (g.permissions as Group["permissions"] | undefined) ?? [],
-  }));
-  const aircraft = t("aircraft").map((a) => {
-    const programUuid = str(a.programUuid);
-    return {
-      ...(a as unknown as Aircraft),
-      program:
-        (programUuid && programs.get(programUuid)) || String(a.program ?? ""),
-    };
-  });
   const snapshot: Snapshot = {
-    // A system administrator's view: every program, aircraft and record.
+    ...recordsCopyView(programs, now),
+    groups: t("groups").map(decodeGroup),
+    members: t("users").map(decodeMember),
+    aircraft: t("aircraft").map((a) => decodeAircraft(a, programs)),
+    flights: t("flights") as unknown as Flight[],
+    discrepancies: t("discrepancies") as unknown as Discrepancy[],
+    inspections: t("inspections") as unknown as Inspection[],
+    audit: [],
+    ...decodeRecords(t, warnings),
+  };
+  const audit = t("audit") as unknown as (AuditEntry & { _id?: string })[];
+  const transferred = new Map<string, string[]>();
+  for (const x of t("transferredAudit")) {
+    const id = String(x.auditId);
+    transferred.set(id, [
+      ...(transferred.get(id) ?? []),
+      String(x.programUuid),
+    ]);
+  }
+  const labels = ["manuals", "checklists", "inspectionTemplates", "flightPlans"]
+    .flatMap((name) => t(name))
+    .map((d) => [String(d.uuid), String(d.label)] as const);
+  return { snapshot, programs, audit, transferred, labels, warnings };
+}
+
+function recordsCopyView(programs: Map<string, string>, now: number) {
+  return {
     user: {
       id: "records-copy",
       name: "Records copy",
@@ -392,60 +383,90 @@ function decode(tables: Map<string, Doc[]>, now: number) {
       contactName: "",
       website: "",
     })),
-    groups,
-    members,
-    aircraft,
-    flights: t("flights") as unknown as Flight[],
-    discrepancies: t("discrepancies") as unknown as Discrepancy[],
-    inspections: t("inspections") as unknown as Inspection[],
-    audit: [],
-    management: parsed<ManagedRecord>(
-      recordSchema,
+  };
+}
+
+function decodeMember(u: Doc): Member {
+  return {
+    id: String(u._id),
+    name: str(u.name)?.trim() || "Unnamed user",
+    email: str(u.email) ?? "",
+    active: u.active === true,
+    isAdmin: u.isAdmin === true,
+    groupIds: (u.groupIds as string[] | undefined) ?? [],
+  };
+}
+
+function decodeGroup(g: Doc): Group {
+  return {
+    id: String(g._id),
+    programUuid: str(g.programUuid),
+    programAdmin: g.programAdmin as boolean | undefined,
+    owner: g.owner as boolean | undefined,
+    name: String(g.name ?? ""),
+    aircraftIds: (g.aircraftIds as string[] | undefined) ?? [],
+    permissions: (g.permissions as Group["permissions"] | undefined) ?? [],
+  };
+}
+
+// The program's current name, which the aircraft's stored copy may predate.
+function decodeAircraft(a: Doc, programs: Map<string, string>): Aircraft {
+  const programUuid = str(a.programUuid);
+  return {
+    ...(a as unknown as Aircraft),
+    program:
+      (programUuid && programs.get(programUuid)) || String(a.program ?? ""),
+  };
+}
+
+// Warnings come in this order on Read me.
+function decodeRecords(t: (name: string) => Doc[], warnings: string[]) {
+  return {
+    management: parsed(
+      "management",
       t("management"),
       "inventory and component",
       warnings,
     ),
-    airworthiness: parsed<AD>(adSchema, t("airworthiness"), "AD", warnings),
-    workOrders: parsed<WorkOrder>(
-      workOrderSchema,
-      t("workOrders"),
-      "work order",
-      warnings,
-    ),
-    taskCards: parsed<TaskCard>(
-      taskCardSchema,
-      t("taskCards"),
-      "job card",
-      warnings,
-    ),
+    airworthiness: parsed("airworthiness", t("airworthiness"), "AD", warnings),
+    workOrders: parsed("workOrders", t("workOrders"), "work order", warnings),
+    taskCards: parsed("taskCards", t("taskCards"), "job card", warnings),
     archivedTaskCards: [],
-    costs: parsed(costRecordSchema, t("costs"), "cost", warnings),
+    costs: parsed("costs", t("costs"), "cost", warnings),
     purchaseOrders: parsed(
-      poSchema,
+      "purchaseOrders",
       t("purchaseOrders"),
       "purchase order",
       warnings,
     ),
     partsRequests: parsed(
-      partsRequestSchema,
+      "partsRequests",
       t("partsRequests"),
       "parts request",
       warnings,
     ),
   };
-  const audit = t("audit") as unknown as (AuditEntry & { _id?: string })[];
-  const transferred = new Map<string, string[]>();
-  for (const x of t("transferredAudit")) {
-    const id = String(x.auditId);
-    transferred.set(id, [
-      ...(transferred.get(id) ?? []),
-      String(x.programUuid),
-    ]);
-  }
-  const labels = ["manuals", "checklists", "inspectionTemplates", "flightPlans"]
-    .flatMap((name) => t(name))
-    .map((d) => [String(d.uuid), String(d.label)] as const);
-  return { snapshot, programs, audit, transferred, labels, warnings };
+}
+
+function parsed<N extends PayloadCollection>(
+  collection: N,
+  docs: Doc[],
+  label: string,
+  warnings: string[],
+): StoredRecord<N>[] {
+  let failed = 0;
+  const out = docs.map((d) => {
+    const value = d.payload === undefined ? d : payloadOf(d);
+    const result = decodeLenient(collection, value);
+    if (result.valid) return result.record;
+    failed++;
+    return result.stored as StoredRecord<N>;
+  });
+  if (failed)
+    warnings.push(
+      `${failed} ${label} record${failed === 1 ? "" : "s"} did not match the app's current format; shown as stored, and their status may be missing.`,
+    );
+  return out;
 }
 
 // Names people recognise in place of IDs.
@@ -1929,15 +1950,16 @@ const headerStyle: Partial<ExcelJS.Style> = {
   },
 };
 
-// Characters XML cannot hold, and unpaired surrogates.
-const UNSAFE =
-  // eslint-disable-next-line no-control-regex
-  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 function cellValue(v: Cell): ExcelJS.CellValue {
   if (v === undefined || v === null || v === "") return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
-  const text = v.replace(UNSAFE, "");
+  // XML 1.0 holds tab, line feed, carriage return, U+0020-U+D7FF,
+  // U+E000-U+FFFD and surrogate pairs: pairs are kept, all else dropped.
+  const text = v.replace(
+    /[\ud800-\udbff][\udc00-\udfff]|[^\t\n\r\u0020-\ud7ff\ue000-\ufffd]/g,
+    (unit) => (unit.length === 2 ? unit : ""),
+  );
   return text.length > MAX_CELL_TEXT
     ? text.slice(0, MAX_CELL_TEXT) +
         "\n… (shortened here; the encrypted backup holds the full record)"
@@ -2132,6 +2154,14 @@ function writeReadMe(
 
 // ----------------------------------------------------------------- build --
 
+/**
+ * Builds the records workbook from a Convex export ZIP and writes it to
+ * `options.out`.
+ *
+ * @param zipPath - The Convex snapshot export.
+ * @returns Rows per sheet, and the notes shown on Read me.
+ * @throws {Error} From ./convexExport, when the ZIP is not a readable export.
+ */
 export async function buildRecordsWorkbook(
   zipPath: string,
   options: WorkbookOptions,
@@ -2254,6 +2284,15 @@ export async function buildRecordsWorkbook(
   return summary;
 }
 
+/**
+ * The command line: `--zip <export> --out <file.xlsx> [--tz <IANA zone>]
+ * [--deployment <name>]`. Sets the process time zone to `--tz`, then prints
+ * the sheets written and any notes.
+ *
+ * @param argv - The arguments after the script name.
+ * @throws {Error} The usage line when --zip or --out is missing; 'Unknown
+ *   time zone "<tz>". Use an IANA name such as America/New_York.'
+ */
 export async function main(argv: string[]) {
   const { values } = parseArgs({
     args: argv,

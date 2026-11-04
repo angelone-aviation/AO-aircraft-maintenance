@@ -1,10 +1,18 @@
+/**
+ * Responsibility: Pins the records workbook built from the fixture export:
+ *   sheets, labels, dates, statuses, layout, what it never shows, the change
+ *   history split, damaged records and the command line.
+ * Layer: Test. Vitest suite (Node); never shipped in the build.
+ * Dependencies: scripts/backup/recordsWorkbook.ts, ./exportFixture, exceljs,
+ *   fflate, src/domain/auditHistory.
+ */
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ExcelJS from "exceljs";
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditActionLabel } from "../../src/domain/auditHistory";
 import { fixtureExport } from "./exportFixture";
@@ -514,6 +522,54 @@ describe("records workbook", () => {
       .getWorksheet("Read me")!
       .eachRow((row) => row.eachCell((c) => (readMe += text(c.value) + "\n")));
     expect(readMe).toContain(`split across ${parts.length} sheets`);
+  });
+
+  it("shows a record that no longer matches the app as stored, with a note, and drops characters XML cannot hold", async () => {
+    const files = unzipSync(fixture.zip);
+    const edit = (
+      table: string,
+      change: (d: Record<string, unknown>) => void,
+    ) => {
+      const name = `${table}/documents.jsonl`;
+      const docs = strFromU8(files[name])
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      change(docs[0]);
+      files[name] = strToU8(
+        docs.map((d) => JSON.stringify(d)).join("\n") + "\n",
+      );
+    };
+    edit("management", (d) => {
+      d.payload = JSON.stringify({
+        ...JSON.parse(String(d.payload)),
+        name: "",
+      });
+    });
+    edit("discrepancies", (d) => {
+      d.description = "Tab\tkept\u0001, \ud83d\ude00 kept, lone \ud83d dropped";
+    });
+    const damaged = path.join(dir, "damaged.zip");
+    const out = path.join(dir, "damaged.xlsx");
+    await writeFile(damaged, zipSync(files));
+    const summary = await buildRecordsWorkbook(damaged, {
+      out,
+      timeZone: TZ,
+      deployment: "fixture",
+      now,
+    });
+    expect(summary.warnings).toEqual([
+      "1 inventory and component record did not match the app's current format; shown as stored, and their status may be missing.",
+    ]);
+    const read = new ExcelJS.Workbook();
+    await read.xlsx.readFile(out);
+    const descriptions: string[] = [];
+    read
+      .getWorksheet("Discrepancies")!
+      .eachRow((row) => row.eachCell((c) => descriptions.push(text(c.value))));
+    expect(descriptions).toContain(
+      "Tab\tkept, \ud83d\ude00 kept, lone  dropped",
+    );
   });
 
   it("runs from the command line and fails clearly on a bad export", async () => {

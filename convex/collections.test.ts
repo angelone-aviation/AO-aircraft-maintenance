@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins the collection codec, and that hydrate and the
- *   snapshot query read every stored collection exactly as before it.
+ * Responsibility: Pins the collection codec: decode, lenient decode and
+ *   encode, and that hydrate and the snapshot query read every stored
+ *   collection exactly as before it.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/collections.ts, convex/runCommand.ts,
  *   convex/operations.ts, convex/schema.ts, zod,
@@ -16,7 +17,12 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import { hydrate, type Need } from "./runCommand";
 import { checkContext } from "./programContext";
-import { decode } from "./collections";
+import {
+  decode,
+  decodeLenient,
+  encode,
+  type PayloadCollection,
+} from "./collections";
 import {
   PROGRAM,
   seedStoredCollections,
@@ -55,6 +61,22 @@ const LEGACY_DECODERS: Partial<Record<Need, (payload: string) => unknown>> = {
   inspectionTemplates: (p) => inspectionTemplateSchema.parse(JSON.parse(p)),
   costs: (p) => costRecordSchema.parse(JSON.parse(p)),
 };
+const PAYLOAD_COLLECTIONS: PayloadCollection[] = [
+  "management",
+  "taskCards",
+  "archivedTaskCards",
+  "workOrders",
+  "airworthiness",
+  "partsRequests",
+  "purchaseOrders",
+  "checklists",
+  "componentTemplates",
+  "componentSetups",
+  "inspectionTemplates",
+  "costs",
+  "faaMonitors",
+  "flightPlans",
+];
 const NEEDS: Need[] = [
   "management",
   "inspections",
@@ -168,4 +190,102 @@ it("returns the snapshot it returned before the codec, to an administrator and a
       `./__golden__/snapshot.${view}.json`,
     );
   }
+});
+
+it("decodes leniently: a matching payload decoded, any other as stored", () => {
+  const vendor = { uuid: "a", version: 1, kind: "vendor", name: " Vendor " };
+  expect(decodeLenient("management", vendor)).toEqual({
+    valid: true,
+    record: expect.objectContaining({ name: "Vendor", website: "" }),
+  });
+  const damaged = { ...vendor, name: "" };
+  expect(decodeLenient("management", damaged)).toEqual({
+    valid: false,
+    stored: damaged,
+  });
+  expect(decodeLenient("componentSetups", damaged)).toEqual({
+    valid: true,
+    record: damaged,
+  });
+});
+
+it("encodes every stored row as the app wrote it, and decodes it back", async () => {
+  const { t } = await fixture();
+  const rows = await t.run(async (ctx) => {
+    const all = [];
+    for (const collection of PAYLOAD_COLLECTIONS)
+      for (const { _id, _creationTime, ...row } of await ctx.db
+        .query(collection)
+        .collect())
+        all.push({ collection, row: row as { payload: string } });
+    return all;
+  });
+  expect(new Set(rows.map((r) => r.collection)).size).toBe(
+    PAYLOAD_COLLECTIONS.length,
+  );
+  for (const { collection, row } of rows) {
+    expect(encode(collection, JSON.parse(row.payload)), collection).toEqual(
+      row,
+    );
+    const [record] = decode(collection, [row]);
+    const encoded = encode(collection, record);
+    expect(encoded.payload, collection).toBe(JSON.stringify(record));
+    expect(JSON.stringify(decode(collection, [encoded])), collection).toBe(
+      JSON.stringify([record]),
+    );
+  }
+});
+
+it("refuses to encode a component template without a Flight Program", () => {
+  const template = { uuid: "t", version: 1, name: "T", make: "M", model: "M" };
+  expect(() => encode("componentTemplates", { ...template, rows: [] })).toThrow(
+    "Component template t has no Flight Program.",
+  );
+});
+
+// Characterizes current behaviour: the management mutation drops an empty
+// aircraftUuid column that encode keeps, as the records read back the same.
+it("keeps a management row's empty aircraftUuid, which the management mutation drops", async () => {
+  const { t, admin } = await fixture();
+  const component = {
+    kind: "component",
+    uuid: "spare-prop",
+    version: 0,
+    aircraftUuid: "",
+    componentType: "Propeller",
+    partNumber: "P-1",
+    serial: "S-1",
+    manufacturer: "",
+    notes: "",
+    trackTime: true,
+    trackCycles: false,
+    trackCalendar: false,
+    installed: false,
+    partsLocation: "Shelf",
+    installedSeconds: 0,
+    installedCycles: 0,
+    timeSinceNew: 0,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+    cyclesSinceNew: 0,
+    serviceDaysBase: 0,
+  };
+  await admin.mutation(api.management.execute, {
+    programUuid: PROGRAM,
+    payload: JSON.stringify({
+      requestUuid: crypto.randomUUID(),
+      reason: "Spare received",
+      action: "record.save",
+      record: component,
+    }),
+  });
+  const stored = await t.run((ctx) =>
+    ctx.db
+      .query("management")
+      .withIndex("uuid", (q) => q.eq("uuid", component.uuid))
+      .unique(),
+  );
+  expect(stored).not.toHaveProperty("aircraftUuid");
+  const [record] = decode("management", [stored!]);
+  expect(encode("management", record)).toHaveProperty("aircraftUuid", "");
 });
