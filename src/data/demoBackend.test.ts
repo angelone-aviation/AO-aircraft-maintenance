@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins the demo adapter's discrepancy resolution, flight
- *   review, AD changes, attachments, manual edits, saved addresses, FAA
+ * Responsibility: Pins the demo adapter's discrepancy resolution and
+ *   deferral, flight review, AD changes, attachments, manual edits, saved addresses, FAA
  *   monitor commands, program selection, membership and group saves, and
  *   recurring parts lists against the server's rules: the same refusals,
  *   stored records and change-log rows.
@@ -16,8 +16,10 @@
  * flight review skipped the administrator, aircraft, crew, problem-report,
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
- * and crashed on a missing flight. Before Batch 296 its AD rows named no
- * Flight Program. Before Batch 273 it took any number of attachments. Before
+ * and crashed on a missing flight. Before Batch 296 its AD, deferral and
+ * resolution rows named no Flight Program, and a resolution row held the
+ * whole report after, where the server keeps the resolved fields. Before
+ * Batch 273 it took any number of attachments. Before
  * Batch 285 it audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
  * FAA monitor's run and error on configure, and ignored an unknown candidate.
@@ -31,6 +33,7 @@ import { expect, it, vi } from "vitest";
 import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import type { Flight, FlightInput, Snapshot } from "../domain/model";
+import { localDate } from "../domain/model";
 import { applyFlight } from "../domain/flights";
 import {
   adAuditRecord,
@@ -73,7 +76,7 @@ async function demo(namespace: string, edit: (s: Snapshot) => void = () => {}) {
   };
 }
 
-it("resolves with the trimmed repair and audits the record before and after", async () => {
+it("resolves with the trimmed repair and audits it as the server does: the program, the resolved fields", async () => {
   const { backend, stored } = await demo("demo-resolve");
   const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
   await backend.resolve(REPORT, "  Reseated the connector ");
@@ -86,14 +89,59 @@ it("resolves with the trimmed repair and audits the record before and after", as
     resolvedBy: s.user.id,
     resolvedAt: expect.any(Number),
   });
-  expect(s.audit[0]).toMatchObject({
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: after.resolvedAt,
     action: "discrepancy.resolved",
     entityUuid: REPORT,
     aircraftUuid: after.aircraftUuid,
-    actorId: s.user.id,
     reason: "  Reseated the connector ",
     before: JSON.stringify(before),
-    after: JSON.stringify(after),
+    after: JSON.stringify({
+      status: "resolved",
+      resolution: "Reseated the connector",
+      resolvedBy: s.user.id,
+      resolvedAt: after.resolvedAt,
+    }),
+  });
+});
+
+it("defers and audits it as the server does: the program, the placard, the deferral", async () => {
+  const { backend, stored } = await demo("demo-defer");
+  const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
+  await backend.deferDiscrepancy({
+    uuid: REPORT,
+    deferredOn: localDate(),
+    deferral: { type: "91.213d", placard: " LDG LT INOP ", notHazard: true },
+  });
+  const s = await stored();
+  const after = s.discrepancies.find((d) => d.uuid === REPORT)!;
+  expect(after).toEqual({
+    ...before,
+    deferral: {
+      type: "91.213d",
+      placard: "LDG LT INOP",
+      notHazard: true,
+      deferredOn: localDate(),
+      deferredAt: expect.any(Number),
+      deferredBy: s.user.id,
+      deferredByName: s.user.name,
+      expiresOn: undefined,
+    },
+  });
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: after.deferral!.deferredAt,
+    action: "discrepancy.deferred",
+    entityUuid: REPORT,
+    aircraftUuid: after.aircraftUuid,
+    reason: "LDG LT INOP",
+    before: JSON.stringify(before),
+    after: JSON.stringify(after.deferral),
   });
 });
 

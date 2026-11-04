@@ -14,7 +14,7 @@ import { ZodError } from "zod";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { demoSnapshot } from "../src/data/demo";
-import type { FlightInput } from "../src/domain/model";
+import { localDate, type FlightInput } from "../src/domain/model";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -588,6 +588,73 @@ describe("discrepancy resolution", () => {
         resolvedAt: (report as { resolvedAt: number }).resolvedAt,
       }),
     );
+  });
+  it("stores a deferral and its change-log row as before: the document before, the client's program", async () => {
+    const { t, pilot, admin, ids, a } = await fixture();
+    const uuid = crypto.randomUUID();
+    await pilot.mutation(api.operations.submit, {
+      operation: {
+        programUuid: "demo-program",
+        kind: "discrepancy",
+        uuid,
+        authorId: ids.user,
+        aircraftUuid: a.uuid,
+        description: "Alternator inoperative",
+      },
+    });
+    const report = () =>
+      t.run((ctx) =>
+        ctx.db
+          .query("discrepancies")
+          .withIndex("uuid", (q) => q.eq("uuid", uuid))
+          .unique(),
+      );
+    const stored = await report();
+    await admin.mutation(api.operations.deferDiscrepancy, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({
+        uuid,
+        deferredOn: localDate(),
+        deferral: {
+          type: "mel",
+          melItem: "24-1",
+          category: "B",
+          placard: " ALT INOP ",
+        },
+      }),
+    });
+    const deferred = await report();
+    const rows = await t.run(async (ctx) =>
+      (await ctx.db.query("audit").collect()).filter(
+        (r) => r.action === "discrepancy.deferred",
+      ),
+    );
+    expect(rows).toEqual([
+      {
+        _id: expect.any(String),
+        _creationTime: expect.any(Number),
+        uuid: expect.any(String),
+        at: expect.any(Number),
+        programUuid: "demo-program",
+        actorId: ids.admin,
+        action: "discrepancy.deferred",
+        entityUuid: uuid,
+        aircraftUuid: a.uuid,
+        reason: "ALT INOP",
+        before: JSON.stringify(stored),
+        after: JSON.stringify({
+          type: "mel",
+          melItem: "24-1",
+          category: "B",
+          placard: "ALT INOP",
+          deferredOn: localDate(),
+          deferredAt: deferred!.deferral!.deferredAt,
+          deferredBy: ids.admin,
+          deferredByName: "Admin",
+          expiresOn: deferred!.deferral!.expiresOn,
+        }),
+      },
+    ]);
   });
 });
 

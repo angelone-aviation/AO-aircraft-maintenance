@@ -106,7 +106,7 @@ import {
 } from "../domain/engineTrends";
 import { applyManagement } from "../domain/management";
 import { ConvexError } from "convex/values";
-import type { AuditEntry, Snapshot } from "../domain/model";
+import type { AuditEntry, Discrepancy, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
 import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import * as local from "./local";
@@ -876,39 +876,9 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         );
       }),
     deferDiscrepancy: (command) =>
-      modify((s) => {
-        const next = deferDiscrepancy(s, command);
-        const before = s.discrepancies.find((d) => d.uuid === next.uuid);
-        s.discrepancies = s.discrepancies.map((d) =>
-          d.uuid === next.uuid ? next : d,
-        );
-        audit(
-          s,
-          "discrepancy.deferred",
-          next.uuid,
-          next.aircraftUuid,
-          next.deferral!.placard,
-          before,
-          next.deferral,
-        );
-      }),
+      modify((s) => replaceReport(s, deferDiscrepancy(s, command))),
     resolve: (uuid, resolution) =>
-      modify((s) => {
-        const next = resolveDiscrepancy(s, uuid, resolution);
-        const before = s.discrepancies.find((d) => d.uuid === uuid);
-        s.discrepancies = s.discrepancies.map((d) =>
-          d.uuid === uuid ? next : d,
-        );
-        audit(
-          s,
-          "discrepancy.resolved",
-          uuid,
-          next.aircraftUuid,
-          resolution,
-          before,
-          next,
-        );
-      }),
+      modify((s) => replaceReport(s, resolveDiscrepancy(s, uuid, resolution))),
     review: (uuid, decision, reason, input) =>
       modify((s) => {
         const changes = reviewFlight(s, { uuid, decision, reason, input });
@@ -1334,4 +1304,12 @@ function storedAddresses(
     sameName: kept.find((a) => savedAddressNameKey(a.name) === nameKey) ?? null,
     count: kept.length,
   };
+}
+
+// The deferral appliers return a changed copy and leave the snapshot's report
+// as it was, as the server's persist step expects.
+function replaceReport(s: Snapshot, next: Discrepancy) {
+  s.discrepancies = s.discrepancies.map((d) =>
+    d.uuid === next.uuid ? next : d,
+  );
 }

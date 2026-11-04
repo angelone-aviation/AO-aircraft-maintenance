@@ -2,11 +2,12 @@
  * Responsibility: Closing out an open discrepancy: deferring it under an MEL
  *   item or 14 CFR 91.213(d), when a deferral expires, and resolving it with
  *   the repair.
- * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
- * Dependencies: zod, ./model, ./rejection.
+ * Layer: Domain. Zod schemas, rules and two appliers; no I/O, no React.
+ * Dependencies: zod, ./model, ./changeLog, ./rejection.
  */
 import { z } from "zod";
 import { can, isLocalToday, type Discrepancy, type Snapshot } from "./model";
+import { auditEntry } from "./changeLog";
 import { Rejection } from "./rejection";
 
 const DAY_MS = 86400000;
@@ -161,12 +162,15 @@ export function deferralLabel(d: Deferral) {
 }
 
 /**
- * Defers an open discrepancy, recording who deferred it, when, and its expiry.
+ * Defers an open discrepancy, recording who deferred it, when, and its expiry,
+ * and adds a "discrepancy.deferred" change-log entry: the placard as reason,
+ * the report before and the deferral after.
  *
- * @param s - Snapshot holding the discrepancy and the user; not changed.
+ * @param s - Snapshot holding the discrepancy and the user; only its change
+ *   log changes.
  * @param raw - The command, parsed with {@link deferCommandSchema}.
- * @param now - The time recorded as `deferredAt`.
- * @returns A copy of the discrepancy; the caller persists and audits it.
+ * @param now - The time recorded as `deferredAt` and as the entry's time.
+ * @returns A copy of the discrepancy; the caller persists it.
  * @throws {Rejection} "Report not found.", "You do not have permission for
  *   this aircraft." (needs `resolve`), "Only open discrepancies can be
  *   deferred.", "This discrepancy is already deferred.", "The deferral date
@@ -184,28 +188,30 @@ export function deferDiscrepancy(
   if (d.deferral) throw new Rejection("This discrepancy is already deferred.");
   if (!isLocalToday(command.deferredOn, now))
     throw new Rejection("The deferral date must be today.");
-  return {
-    ...d,
-    deferral: {
-      ...command.deferral,
-      deferredOn: command.deferredOn,
-      deferredAt: now,
-      deferredBy: s.user.id,
-      deferredByName: s.user.name,
-      expiresOn: deferralExpiry(command.deferral, command.deferredOn),
-    },
+  const deferral: Deferral = {
+    ...command.deferral,
+    deferredOn: command.deferredOn,
+    deferredAt: now,
+    deferredBy: s.user.id,
+    deferredByName: s.user.name,
+    expiresOn: deferralExpiry(command.deferral, command.deferredOn),
   };
+  recordReportChange(s, d, "deferred", deferral.placard, deferral, now);
+  return { ...d, deferral };
 }
 
 /**
- * Resolves an open discrepancy with the repair that cleared it.
+ * Resolves an open discrepancy with the repair that cleared it, and adds a
+ * "discrepancy.resolved" change-log entry: the repair as entered as reason,
+ * the report before and its {@link resolvedFields} after.
  *
- * @param s - Snapshot holding the discrepancy and the user; not changed.
+ * @param s - Snapshot holding the discrepancy and the user; only its change
+ *   log changes.
  * @param uuid - The discrepancy.
  * @param resolution - The repair, stored trimmed.
- * @param now - The time recorded as `resolvedAt`.
+ * @param now - The time recorded as `resolvedAt` and as the entry's time.
  * @returns A copy of the discrepancy, resolved by the user; the caller
- *   persists and audits it.
+ *   persists it.
  * @throws {Rejection} "Report not found.", "You do not have permission for
  *   this aircraft." (needs `resolve`), "Describe the repair in 1–5000
  *   characters." (blank, or longer before trimming), "This report is already
@@ -224,13 +230,28 @@ export function resolveDiscrepancy(
     );
   if (d.status === "resolved")
     throw new Rejection("This report is already resolved.");
-  return {
+  const next: Discrepancy = {
     ...d,
     status: "resolved",
     resolution: resolution.trim(),
     resolvedBy: s.user.id,
     resolvedAt: now,
   };
+  recordReportChange(s, d, "resolved", resolution, resolvedFields(next), now);
+  return next;
+}
+
+/**
+ * The fields resolving sets, in the order the change log has always stored
+ * them.
+ *
+ * @param d - The resolved report.
+ * @returns `status`, `resolution`, `resolvedBy` and `resolvedAt`, in that
+ *   order.
+ */
+export function resolvedFields(d: Discrepancy) {
+  const { status, resolution, resolvedBy, resolvedAt } = d;
+  return { status, resolution, resolvedBy, resolvedAt };
 }
 
 // Deferring and resolving both need the report and the resolve permission on
@@ -241,6 +262,30 @@ function findResolvableReport(s: Snapshot, uuid: string) {
   if (!can(s, d.aircraftUuid, "resolve"))
     throw new Rejection("You do not have permission for this aircraft.");
   return d;
+}
+
+function recordReportChange(
+  s: Snapshot,
+  d: Discrepancy,
+  change: "deferred" | "resolved",
+  reason: string,
+  after: unknown,
+  now: number,
+) {
+  s.audit.unshift(
+    auditEntry(
+      s,
+      {
+        action: `discrepancy.${change}`,
+        entityUuid: d.uuid,
+        aircraftUuid: d.aircraftUuid,
+        reason,
+        before: d,
+        after,
+      },
+      now,
+    ),
+  );
 }
 
 function addDays(date: string, days: number) {

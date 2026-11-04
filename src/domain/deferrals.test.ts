@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins deferral expiry by MEL category, days remaining, labels,
- *   and the refusals when deferring or resolving a discrepancy.
+ *   the refusals when deferring or resolving a discrepancy, and the
+ *   change-log entry each records.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/deferrals.ts, ./model, ./rejection,
  *   src/data/demo.ts (seed).
@@ -14,6 +15,7 @@ import {
   deferralExpiry,
   deferralLabel,
   resolveDiscrepancy,
+  resolvedFields,
 } from "./deferrals";
 import { localDate } from "./model";
 import { Rejection } from "./rejection";
@@ -230,5 +232,78 @@ describe("resolving a discrepancy", () => {
       expect(error, message).toBeInstanceOf(Rejection);
       expect(error).toMatchObject({ message });
     }
+  });
+});
+
+describe("the change-log entry", () => {
+  const uuid = "demo-report";
+  it("records a deferral: the placard, the report before and the deferral", () => {
+    const s = demoSnapshot();
+    const report = structuredClone(s.discrepancies[0]);
+    const log = s.audit.length;
+    const command = {
+      uuid,
+      deferredOn: localDate(),
+      deferral: mel("B"),
+    };
+    const now = Date.now();
+    const next = deferDiscrepancy(s, command, now);
+    expect(s.audit).toHaveLength(log + 1);
+    expect(s.audit[0]).toEqual({
+      uuid: expect.any(String),
+      programUuid: "demo-program",
+      actorId: "demo-admin",
+      at: now,
+      action: "discrepancy.deferred",
+      entityUuid: uuid,
+      aircraftUuid: report.aircraftUuid,
+      reason: "INOP",
+      before: JSON.stringify(report),
+      after: JSON.stringify(next.deferral),
+    });
+  });
+  it("records a resolution: the repair as entered, the report before and the resolved fields", () => {
+    const s = demoSnapshot();
+    const report = structuredClone(s.discrepancies[0]);
+    const log = s.audit.length;
+    const next = resolveDiscrepancy(s, uuid, "  Replaced the seal ", 1234);
+    expect(s.audit).toHaveLength(log + 1);
+    expect(s.audit[0]).toEqual({
+      uuid: expect.any(String),
+      programUuid: "demo-program",
+      actorId: "demo-admin",
+      at: 1234,
+      action: "discrepancy.resolved",
+      entityUuid: uuid,
+      aircraftUuid: report.aircraftUuid,
+      reason: "  Replaced the seal ",
+      before: JSON.stringify(report),
+      after: JSON.stringify({
+        status: "resolved",
+        resolution: "Replaced the seal",
+        resolvedBy: "demo-admin",
+        resolvedAt: 1234,
+      }),
+    });
+    expect(Object.keys(resolvedFields(next))).toEqual([
+      "status",
+      "resolution",
+      "resolvedBy",
+      "resolvedAt",
+    ]);
+  });
+  it("records nothing for a refusal", () => {
+    const s = demoSnapshot();
+    s.discrepancies[0].status = "resolved";
+    const log = structuredClone(s.audit);
+    expect(() => resolveDiscrepancy(s, uuid, "Again")).toThrow(Rejection);
+    expect(() =>
+      deferDiscrepancy(s, {
+        uuid,
+        deferredOn: localDate(),
+        deferral: mel("B"),
+      }),
+    ).toThrow(Rejection);
+    expect(s.audit).toEqual(log);
   });
 });

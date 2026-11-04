@@ -68,11 +68,12 @@ import {
   deferCommandSchema,
   deferDiscrepancy as applyDeferral,
   resolveDiscrepancy as applyResolution,
+  resolvedFields,
 } from "../src/domain/deferrals";
 import {
   operationSchema,
   type Aircraft,
-  type Discrepancy,
+  type AuditEntry,
   type Flight,
   type FlightInput,
   type Operation,
@@ -173,13 +174,10 @@ export const resolveDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, resolvedFields(next));
       },
-      audit: (log, { d }, next) =>
-        log.entry("discrepancy.resolved", uuid, {
-          aircraftUuid: d.aircraftUuid,
-          before: d,
-          after: resolvedFields(next),
-          reason: resolution,
-        }),
+      // The stored row has always held the document, system fields too, and
+      // no program.
+      audit: (log, { s, d }) =>
+        log.replay(oldestFirst(s.audit), { programUuid: undefined, before: d }),
     }),
 });
 
@@ -188,9 +186,10 @@ export const resolveDiscrepancy = mutation({
  * and writes a "discrepancy.deferred" change-log row.
  *
  * @param payload - The deferral command, as JSON.
- * @throws {Error} "Report not found.", or the domain's refusal.
- * @throws {ConvexError} The refusals of checkContext, or "You do not have
- *   permission for this aircraft." without the resolve permission.
+ * @throws {Error} "Report not found."; a ZodError for a malformed command.
+ * @throws {ConvexError} The refusals of checkContext; "You do not have
+ *   permission for this aircraft." without the resolve permission; the
+ *   domain's refusals, such as "This discrepancy is already deferred."
  */
 export const deferDiscrepancy = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -203,14 +202,10 @@ export const deferDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, { deferral: next.deferral });
       },
-      audit: (log, { d }, next) =>
-        log.entry("discrepancy.deferred", d.uuid, {
-          programUuid,
-          aircraftUuid: d.aircraftUuid,
-          reason: next.deferral!.placard,
-          before: d,
-          after: next.deferral,
-        }),
+      // The stored row has always held the document, system fields too, and
+      // the program the client named.
+      audit: (log, { s, d }) =>
+        log.replay(oldestFirst(s.audit), { programUuid, before: d }),
     }),
 });
 
@@ -679,12 +674,9 @@ async function loadReport(ctx: MutationCtx, state: Snapshot, uuid: string) {
   return { d, s: { ...state, discrepancies: [report] } };
 }
 
-// The fields resolving sets, in the order the change log has always stored
-// them.
-function resolvedFields(d: Discrepancy) {
-  const { status, resolution, resolvedBy, resolvedAt } = d;
-  return { status, resolution, resolvedBy, resolvedAt };
-}
+// Appliers list their entries newest first, as the change log does; rows are
+// written in the order the changes happened.
+const oldestFirst = (entries: AuditEntry[]) => [...entries].reverse();
 
 async function reportByUuid(ctx: MutationCtx, uuid: string) {
   const d = await ctx.db
