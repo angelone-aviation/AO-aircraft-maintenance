@@ -27,35 +27,40 @@ import { exposeRejections } from "./userErrors";
 import { programPermission } from "../src/domain/programs";
 import { poSchema, poAttachmentRemovable } from "../src/domain/purchaseOrders";
 import { validateInventoryFile } from "../src/domain/inventoryAttachments";
+
 const scope = {
   poUuid: v.string(),
   receiptUuid: v.optional(v.string()),
   programUuid: v.optional(v.string()),
 };
-async function access(
-  ctx: QueryCtx | MutationCtx,
-  args: { poUuid: string; receiptUuid?: string; programUuid?: string },
-) {
-  const s = await checkContext(ctx, args.programUuid);
-  if (!programPermission(s, "admin"))
-    throw new ConvexError("Inventory administrator access required.");
-  const doc = await ctx.db
-    .query("purchaseOrders")
-    .withIndex("uuid", (q) => q.eq("uuid", args.poUuid))
-    .unique();
-  if (!doc || doc.programUuid !== args.programUuid)
-    throw new ConvexError("PO not found.");
-  const po = poSchema.parse(JSON.parse(doc.payload));
-  const receipt = po.receipts.find((r) => r.uuid === args.receiptUuid);
-  if (args.receiptUuid && !receipt) throw new ConvexError("Receipt not found.");
-  return { po, receipt, s };
-}
+
+/**
+ * Refuses an upload before its file is stored, unless the caller administers
+ * the program and the purchase order, and the receipt if named, are in it.
+ *
+ * @param poUuid - The purchase order.
+ * @param receiptUuid - One of its receipts, when the file belongs to it.
+ * @param programUuid - The caller's active Flight Program.
+ * @throws {ConvexError} In order: "Inventory administrator access
+ *   required."; "PO not found."; "Receipt not found."
+ * @throws As `checkContext`, first.
+ */
 export const check = internalQuery({
   args: scope,
   handler: async (ctx, args) => {
-    await access(ctx, args);
+    await authorizePoAdmin(ctx, args);
   },
 });
+
+/**
+ * Records a stored upload on the purchase order and, for a receipt, on each
+ * item it received. Writes no change-log row.
+ *
+ * @param storageId - The stored file; the caller deletes it on a refusal.
+ * @param size - Its size; the other arguments are {@link upload}'s.
+ * @throws {ConvexError} The {@link check} refusals; the file refusals; "This
+ *   record already has the maximum of 25 attachments."
+ */
 export const finish = internalMutation({
   args: {
     ...scope,
@@ -65,7 +70,7 @@ export const finish = internalMutation({
     size: v.number(),
   },
   handler: async (ctx, args) => {
-    const { po, receipt } = await access(ctx, args);
+    const { po, receipt } = await authorizePoAdmin(ctx, args);
     exposeRejections(() =>
       validateInventoryFile(args.name, args.type, args.size),
     );
@@ -88,12 +93,29 @@ export const finish = internalMutation({
       poUuid: po.uuid,
       receiptUuid: args.receiptUuid,
     });
+    // The items share the file's blob; deleteBlobIfUnused keeps it until the
+    // last row that uses it goes.
     for (const stockUuid of new Set(
       receipt?.lines.flatMap((l) => l.itemUuids) ?? [],
     ))
       await ctx.db.insert("inventoryFiles", { ...fields, stockUuid });
   },
 });
+
+/**
+ * Attaches a file to a purchase order, or to one of its receipts and the items
+ * that receipt brought in.
+ *
+ * @param poUuid - The purchase order.
+ * @param receiptUuid - One of its receipts, when the file belongs to it.
+ * @param programUuid - The caller's active Flight Program.
+ * @param name - The file name; its extension must match `type`.
+ * @param type - PDF, JPEG, PNG or WebP.
+ * @param bytes - The file, at most 7 MB.
+ * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file." or
+ *   "Attachments must be between 1 byte and 7 MB.", checked first; the
+ *   {@link finish} refusals, after which the stored file is deleted.
+ */
 export const upload = action({
   args: { ...scope, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
@@ -117,18 +139,31 @@ export const upload = action({
         type: args.type,
         size: args.bytes.byteLength,
       });
-    } catch (e) {
+    } catch (error) {
+      // File storage is outside the mutation's transaction.
       await ctx.storage.delete(storageId);
-      throw e;
+      throw error;
     }
   },
 });
+
+/**
+ * Removes a draft purchase order's attachment, and its stored file once no
+ * other record uses it; audits `purchaseOrder.attachment_removed` with its
+ * name and size.
+ *
+ * @param id - The attachment.
+ * @param programUuid - The caller's active Flight Program.
+ * @throws {ConvexError} "Attachment not found.", checked first; the
+ *   {@link check} refusals; "Attachments can be deleted only while the PO is a
+ *   draft."
+ */
 export const remove = mutation({
   args: { id: v.id("poFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.id);
     if (!file) throw new ConvexError("Attachment not found.");
-    const { po, s } = await access(ctx, {
+    const { po, s } = await authorizePoAdmin(ctx, {
       poUuid: file.poUuid,
       programUuid: args.programUuid,
     });
@@ -144,3 +179,22 @@ export const remove = mutation({
     });
   },
 });
+
+async function authorizePoAdmin(
+  ctx: QueryCtx | MutationCtx,
+  args: { poUuid: string; receiptUuid?: string; programUuid?: string },
+) {
+  const s = await checkContext(ctx, args.programUuid);
+  if (!programPermission(s, "admin"))
+    throw new ConvexError("Inventory administrator access required.");
+  const doc = await ctx.db
+    .query("purchaseOrders")
+    .withIndex("uuid", (q) => q.eq("uuid", args.poUuid))
+    .unique();
+  if (!doc || doc.programUuid !== args.programUuid)
+    throw new ConvexError("PO not found.");
+  const po = poSchema.parse(JSON.parse(doc.payload));
+  const receipt = po.receipts.find((r) => r.uuid === args.receiptUuid);
+  if (args.receiptUuid && !receipt) throw new ConvexError("Receipt not found.");
+  return { po, receipt, s };
+}
