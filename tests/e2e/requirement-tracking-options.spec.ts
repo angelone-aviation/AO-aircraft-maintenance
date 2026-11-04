@@ -1,4 +1,11 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins a component requirement's tracking choices: hidden
+ *   limits are not saved, the choices persist, and a landing limit replaces
+ *   hours.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
+import { test, expect, type Locator } from "@playwright/test";
 
 test("selects requirement tracking and excludes hidden limits when saving", async ({
   page,
@@ -65,10 +72,7 @@ test("selects requirement tracking and excludes hidden limits when saving", asyn
   await expect(
     dialog.getByLabel("Hour limit / interval", { exact: true }),
   ).toHaveValue("100");
-  await dialog
-    .getByRole("button", { name: "Calculate and save", exact: true })
-    .click();
-  await expect(dialog).not.toBeVisible();
+  await saveRequirement(dialog);
   await page.reload();
   await component.getByRole("button", { name: "Details", exact: true }).click();
   const requirement = dialog
@@ -86,6 +90,7 @@ test("selects requirement tracking and excludes hidden limits when saving", asyn
   await expect(
     dialog.getByLabel("Calendar interval", { exact: true }),
   ).not.toBeVisible();
+  // The 200-cycle limit was hidden when saved, so it was not kept.
   await dialog.getByLabel("Cycles", { exact: true }).check();
   await expect(
     dialog.getByLabel("Cycle limit / interval", { exact: true }),
@@ -99,13 +104,18 @@ test("selects requirement tracking and excludes hidden limits when saving", asyn
   await dialog
     .getByLabel("Last complied at (aircraft total landings)", { exact: true })
     .fill("1000");
-  await dialog
-    .getByRole("button", { name: "Calculate and save", exact: true })
-    .click();
-  await expect(dialog).not.toBeVisible();
+  await saveRequirement(dialog);
   await page.reload();
   await component.getByRole("button", { name: "Details", exact: true }).click();
+  // Due at the 1,000 landings last complied plus the 500-landing limit.
   await expect(
     dialog.getByRole("row").filter({ hasText: "Tracking options requirement" }),
   ).toContainText("1500 landings");
 });
+
+async function saveRequirement(dialog: Locator) {
+  await dialog
+    .getByRole("button", { name: "Calculate and save", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+}
