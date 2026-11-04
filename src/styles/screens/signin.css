@@ -1,14 +1,20 @@
-/* Sign-in methods (src/components/SignInMethods.tsx): the Google and
- * Microsoft buttons and the notice on the sign-in screen, and the list of a
- * user's sign-in methods in Settings → My account and Administration. Every
- * class is prefixed `sgn-`; colours, radii and spacing come from
- * src/styles/tokens.css. The providers' marks keep their own colours. */
+/*
+ * Responsibility: Styles for sign-in methods: the Google and Microsoft
+ *   buttons and notice on the sign-in screen, and a user's sign-in methods
+ *   in Settings → My account and Administration.
+ * Layer: UI. Every selector is scoped by an `sgn-` class, so nothing here
+ *   restyles another screen.
+ * Dependencies: src/styles/tokens.css (colours, spacing), src/styles.css
+ *   (.button, .welcome-divider).
+ */
 
 /* ---------- Sign-in screen ---------- */
 .sgn-sso {
   display: grid;
   gap: 10px;
 }
+/* The base .welcome-divider margin is !important, so only !important can
+ * tighten it here. */
 .sgn-sso > .welcome-divider {
   margin: 8px 0 4px !important;
 }
