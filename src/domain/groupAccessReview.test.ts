@@ -101,7 +101,8 @@ describe("groupAccessFinding", () => {
     const history = newestFirst(
       saved(created, state({ aircraftIds: ["demo-206"] })),
       saved(created + DAY, state(), state({ aircraftIds: ["demo-206"] })),
-      // A client from before #34 may still save an unchanged all-aircraft group.
+      // A client from before #34 may still save an unchanged all-aircraft
+      // group.
       saved(created + 2 * DAY, state({ name: "Crew" }), state()),
     );
     expect(groupAccessFinding(group(), history, created)).toMatchObject({

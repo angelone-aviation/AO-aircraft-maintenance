@@ -1,9 +1,11 @@
 /**
  * Responsibility: The FAA DRS searches a monitored aircraft needs, and running
  *   them into one list of AD candidates.
- * Layer: Domain. Pure functions, except fetchMonitoringCandidates, which calls
- *   the FAA DRS API through faa.ts (CONTEXT.md §5); only Convex actions run it.
- * Dependencies: ./model (types), ./airworthiness, ./faaSearch, ./faa, ./rejection.
+ * Layer: Domain. Pure functions, except fetchMonitoringCandidates, which
+ *   calls the FAA DRS API through faa.ts (CONTEXT.md §5); only Convex actions
+ *   run it.
+ * Dependencies: ./model (types), ./airworthiness, ./faaSearch, ./faa,
+ *   ./rejection.
  */
 import type { Snapshot } from "./model";
 import { adAircraftUuid } from "./airworthiness";
@@ -141,7 +143,8 @@ function assetQuery(
   asset: ReturnType<typeof searchAssets>[number],
   type: MonitoringQuery["type"],
 ): MonitoringQuery {
-  // Do not silently skip incomplete profiles or declare partial coverage successful.
+  // Do not silently skip incomplete profiles or declare partial coverage
+  // successful.
   if (!asset.model && !asset.keywords)
     throw new Rejection(
       `${asset.label}: enter a model, FAA search model, or component part number before checking.`,

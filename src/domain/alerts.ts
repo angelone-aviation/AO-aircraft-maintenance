@@ -339,7 +339,8 @@ function componentAlert(
   };
 }
 
-// Only the signed-in user's own certificates; other members' details are private.
+// Only the signed-in user's own certificates; other members' details are
+// private.
 function certificateAlerts(s: Snapshot, today: string): Alert[] {
   return normalizeCertifications(s.user.certifications ?? []).flatMap((c) => {
     const dates: [string, string, string | undefined][] = [
