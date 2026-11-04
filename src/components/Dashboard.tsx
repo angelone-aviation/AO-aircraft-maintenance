@@ -691,7 +691,7 @@ function RecordsCallout() {
           never implies aircraft readiness.
         </p>
       </div>
-      <AircraftArt drift className="dash-callout-art" />
+      <AircraftArt drift className="dash-callout-art" opacity={0.78} />
     </section>
   );
 }
