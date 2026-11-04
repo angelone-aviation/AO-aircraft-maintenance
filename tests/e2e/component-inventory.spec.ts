@@ -1,4 +1,12 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins a trackable component's round trip through inventory:
+ *   created with its 8130 details and file, installed and removed through
+ *   work orders, back on its shelf with a removal tag and both movements.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path, src/domain/model,
+ *   tests/fixtures/workOrderTasks.
+ */
+import { test, expect, type Page } from "@playwright/test";
 import { localDate } from "../../src/domain/model";
 import path from "node:path";
 import { openMovementOrder } from "../fixtures/workOrderTasks";
@@ -6,23 +14,6 @@ import { openMovementOrder } from "../fixtures/workOrderTasks";
 test("routes tracked inventory components and returns the same item to its location after removal", async ({
   page,
 }) => {
-  const finishMovement = async () => {
-    const order = await openMovementOrder(page, "TRACK-PUMP");
-    await order.getByLabel("Task 1 status").selectOption("completed");
-    await order
-      .getByLabel("Task 1 work notes")
-      .fill("Verified component identity and performed movement.");
-    await order.getByLabel("Work order status").selectOption("completed");
-    await order.getByLabel("Completion date").fill(localDate());
-    await order
-      .getByLabel("Release outcome")
-      .fill("Component movement recorded and reviewed");
-    page.once("dialog", (d) => d.accept());
-    await order
-      .getByRole("button", { name: "Save work order", exact: true })
-      .click();
-    await expect(order).not.toBeVisible();
-  };
   await page.addInitScript(() =>
     sessionStorage.setItem("angel-one-demo", "true"),
   );
@@ -98,8 +89,9 @@ test("routes tracked inventory components and returns the same item to its locat
     .getByRole("button", { name: "Add movement to work order", exact: true })
     .click();
   await expect(dialog).not.toBeVisible();
+  // A movement takes effect only when its work order is completed.
   await expect(inventoryRow).toHaveCount(1);
-  await finishMovement();
+  await completeMovementOrder(page);
   await page.goto("/inventory");
   await expect(inventoryRow).toHaveCount(0);
   await page.goto("/components");
@@ -122,7 +114,7 @@ test("routes tracked inventory components and returns the same item to its locat
     .click();
   await expect(dialog).not.toBeVisible();
   await expect(componentRow).toContainText("Installed");
-  await finishMovement();
+  await completeMovementOrder(page);
   await page.goto("/inventory");
   await page.reload();
   await expect(inventoryRow).toHaveCount(1);
@@ -165,3 +157,22 @@ test("routes tracked inventory components and returns the same item to its locat
     dialog.getByRole("row").filter({ hasText: "INSTALL" }),
   ).toHaveCount(1);
 });
+
+/** Completes the open movement work order for TRACK-PUMP. */
+async function completeMovementOrder(page: Page) {
+  const order = await openMovementOrder(page, "TRACK-PUMP");
+  await order.getByLabel("Task 1 status").selectOption("completed");
+  await order
+    .getByLabel("Task 1 work notes")
+    .fill("Verified component identity and performed movement.");
+  await order.getByLabel("Work order status").selectOption("completed");
+  await order.getByLabel("Completion date").fill(localDate());
+  await order
+    .getByLabel("Release outcome")
+    .fill("Component movement recorded and reviewed");
+  page.once("dialog", (d) => d.accept());
+  await order
+    .getByRole("button", { name: "Save work order", exact: true })
+    .click();
+  await expect(order).not.toBeVisible();
+}
