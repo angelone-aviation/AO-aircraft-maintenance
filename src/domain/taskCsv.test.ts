@@ -3,12 +3,18 @@
  *   imports to templates and inspections, with the refusals users see.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/taskCsv.ts, inspectionTemplates.ts,
- *   activateTemplate.ts, rejection.ts; src/data/demo.ts,
+ *   activateTemplate.ts, maintenanceCsv.ts, rejection.ts; src/data/demo.ts,
  *   tests/fixtures/taskCards.ts and phase-2-tasks.csv (fixtures).
  */
 import { expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseTaskCsv, importTaskCsv, type TaskCsvImport } from "./taskCsv";
+import {
+  parseTaskCsv,
+  importTaskCsv,
+  taskCsvImportSchema,
+  type TaskCsvImport,
+} from "./taskCsv";
+import { CSV_MAX_BYTES } from "./maintenanceCsv";
 import { demoSnapshot } from "../data/demo";
 import { emptyTemplate } from "./inspectionTemplates";
 import { activateTemplate } from "./activateTemplate";
@@ -215,6 +221,16 @@ it("refuses a file or row it cannot read, naming the row", () => {
     expect(() => parseTaskCsv(text)).toThrow(Rejection);
     expect(() => parseTaskCsv(text)).toThrow(Error(message));
   }
+});
+
+it("measures the CSV limit in UTF-8 bytes when parsing, in characters in a request", () => {
+  const atLimit = "é".repeat(CSV_MAX_BYTES / 2);
+  const size = "Choose a CSV up to 2 MB.";
+  expect(() => parseTaskCsv(atLimit)).not.toThrow(size);
+  expect(() => parseTaskCsv(atLimit + "x")).toThrow(size);
+  const field = taskCsvImportSchema.shape.csv;
+  expect(field.safeParse("é".repeat(CSV_MAX_BYTES)).success).toBe(true);
+  expect(field.safeParse("é".repeat(CSV_MAX_BYTES + 1)).success).toBe(false);
 });
 
 it("refuses an unavailable, archived or changed target and a manual link without a PDF page", () => {

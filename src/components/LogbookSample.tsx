@@ -2,7 +2,7 @@
  * Responsibility: The live sample log book entry on the work order form: the
  *   maintenance entry the order would generate with the values entered so far.
  * Layer: UI. A read-only preview; saves nothing.
- * Dependencies: react, src/domain (certifications, logbook, model,
+ * Dependencies: react, src/domain (certifications, logbook, model, readings,
  *   workOrders, workOrderCloseout, workOrderComponentWork types), ./ui.
  */
 import { memberLicense } from "../domain/certifications";
@@ -23,10 +23,8 @@ import {
   type WorkTask,
 } from "../domain/workOrders";
 import { previewComponentCloseout } from "../domain/workOrderCloseout";
+import { SECONDS_PER_HOUR } from "../domain/readings";
 import { Field } from "./ui";
-
-// Hour readings are entered in hours and stored in seconds.
-const SECONDS_PER_HOUR = 3600;
 
 type Header = WorkOrder["aircraft"];
 type SampleProps = {

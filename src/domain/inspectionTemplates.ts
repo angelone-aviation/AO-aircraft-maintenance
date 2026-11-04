@@ -38,8 +38,8 @@ export const TEMPLATE_GROUP_MAX_LENGTH = 150;
 export const TEMPLATE_DESCRIPTION_MAX_LENGTH = 10000;
 /** Longest conditions or applicability note. */
 export const TEMPLATE_CONDITIONS_MAX_LENGTH = 2000;
-/** Largest template CSV file the import reads. */
-export const TEMPLATE_CSV_MAX_BYTES = 2 * 1024 * 1024;
+/** Largest template CSV file the import reads: the shared CSV limit. */
+export { CSV_MAX_BYTES as TEMPLATE_CSV_MAX_BYTES } from "./maintenanceCsv";
 
 const LIMIT_MODES = ["ABSOLUTE", "FROM_LAST_COMPLIED"] as const;
 const CALENDAR_UNITS = ["DAYS", "MONTHS", "YEARS"] as const;

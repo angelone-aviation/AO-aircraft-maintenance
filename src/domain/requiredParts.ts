@@ -10,13 +10,13 @@
 import { z } from "zod";
 import { can, type Snapshot } from "./model";
 import { ownsActive, recordProgram } from "./programs";
-import { expiredForUse, usableQuantity } from "./shelfLife";
+import {
+  SERVICEABLE_CONDITIONS,
+  expiredForUse,
+  usableQuantity,
+} from "./shelfLife";
 import { auditEntry } from "./changeLog";
 import { Rejection } from "./rejection";
-
-// A part listed by number counts only serviceable lots; a lot with no
-// condition counts as new.
-const SERVICEABLE_CONDITIONS = ["new", "overhauled"];
 
 /**
  * The parts a discrepancy, inspection or component requirement needs: up to
@@ -242,6 +242,8 @@ function countPartNumber(
   partNumber: string,
   now: number,
 ) {
+  // A part listed by number counts only serviceable lots; a lot with no
+  // condition counts as new.
   const matching = inventory.stock.filter(
     (r) =>
       r.partNumber === partNumber &&

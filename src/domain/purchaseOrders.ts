@@ -4,11 +4,12 @@
  *   closes or cancels them and tracks exchange cores.
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   left to its default reads the clock).
- * Dependencies: zod; ./aircraftSpruce, ./addresses, ./partsRequests, ./model,
- *   ./programs, ./management, ./components, ./shelfLife, ./changeLog,
- *   ./rejection.
+ * Dependencies: zod; ./aircraftSpruce, ./currencyCode, ./addresses,
+ *   ./partsRequests, ./model, ./readings, ./programs, ./management,
+ *   ./components, ./shelfLife, ./changeLog, ./rejection.
  */
 import { sprucePartSchema } from "./aircraftSpruce";
+import { currencyCodeSchema } from "./currencyCode";
 import {
   addressSchema,
   formatAddress,
@@ -23,6 +24,7 @@ import {
 } from "./partsRequests";
 import { z } from "zod";
 import { latestLocalDate, type Snapshot } from "./model";
+import { SECONDS_PER_HOUR } from "./readings";
 import { activeProgram, programPermission, recordProgram } from "./programs";
 import { applyManagement, type Stock } from "./management";
 import {
@@ -31,7 +33,7 @@ import {
   rebaseServicedRequirements,
   type Component,
 } from "./components";
-import { addDays, assertNotExpired } from "./shelfLife";
+import { SERVICEABLE_CONDITIONS, addDays, assertNotExpired } from "./shelfLife";
 import { auditEntry } from "./changeLog";
 import { Rejection } from "./rejection";
 
@@ -41,9 +43,10 @@ const qty = z.number().int().positive().max(1000000);
 const money = z.number().int().nonnegative().max(100000000000);
 
 const MAX_ORDER_CENTS = 10_000_000_000_000;
-const HOUR_SECONDS = 3600;
-const SERVICEABLE_CONDITIONS = ["new", "overhauled"];
 const STALE_ORDER = "Purchase order changed. Reopen it before saving.";
+
+/** The most days an exchange line may allow for its core return. */
+export const MAX_CORE_DUE_DAYS = 365;
 
 /**
  * One line of an order: a part, supply or component delivered to a location
@@ -78,7 +81,7 @@ export const poLineSchema = z.object({
   workOrderUuid: z.string().default(""),
   cancelled: z.number().int().nonnegative().default(0),
   exchange: z.boolean().optional(),
-  coreDueDays: z.number().int().min(1).max(365).optional(),
+  coreDueDays: z.number().int().min(1).max(MAX_CORE_DUE_DAYS).optional(),
 });
 
 /** Days to return an exchange core when the line does not set its own. */
@@ -122,7 +125,7 @@ export const poDraftSchema = z.object({
   vendorContact: text,
   shipTo: text.min(1),
   expectedDate: z.union([z.iso.date(), z.literal("")]),
-  currency: z.string().regex(/^[A-Z]{3}$/),
+  currency: currencyCodeSchema,
   shippingCents: money,
   notes: text,
   lines: z.array(poLineSchema).min(1).max(100),
@@ -887,7 +890,7 @@ function receiveRepairReturn(ctx: Context, d: Delivery) {
   const component = shippedComponent(s, d);
   const serial = x.serials[0];
   if (
-    Math.round(serial.hours * HOUR_SECONDS) < component.timeSinceNew ||
+    Math.round(serial.hours * SECONDS_PER_HOUR) < component.timeSinceNew ||
     serial.cycles < component.cyclesSinceNew
   )
     throw new Rejection(
@@ -942,7 +945,7 @@ function shippedComponent(s: Snapshot, { p, l, x }: Delivery) {
 // and since repair grow by the same time.
 function accrueShopUsage(component: Component, serial: Serial) {
   const elapsed =
-    Math.round(serial.hours * HOUR_SECONDS) - component.timeSinceNew;
+    Math.round(serial.hours * SECONDS_PER_HOUR) - component.timeSinceNew;
   component.timeSinceNew += elapsed;
   component.cyclesSinceNew = serial.cycles;
   if (component.timeSinceOverhaul !== null)
@@ -1031,7 +1034,7 @@ function receivedComponent(
     locationUuid: l.locationUuid,
     installedSeconds: 0,
     installedCycles: 0,
-    timeSinceNew: Math.round(serial.hours * HOUR_SECONDS),
+    timeSinceNew: Math.round(serial.hours * SECONDS_PER_HOUR),
     timeSinceOverhaul: null,
     timeSinceRepair: null,
     cyclesSinceNew: serial.cycles,

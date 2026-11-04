@@ -3,7 +3,7 @@
  *   closing work orders) and the Add to work order button other screens use.
  * Layer: UI. React components; work order rules live in src/domain.
  * Dependencies: react, react-dom, @phosphor-icons/react, src/data/store.ts,
- *   src/domain (model, components, workOrders, workOrderCards,
+ *   src/domain (model, readings, components, workOrders, workOrderCards,
  *   workOrderComponentWork, workOrderTaskRemoval), ./PartsRequests,
  *   ./RequestedComponentMovement, ./TaskCards, ./WorkOrderCosts,
  *   ./WorkOrderComponentWork, ./WorkOrderRevisions, ./ReleaseStatements,
@@ -12,6 +12,7 @@
  */
 import { RequestPartsButton } from "./PartsRequests";
 import { localDate } from "../domain/model";
+import { SECONDS_PER_HOUR } from "../domain/readings";
 import { removedTaskCards } from "../domain/workOrderTaskRemoval";
 import { RequestedComponentMovement } from "./RequestedComponentMovement";
 import { ComponentCloseoutCorrection } from "./ComponentCloseoutCorrection";
@@ -103,7 +104,6 @@ import {
   Wrench,
 } from "@phosphor-icons/react";
 
-const HOUR_SECONDS = 3600;
 const CLOSE_WARNING =
   "Closing this work order is permanent. You will no longer be able to modify the work order or its job cards. You can still view tasks and attachments.";
 const today = () => localDate();
@@ -1142,7 +1142,7 @@ function readCompletion(
   data: FormData,
 ) {
   const seconds = (name: string) =>
-    Math.round(Number(value(data, name)) * HOUR_SECONDS);
+    Math.round(Number(value(data, name)) * SECONDS_PER_HOUR);
   const optional = (name: string) =>
     data.has(name) ? seconds(name) : undefined;
   return {
@@ -1908,7 +1908,7 @@ function HourReading({
         min="0"
         step="0.1"
         required
-        defaultValue={seconds / HOUR_SECONDS}
+        defaultValue={seconds / SECONDS_PER_HOUR}
       />
     </Field>
   );
@@ -1927,17 +1927,17 @@ function completionCounters(
     [
       "completionTotalHours",
       "Completion aircraft total time (hours)",
-      (recorded?.totalSeconds ?? totalSeconds(aircraft())) / HOUR_SECONDS,
+      (recorded?.totalSeconds ?? totalSeconds(aircraft())) / SECONDS_PER_HOUR,
     ],
     [
       "completionHobbs",
       "Completion Hobbs (hours)",
-      (recorded?.hobbs ?? aircraft().currentHobbs) / HOUR_SECONDS,
+      (recorded?.hobbs ?? aircraft().currentHobbs) / SECONDS_PER_HOUR,
     ],
     [
       "completionTach",
       "Completion tach (hours)",
-      (recorded?.tach ?? aircraft().currentTach) / HOUR_SECONDS,
+      (recorded?.tach ?? aircraft().currentTach) / SECONDS_PER_HOUR,
     ],
     [
       "completionLandings",

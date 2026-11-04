@@ -6,7 +6,7 @@
  * Dependencies: react, react-dom, @tanstack/react-router, src/data/store.ts,
  *   src/domain/model.ts, src/domain/programs.ts, src/domain/taskCsv.ts,
  *   src/domain/inspectionTemplates.ts, src/domain/manuals.ts,
- *   src/components/ui.tsx.
+ *   src/domain/maintenanceCsv.ts, src/components/ui.tsx.
  */
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -24,10 +24,9 @@ import {
   type TemplateTask,
 } from "../domain/inspectionTemplates";
 import type { Manual } from "../domain/manuals";
+import { CSV_MAX_BYTES } from "../domain/maintenanceCsv";
 import { AsyncForm, Field, Modal, download } from "./ui";
 
-// The same limit parseTaskCsv applies to the decoded text.
-const CSV_MAX_BYTES = 2 * 1024 * 1024;
 // Rows the preview shows at first, and adds with each "Show more tasks".
 const PREVIEW_PAGE_SIZE = 100;
 
@@ -456,6 +455,7 @@ async function readTaskFile(
   manualUuid: string,
   manuals: Manual[],
 ) {
+  // The file's bytes, the unit parseTaskCsv checks again after decoding.
   if (!(file instanceof File) || !file.size || file.size > CSV_MAX_BYTES)
     throw new Error("Choose a UTF-8 CSV up to 2 MB.");
   const csv = new TextDecoder("utf-8", { fatal: true }).decode(

@@ -3,12 +3,14 @@
  *   engine logs, and the trend chart and table with their limit flags.
  * Layer: UI. React components; parsing and limits live in src/domain.
  * Dependencies: react, src/data/store.ts, src/domain/model.ts,
- *   src/domain/engineTrends.ts, ./ui.tsx, ./engineTrends.css.
+ *   src/domain/readings.ts, src/domain/engineTrends.ts, ./ui.tsx,
+ *   ./engineTrends.css.
  */
 import "./engineTrends.css";
 import { useCallback, useEffect, useId, useState } from "react";
 import { useWorkspace } from "../data/store";
 import { can } from "../domain/model";
+import { SECONDS_PER_HOUR } from "../domain/readings";
 import {
   CHT_SPREAD_LIMIT_F,
   ENGINE_FILE_MAX_BYTES,
@@ -32,7 +34,6 @@ const SOURCE_LABELS: Record<EngineSummary["source"], string> = {
   garmin: "Garmin G1000/G3X",
 };
 const TRENDS_FAILED = "Engine trends could not be loaded.";
-const SECONDS_PER_HOUR = 3600;
 const LIMIT_FIELDS = [
   {
     name: "cht",

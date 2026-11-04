@@ -5,12 +5,14 @@
  * Layer: Domain. Zod schemas and an applier over a working snapshot; no I/O,
  *   no React.
  * Dependencies: zod; ./model, ./programs, ./addresses, ./aircraftSpruce,
- *   ./adOwnership, ./adCompliance, ./shelfLife, ./changeLog, ./rejection;
- *   types from ./purchaseOrders, ./management, ./components, ./workOrders.
+ *   ./currencyCode, ./adOwnership, ./adCompliance, ./shelfLife, ./changeLog,
+ *   ./rejection; types from ./purchaseOrders, ./management, ./components,
+ *   ./workOrders.
  */
 import { adAircraftUuid } from "./adOwnership";
 import { lastCompliance } from "./adCompliance";
 import { sprucePartSchema } from "./aircraftSpruce";
+import { currencyCodeSchema } from "./currencyCode";
 import { addressSchema, formatAddress } from "./addresses";
 import { z } from "zod";
 import {
@@ -21,7 +23,7 @@ import {
   type Snapshot,
 } from "./model";
 import { activeProgram, programPermission, recordProgram } from "./programs";
-import { assertNotExpired } from "./shelfLife";
+import { SERVICEABLE_CONDITIONS, assertNotExpired } from "./shelfLife";
 import { auditEntry, type AuditChange } from "./changeLog";
 import { Rejection } from "./rejection";
 import type { PurchaseOrder } from "./purchaseOrders";
@@ -35,7 +37,6 @@ const MAX_QUOTED_CENTS = 100_000_000_000;
 const MAX_REQUEST_LINES = 100;
 const REQUEST_NUMBER_PREFIX = "PR-";
 const REQUEST_NUMBER_DIGITS = 5;
-const SERVICEABLE_CONDITIONS: readonly string[] = ["new", "overhauled"];
 const CLOSED_WORK_STATUSES: readonly string[] = ["completed", "cancelled"];
 const TRACKED_APPLICABILITY: readonly string[] = [
   "Applicable",
@@ -123,7 +124,7 @@ export const requestDraftSchema = z.object({
   shipFromDetails: addressSchema.optional(),
   billToDetails: addressSchema.optional(),
   vendorAddress: text.default(""),
-  currency: z.string().regex(/^[A-Z]{3}$/),
+  currency: currencyCodeSchema,
   shipTo: text.default(""),
   billTo: text.default(""),
   shipFrom: text.default(""),

@@ -10,7 +10,7 @@
  * tasks.csv export, whose parent ids are ignored for the chosen target.
  */
 import { z } from "zod";
-import { readCsvRows, importHeaders } from "./maintenanceCsv";
+import { CSV_MAX_BYTES, readCsvRows, importHeaders } from "./maintenanceCsv";
 import { can, type Inspection, type Snapshot } from "./model";
 import { ownsActive, programPermission } from "./programs";
 import { validateManualReference } from "./manuals";
@@ -29,9 +29,6 @@ import {
 } from "./taskCards";
 import { Rejection } from "./rejection";
 import { validationText } from "./validationText";
-
-// parseTaskCsv counts UTF-8 bytes; the request schema counts characters.
-const MAX_CSV_SIZE = 2 * 1024 * 1024;
 
 /** The sample task CSV's columns; an optional "Applicability" may follow. */
 export const taskCsvHeaders = [
@@ -59,7 +56,7 @@ const normalized = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
  *   gives that schema's {@link validationText}.
  */
 export function parseTaskCsv(text: string): TemplateTask[] {
-  if (new TextEncoder().encode(text).length > MAX_CSV_SIZE)
+  if (new TextEncoder().encode(text).length > CSV_MAX_BYTES)
     throw new Rejection("Choose a CSV up to 2 MB.");
   const [rawHeader, ...rows] = readCsvRows(text);
   const header = rawHeader?.cells.map((h) => h.trim());
@@ -89,7 +86,8 @@ export function parseTaskCsv(text: string): TemplateTask[] {
  * @throws {z.ZodError} From `parse()` on a malformed or unreviewed request.
  */
 export const taskCsvImportSchema = z.strictObject({
-  csv: z.string().min(1).max(MAX_CSV_SIZE),
+  // Characters here; parseTaskCsv counts the same limit in UTF-8 bytes.
+  csv: z.string().min(1).max(CSV_MAX_BYTES),
   targetKind: z.enum(["template", "inspection"]),
   targetUuid: z.string().min(1),
   targetVersion: z.number().int().nonnegative(),
