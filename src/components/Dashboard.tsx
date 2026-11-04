@@ -5,7 +5,7 @@
  *   src/domain.
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
- *   rejection),
+ *   readings, rejection),
  *   ./design and the aircraft, flight, parts and FAA components.
  */
 import {
@@ -55,6 +55,7 @@ import {
 } from "../domain/maintenance";
 import { maintenancePartsPlans, type PartsPlan } from "../domain/partsPlanning";
 import { partsNeedAttention } from "../domain/requiredParts";
+import { SECONDS_PER_HOUR } from "../domain/readings";
 import { Rejection } from "../domain/rejection";
 import {
   aircraftMeterLabels,
@@ -98,7 +99,6 @@ const ADAlerts = lazy(() =>
 );
 
 const DAY_MS = 86_400_000;
-const SECONDS_PER_HOUR = 3600;
 const SCHEDULE_TONES: Record<ScheduleState, Tone> = {
   overdue: "danger",
   "due-soon": "warn",

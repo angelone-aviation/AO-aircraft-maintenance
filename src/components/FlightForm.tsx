@@ -4,7 +4,7 @@
  * Layer: UI. React component; new flights queue in the offline outbox and
  *   reviews save online.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (model, flights, flightPlans, flightReview, flightSession,
+ *   (model, flights, flightPlans, flightReview, flightSession, readings,
  *   aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
  *   ./design, ./ui.
  */
@@ -28,6 +28,7 @@ import {
   REVIEW_REASON_MIN_LENGTH,
 } from "../domain/flightReview";
 import { plannedFlightRules } from "../domain/flightSession";
+import { SECONDS_PER_HOUR } from "../domain/readings";
 import {
   can,
   FLIGHT_COUNT_MAX,
@@ -54,7 +55,6 @@ import { NoticeBar } from "./design";
 import { AsyncForm, value } from "./ui";
 
 const MINUTE_MS = 60_000;
-const HOUR_SECONDS = 3600;
 const OPERATIONS = flightInputSchema.shape.operation.options;
 const FLIGHT_RULES = flightInputSchema.shape.flightRules.options;
 const METER_INPUTS = ["hobbs", "tach", "cyclic", "flightTimeLog"] as const;
@@ -829,7 +829,7 @@ function startingReadings(
 
 function defaultEnds(defaults: Draft["defaults"]) {
   const hours = (seconds: number | undefined) =>
-    seconds === undefined ? "" : String(seconds / HOUR_SECONDS);
+    seconds === undefined ? "" : String(seconds / SECONDS_PER_HOUR);
   return Object.fromEntries(
     METER_INPUTS.map((meter) => [
       meter,
@@ -848,7 +848,7 @@ function endInput(m: Model, meter: MeterInput) {
       step="0.1"
       placeholder="0.0"
       inputMode="decimal"
-      defaultValue={seconds === undefined ? "" : seconds / HOUR_SECONDS}
+      defaultValue={seconds === undefined ? "" : seconds / SECONDS_PER_HOUR}
       required={m.requiredMeter === meter}
     />
   );
@@ -911,5 +911,5 @@ function localTime(iso: string) {
 function readout(seconds: number | undefined) {
   return seconds === undefined
     ? "Unknown"
-    : (seconds / HOUR_SECONDS).toFixed(1);
+    : (seconds / SECONDS_PER_HOUR).toFixed(1);
 }
