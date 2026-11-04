@@ -4,7 +4,8 @@
  *   every refusal.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/partsRequests.ts, ./purchaseOrders, ./components,
- *   ./airworthiness, ./addresses, ./management, ./programs, src/data/demo.ts.
+ *   ./airworthiness, ./addresses, ./management, ./programs, ./rejection,
+ *   src/data/demo.ts.
  */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -37,6 +38,7 @@ import {
 import { scopedSnapshot } from "./programs";
 import { blankAD, blankADTask } from "./airworthiness";
 import { addressSchema, formatAddress } from "./addresses";
+import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-20T12:00:00Z");
 function fixture() {
   const s = demoSnapshot();
@@ -1096,7 +1098,9 @@ const REFUSALS: Record<string, (f: Fixture) => unknown> = {
 
 describe("refusals", () => {
   it.each(Object.entries(REFUSALS))("%s", (message, refuse) => {
-    expect(() => refuse(fixture())).toThrow(new Error(message));
+    const refusal = () => refuse(fixture());
+    expect(refusal).toThrow(new Error(message));
+    expect(refusal).toThrow(Rejection);
   });
 });
 
