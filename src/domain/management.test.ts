@@ -240,6 +240,31 @@ describe("maintenance and inventory domain", () => {
       ),
     ).toThrow("installation");
   });
+  it("measures a component inspection on the caller's date, not the clock's", () => {
+    const a = demoSnapshot().aircraft[0];
+    const installed: Component = {
+      ...component(a.uuid),
+      installed: true,
+      installedDate: "2099-01-01",
+      installedSeconds: totalSeconds(a),
+      installedCycles: a.cycles,
+    };
+    const i: Inspection = {
+      uuid: "i",
+      aircraftUuid: a.uuid,
+      reference: "Engine",
+      description: "Check",
+      componentUuid: installed.uuid,
+    };
+    expect(inspectionCounters(i, a, [installed], "2099-06-01")).toEqual({
+      seconds: 360000,
+      cycles: 100,
+      landings: a.landings,
+    });
+    expect(() => inspectionCounters(i, a, [installed], "2098-12-01")).toThrow(
+      "Aircraft readings or date precede the installation baseline.",
+    );
+  });
   it("rejects stale changes and insufficient stock without changing balances", () => {
     const s = setupStock();
     const receive: ManagementCommand = {

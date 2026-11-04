@@ -185,7 +185,7 @@ function inspectionAlerts(s: Snapshot, today: string): Alert[] {
         i,
         a,
         today,
-        inspectionCounters(i, a, s.management),
+        inspectionCounters(i, a, s.management, today),
       );
     } catch {
       return []; // Missing component or counters: the schedule page shows it.

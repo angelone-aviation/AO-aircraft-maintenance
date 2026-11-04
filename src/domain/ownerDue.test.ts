@@ -142,6 +142,30 @@ it("lists an inspection whose component is missing for review", () => {
   });
 });
 
+it("measures component inspections on its date, not the clock's", () => {
+  const { s, a } = owned();
+  const gear = Object.assign(structuredClone(s.management![0]), {
+    uuid: "gear",
+    usageMeter: undefined,
+    installedDate: "2099-01-01",
+  });
+  s.management!.push(gear);
+  s.inspections = [
+    {
+      uuid: "gear-check",
+      aircraftUuid: a.uuid,
+      reference: "gear-check",
+      description: "",
+      componentUuid: "gear",
+      dueSeconds: 360000 + 36000,
+    },
+  ];
+  expect(ownerDueItems(s, a, "2099-06-01")[0]).toMatchObject({
+    uuid: "gear-check",
+    remaining: "10.0 h",
+  });
+});
+
 it("still throws when a component inspection's usage cannot be computed", () => {
   // Characterizes current behaviour: only a missing component is listed for
   // review; the component rules' other refusals still reach the caller.

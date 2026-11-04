@@ -195,6 +195,24 @@ describe("component requirement alerts", () => {
   it("ignores removed components", () => {
     expect(computeAlerts(setup(plus(-1), false), today)).toEqual([]);
   });
+  it("measures a component inspection on the alert date, not the clock's", () => {
+    const s = setup("2099-12-31");
+    Object.assign(s.management[0], { installedDate: "2099-01-01" });
+    s.inspections = [
+      {
+        uuid: "insp",
+        aircraftUuid: s.aircraft[0].uuid,
+        reference: "Pump check",
+        description: "",
+        componentUuid: "pump",
+        dueSeconds: 100 * 3600,
+      },
+    ];
+    const alerts = computeAlerts(s, "2099-06-01");
+    expect(kinds(alerts.filter((a) => a.entityUuid === "insp"))).toEqual([
+      "inspection-overdue",
+    ]);
+  });
 });
 
 describe("certificate alerts", () => {

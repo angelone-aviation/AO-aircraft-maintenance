@@ -43,6 +43,7 @@ import { z } from "zod";
 import {
   can,
   latestLocalDate,
+  localDate,
   type Snapshot,
   type Aircraft,
   type Inspection,
@@ -264,6 +265,8 @@ export type ManagementCommand = z.infer<typeof managementCommandSchema>;
  * @param i - The inspection.
  * @param a - Its aircraft.
  * @param records - The program's records, to find the component.
+ * @param today - The local date to measure the component on; the clock's by
+ *   default.
  * @returns Seconds, cycles and the aircraft's landings.
  * @throws {Rejection} "Inspection component not found." when the component
  *   is not on this aircraft; as {@link componentAircraftSeconds} and
@@ -273,6 +276,7 @@ export function inspectionCounters(
   i: Inspection,
   a: Aircraft,
   records: ManagedRecord[] = [],
+  today = localDate(),
 ) {
   if (!i.componentUuid)
     return {
@@ -287,7 +291,7 @@ export function inspectionCounters(
       r.aircraftUuid === a.uuid,
   );
   if (!c) throw new Rejection("Inspection component not found.");
-  const totals = componentTotals(c, a);
+  const totals = componentTotals(c, a, today);
   return {
     seconds: totals.timeSinceNew,
     cycles: totals.cyclesSinceNew,

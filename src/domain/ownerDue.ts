@@ -110,7 +110,7 @@ function inspectionItem(
     kind: "Inspection" as const,
     label: i.reference || i.description,
   };
-  const counters = countersUnlessMissing(i, a, s.management);
+  const counters = countersUnlessMissing(i, a, s.management, today);
   if (!counters) return { ...item, ...NEEDS_REVIEW };
   const r = inspectionStatus(i, a, today, counters);
   return {
@@ -129,10 +129,11 @@ function inspectionItem(
 function countersUnlessMissing(
   i: Inspection,
   a: Aircraft,
-  records?: ManagedRecord[],
+  records: ManagedRecord[] | undefined,
+  today: string,
 ) {
   try {
-    return inspectionCounters(i, a, records);
+    return inspectionCounters(i, a, records, today);
   } catch (error) {
     // An inspection whose component is no longer on this aircraft is listed
     // for review, as a component limit is, rather than failing the whole list.
