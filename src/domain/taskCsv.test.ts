@@ -1,9 +1,19 @@
+/**
+ * Responsibility: Pins task CSV parsing in both formats and all-or-nothing
+ *   imports to templates and inspections, with the refusals users see.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/taskCsv.ts, inspectionTemplates.ts,
+ *   activateTemplate.ts, rejection.ts; src/data/demo.ts,
+ *   tests/fixtures/taskCards.ts and phase-2-tasks.csv (fixtures).
+ */
 import { expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseTaskCsv, importTaskCsv, type TaskCsvImport } from "./taskCsv";
 import { demoSnapshot } from "../data/demo";
 import { emptyTemplate } from "./inspectionTemplates";
 import { activateTemplate } from "./activateTemplate";
+import { Rejection } from "./rejection";
+import { taskCardCommand } from "../../tests/fixtures/taskCards";
 const csv = readFileSync("tests/fixtures/phase-2-tasks.csv", "utf8");
 function fixture() {
   const s = demoSnapshot();
@@ -43,7 +53,7 @@ it("reads the supplied 14 task file preserving source text and quoted zones", ()
   expect(tasks[4].zone).toBe("410, 420");
   expect(tasks[12].instruction).toContain("Hartzell only");
   const multiline =
-    'Item code,Task,Zone,Manual reference,PDF page\r\nA1,"First line\nSecond, \"\"quoted\"\" line",,,\r\n';
+    'Item code,Task,Zone,Manual reference,PDF page\r\nA1,"First line\nSecond, ""quoted"" line",,,\r\n';
   expect(parseTaskCsv(multiline)[0].instruction).toBe(
     'First line\nSecond, "quoted" line',
   );
@@ -102,6 +112,20 @@ it("imports one complete batch to an inspection with no duplicates or partial wr
   ).toThrow();
   expect(s).toEqual(before);
 });
+// A 79-page manual; the fixture's first task cites PDF page 79.
+const manual = (aircraftUuid: string, uploadedBy: string) => ({
+  uuid: crypto.randomUUID(),
+  aircraftUuid,
+  title: "Manual",
+  documentNumber: "",
+  revision: "test",
+  revisionDate: "",
+  filename: "manual.pdf",
+  size: 100,
+  pageCount: 79,
+  uploadedAt: 0,
+  uploadedBy,
+});
 it("validates permissions, stale versions, duplicate codes and manual page bounds", () => {
   const { s, input, t } = fixture();
   expect(() => parseTaskCsv(csv + csv.split("\n")[1] + "\n")).toThrow(
@@ -113,21 +137,7 @@ it("validates permissions, stale versions, duplicate codes and manual page bound
   t.archived = true;
   expect(() => importTaskCsv(s, input)).toThrow("active");
   t.archived = false;
-  s.manuals = [
-    {
-      uuid: crypto.randomUUID(),
-      aircraftUuid: s.aircraft[0].uuid,
-      title: "Manual",
-      documentNumber: "",
-      revision: "test",
-      revisionDate: "",
-      filename: "manual.pdf",
-      size: 100,
-      pageCount: 79,
-      uploadedAt: 0,
-      uploadedBy: s.user.id,
-    },
-  ];
+  s.manuals = [manual(s.aircraft[0].uuid, s.user.id)];
   expect(() =>
     importTaskCsv(s, { ...input, manualUuid: s.manuals![0].uuid }),
   ).toThrow("between 1 and 79");
@@ -163,4 +173,115 @@ it("reports the spreadsheet row of an invalid task after blank rows", () => {
       "Item code,Task,Zone,Manual reference,PDF page\nA1,Inspect,1,,1\n\nA2,Inspect,1,,x",
     ),
   ).toThrow("CSV row 4:");
+});
+
+const HEADER = "Item code,Task,Zone,Manual reference,PDF page";
+const COLUMNS =
+  "Use these columns: Item code, Task, Zone, Manual reference, PDF page. The existing tasks.csv format is also supported.";
+
+it("refuses a file or row it cannot read, naming the row", () => {
+  const cases: [string, string][] = [
+    ["é".repeat(1024 * 1024 + 1), "Choose a CSV up to 2 MB."],
+    [HEADER, "Choose a CSV with headers and task rows."],
+    [`Task,${HEADER}\nA1`, "Duplicate CSV headers are not allowed."],
+    [`${HEADER},Notes\nA1,Inspect,,,,`, COLUMNS],
+    ["id,item_code\nstep1,A1", COLUMNS],
+    [
+      `${HEADER}\nA1,Inspect,1`,
+      "CSV row 2: Column count differs from the header; quote fields containing commas.",
+    ],
+    [
+      `${HEADER}\nA1,Inspect,,,1.5`,
+      "CSV row 2: PDF page must be a positive whole number.",
+    ],
+    [
+      `${HEADER}\n,Inspect,,,`,
+      "CSV row 2: Item code is required for task identity.",
+    ],
+    [
+      `${HEADER}\nA 1,Inspect,,,\na  1,Check,,,`,
+      "CSV row 3: Duplicate item code a  1.",
+    ],
+  ];
+  for (const [text, message] of cases) {
+    expect(() => parseTaskCsv(text)).toThrow(Rejection);
+    expect(() => parseTaskCsv(text)).toThrow(Error(message));
+  }
+});
+
+it("refuses an unavailable, archived or changed target and a manual link without a PDF page", () => {
+  const { s, t, input } = fixture();
+  s.manuals = [];
+  const attempt = (change: Partial<TaskCsvImport>) => () =>
+    importTaskCsv(structuredClone(s), { ...input, ...change });
+  const archived = () => {
+    t.archived = true;
+    return attempt({})();
+  };
+  for (const [move, message] of [
+    [
+      attempt({ targetUuid: "gone" }),
+      "Target is unavailable or maintenance access is denied.",
+    ],
+    [attempt({ targetVersion: 2 }), "Target changed. Preview the file again."],
+    [
+      attempt({ csv: `${HEADER}\nA1,Inspect,,,`, manualUuid: t.uuid }),
+      "Task A1: a PDF page is required when linking a manual.",
+    ],
+    [archived, "Choose an active template or inspection."],
+  ] as const) {
+    expect(move).toThrow(Rejection);
+    expect(move).toThrow(Error(message));
+  }
+});
+
+it("names job cards by source key and finds earlier job cards by code, source key or step", () => {
+  const { s, input } = fixture();
+  const inspection = s.inspections[0];
+  const request = {
+    ...input,
+    targetKind: "inspection" as const,
+    targetUuid: inspection.uuid,
+    targetVersion: 0,
+  };
+  const audit = s.audit.length;
+  importTaskCsv(s, request);
+  // Characterizes current behaviour: imported job cards log no rows.
+  expect(s.audit).toHaveLength(audit);
+  const card = s.taskCards![0];
+  expect(card).toMatchObject({
+    sourceKey: "task-csv:a243003",
+    title: `${inspection.reference} — A243003`,
+    status: "draft",
+  });
+  const shouting = `  ${parseTaskCsv(csv)[0].instruction.toUpperCase()} `;
+  const unmarked = { ...card, itemCode: "", sourceKey: "" };
+  const measureStep = taskCardCommand().fields.steps[0];
+  for (const earlier of [
+    { ...unmarked, itemCode: " a243003" },
+    { ...unmarked, sourceKey: card.sourceKey },
+    { ...unmarked, steps: [{ ...measureStep, instruction: shouting }] },
+  ]) {
+    s.taskCards = [earlier];
+    expect(() => importTaskCsv(s, request)).toThrow(Rejection);
+    expect(() => importTaskCsv(s, request)).toThrow("already exists");
+  }
+});
+
+it("finds earlier template tasks by code or text, and logs the template save", () => {
+  const { s, t, input } = fixture();
+  const shouting = `  ${parseTaskCsv(csv)[0].instruction.toUpperCase()} `;
+  for (const task of [
+    { itemCode: "A243003 ", instruction: "Other", applicability: "" },
+    { itemCode: "", instruction: shouting, applicability: "" },
+  ]) {
+    s.inspectionTemplates = [{ ...t, tasks: [task] }];
+    expect(() => importTaskCsv(s, input)).toThrow(Rejection);
+    expect(() => importTaskCsv(s, input)).toThrow("already exists");
+  }
+  s.inspectionTemplates = [t];
+  const audit = s.audit.length;
+  importTaskCsv(s, input);
+  expect(s.audit).toHaveLength(audit + 1);
+  expect(s.audit[0].action).toBe("inspectionTemplate.save");
 });
