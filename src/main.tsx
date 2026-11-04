@@ -30,8 +30,7 @@ import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
 import "./styles/tokens.css";
 import "./styles.css";
-import { AircraftArt, Wordmark, initTheme } from "./components/design";
-import { ThemeToggle } from "./components/AppShell";
+import { Wordmark, initTheme } from "./components/design";
 import { SignInNotice, SsoSignIn } from "./components/SignInMethods";
 initTheme();
 const configuredUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
@@ -432,8 +431,6 @@ function Welcome({ children }: { children: React.ReactNode }) {
   return (
     <div className="welcome">
       <span className="welcome-grid" aria-hidden="true" />
-      <AircraftArt className="welcome-art" opacity={0.12} drift />
-      <ThemeToggle className="welcome-theme" />
       <main className="welcome-card">
         <Wordmark width={176} />
         {children}

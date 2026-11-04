@@ -99,7 +99,7 @@ jobs:
               exit 1
               ;;
           esac
-          npx convex deploy --cmd "$BUILD" --cmd-url-env-var-name VITE_CONVEX_URL"
+          npx convex deploy --cmd "$BUILD" --cmd-url-env-var-name VITE_CONVEX_URL
 
       - name: Verify the build
         env:
