@@ -1,3 +1,9 @@
+/**
+ * Responsibility: Pins adding an AD's scheduled actions to an open work order,
+ *   from the AD register and the AD's details, without adding one twice.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 
 test("adds scheduled AD actions from the register and details without duplicates", async ({
@@ -105,6 +111,7 @@ test("adds scheduled AD actions from the register and details without duplicates
   await expect(dialog.getByRole("status")).toContainText("Item added");
   await page.goto("/work-orders");
   const order = page.getByRole("row").filter({ hasText: "WO-AD-ACTIONS" });
+  // The first requested work and the two AD actions, none completed.
   await expect(order).toContainText("0 / 3");
   await order.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.getByRole("dialog").last()).toContainText(

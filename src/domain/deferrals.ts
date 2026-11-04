@@ -1,6 +1,7 @@
 /**
- * Responsibility: Deferring an open discrepancy under an MEL item or 14 CFR
- *   91.213(d), and when a deferral expires.
+ * Responsibility: Closing out an open discrepancy: deferring it under an MEL
+ *   item or 14 CFR 91.213(d), when a deferral expires, and resolving it with
+ *   the repair.
  * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
  * Dependencies: zod, ./model, ./rejection.
  */
@@ -9,6 +10,7 @@ import { can, isLocalToday, type Discrepancy, type Snapshot } from "./model";
 import { Rejection } from "./rejection";
 
 const DAY_MS = 86400000;
+const MAX_RESOLUTION_LENGTH = 5000;
 
 /**
  * MEL repair intervals by category, in calendar days excluding the day of
@@ -176,10 +178,7 @@ export function deferDiscrepancy(
   now = Date.now(),
 ): Discrepancy {
   const command = deferCommandSchema.parse(raw);
-  const d = s.discrepancies.find((d) => d.uuid === command.uuid);
-  if (!d) throw new Rejection("Report not found.");
-  if (!can(s, d.aircraftUuid, "resolve"))
-    throw new Rejection("You do not have permission for this aircraft.");
+  const d = findResolvableReport(s, command.uuid);
   if (d.status !== "open")
     throw new Rejection("Only open discrepancies can be deferred.");
   if (d.deferral) throw new Rejection("This discrepancy is already deferred.");
@@ -196,6 +195,52 @@ export function deferDiscrepancy(
       expiresOn: deferralExpiry(command.deferral, command.deferredOn),
     },
   };
+}
+
+/**
+ * Resolves an open discrepancy with the repair that cleared it.
+ *
+ * @param s - Snapshot holding the discrepancy and the user; not changed.
+ * @param uuid - The discrepancy.
+ * @param resolution - The repair, stored trimmed.
+ * @param now - The time recorded as `resolvedAt`.
+ * @returns A copy of the discrepancy, resolved by the user; the caller
+ *   persists and audits it.
+ * @throws {Rejection} "Report not found.", "You do not have permission for
+ *   this aircraft." (needs `resolve`), "Describe the repair in 1–5000
+ *   characters." (blank, or longer before trimming), "This report is already
+ *   resolved."
+ */
+export function resolveDiscrepancy(
+  s: Snapshot,
+  uuid: string,
+  resolution: string,
+  now = Date.now(),
+): Discrepancy {
+  const d = findResolvableReport(s, uuid);
+  if (!resolution.trim() || resolution.length > MAX_RESOLUTION_LENGTH)
+    throw new Rejection(
+      `Describe the repair in 1–${MAX_RESOLUTION_LENGTH} characters.`,
+    );
+  if (d.status === "resolved")
+    throw new Rejection("This report is already resolved.");
+  return {
+    ...d,
+    status: "resolved",
+    resolution: resolution.trim(),
+    resolvedBy: s.user.id,
+    resolvedAt: now,
+  };
+}
+
+// Deferring and resolving both need the report and the resolve permission on
+// its aircraft.
+function findResolvableReport(s: Snapshot, uuid: string) {
+  const d = s.discrepancies.find((d) => d.uuid === uuid);
+  if (!d) throw new Rejection("Report not found.");
+  if (!can(s, d.aircraftUuid, "resolve"))
+    throw new Rejection("You do not have permission for this aircraft.");
+  return d;
 }
 
 function addDays(date: string, days: number) {

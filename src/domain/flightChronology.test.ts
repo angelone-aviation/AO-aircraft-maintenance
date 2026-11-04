@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins counter events in the flight chronology: what an
+ *   aircraft save records, and how rebuilt flights honour or refuse it.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/fleet.ts, ./flights, ./model, src/data/demo.ts
+ *   (seed).
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -7,7 +14,9 @@ import {
 } from "./fleet";
 import { applyFlight, rebuildFlights, resequencedFlights } from "./flights";
 import { totalSeconds, type Aircraft, type Flight } from "./model";
-const h = (hours: number) => Math.round(hours * 3600);
+
+const HOUR_SECONDS = 3600;
+const h = (hours: number) => Math.round(hours * HOUR_SECONDS);
 const now = Date.parse("2026-10-03T12:00:00Z");
 function flight(a: Aircraft, overrides: Partial<Flight> = {}): Flight {
   return {
@@ -56,6 +65,28 @@ function flown() {
   const first = flight(opening);
   s.aircraft[0] = applyFlight(opening, first);
   return { s, opening, first };
+}
+/** After {@link flown}: a counter event recorded before the fix, with every
+ * counter and no record of what changed, and a correction of the flight. */
+function legacyHistory() {
+  const { s, opening, first } = flown();
+  const before = s.aircraft[0];
+  const legacy: AircraftCounterEvent = {
+    at: "2026-10-03T12:00:00.000Z",
+    meter: "hobbs",
+    adjustmentSeconds: 0,
+    currentHobbs: before.currentHobbs,
+    currentTach: before.currentTach,
+    currentFlightTimeLog: h(100),
+    cycles: before.cycles,
+    landings: before.landings,
+  };
+  const corrected = {
+    ...first,
+    hobbsOn: opening.currentHobbs + h(1.4),
+    landings: 3,
+  };
+  return { opening, first, before, legacy, corrected };
 }
 describe("counter events in the flight chronology", () => {
   it("records only the counters the administrator changed", () => {
@@ -179,29 +210,12 @@ describe("counter events in the flight chronology", () => {
     ).toThrow(/Cannot accept this chronology: .*time source/);
   });
   it("derives what a legacy event changed from the flights as stored, and records it", () => {
-    const { s, opening, first } = flown();
-    const before = s.aircraft[0];
-    // Recorded before the fix: every counter, with no record of what changed.
-    const legacy: AircraftCounterEvent = {
-      at: "2026-10-03T12:00:00.000Z",
-      meter: "hobbs",
-      adjustmentSeconds: 0,
-      currentHobbs: before.currentHobbs,
-      currentTach: before.currentTach,
-      currentFlightTimeLog: h(100),
-      cycles: before.cycles,
-      landings: before.landings,
-    };
+    const { opening, first, before, legacy, corrected } = legacyHistory();
     const a: Aircraft = {
       ...before,
       flightTimeLog: true,
       currentFlightTimeLog: h(100),
       counterEvents: [legacy],
-    };
-    const corrected = {
-      ...first,
-      hobbsOn: opening.currentHobbs + h(1.4),
-      landings: 3,
     };
     const rebuilt = rebuildFlights(a, [corrected], [first]);
     expect(rebuilt.aircraft.currentHobbs).toBe(opening.currentHobbs + h(1.4));
@@ -214,7 +228,9 @@ describe("counter events in the flight chronology", () => {
     const again = rebuildFlights(rebuilt.aircraft, [corrected], [corrected]);
     expect(again.aircraft.currentHobbs).toBe(opening.currentHobbs + h(1.4));
     expect(again.aircraft.landings).toBe(opening.landings + 3);
-    // A legacy absolute override still holds, and still guards its chronology.
+  });
+  it("keeps a legacy absolute override, and still guards its chronology", () => {
+    const { opening, first, before, legacy, corrected } = legacyHistory();
     const replaced: Aircraft = {
       ...before,
       currentHobbs: 0,

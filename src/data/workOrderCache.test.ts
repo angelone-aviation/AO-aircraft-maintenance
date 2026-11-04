@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins the device cache's version 2 upgrade, which strips the
+ *   retired authorization fields from cached work orders in every namespace.
+ * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
+ * Dependencies: src/data/local.ts, src/data/demo.ts, src/domain/workOrders.ts,
+ *   tests/fixtures/workOrders.ts, idb.
+ */
 import "fake-indexeddb/auto";
 import { openDB } from "idb";
 import { it, expect } from "vitest";
@@ -5,8 +12,14 @@ import { readSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import { saveWorkOrder } from "../domain/workOrders";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
+
+// src/data/local.ts's database: version 1 is the schema before the upgrade,
+// version 2 the schema after it.
+const CACHE_DB = "angel-one-v1";
+const UPGRADED_VERSION = 2;
+
 it("upgrades all cached namespaces, deletes authorization fields from cached orders, and keeps cached history as written", async () => {
-  const oldDb = await openDB("angel-one-v1", 1, {
+  const oldDb = await openDB(CACHE_DB, 1, {
     upgrade(db) {
       db.createObjectStore("snapshots");
       db.createObjectStore("outbox");
@@ -37,7 +50,7 @@ it("upgrades all cached namespaces, deletes authorization fields from cached ord
   await oldDb.put("snapshots", s, "demo:all");
   oldDb.close();
   expect((await readSnapshot("demo"))?.workOrders?.[0]).toEqual(order);
-  const upgraded = await openDB("angel-one-v1", 2);
+  const upgraded = await openDB(CACHE_DB, UPGRADED_VERSION);
   for (const key of ["demo", "demo:all"]) {
     const cached = await upgraded.get("snapshots", key);
     expect(cached.workOrders[0]).toEqual(order);

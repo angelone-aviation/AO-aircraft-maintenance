@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins Flight Programs and aircraft setup: a new program with
+ *   its default groups, total time from the chosen meter and its adjustment,
+ *   switching programs, and edits refused offline.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 test("program directory and aircraft total-time setup persist through editing and reload", async ({
   page,
@@ -43,6 +50,7 @@ test("program directory and aircraft total-time setup persist through editing an
   await page
     .getByRole("button", { name: "Permission groups", exact: true })
     .click();
+  // A new Flight Program starts with the four default permission groups.
   for (const name of [
     "Observers",
     "Pilots",
@@ -72,6 +80,7 @@ test("program directory and aircraft total-time setup persist through editing an
   await page
     .getByLabel("Total time adjustment (hours)", { exact: true })
     .fill("50");
+  // Total time follows the tach: 1,000 plus the 50-hour adjustment.
   await expect(page.getByRole("dialog").getByRole("status")).toContainText(
     "1,050.0 hours",
   );
@@ -98,6 +107,7 @@ test("program directory and aircraft total-time setup persist through editing an
   await page
     .getByLabel("Default maintenance time source", { exact: true })
     .selectOption("hobbs");
+  // On the Hobbs (1,200) the adjustment becomes -150, keeping the total.
   await expect(
     page.getByLabel("Total time adjustment (hours)", { exact: true }),
   ).toHaveValue("-150");
@@ -144,6 +154,7 @@ test("program directory and aircraft total-time setup persist through editing an
     .getByLabel("Active Flight Program", { exact: true })
     .selectOption({ label: "Regional medical program" });
   await expect(row).toBeVisible();
+  // Switching programs and editing aircraft need a connection.
   await context.setOffline(true);
   await expect(
     page.getByLabel("Active Flight Program", { exact: true }),

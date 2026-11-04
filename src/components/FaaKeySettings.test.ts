@@ -1,18 +1,59 @@
 /**
  * Responsibility: Pins when the FAA key renewal warning shows and where it
- *   links, and who may replace the key from the FAA key panel.
+ *   links, who may replace the key, and what a failed replacement shows.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/components/FaaKeySettings.tsx, react-dom/server.
+ * Dependencies: src/components/FaaKeySettings.tsx, react-dom/server,
+ *   convex/values (ConvexError).
+ *
+ * Server rendering keeps no state between renders, so a react mock keeps
+ * useState values in call order: a test can open the dialog, submit it and
+ * render again.
  */
 // @vitest-environment node
-import { createElement as h, type ReactNode } from "react";
+import {
+  createElement as h,
+  isValidElement,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { ConvexError } from "convex/values";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FaaCredentialStatus } from "../domain/faaCredential";
 import { localDate } from "../domain/model";
 import { FaaKeySettings, FaaRenewalAlert } from "./FaaKeySettings";
 
 const workspace = vi.hoisted(() => ({ state: {} as Record<string, unknown> }));
+const hooks = vi.hoisted(() => ({ states: [] as unknown[], next: 0 }));
+const dialog = vi.hoisted(() => ({
+  submit: undefined as undefined | ((event: FormSubmit) => void),
+}));
+vi.mock("react", async (importOriginal) => {
+  const react = await importOriginal<typeof import("react")>();
+  return {
+    ...react,
+    useState: (initial: unknown) => {
+      const slot = hooks.next++;
+      if (!(slot in hooks.states)) hooks.states[slot] = initial;
+      const set = (value: unknown) => {
+        hooks.states[slot] = value;
+      };
+      return [hooks.states[slot], set];
+    },
+  };
+});
+vi.mock("./ui", async (importOriginal) => {
+  const ui = await importOriginal<typeof import("./ui")>();
+  return {
+    ...ui,
+    Modal: (props: Parameters<typeof ui.Modal>[0]) => {
+      const form = props.children;
+      if (isValidElement<{ onSubmit: (event: FormSubmit) => void }>(form))
+        dialog.submit = form.props.onSubmit;
+      return ui.Modal(props);
+    },
+  };
+});
 vi.mock("../data/store", () => ({
   useWorkspace: (select?: (state: unknown) => unknown) =>
     select ? select(workspace.state) : workspace.state,
@@ -24,8 +65,17 @@ vi.mock("@tanstack/react-router", () => ({
     ]),
 }));
 
+type FormSubmit = Pick<FormEvent, "preventDefault">;
+
 const DAY_MS = 86_400_000;
 const ONLINE = { online: true, connected: true, demo: false };
+const UNCONFIRMED =
+  "Unable to confirm the update. Check the key, future expiration date, connection, and administrator access. Refresh to check the saved expiration date before retrying.";
+
+beforeEach(() => {
+  hooks.states = [];
+  dialog.submit = undefined;
+});
 
 function expiringIn(days: number): FaaCredentialStatus {
   const expiresOn = new Date(Date.parse(localDate()) + days * DAY_MS)
@@ -51,7 +101,27 @@ function renderPanel(
     ...ONLINE,
     ...flags,
   };
+  return renderAgain(level);
+}
+
+// Renders the panel from the workspace and state the last render left.
+function renderAgain(level?: 2 | 3) {
+  hooks.next = 0;
   return renderToStaticMarkup(h(FaaKeySettings, { level }));
+}
+
+// Opens the replacement dialog, submits it to a backend that throws `error`,
+// and returns the panel as it renders afterwards.
+async function failReplacement(error: Error) {
+  renderPanel();
+  workspace.state.backend = { updateFaaKey: () => Promise.reject(error) };
+  // The panel's first state is whether the dialog is open.
+  hooks.states[0] = true;
+  renderAgain();
+  if (!dialog.submit) throw new Error("The replacement dialog did not open.");
+  dialog.submit({ preventDefault: () => {} });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return renderAgain();
 }
 
 describe("FaaRenewalAlert", () => {
@@ -90,5 +160,19 @@ describe("FaaKeySettings", () => {
     const demo = renderPanel(2, true, { demo: true });
     expect(demo).toContain('disabled="">Update');
     expect(demo).toContain("not in demo mode");
+  });
+
+  it("shows the server's refusal, and the general advice for anything else", async () => {
+    const refusal =
+      "FAA could not verify the new key (401). The previous key is unchanged.";
+    expect(await failReplacement(new ConvexError(refusal))).toContain(
+      `<p role="alert">${refusal}</p>`,
+    );
+    const hidden = new Error(
+      "[CONVEX A(faaCredentials:replace)] [Request ID: 1a2b] Server Error",
+    );
+    expect(await failReplacement(hidden)).toContain(
+      `<p role="alert">${UNCONFIRMED}</p>`,
+    );
   });
 });

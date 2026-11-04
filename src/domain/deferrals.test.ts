@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins deferral expiry by MEL category, days remaining, labels,
- *   and the refusals when deferring a discrepancy.
+ *   and the refusals when deferring or resolving a discrepancy.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/deferrals.ts, ./model, ./rejection,
  *   src/data/demo.ts (seed).
@@ -13,6 +13,7 @@ import {
   deferralExpired,
   deferralExpiry,
   deferralLabel,
+  resolveDiscrepancy,
 } from "./deferrals";
 import { localDate } from "./model";
 import { Rejection } from "./rejection";
@@ -177,6 +178,57 @@ describe("deferring a discrepancy", () => {
       const error = refusal(s, raw);
       expect(error).toBeInstanceOf(Rejection);
       expect(error).toHaveProperty("message", message);
+    }
+  });
+});
+
+describe("resolving a discrepancy", () => {
+  const uuid = "demo-report";
+  it("records the trimmed repair, the user and the time without mutating input", () => {
+    const s = demoSnapshot();
+    const before = structuredClone(s.discrepancies[0]);
+    const d = resolveDiscrepancy(s, uuid, "  Replaced the seal ", 1234);
+    expect(s.discrepancies[0]).toEqual(before);
+    expect(d).toEqual({
+      ...before,
+      status: "resolved",
+      resolution: "Replaced the seal",
+      resolvedBy: "demo-admin",
+      resolvedAt: 1234,
+    });
+    expect(
+      resolveDiscrepancy(s, uuid, "x".repeat(5000)).resolution,
+    ).toHaveLength(5000);
+  });
+  it("refuses each case as a Rejection", () => {
+    const refusal = (
+      s: ReturnType<typeof demoSnapshot>,
+      id: string,
+      text: string,
+    ) => {
+      try {
+        resolveDiscrepancy(s, id, text);
+      } catch (error) {
+        return error;
+      }
+    };
+    const resolved = demoSnapshot();
+    resolved.discrepancies[0].status = "resolved";
+    const pilot = demoSnapshot();
+    pilot.user = { ...pilot.members[1] };
+    const length = "Describe the repair in 1–5000 characters.";
+    for (const [s, id, text, message] of [
+      [demoSnapshot(), "x", "Fixed", "Report not found."],
+      [pilot, uuid, "Fixed", "You do not have permission for this aircraft."],
+      [demoSnapshot(), uuid, " ", length],
+      [demoSnapshot(), uuid, "x".repeat(5001), length],
+      // The limit counts the text as entered, before trimming.
+      [demoSnapshot(), uuid, "x".repeat(4999) + "  ", length],
+      [resolved, uuid, "Fixed", "This report is already resolved."],
+    ] as const) {
+      const error = refusal(s, id, text);
+      expect(error, message).toBeInstanceOf(Rejection);
+      expect(error).toMatchObject({ message });
     }
   });
 });
