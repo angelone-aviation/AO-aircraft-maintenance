@@ -4,9 +4,9 @@
  *   sections" sheet, the top bar and the footer.
  * Layer: UI. React components around the routed screens.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
- *   src/data/store.ts, src/domain (pilotView, ownerView, programs, model),
- *   ./Alerts, ./UserProfile, ./ComponentIcon, ./InspectionIcon,
- *   ./WorkOrderIcon, ./FlightForm, ./ui, ./design.
+ *   src/data (store, pendingEntries), src/domain (pilotView, ownerView,
+ *   programs, model), ./Alerts, ./UserProfile, ./ComponentIcon,
+ *   ./InspectionIcon, ./WorkOrderIcon, ./FlightForm, ./ui, ./design.
  */
 import { useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
@@ -41,6 +41,7 @@ import {
   Users,
   Warning,
 } from "@phosphor-icons/react";
+import { ownEntries } from "../data/pendingEntries";
 import { useWorkspace, previewDemoOwner } from "../data/store";
 import { isPilotView, pilotNavigation } from "../domain/pilotView";
 import { isOwnerView } from "../domain/ownerView";
@@ -334,9 +335,7 @@ function useMoreSheet(breakpoint: string) {
 function useCounts() {
   const s = useWorkspace((x) => x.snapshot)!;
   const queue = useWorkspace((x) => x.queue);
-  const pending = queue.filter(
-    (q) => q.operation.authorId === s.user.id,
-  ).length;
+  const pending = ownEntries(queue, s.user.id).length;
   const unread = useUnreadAlertCount();
   return (path: string) =>
     path === "/sync" ? pending : path === "/alerts" ? unread : 0;
@@ -776,9 +775,7 @@ function OwnerPreviewButton() {
 
 function ConnectionStatus({ s }: { s: Snapshot }) {
   const { queue, online, connected } = useWorkspace();
-  const pending = queue.filter(
-    (q) => q.operation.authorId === s.user.id,
-  ).length;
+  const pending = ownEntries(queue, s.user.id).length;
   const live = online && connected;
   return (
     <span className={"connection " + (live ? "" : "offline")}>
