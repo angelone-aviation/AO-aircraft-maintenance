@@ -21,7 +21,7 @@ import {
   type Snapshot,
 } from "./model";
 import { activeProgram, programPermission, recordProgram } from "./programs";
-import { assertNotExpired } from "./shelfLife";
+import { SERVICEABLE_CONDITIONS, assertNotExpired } from "./shelfLife";
 import { auditEntry, type AuditChange } from "./changeLog";
 import { Rejection } from "./rejection";
 import type { PurchaseOrder } from "./purchaseOrders";
@@ -35,7 +35,6 @@ const MAX_QUOTED_CENTS = 100_000_000_000;
 const MAX_REQUEST_LINES = 100;
 const REQUEST_NUMBER_PREFIX = "PR-";
 const REQUEST_NUMBER_DIGITS = 5;
-const SERVICEABLE_CONDITIONS: readonly string[] = ["new", "overhauled"];
 const CLOSED_WORK_STATUSES: readonly string[] = ["completed", "cancelled"];
 const TRACKED_APPLICABILITY: readonly string[] = [
   "Applicable",

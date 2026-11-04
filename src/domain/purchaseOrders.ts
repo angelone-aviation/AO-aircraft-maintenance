@@ -31,7 +31,7 @@ import {
   rebaseServicedRequirements,
   type Component,
 } from "./components";
-import { addDays, assertNotExpired } from "./shelfLife";
+import { SERVICEABLE_CONDITIONS, addDays, assertNotExpired } from "./shelfLife";
 import { auditEntry } from "./changeLog";
 import { Rejection } from "./rejection";
 
@@ -42,7 +42,6 @@ const money = z.number().int().nonnegative().max(100000000000);
 
 const MAX_ORDER_CENTS = 10_000_000_000_000;
 const HOUR_SECONDS = 3600;
-const SERVICEABLE_CONDITIONS = ["new", "overhauled"];
 const STALE_ORDER = "Purchase order changed. Reopen it before saving.";
 
 /**
