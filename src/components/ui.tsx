@@ -1,10 +1,11 @@
 /**
  * Responsibility: Shared building blocks for forms and pages: the modal, the
  *   async form and delete button, labelled fields, badges, empty states, page
- *   titles, safe links, text downloads and the text shown for an error.
+ *   titles, safe links, text and blank-CSV downloads, and the text shown for
+ *   an error.
  * Layer: UI. Shared components; no Convex imports.
  * Dependencies: react, @phosphor-icons/react, ./design.tsx, src/data/store.ts,
- *   src/data/errors.ts.
+ *   src/data/errors.ts, src/domain/csv.ts.
  */
 import {
   useState,
@@ -18,6 +19,7 @@ import { CircleNotch } from "@phosphor-icons/react";
 import { DialogFrame, PageHeader } from "./design";
 import { useWorkspace } from "../data/store";
 import { errorText } from "../data/errors";
+import { toCsv } from "../domain/csv";
 
 /** Re-exported so screens keep one import for their building blocks. */
 export { errorText };
@@ -290,6 +292,20 @@ export function download(
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
+}
+
+/**
+ * Saves a CSV template for an importer: the byte-order mark and the quoted
+ * header row only, ending in CRLF, as text/csv.
+ *
+ * @param name - The file name.
+ * @param headers - The importer's column names, in order.
+ */
+export function downloadBlankCsv(name: string, headers: readonly string[]) {
+  const [headerRow] = toCsv([
+    Object.fromEntries(headers.map((h) => [h, ""])),
+  ]).split("\r\n");
+  download(name, `${headerRow}\r\n`, "text/csv");
 }
 
 function FormFooter({

@@ -1,13 +1,14 @@
 /**
  * Responsibility: Pins the markup, labelling, link and form-value rules of the
- *   shared UI building blocks, and that they show errors as src/data does.
+ *   shared UI building blocks, the blank-CSV download, and that they show
+ *   errors as src/data does.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/ui.tsx, react-dom/server, src/data/errors.ts.
  */
 // @vitest-environment node
 import { createElement as h, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { errorText as dataErrorText } from "../data/errors";
 import {
   AsyncForm,
@@ -17,6 +18,7 @@ import {
   Field,
   Modal,
   PageTitle,
+  downloadBlankCsv,
   errorText,
   safeHref,
   value,
@@ -170,6 +172,33 @@ describe("value", () => {
     data.set("serial", "  SN-1 ");
     expect(value(data, "serial")).toBe("SN-1");
     expect(value(data, "missing")).toBe("");
+  });
+});
+
+describe("downloadBlankCsv", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("saves the byte-order mark and quoted header row, ending in CRLF", async () => {
+    const link = { href: "", download: "", click: vi.fn() };
+    vi.stubGlobal("document", { createElement: () => link });
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      blobs.push(blob as Blob);
+      return "blob:csv";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    downloadBlankCsv("template.csv", ["kind", "interval_hours", 'say "hi"']);
+    expect(link).toMatchObject({ href: "blob:csv", download: "template.csv" });
+    expect(link.click).toHaveBeenCalledOnce();
+    expect(blobs[0].type).toBe("text/csv");
+    expect(new Uint8Array(await blobs[0].arrayBuffer())).toEqual(
+      new TextEncoder().encode(
+        '\uFEFF"kind","interval_hours","say ""hi"""\r\n',
+      ),
+    );
   });
 });
 
