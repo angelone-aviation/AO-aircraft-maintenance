@@ -865,6 +865,20 @@ it("leaves the counter unavailable for the aircraft meter's refusals too", () =>
   }
 });
 
+it("lets a fault in the component's totals through, not as an unavailable counter", () => {
+  const { s } = setup();
+  const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
+  const engine = installedEngine(s.aircraft[0], {});
+  const fault = new TypeError("Broken component record.");
+  Object.defineProperty(engine, "trackTime", {
+    get() {
+      throw fault;
+    },
+  });
+  s.management = [engine];
+  expect(() => adCounters(s, r)).toThrow(fault);
+});
+
 it("reports not applicable and superseded ADs by their applicability", () => {
   const { s, r } = setup();
   expect(CLOSED_APPLICABILITY).toEqual(["Not applicable", "Superseded"]);
