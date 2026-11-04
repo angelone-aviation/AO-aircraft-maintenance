@@ -1,15 +1,27 @@
+/**
+ * Responsibility: Pins the dashboard's inspection marks and outlook order,
+ *   its aircraft filters, what pilot view leaves out, and who may log a
+ *   flight.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/components/Dashboard.tsx, src/data/demo.ts,
+ *   react-dom/server.
+ */
 // @vitest-environment node
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
-import { localDate, type Inspection } from "../domain/model";
+import { localDate, type Inspection, type Snapshot } from "../domain/model";
 import { Dashboard } from "./Dashboard";
+
+const HOUR = 3600;
 let snapshot = demoSnapshot();
+let favorites: string[] = [];
+const hooks = vi.hoisted(() => ({ states: [] as unknown[], slot: 0 }));
 vi.mock("../data/store", () => {
   const state = () => ({
     snapshot,
-    favorites: [],
+    favorites,
     toggleFavorite: () => {},
     online: true,
     connected: true,
@@ -22,8 +34,23 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children?: unknown }) =>
     createElement("a", null, children as never),
 }));
+// Seeds the dashboard's state: slot 0 is the search text, 1 the favorites
+// filter (see useDashboard).
+vi.mock("react", async (original) => {
+  const react = await original<typeof import("react")>();
+  return {
+    ...react,
+    useState: (initial: unknown) => {
+      const slot = hooks.slot++;
+      if (!(slot in hooks.states)) hooks.states[slot] = initial;
+      return [hooks.states[slot], () => {}];
+    },
+  };
+});
 beforeEach(() => {
   snapshot = demoSnapshot();
+  favorites = [];
+  hooks.states = [];
 });
 const shift = (days: number) => {
   const d = new Date(localDate() + "T00:00:00Z");
@@ -39,7 +66,7 @@ function render(...inspections: Partial<Inspection>[]) {
     description: `Inspection ${n}`,
     ...i,
   }));
-  const html = renderToStaticMarkup(createElement(Dashboard));
+  const html = page();
   const card = html.slice(html.indexOf(">N182MA</h3>"));
   const timeline = card.slice(
     card.indexOf("dash-timeline"),
@@ -60,8 +87,8 @@ it("shows the overdue calendar limit, not the hours still remaining", () => {
   const due = shift(-5);
   const { card, outlook } = render({
     reference: "Annual + 100 h",
-    lastSeconds: 1600 * 3600,
-    dueSeconds: 1700 * 3600,
+    lastSeconds: 1600 * HOUR,
+    dueSeconds: 1700 * HOUR,
     lastDate: shift(-370),
     dueDate: due,
   });
@@ -75,7 +102,7 @@ it("shows the dimension closest to its limit relative to its due-soon allowance"
   // 20 of 30 calendar days left is nearer the limit than 8.6 of 10 hours.
   const calendar = render({
     reference: "Combined",
-    dueSeconds: 1659 * 3600,
+    dueSeconds: 1659 * HOUR,
     dueDate: shift(10),
   });
   expect(calendar.card).toContain("Combined 10 days remaining");
@@ -83,7 +110,7 @@ it("shows the dimension closest to its limit relative to its due-soon allowance"
   // 2.6 of 10 hours left is nearer than 20 of 30 days.
   const hours = render({
     reference: "Combined",
-    dueSeconds: 1653 * 3600,
+    dueSeconds: 1653 * HOUR,
     dueDate: shift(20),
   });
   expect(hours.card).toContain("Combined 2.6 h remaining");
@@ -92,14 +119,14 @@ it("shows the dimension closest to its limit relative to its due-soon allowance"
 it("shows the most overdue limit when several are overdue", () => {
   const { card, outlook } = render({
     reference: "Combined",
-    dueSeconds: 1649 * 3600,
+    dueSeconds: 1649 * HOUR,
     dueDate: shift(-40),
   });
   expect(card).toContain("Combined 40 days overdue");
   expect(outlook).toMatch(/Combined .* · overdue/);
   const hours = render({
     reference: "Combined",
-    dueSeconds: 1600 * 3600,
+    dueSeconds: 1600 * HOUR,
     dueDate: shift(-2),
   });
   expect(hours.card).toContain("Combined 50.4 h overdue");
@@ -108,8 +135,8 @@ it("shows the most overdue limit when several are overdue", () => {
 it("keeps the progress track on the dimension shown", () => {
   const { card } = render({
     reference: "Combined",
-    lastSeconds: 1600 * 3600,
-    dueSeconds: 1700 * 3600,
+    lastSeconds: 1600 * HOUR,
+    dueSeconds: 1700 * HOUR,
     lastDate: shift(-355),
     dueDate: shift(10),
   });
@@ -120,8 +147,8 @@ it("keeps the progress track on the dimension shown", () => {
 });
 it("picks the most urgent of several inspections with the same status", () => {
   const { card, outlook } = render(
-    { reference: "SLIGHTLY-LATE", dueSeconds: 1650 * 3600 },
-    { reference: "VERY-LATE", dueSeconds: 1600 * 3600 },
+    { reference: "SLIGHTLY-LATE", dueSeconds: 1650 * HOUR },
+    { reference: "VERY-LATE", dueSeconds: 1600 * HOUR },
   );
   expect(card).toContain("VERY-LATE 50.4 h overdue");
   expect(outlook.indexOf("VERY-LATE")).toBeLessThan(
@@ -133,3 +160,89 @@ it("picks the most urgent of several inspections with the same status", () => {
   );
   expect(scheduled.card).toContain("SOONER 200 days remaining");
 });
+it("marks cycles by their count, with the singular for one left", () => {
+  // N182MA has 1,142 cycles.
+  const { card } = render({
+    reference: "Cycles",
+    lastCycles: 1,
+    dueCycles: 1143,
+    intervalCycles: 1142,
+  });
+  expect(card).toContain("Cycles 1 cycle remaining");
+  expect(card).toContain("Last 1 cycles");
+  expect(card).toContain("Due 1,143 cycles");
+});
+it("keeps an inspection it cannot compute unverified instead of failing", () => {
+  const { card } = render({
+    reference: "Component",
+    componentUuid: "missing",
+    dueSeconds: 1700 * HOUR,
+  });
+  expect(card).toContain("Component Maintenance information needed");
+});
+
+describe("aircraft cards", () => {
+  it("filters by registration, model or program text (not make) and by favorites", () => {
+    hooks.states = ["n206"];
+    expect(registrations()).toEqual(["N206MA"]);
+    hooks.states = ["skylane"];
+    expect(registrations()).toEqual(["N182MA"]);
+    hooks.states = ["cessna"];
+    expect(registrations()).toEqual([]);
+    favorites = ["demo-208"];
+    hooks.states = ["", true];
+    expect(registrations()).toEqual(["N208MA"]);
+    hooks.states = ["no such aircraft"];
+    expect(page()).toContain("No aircraft match");
+  });
+
+  it("offers Log flight only on aircraft with the flight permission", () => {
+    const html = page();
+    expect(html).toContain("Log a flight");
+    snapshot = asOutsider(snapshot);
+    const outsider = page();
+    expect(outsider).not.toContain("Log flight");
+    expect(outsider).not.toContain("Log a flight");
+  });
+});
+
+describe("pilot view", () => {
+  it("leaves out the stock notice, outlook and review KPI and shows each operational status", () => {
+    const stock = { uuid: "s1", kind: "stock", quantity: 0, minimum: 1 };
+    snapshot = { ...snapshot, management: [stock] } as unknown as Snapshot;
+    const full = page();
+    expect(full).toContain("1 stock item(s) need replenishment");
+    expect(full).toContain("Maintenance outlook");
+    expect(full).toContain("Flights awaiting review");
+    snapshot = asPilot(snapshot);
+    const pilot = page();
+    expect(pilot).not.toContain("need replenishment");
+    expect(pilot).not.toContain("Maintenance outlook");
+    expect(pilot).not.toContain("Flights awaiting review");
+    expect(pilot).toContain("Aircraft status: ");
+  });
+});
+
+function page() {
+  hooks.slot = 0;
+  return renderToStaticMarkup(createElement(Dashboard));
+}
+
+function registrations() {
+  return [...page().matchAll(/<h3 id="dash-reg-[^"]*">([^<]*)</g)].map(
+    (m) => m[1],
+  );
+}
+
+// The demo's Pilots group: flight and discrepancy, no administration.
+function asPilot(s: Snapshot): Snapshot {
+  return {
+    ...s,
+    user: { ...s.user, isAdmin: false, groupIds: ["demo-pilots"] },
+  };
+}
+
+// Sees the aircraft but holds no permission on them.
+function asOutsider(s: Snapshot): Snapshot {
+  return { ...s, user: { ...s.user, isAdmin: false, groupIds: [] } };
+}
