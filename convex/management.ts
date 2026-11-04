@@ -1,17 +1,15 @@
 /**
  * Responsibility: Inventory and inspection records (locations, stock,
- *   components and their requirements, inspections) changed as one command,
- *   and the one-off oil marker backfill.
- * Layer: Server. A public mutation through runCommand and an internal
- *   migration; the rules are the domain's applyManagement.
+ *   components and their requirements, inspections) changed as one command.
+ * Layer: Server. A public mutation through runCommand; the rules are the
+ *   domain's applyManagement.
  * Dependencies: convex/runCommand, convex/access, src/domain (programs,
  *   management, model).
  */
 import { activeProgram } from "../src/domain/programs";
-import { mutation, internalMutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { mutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { currentUser, audit } from "./access";
+import { currentUser } from "./access";
 import {
   runCommand,
   hydrate,
@@ -24,11 +22,9 @@ import type { Inspection } from "../src/domain/model";
 import {
   applyManagement,
   managementCommandSchema,
-  recordSchema,
   inspectionSchema,
 } from "../src/domain/management";
 
-const OIL_BACKFILL_BATCH = 500;
 const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 type ManagementResult = ReturnType<typeof applyManagement>;
@@ -128,39 +124,6 @@ export async function writeInspection(
   await ctx.db.insert("inspections", fields);
 }
 
-/**
- * One-off after the deploy that added the stock `oil` marker, run with `npx
- * convex run management:backfillOilMarker`. Flight-line deductions now refuse
- * stock not marked as oil, so this marks every stock item that already has a
- * `stock.oil_used` change-log row, with one new entry by `system` each.
- * Existing rows are never modified, and rerunning it is safe.
- *
- * @param cursor - Where in the change log to continue; it schedules itself,
- *   500 rows at a time, until done.
- * @returns This batch's counts: rows scanned; items marked, already marked,
- *   or missing (gone, or no longer stock); and whether the log is done.
- */
-export const backfillOilMarker = internalMutation({
-  args: { cursor: v.optional(v.union(v.string(), v.null())) },
-  handler: async (ctx, { cursor }) => {
-    const batch = await ctx.db
-      .query("audit")
-      .paginate({ cursor: cursor ?? null, numItems: OIL_BACKFILL_BATCH });
-    const used = new Set(
-      batch.page
-        .filter((a) => a.action === "stock.oil_used")
-        .map((a) => a.entityUuid),
-    );
-    const counts = { marked: 0, alreadyMarked: 0, missing: 0 };
-    for (const uuid of used) counts[await markOilStock(ctx, uuid)]++;
-    if (!batch.isDone)
-      await ctx.scheduler.runAfter(0, internal.management.backfillOilMarker, {
-        cursor: batch.continueCursor,
-      });
-    return { scanned: batch.page.length, ...counts, isDone: batch.isDone };
-  },
-});
-
 async function persistRecords(
   ctx: MutationCtx,
   docs: ManagementDocs,
@@ -180,32 +143,4 @@ async function persistRecords(
       version: inspection.version,
     });
   }
-}
-
-async function markOilStock(
-  ctx: MutationCtx,
-  uuid: string,
-): Promise<"marked" | "alreadyMarked" | "missing"> {
-  const doc = await ctx.db
-    .query("management")
-    .withIndex("uuid", (q) => q.eq("uuid", uuid))
-    .unique();
-  const record = doc && recordSchema.parse(JSON.parse(doc.payload));
-  if (!doc || !record || record.kind !== "stock") return "missing";
-  if (record.oil === true) return "alreadyMarked";
-  await ctx.db.patch(doc._id, {
-    payload: JSON.stringify({
-      ...record,
-      oil: true,
-      version: record.version + 1,
-    }),
-  });
-  await audit(ctx, "system", "stock.oil_marker_backfill", uuid, {
-    programUuid: doc.programUuid ?? record.programUuid,
-    reason:
-      "Migration: marked as engine oil because it was already drawn down on the flight line.",
-    before: { stockUuid: uuid, oil: record.oil ?? false },
-    after: { stockUuid: uuid, oil: true },
-  });
-  return "marked";
 }

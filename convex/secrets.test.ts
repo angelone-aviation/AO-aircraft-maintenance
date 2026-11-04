@@ -1,7 +1,8 @@
 /**
- * Responsibility: Pins credential sealing: v1 and v2 formats, the binding to
- *   table, program and field, key rotation, configuration errors, and the
- *   migration that re-seals old values.
+ * Responsibility: Pins credential sealing: the v2 format and its binding to
+ *   table, program and field, the refusal of plaintext and v1 values (stored,
+ *   or offered to a commit step), key rotation and the re-seal after it, and
+ *   configuration errors.
  * Layer: Test. Vitest and convex-test suite; never shipped in the build.
  * Dependencies: convex/secrets.ts, convex/schema.ts, convex/_generated,
  *   src/data/demo.ts (fixture).
@@ -10,10 +11,10 @@ import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import {
   activeKeyId,
-  isSealed,
   needsReseal,
   openSecret,
   sealSecret,
@@ -42,7 +43,8 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
-// The pre-v2 format: AES-GCM without additional data, `enc:v1:<iv>:<data>`.
+// The retired v1 format: AES-GCM without additional data,
+// `enc:v1:<iv>:<data>`.
 async function sealV1(plain: string, rawKey = K1) {
   const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
   const key = await crypto.subtle.importKey(
@@ -61,11 +63,22 @@ async function sealV1(plain: string, rawKey = K1) {
   return `enc:v1:${b64(iv)}:${b64(new Uint8Array(data))}`;
 }
 
-it("still opens v1 values sealed with the original key", async () => {
+it("refuses plaintext and v1 values without logging them, so an administrator enters them again", async () => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
-  expect(await openSecret(await sealV1("legacy-secret"), faa)).toBe(
-    "legacy-secret",
-  );
+  const warn = vi.spyOn(console, "warn");
+  for (const stored of ["hunter2", await sealV1("hunter2")]) {
+    const error = await openSecret(stored, faa).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toMatchObject({
+      name: "ConvexError",
+      data: "A saved credential is not encrypted. An administrator must enter it again.",
+    });
+    expect(JSON.stringify(error)).not.toContain("hunter2");
+  }
+  expect(warn).not.toHaveBeenCalled();
+  warn.mockRestore();
 });
 
 it("opens a v2 value sealed by an earlier release", async () => {
@@ -95,34 +108,23 @@ it("round-trips v2 values bound to their table, program and field", async () => 
 it("seals with the active key id and still opens values under retired-but-present keys", async () => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
   const old = await sealSecret("rotated", faa);
-  const v1 = await sealV1("older");
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `k2=${K2}`);
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "k2");
   const fresh = await sealSecret("rotated", faa);
   expect(fresh).toMatch(/^enc:v2:k2:/);
   expect(await openSecret(fresh, faa)).toBe("rotated");
   expect(await openSecret(old, faa)).toBe("rotated");
-  expect(await openSecret(v1, faa)).toBe("older");
   // Once k1 is retired its values no longer open.
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", "");
   await expect(openSecret(old, faa)).rejects.toThrow(/key k1/);
   expect(await openSecret(fresh, faa)).toBe("rotated");
 });
 
-it("rejects unprefixed values unless legacy plaintext is explicitly allowed", async () => {
-  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
-  await expect(openSecret("plain", faa)).rejects.toThrow(/not encrypted/);
-  expect(await openSecret("plain", faa, { legacyPlaintext: true })).toBe(
-    "plain",
-  );
-});
-
-it("tells sealed values from plaintext, and which ones need re-sealing", async () => {
+it("tells which values a re-seal must replace", async () => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
   const v1 = await sealV1("older");
   const k1 = await sealSecret("current", faa);
   expect(k1).toMatch(SEALED_V2);
-  expect([v1, k1, "plain"].map(isSealed)).toEqual([true, true, false]);
   expect([v1, k1, "plain"].map(needsReseal)).toEqual([true, false, true]);
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `k2=${K2}`);
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", " k2 ");
@@ -160,32 +162,33 @@ it("names the misconfigured key setting", async () => {
   }
 });
 
-it("warns on accepted plaintext without logging the value", async () => {
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  try {
-    await openSecret("hunter2", faa, { legacyPlaintext: true });
-    expect(warn).toHaveBeenCalledWith(
-      "Unencrypted legacy credential read from faaCredentials.key; run secretsMigration:reseal.",
-    );
-    expect(JSON.stringify(warn.mock.calls)).not.toContain("hunter2");
-  } finally {
-    warn.mockRestore();
-  }
-});
-
-it("re-seals v1 and plaintext rows to v2, then refuses plaintext", async () => {
+it("re-seals every credential under the new key after a rotation, then refuses plaintext", async () => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
   const t = convexTest(schema, modules);
+  const address = {
+    table: "addressVerificationSettings" as const,
+    programUuid: "",
+    field: "key",
+  };
+  const plain = {
+    faa: "faa-key",
+    address: "geoapify-key",
+    userid: "spruce-user",
+    password: "spruce-password",
+    apikey: "spruce-key",
+  };
+  const sealedSpruce = async (field: "userid" | "password" | "apikey") =>
+    sealSecret(plain[field], spruce("demo-program", field));
   const identity = await t.run(async (ctx) => {
     await ctx.db.insert("programs", demoSnapshot().programs![0]);
     await ctx.db.insert("faaCredentials", {
-      key: "faa-plaintext",
+      key: await sealSecret(plain.faa, faa),
       expiresOn: "2099-01-01",
       version: 1,
       updatedAt: 0,
     });
     await ctx.db.insert("addressVerificationSettings", {
-      key: await sealV1("geoapify-v1-key"),
+      key: await sealSecret(plain.address, address),
       version: 1,
       day: "",
       used: 0,
@@ -195,12 +198,9 @@ it("re-seals v1 and plaintext rows to v2, then refuses plaintext", async () => {
       programUuid: "demo-program",
       version: 1,
       credentials: {
-        userid: await sealV1("spruce-user"),
-        password: "spruce-plaintext-password",
-        apikey: await sealSecret(
-          "spruce-key",
-          spruce("demo-program", "apikey"),
-        ),
+        userid: await sealedSpruce("userid"),
+        password: await sealedSpruce("password"),
+        apikey: await sealedSpruce("apikey"),
         currency: "USD",
       },
     });
@@ -220,42 +220,37 @@ it("re-seals v1 and plaintext rows to v2, then refuses plaintext", async () => {
     .fn()
     .mockResolvedValue(new Response(JSON.stringify({ results: [] })));
   vi.stubGlobal("fetch", fetcher);
-  const result = await t.action(internal.secretsMigration.reseal, {});
-  expect(result).toEqual({ resealed: 4, remaining: 0, complete: true });
-  const rows = await t.run(async (ctx) => ({
-    faa: (await ctx.db.query("faaCredentials").unique())!.key!,
-    address: (await ctx.db.query("addressVerificationSettings").unique())!.key!,
-    spruce: (await ctx.db.query("spruceAccounts").unique())!.credentials!,
-  }));
-  for (const value of [
-    rows.faa,
-    rows.address,
-    rows.spruce.userid,
-    rows.spruce.password,
-    rows.spruce.apikey,
-  ])
-    expect(value).toMatch(/^enc:v2:k1:/);
-  expect(await openSecret(rows.faa, faa)).toBe("faa-plaintext");
-  expect(
-    await openSecret(rows.address, {
-      table: "addressVerificationSettings",
-      programUuid: "",
-      field: "key",
-    }),
-  ).toBe("geoapify-v1-key");
-  expect(
-    await openSecret(rows.spruce.password, spruce("demo-program", "password")),
-  ).toBe("spruce-plaintext-password");
-  expect(
-    await openSecret(rows.spruce.userid, spruce("demo-program", "userid")),
-  ).toBe("spruce-user");
-  // Running again changes nothing.
   expect(await t.action(internal.secretsMigration.reseal, {})).toEqual({
     resealed: 0,
     remaining: 0,
     complete: true,
   });
-  // After the migration, a plaintext value written behind the app's back is refused.
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `k2=${K2}`);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "k2");
+  expect(await t.action(internal.secretsMigration.reseal, {})).toEqual({
+    resealed: 5,
+    remaining: 0,
+    complete: true,
+  });
+  const rows = await t.run(async (ctx) => ({
+    faa: (await ctx.db.query("faaCredentials").unique())!.key!,
+    address: (await ctx.db.query("addressVerificationSettings").unique())!.key!,
+    spruce: (await ctx.db.query("spruceAccounts").unique())!.credentials!,
+    migrations: await ctx.db.query("credentialMigrations").collect(),
+  }));
+  // The re-seal no longer records a completion row; nothing reads one.
+  expect(rows.migrations).toEqual([]);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", "");
+  expect(rows.faa).toMatch(/^enc:v2:k2:/);
+  expect(await openSecret(rows.faa, faa)).toBe(plain.faa);
+  expect(await openSecret(rows.address, address)).toBe(plain.address);
+  for (const field of ["userid", "password", "apikey"] as const) {
+    expect(rows.spruce[field]).toMatch(/^enc:v2:k2:/);
+    expect(
+      await openSecret(rows.spruce[field], spruce("demo-program", field)),
+    ).toBe(plain[field]);
+  }
+  // A plaintext value written behind the app's back is refused.
   await t.run(async (ctx) => {
     const row = (await ctx.db.query("addressVerificationSettings").unique())!;
     await ctx.db.patch(row._id, { key: "injected-plaintext-key" });
@@ -273,4 +268,108 @@ it("re-seals v1 and plaintext rows to v2, then refuses plaintext", async () => {
     }),
   ).rejects.toThrow(/not encrypted/);
   expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("saves only sealed FAA and Geoapify keys, never echoing a refused one", async () => {
+  // The longest key id, so the longest keys seal to the longest values.
+  const longestId = "k".repeat(16);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `${longestId}=${K2}`);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", longestId);
+  const t = convexTest(schema, modules);
+  const admin = t.withIdentity(await t.run(addAdmin));
+  const address = { ...faa, table: "addressVerificationSettings" as const };
+  const keys = {
+    faa: {
+      longest: await sealSecret("k".repeat(512), faa),
+      commit: (key: string) =>
+        admin.mutation(internal.faaCredentials.commit, {
+          key,
+          expiresOn: "2099-10-14",
+          version: 0,
+        }),
+      stored: () => t.run((ctx) => ctx.db.query("faaCredentials").unique()),
+    },
+    address: {
+      longest: await sealSecret("k".repeat(256), address),
+      commit: (key: string) =>
+        admin.mutation(internal.addressVerification.commit, {
+          key,
+          version: 0,
+        }),
+      stored: () =>
+        t.run((ctx) => ctx.db.query("addressVerificationSettings").unique()),
+    },
+  };
+  expect(keys.faa.longest).toHaveLength(745);
+  expect(keys.address.longest).toHaveLength(405);
+  for (const { longest, commit, stored } of Object.values(keys)) {
+    const tooLong = `enc:v2:k1:${"A".repeat(16)}:${"A".repeat(longest.length - 26)}`;
+    expect(tooLong).toMatch(SEALED_V2);
+    for (const refused of ["plaintext-key-0001", tooLong]) {
+      const error = await commit(refused).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(String(error)).not.toContain("plaintext-key");
+      expect(await stored()).toBeNull();
+    }
+    await commit(longest);
+    expect(await stored()).toMatchObject({ key: longest, version: 1 });
+  }
+});
+
+async function addAdmin(ctx: MutationCtx) {
+  const userId = await ctx.db.insert("users", {
+    active: true,
+    isAdmin: true,
+    groupIds: [],
+  });
+  const session = await ctx.db.insert("authSessions", {
+    userId,
+    expirationTime: Date.now() + 86400000,
+  });
+  return { subject: `${userId}|${session}` };
+}
+
+it("stops the re-seal at a plaintext or v1 value, keeping what it replaced", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
+  const t = convexTest(schema, modules);
+  const sealed = await sealSecret("faa-key", faa);
+  for (const stored of ["spruce-password", await sealV1("spruce-password")]) {
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("faaCredentials").collect())
+        await ctx.db.delete(row._id);
+      for (const row of await ctx.db.query("spruceAccounts").collect())
+        await ctx.db.delete(row._id);
+      await ctx.db.insert("faaCredentials", {
+        key: sealed,
+        expiresOn: "2099-01-01",
+        version: 1,
+        updatedAt: 0,
+      });
+      await ctx.db.insert("spruceAccounts", {
+        programUuid: "demo-program",
+        version: 1,
+        credentials: {
+          userid: stored,
+          password: stored,
+          apikey: stored,
+          currency: "USD",
+        },
+      });
+    });
+    vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `k2=${K2}`);
+    vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "k2");
+    await expect(
+      t.action(internal.secretsMigration.reseal, {}),
+    ).rejects.toThrow(
+      "A saved credential is not encrypted. An administrator must enter it again.",
+    );
+    const faaKey = await t.run(
+      async (ctx) => (await ctx.db.query("faaCredentials").unique())!.key!,
+    );
+    expect(faaKey).toMatch(/^enc:v2:k2:/);
+    vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "k1");
+  }
 });

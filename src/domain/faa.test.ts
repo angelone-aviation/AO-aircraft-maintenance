@@ -1,23 +1,28 @@
 /**
- * Responsibility: Pins FAA DRS candidate parsing, paging and limits, keyword
- *   batching, candidate merging and the aircraft's search terms.
- * Layer: Test. Vitest suite with a stubbed fetch; never shipped in the build.
+ * Responsibility: Pins FAA DRS candidate and page parsing, the per-query
+ *   limit, candidate merging, monitor commands and the aircraft's search
+ *   terms.
+ * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/faa.ts, ./airworthiness, ./components,
  *   ./rejection, src/data/demo.ts (seed).
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { blankAD } from "./airworthiness";
 import { componentSchema } from "./components";
 import {
+  addDrsCandidate,
+  applyFaaCommand,
   drsCandidate,
   emptyMonitor,
   faaMonitorSchema,
   faaSearchTerms,
-  fetchDrsCandidates,
-  fetchDrsFiltered,
   mergeCandidates,
+  parseDrsPage,
+  monitorAttemptedWithin,
+  startFaaRun,
   type FaaCandidate,
+  type FaaMonitor,
 } from "./faa";
 import { Rejection } from "./rejection";
 
@@ -26,20 +31,6 @@ const doc = (guid: string, fields: Record<string, unknown> = {}) => ({
   "drs:documentNumber": `2026-${guid}`,
   ...fields,
 });
-const page = (documents: object[], hasMoreItems = false) =>
-  new Response(JSON.stringify({ summary: { hasMoreItems }, documents }));
-const pages = (...responses: Response[]) => {
-  const request = vi.fn<typeof fetch>();
-  for (const response of responses) request.mockResolvedValueOnce(response);
-  return request;
-};
-const failure = (attempt: () => unknown) =>
-  Promise.resolve()
-    .then(attempt)
-    .then(
-      () => undefined,
-      (error: unknown) => error,
-    );
 
 describe("DRS candidates", () => {
   it("reads DRS fields, treating null and _EMPTY_ as blank", () => {
@@ -111,86 +102,42 @@ describe("DRS candidates", () => {
   });
 });
 
-describe("DRS paging", () => {
-  it("follows pages by offset and keeps each document once", async () => {
-    const request = pages(
-      page([doc("a"), doc("b")], true),
-      page([doc("b"), doc("c")]),
-    );
-    const found = await fetchDrsFiltered("key", "ADFRAWD", {}, request);
-    expect(found.map((c) => c.id)).toEqual([
-      "ADFRAWD:a",
-      "ADFRAWD:b",
-      "ADFRAWD:c",
-    ]);
-    const offsets = request.mock.calls.map(
-      ([, init]) => JSON.parse(init!.body as string).offset,
-    );
-    expect(offsets).toEqual([0, 2]);
-    expect(request.mock.calls[0][0]).toBe(
-      "https://drs.faa.gov/api/drs/data-pull/ADFRAWD/filtered",
-    );
-  });
-
-  it("fails closed on DRS errors, stalls and too many pages", async () => {
-    const endless = vi
-      .fn<typeof fetch>()
-      .mockImplementation(async () => page([doc(crypto.randomUUID())], true));
-    for (const [request, message] of [
-      [pages(new Response("", { status: 401 })), "FAA rejected the API key."],
-      [pages(new Response("", { status: 503 })), "FAA request failed (503)."],
-      [pages(new Response("{}")), "Unexpected FAA response."],
-      [pages(page([], true)), "FAA pagination stalled."],
-      [endless, "FAA results exceeded the page limit."],
-    ] as const) {
-      const error = await failure(() =>
-        fetchDrsFiltered("key", "ADFREAD", {}, request),
+describe("DRS pages", () => {
+  it("reads a page's paging flag and documents, and refuses any other shape", () => {
+    const body = { summary: { hasMoreItems: true }, documents: [doc("a")] };
+    expect(parseDrsPage(body)).toEqual(body);
+    for (const bad of [{}, { summary: {}, documents: [] }, null, "page"]) {
+      const attempt = () => parseDrsPage(bad);
+      expect(attempt).toThrow(
+        Error("Unexpected FAA response. Check was not completed."),
       );
-      expect(error).toBeInstanceOf(Error);
-      expect(error).not.toBeInstanceOf(Rejection);
-      expect((error as Error).message).toContain(message);
+      expect(attempt).not.toThrow(Rejection);
     }
-    expect(endless).toHaveBeenCalledTimes(20);
   });
 
-  it("refuses more than 400 documents as a Rejection", async () => {
-    const documents = Array.from({ length: 401 }, (_, i) => doc(`g${i}`));
-    const error = await failure(() =>
-      fetchDrsFiltered("key", "ADFRAWD", {}, pages(page(documents))),
+  it("keeps a resent document in its first place with the later copy, up to 400", () => {
+    const found = new Map<string, FaaCandidate>();
+    const later = drsCandidate(
+      doc("a", { "drs:status": "Current" }),
+      "ADFRAWD",
     );
-    expect(error).toEqual(
+    addDrsCandidate(found, drsCandidate(doc("a"), "ADFRAWD"));
+    addDrsCandidate(found, drsCandidate(doc("b"), "ADFRAWD"));
+    addDrsCandidate(found, later);
+    expect([...found.values()]).toEqual([
+      later,
+      drsCandidate(doc("b"), "ADFRAWD"),
+    ]);
+    for (let i = found.size; i < 400; i++)
+      addDrsCandidate(found, drsCandidate(doc(`g${i}`), "ADFRAWD"));
+    const attempt = () =>
+      addDrsCandidate(found, drsCandidate(doc("extra"), "ADFRAWD"));
+    expect(attempt).toThrow(
       new Rejection(
         "More than 400 matching documents. Narrow the aircraft/component search terms.",
       ),
     );
-    expect(error).toBeInstanceOf(Rejection);
-  });
-
-  it("searches final-rule then emergency ADs, ten keywords per request", async () => {
-    const request = vi
-      .fn<typeof fetch>()
-      .mockImplementation(async () => page([doc("same")]));
-    const terms = Array.from({ length: 11 }, (_, i) => `term${i}`);
-    const found = await fetchDrsCandidates("key", terms, request);
-    expect(found.map((c) => c.id)).toEqual(["ADFRAWD:same", "ADFREAD:same"]);
-    expect(
-      request.mock.calls.map(([url, init]) => [
-        String(url).split("/").at(-2),
-        JSON.parse(init!.body as string).documentFilters.Keyword.length,
-      ]),
-    ).toEqual([
-      ["ADFRAWD", 10],
-      ["ADFRAWD", 1],
-      ["ADFREAD", 10],
-      ["ADFREAD", 1],
-    ]);
-    const error = await failure(() => fetchDrsCandidates("key", [], request));
-    expect(error).toEqual(
-      new Rejection(
-        "Add an aircraft model, component model, or search term first.",
-      ),
-    );
-    expect(error).toBeInstanceOf(Rejection);
+    expect(attempt).toThrow(Rejection);
   });
 });
 
@@ -246,6 +193,87 @@ describe("monitor history", () => {
     expect(withTerms([" ab "])).toBe(true);
     expect(withTerms(["a"])).toBe(false);
     expect(withTerms(Array(31).fill("ab"))).toBe(false);
+  });
+});
+
+describe("monitor commands", () => {
+  const NOW = 1_000_000;
+  const MINUTE = 60_000;
+  const candidate = (id: string): FaaCandidate =>
+    drsCandidate(doc(id), "ADFRAWD");
+  const monitor = (fields: Partial<FaaMonitor> = {}): FaaMonitor => ({
+    ...emptyMonitor("demo-206"),
+    runId: "earlier",
+    error: "Earlier error.",
+    candidates: [candidate("a"), candidate("b")],
+    ...fields,
+  });
+  const aircraftUuid = "demo-206";
+
+  it("saves settings and drops the running check, so the next check verifies them", () => {
+    const before = monitor();
+    const cmd = {
+      kind: "configure" as const,
+      aircraftUuid,
+      enabled: true,
+      terms: ["441"],
+    };
+    expect(applyFaaCommand(before, cmd, NOW)).toEqual({
+      ...before,
+      enabled: true,
+      terms: ["441"],
+      runId: "",
+      error: "Settings changed. Run a check to verify coverage.",
+    });
+    expect(before).toEqual(monitor());
+  });
+
+  it("records a review on the named candidate only, and refuses an unknown one", () => {
+    const before = monitor();
+    const review = (id: string) =>
+      applyFaaCommand(
+        before,
+        { kind: "review", aircraftUuid, id, reason: "Not applicable." },
+        NOW,
+      );
+    expect(review(candidate("b").id).candidates).toEqual([
+      candidate("a"),
+      { ...candidate("b"), reviewReason: "Not applicable.", reviewedAt: NOW },
+    ]);
+    expect(before).toEqual(monitor());
+    expect(() => review("missing")).toThrow(Rejection);
+    expect(() => review("missing")).toThrow(Error("Candidate not found."));
+  });
+
+  it("starts a check with a new run, unless one started within the last minute", () => {
+    const check = { kind: "check", aircraftUuid } as const;
+    const started = applyFaaCommand(
+      monitor({ lastAttempt: NOW - MINUTE }),
+      check,
+      NOW,
+    );
+    expect(started).toMatchObject({ lastAttempt: NOW, error: "" });
+    expect(started.runId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(startFaaRun(monitor(), NOW).runId).not.toBe(started.runId);
+    const recent = () =>
+      applyFaaCommand(monitor({ lastAttempt: NOW - MINUTE + 1 }), check, NOW);
+    expect(recent).toThrow(Rejection);
+    expect(recent).toThrow(Error("Wait one minute before checking again."));
+  });
+
+  it("tells whether the last check started within an interval", () => {
+    expect(monitorAttemptedWithin(monitor(), MINUTE, NOW)).toBe(false);
+    for (const [ago, within] of [
+      [MINUTE - 1, true],
+      [MINUTE, false],
+    ] as const)
+      expect(
+        monitorAttemptedWithin(
+          monitor({ lastAttempt: NOW - ago }),
+          MINUTE,
+          NOW,
+        ),
+      ).toBe(within);
   });
 });
 

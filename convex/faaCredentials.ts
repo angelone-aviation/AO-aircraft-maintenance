@@ -4,7 +4,7 @@
  * Layer: Server. One public action and internal functions; the key is stored
  *   sealed and never returned.
  * Dependencies: convex/secrets, convex/secretsMigration, convex/access,
- *   src/domain/faaCredential, convex/values.
+ *   src/domain/faaCredential, convex/values, zod.
  */
 import {
   action,
@@ -12,14 +12,20 @@ import {
   internalQuery,
   type ActionCtx,
 } from "./_generated/server";
-import { sealSecret, type SecretContext } from "./secrets";
+import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { admin, audit } from "./access";
 import { faaCredentialInput } from "../src/domain/faaCredential";
+import { z } from "zod";
 
 const VERIFY_TIMEOUT_MS = 30_000;
+
+// faaCredentialInput caps the key at 512 ASCII characters, at most 745 sealed
+// under the longest key id.
+const MAX_SEALED_KEY_LENGTH = 745;
+const sealedKey = z.string().max(MAX_SEALED_KEY_LENGTH).regex(SEALED_V2);
 
 type DrsResponse = {
   summary?: unknown;
@@ -91,7 +97,8 @@ export async function faaSecret(
  * @throws {ConvexError} "Administrator permission required."; "The renewal
  *   date must be in the future."; "FAA key settings changed. Reload before
  *   saving."
- * @throws {z.ZodError} For a malformed date or version.
+ * @throws {z.ZodError} For a malformed date or version; after the version
+ *   check, for a key that is not sealed (v2) or too long.
  */
 export const commit = internalMutation({
   args: { key: v.string(), expiresOn: v.string(), version: v.number() },
@@ -103,7 +110,7 @@ export const commit = internalMutation({
     if ((saved?.version ?? 0) !== input.version)
       throw new ConvexError("FAA key settings changed. Reload before saving.");
     const value = {
-      key: args.key,
+      key: sealedKey.parse(args.key),
       expiresOn: input.expiresOn,
       version: input.version + 1,
       updatedAt: Date.now(),

@@ -4,8 +4,8 @@
  * Layer: Server. Convex mutations, an action and internal functions; the
  *   rules live in src/domain/taskCards.
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./runCommand, ./collections, ./attachments, src/domain (taskCards,
- *   workOrders).
+ *   ./runCommand, ./collections, ./attachments, ./userErrors, src/domain
+ *   (taskCards, workOrders).
  */
 import { v, ConvexError } from "convex/values";
 import {
@@ -36,8 +36,10 @@ import { decode } from "./collections";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
+  storeThenFinish,
   MAX_ATTACHMENTS,
 } from "./attachments";
+import { exposeRejections } from "./userErrors";
 import { validateWorkOrderFile } from "../src/domain/workOrders";
 import {
   saveTaskCard,
@@ -156,9 +158,8 @@ export const finishUpload = internalMutation({
  * Uploads one evidence file to a job card. The file is stored first and
  * deleted again if the card refuses it.
  *
- * @throws {Error} The domain's file refusal, such as "Choose a PDF, JPEG or
- *   PNG file up to 7 MB."
- * @throws {ConvexError} The refusals of checkUpload and finishUpload.
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", before
+ *   any permission check; the refusals of checkUpload and finishUpload.
  */
 export const upload = action({
   args: {
@@ -169,27 +170,23 @@ export const upload = action({
     category,
   },
   handler: async (ctx, args): Promise<void> => {
-    validateWorkOrderFile(args.name, args.type, args.bytes.byteLength);
-    await ctx.runQuery(internal.taskCards.checkUpload, {
+    exposeRejections(() =>
+      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength),
+    );
+    const card = {
       taskCardUuid: args.taskCardUuid,
       programUuid: args.programUuid,
-    });
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      await ctx.runMutation(internal.taskCards.finishUpload, {
-        taskCardUuid: args.taskCardUuid,
-        programUuid: args.programUuid,
+    };
+    await ctx.runQuery(internal.taskCards.checkUpload, card);
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.taskCards.finishUpload, {
+        ...card,
         storageId,
         name: args.name,
         size: args.bytes.byteLength,
         category: args.category,
-      });
-    } catch (e) {
-      await ctx.storage.delete(storageId);
-      throw e;
-    }
+      }),
+    );
   },
 });
 /**

@@ -1,8 +1,9 @@
 /**
  * Responsibility: FAA DRS airworthiness-directive monitoring: the monitor
- *   record and its commands, search terms, and AD candidates from the DRS API.
- * Layer: Domain, with one exception to its no-I/O rule: fetchDrsFiltered calls
- *   the FAA DRS API (CONTEXT.md §5); only Convex actions run it.
+ *   record and its commands, search terms, and AD candidates read from DRS
+ *   result pages.
+ * Layer: Domain. Zod schemas and pure functions; no I/O. The DRS requests are
+ *   made in convex/faaDrs.ts.
  * Dependencies: zod, ./airworthiness, ./model, ./rejection.
  */
 import { z } from "zod";
@@ -10,18 +11,16 @@ import { adSourceSchema, type ADSource } from "./airworthiness";
 import type { Snapshot } from "./model";
 import { Rejection } from "./rejection";
 
-// DRS document types: final-rule ADs and emergency ADs.
-type DrsType = "ADFRAWD" | "ADFREAD";
+/** A DRS document type: final-rule ADs (ADFRAWD) or emergency ADs (ADFREAD). */
+export type DrsType = "ADFRAWD" | "ADFREAD";
 
 // A monitor keeps at most this many candidates, and a check or search that
 // finds more is refused.
 const MAX_CANDIDATES = 400;
 
 const MIN_TERM_LENGTH = 2;
+const MANUAL_CHECK_INTERVAL_MS = 60_000;
 const DRS_SITE = "https://drs.faa.gov/";
-const DRS_MAX_PAGES = 20;
-const DRS_TIMEOUT_MS = 30000;
-const KEYWORDS_PER_REQUEST = 10;
 const SOURCE_TEXT_MAX = 2000;
 
 // DRS writes "_EMPTY_" for a field with no value, alone or in a list.
@@ -126,6 +125,70 @@ export function emptyMonitor(aircraftUuid: string): FaaMonitor {
 }
 
 /**
+ * Applies a command to an aircraft's monitor. Configuring saves the settings
+ * and drops any running check, so the next check verifies them; reviewing
+ * records a reason on a candidate; checking starts a run.
+ *
+ * @param monitor - The aircraft's monitor; left unchanged.
+ * @param cmd - The command, for this monitor's aircraft.
+ * @param now - The current time, in ms.
+ * @returns The changed monitor; after a check, its `runId` is the run to start.
+ * @throws {Rejection} "Candidate not found." for a review of an unknown
+ *   candidate; "Wait one minute before checking again." for a check within a
+ *   minute of the last attempt.
+ */
+export function applyFaaCommand(
+  monitor: FaaMonitor,
+  cmd: FaaCommand,
+  now: number,
+): FaaMonitor {
+  if (cmd.kind === "configure")
+    return {
+      ...monitor,
+      enabled: cmd.enabled,
+      terms: cmd.terms,
+      runId: "",
+      error: "Settings changed. Run a check to verify coverage.",
+    };
+  if (cmd.kind === "review") return reviewCandidate(monitor, cmd, now);
+  if (monitorAttemptedWithin(monitor, MANUAL_CHECK_INTERVAL_MS, now))
+    throw new Rejection("Wait one minute before checking again.");
+  return startFaaRun(monitor, now);
+}
+
+/**
+ * Starts a check: a new run id, attempted now, with no error.
+ *
+ * @param monitor - The aircraft's monitor; left unchanged.
+ * @param now - The current time, in ms.
+ * @returns The monitor expecting the new run; results of any other run are
+ *   ignored.
+ */
+export function startFaaRun(monitor: FaaMonitor, now: number): FaaMonitor {
+  return {
+    ...monitor,
+    runId: crypto.randomUUID(),
+    lastAttempt: now,
+    error: "",
+  };
+}
+
+/**
+ * Whether a monitor's last check started less than `ms` before `now`.
+ *
+ * @param monitor - The aircraft's monitor.
+ * @param ms - The interval.
+ * @param now - The current time, in ms.
+ */
+export function monitorAttemptedWithin(
+  monitor: FaaMonitor,
+  ms: number,
+  now: number,
+): boolean {
+  return !!monitor.lastAttempt && now - monitor.lastAttempt < ms;
+}
+
+/**
  * Lists the keywords an aircraft's AD search uses.
  *
  * @param s - The aircraft, its components and its ADs.
@@ -193,71 +256,38 @@ export function drsCandidate(
 }
 
 /**
- * Fetches every DRS document of one type that matches the filters, page by
- * page.
+ * Reads one page of DRS results.
  *
- * @param key - The FAA DRS API key.
- * @param type - ADFRAWD (final rule) or ADFREAD (emergency).
- * @param filters - DRS document filters, by field.
- * @param request - The fetch to use (a stub in tests).
- * @returns The candidates, once each by id, in the order DRS returned them.
- * @throws {Rejection} "More than 400 matching documents. Narrow the
- *   aircraft/component search terms."
- * @throws {Error} When DRS rejects the key (401 or 403), fails, sends a page
- *   it cannot read, stops paging early, or needs more than 20 pages.
+ * @param body - The page's JSON, as DRS sent it.
+ * @returns `summary.hasMoreItems` and the page's documents.
+ * @throws {Error} "Unexpected FAA response. Check was not completed." for a
+ *   body of any other shape.
  */
-export async function fetchDrsFiltered(
-  key: string,
-  type: DrsType,
-  filters: Record<string, string[]>,
-  request: typeof fetch = fetch,
-): Promise<FaaCandidate[]> {
-  const found = new Map<string, FaaCandidate>();
-  let offset = 0;
-  for (let page = 0; page < DRS_MAX_PAGES; page++) {
-    const body = { offset, sortOrder: "ASC", documentFilters: filters };
-    const { summary, documents } = await requestDrsPage(
-      key,
-      type,
-      body,
-      request,
-    );
-    for (const doc of documents) addCandidate(found, drsCandidate(doc, type));
-    if (!summary.hasMoreItems) return [...found.values()];
-    if (!documents.length)
-      throw Error("FAA pagination stalled. Check was not completed.");
-    offset += documents.length;
-  }
-  throw Error("FAA results exceeded the page limit. Check was not completed.");
+export function parseDrsPage(body: unknown) {
+  const parsed = drsPageSchema.safeParse(body);
+  if (!parsed.success)
+    throw Error("Unexpected FAA response. Check was not completed.");
+  return parsed.data;
 }
 
 /**
- * Searches final-rule, then emergency ADs, ten keywords per request.
+ * Adds a candidate to a query's results by id. A document DRS sends again, on
+ * a later page, keeps its first place and takes the later copy.
  *
- * @param key - The FAA DRS API key.
- * @param terms - Keywords to search for.
- * @param request - The fetch to use (a stub in tests).
- * @returns The candidates, once each by id, in the order found.
- * @throws {Rejection} "Add an aircraft model, component model, or search term
- *   first." without terms; otherwise as {@link fetchDrsFiltered}.
+ * @param found - The query's candidates so far; updated in place.
+ * @param c - The candidate.
+ * @throws {Rejection} "More than 400 matching documents. Narrow the
+ *   aircraft/component search terms."
  */
-export async function fetchDrsCandidates(
-  key: string,
-  terms: string[],
-  request: typeof fetch = fetch,
-): Promise<FaaCandidate[]> {
-  if (!terms.length)
+export function addDrsCandidate(
+  found: Map<string, FaaCandidate>,
+  c: FaaCandidate,
+): void {
+  found.set(c.id, c);
+  if (found.size > MAX_CANDIDATES)
     throw new Rejection(
-      "Add an aircraft model, component model, or search term first.",
+      "More than 400 matching documents. Narrow the aircraft/component search terms.",
     );
-  const queries = (["ADFRAWD", "ADFREAD"] as const).flatMap((type) =>
-    splitKeywords(terms).map((Keyword) => ({ type, filters: { Keyword } })),
-  );
-  const found = new Map<string, FaaCandidate>();
-  for (const { type, filters } of queries)
-    for (const c of await fetchDrsFiltered(key, type, filters, request))
-      addCandidate(found, c);
-  return [...found.values()];
 }
 
 /**
@@ -282,6 +312,22 @@ export function mergeCandidates(old: FaaCandidate[], incoming: FaaCandidate[]) {
       "Monitoring history reached 400 documents; narrow the monitoring scope before continuing.",
     );
   return [...map.values()];
+}
+
+function reviewCandidate(
+  monitor: FaaMonitor,
+  cmd: Extract<FaaCommand, { kind: "review" }>,
+  now: number,
+): FaaMonitor {
+  const index = monitor.candidates.findIndex((c) => c.id === cmd.id);
+  if (index < 0) throw new Rejection("Candidate not found.");
+  const candidates = [...monitor.candidates];
+  candidates[index] = {
+    ...candidates[index],
+    reviewReason: cmd.reason,
+    reviewedAt: now,
+  };
+  return { ...monitor, candidates };
 }
 
 function readDrsField(d: Record<string, unknown>, key: string) {
@@ -334,49 +380,6 @@ function readDrsUrl(d: Record<string, unknown>, type: DrsType) {
 function productSection(product: string): ADSource["section"] {
   const match = PRODUCT_SECTIONS.find(([pattern]) => pattern.test(product));
   return match?.[1] ?? "Airframe";
-}
-
-async function requestDrsPage(
-  key: string,
-  type: DrsType,
-  body: object,
-  request: typeof fetch,
-) {
-  const response = await request(
-    `${DRS_SITE}api/drs/data-pull/${type}/filtered`,
-    {
-      method: "POST",
-      headers: { "x-api-key": key, "Content-Type": "application/json" },
-      redirect: "error",
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(DRS_TIMEOUT_MS),
-    },
-  );
-  if (!response.ok)
-    throw Error(
-      response.status === 403 || response.status === 401
-        ? "FAA rejected the API key. Request or renew the DRS key."
-        : `FAA request failed (${response.status}). Try again later.`,
-    );
-  const parsed = drsPageSchema.safeParse(await response.json());
-  if (!parsed.success)
-    throw Error("Unexpected FAA response. Check was not completed.");
-  return parsed.data;
-}
-
-function addCandidate(found: Map<string, FaaCandidate>, c: FaaCandidate) {
-  found.set(c.id, c);
-  if (found.size > MAX_CANDIDATES)
-    throw new Rejection(
-      "More than 400 matching documents. Narrow the aircraft/component search terms.",
-    );
-}
-
-function splitKeywords(terms: string[]) {
-  const chunks: string[][] = [];
-  for (let start = 0; start < terms.length; start += KEYWORDS_PER_REQUEST)
-    chunks.push(terms.slice(start, start + KEYWORDS_PER_REQUEST));
-  return chunks;
 }
 
 function isSameDocument(prior: FaaCandidate, c: FaaCandidate) {
