@@ -34,9 +34,7 @@ export const save = mutation({
       apply: ({ snapshot }, command) => applyADCommand(snapshot, command),
       persist: ({ ctx }, { docs }, changed) =>
         writeChanged(ctx, "airworthiness", docs.airworthiness, changed),
-      // The applier lists its entries newest first, as the change log does;
-      // rows are written in the order the ADs changed.
-      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
+      audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),
       returns: (changed) => changed.length,
     }),
 });

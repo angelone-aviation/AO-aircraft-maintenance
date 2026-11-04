@@ -217,6 +217,15 @@ export class CommandLog {
   }
 
   /**
+   * Replays (as {@link replay}) a change log kept newest first, as
+   * `Snapshot.audit` is, so rows are written in the order the changes
+   * happened. `entries` is not changed.
+   */
+  replayOldestFirst(entries: AuditEntry[]) {
+    this.replay([...entries].reverse());
+  }
+
+  /**
    * Adds the applier's entries exactly as it recorded them: its ids, times,
    * actor and program.
    */

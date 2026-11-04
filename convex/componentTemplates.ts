@@ -95,7 +95,7 @@ export const apply = mutation({
       expose: allErrors,
       persist: ({ ctx }, { docs }, added) =>
         writeChanged(ctx, "componentSetups", docs.componentSetups, added),
-      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
+      audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),
       returns: (added) => added.length,
     }),
 });

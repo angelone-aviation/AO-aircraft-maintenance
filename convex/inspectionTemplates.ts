@@ -63,7 +63,7 @@ export const save = mutation({
           docs.inspectionTemplates,
           results.map((r) => r.next),
         ),
-      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
+      audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),
     }),
 });
 
@@ -138,7 +138,7 @@ export const remove = mutation({
         deleteInspectionTemplates(snapshot, command),
       persist: ({ ctx }, { docs }, result) =>
         deleteTemplates(ctx, docs, result),
-      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
+      audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),
       returns: (result) => ({
         templates: result.templates.length,
         taskCards: result.taskCards.length,

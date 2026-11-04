@@ -239,6 +239,35 @@ it("replays the applier's entries as the caller's, or exactly as recorded", asyn
   expect(recorded).toMatchObject(domain);
 });
 
+it("replays a newest-first change log oldest first, leaving it as it was", async () => {
+  const f = await fixture();
+  const entry = (action: string): AuditEntry => ({
+    uuid: action,
+    programUuid: PROGRAM,
+    at: 1,
+    actorId: "domain-actor",
+    action,
+    entityUuid: "stock-1",
+  });
+  const newestFirst = [entry("stock.second"), entry("stock.first")];
+  await f.mechanic.run({
+    programUuid: PROGRAM,
+    parse: () => null,
+    load: async () => null,
+    apply: () => {},
+    persist: async () => {},
+    audit: (log) => log.replayOldestFirst(newestFirst),
+  });
+  expect((await f.rows()).map((r) => r.action)).toEqual([
+    "stock.first",
+    "stock.second",
+  ]);
+  expect(newestFirst.map((e) => e.action)).toEqual([
+    "stock.second",
+    "stock.first",
+  ]);
+});
+
 it("rolls back and exposes only expected rejections when the domain refuses", async () => {
   const f = await fixture();
   const persist = vi.fn();
