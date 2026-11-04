@@ -8,9 +8,9 @@
  * Both parse the payload inside the domain step and show every error it
  * throws, so malformed input is refused with its message too.
  */
-import { v, ConvexError } from "convex/values";
+import { v } from "convex/values";
 import { mutation } from "./_generated/server";
-import { runCommand, hydrate, allErrors, RECORD_TAKEN } from "./runCommand";
+import { runCommand, hydrate, writeChanged, allErrors } from "./runCommand";
 import {
   saveComponentTemplate,
   applyComponentTemplate,
@@ -41,24 +41,10 @@ export const save = mutation({
       apply: ({ snapshot }, payload) =>
         saveComponentTemplate(snapshot, JSON.parse(payload)),
       expose: allErrors,
-      persist: async ({ ctx }, { docs }, next) => {
-        const old = docs.componentTemplates.find((d) => d.uuid === next.uuid);
-        const fields = {
-          uuid: next.uuid,
-          programUuid: next.programUuid,
-          payload: JSON.stringify(next),
-        };
-        if (old) await ctx.db.replace(old._id, fields);
-        // The scoped load cannot see other programs' templates.
-        else if (
-          await ctx.db
-            .query("componentTemplates")
-            .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
-            .first()
-        )
-          throw new ConvexError(RECORD_TAKEN);
-        else await ctx.db.insert("componentTemplates", fields);
-      },
+      persist: ({ ctx }, { docs }, next) =>
+        writeChanged(ctx, "componentTemplates", docs.componentTemplates, [
+          next,
+        ]),
       audit: (log, { docs }, next) => {
         const old = docs.componentTemplates.find((d) => d.uuid === next.uuid);
         log.entry("componentTemplate.save", next.uuid, {
@@ -100,15 +86,8 @@ export const apply = mutation({
       apply: ({ snapshot }, payload) =>
         applyComponentTemplate(snapshot, JSON.parse(payload)),
       expose: allErrors,
-      persist: async ({ ctx }, _, added) => {
-        for (const d of added)
-          await ctx.db.insert("componentSetups", {
-            uuid: d.uuid,
-            programUuid: d.programUuid,
-            aircraftUuid: d.aircraftUuid,
-            payload: JSON.stringify(d),
-          });
-      },
+      persist: ({ ctx }, { docs }, added) =>
+        writeChanged(ctx, "componentSetups", docs.componentSetups, added),
       audit: (log, _, added) => {
         for (const d of added)
           log.entry("component.setupImported", d.uuid, {
