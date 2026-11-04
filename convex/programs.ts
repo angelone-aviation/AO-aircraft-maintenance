@@ -19,7 +19,7 @@ import {
   partsRequestDocs,
   purchaseOrderDocs,
 } from "./programContext";
-import { runCommand, type ProgramContext } from "./runCommand";
+import { runCommand, writeChanged, type ProgramContext } from "./runCommand";
 import { decode } from "./collections";
 import { programIds } from "../src/domain/programs";
 import { transferProgram } from "../src/domain/programTransfers";
@@ -70,6 +70,7 @@ const transferArgs = {
   reason: v.string(),
 };
 type TransferArgs = ObjectType<typeof transferArgs>;
+const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 /**
  * A system administrator moves an aircraft, component or location from the
@@ -198,10 +199,24 @@ async function persistTransfer(
         programUuid: i.programUuid,
         version: i.version,
       });
-  await patchOwner(ctx, s.checklists ?? [], checklists);
-  await patchOwner(ctx, s.componentSetups ?? [], setups);
+  await writeChanged(
+    ctx,
+    "checklists",
+    checklists,
+    moved(s.checklists ?? [], checklists),
+    RECORD_TAKEN,
+  );
+  await writeChanged(
+    ctx,
+    "componentSetups",
+    setups,
+    moved(s.componentSetups ?? [], setups),
+    RECORD_TAKEN,
+  );
 }
 
+// Patched here, not by writeChanged: like convex/management.ts, the transfer
+// drops an empty aircraftUuid column, which the codec keeps.
 async function patchManagement(
   ctx: MutationCtx,
   records: NonNullable<Snapshot["management"]>,
@@ -219,20 +234,16 @@ async function patchManagement(
   }
 }
 
-// Checklists and component setups move with their aircraft by program alone.
-async function patchOwner(
-  ctx: MutationCtx,
-  records: { uuid: string; programUuid: string }[],
-  documents: Doc<"checklists" | "componentSetups">[],
+// Checklists and component setups move with their aircraft by program alone;
+// the rest of the program's are left as stored.
+function moved<R extends { uuid: string; programUuid: string }>(
+  records: R[],
+  documents: { uuid: string; programUuid: string }[],
 ) {
-  for (const r of records) {
-    const d = documents.find((d) => d.uuid === r.uuid)!;
-    if (r.programUuid !== d.programUuid)
-      await ctx.db.patch(d._id, {
-        programUuid: r.programUuid,
-        payload: JSON.stringify(r),
-      });
-  }
+  return records.filter(
+    (r) =>
+      r.programUuid !== documents.find((d) => d.uuid === r.uuid)!.programUuid,
+  );
 }
 
 // ponytail: one transaction; a very long record history may need batching.
