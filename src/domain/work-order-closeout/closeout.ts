@@ -1,11 +1,13 @@
 /**
  * Responsibility: Completing a work order: the close-out its readings,
- *   serviced components, compliance and component work make up.
+ *   serviced components, compliance and component work make up, and the
+ *   component work lines it would write.
  * Layer: Domain. Updates the working snapshot; no I/O, no React.
- * Dependencies: ../model, ../workOrders (types), ../certifications,
- *   ../workOrderComponentWork, ../workOrderCloseoutSchema, ./closing,
- *   ./readings, ./servicedComponents, ./compliance, ./logbookText.
+ * Dependencies: zod, ../model, ../workOrders (types), ../certifications,
+ *   ../workOrderComponentWork, ../workOrderCloseoutSchema, ../rejection,
+ *   ./closing, ./readings, ./servicedComponents, ./compliance, ./logbookText.
  */
+import { z } from "zod";
 import type { Aircraft, Snapshot } from "../model";
 import type { WorkOrder } from "../workOrders";
 import { memberLicense } from "../certifications";
@@ -32,6 +34,7 @@ import {
   updateServicedTotals,
 } from "./servicedComponents";
 import { addServiceCompliance, recordCompliance } from "./compliance";
+import { Rejection } from "../rejection";
 import { logbookPerformers, workPerformedText } from "./logbookText";
 
 const HOUR_SECONDS = 3600;
@@ -85,6 +88,52 @@ export function completeWorkOrder(
   return closeoutRecord(ctx, readings, components, compliance, serviceResults);
 }
 
+/**
+ * The component work lines completing the order would add to its work
+ * performed, worked out on a copy of the records, for the logbook preview.
+ *
+ * @param s - The snapshot; left unchanged.
+ * @param order - The order as it would be saved.
+ * @param readings - The aircraft's readings at completion.
+ * @param componentWork - The work chosen for each included component.
+ * @param now - The time, in epoch milliseconds.
+ * @returns One line per repair, overhaul or move, as the close-out writes
+ *   it; none while the close-out would refuse the work as chosen.
+ */
+export function previewComponentWork(
+  s: Snapshot,
+  order: WorkOrder,
+  readings: CompletionReadings,
+  componentWork: ComponentWork[],
+  now: number,
+): string[] {
+  const a = s.aircraft.find((a) => a.uuid === order.aircraftUuid)!;
+  const ctx = { s, order, a, finalAircraft: atCompletion(a, readings), now };
+  const records = {
+    ...s,
+    management: structuredClone(s.management),
+    inspections: structuredClone(s.inspections),
+  };
+  try {
+    const results = applyWorkOrderComponentWork(
+      records,
+      order,
+      ctx.finalAircraft,
+      componentWork,
+      now,
+    );
+    const components = results.map((r) =>
+      componentSummary(ctx, r.componentUuid, componentWork),
+    );
+    return componentWorkLines(results, components, ctx.finalAircraft);
+  } catch (error) {
+    // Saving refuses the same choices with this message; until the user
+    // fixes them, the preview has no line to show.
+    if (error instanceof Rejection || error instanceof z.ZodError) return [];
+    throw error;
+  }
+}
+
 function closeoutRecord(
   { s, order, a, finalAircraft, now }: Closing,
   readings: CompletionReadings,
@@ -93,9 +142,7 @@ function closeoutRecord(
   serviceResults: ServiceResult[],
 ) {
   const license = memberLicense(s.user, order.completionDate || undefined);
-  const work = serviceResults
-    .filter((r) => r.action !== "service")
-    .map((r) => componentWorkText(r, components, finalAircraft));
+  const work = componentWorkLines(serviceResults, components, finalAircraft);
   return closeoutSchema.parse({
     componentWork: serviceResults,
     recordedAt: now,
@@ -119,6 +166,16 @@ function closeoutRecord(
     components,
     compliance,
   });
+}
+
+function componentWorkLines(
+  results: ServiceResult[],
+  components: ComponentSummary[],
+  aircraft: Aircraft,
+) {
+  return results
+    .filter((r) => r.action !== "service")
+    .map((r) => componentWorkText(r, components, aircraft));
 }
 
 function componentWorkText(

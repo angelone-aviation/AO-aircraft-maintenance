@@ -424,6 +424,62 @@ export function workOrderProgress(s: Snapshot, w: WorkOrder) {
 }
 
 /**
+ * The aircraft's readings a work order records when it is opened.
+ *
+ * @param a - The aircraft.
+ * @returns Its identity, total time, meters, cycles and landings now.
+ * @throws {Error} As {@link totalSeconds} without the reading its time
+ *   comes from.
+ */
+export function openingReading(a: Aircraft): WorkOrder["aircraft"] {
+  return {
+    registration: a.registration,
+    make: a.make,
+    model: a.model,
+    serial: a.serial,
+    totalSeconds: totalSeconds(a),
+    hobbs: a.currentHobbs,
+    tach: a.currentTach,
+    cyclicHobbs: a.currentCyclicHobbs,
+    flightTimeLog: a.currentFlightTimeLog,
+    meter: a.meter,
+    cycles: a.cycles,
+    landings: a.landings,
+  };
+}
+
+/**
+ * The reading a work order records for a component chosen for its header,
+ * labelled with the component's install position.
+ *
+ * @param c - The installed component.
+ * @param a - Its aircraft.
+ * @param today - The local date its totals are read on.
+ * @param now - When the reading is recorded.
+ * @returns Its label, part and serial numbers, and times and cycles since new.
+ * @throws As {@link componentTotals}.
+ */
+export function componentReading(
+  c: Component,
+  a: Aircraft,
+  today: string,
+  now: number,
+): WorkOrder["componentReadings"][number] {
+  const totals = componentTotals(c, a, today);
+  return {
+    recordedAt: now,
+    componentUuid: c.uuid,
+    label: `${c.componentType}${c.installPosition ? ` · ${c.installPosition}` : ""}`,
+    partNumber: c.partNumber,
+    serial: c.serial,
+    timeSinceNew: totals.timeSinceNew,
+    timeSinceOverhaul: totals.timeSinceOverhaul,
+    timeSinceRepair: totals.timeSinceRepair,
+    cyclesSinceNew: totals.cyclesSinceNew,
+  };
+}
+
+/**
  * Applies one work-order command to a working snapshot; saving an order as
  * completed closes it out through completeWorkOrder. A refused command leaves
  * the snapshot unchanged.
@@ -724,7 +780,7 @@ function draftSavedOrder(
     version: command.version,
     recordedAt: existing?.recordedAt ?? now,
     createdBy: existing?.createdBy ?? s.user.id,
-    aircraft: existing?.aircraft ?? aircraftReading(a),
+    aircraft: existing?.aircraft ?? openingReading(a),
     componentReadings,
     componentWork: (command.componentWork ?? existing?.componentWork)?.filter(
       (work) => !work.taskUuid || !isRemoved(work.taskUuid),
@@ -841,40 +897,8 @@ function readHeaderComponents(
       throw new Rejection(
         "Header components must be installed on this aircraft.",
       );
-    return readComponent(c, a, today, now);
+    return componentReading(c, a, today, now);
   });
-}
-
-function readComponent(c: Component, a: Aircraft, today: string, now: number) {
-  const totals = componentTotals(c, a, today);
-  return {
-    recordedAt: now,
-    componentUuid: c.uuid,
-    label: `${c.componentType}${c.installPosition ? ` · ${c.installPosition}` : ""}`,
-    partNumber: c.partNumber,
-    serial: c.serial,
-    timeSinceNew: totals.timeSinceNew,
-    timeSinceOverhaul: totals.timeSinceOverhaul,
-    timeSinceRepair: totals.timeSinceRepair,
-    cyclesSinceNew: totals.cyclesSinceNew,
-  };
-}
-
-function aircraftReading(a: Aircraft): WorkOrder["aircraft"] {
-  return {
-    registration: a.registration,
-    make: a.make,
-    model: a.model,
-    serial: a.serial,
-    totalSeconds: totalSeconds(a),
-    hobbs: a.currentHobbs,
-    tach: a.currentTach,
-    cyclicHobbs: a.currentCyclicHobbs,
-    flightTimeLog: a.currentFlightTimeLog,
-    meter: a.meter,
-    cycles: a.cycles,
-    landings: a.landings,
-  };
 }
 
 // An item keeps its source and the description it was added with; a new one

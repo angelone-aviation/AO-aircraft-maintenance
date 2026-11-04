@@ -9,4 +9,7 @@ export {
   logbookPerformers,
   workPerformedText,
 } from "./work-order-closeout/logbookText";
-export { completeWorkOrder } from "./work-order-closeout/closeout";
+export {
+  completeWorkOrder,
+  previewComponentWork,
+} from "./work-order-closeout/closeout";
