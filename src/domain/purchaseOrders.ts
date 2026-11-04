@@ -4,11 +4,12 @@
  *   closes or cancels them and tracks exchange cores.
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   left to its default reads the clock).
- * Dependencies: zod; ./aircraftSpruce, ./addresses, ./partsRequests, ./model,
- *   ./programs, ./management, ./components, ./shelfLife, ./changeLog,
- *   ./rejection.
+ * Dependencies: zod; ./aircraftSpruce, ./currencyCode, ./addresses,
+ *   ./partsRequests, ./model, ./programs, ./management, ./components,
+ *   ./shelfLife, ./changeLog, ./rejection.
  */
 import { sprucePartSchema } from "./aircraftSpruce";
+import { currencyCodeSchema } from "./currencyCode";
 import {
   addressSchema,
   formatAddress,
@@ -121,7 +122,7 @@ export const poDraftSchema = z.object({
   vendorContact: text,
   shipTo: text.min(1),
   expectedDate: z.union([z.iso.date(), z.literal("")]),
-  currency: z.string().regex(/^[A-Z]{3}$/),
+  currency: currencyCodeSchema,
   shippingCents: money,
   notes: text,
   lines: z.array(poLineSchema).min(1).max(100),

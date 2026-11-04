@@ -3,8 +3,8 @@
  *   limits, the statuses and overdue rule, what an inspection still lacks,
  *   and how one edited draft becomes a draft per vendor.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./purchaseOrders, ./vendors, ./addresses, ./rejection; types
- *   from ./model and ./management.
+ * Dependencies: ./purchaseOrders, ./currencyCode, ./vendors, ./addresses,
+ *   ./rejection; types from ./model and ./management.
  */
 import {
   onOrder,
@@ -29,11 +29,7 @@ export const MAX_CORE_DUE_DAYS = 365;
 /** A currency code's length: three capital letters. */
 export const CURRENCY_CODE_LENGTH = 3;
 
-/**
- * A currency code as an HTML input pattern, which must match the whole value
- * (poDraftSchema's `/^[A-Z]{3}$/`).
- */
-export const CURRENCY_CODE_PATTERN = "[A-Z]{3}";
+export { CURRENCY_CODE_PATTERN } from "./currencyCode";
 
 /** Every status `poStatus` reports, in the order a filter lists them. */
 export const PO_STATUSES = [

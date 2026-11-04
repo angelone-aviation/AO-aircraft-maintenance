@@ -5,12 +5,14 @@
  * Layer: Domain. Zod schemas and an applier over a working snapshot; no I/O,
  *   no React.
  * Dependencies: zod; ./model, ./programs, ./addresses, ./aircraftSpruce,
- *   ./adOwnership, ./adCompliance, ./shelfLife, ./changeLog, ./rejection;
- *   types from ./purchaseOrders, ./management, ./components, ./workOrders.
+ *   ./currencyCode, ./adOwnership, ./adCompliance, ./shelfLife, ./changeLog,
+ *   ./rejection; types from ./purchaseOrders, ./management, ./components,
+ *   ./workOrders.
  */
 import { adAircraftUuid } from "./adOwnership";
 import { lastCompliance } from "./adCompliance";
 import { sprucePartSchema } from "./aircraftSpruce";
+import { currencyCodeSchema } from "./currencyCode";
 import { addressSchema, formatAddress } from "./addresses";
 import { z } from "zod";
 import {
@@ -122,7 +124,7 @@ export const requestDraftSchema = z.object({
   shipFromDetails: addressSchema.optional(),
   billToDetails: addressSchema.optional(),
   vendorAddress: text.default(""),
-  currency: z.string().regex(/^[A-Z]{3}$/),
+  currency: currencyCodeSchema,
   shipTo: text.default(""),
   billTo: text.default(""),
   shipFrom: text.default(""),

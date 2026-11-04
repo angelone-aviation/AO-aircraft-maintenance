@@ -2,12 +2,12 @@
  * Responsibility: Aircraft Spruce supplier data: the account and linked-part
  *   schemas, and parsing of the catalog and order CSV exports.
  * Layer: Domain. Pure zod schemas and functions; no I/O, no React.
- * Dependencies: zod, ./rejection.
+ * Dependencies: zod, ./currencyCode, ./rejection.
  */
 import { z } from "zod";
+import { currencyCodeSchema } from "./currencyCode";
 import { Rejection } from "./rejection";
 
-const ISO_CURRENCY_CODE = /^[A-Z]{3}$/;
 const BYTE_ORDER_MARK = 0xfeff;
 /**
  * The shortest catalog search, once trimmed; {@link catalogSearch} refuses a
@@ -59,7 +59,7 @@ export const spruceCredentials = z.object({
   userid: z.string().trim().min(1).max(USERID_MAX_LENGTH),
   password: z.string().min(1).max(SECRET_MAX_LENGTH),
   apikey: z.string().trim().min(1).max(SECRET_MAX_LENGTH),
-  currency: z.string().regex(ISO_CURRENCY_CODE),
+  currency: currencyCodeSchema,
 });
 
 /**
@@ -73,7 +73,7 @@ export const spruceCredentials = z.object({
 export const sprucePartSchema = z.object({
   partNumber: z.string().min(1).max(2000),
   uom: z.string().max(100),
-  currency: z.string().regex(ISO_CURRENCY_CODE),
+  currency: currencyCodeSchema,
   catalogAt: z.number(),
 });
 
