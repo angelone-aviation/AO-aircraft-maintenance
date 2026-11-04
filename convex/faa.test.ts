@@ -235,3 +235,85 @@ it("keeps the last successful check when a run's results cannot be stored", asyn
     candidates: [{ id: "old" }, { id: "new" }],
   });
 });
+
+it("stores what each command changes on the monitor, schedules a started check, and audits the parsed command", async () => {
+  // Fake timers also keep the scheduled check from running.
+  vi.useFakeTimers();
+  const { t, monitor, stored, admin } = await fixture();
+  const uuid = aircraft.uuid;
+  await monitor(uuid, {
+    runId: "earlier",
+    error: "Earlier error.",
+    lastAttempt: 1,
+    candidates: [candidate("c1")],
+  });
+  const send = (payload: object) =>
+    admin.mutation(api.faa.command, {
+      payload: JSON.stringify({ aircraftUuid: uuid, ...payload }),
+      programUuid,
+    });
+  await send({ kind: "configure", enabled: false, terms: [" 441 "] });
+  expect(await stored(uuid)).toEqual({
+    ...emptyMonitor(uuid),
+    terms: ["441"],
+    lastAttempt: 1,
+    error: "Settings changed. Run a check to verify coverage.",
+    runId: "",
+    candidates: [candidate("c1")],
+  });
+  const sent = Date.now();
+  const since = expect.toSatisfy((at: number) => at >= sent);
+  await send({ kind: "review", id: "c1", reason: " Not applicable. " });
+  expect((await stored(uuid)).candidates).toEqual([
+    { ...candidate("c1"), reviewReason: "Not applicable.", reviewedAt: since },
+  ]);
+  await send({ kind: "check" });
+  const checked = await stored(uuid);
+  expect(checked).toMatchObject({
+    runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    lastAttempt: since,
+    error: "",
+  });
+  const scheduled = await t.run((ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  );
+  expect(scheduled.map((f) => [f.name, f.args])).toEqual([
+    [
+      expect.stringContaining("check"),
+      [{ aircraftUuid: uuid, runId: checked.runId }],
+    ],
+  ]);
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(
+    rows.map((r) => [r.action, r.entityUuid, r.aircraftUuid, r.after]),
+  ).toEqual([
+    [
+      "faa.configure",
+      uuid,
+      uuid,
+      JSON.stringify({
+        kind: "configure",
+        aircraftUuid: uuid,
+        enabled: false,
+        terms: ["441"],
+      }),
+    ],
+    [
+      "faa.review",
+      uuid,
+      uuid,
+      JSON.stringify({
+        kind: "review",
+        aircraftUuid: uuid,
+        id: "c1",
+        reason: "Not applicable.",
+      }),
+    ],
+    [
+      "faa.check",
+      uuid,
+      uuid,
+      JSON.stringify({ kind: "check", aircraftUuid: uuid }),
+    ],
+  ]);
+});

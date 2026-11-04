@@ -18,7 +18,7 @@ import {
   isTaskTemplate,
   type TaskCard,
 } from "./taskCards";
-import { saveWorkOrder, newWorkTask } from "./workOrders";
+import { saveWorkOrder, newWorkTask, type WorkTask } from "./workOrders";
 import {
   copyWorkOrderTemplates,
   taskCardMatchesWorkItem,
@@ -444,6 +444,65 @@ describe("job cards for one work order", () => {
     ).toBe(signOff);
     expect(finish({ inspectionSignoff: signature })).toBe("");
     expect(workItemCompletionIssue(s, w.uuid, inspectionItem("none"))).toBe("");
+  });
+
+  // Saves an order with one inspection item before a template for that
+  // inspection joins the library.
+  const addTemplateAfterItem = (status: WorkTask["status"]) => {
+    const s = demoSnapshot();
+    const cmd = workOrderCommand();
+    cmd.tasks = [{ ...inspectionItem(s.inspections[0].uuid), status }];
+    const order = saveWorkOrder(s, cmd, now);
+    const template = taskCardCommand();
+    template.fields.inspectionUuid = s.inspections[0].uuid;
+    saveTaskCard(s, template, now);
+    const save = (tasks: WorkTask[], version: number) =>
+      saveWorkOrder(s, { ...cmd, version, tasks }, now);
+    return { s, order, save };
+  };
+
+  it("checks an item's job cards on the save that completes it, not later", () => {
+    const { s, order, save } = addTemplateAfterItem("completed");
+    const saved = save(order.tasks, order.version);
+    const added = saveWorkOrder(
+      s,
+      {
+        action: "add",
+        uuid: order.uuid,
+        version: saved.version,
+        source: { kind: "inspection", uuid: "demo-insp-2" },
+      },
+      now,
+    );
+    expect(added.tasks).toHaveLength(2);
+    saveWorkOrder(
+      s,
+      { action: "copyTemplates", uuid: order.uuid, version: added.version },
+      now,
+    );
+    const copies = s.taskCards!.filter((t) => t.workOrderUuid === order.uuid);
+    expect(copies.map((t) => [t.workTaskUuid, t.status])).toEqual([
+      [order.tasks[0].uuid, "draft"],
+    ]);
+  });
+
+  it("still refuses to complete an item without its job cards signed off", () => {
+    const { s, order, save } = addTemplateAfterItem("requested");
+    const completed = order.tasks.map((t) => ({
+      ...t,
+      status: "completed" as const,
+    }));
+    expect(() => save(completed, order.version)).toThrow(
+      "Add the associated job card templates to this work order before completing this item.",
+    );
+    const copied = saveWorkOrder(
+      s,
+      { action: "copyTemplates", uuid: order.uuid, version: order.version },
+      now,
+    );
+    expect(() => save(completed, copied.version)).toThrow(
+      "Complete and sign off every job card for this item on this work order before marking it completed.",
+    );
   });
 
   it("matches a card to an item it was copied for or that names its source", () => {

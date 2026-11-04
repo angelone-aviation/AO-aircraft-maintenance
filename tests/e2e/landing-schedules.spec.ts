@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins landing-based schedules: a 500-landing template saved
+ *   with only the tracking fields selected, and an inspection created from it
+ *   that keeps them.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 
 test("creates and persists a 500-landing template and inspection with selected tracking fields", async ({
@@ -38,6 +45,7 @@ test("creates and persists a 500-landing template and inspection with selected t
     .getByRole("row")
     .filter({ hasText: "Phase 34 landing test" });
   await expect(row).toContainText("500 landings");
+  // Hours was unchecked before saving, so its 100-hour interval is not kept.
   await expect(row).not.toContainText("100 hours");
   await row
     .getByRole("button", { name: "Create inspection", exact: true })
@@ -52,6 +60,7 @@ test("creates and persists a 500-landing template and inspection with selected t
   await activate
     .getByLabel("Last complied at (aircraft total landings)", { exact: true })
     .fill("1000");
+  // Due at the landings last complied plus the 500-landing interval.
   await expect(activate.getByRole("status")).toContainText(
     "1500 aircraft landings",
   );

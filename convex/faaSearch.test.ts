@@ -4,7 +4,8 @@
  *   the user.
  * Layer: Test. convex-test suite with a stubbed FAA; never shipped.
  * Dependencies: convex/faaSearch.ts, convex/airworthiness.ts,
- *   convex/schema.ts, src/domain/faaSearch, src/data/demo.ts (fixture).
+ *   convex/faaCredentials.ts, convex/secrets.ts, convex/schema.ts,
+ *   src/domain/faaSearch, src/data/demo.ts (fixture).
  */
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
@@ -14,6 +15,8 @@ import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { blankSearch, searchAssets } from "../src/domain/faaSearch";
 import { FAA_GLOBAL_DAILY } from "./faaSearch";
+import { FAA_SECRET } from "./faaCredentials";
+import { sealSecret } from "./secrets";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -21,16 +24,21 @@ const modules = import.meta.glob([
   "!./**/*.d.ts",
 ]);
 
+// Seals the stored FAA key, as saving one does.
+const CREDENTIALS_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+
 // An editor with maintenance on the first demo aircraft and a reader, sharing
 // one FAA key that expires in 2099.
 async function fixture() {
   const t = convexTest(schema, modules),
     s = demoSnapshot();
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", CREDENTIALS_KEY);
+  const key = await sealSecret("synthetic-key", FAA_SECRET);
   const ids = await t.run(async (ctx) => {
     for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
     await ctx.db.insert("programs", s.programs![0]);
     await ctx.db.insert("faaCredentials", {
-      key: "synthetic-key",
+      key,
       expiresOn: "2099-01-01",
       version: 1,
       updatedAt: 0,

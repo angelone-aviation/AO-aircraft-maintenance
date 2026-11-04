@@ -1,54 +1,32 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins finding maintenance items in a manual: an inspection
+ *   and a life-limited component created from its text once each, persisted
+ *   with PDF page links, and component service requirements once the manual
+ *   is associated with a component model.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 
 // A deliberately fictional, selectable-text manual; no real maintenance data.
-function manualPdf() {
-  const pages = [
-    [
-      "TEST MANUAL - NOT FOR MAINTENANCE",
-      "INSPECTION PHASE 2",
-      "1. Description",
-      "A. Phase 2 consists of 100-hour or 12 calendar months, whichever occurs first,",
-      "interval inspection items.",
-      "B. Inspection items follow.",
-      "A243003 Batteries - Inspect vents.",
-      "5-12-02 Page 1",
-    ],
-    [
-      "TEST MANUAL - NOT FOR MAINTENANCE",
-      "LIFE LIMITED COMPONENTS",
-      "(1) Test oxygen cylinder - Life limit 24 years or 4380 cycles",
-      "5-11-00 Page 2",
-    ],
-  ];
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-  ];
-  for (const [i, lines] of pages.entries()) {
-    const content = `BT /F1 10 Tf 40 760 Td 16 TL\n${lines.map((l, n) => `${n ? "T* " : ""}(${l.replaceAll("(", "\\(").replaceAll(")", "\\)")}) Tj`).join("\n")}\nET`;
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`,
-    );
-    objects.push(
-      `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
-    );
-  }
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  for (const [i, obj] of objects.entries()) {
-    offsets.push(Buffer.byteLength(pdf));
-    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
-  }
-  const xref = Buffer.byteLength(pdf);
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets
-    .slice(1)
-    .map((o) => `${String(o).padStart(10, "0")} 00000 n \n`)
-    .join(
-      "",
-    )}trailer\n<< /Root 1 0 R /Size ${objects.length + 1} >>\nstartxref\n${xref}\n%%EOF`;
-  return Buffer.from(pdf);
-}
+const MANUAL_PAGES = [
+  [
+    "TEST MANUAL - NOT FOR MAINTENANCE",
+    "INSPECTION PHASE 2",
+    "1. Description",
+    "A. Phase 2 consists of 100-hour or 12 calendar months, whichever occurs first,",
+    "interval inspection items.",
+    "B. Inspection items follow.",
+    "A243003 Batteries - Inspect vents.",
+    "5-12-02 Page 1",
+  ],
+  [
+    "TEST MANUAL - NOT FOR MAINTENANCE",
+    "LIFE LIMITED COMPONENTS",
+    "(1) Test oxygen cylinder - Life limit 24 years or 4380 cycles",
+    "5-11-00 Page 2",
+  ],
+];
 
 test("reviews manual suggestions inline, saves an inspection and creates a component with its life limit", async ({
   page,
@@ -57,48 +35,28 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
     sessionStorage.setItem("angel-one-demo", "true"),
   );
   await page.goto("/manuals");
-  await page
-    .getByRole("button", { name: "Upload manual", exact: true })
-    .click();
-  const upload = page.getByRole("dialog", {
-    name: "Upload reference manual",
-    exact: true,
-  });
-  await upload
-    .getByLabel("Manual title", { exact: true })
-    .fill("Test discovery manual");
-  await upload
-    .getByLabel("Revision / temporary revisions", { exact: true })
-    .fill("TEST-1");
-  await upload.getByLabel("PDF manual", { exact: true }).setInputFiles({
-    name: "discovery.pdf",
-    mimeType: "application/pdf",
-    buffer: manualPdf(),
-  });
-  await upload
-    .getByRole("button", { name: "Save manual", exact: true })
-    .click();
-  await expect(upload).not.toBeVisible();
-  await page
-    .getByRole("button", { name: "Find maintenance items", exact: true })
-    .click();
+  await uploadManual(page);
+  await openFinder(page);
   const dialog = page.getByRole("dialog", {
     name: "Find maintenance items",
     exact: true,
   });
-  await dialog
-    .getByRole("button", { name: "Search manual", exact: true })
-    .click();
-  await expect(dialog.getByText(/Searched PDF pages 1–2/)).toBeVisible();
+  const form = dialog.getByRole("region", { name: "Create from manual item" });
+  await searchManual(dialog);
   const phase = dialog
     .getByRole("row")
     .filter({ hasText: "Phase 2 inspection" });
+  const createInspection = phase.getByRole("button", {
+    name: "Create inspection",
+    exact: true,
+  });
+  const createRequirement = phase.getByRole("button", {
+    name: "Create component service requirement",
+    exact: true,
+  });
   await expect(phase).toContainText("100 hours");
   await expect(phase).toContainText("12 months");
-  await phase
-    .getByRole("button", { name: "Create inspection", exact: true })
-    .click();
-  let form = dialog.getByRole("region", { name: "Create from manual item" });
+  await createInspection.click();
   await form
     .getByLabel("Target aircraft", { exact: true })
     .selectOption("demo-206");
@@ -115,6 +73,7 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
   await form
     .getByLabel("Last compliance date", { exact: true })
     .fill("2025-01-12");
+  // 2,300 + 100 hours, or 12 calendar months to the end of January 2026.
   await expect(form.getByText(/Next due:/)).toContainText(
     "2400 aircraft hours or 2026-01-31",
   );
@@ -122,10 +81,7 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
     .getByRole("button", { name: "Save inspection", exact: true })
     .click();
   await expect(form).not.toBeVisible();
-  await phase
-    .getByRole("button", { name: "Create inspection", exact: true })
-    .click();
-  form = dialog.getByRole("region", { name: "Create from manual item" });
+  await createInspection.click();
   await form
     .getByLabel("Target aircraft", { exact: true })
     .selectOption("demo-206");
@@ -141,7 +97,6 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
   await cylinder
     .getByRole("button", { name: "Create component", exact: true })
     .click();
-  form = dialog.getByRole("region", { name: "Create from manual item" });
   await form.getByRole("checkbox", { name: /I checked/ }).check();
   await form
     .getByLabel("Component type", { exact: true })
@@ -199,9 +154,7 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
     details.getByRole("link", { name: /PDF page 2/ }).first(),
   ).toBeVisible();
   await page.goto("/manuals");
-  await page
-    .getByRole("button", { name: "Find maintenance items", exact: true })
-    .click();
+  await openFinder(page);
   await dialog.getByRole("button", { name: "Edit model association" }).click();
   await dialog
     .getByLabel("Manual applies to", { exact: true })
@@ -213,26 +166,14 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
     dialog.getByRole("button", { name: "Save model association" }),
   ).not.toBeVisible();
   await page.reload();
-  await page
-    .getByRole("button", { name: "Find maintenance items", exact: true })
-    .click();
+  await openFinder(page);
   await expect(dialog.getByText(/Associated component model:/)).toContainText(
     "TEST-CYL",
   );
-  await dialog
-    .getByRole("button", { name: "Search manual", exact: true })
-    .click();
-  await expect(dialog.getByText(/Searched PDF pages 1–2/)).toBeVisible();
-  await expect(
-    phase.getByRole("button", { name: "Create inspection", exact: true }),
-  ).toBeDisabled();
-  await phase
-    .getByRole("button", {
-      name: "Create component service requirement",
-      exact: true,
-    })
-    .click();
-  form = dialog.getByRole("region", { name: "Create from manual item" });
+  await searchManual(dialog);
+  // A component model's manual adds service requirements, not inspections.
+  await expect(createInspection).toBeDisabled();
+  await createRequirement.click();
   await expect(
     form.getByLabel("Target component").locator("option"),
   ).toHaveCount(2);
@@ -248,12 +189,7 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
     .getByRole("button", { name: "Calculate and save", exact: true })
     .click();
   await expect(form).not.toBeVisible();
-  await phase
-    .getByRole("button", {
-      name: "Create component service requirement",
-      exact: true,
-    })
-    .click();
+  await createRequirement.click();
   await form.getByLabel("Target component").selectOption({ index: 1 });
   await expect(
     form.getByText(
@@ -261,3 +197,84 @@ test("reviews manual suggestions inline, saves an inspection and creates a compo
     ),
   ).toBeVisible();
 });
+
+async function uploadManual(page: Page) {
+  await page
+    .getByRole("button", { name: "Upload manual", exact: true })
+    .click();
+  const upload = page.getByRole("dialog", {
+    name: "Upload reference manual",
+    exact: true,
+  });
+  await upload
+    .getByLabel("Manual title", { exact: true })
+    .fill("Test discovery manual");
+  await upload
+    .getByLabel("Revision / temporary revisions", { exact: true })
+    .fill("TEST-1");
+  await upload.getByLabel("PDF manual", { exact: true }).setInputFiles({
+    name: "discovery.pdf",
+    mimeType: "application/pdf",
+    buffer: manualPdf(),
+  });
+  await upload
+    .getByRole("button", { name: "Save manual", exact: true })
+    .click();
+  await expect(upload).not.toBeVisible();
+}
+
+async function openFinder(page: Page) {
+  await page
+    .getByRole("button", { name: "Find maintenance items", exact: true })
+    .click();
+}
+
+async function searchManual(dialog: Locator) {
+  await dialog
+    .getByRole("button", { name: "Search manual", exact: true })
+    .click();
+  await expect(dialog.getByText(/Searched PDF pages 1–2/)).toBeVisible();
+}
+
+/** The two-page manual as a PDF 1.4 file, one Helvetica text page each. */
+function manualPdf() {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  for (const [i, lines] of MANUAL_PAGES.entries()) {
+    const content = pageText(lines);
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`,
+    );
+    objects.push(
+      `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+    );
+  }
+  return Buffer.from(serializePdf(objects));
+}
+
+/** A content stream drawing the lines down the page, parentheses escaped. */
+function pageText(lines: string[]) {
+  const shown = lines.map((line, n) => {
+    const text = line.replaceAll("(", "\\(").replaceAll(")", "\\)");
+    return `${n ? "T* " : ""}(${text}) Tj`;
+  });
+  return `BT /F1 10 Tf 40 760 Td 16 TL\n${shown.join("\n")}\nET`;
+}
+
+/** Numbers the objects from 1 and appends the cross-reference table. */
+function serializePdf(objects: string[]) {
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (const [i, obj] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf);
+  const entries = offsets
+    .map((o) => `${String(o).padStart(10, "0")} 00000 n \n`)
+    .join("");
+  return `${pdf}xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${entries}trailer\n<< /Root 1 0 R /Size ${objects.length + 1} >>\nstartxref\n${xref}\n%%EOF`;
+}

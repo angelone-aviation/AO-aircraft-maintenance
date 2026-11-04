@@ -1,9 +1,11 @@
 /**
  * Responsibility: Pins Geoapify address lookups: who may run them, the
- *   per-second, per-user, per-program and global daily allowances, and how
- *   the administrator's key is checked, sealed, saved and audited.
+ *   per-second, per-user, per-program and global daily allowances, the
+ *   request and its failures, and how the administrator's key is checked,
+ *   sealed, saved and audited.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/addressVerification, src/domain/model, src/data/demo.
+ * Dependencies: convex/addressVerification, convex/secrets, src/domain/model,
+ *   src/data/demo.
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
@@ -12,6 +14,7 @@ import { api, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import type { Permission } from "../src/domain/model";
+import { sealSecret } from "./secrets";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -56,9 +59,14 @@ it("protects the key, authorizes lookups, and rate-limits them without saving co
   ).rejects.toThrow();
   expect(fetcher).not.toHaveBeenCalled();
   // Test server persistence separately from the provider; lookups use the
-  // action below.
+  // action below. The key is committed sealed, as setKey seals it.
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", CREDENTIALS_KEY);
   await admin.mutation(internal.addressVerification.commit, {
-    key: "test-key-that-is-long-enough",
+    key: await sealSecret("test-key-that-is-long-enough", {
+      table: "addressVerificationSettings",
+      programUuid: "",
+      field: "key",
+    }),
     version: 0,
   });
   const status = await admin.query(api.addressVerification.status, {});
@@ -119,7 +127,7 @@ it("paces lookups per user so one user cannot block the others", async () => {
     return [await make(), await make()];
   });
   await t.withIdentity(first).mutation(internal.addressVerification.commit, {
-    key: "test-key-that-is-long-enough",
+    key: SEALED_KEY,
     version: 0,
   });
   // Anchor the fake clock after the setup commits: convex-test never lets a
@@ -160,7 +168,7 @@ it("gives each user a daily lookup share under the global cap", async () => {
   });
   const admin = t.withIdentity(identity);
   await admin.mutation(internal.addressVerification.commit, {
-    key: "test-key-that-is-long-enough",
+    key: SEALED_KEY,
     version: 0,
   });
   const now = Date.now();
@@ -178,8 +186,106 @@ it("gives each user a daily lookup share under the global cap", async () => {
   ).rejects.toThrow(/Your address lookup allowance/);
 });
 
+it("sends Geoapify only the physical address, with the key, and reads its reply", async () => {
+  const fetcher = reply({
+    results: [
+      {
+        formatted: "Washington, DC",
+        housenumber: "1600",
+        street: "Pennsylvania Avenue NW",
+        city: "Washington",
+        state_code: "DC",
+        country: "United States",
+        result_type: "city",
+        rank: { confidence: 0.4 },
+        datasource: { attribution: "Source" },
+      },
+    ],
+  });
+  const results = await lookupWith(fetcher);
+  const [[url, init]] = fetcher.mock.calls;
+  const sent = new URL(String(url));
+  expect(sent.origin + sent.pathname).toBe(
+    "https://api.geoapify.com/v1/geocode/search",
+  );
+  expect(Object.fromEntries(sent.searchParams)).toEqual({
+    text: "1600 Pennsylvania Avenue NW, Washington, 20500, United States",
+    format: "json",
+    limit: "5",
+    lang: "en",
+    bias: "countrycode:none",
+    apiKey: DEPLOYMENT_KEY,
+  });
+  expect(String(url)).not.toMatch(/receiving|555/i);
+  expect(init).toMatchObject({
+    redirect: "error",
+    signal: expect.any(AbortSignal),
+  });
+  expect(results).toEqual([
+    {
+      formatted: "Washington, DC",
+      street: "1600 Pennsylvania Avenue NW",
+      city: "Washington",
+      region: "DC",
+      postalCode: "",
+      country: "United States",
+      confidence: 0.4,
+      matchLevel: "city",
+      attribution: "Source",
+    },
+  ]);
+});
+
+it("shows a failed connection without the key the network error quotes", async () => {
+  const fetcher = vi
+    .fn()
+    .mockRejectedValue(Error(`URL failed with apiKey=${DEPLOYMENT_KEY}`));
+  const error = await lookupWith(fetcher).catch((e: unknown) => e);
+  expect(error).toMatchObject({
+    name: "ConvexError",
+    data: "Address lookup could not connect. Your address has not been changed.",
+  });
+  expect(String(error)).not.toContain(DEPLOYMENT_KEY);
+});
+
+it.each([
+  [
+    401,
+    "The Geoapify key was not accepted. Ask a system administrator to check Address verification in Settings → System.",
+  ],
+  [
+    403,
+    "The Geoapify key was not accepted. Ask a system administrator to check Address verification in Settings → System.",
+  ],
+  [429, "Address lookup quota reached. Try again later."],
+  [
+    500,
+    "The address service is unavailable. Your address has not been changed.",
+  ],
+])("shows HTTP %i from Geoapify to the user", async (status, message) => {
+  await expect(lookupWith(reply({}, status))).rejects.toMatchObject({
+    name: "ConvexError",
+    data: message,
+  });
+});
+
+it("shows an unreadable reply plainly", async () => {
+  const unexpected = {
+    name: "ConvexError",
+    data: "The address service returned an unexpected response. Your address has not been changed.",
+  };
+  await expect(lookupWith(reply({ results: "none" }))).rejects.toMatchObject(
+    unexpected,
+  );
+  const notJson = vi.fn().mockResolvedValue(new Response("not json"));
+  await expect(lookupWith(notJson)).rejects.toMatchObject(unexpected);
+});
+
 const CREDENTIALS_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+const DEPLOYMENT_KEY = "deployment-key-long-enough";
 const KEY = "test-key-that-is-long-enough";
+// Shaped as commit requires; these tests never open it.
+const SEALED_KEY = "enc:v2:k1:AAAAAAAAAAAAAAAA:AAAA";
 const today = () => new Date().toISOString().slice(0, 10);
 const settings = (fields: { day?: string; used?: number } = {}) => ({
   key: KEY,
@@ -329,9 +435,10 @@ it("refuses a stale settings version and audits a saved key without it", async (
   const { t, user } = await fixture();
   const admin = await user();
   await admin.mutation(internal.addressVerification.commit, {
-    key: KEY,
+    key: SEALED_KEY,
     version: 0,
   });
+  // A stale version is refused before the key is checked.
   await expect(
     admin.mutation(internal.addressVerification.commit, {
       key: KEY,
@@ -371,3 +478,27 @@ it("saves a key sealed, and only once Geoapify accepts it", async () => {
   });
   expect(row!.key).not.toContain(KEY);
 });
+
+const reply = (body: unknown, status = 200) =>
+  vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }));
+
+// One lookup by a new system administrator, so the one-a-second pacing never
+// decides, with the deployment's key and `fetcher` standing in for Geoapify.
+async function lookupWith(fetcher: typeof fetch) {
+  vi.stubEnv("GEOAPIFY_API_KEY", DEPLOYMENT_KEY);
+  vi.stubGlobal("fetch", fetcher);
+  const { user } = await fixture();
+  return (await user()).action(api.addressVerification.lookup, {
+    payload: JSON.stringify({
+      street: "1600 Pennsylvania Avenue NW",
+      city: "Washington",
+      region: "",
+      postalCode: "20500",
+      country: "United States",
+      contactName: "Receiving",
+      email: "receiving@example.com",
+      phone: "+1 202 555 0100",
+    }),
+    programUuid: "demo-program",
+  });
+}

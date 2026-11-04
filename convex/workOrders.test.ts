@@ -760,9 +760,14 @@ it("shows the work order's own refusals to the user as ConvexErrors", async () =
       }),
     ),
   ).toMatchObject({ name: "ConvexError", data: "Attachment not found." });
-  await expect(
-    tech.action(api.workOrders.upload, { ...file, type: "text/plain" }),
-  ).rejects.toThrow("Choose a PDF, JPEG or PNG file up to 7 MB.");
+  expect(
+    await refusal(
+      tech.action(api.workOrders.upload, { ...file, type: "text/plain" }),
+    ),
+  ).toMatchObject({
+    name: "ConvexError",
+    data: "Choose a PDF, JPEG or PNG file up to 7 MB.",
+  });
 });
 
 it("removes an attachment from an open work order with its unused file, audited", async () => {

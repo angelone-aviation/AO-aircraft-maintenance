@@ -1,15 +1,31 @@
+/**
+ * Responsibility: Pins the shell's and the shared dialog's interface: nested
+ *   Escape, focus kept clear of sticky footers, focus-ring contrast, the Job
+ *   cards link, the sections sheet, and the theme before first paint.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ *
+ * Regression tests for the interface bugs (ui-*) of the 2026-11-03 bug hunt,
+ * docs/qa/bug-hunt-2026-11-03/README.md.
+ */
 import { test, expect, type Page } from "@playwright/test";
 
-// Cross-cutting interface behaviour of the shell and the shared dialog.
-// Regression tests for the interface bugs (ui-*) of the 2026-11-03 bug hunt,
-// docs/qa/bug-hunt-2026-11-03/README.md.
+const DESKTOP = { width: 1280, height: 800 };
+const PHONE = { width: 390, height: 844 };
+// Upper bounds on Tab presses, so a focus trap fails a test instead of
+// hanging it.
+const DIALOG_TAB_LIMIT = 90;
+const SIDEBAR_TAB_LIMIT = 40;
+// WCAG 2.2 focus indicators: at least 2 CSS px thick (SC 2.4.13) and 3:1
+// against adjacent colours (SC 1.4.11).
+const FOCUS_RING_MIN_WIDTH_PX = 2;
+const FOCUS_RING_MIN_CONTRAST = 3;
 
-async function demo(page: Page, path = "/") {
-  await page.addInitScript(() =>
-    sessionStorage.setItem("angel-one-demo", "true"),
-  );
-  await page.goto(path);
-}
+const pilot = {
+  id: "pilot-only",
+  name: "Pilots",
+  permissions: ["read", "flight", "discrepancy"],
+};
 
 test.describe("Escape in a nested dialog (ui-1)", () => {
   test("closes only the address dialog and keeps the purchase order draft", async ({
@@ -48,7 +64,7 @@ test.describe("Escape in a nested dialog (ui-1)", () => {
   test("closes My certifications and keeps the phone More sheet open", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize(PHONE);
     await demo(page);
     await page.getByRole("button", { name: "More", exact: true }).click();
     const sheet = page.getByRole("dialog", { name: "All sections" });
@@ -67,47 +83,11 @@ test.describe("Escape in a nested dialog (ui-1)", () => {
   });
 });
 
-/** Tabs through the open dialog and lists every focused control that ended
- * up under the dialog's stuck form footer. A text area only has to show its
- * first lines: the browser reveals its caret, not the whole box. */
-async function focusedUnderFooter(page: Page) {
-  const hidden: string[] = [];
-  for (let i = 0; i < 90; i++) {
-    await page.keyboard.press("Tab");
-    const result = await page.evaluate(() => {
-      const a = document.activeElement as HTMLElement | null;
-      if (!a?.closest("dialog")) return "out";
-      const body = a.closest(".ds-dialog-body");
-      if (!body) return null;
-      const footer = [...body.querySelectorAll<HTMLElement>(".form-footer")]
-        .filter((f) => getComputedStyle(f).position === "sticky")
-        .pop();
-      if (!footer || footer.contains(a)) return null;
-      const field = a.getBoundingClientRect();
-      if (!field.height) return null;
-      const shown =
-        a.tagName === "TEXTAREA" ? Math.min(field.height, 40) : field.height;
-      if (field.top + shown <= footer.getBoundingClientRect().top + 0.5)
-        return null;
-      return (
-        (a as HTMLInputElement).labels?.[0]?.textContent?.trim() ||
-        a.getAttribute("aria-label") ||
-        a.textContent?.trim() ||
-        a.tagName
-      );
-    });
-    if (result === "out") break;
-    if (result) hidden.push(result);
-  }
-  return hidden;
-}
-
 test.describe("Tab keeps dialog fields clear of the sticky footer (ui-3)", () => {
   for (const c of [
     {
       name: "Log a flight on a 320px phone",
-      w: 320,
-      h: 640,
+      viewport: { width: 320, height: 640 },
       path: "/",
       open: (page: Page) =>
         page
@@ -117,23 +97,21 @@ test.describe("Tab keeps dialog fields clear of the sticky footer (ui-3)", () =>
     },
     {
       name: "New inspection on a phone",
-      w: 390,
-      h: 844,
+      viewport: PHONE,
       path: "/inspections",
       open: (page: Page) =>
         page.getByRole("button", { name: "New inspection" }).click(),
     },
     {
       name: "New purchase order on desktop",
-      w: 1280,
-      h: 800,
+      viewport: DESKTOP,
       path: "/purchase-orders",
       open: (page: Page) =>
         page.getByRole("button", { name: "New PO", exact: true }).click(),
     },
   ])
     test(c.name, async ({ page }) => {
-      await page.setViewportSize({ width: c.w, height: c.h });
+      await page.setViewportSize(c.viewport);
       await demo(page, c.path);
       await c.open(page);
       await expect(page.locator("dialog[open] .form-footer")).toBeVisible();
@@ -144,11 +122,11 @@ test.describe("Tab keeps dialog fields clear of the sticky footer (ui-3)", () =>
 test("Tab down the desktop sidebar keeps each link clear of the profile footer (ui-7)", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize(DESKTOP);
   await demo(page);
   await page.locator(".sidebar .brand").focus();
   const hidden: string[] = [];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < SIDEBAR_TAB_LIMIT; i++) {
     await page.keyboard.press("Tab");
     const result = await page.evaluate(() => {
       const a = document.activeElement as HTMLElement;
@@ -166,33 +144,10 @@ test("Tab down the desktop sidebar keeps each link clear of the profile footer (
   expect(hidden).toEqual([]);
 });
 
-function luminance(rgb: string) {
-  const [r, g, b] = rgb
-    .match(/\d+(\.\d+)?/g)!
-    .slice(0, 3)
-    .map(Number)
-    .map((v) => {
-      const c = v / 255;
-      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-const contrast = (a: string, b: string) => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-};
-/** A CSS rgb()/rgba() colour composited over an opaque rgb() backdrop. */
-function over(top: string, backdrop: string) {
-  const [r, g, b, a = 1] = top.match(/\d+(\.\d+)?/g)!.map(Number);
-  const base = backdrop.match(/\d+(\.\d+)?/g)!.map(Number);
-  const mix = [r, g, b].map((v, i) => Math.round(v * a + base[i] * (1 - a)));
-  return `rgb(${mix.join(", ")})`;
-}
-
 test("sidebar links draw an unclipped focus ring with 3:1 contrast in both themes (ui-6)", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize(DESKTOP);
   await demo(page);
   for (const theme of ["light", "dark"]) {
     if (theme === "dark")
@@ -218,73 +173,25 @@ test("sidebar links draw an unclipped focus ring with 3:1 contrast in both theme
       });
       expect(ring.focusVisible).toBe(true);
       expect(ring.style).not.toBe("none");
-      expect(ring.width).toBeGreaterThanOrEqual(2);
+      expect(ring.width).toBeGreaterThanOrEqual(FOCUS_RING_MIN_WIDTH_PX);
       // Drawn inside the link, so the collapsible group's overflow cannot
       // clip it.
       expect(ring.offset + ring.width).toBeLessThanOrEqual(0);
-      expect(contrast(ring.color, ring.sidebar)).toBeGreaterThanOrEqual(3);
+      expect(contrast(ring.color, ring.sidebar)).toBeGreaterThanOrEqual(
+        FOCUS_RING_MIN_CONTRAST,
+      );
       // Inside the link the ring also meets the link's own (translucent)
       // fill; "/" is the active link here.
       expect(
         contrast(ring.color, over(ring.link, ring.sidebar)),
-      ).toBeGreaterThanOrEqual(3);
+      ).toBeGreaterThanOrEqual(FOCUS_RING_MIN_CONTRAST);
     }
   }
 });
 
-const pilot = {
-  id: "pilot-only",
-  name: "Pilots",
-  permissions: ["read", "flight", "discrepancy"],
-};
-
-/** Replaces the demo user's access with one permission group in the demo
- * program (stored snapshot, like the pilot-view and settings specs). */
-async function becomeMember(page: Page, group: typeof pilot) {
-  await page.evaluate(
-    (g) =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("angel-one-v1");
-        request.onsuccess = () => {
-          const db = request.result,
-            tx = db.transaction("snapshots", "readwrite"),
-            cursor = tx.objectStore("snapshots").openCursor();
-          cursor.onsuccess = () => {
-            const entry = cursor.result;
-            if (!entry) return;
-            const s = entry.value;
-            s.groups.push({
-              ...g,
-              programUuid: "demo-program",
-              aircraftIds: [],
-            });
-            s.user = {
-              ...s.user,
-              isAdmin: false,
-              groupIds: [g.id],
-              activeProgramUuid: "demo-program",
-            };
-            s.members = s.members.map((m: { id: string }) =>
-              m.id === s.user.id ? s.user : m,
-            );
-            entry.update(s);
-            entry.continue();
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      }),
-    group,
-  );
-  await page.reload();
-}
-
 test.describe("Job cards navigation (ui-4)", () => {
   test("the sidebar lists Job cards under Maintain", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize(DESKTOP);
     await demo(page);
     await page
       .locator("#nav-group-maintain")
@@ -454,3 +361,110 @@ test.describe("theme before first paint (ui-2)", () => {
     await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
   });
 });
+
+async function demo(page: Page, path = "/") {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto(path);
+}
+
+/**
+ * Tabs through the open dialog and lists every focused control that ended up
+ * under the dialog's stuck form footer. A text area only has to show its
+ * first lines: the browser reveals its caret, not the whole box.
+ */
+async function focusedUnderFooter(page: Page) {
+  const hidden: string[] = [];
+  for (let i = 0; i < DIALOG_TAB_LIMIT; i++) {
+    await page.keyboard.press("Tab");
+    const result = await page.evaluate(() => {
+      const a = document.activeElement as HTMLElement | null;
+      if (!a?.closest("dialog")) return "out";
+      const body = a.closest(".ds-dialog-body");
+      if (!body) return null;
+      const footer = [...body.querySelectorAll<HTMLElement>(".form-footer")]
+        .filter((f) => getComputedStyle(f).position === "sticky")
+        .pop();
+      if (!footer || footer.contains(a)) return null;
+      const field = a.getBoundingClientRect();
+      if (!field.height) return null;
+      const shown =
+        a.tagName === "TEXTAREA" ? Math.min(field.height, 40) : field.height;
+      if (field.top + shown <= footer.getBoundingClientRect().top + 0.5)
+        return null;
+      return (
+        (a as HTMLInputElement).labels?.[0]?.textContent?.trim() ||
+        a.getAttribute("aria-label") ||
+        a.textContent?.trim() ||
+        a.tagName
+      );
+    });
+    if (result === "out") break;
+    if (result) hidden.push(result);
+  }
+  return hidden;
+}
+
+/**
+ * Replaces the demo user's access with one permission group in the demo
+ * program (stored snapshot, like the pilot-view and settings specs).
+ */
+async function becomeMember(page: Page, group: typeof pilot) {
+  await page.evaluate(async (g) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value;
+      s.groups.push({ ...g, programUuid: "demo-program", aircraftIds: [] });
+      s.user = {
+        ...s.user,
+        isAdmin: false,
+        groupIds: [g.id],
+        activeProgramUuid: "demo-program",
+      };
+      s.members = s.members.map((m: { id: string }) =>
+        m.id === s.user.id ? s.user : m,
+      );
+      entry.update(s);
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, group);
+  await page.reload();
+}
+
+function luminance(rgb: string) {
+  const [r, g, b] = rgb
+    .match(/\d+(\.\d+)?/g)!
+    .slice(0, 3)
+    .map(Number)
+    .map((v) => {
+      const c = v / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+// The WCAG contrast ratio of two rgb() colours.
+function contrast(a: string, b: string) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+/** A CSS rgb()/rgba() colour composited over an opaque rgb() backdrop. */
+function over(top: string, backdrop: string) {
+  const [r, g, b, a = 1] = top.match(/\d+(\.\d+)?/g)!.map(Number);
+  const base = backdrop.match(/\d+(\.\d+)?/g)!.map(Number);
+  const mix = [r, g, b].map((v, i) => Math.round(v * a + base[i] * (1 - a)));
+  return `rgb(${mix.join(", ")})`;
+}

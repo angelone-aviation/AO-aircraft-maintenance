@@ -1,4 +1,12 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins the pilot view: a member with only read, flight and
+ *   discrepancy permissions keeps flight and problem-report tools and sees no
+ *   maintenance or administration screens.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
+import { test, expect, type Page } from "@playwright/test";
+
 test("pilot view keeps flight and discrepancy tools while hiding maintenance management", async ({
   page,
 }) => {
@@ -9,45 +17,7 @@ test("pilot view keeps flight and discrepancy tools while hiding maintenance man
   await expect(
     page.getByRole("heading", { name: "Your fleet, at a glance." }),
   ).toBeVisible();
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const r = indexedDB.open("angel-one-v1");
-        r.onsuccess = () => {
-          const db = r.result,
-            tx = db.transaction("snapshots", "readwrite"),
-            cursor = tx.objectStore("snapshots").openCursor();
-          cursor.onsuccess = () => {
-            const entry = cursor.result;
-            if (!entry) return;
-            const s = entry.value;
-            s.groups.push({
-              id: "pilot-only",
-              name: "Pilots",
-              programUuid: "demo-program",
-              aircraftIds: [],
-              permissions: ["read", "flight", "discrepancy"],
-            });
-            s.user = {
-              ...s.user,
-              isAdmin: false,
-              groupIds: ["pilot-only"],
-              activeProgramUuid: "demo-program",
-            };
-            s.members = s.members.map((m: { id: string }) =>
-              m.id === s.user.id ? s.user : m,
-            );
-            entry.update(s);
-            entry.continue();
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      }),
-  );
+  await becomePilot(page);
   await page.reload();
   for (const name of [
     "Flight log",
@@ -102,3 +72,47 @@ test("pilot view keeps flight and discrepancy tools while hiding maintenance man
     page.getByRole("button", { name: "Request parts", exact: true }),
   ).toHaveCount(0);
 });
+
+/**
+ * Makes the signed-in demo user a non-administrator in one Pilots group with
+ * read, flight and discrepancy permissions, in every stored snapshot.
+ */
+async function becomePilot(page: Page) {
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value;
+      s.groups.push({
+        id: "pilot-only",
+        name: "Pilots",
+        programUuid: "demo-program",
+        aircraftIds: [],
+        permissions: ["read", "flight", "discrepancy"],
+      });
+      s.user = {
+        ...s.user,
+        isAdmin: false,
+        groupIds: ["pilot-only"],
+        activeProgramUuid: "demo-program",
+      };
+      s.members = s.members.map((m: { id: string }) =>
+        m.id === s.user.id ? s.user : m,
+      );
+      entry.update(s);
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+}

@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins administration's refusals, their messages and class,
- *   and the new-aircraft checks the aircraft schema makes first.
+ *   account names counted after trimming, and the new-aircraft checks the
+ *   aircraft schema makes first.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/admin.ts, convex/schema.ts, src/data/demo.ts (fixture).
  */
@@ -313,6 +314,58 @@ it("shows every administration refusal to the user as a ConvexError", async () =
       name: "ConvexError",
       data: message,
     });
+});
+
+it("counts an account name after trimming, as it is stored", async () => {
+  const { t, ids, system } = await fixture();
+  const password = "Tarmac-sunrise gauge 4417";
+  const padded = (length: number) => ` ${"x".repeat(length)} `;
+  const created = await system.action(api.admin.createUser, {
+    email: "new@example.test",
+    name: padded(150),
+    password,
+  });
+  const member = { id: ids.member.id, active: true, isAdmin: false };
+  await system.mutation(api.admin.updateUser, {
+    ...member,
+    groupIds: [ids.crew],
+    name: padded(150),
+  });
+  const names = await t.run(async (ctx) => [
+    (await ctx.db.get(created as Id<"users">))?.name,
+    (await ctx.db.get(ids.member.id))?.name,
+  ]);
+  expect(names).toEqual(["x".repeat(150), "x".repeat(150)]);
+  const tooLong = [
+    system.action(api.admin.createUser, {
+      email: "long@example.test",
+      name: padded(151),
+      password,
+    }),
+    system.mutation(api.admin.updateUser, {
+      ...member,
+      groupIds: [ids.crew],
+      name: padded(151),
+    }),
+  ];
+  expect(await Promise.all(tooLong.map(refusal))).toMatchObject([
+    { data: "A valid email and name are required." },
+    { data: "Enter a name of up to 150 characters." },
+  ]);
+});
+
+// Characterizes current behaviour: programUsers.create trims the email.
+it("refuses a new account's email typed with spaces around it", async () => {
+  const { system } = await fixture();
+  const run = system.action(api.admin.createUser, {
+    email: " spaced@example.test",
+    name: "Spaced",
+    password: "Tarmac-sunrise gauge 4417",
+  });
+  expect(await refusal(run)).toMatchObject({
+    name: "ConvexError",
+    data: "A valid email and name are required.",
+  });
 });
 
 it("refuses the first administrator without the password variable, as a ConvexError", async () => {

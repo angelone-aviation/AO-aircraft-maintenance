@@ -1,10 +1,11 @@
 /**
  * Responsibility: Prints a parts request, repair order or packing slip as a
  *   PDF.
- * Layer: Data. Browser-side jsPDF rendering; no React.
- * Dependencies: jspdf, src/domain/partsRequests.ts, src/domain/model.ts.
+ * Layer: Data. Browser-side PDF document; no React.
+ * Dependencies: src/data/pdfLayout.ts, src/domain/partsRequests.ts,
+ *   src/domain/model.ts.
  */
-import { jsPDF } from "jspdf";
+import { paragraphPdf, type Paragraph } from "./pdfLayout";
 import {
   requestPurchases,
   type PartsRequest,
@@ -13,16 +14,8 @@ import {
 } from "../domain/partsRequests";
 import type { Snapshot } from "../domain/model";
 
-const MARGIN_MM = 17;
-const TOP_MM = 18;
-const TEXT_WIDTH_MM = 176;
-const LAST_LINE_MM = 275;
-const LINE_MM = 6;
-const PARAGRAPH_GAP_MM = 2;
-const BOLD_FONT_PT = 12;
-const BODY_FONT_PT = 10;
-
-type Page = { doc: jsPDF; y: number };
+const SECONDS_PER_HOUR = 3600;
+const CENTS_PER_UNIT = 100;
 
 /**
  * Lays out a parts request for the vendor: its details, each line with the
@@ -40,22 +33,21 @@ export function requestPdf(
   s: Snapshot,
   kind: "request" | "packing",
 ) {
-  const page: Page = { doc: new jsPDF(), y: TOP_MM };
   const purchases = (
     s.partsRequestPurchases ?? requestPurchases(s.purchaseOrders ?? [])
   ).filter((p) => p.requestUuid === r.uuid);
-  writeDetails(page, r, kind, purchases);
-  for (const l of r.lines) writeRequestLine(page, s, r, l, purchases);
-  writeText(page, `Notes: ${r.notes}`);
-  if (r.mode === "repair") {
-    writeText(page, `Shipping instructions: ${r.shippingInstructions}`);
-    writeText(page, `Return instructions: ${r.returnInstructions}`);
-  }
-  writeText(
-    page,
-    "Prepared / checked by: ____________________    Date: ______________",
-  );
-  return page.doc;
+  const out = listDetails(r, kind, purchases);
+  for (const l of r.lines) out.push(...listLineParagraphs(s, r, l, purchases));
+  out.push({ text: `Notes: ${r.notes}` });
+  if (r.mode === "repair")
+    out.push(
+      { text: `Shipping instructions: ${r.shippingInstructions}` },
+      { text: `Return instructions: ${r.returnInstructions}` },
+    );
+  out.push({
+    text: "Prepared / checked by: ____________________    Date: ______________",
+  });
+  return paragraphPdf(out);
 }
 
 function documentTitle(r: PartsRequest, kind: "request" | "packing"): string {
@@ -63,97 +55,80 @@ function documentTitle(r: PartsRequest, kind: "request" | "packing"): string {
   return r.mode === "repair" ? "REPAIR ORDER / TAG" : "PARTS ORDER REQUEST";
 }
 
-function writeDetails(
-  page: Page,
+function listDetails(
   r: PartsRequest,
   kind: "request" | "packing",
   purchases: RequestPurchase[],
-): void {
+): Paragraph[] {
   const required = r.requiredBy || r.timeframe || "Not specified";
   const orders = [...new Set(purchases.map((p) => p.number))].join(", ");
-  writeText(page, `${documentTitle(r, kind)} ${r.number}`, true);
-  writeText(
-    page,
-    `Date: ${r.date} | Engineer: ${r.engineer} | Inventory location: ${r.base}`,
+  const out: Paragraph[] = [
+    { text: `${documentTitle(r, kind)} ${r.number}`, bold: true },
+    {
+      text: `Date: ${r.date} | Engineer: ${r.engineer} | Inventory location: ${r.base}`,
+    },
+    {
+      text: `Aircraft: ${r.aircraftRegistration || "Stock"} | S/N: ${r.aircraftSerial} | ${r.aircraftModel} | Year: ${r.aircraftYear}`,
+    },
+    { text: `Source: ${r.sourceLabel}` },
+    { text: `Priority: ${r.priority} | Required by: ${required}` },
+    { text: `To / vendor: ${r.vendor || "Not assigned"}` },
+  ];
+  if (r.vendorAddress) out.push({ text: r.vendorAddress });
+  if (kind === "packing")
+    out.push({ text: `From: ${r.shipFrom}` }, { text: `Bill to: ${r.billTo}` });
+  out.push(
+    { text: `Deliver / return to: ${r.shipTo}` },
+    { text: `Purchase orders: ${orders || "Not yet ordered"}` },
   );
-  writeText(
-    page,
-    `Aircraft: ${r.aircraftRegistration || "Stock"} | S/N: ${r.aircraftSerial} | ${r.aircraftModel} | Year: ${r.aircraftYear}`,
-  );
-  writeText(page, `Source: ${r.sourceLabel}`);
-  writeText(page, `Priority: ${r.priority} | Required by: ${required}`);
-  writeText(page, `To / vendor: ${r.vendor || "Not assigned"}`);
-  if (r.vendorAddress) writeText(page, r.vendorAddress);
-  if (kind === "packing") {
-    writeText(page, `From: ${r.shipFrom}`);
-    writeText(page, `Bill to: ${r.billTo}`);
-  }
-  writeText(page, `Deliver / return to: ${r.shipTo}`);
-  writeText(page, `Purchase orders: ${orders || "Not yet ordered"}`);
+  return out;
 }
 
-function writeRequestLine(
-  page: Page,
+function listLineParagraphs(
   s: Snapshot,
   r: PartsRequest,
   l: RequestLine,
   purchases: RequestPurchase[],
-): void {
-  writeText(
-    page,
-    `${l.partNumber} — ${l.description} | Qty ${l.quantity}`,
-    true,
-  );
-  writeText(
-    page,
-    `Alternate P/N: ${l.alternateNumber || "None"} | IPC reference: ${l.ipcReference || "Not specified"}`,
-  );
-  if (r.mode === "repair") writeRepairDetails(page, r, l);
+): Paragraph[] {
+  const out: Paragraph[] = [
+    {
+      text: `${l.partNumber} — ${l.description} | Qty ${l.quantity}`,
+      bold: true,
+    },
+    {
+      text: `Alternate P/N: ${l.alternateNumber || "None"} | IPC reference: ${l.ipcReference || "Not specified"}`,
+    },
+  ];
+  if (r.mode === "repair") out.push(...listRepairDetails(r, l));
   for (const p of purchases.filter((p) => p.lineUuid === l.uuid)) {
     const buyer =
       (s.members ?? []).find((m) => m.id === p.purchasedBy)?.name ??
       p.purchasedBy;
-    writeText(
-      page,
-      `${p.number} | Qty ${p.quantity} | Received ${p.received} | Purchased ${p.purchasedDate || "Pending"} by ${buyer}`,
-    );
+    out.push({
+      text: `${p.number} | Qty ${p.quantity} | Received ${p.received} | Purchased ${p.purchasedDate || "Pending"} by ${buyer}`,
+    });
   }
+  return out;
 }
 
-function writeRepairDetails(page: Page, r: PartsRequest, l: RequestLine): void {
+function listRepairDetails(r: PartsRequest, l: RequestLine): Paragraph[] {
   const tag = `${r.number}-${r.lines.indexOf(l) + 1}`;
-  const cost = (l.quotedCents / 100).toFixed(2);
-  writeText(
-    page,
-    `Repair tag: ${tag} | Serial / batch: ${l.componentSerial || "Not recorded"}`,
-  );
-  writeText(
-    page,
-    `TSN: ${formatHours(l.componentTSN)} h | TSO: ${formatHours(l.componentTSO)} h`,
-  );
-  writeText(
-    page,
-    `Service: ${l.service} | Estimated cost: ${r.currency} ${cost}`,
-  );
-  writeText(page, `Defect: ${l.defect}`);
-  writeText(page, `Work requested: ${l.workRequested}`);
+  const cost = (l.quotedCents / CENTS_PER_UNIT).toFixed(2);
+  return [
+    {
+      text: `Repair tag: ${tag} | Serial / batch: ${l.componentSerial || "Not recorded"}`,
+    },
+    {
+      text: `TSN: ${formatHours(l.componentTSN)} h | TSO: ${formatHours(l.componentTSO)} h`,
+    },
+    { text: `Service: ${l.service} | Estimated cost: ${r.currency} ${cost}` },
+    { text: `Defect: ${l.defect}` },
+    { text: `Work requested: ${l.workRequested}` },
+  ];
 }
 
 function formatHours(seconds: number | null | undefined): string {
-  return seconds == null ? "Not recorded" : (seconds / 3600).toFixed(1);
-}
-
-function writeText(page: Page, value: string, bold = false): void {
-  const { doc } = page;
-  doc.setFont("helvetica", bold ? "bold" : "normal");
-  doc.setFontSize(bold ? BOLD_FONT_PT : BODY_FONT_PT);
-  for (const row of doc.splitTextToSize(value, TEXT_WIDTH_MM)) {
-    if (page.y > LAST_LINE_MM) {
-      doc.addPage();
-      page.y = TOP_MM;
-    }
-    doc.text(row, MARGIN_MM, page.y);
-    page.y += LINE_MM;
-  }
-  page.y += PARAGRAPH_GAP_MM;
+  return seconds == null
+    ? "Not recorded"
+    : (seconds / SECONDS_PER_HOUR).toFixed(1);
 }
