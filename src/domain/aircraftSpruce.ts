@@ -24,6 +24,11 @@ export const ORDER_NUMBER_MAX_LENGTH = 100;
 export const USERID_MAX_LENGTH = 100;
 /** The longest password or API key {@link spruceCredentials} accepts. */
 export const SECRET_MAX_LENGTH = 500;
+/**
+ * The vendor an order or request without one takes when a line is mapped to
+ * an Aircraft Spruce product.
+ */
+export const SPRUCE_VENDOR_NAME = "Aircraft Spruce";
 
 // Product links are rendered, so only https links to the supplier's own sites
 // are kept.

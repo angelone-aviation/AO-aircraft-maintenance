@@ -562,6 +562,24 @@ describe("purchase order editor", () => {
     expect(render()).not.toContain("Aircraft Spruce:");
   });
 
+  it("gives a draft without a vendor Aircraft Spruce for a chosen product", () => {
+    const choose = () =>
+      (
+        ui.stubs.get("SpruceProductPicker")!.onSelect as (
+          ...a: unknown[]
+        ) => void
+      )({ partNumber: "SPR", uom: "EA", currency: "USD", catalogAt: 1 });
+    open({ ...draft(), vendor: "" });
+    choose();
+    render();
+    expect(vendorPicker().value).toBe("Aircraft Spruce");
+    vendorPicker().onChange("Bolt Co");
+    render();
+    choose();
+    render();
+    expect(vendorPicker().value).toBe("Bolt Co");
+  });
+
   it("quick-adds a vendor with a change-log reason", async () => {
     open({ ...draft(), vendor: "" });
     await vendorPicker().onAdd("New Co", true);

@@ -5,8 +5,9 @@
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, backend type; poPdf and partsRequestPdf on demand),
  *   src/domain (model, vendors, management, addresses, programs,
- *   purchaseOrders, aircraftSpruce, costs/units), ./AircraftSpruce, ./Vendors,
- *   ./CoreReturns, ./SavedAddresses, ./ShopList, ./ui, ./design, CSS.
+ *   purchaseOrders, purchaseOrderRules, aircraftSpruce, costs/units),
+ *   ./AircraftSpruce, ./Vendors, ./CoreReturns, ./SavedAddresses, ./ShopList,
+ *   ./ui, ./design, CSS.
  */
 import { SpruceProductPicker, SpruceOrderProgress } from "./AircraftSpruce";
 import { localDate, type Snapshot } from "../domain/model";
@@ -15,7 +16,10 @@ import { vendorDirectory, vendorKey } from "../domain/vendors";
 import type { Location, Vendor } from "../domain/management";
 import { SavedAddressPicker } from "./SavedAddresses";
 import { formatAddress } from "../domain/addresses";
-import type { SpruceProduct } from "../domain/aircraftSpruce";
+import {
+  SPRUCE_VENDOR_NAME,
+  type SpruceProduct,
+} from "../domain/aircraftSpruce";
 import { CENTS_PER_DOLLAR } from "../domain/costs/units";
 import { useState, useEffect, type CSSProperties } from "react";
 import { Link } from "@tanstack/react-router";
@@ -24,7 +28,6 @@ import type { Backend } from "../data/backend";
 import { programPermission } from "../domain/programs";
 import {
   poAttachmentRemovable,
-  poDraftSchema,
   poStatus,
   poTotal,
   received,
@@ -37,6 +40,15 @@ import {
   type POLine,
   type POCommand,
 } from "../domain/purchaseOrders";
+import {
+  CURRENCY_CODE_LENGTH,
+  CURRENCY_CODE_PATTERN,
+  MAX_CORE_DUE_DAYS,
+  PO_STATUSES,
+  deliveryOverdue,
+  draftsToSave,
+  inspectionShortfalls,
+} from "../domain/purchaseOrderRules";
 import type { Inspection } from "../domain/model";
 import { AsyncForm, DeleteFileButton, Modal, Field, errorText } from "./ui";
 import {
@@ -59,26 +71,7 @@ import {
 import "./purchaseOrders.css";
 import { CoreReturns } from "./CoreReturns";
 
-/** Every status `poStatus` reports, in the order the filter lists them. */
-const PO_STATUSES = [
-  "Draft",
-  "Issued",
-  "Partially shipped",
-  "Shipped",
-  "Partially received",
-  "Received",
-  "Closed",
-  "Cancelled",
-];
 const ORDER_TABLE_STYLE = { "--shop-table-min": "860px" } as CSSProperties;
-// A draft without a vendor takes this one when an Aircraft Spruce product is
-// chosen.
-const SPRUCE_VENDOR = "Aircraft Spruce";
-// Three capital letters, as poDraftSchema requires of a currency code.
-const CURRENCY_LENGTH = 3;
-const CURRENCY_PATTERN = "[A-Z]{3}";
-// poLineSchema's limit on an exchange line's core due days.
-const MAX_CORE_DUE_DAYS = 365;
 // The preview tab reads the PDF through this URL, so it must outlive the load.
 const PREVIEW_URL_LIFETIME_MS = 60_000;
 // A component receipt takes one serial row per unit; this caps the rows.
@@ -234,7 +227,14 @@ export function POEditor({ initial, onDone, inspection }: POEditorProps) {
       submitLabel={editor.target ? "Add to draft PO" : "Save draft PO"}
       disabled={!editor.writable}
       onSubmit={async () => {
-        const drafts = draftsToSave(editor, initial);
+        const drafts = draftsToSave({
+          draft: editor.draft,
+          initial,
+          lineVendors: editor.vendors,
+          vendors: editor.vendorOptions,
+          target: editor.target,
+          orders: editor.s.purchaseOrders ?? [],
+        });
         await editor.backend!.purchaseOrder({
           kind: "save",
           requestUuid: editor.requestUuid,
@@ -362,7 +362,7 @@ function OrderStats({ orders }: { orders: PurchaseOrder[] }) {
   const open = orders.filter(
     (p) => p.phase === "issued" && poStatus(p) !== "Received",
   ).length;
-  const late = orders.filter(deliveryOverdue).length;
+  const late = orders.filter((p) => deliveryOverdue(p, localDate())).length;
   return (
     <StatsStrip className="shop-stats">
       <StatTile label="Drafts" value={drafts} />
@@ -492,7 +492,7 @@ function OrderRowFigures({ po: p }: { po: PurchaseOrder }) {
     <>
       <td data-label="Expected">
         <span className="shop-nowrap">{p.expectedDate || "—"}</span>
-        {deliveryOverdue(p) && (
+        {deliveryOverdue(p, localDate()) && (
           <strong className="shop-overdue">
             <Warning size={15} weight="bold" aria-hidden="true" />
             Delivery overdue
@@ -701,8 +701,8 @@ function OrderTermsFields({ editor }: { editor: Editor }) {
       <Field label="Currency">
         <input
           required
-          maxLength={CURRENCY_LENGTH}
-          pattern={CURRENCY_PATTERN}
+          maxLength={CURRENCY_CODE_LENGTH}
+          pattern={CURRENCY_CODE_PATTERN}
           value={draft.currency}
           onChange={(e) => patch({ currency: e.target.value.toUpperCase() })}
         />
@@ -770,7 +770,10 @@ function LineSupplier({ editor, line: l }: { editor: Editor; line: POLine }) {
         currency={editor.draft.currency}
         onSelect={(product, cents) => {
           editor.linePatch(l.uuid, spruceChange(l, product, cents));
-          editor.setDraft((d) => ({ ...d, vendor: d.vendor || SPRUCE_VENDOR }));
+          editor.setDraft((d) => ({
+            ...d,
+            vendor: d.vendor || SPRUCE_VENDOR_NAME,
+          }));
         }}
       />
       {l.sprucePart && (
@@ -1982,59 +1985,19 @@ function matchesFilters(p: PurchaseOrder, search: string, status: string) {
   );
 }
 
-// Overdue: issued, its expected date has passed, and something is still to
-// arrive.
-function deliveryOverdue(p: PurchaseOrder) {
-  return (
-    p.phase === "issued" &&
-    !!p.expectedDate &&
-    p.expectedDate < localDate() &&
-    p.lines.some((l) => outstanding(p, l) > 0)
-  );
-}
-
 function inspectionLines(s: Snapshot, inspection: Inspection): POLine[] {
-  return inspection.requiredParts!.flatMap((r) => {
-    const stock = s.management?.find(
-      (x) => x.kind === "stock" && x.uuid === r.stockUuid,
-    );
-    if (!stock || stock.kind !== "stock") return [];
-    return [
-      {
-        ...freshLine(),
-        stockUuid: stock.uuid,
-        locationUuid: stock.locationUuid,
-        partNumber: stock.partNumber,
-        description: stock.description,
-        kind: stock.category,
-        quantity: Math.max(
-          0,
-          r.quantity -
-            stock.quantity -
-            onOrder(s, stock.uuid) -
-            plannedForInspection(s, inspection.uuid, stock.uuid),
-        ),
-        unitCents: toCents(stock.cost ?? 0),
-        inspectionUuid: inspection.uuid,
-        aircraftUuid: inspection.aircraftUuid,
-      },
-    ];
-  });
-}
-
-// Units of a stock item already on this inspection's draft orders.
-function plannedForInspection(
-  s: Snapshot,
-  inspectionUuid: string,
-  stockUuid: string,
-) {
-  return (s.purchaseOrders ?? [])
-    .filter((p) => p.phase === "draft")
-    .flatMap((p) => p.lines)
-    .filter(
-      (l) => l.inspectionUuid === inspectionUuid && l.stockUuid === stockUuid,
-    )
-    .reduce((n, l) => n + l.quantity, 0);
+  return inspectionShortfalls(s, inspection).map(({ stock, quantity }) => ({
+    ...freshLine(),
+    stockUuid: stock.uuid,
+    locationUuid: stock.locationUuid,
+    partNumber: stock.partNumber,
+    description: stock.description,
+    kind: stock.category,
+    quantity,
+    unitCents: toCents(stock.cost ?? 0),
+    inspectionUuid: inspection.uuid,
+    aircraftUuid: inspection.aircraftUuid,
+  }));
 }
 
 function locationAddress(locations: Location[], uuid: string) {
@@ -2167,108 +2130,6 @@ function vendorFields(vendor: Vendor) {
 // One vendor per name; a vendor added while editing replaces the directory's.
 function uniqueVendors(vendors: Vendor[]) {
   return [...new Map(vendors.map((v) => [vendorKey(v.name), v])).values()];
-}
-
-// Lines with a quantity, grouped into one draft per vendor, or added to the
-// chosen existing draft.
-function draftsToSave(editor: Editor, initial: PODraft): PODraft[] {
-  const { draft, vendors } = editor;
-  const positive = draft.lines.filter((l) => l.quantity > 0);
-  if (!positive.length)
-    throw Error("Select at least one part quantity to purchase.");
-  if (initial.version && Object.values(vendors).some(Boolean))
-    throw Error("A saved PO must stay with one vendor.");
-  const grouped = groupByVendor(editor, positive);
-  // One shipping charge cannot be divided between vendors' orders.
-  if (grouped.size > 1 && draft.shippingCents > 0)
-    throw Error(
-      "Set shipping cost to zero here, then enter each vendor’s shipping charge on its separate draft PO.",
-    );
-  if (editor.target) return [addToExisting(editor, grouped, positive)];
-  return [...grouped.values()].map((lines, index) =>
-    vendorDraft(editor, initial, lines, index, grouped.size),
-  );
-}
-
-function groupByVendor(editor: Editor, lines: POLine[]) {
-  const grouped = new Map<string, POLine[]>();
-  for (const line of lines) {
-    const vendor = lineVendorName(editor, line).trim();
-    if (!vendor) throw Error("Select a vendor for each part.");
-    if (!findVendor(editor, vendor))
-      throw Error(
-        `Add vendor “${vendor}” using Quick add or Add vendor before saving.`,
-      );
-    const key = vendor.toLowerCase();
-    grouped.set(key, [...(grouped.get(key) ?? []), line]);
-  }
-  return grouped;
-}
-
-function addToExisting(
-  editor: Editor,
-  grouped: Map<string, POLine[]>,
-  lines: POLine[],
-) {
-  const { draft } = editor;
-  const existing = editor.s.purchaseOrders?.find(
-    (p) => p.uuid === editor.target && p.phase === "draft",
-  );
-  if (
-    !existing ||
-    grouped.size !== 1 ||
-    !grouped.has(existing.vendor.toLowerCase())
-  )
-    throw Error("An existing draft must match the selected vendor.");
-  if (existing.shipTo.trim() !== draft.shipTo.trim())
-    throw Error("Ship-to must match the existing draft.");
-  if (existing.currency !== draft.currency)
-    throw Error("Currency must match the existing draft.");
-  return poDraftSchema.parse({
-    ...existing,
-    lines: [...existing.lines, ...lines],
-  });
-}
-
-// Each further vendor's draft takes the draft uuid with a "-<n>" suffix.
-function vendorDraft(
-  editor: Editor,
-  initial: PODraft,
-  lines: POLine[],
-  index: number,
-  vendorCount: number,
-) {
-  const { draft } = editor;
-  const vendor = findVendor(editor, lineVendorName(editor, lines[0]))!;
-  return poDraftSchema.parse({
-    ...draft,
-    uuid: index === 0 ? draft.uuid : `${draft.uuid}-${index}`,
-    vendor: vendor.name,
-    vendorUuid: vendor.uuid || undefined,
-    lines,
-    shippingCents: vendorCount > 1 ? 0 : draft.shippingCents,
-    vendorContact: vendorContact(vendor, initial),
-    vendorAddressDetails: vendor.addressDetails,
-  });
-}
-
-function lineVendorName(editor: Editor, line: POLine) {
-  return editor.vendors[line.uuid] || editor.draft.vendor;
-}
-
-function findVendor(editor: Editor, name: string) {
-  return editor.vendorOptions.find(
-    (v) => vendorKey(v.name) === vendorKey(name),
-  );
-}
-
-// A directory address replaces the contact; otherwise a saved order keeps
-// the contact typed for its own vendor.
-function vendorContact(vendor: Vendor, initial: PODraft) {
-  if (vendor.addressDetails) return formatAddress(vendor.addressDetails);
-  return vendorKey(vendor.name) === vendorKey(initial.vendor)
-    ? initial.vendorContact
-    : "";
 }
 
 function actionTitle(action: OrderAction) {
