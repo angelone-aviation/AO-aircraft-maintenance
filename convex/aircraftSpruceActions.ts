@@ -1,53 +1,67 @@
+/**
+ * Responsibility: The calls that reach Aircraft Spruce: link a Flight
+ *   Program's login, refresh and search its catalog, sync a PO's order lines.
+ * Layer: Server. Public actions; aircraftSpruce.ts authorizes, charges the
+ *   hourly allowances and stores every result.
+ * Dependencies: convex/aircraftSpruce, convex/spruceHttp, convex/secrets,
+ *   convex/secretsMigration, convex/userErrors, src/domain/aircraftSpruce,
+ *   convex/values.
+ *
+ * A Rejection from the domain's CSV, catalog and order checks reaches the
+ * user as a ConvexError.
+ */
 "use node";
 import { action, type ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
+import type { z } from "zod";
 import {
   spruceCredentials,
   csvRecords,
   catalogSearch,
   orderFields,
   parseOrders,
+  type SpruceOrderRow,
   type SpruceProduct,
 } from "../src/domain/aircraftSpruce";
 import { downloadSpruce } from "./spruceHttp";
 import { sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
-type StoredCredentials = {
-  userid: string;
-  password: string;
-  apikey: string;
-  currency: string;
-};
-const spruceSecret = (programUuid: string, field: string): SecretContext => ({
-  table: "spruceAccounts",
-  programUuid,
-  field,
-});
-const openCredentials = async (
-  ctx: ActionCtx,
-  programUuid: string,
-  c: StoredCredentials,
-) => ({
-  userid: await openStoredSecret(
-    ctx,
-    c.userid,
-    spruceSecret(programUuid, "userid"),
-  ),
-  password: await openStoredSecret(
-    ctx,
-    c.password,
-    spruceSecret(programUuid, "password"),
-  ),
-  apikey: await openStoredSecret(
-    ctx,
-    c.apikey,
-    spruceSecret(programUuid, "apikey"),
-  ),
-  currency: c.currency,
-});
+import { exposeRejections } from "./userErrors";
 
+type SpruceCredentials = z.infer<typeof spruceCredentials>;
+// The same fields, each sealed by convex/secrets.
+type StoredCredentials = SpruceCredentials;
+type SecretField = "userid" | "password" | "apikey";
+
+const MIN_SEARCH_LENGTH = 2;
+const MAX_SEARCH_LENGTH = 200;
+const MAX_ORDER_NUMBER_LENGTH = 100;
+
+// The synced lines are stored in one spruceOrders document, and Convex limits
+// a document to 1 MiB.
+const MAX_ORDER_ROWS_JSON_LENGTH = 500_000;
+
+// Catalog blobs are immutable per storage id (refresh stores a new one), so a
+// warm isolate can reuse the last download instead of fetching up to 50 MB.
+// ponytail: one entry; the CSV is still parsed per search inside catalogSearch.
+let catalogCache: { id: string; text: string } | undefined;
+
+/**
+ * Links a Flight Program to an Aircraft Spruce login, once a small export
+ * proves the login works. Replaces any earlier login and drops its catalog.
+ *
+ * @param programUuid - The active Flight Program.
+ * @param version - The account version the form was loaded with.
+ * @param userid - The login's user id; `password`, `apikey` and `currency`
+ *   complete it, as `spruceCredentials` accepts them.
+ * @returns null. Spends one of the program's hourly account checks, stores the
+ *   credentials sealed and audits `spruce.account.linked`.
+ * @throws {ConvexError} "Account changed. Reload before saving." for a stale
+ *   version, before anything is spent; the allowance's or the download's
+ *   refusal. Access and validation errors from aircraftSpruce.ts and zod.
+ */
 export const link = action({
   args: {
     programUuid: v.string(),
@@ -69,35 +83,8 @@ export const link = action({
       kind: "link",
     });
     // Fail closed before contacting the provider if encryption is unavailable.
-    const sealed = {
-      userid: await sealSecret(
-        credentials.userid,
-        spruceSecret(args.programUuid, "userid"),
-      ),
-      password: await sealSecret(
-        credentials.password,
-        spruceSecret(args.programUuid, "password"),
-      ),
-      apikey: await sealSecret(
-        credentials.apikey,
-        spruceSecret(args.programUuid, "apikey"),
-      ),
-      currency: credentials.currency,
-    };
-    const date = new Date();
-    const format = (d: Date) =>
-      `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}/${d.getUTCFullYear()}`;
-    const end = new Date(date);
-    end.setUTCDate(end.getUTCDate() + 1);
-    const csv = await downloadSpruce("orders", credentials, {
-      order_from: format(date),
-      order_to: format(end),
-      fields: ["ORN"],
-    });
-    // Empty results are valid; the provider must still supply the requested header.
-    for (const _row of csvRecords(csv, ["ORN"])) {
-      /* Validate response. */
-    }
+    const sealed = await sealCredentials(args.programUuid, credentials);
+    await exposeRejections(assertLoginWorks(credentials));
     await ctx.runMutation(internal.aircraftSpruce.commitAccount, {
       programUuid: args.programUuid,
       version: args.version,
@@ -106,6 +93,19 @@ export const link = action({
     return null;
   },
 });
+
+/**
+ * Downloads the linked account's full catalog and makes it the program's
+ * searchable catalog.
+ *
+ * @param programUuid - The active Flight Program.
+ * @returns How many products the catalog holds. Spends one of the program's
+ *   hourly catalog refreshes and replaces the stored catalog file.
+ * @throws {ConvexError} "Link Aircraft Spruce for this Flight Program first.";
+ *   "Catalog contains an empty part number."; "Catalog is empty. Previous
+ *   catalog retained."; the allowance's or the download's refusal. A refused
+ *   commit deletes the new file and keeps the previous catalog.
+ */
 export const refresh = action({
   args: { programUuid: v.string() },
   handler: async (ctx, args): Promise<number> => {
@@ -126,17 +126,7 @@ export const refresh = action({
       "products",
       await openCredentials(ctx, args.programUuid, account.credentials),
     );
-    let count = 0;
-    for (const row of csvRecords(csv, [
-      "PN",
-      "DESCRIPTION",
-      "NETPRICE",
-      "UOM",
-    ])) {
-      if (!row.PN)
-        throw new ConvexError("Catalog contains an empty part number.");
-      count++;
-    }
+    const count = exposeRejections(() => countCatalogProducts(csv));
     if (!count)
       throw new ConvexError("Catalog is empty. Previous catalog retained.");
     const storageId = await ctx.storage.store(
@@ -151,29 +141,35 @@ export const refresh = action({
         at,
       });
     } catch (e) {
+      // File storage is outside the mutation's transaction.
       await ctx.storage.delete(storageId);
       throw e;
     }
     return count;
   },
 });
-// Catalog blobs are immutable per storage id (refresh stores a new one), so a
-// warm isolate can reuse the last download instead of fetching up to 50 MB.
-// ponytail: one entry; the CSV is still parsed per search inside catalogSearch.
-let catalogCache: { id: string; text: string } | undefined;
-async function catalogText(ctx: ActionCtx, id: Id<"_storage">) {
-  if (catalogCache?.id === id) return catalogCache.text;
-  const file = await ctx.storage.get(id);
-  if (!file)
-    throw new ConvexError("Catalog unavailable. Refresh under Vendors.");
-  catalogCache = { id, text: await file.text() };
-  return catalogCache.text;
-}
+
+/**
+ * Searches the program's stored catalog; it never contacts Aircraft Spruce.
+ *
+ * @param programUuid - The active Flight Program.
+ * @param search - 2–200 characters, at least 2 once trimmed.
+ * @returns Up to 30 matching products, as `catalogSearch` finds them.
+ * @throws {ConvexError} "Enter 2–200 characters.", checked first; "Refresh
+ *   this program's Aircraft Spruce catalog under Vendors first."; "Catalog
+ *   unavailable. Refresh under Vendors."; "Account changed. Search again."
+ *   when the account was relinked or disconnected during the search.
+ */
 export const search = action({
   args: { programUuid: v.string(), search: v.string() },
   handler: async (ctx, args): Promise<SpruceProduct[]> => {
-    if (args.search.trim().length < 2 || args.search.length > 200)
-      throw new ConvexError("Enter 2–200 characters.");
+    if (
+      args.search.trim().length < MIN_SEARCH_LENGTH ||
+      args.search.length > MAX_SEARCH_LENGTH
+    )
+      throw new ConvexError(
+        `Enter ${MIN_SEARCH_LENGTH}–${MAX_SEARCH_LENGTH} characters.`,
+      );
     const { account } = await ctx.runQuery(internal.aircraftSpruce.access, {
       programUuid: args.programUuid,
     });
@@ -181,11 +177,10 @@ export const search = action({
       throw new ConvexError(
         "Refresh this program's Aircraft Spruce catalog under Vendors first.",
       );
-    const result = catalogSearch(
-      await catalogText(ctx, account.catalogId),
-      args.search,
-      account.credentials.currency,
-      account.catalogAt!,
+    const catalog = await readCatalog(ctx, account.catalogId);
+    const { currency } = account.credentials;
+    const result = exposeRejections(() =>
+      catalogSearch(catalog, args.search, currency, account.catalogAt!),
     );
     const latest = await ctx.runQuery(internal.aircraftSpruce.access, {
       programUuid: args.programUuid,
@@ -195,6 +190,21 @@ export const search = action({
     return result;
   },
 });
+
+/**
+ * Fetches a purchase order's supplier order lines, by an exact order number
+ * or else by the PO number, and saves them as the PO's latest sync.
+ *
+ * @param programUuid - The active Flight Program.
+ * @param poUuid - The purchase order.
+ * @param order - A supplier order number, or blank to match the PO number.
+ * @returns How many lines were saved. Spends one of the program's hourly order
+ *   syncs right after the access check; inventory and the PO stay unchanged.
+ * @throws {ConvexError} "Link an Aircraft Spruce account first."; "Enter an
+ *   exact order number."; "No matching orders found. Existing sync retained.
+ *   …"; "Order export is too large. Select an individual order."; the
+ *   allowance's or the download's refusal.
+ */
 export const sync = action({
   args: { programUuid: v.string(), poUuid: v.string(), order: v.string() },
   handler: async (ctx, args): Promise<number> => {
@@ -209,27 +219,15 @@ export const sync = action({
     );
     if (!account?.credentials || !poNumber)
       throw new ConvexError("Link an Aircraft Spruce account first.");
-    const order = args.order.trim();
-    if (order.length > 100 || /[%_]/.test(order))
-      throw new ConvexError("Enter an exact order number.");
+    const order = parseOrderNumber(args.order);
     const fetchedAt = Date.now();
     const csv = await downloadSpruce(
       "orders",
       await openCredentials(ctx, args.programUuid, account.credentials),
-      {
-        fields: orderFields,
-        ...(order ? { order } : { po: poNumber }),
-      },
+      { fields: orderFields, ...(order ? { order } : { po: poNumber }) },
     );
-    const rows = parseOrders(csv, poNumber, order);
-    if (!rows.length)
-      throw new ConvexError(
-        "No matching orders found. Existing sync retained. Check the PO number or enter the Aircraft Spruce order number.",
-      );
-    if (JSON.stringify(rows).length > 500000)
-      throw new ConvexError(
-        "Order export is too large. Select an individual order.",
-      );
+    const rows = exposeRejections(() => parseOrders(csv, poNumber, order));
+    assertOrderRowsStorable(rows);
     await ctx.runMutation(internal.aircraftSpruce.commitOrders, {
       programUuid: args.programUuid,
       poUuid: args.poUuid,
@@ -241,3 +239,103 @@ export const sync = action({
     return rows.length;
   },
 });
+
+function spruceSecret(programUuid: string, field: SecretField): SecretContext {
+  return { table: "spruceAccounts", programUuid, field };
+}
+
+async function sealCredentials(
+  programUuid: string,
+  credentials: SpruceCredentials,
+): Promise<StoredCredentials> {
+  const seal = (field: SecretField) =>
+    sealSecret(credentials[field], spruceSecret(programUuid, field));
+  return {
+    userid: await seal("userid"),
+    password: await seal("password"),
+    apikey: await seal("apikey"),
+    currency: credentials.currency,
+  };
+}
+
+async function openCredentials(
+  ctx: ActionCtx,
+  programUuid: string,
+  stored: StoredCredentials,
+): Promise<SpruceCredentials> {
+  const open = (field: SecretField) =>
+    openStoredSecret(ctx, stored[field], spruceSecret(programUuid, field));
+  return {
+    userid: await open("userid"),
+    password: await open("password"),
+    apikey: await open("apikey"),
+    currency: stored.currency,
+  };
+}
+
+// Downloads today's order numbers, the smallest real export. The export's
+// upper date bound is exclusive, hence tomorrow. An empty export is valid,
+// but its header and rows must read cleanly.
+async function assertLoginWorks(credentials: SpruceCredentials): Promise<void> {
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const csv = await downloadSpruce("orders", credentials, {
+    order_from: formatSpruceDate(today),
+    order_to: formatSpruceDate(tomorrow),
+    fields: ["ORN"],
+  });
+  for (const _row of csvRecords(csv, ["ORN"])) {
+    // csvRecords checks the header and each row as it reads them.
+  }
+}
+
+// MM/DD/YYYY, in UTC.
+function formatSpruceDate(date: Date): string {
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${month}/${day}/${date.getUTCFullYear()}`;
+}
+
+function countCatalogProducts(csv: string): number {
+  let count = 0;
+  for (const row of csvRecords(csv, ["PN", "DESCRIPTION", "NETPRICE", "UOM"])) {
+    if (!row.PN)
+      throw new ConvexError("Catalog contains an empty part number.");
+    count++;
+  }
+  return count;
+}
+
+async function readCatalog(
+  ctx: ActionCtx,
+  id: Id<"_storage">,
+): Promise<string> {
+  if (catalogCache?.id === id) return catalogCache.text;
+  const file = await ctx.storage.get(id);
+  if (!file)
+    throw new ConvexError("Catalog unavailable. Refresh under Vendors.");
+  catalogCache = { id, text: await file.text() };
+  return catalogCache.text;
+}
+
+// % is the provider's partial-match wildcard
+// (docs/aircraft-spruce-api-review.md) and _ is SQL's one-character one:
+// either could match other orders.
+function parseOrderNumber(input: string): string {
+  const order = input.trim();
+  if (order.length > MAX_ORDER_NUMBER_LENGTH || /[%_]/.test(order))
+    throw new ConvexError("Enter an exact order number.");
+  return order;
+}
+
+function assertOrderRowsStorable(rows: SpruceOrderRow[]): void {
+  if (!rows.length)
+    throw new ConvexError(
+      "No matching orders found. Existing sync retained. Check the PO number or enter the Aircraft Spruce order number.",
+    );
+  if (JSON.stringify(rows).length > MAX_ORDER_ROWS_JSON_LENGTH)
+    throw new ConvexError(
+      "Order export is too large. Select an individual order.",
+    );
+}

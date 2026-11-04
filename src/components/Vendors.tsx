@@ -1,3 +1,11 @@
+/**
+ * Responsibility: The vendor directory screen, the vendor editor, and the
+ *   vendor picker used on requests and orders.
+ * Layer: UI. React components; vendors save through the workspace backend.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/domain (management, programs, vendors),
+ *   ./AddressFields, ./ShopList, ./design, ./ui.
+ */
 import { useId, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
@@ -5,7 +13,7 @@ import { vendorSchema, type Vendor } from "../domain/management";
 import { vendorDirectory, vendorKey } from "../domain/vendors";
 import { programPermission } from "../domain/programs";
 import { AddressFields } from "./AddressFields";
-import { AsyncForm, Field } from "./ui";
+import { AsyncForm, Field, errorText } from "./ui";
 import {
   EmptyState,
   NoticeBar,
@@ -281,7 +289,7 @@ export function VendorPicker({
     try {
       await onAdd(value.trim(), quick);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to add vendor.");
+      setError(errorText(e, "Unable to add vendor."));
     } finally {
       setBusy(false);
     }

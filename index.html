@@ -1,2 +1,27 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="theme-color" content="#0b1434"/><meta name="description" content="Angel One aircraft flight and maintenance tracker"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><title>Angel One · Aircraft operations</title><script src="/theme-init.js"></script></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<!--
+  Responsibility: The app's one HTML page: metadata, icons and the root element
+    the React app mounts into.
+  Layer: UI. Vite's build entry; no inline script, which the CSP in
+    public/_headers would block.
+  Dependencies: /theme-init.js (saved theme before first paint), src/main.tsx.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1434" />
+    <meta
+      name="description"
+      content="Angel One aircraft flight and maintenance tracker"
+    />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Angel One · Aircraft operations</title>
+    <script src="/theme-init.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

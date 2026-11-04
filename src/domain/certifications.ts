@@ -1,12 +1,41 @@
+/**
+ * Responsibility: A member's FAA certificates (pilot, mechanic with ratings),
+ *   the certificate cited on a logbook entry, and the license-copy file rules.
+ * Layer: Domain. Pure zod schemas and functions; no I/O, no React.
+ * Dependencies: zod, src/domain/model.ts, src/domain/rejection.ts.
+ *
+ * Airframe, powerplant and IA were once separate records; they are now
+ * ratings on the one mechanic certificate, and old rows are folded into it.
+ */
 import { z } from "zod";
 import { localDate, type Member } from "./model";
+import { Rejection } from "./rejection";
+
+const RATING_KINDS = ["airframe", "powerplant", "ia"] as const;
+type RatingKind = (typeof RATING_KINDS)[number];
+
+const LICENSE_COPY_NAME_MAX_LENGTH = 200;
+// 5 MiB, although the refusal says "5 MB".
+const LICENSE_COPY_MAX_BYTES = 5 * 1024 * 1024;
+// A Map, not an object literal: the type is user input, and "constructor"
+// would find an inherited property instead of no entry.
+const LICENSE_COPY_EXTENSIONS = new Map<string, string[]>([
+  ["application/pdf", ["pdf"]],
+  ["image/jpeg", ["jpg", "jpeg"]],
+  ["image/png", ["png"]],
+  ["image/webp", ["webp"]],
+  ["image/heic", ["heic"]],
+  ["image/heif", ["heif"]],
+]);
+
+/** Certificate kinds a member may record, the legacy ratings included. */
 export const certificationKinds = [
   "pilot",
   "mechanic",
-  "airframe",
-  "powerplant",
-  "ia",
+  ...RATING_KINDS,
 ] as const;
+
+/** The name of each certificate kind on forms and alerts. */
 export const certificationLabels = {
   pilot: "Pilot",
   mechanic: "Certified mechanic",
@@ -14,6 +43,8 @@ export const certificationLabels = {
   powerplant: "Powerplant",
   ia: "Inspection Authorization (IA)",
 };
+
+/** The certificate type each kind is cited as on a logbook entry. */
 export const certificateTypes = {
   pilot: "Pilot",
   mechanic: "Mechanic",
@@ -21,15 +52,29 @@ export const certificateTypes = {
   powerplant: "Powerplant (P)",
   ia: "IA",
 };
+
+/**
+ * One of {@link certificationKinds}.
+ *
+ * @throws {z.ZodError} From `parse()` on any other value.
+ */
 export const certificationKindSchema = z.enum(certificationKinds);
+
 const date = z.union([z.iso.date(), z.literal("")]);
 const legacyQualificationSchema = z.object({
-  kind: z.enum(["airframe", "powerplant", "ia"]),
+  kind: z.enum(RATING_KINDS),
   number: z.string(),
   issuedOn: date,
   expiresOn: date.optional(),
   renewalDate: date.optional(),
 });
+
+/**
+ * One certificate. Dates are ISO dates or "".
+ *
+ * @throws {z.ZodError} From `parse()` on an invalid field, or "Renewal date
+ *   must be on or after the issue date."
+ */
 export const certificationSchema = z
   .object({
     kind: certificationKindSchema,
@@ -45,6 +90,14 @@ export const certificationSchema = z
   .refine((c) => !c.issuedOn || !c.renewalDate || c.renewalDate >= c.issuedOn, {
     message: "Renewal date must be on or after the issue date.",
   });
+
+/**
+ * A member's certificates, at most five and one of each kind, folded by
+ * {@link normalizeCertifications} on parse.
+ *
+ * @throws {z.ZodError} From `parse()` on an invalid certificate, or "Each
+ *   certification may be selected only once."
+ */
 export const certificationsSchema = z
   .array(certificationSchema)
   .max(5)
@@ -53,36 +106,47 @@ export const certificationsSchema = z
     "Each certification may be selected only once.",
   )
   .transform(normalizeCertifications);
+
+/** A parsed {@link certificationSchema} certificate. */
 export type Certification = z.infer<typeof certificationSchema>;
+/** One of {@link certificationKinds}. */
 export type CertificationKind = Certification["kind"];
-// Fold the earlier separate rating records into a single mechanic license.
-// Preserve original values as historical details when older records disagree.
+
+/**
+ * Folds legacy airframe, powerplant and IA rows into one mechanic
+ * certificate, keeping each row's own details in `legacyQualifications`.
+ *
+ * @param rows - Certificates as stored.
+ * @returns `rows` itself when it has no legacy row. Otherwise the pilot rows,
+ *   then one mechanic certificate built on the mechanic row: every rating any
+ *   row holds, the IA row's renewal date if it has none, and, if it has no
+ *   number, the number (and, lacking its own, the issue date) of the first
+ *   legacy row with a number.
+ */
 export function normalizeCertifications(
   rows: Certification[],
 ): Certification[] {
-  const children = rows.filter(
-    (c) => c.kind === "airframe" || c.kind === "powerplant" || c.kind === "ia",
-  );
-  if (!children.length) return rows;
+  const ratings = rows.filter(isRating);
+  if (!ratings.length) return rows;
   const parent = rows.find((c) => c.kind === "mechanic");
   const source = parent?.number
     ? parent
-    : (children.find((c) => c.number) ?? parent ?? children[0]);
+    : (ratings.find((c) => c.number) ?? parent ?? ratings[0]);
   const mechanic: Certification = {
     ...parent,
     kind: "mechanic",
     number: source.number,
     issuedOn: parent?.issuedOn || source.issuedOn,
-    airframe: parent?.airframe || children.some((c) => c.kind === "airframe"),
+    airframe: parent?.airframe || ratings.some((c) => c.kind === "airframe"),
     powerplant:
-      parent?.powerplant || children.some((c) => c.kind === "powerplant"),
-    ia: parent?.ia || children.some((c) => c.kind === "ia"),
+      parent?.powerplant || ratings.some((c) => c.kind === "powerplant"),
+    ia: parent?.ia || ratings.some((c) => c.kind === "ia"),
     renewalDate:
-      parent?.renewalDate || children.find((c) => c.kind === "ia")?.renewalDate,
+      parent?.renewalDate || ratings.find((c) => c.kind === "ia")?.renewalDate,
     legacyQualifications: [
       ...(parent?.legacyQualifications ?? []),
-      ...children.map((c) => ({
-        kind: c.kind as "airframe" | "powerplant" | "ia",
+      ...ratings.map((c) => ({
+        kind: c.kind,
         number: c.number,
         issuedOn: c.issuedOn,
         expiresOn: c.expiresOn,
@@ -92,6 +156,8 @@ export function normalizeCertifications(
   };
   return [...rows.filter((c) => c.kind === "pilot"), mechanic];
 }
+
+/** A stored copy of a member's license, without its contents. */
 export interface CertificationFile {
   id: string;
   userId: string;
@@ -101,33 +167,43 @@ export interface CertificationFile {
   size: number;
   uploadedAt: number;
 }
+
+/**
+ * The certificates a member can cite on an entry dated `asOf`: those with a
+ * number, issued on or before it or with no issue date. Expiry dates are not
+ * applied.
+ *
+ * @param user - The member; their certificates are folded first.
+ * @param asOf - The entry's local date; today by default.
+ * @returns One option per certificate in folded order, keyed by kind. A
+ *   mechanic is cited as "A&P", "Airframe (A)", "Powerplant (P)" or
+ *   "Mechanic", with " IA" added for that rating.
+ */
 export function certificateOptions(
   user: Pick<Member, "certifications">,
   asOf = localDate(),
 ) {
   return normalizeCertifications(user.certifications ?? [])
     .filter((c) => c.number && (!c.issuedOn || c.issuedOn <= asOf))
-    .map((c) => {
-      let certificateType = certificateTypes[c.kind];
-      if (c.kind === "mechanic") {
-        certificateType =
-          c.airframe && c.powerplant
-            ? "A&P"
-            : c.airframe
-              ? "Airframe (A)"
-              : c.powerplant
-                ? "Powerplant (P)"
-                : "Mechanic";
-        if (c.ia) certificateType += " IA";
-      }
-      return {
-        key: c.kind as string,
-        licenseNumber: c.number,
-        certificateType,
-      };
-    });
+    .map((c) => ({
+      key: c.kind as string,
+      licenseNumber: c.number,
+      certificateType:
+        c.kind === "mechanic"
+          ? mechanicCertificateType(c)
+          : certificateTypes[c.kind],
+    }));
 }
 
+/**
+ * The certificate printed on a member's entries: the mechanic certificate,
+ * else the pilot certificate, as {@link certificateOptions} offers them.
+ *
+ * @param user - The member; one who has never saved certificates keeps the
+ *   license number and type recorded before certificates existed.
+ * @param asOf - The entry's local date; today by default.
+ * @returns The license number and certificate type, each "" when none.
+ */
 export function memberLicense(
   user: Pick<Member, "certifications" | "licenseNumber" | "certificateType">,
   asOf?: string,
@@ -138,41 +214,52 @@ export function memberLicense(
       certificateType: user.certificateType ?? "",
     };
   const options = certificateOptions(user, asOf);
-  const chosen = [
-    "ap-ia",
-    "ap",
-    "mechanic",
-    "airframe",
-    "powerplant",
-    "ia",
-    "pilot",
-  ]
-    .map((key) => options.find((o) => o.key === key))
-    .find(Boolean);
+  const chosen =
+    options.find((o) => o.key === "mechanic") ??
+    options.find((o) => o.key === "pilot");
   return {
     licenseNumber: chosen?.licenseNumber ?? "",
     certificateType: chosen?.certificateType ?? "",
   };
 }
+
+/**
+ * Checks a license copy before upload: a PDF, JPEG, PNG, WebP, HEIC or HEIF
+ * whose extension matches its type, with a name of at most 200 characters.
+ *
+ * @param name - The file name.
+ * @param type - The file's MIME type.
+ * @param size - The file size in bytes.
+ * @throws {Rejection} "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license
+ *   copy." for any other file; "License copies must be between 1 byte and 5
+ *   MB." outside 1 byte to 5 MiB.
+ */
 export function validateCertificationFile(
   name: string,
   type: string,
   size: number,
 ) {
-  const extensions: Record<string, string[]> = {
-    "application/pdf": ["pdf"],
-    "image/jpeg": ["jpg", "jpeg"],
-    "image/png": ["png"],
-    "image/webp": ["webp"],
-    "image/heic": ["heic"],
-    "image/heif": ["heif"],
-  };
+  const extension = name.split(".").at(-1)!.toLowerCase();
   if (
     !name ||
-    name.length > 200 ||
-    !extensions[type]?.includes(name.split(".").at(-1)!.toLowerCase())
+    name.length > LICENSE_COPY_NAME_MAX_LENGTH ||
+    !LICENSE_COPY_EXTENSIONS.get(type)?.includes(extension)
   )
-    throw Error("Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.");
-  if (!Number.isSafeInteger(size) || size <= 0 || size > 5 * 1024 * 1024)
-    throw Error("License copies must be between 1 byte and 5 MB.");
+    throw new Rejection(
+      "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
+    );
+  if (!Number.isSafeInteger(size) || size <= 0 || size > LICENSE_COPY_MAX_BYTES)
+    throw new Rejection("License copies must be between 1 byte and 5 MB.");
+}
+
+function isRating(c: Certification): c is Certification & { kind: RatingKind } {
+  return (RATING_KINDS as readonly string[]).includes(c.kind);
+}
+
+function mechanicCertificateType(c: Certification): string {
+  const ia = c.ia ? " IA" : "";
+  if (c.airframe && c.powerplant) return `A&P${ia}`;
+  if (c.airframe) return certificateTypes.airframe + ia;
+  if (c.powerplant) return certificateTypes.powerplant + ia;
+  return certificateTypes.mechanic + ia;
 }

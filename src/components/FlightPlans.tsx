@@ -1,3 +1,12 @@
+/**
+ * Responsibility: The flight plans screen: importing a flight plan PDF,
+ *   reviewing and saving the parsed plan, and the saved plans and sessions.
+ * Layer: UI. React components; PDF parsing runs in src/data, loaded on demand.
+ * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
+ *   src/data/flightPlanDiagnostics.ts, src/data/flightPlanPdf.ts (on demand),
+ *   src/domain (model, flightPlans, pdf/icao), ./ui, ./design, ./OpsList,
+ *   ./FlightSession.
+ */
 import {
   flightPlanImporterVersion,
   flightPlanUploadReport,
@@ -13,7 +22,7 @@ import {
   type FlightPlan,
 } from "../domain/flightPlans";
 import type { ParsedPlan } from "../domain/pdf/icao";
-import { AsyncForm, Field, Modal, value } from "./ui";
+import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import {
   Airplane,
   AirplaneTakeoff,
@@ -103,7 +112,7 @@ export function FlightPlans() {
       setDraft(parsed);
     } catch (e) {
       setError(
-        `PDF import failed at “${stage}” (${flightPlanImporterVersion}): ${e instanceof Error ? e.message : "Unable to read PDF."}`,
+        `PDF import failed at “${stage}” (${flightPlanImporterVersion}): ${errorText(e, "Unable to read PDF.")}`,
       );
       setUploadReport(
         flightPlanUploadReport(

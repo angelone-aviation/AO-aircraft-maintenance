@@ -1,3 +1,15 @@
+/**
+ * Responsibility: Parts and repair requests: the Request parts button, the
+ *   requests screen with its editor and documents, and turning requests into
+ *   a purchase order draft.
+ * Layer: UI. React components; request rules live in src/domain.
+ * Dependencies: react, react-dom, @phosphor-icons/react, src/data/store.ts,
+ *   src/data/partsRequestPdf.ts (loaded on demand), src/domain (model,
+ *   vendors, management, addresses, programs, requiredParts, shelfLife,
+ *   partsRequests, purchaseOrders), ./Vendors, ./AircraftSpruce,
+ *   ./SavedAddresses, ./PurchaseOrders, ./ui, ./design, ./ShopList,
+ *   ./partsRequests.css.
+ */
 import { VendorPicker, newVendor } from "./Vendors";
 import { localDate } from "../domain/model";
 import { vendorDirectory, vendorKey } from "../domain/vendors";
@@ -26,7 +38,7 @@ import {
 } from "../domain/partsRequests";
 import { poLineSchema, type PODraft } from "../domain/purchaseOrders";
 import { POEditor, PODetail } from "./PurchaseOrders";
-import { AsyncForm, Field, Modal } from "./ui";
+import { AsyncForm, Field, Modal, errorText } from "./ui";
 import {
   EmptyState,
   PageHeader,
@@ -286,7 +298,7 @@ function RequestWorkspace({
         try {
           setEdit(newDraft(s, source ?? sourceOptions(s)[0].value));
         } catch (e) {
-          setError(String(e));
+          setError(errorText(e));
         }
       }}
     >
@@ -385,7 +397,7 @@ function RequestWorkspace({
                   setDraftPO(requestPODraft(s, selected));
                   setError("");
                 } catch (e) {
-                  setError(e instanceof Error ? e.message : String(e));
+                  setError(errorText(e));
                 }
               }}
             >
@@ -1276,7 +1288,7 @@ function RequestDetail({
               const { requestPdf } = await import("../data/partsRequestPdf");
               requestPdf(r, s!, "request").save(`${r.number}.pdf`);
             } catch (e) {
-              setDocError(String(e));
+              setDocError(errorText(e));
             }
           }}
         >
@@ -1294,7 +1306,7 @@ function RequestDetail({
                   `${r.number}-packing-slip.pdf`,
                 );
               } catch (e) {
-                setDocError(String(e));
+                setDocError(errorText(e));
               }
             }}
           >

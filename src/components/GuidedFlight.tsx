@@ -1,3 +1,12 @@
+/**
+ * Responsibility: The guided flight: checklists, engine start and shutdown
+ *   readings, paused flights kept on this device, and the flight log review.
+ * Layer: UI. React components; flight rules live in src/domain.
+ * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
+ *   (flightFluids, model, programs, checklists, guidedFlight, flights,
+ *   aircraftStatus), ./Checklists, ./FlightFluids, ./FlightForm,
+ *   ./FlightParts, ./AircraftStatus, ./design, ./ui.
+ */
 import { oilLevelLabel } from "../domain/flightFluids";
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../data/store";
@@ -32,6 +41,7 @@ import {
 } from "@phosphor-icons/react";
 import { aircraftStatus } from "../domain/aircraftStatus";
 import { DispatchGate, dispatchBlocked } from "./AircraftStatus";
+import { errorText } from "./ui";
 export function GuidedFlight({
   records,
   selectedChecklist,
@@ -862,11 +872,7 @@ export function GuidedFlight({
                         setReview(input);
                         setError("");
                       } catch (e) {
-                        setError(
-                          e instanceof Error
-                            ? e.message
-                            : "Check the readings.",
-                        );
+                        setError(errorText(e, "Check the readings."));
                       }
                     }}
                   >

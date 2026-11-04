@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins off-site backup records: the backup job's input
+ *   contract, retries of the same copy, the newest copy and monthly archive,
+ *   and that only system administrators read them.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/backups.
+ */
 import { convexTest } from "convex-test";
 import { expect, it } from "vitest";
 import schema from "./schema";
@@ -118,6 +125,20 @@ it("treats a retried call for the same copy as one copy", async () => {
   ).toHaveLength(1);
 });
 
+it("refuses the same copy recorded again with any other detail", async () => {
+  const { t } = await setup();
+  const same = copy();
+  await record(t, same);
+  for (const patch of [
+    { sha256: "b".repeat(64) },
+    { monthlyKey: "monthly/2026-11/x.zip.age" },
+    { envUploaded: false },
+  ])
+    await expect(record(t, { ...same, ...patch })).rejects.toThrow(
+      "This copy is already recorded with different details.",
+    );
+});
+
 it("rejects input that breaks the backup job's contract", async () => {
   const { t } = await setup();
   for (const [patch, message] of [
@@ -174,4 +195,23 @@ it("shows the newest copy only to system administrators", async () => {
   await expect(t.query(api.backups.latestOffsiteCopy, {})).rejects.toThrow(
     "An active account and session are required.",
   );
+});
+
+it("reports no monthly archive until a copy makes one, then the newest", async () => {
+  const { t, system } = await setup();
+  await record(t);
+  expect(
+    await system.query(api.backups.latestOffsiteCopy, {}),
+  ).not.toHaveProperty("monthlyCompletedAt");
+  const monthly = (daysAgo: number) => ({
+    completedAt: Date.now() - (daysAgo * 24 + 1) * hour,
+    objectKey: `daily/${daysAgo}.zip.age`,
+    monthlyKey: `monthly/${daysAgo}.zip.age`,
+  });
+  const [older, newer] = [monthly(40), monthly(10)];
+  await record(t, older);
+  await record(t, newer);
+  const latest = await system.query(api.backups.latestOffsiteCopy, {});
+  expect(latest).not.toHaveProperty("monthlyKey");
+  expect(latest?.monthlyCompletedAt).toBe(newer.completedAt);
 });

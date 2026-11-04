@@ -1,3 +1,15 @@
+/**
+ * Responsibility: The airworthiness directives screen: an aircraft's AD
+ *   register, compliance reports, FAA monitoring and imports, and AD alerts.
+ * Layer: UI. React components; AD rules live in src/domain.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/data/adImport.ts, src/data/adReport.ts (on
+ *   demand), src/domain (model, pilotView, programs, airworthiness,
+ *   adRemaining, certifications, faa, faaCandidateReview,
+ *   faaMonitoringSearch), ./ADRegister, ./ADTrackingFields,
+ *   ./ADWorkOrderButton, ./FaaKeySettings, ./FaaSearchImport, ./OpsList,
+ *   ./PartsRequests, ./RequiredParts, ./design, ./ui.
+ */
 import { ADTrackingFields } from "./ADTrackingFields";
 import { localDate } from "../domain/model";
 import { ADWorkOrderButton } from "./ADWorkOrderButton";
@@ -36,7 +48,7 @@ import {
   type StaleInitialLimit,
 } from "../domain/airworthiness";
 import { importADDocx, type ADImport } from "../data/adImport";
-import { Field, Modal, safeHref } from "./ui";
+import { Field, Modal, errorText, safeHref } from "./ui";
 import {
   Airplane,
   ArrowsClockwise,
@@ -200,7 +212,7 @@ export function Airworthiness() {
       setNotice(message);
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       return false;
     } finally {
       setBusy(false);
@@ -288,7 +300,7 @@ export function Airworthiness() {
                   const { saveADReport } = await import("../data/adReport");
                   saveADReport(state, aircraft);
                 } catch (e) {
-                  setError(String(e));
+                  setError(errorText(e));
                 }
               }}
             >
@@ -306,7 +318,7 @@ export function Airworthiness() {
                   printADReport(state, aircraft, tab);
                 } catch (e) {
                   tab?.close();
-                  setError(String(e));
+                  setError(errorText(e));
                 }
               }}
             >
@@ -1345,7 +1357,7 @@ function FaaMonitoring({
     try {
       await backend!.faaCommand(command);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }

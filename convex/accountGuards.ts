@@ -1,8 +1,14 @@
-// Helpers for account administration (issue #29). No Convex functions here.
+/**
+ * Responsibility: Shared checks and clean-ups for creating, disabling and
+ *   resetting accounts (issue #29).
+ * Layer: Server. Query and mutation helpers; no Convex functions.
+ * Dependencies: convex/values, convex/_generated (server, dataModel),
+ *   convex/rateLimits, src/domain/passwordRules, src/domain/accountRules.
+ */
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { ConvexError } from "convex/values";
-import { consume, MINUTE } from "./rateLimits";
+import { consume, HOUR } from "./rateLimits";
 import { passwordProblem } from "../src/domain/passwordRules";
 import {
   ACCOUNT_REQUESTS_LIMITED,
@@ -10,17 +16,39 @@ import {
   EMAIL_UNAVAILABLE,
 } from "../src/domain/accountRules";
 
-export const normalizeEmail = (email: string) => email.trim().toLowerCase();
+/**
+ * Puts an email in the form accounts are stored and looked up by.
+ *
+ * @param email - As typed, or as a sign-in provider reported it.
+ * @returns The email trimmed and lower-cased.
+ */
+export const normalizeEmail = (email: string): string =>
+  email.trim().toLowerCase();
 
-// A password an administrator sets on create or reset: 15 or more characters
-// and not a common one (ADR-0009). The message reaches the administrator.
-export function assertNewPassword(password: string, email: string) {
+/**
+ * Refuses a password an administrator sets on create or reset that breaks the
+ * password rules (ADR-0009).
+ *
+ * @param password - The new password.
+ * @param email - The account's email, which the password must not contain.
+ * @throws {ConvexError} passwordProblem's message, shown to the administrator.
+ */
+export function assertNewPassword(password: string, email: string): void {
   const problem = passwordProblem(password, email);
   if (problem) throw new ConvexError(problem);
 }
 
-// True when any user or password login already holds this email.
-export async function emailInUse(ctx: QueryCtx, email: string) {
+/**
+ * Tells whether a user or a password login already holds an email.
+ *
+ * @param ctx - Query or mutation context.
+ * @param email - A normalized email.
+ * @returns True when either holds it.
+ */
+export async function emailInUse(
+  ctx: QueryCtx,
+  email: string,
+): Promise<boolean> {
   const user = await ctx.db
     .query("users")
     .withIndex("email", (q) => q.eq("email", email))
@@ -35,51 +63,92 @@ export async function emailInUse(ctx: QueryCtx, email: string) {
   return login !== null;
 }
 
-// Spend one of the actor's hourly account requests. Callers must not throw
-// afterwards in the same mutation for an outcome that should still count
-// (a throw rolls the counter back), so they return results instead.
+/**
+ * Spends one of the actor's hourly account requests. A later throw in the same
+ * mutation rolls the count back, so callers report an outcome that must still
+ * count by returning it, not by throwing.
+ *
+ * @param ctx - Mutation context; writes the actor's rateLimits row.
+ * @param kind - Which allowance: creating accounts or adding existing ones.
+ * @param actorId - The administrator making the request.
+ * @throws {ConvexError} {@link ACCOUNT_REQUESTS_LIMITED} once the actor has
+ *   spent {@link ACCOUNT_REQUESTS_PER_HOUR} of this kind this clock hour.
+ */
 export async function consumeAccountRequest(
   ctx: MutationCtx,
   kind: "create" | "add-existing",
   actorId: Id<"users">,
-) {
+): Promise<void> {
   await consume(
     ctx,
     `account-${kind}:${actorId}`,
     ACCOUNT_REQUESTS_PER_HOUR,
-    60 * MINUTE,
+    HOUR,
     ACCOUNT_REQUESTS_LIMITED,
   );
 }
 
-// Run inside the rate-limited mutation before any password is hashed.
+/**
+ * Spends a create request and checks the email is free. Run it before any
+ * password is hashed, so an existing account is never touched.
+ *
+ * @param ctx - Mutation context.
+ * @param actorId - The administrator creating the account.
+ * @param email - A normalized email.
+ * @returns Whether the email is free, and when that was checked.
+ * @throws {ConvexError} As {@link consumeAccountRequest}.
+ */
 export async function reserveNewAccount(
   ctx: MutationCtx,
   actorId: Id<"users">,
   email: string,
-) {
+): Promise<{ available: boolean; checkedAt: number }> {
   await consumeAccountRequest(ctx, "create", actorId);
   return { available: !(await emailInUse(ctx, email)), checkedAt: Date.now() };
 }
 
-// createAccount() returns an existing login when the password matches, and
-// throws "already exists" when it does not. Either way, report the one
-// uniform message, never the library's.
+/**
+ * Refuses a user that createAccount() returned but did not create: it returns
+ * an existing login when the password matches.
+ *
+ * @param user - The user createAccount() returned.
+ * @param checkedAt - When {@link reserveNewAccount} found the email free.
+ * @throws {ConvexError} {@link EMAIL_UNAVAILABLE} when the user predates the
+ *   check.
+ */
 export function assertCreatedHere(
   user: { _creationTime: number },
   checkedAt: number,
-) {
-  if (user._creationTime < checkedAt) throw new Error(EMAIL_UNAVAILABLE);
+): void {
+  if (user._creationTime < checkedAt) throw new ConvexError(EMAIL_UNAVAILABLE);
 }
-export function uniformCreateError(error: unknown) {
+
+/**
+ * Replaces createAccount()'s "already exists" error with the uniform refusal,
+ * so the answer never tells whether the account exists.
+ *
+ * @param error - What createAccount() threw.
+ * @returns A ConvexError with {@link EMAIL_UNAVAILABLE} for an Error whose
+ *   message contains "already exists"; anything else unchanged.
+ */
+export function uniformCreateError(error: unknown): unknown {
   return error instanceof Error && /already exists/.test(error.message)
-    ? new Error(EMAIL_UNAVAILABLE)
+    ? new ConvexError(EMAIL_UNAVAILABLE)
     : error;
 }
 
-// Delete every session and refresh token of a user, so a disabled account
-// cannot continue on any device, and re-enabling it revives nothing.
-export async function endSessions(ctx: MutationCtx, userId: Id<"users">) {
+/**
+ * Deletes every session and refresh token of a user, so a disabled account
+ * cannot continue on any device and re-enabling it revives nothing.
+ *
+ * @param ctx - Mutation context.
+ * @param userId - The account to sign out everywhere.
+ * @returns How many sessions were deleted.
+ */
+export async function endSessions(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+): Promise<number> {
   const sessions = await ctx.db
     .query("authSessions")
     .withIndex("userId", (q) => q.eq("userId", userId))
@@ -95,12 +164,18 @@ export async function endSessions(ctx: MutationCtx, userId: Id<"users">) {
   return sessions.length;
 }
 
-// Remove the failed-sign-in counter of the user's password login. Returns
-// whether a counter was cleared.
+/**
+ * Removes the failed-sign-in counter of a user's password login, which
+ * unlocks an account the sign-in rate limit has locked.
+ *
+ * @param ctx - Mutation context.
+ * @param userId - The account to unlock.
+ * @returns Whether a counter was removed.
+ */
 export async function clearSignInLockout(
   ctx: MutationCtx,
   userId: Id<"users">,
-) {
+): Promise<boolean> {
   const logins = await ctx.db
     .query("authAccounts")
     .withIndex("userIdAndProvider", (q) =>
@@ -113,10 +188,9 @@ export async function clearSignInLockout(
       .query("authRateLimits")
       .withIndex("identifier", (q) => q.eq("identifier", login._id))
       .unique();
-    if (limit) {
-      await ctx.db.delete(limit._id);
-      cleared = true;
-    }
+    if (!limit) continue;
+    await ctx.db.delete(limit._id);
+    cleared = true;
   }
   return cleared;
 }

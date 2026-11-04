@@ -1,22 +1,55 @@
+/**
+ * Responsibility: Structured address fields that a person checks and
+ *   confirms, with a lookup that suggests matching addresses.
+ * Layer: UI. Lookups go through the workspace backend; the address goes back
+ *   through `onChange` or a hidden form input.
+ * Dependencies: react, src/data/store.ts (useWorkspace),
+ *   src/domain/addressLookup.ts, src/domain/addresses.ts, src/components/ui.tsx.
+ */
+import { useState, type CSSProperties } from "react";
 import { useWorkspace } from "../data/store";
 import { lookupInput, type AddressSuggestion } from "../domain/addressLookup";
-import { useState } from "react";
 import {
   blankAddress,
   addressIssues,
   formatAddress,
   type Address,
 } from "../domain/addresses";
-import { Field } from "./ui";
-export function AddressFields({
-  label,
-  value,
-  legacy = "",
-  contactName = "",
-  email = "",
-  onChange,
-  name,
-}: {
+import { Field, errorText } from "./ui";
+
+// In form order. Each field's label is the fieldset's label, a dash, then this.
+const ADDRESS_INPUTS = [
+  ["organization", "Company / organization"],
+  ["street", "Street address"],
+  ["street2", "Apartment / suite / building"],
+  ["city", "City"],
+  ["region", "State / province"],
+  ["postalCode", "ZIP / postal code"],
+  ["country", "Country"],
+  ["contactName", "Contact name"],
+  ["email", "Email"],
+  ["phone", "Phone"],
+] as const;
+const INPUT_TYPES: Partial<Record<AddressInputKey, string>> = {
+  email: "email",
+  phone: "tel",
+};
+
+// Geoapify result types precise enough to stand for a whole street address;
+// a street-, city- or postcode-level match is not.
+const USABLE_MATCH_LEVELS = ["building", "amenity"];
+
+const FIELDSET_STYLE: CSSProperties = {
+  padding: 14,
+  border: "1px solid var(--border)",
+  borderRadius: 8,
+  margin: "12px 0",
+  minWidth: 0,
+};
+
+type AddressInputKey = (typeof ADDRESS_INPUTS)[number][0];
+type AddressLookup = ReturnType<typeof useAddressLookup>;
+type AddressFieldsProps = {
   label: string;
   value?: Address;
   legacy?: string;
@@ -24,35 +57,28 @@ export function AddressFields({
   email?: string;
   onChange?: (address: Address) => void;
   name?: string;
-}) {
-  const { backend, online, connected } = useWorkspace();
-  const [busy, setBusy] = useState(false);
-  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
-  const [lookupNotice, setLookupNotice] = useState("");
-  const [local, setLocal] = useState(
-    () => value ?? blankAddress(legacy, contactName, email),
-  );
-  const [issues, setIssues] = useState<string[]>([]);
-  const address = onChange
-    ? (value ?? blankAddress(legacy, contactName, email))
-    : local;
-  const update = (next: Address) => {
-    setSuggestions([]);
-    setLookupNotice("");
-    setLocal(next);
-    onChange?.(next);
-  };
+};
+
+/**
+ * Address fields that a person fills in, may look up, then checks and
+ * confirms. Any edit or suggestion clears the confirmation.
+ *
+ * @param props.label - Names the fieldset and starts each field's label.
+ * @param props.value - The address; when omitted, a blank one with `legacy`
+ *   as its street (plus a note to split it) and the contact given.
+ * @param props.onChange - Makes the fields controlled. Without it they keep
+ *   their own address, starting from `value`.
+ * @param props.name - Submits the address as JSON in a hidden input.
+ * @returns The fieldset, disabled while a lookup runs.
+ */
+export function AddressFields(props: AddressFieldsProps) {
+  const { label, value, legacy = "", name } = props;
+  const { address, lookup, ...form } = useAddressForm(props);
   return (
     <fieldset
-      disabled={busy}
+      disabled={lookup.busy}
       className="address-fields"
-      style={{
-        padding: 14,
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-        margin: "12px 0",
-        minWidth: 0,
-      }}
+      style={FIELDSET_STYLE}
     >
       <legend>
         <strong>{label}</strong>
@@ -66,31 +92,101 @@ export function AddressFields({
       {name && (
         <input type="hidden" name={name} value={JSON.stringify(address)} />
       )}
+      <AddressInputs label={label} address={address} onEdit={form.edit} />
+      <AddressLookupPanel
+        lookup={lookup}
+        address={address}
+        onUse={form.update}
+      />
+      <AddressConfirmation
+        address={address}
+        issues={form.issues}
+        onConfirm={form.confirm}
+      />
+    </fieldset>
+  );
+}
+
+function useAddressForm({
+  value,
+  legacy = "",
+  contactName = "",
+  email = "",
+  onChange,
+}: AddressFieldsProps) {
+  const lookup = useAddressLookup();
+  const [issues, setIssues] = useState<string[]>([]);
+  const [local, setLocal] = useState(
+    () => value ?? blankAddress(legacy, contactName, email),
+  );
+  const address = onChange
+    ? (value ?? blankAddress(legacy, contactName, email))
+    : local;
+  const update = (next: Address) => {
+    lookup.clear();
+    setLocal(next);
+    onChange?.(next);
+  };
+  const edit = (key: AddressInputKey, text: string) => {
+    setIssues([]);
+    update({ ...address, [key]: text, confirmed: false });
+  };
+  const confirm = () => {
+    const errors = addressIssues(address);
+    setIssues(errors);
+    update({ ...address, confirmed: errors.length === 0 });
+  };
+  return { address, lookup, issues, update, edit, confirm };
+}
+
+function useAddressLookup() {
+  const { backend, online, connected } = useWorkspace();
+  const [busy, setBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [notice, setNotice] = useState("");
+  const clear = () => {
+    setSuggestions([]);
+    setNotice("");
+  };
+  async function run(address: Address) {
+    setBusy(true);
+    clear();
+    try {
+      const found = await backend!.lookupAddress(lookupInput(address));
+      setSuggestions(found);
+      setNotice(
+        found.length
+          ? "Review suggested matches. Street-only or city-only matches do not verify the full address."
+          : "No matching address found. Check the details or confirm manually.",
+      );
+    } catch (error) {
+      setNotice(errorText(error, "Address lookup failed."));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const available = online && connected;
+  return { busy, suggestions, notice, available, clear, run };
+}
+
+function AddressInputs({
+  label,
+  address,
+  onEdit,
+}: {
+  label: string;
+  address: Address;
+  onEdit: (key: AddressInputKey, text: string) => void;
+}) {
+  return (
+    <>
       <div className="form-grid">
-        {(
-          [
-            ["organization", "Company / organization"],
-            ["street", "Street address"],
-            ["street2", "Apartment / suite / building"],
-            ["city", "City"],
-            ["region", "State / province"],
-            ["postalCode", "ZIP / postal code"],
-            ["country", "Country"],
-            ["contactName", "Contact name"],
-            ["email", "Email"],
-            ["phone", "Phone"],
-          ] as const
-        ).map(([key, title]) => (
+        {ADDRESS_INPUTS.map(([key, title]) => (
           <Field key={key} label={`${label} — ${title}`}>
             <input
               value={address[key]}
-              type={
-                key === "email" ? "email" : key === "phone" ? "tel" : "text"
-              }
-              onChange={(e) => {
-                setIssues([]);
-                update({ ...address, [key]: e.target.value, confirmed: false });
-              }}
+              type={INPUT_TYPES[key] ?? "text"}
+              onChange={(e) => onEdit(key, e.target.value)}
             />
           </Field>
         ))}
@@ -101,91 +197,102 @@ export function AddressFields({
           {formatAddress(address) || "Enter an address."}
         </p>
       </details>
+    </>
+  );
+}
+
+function AddressLookupPanel({
+  lookup,
+  address,
+  onUse,
+}: {
+  lookup: AddressLookup;
+  address: Address;
+  onUse: (address: Address) => void;
+}) {
+  return (
+    <>
       <button
         type="button"
         className="button"
-        disabled={!online || !connected}
-        onClick={async () => {
-          setBusy(true);
-          setSuggestions([]);
-          setLookupNotice("");
-          try {
-            const found = await backend!.lookupAddress(lookupInput(address));
-            setSuggestions(found);
-            setLookupNotice(
-              found.length
-                ? "Review suggested matches. Street-only or city-only matches do not verify the full address."
-                : "No matching address found. Check the details or confirm manually.",
-            );
-          } catch (error) {
-            setLookupNotice(
-              error instanceof Error ? error.message : "Address lookup failed.",
-            );
-          } finally {
-            setBusy(false);
-          }
-        }}
+        disabled={!lookup.available}
+        onClick={() => lookup.run(address)}
       >
-        {busy ? "Looking up address…" : "Look up address"}
+        {lookup.busy ? "Looking up address…" : "Look up address"}
       </button>
-      {lookupNotice && <p role="status">{lookupNotice}</p>}
-      {suggestions.map((candidate, index) => (
-        <div className="notice" key={index}>
-          <p>
-            {candidate.formatted}
-            <br />
-            {candidate.matchLevel} match · Confidence{" "}
-            {Math.round(candidate.confidence * 100)}%
-          </p>
-          <button
-            type="button"
-            className="button small"
-            disabled={
-              !candidate.street ||
-              !candidate.city ||
-              !["building", "amenity"].includes(candidate.matchLevel)
-            }
-            onClick={() =>
-              update({
-                ...address,
-                street: candidate.street,
-                city: candidate.city,
-                region: candidate.region,
-                postalCode: candidate.postalCode,
-                country: candidate.country,
-                confirmed: false,
-              })
-            }
-          >
-            Use suggested address
-          </button>
-          <small className="block">{candidate.attribution}</small>
-        </div>
+      {lookup.notice && <p role="status">{lookup.notice}</p>}
+      {lookup.suggestions.map((candidate, index) => (
+        <SuggestionCard
+          key={index}
+          candidate={candidate}
+          onUse={() => onUse(applySuggestion(address, candidate))}
+        />
       ))}
-      <p className="muted">
-        <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">
-          Powered by Geoapify
-        </a>{" "}
-        ·{" "}
-        <a
-          href="https://www.openstreetmap.org/copyright"
-          target="_blank"
-          rel="noreferrer"
-        >
-          © OpenStreetMap contributors
-        </a>
-        . Only the street, city, state/province, postal code and country are
-        sent for lookup. Contact details stay in this app.
+      <LookupCredit />
+    </>
+  );
+}
+
+function SuggestionCard({
+  candidate,
+  onUse,
+}: {
+  candidate: AddressSuggestion;
+  onUse: () => void;
+}) {
+  return (
+    <div className="notice">
+      <p>
+        {candidate.formatted}
+        <br />
+        {candidate.matchLevel} match · Confidence{" "}
+        {Math.round(candidate.confidence * 100)}%
       </p>
       <button
         type="button"
         className="button small"
-        onClick={() => {
-          const errors = addressIssues(address);
-          setIssues(errors);
-          update({ ...address, confirmed: errors.length === 0 });
-        }}
+        disabled={!isUsable(candidate)}
+        onClick={onUse}
       >
+        Use suggested address
+      </button>
+      <small className="block">{candidate.attribution}</small>
+    </div>
+  );
+}
+
+function LookupCredit() {
+  return (
+    <p className="muted">
+      <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">
+        Powered by Geoapify
+      </a>{" "}
+      ·{" "}
+      <a
+        href="https://www.openstreetmap.org/copyright"
+        target="_blank"
+        rel="noreferrer"
+      >
+        © OpenStreetMap contributors
+      </a>
+      . Only the street, city, state/province, postal code and country are sent
+      for lookup. Contact details stay in this app.
+    </p>
+  );
+}
+
+function AddressConfirmation({
+  address,
+  issues,
+  onConfirm,
+}: {
+  address: Address;
+  issues: string[];
+  onConfirm: () => void;
+}) {
+  return (
+    <>
+      <button type="button" className="button small" onClick={onConfirm}>
         Check & confirm address
       </button>
       {issues.length > 0 && (
@@ -200,6 +307,29 @@ export function AddressFields({
           ? "Confirmed by you. Required fields and formats checked; deliverability has not been verified."
           : "Review the full address and contact information before confirming."}
       </p>
-    </fieldset>
+    </>
+  );
+}
+
+function applySuggestion(
+  address: Address,
+  candidate: AddressSuggestion,
+): Address {
+  return {
+    ...address,
+    street: candidate.street,
+    city: candidate.city,
+    region: candidate.region,
+    postalCode: candidate.postalCode,
+    country: candidate.country,
+    confirmed: false,
+  };
+}
+
+function isUsable(candidate: AddressSuggestion): boolean {
+  return (
+    !!candidate.street &&
+    !!candidate.city &&
+    USABLE_MATCH_LEVELS.includes(candidate.matchLevel)
   );
 }

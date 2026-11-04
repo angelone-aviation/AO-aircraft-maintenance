@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins Flight Program isolation: what each program and role
+ *   sees and may write, program selection, and transfers between programs.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/programs and the mutations it isolates, src/data/demo,
+ *   src/domain/fleet.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -120,6 +127,13 @@ it("isolates snapshots, pilot directory, stock locations, and unassigned data by
   await expect(
     onlyA.mutation(api.programs.select, { programUuid: "B" }),
   ).rejects.toThrow("denied");
+  // A ConvexError, so production shows the refusal instead of "Server Error".
+  await expect(
+    onlyA.mutation(api.programs.select, { programUuid: "missing" }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Flight Program access denied.",
+  });
   await multi.mutation(api.programs.select, { programUuid: "B" });
   const b = (await multi.query(api.operations.snapshot, {}))!;
   expect(b.activeProgramUuid).toBe("B");

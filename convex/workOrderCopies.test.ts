@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins template copying onto work orders: bounded batches,
+ *   captured contents, refusals, failure and resume without duplicates.
+ * Layer: Test. convex-test suite with fake timers; never shipped in the build.
+ * Dependencies: convex/workOrderCopies, convex/workOrders, convex/schema,
+ *   src/domain (taskCards, workOrders), src/data/demo and tests/fixtures.
+ */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import schema from "./schema";
@@ -6,7 +13,7 @@ import { demoSnapshot } from "../src/data/demo";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { saveTaskCard } from "../src/domain/taskCards";
-import { workOrderSchema } from "../src/domain/workOrders";
+import { newWorkTask, workOrderSchema } from "../src/domain/workOrders";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -83,7 +90,7 @@ async function setup(count = 25) {
       ),
       audits: await ctx.db.query("audit").collect(),
     }));
-  return { t, user, command, add, start, read };
+  return { t, user, original, command, add, start, read };
 }
 it("queues 450 templates, uses bounded batches, and ignores duplicate deliveries", async () => {
   const { t, start, read } = await setup(450);
@@ -173,6 +180,8 @@ it("blocks edits and closeout while incomplete, then resumes a failed batch with
   expect(state.order.templateCopy).toMatchObject({
     status: "failed",
     completed: 10,
+    error:
+      "Job card preparation stopped. Resume to retry the remaining cards. If it fails again, contact support.",
   });
   expect(state.cards.filter((c) => c.workOrderUuid)).toHaveLength(10);
   for (const status of ["open", "cancelled", "completed"]) {
@@ -267,18 +276,86 @@ it("adds inspections with no templates immediately and rejects cross-aircraft in
   expect(state.order.tasks).toHaveLength(1);
   expect(state.order.templateCopy).toBeUndefined();
   expect(state.jobs).toHaveLength(0);
+  await expect(start()).rejects.toThrow(
+    "Work order changed. Reopen it before saving.",
+  );
+  await expect(
+    user.mutation(api.workOrders.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ ...add, version: state.order.version }),
+    }),
+  ).rejects.toThrow("This item is already on the work order.");
 });
-it("allows a maintainer to recover a canceled scheduled worker", async () => {
+
+it("refuses to close a work order that adds items with templates to copy", async () => {
+  const { user, command, add, read } = await setup(2);
+  await expect(
+    user.mutation(api.workOrders.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({
+        ...command,
+        version: 1,
+        fields: { ...command.fields, status: "cancelled" },
+        tasks: [
+          newWorkTask({ kind: "inspection", uuid: add.source.uuid }, "Annual"),
+        ],
+      }),
+    }),
+  ).rejects.toThrow(
+    "Add and prepare job cards before closing this work order.",
+  );
+  expect((await read()).jobs).toHaveLength(0);
+});
+
+it("caps each stored batch's template text, giving a larger template a batch of its own", async () => {
+  const { t, original, start, read } = await setup(0);
+  const longStep = { ...original.steps[0], instruction: "x".repeat(10_000) };
+  await t.run(async (ctx) => {
+    for (const [i, steps] of [15, 15, 45, 15].entries()) {
+      const card = {
+        ...original,
+        uuid: crypto.randomUUID(),
+        cardNumber: `LARGE-${i}`,
+        steps: Array.from({ length: steps }, () => ({
+          ...longStep,
+          uuid: crypto.randomUUID(),
+        })),
+      };
+      await ctx.db.insert("taskCards", {
+        uuid: card.uuid,
+        aircraftUuid: card.aircraftUuid,
+        payload: JSON.stringify(card),
+      });
+    }
+  });
+  await start();
+  const batches = await t.run((ctx) =>
+    ctx.db.query("workOrderCopyBatches").collect(),
+  );
+  expect(
+    batches.sort((a, b) => a.batch - b.batch).map((b) => b.cards.length),
+  ).toEqual([2, 1, 1]);
+  await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+  expect((await read()).cards.filter((c) => c.workOrderUuid)).toHaveLength(4);
+});
+it("allows a maintainer to recover a canceled scheduled worker, and ignores a resume while it is queued or after it finishes", async () => {
   const { t, user, command, start, read } = await setup(12);
   await start();
   const job = (await read()).jobs[0];
   await t.run((ctx) => ctx.scheduler.cancel(job.scheduledId!));
-  await user.mutation(api.workOrderCopies.resume, {
-    programUuid: "demo-program",
-    workOrderUuid: command.uuid,
-  });
+  const resume = () =>
+    user.mutation(api.workOrderCopies.resume, {
+      programUuid: "demo-program",
+      workOrderUuid: command.uuid,
+    });
+  await resume();
+  await resume();
   await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+  await resume();
   const state = await read();
+  expect(
+    state.audits.filter((a) => a.action === "workOrder.resumeTemplates"),
+  ).toHaveLength(1);
   expect(state.order.templateCopy).toMatchObject({
     status: "completed",
     completed: 12,

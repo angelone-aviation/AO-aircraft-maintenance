@@ -1,4 +1,13 @@
-import { expect, it } from "vitest";
+/**
+ * Responsibility: Pins the component work a closing work order applies: the
+ *   components it covers, the refusals, usage resets, and moves with their
+ *   attached parts.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrderComponentWork.ts, workOrders.ts,
+ *   components.ts, model.ts, logbook.ts, rejection.ts, src/data/demo.ts and
+ *   tests/fixtures/workOrders.ts (fixtures).
+ */
+import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
   workOrderCommand,
@@ -8,6 +17,7 @@ import {
   saveWorkOrder,
   workOrderFieldsSchema,
   newWorkTask,
+  type WorkTask,
 } from "./workOrders";
 import {
   componentTotals,
@@ -16,7 +26,12 @@ import {
   requirementStatus,
   saveRequirement,
 } from "./components";
-import type { ComponentWork } from "./workOrderComponentWork";
+import {
+  applyWorkOrderComponentWork,
+  workOrderComponentIds,
+  type ComponentWork,
+} from "./workOrderComponentWork";
+import { Rejection } from "./rejection";
 import { totalSeconds } from "./model";
 import { logbookText } from "./logbook";
 const now = Date.parse("2026-10-02T12:00:00Z");
@@ -282,5 +297,183 @@ it("shows and saves component service choices while open without changing tracki
   expect(finished.closeout!.componentWork![0]).toMatchObject({
     action: "repair",
     description: "Repair finished",
+  });
+});
+
+// A closing order with one completed movement task, applied directly.
+function closing(action: ComponentWork["action"]) {
+  const { s, c, order } = setup(action);
+  const task: WorkTask = {
+    ...newWorkTask({ kind: "manual", uuid: "move" }, "Move the engine"),
+    status: "completed",
+  };
+  const choice: ComponentWork = {
+    componentUuid: c.uuid,
+    version: c.version,
+    action,
+    description: "Engine moved",
+    reference: "",
+    taskUuid: task.uuid,
+    locationUuid: undefined,
+    partsLocation: "Shelf 2",
+    installPosition: undefined,
+  };
+  const closed = { ...order, completionDate: "2026-10-02", tasks: [task] };
+  const apply = (choices: ComponentWork[] = [choice]) =>
+    applyWorkOrderComponentWork(s, closed, s.aircraft[0], choices, now);
+  return { s, c, choice, closed, apply };
+}
+
+function refusal(apply: () => unknown) {
+  try {
+    apply();
+  } catch (error) {
+    return [error instanceof Rejection, (error as Error).message];
+  }
+  return [false, "applied"];
+}
+
+describe("component work refusals", () => {
+  it("refuses a missing, stale or out-for-repair component", () => {
+    const { s, c, choice, apply } = closing("repair");
+    expect(refusal(() => apply([]))).toEqual([
+      true,
+      "Select the work performed for every included component.",
+    ]);
+    expect(refusal(() => apply([{ ...choice, version: 9 }]))).toEqual([
+      true,
+      "Component tracking changed. Reopen the work order and review its components.",
+    ]);
+    s.management = [
+      { ...c, outForRepair: { poUuid: "po", date: "2026-10-01" } },
+    ];
+    expect(refusal(apply)).toEqual([
+      true,
+      "Receive the component from repair before performing component work.",
+    ]);
+  });
+  it("refuses a move without its completed task, position or location", () => {
+    const remove = closing("remove");
+    expect(
+      refusal(() => remove.apply([{ ...remove.choice, partsLocation: " " }])),
+    ).toEqual([true, "Select the removal inventory location."]);
+    expect(
+      refusal(() => remove.apply([{ ...remove.choice, taskUuid: undefined }])),
+    ).toEqual([
+      true,
+      "Complete the component movement task before closing the order.",
+    ]);
+    const install = closing("install");
+    expect(refusal(install.apply)).toEqual([
+      true,
+      "Component is unavailable for this aircraft movement.",
+    ]);
+    install.s.management = [{ ...install.c, installed: false }];
+    expect(refusal(install.apply)).toEqual([
+      true,
+      "Select an installation position.",
+    ]);
+  });
+  it("moves a parent only, and refuses a move whose task is still open", () => {
+    const { s, c, choice, closed, apply } = closing("remove");
+    const part = { ...c, uuid: "starter", parentComponentUuid: c.uuid };
+    s.management = [c, part];
+    expect(
+      refusal(() =>
+        applyWorkOrderComponentWork(
+          s,
+          {
+            ...closed,
+            componentReadings: [
+              { ...closed.componentReadings[0], componentUuid: part.uuid },
+            ],
+          },
+          s.aircraft[0],
+          [{ ...choice, componentUuid: part.uuid }],
+          now,
+        ),
+      ),
+    ).toEqual([
+      true,
+      "Move the parent component; its attached parts move with it.",
+    ]);
+    closed.tasks[0].status = "in-progress";
+    expect(refusal(apply)).toEqual([
+      true,
+      "Complete the component movement task before closing the order.",
+    ]);
+  });
+});
+
+describe("applying component work", () => {
+  it("removes a parent with its attached parts, keeping the old position", () => {
+    const { s, c, apply } = closing("remove");
+    const part = { ...c, uuid: "starter", parentComponentUuid: c.uuid };
+    s.management = [{ ...c, installPosition: "MAIN" }, part];
+    const [result] = apply();
+    expect(result.installPosition).toBe("MAIN");
+    const moved = s.management.filter((r) => r.kind === "componentMovement");
+    expect(moved.map((m) => [m.componentUuid, m.action])).toEqual([
+      [c.uuid, "REMOVE"],
+      ["starter", "REMOVE"],
+    ]);
+    expect(moved[1].note).toBe(`Attached to PN: ${moved[0].note}`);
+    expect(result.trackingBaseline.movementUuids).toEqual(
+      moved.map((m) => m.uuid),
+    );
+    const installed = (json: string) =>
+      (JSON.parse(json) as Component[]).map((r) => [r.uuid, r.installed]);
+    expect(installed(result.trackingBaseline.before)).toEqual([
+      [c.uuid, true],
+      ["starter", true],
+    ]);
+    expect(installed(result.trackingBaseline.after)).toEqual([
+      [c.uuid, false],
+      ["starter", false],
+    ]);
+    expect(
+      s.management.filter((r) => r.kind === "component" && !r.installed),
+    ).toHaveLength(2);
+  });
+  it("applies services before moves", () => {
+    const { s, c, choice, closed } = closing("remove");
+    const other = { ...c, uuid: "prop", serial: "PROP" };
+    s.management = [c, other];
+    const results = applyWorkOrderComponentWork(
+      s,
+      {
+        ...closed,
+        componentReadings: [
+          closed.componentReadings[0],
+          { ...closed.componentReadings[0], componentUuid: other.uuid },
+        ],
+      },
+      s.aircraft[0],
+      [choice, { ...choice, componentUuid: other.uuid, action: "overhaul" }],
+      now,
+    );
+    expect(results.map((r) => r.action)).toEqual(["overhaul", "remove"]);
+  });
+  it("covers planned tasks and cards only when asked", () => {
+    const { s, c, closed } = closing("remove");
+    const order = {
+      ...closed,
+      componentReadings: [],
+      componentWork: [
+        {
+          componentUuid: c.uuid,
+          version: 0,
+          action: "remove" as const,
+          description: "",
+          reference: "",
+          taskUuid: closed.tasks[0].uuid,
+        },
+      ],
+      tasks: [{ ...closed.tasks[0], status: "requested" } as WorkTask],
+    };
+    expect(workOrderComponentIds(s, order)).toEqual([]);
+    expect(workOrderComponentIds(s, order, true)).toEqual([c.uuid]);
+    order.tasks[0].status = "cancelled";
+    expect(workOrderComponentIds(s, order, true)).toEqual([]);
   });
 });

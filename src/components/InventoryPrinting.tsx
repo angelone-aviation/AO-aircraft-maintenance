@@ -1,3 +1,11 @@
+/**
+ * Responsibility: The print buttons for an inventory item's tag and label,
+ *   with the print preview and this browser's print settings.
+ * Layer: UI. React components; the print document is built in src/data.
+ * Dependencies: react, react-dom, src/data/store.ts,
+ *   src/data/inventoryPrintDocument.ts, src/domain/programs.ts,
+ *   src/domain/inventoryPrinting.ts, ./ui.tsx.
+ */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
@@ -11,7 +19,7 @@ import {
   type InventoryPrintKind,
 } from "../domain/inventoryPrinting";
 import { inventoryPrintDocument } from "../data/inventoryPrintDocument";
-import { Field, Modal, safeHref } from "./ui";
+import { Field, Modal, errorText, safeHref } from "./ui";
 interface Settings {
   base: string;
   labelHeight: number;
@@ -99,7 +107,7 @@ function PrintInventory({
     try {
       url = inventoryItemUrl(settings.base, item, recordProgram(s!, item));
     } catch (e) {
-      addressIssue = (e as Error).message;
+      addressIssue = errorText(e);
     }
   } else
     addressIssue =
@@ -126,11 +134,7 @@ function PrintInventory({
       })
       .catch((e) => {
         if (active)
-          setError(
-            e instanceof Error
-              ? e.message
-              : "Unable to generate the print preview.",
-          );
+          setError(errorText(e, "Unable to generate the print preview."));
       });
     return () => {
       active = false;
@@ -143,9 +147,7 @@ function PrintInventory({
       setSaved("Print settings saved on this browser.");
       return true;
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Unable to save print settings.",
-      );
+      setError(errorText(e, "Unable to save print settings."));
       return false;
     }
   };

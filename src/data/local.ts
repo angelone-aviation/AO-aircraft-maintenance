@@ -1,43 +1,63 @@
+/**
+ * Responsibility: Keeps the device's copy of the workspace in IndexedDB:
+ *   snapshots, the offline outbox, small settings and kept manual files.
+ * Layer: Data. Browser storage only; no React, no network.
+ * Dependencies: idb, src/domain/model.ts (types),
+ *   src/domain/workOrderCleanup.ts.
+ *
+ * Records are filed under a workspace namespace ("demo", or "live:" and the
+ * deployment URL). Devices already hold data under these database, store and
+ * key names, so they never change; a schema change bumps the version.
+ */
+import {
+  openDB,
+  type DBSchema,
+  type IDBPDatabase,
+  type OpenDBCallbacks,
+} from "idb";
 import { cleanWorkOrderSnapshot } from "../domain/workOrderCleanup";
-import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { Snapshot, QueuedOperation } from "../domain/model";
+
 interface CacheSchema extends DBSchema {
   snapshots: { key: string; value: Snapshot };
   outbox: { key: string; value: QueuedOperation & { namespace: string } };
   settings: { key: string; value: string[] };
 }
-// One shared connection per database. A newer tab's upgrade (blocking) or a
-// browser-side shutdown (terminated) drops the memo so the next call reopens.
-let cacheDb: Promise<IDBPDatabase<CacheSchema>> | undefined;
-const db = () =>
-  (cacheDb ??= openDB<CacheSchema>("angel-one-v1", 2, {
-    blocking(_current, _blocked, event) {
-      (event.target as IDBDatabase).close();
-      cacheDb = undefined;
-    },
-    terminated() {
-      cacheDb = undefined;
-    },
-    async upgrade(db, oldVersion, _newVersion, tx) {
-      if (oldVersion < 1) {
-        db.createObjectStore("snapshots");
-        db.createObjectStore("outbox");
-        db.createObjectStore("settings");
+
+const cacheDb = shareConnection<CacheSchema>(
+  "angel-one-v1",
+  2,
+  async (db, oldVersion, _newVersion, tx) => {
+    if (oldVersion < 1) {
+      db.createObjectStore("snapshots");
+      db.createObjectStore("outbox");
+      db.createObjectStore("settings");
+    }
+    if (oldVersion < 2) {
+      let cursor = await tx.objectStore("snapshots").openCursor();
+      while (cursor) {
+        await cursor.update(cleanWorkOrderSnapshot(cursor.value));
+        cursor = await cursor.continue();
       }
-      if (oldVersion < 2) {
-        let cursor = await tx.objectStore("snapshots").openCursor();
-        while (cursor) {
-          await cursor.update(cleanWorkOrderSnapshot(cursor.value));
-          cursor = await cursor.continue();
-        }
-      }
-    },
-  }).catch((error: unknown) => {
-    cacheDb = undefined;
-    throw error;
-  }));
+    }
+  },
+);
+
+// Manual PDFs live in their own database, outside cached snapshots and the
+// outbox, so large files never ride along with them.
+const manualDb = shareConnection<unknown>("angel-one-manuals-v1", 1, (db) => {
+  db.createObjectStore("files");
+});
+
+/**
+ * Reads a namespace's cached snapshot, without the retired work-order fields
+ * (see cleanWorkOrderSnapshot); a copy that held them is rewritten clean.
+ *
+ * @param namespace - The workspace namespace.
+ * @returns The snapshot, or undefined when none is cached.
+ */
 export async function readSnapshot(namespace: string) {
-  const connection = await db();
+  const connection = await cacheDb();
   const snapshot = await connection.get("snapshots", namespace);
   if (!snapshot) return undefined;
   const cleaned = cleanWorkOrderSnapshot(snapshot);
@@ -45,69 +65,145 @@ export async function readSnapshot(namespace: string) {
     await connection.put("snapshots", cleaned, namespace);
   return cleaned;
 }
+
+/**
+ * Caches a namespace's snapshot, replacing the previous copy, without the
+ * retired work-order fields.
+ *
+ * @param namespace - The workspace namespace.
+ * @param snapshot - The snapshot to keep.
+ */
 export async function saveSnapshot(namespace: string, snapshot: Snapshot) {
   await (
-    await db()
+    await cacheDb()
   ).put("snapshots", cleanWorkOrderSnapshot(snapshot), namespace);
 }
+
+/**
+ * Deletes a namespace's cached snapshot; its outbox entries stay.
+ *
+ * @param namespace - The workspace namespace.
+ */
 export async function clearSnapshot(namespace: string) {
-  await (await db()).delete("snapshots", namespace);
+  await (await cacheDb()).delete("snapshots", namespace);
 }
+
+/**
+ * Lists a namespace's pending outbox entries.
+ *
+ * @param namespace - The workspace namespace.
+ * @returns The entries, each with its namespace, oldest `queuedAt` first.
+ */
 export async function readQueue(namespace: string) {
-  return (await (await db()).getAll("outbox"))
+  return (await (await cacheDb()).getAll("outbox"))
     .filter((q) => q.namespace === namespace)
     .sort((a, b) => a.queuedAt - b.queuedAt);
 }
+
+/**
+ * Stores an outbox entry under its operation uuid, so saving it again
+ * replaces it rather than queuing a duplicate.
+ *
+ * @param namespace - The workspace namespace.
+ * @param entry - The queued operation.
+ */
 export async function persistOperation(
   namespace: string,
   entry: QueuedOperation,
 ) {
   await (
-    await db()
+    await cacheDb()
   ).put(
     "outbox",
     { ...entry, namespace },
-    namespace + ":" + entry.operation.uuid,
+    entryKey(namespace, entry.operation.uuid),
   );
 }
+
+/**
+ * Deletes an outbox entry; deleting one that is gone does nothing.
+ *
+ * @param namespace - The workspace namespace.
+ * @param uuid - The operation's uuid.
+ */
 export async function removeOperation(namespace: string, uuid: string) {
-  await (await db()).delete("outbox", namespace + ":" + uuid);
-}
-export async function readFavorites(key: string) {
-  return (await db()).get("settings", key);
-}
-export async function saveFavorites(key: string, values: string[]) {
-  await (await db()).put("settings", values, key);
+  await (await cacheDb()).delete("outbox", entryKey(namespace, uuid));
 }
 
-// Keep large PDFs outside cached snapshots and synchronization payloads.
-let manualConnection: Promise<IDBPDatabase> | undefined;
-const manualDb = () =>
-  (manualConnection ??= openDB("angel-one-manuals-v1", 1, {
-    blocking(_current, _blocked, event) {
-      (event.target as IDBDatabase).close();
-      manualConnection = undefined;
-    },
-    terminated() {
-      manualConnection = undefined;
-    },
-    upgrade(db) {
-      db.createObjectStore("files");
-    },
-  }).catch((error: unknown) => {
-    manualConnection = undefined;
-    throw error;
-  }));
+/**
+ * Reads a list of strings kept in device settings (favorites, read alerts).
+ *
+ * @param key - The settings key.
+ * @returns The list, or undefined when none is kept.
+ */
+export async function readFavorites(key: string) {
+  return (await cacheDb()).get("settings", key);
+}
+
+/**
+ * Keeps a list of strings in device settings, replacing the previous list.
+ *
+ * @param key - The settings key.
+ * @param values - The list to keep.
+ */
+export async function saveFavorites(key: string, values: string[]) {
+  await (await cacheDb()).put("settings", values, key);
+}
+
+/**
+ * Stores a manual's PDF on the device, replacing any earlier copy.
+ *
+ * @param namespace - The workspace namespace.
+ * @param uuid - The manual's uuid.
+ * @param file - The PDF.
+ */
 export async function saveManualBlob(
   namespace: string,
   uuid: string,
   file: Blob,
 ) {
-  await (await manualDb()).put("files", file, namespace + ":" + uuid);
+  await (await manualDb()).put("files", file, entryKey(namespace, uuid));
 }
+
+/**
+ * Reads a manual's PDF stored on the device.
+ *
+ * @param namespace - The workspace namespace.
+ * @param uuid - The manual's uuid.
+ * @returns The PDF, or undefined when none is stored.
+ */
 export async function readManualBlob(
   namespace: string,
   uuid: string,
 ): Promise<Blob | undefined> {
-  return (await manualDb()).get("files", namespace + ":" + uuid);
+  return (await manualDb()).get("files", entryKey(namespace, uuid));
+}
+
+// One shared connection per database. A newer tab's upgrade (blocking) or a
+// browser-side shutdown (terminated) drops the memo so the next call reopens;
+// so does a failed open.
+function shareConnection<Schema extends DBSchema | unknown>(
+  name: string,
+  version: number,
+  upgrade: OpenDBCallbacks<Schema>["upgrade"],
+): () => Promise<IDBPDatabase<Schema>> {
+  let connection: Promise<IDBPDatabase<Schema>> | undefined;
+  return () =>
+    (connection ??= openDB<Schema>(name, version, {
+      blocking(_current, _blocked, event) {
+        (event.target as IDBDatabase).close();
+        connection = undefined;
+      },
+      terminated() {
+        connection = undefined;
+      },
+      upgrade,
+    }).catch((error: unknown) => {
+      connection = undefined;
+      throw error;
+    }));
+}
+
+function entryKey(namespace: string, uuid: string): string {
+  return namespace + ":" + uuid;
 }

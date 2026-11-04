@@ -1,24 +1,38 @@
-import { mutation } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
+/**
+ * Responsibility: The cost-records mutation: labor, other costs, part unit
+ *   costs, budgets and the labor rate, through the costs domain applier.
+ * Layer: Server. Convex mutation over runCommand; the rules live in
+ *   src/domain/costs.
+ * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
+ *   ./programContext, src/domain/costs.
+ */
+import { mutation, type MutationCtx } from "./_generated/server";
+import { v } from "convex/values";
 import {
   managementDocs,
   partsRequestDocs,
   taskCardDocs,
   archivedTaskCardDocs,
 } from "./programContext";
-import { runCommand, hydrate, plainErrors } from "./runCommand";
-import { applyCostCommand, costCommandSchema } from "../src/domain/costs";
-import { workOrderSchema } from "../src/domain/workOrders";
-import { recordSchema } from "../src/domain/management";
-import { partsRequestSchema } from "../src/domain/partsRequests";
-import { taskCardSchema } from "../src/domain/taskCards";
-import type { CostRecord } from "../src/domain/costs";
-const row = (next: CostRecord) => ({
-  uuid: next.uuid,
-  programUuid: next.programUuid,
-  aircraftUuid: next.kind === "settings" ? "" : next.aircraftUuid,
-  payload: JSON.stringify(next),
-});
+import { runCommand, hydrate, plainErrors, writeChanged } from "./runCommand";
+import { decode, encode } from "./collections";
+import type { Snapshot } from "../src/domain/model";
+import {
+  applyCostCommand,
+  costCommandSchema,
+  type CostCommand,
+} from "../src/domain/costs";
+
+/**
+ * Applies one cost command to the active Flight Program's cost records. An
+ * unchanged record is neither saved nor audited again.
+ *
+ * @param payload - The cost command, as JSON.
+ * @returns The uuid of the cost record the command targets.
+ * @throws {ConvexError} The domain's refusal, such as "Work order not
+ *   found."; "Cost record belongs to another Flight Program."; and
+ *   runCommand's program refusals.
+ */
 export const execute = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
   handler: (ctx, args) =>
@@ -27,59 +41,53 @@ export const execute = mutation({
       parse: () => costCommandSchema.parse(JSON.parse(args.payload)),
       load: async ({ ctx, state }, command) => {
         const { snapshot: s, docs } = await hydrate(ctx, state, ["costs"]);
-        if ("workOrderUuid" in command) {
-          const order = await ctx.db
-            .query("workOrders")
-            .withIndex("uuid", (q) => q.eq("uuid", command.workOrderUuid))
-            .unique();
-          // The domain rejects orders whose aircraft is outside this program.
-          s.workOrders = order
-            ? [workOrderSchema.parse(JSON.parse(order.payload))]
-            : [];
-          if (command.action === "part.unitCost" && order) {
-            const aircraft = [{ uuid: order.aircraftUuid }];
-            s.management = (await managementDocs(ctx, args.programUuid)).map(
-              (d) => recordSchema.parse(JSON.parse(d.payload)),
-            );
-            s.partsRequests = (
-              await partsRequestDocs(ctx, args.programUuid)
-            ).map((d) => partsRequestSchema.parse(JSON.parse(d.payload)));
-            s.taskCards = (await taskCardDocs(ctx, aircraft)).map((d) =>
-              taskCardSchema.parse(JSON.parse(d.payload)),
-            );
-            s.archivedTaskCards = (
-              await archivedTaskCardDocs(ctx, aircraft)
-            ).map((d) => taskCardSchema.parse(JSON.parse(d.payload)));
-          }
-        }
+        if ("workOrderUuid" in command)
+          await loadWorkOrder(ctx, s, args.programUuid, command);
         return { s, docs: docs.costs };
       },
       apply: ({ s }, command) => applyCostCommand(s, command),
       // Explicit domain validation messages are safe, actionable feedback.
       expose: plainErrors,
-      persist: async ({ ctx }, { docs }, next) => {
-        const fields = row(next);
-        const prior = docs.find((d) => d.uuid === next.uuid);
-        if (prior) {
-          if (prior.payload !== fields.payload)
-            await ctx.db.replace(prior._id, fields);
-        } else if (
-          await ctx.db
-            .query("costs")
-            .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
-            .first()
-        )
-          // A uuid outside the active program is never overwritten.
-          throw new ConvexError(
-            "Cost record belongs to another Flight Program.",
-          );
-        else await ctx.db.insert("costs", fields);
-      },
-      // An unchanged record is not saved again, so it is not audited again.
+      persist: ({ ctx }, { docs }, next) =>
+        writeChanged(
+          ctx,
+          "costs",
+          docs,
+          [next],
+          "Cost record belongs to another Flight Program.",
+        ),
       audit: (log, { s, docs }, next) => {
         const prior = docs.find((d) => d.uuid === next.uuid);
-        if (prior?.payload !== row(next).payload) log.record(s.audit);
+        if (prior?.payload !== encode("costs", next).payload)
+          log.record(s.audit);
       },
       returns: (next) => next.uuid,
     }),
 });
+
+// The domain refuses an order whose aircraft is outside this program. A
+// part's unit cost also reads the parts issued to the order and its job cards.
+async function loadWorkOrder(
+  ctx: MutationCtx,
+  s: Snapshot,
+  program: string | undefined,
+  command: Extract<CostCommand, { workOrderUuid: string }>,
+) {
+  const order = await ctx.db
+    .query("workOrders")
+    .withIndex("uuid", (q) => q.eq("uuid", command.workOrderUuid))
+    .unique();
+  s.workOrders = order ? decode("workOrders", [order]) : [];
+  if (command.action !== "part.unitCost" || !order) return;
+  const aircraft = [{ uuid: order.aircraftUuid }];
+  s.management = decode("management", await managementDocs(ctx, program));
+  s.partsRequests = decode(
+    "partsRequests",
+    await partsRequestDocs(ctx, program),
+  );
+  s.taskCards = decode("taskCards", await taskCardDocs(ctx, aircraft));
+  s.archivedTaskCards = decode(
+    "archivedTaskCards",
+    await archivedTaskCardDocs(ctx, aircraft),
+  );
+}

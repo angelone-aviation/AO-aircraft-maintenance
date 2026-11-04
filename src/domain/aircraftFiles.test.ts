@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins the aircraft document rules: upload limits, who may
+ *   write, and archiving a copy instead of deleting it.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/aircraftFiles.ts, programs.ts, rejection.ts,
+ *   src/data/demo.ts (fixture).
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { scopedSnapshot } from "./programs";
@@ -9,6 +16,7 @@ import {
   MAX_AIRCRAFT_FILES,
   validateAircraftFile,
 } from "./aircraftFiles";
+import { Rejection } from "./rejection";
 
 it("accepts the shared attachment types up to 7 MB", () => {
   for (const [name, type] of [
@@ -85,4 +93,41 @@ it("archives a current copy only with a reason, recording who and when", () => {
   expect(() => aircraftFileArchive(archived, user, "Again", 6)).toThrow(
     "already archived",
   );
+});
+
+it("refuses with a Rejection and the exact message", () => {
+  const user = { id: "u1", name: "Casey Tech" };
+  const refusals: [() => unknown, string][] = [
+    [
+      () => assertAircraftFileRoom(MAX_AIRCRAFT_FILES),
+      "This aircraft already has the maximum of 200 current documents.",
+    ],
+    [
+      () =>
+        assertAircraftFileWriter(
+          { ...demoSnapshot(), user: demoSnapshot().members[1] },
+          demoSnapshot().aircraft[0].uuid,
+        ),
+      "Aircraft maintenance permission required.",
+    ],
+    [
+      () => aircraftFileArchive({ archivedAt: 1 }, user, "Again", 6),
+      "This copy is already archived.",
+    ],
+    [
+      () => aircraftFileArchive({}, user, "  ", 5),
+      "Enter a reason for archiving this copy.",
+    ],
+    [
+      () => aircraftFileArchive({}, user, "x".repeat(501), 5),
+      "Keep the reason for archiving to 500 characters.",
+    ],
+  ];
+  for (const [refuse, message] of refusals) {
+    expect(refuse).toThrow(Rejection);
+    expect(refuse).toThrow(Error(message));
+  }
+  expect(() =>
+    aircraftFileArchive({}, user, ` ${"x".repeat(500)} `, 5),
+  ).not.toThrow();
 });

@@ -1,6 +1,21 @@
+/**
+ * Responsibility: The Work orders navigation icon: a work sheet with a
+ *   folded corner and a wrench.
+ * Layer: UI. Presentational SVG; no state or data access.
+ * Dependencies: @phosphor-icons/react (IconWeight type only).
+ */
 import type { IconWeight } from "@phosphor-icons/react";
-// Custom outline icon in the Phosphor style: accepts the same size/weight
-// props (regular, bold, duotone; other weights render as regular).
+
+/**
+ * Work orders icon that takes Phosphor's `size` and `weight` props, so it can
+ * stand in wherever a Phosphor icon component is expected.
+ *
+ * @param props.size - Width and height; 18 when omitted.
+ * @param props.weight - `bold` thickens the stroke, `light` and `thin` thin
+ *   it, `duotone` tints the sheet; any other weight draws as `regular`.
+ * @returns An SVG that is always hidden from assistive technology: the
+ *   `aria-hidden` prop is accepted for Phosphor compatibility and ignored.
+ */
 export function WorkOrderIcon({
   size = 18,
   weight = "regular",
@@ -9,12 +24,6 @@ export function WorkOrderIcon({
   weight?: IconWeight;
   "aria-hidden"?: boolean | "true" | "false";
 }) {
-  const stroke =
-    weight === "bold"
-      ? 2.2
-      : weight === "light" || weight === "thin"
-        ? 1.2
-        : 1.6;
   const duotone = weight === "duotone";
   return (
     <svg
@@ -23,7 +32,7 @@ export function WorkOrderIcon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={stroke}
+      strokeWidth={strokeWidthFor(weight)}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -45,4 +54,10 @@ export function WorkOrderIcon({
       />
     </svg>
   );
+}
+
+function strokeWidthFor(weight: IconWeight): number {
+  if (weight === "bold") return 2.2;
+  if (weight === "light" || weight === "thin") return 1.2;
+  return 1.6;
 }

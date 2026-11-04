@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the inspection template library on the server:
+ *   program-scoped saving, authorization, activation with draft job cards,
+ *   and deletion with cards, evidence and change log.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/inspectionTemplates, convex/schema, src/domain
+ *   (inspectionTemplates, deleteInspectionTemplates), tests/fixtures.
+ */
 import { convexTest } from "convex-test";
 import { expect, it } from "vitest";
 import schema from "./schema";
@@ -123,6 +131,23 @@ it("persists program-scoped templates without compliance and enforces server aut
       .withIdentity(ids.tech)
       .mutation(api.inspectionTemplates.activate, activation),
   ).rejects.toThrow("already exists");
+  const foreign = crypto.randomUUID();
+  await t.run((ctx) =>
+    ctx.db.insert("inspectionTemplates", {
+      uuid: foreign,
+      programUuid: "other-program",
+      payload: "{}",
+    }),
+  );
+  await expect(
+    t.withIdentity(ids.tech).mutation(api.inspectionTemplates.save, {
+      ...args,
+      payload: JSON.stringify([{ ...record, uuid: foreign, name: "Other" }]),
+    }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Template belongs to another Flight Program.",
+  });
 });
 
 it("atomically deletes selected templates, associated cards and stored evidence with audit history", async () => {
