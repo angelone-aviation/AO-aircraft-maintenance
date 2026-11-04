@@ -3,8 +3,8 @@
  *   who a sign-in belongs to, listing and removing links, logging refusals.
  * Layer: Server. Public queries and a mutation, plus helpers for the sign-in
  *   library (auth.ts) and route (http.ts).
- * Dependencies: convex/access, convex/accountGuards, convex/rateLimits,
- *   convex/ssoProviders, src/domain/signInMethods, convex/values.
+ * Dependencies: convex/access, convex/rateLimits, convex/ssoProviders,
+ *   src/domain/signInMethods, convex/values.
  *
  * Sign-in never creates a user: it links an identity only to the one active
  * user with its verified email, then matches it by the provider's account id.
@@ -20,11 +20,11 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { admin, audit, currentUser } from "./access";
-import { normalizeEmail } from "./accountGuards";
 import { consume, HOUR } from "./rateLimits";
 import { enabledSsoProviders } from "./ssoProviders";
 import {
   isSsoProvider,
+  normalizeSsoEmail,
   SSO_REFUSED,
   type LinkedIdentity,
   type SsoRefusalReason,
@@ -158,7 +158,7 @@ export async function userForIdentity(
     return existingUserId;
   }
   const email =
-    typeof profile.email === "string" ? normalizeEmail(profile.email) : "";
+    typeof profile.email === "string" ? normalizeSsoEmail(profile.email) : "";
   if (profile.emailVerified !== true || !email) refuse("email_not_verified");
   const users = await ctx.db
     .query("users")

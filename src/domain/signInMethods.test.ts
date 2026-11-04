@@ -11,6 +11,7 @@ import {
   googleProfile,
   isSsoProvider,
   microsoftProfile,
+  normalizeSsoEmail,
   signInErrorCode,
   signInErrorMessage,
 } from "./signInMethods";
@@ -43,6 +44,22 @@ it("trusts a Microsoft email only for personal accounts or a verified domain", (
     expect(
       microsoftProfile({ ...claims, tid: "other", xms_edov }).emailVerified,
     ).toBe(false);
+});
+
+it("lower-cases only A to Z in a provider's email, so a look-alike stays distinct", () => {
+  expect(normalizeSsoEmail(" Pat.O'Neil@Example.TEST ")).toBe(
+    "pat.o'neil@example.test",
+  );
+  expect(normalizeSsoEmail("\u212Aate@example.test")).toBe(
+    "\u212Aate@example.test",
+  );
+  expect(
+    microsoftProfile({
+      sub: "s",
+      tid: MICROSOFT_PERSONAL_TENANT,
+      email: "\u212Aate@Example.test",
+    }).email,
+  ).toBe("\u212Aate@example.test");
 });
 
 it("tells the sign-in screen as little as it needs", () => {

@@ -110,11 +110,13 @@ export const libraryStore = library.store;
  * sign-in (ADR-0009). Token refreshes are not logged.
  *
  * @param args - The library's request; libraryStore checks it.
- * @returns What libraryStore returns.
+ * @returns What libraryStore returns; null, as for a wrong code, for a code
+ *   exchange that names an email or phone.
  */
 export const store = internalMutation({
   args: { args: v.any() },
   handler: async (ctx, { args }): Promise<unknown> => {
+    if (namesEmailOrPhone(args)) return null;
     const method = await signInMethod(ctx, args);
     const result = await ctx.runMutation(internal.auth.libraryStore, { args });
     const signedIn = result as { userId?: Id<"users">; sessionId?: string };
@@ -126,13 +128,29 @@ export const store = internalMutation({
   },
 });
 
+type StoreRequest = {
+  type?: unknown;
+  params?: { code?: unknown; email?: unknown; phone?: unknown };
+};
+
+// The library counts a failed code exchange under the email or phone it
+// names, storing a new authRateLimits row for each value, before any sign-in.
+// No method here sends either (a Google or Microsoft code carries a
+// verifier), so such a request would only let anyone fill the database.
+function namesEmailOrPhone(args: StoreRequest): boolean {
+  return (
+    args?.type === "verifyCodeAndSignIn" &&
+    (args.params?.email !== undefined || args.params?.phone !== undefined)
+  );
+}
+
 // "signIn" creates the session after a password check (Password is the only
 // credentials provider); "verifyCodeAndSignIn" redeems the one-time code a
 // Google or Microsoft sign-in issued, whose row names the provider. Token
 // refreshes are neither.
 async function signInMethod(
   ctx: MutationCtx,
-  args: { type?: unknown; params?: { code?: unknown } },
+  args: StoreRequest,
 ): Promise<string | undefined> {
   if (args?.type === "signIn") return "password";
   if (
