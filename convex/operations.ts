@@ -71,6 +71,7 @@ import {
   resolvedFields,
 } from "../src/domain/deferrals";
 import {
+  can,
   operationSchema,
   type Aircraft,
   type Flight,
@@ -705,11 +706,14 @@ async function loadReview(
   assertReviewer(state);
   await authorized(ctx, input.aircraftUuid, "read", state);
   const aircraft = await aircraftByUuid(ctx, input.aircraftUuid);
+  // The reviewed flight and the plan's flights are found by uuid in every
+  // Flight Program. Keep only those the reviewer may read: otherwise the
+  // refusal for another program's flight names the first link that differs.
   const flights = uniqueRows([
     ...(await aircraftFlights(ctx, aircraft.uuid)),
     ...rowsOf(await flightRow(ctx, review.uuid)),
     ...(await planFlights(ctx, input.flightPlanUuid)),
-  ]);
+  ]).filter((f) => can(state, f.aircraftUuid, "read"));
   const management = await managementDocs(ctx, aircraft.programUuid);
   const snapshot: Snapshot = {
     ...state,
