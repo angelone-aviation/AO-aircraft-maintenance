@@ -591,9 +591,11 @@ const refusals: [string, (w: World) => object][] = [
     ({ a }) => ({
       ...common(),
       action: "inspection.save",
+      // Stale as well: the duplicate is refused before the version check.
       record: newInspection(a, {
         sourceKey: "manual:1",
         dueDate: "2027-01-01",
+        version: 1,
       }),
     }),
   ],
