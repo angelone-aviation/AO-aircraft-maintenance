@@ -31,15 +31,14 @@ import { useWorkspace } from "../data/store";
 import { activeProgram } from "../domain/programs";
 import { groupAircraftLabel } from "../domain/groupAircraft";
 import {
+  ACCOUNT_NAME_MAX_LENGTH,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  isProgramMember,
 } from "../domain/accountRules";
 import { AsyncForm, Field, Modal, value } from "./ui";
 import { IconTile, NoticeBar, PageHeader, StatusPill } from "./design";
 import "../styles/screens/admin.css";
-
-// The server refuses longer names (convex/programUsers.ts).
-const NAME_MAX_LENGTH = 150;
 
 /**
  * A member's initials (at most two) in a circle, filled blue for an
@@ -161,16 +160,14 @@ function useDialogs() {
   };
 }
 
-// A member belongs to the program through any of its groups.
 function programRoster(s: Snapshot) {
   const programUuid = activeProgram(s)!;
-  const groups = s.groups.filter((g) => g.programUuid === programUuid);
   return {
     programUuid,
     program: s.programs?.find((p) => p.uuid === programUuid),
-    groups,
+    groups: s.groups.filter((g) => g.programUuid === programUuid),
     members: s.members.filter((m) =>
-      m.groupIds.some((id) => groups.some((g) => g.id === id)),
+      isProgramMember(s.groups, m.groupIds, programUuid),
     ),
     aircraft: s.aircraft.filter((a) => a.programUuid === programUuid),
   };
@@ -638,7 +635,7 @@ function NewAccountFields() {
   return (
     <>
       <Field label="Full name">
-        <input name="name" required maxLength={NAME_MAX_LENGTH} />
+        <input name="name" required maxLength={ACCOUNT_NAME_MAX_LENGTH} />
       </Field>
       <Field label="Email">
         <input name="email" type="email" required autoComplete="off" />

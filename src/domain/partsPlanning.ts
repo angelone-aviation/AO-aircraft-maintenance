@@ -2,8 +2,8 @@
  * Responsibility: Parts demand for maintenance planning: which open work
  *   needs parts, and how many of each are still to get.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/partsRequests.ts, dueItems.ts; model.ts,
- *   airworthiness.ts and requiredParts.ts (types).
+ * Dependencies: src/domain/partsRequests.ts, dueItems.ts, airworthiness.ts;
+ *   model.ts and requiredParts.ts (types).
  *
  * Once any parts request names a record, the requests replace the parts
  * recorded on the record itself.
@@ -16,7 +16,7 @@ import {
   type RequestLine,
   type RequestSource,
 } from "./partsRequests";
-import type { AD } from "./airworthiness";
+import { isTrackedAD } from "./airworthiness";
 import {
   dueItems,
   type AdDue,
@@ -27,10 +27,6 @@ import {
 import type { Snapshot } from "./model";
 import type { RequiredPart } from "./requiredParts";
 
-const PLANNED_AD_APPLICABILITY: readonly string[] = [
-  "Applicable",
-  "Previously Complied With (PCW)",
-];
 // Kinds planned from their own record, so a request for one adds nothing.
 const RECORD_SOURCE_KINDS: readonly string[] = [
   "inspection",
@@ -162,7 +158,7 @@ function planComponentRequirements(
 // AD tasks have no parts of their own; only parts requests plan them.
 function planAirworthiness(s: Snapshot, due: MaintenanceDue[]): PartsPlan[] {
   return due.flatMap((item) =>
-    item.kind === "ad" && isPlanned(item.ad) ? planADTasks(s, item) : [],
+    item.kind === "ad" && isTrackedAD(item.ad) ? planADTasks(s, item) : [],
   );
 }
 
@@ -182,12 +178,6 @@ function planADTasks(s: Snapshot, item: AdDue): PartsPlan[] {
       },
     ];
   });
-}
-
-function isPlanned(ad: AD) {
-  return (
-    !ad.reviewRequired && PLANNED_AD_APPLICABILITY.includes(ad.applicability)
-  );
 }
 
 function isUpcoming(item: InspectionDue | RequirementDue) {

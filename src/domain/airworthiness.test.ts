@@ -13,15 +13,27 @@ import { demoSnapshot } from "../data/demo";
 import { parseADTables } from "../data/adImport";
 import tables from "../../tests/fixtures/ad-report-tables.json";
 import {
+  AD_RECURRING_CHOICES,
   adAuditRecord,
+  adCommandSchema,
+  adComplianceSchema,
   adCounters,
   adSchema,
+  adSourceSchema,
   adStatus,
   adTaskStatus,
   applyADCommand,
   blankAD,
   blankADTask,
   CLOSED_APPLICABILITY,
+  isTrackedAD,
+  needsApplicabilityReason,
+  needsSupersedingAD,
+  REASON_MAX_LENGTH,
+  REQUIRED_COMPLIANCE_FIELDS,
+  TRACKED_APPLICABILITY,
+  tracksSameAD,
+  withApplicability,
   type AD,
   type ADCompliance,
   type ADTask,
@@ -798,6 +810,38 @@ it("judges an AD's status and component counters on the date given", () => {
   expect(adStatus(s, dated, "2099-01-01")).toBe("Scheduled");
 });
 
+it("checks completion counters against component totals on the caller's date", () => {
+  const { s, r } = setup();
+  s.management = [
+    installedEngine(s.aircraft[0], {
+      trackCalendar: true,
+      installedDate: "2099-01-01",
+    }),
+  ];
+  s.airworthiness = [{ ...stored(s, r), componentUuid: "engine-1" }];
+  // The engine has 0 cycles since new, so the entry's 1,890 exceed them
+  // wherever its totals can be read.
+  const comply = (now: string) => () =>
+    applyADCommand(
+      s,
+      {
+        kind: "comply",
+        uuid: r.uuid,
+        version: stored(s, r).version,
+        entry: entry(r.tasks[0].uuid),
+      },
+      Date.parse(now),
+    );
+  expect(comply("2099-06-01T12:00:00")).toThrow(
+    new Rejection(
+      "Completion hours and cycles cannot exceed the current totals.",
+    ),
+  );
+  // Characterizes current behaviour: before the installation date the totals
+  // cannot be read, so there is nothing to compare against.
+  expect(comply("2098-12-01T12:00:00")).not.toThrow();
+});
+
 it("leaves the counter unavailable for the aircraft meter's refusals too", () => {
   const { s } = setup();
   const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
@@ -810,8 +854,28 @@ it("leaves the counter unavailable for the aircraft meter's refusals too", () =>
     s.aircraft[0] = a;
     s.management = [installedEngine(a, {})];
     expect(adCounters(s, r)).toBeNull();
+    expect(adCounters(s, { ...r, componentUuid: "" })).toBeNull();
     expect(() => totalSeconds(a)).toThrow(Rejection);
   }
+});
+
+it("judges an aircraft AD without a meter reading on its dates, refusing compliance", () => {
+  const { s, r } = setup();
+  Object.assign(s.aircraft[0], {
+    meter: "flightTimeLog",
+    currentFlightTimeLog: undefined,
+  });
+  const late = { ...r.tasks[0], dueDate: "2020-01-01" };
+  expect(adStatus(s, r)).toBe("Counter unavailable");
+  expect(adStatus(s, { ...r, tasks: [...r.tasks, late] })).toBe("Overdue");
+  expect(() =>
+    applyADCommand(s, {
+      kind: "comply",
+      uuid: r.uuid,
+      version: r.version,
+      entry: entry(r.tasks[0].uuid),
+    }),
+  ).toThrow(new Rejection("Flight time log reading is required."));
 });
 
 it("lets a fault in the component's totals through, not as an unavailable counter", () => {
@@ -833,6 +897,24 @@ it("reports not applicable and superseded ADs by their applicability", () => {
   expect(CLOSED_APPLICABILITY).toEqual(["Not applicable", "Superseded"]);
   for (const applicability of CLOSED_APPLICABILITY)
     expect(adStatus(s, { ...r, applicability })).toBe(applicability);
+});
+
+it("offers a reviewed AD's actions for work only when it is tracked", () => {
+  const { s, r } = setup();
+  const offered = (
+    applicability: AD["applicability"],
+    reviewRequired = false,
+  ) => {
+    s.airworthiness = [{ ...r, applicability, reviewRequired }];
+    return workSources(s, r.aircraftUuid).some(
+      (x) => x.source.kind === "airworthiness",
+    );
+  };
+  const tracked = ["Applicable", "Previously Complied With (PCW)"];
+  const options = adSchema.shape.applicability.options;
+  expect(options.filter((a) => offered(a))).toEqual(tracked);
+  expect(options.filter((a) => offered(a, true))).toEqual([]);
+  expect(TRACKED_APPLICABILITY).toEqual(tracked);
 });
 
 function installedEngine(a: Aircraft, fields: Partial<Component>) {
@@ -931,5 +1013,115 @@ describe("AD change log", () => {
       applyADCommand(s, { kind: "save", record: { ...r, version: 0 } }, NOW),
     ).toThrow(Rejection);
     expect(s.audit).toEqual(audit);
+  });
+});
+
+describe("AD decisions the AD form shares", () => {
+  const options = adSchema.shape.applicability.options;
+  const PCW = "Previously Complied With (PCW)";
+
+  it("settles review on not applicable, superseded or PCW, and reopens it on Needs review", () => {
+    const { r } = setup();
+    const reviewAfter = (
+      applicability: AD["applicability"],
+      reviewRequired: boolean,
+    ) => withApplicability({ ...r, reviewRequired }, applicability);
+    expect(
+      options.map((a) => [
+        a,
+        reviewAfter(a, false).reviewRequired,
+        reviewAfter(a, true).reviewRequired,
+      ]),
+    ).toEqual([
+      ["Needs review", true, true],
+      ["Applicable", false, true],
+      ["Not applicable", false, false],
+      ["Superseded", false, false],
+      [PCW, false, false],
+    ]);
+    expect(reviewAfter("Superseded", true)).toEqual({
+      ...r,
+      applicability: "Superseded",
+      reviewRequired: false,
+    });
+  });
+
+  it("tracks an AD only once reviewed as applicable or PCW", () => {
+    const tracked = (reviewRequired: boolean) =>
+      options.filter((applicability) =>
+        isTrackedAD({ applicability, reviewRequired }),
+      );
+    expect(tracked(false)).toEqual(["Applicable", PCW]);
+    expect(tracked(true)).toEqual([]);
+  });
+
+  it("needs a reason when not applicable and the superseding AD when superseded", () => {
+    expect(options.filter(needsApplicabilityReason)).toEqual([
+      "Not applicable",
+    ]);
+    expect(options.filter(needsSupersedingAD)).toEqual(["Superseded"]);
+  });
+
+  it("matches records on component and AD number, ignoring case and spaces", () => {
+    const { r } = setup();
+    const at = (componentUuid: string, number: string) => ({
+      componentUuid,
+      source: { ...r.source, number },
+    });
+    expect(tracksSameAD(at("", "2026-01-01"), at("", " 2026 -01-01"))).toBe(
+      true,
+    );
+    expect(tracksSameAD(at("c1", "ad-1a"), at("c1", "AD-1A"))).toBe(true);
+    expect(tracksSameAD(at("c1", "AD-1A"), at("", "AD-1A"))).toBe(false);
+    expect(tracksSameAD(at("", "AD-1A"), at("", "AD-1B"))).toBe(false);
+  });
+
+  it("accepts a change or correction reason of up to 1,500 characters", () => {
+    const { r } = setup();
+    const correction = (reason: string) => ({
+      kind: "correct",
+      uuid: r.uuid,
+      version: r.version,
+      corrects: crypto.randomUUID(),
+      reason,
+      entry: entry(r.tasks[0].uuid),
+    });
+    const save = (reason: string) => ({ kind: "save", record: r, reason });
+    for (const command of [save, correction]) {
+      const parses = (length: number) =>
+        adCommandSchema.safeParse(command("x".repeat(length))).success;
+      expect(parses(REASON_MAX_LENGTH)).toBe(true);
+      expect(parses(REASON_MAX_LENGTH + 1)).toBe(false);
+    }
+    expect(REASON_MAX_LENGTH).toBe(1500);
+  });
+
+  it("offers every recurring answer, unknown first", () => {
+    expect(AD_RECURRING_CHOICES).toEqual(["Unknown", "Yes", "No"]);
+    expect([...AD_RECURRING_CHOICES].sort()).toEqual(
+      [...adSourceSchema.shape.recurring.options].sort(),
+    );
+  });
+
+  it("requires a compliance entry's date, method and mechanic", () => {
+    const { r } = setup();
+    const blankRefused = (field: keyof ADCompliance) =>
+      !adComplianceSchema.safeParse({ ...entry(r.tasks[0].uuid), [field]: "" })
+        .success;
+    const textFields: (keyof ADCompliance)[] = [
+      "date",
+      "method",
+      "serviceBulletin",
+      "terminatedBy",
+      "mechanic",
+      "certificate",
+      "evidence",
+    ];
+    expect(textFields.filter(blankRefused)).toEqual([
+      "date",
+      "method",
+      "mechanic",
+    ]);
+    expect(REQUIRED_COMPLIANCE_FIELDS).toEqual(textFields.filter(blankRefused));
   });
 });

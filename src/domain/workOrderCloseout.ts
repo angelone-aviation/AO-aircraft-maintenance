@@ -11,5 +11,6 @@ export {
 } from "./work-order-closeout/logbookText";
 export {
   completeWorkOrder,
-  previewComponentWork,
+  previewComponentCloseout,
+  type ComponentCloseoutPreview,
 } from "./work-order-closeout/closeout";

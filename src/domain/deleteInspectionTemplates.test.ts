@@ -98,10 +98,10 @@ it("refuses with a Rejection and the exact message", () => {
   expectRefusal(preview([f.template.uuid, f.template.uuid]), between);
   const many = Array.from({ length: 101 }, () => crypto.randomUUID());
   expectRefusal(preview(many), between);
-  expectRefusal(
-    preview([crypto.randomUUID()]),
-    "A selected template is unavailable in this Flight Program. Refresh the list.",
-  );
+  const unavailable =
+    "A selected template is unavailable in this Flight Program. Refresh the list.";
+  expectRefusal(preview(many.slice(1)), unavailable);
+  expectRefusal(preview([crypto.randomUUID()]), unavailable);
   f.s.taskCards!.push({
     ...f.task,
     uuid: crypto.randomUUID(),

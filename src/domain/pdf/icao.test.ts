@@ -2,11 +2,12 @@
  * Responsibility: Pins how an ICAO flight-plan page is recognized and how its
  *   times, durations, rules and counts read or are left out.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/pdf/icao.ts, ../rejection,
+ * Dependencies: src/domain/pdf/icao.ts, ../flightPlans, ../rejection,
  *   tests/fixtures/icao-text.json.
  */
 import { expect, it } from "vitest";
 import items from "../../../tests/fixtures/icao-text.json";
+import { FLIGHT_RULE_OPTIONS } from "../flightPlans";
 import { Rejection } from "../rejection";
 import { parseIcao, type PdfText } from "./icao";
 
@@ -30,6 +31,13 @@ it("drops template glyphs but keeps spaces in text fields", () => {
 it("leaves the departure out without a date of flight or a valid time", () => {
   expect(parseIcao(replaced("DOF/260930", "")).departureAt).toBe("");
   expect(parseIcao(replaced("2 2 0 5", "2 4 0 5")).departureAt).toBe("");
+});
+
+it("reads each ICAO flight rule the plan form offers", () => {
+  const rules = FLIGHT_RULE_OPTIONS.map(([rule]) => rule);
+  expect(rules.map((r) => parseIcao(replaced("I", r)).flightRules)).toEqual(
+    rules,
+  );
 });
 
 it("leaves durations, rules and counts out when they do not read", () => {

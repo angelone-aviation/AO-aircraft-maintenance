@@ -4,7 +4,8 @@
  * Layer: UI. Screen over the workspace snapshot; status rules live in
  *   src/domain.
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
- *   aircraftStatus, management, partsPlanning, requiredParts, pilotView),
+ *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
+ *   rejection),
  *   ./design and the aircraft, flight, parts and FAA components.
  */
 import {
@@ -46,12 +47,15 @@ import {
 } from "../domain/dueItems";
 import { inspectionCounters } from "../domain/management";
 import {
+  compareInspectionUrgency,
+  INSPECTION_DUE_SOON_WITHIN,
   inspectionDueDate,
   inspectionDueLimit,
   type InspectionLimit,
 } from "../domain/maintenance";
 import { maintenancePartsPlans, type PartsPlan } from "../domain/partsPlanning";
-import { partsAvailability } from "../domain/requiredParts";
+import { partsNeedAttention } from "../domain/requiredParts";
+import { Rejection } from "../domain/rejection";
 import {
   aircraftMeterLabels,
   can,
@@ -95,12 +99,6 @@ const ADAlerts = lazy(() =>
 
 const DAY_MS = 86_400_000;
 const SECONDS_PER_HOUR = 3600;
-const SCHEDULE_RANK: Record<ScheduleState, number> = {
-  overdue: 0,
-  "due-soon": 1,
-  scheduled: 2,
-  unknown: 3,
-};
 const SCHEDULE_TONES: Record<ScheduleState, Tone> = {
   overdue: "danger",
   "due-soon": "warn",
@@ -236,7 +234,7 @@ function fleetOf(s: Snapshot) {
     due: [...schedules.values()]
       .flat()
       .filter((x) => x.status === "overdue" || x.status === "due-soon")
-      .sort(byUrgency),
+      .sort(compareInspectionUrgency),
     open: s.discrepancies.filter((d) => d.status === "open"),
     partsPlans: maintenancePartsPlans(s),
     expiredComponents: expiredComponents(s, due),
@@ -289,10 +287,6 @@ function scheduleOf(s: Snapshot, d: InspectionDue, today: string): Schedule {
   const counters = inspectionCounters(i, a, s.management, today);
   return { i, counters, ...d.due, limit: inspectionDueLimit(d.due) };
 }
-const urgency = (x: Schedule) => x.limit?.urgency ?? Number.MAX_VALUE;
-/** Most urgent first: by status, then by how near the driving limit is. */
-const byUrgency = (x: Schedule, y: Schedule) =>
-  SCHEDULE_RANK[x.status] - SCHEDULE_RANK[y.status] || urgency(x) - urgency(y);
 
 function DashboardHeader({
   s,
@@ -350,6 +344,8 @@ function FleetKpis({
   pilotView,
 }: FleetProps & { pilotView: boolean }) {
   const { due, open } = fleet;
+  // One number for hours and cycles: they share a due-soon window.
+  const soon = INSPECTION_DUE_SOON_WITHIN;
   return (
     <KpiStrip
       columns={pilotView ? 3 : 4}
@@ -368,7 +364,7 @@ function FleetKpis({
         icon={HourglassMedium}
         tone="warn"
         valueTone={due.length ? "warn" : undefined}
-        footnote="Within 10 hours / cycles or 30 days"
+        footnote={`Within ${soon.hours} hours / cycles or ${soon.days} days`}
       />
       <KpiTile
         label="Open discrepancies"
@@ -476,19 +472,18 @@ function cardProps(d: DashboardState, a: Aircraft, index: number): CardProps {
         (c) => c.kind === "component" && c.aircraftUuid === a.uuid,
       ),
     partsAttention:
-      !pilotView && partsNeedAttention(s, fleet.partsPlans, a.uuid),
+      !pilotView && upcomingPartsNeedAttention(s, fleet.partsPlans, a.uuid),
   };
 }
 
-// An upcoming plan with a part whose stock is unknown or short.
-function partsNeedAttention(s: Snapshot, plans: PartsPlan[], uuid: string) {
+function upcomingPartsNeedAttention(
+  s: Snapshot,
+  plans: PartsPlan[],
+  uuid: string,
+) {
   return plans.some(
     (p) =>
-      p.aircraftUuid === uuid &&
-      p.upcoming &&
-      partsAvailability(s, p.parts).some(
-        (r) => r.available === undefined || (r.shortage ?? 0) > 0,
-      ),
+      p.aircraftUuid === uuid && p.upcoming && partsNeedAttention(s, p.parts),
   );
 }
 
@@ -741,7 +736,7 @@ function DashboardDialogs({ d }: { d: DashboardState }) {
 /** The most urgent inspection of an aircraft, described the way the card
  * shows it: remaining amount, and the last/due marks that are on record. */
 function nextDue(schedules: Schedule[], a: Aircraft, today: string): NextDue {
-  const next = [...schedules].sort(byUrgency)[0];
+  const next = [...schedules].sort(compareInspectionUrgency)[0];
   if (!next)
     return {
       reference: "No inspection schedule",
@@ -1000,13 +995,20 @@ function CardNotes({
 }
 
 function CardMeters({ aircraft: a }: { aircraft: Aircraft }) {
+  const total = readTotalSeconds(a);
   return (
     <dl className="dash-meters">
       <div>
         <dt>Total</dt>
         <dd>
-          {hours(totalSeconds(a))}
-          <span className="dash-unit"> h</span>
+          {total === undefined ? (
+            "Not recorded"
+          ) : (
+            <>
+              {hours(total)}
+              <span className="dash-unit"> h</span>
+            </>
+          )}
         </dd>
       </div>
       <Meter term="Hobbs">{tenths(a.currentHobbs)}</Meter>
@@ -1015,6 +1017,17 @@ function CardMeters({ aircraft: a }: { aircraft: Aircraft }) {
       {a.turbine && <Meter term="Cycles">{a.cycles.toLocaleString()}</Meter>}
     </dl>
   );
+}
+
+// Total time is read from the aircraft's own meter, which can lack a reading;
+// the card says so instead of failing the whole page.
+function readTotalSeconds(a: Aircraft) {
+  try {
+    return totalSeconds(a);
+  } catch (error) {
+    if (error instanceof Rejection) return undefined;
+    throw error;
+  }
 }
 
 function Meter({ term, children }: { term: string; children: ReactNode }) {

@@ -32,18 +32,30 @@ import { useWorkspace, type Workspace } from "../data/store";
 import { can } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import {
+  AD_RECURRING_CHOICES,
+  DASHBOARD_SETTLED_AD_STATUSES,
+  REASON_MAX_LENGTH,
+  REQUIRED_COMPLIANCE_FIELDS,
   adAircraftUuid,
   adNumber,
   adSaveIsCorrection,
+  adSchema,
+  adSourceSchema,
   adStatus,
+  adTaskSchema,
   adTaskStatus,
   blankAD,
   blankADTask,
   clearInitialLimits,
   effectiveCompliance,
   initialLimitClearReason,
+  isTrackedAD,
+  needsApplicabilityReason,
+  needsSupersedingAD,
   staleInitialLimitNotice,
   staleInitialLimits,
+  tracksSameAD,
+  withApplicability,
   type AD,
   type ADCommand,
   type ADCompliance,
@@ -79,21 +91,9 @@ import {
 } from "./design";
 import { OpsSelect } from "./OpsList";
 
-// AD statuses the dashboard does not alert on: complied, not applicable,
-// removed, or due later than the due-soon window ("Scheduled").
-const SETTLED_STATUSES = [
-  "Complied",
-  "Previously Complied With (PCW)",
-  "Not applicable",
-  "Superseded",
-  "Scheduled",
-  "Removed component",
-];
 const PCW = "Previously Complied With (PCW)";
 // Marks an import group the user chose not to import yet.
 const SKIP = "__skip__";
-// The schema's limit on a change reason (src/domain/airworthiness.ts).
-const REASON_MAX_LENGTH = 1500;
 const SOURCE_FIELDS = [
   ["number", "AD number"],
   ["amendment", "Amendment"],
@@ -103,20 +103,9 @@ const SOURCE_FIELDS = [
   ["supersededBy", "Superseded by (source reference)"],
   ["url", "FAA document URL"],
 ] as const;
-const SECTIONS = ["Airframe", "Engine", "Propeller", "Appliance"];
-const RECURRING_CHOICES = ["Unknown", "Yes", "No"];
-const APPLICABILITY_CHOICES = [
-  "Needs review",
-  "Applicable",
-  "Not applicable",
-  "Superseded",
-  PCW,
-];
-// Choosing one of these settles the applicability review.
-const SETTLING_APPLICABILITY = ["Not applicable", "Superseded", PCW];
-// Compliance is recorded only against an AD found to apply.
-const COMPLIABLE_APPLICABILITY = ["Applicable", PCW];
-const RECURRENCE_CHOICES = ["Unknown", "One-time", "Recurring"];
+const SECTIONS = adSourceSchema.shape.section.options;
+const APPLICABILITY_CHOICES = adSchema.shape.applicability.options;
+const RECURRENCE_CHOICES = adTaskSchema.shape.recurrence.unwrap().options;
 const PRIOR_HOURS_LABELS = {
   aircraftHours: "Aircraft total time at compliance (hours)",
   componentHours: "Component total time at compliance (hours)",
@@ -134,11 +123,6 @@ const COMPLIANCE_FIELDS = [
   ["evidence", "Evidence / attachment / logbook reference"],
 ] as const;
 const COUNTER_FIELDS: readonly string[] = ["hours", "cycles", "landings"];
-const REQUIRED_COMPLIANCE_FIELDS: readonly string[] = [
-  "date",
-  "method",
-  "mechanic",
-];
 const HOUR_MS = 3_600_000;
 // Checks run daily (convex/crons.ts); results older than two days are stale.
 const STALE_CHECK_MS = 48 * HOUR_MS;
@@ -182,7 +166,7 @@ export function ADAlerts({ aircraftUuid }: { aircraftUuid?: string }) {
   const rows = (s.airworthiness ?? []).filter(
     (r) =>
       (!aircraftUuid || adAircraftUuid(s, r) === aircraftUuid) &&
-      !SETTLED_STATUSES.includes(adStatus(s, r)),
+      !DASHBOARD_SETTLED_AD_STATUSES.includes(adStatus(s, r)),
   );
   const pending = pendingFaaReviews(s, aircraftUuid);
   return (
@@ -756,12 +740,7 @@ function ADTaskRow({ ad, record: r, task: t }: RecordProps & { task: ADTask }) {
       <ADWorkOrderButton state={ad.state} record={r} taskUuid={t.uuid} />
       <button
         className="button small"
-        disabled={
-          !ad.editable ||
-          ad.busy ||
-          r.reviewRequired ||
-          !COMPLIABLE_APPLICABILITY.includes(r.applicability)
-        }
+        disabled={!ad.editable || ad.busy || !isTrackedAD(r)}
         onClick={() => {
           ad.setViewUuid(null);
           ad.setCompliance({ record: r, entry: newCompliance(ad, t) });
@@ -1164,7 +1143,8 @@ function SourceFields({ ad, draft }: DraftProps) {
             required={
               key === "number" ||
               key === "subject" ||
-              (key === "supersededBy" && draft.applicability === "Superseded")
+              (key === "supersededBy" &&
+                needsSupersedingAD(draft.applicability))
             }
             value={draft.source[key]}
             onChange={(e) => updateSource(ad, key, e.target.value)}
@@ -1188,7 +1168,7 @@ function SourceFields({ ad, draft }: DraftProps) {
           value={draft.source.recurring}
           onChange={(e) => updateSource(ad, "recurring", e.target.value)}
         >
-          <Choices values={RECURRING_CHOICES} />
+          <Choices values={AD_RECURRING_CHOICES} />
         </select>
       </Field>
     </>
@@ -1234,10 +1214,8 @@ function ComponentField({ ad, draft }: DraftProps) {
 // Choosing a component that already tracks this AD number switches the draft
 // to that record, keeping the source being edited.
 function withComponent(rows: AD[], draft: AD, componentUuid: string): AD {
-  const tracked = rows.find(
-    (r) =>
-      r.componentUuid === componentUuid &&
-      adNumber(r.source.number) === adNumber(draft.source.number),
+  const tracked = rows.find((r) =>
+    tracksSameAD(r, { componentUuid, source: draft.source }),
   );
   return {
     ...(tracked ?? draft),
@@ -1267,21 +1245,13 @@ function ApplicabilityFields({ ad, draft }: DraftProps) {
       )}
       <Field label="Applicability reason / paragraph">
         <textarea
-          required={draft.applicability === "Not applicable"}
+          required={needsApplicabilityReason(draft.applicability)}
           value={draft.reason}
           onChange={(e) => ad.setDraft({ ...draft, reason: e.target.value })}
         />
       </Field>
     </>
   );
-}
-
-// A settling choice ends the review; "Needs review" reopens it.
-function withApplicability(draft: AD, applicability: AD["applicability"]) {
-  const reviewRequired = SETTLING_APPLICABILITY.includes(applicability)
-    ? false
-    : applicability === "Needs review" || draft.reviewRequired;
-  return { ...draft, applicability, reviewRequired };
 }
 
 function PriorComplianceFields({ ad, draft }: DraftProps) {

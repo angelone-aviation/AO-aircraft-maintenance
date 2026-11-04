@@ -4,11 +4,13 @@
  *   every work-order command runs through (saveWorkOrder).
  * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
  * Dependencies: zod, ./model, ./programs, ./components, ./adOwnership,
- *   ./componentInventory, ./inventoryAttachments, ./logbookWording,
- *   ./rejection, ./taskCards (types) and the ./workOrder* modules.
+ *   ./airworthiness, ./componentInventory, ./inventoryAttachments,
+ *   ./logbookWording, ./rejection, ./taskCards (types) and the ./workOrder*
+ *   modules.
  */
 import { removedTaskCards } from "./workOrderTaskRemoval";
 import { adAircraftUuid } from "./adOwnership";
+import { isTrackedAD } from "./airworthiness";
 import {
   componentCorrectionCommandSchema,
   componentCorrectionSchema,
@@ -59,10 +61,6 @@ const ORDER_NUMBER_DIGITS = 4;
 const CLOSED_STATUSES: readonly string[] = ["completed", "cancelled"];
 // Job cards spell their closed status "canceled".
 const CLOSED_CARD_STATUSES: readonly string[] = ["completed", "canceled"];
-const WORKABLE_AD_APPLICABILITY: readonly string[] = [
-  "Applicable",
-  "Previously Complied With (PCW)",
-];
 
 const text = z.string().trim().max(TEXT_MAX_LENGTH);
 const id = z.string().min(1).max(ID_MAX_LENGTH);
@@ -574,12 +572,7 @@ export function validateWorkOrderFile(
 
 function adSources(s: Snapshot, aircraftUuid: string): OfferedWork[] {
   return (s.airworthiness ?? [])
-    .filter(
-      (r) =>
-        adAircraftUuid(s, r) === aircraftUuid &&
-        WORKABLE_AD_APPLICABILITY.includes(r.applicability) &&
-        !r.reviewRequired,
-    )
+    .filter((r) => adAircraftUuid(s, r) === aircraftUuid && isTrackedAD(r))
     .flatMap((r) =>
       r.tasks.map((t) => ({
         source: { kind: "airworthiness" as const, uuid: t.uuid },

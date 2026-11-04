@@ -6,7 +6,11 @@
  *   ./model, src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
-import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
+import {
+  DUE_FLEET_TODAY,
+  dueFleet,
+  withoutMeterReading,
+} from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask, adCounters } from "./airworthiness";
 import type { Component, ComponentRequirement } from "./components";
@@ -416,6 +420,20 @@ describe("forecast on the due fleet", () => {
     expect(
       forecast(s, "2099-06-01").find((x) => x.key === "i-gear"),
     ).toMatchObject({ status: "scheduled", remaining: "110.0 h" });
+  });
+
+  // Characterizes current behaviour: an AD action whose counter is
+  // unavailable has nothing to project and is left out, as ad-counter is.
+  it("lists a passed AD due date on an aircraft without a meter reading", () => {
+    const { s, c } = dueFleet();
+    withoutMeterReading(s, c);
+    const rows = forecast(s, DUE_FLEET_TODAY)
+      .filter((x) => x.aircraftUuid === c.uuid)
+      .map((x) => `${x.key} | ${x.status} | ${x.remaining}`);
+    expect(rows).toStrictEqual([
+      "ad-unread-late:ad-unread-late/monthly-2020-01-01 | Overdue | due 2020-01-01",
+      "i-collective | unknown | ",
+    ]);
   });
 });
 

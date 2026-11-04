@@ -3,7 +3,7 @@
  *   and how parts requests total what is still needed.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/partsPlanning.ts, partsRequests.ts, workOrders.ts,
- *   tests/fixtures (parts, work orders, the due fleet).
+ *   airworthiness.ts, tests/fixtures (parts, work orders, the due fleet).
  */
 import { describe, expect, it } from "vitest";
 import { DUE_FLEET_PART, dueFleet } from "../../tests/fixtures/dueFleet";
@@ -16,6 +16,7 @@ import {
   type RequestSource,
 } from "./partsRequests";
 import { newWorkTask, saveWorkOrder } from "./workOrders";
+import { adSchema } from "./airworthiness";
 
 const now = Date.parse("2026-10-02T12:00:00Z");
 
@@ -174,6 +175,21 @@ describe("on the due fleet", () => {
       "ad-counter/hourly-500 | demo-206 | AD AD-COUNTER: Inspect | true | 1",
       "ad-b/monthly-2020-01-01 | demo-208 | AD AD-B: Inspect | true | 1",
       "ad-gone/monthly-2020-01-01 | gone | AD AD-GONE: Inspect | true | 1",
+    ]);
+  });
+
+  it("plans a reviewed AD's parts only when it is tracked", () => {
+    const planned = (applicability: string) => {
+      const { s } = dueFleet();
+      const overdue = s.airworthiness!.find((r) => r.uuid === "ad-overdue")!;
+      Object.assign(overdue, { applicability });
+      return maintenancePartsPlans(s).some((p) =>
+        p.uuid.startsWith("ad-overdue/"),
+      );
+    };
+    expect(adSchema.shape.applicability.options.filter(planned)).toEqual([
+      "Applicable",
+      "Previously Complied With (PCW)",
     ]);
   });
 

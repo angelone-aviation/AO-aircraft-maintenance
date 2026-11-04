@@ -23,7 +23,27 @@ const HOUR_MINUTES = 60;
 const ALREADY_LOGGED =
   "This plan already has a logged flight or a flight awaiting review.";
 
-const text = z.string().trim().max(5000);
+/** Longest departure or destination airport entry. */
+export const PLACE_MAX_LENGTH = 100;
+/** Longest free-text entry, such as the route or the pilot information. */
+export const TEXT_MAX_LENGTH = 5000;
+/** Longest duration or endurance: ICAO writes them as HHMM, so 99h 59m. */
+export const DURATION_MAX_MINUTES = 5999;
+/** Most cycles or landings one plan may estimate. */
+export const COUNT_MAX = 1000;
+/** Most persons on board: ICAO Item 19 gives three digits. */
+export const PERSONS_MAX = 999;
+/** ICAO Item 8 flight rules, each with the label the plan form shows. */
+export const FLIGHT_RULE_OPTIONS = [
+  ["I", "IFR"],
+  ["V", "VFR"],
+  ["Y", "IFR then VFR"],
+  ["Z", "VFR then IFR"],
+] as const;
+
+const text = z.string().trim().max(TEXT_MAX_LENGTH);
+const place = z.string().trim().min(1).max(PLACE_MAX_LENGTH);
+const count = z.number().int().nonnegative().max(COUNT_MAX);
 
 /**
  * A flight plan read from an ICAO flight-plan PDF and assigned to an
@@ -37,20 +57,25 @@ export const flightPlanSchema = z.object({
   aircraftUuid: z.string().min(1),
   registration: text,
   departureAt: z.iso.datetime({ offset: true }),
-  origin: z.string().trim().min(1).max(100),
-  destination: z.string().trim().min(1).max(100),
+  origin: place,
+  destination: place,
   alternate: text,
-  durationMinutes: z.number().int().positive().max(5999),
-  cycles: z.number().int().nonnegative().max(1000),
-  landings: z.number().int().nonnegative().max(1000),
-  flightRules: z.enum(["I", "V", "Y", "Z"]),
+  durationMinutes: z.number().int().positive().max(DURATION_MAX_MINUTES),
+  cycles: count,
+  landings: count,
+  flightRules: z.enum(FLIGHT_RULE_OPTIONS.map(([rule]) => rule)),
   aircraftType: text,
   flightType: text,
   speed: text,
   level: text,
   route: text,
-  enduranceMinutes: z.number().int().nonnegative().max(5999).optional(),
-  personsOnBoard: z.number().int().nonnegative().max(999).optional(),
+  enduranceMinutes: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(DURATION_MAX_MINUTES)
+    .optional(),
+  personsOnBoard: z.number().int().nonnegative().max(PERSONS_MAX).optional(),
   pilotText: text,
   equipment: text,
   otherInformation: text,
@@ -184,6 +209,8 @@ export function validatePlanFlight(
  *   and flags for a flight awaiting review, a status other than airworthy,
  *   open discrepancies, inspections and component requirements due by the
  *   flight's end (UTC date), and those it cannot measure.
+ * @throws {Rejection} As {@link totalSeconds}, when a plan is queued on an
+ *   aircraft whose meter has no reading.
  */
 export function projectQueue(s: Snapshot, aircraftUuid: string) {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;

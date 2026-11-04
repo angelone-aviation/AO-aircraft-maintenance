@@ -7,7 +7,11 @@
  *   tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
-import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
+import {
+  DUE_FLEET_TODAY,
+  dueFleet,
+  withoutMeterReading,
+} from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import {
   aircraftStatus,
@@ -517,6 +521,20 @@ describe("aircraft status on the due fleet", () => {
       "component r-today: Type pump S/N SN-pump: r-today limit due soon",
       "ad ad-soon: AD AD-SOON due soon",
     ]);
+  });
+
+  // An AD limit it cannot read adds no reason, as an uncomputable schedule
+  // adds none, so only the passed due date grounds and the gate then admits.
+  it("judges an aircraft without a meter reading on what it can read", () => {
+    const { s, c } = dueFleet();
+    withoutMeterReading(s, c);
+    expect(reasons(s, c.uuid)).toStrictEqual([
+      "grounded",
+      "ad ad-unread-late: AD AD-UNREAD-LATE overdue",
+    ]);
+    without(s, ["ad-unread-late"]);
+    expect(reasons(s, c.uuid)).toStrictEqual(["airworthy"]);
+    expect(dispatchGate(s, c.uuid, undefined, DUE_FLEET_TODAY)).toBeUndefined();
   });
 
   it("measures a component inspection's counters on the status date", () => {

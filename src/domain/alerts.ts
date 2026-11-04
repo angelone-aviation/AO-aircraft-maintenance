@@ -76,17 +76,25 @@ export const severityLabels: Record<AlertSeverity, string> = {
 /** A certificate alerts from this many days before it expires. */
 export const CERTIFICATE_WARNING_DAYS = 30;
 
-const SEVERITY_RANK: Record<AlertSeverity, number> = {
-  danger: 0,
-  warning: 1,
-  info: 2,
-};
-const SKIPPED_AD_STATUSES = [
+/**
+ * The AD statuses whose actions never alert. Any other AD alerts on each
+ * overdue or due-soon action, even while it needs review; an AD with none
+ * (complied, scheduled, no due limit) has nothing to alert on. The
+ * dashboard's AD panel lists more (`DASHBOARD_SETTLED_AD_STATUSES`) until T13
+ * settles the difference.
+ */
+export const ALERTS_SKIPPED_AD_STATUSES: readonly string[] = [
   "Not applicable",
   "Superseded",
   "Removed component",
   "Previously Complied With (PCW)",
 ];
+
+const SEVERITY_RANK: Record<AlertSeverity, number> = {
+  danger: 0,
+  warning: 1,
+  info: 2,
+};
 const DAY_MS = 86_400_000;
 
 // Sorts after every YYYY-MM-DD date, so undated alerts come last.
@@ -223,7 +231,7 @@ function adAlerts(s: Snapshot, due: MaintenanceDue[]): Alert[] {
   return due.flatMap((item): Alert[] => {
     if (item.kind !== "ad" || !item.aircraft) return [];
     if (!can(s, item.aircraft.uuid, "read")) return [];
-    if (SKIPPED_AD_STATUSES.includes(item.status)) return [];
+    if (ALERTS_SKIPPED_AD_STATUSES.includes(item.status)) return [];
     return adTaskAlerts(item, item.aircraft);
   });
 }

@@ -11,6 +11,7 @@ import {
   assertGrantsRead,
   assertProgramGroups,
   grantsRead,
+  isProgramMember,
   normalizeAccount,
   normalizeGroup,
   observersGroup,
@@ -97,6 +98,18 @@ describe("observersGroup", () => {
       expect(observersGroup([{ ...OBSERVERS, ...fields }], PROGRAM)).toBe(
         undefined,
       );
+  });
+});
+
+describe("isProgramMember", () => {
+  it("is true through any group of the program, even without read", () => {
+    expect(isProgramMember(GROUPS, ["elsewhere", "writers"], PROGRAM)).toBe(
+      true,
+    );
+    expect(isProgramMember(GROUPS, ["elsewhere", "unknown"], PROGRAM)).toBe(
+      false,
+    );
+    expect(isProgramMember(GROUPS, [], PROGRAM)).toBe(false);
   });
 });
 

@@ -2,11 +2,12 @@
  * Responsibility: Reads the fields of an ICAO flight-plan form from the
  *   positioned text of its PDF page.
  * Layer: Domain. Pure function; reading the PDF itself is in src/data.
- * Dependencies: ../rejection.
+ * Dependencies: ../flightPlans (flight rules), ../rejection.
  *
  * Coordinates are normalized to the supported planning app's A4 ICAO template.
  * Box boundaries deliberately exclude adjacent labels and form delimiters.
  */
+import { FLIGHT_RULE_OPTIONS } from "../flightPlans";
 import { Rejection } from "../rejection";
 
 /** One text item of the page, in A4 points up from the bottom-left corner. */
@@ -40,8 +41,7 @@ const BOXES = {
   pilot: [88, 138, 345, 151],
 } as const satisfies Record<string, Box>;
 
-// ICAO Item 8: IFR, VFR, IFR then VFR, VFR then IFR.
-const FLIGHT_RULES = ["I", "V", "Y", "Z"] as const;
+const FLIGHT_RULES = FLIGHT_RULE_OPTIONS.map(([rule]) => rule);
 
 // Items whose baselines differ by this many points or less share a line.
 const SAME_LINE_POINTS = 4;

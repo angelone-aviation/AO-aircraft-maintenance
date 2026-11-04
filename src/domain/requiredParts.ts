@@ -156,6 +156,19 @@ export function partsAvailability(
 }
 
 /**
+ * Whether required parts need attention before the work: a listed lot is no
+ * longer in stock, or usable stock falls short of a part.
+ *
+ * @param s - Snapshot, read through {@link partsAvailability}.
+ * @param parts - The parts the work needs; none need no attention.
+ */
+export function partsNeedAttention(s: Snapshot, parts: RequiredPart[] = []) {
+  return partsAvailability(s, parts).some(
+    (r) => r.available === undefined || (r.shortage ?? 0) > 0,
+  );
+}
+
+/**
  * Replaces an open discrepancy's required parts, at the next parts version.
  * The caller writes the audit entry.
  *

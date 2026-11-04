@@ -26,7 +26,8 @@ export { adAircraftUuid } from "./adOwnership";
 export { effectiveCompliance, lastCompliance } from "./adCompliance";
 
 const TEXT_MAX_LENGTH = 20_000;
-const REASON_MAX_LENGTH = 1500;
+/** Longest reason for changing an AD or correcting its compliance. */
+export const REASON_MAX_LENGTH = 1500;
 const URL_MAX_LENGTH = 2000;
 // About 1,000 years: a sanity bound on stored day counts, not a service rule.
 const MAX_INTERVAL_DAYS = 365_000;
@@ -101,6 +102,13 @@ export const adComplianceSchema = z.object({
   correctionReason: z.string().max(REASON_MAX_LENGTH).optional(),
 });
 
+/** The fields a compliance entry cannot leave blank. */
+export const REQUIRED_COMPLIANCE_FIELDS: readonly (keyof ADCompliance)[] = [
+  "date",
+  "method",
+  "mechanic",
+];
+
 // What a command may send for an entry: the correction link is set only by
 // the correction command, so a forged one on new compliance is dropped.
 const complianceInputSchema = adComplianceSchema.omit({
@@ -148,6 +156,13 @@ export const adSchema = z.object({
 /** An AD's FAA source. */
 export type ADSource = z.infer<typeof adSourceSchema>;
 
+/** The source's `recurring` answers in the AD form's order: unknown first. */
+export const AD_RECURRING_CHOICES: readonly ADSource["recurring"][] = [
+  "Unknown",
+  "Yes",
+  "No",
+];
+
 // Stored records keep parsing; new saves and imports must link over http(s).
 const writableSourceSchema = adSourceSchema.extend({
   url: z
@@ -175,9 +190,32 @@ export const CLOSED_APPLICABILITY: readonly AD["applicability"][] = [
   "Superseded",
 ];
 
-// The decisions under which an AD's actions are tracked and complied with.
-const TRACKED_APPLICABILITY: readonly AD["applicability"][] = [
+/**
+ * The applicability decisions under which an AD's actions are tracked, worked
+ * and complied with.
+ */
+export const TRACKED_APPLICABILITY: readonly AD["applicability"][] = [
   "Applicable",
+  "Previously Complied With (PCW)",
+];
+
+/**
+ * The {@link adStatus} values the dashboard's AD alerts panel leaves out:
+ * complied, closed, removed with its component, or not due soon yet. It
+ * still lists "Needs review", "Due not set" and "Counter unavailable".
+ */
+export const DASHBOARD_SETTLED_AD_STATUSES: readonly string[] = [
+  "Complied",
+  "Previously Complied With (PCW)",
+  "Not applicable",
+  "Superseded",
+  "Scheduled",
+  "Removed component",
+];
+
+// Choosing one of these settles the applicability review.
+const SETTLING_APPLICABILITY: readonly AD["applicability"][] = [
+  ...CLOSED_APPLICABILITY,
   "Previously Complied With (PCW)",
 ];
 
@@ -259,6 +297,55 @@ type TaskStatus =
 export const adNumber = (s: string) => s.toUpperCase().replace(/\s+/g, "");
 
 /**
+ * Whether two of an aircraft's AD records track the same AD: on the same
+ * component (or both on the airframe), with the same {@link adNumber}.
+ */
+export function tracksSameAD(
+  a: Pick<AD, "componentUuid" | "source">,
+  b: Pick<AD, "componentUuid" | "source">,
+) {
+  return (
+    a.componentUuid === b.componentUuid &&
+    adNumber(a.source.number) === adNumber(b.source.number)
+  );
+}
+
+/**
+ * Whether an AD's actions are tracked: its applicability is reviewed, and it
+ * applies or was complied with before. Only then is compliance recorded.
+ */
+export function isTrackedAD(r: Pick<AD, "applicability" | "reviewRequired">) {
+  return !r.reviewRequired && TRACKED_APPLICABILITY.includes(r.applicability);
+}
+
+/**
+ * Records an applicability decision on an AD being edited. Not applicable,
+ * superseded and PCW settle the review; "Needs review" reopens it; Applicable
+ * leaves it as it was.
+ *
+ * @returns A copy of the AD with the decision.
+ */
+export function withApplicability(
+  r: AD,
+  applicability: AD["applicability"],
+): AD {
+  const reviewRequired = SETTLING_APPLICABILITY.includes(applicability)
+    ? false
+    : applicability === "Needs review" || r.reviewRequired;
+  return { ...r, applicability, reviewRequired };
+}
+
+/** Whether saving this decision needs its reason: an AD not applicable. */
+export function needsApplicabilityReason(applicability: AD["applicability"]) {
+  return applicability === "Not applicable";
+}
+
+/** Whether saving this decision needs the AD that superseded this one. */
+export function needsSupersedingAD(applicability: AD["applicability"]) {
+  return applicability === "Superseded";
+}
+
+/**
  * A manually entered AD awaiting review, with no actions or history.
  *
  * @param aircraftUuid - The aircraft it is entered on.
@@ -337,7 +424,8 @@ export function adSaveIsCorrection(old: AD | undefined) {
  *   with {@link adCommandReason} and the record before and after as
  *   {@link adAuditRecord} shows it.
  * @param raw - The command, parsed with {@link adCommandSchema}.
- * @param now - The clock for timestamps and future-date checks.
+ * @param now - The clock for timestamps, future-date checks and the date a
+ *   component's totals are read on.
  * @returns The changed records, versions advanced; [] for an unchanged import.
  * @throws {Rejection} For a refused change, such as "AD changed. Reload before
  *   saving."; the snapshot is left unchanged.
@@ -399,29 +487,20 @@ export function adAuditRecord(r: AD) {
  * @param r - The AD.
  * @param today - The local date a component's totals are read on.
  * @returns Hours (decimal), cycles and landings; null when the aircraft or
- *   component is unknown or the component's totals cannot be computed.
+ *   component is unknown or its totals cannot be read, such as an aircraft
+ *   meter without a reading.
  */
 export function adCounters(
   s: Snapshot,
   r: AD,
   today = localDate(),
 ): Counters | null {
-  const a = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
-  if (!a) return null;
-  if (!r.componentUuid)
-    return {
-      hours: totalSeconds(a) / SECONDS_PER_HOUR,
-      cycles: a.cycles,
-      landings: a.landings,
-    };
-  const c = findComponent(s, r.componentUuid);
-  const t = c && readComponentTotals(c, a, today);
-  if (!t) return null;
-  return {
-    hours: t.timeSinceNew / SECONDS_PER_HOUR,
-    cycles: t.cyclesSinceNew,
-    landings: a.landings,
-  };
+  try {
+    return readCounters(s, r, today);
+  } catch (error) {
+    if (error instanceof Rejection) return null;
+    throw error;
+  }
 }
 
 /**
@@ -709,17 +788,16 @@ function saveAD(
     (x) =>
       x.uuid !== r.uuid &&
       adAircraftUuid(s, x) === adAircraftUuid(s, r) &&
-      x.componentUuid === r.componentUuid &&
-      adNumber(x.source.number) === adNumber(r.source.number),
+      tracksSameAD(x, r),
   );
   if (duplicate)
     throw new Rejection("This AD already exists for the selected asset.");
 }
 
 function assertApplicabilityDecision(r: AD, now: number) {
-  if (r.applicability === "Superseded" && !r.source.supersededBy)
+  if (needsSupersedingAD(r.applicability) && !r.source.supersededBy)
     throw new Rejection("Enter the superseding AD in Superseded by.");
-  if (r.applicability === "Not applicable" && !r.reason)
+  if (needsApplicabilityReason(r.applicability) && !r.reason)
     throw new Rejection("Record the reason this AD is not applicable.");
   if (r.applicability === "Previously Complied With (PCW)")
     assertPriorCompliance(r, now);
@@ -759,7 +837,7 @@ function assertActions(s: Snapshot, old: AD | undefined, r: AD) {
 }
 
 function recordCompliance(s: Snapshot, cmd: ComplyCommand, r: AD, now: number) {
-  if (!TRACKED_APPLICABILITY.includes(r.applicability) || r.reviewRequired)
+  if (!isTrackedAD(r))
     throw new Rejection("Review applicability before recording compliance.");
   const t = r.tasks.find((t) => t.uuid === cmd.entry.taskUuid);
   if (!t) throw new Rejection("Required action not found.");
@@ -900,7 +978,7 @@ function checkEntry(
     throw new Rejection("Record the counter needed to calculate the next due.");
   assertEntryCounters(entry, prev, next);
   assertEntryLandings(s, r, entry, prev);
-  assertWithinTotals(s, r, entry);
+  assertWithinTotals(s, r, entry, now);
 }
 
 function assertEntryDate(
@@ -960,8 +1038,13 @@ function assertEntryLandings(
     );
 }
 
-function assertWithinTotals(s: Snapshot, r: AD, entry: ADCompliance) {
-  const counters = adCounters(s, r);
+function assertWithinTotals(
+  s: Snapshot,
+  r: AD,
+  entry: ADCompliance,
+  now: number,
+) {
+  const counters = readCounters(s, r, localDate(now));
   if (!counters) return;
   const component = findComponent(s, r.componentUuid);
   const hoursOver =
@@ -998,6 +1081,28 @@ function addDays(isoDate: string, days: number) {
   const d = new Date(isoDate + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+// adCounters, except that an aircraft meter without a reading throws its
+// Rejection: compliance on an aircraft AD is refused until there is a reading
+// to check its hours against.
+function readCounters(s: Snapshot, r: AD, today: string): Counters | null {
+  const a = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
+  if (!a) return null;
+  if (!r.componentUuid)
+    return {
+      hours: totalSeconds(a) / SECONDS_PER_HOUR,
+      cycles: a.cycles,
+      landings: a.landings,
+    };
+  const c = findComponent(s, r.componentUuid);
+  const t = c && readComponentTotals(c, a, today);
+  if (!t) return null;
+  return {
+    hours: t.timeSinceNew / SECONDS_PER_HOUR,
+    cycles: t.cyclesSinceNew,
+    landings: a.landings,
+  };
 }
 
 // Totals that cannot be computed (readings before the installation baseline,

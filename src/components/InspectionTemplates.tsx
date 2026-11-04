@@ -8,7 +8,10 @@
  *   model), ./TaskCsvImport, ./ActivateTemplate, ./ScheduleTracking,
  *   ./ManagementShared, ./Manuals, ./ui.
  */
-import { templateDeletionPreview } from "../domain/deleteInspectionTemplates";
+import {
+  MAX_TEMPLATES_PER_DELETION,
+  templateDeletionPreview,
+} from "../domain/deleteInspectionTemplates";
 import { TaskCsvImportButton } from "./TaskCsvImport";
 import { ActivateTemplate } from "./ActivateTemplate";
 import { Link } from "@tanstack/react-router";
@@ -18,6 +21,11 @@ import { useWorkspace } from "../data/store";
 import type { Backend } from "../data/backend";
 import { programPermission } from "../domain/programs";
 import {
+  TEMPLATE_CONDITIONS_MAX_LENGTH,
+  TEMPLATE_CSV_MAX_BYTES,
+  TEMPLATE_DESCRIPTION_MAX_LENGTH,
+  TEMPLATE_GROUP_MAX_LENGTH,
+  TEMPLATE_NAME_MAX_LENGTH,
   taskSourceText,
   emptyTemplate,
   inspectionTemplateSchema,
@@ -31,12 +39,12 @@ import { AsyncForm, Field, Modal, PageTitle, errorText, value } from "./ui";
 import { NumberField, num } from "./ManagementShared";
 import { ManualLink } from "./Manuals";
 import { toCsv } from "../domain/csv";
-import type { ManualApplicability } from "../domain/manuals";
+import {
+  APPLICABILITY_NAME_MAX_LENGTH,
+  APPLICABILITY_PART_NUMBER_MAX_LENGTH,
+  type ManualApplicability,
+} from "../domain/manuals";
 
-// The domain refuses to delete more templates at once
-// (deleteInspectionTemplates.ts).
-const MAX_DELETE_SELECTION = 100;
-const MAX_TEMPLATE_CSV_BYTES = 2 * 1024 * 1024;
 // Long enough for the browser to start the download before the URL goes.
 const DOWNLOAD_URL_LIFETIME_MS = 1000;
 const TEMPLATE_FIELDS = inspectionTemplateSchema.shape;
@@ -227,14 +235,14 @@ function TemplateIdentityFields({ record }: RecordProps) {
           name="name"
           defaultValue={record.name}
           required
-          maxLength={200}
+          maxLength={TEMPLATE_NAME_MAX_LENGTH}
         />
       </Field>
       <Field label="Inspection group">
         <input
           name="group"
           defaultValue={record.group}
-          maxLength={150}
+          maxLength={TEMPLATE_GROUP_MAX_LENGTH}
           placeholder="Phase inspections"
         />
       </Field>
@@ -262,14 +270,14 @@ function ScopeFields({ scope }: { scope?: ManualApplicability }) {
         <input
           name="manufacturer"
           defaultValue={scope?.manufacturer}
-          maxLength={150}
+          maxLength={APPLICABILITY_NAME_MAX_LENGTH}
         />
       </Field>
       <Field label="Aircraft type / component model">
         <input
           name="model"
           defaultValue={scope?.model}
-          maxLength={150}
+          maxLength={APPLICABILITY_NAME_MAX_LENGTH}
           required
         />
       </Field>
@@ -277,7 +285,7 @@ function ScopeFields({ scope }: { scope?: ManualApplicability }) {
         <input
           name="partNumber"
           defaultValue={scope?.partNumber}
-          maxLength={100}
+          maxLength={APPLICABILITY_PART_NUMBER_MAX_LENGTH}
         />
       </Field>
     </>
@@ -449,14 +457,14 @@ function TemplateNotes({ record }: RecordProps) {
         <textarea
           name="description"
           defaultValue={record.description}
-          maxLength={10000}
+          maxLength={TEMPLATE_DESCRIPTION_MAX_LENGTH}
         />
       </Field>
       <Field label="Conditions / applicability notes">
         <textarea
           name="conditions"
           defaultValue={record.conditions}
-          maxLength={2000}
+          maxLength={TEMPLATE_CONDITIONS_MAX_LENGTH}
         />
       </Field>
       <label>
@@ -641,7 +649,8 @@ function DeleteSelection({ s, screen, writable, records }: ScreenProps) {
   return (
     <div className="callout">
       <p>
-        Select templates to delete. {deleteIds.length} selected (maximum 100).
+        Select templates to delete. {deleteIds.length} selected (maximum{" "}
+        {MAX_TEMPLATES_PER_DELETION}).
       </p>
       <div className="management-actions">
         <SelectVisibleButton {...{ screen, writable, records }} />
@@ -670,15 +679,15 @@ function SelectVisibleButton({
   writable,
   records,
 }: Omit<ScreenProps, "s" | "backend">) {
-  const first = records.slice(0, MAX_DELETE_SELECTION);
+  const first = records.slice(0, MAX_TEMPLATES_PER_DELETION);
   return (
     <button
       className="button"
       disabled={!writable || !records.length}
       onClick={() => screen.setDeleteIds(first.map((t) => t.uuid))}
     >
-      {records.length > MAX_DELETE_SELECTION
-        ? "Select first 100 visible"
+      {records.length > MAX_TEMPLATES_PER_DELETION
+        ? `Select first ${MAX_TEMPLATES_PER_DELETION} visible`
         : "Select all visible"}
     </button>
   );
@@ -880,7 +889,7 @@ function SelectCell({
   template: InspectionTemplate;
 }) {
   const checked = screen.deleteIds.includes(t.uuid);
-  const full = screen.deleteIds.length >= MAX_DELETE_SELECTION;
+  const full = screen.deleteIds.length >= MAX_TEMPLATES_PER_DELETION;
   return (
     <td>
       <input
@@ -971,7 +980,7 @@ function ImportDialog(props: ScreenProps) {
         <div className="form-grid">
           <ScopeFields />
           <Field label="Inspection group">
-            <input name="group" maxLength={150} />
+            <input name="group" maxLength={TEMPLATE_GROUP_MAX_LENGTH} />
           </Field>
           <Field label="Template CSV">
             <input type="file" name="csv" accept=".csv,text/csv" required />
@@ -1027,7 +1036,7 @@ async function readTemplateCsv(d: FormData) {
   if (
     !(file instanceof File) ||
     !file.size ||
-    file.size > MAX_TEMPLATE_CSV_BYTES
+    file.size > TEMPLATE_CSV_MAX_BYTES
   )
     throw new Error("Choose a UTF-8 CSV up to 2 MB.");
   const scope = {

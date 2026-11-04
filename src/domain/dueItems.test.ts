@@ -6,7 +6,11 @@
  *   tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
-import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
+import {
+  DUE_FLEET_TODAY,
+  dueFleet,
+  withoutMeterReading,
+} from "../../tests/fixtures/dueFleet";
 import { dueItems, type MaintenanceDue } from "./dueItems";
 import { localDate } from "./model";
 import { Rejection } from "./rejection";
@@ -95,6 +99,20 @@ describe("dueItems", () => {
       level: "due-soon",
       tasks: [{ status: "Due soon", level: "due-soon" }],
     });
+  });
+
+  it("lists an aircraft's ADs while its meter has no reading, a passed due date still overdue", () => {
+    const { s, c } = dueFleet();
+    withoutMeterReading(s, c);
+    const items = byUuid(dueItems(s, undefined, DUE_FLEET_TODAY));
+    const levels = ["ad-unread", "ad-unread-late"].map((uuid) => {
+      const item = items.get(uuid);
+      return item && `${uuid} ${statusOf(item)} ${item.level}`;
+    });
+    expect(levels).toStrictEqual([
+      "ad-unread Counter unavailable/Counter unavailable unknown",
+      "ad-unread-late Overdue/Counter unavailable,Overdue overdue",
+    ]);
   });
 });
 
