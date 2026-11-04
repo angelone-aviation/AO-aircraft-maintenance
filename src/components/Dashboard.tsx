@@ -3,9 +3,9 @@
  *   inspection, the maintenance outlook and the aircraft detail dialog.
  * Layer: UI. Screen over the workspace snapshot; status rules live in
  *   src/domain.
- * Dependencies: src/data/store.ts, src/domain (model, maintenance,
- *   aircraftStatus, components, management, partsPlanning, requiredParts,
- *   pilotView), ./design and the aircraft, flight, parts and FAA components.
+ * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
+ *   aircraftStatus, management, partsPlanning, requiredParts, pilotView),
+ *   ./design and the aircraft, flight, parts and FAA components.
  */
 import {
   lazy,
@@ -38,12 +38,16 @@ import {
   aircraftStatusLabels,
   type AircraftStatus,
 } from "../domain/aircraftStatus";
-import { requirementStatus } from "../domain/components";
+import {
+  dueItems,
+  type InspectionDue,
+  type MaintenanceDue,
+  type RequirementDue,
+} from "../domain/dueItems";
 import { inspectionCounters } from "../domain/management";
 import {
   inspectionDueDate,
   inspectionDueLimit,
-  inspectionStatus,
   type InspectionLimit,
 } from "../domain/maintenance";
 import { maintenancePartsPlans, type PartsPlan } from "../domain/partsPlanning";
@@ -222,9 +226,11 @@ function useDashboard() {
 }
 
 function fleetOf(s: Snapshot) {
-  const schedules = inspectionSchedules(s);
+  const today = localDate();
+  const due = dueItems(s, undefined, today);
+  const schedules = inspectionSchedules(s, due, today);
   return {
-    today: localDate(),
+    today,
     schedules,
     /** Overdue and due-soon inspections, most urgent first. */
     due: [...schedules.values()]
@@ -233,18 +239,22 @@ function fleetOf(s: Snapshot) {
       .sort(byUrgency),
     open: s.discrepancies.filter((d) => d.status === "open"),
     partsPlans: maintenancePartsPlans(s),
-    expiredComponents: expiredComponents(s),
+    expiredComponents: expiredComponents(s, due),
   };
 }
 
-function inspectionSchedules(s: Snapshot) {
+function inspectionSchedules(
+  s: Snapshot,
+  due: MaintenanceDue[],
+  today: string,
+) {
   const schedules = new Map<string, Schedule[]>();
-  for (const i of s.inspections) {
-    const a = s.aircraft.find((a) => a.uuid === i.aircraftUuid);
-    if (i.archived || !a) continue;
-    schedules.set(a.uuid, [
-      ...(schedules.get(a.uuid) ?? []),
-      scheduleOf(s, i, a),
+  for (const d of due) {
+    if (d.kind !== "inspection") continue;
+    const uuid = d.aircraft.uuid;
+    schedules.set(uuid, [
+      ...(schedules.get(uuid) ?? []),
+      scheduleOf(s, d, today),
     ]);
   }
   return schedules;
@@ -252,34 +262,32 @@ function inspectionSchedules(s: Snapshot) {
 
 // Components with a requirement that is anything but "Tracked": approaching
 // or past a service limit.
-function expiredComponents(s: Snapshot) {
-  const records = s.management ?? [];
-  return records.filter(
+function expiredComponents(s: Snapshot, due: MaintenanceDue[]) {
+  const requirements = due.filter(
+    (d): d is RequirementDue => d.kind === "componentRequirement",
+  );
+  return (s.management ?? []).filter(
     (c) =>
       c.kind === "component" &&
-      records.some(
-        (r) =>
-          r.kind === "componentRequirement" &&
-          r.componentUuid === c.uuid &&
-          requirementStatus(
-            r,
-            c,
-            s.aircraft.find((a) => a.uuid === c.aircraftUuid),
-          ).status !== "Tracked",
-      ),
+      requirements.some((d) => d.component.uuid === c.uuid && isPastTracked(d)),
   );
+}
+
+// T13 leaves what an uncomputable status means to each caller: a requirement
+// fails the page, checked in record order up to the first one past Tracked.
+function isPastTracked(d: RequirementDue) {
+  if (!d.due) throw d.error;
+  return d.due.status !== "Tracked";
 }
 
 /** Remaining amounts for one inspection; an uncomputable schedule (for
  * example a missing component) stays unverified instead of failing the page. */
-function scheduleOf(s: Snapshot, i: Inspection, a: Aircraft): Schedule {
-  try {
-    const counters = inspectionCounters(i, a, s.management);
-    const status = inspectionStatus(i, a, undefined, counters);
-    return { i, counters, ...status, limit: inspectionDueLimit(status) };
-  } catch {
-    return { i, status: "unknown" };
-  }
+function scheduleOf(s: Snapshot, d: InspectionDue, today: string): Schedule {
+  const { inspection: i, aircraft: a } = d;
+  if (!d.due) return { i, status: "unknown" };
+  // Read again for the progress bars; dueItems measured the status on these.
+  const counters = inspectionCounters(i, a, s.management, today);
+  return { i, counters, ...d.due, limit: inspectionDueLimit(d.due) };
 }
 const urgency = (x: Schedule) => x.limit?.urgency ?? Number.MAX_VALUE;
 /** Most urgent first: by status, then by how near the driving limit is. */

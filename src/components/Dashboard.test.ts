@@ -1,17 +1,23 @@
 /**
  * Responsibility: Pins the dashboard's inspection marks and outlook order,
- *   its aircraft filters, what pilot view leaves out, and who may log a
- *   flight.
+ *   its component-limit count, its aircraft filters, what pilot view leaves
+ *   out, and who may log a flight.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/Dashboard.tsx, src/data/demo.ts,
- *   react-dom/server.
+ *   src/domain (components, model), react-dom/server.
  */
 // @vitest-environment node
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
-import { localDate, type Inspection, type Snapshot } from "../domain/model";
+import { componentSchema, requirementSchema } from "../domain/components";
+import {
+  localDate,
+  totalSeconds,
+  type Inspection,
+  type Snapshot,
+} from "../domain/model";
 import { Dashboard } from "./Dashboard";
 
 const HOUR = 3600;
@@ -181,6 +187,25 @@ it("keeps an inspection it cannot compute unverified instead of failing", () => 
   expect(card).toContain("Component Maintenance information needed");
 });
 
+describe("component service limits", () => {
+  it("counts components with a limit past Tracked", () => {
+    snapshot.management = [
+      ...lifeLimit("tracked", 2000 * HOUR),
+      ...lifeLimit("soon", 105 * HOUR),
+    ];
+    expect(page()).toContain(
+      "1 component(s) with approaching or reached service limits",
+    );
+  });
+
+  it("fails on a limit it cannot compute (Characterizes current behaviour)", () => {
+    snapshot.management = lifeLimit("early", 2000 * HOUR, HOUR);
+    expect(page).toThrow(
+      "Aircraft readings or date precede the installation baseline.",
+    );
+  });
+});
+
 describe("aircraft cards", () => {
   it("filters by registration, model or program text (not make) and by favorites", () => {
     hooks.states = ["n206"];
@@ -240,6 +265,54 @@ function asPilot(s: Snapshot): Snapshot {
     ...s,
     user: { ...s.user, isAdmin: false, groupIds: ["demo-pilots"] },
   };
+}
+
+/** A component on N206MA at 100 h since new, with one time limit. `early`
+ * installs it that many seconds past the aircraft's readings. */
+function lifeLimit(uuid: string, dueSeconds: number, early = 0) {
+  const a = snapshot.aircraft[0];
+  const component = componentSchema.parse({
+    uuid,
+    kind: "component",
+    version: 1,
+    aircraftUuid: a.uuid,
+    componentType: "Pump",
+    partNumber: "PN",
+    serial: "SN-" + uuid,
+    manufacturer: "",
+    notes: "",
+    trackTime: true,
+    trackCycles: true,
+    trackCalendar: true,
+    installed: true,
+    installedDate: "2026-01-01",
+    installedSeconds: totalSeconds(a) + early,
+    installedCycles: a.cycles,
+    timeSinceNew: 100 * HOUR,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+    cyclesSinceNew: 20,
+    serviceDaysBase: 0,
+  });
+  const limit = requirementSchema.parse({
+    uuid: uuid + "-life",
+    kind: "componentRequirement",
+    version: 1,
+    componentUuid: uuid,
+    aircraftUuid: a.uuid,
+    requirementType: "Life Limits",
+    description: "Life limit",
+    notes: "",
+    calendarIntervalUnit: "MONTHS",
+    timeBasis: "TSN",
+    timeLimitMode: "ABSOLUTE",
+    cycleLimitMode: "ABSOLUTE",
+    dueSeconds,
+    warningCalendarMonths: 0,
+    warningSeconds: 10 * HOUR,
+    warningCycles: 0,
+  });
+  return [component, limit];
 }
 
 // Sees the aircraft but holds no permission on them.
