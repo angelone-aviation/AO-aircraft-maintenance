@@ -76,7 +76,7 @@ import {
   type ManualChange,
 } from "../domain/manuals";
 import {
-  saveTaskCard,
+  applyTaskCardCommand,
   taskWritable,
   evidenceRemovable,
 } from "../domain/taskCards";
@@ -301,17 +301,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     taskCard: (command) =>
       modify((s) => {
-        const before = s.taskCards?.find((t) => t.uuid === command.uuid);
-        const after = saveTaskCard(s, command);
-        audit(
-          s,
-          "taskCard." + command.action,
-          after.uuid,
-          after.aircraftUuid,
-          undefined,
-          before,
-          after,
-        );
+        applyTaskCardCommand(s, command);
       }),
     attachTaskEvidence: async (taskCardUuid, category, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);

@@ -1,9 +1,10 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, deferral
- *   and parts, checklist saves, flight review, AD changes, attachments,
- *   manual edits, saved addresses, FAA monitor commands, program selection,
- *   membership and group saves, and recurring parts lists against the
- *   server's rules: the same refusals, stored records and change-log rows.
+ *   and parts, checklist and job-card saves, flight review, AD changes,
+ *   attachments, manual edits, saved addresses, FAA monitor commands, program
+ *   selection, membership and group saves, and recurring parts lists against
+ *   the server's rules: the same refusals, stored records and change-log
+ *   rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
@@ -18,8 +19,8 @@
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
  * and crashed on a missing flight. Before Batch 296 its AD, deferral,
- * resolution, parts and checklist rows named no Flight Program, and a
- * resolution row held the whole report after, where the server keeps the
+ * resolution, parts, checklist and job-card rows named no Flight Program, and
+ * a resolution row held the whole report after, where the server keeps the
  * resolved fields.
  * Before Batch 273 it took any number of attachments. Before Batch 285 it
  * audited a manual edit's whole record, saved addresses without
@@ -201,6 +202,26 @@ it("saves a checklist and audits it as the server does: the program, the counts"
       checks: 0,
     }),
   });
+});
+
+it("saves a job card and audits it as the server does, with the program", async () => {
+  const { backend, stored } = await demo("demo-task-card");
+  const command = taskCardCommand();
+  await backend.taskCard(command);
+  const s = await stored();
+  const saved = s.taskCards!.find((t) => t.uuid === command.uuid)!;
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: saved.updatedAt,
+    action: "taskCard.save",
+    entityUuid: command.uuid,
+    aircraftUuid: command.fields.aircraftUuid,
+    before: undefined,
+    after: JSON.stringify(saved),
+  });
+  expect(s.audit[0]).not.toHaveProperty("reason");
 });
 
 it.each([

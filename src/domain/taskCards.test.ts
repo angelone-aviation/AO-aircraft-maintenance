@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins job cards: steps, links, parts, signoffs and the
- *   43.7 inspector certificate, every refusal in order, and numbering.
+ *   43.7 inspector certificate, every refusal in order, numbering, and the
+ *   change-log entry a command records.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/taskCards.ts, ./workOrders, ./programs,
  *   ./rejection; tests/fixtures (task cards, work orders); src/data/demo.ts.
@@ -14,6 +15,7 @@ import {
 } from "../../tests/fixtures/workOrders";
 import {
   saveTaskCard,
+  applyTaskCardCommand,
   applyTaskLink,
   taskCardFieldsSchema,
   type TaskCard,
@@ -1100,4 +1102,30 @@ it("accepts a completion date that is today anywhere, and refuses the day after"
   expect(() =>
     saveTaskCard(w.s, edit(w.card, { completionDate: "2026-10-03" }), now),
   ).toThrow("Completion date cannot be in the future.");
+});
+
+it("records a job-card command with the card before and after; saveTaskCard alone records nothing", () => {
+  const s = demoSnapshot();
+  const logged = s.audit.length;
+  const plain = structuredClone(s);
+  saveTaskCard(plain, taskCardCommand(), now);
+  expect(plain.audit).toHaveLength(logged);
+  const created = applyTaskCardCommand(s, taskCardCommand(), now);
+  const edited = applyTaskCardCommand(s, edit(created, { title: "Re" }), now);
+  const entry = (before: TaskCard | undefined, after: TaskCard) => ({
+    uuid: expect.any(String),
+    programUuid: s.aircraft[0].programUuid,
+    actorId: s.user.id,
+    at: now,
+    action: "taskCard.save",
+    entityUuid: after.uuid,
+    aircraftUuid: after.aircraftUuid,
+    before: before && JSON.stringify(before),
+    after: JSON.stringify(after),
+  });
+  expect(s.audit).toHaveLength(logged + 2);
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry(created, edited),
+    entry(undefined, created),
+  ]);
 });

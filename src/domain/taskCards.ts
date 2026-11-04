@@ -1,11 +1,12 @@
 /**
  * Responsibility: Job cards: their stored shape, who may write, sign or
- *   unlink them, and the one command that saves, signs, links or unlinks one.
+ *   unlink them, and the one command that saves, signs, links or unlinks one,
+ *   with its change-log entry.
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   left to its default reads the clock).
  * Dependencies: zod; ./logbookWording, ./programs, ./manuals, ./model,
  *   ./certifications, ./ata, ./workOrders, ./shelfLife, ./management (types),
- *   ./commandRequest, ./rejection.
+ *   ./commandRequest, ./rejection, ./changeLog.
  */
 import { logbookSelectionFields } from "./logbookWording";
 import { recordProgram } from "./programs";
@@ -19,6 +20,7 @@ import { expiredForUse } from "./shelfLife";
 import type { Stock } from "./management";
 import { requestUuidField } from "./commandRequest";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
 
 const text = z.string().trim().max(10000);
 const optionalId = z.string().max(200);
@@ -490,6 +492,38 @@ export function saveTaskCard(
     ...(s.taskCards ?? []).filter((t) => t.uuid !== next.uuid),
     next,
   ];
+  return next;
+}
+
+/**
+ * Runs a job-card command the user sent, as {@link saveTaskCard}, and adds
+ * its "taskCard.<action>" change-log entry with the card before and after.
+ * Work orders, template activation and CSV imports save cards through
+ * saveTaskCard and log for themselves.
+ *
+ * @returns The card as saved.
+ * @throws As {@link saveTaskCard}.
+ */
+export function applyTaskCardCommand(
+  s: Snapshot,
+  raw: TaskCardCommand,
+  now = Date.now(),
+): TaskCard {
+  const before = s.taskCards?.find((t) => t.uuid === raw.uuid);
+  const next = saveTaskCard(s, raw, now);
+  s.audit.unshift(
+    auditEntry(
+      s,
+      {
+        action: "taskCard." + raw.action,
+        entityUuid: next.uuid,
+        aircraftUuid: next.aircraftUuid,
+        before,
+        after: next,
+      },
+      now,
+    ),
+  );
   return next;
 }
 
