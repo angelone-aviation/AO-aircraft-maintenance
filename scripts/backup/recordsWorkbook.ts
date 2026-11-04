@@ -2,7 +2,7 @@
  * Responsibility: Builds the readable records copy (ADR-0011), one formatted
  *   Excel workbook, from the nightly Convex export.
  * Layer: Script. Node only: reads the export ZIP, writes one .xlsx file.
- * Dependencies: exceljs, ./convexExport, convex/collections (decoding),
+ * Dependencies: ./convexExport, ./xlsxWriter, convex/collections (decoding),
  *   src/domain (statuses, labels and rules).
  *
  * It is a convenience copy for administrators, inspectors and board members;
@@ -11,7 +11,6 @@
  * what the app says. Only allow-listed tables are read: sign-in data,
  * credentials, stored files and request bookkeeping never reach the workbook.
  */
-import ExcelJS from "exceljs";
 import { parseArgs } from "node:util";
 import { exportContents, readDocuments } from "./convexExport";
 import {
@@ -76,10 +75,16 @@ import {
 import { shelfLifeLabels, shelfLifeStatus } from "../../src/domain/shelfLife";
 import type { TaskCard } from "../../src/domain/taskCards";
 import { logbookPerformers } from "../../src/domain/workOrderCloseout";
+import {
+  MAX_DATA_ROWS,
+  writeWorkbook,
+  type Column,
+  type Row,
+  type SheetSpec,
+  type Tone,
+} from "./xlsxWriter";
 
-/** Excel's row limit, less the title and header rows of each sheet. */
-export const MAX_DATA_ROWS = 1_048_576 - 2;
-const MAX_CELL_TEXT = 32_000;
+export { MAX_DATA_ROWS };
 
 /** How to build the workbook. */
 export interface WorkbookOptions {
@@ -249,37 +254,6 @@ type Clock = ReturnType<typeof zoneClock>;
 
 // ------------------------------------------------------------ the records --
 
-type Cell = string | number | Date | null | undefined;
-type Tone = "bad" | "warn" | "good";
-type Fmt =
-  | "text"
-  | "wrap"
-  | "date"
-  | "datetime"
-  | "hours"
-  | "count"
-  | "money"
-  | "amount";
-interface Column {
-  header: string;
-  width: number;
-  fmt?: Fmt;
-}
-interface Row {
-  cells: Cell[];
-  /** Red and amber fill the whole row; green marks only the status cell. */
-  tone?: Tone;
-  statusColumn?: number;
-}
-interface SheetSpec {
-  name: string;
-  title: string;
-  about: string;
-  columns: Column[];
-  rows: Iterable<Row>;
-  count: number;
-  freezeFirstColumn?: boolean;
-}
 type Level = "overdue" | "due-soon" | "unknown" | "ok";
 const levelTone: Record<Level, Tone | undefined> = {
   overdue: "bad",
@@ -1872,287 +1846,18 @@ const historyColumns: Column[] = [
   { header: "Full before and after", width: 60, fmt: "wrap" },
 ];
 
-// --------------------------------------------------------------- writing --
-
-const COLOURS: Record<Tone, { fill: string; font: string }> = {
-  bad: { fill: "FFF8D7DA", font: "FF842029" },
-  warn: { fill: "FFFFF3CD", font: "FF664D03" },
-  good: { fill: "FFD1E7DD", font: "FF0F5132" },
-};
-const FORMATS: Record<Fmt, string> = {
-  text: "General",
-  wrap: "General",
-  date: "mmm d, yyyy",
-  datetime: "mmm d, yyyy hh:mm",
-  hours: "#,##0.0",
-  count: "#,##0",
-  money: "$#,##0.00",
-  amount: "#,##0.00",
-};
-const thin = { style: "thin" as const, color: { argb: "FFD0D5DD" } };
-const border = { top: thin, left: thin, bottom: thin, right: thin };
-const styles = new Map<string, Partial<ExcelJS.Style>>();
-// One shared object per style: exceljs caches style IDs by object identity.
-function style(fmt: Fmt, tone?: Tone, strong = false): Partial<ExcelJS.Style> {
-  const key = `${fmt}|${tone ?? ""}|${strong}`;
-  let s = styles.get(key);
-  if (!s) {
-    s = {
-      numFmt: FORMATS[fmt],
-      font: {
-        name: "Calibri",
-        size: 10,
-        bold: strong,
-        ...(tone && strong ? { color: { argb: COLOURS[tone].font } } : {}),
-      },
-      alignment: {
-        vertical: "top",
-        wrapText: fmt === "wrap",
-        horizontal: ["hours", "count", "money", "amount"].includes(fmt)
-          ? "right"
-          : "left",
-      },
-      border,
-      ...(tone
-        ? {
-            fill: {
-              type: "pattern" as const,
-              pattern: "solid" as const,
-              fgColor: { argb: COLOURS[tone].fill },
-            },
-          }
-        : {}),
-    };
-    styles.set(key, s);
-  }
-  return s;
-}
-const titleStyle: Partial<ExcelJS.Style> = {
-  font: { name: "Calibri", size: 14, bold: true, color: { argb: "FF1F2A44" } },
-  alignment: { vertical: "middle" },
-};
-const subtitleStyle: Partial<ExcelJS.Style> = {
-  font: {
-    name: "Calibri",
-    size: 10,
-    italic: true,
-    color: { argb: "FF4A5568" },
-  },
-  alignment: { vertical: "top" },
-};
-const headerStyle: Partial<ExcelJS.Style> = {
-  font: { name: "Calibri", size: 10, bold: true, color: { argb: "FF1F2A44" } },
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDE4EE" } },
-  alignment: { vertical: "middle", wrapText: true },
-  border: {
-    ...border,
-    bottom: { style: "medium", color: { argb: "FF7A8699" } },
-  },
-};
-
-function cellValue(v: Cell): ExcelJS.CellValue {
-  if (v === undefined || v === null || v === "") return null;
-  if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
-  // XML 1.0 holds tab, line feed, carriage return, U+0020-U+D7FF,
-  // U+E000-U+FFFD and surrogate pairs: pairs are kept, all else dropped.
-  const text = v.replace(
-    /[\ud800-\udbff][\udc00-\udfff]|[^\t\n\r\u0020-\ud7ff\ue000-\ufffd]/g,
-    (unit) => (unit.length === 2 ? unit : ""),
-  );
-  return text.length > MAX_CELL_TEXT
-    ? text.slice(0, MAX_CELL_TEXT) +
-        "\n… (shortened here; the encrypted backup holds the full record)"
-    : text;
-}
-
-// Row heights are set from the text, because spreadsheet apps differ in
-// whether they fit wrapped rows when a file opens. Estimates err taller.
-const LINE_POINTS = 13;
-function rowHeight(columns: Column[], cells: Cell[]) {
-  let lines = 1;
-  columns.forEach((c, i) => {
-    const v = cells[i];
-    if (typeof v !== "string" || !v) return;
-    const perLine = Math.max(4, Math.floor(c.width * 1.1));
-    const segments = v.slice(0, MAX_CELL_TEXT).split("\n");
-    lines = Math.max(
-      lines,
-      c.fmt === "wrap"
-        ? segments.reduce(
-            (sum, s) => sum + Math.max(1, Math.ceil(s.length / perLine)),
-            0,
-          )
-        : segments.length,
-    );
-  });
-  return lines > 1 ? Math.min(409, lines * LINE_POINTS + 4) : undefined;
-}
-
-function pageOptions(sheet: string, made: string, table = true) {
-  return {
-    pageSetup: {
-      orientation: table ? ("landscape" as const) : ("portrait" as const),
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      // The title and header rows repeat on every printed page.
-      ...(table ? { printTitlesRow: "1:2" } : {}),
-      margins: {
-        left: 0.4,
-        right: 0.4,
-        top: 0.5,
-        bottom: 0.6,
-        header: 0.25,
-        footer: 0.3,
-      },
-    },
-    headerFooter: {
-      oddFooter: `&L&8Angel One records, ${made}&C&8${sheet.replaceAll("&", "&&")}&R&8Page &P of &N`,
-    },
-  };
-}
-
-function writeSheet(
-  wb: ExcelJS.stream.xlsx.WorkbookWriter,
-  spec: SheetSpec,
-  made: string,
-  subtitle: string,
-) {
-  const ws = wb.addWorksheet(spec.name, {
-    views: [
-      {
-        state: "frozen",
-        xSplit: spec.freezeFirstColumn ? 1 : 0,
-        ySplit: 2,
-      },
-    ],
-    ...pageOptions(spec.name, made),
-  });
-  ws.columns = spec.columns.map((c) => ({ width: c.width }));
-  // One cell, so the text runs across the empty cells to its right.
-  const title = ws.getRow(1);
-  const richText = [
-    { font: titleStyle.font, text: spec.title },
-    { font: subtitleStyle.font, text: `    ${subtitle}` },
-  ];
-  // exceljs keys shared strings by String(value); give each title its own
-  // key, or every sheet would show the first sheet's title.
-  title.getCell(1).value = {
-    richText,
-    toString: () => richText.map((r) => r.text).join(""),
-  } as ExcelJS.CellRichTextValue;
-  title.getCell(1).style = titleStyle;
-  title.height = 24;
-  title.commit();
-  const header = ws.getRow(2);
-  spec.columns.forEach((c, i) => {
-    const cell = header.getCell(i + 1);
-    cell.value = c.header;
-    cell.style = headerStyle;
-  });
-  header.height = 30;
-  header.commit();
-  let n = 0;
-  for (const row of spec.rows) {
-    const r = ws.getRow(3 + n);
-    const rowTone = row.tone && row.tone !== "good" ? row.tone : undefined;
-    spec.columns.forEach((c, i) => {
-      const cell = r.getCell(i + 1);
-      cell.value = cellValue(row.cells[i]);
-      const status = i === row.statusColumn;
-      cell.style = style(
-        c.fmt ?? "text",
-        status ? row.tone : rowTone,
-        status && !!row.tone,
-      );
-    });
-    const height = rowHeight(spec.columns, row.cells);
-    if (height) r.height = height;
-    r.commit();
-    n++;
-  }
-  ws.autoFilter = {
-    from: { row: 2, column: 1 },
-    to: { row: 2 + n, column: spec.columns.length },
-  };
-  ws.commit();
-  return n;
-}
-
-function writeReadMe(
-  wb: ExcelJS.stream.xlsx.WorkbookWriter,
-  made: string,
-  facts: [string, string][],
-  sheets: { name: string; about: string; count: number }[],
-) {
-  const ws = wb.addWorksheet("Read me", {
-    views: [{ showGridLines: false }],
-    ...pageOptions("Read me", made, false),
-  });
-  const columns: Column[] = [
-    { header: "", width: 26, fmt: "wrap" },
-    { header: "", width: 84, fmt: "wrap" },
-    { header: "", width: 10 },
-  ];
-  ws.columns = columns.map((c) => ({ width: c.width }));
-  let n = 1;
-  const row = (cells: Cell[], styles: Partial<ExcelJS.Style>[]) => {
-    const r = ws.getRow(n++);
-    cells.forEach((v, i) => {
-      r.getCell(i + 1).value = cellValue(v);
-      if (styles[i]) r.getCell(i + 1).style = styles[i];
-    });
-    const height = rowHeight(columns, cells);
-    if (height) r.height = height;
-    r.commit();
-  };
-  const label: Partial<ExcelJS.Style> = {
-    font: { name: "Calibri", size: 10, bold: true },
-    alignment: { vertical: "top", wrapText: true },
-  };
-  const body: Partial<ExcelJS.Style> = {
-    font: { name: "Calibri", size: 10 },
-    alignment: { vertical: "top", wrapText: true },
-  };
-  row(["Angel One records: readable copy"], [titleStyle]);
-  for (const [k, v] of facts) row([k, v], [label, body]);
-  row([], []);
-  row(["Colours"], [label]);
-  row(
-    ["Overdue, grounded or expired", "Red rows need action now."],
-    [style("text", "bad", true), body],
-  );
-  row(
-    [
-      "Due soon",
-      "Amber rows come due soon (for example within 10 hours or 30 days).",
-    ],
-    [style("text", "warn", true), body],
-  );
-  row(
-    ["OK", "Green marks a status that is in order."],
-    [style("text", "good", true), body],
-  );
-  row([], []);
-  const top = n;
-  row(
-    ["Sheet", "What it shows", "Rows"],
-    [headerStyle, headerStyle, headerStyle],
-  );
-  for (const s of sheets)
-    row(
-      [s.name, s.about, s.count],
-      [style("text"), style("wrap"), style("count")],
-    );
-  ws.autoFilter = {
-    from: { row: top, column: 1 },
-    to: { row: n - 1, column: 3 },
-  };
-  ws.commit();
-}
-
 // ----------------------------------------------------------------- build --
+
+// What the colours mean, for Read me.
+const COLOUR_LEGEND: [Tone, string, string][] = [
+  ["bad", "Overdue, grounded or expired", "Red rows need action now."],
+  [
+    "warn",
+    "Due soon",
+    "Amber rows come due soon (for example within 10 hours or 30 days).",
+  ],
+  ["good", "OK", "Green marks a status that is in order."],
+];
 
 /**
  * Builds the records workbook from a Convex export ZIP and writes it to
@@ -2259,29 +1964,19 @@ export async function buildRecordsWorkbook(
       : []),
     ...warnings.map((w): [string, string] => ["Note", w]),
   ];
-  const wb = new ExcelJS.stream.xlsx.WorkbookWriter({
-    filename: options.out,
-    useStyles: true,
-    // Shared strings are the form every spreadsheet app reads, line breaks
-    // included; they are held in memory until the file is written.
-    useSharedStrings: true,
+  const written = await writeWorkbook({
+    out: options.out,
+    now,
+    made,
+    subtitle: `Times in ${clock.name} · status as of ${clock.dateText(today)} · copy for reading; the logbooks and encrypted backup are the records`,
+    readMe: {
+      title: "Angel One records: readable copy",
+      facts,
+      legend: COLOUR_LEGEND,
+    },
+    sheets,
   });
-  wb.creator = "Angel One";
-  wb.created = new Date(now);
-  wb.modified = new Date(now);
-  writeReadMe(wb, made, facts, sheets);
-  const subtitle = `Times in ${clock.name} · status as of ${clock.dateText(today)} · copy for reading; the logbooks and encrypted backup are the records`;
-  const summary: WorkbookSummary = {
-    sheets: [{ name: "Read me", rows: sheets.length }],
-    warnings,
-  };
-  for (const spec of sheets)
-    summary.sheets.push({
-      name: spec.name,
-      rows: writeSheet(wb, spec, made, subtitle),
-    });
-  await wb.commit();
-  return summary;
+  return { sheets: written, warnings };
 }
 
 /**
