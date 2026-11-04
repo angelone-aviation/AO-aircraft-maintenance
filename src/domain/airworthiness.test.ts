@@ -797,6 +797,38 @@ it("judges an AD's status and component counters on the date given", () => {
   expect(adStatus(s, dated, "2099-01-01")).toBe("Scheduled");
 });
 
+it("checks completion counters against component totals on the caller's date", () => {
+  const { s, r } = setup();
+  s.management = [
+    installedEngine(s.aircraft[0], {
+      trackCalendar: true,
+      installedDate: "2099-01-01",
+    }),
+  ];
+  s.airworthiness = [{ ...stored(s, r), componentUuid: "engine-1" }];
+  // The engine has 0 cycles since new, so the entry's 1,890 exceed them
+  // wherever its totals can be read.
+  const comply = (now: string) => () =>
+    applyADCommand(
+      s,
+      {
+        kind: "comply",
+        uuid: r.uuid,
+        version: stored(s, r).version,
+        entry: entry(r.tasks[0].uuid),
+      },
+      Date.parse(now),
+    );
+  expect(comply("2099-06-01T12:00:00")).toThrow(
+    new Rejection(
+      "Completion hours and cycles cannot exceed the current totals.",
+    ),
+  );
+  // Characterizes current behaviour: before the installation date the totals
+  // cannot be read, so there is nothing to compare against.
+  expect(comply("2098-12-01T12:00:00")).not.toThrow();
+});
+
 // Characterizes current behaviour: the aircraft meter's own refusals
 // (src/domain/model.ts) are plain Errors, so a catch narrowed to Rejection
 // would not cover the same set.

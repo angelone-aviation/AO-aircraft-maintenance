@@ -327,7 +327,8 @@ export function adSaveIsCorrection(old: AD | undefined) {
  *
  * @param s - The working snapshot; its `airworthiness` is replaced on success.
  * @param raw - The command, parsed with {@link adCommandSchema}.
- * @param now - The clock for timestamps and future-date checks.
+ * @param now - The clock for timestamps, future-date checks and the date a
+ *   component's totals are read on.
  * @returns The changed records, versions advanced; [] for an unchanged import.
  * @throws {Rejection} For a refused change, such as "AD changed. Reload before
  *   saving."; the snapshot is left unchanged.
@@ -866,7 +867,7 @@ function checkEntry(
     throw new Rejection("Record the counter needed to calculate the next due.");
   assertEntryCounters(entry, prev, next);
   assertEntryLandings(s, r, entry, prev);
-  assertWithinTotals(s, r, entry);
+  assertWithinTotals(s, r, entry, now);
 }
 
 function assertEntryDate(
@@ -926,8 +927,13 @@ function assertEntryLandings(
     );
 }
 
-function assertWithinTotals(s: Snapshot, r: AD, entry: ADCompliance) {
-  const counters = adCounters(s, r);
+function assertWithinTotals(
+  s: Snapshot,
+  r: AD,
+  entry: ADCompliance,
+  now: number,
+) {
+  const counters = adCounters(s, r, localDate(now));
   if (!counters) return;
   const component = findComponent(s, r.componentUuid);
   const hoursOver =
