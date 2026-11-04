@@ -118,8 +118,7 @@ const OK_AD_STATUSES: readonly string[] = [
  * @param aircraftUuid - Only this aircraft's items; undefined for the whole
  *   Flight Program, with components held in inventory and ADs whose aircraft
  *   the snapshot does not hold.
- * @param today - A local date; today by default. An AD's own `status` reads
- *   the clock, as {@link adStatus} does; its actions use `today`.
+ * @param today - A local date; today by default.
  * @returns Inspections, then requirements, then ADs, each in record order.
  *   ADs that no longer apply are listed too, at level ok.
  */
@@ -208,7 +207,7 @@ function listADs(s: Snapshot, isListed: Listed, today: string): AdDue[] {
   return (s.airworthiness ?? []).flatMap((r) => {
     const aircraftUuid = adAircraftUuid(s, r);
     if (!isListed(aircraftUuid)) return [];
-    const status = adStatus(s, r);
+    const status = adStatus(s, r, today);
     const tasks = r.tasks.map((task) => {
       const taskStatus = adTaskStatus(s, r, task, today);
       return { task, status: taskStatus, level: adLevel(taskStatus) };

@@ -354,7 +354,7 @@ function adRow(
     asset,
     [r.source.subject, ...r.tasks.map((t) => t.description)].join("\n"),
     units.join("\n") || "-",
-    adStatus(s, r),
+    adStatus(s, r, today),
   ];
 }
 

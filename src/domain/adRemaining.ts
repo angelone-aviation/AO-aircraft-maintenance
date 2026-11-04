@@ -28,7 +28,8 @@ type RemainingRow = { label: string; value: string };
  * @param state - The snapshot holding the aircraft and component counters.
  * @param record - The AD the task belongs to.
  * @param task - The task to measure.
- * @param today - The local date the approximate months count from.
+ * @param today - The local date the approximate months count from and a
+ *   component's totals are read on.
  * @returns Rows such as `{ label: "Hours remaining", value: "42.5" }`, with
  *   "<n> overdue" below 0; none once the task or the AD no longer recurs.
  */
@@ -39,7 +40,7 @@ export function adRemaining(
   today = localDate(),
 ): RemainingRow[] {
   if (!recursAgain(record, task)) return [];
-  const counters = availableCounters(state, record);
+  const counters = availableCounters(state, record, today);
   const rows: RemainingRow[] = [];
   if (task.intervalHours)
     rows.push({
@@ -74,8 +75,8 @@ function recursAgain(record: AD, task: ADTask) {
 
 // A component AD counts only the hours and cycles that component tracks;
 // landings always come from the aircraft.
-function availableCounters(state: Snapshot, record: AD) {
-  const counters = adCounters(state, record);
+function availableCounters(state: Snapshot, record: AD, today: string) {
+  const counters = adCounters(state, record, today);
   const component = state.management?.find(
     (item) => item.kind === "component" && item.uuid === record.componentUuid,
   );
