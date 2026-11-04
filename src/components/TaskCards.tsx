@@ -37,22 +37,32 @@ import { can, type Snapshot } from "../domain/model";
 import { ATA_GROUPS, ataLabel } from "../domain/ata";
 import { isOpenWorkOrder, validateWorkOrderFile } from "../domain/workOrders";
 import {
+  CARD_NUMBER_MAX_LENGTH,
+  TASK_TEXT_MAX_LENGTH,
   applyTaskLink,
   canUnlinkTaskCard,
   evidenceCategories,
   evidenceRemovable,
   inspectorCertificateProblem,
   inspectorCertificateRequired,
+  isResultTextField,
   isTaskClosed,
   isTaskTemplate,
-  linkField,
+  linkableTaskCards,
+  linkedTaskCards,
+  signoffsOfferedInEditor,
+  signoffsOfferedInList,
   taskCardDefaults,
   taskCardFieldsSchema,
   taskCardStatuses,
+  taskLinkLocked,
+  taskLinksWritable,
+  taskStatusChoices,
   taskWritable,
   type TaskCard,
   type TaskCardFields,
   type TaskLink,
+  type TaskLinkField,
   type TaskPart,
 } from "../domain/taskCards";
 import {
@@ -69,16 +79,6 @@ import {
 // A longer description shows its first 157 characters and an ellipsis.
 const PREVIEW_MAX_LENGTH = 160;
 const PREVIEW_KEPT_LENGTH = 157;
-// taskCardFieldsSchema's limits (src/domain/taskCards.ts).
-const TEXT_MAX_LENGTH = 10000;
-const CARD_NUMBER_MAX_LENGTH = 100;
-const TEMPLATE_STATUSES = ["draft", "canceled"] as const;
-const RESULT_FIELDS: readonly string[] = [
-  "findings",
-  "actualWork",
-  "measurements",
-  "functionalTestResults",
-];
 const PART_TEXT_FIELDS = [
   ["Part number", "partNumber"],
   ["Description", "description"],
@@ -90,12 +90,6 @@ const PART_TEXT_FIELDS = [
 type Selection = { uuid?: string; defaults?: TaskCardFields };
 type CardOrder = "zone" | "number";
 type SignKind = "technician" | "inspection";
-type LinkKey =
-  | "inspectionUuid"
-  | "componentUuid"
-  | "requirementUuid"
-  | "discrepancyUuid"
-  | "workOrderUuid";
 type Choice = { uuid: string; name: string };
 type Filters = { aircraft: string; status: string; search: string };
 type FilterState = {
@@ -110,8 +104,7 @@ type LinkedView = {
   link: TaskLink;
   aircraftUuid: string;
   cards: TaskCard[];
-  // Undefined, like false, when the snapshot holds no work orders.
-  writable: boolean | undefined;
+  writable: boolean;
   removal: Removal;
   onSelect: (selection: Selection) => void;
 };
@@ -244,8 +237,10 @@ export function LinkedTaskCards(props: {
   const [orderBy, setOrderBy] = useState<CardOrder>("zone");
   const removal = useCardRemoval();
   if (!s) return null;
-  const cards = linkedCards(s, props).sort(cardOrder(orderBy));
-  const writable = online && connected && linkWritable(s, props);
+  const { aircraftUuid, link } = props;
+  const cards = linkedTaskCards(s, aircraftUuid, link).sort(cardOrder(orderBy));
+  const writable =
+    online && connected && taskLinksWritable(s, aircraftUuid, link);
   const view = { ...props, s, cards, writable, removal };
   return (
     <>
@@ -511,7 +506,7 @@ function JobCardStatus({ card }: { card: TaskCard }) {
   const [error, setError] = useState("");
   const { backend } = workspace;
   const writable = summaryWritable(workspace, card);
-  const statuses = isTaskTemplate(card) ? TEMPLATE_STATUSES : taskCardStatuses;
+  const statuses = taskStatusChoices(card);
   const choose = async (status: string) => {
     if (!backend || !writable || status === card.status) return;
     setBusy(true);
@@ -592,22 +587,23 @@ function SummarySignoffButtons(props: {
   const certificateProblem = snapshot
     ? inspectorCertificateProblem(snapshot.user, localDate())
     : inspectorCertificateRequired;
-  const blocked = !props.state.writable || !!busy || card.status === "draft";
+  const offered =
+    snapshot && signoffsOfferedInList(card, snapshot.user, localDate());
+  const blocked = !props.state.writable || !!busy;
   const { technicianSignoff: technician, inspectionSignoff: inspection } = card;
-  const inspectorBlocked = sameSigner || !!certificateProblem;
   return (
     <>
       <SignButton
         signer="Technician"
         state={{ signing: busy === "technician", signed: !!technician }}
-        disabled={blocked || !!technician}
+        disabled={blocked || !offered?.technician}
         title={technician ? signedBy(technician) : "Record technician signoff"}
         onClick={() => props.onSign("technician")}
       />
       <SignButton
         signer="Inspection"
         state={{ signing: busy === "inspection", signed: !!inspection }}
-        disabled={blocked || !technician || !!inspection || inspectorBlocked}
+        disabled={blocked || !offered?.inspection}
         title={inspectionTitle(card, certificateProblem, sameSigner)}
         onClick={() => props.onSign("inspection")}
       />
@@ -676,7 +672,11 @@ function LinkedCardsModal(props: {
   const { view } = props;
   const { orderBy, setOrderBy } = props.order;
   const templates = view.link.kind !== "workOrder";
-  const available = availableCards(view, orderBy);
+  const available = linkableTaskCards(
+    view.s,
+    view.aircraftUuid,
+    view.link,
+  ).sort(cardOrder(orderBy));
   return createPortal(
     <div onSubmit={(e) => e.stopPropagation()}>
       <Modal
@@ -1238,7 +1238,7 @@ function StatusField({ e }: { e: Editor }) {
           e.change("status", event.target.value as TaskCardFields["status"])
         }
       >
-        {(e.template ? TEMPLATE_STATUSES : taskCardStatuses).map((v) => (
+        {taskStatusChoices(e.f).map((v) => (
           <option key={v} value={v}>
             {label(v)}
           </option>
@@ -1257,12 +1257,12 @@ function TextField(props: {
   const { e, field } = props;
   const shared = {
     value: String(e.f[field] ?? ""),
-    disabled: e.template && RESULT_FIELDS.includes(field),
+    disabled: e.template && isResultTextField(field),
     onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       e.setFields({ ...e.f, [field]: event.target.value }),
   };
   const limit =
-    field === "cardNumber" ? CARD_NUMBER_MAX_LENGTH : TEXT_MAX_LENGTH;
+    field === "cardNumber" ? CARD_NUMBER_MAX_LENGTH : TASK_TEXT_MAX_LENGTH;
   return (
     <Field
       label={props.label}
@@ -1273,7 +1273,7 @@ function TextField(props: {
       }
     >
       {props.multiline ? (
-        <textarea {...shared} maxLength={TEXT_MAX_LENGTH} />
+        <textarea {...shared} maxLength={TASK_TEXT_MAX_LENGTH} />
       ) : (
         <input {...shared} maxLength={limit} />
       )}
@@ -1284,7 +1284,7 @@ function TextField(props: {
 function LinkSelect(props: {
   e: Editor;
   label: string;
-  field: LinkKey;
+  field: TaskLinkField;
   choices: Choice[];
   disabled?: boolean;
 }) {
@@ -1298,7 +1298,7 @@ function LinkSelect(props: {
     <Field label={props.label}>
       <select
         value={current}
-        disabled={props.disabled || linkLocked(e.initial, field)}
+        disabled={props.disabled || taskLinkLocked(e.initial, field)}
         onChange={(event) => choose(event.target.value)}
       >
         <option value="">None</option>
@@ -1563,7 +1563,7 @@ function PartDetails({ e, part, index }: PartProps) {
             value={part[key]}
             readOnly={part.source === "stock" && key === "partNumber"}
             required={key === "partNumber"}
-            maxLength={TEXT_MAX_LENGTH}
+            maxLength={TASK_TEXT_MAX_LENGTH}
             onChange={(event) =>
               updatePart(e, part.uuid, { [key]: event.target.value })
             }
@@ -1686,6 +1686,7 @@ function VerificationPanel({ e }: { e: Editor }) {
 
 function EditorSignoffs({ e, initial }: { e: Editor; initial: TaskCard }) {
   const blocked = !e.writable || e.busy || e.dirty;
+  const offered = signoffsOfferedInEditor(initial, e.s.user, localDate());
   return (
     <section>
       <h3>Signoffs</h3>
@@ -1703,12 +1704,16 @@ function EditorSignoffs({ e, initial }: { e: Editor; initial: TaskCard }) {
       <button
         type="button"
         className="button"
-        disabled={blocked || initial.status === "draft"}
+        disabled={blocked || !offered.technician}
         onClick={() => void signCard(e, "technician")}
       >
         Technician signoff
       </button>
-      <InspectionSignoff e={e} initial={initial} blocked={blocked} />
+      <InspectionSignoff
+        e={e}
+        initial={initial}
+        disabled={blocked || !offered.inspection}
+      />
       {e.error && (
         <p className="error" role="alert">
           {e.error}
@@ -1721,7 +1726,7 @@ function EditorSignoffs({ e, initial }: { e: Editor; initial: TaskCard }) {
 function InspectionSignoff(props: {
   e: Editor;
   initial: TaskCard;
-  blocked: boolean;
+  disabled: boolean;
 }) {
   const { e, initial } = props;
   const certificateProblem = inspectorCertificateProblem(e.s.user, localDate());
@@ -1734,12 +1739,7 @@ function InspectionSignoff(props: {
       <button
         type="button"
         className="button"
-        disabled={
-          props.blocked ||
-          !initial.technicianSignoff ||
-          sameSigner ||
-          !!certificateProblem
-        }
+        disabled={props.disabled}
         aria-describedby={unsigned && certificateProblem ? noteId : undefined}
         onClick={() => void signCard(e, "inspection")}
       >
@@ -1929,47 +1929,6 @@ function inspectionTitle(
   return "Record inspection signoff";
 }
 
-function linkedCards(
-  s: Snapshot,
-  { aircraftUuid, link }: { aircraftUuid: string; link: TaskLink },
-) {
-  return (s.taskCards ?? []).filter(
-    (t) =>
-      t.aircraftUuid === aircraftUuid &&
-      t[linkField[link.kind]] === link.uuid &&
-      (link.kind === "workOrder" || !t.workOrderUuid),
-  );
-}
-
-// A work order takes job cards, never templates; any other record takes
-// cards that are not yet on a work order.
-function availableCards(
-  { s, aircraftUuid, link }: Pick<LinkedView, "s" | "aircraftUuid" | "link">,
-  orderBy: CardOrder,
-) {
-  return (s.taskCards ?? [])
-    .filter(
-      (t) =>
-        t.aircraftUuid === aircraftUuid &&
-        !t[linkField[link.kind]] &&
-        (link.kind === "workOrder" ? !isTaskTemplate(t) : !t.workOrderUuid) &&
-        taskWritable(s, t),
-    )
-    .sort(cardOrder(orderBy));
-}
-
-// A work order's links change only while it is open.
-function linkWritable(
-  s: Snapshot,
-  { aircraftUuid, link }: { aircraftUuid: string; link: TaskLink },
-) {
-  return (
-    can(s, aircraftUuid, "maintenance") &&
-    (link.kind !== "workOrder" ||
-      s.workOrders?.some((w) => w.uuid === link.uuid && isOpenWorkOrder(w)))
-  );
-}
-
 async function removeSelected(view: LinkedView, backend: Workspace["backend"]) {
   const { removal: r } = view;
   if (!backend || !view.writable || r.removeBusy) return;
@@ -2054,16 +2013,6 @@ async function withCardError(
   } catch (error) {
     setError(cardErrorText(error));
   }
-}
-
-// A template keeps its work order and any record it was saved with; a
-// work-order copy keeps every link.
-function linkLocked(initial: TaskCard | undefined, field: LinkKey) {
-  if (!initial) return false;
-  if (initial.sourceTaskCardUuid) return true;
-  return (
-    isTaskTemplate(initial) && (field === "workOrderUuid" || !!initial[field])
-  );
 }
 
 function workOrderChoices(s: Snapshot, f: TaskCardFields): Choice[] {

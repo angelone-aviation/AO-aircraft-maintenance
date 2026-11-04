@@ -1,6 +1,7 @@
 /**
- * Responsibility: Job cards: their stored shape, who may write, sign or
- *   unlink them, and the one command that saves, signs, links or unlinks one.
+ * Responsibility: Job cards: their stored shape, who may write, sign, link or
+ *   unlink them and which cards, links and signoffs the screens offer, and
+ *   the one command that saves, signs, links or unlinks one.
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   left to its default reads the clock).
  * Dependencies: zod; ./logbookWording, ./programs, ./manuals, ./model,
@@ -19,7 +20,19 @@ import { expiredForUse } from "./shelfLife";
 import type { Stock } from "./management";
 import { Rejection } from "./rejection";
 
-const text = z.string().trim().max(10000);
+/** The longest text a job card field holds. */
+export const TASK_TEXT_MAX_LENGTH = 10000;
+/** The longest card number. */
+export const CARD_NUMBER_MAX_LENGTH = 100;
+// The text fields that record work results, which a template never holds.
+const RESULT_TEXT_FIELDS = [
+  "findings",
+  "actualWork",
+  "measurements",
+  "functionalTestResults",
+] as const;
+
+const text = z.string().trim().max(TASK_TEXT_MAX_LENGTH);
 const optionalId = z.string().max(200);
 const number = z.number().finite();
 const date = z.union([z.iso.date(), z.literal("")]);
@@ -34,6 +47,9 @@ export const taskCardStatuses = [
   "completed",
   "canceled",
 ] as const;
+type TaskStatus = (typeof taskCardStatuses)[number];
+// A template is never worked, so it is only ever a draft or canceled.
+const TEMPLATE_STATUSES: readonly TaskStatus[] = ["draft", "canceled"];
 
 /** The kinds of evidence a job card's attachments are filed under. */
 export const evidenceCategories = [
@@ -66,6 +82,9 @@ export const linkField = {
   discrepancy: "discrepancyUuid",
   workOrder: "workOrderUuid",
 } as const;
+/** A job card field that links it to another record. */
+export type TaskLinkField =
+  (typeof linkField)[TaskLink["kind"]] | "componentUuid";
 
 const signatureSchema = z.object({
   userId: z.string(),
@@ -116,7 +135,7 @@ export const taskCardFieldsSchema = z.object({
   itemCode: z.string().max(100).optional(),
   sourceKey: z.string().max(300).optional(),
   aircraftUuid: z.string().min(1).max(200),
-  cardNumber: z.string().trim().max(100),
+  cardNumber: z.string().trim().max(CARD_NUMBER_MAX_LENGTH),
   title: text.min(1),
   ataChapter: ataChapterSchema.optional(),
   workOrderUuid: optionalId,
@@ -150,6 +169,10 @@ export const taskCardFieldsSchema = z.object({
   functionalTestResults: text,
   status: z.enum(taskCardStatuses),
 });
+type CardLinks = Pick<
+  TaskCardFields,
+  "workOrderUuid" | "inspectionUuid" | "requirementUuid" | "discrepancyUuid"
+>;
 
 /**
  * A stored job card: its fields, identity, the template it was copied from,
@@ -230,28 +253,38 @@ export interface TaskEvidence {
  * Whether a card is a reusable template: linked to an inspection,
  * requirement or discrepancy but not to a work order.
  */
-export function isTaskTemplate(
-  t: Pick<
-    TaskCardFields,
-    "workOrderUuid" | "inspectionUuid" | "requirementUuid" | "discrepancyUuid"
-  >,
-) {
+export function isTaskTemplate(t: CardLinks) {
   return (
     !t.workOrderUuid &&
     !!(t.inspectionUuid || t.requirementUuid || t.discrepancyUuid)
   );
 }
 
+/**
+ * The statuses a card may be set to: a template only draft or canceled, a
+ * job card any.
+ *
+ * @returns In the order work moves through them.
+ */
+export function taskStatusChoices(t: CardLinks): readonly TaskStatus[] {
+  return isTaskTemplate(t) ? TEMPLATE_STATUSES : taskCardStatuses;
+}
+
+/**
+ * Whether a field is one of the text results of the work (findings, actual
+ * work, measurements, functional test results), which a template never holds.
+ */
+export function isResultTextField(field: keyof TaskCardFields) {
+  return RESULT_TEXT_FIELDS.some((result) => result === field);
+}
+
 /** Whether any work has been recorded on a card: results, parts or a date. */
 export function hasTaskExecution(t: TaskCardFields) {
-  return !!(
-    t.findings ||
-    t.actualWork ||
-    t.measurements ||
+  return (
+    RESULT_TEXT_FIELDS.some((field) => t[field]) ||
     t.actualLabor !== null ||
-    t.completionDate ||
-    t.partsUsed.length ||
-    t.functionalTestResults ||
+    !!t.completionDate ||
+    t.partsUsed.length > 0 ||
     ["pass", "fail"].includes(t.functionalTestOutcome) ||
     t.steps.some((step) => step.result || step.measurement !== null)
   );
@@ -274,6 +307,11 @@ const maintenanceCertificateType =
 type CertificateHolder = Pick<
   Member,
   "certifications" | "licenseNumber" | "certificateType"
+>;
+type Signer = CertificateHolder & Pick<Member, "id">;
+type SignoffState = Pick<
+  TaskCard,
+  "status" | "technicianSignoff" | "inspectionSignoff"
 >;
 /**
  * Why `user` cannot record an inspection signoff, or undefined if they can.
@@ -355,6 +393,121 @@ export function canUnlinkTaskCard(s: Snapshot, card: TaskCard, link: TaskLink) {
     !card.inspectionSignoff &&
     !Object.keys(card.stepSignoffs).length
   );
+}
+
+/**
+ * The cards a record lists: a work order's job cards, or the templates
+ * linked to an inspection, service requirement or discrepancy.
+ *
+ * @param aircraftUuid - The record's aircraft; only its cards are listed.
+ * @returns In snapshot order.
+ */
+export function linkedTaskCards(
+  s: Snapshot,
+  aircraftUuid: string,
+  link: TaskLink,
+): TaskCard[] {
+  return (s.taskCards ?? []).filter(
+    (t) =>
+      t.aircraftUuid === aircraftUuid &&
+      t[linkField[link.kind]] === link.uuid &&
+      (link.kind === "workOrder" || !t.workOrderUuid),
+  );
+}
+
+/**
+ * The cards a record offers to link: the aircraft's writable cards with no
+ * record of that kind yet. A work order takes job cards, never templates;
+ * any other record takes cards that are not on a work order.
+ *
+ * @returns In snapshot order.
+ */
+export function linkableTaskCards(
+  s: Snapshot,
+  aircraftUuid: string,
+  link: TaskLink,
+): TaskCard[] {
+  return (s.taskCards ?? []).filter(
+    (t) =>
+      t.aircraftUuid === aircraftUuid &&
+      !t[linkField[link.kind]] &&
+      (link.kind === "workOrder" ? !isTaskTemplate(t) : !t.workOrderUuid) &&
+      taskWritable(s, t),
+  );
+}
+
+/**
+ * Whether the user may change which cards a record links: maintenance access
+ * to its aircraft and, for a work order, the order still open.
+ */
+export function taskLinksWritable(
+  s: Snapshot,
+  aircraftUuid: string,
+  link: TaskLink,
+) {
+  return (
+    can(s, aircraftUuid, "maintenance") &&
+    (link.kind !== "workOrder" ||
+      !!s.workOrders?.some((w) => w.uuid === link.uuid && isOpenWorkOrder(w)))
+  );
+}
+
+/**
+ * Whether the editor keeps a saved card's link as it is: a work-order copy
+ * keeps every link, and a template its empty work order and each record it
+ * was saved with. A new card keeps none.
+ */
+export function taskLinkLocked(
+  card: TaskCard | undefined,
+  field: TaskLinkField,
+) {
+  if (!card) return false;
+  if (card.sourceTaskCardUuid) return true;
+  return isTaskTemplate(card) && (field === "workOrderUuid" || !!card[field]);
+}
+
+/**
+ * The signoffs the job card lists offer on a card, each only once the card is
+ * past draft and until it is signed: inspection after the technician's, to a
+ * different person with a maintenance certificate.
+ *
+ * @param card - A job card; a template takes no signoffs, unchecked here.
+ * @param asOf - The local date the inspector's certificate must be held on.
+ * @returns Whether each signoff is offered, before connection and access.
+ */
+export function signoffsOfferedInList(
+  card: SignoffState,
+  user: Signer,
+  asOf: string,
+) {
+  const ready = card.status !== "draft";
+  return {
+    technician: ready && !card.technicianSignoff,
+    inspection:
+      ready && !card.inspectionSignoff && inspectorMaySign(card, user, asOf),
+  };
+}
+
+/**
+ * The signoffs the card editor offers, each again after it is signed:
+ * technician once the card is past draft; inspection, in any status, after
+ * the technician's, to a different person with a maintenance certificate.
+ * So on a draft card that kept its technician signoff, the editor offers an
+ * inspection signoff that {@link saveTaskCard} refuses and the lists do not.
+ *
+ * @param card - A job card; a template takes no signoffs, unchecked here.
+ * @param asOf - The local date the inspector's certificate must be held on.
+ * @returns Whether each signoff is offered, before connection and access.
+ */
+export function signoffsOfferedInEditor(
+  card: SignoffState,
+  user: Signer,
+  asOf: string,
+) {
+  return {
+    technician: card.status !== "draft",
+    inspection: inspectorMaySign(card, user, asOf),
+  };
 }
 
 /** The fields of a new, empty draft job card for an aircraft. */
@@ -562,6 +715,15 @@ function assertInspector(s: Snapshot, prior: TaskCard, now: number) {
   if (certificate) throw new Rejection(certificate);
 }
 
+// What assertInspector checks, offered as a button rather than refused.
+function inspectorMaySign(card: SignoffState, user: Signer, asOf: string) {
+  return (
+    !!card.technicianSignoff &&
+    card.technicianSignoff.userId !== user.id &&
+    !inspectorCertificateProblem(user, asOf)
+  );
+}
+
 function unlinkTaskCard(
   s: Snapshot,
   c: UnlinkCommand,
@@ -588,7 +750,8 @@ function editTaskCard(
   if (c.action === "link") assertLinkFree(prior!, c.link);
   if (
     isTaskTemplate(fields) &&
-    (!["draft", "canceled"].includes(fields.status) || hasTaskExecution(fields))
+    (!taskStatusChoices(fields).includes(fields.status) ||
+      hasTaskExecution(fields))
   )
     throw new Rejection(
       "Reusable templates contain instructions only. Record work results and completion on a work-order job card.",

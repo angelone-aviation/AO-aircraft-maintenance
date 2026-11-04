@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins job cards: steps, links, parts, signoffs and the
- *   43.7 inspector certificate, every refusal in order, and numbering.
+ *   43.7 inspector certificate, every refusal in order, numbering, and the
+ *   cards, links, statuses and signoffs the screens offer.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/taskCards.ts, ./workOrders, ./programs,
  *   ./rejection; tests/fixtures (task cards, work orders); src/data/demo.ts.
@@ -15,11 +16,21 @@ import {
 import {
   saveTaskCard,
   applyTaskLink,
+  isResultTextField,
+  linkableTaskCards,
+  linkedTaskCards,
+  signoffsOfferedInEditor,
+  signoffsOfferedInList,
   taskCardFieldsSchema,
+  taskCardStatuses,
+  taskLinkLocked,
+  taskLinksWritable,
+  taskStatusChoices,
   type TaskCard,
   type TaskCardCommand,
   type TaskCardFields,
   type TaskLink,
+  type TaskLinkField,
 } from "./taskCards";
 import { saveWorkOrder, workOrderProgress } from "./workOrders";
 import { scopedSnapshot } from "./programs";
@@ -1100,4 +1111,161 @@ it("accepts a completion date that is today anywhere, and refuses the day after"
   expect(() =>
     saveTaskCard(w.s, edit(w.card, { completionDate: "2026-10-03" }), now),
   ).toThrow("Completion date cannot be in the future.");
+});
+
+describe("what the job card screens offer", () => {
+  const cardNumbers = (cards: TaskCard[]) => cards.map((t) => t.cardNumber);
+
+  it("keeps a template to draft or canceled and free of result text", () => {
+    const w = cardWorld();
+    expect(taskStatusChoices(w.template)).toEqual(["draft", "canceled"]);
+    expect(taskStatusChoices(w.card)).toEqual(taskCardStatuses);
+    const results: (keyof TaskCardFields)[] = [
+      "findings",
+      "actualWork",
+      "measurements",
+      "functionalTestResults",
+    ];
+    for (const field of results) {
+      expect(isResultTextField(field)).toBe(true);
+      expect(() =>
+        saveTaskCard(w.s, edit(w.template, { [field]: "Done" }), now),
+      ).toThrow("Reusable templates contain instructions only.");
+    }
+    for (const field of ["description", "actualLabor", "notesRemarks"] as const)
+      expect(isResultTextField(field)).toBe(false);
+    const canceled = edit(w.template, { status: "canceled" });
+    expect(saveTaskCard(w.s, canceled, now).status).toBe("canceled");
+  });
+
+  it("lists a record's linked cards and offers its unlinked, writable ones", () => {
+    const w = cardWorld();
+    const inspection: TaskLink = {
+      kind: "inspection",
+      uuid: w.template.inspectionUuid,
+    };
+    const order: TaskLink = { kind: "workOrder", uuid: w.order.uuid };
+    w.stored(w.onOrder).inspectionUuid = inspection.uuid;
+    const [card, ready, template, onOrder] = cardNumbers([
+      w.card,
+      w.ready,
+      w.template,
+      w.onOrder,
+    ]);
+    const linked = (link: TaskLink, aircraftUuid = w.a.uuid) =>
+      cardNumbers(linkedTaskCards(w.s, aircraftUuid, link));
+    const offered = (link: TaskLink) =>
+      cardNumbers(linkableTaskCards(w.s, w.a.uuid, link));
+    expect(linked(inspection)).toEqual([template]);
+    expect(linked(order)).toEqual([onOrder]);
+    expect(linked(inspection, "elsewhere")).toEqual([]);
+    expect(offered(inspection)).toEqual([card, ready]);
+    expect(offered(order)).toEqual([card, ready]);
+    w.stored(w.ready).status = "canceled";
+    expect(offered(order)).toEqual([card]);
+  });
+
+  it("lets links change with maintenance access, on a work order while open", () => {
+    const w = cardWorld();
+    const order: TaskLink = { kind: "workOrder", uuid: w.order.uuid };
+    const inspection: TaskLink = { kind: "inspection", uuid: "any" };
+    expect(taskLinksWritable(w.s, w.a.uuid, order)).toBe(true);
+    expect(taskLinksWritable(w.s, "nowhere", inspection)).toBe(false);
+    const missing: TaskLink = { kind: "workOrder", uuid: "missing" };
+    expect(taskLinksWritable(w.s, w.a.uuid, missing)).toBe(false);
+    w.s.workOrders = w.s.workOrders!.map((o) => ({
+      ...o,
+      status: "completed",
+    }));
+    expect(taskLinksWritable(w.s, w.a.uuid, order)).toBe(false);
+    w.s.workOrders = undefined;
+    expect(taskLinksWritable(w.s, w.a.uuid, order)).toBe(false);
+    expect(taskLinksWritable(w.s, w.a.uuid, inspection)).toBe(true);
+  });
+
+  it("locks a copy's every link, and a template's work order and saved links", () => {
+    const w = cardWorld();
+    const fields: TaskLinkField[] = [
+      "workOrderUuid",
+      "inspectionUuid",
+      "componentUuid",
+      "requirementUuid",
+      "discrepancyUuid",
+    ];
+    const locked = (t?: TaskCard) =>
+      fields.filter((field) => taskLinkLocked(t, field));
+    expect(locked(undefined)).toEqual([]);
+    expect(locked(w.card)).toEqual([]);
+    expect(locked(w.onOrder)).toEqual([]);
+    expect(locked({ ...w.template, componentUuid: "engine" })).toEqual([
+      "workOrderUuid",
+      "inspectionUuid",
+      "componentUuid",
+    ]);
+    expect(
+      locked({ ...w.onOrder, sourceTaskCardUuid: w.template.uuid }),
+    ).toEqual(fields);
+  });
+});
+
+describe("signoffs the list and the editor offer (they differ)", () => {
+  const asOf = "2026-10-01";
+  const technician = { userId: "technician", name: "Tech", at: 1 };
+  const inspection = { userId: "inspector", name: "Inspector", at: 2 };
+  const user = demoSnapshot().user;
+  const inspector = {
+    ...user,
+    id: "inspector",
+    licenseNumber: "A1",
+    certificateType: "A&P",
+  };
+  const uncertified = { ...user, id: "inspector" };
+  const signer = { ...inspector, id: "technician" };
+  const none = { technicianSignoff: null, inspectionSignoff: null };
+  const tech = { technicianSignoff: technician, inspectionSignoff: null };
+  const both = { technicianSignoff: technician, inspectionSignoff: inspection };
+  // The signoffs offered as "TI": T for technician, I for inspection, else -.
+  const offers = (
+    status: TaskCard["status"],
+    signed: Pick<TaskCard, "technicianSignoff" | "inspectionSignoff">,
+    by: typeof user,
+  ) => {
+    const flags = (o: { technician: boolean; inspection: boolean }) =>
+      `${o.technician ? "T" : "-"}${o.inspection ? "I" : "-"}`;
+    const card = { status, ...signed };
+    return [
+      flags(signoffsOfferedInList(card, by, asOf)),
+      flags(signoffsOfferedInEditor(card, by, asOf)),
+    ];
+  };
+
+  it.each([
+    ["unsigned draft", "draft", none, inspector, "--", "--"],
+    ["unsigned ready card", "ready", none, inspector, "T-", "T-"],
+    ["technician-signed card", "in-progress", tech, inspector, "-I", "TI"],
+    ["fully signed card", "in-progress", both, inspector, "--", "TI"],
+    ["draft with technician signoff", "draft", tech, inspector, "--", "-I"],
+    ["card its technician inspects", "ready", tech, signer, "--", "T-"],
+    ["inspector without a certificate", "ready", tech, uncertified, "--", "T-"],
+  ] as const)(
+    "%s: list %s, editor %s",
+    (_, status, signed, by, list, editor) => {
+      expect(offers(status, signed, by)).toEqual([list, editor]);
+    },
+  );
+
+  // Characterizes current behaviour: status edits keep signoffs, so a signed
+  // card set back to draft reaches the state where the two differ.
+  it("reaches a draft with a technician signoff, which the server will not inspect", () => {
+    const w = cardWorld();
+    w.stored(w.ready).completionDate = asOf;
+    const signed = saveTaskCard(w.s, sign(w.ready, "technician"), now);
+    const draft = saveTaskCard(w.s, edit(signed, { status: "draft" }), now);
+    expect(draft.technicianSignoff?.userId).toBe(w.s.user.id);
+    w.s.user = { ...w.s.user, ...inspector };
+    expect(offers("draft", draft, inspector)).toEqual(["--", "-I"]);
+    expect(() => saveTaskCard(w.s, sign(draft, "inspection"), now)).toThrow(
+      "Make the task ready before signing.",
+    );
+  });
 });
