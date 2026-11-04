@@ -306,6 +306,10 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
         a.action === "inspection.complete" && a.entityUuid === inspectionId,
     ),
   ).toBe(true);
+  // The completion names the aircraft's program (none before Batch 296).
+  expect(
+    after.audit.find((a) => a.action === "inspection.complete")?.programUuid,
+  ).toBe(PROGRAM);
   await expect(
     tech.mutation(api.workOrders.save, {
       programUuid: PROGRAM,

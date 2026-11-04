@@ -76,9 +76,7 @@ export const save = mutation({
       apply: ({ snapshot }, command) => applyTaskCardCommand(snapshot, command),
       persist: ({ ctx }, { docs }, next) =>
         writeChanged(ctx, "taskCards", docs, [next]),
-      // The row has always named no program.
-      audit: (log, { snapshot }) =>
-        log.replay(snapshot.audit, { programUuid: undefined }),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (next) => next.uuid,
     }),
 });

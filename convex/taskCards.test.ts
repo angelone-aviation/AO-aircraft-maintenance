@@ -81,7 +81,7 @@ it("persists cards, enforces access and prevents forged signoffs", async () => {
   const s = await tech.query(api.operations.snapshot, {});
   expect(s?.taskCards?.[0].technicianSignoff).toBeNull();
   expect(s?.audit.some((a) => a.action === "taskCard.save")).toBe(true);
-  // Characterizes current behaviour: the row names no program.
+  // The row names the aircraft's program (ADR-0003; none before Batch 296).
   const [row] = await t.run(async (ctx) =>
     (await ctx.db.query("audit").collect()).filter(
       (r) => r.action === "taskCard.save",
@@ -92,7 +92,7 @@ it("persists cards, enforces access and prevents forged signoffs", async () => {
     aircraftUuid: command.fields.aircraftUuid,
   });
   expect(JSON.parse(row.after!)).toEqual(s!.taskCards![0]);
-  expect(row).not.toHaveProperty("programUuid");
+  expect(row.programUuid).toBe("demo-program");
   expect(row).not.toHaveProperty("before");
   await expect(tech.mutation(api.taskCards.save, args)).rejects.toThrow(
     "changed",

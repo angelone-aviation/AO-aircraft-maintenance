@@ -69,10 +69,10 @@ it("writes plan.saved, then plan.cancelled with the plan before and after", asyn
     status: "cancelled",
     version: 2,
   });
-  // Characterizes current behaviour: the rows name the aircraft, no program.
+  // The rows name the aircraft and its program (none before Batch 296).
   for (const row of rows) {
     expect(row.aircraftUuid).toBe(plan.aircraftUuid);
-    expect(row).not.toHaveProperty("programUuid");
+    expect(row.programUuid).toBe("demo-program");
   }
 });
 

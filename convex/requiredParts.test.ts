@@ -90,7 +90,8 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
   const stored = await report();
   await tech.mutation(api.operations.saveDiscrepancyParts, input);
   // The row holds the report before and after, as the demo logs it, without
-  // Convex's system fields; it names no program.
+  // Convex's system fields, and the aircraft's program (none before Batch
+  // 296).
   const rows = await t.run(async (ctx) =>
     (await ctx.db.query("audit").collect()).filter(
       (r) => r.action === "discrepancy.parts",
@@ -103,7 +104,7 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
     aircraftUuid: stored!.aircraftUuid,
     reason: "Required parts updated",
   });
-  expect(rows[0]).not.toHaveProperty("programUuid");
+  expect(rows[0].programUuid).toBe("demo-program");
   expect(rows[0].before).toBe(JSON.stringify(recordOf(stored!)));
   expect(JSON.parse(rows[0].after!)).toEqual(recordOf((await report())!));
   await expect(

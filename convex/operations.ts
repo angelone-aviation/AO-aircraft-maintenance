@@ -179,9 +179,7 @@ export const resolveDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, resolvedFields(next));
       },
-      // The row has always named no program.
-      audit: (log, { s }) =>
-        log.replay(oldestFirst(s.audit), { programUuid: undefined }),
+      audit: (log, { s }) => log.replay(oldestFirst(s.audit)),
     }),
 });
 
@@ -297,9 +295,7 @@ export const saveDiscrepancyParts = mutation({
           partsVersion: result.partsVersion,
         });
       },
-      // The row has always named no program.
-      audit: (log, { snapshot }) =>
-        log.replay(oldestFirst(snapshot.audit), { programUuid: undefined }),
+      audit: (log, { snapshot }) => log.replay(oldestFirst(snapshot.audit)),
     }),
 });
 

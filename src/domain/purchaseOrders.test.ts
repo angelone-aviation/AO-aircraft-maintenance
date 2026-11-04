@@ -1083,6 +1083,7 @@ describe("purchase order results", () => {
     });
     expect(w.s.audit[0]).toEqual({
       uuid: `${closed.history.at(-1)!.requestUuid}-new-po`,
+      programUuid: "demo-program",
       at: now,
       actorId: w.s.user.id,
       action: "po.cancel",

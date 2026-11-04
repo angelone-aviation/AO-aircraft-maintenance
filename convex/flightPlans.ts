@@ -54,8 +54,7 @@ export const save = mutation({
       apply: ({ s }, command) => saveFlightPlan(s, command),
       persist: ({ ctx }, { plans }, next) =>
         writeChanged(ctx, "flightPlans", plans, [next]),
-      // The row has always named no program.
-      audit: (log, { s }) => log.replay(s.audit, { programUuid: undefined }),
+      audit: (log, { s }) => log.replay(s.audit),
       returns: (next) => next.uuid,
     }),
 });

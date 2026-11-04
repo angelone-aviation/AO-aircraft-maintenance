@@ -101,12 +101,7 @@ export const activate = mutation({
         else await writeInspection(ctx, docs.inspections, record);
         await writeChanged(ctx, "taskCards", docs.taskCards, tasks);
       },
-      audit: (log, { snapshot }, result) =>
-        log.replay(snapshot.audit, {
-          aircraftUuid: result.aircraftUuid,
-          programUuid,
-          before: undefined,
-        }),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (result) => result.record.uuid,
     }),
 });

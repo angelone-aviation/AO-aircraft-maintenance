@@ -202,15 +202,10 @@ export class CommandLog {
   }
 
   /**
-   * Adds the applier's entries as new rows by the caller, stamped now. Their
-   * own program, aircraft, reason and values are kept unless `stamp`
-   * overrides them (an explicit undefined clears one).
+   * Adds the applier's entries as new rows by the caller, stamped now, each
+   * with its own program, aircraft, reason and values.
    */
-  replay(
-    entries: AuditEntry[],
-    stamp:
-      Partial<AuditFields> | ((entry: AuditEntry) => Partial<AuditFields>) = {},
-  ) {
+  replay(entries: AuditEntry[]) {
     for (const e of entries)
       this.entry(e.action, e.entityUuid, {
         programUuid: e.programUuid,
@@ -218,16 +213,15 @@ export class CommandLog {
         reason: e.reason,
         before: e.before ? JSON.parse(e.before) : undefined,
         after: e.after ? JSON.parse(e.after) : undefined,
-        ...(typeof stamp === "function" ? stamp(e) : stamp),
       });
   }
 
   /**
-   * Adds the applier's entries exactly as it recorded them: its ids, times
-   * and actor. `stamp` sets the program on every row.
+   * Adds the applier's entries exactly as it recorded them: its ids, times,
+   * actor and program.
    */
-  record(entries: AuditEntry[], stamp: { programUuid?: string } = {}) {
-    for (const e of entries) this.rows.push({ ...e, ...stamp });
+  record(entries: AuditEntry[]) {
+    this.rows.push(...entries);
   }
 }
 

@@ -1200,15 +1200,13 @@ function auditChanges(
   changes: PurchaseOrder[],
   now: number,
 ) {
-  // PO rows name no program of their own: the server stamps the command's
-  // program as it writes them, and the demo keeps them without.
   for (const p of changes)
     s.audit.unshift(
       auditEntry(
         s,
         {
           uuid: `${c.requestUuid}-${p.uuid}`,
-          programUuid: undefined,
+          programUuid: activeProgram(s),
           action: `po.${c.kind}`,
           entityUuid: p.uuid,
           after: p,

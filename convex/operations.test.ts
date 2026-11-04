@@ -618,8 +618,8 @@ describe("discrepancy resolution", () => {
       aircraftUuid: a.uuid,
       reason: "  Replaced damaged seal ",
     });
-    // Characterizes current behaviour: the row carries no programUuid.
-    expect(row).not.toHaveProperty("programUuid");
+    // The row names the aircraft's program (none before Batch 296).
+    expect(row.programUuid).toBe(a.programUuid);
     // The report as the demo logs it, without Convex's system fields.
     expect(row.before).toBe(JSON.stringify(recordOf(stored!)));
     expect(row.after).toBe(

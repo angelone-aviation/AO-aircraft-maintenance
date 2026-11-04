@@ -58,8 +58,7 @@ export const execute = mutation({
         );
         await patchRequests(ctx, docs.partsRequests, s.partsRequests ?? []);
       },
-      audit: (log, { snapshot }) =>
-        log.record(snapshot.audit, { programUuid: args.programUuid }),
+      audit: (log, { snapshot }) => log.record(snapshot.audit),
       returns: (changes) => changes.map((p) => p.uuid),
     }),
 });

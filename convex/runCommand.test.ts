@@ -197,10 +197,11 @@ it("writes the command's audit entry exactly once, after its documents", async (
   expect(JSON.parse(rows[0].after!)).toEqual({ uuid: "plan-1" });
 });
 
-it("replays the applier's entries, re-stamped or exactly as recorded", async () => {
+it("replays the applier's entries as the caller's, or exactly as recorded", async () => {
   const f = await fixture();
   const domain: AuditEntry = {
     uuid: "domain-entry",
+    programUuid: PROGRAM,
     at: 1,
     actorId: "domain-actor",
     action: "stock.issue",
@@ -219,8 +220,8 @@ it("replays the applier's entries, re-stamped or exactly as recorded", async () 
     },
     persist: async () => {},
     audit: (log, { snapshot }) => {
-      log.replay(snapshot.audit, { programUuid: PROGRAM });
-      log.record(snapshot.audit, { programUuid: PROGRAM });
+      log.replay(snapshot.audit);
+      log.record(snapshot.audit);
     },
   });
   const [replayed, recorded] = await f.rows();
@@ -235,7 +236,7 @@ it("replays the applier's entries, re-stamped or exactly as recorded", async () 
     after: domain.after,
   });
   expect(replayed.uuid).not.toBe("domain-entry");
-  expect(recorded).toMatchObject({ ...domain, programUuid: PROGRAM });
+  expect(recorded).toMatchObject(domain);
 });
 
 it("rolls back and exposes only expected rejections when the domain refuses", async () => {

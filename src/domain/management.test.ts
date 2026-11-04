@@ -988,6 +988,7 @@ describe("management results", () => {
     expect(s.management!.at(-1)).toStrictEqual(next);
     expect(s.audit[0]).toStrictEqual({
       uuid: command.requestUuid,
+      programUuid: "demo-program",
       actorId: s.user.id,
       at: NOW,
       action: "stock.move.receive",
