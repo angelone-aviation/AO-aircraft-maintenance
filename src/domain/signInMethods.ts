@@ -59,10 +59,22 @@ export const MICROSOFT_PERSONAL_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad";
 
 /**
  * What a provider's profile() hands to the sign-in callback: the provider's
- * account id, the email trimmed and lower-cased (undefined when blank), and
- * whether the provider vouches for it.
+ * account id, the email as {@link normalizeSsoEmail} gives it (undefined when
+ * blank), and whether the provider vouches for it.
  */
 export type SsoProfile = { id: string; email?: string; emailVerified: boolean };
+
+/**
+ * Puts a provider's email in the form a user's is matched by: trimmed, with
+ * only A to Z lower-cased. A full Unicode fold would turn another address
+ * into a user's, since U+212A KELVIN SIGN lower-cases to "k".
+ *
+ * @param email - The email the provider sent.
+ * @returns The email to match; empty when it was only spaces.
+ */
+export function normalizeSsoEmail(email: string): string {
+  return email.trim().replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+}
 
 /**
  * Reads Google's ID token: the email counts only when `email_verified` is true.
@@ -173,7 +185,7 @@ function readAccountId(claims: Record<string, unknown>): string {
 }
 
 function readEmail(claims: Record<string, unknown>): string | undefined {
-  return typeof claims.email === "string" && claims.email.trim()
-    ? claims.email.trim().toLowerCase()
-    : undefined;
+  const email =
+    typeof claims.email === "string" ? normalizeSsoEmail(claims.email) : "";
+  return email || undefined;
 }

@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins Google and Microsoft sign-in for existing accounts
- *   (ADR-0009): linking, refusals, disabled users, linked identities and the
- *   change log, and the password rules on create and reset.
+ *   (ADR-0009): linking, refusals, takeover attempts, code redemption,
+ *   disabled users, linked identities and the change log, and the password
+ *   rules on create and reset.
  * Layer: Test. convex-test suite through the real sign-in library and HTTP
  *   routes, against stand-ins for the providers' endpoints; never shipped.
  * Dependencies: @convex-dev/auth, jose, convex (auth, admin, identities,
@@ -573,4 +574,99 @@ it("keeps an existing shorter password working until its next reset", async () =
   expect(
     (await passwordSignIn(f, "legacy@example.test", "twelve-chars")).tokens,
   ).toBeTruthy();
+});
+
+it("refuses a token that only claims a user's email or the trusted personal tenant", async () => {
+  const f = await fixture();
+  await f.provision("kate@example.test");
+  const before = await rows(f);
+  const google = await refused(f, GOOGLE, {
+    sub: "google-attacker",
+    email: "kate@example.test",
+    email_verified: "true",
+  });
+  const work = await refused(f, MICROSOFT, {
+    sub: "ms-attacker",
+    tid: WORK_TENANT,
+    email: "kate@example.test",
+    xms_edov: "true",
+  });
+  // nOAuth: a work tenant's token naming the personal tenant, whose emails
+  // Microsoft verifies, fails the issuer check.
+  const personal = await refused(f, MICROSOFT, {
+    sub: "ms-attacker",
+    tid: MICROSOFT_PERSONAL_TENANT,
+    iss: `https://login.microsoftonline.com/${WORK_TENANT}/v2.0`,
+    email: "kate@example.test",
+  });
+  expect(
+    [google, work, personal].map((l) => l.searchParams.get("signInError")),
+  ).toEqual(["unverified", "unverified", "failed"]);
+  const after = await rows(f);
+  expect(after.users).toEqual(before.users);
+  expect(after.accounts).toEqual(before.accounts);
+  expect(after.sessions).toEqual(before.sessions);
+});
+
+it("does not fold a look-alike email into a user's: KELVIN SIGN lower-cases to k", async () => {
+  const f = await fixture();
+  await f.provision("kate@example.test");
+  const location = await refused(f, GOOGLE, {
+    sub: "google-lookalike",
+    email: "\u212Aate@example.test",
+    email_verified: true,
+  });
+  expect(location.searchParams.get("signInError")).toBe("account");
+  expect(await ssoAccounts(f)).toHaveLength(0);
+});
+
+it("redeems a sign-in code only with the verifier of the browser that started it", async () => {
+  const f = await fixture();
+  const pilot = await f.provision("pilot@example.test");
+  const pending = await sso(f, GOOGLE, {
+    sub: "google-pat",
+    email: "pilot@example.test",
+    email_verified: true,
+  });
+  const elsewhere = (await f.t.action(api.auth.signIn, {
+    provider: GOOGLE,
+  })) as { verifier: string };
+  for (const verifier of [elsewhere.verifier, undefined])
+    expect(
+      await f.t.action(api.auth.signIn, {
+        params: { code: pending.code },
+        verifier,
+      }),
+    ).toEqual({ tokens: null });
+  const r = await rows(f);
+  expect(r.sessions.filter((s) => s.userId === pilot)).toHaveLength(0);
+});
+
+it("Characterizes current behaviour (ADR-0009): any identity whose provider verifies the email links beside the user's own, and removing it keeps its session", async () => {
+  const f = await fixture();
+  const pilot = await f.provision("pilot@example.test");
+  await signedIn(f, GOOGLE, {
+    sub: "google-pat",
+    email: "pilot@example.test",
+    email_verified: true,
+  });
+  // Whoever controls the mailbox can make a Microsoft account with it.
+  await signedIn(f, MICROSOFT, {
+    sub: "ms-mailbox-holder",
+    tid: MICROSOFT_PERSONAL_TENANT,
+    email: "pilot@example.test",
+  });
+  const linked = await ssoAccounts(f);
+  expect(linked.map((a) => [a.userId, a.providerAccountId])).toEqual([
+    [pilot, "google-pat"],
+    [pilot, "ms-mailbox-holder"],
+  ]);
+  const sessions = async () =>
+    (await rows(f)).sessions.filter((s) => s.userId === pilot).length;
+  const before = await sessions();
+  await f.system.mutation(api.identities.remove, {
+    userId: pilot,
+    id: linked[1]._id,
+  });
+  expect(await sessions()).toBe(before);
 });

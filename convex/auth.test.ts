@@ -1,12 +1,17 @@
 /**
  * Responsibility: Pins that sign-in refusals stay plain Errors, which
- *   production hides alike, so their class reveals nothing about an account.
+ *   production hides alike, so their class reveals nothing about an account;
+ *   that every password flow but sign-in is closed; and that sign-out ends
+ *   the session on the server.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/auth.ts, convex/admin.ts, convex/schema.ts.
+ * Dependencies: @convex-dev/auth, jose, convex (auth, admin, identities,
+ *   schema).
  */
 import { convexTest } from "convex-test";
-import { it, vi, expect } from "vitest";
+import { afterAll, beforeAll, it, vi, expect } from "vitest";
+import { exportPKCS8, generateKeyPair } from "jose";
 import { ConvexError } from "convex/values";
+import { createAccount } from "@convex-dev/auth/server";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -21,6 +26,14 @@ const modules = import.meta.glob([
   "!./**/*.d.ts",
 ]);
 const PASSWORD = "correct-horse-battery-1";
+
+// A successful password sign-in issues a signed JWT.
+beforeAll(async () => {
+  const { privateKey } = await generateKeyPair("RS256", { extractable: true });
+  vi.stubEnv("JWT_PRIVATE_KEY", await exportPKCS8(privateKey));
+  vi.stubEnv("CONVEX_SITE_URL", "https://test.convex.site");
+});
+afterAll(() => vi.unstubAllEnvs());
 
 // The error a run rejects with.
 const refusal = (run: Promise<unknown>) =>
@@ -79,4 +92,68 @@ it("refuses sign-up, a disabled account and a wrong password, none as a ConvexEr
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(ConvexError);
   }
+});
+
+it("closes every password flow but sign-in, and sign-out ends the session on the server", async () => {
+  const t = convexTest(schema, modules);
+  const user = await t.action(
+    async (ctx) =>
+      (
+        await createAccount(ctx, {
+          provider: "password",
+          account: { id: "pilot@example.test", secret: PASSWORD },
+          profile: {
+            email: "pilot@example.test",
+            active: true,
+            isAdmin: false,
+            groupIds: [],
+          },
+        })
+      ).user._id,
+  );
+  const params = {
+    email: "pilot@example.test",
+    password: PASSWORD,
+    newPassword: `${PASSWORD}-taken-over`,
+    code: "12345678",
+  };
+  for (const flow of [
+    "signUp",
+    "reset",
+    "reset-verification",
+    "email-verification",
+    undefined,
+  ])
+    expect(
+      await refusal(
+        t.action(api.auth.signIn, {
+          provider: "password",
+          params: { ...params, flow },
+        }),
+      ),
+    ).toMatchObject({ message: "Accounts are managed by your administrator." });
+  // The password is unchanged and nobody else was signed in or created.
+  await t.action(api.auth.signIn, {
+    provider: "password",
+    params: { ...params, flow: "signIn" },
+  });
+  const rows = () =>
+    t.run(async (ctx) => ({
+      users: (await ctx.db.query("users").collect()).length,
+      sessions: await ctx.db.query("authSessions").collect(),
+      tokens: (await ctx.db.query("authRefreshTokens").collect()).length,
+    }));
+  const before = await rows();
+  expect(before.users).toBe(1);
+  expect(before.sessions.map((s) => s.userId)).toEqual([user]);
+  const asPilot = t.withIdentity({
+    subject: `${user}|${before.sessions[0]._id}`,
+  });
+  expect(await asPilot.query(api.identities.mine, {})).toEqual([]);
+  await asPilot.action(api.auth.signOut, {});
+  expect(await rows()).toEqual({ users: 1, sessions: [], tokens: 0 });
+  // The signed-out token is refused even before it expires.
+  await expect(asPilot.query(api.identities.mine, {})).rejects.toThrow(
+    "An active account and session are required.",
+  );
 });
