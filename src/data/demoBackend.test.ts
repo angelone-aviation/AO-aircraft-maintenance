@@ -1,11 +1,13 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, flight
- *   review, AD changes and attachments against the server's rules: the same
- *   refusals, stored records and change-log rows.
+ *   review, AD changes, attachments, manual edits, saved addresses, FAA
+ *   monitor commands and program selection against the server's rules: the
+ *   same refusals, stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
- *   taskCards, workOrders, purchaseOrders), tests/fixtures.
+ *   taskCards, workOrders, purchaseOrders, manuals, addresses, faa),
+ *   tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -14,7 +16,10 @@
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
  * and crashed on a missing flight. Before Batch 296 its AD rows named no
- * Flight Program. Before Batch 273 it took any number of attachments.
+ * Flight Program. Before Batch 273 it took any number of attachments. Before
+ * Batch 285 it audited a manual edit's whole record, saved addresses without
+ * the administrator check or the 200 cap and with its own messages, kept an
+ * FAA monitor's run and error on configure, and ignored an unknown candidate.
  */
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
@@ -28,6 +33,9 @@ import { MAX_ATTACHMENTS } from "../domain/attachments";
 import { saveTaskCard } from "../domain/taskCards";
 import { saveWorkOrder } from "../domain/workOrders";
 import { poSchema } from "../domain/purchaseOrders";
+import type { Manual } from "../domain/manuals";
+import { addressSchema } from "../domain/addresses";
+import type { FaaMonitor } from "../domain/faa";
 import type { Backend } from "./backend";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import {
@@ -506,6 +514,203 @@ it.each<
     );
     expect(error).toBeInstanceOf(Rejection);
     expect(error).toMatchObject({ message: FULL });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+const MANUAL: Manual = {
+  uuid: "manual",
+  aircraftUuid: "demo-206",
+  title: "Pilot handbook",
+  documentNumber: "PH-1",
+  revision: "A",
+  revisionDate: "2026-01-01",
+  applicability: {
+    kind: "aircraft",
+    manufacturer: "Cessna",
+    model: "206",
+    partNumber: "",
+  },
+  filename: "handbook.pdf",
+  size: 10,
+  pageCount: 2,
+  uploadedAt: 1,
+  uploadedBy: "demo-admin",
+};
+
+it("audits a manual edit with the six editable fields before, as the server does", async () => {
+  const { backend, stored } = await demo("demo-manual-edit", (seed) => {
+    seed.manuals = [MANUAL];
+  });
+  const edit = {
+    title: "Pilot handbook",
+    documentNumber: "PH-2",
+    revision: "B",
+    revisionDate: "2026-02-01",
+    aircraftUuid: "demo-208",
+  };
+  await backend.editManual(MANUAL.uuid, edit);
+  const s = await stored();
+  expect(s.manuals).toEqual([{ ...MANUAL, ...edit, applicability: undefined }]);
+  expect(s.audit[0]).toMatchObject({
+    action: "manual.edit",
+    entityUuid: MANUAL.uuid,
+    aircraftUuid: "demo-206",
+    before: JSON.stringify({
+      title: "Pilot handbook",
+      documentNumber: "PH-1",
+      revision: "A",
+      revisionDate: "2026-01-01",
+      aircraftUuid: "demo-206",
+      applicability: MANUAL.applicability,
+    }),
+    after: JSON.stringify(edit),
+  });
+});
+
+const PROGRAM = "demo-program";
+const address = (uuid: string, name: string, version = 0) => ({
+  uuid,
+  version,
+  name,
+  address: addressSchema.parse({
+    street: "123 Main St",
+    city: "Wichita",
+    region: "KS",
+    postalCode: "67209",
+    country: "USA",
+    contactName: "Receiving",
+    email: "receiving@example.com",
+    phone: "316 555 0100",
+  }),
+});
+const kept = (uuid: string, name: string, programUuid = PROGRAM) => ({
+  ...address(uuid, name, 1),
+  programUuid,
+});
+
+it("saves an address as its next version, named and confirmed", async () => {
+  const { backend, stored } = await demo("demo-address");
+  const saved = await backend.saveAddress(PROGRAM, address("a", " Hangar "));
+  expect(saved).toEqual({
+    ...address("a", "Hangar", 1),
+    address: {
+      ...address("a", "").address,
+      addressName: "Hangar",
+      confirmed: true,
+    },
+    programUuid: PROGRAM,
+  });
+  expect((await stored()).savedAddresses).toEqual([saved]);
+});
+
+it.each<[string, (s: Snapshot) => void, ReturnType<typeof address>, string]>([
+  [
+    "a member who is not a program administrator",
+    (s) => (s.user = { ...s.members[1], activeProgramUuid: PROGRAM }),
+    address("a", "Hangar"),
+    "Flight Program administrator required.",
+  ],
+  [
+    "an incomplete entry",
+    () => {},
+    { ...address("a", "Hangar"), name: " " },
+    "Enter an address name and complete the recipient name, address, email and phone fields.",
+  ],
+  [
+    "an address of another program",
+    (s) => (s.savedAddresses = [kept("a", "Hangar", "second")]),
+    address("a", "Hangar", 1),
+    "Address not found in this Flight Program.",
+  ],
+  [
+    "a stale version",
+    (s) => (s.savedAddresses = [kept("a", "Hangar")]),
+    address("a", "Hangar"),
+    "Address changed. Reopen it before saving.",
+  ],
+  [
+    "a name another address uses",
+    (s) => (s.savedAddresses = [kept("a", "Hangar")]),
+    address("b", "HANGAR"),
+    "An address with this name already exists in this program. Select it or use another name.",
+  ],
+  [
+    "a new address beyond the 200 a program keeps",
+    (s) =>
+      (s.savedAddresses = Array.from({ length: 200 }, (_, i) =>
+        kept(`kept-${i}`, `Hangar ${i}`),
+      )),
+    address("new", "Another hangar"),
+    "A Flight Program can keep up to 200 saved addresses. Edit an existing address instead.",
+  ],
+])(
+  "refuses an address save for %s with the server's message and changes nothing",
+  async (_, edit, input, message) => {
+    const { backend, stored } = await demo(`demo-address-${message}`, edit);
+    const before = await stored();
+    const error = await backend.saveAddress(PROGRAM, input).catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+const MONITOR: FaaMonitor = {
+  aircraftUuid: "demo-206",
+  enabled: false,
+  terms: [],
+  error: "The FAA did not answer.",
+  runId: "run-1",
+  candidates: [],
+};
+
+it("configures an FAA monitor as the server does: the run and its error reset", async () => {
+  const { backend, stored } = await demo("demo-faa-configure", (seed) => {
+    seed.faaMonitors = [MONITOR];
+  });
+  await backend.faaCommand({
+    kind: "configure",
+    aircraftUuid: MONITOR.aircraftUuid,
+    enabled: true,
+    terms: ["IO-540"],
+  });
+  expect((await stored()).faaMonitors).toEqual([
+    {
+      ...MONITOR,
+      enabled: true,
+      terms: ["IO-540"],
+      runId: "",
+      error: "Settings changed. Run a check to verify coverage.",
+    },
+  ]);
+});
+
+it.each<[string, (backend: Backend) => Promise<unknown>]>([
+  [
+    "Candidate not found.",
+    (backend) =>
+      backend.faaCommand({
+        kind: "review",
+        aircraftUuid: MONITOR.aircraftUuid,
+        id: "unknown",
+        reason: "Not applicable",
+      }),
+  ],
+  [
+    "Flight Program access denied.",
+    (backend) => backend.selectProgram("unknown-program"),
+  ],
+])(
+  "refuses with the server's Rejection %s and changes nothing",
+  async (message, run) => {
+    const { backend, stored } = await demo(`demo-refuse-${message}`, (seed) => {
+      seed.faaMonitors = [MONITOR];
+    });
+    const before = await stored();
+    const error = await run(backend).catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
     expect(await stored()).toEqual(before);
   },
 );
