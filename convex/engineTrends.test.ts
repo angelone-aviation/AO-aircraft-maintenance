@@ -1,9 +1,20 @@
+/**
+ * Responsibility: Pins engine trends on the server: read to list, maintenance
+ *   to change, program scoping, the change log, the listing cap and which
+ *   refusals show their message.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/engineTrends, convex/schema, src/domain/engineTrends,
+ *   src/data/demo (fixture).
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import type { EngineSummary } from "../src/domain/engineTrends";
+import {
+  MAX_ENGINE_TRENDS,
+  type EngineSummary,
+} from "../src/domain/engineTrends";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -20,7 +31,7 @@ const summary: EngineSummary = {
   channels: { CHT1: { max: 440, avg: 380 }, RPM: { max: 2500, avg: 2125 } },
   maxChtSpread: 95,
 };
-it("requires read to view and maintenance to import, scoped to the program's aircraft", async () => {
+async function setup() {
   const t = convexTest(schema, modules),
     demo = demoSnapshot();
   const ids = await t.run(async (ctx) => {
@@ -66,6 +77,11 @@ it("requires read to view and maintenance to import, scoped to the program's air
     aircraftUuid: demo.aircraft[0].uuid,
     programUuid: "demo-program",
   };
+  return { t, ids, client, scope };
+}
+
+it("requires read to view and maintenance to import, scoped to the program's aircraft", async () => {
+  const { t, ids, client, scope } = await setup();
   const uuid = crypto.randomUUID();
   const importPayload = JSON.stringify({ action: "import", uuid, summary });
   expect(await client.query(api.engineTrends.list, scope)).toEqual({
@@ -145,4 +161,52 @@ it("requires read to view and maintenance to import, scoped to the program's air
     "engineTrend.limits",
     "engineTrend.removed",
   ]);
+});
+
+it("lists at most MAX_ENGINE_TRENDS imports, and shows only the schema's refusal as invalid data", async () => {
+  const { t, ids, client, scope } = await setup();
+  await t.run((ctx) =>
+    ctx.db.patch(ids.group, { permissions: ["read", "maintenance"] }),
+  );
+  const execute = (payload: string) =>
+    client.mutation(api.engineTrends.execute, { ...scope, payload });
+  const importPayload = JSON.stringify({
+    action: "import",
+    uuid: crypto.randomUUID(),
+    summary,
+  });
+  await execute(importPayload);
+  await expect(execute(importPayload)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "This engine data file was already imported.",
+  });
+  await expect(
+    execute(JSON.stringify({ action: "bogus" })),
+  ).rejects.toMatchObject({ data: "Engine trend data is invalid." });
+  let syntax = "";
+  try {
+    JSON.parse("{");
+  } catch (error) {
+    syntax = (error as Error).message;
+  }
+  await expect(execute("{")).rejects.toMatchObject({
+    name: "ConvexError",
+    data: syntax,
+  });
+  await t.run(async (ctx) => {
+    const stored = await ctx.db
+      .query("engineTrends")
+      .withIndex("aircraft", (q) => q.eq("aircraftUuid", scope.aircraftUuid))
+      .first();
+    for (let i = 0; i < MAX_ENGINE_TRENDS; i++)
+      await ctx.db.insert("engineTrends", {
+        uuid: crypto.randomUUID(),
+        aircraftUuid: scope.aircraftUuid,
+        programUuid: scope.programUuid,
+        payload: stored!.payload,
+      });
+  });
+  expect(
+    (await client.query(api.engineTrends.list, scope)).trends,
+  ).toHaveLength(MAX_ENGINE_TRENDS);
 });

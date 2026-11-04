@@ -1,5 +1,13 @@
+/**
+ * Responsibility: Pins purchase orders: atomic receipts and replays, address
+ *   confirmation, attachments and who may list them, and uuids another Flight
+ *   Program holds.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/purchaseOrders, convex/poFiles, src/data/demo,
+ *   src/domain/purchaseOrders.
+ */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -10,6 +18,8 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
+
 it("persists PO receipts atomically and replays without double inventory or audit entries", async () => {
   const t = convexTest(schema, modules);
   const demo = demoSnapshot();
@@ -23,7 +33,7 @@ it("persists PO receipts atomically and replays without double inventory or audi
     });
     const session = await ctx.db.insert("authSessions", {
       userId: user,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     await ctx.db.insert("management", {
       uuid: "store",
@@ -132,6 +142,12 @@ it("persists PO receipts atomically and replays without double inventory or audi
     poUuid: d.uuid,
   });
   expect(files).toHaveLength(1);
+  expect(files[0]).toEqual({
+    uuid: expect.any(String),
+    name: "invoice.pdf",
+    receiptUuid: receipt.requestUuid,
+    url: expect.any(String),
+  });
   const inventoryFiles = await t.run((ctx) =>
     ctx.db.query("inventoryFiles").collect(),
   );
@@ -162,7 +178,7 @@ it("returns an actionable address confirmation error without issuing the PO", as
     });
     const session = await ctx.db.insert("authSessions", {
       userId,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     await ctx.db.insert("management", {
       uuid: "store",
@@ -254,7 +270,7 @@ it("deletes PO attachments only for program administrators while the PO is a dra
     ) =>
       `${user}|${await ctx.db.insert("authSessions", {
         userId: user,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       })}`;
     const readers = await ctx.db.insert("groups", {
       programUuid: "demo-program",
@@ -356,4 +372,177 @@ it("deletes PO attachments only for program administrators while the PO is a dra
   }));
   expect(left.files).toEqual(["po-issued"]);
   expect(left.audit).toEqual(["purchaseOrder.attachment_removed"]);
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+// A system administrator, a reader, a stock location, and a PO and a stock
+// item that another Flight Program holds under the given uuids.
+async function foreignFixture(foreign: { po: string; stock: string }) {
+  const t = convexTest(schema, modules);
+  const subjects = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", demoSnapshot().programs![0]);
+    const location = {
+      uuid: "store",
+      version: 1,
+      programUuid: "demo-program",
+      kind: "location" as const,
+      name: "Store",
+      address: "",
+      contact: "",
+    };
+    await ctx.db.insert("management", {
+      uuid: location.uuid,
+      programUuid: location.programUuid,
+      kind: location.kind,
+      payload: JSON.stringify(location),
+    });
+    await ctx.db.insert("purchaseOrders", {
+      uuid: foreign.po,
+      programUuid: "other",
+      payload: "{}",
+    });
+    await ctx.db.insert("management", {
+      uuid: foreign.stock,
+      programUuid: "other",
+      kind: "stock",
+      payload: "{}",
+    });
+    const admin = await ctx.db.insert("users", {
+      name: "PO admin",
+      isAdmin: true,
+      active: true,
+      groupIds: [],
+    });
+    const readers = await ctx.db.insert("groups", {
+      programUuid: "demo-program",
+      name: "Readers",
+      aircraftIds: [],
+      permissions: ["read"],
+    });
+    const reader = await ctx.db.insert("users", {
+      name: "Reader",
+      isAdmin: false,
+      active: true,
+      groupIds: [readers],
+      activeProgramUuid: "demo-program",
+    });
+    const subject = async (userId: typeof admin) =>
+      `${userId}|${await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: Date.now() + DAY_MS,
+      })}`;
+    return { admin: await subject(admin), reader: await subject(reader) };
+  });
+  const client = t.withIdentity({ subject: subjects.admin });
+  const command = (c: unknown) =>
+    client.mutation(api.purchaseOrders.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      purchaseOrders: await ctx.db.query("purchaseOrders").collect(),
+      management: await ctx.db.query("management").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  const files = (as: keyof typeof subjects, poUuid: string) =>
+    t.withIdentity({ subject: subjects[as] }).query(api.purchaseOrders.files, {
+      programUuid: "demo-program",
+      poUuid,
+    });
+  return { command, stored, files };
+}
+
+const draft = (uuid: string) =>
+  poDraftSchema.parse({
+    uuid,
+    version: 0,
+    vendor: "Vendor",
+    vendorContact: "",
+    shipTo: "Hangar",
+    expectedDate: "",
+    currency: "USD",
+    shippingCents: 0,
+    notes: "",
+    lines: [
+      {
+        uuid: "line",
+        locationUuid: "store",
+        partNumber: "TEST-P",
+        description: "Test part",
+        quantity: 1,
+        unitCents: 100,
+        kind: "part",
+      },
+    ],
+  });
+
+it("refuses a PO uuid another Flight Program holds, and writes nothing", async () => {
+  const { command, stored } = await foreignFixture({
+    po: "taken",
+    stock: "stock-elsewhere",
+  });
+  const before = await stored();
+  await expect(
+    command({
+      kind: "save",
+      requestUuid: crypto.randomUUID(),
+      drafts: [draft("taken")],
+    }),
+  ).rejects.toMatchObject({ name: "ConvexError", data: "PO not found." });
+  expect(await stored()).toEqual(before);
+});
+
+it("lists a PO's files only for an inventory administrator, and only within the Flight Program", async () => {
+  const { files } = await foreignFixture({
+    po: "po-elsewhere",
+    stock: "stock-elsewhere",
+  });
+  await expect(files("reader", "po-elsewhere")).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Inventory administrator access required.",
+  });
+  await expect(files("admin", "po-elsewhere")).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "PO not found.",
+  });
+});
+
+it("refuses received stock under a uuid another Flight Program holds, and writes nothing", async () => {
+  const taken = "11111111-1111-4111-8111-111111111111";
+  const { command, stored } = await foreignFixture({
+    po: "po-elsewhere",
+    stock: taken,
+  });
+  const d = draft("po-1");
+  await command({
+    kind: "save",
+    requestUuid: crypto.randomUUID(),
+    drafts: [d],
+  });
+  await command({
+    kind: "issue",
+    requestUuid: crypto.randomUUID(),
+    uuid: d.uuid,
+    version: 1,
+    reason: "",
+  });
+  const before = await stored();
+  const receipt = {
+    kind: "receive",
+    requestUuid: crypto.randomUUID(),
+    uuid: d.uuid,
+    version: 2,
+    date: new Date().toISOString().slice(0, 10),
+    invoice: "INV-1",
+    notes: "",
+    lines: [{ lineUuid: "line", quantity: 1, condition: "new", serials: [] }],
+  };
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(taken);
+  await expect(command(receipt)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Record belongs to another Flight Program.",
+  });
+  expect(await stored()).toEqual(before);
 });

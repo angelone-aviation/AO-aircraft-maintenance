@@ -1,4 +1,11 @@
+/**
+ * Responsibility: Pins a location address's separate contact fields, its
+ *   confirmation, and its reuse as a purchase order's shipping address.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
+
 test("location addresses retain separate contact fields and autofill PO shipping", async ({
   page,
 }) => {

@@ -1,66 +1,12 @@
+/**
+ * Responsibility: Pins manuals kept on this device: kept per deployment and
+ *   user, opened offline from the library and an inspection reference,
+ *   removed from the viewer, and cleared on sign-out.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, jspdf.
+ */
 import { test, expect, type Page } from "@playwright/test";
 import { jsPDF } from "jspdf";
-
-function manualPdf(title: string) {
-  const pdf = new jsPDF();
-  for (let i = 1; i <= 3; i++) {
-    if (i > 1) pdf.addPage();
-    pdf.text(`${title} page ${i}`, 20, 30);
-  }
-  return Buffer.from(pdf.output("arraybuffer"));
-}
-async function openDemo(page: Page) {
-  await page.addInitScript(() =>
-    sessionStorage.setItem("angel-one-demo", "true"),
-  );
-  await page.goto("/");
-  const home = page.getByRole("heading", { name: "Your fleet, at a glance." });
-  await expect(home).toBeVisible();
-  // Reload once the service worker is active so it controls the page.
-  await page.evaluate(async () => {
-    await navigator.serviceWorker.ready;
-  });
-  await page.reload();
-  await expect(home).toBeVisible();
-}
-async function uploadManual(page: Page, title: string) {
-  await page.getByRole("link", { name: "Reference library" }).first().click();
-  await page
-    .getByRole("button", { name: "Upload manual", exact: true })
-    .click();
-  const upload = page.getByRole("dialog", {
-    name: "Upload reference manual",
-    exact: true,
-  });
-  await upload.getByLabel("Manual title", { exact: true }).fill(title);
-  await upload
-    .getByLabel("Revision / temporary revisions", { exact: true })
-    .fill("Rev 4");
-  await upload.getByLabel("PDF manual", { exact: true }).setInputFiles({
-    name: "manual.pdf",
-    mimeType: "application/pdf",
-    buffer: manualPdf(title),
-  });
-  await upload
-    .getByRole("button", { name: "Save manual", exact: true })
-    .click();
-  await expect(upload).not.toBeVisible();
-  const row = page.getByRole("row").filter({ hasText: title });
-  const href = await row
-    .getByRole("link", { name: "Open manual", exact: true })
-    .getAttribute("href");
-  return { row, uuid: href!.split("?")[0].split("/").pop()! };
-}
-/** `cache name → entry URLs` for manuals kept on this device. */
-const keptEntries = (page: Page) =>
-  page.evaluate(async () => {
-    const entries: string[] = [];
-    for (const name of await caches.keys())
-      if (name.startsWith("angel-one-kept-manuals"))
-        for (const request of await (await caches.open(name)).keys())
-          entries.push(`${name} → ${request.url}`);
-    return entries;
-  });
 
 test("keeps a manual on this device and opens it offline from the library and an inspection reference", async ({
   page,
@@ -90,7 +36,6 @@ test("keeps a manual on this device and opens it offline from the library and an
   expect(entries[0]).toContain(uuid);
   expect(entries[0]).not.toContain("blob:");
 
-  // Link it from a saved inspection.
   await page.getByRole("link", { name: "Inspections", exact: true }).click();
   await page
     .getByRole("row")
@@ -109,25 +54,8 @@ test("keeps a manual on this device and opens it offline from the library and an
     .click();
   await expect(editor).not.toBeVisible();
 
-  // Remove the demo's own copy of the upload: from here on only the copy
-  // kept on this device can open the manual.
-  await page.evaluate(
-    (key) =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("angel-one-manuals-v1");
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => {
-          const tx = request.result.transaction("files", "readwrite");
-          tx.objectStore("files").delete(key);
-          tx.oncomplete = () => {
-            request.result.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      }),
-    "demo:" + uuid,
-  );
+  // From here on only the copy kept on this device can open the manual.
+  await deleteDemoManualFile(page, uuid);
 
   await context.setOffline(true);
   await page.reload();
@@ -154,13 +82,13 @@ test("keeps a manual on this device and opens it offline from the library and an
     "Hangar maintenance manual — PDF page 2",
   );
 
-  // Remove it from this device.
   await viewer
     .getByRole("button", { name: "Remove from this device", exact: true })
     .click();
   await expect(
     viewer.getByRole("region", { name: "This device" }),
   ).toContainText("Not on this device");
+  // Keeping a manual downloads it, which needs the connection that is off.
   await expect(
     viewer.getByRole("button", { name: "Keep on this device" }),
   ).toBeDisabled();
@@ -193,6 +121,7 @@ test("keeps a manual from the viewer and removes kept manuals on sign-out", asyn
   ).toBeVisible();
   expect(await keptEntries(page)).toHaveLength(1);
 
+  // Sign-out reloads the page and clears kept manuals, but not the library.
   await Promise.all([
     page.waitForEvent("domcontentloaded"),
     page.getByRole("button", { name: "Sign out", exact: true }).click(),
@@ -209,3 +138,96 @@ test("keeps a manual from the viewer and removes kept manuals on sign-out", asyn
       .getByRole("button", { name: "Keep on this device" }),
   ).toBeVisible();
 });
+
+/** Opens the demo with the service worker controlling the page. */
+async function openDemo(page: Page) {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/");
+  const home = page.getByRole("heading", { name: "Your fleet, at a glance." });
+  await expect(home).toBeVisible();
+  // The service worker controls only pages loaded after it activates.
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await expect(home).toBeVisible();
+}
+
+/**
+ * Uploads a three-page manual at Rev 4 through the Reference library.
+ *
+ * @returns The manual's library row and its uuid, read from the Open link.
+ */
+async function uploadManual(page: Page, title: string) {
+  await page.getByRole("link", { name: "Reference library" }).first().click();
+  await page
+    .getByRole("button", { name: "Upload manual", exact: true })
+    .click();
+  const upload = page.getByRole("dialog", {
+    name: "Upload reference manual",
+    exact: true,
+  });
+  await upload.getByLabel("Manual title", { exact: true }).fill(title);
+  await upload
+    .getByLabel("Revision / temporary revisions", { exact: true })
+    .fill("Rev 4");
+  await upload.getByLabel("PDF manual", { exact: true }).setInputFiles({
+    name: "manual.pdf",
+    mimeType: "application/pdf",
+    buffer: manualPdf(title),
+  });
+  await upload
+    .getByRole("button", { name: "Save manual", exact: true })
+    .click();
+  await expect(upload).not.toBeVisible();
+  const row = page.getByRole("row").filter({ hasText: title });
+  const href = await row
+    .getByRole("link", { name: "Open manual", exact: true })
+    .getAttribute("href");
+  return { row, uuid: href!.split("?")[0].split("/").pop()! };
+}
+
+/** A three-page PDF whose pages read "<title> page <n>". */
+function manualPdf(title: string) {
+  const pdf = new jsPDF();
+  for (let i = 1; i <= 3; i++) {
+    if (i > 1) pdf.addPage();
+    pdf.text(`${title} page ${i}`, 20, 30);
+  }
+  return Buffer.from(pdf.output("arraybuffer"));
+}
+
+/** `cache name → entry URL` for each manual kept on this device. */
+async function keptEntries(page: Page) {
+  return page.evaluate(async () => {
+    const entries: string[] = [];
+    const names = (await caches.keys()).filter((name) =>
+      name.startsWith("angel-one-kept-manuals"),
+    );
+    for (const name of names) {
+      const requests = await (await caches.open(name)).keys();
+      entries.push(...requests.map((request) => `${name} → ${request.url}`));
+    }
+    return entries;
+  });
+}
+
+/** Deletes the demo backend's own copy of the uploaded manual's file. */
+async function deleteDemoManualFile(page: Page, uuid: string) {
+  await page.evaluate(async (key) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-manuals-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("files", "readwrite");
+    tx.objectStore("files").delete(key);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, "demo:" + uuid);
+}

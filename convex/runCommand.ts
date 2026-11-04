@@ -1,9 +1,11 @@
 /**
  * Responsibility: The one transaction every applier-backed mutation runs
- *   (ADR-0003), and the hydration of the records a command reads.
+ *   (ADR-0003): hydrating the records a command reads, and writing the ones
+ *   it changed.
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
- * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./collections, src/domain (model, programs, rejection).
+ * Dependencies: convex/values, convex/server (types), ./_generated,
+ *   ./programContext, ./access, ./collections, src/domain (model, programs,
+ *   rejection).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -12,11 +14,18 @@
  */
 import { ConvexError } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { WithOptionalSystemFields } from "convex/server";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 import { activeProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
-import { decode } from "./collections";
+import {
+  decode,
+  encode,
+  type PayloadCollection,
+  type StoredRecord,
+  type StoredRow,
+} from "./collections";
 import {
   checkContext,
   managementDocs,
@@ -69,6 +78,12 @@ export interface Command<C, W, R, Out = void> {
    * or undefined to keep it hidden. A Rejection is always shown as written.
    */
   expose?(error: unknown): string | undefined;
+  /**
+   * Work that needs the applied state and the transaction, between `apply`
+   * and `persist`, such as scheduling the work-order job copies (ADR-0003).
+   * What it returns replaces the applier's result.
+   */
+  afterApply?(tx: Transaction, working: W, result: R, command: C): Promise<R>;
   /** Writes the documents the command changed. */
   persist(tx: Transaction, working: W, result: R, command: C): Promise<void>;
   /** Adds the command's change-log rows, written once after persist. */
@@ -83,7 +98,7 @@ export interface Command<C, W, R, Out = void> {
  */
 export type ProgramContext = Awaited<ReturnType<typeof checkContext>>;
 
-/** What `load` and `persist` work with. */
+/** What `load`, `afterApply` and `persist` work with. */
 export interface Transaction {
   ctx: MutationCtx;
   state: ProgramContext;
@@ -95,15 +110,16 @@ export interface Transaction {
 /**
  * Runs a command in the caller's mutation, in order: check the caller's Flight
  * Program context before the payload is read; parse; hand off (`delegate`);
- * return early for a replayed request id; load; apply; persist; write the
- * change-log rows once through the audit writer; record the request id. A
- * Convex mutation is one transaction, so a throw at any step writes nothing.
+ * return early for a replayed request id; load; apply; afterApply; persist;
+ * write the change-log rows once through the audit writer; record the request
+ * id. A Convex mutation is one transaction, so a throw at any step writes
+ * nothing.
  *
  * @returns What `returns` gives; undefined for a replayed request.
- * @throws {ConvexError} The message of a Rejection thrown in `load`, `apply`
- *   or `persist`, or the one `expose` gives for another `apply` error;
- *   "Request identifier already used." for a request id reused by another
- *   caller or with another payload; checkContext's program refusals.
+ * @throws {ConvexError} The message of a Rejection thrown in `load`, `apply`,
+ *   `afterApply` or `persist`, or the one `expose` gives for another `apply`
+ *   error; "Request identifier already used." for a request id reused by
+ *   another caller or with another payload; checkContext's program refusals.
  * @throws {Error} checkContext's session refusal. Other errors pass unchanged.
  */
 export async function runCommand<C, W, R, Out = void>(
@@ -126,16 +142,12 @@ export async function runCommand<C, W, R, Out = void>(
   if (request && (await isReplayed(ctx, state, request))) return undefined;
   const log = new CommandLog(state.user.id);
   const tx: Transaction = { ctx, state, log };
-  const { working, result } = await loadAndApply(tx, command, parsed);
+  const { working, result: applied } = await loadAndApply(tx, command, parsed);
+  const result = await runAfterApply(tx, command, working, applied, parsed);
   await persistCommand(tx, command, working, result, parsed);
   command.audit(log, working, result, parsed);
   for (const row of log.rows) await writeAudit(ctx, row);
-  if (request)
-    await ctx.db.insert("managementRequests", {
-      uuid: request.uuid,
-      actorId: state.user.id,
-      payload: request.payload,
-    });
+  if (request) await recordRequest(ctx, state, request);
   return command.returns?.(result, working);
 }
 
@@ -265,6 +277,38 @@ export async function hydrate<N extends Need>(
   return { snapshot: into.snapshot, docs: into.docs as Pick<LoadedDocs, N> };
 }
 
+/** A payload collection whose records carry their own uuid. */
+export type UuidCollection = Exclude<PayloadCollection, "faaMonitors">;
+
+/**
+ * Writes a collection's records after `apply`, as the codec encodes them:
+ * replaces each loaded row whose payload changed, skips one left as stored,
+ * and inserts a record with no loaded row. Never deletes.
+ *
+ * A uuid outside the active Flight Program is never overwritten: a record
+ * whose uuid is stored but was not loaded is refused.
+ *
+ * @param loaded - The collection's rows `load` read for the command.
+ * @param records - The records to write, in order.
+ * @param refusal - The message for a uuid stored outside the loaded rows.
+ * @throws {ConvexError} `refusal`, before that record is written.
+ */
+export async function writeChanged<N extends UuidCollection>(
+  ctx: MutationCtx,
+  collection: N,
+  loaded: readonly Doc<N>[],
+  records: readonly StoredRecord<N>[],
+  refusal: string,
+): Promise<void> {
+  for (const record of records) {
+    const row = encode(collection, record);
+    const prior = loaded.find((d) => d.uuid === record.uuid);
+    if (prior?.payload === row.payload) continue;
+    if (prior) await replaceRow(ctx, prior._id, row);
+    else await insertUnclaimed(ctx, collection, row, refusal);
+  }
+}
+
 interface Hydrating {
   snapshot: Snapshot;
   docs: Partial<LoadedDocs>;
@@ -369,6 +413,23 @@ async function isReplayed(
   return true;
 }
 
+// The same row goes to both tables while commandRequests takes over from
+// managementRequests (ADR-0003, expand); replays still read the old one, which
+// alone holds the ids recorded before.
+async function recordRequest(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  request: { uuid: string; payload: string },
+) {
+  const row = {
+    uuid: request.uuid,
+    actorId: state.user.id,
+    payload: request.payload,
+  };
+  await ctx.db.insert("managementRequests", row);
+  await ctx.db.insert("commandRequests", row);
+}
+
 async function loadAndApply<C, W, R, Out>(
   tx: Transaction,
   command: Command<C, W, R, Out>,
@@ -387,6 +448,21 @@ async function loadAndApply<C, W, R, Out>(
   }
 }
 
+async function runAfterApply<C, W, R, Out>(
+  tx: Transaction,
+  command: Command<C, W, R, Out>,
+  working: W,
+  result: R,
+  parsed: C,
+) {
+  if (!command.afterApply) return result;
+  try {
+    return await command.afterApply(tx, working, result, parsed);
+  } catch (error) {
+    throw exposed(error);
+  }
+}
+
 async function persistCommand<C, W, R, Out>(
   tx: Transaction,
   command: Command<C, W, R, Out>,
@@ -399,6 +475,30 @@ async function persistCommand<C, W, R, Out>(
   } catch (error) {
     throw exposed(error);
   }
+}
+
+// A row without system fields is a valid replacement; Convex's types cannot
+// show that for a table chosen at run time.
+function replaceRow<N extends UuidCollection>(
+  ctx: MutationCtx,
+  id: Id<N>,
+  row: StoredRow<N>,
+) {
+  return ctx.db.replace(id, row as WithOptionalSystemFields<Doc<N>>);
+}
+
+async function insertUnclaimed<N extends UuidCollection>(
+  ctx: MutationCtx,
+  collection: N,
+  row: StoredRow<N>,
+  refusal: string,
+) {
+  const stored = await ctx.db
+    .query(collection)
+    .withIndex("uuid", (q) => q.eq("uuid", row.uuid))
+    .first();
+  if (stored) throw new ConvexError(refusal);
+  await ctx.db.insert(collection, row);
 }
 
 // A Rejection, or an error the command's own policy names, becomes a

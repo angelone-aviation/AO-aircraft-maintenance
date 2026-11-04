@@ -11,6 +11,7 @@ import { it, expect } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import type { TableNames } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import { requestDraftSchema } from "../src/domain/partsRequests";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
@@ -72,33 +73,41 @@ async function setup() {
   for (const source of [
     { kind: "airworthiness", uuid: ad.tasks[0].uuid },
     { kind: "inspection", uuid: inspection.uuid },
-  ]) {
-    const draft = requestDraftSchema.parse({
-      uuid: source.kind,
-      version: 0,
-      source,
-      recurring: true,
-      mode: "parts",
-      date: "2026-10-20",
-      engineer: "Tech",
-      priority: "P2 Routine",
-      requiredBy: "",
-      currency: "USD",
-      lines: [
-        {
-          uuid: "filter",
-          partNumber: "FILTER",
-          description: "Filter",
-          quantity: 2,
-        },
-      ],
-    });
-    await user.mutation(
-      api.partsRequests.execute,
-      args({ kind: "save", requestUuid: source.kind, draft }),
-    );
-  }
+  ])
+    await saveRecurringList(user, args, source);
   return { t, s, ad, user, args, inspection };
+}
+
+// Saves a recurring parts list for `source`, with the kind as its uuid.
+async function saveRecurringList(
+  user: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>,
+  args: (payload: unknown) => { programUuid: string; payload: string },
+  source: { kind: string; uuid: string },
+) {
+  const draft = requestDraftSchema.parse({
+    uuid: source.kind,
+    version: 0,
+    source,
+    recurring: true,
+    mode: "parts",
+    date: "2026-10-20",
+    engineer: "Tech",
+    priority: "P2 Routine",
+    requiredBy: "",
+    currency: "USD",
+    lines: [
+      {
+        uuid: "filter",
+        partNumber: "FILTER",
+        description: "Filter",
+        quantity: 2,
+      },
+    ],
+  });
+  await user.mutation(
+    api.partsRequests.execute,
+    args({ kind: "save", requestUuid: source.kind, draft }),
+  );
 }
 
 function savedWorkOrder(
@@ -112,6 +121,23 @@ function savedWorkOrder(
       .unique();
     return JSON.parse(doc!.payload) as WorkOrder;
   });
+}
+
+// The mutation context with its table reads recorded, in order.
+function traceQueries(ctx: MutationCtx) {
+  const tables: string[] = [];
+  const db = new Proxy(ctx.db, {
+    get(target, key) {
+      if (key === "query")
+        return (table: TableNames) => {
+          tables.push(table);
+          return target.query(table);
+        };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { traced: { ...ctx, db }, tables };
 }
 
 it("persists recurring AD and fast-path inspection occurrences atomically without duplicating on edits", async () => {
@@ -171,20 +197,9 @@ it("owes nothing to a finished task or a closed work order, and reads nothing mo
   const unserved = { ...saved.tasks[0], uuid: "unserved-task" };
   const owe = (order: WorkOrder) =>
     t.run(async (ctx) => {
-      const tables: string[] = [];
-      const db = new Proxy(ctx.db, {
-        get(target, key) {
-          if (key === "query")
-            return (table: TableNames) => {
-              tables.push(table);
-              return target.query(table);
-            };
-          const value = Reflect.get(target, key);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      });
+      const { traced, tables } = traceQueries(ctx);
       const state = { ...s, airworthiness: undefined };
-      const entries = await prepareRecurringParts({ ...ctx, db }, state, order);
+      const entries = await prepareRecurringParts(traced, state, order);
       return { entries, tables };
     });
   const nothing = { entries: [], tables: ["partsRequests"] };
@@ -208,3 +223,66 @@ it("owes nothing to a finished task or a closed work order, and reads nothing mo
     (await owe({ ...saved, tasks: [{ ...unserved, source }] })).tables,
   ).toEqual(["partsRequests", "inspections"]);
 });
+
+it("owes a recurring component requirement's list, reading the requirement by its uuid", async () => {
+  const { t, s, user, args } = await setup();
+  const requirement = overhaulRequirement(s.aircraft[0].uuid);
+  await t.run((ctx) =>
+    ctx.db.insert("management", {
+      uuid: requirement.uuid,
+      programUuid: "demo-program",
+      kind: requirement.kind,
+      aircraftUuid: requirement.aircraftUuid,
+      payload: JSON.stringify(requirement),
+    }),
+  );
+  const source = { kind: requirement.kind, uuid: requirement.uuid };
+  await saveRecurringList(user, args, source);
+  const command = workOrderCommand();
+  await user.mutation(api.workOrders.save, args(command));
+  const order = await savedWorkOrder(t, command.uuid);
+  const task = { ...newWorkTask(source, "Overhaul"), uuid: "overhaul-task" };
+  const owed = await t.run(async (ctx) => {
+    const { traced, tables } = traceQueries(ctx);
+    const state = { ...s, management: undefined };
+    const entries = await prepareRecurringParts(traced, state, {
+      ...order,
+      tasks: [task],
+    });
+    const rows = await ctx.db.query("partsRequests").collect();
+    return { entries, tables, rows: rows.map((r) => JSON.parse(r.payload)) };
+  });
+  expect(owed.tables).toEqual(["partsRequests", "management"]);
+  expect(owed.entries).toEqual([
+    expect.objectContaining({ action: "partsRequest.recurring" }),
+  ]);
+  expect(owed.rows).toContainEqual(
+    expect.objectContaining({
+      templateUuid: source.kind,
+      source: { kind: "workTask", uuid: task.uuid, workOrderUuid: order.uuid },
+    }),
+  );
+});
+
+// Overhauled every 60 months from the last compliance: a recurring source.
+function overhaulRequirement(aircraftUuid: string) {
+  return {
+    kind: "componentRequirement" as const,
+    uuid: "overhaul-1",
+    version: 1,
+    programUuid: "demo-program",
+    componentUuid: "prop-1",
+    aircraftUuid,
+    requirementType: "Overhaul Requirement",
+    description: "Propeller overhaul",
+    notes: "",
+    calendarIntervalValue: 60,
+    calendarIntervalUnit: "MONTHS",
+    timeBasis: "TSO",
+    timeLimitMode: "FROM_LAST_COMPLIED",
+    cycleLimitMode: "ABSOLUTE",
+    warningCalendarMonths: 1,
+    warningSeconds: 0,
+    warningCycles: 0,
+  };
+}

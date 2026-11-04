@@ -1,8 +1,32 @@
+/**
+ * Responsibility: FAA AD searches for one aircraft: the form, the assets it
+ *   covers, the DRS queries per asset, and the merged results.
+ * Layer: Domain. Zod schemas and pure functions; no I/O. convex/faaDrs.ts
+ *   sends the queries.
+ * Dependencies: zod, ./airworthiness, ./faa, ./model, ./rejection.
+ */
 import { z } from "zod";
 import { adNumber } from "./airworthiness";
-import { fetchDrsFiltered, type FaaCandidate } from "./faa";
+import type { DrsType, FaaCandidate } from "./faa";
 import type { Snapshot } from "./model";
+import { Rejection } from "./rejection";
+
+// FAA DRS limits: filters per request (status included), and the results one
+// search may import.
+const MAX_FILTERS = 5;
+const MAX_RESULTS = 400;
+
+// Final rules, then emergency ADs.
+const DOCUMENT_TYPES: readonly DrsType[] = ["ADFRAWD", "ADFREAD"];
+
 const text = z.string().trim().max(200);
+
+/**
+ * One searched asset: the airframe (`id` "") or an installed component, with
+ * the model, make and keywords sent to the FAA.
+ *
+ * @throws {z.ZodError} From `parse()` on text over 200 characters.
+ */
 export const searchAssetSchema = z.object({
   id: z.string(),
   section: z.enum(["Airframe", "Engine", "Propeller", "Appliance"]),
@@ -11,6 +35,15 @@ export const searchAssetSchema = z.object({
   useMake: z.boolean(),
   keywords: text,
 });
+
+/**
+ * An AD search: 1–20 assets, the document types, and the optional fields
+ * and date range shared by every asset.
+ *
+ * @throws {z.ZodError} From `parse()`, including "Choose final rules or
+ *   emergency ADs.", "Enter both dates in chronological order." and
+ *   "Duplicate search assets."
+ */
 export const faaSearchSchema = z
   .object({
     aircraftUuid: z.string().min(1),
@@ -43,17 +76,41 @@ export const faaSearchSchema = z
     if (new Set(s.assets.map((a) => a.id)).size !== s.assets.length)
       ctx.addIssue({ code: "custom", message: "Duplicate search assets." });
   });
+
+/** A validated AD search. */
 export type FaaSearchInput = z.infer<typeof faaSearchSchema>;
+
+/** A searched asset with what the form shows about it. */
 export type SearchAsset = z.infer<typeof searchAssetSchema> & {
   label: string;
   serial: string;
   partNumber: string;
 };
+
+/** One AD found, the assets it matched, and each FAA document for it. */
 export interface FaaSearchResult {
   candidate: FaaCandidate;
   assetIds: string[];
   documents: { url: string; emergency: boolean }[];
 }
+
+/** One DRS request of a search, and the assets that share its filters. */
+export interface FaaSearchQuery {
+  type: DrsType;
+  filters: Record<string, string[]>;
+  assets: string[];
+}
+
+/**
+ * Lists the assets an aircraft's AD search covers: the airframe, then each
+ * installed component. The FAA search model is used when set, else the
+ * model; a component with neither searches by part number.
+ *
+ * @param s - The aircraft and the program's components.
+ * @param aircraftUuid - The aircraft.
+ * @returns The assets, airframe first, manufacturer filtering off; [] for an
+ *   unknown aircraft.
+ */
 export function searchAssets(
   s: Pick<Snapshot, "aircraft" | "management">,
   aircraftUuid: string,
@@ -77,11 +134,7 @@ export function searchAssets(
       .filter((c) => c.installed && c.aircraftUuid === aircraftUuid)
       .map((c) => ({
         id: c.uuid,
-        section: (/propeller/i.test(c.componentType)
-          ? "Propeller"
-          : /engine/i.test(c.componentType)
-            ? "Engine"
-            : "Appliance") as SearchAsset["section"],
+        section: faaSection(c.componentType),
         label: [c.componentType, c.installPosition].filter(Boolean).join(" · "),
         serial: c.serial,
         partNumber: c.partNumber,
@@ -92,6 +145,15 @@ export function searchAssets(
       })),
   ];
 }
+
+/**
+ * Starts a search form: current final rules and emergency ADs by effective
+ * date, with no other fields set.
+ *
+ * @param aircraftUuid - The aircraft.
+ * @param assets - The assets to search.
+ * @returns The form.
+ */
 export function blankSearch(
   aircraftUuid: string,
   assets: SearchAsset[],
@@ -114,12 +176,25 @@ export function blankSearch(
     dateTo: "",
   };
 }
+
+/**
+ * Builds the DRS filters for one asset and document type. Blank fields are
+ * left out; the airframe is searched as product type "Aircraft".
+ *
+ * @param s - The search.
+ * @param a - The asset.
+ * @param type - "ADFRAWD" (final rules) or "ADFREAD" (emergency ADs).
+ * @returns The filters by DRS field name, status first.
+ * @throws {Rejection} "Each selected asset needs a model or keyword, or enter
+ *   an AD number." or "FAA allows five filters per search, …"
+ */
 export function searchFilters(
   s: FaaSearchInput,
   a: FaaSearchInput["assets"][number],
-  type: "ADFRAWD" | "ADFREAD",
+  type: DrsType,
 ) {
   const p = "drs:" + type.toLowerCase();
+  const emergency = type === "ADFREAD";
   const f: Record<string, string[]> = {
     "drs:status": s.historical ? ["Current", "Historical"] : ["Current"],
   };
@@ -131,109 +206,155 @@ export function searchFilters(
   add("Keyword", a.keywords);
   add("drs:documentNumber", s.number);
   add(p + "Subject", s.subject);
-  add(
-    p + (type === "ADFREAD" ? "ProductTypes" : "ProductType"),
-    a.id === ""
-      ? "Aircraft"
-      : a.section === "Airframe"
-        ? "Appliance"
-        : a.section,
-  );
-  add(
-    p + (type === "ADFREAD" ? "ProductSubTypes" : "ProductSubType"),
-    s.productSubtype,
-  );
+  add(p + (emergency ? "ProductTypes" : "ProductType"), productType(a));
+  add(p + (emergency ? "ProductSubTypes" : "ProductSubType"), s.productSubtype);
   add(p + "Amendment", s.amendment);
   add(p + "DocketNo", s.docket);
   add(p + "AffectedAD", s.affectedAD);
   add(p + "SupersededBy", s.supersededBy);
   if (s.dateFrom && s.dateTo)
-    f[
-      s.dateField === "effective"
-        ? "drs:effectiveDate"
-        : p + (s.dateField === "issued" ? "IssueDate" : "CitationPublishDate")
-    ] = [s.dateFrom, s.dateTo];
+    f[dateFilterKey(s.dateField, p)] = [s.dateFrom, s.dateTo];
   if (!a.model && !a.keywords && !s.number)
-    throw Error(
+    throw new Rejection(
       "Each selected asset needs a model or keyword, or enter an AD number.",
     );
-  if (Object.keys(f).length > 5)
-    throw Error(
+  if (Object.keys(f).length > MAX_FILTERS)
+    throw new Rejection(
       "FAA allows five filters per search, including status. Remove some advanced fields or disable the manufacturer filter.",
     );
   return f;
 }
-export async function searchFAA(
-  key: string,
-  raw: FaaSearchInput,
-  request: typeof fetch = fetch,
-): Promise<FaaSearchResult[]> {
+
+/**
+ * Plans a search's DRS requests: one per document type and distinct set of
+ * filters, so assets with identical filters share a request.
+ *
+ * @param raw - The search.
+ * @returns The queries, final rules first, each type's in asset order.
+ * @throws {z.ZodError} On an invalid search.
+ * @throws {Rejection} A {@link searchFilters} refusal for any asset.
+ */
+export function faaSearchQueries(raw: FaaSearchInput): FaaSearchQuery[] {
   const input = faaSearchSchema.parse(raw);
-  const found = new Map<string, FaaSearchResult>();
-  const queries = new Map<
-    string,
-    {
-      type: "ADFRAWD" | "ADFREAD";
-      filters: Record<string, string[]>;
-      assets: string[];
-    }
-  >();
-  for (const type of ["ADFRAWD", "ADFREAD"] as const) {
-    if (type === "ADFRAWD" ? !input.finalRules : !input.emergency) continue;
-    for (const asset of input.assets) {
-      const filters = searchFilters(input, asset, type);
-      const key = type + JSON.stringify(filters);
-      const q = queries.get(key);
-      if (q) q.assets.push(asset.id);
-      else queries.set(key, { type, filters, assets: [asset.id] });
-    }
-  }
-  for (const q of queries.values())
-    for (const candidate of await fetchDrsFiltered(
-      key,
-      q.type,
-      q.filters,
-      request,
-    )) {
-      const key = adNumber(candidate.source.number);
-      const old = found.get(key);
-      if (old) {
-        old.assetIds = [...new Set([...old.assetIds, ...q.assets])];
-        if (!old.documents.some((d) => d.url === candidate.source.url))
-          old.documents.push({
-            url: candidate.source.url,
-            emergency: candidate.emergency,
-          });
-        const rank = (c: FaaCandidate) =>
-          (c.status.toLowerCase() === "current" ? 2 : 0) +
-          (c.emergency ? 0 : 1);
-        if (
-          rank(candidate) > rank(old.candidate) ||
-          (rank(candidate) === rank(old.candidate) &&
-            candidate.modified > old.candidate.modified)
-        )
-          old.candidate = candidate;
-      } else
-        found.set(key, {
-          candidate,
-          assetIds: [...q.assets],
-          documents: [
-            { url: candidate.source.url, emergency: candidate.emergency },
-          ],
-        });
-      if (found.size > 400)
-        throw Error(
-          "More than 400 ADs matched. Narrow your search; no partial results were imported.",
-        );
-    }
-  return [...found.values()].sort(
-    (a, b) =>
-      (Date.parse(b.candidate.source.effective) ||
-        Date.parse(b.candidate.source.issued) ||
-        0) -
-        (Date.parse(a.candidate.source.effective) ||
-          Date.parse(a.candidate.source.issued) ||
-          0) ||
-      b.candidate.source.number.localeCompare(a.candidate.source.number),
+  const types = DOCUMENT_TYPES.filter((type) =>
+    type === "ADFRAWD" ? input.finalRules : input.emergency,
   );
+  const queries = new Map<string, FaaSearchQuery>();
+  for (const type of types)
+    for (const asset of input.assets)
+      addQuery(queries, {
+        type,
+        filters: searchFilters(input, asset, type),
+        assets: [asset.id],
+      });
+  return [...queries.values()];
+}
+
+/**
+ * Merges one query's candidates into a search's results by AD number.
+ *
+ * @param found - The results so far, by AD number; updated in place.
+ * @param candidates - What DRS returned for the query.
+ * @param assets - The query's asset ids.
+ * @throws {Rejection} "More than 400 ADs matched. Narrow your search; no
+ *   partial results were imported."
+ */
+export function mergeSearchResults(
+  found: Map<string, FaaSearchResult>,
+  candidates: FaaCandidate[],
+  assets: string[],
+): void {
+  for (const candidate of candidates) {
+    const id = adNumber(candidate.source.number);
+    const old = found.get(id);
+    if (old) mergeCandidate(old, candidate, assets);
+    else
+      found.set(id, {
+        candidate,
+        assetIds: [...assets],
+        documents: [
+          { url: candidate.source.url, emergency: candidate.emergency },
+        ],
+      });
+    if (found.size > MAX_RESULTS)
+      throw new Rejection(
+        "More than 400 ADs matched. Narrow your search; no partial results were imported.",
+      );
+  }
+}
+
+/**
+ * Orders a search's results for review.
+ *
+ * @param found - The results, by AD number.
+ * @returns The ADs, newest effective (else issued) date first, then by AD
+ *   number descending.
+ */
+export function sortSearchResults(
+  found: Map<string, FaaSearchResult>,
+): FaaSearchResult[] {
+  return [...found.values()].sort(compareNewestFirst);
+}
+
+function faaSection(componentType: string): SearchAsset["section"] {
+  if (/propeller/i.test(componentType)) return "Propeller";
+  if (/engine/i.test(componentType)) return "Engine";
+  return "Appliance";
+}
+
+// A component filed under Airframe is searched as an appliance.
+function productType(a: FaaSearchInput["assets"][number]) {
+  if (a.id === "") return "Aircraft";
+  return a.section === "Airframe" ? "Appliance" : a.section;
+}
+
+function dateFilterKey(field: FaaSearchInput["dateField"], p: string) {
+  if (field === "effective") return "drs:effectiveDate";
+  return p + (field === "issued" ? "IssueDate" : "CitationPublishDate");
+}
+
+// Assets with identical filters share one request.
+function addQuery(queries: Map<string, FaaSearchQuery>, q: FaaSearchQuery) {
+  const id = q.type + JSON.stringify(q.filters);
+  const shared = queries.get(id);
+  if (shared) shared.assets.push(...q.assets);
+  else queries.set(id, q);
+}
+
+// One AD can come back as a final rule and an emergency AD: keep every
+// document, and show a current one before a historical one, then a final rule
+// before an emergency AD, then the latest modified.
+function mergeCandidate(
+  old: FaaSearchResult,
+  candidate: FaaCandidate,
+  assets: string[],
+) {
+  old.assetIds = [...new Set([...old.assetIds, ...assets])];
+  if (!old.documents.some((d) => d.url === candidate.source.url))
+    old.documents.push({
+      url: candidate.source.url,
+      emergency: candidate.emergency,
+    });
+  const better = rankCandidate(candidate) - rankCandidate(old.candidate);
+  if (
+    better > 0 ||
+    (better === 0 && candidate.modified > old.candidate.modified)
+  )
+    old.candidate = candidate;
+}
+
+function rankCandidate(c: FaaCandidate) {
+  return (c.status.toLowerCase() === "current" ? 2 : 0) + (c.emergency ? 0 : 1);
+}
+
+function compareNewestFirst(a: FaaSearchResult, b: FaaSearchResult) {
+  return (
+    publishedAt(b) - publishedAt(a) ||
+    b.candidate.source.number.localeCompare(a.candidate.source.number)
+  );
+}
+
+function publishedAt(r: FaaSearchResult) {
+  const source = r.candidate.source;
+  return Date.parse(source.effective) || Date.parse(source.issued) || 0;
 }

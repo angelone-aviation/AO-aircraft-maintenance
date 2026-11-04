@@ -1,15 +1,19 @@
 /**
  * Responsibility: Pins the manual PDF file rule, page references into a
- *   manual, and which fields an edit may change.
+ *   manual, and the rules for editing, renaming and re-associating one.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/manuals.ts, rejection.ts, src/data/demo.ts
  *   (fixture).
  */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
+import { ZodError } from "zod";
 import {
   MAX_MANUAL_BYTES,
+  editManual,
   manualEditSchema,
+  renameManual,
+  setManualApplicability,
   validateManualFile,
   validateManualReference,
   type Manual,
@@ -103,4 +107,118 @@ it("refuses an edit to the file itself", () => {
   expect(
     manualEditSchema.safeParse({ ...edit, filename: "other.pdf" }).success,
   ).toBe(false);
+});
+
+describe("manual changes", () => {
+  // A technician who maintains only the first aircraft of the program.
+  function workspace() {
+    const s = demoSnapshot();
+    s.user = { ...s.user, isAdmin: false, groupIds: ["techs"] };
+    s.groups = [
+      ...s.groups,
+      {
+        id: "techs",
+        name: "Technicians",
+        programUuid: s.user.activeProgramUuid!,
+        aircraftIds: [s.aircraft[0].uuid],
+        permissions: ["read", "maintenance"],
+      },
+    ];
+    const manual: Manual = {
+      uuid: "manual",
+      aircraftUuid: s.aircraft[0].uuid,
+      title: "Maintenance manual",
+      documentNumber: "D-1",
+      revision: "1",
+      revisionDate: "",
+      filename: "amm.pdf",
+      size: 1,
+      pageCount: 10,
+      uploadedAt: 0,
+      uploadedBy: "user",
+    };
+    const edit = {
+      title: " Corrected ",
+      documentNumber: "D-2",
+      revision: "2",
+      revisionDate: "2026-01-01",
+      aircraftUuid: manual.aircraftUuid,
+    };
+    return { s, manual, edit };
+  }
+  const access = Error("Maintenance access is required.");
+
+  it("refuses a missing manual or one the user cannot maintain, before reading the input", () => {
+    const { s, manual } = workspace();
+    const elsewhere = { ...manual, aircraftUuid: s.aircraft[1].uuid };
+    for (const target of [undefined, null, elsewhere])
+      for (const change of [editManual, renameManual, setManualApplicability]) {
+        expect(() => change(s, target, "not input")).toThrow(Rejection);
+        expect(() => change(s, target, "not input")).toThrow(access);
+      }
+  });
+
+  it("moves a manual only to an aircraft of its program the user maintains", () => {
+    const { s, manual, edit } = workspace();
+    const refusal = Error(
+      "Choose an aircraft in the same Flight Program with maintenance access.",
+    );
+    for (const aircraftUuid of [s.aircraft[1].uuid, "missing"]) {
+      const moved = { ...edit, aircraftUuid };
+      expect(() => editManual(s, manual, moved)).toThrow(Rejection);
+      expect(() => editManual(s, manual, moved)).toThrow(refusal);
+    }
+    expect(() => editManual(s, manual, { ...edit, size: 2 })).toThrow(ZodError);
+  });
+
+  it("writes the parsed details, clearing an applicability left out, and logs the editable fields as they were", () => {
+    const { s, manual, edit } = workspace();
+    const applicability = {
+      kind: "aircraft" as const,
+      manufacturer: "Cessna",
+      model: "206",
+      partNumber: "",
+    };
+    const change = editManual(s, { ...manual, applicability }, edit);
+    expect(change.after).toEqual({ ...edit, title: "Corrected" });
+    expect(change.patch).toHaveProperty("applicability", undefined);
+    expect(change.patch).toEqual(change.after);
+    expect(change.before).toEqual({
+      title: manual.title,
+      documentNumber: manual.documentNumber,
+      revision: manual.revision,
+      revisionDate: manual.revisionDate,
+      aircraftUuid: manual.aircraftUuid,
+      applicability,
+    });
+  });
+
+  it("renames to the trimmed title and logs the old and new title", () => {
+    const { s, manual } = workspace();
+    expect(renameManual(s, manual, "  New title ")).toEqual({
+      patch: { title: "New title" },
+      before: { title: manual.title },
+      after: { title: "New title" },
+    });
+    expect(() => renameManual(s, manual, " ")).toThrow(ZodError);
+  });
+
+  it("sets the applicability and logs the one it replaces", () => {
+    const { s, manual } = workspace();
+    const applicability = {
+      kind: "component",
+      manufacturer: " Maker ",
+      model: "M-1",
+      partNumber: "PN",
+    };
+    const parsed = { ...applicability, manufacturer: "Maker" };
+    expect(setManualApplicability(s, manual, applicability)).toEqual({
+      patch: { applicability: parsed },
+      before: undefined,
+      after: parsed,
+    });
+    expect(() =>
+      setManualApplicability(s, manual, { ...applicability, model: "" }),
+    ).toThrow(ZodError);
+  });
 });

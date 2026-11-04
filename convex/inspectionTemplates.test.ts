@@ -1,5 +1,13 @@
+/**
+ * Responsibility: Pins the inspection template library on the server:
+ *   program-scoped saving, authorization, activation with draft job cards,
+ *   and deletion with cards, evidence and change log.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/inspectionTemplates, convex/schema, src/domain
+ *   (inspectionTemplates, deleteInspectionTemplates), tests/fixtures.
+ */
 import { convexTest } from "convex-test";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -10,6 +18,7 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+afterEach(() => vi.restoreAllMocks());
 it("persists program-scoped templates without compliance and enforces server authorization", async () => {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -123,6 +132,23 @@ it("persists program-scoped templates without compliance and enforces server aut
       .withIdentity(ids.tech)
       .mutation(api.inspectionTemplates.activate, activation),
   ).rejects.toThrow("already exists");
+  const foreign = crypto.randomUUID();
+  await t.run((ctx) =>
+    ctx.db.insert("inspectionTemplates", {
+      uuid: foreign,
+      programUuid: "other-program",
+      payload: "{}",
+    }),
+  );
+  await expect(
+    t.withIdentity(ids.tech).mutation(api.inspectionTemplates.save, {
+      ...args,
+      payload: JSON.stringify([{ ...record, uuid: foreign, name: "Other" }]),
+    }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Template belongs to another Flight Program.",
+  });
 });
 
 it("atomically deletes selected templates, associated cards and stored evidence with audit history", async () => {
@@ -212,3 +238,135 @@ it("atomically deletes selected templates, associated cards and stored evidence 
     remaining.audit.some((a) => a.action === "taskCard.deletedWithTemplate"),
   ).toBe(true);
 });
+
+// Stored elsewhere: the uuid every generated id is fixed to.
+const TAKEN = "00000000-0000-4000-8000-00000000dead";
+
+async function activationFixture(onComponent: boolean) {
+  const t = convexTest(schema, modules);
+  const s = demoSnapshot();
+  const a = s.aircraft[0];
+  const pump = {
+    kind: "component",
+    uuid: "pump",
+    version: 0,
+    programUuid: a.programUuid,
+    aircraftUuid: a.uuid,
+    componentType: "Pump",
+    model: "P100",
+    manufacturer: "Acme",
+    partNumber: "P1",
+    serial: "S1",
+    notes: "",
+    trackTime: true,
+    trackCycles: false,
+    trackCalendar: false,
+    installed: true,
+    installedSeconds: 0,
+    installedCycles: 0,
+    timeSinceNew: 0,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+    cyclesSinceNew: 0,
+    serviceDaysBase: 0,
+  };
+  const template = {
+    ...emptyTemplate(),
+    version: 1,
+    programUuid: a.programUuid,
+    name: "Pump check",
+    hours: 100,
+    applicability: onComponent
+      ? { kind: "component", manufacturer: "Acme", model: "P100" }
+      : { kind: "aircraft", manufacturer: a.make, model: a.model },
+    tasks: [{ itemCode: "A1", instruction: "Inspect", applicability: "All" }],
+  };
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", s.programs![0]);
+    await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("management", {
+      uuid: pump.uuid,
+      programUuid: pump.programUuid,
+      kind: "component",
+      aircraftUuid: pump.aircraftUuid,
+      payload: JSON.stringify(pump),
+    });
+    await ctx.db.insert("inspectionTemplates", {
+      uuid: template.uuid,
+      programUuid: a.programUuid,
+      payload: JSON.stringify({
+        ...template,
+        applicability: { partNumber: "", ...template.applicability },
+      }),
+    });
+    const id = await ctx.db.insert("users", {
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: id,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${id}|${session}`;
+  });
+  const activate = () =>
+    t.withIdentity({ subject }).mutation(api.inspectionTemplates.activate, {
+      programUuid: a.programUuid,
+      payload: JSON.stringify({
+        templateUuid: template.uuid,
+        templateVersion: 1,
+        targetUuid: onComponent ? pump.uuid : a.uuid,
+        mode: "recurring",
+        description: "Inspect",
+        lastSeconds: 0,
+        reviewed: true,
+      }),
+    });
+  return { t, activate };
+}
+
+// The guard activation gained in Batch 263: before it, each case stored a
+// second row under the uuid another Flight Program already uses.
+it.each([
+  ["component requirement", "management", true],
+  ["inspection", "inspections", false],
+  ["job card", "taskCards", false],
+] as const)(
+  "refuses an activation whose new %s uuid another program stores, writing nothing",
+  async (_, table, onComponent) => {
+    const { t, activate } = await activationFixture(onComponent);
+    await t.run(async (ctx) => {
+      const elsewhere = { uuid: TAKEN, aircraftUuid: "other-aircraft" };
+      if (table === "management")
+        await ctx.db.insert(table, {
+          ...elsewhere,
+          programUuid: "other-program",
+          kind: "location",
+          payload: "{}",
+        });
+      if (table === "taskCards")
+        await ctx.db.insert(table, { ...elsewhere, payload: "{}" });
+      if (table === "inspections")
+        await ctx.db.insert(table, {
+          ...demoSnapshot().inspections[0],
+          ...elsewhere,
+        });
+    });
+    const count = () =>
+      t.run(async (ctx) =>
+        Promise.all(
+          (["management", "inspections", "taskCards", "audit"] as const).map(
+            async (name) => (await ctx.db.query(name).collect()).length,
+          ),
+        ),
+      );
+    const before = await count();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(TAKEN);
+    await expect(activate()).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "Record belongs to another Flight Program.",
+    });
+    expect(await count()).toEqual(before);
+  },
+);

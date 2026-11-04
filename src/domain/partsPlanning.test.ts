@@ -1,0 +1,204 @@
+/**
+ * Responsibility: Pins which open work the parts plans list, in what order,
+ *   and how parts requests total what is still needed.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/partsPlanning.ts, partsRequests.ts, workOrders.ts,
+ *   rejection.ts, tests/fixtures (parts, work orders, the due fleet).
+ */
+import { describe, expect, it } from "vitest";
+import { DUE_FLEET_PART, dueFleet } from "../../tests/fixtures/dueFleet";
+import { neededPart, partsFixture } from "../../tests/fixtures/requiredParts";
+import { workOrderCommand } from "../../tests/fixtures/workOrders";
+import { maintenancePartsPlans, requestedParts } from "./partsPlanning";
+import {
+  applyRequestCommand,
+  requestDraftSchema,
+  type RequestSource,
+} from "./partsRequests";
+import { Rejection } from "./rejection";
+import { newWorkTask, saveWorkOrder } from "./workOrders";
+
+const now = Date.parse("2026-10-02T12:00:00Z");
+
+function fixture() {
+  const s = partsFixture();
+  s.user.isAdmin = true;
+  const order = saveWorkOrder(
+    s,
+    {
+      ...workOrderCommand(),
+      tasks: [
+        newWorkTask({ kind: "manual", uuid: crypto.randomUUID() }, "Mirror"),
+        newWorkTask({ kind: "discrepancy", uuid: "parts-report" }, "Filter"),
+      ],
+    },
+    now,
+  );
+  const [manual, discrepancy] = order.tasks.map((t): RequestSource => ({
+    kind: "workTask",
+    uuid: t.uuid,
+    workOrderUuid: order.uuid,
+  }));
+  const request = (uuid: string, source: RequestSource, quantity = 2) =>
+    applyRequestCommand(s, {
+      kind: "save",
+      requestUuid: uuid,
+      draft: requestDraftSchema.parse({
+        uuid,
+        version: 0,
+        source,
+        recurring: false,
+        mode: "parts",
+        date: "2026-10-20",
+        engineer: "Tech",
+        priority: "P2 Routine",
+        requiredBy: "",
+        currency: "USD",
+        lines: [
+          {
+            uuid: "line",
+            partNumber: "MIRROR",
+            description: "Mirror",
+            quantity,
+          },
+        ],
+      }),
+    });
+  return { s, order, manual, discrepancy, request };
+}
+
+const line = (quantity: number, onOrder = 0, shipped = 0) => ({
+  stockUuid: "",
+  locationUuid: "",
+  partNumber: "MIRROR",
+  quantity,
+  onOrder,
+  shipped,
+});
+
+describe("parts plans", () => {
+  it("list record work first, then other requests once per source", () => {
+    const { s, order, manual, discrepancy, request } = fixture();
+    const inspection = s.inspections[0];
+    inspection.requiredParts = [neededPart];
+    s.discrepancies[0].requiredParts = [neededPart];
+    request("first", manual);
+    request("second", manual);
+    request("through-record", discrepancy, 1);
+    const plans = maintenancePartsPlans(s);
+    expect(plans.map((p) => p.uuid)).toEqual([
+      inspection.uuid,
+      "parts-report",
+      manual.uuid,
+    ]);
+    // The discrepancy's request replaces the parts recorded on it.
+    expect(plans[1].parts).toEqual([line(1)]);
+    expect(plans[2]).toEqual({
+      uuid: manual.uuid,
+      aircraftUuid: order.aircraftUuid,
+      label: `${order.number}: Mirror`,
+      upcoming: true,
+      parts: [line(2), line(2)],
+    });
+  });
+
+  it("drop a record whose only request is cancelled, and work that closed", () => {
+    const { s, order, manual, discrepancy, request } = fixture();
+    s.discrepancies[0].requiredParts = [neededPart];
+    request("through-record", discrepancy).cancelled = true;
+    request("manual", manual);
+    expect(requestedParts(s, discrepancy)).toEqual([]);
+    expect(maintenancePartsPlans(s).map((p) => p.uuid)).toEqual([manual.uuid]);
+    s.workOrders!.find((w) => w.uuid === order.uuid)!.tasks[0].status =
+      "cancelled";
+    expect(requestedParts(s, manual)).toEqual([]);
+    expect(maintenancePartsPlans(s)).toEqual([]);
+  });
+});
+
+describe("requested parts", () => {
+  it("is undefined for a source no parts request names", () => {
+    const { s, manual } = fixture();
+    expect(requestedParts(s, manual)).toBeUndefined();
+  });
+
+  it("subtracts reserved and issued parts, showing what is on order and shipped", () => {
+    const { s, manual, request } = fixture();
+    const r = request("manual", manual, 5);
+    r.reservations.push({ lineUuid: "line", stockUuid: "stock", quantity: 1 });
+    r.issues.push({
+      lineUuid: "line",
+      stockUuid: "stock",
+      quantity: 1,
+      actorId: s.user.id,
+      at: now,
+    });
+    s.partsRequestPurchases = [
+      {
+        requestUuid: r.uuid,
+        lineUuid: "line",
+        poUuid: "po",
+        number: "PO-1",
+        phase: "ordered",
+        quantity: 2,
+        received: 1,
+        shipped: 2,
+        expectedDate: "",
+        purchasedDate: "",
+        purchasedBy: "",
+      },
+    ];
+    expect(requestedParts(s, manual)).toEqual([line(3, 2, 1)]);
+  });
+});
+
+describe("on the due fleet", () => {
+  // Characterizes current behaviour, including an AD on a removed component
+  // and one on an aircraft the snapshot does not hold.
+  it("plans record work with parts in record order", () => {
+    const { s } = dueFleet();
+    expect(
+      maintenancePartsPlans(s).map((p) =>
+        [p.uuid, p.aircraftUuid, p.label, p.upcoming, p.parts.length].join(
+          " | ",
+        ),
+      ),
+    ).toStrictEqual([
+      "i-zero | demo-206 | i-zero | true | 1",
+      "i-other | demo-208 | i-other | true | 1",
+      "i-ok | demo-206 | i-ok | false | 1",
+      "r-now | demo-206 | Type pump: r-now limit | true | 1",
+      "r-tracked | demo-206 | Type pump: r-tracked limit | false | 1",
+      "ad-removed/hourly-300 | demo-206 | AD AD-REMOVED: Inspect | false | 1",
+      "ad-overdue/monthly-2020-01-01 | demo-206 | AD AD-OVERDUE: Inspect | true | 1",
+      "ad-unset/task | demo-206 | AD AD-UNSET: Inspect | true | 1",
+      "ad-counter/hourly-500 | demo-206 | AD AD-COUNTER: Inspect | true | 1",
+      "ad-b/monthly-2020-01-01 | demo-208 | AD AD-B: Inspect | true | 1",
+      "ad-gone/monthly-2020-01-01 | gone | AD AD-GONE: Inspect | true | 1",
+    ]);
+  });
+
+  it("fails the whole list when work with parts has a status it cannot compute", () => {
+    // Characterizes current behaviour: unlike the alerts, the plans do not
+    // skip such an item.
+    const withParts = (uuid: string) => {
+      const { s } = dueFleet();
+      const records = [...s.inspections, ...(s.management ?? [])];
+      Object.assign(
+        records.find((r) => r.uuid === uuid)!,
+        {
+          requiredParts: [DUE_FLEET_PART],
+        },
+      );
+      return () => maintenancePartsPlans(s);
+    };
+    expect(withParts("i-missing")).toThrow(
+      new Rejection("Inspection component not found."),
+    );
+    expect(withParts("r-early")).toThrow(
+      new Rejection(
+        "Aircraft readings or date precede the installation baseline.",
+      ),
+    );
+  });
+});

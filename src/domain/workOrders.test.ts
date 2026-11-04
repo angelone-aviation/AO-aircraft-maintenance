@@ -1,6 +1,14 @@
+/**
+ * Responsibility: Pins work orders in the domain: saving, adding work items,
+ *   stale edits, closeout refusals, access and attachment rules.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrders.ts, ./model, ./programs, ./rejection,
+ *   tests/fixtures/workOrders, src/data/demo.ts (seed).
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
+  addInspectionTask,
   saveWorkOrder,
   newWorkTask,
   workSources,
@@ -13,6 +21,7 @@ import {
 } from "../../tests/fixtures/workOrders";
 import { totalSeconds } from "./model";
 import { scopedSnapshot } from "./programs";
+import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-01T12:00:00Z");
 describe("work orders", () => {
   it("captures current aircraft and selected component readings and preserves them after flights", () => {
@@ -138,7 +147,7 @@ describe("work orders", () => {
     command.tasks = [
       newWorkTask({ kind: "manual", uuid: "manual" }, "Check cabin"),
     ];
-    const w = saveWorkOrder(s, command, now);
+    saveWorkOrder(s, command, now);
     expect(() => saveWorkOrder(s, command, now)).toThrow("changed");
     expect(
       saveWorkOrder(
@@ -238,5 +247,40 @@ describe("work orders", () => {
     expect(() =>
       validateWorkOrderFile("record.pdf", "application/pdf", 8 * 1024 * 1024),
     ).toThrow("7 MB");
+  });
+  it("adds an inspection as a requested task without changing the order", () => {
+    const s = demoSnapshot();
+    const order = saveWorkOrder(s, workOrderCommand(), now);
+    const inspection = s.inspections.find(
+      (i) => i.aircraftUuid === order.aircraftUuid,
+    )!;
+    const added = addInspectionTask(order, inspection);
+    expect(order.tasks).toEqual([]);
+    expect(added.tasks).toEqual([
+      expect.objectContaining({
+        source: { kind: "inspection", uuid: inspection.uuid },
+        description: `${inspection.reference}: ${inspection.description}`,
+        status: "requested",
+      }),
+    ]);
+    // Characterizes current behaviour: a second task for the same inspection
+    // is refused by saveWorkOrder, not here.
+    expect(addInspectionTask(added, inspection).tasks).toHaveLength(2);
+  });
+  it("refuses a missing, archived or other aircraft's inspection as a Rejection", () => {
+    const s = demoSnapshot();
+    const order = saveWorkOrder(s, workOrderCommand(), now);
+    const inspection = s.inspections.find(
+      (i) => i.aircraftUuid === order.aircraftUuid,
+    )!;
+    for (const unavailable of [
+      undefined,
+      { ...inspection, archived: true },
+      { ...inspection, aircraftUuid: "other-aircraft" },
+    ]) {
+      const refusal = () => addInspectionTask(order, unavailable);
+      expect(refusal).toThrow(Rejection);
+      expect(refusal).toThrow("Work item is unavailable for this aircraft.");
+    }
   });
 });

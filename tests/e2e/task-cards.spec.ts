@@ -1,6 +1,19 @@
-import { test, expect } from "@playwright/test";
-import { localDate } from "../../src/domain/model";
+/**
+ * Responsibility: Pins job cards: a linked card's notes, evidence, parts and
+ *   signoffs; inspector signoff only with a maintenance certificate on file;
+ *   the stock picker's usable quantities and expired lots; and no
+ *   unreachable scrolling region on an empty list.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path, src/domain/model (localDate).
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
+import { localDate } from "../../src/domain/model";
+
+const DAY_MS = 86400000;
+const INSPECTOR_HINT =
+  "Add your certificate type and number under My certifications to sign as inspector.";
+
 test("creates a linked job card with notes, execution, parts, evidence and signoffs", async ({
   page,
 }) => {
@@ -47,24 +60,20 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
   await linked
     .getByRole("button", { name: "Create linked job card", exact: true })
     .click();
-  let editor = page.getByRole("dialog", { name: "New job card", exact: true });
-  await editor
-    .getByLabel("Card number (automatic if blank)")
-    .fill("TC-BROWSER");
-  await editor.getByLabel("Title", { exact: true }).fill("Pressure check");
-  await editor.getByLabel("ATA chapter", { exact: true }).selectOption("29");
+  const draft = page.getByRole("dialog", { name: "New job card", exact: true });
+  await draft.getByLabel("Card number (automatic if blank)").fill("TC-BROWSER");
+  await draft.getByLabel("Title", { exact: true }).fill("Pressure check");
+  await draft.getByLabel("ATA chapter", { exact: true }).selectOption("29");
   // Maintenance-data reference fields are always shown, whatever the log book choice.
-  await editor.getByLabel("Include in log book entry").uncheck();
-  await editor
+  await draft.getByLabel("Include in log book entry").uncheck();
+  await draft
     .getByLabel("Maintenance-data reference")
     .fill("Test AMM reference");
-  await editor
+  await draft
     .getByLabel("Notes / remarks", { exact: true })
     .fill("Measure system pressure, expected 10–20 psi.");
-  await editor
-    .getByRole("button", { name: "Save job card", exact: true })
-    .click();
-  editor = page.getByRole("dialog", {
+  await saveButton(draft).click();
+  const editor = page.getByRole("dialog", {
     name: "Job card TC-BROWSER",
     exact: true,
   });
@@ -124,9 +133,7 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
   await editor
     .getByLabel("Part 1 Serial / lot", { exact: true })
     .fill("LOT-42");
-  await editor
-    .getByRole("button", { name: "Save job card", exact: true })
-    .click();
+  await saveButton(editor).click();
   await editor
     .getByRole("button", { name: "Technician signoff", exact: true })
     .click();
@@ -141,12 +148,9 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
   await editor
     .getByLabel("Task status", { exact: true })
     .selectOption("completed");
-  await editor
-    .getByRole("button", { name: "Save job card", exact: true })
-    .click();
-  await expect(
-    editor.getByRole("button", { name: "Save job card", exact: true }),
-  ).toBeDisabled();
+  await saveButton(editor).click();
+  // A completed card is closed and can no longer be edited.
+  await expect(saveButton(editor)).toBeDisabled();
   await editor
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
@@ -177,22 +181,16 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
 test("inspection signoff waits for a certificate on file, technician signoff does not", async ({
   page,
 }) => {
-  const hint =
-    "Add your certificate type and number under My certifications to sign as inspector.";
   await page.addInitScript(() =>
     sessionStorage.setItem("angel-one-demo", "true"),
   );
   await page.goto("/task-cards");
   await page.getByRole("button", { name: "New job card", exact: true }).click();
-  let editor = page.getByRole("dialog", { name: "New job card", exact: true });
-  await editor
-    .getByLabel("Card number (automatic if blank)")
-    .fill("TC-INSPECT");
-  await editor.getByLabel("Title", { exact: true }).fill("Control cable");
-  await editor
-    .getByRole("button", { name: "Save job card", exact: true })
-    .click();
-  editor = page.getByRole("dialog", {
+  const draft = page.getByRole("dialog", { name: "New job card", exact: true });
+  await draft.getByLabel("Card number (automatic if blank)").fill("TC-INSPECT");
+  await draft.getByLabel("Title", { exact: true }).fill("Control cable");
+  await saveButton(draft).click();
+  const editor = page.getByRole("dialog", {
     name: "Job card TC-INSPECT",
     exact: true,
   });
@@ -203,9 +201,7 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
     .getByLabel("Actual work performed")
     .fill("Adjusted cable tension");
   await editor.getByLabel("Completion date", { exact: true }).fill(localDate());
-  await editor
-    .getByRole("button", { name: "Save job card", exact: true })
-    .click();
+  await saveButton(editor).click();
   // The demo user has no certificate on file and can still sign the work.
   await editor
     .getByRole("button", { name: "Technician signoff", exact: true })
@@ -215,36 +211,7 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
   // Another technician signed this card, so only the certificate is missing.
-  await page.evaluate(async () => {
-    await new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open("angel-one-v1");
-      req.onerror = () => reject(req.error);
-      req.onsuccess = () => {
-        const db = req.result,
-          tx = db.transaction("snapshots", "readwrite"),
-          cursor = tx.objectStore("snapshots").openCursor();
-        cursor.onsuccess = () => {
-          const entry = cursor.result;
-          if (!entry) return;
-          const s = entry.value;
-          for (const card of s.taskCards ?? [])
-            if (card.cardNumber === "TC-INSPECT")
-              card.technicianSignoff = {
-                userId: "demo-pilot",
-                name: "Jordan Lee",
-                at: Date.now(),
-              };
-          entry.update(s);
-          entry.continue();
-        };
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-    });
-  });
+  await signAsJordanLee(page, "TC-INSPECT");
   await page.reload();
   const row = page.getByRole("row").filter({ hasText: "TC-INSPECT" });
   const compact = row.getByRole("button", {
@@ -252,7 +219,7 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
     exact: true,
   });
   await expect(compact).toBeDisabled();
-  await expect(compact).toHaveAttribute("title", hint);
+  await expect(compact).toHaveAttribute("title", INSPECTOR_HINT);
   await row
     .getByRole("button", { name: "Details for TC-INSPECT", exact: true })
     .click();
@@ -262,8 +229,8 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
   });
   await expect(editor.getByText(/Technician: Jordan Lee/)).toBeVisible();
   await expect(inspect).toBeDisabled();
-  await expect(inspect).toHaveAccessibleDescription(hint);
-  await expect(editor.getByText(hint, { exact: true })).toBeVisible();
+  await expect(inspect).toHaveAccessibleDescription(INSPECTOR_HINT);
+  await expect(editor.getByText(INSPECTOR_HINT, { exact: true })).toBeVisible();
   await editor
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
@@ -286,7 +253,6 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
     "title",
     "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.",
   );
-  // Record a mechanic certificate type and number under My certifications.
   await myCertifications.click();
   await profile
     .getByRole("checkbox", { name: "Certified mechanic", exact: true })
@@ -306,7 +272,9 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
   await row
     .getByRole("button", { name: "Details for TC-INSPECT", exact: true })
     .click();
-  await expect(editor.getByText(hint, { exact: true })).toHaveCount(0);
+  await expect(editor.getByText(INSPECTOR_HINT, { exact: true })).toHaveCount(
+    0,
+  );
   await inspect.click();
   await expect(editor.getByText(/Inspection: Alex Morgan/)).toBeVisible();
 });
@@ -314,24 +282,9 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
 test("job-card stock picker shows usable quantity and refuses expired lots", async ({
   page,
 }) => {
-  const expired = new Date(Date.parse(localDate()) - 2 * 86400000)
+  const expired = new Date(Date.parse(localDate()) - 2 * DAY_MS)
     .toISOString()
     .slice(0, 10);
-  const stock = (uuid: string, partNumber: string, extra: object) => ({
-    kind: "stock",
-    uuid,
-    programUuid: "demo-program",
-    version: 1,
-    locationUuid: "jc-shelf",
-    partNumber,
-    description: "O-ring seal",
-    quantity: 5,
-    minimum: 0,
-    alternates: "",
-    category: "part",
-    condition: "new",
-    ...extra,
-  });
   const records = [
     {
       kind: "location",
@@ -342,8 +295,11 @@ test("job-card stock picker shows usable quantity and refuses expired lots", asy
       address: "",
       contact: "",
     },
-    stock("seal-reserved", "SEAL-RES", { reservedQuantity: 2 }),
-    stock("seal-expired", "SEAL-EXP", { quantity: 4, expirationDate: expired }),
+    sealStock("seal-reserved", "SEAL-RES", { reservedQuantity: 2 }),
+    sealStock("seal-expired", "SEAL-EXP", {
+      quantity: 4,
+      expirationDate: expired,
+    }),
   ];
   await page.addInitScript(() =>
     sessionStorage.setItem("angel-one-demo", "true"),
@@ -352,31 +308,7 @@ test("job-card stock picker shows usable quantity and refuses expired lots", asy
   await expect(
     page.getByRole("heading", { name: "Job cards", exact: true }),
   ).toBeVisible();
-  await page.evaluate(async (records) => {
-    await new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open("angel-one-v1");
-      req.onerror = () => reject(req.error);
-      req.onsuccess = () => {
-        const db = req.result,
-          tx = db.transaction("snapshots", "readwrite"),
-          cursor = tx.objectStore("snapshots").openCursor();
-        cursor.onsuccess = () => {
-          const entry = cursor.result;
-          if (!entry) return;
-          const s = entry.value;
-          s.management = [...(s.management ?? []), ...records];
-          delete s.partsInventory;
-          entry.update(s);
-          entry.continue();
-        };
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-    });
-  }, records);
+  await addManagementRecords(page, records);
   await page.reload();
   await page.getByRole("button", { name: "New job card", exact: true }).click();
   const editor = page.getByRole("dialog", {
@@ -429,24 +361,113 @@ for (const width of [900, 390])
       page.getByRole("heading", { name: "No job cards", exact: true }),
     ).toBeVisible();
     await expect(page.locator("main table")).toHaveCount(0);
-    // axe scrollable-region-focusable: a region that scrolls must be
-    // reachable by keyboard, itself or through focusable content.
-    const unreachable = await page.locator("main *").evaluateAll((all) =>
-      all
-        .filter((el) => {
-          const style = getComputedStyle(el);
-          const scrolls = (overflow: string, size: number, client: number) =>
-            ["auto", "scroll"].includes(overflow) && size > client;
-          return (
-            (scrolls(style.overflowX, el.scrollWidth, el.clientWidth) ||
-              scrolls(style.overflowY, el.scrollHeight, el.clientHeight)) &&
-            el.getAttribute("tabindex") === null &&
-            !el.querySelector(
-              "a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex='-1'])",
-            )
-          );
-        })
-        .map((el) => el.className),
-    );
-    expect(unreachable).toEqual([]);
+    expect(await findUnreachableScrollers(page)).toEqual([]);
   });
+
+function saveButton(card: Locator) {
+  return card.getByRole("button", { name: "Save job card", exact: true });
+}
+
+/** Five O-ring seals on the job card shelf, with `extra` fields on top. */
+function sealStock(uuid: string, partNumber: string, extra: object) {
+  return {
+    kind: "stock",
+    uuid,
+    programUuid: "demo-program",
+    version: 1,
+    locationUuid: "jc-shelf",
+    partNumber,
+    description: "O-ring seal",
+    quantity: 5,
+    minimum: 0,
+    alternates: "",
+    category: "part",
+    condition: "new",
+    ...extra,
+  };
+}
+
+/** Records Jordan Lee's technician signoff on the card, on the device. */
+async function signAsJordanLee(page: Page, cardNumber: string) {
+  await page.evaluate(async (number) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value;
+      for (const card of s.taskCards ?? [])
+        if (card.cardNumber === number)
+          card.technicianSignoff = {
+            userId: "demo-pilot",
+            name: "Jordan Lee",
+            at: Date.now(),
+          };
+      entry.update(s);
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, cardNumber);
+}
+
+/** Appends management records to every snapshot on the device. */
+async function addManagementRecords(page: Page, records: object[]) {
+  await page.evaluate(async (added) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value;
+      s.management = [...(s.management ?? []), ...added];
+      // The stored parts view is derived from management; dropping it makes
+      // the app rebuild it from the seeded records.
+      delete s.partsInventory;
+      entry.update(s);
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, records);
+}
+
+/**
+ * Class names of elements in main that scroll but cannot take keyboard focus,
+ * themselves or through focusable content (axe scrollable-region-focusable).
+ */
+async function findUnreachableScrollers(page: Page) {
+  return page.locator("main *").evaluateAll((all) =>
+    all
+      .filter((el) => {
+        const style = getComputedStyle(el);
+        const scrolls = (overflow: string, size: number, client: number) =>
+          ["auto", "scroll"].includes(overflow) && size > client;
+        return (
+          (scrolls(style.overflowX, el.scrollWidth, el.clientWidth) ||
+            scrolls(style.overflowY, el.scrollHeight, el.clientHeight)) &&
+          el.getAttribute("tabindex") === null &&
+          !el.querySelector(
+            "a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex='-1'])",
+          )
+        );
+      })
+      .map((el) => el.className),
+  );
+}

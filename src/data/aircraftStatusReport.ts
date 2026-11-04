@@ -1,453 +1,282 @@
+/**
+ * Responsibility: Prints one aircraft's status sheet as a landscape PDF.
+ * Layer: Data. Browser-side jsPDF rendering; no React.
+ * Dependencies: jspdf, src/domain/statusSheet.ts (content),
+ *   src/domain/model.ts (localDate).
+ *
+ * A summary of recorded status for the 14 CFR 91.417(a)(2) records, not a
+ * maintenance release: the footer of every page says so.
+ */
 import { jsPDF } from "jspdf";
-import { localDate } from "../domain/model";
+import { localDate, type Snapshot } from "../domain/model";
 import {
-  totalSeconds,
-  aircraftMeterLabels,
-  type Snapshot,
-} from "../domain/model";
-import { inspectionDueDate, inspectionStatus } from "../domain/maintenance";
-import { inspectionCounters } from "../domain/management";
-import { componentTotals } from "../domain/components";
-import { daysPerServiceMonth } from "../domain/componentCalendar";
-import { adAircraftUuid, adStatus } from "../domain/airworthiness";
-import { adRemaining } from "../domain/adRemaining";
-import { isCurrentAircraftFile } from "../domain/aircraftFiles";
+  statusSheet,
+  type StatusSectionId,
+  type StatusSheet,
+} from "../domain/statusSheet";
 
+type Rgb = [number, number, number];
+
+const PAGE_WIDTH_MM = 279.4;
+const LEFT_MM = 10;
+const WIDTH_MM = 259;
+const RIGHT_MM = 269;
+const TOP_MM = 26;
+const BOTTOM_MM = 194;
+const FOOTER_MM = 204;
+const LINE_MM = 3.8;
+const CELL_PADDING_MM = 2;
+const BODY_FONT_PT = 8;
+const CELL_FONT_PT = 8.5;
+// Start a table on a fresh page unless its heading and a few rows fit.
+const TABLE_START_SPACE_MM = 35;
+// Keep ordinary rows together; only rows taller than this are split.
+const SPLIT_ROW_MM = 140;
+const BRAND: Rgb = [28, 69, 57];
+const HEADING_FILL: Rgb = [48, 91, 77];
+const STRIPE: Rgb = [239, 246, 241];
+const WHITE: Rgb = [255, 255, 255];
+const DANGER: Rgb = [165, 35, 35];
+const CAUTION: Rgb = [134, 83, 0];
+const INK: Rgb = [35, 48, 43];
+const GRID: Rgb = [195, 211, 201];
+// Relative column widths per section; each table spans WIDTH_MM.
+const COLUMN_SHARES: Record<StatusSectionId, number[]> = {
+  overview: [34, 32, 42, 32, 38, 60],
+  components: [45, 65, 39, 28, 28, 28, 26],
+  inspections: [46, 27, 29, 25, 24, 23, 22, 22, 28],
+  airworthiness: [31, 45, 80, 63, 40],
+  form337: [170, 50, 39],
+  discrepancies: [30, 200, 29],
+};
+
+/** Layout state while one sheet is written. */
+type Sheet = {
+  pdf: jsPDF;
+  header: StatusSheet["header"];
+  now: Date;
+  y: number;
+};
+type Table = { title: string; labels: string[]; widths: number[] };
+
+/**
+ * Builds the status sheet for one aircraft, as recorded in the snapshot.
+ * Cells reading "overdue" or a negative number print red and bold; "Needs
+ * review" and "due-soon" amber. The built-in font draws printable ASCII
+ * only: dashes print as "-" and other characters as spaces.
+ *
+ * @param state - Snapshot holding the aircraft and its records.
+ * @param aircraftUuid - The aircraft to report on.
+ * @param now - When the sheet is generated; it sets "today" for due dates.
+ * @returns The document, ready for `save()`.
+ * @throws {Rejection} "Aircraft not found." when the snapshot lacks the
+ *   aircraft.
+ */
 export function aircraftStatusReport(
   state: Snapshot,
   aircraftUuid: string,
   now = new Date(),
 ) {
-  const a = state.aircraft.find((x) => x.uuid === aircraftUuid);
-  if (!a) throw Error("Aircraft not found.");
-  const today = localDate(now.getTime());
+  const content = statusSheet(state, aircraftUuid, localDate(now.getTime()));
   const pdf = new jsPDF({
     unit: "mm",
     format: "letter",
     orientation: "landscape",
   });
-  const left = 10,
-    width = 259,
-    bottom = 194,
-    line = 3.8;
-  let y = 26;
-  const clean = (value: string) =>
-    value.replace(/[–—]/g, "-").replace(/[^\x20-\x7e\n]/g, " ");
-  const header = () => {
-    pdf.setFillColor(28, 69, 57);
-    pdf.rect(0, 0, 279.4, 20, "F");
-    pdf.setTextColor(255);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(15);
-    pdf.text(clean(`${a.registration} | AIRCRAFT STATUS SHEET`), left, 10);
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
-    pdf.text(clean(`${a.make} ${a.model} | S/N ${a.serial}`), left, 16);
-    pdf.text(
-      `Generated ${now.toISOString().slice(0, 16).replace("T", " ")} UTC`,
-      269,
-      10,
-      { align: "right" },
-    );
-  };
-  const newPage = () => {
-    pdf.addPage();
-    header();
-    y = 26;
-  };
-  header();
-  function note(value: string) {
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
+  const sheet: Sheet = { pdf, header: content.header, now, y: TOP_MM };
+  drawPageHeader(sheet);
+  for (const section of content.sections) {
+    const shares = COLUMN_SHARES[section.id];
+    writeTable(sheet, section.title, section.columns, shares, section.rows);
+    for (const note of section.notes) writeNote(sheet, note);
+  }
+  writeFooters(sheet);
+  return pdf;
+}
+
+function formatUtc(date: Date): string {
+  return date.toISOString().slice(0, 16).replace("T", " ");
+}
+
+function toPrintable(value: string): string {
+  return value.replace(/[–—]/g, "-").replace(/[^\x20-\x7e\n]/g, " ");
+}
+
+function drawPageHeader({ pdf, header, now }: Sheet): void {
+  pdf.setFillColor(...BRAND);
+  pdf.rect(0, 0, PAGE_WIDTH_MM, 20, "F");
+  pdf.setTextColor(255);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(15);
+  pdf.text(
+    toPrintable(`${header.registration} | AIRCRAFT STATUS SHEET`),
+    LEFT_MM,
+    10,
+  );
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(BODY_FONT_PT);
+  pdf.text(
+    toPrintable(`${header.makeModel} | S/N ${header.serial}`),
+    LEFT_MM,
+    16,
+  );
+  pdf.text(`Generated ${formatUtc(now)} UTC`, RIGHT_MM, 10, { align: "right" });
+}
+
+function startPage(sheet: Sheet): void {
+  sheet.pdf.addPage();
+  drawPageHeader(sheet);
+  sheet.y = TOP_MM;
+}
+
+function writeNote(sheet: Sheet, value: string): void {
+  const { pdf } = sheet;
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(BODY_FONT_PT);
+  pdf.setTextColor(60);
+  const lines: string[] = pdf.splitTextToSize(toPrintable(value), WIDTH_MM);
+  for (const text of lines) {
+    if (sheet.y + 5 > BOTTOM_MM) startPage(sheet);
     pdf.setTextColor(60);
-    const lines: string[] = pdf.splitTextToSize(clean(value), width);
-    for (const text of lines) {
-      if (y + 5 > bottom) newPage();
-      pdf.setTextColor(60);
-      pdf.setFontSize(8);
-      pdf.text(text, left, y + 3);
-      y += 4;
-    }
-    y += 2;
+    pdf.setFontSize(BODY_FONT_PT);
+    pdf.text(text, LEFT_MM, sheet.y + 3);
+    sheet.y += 4;
   }
-  function table(
-    title: string,
-    labels: string[],
-    shares: number[],
-    rows: string[][],
-  ) {
-    const sum = shares.reduce((x, z) => x + z, 0),
-      widths = shares.map((x) => (x / sum) * width);
-    const wrap = (cells: string[]) =>
-      cells.map(
-        (text, index) =>
-          pdf.splitTextToSize(
-            clean(text || "-"),
-            widths[index] - 4,
-          ) as string[],
-      );
-    function heading() {
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(10);
-      pdf.setTextColor(28, 69, 57);
-      pdf.text(title.toUpperCase(), left, y + 4);
-      y += 7;
-      pdf.setFontSize(8);
-      const cells = wrap(labels),
-        height = Math.max(...cells.map((c) => c.length)) * line + 4;
-      let x = left;
-      pdf.setFillColor(48, 91, 77);
-      pdf.rect(left, y, width, height, "F");
-      cells.forEach((lines, i) => {
-        pdf.setTextColor(255);
-        pdf.text(lines, x + 2, y + 5);
-        x += widths[i];
-      });
-      y += height;
-    }
-    if (y + 35 > bottom) newPage();
-    heading();
-    rows.forEach((row, index) => {
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(8.5);
-      const cells = wrap(row);
-      let offset = 0;
-      const count = Math.max(...cells.map((c) => c.length));
-      // Keep ordinary rows together; split only exceptionally long rows.
-      if (count * line + 4 <= 140 && y + count * line + 4 > bottom) {
-        newPage();
-        heading();
-      }
-      while (offset < count) {
-        if (y + 8 > bottom) {
-          newPage();
-          heading();
-        }
-        const take = Math.min(
-          count - offset,
-          Math.max(1, Math.floor((bottom - y - 4) / line)),
-        );
-        const height = take * line + 4;
-        let x = left;
-        pdf.setFillColor(
-          ...((index % 2 === 0 ? [239, 246, 241] : [255, 255, 255]) as [
-            number,
-            number,
-            number,
-          ]),
-        );
-        pdf.rect(left, y, width, height, "F");
-        cells.forEach((lines, i) => {
-          const value = row[i] || "";
-          const danger = /overdue|^-/i.test(value) && value !== "-";
-          pdf.setTextColor(
-            ...((danger
-              ? [165, 35, 35]
-              : /Needs review|due-soon/i.test(value)
-                ? [134, 83, 0]
-                : [35, 48, 43]) as [number, number, number]),
-          );
-          pdf.setFont("helvetica", i === 0 || danger ? "bold" : "normal");
-          pdf.setFontSize(8.5);
-          pdf.text(lines.slice(offset, offset + take), x + 2, y + 5);
-          pdf.setDrawColor(195, 211, 201);
-          pdf.setLineWidth(0.15);
-          pdf.rect(x, y, widths[i], height);
-          x += widths[i];
-        });
-        y += height;
-        offset += take;
-      }
-    });
-    y += 6;
+  sheet.y += 2;
+}
+
+function writeTable(
+  sheet: Sheet,
+  title: string,
+  labels: string[],
+  shares: number[],
+  rows: string[][],
+): void {
+  const sum = shares.reduce((x, z) => x + z, 0);
+  const table = {
+    title,
+    labels,
+    widths: shares.map((x) => (x / sum) * WIDTH_MM),
+  };
+  if (sheet.y + TABLE_START_SPACE_MM > BOTTOM_MM) startPage(sheet);
+  writeTableHeading(sheet, table);
+  rows.forEach((row, index) => writeTableRow(sheet, table, row, index));
+  sheet.y += 6;
+}
+
+function wrapCells(pdf: jsPDF, table: Table, cells: string[]): string[][] {
+  return cells.map(
+    (text, index) =>
+      pdf.splitTextToSize(
+        toPrintable(text || "-"),
+        table.widths[index] - 2 * CELL_PADDING_MM,
+      ) as string[],
+  );
+}
+
+function writeTableHeading(sheet: Sheet, table: Table): void {
+  const { pdf } = sheet;
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(10);
+  pdf.setTextColor(...BRAND);
+  pdf.text(table.title.toUpperCase(), LEFT_MM, sheet.y + 4);
+  sheet.y += 7;
+  pdf.setFontSize(BODY_FONT_PT);
+  const cells = wrapCells(pdf, table, table.labels);
+  const height = Math.max(...cells.map((c) => c.length)) * LINE_MM + 4;
+  let x = LEFT_MM;
+  pdf.setFillColor(...HEADING_FILL);
+  pdf.rect(LEFT_MM, sheet.y, WIDTH_MM, height, "F");
+  cells.forEach((lines, i) => {
+    pdf.setTextColor(255);
+    pdf.text(lines, x + CELL_PADDING_MM, sheet.y + 5);
+    x += table.widths[i];
+  });
+  sheet.y += height;
+}
+
+// A row continued on a new page repeats the table heading above it.
+function writeTableRow(
+  sheet: Sheet,
+  table: Table,
+  row: string[],
+  index: number,
+): void {
+  sheet.pdf.setFont("helvetica", "normal");
+  sheet.pdf.setFontSize(CELL_FONT_PT);
+  const cells = wrapCells(sheet.pdf, table, row);
+  const count = Math.max(...cells.map((c) => c.length));
+  const rowHeight = count * LINE_MM + 4;
+  if (rowHeight <= SPLIT_ROW_MM && sheet.y + rowHeight > BOTTOM_MM)
+    startTablePage(sheet, table);
+  for (let offset = 0; offset < count;) {
+    if (sheet.y + 8 > BOTTOM_MM) startTablePage(sheet, table);
+    const take = Math.min(
+      count - offset,
+      Math.max(1, Math.floor((BOTTOM_MM - sheet.y - 4) / LINE_MM)),
+    );
+    drawRowSlice(sheet, table, row, index, cells, offset, take);
+    offset += take;
   }
-  const hrs = (seconds: number | null | undefined) =>
-    seconds == null ? "-" : (seconds / 3600).toFixed(1);
-  const number = (v: number | undefined, digits = 1) =>
-    v === undefined ? "-" : v.toFixed(digits);
-  table(
-    "Aircraft overview",
-    [
-      "Recorded aircraft status:",
-      "Aircraft total time:",
-      "Hobbs / Tach (hours)",
-      "Cycles / Landings",
-      "Tracking meter",
-      "Flight program",
-    ],
-    [34, 32, 42, 32, 38, 60],
-    [
-      [
-        a.operationalStatus,
-        `${hrs(totalSeconds(a))} hours`,
-        `${hrs(a.currentHobbs)} / ${hrs(a.currentTach)}`,
-        `${a.cycles} / ${a.landings}`,
-        aircraftMeterLabels[a.meter],
-        a.program,
-      ],
-    ],
-  );
-  if (a.flightTimeLog && a.currentFlightTimeLog !== undefined)
-    note(`Flight time log: ${hrs(a.currentFlightTimeLog)} hours`);
-  if (a.currentCyclicHobbs !== undefined)
-    note(`Collective hourmeter: ${hrs(a.currentCyclicHobbs)} hours`);
-  note(
-    `Data synchronized ${new Date(state.syncedAt).toISOString().slice(0, 16).replace("T", " ")} UTC. Negative remaining values are overdue; months are approximate. Calendar exempt suppresses calendar only.`,
-  );
-  const components = (state.management ?? []).filter(
-    (c) => c.kind === "component" && c.installed && c.aircraftUuid === a.uuid,
-  );
-  table(
-    "Installed components",
-    [
-      "Position / component",
-      "Part number / model",
-      "Serial number",
-      "TSN hours",
-      "TSO hours",
-      "TSR hours",
-      "Cycles",
-    ],
-    [45, 65, 39, 28, 28, 28, 26],
-    components.length
-      ? components.map((c) => {
-          if (c.kind !== "component") throw Error("Invalid component");
-          const identity = [
-            `${c.installPosition || ""} ${c.componentType}`,
-            c.partNumber,
-            c.serial,
-          ];
-          try {
-            const t = componentTotals(c, a, today);
-            return [
-              ...identity,
-              ...(c.trackTime
-                ? [
-                    hrs(t.timeSinceNew),
-                    hrs(t.timeSinceOverhaul),
-                    hrs(t.timeSinceRepair),
-                  ]
-                : ["Not tracked", "Not tracked", "Not tracked"]),
-              c.trackCycles ? String(t.cyclesSinceNew) : "Not tracked",
-            ];
-          } catch {
-            return [...identity, "Review", "Review", "Review", "Review"];
-          }
-        })
-      : [["No installed component records", "-", "-", "-", "-", "-", "-"]],
-  );
-  const inspections = state.inspections
-    .filter((i) => !i.archived && i.aircraftUuid === a.uuid)
-    .sort((x, z) =>
-      x.reference.localeCompare(z.reference, undefined, { numeric: true }),
-    );
-  table(
-    "Inspection schedules",
-    [
-      "Inspection / component",
-      "Repeat interval",
-      "Last completed",
-      "Next due\nHours / cycles / landings",
-      "Date due",
-      "Hours remaining",
-      "Months remaining*",
-      "Cycles / landings remaining",
-      "Status",
-    ],
-    [46, 27, 29, 25, 24, 23, 22, 22, 28],
-    inspections.length
-      ? inspections.map((i) => {
-          const r = inspectionStatus(
-            i,
-            a,
-            today,
-            inspectionCounters(i, a, state.management),
-          );
-          const component = components.find((c) => c.uuid === i.componentUuid);
-          const asset =
-            component?.kind === "component"
-              ? `\n${component.installPosition || ""} S/N ${component.serial}`
-              : "";
-          return [
-            (i.reference || i.description) + asset,
-            [
-              i.intervalSeconds ? `${hrs(i.intervalSeconds)} h` : null,
-              i.intervalCycles ? `${i.intervalCycles} cyc` : null,
-              i.intervalLandings ? `${i.intervalLandings} landings` : null,
-              i.intervalMonths
-                ? `${i.intervalMonths} mo${i.calendarExempt ? " (exempt)" : ""}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join("\n") || "One-time",
-            [
-              i.lastSeconds !== undefined ? `${hrs(i.lastSeconds)} h` : null,
-              i.lastCycles !== undefined ? `${i.lastCycles} cyc` : null,
-              i.lastLandings !== undefined
-                ? `${i.lastLandings} landings`
-                : null,
-              i.lastDate,
-            ]
-              .filter(Boolean)
-              .join("\n") || "-",
-            [
-              i.dueSeconds !== undefined ? `${hrs(i.dueSeconds)} h` : null,
-              i.dueCycles !== undefined ? `${i.dueCycles} cyc` : null,
-              i.dueLandings !== undefined ? `${i.dueLandings} landings` : null,
-            ]
-              .filter(Boolean)
-              .join("\n") || "-",
-            i.calendarExempt ? "Calendar exempt" : inspectionDueDate(i) || "-",
-            number(r.hoursRemaining),
-            number(
-              r.daysRemaining === undefined
-                ? undefined
-                : r.daysRemaining / daysPerServiceMonth,
-            ),
-            [
-              r.cyclesRemaining === undefined
-                ? ""
-                : `${number(r.cyclesRemaining, 0)} cyc`,
-              r.landingsRemaining === undefined
-                ? ""
-                : `${number(r.landingsRemaining, 0)} landings`,
-            ]
-              .filter(Boolean)
-              .join("\n") || "-",
-            r.status,
-          ];
-        })
-      : [
-          [
-            "No active inspection schedules",
-            "-",
-            "-",
-            "-",
-            "-",
-            "-",
-            "-",
-            "-",
-            "-",
-          ],
-        ],
-  );
-  const exempt = inspections.filter((i) => i.calendarExempt);
-  if (exempt.length) {
-    const reasons = new Map<string, string[]>();
-    for (const i of exempt) {
-      const reason = i.calendarExemptReason || "Reason not recorded";
-      reasons.set(reason, [...(reasons.get(reason) || []), i.reference]);
-    }
-    for (const [reason, refs] of reasons)
-      note(`Calendar exemption - ${refs.join(", ")}: ${reason}`);
-  }
-  note(
-    "* Months remaining are approximate; the exact date due controls. Hours and cycles use each inspection's configured counter; landings use aircraft total landings.",
-  );
-  const ads = (state.airworthiness ?? [])
-    .filter((r) => adAircraftUuid(state, r) === a.uuid)
-    .sort(
-      (x, z) =>
-        x.componentUuid.localeCompare(z.componentUuid) ||
-        x.source.number.localeCompare(z.source.number, undefined, {
-          numeric: true,
-        }),
-    );
-  table(
-    "Airworthiness directives",
-    [
-      "AD number",
-      "Aircraft / component",
-      "Subject / required action",
-      "Remaining / prior compliance",
-      "Status",
-    ],
-    [31, 45, 80, 63, 40],
-    ads.length
-      ? ads.map((r) => {
-          const component = components.find((c) => c.uuid === r.componentUuid);
-          const asset =
-            component?.kind === "component"
-              ? `${component.installPosition || ""} ${component.componentType}\nS/N ${component.serial}`
-              : r.source.section;
-          const units = r.tasks.flatMap((t) =>
-            adRemaining(state, r, t, today).map(
-              (x) => `${x.label}: ${x.value}`,
-            ),
-          );
-          if (r.priorCompliance)
-            units.push(
-              `PCW ${r.priorCompliance.date}`,
-              r.priorCompliance.componentHours !== null
-                ? `Engine/component ${r.priorCompliance.componentHours.toFixed(1)} h`
-                : r.priorCompliance.aircraftHours !== null
-                  ? `Aircraft ${r.priorCompliance.aircraftHours.toFixed(1)} h`
-                  : "",
-            );
-          return [
-            r.source.number,
-            asset,
-            [r.source.subject, ...r.tasks.map((t) => t.description)].join("\n"),
-            units.join("\n") || "-",
-            adStatus(state, r),
-          ];
-        })
-      : [["No AD records", "-", "-", "-", "-"]],
-  );
-  // Status record under 14 CFR 91.417(a)(2)(vi): current copies are listed;
-  // archived ones are counted, since they are kept but hidden.
-  const all337 = (state.aircraftFiles ?? []).filter(
-    (f) => f.aircraftUuid === a.uuid && f.category === "form-337",
-  );
-  const form337 = all337
-    .filter(isCurrentAircraftFile)
-    .sort((x, z) => x.uploadedAt - z.uploadedAt);
-  const archived337 = all337.length - form337.length;
-  table(
-    "Form 337 copies",
-    ["Document", "Uploaded", "Size"],
-    [170, 50, 39],
-    form337.length
-      ? form337.map((f) => [
-          f.name,
-          localDate(f.uploadedAt),
-          `${Math.ceil(f.size / 1024)} KB`,
-        ])
-      : [["No Form 337 copies on file", "-", "-"]],
-  );
-  if (archived337)
-    note(
-      `${archived337} archived Form 337 ${archived337 === 1 ? "copy is" : "copies are"} not listed. Archived copies are kept in Angel One (View aircraft > Form 337 copies > Show archived).`,
-    );
-  const discrepancies = state.discrepancies.filter(
-    (d) => d.aircraftUuid === a.uuid && d.status === "open",
-  );
-  table(
-    "Open discrepancies",
-    ["Reported", "Description", "Status"],
-    [30, 200, 29],
-    discrepancies.length
-      ? discrepancies.map((d) => [
-          localDate(d.createdAt),
-          d.description,
-          "Open",
-        ])
-      : [["-", "No open discrepancies recorded", "-"]],
-  );
+}
+
+function startTablePage(sheet: Sheet, table: Table): void {
+  startPage(sheet);
+  writeTableHeading(sheet, table);
+}
+
+function drawRowSlice(
+  sheet: Sheet,
+  table: Table,
+  row: string[],
+  index: number,
+  cells: string[][],
+  offset: number,
+  take: number,
+): void {
+  const { pdf, y } = sheet;
+  const height = take * LINE_MM + 4;
+  let x = LEFT_MM;
+  pdf.setFillColor(...(index % 2 === 0 ? STRIPE : WHITE));
+  pdf.rect(LEFT_MM, y, WIDTH_MM, height, "F");
+  cells.forEach((lines, i) => {
+    const value = row[i] || "";
+    const danger = /overdue|^-/i.test(value) && value !== "-";
+    pdf.setTextColor(...(danger ? DANGER : cellInk(value)));
+    pdf.setFont("helvetica", i === 0 || danger ? "bold" : "normal");
+    pdf.setFontSize(CELL_FONT_PT);
+    pdf.text(lines.slice(offset, offset + take), x + CELL_PADDING_MM, y + 5);
+    pdf.setDrawColor(...GRID);
+    pdf.setLineWidth(0.15);
+    pdf.rect(x, y, table.widths[i], height);
+    x += table.widths[i];
+  });
+  sheet.y += height;
+}
+
+function cellInk(value: string): Rgb {
+  return /Needs review|due-soon/i.test(value) ? CAUTION : INK;
+}
+
+function writeFooters({ pdf, header }: Sheet): void {
   const pages = pdf.getNumberOfPages();
   for (let page = 1; page <= pages; page++) {
     pdf.setPage(page);
     pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
+    pdf.setFontSize(BODY_FONT_PT);
     pdf.setTextColor(75);
     pdf.text(
       "Recorded status only. Consult aircraft records for actual sign-offs; not a maintenance release.",
-      left,
-      204,
+      LEFT_MM,
+      FOOTER_MM,
     );
-    pdf.text(`${a.registration} | Page ${page} of ${pages}`, 269, 204, {
-      align: "right",
-    });
+    pdf.text(
+      `${header.registration} | Page ${page} of ${pages}`,
+      RIGHT_MM,
+      FOOTER_MM,
+      {
+        align: "right",
+      },
+    );
   }
-  return pdf;
 }

@@ -2,12 +2,13 @@
  * Responsibility: Structured postal address with its receiving contact, and the
  *   checks that decide whether it is complete enough to ship to.
  * Layer: Domain. Pure zod schema and functions; no I/O, no React.
- * Dependencies: zod. No internal imports.
+ * Dependencies: zod, src/domain/rejection.ts (the refusal class).
  *
  * Format and completeness checks only, not postal verification: a person must
  * still confirm a shipping address before a purchase order is issued.
  */
 import { z } from "zod";
+import { Rejection } from "./rejection";
 
 const FIELD_MAX_LENGTH = 300;
 
@@ -183,16 +184,17 @@ export function addressIssues(address: Address): string[] {
  * confirmed by a person.
  *
  * @param address - The purchase order's shipping address.
- * @throws {Error} "Shipping address: " followed by the {@link addressIssues}
- *   messages joined with spaces, when there are any; otherwise "Review and
- *   confirm the shipping address before issuing this PO." when it is
- *   unconfirmed. The purchase-order mutation shows these messages to the user.
+ * @throws {Rejection} "Shipping address: " followed by the
+ *   {@link addressIssues} messages joined with spaces, when there are any;
+ *   otherwise "Review and confirm the shipping address before issuing this
+ *   PO." when it is unconfirmed.
  */
 export function assertConfirmedAddress(address: Address): void {
   const issues = addressIssues(address);
-  if (issues.length) throw Error(`Shipping address: ${issues.join(" ")}`);
+  if (issues.length)
+    throw new Rejection(`Shipping address: ${issues.join(" ")}`);
   if (!address.confirmed)
-    throw Error(
+    throw new Rejection(
       "Review and confirm the shipping address before issuing this PO.",
     );
 }

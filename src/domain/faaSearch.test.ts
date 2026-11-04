@@ -1,13 +1,21 @@
-import { it, expect, vi } from "vitest";
+/**
+ * Responsibility: Pins FAA search assets, DRS filters and their limits, and
+ *   how a search's assets share DRS queries.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/faaSearch.ts, ./faa, ./components, ./rejection,
+ *   src/data/demo.ts (seed).
+ */
+import { it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
   searchAssets,
   blankSearch,
   searchFilters,
-  searchFAA,
+  faaSearchQueries,
   faaSearchSchema,
 } from "./faaSearch";
 import type { Component } from "./components";
+import { Rejection } from "./rejection";
 const component = (id: string): Component => ({
   uuid: id,
   version: 1,
@@ -73,40 +81,6 @@ it("validates empty searches, date ranges and FAA filter limits before requests"
     searchFilters(f, { ...f.assets[0], model: "" }, "ADFRAWD"),
   ).toThrow("model or keyword");
 });
-it("queries identical engines once per document type, merges asset assignments and prefers current final rules", async () => {
-  const s = demoSnapshot();
-  s.management = [component("left"), component("right")];
-  const f = blankSearch(
-    "demo-206",
-    searchAssets(s, "demo-206").filter((a) => a.id),
-  );
-  const response = (emergency: boolean) =>
-    new Response(
-      JSON.stringify({
-        summary: { hasMoreItems: false },
-        documents: [
-          {
-            documentGuid: emergency ? "emergency" : "final",
-            "drs:documentNumber": "2026-01-01",
-            "drs:status": "Current",
-            docLastModifiedDate: "2026-01-01",
-            documentURL: `https://drs.faa.gov/${emergency ? "emergency" : "final"}`,
-          },
-        ],
-      }),
-    );
-  const request = vi
-    .fn<typeof fetch>()
-    .mockImplementation(async (url) =>
-      response(String(url).includes("ADFREAD")),
-    );
-  const r = await searchFAA("synthetic", f, request);
-  expect(request).toHaveBeenCalledTimes(2);
-  expect(r).toHaveLength(1);
-  expect(r[0].assetIds).toEqual(["left", "right"]);
-  expect(r[0].candidate.emergency).toBe(false);
-  expect(r[0].documents).toHaveLength(2);
-});
 it("uses emergency-specific product and date metadata and supports historical searches", () => {
   const s = demoSnapshot();
   const f = blankSearch("demo-206", searchAssets(s, "demo-206"));
@@ -164,4 +138,75 @@ it("uses explicit FAA model overrides without rewriting profile identities", asy
   expect(s.aircraft[0].model).toBe("C441");
   s.aircraft[0].faaSearchModel = "";
   expect(searchAssets(s, s.aircraft[0].uuid)[0].model).toBe("C441");
+});
+
+function airframeSearch() {
+  const s = demoSnapshot();
+  return blankSearch("demo-206", searchAssets(s, "demo-206").slice(0, 1));
+}
+
+it("refuses filters the FAA cannot run with a Rejection", () => {
+  const f = airframeSearch();
+  const tooMany = () =>
+    searchFilters(
+      { ...f, subject: "a", docket: "b", amendment: "c", affectedAD: "d" },
+      f.assets[0],
+      "ADFRAWD",
+    );
+  expect(tooMany).toThrow(Rejection);
+  expect(tooMany).toThrow(
+    "FAA allows five filters per search, including status. Remove some advanced fields or disable the manufacturer filter.",
+  );
+  const blank = () =>
+    searchFilters(f, { ...f.assets[0], model: "" }, "ADFRAWD");
+  expect(blank).toThrow(Rejection);
+  expect(blank).toThrow(
+    "Each selected asset needs a model or keyword, or enter an AD number.",
+  );
+});
+
+it("names the date filter by field and a component under Airframe as an appliance", () => {
+  const f = {
+    ...airframeSearch(),
+    dateFrom: "2026-01-01",
+    dateTo: "2026-02-01",
+  };
+  const component = { ...f.assets[0], id: "c", section: "Airframe" as const };
+  expect(searchFilters(f, component, "ADFRAWD")).toMatchObject({
+    "drs:effectiveDate": ["2026-01-01", "2026-02-01"],
+    "drs:adfrawdProductType": ["Appliance"],
+  });
+  expect(
+    searchFilters({ ...f, dateField: "published" }, f.assets[0], "ADFREAD"),
+  ).toHaveProperty("drs:adfreadCitationPublishDate");
+});
+
+it("plans one DRS query per document type and distinct filters, final rules first", () => {
+  const s = demoSnapshot();
+  s.management = [
+    component("left"),
+    component("right"),
+    { ...component("prop"), componentType: "Propeller" },
+  ];
+  const form = blankSearch("demo-206", searchAssets(s, "demo-206"));
+  const queries = faaSearchQueries(form);
+  expect(queries.map((q) => [q.type, q.assets])).toEqual([
+    ["ADFRAWD", [""]],
+    ["ADFRAWD", ["left", "right"]],
+    ["ADFRAWD", ["prop"]],
+    ["ADFREAD", [""]],
+    ["ADFREAD", ["left", "right"]],
+    ["ADFREAD", ["prop"]],
+  ]);
+  expect(queries[1].filters).toEqual(
+    searchFilters(form, form.assets[1], "ADFRAWD"),
+  );
+  expect(
+    faaSearchQueries({ ...form, finalRules: false }).map((q) => q.type),
+  ).toEqual(["ADFREAD", "ADFREAD", "ADFREAD"]);
+  expect(() => faaSearchQueries({ ...form, assets: [] })).toThrow();
+  const blank = { ...form.assets[0], model: "" };
+  expect(() => faaSearchQueries({ ...form, assets: [blank] })).toThrow(
+    Rejection,
+  );
 });

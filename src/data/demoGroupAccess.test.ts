@@ -1,11 +1,19 @@
+/**
+ * Responsibility: Pins the demo's group access review: a group an edit before
+ *   the #34 fix widened stays listed until an administrator chooses again.
+ * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
+ * Dependencies: src/data/store.ts, src/data/local.ts, src/data/demo.ts,
+ *   src/domain/model.ts (types).
+ *
+ * The demo mirrors convex/groupAudit.ts and the change-log entries that
+ * convex/admin.ts saveGroup writes (docs/flight-program-access.md).
+ */
 import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
 import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import type { Permission } from "../domain/model";
 
-// The demo backend mirrors convex/groupAudit.ts and the change-log entries
-// convex/admin.ts saveGroup writes (follow-up to #34).
 it("the demo finds a group an edit before the fix widened, and records the explicit choice that clears it", async () => {
   vi.stubGlobal("navigator", { onLine: true });
   const namespace = "demo-group-access-test";

@@ -1,10 +1,18 @@
+/**
+ * Responsibility: Pins the records workbook built from the fixture export:
+ *   sheets, labels, dates, statuses, layout, what it never shows, the change
+ *   history split, damaged records and the command line.
+ * Layer: Test. Vitest suite (Node); never shipped in the build.
+ * Dependencies: scripts/backup/recordsWorkbook.ts, ./exportFixture, exceljs,
+ *   fflate, src/domain/auditHistory.
+ */
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ExcelJS from "exceljs";
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditActionLabel } from "../../src/domain/auditHistory";
 import { fixtureExport } from "./exportFixture";
@@ -217,6 +225,37 @@ function rows(name: string) {
 }
 const fill = (c: ExcelJS.Cell) =>
   (c.fill as ExcelJS.FillPattern | undefined)?.fgColor?.argb;
+// Changes a document of an export table in place: the first, or the first
+// that `pick` matches.
+function editFirst(
+  files: Record<string, Uint8Array>,
+  table: string,
+  change: (d: Record<string, unknown>) => void,
+  pick: (d: Record<string, unknown>) => boolean = () => true,
+) {
+  const name = `${table}/documents.jsonl`;
+  const docs: Record<string, unknown>[] = strFromU8(files[name])
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  change(docs.find(pick)!);
+  files[name] = strToU8(docs.map((d) => JSON.stringify(d)).join("\n") + "\n");
+}
+async function buildFrom(files: Record<string, Uint8Array>, name: string) {
+  const zip = path.join(dir, `${name}.zip`);
+  const out = path.join(dir, `${name}.xlsx`);
+  await writeFile(zip, zipSync(files));
+  const summary = await buildRecordsWorkbook(zip, {
+    out,
+    timeZone: TZ,
+    deployment: "fixture",
+    now,
+  });
+  const read = new ExcelJS.Workbook();
+  await read.xlsx.readFile(out);
+  return { summary, read, out };
+}
+
 function allCells() {
   const cells: { sheet: string; column: string; value: string }[] = [];
   wb.eachSheet((ws) => {
@@ -516,6 +555,128 @@ describe("records workbook", () => {
     expect(readMe).toContain(`split across ${parts.length} sheets`);
   });
 
+  it("shows a record that no longer matches the app as stored, with a note, and drops characters XML cannot hold", async () => {
+    const files = unzipSync(fixture.zip);
+    const edit = (
+      table: string,
+      change: (d: Record<string, unknown>) => void,
+    ) => editFirst(files, table, change);
+    edit("management", (d) => {
+      d.payload = JSON.stringify({
+        ...JSON.parse(String(d.payload)),
+        name: "",
+      });
+    });
+    edit("discrepancies", (d) => {
+      d.description = "Tab\tkept\u0001, \ud83d\ude00 kept, lone \ud83d dropped";
+    });
+    const damaged = path.join(dir, "damaged.zip");
+    const out = path.join(dir, "damaged.xlsx");
+    await writeFile(damaged, zipSync(files));
+    const summary = await buildRecordsWorkbook(damaged, {
+      out,
+      timeZone: TZ,
+      deployment: "fixture",
+      now,
+    });
+    expect(summary.warnings).toEqual([
+      "1 inventory and component record did not match the app's current format; shown as stored on the Damaged records sheet.",
+    ]);
+    const read = new ExcelJS.Workbook();
+    await read.xlsx.readFile(out);
+    const descriptions: string[] = [];
+    read
+      .getWorksheet("Discrepancies")!
+      .eachRow((row) => row.eachCell((c) => descriptions.push(text(c.value))));
+    expect(descriptions).toContain(
+      "Tab\tkept, \ud83d\ude00 kept, lone  dropped",
+    );
+  });
+
+  it("lists each damaged record as stored, with its note, and builds every other sheet", async () => {
+    const files = unzipSync(fixture.zip);
+    const storageId = Object.keys(files)
+      .find((f) => /^_storage\/[^/]+$/.test(f) && !f.endsWith(".jsonl"))!
+      .slice("_storage/".length);
+    const payload = (
+      table: string,
+      change: (p: Record<string, unknown>) => void,
+    ) =>
+      editFirst(files, table, (d) => {
+        const p = JSON.parse(String(d.payload));
+        change(p);
+        d.payload = JSON.stringify(p);
+      });
+    // Each crashed the build before (finding 48).
+    editFirst(files, "management", (d) => {
+      d.payload = `{"kind":"stock","file":"${storageId}","link":"https://x.convex.cloud/a`;
+    });
+    editFirst(
+      files,
+      "management",
+      (d) =>
+        (d.payload = JSON.stringify({
+          ...JSON.parse(String(d.payload)),
+          name: {},
+        })),
+      (d) => String(d.payload).includes("FIXTURE-ACCOUNT"),
+    );
+    payload("airworthiness", (p) => delete p.tasks);
+    payload("workOrders", (p) => (p.dateOpened = {}));
+    editFirst(files, "taskCards", (d) => delete d.payload);
+    payload("purchaseOrders", (p) => {
+      delete p.lines;
+      p.url = `https://x.convex.cloud/api/storage/${storageId}`;
+    });
+    const { summary, read, out } = await buildFrom(files, "damaged-each");
+    const format = (n: string) =>
+      `${n} did not match the app's current format; shown as stored on the Damaged records sheet.`;
+    expect(summary.warnings).toEqual(
+      [
+        "2 inventory and component records",
+        "1 AD record",
+        "1 work order record",
+        "1 job card record",
+        "1 purchase order record",
+      ].map(format),
+    );
+    expect(summary.sheets.map((s) => s.name)).toEqual([
+      ...wb.worksheets.map((ws) => ws.name),
+      "Damaged records",
+    ]);
+    const ws = read.getWorksheet("Damaged records")!;
+    expect(header(ws)).toEqual(["Record type", "Note", "As stored"]);
+    const listed: string[][] = [];
+    ws.eachRow((row, n) => {
+      if (n > 2) listed.push([1, 2, 3].map((c) => text(row.getCell(c).value)));
+    });
+    const MISMATCH = "Does not match the app's current format.";
+    expect(listed.map(([type, note]) => [type, note])).toEqual([
+      ["Inventory and component", "Not JSON; shown as the stored text."],
+      ["Inventory and component", MISMATCH],
+      ["AD", MISMATCH],
+      ["Work order", MISMATCH],
+      ["Job card", "The row has no payload."],
+      ["Purchase order", MISMATCH],
+    ]);
+    expect(listed[0][2]).toBe(
+      '{"kind":"stock","file":"[file]","link":"[link removed]',
+    );
+    expect(listed[1][2]).toContain("\nName:\n");
+    expect(listed[1][2]).not.toContain("Account number");
+    expect(listed[2][2]).toContain("\nAircraft: N206MA\n");
+    expect(listed[2][2]).toContain("\n  Number: 2024-DEMO-03\n");
+    expect(listed[2][2]).not.toContain("Tasks");
+    expect(listed[3][2]).toMatch(/^Number: WO-2026-0007\n.*\nDate opened:\n/s);
+    expect(listed[3][2]).not.toContain("License number");
+    expect(listed[4][2]).toBe("(no payload)");
+    expect(listed[5][2]).not.toContain("Url");
+    const xml = Object.values(unzipSync(await readFile(out)))
+      .map((bytes) => strFromU8(bytes))
+      .join("\n");
+    for (const secret of fixture.forbidden) expect(xml).not.toContain(secret);
+  });
+
   it("runs from the command line and fails clearly on a bad export", async () => {
     const script = path.resolve(__dirname, "records-workbook.mjs");
     const out = path.join(dir, "cli.xlsx");
@@ -540,5 +701,7 @@ describe("records workbook", () => {
     );
     expect(failed.status).toBe(1);
     expect(failed.stderr).toContain("The export is not a ZIP file.");
-  });
+    // Spawns node and bundles the workbook with esbuild: seconds of work that
+    // pass vitest's 5 s default only on an idle machine.
+  }, 30_000);
 });

@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins which FAA candidates stay in an aircraft's review: new
+ *   or revised ADs, and assets that lack the import.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/faaCandidateReview.ts, ./airworthiness,
+ *   ./components, ./faa (types), src/data/demo.ts (fixture).
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { blankAD } from "./airworthiness";
@@ -46,6 +53,9 @@ it("retains new revisions, changed FAA content, and newer document modification 
   expect(
     monitoringReviewCandidates(s, a.uuid, [{ ...c, modified: "2026-10-02" }]),
   ).toHaveLength(1);
+  expect(
+    monitoringReviewCandidates(s, a.uuid, [{ ...c, modified: "unknown" }]),
+  ).toHaveLength(0);
   r.source.faaModified = "2026-01-01";
   expect(monitoringReviewCandidates(s, a.uuid, [c])).toHaveLength(0);
   expect(
@@ -102,4 +112,27 @@ it("recognizes an appliance AD imported against its listed aircraft model", () =
   c.source.section = "Appliance";
   c.matchedAssetIds = undefined;
   expect(monitoringReviewCandidates(s, a.uuid, [c])).toHaveLength(0);
+});
+
+it("matches a listed model in a comma or semicolon list, ignoring case", () => {
+  const { s, a, r, c } = setup();
+  r.source.section = "Appliance";
+  r.source.model = `PT6A, TPE331; ${a.model.toLowerCase()}`;
+  c.source = { ...r.source };
+  c.matchedAssetIds = undefined;
+  expect(monitoringReviewCandidates(s, a.uuid, [c])).toEqual([]);
+});
+
+it("targets the candidate's section when no asset has a listed model", () => {
+  const { s, a, r, c } = setup();
+  s.management = [];
+  r.source.model = "Unlisted";
+  c.matchedAssetIds = undefined;
+  c.source = { ...r.source };
+  expect(monitoringReviewCandidates(s, a.uuid, [c])).toEqual([]);
+  r.source.section = "Propeller";
+  const propeller = { ...c, source: { ...r.source } };
+  expect(monitoringReviewCandidates(s, a.uuid, [propeller, c])).toEqual([
+    propeller,
+  ]);
 });

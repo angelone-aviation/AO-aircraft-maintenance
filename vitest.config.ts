@@ -4,9 +4,11 @@
  * Dependencies: vitest/config.
  *
  * Edge-runtime matches the Convex runtime; tests that need Node built-ins opt
- * out with an `@vitest-environment node` docblock.
+ * out with an `@vitest-environment node` comment at the top of the file.
  */
 import { defineConfig } from "vitest/config";
+
+/** Colocated `*.test.ts` suites only; Playwright runs the specs in tests/e2e. */
 export default defineConfig({
   test: {
     include: [

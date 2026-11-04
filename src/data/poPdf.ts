@@ -1,73 +1,109 @@
-import { jsPDF } from "jspdf";
-import { localDate } from "../domain/model";
+/**
+ * Responsibility: Prints a purchase order as a PDF to send to the vendor.
+ * Layer: Data. Browser-side PDF document; no React.
+ * Dependencies: src/data/pdfLayout.ts, src/domain/model.ts,
+ *   src/domain/purchaseOrders.ts.
+ */
+import { paragraphPdf, type Paragraph } from "./pdfLayout";
+import { localDate, type Snapshot } from "../domain/model";
 import {
   poStatus,
   poTotal,
   type PurchaseOrder,
 } from "../domain/purchaseOrders";
-export function poPdf(
-  po: PurchaseOrder,
-  snapshot?: import("../domain/model").Snapshot,
-) {
-  const doc = new jsPDF();
-  let y = 18;
-  const line = (value: string, bold = false) => {
-    doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.setFontSize(bold ? 12 : 10);
-    for (const t of doc.splitTextToSize(value, 176)) {
-      if (y > 275) {
-        doc.addPage();
-        y = 18;
-      }
-      doc.text(t, 17, y);
-      y += 6;
-    }
-    y += 2;
-  };
-  const cash = (c: number) => `${po.currency} ${(c / 100).toFixed(2)}`;
-  line(`PURCHASE ORDER ${po.number}`, true);
-  line(
-    `${poStatus(po)} | Revision ${po.revision} | ${localDate(po.issuedAt ?? po.createdAt)}`,
+
+const CENTS_PER_UNIT = 100;
+
+type POLine = PurchaseOrder["lines"][number];
+type Allocation = NonNullable<POLine["requestAllocations"]>[number];
+
+/**
+ * Lays out a purchase order: status, revision and date, vendor and delivery,
+ * each line with its amount and the parts requests it fills, then shipping
+ * and the total. A draft is marked "DRAFT - NOT ISSUED".
+ *
+ * @param po - The purchase order.
+ * @param snapshot - Holds the parts requests its lines are allocated to;
+ *   without it, allocations are left out.
+ * @returns The document, ready for `save()`.
+ */
+export function poPdf(po: PurchaseOrder, snapshot?: Snapshot) {
+  const out: Paragraph[] = [
+    { text: `PURCHASE ORDER ${po.number}`, bold: true },
+    {
+      text: `${poStatus(po)} | Revision ${po.revision} | ${localDate(po.issuedAt ?? po.createdAt)}`,
+    },
+  ];
+  if (po.phase === "draft")
+    out.push({ text: "DRAFT - NOT ISSUED", bold: true });
+  out.push(
+    { text: `Vendor: ${po.vendor}`, bold: true },
+    { text: po.vendorContact },
+    { text: `Deliver to: ${po.shipTo}` },
+    { text: `Expected delivery: ${po.expectedDate || "Not specified"}` },
   );
-  if (po.phase === "draft") line("DRAFT - NOT ISSUED", true);
-  line(`Vendor: ${po.vendor}`, true);
-  line(po.vendorContact);
-  line(`Deliver to: ${po.shipTo}`);
-  line(`Expected delivery: ${po.expectedDate || "Not specified"}`);
-  for (const [i, l] of po.lines.entries()) {
-    line(`${i + 1}. ${l.partNumber} - ${l.description}`, true);
-    if (l.sprucePart)
-      line(
-        `Aircraft Spruce part: ${l.sprucePart.partNumber} | Order unit: ${l.sprucePart.uom || "Verify unit"}`,
-      );
-    line(
-      `Qty: ${l.quantity} | Unit: ${cash(l.unitCents)} | Amount: ${cash(l.quantity * l.unitCents)}`,
-    );
-    for (const a of l.requestAllocations ?? []) {
-      const request = snapshot?.partsRequests?.find(
-        (r) => r.uuid === a.requestUuid,
-      );
-      const item = request?.lines.find((r) => r.uuid === a.lineUuid);
-      if (request)
-        line(
-          `Request: ${request.number} | Aircraft: ${request.aircraftRegistration || "Stock"} | Allocated: ${a.quantity}`,
-        );
-      if (item && l.repairComponentUuid) {
-        line(
-          `Repair service: ${l.repairWork} | Serial: ${item.componentSerial || "Not recorded"}`,
-        );
-        line(`Defect: ${item.defect}`);
-        line(`Work requested: ${item.workRequested}`);
-      }
-    }
-    if (l.cancelled) line(`Cancelled quantity: ${l.cancelled}`);
-    if (l.kind === "component")
-      line(
-        `Trackable component | ${l.componentType} | ${l.manufacturer} ${l.model}`,
-      );
-  }
-  line(`Shipping: ${cash(po.shippingCents)}`);
-  line(`Total ordered: ${cash(poTotal(po))}`, true);
-  line(po.notes);
-  return doc;
+  for (const [i, l] of po.lines.entries())
+    out.push(...listLineParagraphs(po, i, l, snapshot));
+  out.push(
+    { text: `Shipping: ${formatMoney(po, po.shippingCents)}` },
+    { text: `Total ordered: ${formatMoney(po, poTotal(po))}`, bold: true },
+    { text: po.notes },
+  );
+  return paragraphPdf(out);
+}
+
+function formatMoney(po: PurchaseOrder, cents: number): string {
+  return `${po.currency} ${(cents / CENTS_PER_UNIT).toFixed(2)}`;
+}
+
+function listLineParagraphs(
+  po: PurchaseOrder,
+  i: number,
+  l: POLine,
+  snapshot?: Snapshot,
+): Paragraph[] {
+  const out: Paragraph[] = [
+    { text: `${i + 1}. ${l.partNumber} - ${l.description}`, bold: true },
+  ];
+  if (l.sprucePart)
+    out.push({
+      text: `Aircraft Spruce part: ${l.sprucePart.partNumber} | Order unit: ${l.sprucePart.uom || "Verify unit"}`,
+    });
+  out.push({
+    text: `Qty: ${l.quantity} | Unit: ${formatMoney(po, l.unitCents)} | Amount: ${formatMoney(po, l.quantity * l.unitCents)}`,
+  });
+  for (const a of l.requestAllocations ?? [])
+    out.push(...listAllocationParagraphs(l, a, snapshot));
+  if (l.cancelled) out.push({ text: `Cancelled quantity: ${l.cancelled}` });
+  if (l.kind === "component")
+    out.push({
+      text: `Trackable component | ${l.componentType} | ${l.manufacturer} ${l.model}`,
+    });
+  return out;
+}
+
+// A repair line also carries the component and work from the request line.
+function listAllocationParagraphs(
+  l: POLine,
+  a: Allocation,
+  snapshot?: Snapshot,
+): Paragraph[] {
+  const request = snapshot?.partsRequests?.find(
+    (r) => r.uuid === a.requestUuid,
+  );
+  const item = request?.lines.find((r) => r.uuid === a.lineUuid);
+  const out: Paragraph[] = [];
+  if (request)
+    out.push({
+      text: `Request: ${request.number} | Aircraft: ${request.aircraftRegistration || "Stock"} | Allocated: ${a.quantity}`,
+    });
+  if (!item || !l.repairComponentUuid) return out;
+  out.push(
+    {
+      text: `Repair service: ${l.repairWork} | Serial: ${item.componentSerial || "Not recorded"}`,
+    },
+    { text: `Defect: ${item.defect}` },
+    { text: `Work requested: ${item.workRequested}` },
+  );
+  return out;
 }

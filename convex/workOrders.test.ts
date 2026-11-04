@@ -1,9 +1,18 @@
+/**
+ * Responsibility: Pins work orders on the server: saving, close-out,
+ *   revisions, component corrections, job-card copies and archiving, the
+ *   attachments of an open order, and the refusals users see.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/workOrders.ts, convex/admin.ts, convex/taskCards.ts,
+ *   convex/schema.ts, src/domain/workOrders.ts, src/data/demo.ts,
+ *   tests/fixtures (workOrders, taskCards).
+ */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
-afterEach(() => vi.useRealTimers());
 import schema from "./schema";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
+import { MAX_ATTACHMENTS } from "./attachments";
 import {
   workOrderComponent,
   workOrderCommand,
@@ -14,6 +23,19 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const PROGRAM = "demo-program";
+const HOUR_SECONDS = 3600;
+const DAY_MS = 86_400_000;
+const PDF = new TextEncoder().encode("%PDF-1.4 test").buffer;
+
+afterEach(() => vi.useRealTimers());
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Seeds the demo fleet, program and inspections, with a technician (read and
+ * maintenance) and a reader, each in a group for the first aircraft only.
+ */
 async function fixture() {
   const t = convexTest(schema, modules);
   const identities = await t.run(async (ctx) => {
@@ -23,7 +45,7 @@ async function fixture() {
     for (const i of s.inspections) await ctx.db.insert("inspections", i);
     const makeUser = async (permissions: ("read" | "maintenance")[]) => {
       const group = await ctx.db.insert("groups", {
-        programUuid: "demo-program",
+        programUuid: PROGRAM,
         name: permissions.join(","),
         aircraftIds: [s.aircraft[0].uuid],
         permissions,
@@ -36,7 +58,7 @@ async function fixture() {
       });
       const session = await ctx.db.insert("authSessions", {
         userId: user,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { subject: `${user}|${session}` };
     };
@@ -55,7 +77,7 @@ it("persists work orders and audit entries; rejects unauthorized, stale and cros
   const { t, tech, reader } = await fixture();
   const command = workOrderCommand();
   const args = {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(command),
   };
   await expect(reader.mutation(api.workOrders.save, args)).rejects.toThrow();
@@ -91,15 +113,15 @@ it("uploads authorized maintenance attachments and prevents uploads after closin
   const { tech, reader } = await fixture();
   const command = workOrderCommand();
   await tech.mutation(api.workOrders.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(command),
   });
   const file = {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     workOrderUuid: command.uuid,
     name: "maintenance.pdf",
     type: "application/pdf",
-    bytes: new TextEncoder().encode("%PDF-1.4 test").buffer,
+    bytes: PDF,
   };
   await expect(reader.action(api.workOrders.upload, file)).rejects.toThrow();
   await tech.action(api.workOrders.upload, file);
@@ -109,7 +131,7 @@ it("uploads authorized maintenance attachments and prevents uploads after closin
   ]);
   expect(snapshot?.workOrderAttachments?.[0].url).toBeTruthy();
   await tech.mutation(api.workOrders.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify({
       ...command,
       version: 1,
@@ -128,7 +150,7 @@ it("prepares independent source template copies for each work order and prevents
   const task = taskCardCommand();
   task.fields.inspectionUuid = "demo-insp-1";
   await tech.mutation(api.taskCards.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(task),
   });
   const { newWorkTask } = await import("../src/domain/workOrders");
@@ -137,7 +159,7 @@ it("prepares independent source template copies for each work order and prevents
     newWorkTask({ kind: "inspection", uuid: "demo-insp-1" }, "Inspection"),
   ];
   const args = (command: unknown) => ({
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(command),
   });
   await tech.mutation(api.workOrders.save, args(first));
@@ -192,7 +214,7 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
       .withIndex("uuid", (q) => q.eq("uuid", inspectionId))
       .unique();
     await ctx.db.patch(doc!._id, {
-      intervalSeconds: 360000,
+      intervalSeconds: 100 * HOUR_SECONDS,
       intervalMonths: 12,
       lastDate: "2025-01-01",
     });
@@ -210,7 +232,7 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
     ),
   ];
   await tech.mutation(api.workOrders.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(command),
   });
   const before = (await tech.query(api.operations.snapshot, {}))!;
@@ -221,7 +243,7 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
     fields: {
       ...workOrderFieldsSchema.parse(order),
       status: "completed",
-      completionDate: new Date().toISOString().slice(0, 10),
+      completionDate: today(),
       releaseOutcome: "Recorded disposition",
       finalReview: "Reviewed",
     },
@@ -229,12 +251,12 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
   };
   await expect(
     reader.mutation(api.workOrders.save, {
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       payload: JSON.stringify(completion),
     }),
   ).rejects.toThrow();
   await tech.mutation(api.workOrders.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(completion),
   });
   const after = (await tech.query(api.operations.snapshot, {}))!;
@@ -246,7 +268,7 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
   const inspection = after.inspections.find((i) => i.uuid === inspectionId)!;
   expect(inspection.lastDate).toBe(completion.fields.completionDate);
   expect(inspection.dueSeconds).toBe(
-    closed.closeout!.aircraft.totalSeconds + 360000,
+    closed.closeout!.aircraft.totalSeconds + 100 * HOUR_SECONDS,
   );
   expect(
     after.audit.some(
@@ -256,7 +278,7 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
   ).toBe(true);
   await expect(
     tech.mutation(api.workOrders.save, {
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       payload: JSON.stringify({ ...completion, version: closed.version }),
     }),
   ).rejects.toThrow("closed");
@@ -320,7 +342,7 @@ it("saves personal release statements and rejects invalid or unauthenticated cha
 
 it("commits component resets and movement history with closeout and rejects repeat closure", async () => {
   const { t, tech } = await fixture();
-  const component = { ...workOrderComponent(), programUuid: "demo-program" };
+  const component = { ...workOrderComponent(), programUuid: PROGRAM };
   await t.run(async (ctx) => {
     await ctx.db.insert("management", {
       uuid: component.uuid,
@@ -333,7 +355,7 @@ it("commits component resets and movement history with closeout and rejects repe
   const cmd = workOrderCommand();
   cmd.componentUuids = [component.uuid];
   await tech.mutation(api.workOrders.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(cmd),
   });
   const completion = {
@@ -342,7 +364,7 @@ it("commits component resets and movement history with closeout and rejects repe
     fields: {
       ...cmd.fields,
       status: "completed",
-      completionDate: new Date().toISOString().slice(0, 10),
+      completionDate: today(),
       releaseOutcome: "Reviewed",
       finalReview: "Reviewed",
     },
@@ -357,7 +379,7 @@ it("commits component resets and movement history with closeout and rejects repe
     ],
   };
   const args = {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(completion),
   };
   await tech.mutation(api.workOrders.save, args);
@@ -391,7 +413,7 @@ it("persists closed-order revisions and their reasons without changing inspectio
   const command = workOrderCommand();
   const send = (payload: unknown) =>
     tech.mutation(api.workOrders.save, {
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       payload: JSON.stringify(payload),
     });
   await send(command);
@@ -401,7 +423,7 @@ it("persists closed-order revisions and their reasons without changing inspectio
     fields: {
       ...command.fields,
       status: "completed",
-      completionDate: new Date().toISOString().slice(0, 10),
+      completionDate: today(),
       releaseOutcome: "Original",
       finalReview: "Reviewed",
     },
@@ -422,7 +444,7 @@ it("persists closed-order revisions and their reasons without changing inspectio
   };
   await expect(
     reader.mutation(api.workOrders.save, {
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       payload: JSON.stringify(revision),
     }),
   ).rejects.toThrow();
@@ -442,11 +464,11 @@ it("persists closed-order revisions and their reasons without changing inspectio
 
 it("atomically corrects component tracking, retains original movements and audits the correction", async () => {
   const { t, tech, reader } = await fixture();
-  const component = { ...workOrderComponent(), programUuid: "demo-program" };
+  const component = { ...workOrderComponent(), programUuid: PROGRAM };
   await t.run((ctx) =>
     ctx.db.insert("management", {
       uuid: component.uuid,
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       aircraftUuid: component.aircraftUuid,
       kind: "component",
       payload: JSON.stringify(component),
@@ -456,7 +478,7 @@ it("atomically corrects component tracking, retains original movements and audit
   cmd.componentUuids = [component.uuid];
   const send = (payload: unknown) =>
     tech.mutation(api.workOrders.save, {
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       payload: JSON.stringify(payload),
     });
   await send(cmd);
@@ -466,7 +488,7 @@ it("atomically corrects component tracking, retains original movements and audit
     fields: {
       ...cmd.fields,
       status: "completed",
-      completionDate: new Date().toISOString().slice(0, 10),
+      completionDate: today(),
       releaseOutcome: "Reviewed",
       finalReview: "Reviewed",
     },
@@ -501,7 +523,7 @@ it("atomically corrects component tracking, retains original movements and audit
   };
   await expect(
     reader.mutation(api.workOrders.save, {
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       payload: JSON.stringify(correction),
     }),
   ).rejects.toThrow();
@@ -542,13 +564,13 @@ it("archives a signed task copy without signer approval, preserving signatures, 
   const template = taskCardCommand();
   template.fields.inspectionUuid = source.uuid;
   await tech.mutation(api.taskCards.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(template),
   });
   const command = workOrderCommand();
   command.tasks = [newWorkTask(source, "Inspection")];
   await tech.mutation(api.workOrders.save, {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify(command),
   });
   await t.finishAllScheduledFunctions(() => vi.runAllTimers());
@@ -564,7 +586,7 @@ it("archives a signed task copy without signer approval, preserving signatures, 
     at: Date.now(),
   };
   copy.status = "completed";
-  copy.completionDate = new Date().toISOString().slice(0, 10);
+  copy.completionDate = today();
   copy.technicianSignoff = signature;
   copy.inspectionSignoff = {
     ...signature,
@@ -592,7 +614,7 @@ it("archives a signed task copy without signer approval, preserving signatures, 
     return { id, storageId };
   });
   const args = {
-    programUuid: "demo-program",
+    programUuid: PROGRAM,
     payload: JSON.stringify({ ...command, version: order.version, tasks: [] }),
   };
   await expect(reader.mutation(api.workOrders.save, args)).rejects.toThrow();
@@ -620,7 +642,7 @@ it("archives a signed task copy without signer approval, preserving signatures, 
   });
   await expect(
     tech.mutation(api.taskCards.save, {
-      programUuid: "demo-program",
+      programUuid: PROGRAM,
       payload: JSON.stringify({
         action: "sign",
         uuid: copy.uuid,
@@ -639,4 +661,155 @@ it("archives a signed task copy without signer approval, preserving signatures, 
   await expect(tech.mutation(api.workOrders.save, args)).rejects.toThrow(
     "changed",
   );
+});
+
+// The error a run rejects with.
+const refusal = (run: Promise<unknown>) =>
+  run.then(
+    () => {
+      throw new Error("Expected a refusal.");
+    },
+    (error: unknown) => error,
+  );
+
+async function openOrderWithAttachment() {
+  const f = await fixture();
+  const command = workOrderCommand();
+  const save = (payload: unknown) =>
+    f.tech.mutation(api.workOrders.save, {
+      programUuid: PROGRAM,
+      payload: JSON.stringify(payload),
+    });
+  await save(command);
+  const file = {
+    programUuid: PROGRAM,
+    workOrderUuid: command.uuid,
+    name: "maintenance.pdf",
+    type: "application/pdf",
+    bytes: PDF,
+  };
+  await f.tech.action(api.workOrders.upload, file);
+  const attachment = await f.t.run(
+    async (ctx) => (await ctx.db.query("workOrderFiles").first())!,
+  );
+  return { ...f, command, save, file, attachment };
+}
+
+it("shows the work order's own refusals to the user as ConvexErrors", async () => {
+  const { t, tech, command, save, file, attachment } =
+    await openOrderWithAttachment();
+  const missing = crypto.randomUUID();
+  const revise = {
+    action: "revise",
+    uuid: missing,
+    version: 0,
+    reason: "Typo correction",
+    fields: {
+      supervisor: "Tech",
+      scope: "Corrected scope",
+      releaseOutcome: "",
+      finalReview: "",
+      workPerformed: "",
+    },
+  };
+  const shown: [string, () => Promise<unknown>][] = [
+    ["Work order not found.", () => save(revise)],
+    [
+      "Work order not found.",
+      () =>
+        tech.action(api.workOrders.upload, { ...file, workOrderUuid: missing }),
+    ],
+  ];
+  for (const [message, run] of shown)
+    expect(await refusal(run()), message).toMatchObject({
+      name: "ConvexError",
+      data: message,
+    });
+  await save({
+    ...command,
+    version: 1,
+    fields: { ...command.fields, status: "cancelled" },
+  });
+  const closed = "This work order is closed.";
+  for (const run of [
+    () => tech.action(api.workOrders.upload, file),
+    () =>
+      tech.mutation(internal.workOrders.finishUpload, {
+        programUuid: PROGRAM,
+        workOrderUuid: command.uuid,
+        storageId: attachment.storageId,
+        name: "late.pdf",
+        size: 1,
+      }),
+    () =>
+      tech.mutation(api.workOrders.removeFile, {
+        id: attachment._id,
+        programUuid: PROGRAM,
+      }),
+  ])
+    expect(await refusal(run())).toMatchObject({
+      name: "ConvexError",
+      data: closed,
+    });
+  await t.run((ctx) => ctx.db.delete(attachment._id));
+  expect(
+    await refusal(
+      tech.mutation(api.workOrders.removeFile, {
+        id: attachment._id,
+        programUuid: PROGRAM,
+      }),
+    ),
+  ).toMatchObject({ name: "ConvexError", data: "Attachment not found." });
+  expect(
+    await refusal(
+      tech.action(api.workOrders.upload, { ...file, type: "text/plain" }),
+    ),
+  ).toMatchObject({
+    name: "ConvexError",
+    data: "Choose a PDF, JPEG or PNG file up to 7 MB.",
+  });
+});
+
+it("removes an attachment from an open work order with its unused file, audited", async () => {
+  const { t, tech, reader, command, attachment } =
+    await openOrderWithAttachment();
+  const remove = { id: attachment._id, programUuid: PROGRAM };
+  await expect(
+    reader.mutation(api.workOrders.removeFile, remove),
+  ).rejects.toThrow();
+  await tech.mutation(api.workOrders.removeFile, remove);
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("workOrderFiles").collect()).toEqual([]);
+    expect(await ctx.storage.get(attachment.storageId)).toBeNull();
+    const audit = await ctx.db.query("audit").collect();
+    expect(
+      audit.find((a) => a.action === "workOrder.attachment_removed"),
+    ).toMatchObject({
+      entityUuid: command.uuid,
+      before: JSON.stringify({ name: "maintenance.pdf" }),
+    });
+  });
+});
+
+it("deletes the stored file when filing it is refused", async () => {
+  const { t, tech, file, attachment } = await openOrderWithAttachment();
+  await t.run(async (ctx) => {
+    for (let i = 1; i < MAX_ATTACHMENTS; i++)
+      await ctx.db.insert("workOrderFiles", {
+        workOrderUuid: file.workOrderUuid,
+        storageId: attachment.storageId,
+        name: `copy-${i}.pdf`,
+        size: 1,
+        uploadedAt: 0,
+      });
+  });
+  const stored = () =>
+    t.run(
+      async (ctx) => (await ctx.db.system.query("_storage").collect()).length,
+    );
+  const before = await stored();
+  await expect(tech.action(api.workOrders.upload, file)).rejects.toThrow(
+    `maximum of ${MAX_ATTACHMENTS} attachments`,
+  );
+  expect(await stored()).toBe(before);
 });

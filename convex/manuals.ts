@@ -4,13 +4,14 @@
  * Layer: Server. Public mutations, an action and a query, internal upload
  *   steps and an hourly sweep; maintenance permission writes, read opens.
  * Dependencies: convex/programContext, convex/access, convex/rateLimits,
- *   convex/storageReferences, src/domain/manuals, src/domain/model.
+ *   convex/storageReferences, convex/userErrors, src/domain/manuals,
+ *   src/domain/model.
  *
  * The browser uploads the PDF straight to storage between beginUpload and
  * finishUpload, so a blob is bound to a ticket only when its bytes, size, type
  * and upload time match what the ticket declared.
  */
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   internalMutation,
@@ -25,12 +26,16 @@ import { checkContext } from "./programContext";
 import { audit } from "./access";
 import { consume, DAY, HOUR } from "./rateLimits";
 import { storageReferenced } from "./storageReferences";
+import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import {
+  assertManualMaintainer,
+  editManual,
   manualInputSchema,
-  manualEditSchema,
-  manualApplicabilitySchema,
+  renameManual,
+  setManualApplicability,
   validateManualFile,
+  type ManualChange,
   type ManualInput,
 } from "../src/domain/manuals";
 
@@ -74,11 +79,11 @@ type BlobMetadata = {
  * @param sha256 - The PDF's base64 SHA-256, which the stored blob must match.
  * @param programUuid - The caller's active Flight Program.
  * @returns The ticket and the URL to upload the PDF to.
- * @throws {Error} As `checkContext`; a ZodError for invalid details; "Choose a
- *   PDF up to 200 MB."; "Invalid file checksum."; "Maintenance access is
- *   required to upload a manual."
- * @throws {ConvexError} "Too many manual uploads. Wait an hour and try
- *   again." past {@link MANUAL_UPLOADS_PER_HOUR}.
+ * @throws {ConvexError} In order: "Choose a PDF up to 200 MB."; "Invalid file
+ *   checksum."; "Maintenance access is required to upload a manual."; "Too
+ *   many manual uploads. Wait an hour and try again." past
+ *   {@link MANUAL_UPLOADS_PER_HOUR}.
+ * @throws As `checkContext`, then a ZodError for invalid details, first.
  */
 export const beginUpload = mutation({
   args: {
@@ -89,14 +94,19 @@ export const beginUpload = mutation({
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
     const input = manualInputSchema.parse(JSON.parse(args.payload));
-    validateManualFile({
-      name: input.filename,
-      type: "application/pdf",
-      size: input.size,
-    });
-    if (!SHA256.test(args.sha256)) throw new Error("Invalid file checksum.");
+    exposeRejections(() =>
+      validateManualFile({
+        name: input.filename,
+        type: "application/pdf",
+        size: input.size,
+      }),
+    );
+    if (!SHA256.test(args.sha256))
+      throw new ConvexError("Invalid file checksum.");
     if (!can(s, input.aircraftUuid, "maintenance"))
-      throw new Error("Maintenance access is required to upload a manual.");
+      throw new ConvexError(
+        "Maintenance access is required to upload a manual.",
+      );
     await consume(
       ctx,
       `manual:upload:user:${s.user.id}`,
@@ -123,8 +133,8 @@ export const beginUpload = mutation({
  * @param ticket - The caller's unexpired ticket.
  * @param storageId - The uploaded blob.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} "Upload expired. Please upload again."; "Maintenance access
- *   is required."; "Uploaded file does not match the PDF details."
+ * @throws {ConvexError} "Upload expired. Please upload again."; "Maintenance
+ *   access is required."; "Uploaded file does not match the PDF details."
  */
 export const claimUpload = internalMutation({
   args: uploadArgs,
@@ -138,7 +148,7 @@ export const claimUpload = internalMutation({
       !matchesDeclaredUpload(metadata, ticket, input) ||
       (await storageReferenced(ctx, args.storageId, ticket._id))
     )
-      throw new Error("Uploaded file does not match the PDF details.");
+      throw new ConvexError("Uploaded file does not match the PDF details.");
     await ctx.db.patch(ticket._id, { storageId: args.storageId });
   },
 });
@@ -148,7 +158,7 @@ export const claimUpload = internalMutation({
  * and audits `manual.upload` with its details.
  *
  * @returns The new manual's uuid.
- * @throws {Error} The {@link claimUpload} ticket refusals, and "Upload
+ * @throws {ConvexError} The {@link claimUpload} ticket refusals, and "Upload
  *   expired. Please upload again." when this blob is not the claimed one.
  */
 export const saveUpload = internalMutation({
@@ -156,7 +166,7 @@ export const saveUpload = internalMutation({
   handler: async (ctx, args) => {
     const { s, ticket, input } = await loadUploadTicket(ctx, args);
     if (ticket.storageId !== args.storageId)
-      throw new Error("Upload expired. Please upload again.");
+      throw new ConvexError("Upload expired. Please upload again.");
     const uuid = crypto.randomUUID();
     await ctx.db.insert("manuals", {
       ...input,
@@ -182,8 +192,9 @@ export const saveUpload = internalMutation({
  * @param storageId - What the upload URL returned.
  * @param programUuid - The caller's active Flight Program.
  * @returns The new manual's uuid.
- * @throws {Error} The {@link claimUpload} and {@link saveUpload} refusals;
- *   "Uploaded file is not a PDF.", leaving the claimed blob for the sweep.
+ * @throws {ConvexError} The {@link claimUpload} and {@link saveUpload}
+ *   refusals; "Uploaded file is not a PDF.", leaving the claimed blob for the
+ *   sweep.
  */
 export const finishUpload = action({
   args: uploadArgs,
@@ -195,7 +206,8 @@ export const finishUpload = action({
           await blob.slice(0, PDF_MAGIC.length).arrayBuffer(),
         )
       : "";
-    if (head !== PDF_MAGIC) throw new Error("Uploaded file is not a PDF.");
+    if (head !== PDF_MAGIC)
+      throw new ConvexError("Uploaded file is not a PDF.");
     return await ctx.runMutation(internal.manuals.saveUpload, args);
   },
 });
@@ -229,8 +241,9 @@ export const cleanupUploads = internalMutation({
  * @param uuid - The manual.
  * @param programUuid - The caller's active Flight Program.
  * @returns A URL to the stored PDF.
- * @throws {Error} As `checkContext`; "Manual is not available in this
- *   workspace."; "Manual file is unavailable."
+ * @throws {ConvexError} "Manual is not available in this workspace.";
+ *   "Manual file is unavailable."
+ * @throws As `checkContext`, first.
  */
 export const open = query({
   args: { uuid: v.string(), programUuid: v.optional(v.string()) },
@@ -238,9 +251,9 @@ export const open = query({
     const s = await checkContext(ctx, args.programUuid);
     const manual = await findManual(ctx, args.uuid);
     if (!manual || !can(s, manual.aircraftUuid, "read"))
-      throw new Error("Manual is not available in this workspace.");
+      throw new ConvexError("Manual is not available in this workspace.");
     const url = await ctx.storage.getUrl(manual.storageId);
-    if (!url) throw new Error("Manual file is unavailable.");
+    if (!url) throw new ConvexError("Manual file is unavailable.");
     return url;
   },
 });
@@ -252,8 +265,8 @@ export const open = query({
  * @param uuid - The manual.
  * @param payload - JSON of the applicability, as `manualApplicabilitySchema`.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} As `checkContext`; "Maintenance access is required."; a
- *   ZodError for an invalid applicability.
+ * @throws {ConvexError} "Maintenance access is required."
+ * @throws As `checkContext`; a ZodError for an invalid applicability.
  */
 export const setApplicability = mutation({
   args: {
@@ -264,15 +277,10 @@ export const setApplicability = mutation({
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
     const manual = await loadMaintainedManual(ctx, s, args.uuid);
-    const applicability = manualApplicabilitySchema.parse(
-      JSON.parse(args.payload),
+    const change = exposeRejections(() =>
+      setManualApplicability(s, manual, JSON.parse(args.payload)),
     );
-    await ctx.db.patch(manual._id, { applicability });
-    await audit(ctx, s.user.id, "manual.applicability", manual.uuid, {
-      aircraftUuid: manual.aircraftUuid,
-      before: manual.applicability,
-      after: applicability,
-    });
+    await saveManualChange(ctx, s, manual, "manual.applicability", change);
   },
 });
 
@@ -283,8 +291,8 @@ export const setApplicability = mutation({
  * @param uuid - The manual.
  * @param title - The new title; trimmed, 1 to 300 characters.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} As `checkContext`; "Maintenance access is required."; a
- *   ZodError for an invalid title.
+ * @throws {ConvexError} "Maintenance access is required."
+ * @throws As `checkContext`; a ZodError for an invalid title.
  */
 export const rename = mutation({
   args: {
@@ -295,13 +303,8 @@ export const rename = mutation({
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
     const manual = await loadMaintainedManual(ctx, s, args.uuid);
-    const title = manualInputSchema.shape.title.parse(args.title);
-    await ctx.db.patch(manual._id, { title });
-    await audit(ctx, s.user.id, "manual.rename", manual.uuid, {
-      aircraftUuid: manual.aircraftUuid,
-      before: { title: manual.title },
-      after: { title },
-    });
+    const change = exposeRejections(() => renameManual(s, manual, args.title));
+    await saveManualChange(ctx, s, manual, "manual.rename", change);
   },
 });
 
@@ -313,9 +316,9 @@ export const rename = mutation({
  * @param payload - JSON of the details, as `manualEditSchema`; leaving out
  *   applicability clears it.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} As `checkContext`; "Maintenance access is required."; a
- *   ZodError for invalid details; "Choose an aircraft in the same Flight
- *   Program with maintenance access."
+ * @throws {ConvexError} "Maintenance access is required."; "Choose an aircraft
+ *   in the same Flight Program with maintenance access."
+ * @throws As `checkContext`; a ZodError for invalid details.
  */
 export const edit = mutation({
   args: {
@@ -326,26 +329,10 @@ export const edit = mutation({
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
     const manual = await loadMaintainedManual(ctx, s, args.uuid);
-    const input = manualEditSchema.parse(JSON.parse(args.payload));
-    assertSameProgramAircraft(s, manual.aircraftUuid, input.aircraftUuid);
-    // Naming applicability even when absent clears it: patch removes a field
-    // set to undefined.
-    await ctx.db.patch(manual._id, {
-      ...input,
-      applicability: input.applicability,
-    });
-    await audit(ctx, s.user.id, "manual.edit", manual.uuid, {
-      aircraftUuid: manual.aircraftUuid,
-      before: {
-        title: manual.title,
-        documentNumber: manual.documentNumber,
-        revision: manual.revision,
-        revisionDate: manual.revisionDate,
-        aircraftUuid: manual.aircraftUuid,
-        applicability: manual.applicability,
-      },
-      after: input,
-    });
+    const change = exposeRejections(() =>
+      editManual(s, manual, JSON.parse(args.payload)),
+    );
+    await saveManualChange(ctx, s, manual, "manual.edit", change);
   },
 });
 
@@ -360,10 +347,10 @@ async function loadUploadTicket(
     ticket.userId !== s.user.id ||
     Date.now() - ticket.createdAt > UPLOAD_TTL
   )
-    throw new Error("Upload expired. Please upload again.");
+    throw new ConvexError("Upload expired. Please upload again.");
   const input = manualInputSchema.parse(JSON.parse(ticket.payload));
   if (!can(s, input.aircraftUuid, "maintenance"))
-    throw new Error("Maintenance access is required.");
+    throw new ConvexError("Maintenance access is required.");
   return { s, ticket, input };
 }
 
@@ -419,31 +406,31 @@ function findManual(ctx: QueryCtx, uuid: string) {
     .unique();
 }
 
+// Checked before the payload is read, so a caller without access is refused
+// the same way whatever it sent.
 async function loadMaintainedManual(
   ctx: MutationCtx,
   s: Snapshot,
   uuid: string,
 ): Promise<Doc<"manuals">> {
   const manual = await findManual(ctx, uuid);
-  if (!manual || !can(s, manual.aircraftUuid, "maintenance"))
-    throw new Error("Maintenance access is required.");
-  return manual;
+  return exposeRejections(() => {
+    assertManualMaintainer(s, manual);
+    return manual;
+  });
 }
 
-function assertSameProgramAircraft(
+async function saveManualChange<T>(
+  ctx: MutationCtx,
   s: Snapshot,
-  fromUuid: string,
-  toUuid: string,
-): void {
-  const source = s.aircraft.find((a) => a.uuid === fromUuid);
-  const target = s.aircraft.find((a) => a.uuid === toUuid);
-  if (
-    !target ||
-    !source ||
-    target.programUuid !== source.programUuid ||
-    !can(s, target.uuid, "maintenance")
-  )
-    throw new Error(
-      "Choose an aircraft in the same Flight Program with maintenance access.",
-    );
+  manual: Doc<"manuals">,
+  action: string,
+  change: ManualChange<T>,
+): Promise<void> {
+  await ctx.db.patch(manual._id, change.patch);
+  await audit(ctx, s.user.id, action, manual.uuid, {
+    aircraftUuid: manual.aircraftUuid,
+    before: change.before,
+    after: change.after,
+  });
 }

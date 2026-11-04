@@ -1,14 +1,28 @@
+/**
+ * Responsibility: The calendar exemption fields of the inspection form, and
+ *   who last changed the exemption.
+ * Layer: UI. React component; the rule that an exemption needs a reason is
+ *   enforced again by src/domain/management.ts on save.
+ * Dependencies: src/domain/model.ts (types), ./ui.tsx.
+ */
 import { useState } from "react";
 import type { Inspection, Snapshot } from "../domain/model";
 import { Field } from "./ui";
 
-export function CalendarExemptionFields({
-  record,
-  members,
-}: {
-  record?: Inspection;
-  members: Snapshot["members"];
-}) {
+// The limit inspectionSchema sets on calendarExemptReason.
+const EXEMPT_REASON_MAX_LENGTH = 5000;
+
+type ExemptionProps = { record?: Inspection; members: Snapshot["members"] };
+
+/**
+ * The "Calendar exempt" checkbox and its reason, for an inspection form; the
+ * reason is required while the box is checked.
+ *
+ * @param props.record - The inspection being edited; absent for a new one.
+ * @param props.members - Resolves who last changed the exemption; an unknown
+ *   id shows as itself.
+ */
+export function CalendarExemptionFields({ record, members }: ExemptionProps) {
   const [exempt, setExempt] = useState(record?.calendarExempt ?? false);
   return (
     <fieldset>
@@ -31,7 +45,7 @@ export function CalendarExemptionFields({
         <textarea
           name="calendarExemptReason"
           required={exempt}
-          maxLength={5000}
+          maxLength={EXEMPT_REASON_MAX_LENGTH}
           defaultValue={record?.calendarExemptReason}
         />
       </Field>

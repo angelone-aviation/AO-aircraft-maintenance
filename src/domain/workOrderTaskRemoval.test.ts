@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins removing work items from an order: which job cards go
+ *   with them, archiving, and the prerequisite refusal.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrderTaskRemoval.ts, workOrders.ts,
+ *   taskCards.ts, programs.ts, rejection.ts, src/data/demo.ts and
+ *   tests/fixtures (task cards, work orders).
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
@@ -9,6 +17,8 @@ import {
   saveWorkOrder,
   workOrderFieldsSchema,
 } from "./workOrders";
+import { removedTaskCards } from "./workOrderTaskRemoval";
+import { Rejection } from "./rejection";
 
 const now = Date.parse("2026-10-01T12:00:00Z");
 function fixture() {
@@ -150,4 +160,39 @@ it("keeps prerequisite-linked cards active until their dependency is removed", (
   const before = structuredClone(state);
   expect(() => saveWorkOrder(state, remove, now)).toThrow("prerequisite");
   expect(state).toEqual(before);
+});
+
+it("keeps a card a remaining item also matches, and refuses a prerequisite kept on any order", () => {
+  const { state, order, copy } = fixture();
+  const [inspection, manual] = order.tasks;
+  expect(removedTaskCards(state, order.uuid, [inspection], [manual])).toEqual([
+    copy,
+  ]);
+  const twin = { ...inspection, uuid: crypto.randomUUID() };
+  expect(
+    removedTaskCards(state, order.uuid, [inspection], [manual, twin]),
+  ).toEqual([]);
+  const follower = {
+    ...structuredClone(copy),
+    uuid: crypto.randomUUID(),
+    prerequisiteUuids: [copy.uuid],
+  };
+  state.taskCards!.push(follower);
+  expect(removedTaskCards(state, order.uuid, [inspection], [manual])).toEqual([
+    copy,
+    follower,
+  ]);
+  state.taskCards!.push({
+    ...follower,
+    uuid: crypto.randomUUID(),
+    workOrderUuid: crypto.randomUUID(),
+  });
+  const remove = () =>
+    removedTaskCards(state, order.uuid, [inspection], [manual]);
+  expect(remove).toThrow(Rejection);
+  expect(remove).toThrow(
+    Error(
+      "Another job card requires one of these cards. Remove the prerequisite link before removing this task.",
+    ),
+  );
 });

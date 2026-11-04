@@ -3,7 +3,7 @@
  *   which certificate an entry cites, and the license-copy file rules.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/certifications.ts, programs.ts, rejection.ts,
- *   src/data/demo.ts (fixture).
+ *   validationText.ts, src/data/demo.ts (fixture).
  */
 import { it, expect } from "vitest";
 import {
@@ -17,6 +17,7 @@ import {
 import { demoSnapshot } from "../data/demo";
 import { scopedSnapshot } from "./programs";
 import { Rejection } from "./rejection";
+import { validationText } from "./validationText";
 const cert = (
   kind: Certification["kind"],
   number = "12345",
@@ -102,6 +103,21 @@ it("validates dates, duplicate selections and license copy formats and limits", 
       6 * 1024 * 1024,
     ),
   ).toThrow(/5 MB/);
+});
+it("refuses a long certificate number or a sixth certificate in plain words", () => {
+  const refusal = (rows: Certification[]) => {
+    const parsed = certificationsSchema.safeParse(rows);
+    return parsed.success ? "" : validationText(parsed.error);
+  };
+  expect(refusal([cert("pilot", ` ${"9".repeat(100)} `)])).toBe("");
+  expect(refusal([cert("pilot", "9".repeat(101))])).toBe(
+    "Certificate number is too long (up to 100 characters).",
+  );
+  const kinds = ["pilot", "mechanic", "airframe", "powerplant", "ia"] as const;
+  expect(refusal(kinds.map((kind) => cert(kind)))).toBe("");
+  expect(refusal([...kinds, "pilot" as const].map((kind) => cert(kind)))).toBe(
+    "Each certification may be selected only once.",
+  );
 });
 it("does not expose other users' certification details or license copies to ordinary members", () => {
   const s = demoSnapshot();
@@ -213,4 +229,14 @@ it("accepts a license copy up to 5 MiB with a 200-character name, refusing with 
   expect(() =>
     validateCertificationFile("license.pdf", "application/pdf", 0),
   ).toThrow(Error("License copies must be between 1 byte and 5 MB."));
+});
+it("refuses a license copy whose type is named after an Object property", () => {
+  for (const type of ["constructor", "toString", "__proto__"]) {
+    expect(() => validateCertificationFile("license.pdf", type, 1)).toThrow(
+      Rejection,
+    );
+    expect(() => validateCertificationFile("license.pdf", type, 1)).toThrow(
+      "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
+    );
+  }
 });

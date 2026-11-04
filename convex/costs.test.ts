@@ -1,16 +1,33 @@
+/**
+ * Responsibility: Pins cost records: who may see and set money, how labor
+ *   is stored, program isolation, closed work orders, part unit costs, a
+ *   replayed labor entry, and a record uuid another Flight Program holds.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/costs, convex/workOrders, convex/operations,
+ *   src/data/demo, src/domain/costs, tests/fixtures/workOrders.
+ */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
 import { laborCents, parseLaborHours } from "../src/domain/costs";
+import { taskCardDefaults } from "../src/domain/taskCards";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
+
+/**
+ * Seeds the demo program and a second one, "other", with a maintenance
+ * technician and a program administrator in the demo program and an
+ * administrator of the other.
+ */
 async function fixture() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -43,7 +60,7 @@ async function fixture() {
       });
       const session = await ctx.db.insert("authSessions", {
         userId: user,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { subject: `${user}|${session}` };
     };
@@ -274,3 +291,167 @@ it("makes a closed work order's costs read-only", async () => {
     }),
   ).rejects.toThrow("read-only");
 });
+it("sets and clears a part's unit cost for parts issued to the work order or its job cards", async () => {
+  const { t, tech, admin } = await fixture();
+  const order = workOrderCommand();
+  await tech.mutation(api.workOrders.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(order),
+  });
+  await t.run((ctx) => seedIssuedParts(ctx, order));
+  const unitCost = (stockUuid: string, unitCents: number | null) =>
+    run(admin, {
+      action: "part.unitCost",
+      workOrderUuid: order.uuid,
+      stockUuid,
+      unitCents,
+    });
+  await unitCost("stock-0", 1250);
+  await unitCost("stock-1", 900);
+  await unitCost("stock-0", null);
+  await expect(unitCost("stock-9", 1)).rejects.toThrow(
+    "That part was not issued to this work order.",
+  );
+  const view = await admin.query(api.operations.snapshot, {});
+  const record = view!.costs!.find((r) => r.kind === "workOrder");
+  expect(record).toMatchObject({
+    version: 3,
+    partUnitCosts: [{ stockUuid: "stock-1", unitCents: 900 }],
+  });
+  expect(
+    view!.audit.filter((a) => a.action === "cost.part.unitCost"),
+  ).toHaveLength(3);
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+it("refuses a new cost record whose uuid another Flight Program holds, and writes nothing", async () => {
+  const { t, admin, outsider } = await fixture();
+  await run(
+    outsider,
+    { action: "settings.laborRate", laborRateCents: 1 },
+    "other",
+  );
+  const stored = () =>
+    t.run(async (ctx) => ({
+      costs: await ctx.db.query("costs").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  const before = await stored();
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(
+    before.costs[0].uuid as ReturnType<typeof crypto.randomUUID>,
+  );
+  await expect(
+    run(admin, { action: "settings.laborRate", laborRateCents: 9500 }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Cost record belongs to another Flight Program.",
+  });
+  expect(await stored()).toEqual(before);
+});
+
+it("leaves the record and the change log as they were for a replayed labor entry", async () => {
+  const { t, tech } = await fixture();
+  const order = workOrderCommand();
+  await tech.mutation(api.workOrders.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(order),
+  });
+  const labor = {
+    action: "labor.add",
+    workOrderUuid: order.uuid,
+    entry: {
+      uuid: crypto.randomUUID(),
+      date: today,
+      technician: "Tech",
+      minutes: 30,
+    },
+  };
+  await run(tech, labor);
+  const stored = () =>
+    t.run(async (ctx) => ({
+      costs: await ctx.db.query("costs").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  const before = await stored();
+  await run(tech, labor);
+  expect(await stored()).toEqual(before);
+  expect(
+    before.audit.filter((a) => a.action === "cost.labor.add"),
+  ).toHaveLength(1);
+});
+
+// Issues stock-0 to a task of the order, and stock-1 to a job card the order
+// archived.
+async function seedIssuedParts(
+  ctx: MutationCtx,
+  order: ReturnType<typeof workOrderCommand>,
+) {
+  const aircraftUuid = order.fields.aircraftUuid;
+  const card = {
+    ...taskCardDefaults(aircraftUuid),
+    uuid: crypto.randomUUID(),
+    version: 1,
+    cardNumber: "JC-1",
+    title: "Oil change",
+    description: "Change oil and filter",
+    workOrderUuid: order.uuid,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    createdBy: "tech",
+    technicianSignoff: null,
+    inspectionSignoff: null,
+    stepSignoffs: {},
+  };
+  await ctx.db.insert("archivedTaskCards", {
+    uuid: card.uuid,
+    aircraftUuid,
+    payload: JSON.stringify(card),
+  });
+  const issued = [
+    { kind: "workTask", uuid: "task-1", workOrderUuid: order.uuid },
+    { kind: "jobCard", uuid: card.uuid },
+  ].map((source, n) => issuedRequest(`request-${n}`, source, `stock-${n}`));
+  for (const r of issued)
+    await ctx.db.insert("partsRequests", {
+      uuid: r.uuid,
+      programUuid: "demo-program",
+      payload: JSON.stringify(r),
+    });
+}
+
+// A parts request that issued one unit of `stockUuid`, stored with the
+// fields the app writes.
+function issuedRequest(uuid: string, source: object, stockUuid: string) {
+  const now = Date.now();
+  return {
+    uuid,
+    version: 1,
+    source,
+    mode: "parts",
+    date: today,
+    engineer: "Mechanic",
+    priority: "P2 Routine",
+    requiredBy: "",
+    currency: "USD",
+    lines: [
+      { uuid: "line-1", partNumber: "P-1", description: "Part", quantity: 1 },
+    ],
+    programUuid: "demo-program",
+    aircraftUuid: demoSnapshot().aircraft[0].uuid,
+    sourceLabel: "Work order",
+    aircraftRegistration: "N206MA",
+    aircraftSerial: "1",
+    aircraftModel: "206",
+    number: "PR-1",
+    requesterId: "tech",
+    createdAt: now,
+    updatedAt: now,
+    cancelled: false,
+    reservations: [],
+    issues: [
+      { lineUuid: "line-1", stockUuid, quantity: 1, at: now, actorId: "tech" },
+    ],
+    history: [],
+  };
+}

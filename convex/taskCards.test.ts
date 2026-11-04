@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins job cards: saving and access, signer identity and
+ *   signoff rules, template unlinking, evidence, archived cards, and a card
+ *   uuid outside the Flight Program.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/taskCards, convex/operations, convex/attachments,
+ *   src/data/demo, src/domain/taskCards, tests/fixtures/taskCards.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -6,6 +14,7 @@ import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { taskCardFieldsSchema } from "../src/domain/taskCards";
+import { MAX_ATTACHMENTS } from "./attachments";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -163,6 +172,56 @@ it("records real signer identity, invalidates signatures on evidence upload, and
   await expect(tech.action(api.taskCards.upload, file)).rejects.toThrow(
     "open job card",
   );
+});
+it("shows a refused evidence file to the user, and keeps no file the card refuses", async () => {
+  const { t, tech, reader } = await fixture(),
+    command = taskCardCommand();
+  command.fields.steps = [];
+  await tech.mutation(api.taskCards.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(command),
+  });
+  const file = {
+    programUuid: "demo-program",
+    taskCardUuid: command.uuid,
+    category: "photo" as const,
+    name: "notes.txt",
+    type: "text/plain",
+    bytes: new TextEncoder().encode("notes").buffer,
+  };
+  // The file check runs before any permission check.
+  for (const client of [tech, reader])
+    await expect(
+      client.action(api.taskCards.upload, file),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "Choose a PDF, JPEG or PNG file up to 7 MB.",
+    });
+  await t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(new Blob(["photo"]));
+    for (let i = 0; i < MAX_ATTACHMENTS; i++)
+      await ctx.db.insert("taskEvidence", {
+        taskCardUuid: command.uuid,
+        storageId,
+        name: `photo-${i}.jpg`,
+        size: 5,
+        uploadedAt: 1,
+        category: "photo",
+      });
+  });
+  const stored = () =>
+    t.run(
+      async (ctx) => (await ctx.db.system.query("_storage").collect()).length,
+    );
+  const before = await stored();
+  await expect(
+    tech.action(api.taskCards.upload, {
+      ...file,
+      name: "photo.jpg",
+      type: "image/jpeg",
+    }),
+  ).rejects.toThrow(`maximum of ${MAX_ATTACHMENTS} attachments`);
+  expect(await stored()).toBe(before);
 });
 it("rejects an inspection signoff until the inspector has a certificate on file", async () => {
   const { tech, inspector, inspectorId } = await fixture(),
@@ -378,4 +437,35 @@ it("deletes evidence only from open unsigned cards with maintenance access, keep
       programUuid: "demo-program",
     }),
   ).rejects.toThrow("unsigned");
+});
+
+it("refuses a job card uuid stored outside the Flight Program, and an archived card", async () => {
+  const { t, tech } = await fixture();
+  const command = taskCardCommand();
+  const outside = { uuid: command.uuid, aircraftUuid: "other-aircraft" };
+  const archived = taskCardCommand();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("taskCards", { ...outside, payload: "{}" });
+    await ctx.db.insert("archivedTaskCards", {
+      uuid: archived.uuid,
+      aircraftUuid: archived.fields.aircraftUuid,
+      payload: "{}",
+    });
+  });
+  const save = (c: unknown) =>
+    tech.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const stored = () => t.run((ctx) => ctx.db.query("taskCards").collect());
+  const before = await stored();
+  await expect(save(command)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Job card not found.",
+  });
+  await expect(save(archived)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Archived job cards are read-only.",
+  });
+  expect(await stored()).toEqual(before);
 });

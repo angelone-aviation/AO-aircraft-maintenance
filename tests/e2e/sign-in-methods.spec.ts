@@ -1,18 +1,17 @@
+/**
+ * Responsibility: Pins sign-in methods without Google or Microsoft configured:
+ *   no SSO buttons or address-borne sign-in errors, and the password as the
+ *   only method in My account and in Administration, also on a phone.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ *
+ * Google and Microsoft sign-in (ADR-0009) appear only where the deployment
+ * configures them. This build has no backend, so neither is configured.
+ */
 import { test, expect, type Page } from "@playwright/test";
 
-// Google and Microsoft sign-in (ADR-0009) appear only where the deployment
-// configures them. This build has no backend, so neither is configured: no
-// screen may offer them, and the sign-in method lists show the password only.
-
-const ssoButton = (page: Page) =>
-  page.getByRole("button", { name: /Sign in with (Google|Microsoft)/ });
-
-async function openDemo(page: Page, path: string) {
-  await page.addInitScript(() =>
-    sessionStorage.setItem("angel-one-demo", "true"),
-  );
-  await page.goto(path);
-}
+const PHONE = { width: 390, height: 844 };
+const MIN_TARGET_PX = 40;
 
 test("no Google or Microsoft sign-in buttons when they are not configured", async ({
   page,
@@ -55,7 +54,7 @@ test("My account lists the password as the only sign-in method", async ({
 test("Administration shows a user's sign-in methods, also on a phone", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize(PHONE);
   await openDemo(page, "/admin");
   const row = page
     .locator(".list-row")
@@ -66,9 +65,9 @@ test("Administration shows a user's sign-in methods, also on a phone", async ({
   });
   await expect(open).toBeEnabled();
   const box = await open.boundingBox();
-  expect(box!.width).toBeGreaterThanOrEqual(40);
-  expect(box!.height).toBeGreaterThanOrEqual(40);
-  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(box!.width).toBeGreaterThanOrEqual(MIN_TARGET_PX);
+  expect(box!.height).toBeGreaterThanOrEqual(MIN_TARGET_PX);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(PHONE.width);
   await open.click();
   const dialog = page.getByRole("dialog", {
     name: "Sign-in methods · Alex Morgan",
@@ -80,6 +79,7 @@ test("Administration shows a user's sign-in methods, also on a phone", async ({
   await expect(
     dialog.getByText("No Google or Microsoft account is linked."),
   ).toBeVisible();
+  // Only a linked Google or Microsoft account gets a Remove button.
   await expect(dialog.getByRole("button", { name: /^Remove/ })).toHaveCount(0);
   expect(
     await page.evaluate(
@@ -87,3 +87,14 @@ test("Administration shows a user's sign-in methods, also on a phone", async ({
     ),
   ).toBe(true);
 });
+
+function ssoButton(page: Page) {
+  return page.getByRole("button", { name: /Sign in with (Google|Microsoft)/ });
+}
+
+async function openDemo(page: Page, path: string) {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto(path);
+}

@@ -1,9 +1,20 @@
+/**
+ * Responsibility: Pins calendar exemptions on aircraft inspections: alerts off,
+ *   schedule kept, hours and cycles still due, reason and actor recorded.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/management.ts, ./maintenance, ./model,
+ *   src/data/demo.ts (fixture).
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement, inspectionSchema } from "./management";
 import { inspectionStatus, inspectionDueDate } from "./maintenance";
 import { totalSeconds } from "./model";
 
+const TODAY = "2026-10-23";
+const NOW = Date.parse("2026-10-23T12:00:00Z");
+
+/** A 12-month inspection last done 2024-01-15, so overdue today. */
 function setup() {
   const state = demoSnapshot();
   const record = inspectionSchema.parse({
@@ -18,10 +29,11 @@ function setup() {
   });
   return { state, record };
 }
+/** Saves the inspection as the demo's signed-in user, with a reason. */
 const save = (
   state: ReturnType<typeof demoSnapshot>,
   record: ReturnType<typeof inspectionSchema.parse>,
-  now = Date.parse("2026-10-23T12:00:00Z"),
+  now = NOW,
 ) =>
   applyManagement(
     state,
@@ -37,7 +49,7 @@ const save = (
 describe("aircraft inspection calendar exemptions", () => {
   it("suppresses calendar alerts without losing the requirement, and restores the original deadline", () => {
     const { state, record } = setup();
-    const normal = inspectionStatus(record, state.aircraft[0], "2026-10-23");
+    const normal = inspectionStatus(record, state.aircraft[0], TODAY);
     expect(normal.status).toBe("overdue");
     record.calendarExempt = true;
     record.calendarExemptReason = "Phases 52–56; approved manual reference";
@@ -47,25 +59,24 @@ describe("aircraft inspection calendar exemptions", () => {
     expect(stored.lastDate).toBe("2024-01-15");
     expect(stored.dueDate).toBe("2025-01-31");
     expect(inspectionDueDate(stored)).toBeUndefined();
-    expect(
-      inspectionStatus(stored, state.aircraft[0], "2026-10-23"),
-    ).toMatchObject({ daysRemaining: undefined, status: "scheduled" });
+    expect(inspectionStatus(stored, state.aircraft[0], TODAY)).toMatchObject({
+      daysRemaining: undefined,
+      status: "scheduled",
+    });
     expect(stored.calendarExemptChangedBy).toBe(state.user.id);
     save(state, inspectionSchema.parse({ ...stored, calendarExempt: false }));
     stored = state.inspections.find((i) => i.uuid === record.uuid)!;
     expect(inspectionDueDate(stored)).toBe("2025-01-31");
-    expect(
-      inspectionStatus(stored, state.aircraft[0], "2026-10-23").status,
-    ).toBe("overdue");
+    expect(inspectionStatus(stored, state.aircraft[0], TODAY).status).toBe(
+      "overdue",
+    );
   });
   it("keeps hours and cycles active", () => {
     const { state, record } = setup();
     record.calendarExempt = true;
     record.dueSeconds = totalSeconds(state.aircraft[0]) - 3600;
     record.dueCycles = state.aircraft[0].cycles + 5;
-    expect(
-      inspectionStatus(record, state.aircraft[0], "2026-10-23"),
-    ).toMatchObject({
+    expect(inspectionStatus(record, state.aircraft[0], TODAY)).toMatchObject({
       hoursRemaining: -1,
       cyclesRemaining: 5,
       daysRemaining: undefined,

@@ -1,5 +1,13 @@
-// Without a sign-in client's credentials the provider does not exist: the app
-// runs password-only until the organization configures Google or Microsoft.
+/**
+ * Responsibility: Pins that Google and Microsoft sign-in exist only with all
+ *   of their credentials, and the Microsoft tenant issuer check.
+ * Layer: Test. convex-test and unit suite; never shipped in the build.
+ * Dependencies: convex (ssoProviders, identities, auth, schema),
+ *   src/domain/signInMethods.ts.
+ *
+ * Without a sign-in client's credentials the provider does not exist: the app
+ * runs password-only until the organization configures Google or Microsoft.
+ */
 import { convexTest } from "convex-test";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import schema from "./schema";

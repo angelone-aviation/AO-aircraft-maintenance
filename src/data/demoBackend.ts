@@ -1,3 +1,10 @@
+/**
+ * Responsibility: The demo adapter of Backend: every command runs the shared
+ *   domain rules on the full fictional snapshot kept on the device.
+ * Layer: Data. Browser only; no Convex server, no React.
+ * Dependencies: ./backend, ./store (types), ./local, ./demoAircraftFiles,
+ *   convex/values (ConvexError), and the src/domain modules it runs.
+ */
 import {
   groupDeletionPlan,
   deletePermissionGroup,
@@ -30,9 +37,8 @@ import {
   applyADCommand,
 } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
-import { preserveOilInventory } from "../domain/oilInventory";
 import { submitOperation } from "../domain/flightSubmission";
-import { preserveChecklistLink } from "../domain/flightChecklistLink";
+import { reviewFlight } from "../domain/flightReview";
 import { saveChecklist, checklistCounts } from "../domain/checklists";
 import {
   inventoryAttachmentAccess,
@@ -61,7 +67,7 @@ import {
   validateWorkOrderFile,
   isOpenWorkOrder,
 } from "../domain/workOrders";
-import { saveFlightPlan, validatePlanFlight } from "../domain/flightPlans";
+import { saveFlightPlan } from "../domain/flightPlans";
 import { transferProgram } from "../domain/programTransfers";
 import {
   activeProgram,
@@ -80,19 +86,11 @@ import {
   applyEngineTrendCommand,
   defaultEngineLimits,
 } from "../domain/engineTrends";
-import {
-  applyManagement,
-  validateMaintenanceTotals,
-} from "../domain/management";
+import { applyManagement } from "../domain/management";
 import { ConvexError } from "convex/values";
-import type { Aircraft, AuditEntry, Snapshot } from "../domain/model";
+import type { AuditEntry, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
-import { deferDiscrepancy } from "../domain/deferrals";
-import {
-  rebuildFlights,
-  resequencedFlights,
-  resequenceReason,
-} from "../domain/flights";
+import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import * as local from "./local";
 import { validateOwnerGroup } from "../domain/ownerView";
 import {
@@ -103,9 +101,16 @@ import { groupAccessReports } from "../domain/groupAccessReview";
 import type { Backend } from "./backend";
 import type { Workspace } from "./store";
 type DemoWorkspace = { getState(): Workspace };
-// The local demo's Backend: every command runs the shared domain rules on
-// the full demo snapshot in IndexedDB, then hands the workspace its scoped
-// view (store.ts).
+/**
+ * The local demo's Backend: every command runs the shared domain rules on the
+ * full demo snapshot in IndexedDB, saves it, and hands the workspace its
+ * scoped view, as the server's snapshot query would.
+ *
+ * @param workspace - The demo workspace, read for its namespace and state.
+ * @returns The adapter. Its writes run one at a time, need `online`, and
+ *   throw the domain's refusals unchanged; outbox entries it refuses throw a
+ *   ConvexError, so the Sync center holds them.
+ */
 export function demoBackend(workspace: DemoWorkspace): Backend {
   // Serialize read-modify-write so concurrent demo commands cannot overwrite
   // each other's changes.
@@ -942,73 +947,41 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     resolve: (uuid, resolution) =>
       modify((s) => {
-        if (!resolution.trim()) throw new Error("Describe the repair.");
-        const d = s.discrepancies.find((d) => d.uuid === uuid)!;
-        if (d.status === "resolved") throw new Error("Already resolved.");
-        const before = { ...d };
-        Object.assign(d, {
-          status: "resolved",
-          resolution,
-          resolvedAt: Date.now(),
-          resolvedBy: s.user.id,
-        });
+        const next = resolveDiscrepancy(s, uuid, resolution);
+        const before = s.discrepancies.find((d) => d.uuid === uuid);
+        s.discrepancies = s.discrepancies.map((d) =>
+          d.uuid === uuid ? next : d,
+        );
         audit(
           s,
           "discrepancy.resolved",
           uuid,
-          d.aircraftUuid,
+          next.aircraftUuid,
           resolution,
           before,
-          d,
+          next,
         );
       }),
     review: (uuid, decision, reason, input) =>
       modify((s) => {
-        if (reason.trim().length < 5)
-          throw new Error("Provide a meaningful explanation.");
-        const f = s.flights.find((f) => f.uuid === uuid)!;
-        const before = { ...f };
-        preserveChecklistLink(f, input);
-        preserveOilInventory(f, input);
-        if (input.flightPlanUuid !== f.flightPlanUuid)
-          throw new Error("A review cannot change the linked flight plan.");
-        if (decision === "accept" && f.status === "rejected")
-          validatePlanFlight(s, input);
-        Object.assign(f, input, {
-          status: decision === "accept" ? "accepted" : "rejected",
-          reviewReason: reason,
-        });
-        const a = s.aircraft.find((a) => a.uuid === f.aircraftUuid)!;
-        const stored = s.flights
-          .filter((x) => x.aircraftUuid === a.uuid)
-          .map((x) => (x === f ? before : x));
-        const rebuilt = rebuildFlights(
-          a,
-          s.flights.filter((f) => f.aircraftUuid === a.uuid),
-          stored,
-        );
-        validateMaintenanceTotals(
-          rebuilt.aircraft,
-          s.management ?? [],
-          s.inspections,
-        );
+        const changes = reviewFlight(s, { uuid, decision, reason, input });
         s.aircraft = s.aircraft.map((a) =>
-          a.uuid === rebuilt.aircraft.uuid ? rebuilt.aircraft : a,
+          a.uuid === changes.aircraft.uuid ? changes.aircraft : a,
         );
-        s.flights = s.flights.map(
-          (f) => rebuilt.flights.find((r) => r.uuid === f.uuid) ?? f,
+        s.flights = s.flights.map((f) =>
+          f.uuid === uuid
+            ? { ...f, ...changes.reviewed }
+            : (changes.flights.find((r) => r.uuid === f.uuid) ?? f),
         );
-        const after = s.flights.find((x) => x.uuid === uuid);
-        audit(s, "flight.reviewed", uuid, a.uuid, reason, before, after);
-        for (const change of resequencedFlights(stored, rebuilt.flights, uuid))
+        for (const e of changes.audit)
           audit(
             s,
-            "flight.resequenced",
-            change.flight.uuid,
-            a.uuid,
-            resequenceReason(before, f),
-            change.before,
-            change.after,
+            e.action,
+            e.entityUuid,
+            e.aircraftUuid,
+            e.reason,
+            e.before,
+            e.after,
           );
       }),
     updateProgramAccess: (userId, programUuid, groupIds, remove) =>
@@ -1409,18 +1382,6 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             { programUuid: null },
             { programUuid: group.programUuid },
           );
-      }),
-    createAircraft: (aircraft: Aircraft) =>
-      modify((s) => {
-        if (
-          !programPermission(s, "admin") ||
-          aircraft.programUuid !== activeProgram(s)
-        )
-          throw Error("Flight Program administrator required.");
-        if (s.aircraft.some((a) => a.registration === aircraft.registration))
-          throw new Error("Registration already exists.");
-        s.aircraft.push(aircraft);
-        audit(s, "aircraft.created", aircraft.uuid, aircraft.uuid);
       }),
     resetPassword: async () => {
       throw new Error(

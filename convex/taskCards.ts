@@ -1,4 +1,13 @@
-import { v } from "convex/values";
+/**
+ * Responsibility: Job-card saves, through the task-card domain applier, and
+ *   job-card evidence: upload, its checks, and removal.
+ * Layer: Server. Convex mutations, an action and internal functions; the
+ *   rules live in src/domain/taskCards.
+ * Dependencies: convex/values, ./_generated, ./programContext, ./access,
+ *   ./runCommand, ./collections, ./attachments, ./userErrors, src/domain
+ *   (taskCards, workOrders).
+ */
+import { v, ConvexError } from "convex/values";
 import {
   mutation,
   action,
@@ -17,80 +26,52 @@ import {
   discrepancyDocs,
 } from "./programContext";
 import { authorized, audit } from "./access";
-import { runCommand, hydrate } from "./runCommand";
+import {
+  runCommand,
+  hydrate,
+  writeChanged,
+  type ProgramContext,
+} from "./runCommand";
+import { decode } from "./collections";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
+  storeThenFinish,
   MAX_ATTACHMENTS,
 } from "./attachments";
-import { recordSchema } from "../src/domain/management";
-import {
-  workOrderSchema,
-  validateWorkOrderFile,
-} from "../src/domain/workOrders";
+import { exposeRejections } from "./userErrors";
+import { validateWorkOrderFile } from "../src/domain/workOrders";
 import {
   saveTaskCard,
-  taskCardSchema,
   taskCardCommandSchema,
   taskWritable,
   evidenceRemovable,
+  type TaskCardCommand,
 } from "../src/domain/taskCards";
-async function taskState(ctx: QueryCtx | MutationCtx, programUuid?: string) {
-  const state = await checkContext(ctx, programUuid);
-  const management = await managementDocs(ctx, programUuid);
-  return {
-    ...state,
-    taskCards: (await taskCardDocs(ctx, state.aircraft)).map((t) =>
-      taskCardSchema.parse(JSON.parse(t.payload)),
-    ),
-    workOrders: (await workOrderDocs(ctx, state.aircraft)).map((w) =>
-      workOrderSchema.parse(JSON.parse(w.payload)),
-    ),
-    inspections: await inspectionDocs(ctx, state.aircraft, management),
-    discrepancies: await discrepancyDocs(ctx, state.aircraft),
-    management: management.map((r) =>
-      recordSchema.parse(JSON.parse(r.payload)),
-    ),
-  };
-}
+
+const NO_OPEN_CARD = "An open job card and maintenance access are required.";
+const NO_EVIDENCE = "Evidence not found.";
+
+/**
+ * Saves a job card in the active Flight Program and writes a
+ * "taskCard.<action>" change-log row with the card before and after.
+ *
+ * @param payload - The job-card command, as JSON.
+ * @returns The card's uuid.
+ * @throws {ConvexError} "Archived job cards are read-only."; "Job card not
+ *   found." for a card uuid outside the program; a domain Rejection;
+ *   runCommand's program refusals.
+ */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
   handler: (ctx, args) =>
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => taskCardCommandSchema.parse(JSON.parse(args.payload)),
-      load: async ({ ctx, state }, command) => {
-        const { snapshot } = await hydrate(ctx, state, [
-          "taskCards",
-          "workOrders",
-          "inspections",
-          "discrepancies",
-          "management",
-        ]);
-        const archived = await ctx.db
-          .query("archivedTaskCards")
-          .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
-          .unique();
-        if (archived) throw new Error("Archived job cards are read-only.");
-        const before = snapshot.taskCards!.find((t) => t.uuid === command.uuid);
-        return { snapshot, before };
-      },
+      load: ({ ctx, state }, command) => loadCard(ctx, state, command),
       apply: ({ snapshot }, command) => saveTaskCard(snapshot, command),
-      persist: async ({ ctx }, { before }, next) => {
-        const existing = await ctx.db
-          .query("taskCards")
-          .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
-          .unique();
-        const fields = {
-          uuid: next.uuid,
-          aircraftUuid: next.aircraftUuid,
-          payload: JSON.stringify(next),
-        };
-        // A uuid outside the active program is never overwritten.
-        if (existing && !before) throw new Error("Job card not found.");
-        if (existing) await ctx.db.replace(existing._id, fields);
-        else await ctx.db.insert("taskCards", fields);
-      },
+      persist: ({ ctx }, { docs }, next) =>
+        writeChanged(ctx, "taskCards", docs, [next], "Job card not found."),
       audit: (log, { before }, next, command) =>
         log.entry("taskCard." + command.action, next.uuid, {
           aircraftUuid: next.aircraftUuid,
@@ -100,6 +81,7 @@ export const save = mutation({
       returns: (next) => next.uuid,
     }),
 });
+
 const fileArgs = {
   taskCardUuid: v.string(),
   programUuid: v.optional(v.string()),
@@ -109,16 +91,31 @@ const category = v.union(
   v.literal("supporting-document"),
   v.literal("parts-traceability"),
 );
+/**
+ * Checks, before an upload is stored, that the caller may add evidence to
+ * the job card.
+ *
+ * @returns The caller's user id.
+ * @throws {ConvexError} "An open job card and maintenance access are
+ *   required."; the refusals of checkContext and authorized.
+ */
 export const checkUpload = internalQuery({
   args: fileArgs,
   handler: async (ctx, args) => {
     const s = await taskState(ctx, args.programUuid);
     const t = s.taskCards.find((t) => t.uuid === args.taskCardUuid);
-    if (!t || !taskWritable(s, t))
-      throw new Error("An open job card and maintenance access are required.");
+    if (!t || !taskWritable(s, t)) throw new ConvexError(NO_OPEN_CARD);
     return (await authorized(ctx, t.aircraftUuid, "maintenance", s))._id;
   },
 });
+/**
+ * Records a stored upload as job-card evidence. New evidence clears the
+ * card's signoffs, so the card is saved with a new version and a
+ * "taskCard.evidence" change-log row.
+ *
+ * @throws {ConvexError} "An open job card and maintenance access are
+ *   required."; the attachment limit; checkContext's refusals.
+ */
 export const finishUpload = internalMutation({
   args: {
     ...fileArgs,
@@ -130,8 +127,7 @@ export const finishUpload = internalMutation({
   handler: async (ctx, args) => {
     const s = await taskState(ctx, args.programUuid);
     const t = s.taskCards.find((t) => t.uuid === args.taskCardUuid);
-    if (!t || !taskWritable(s, t))
-      throw new Error("An open job card and maintenance access are required.");
+    if (!t || !taskWritable(s, t)) throw new ConvexError(NO_OPEN_CARD);
     assertAttachmentRoom(
       await ctx.db
         .query("taskEvidence")
@@ -158,6 +154,13 @@ export const finishUpload = internalMutation({
     });
   },
 });
+/**
+ * Uploads one evidence file to a job card. The file is stored first and
+ * deleted again if the card refuses it.
+ *
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", before
+ *   any permission check; the refusals of checkUpload and finishUpload.
+ */
 export const upload = action({
   args: {
     ...fileArgs,
@@ -167,40 +170,45 @@ export const upload = action({
     category,
   },
   handler: async (ctx, args): Promise<void> => {
-    validateWorkOrderFile(args.name, args.type, args.bytes.byteLength);
-    await ctx.runQuery(internal.taskCards.checkUpload, {
+    exposeRejections(() =>
+      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength),
+    );
+    const card = {
       taskCardUuid: args.taskCardUuid,
       programUuid: args.programUuid,
-    });
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      await ctx.runMutation(internal.taskCards.finishUpload, {
-        taskCardUuid: args.taskCardUuid,
-        programUuid: args.programUuid,
+    };
+    await ctx.runQuery(internal.taskCards.checkUpload, card);
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.taskCards.finishUpload, {
+        ...card,
         storageId,
         name: args.name,
         size: args.bytes.byteLength,
         category: args.category,
-      });
-    } catch (e) {
-      await ctx.storage.delete(storageId);
-      throw e;
-    }
+      }),
+    );
   },
 });
+/**
+ * Deletes one evidence file from an open, unsigned job card, and its stored
+ * file once nothing else uses it. Writes a "taskCard.evidence_removed"
+ * change-log row.
+ *
+ * @throws {ConvexError} "Evidence not found."; "Evidence can be deleted only
+ *   from an open, unsigned job card."; the refusals of checkContext and
+ *   authorized.
+ */
 export const removeEvidence = mutation({
   args: { id: v.id("taskEvidence"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.id);
-    if (!file) throw new Error("Evidence not found.");
+    if (!file) throw new ConvexError(NO_EVIDENCE);
     const s = await taskState(ctx, args.programUuid);
     const t = s.taskCards.find((t) => t.uuid === file.taskCardUuid);
-    if (!t) throw new Error("Evidence not found.");
+    if (!t) throw new ConvexError(NO_EVIDENCE);
     await authorized(ctx, t.aircraftUuid, "maintenance", s);
     if (!evidenceRemovable(s, t))
-      throw new Error(
+      throw new ConvexError(
         "Evidence can be deleted only from an open, unsigned job card.",
       );
     await ctx.db.delete(file._id);
@@ -211,3 +219,40 @@ export const removeEvidence = mutation({
     });
   },
 });
+
+// Archived cards are read-only; a card is saved only within the program.
+async function loadCard(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  command: TaskCardCommand,
+) {
+  const { snapshot, docs } = await hydrate(ctx, state, [
+    "taskCards",
+    "workOrders",
+    "inspections",
+    "discrepancies",
+    "management",
+  ]);
+  const archived = await ctx.db
+    .query("archivedTaskCards")
+    .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
+    .unique();
+  if (archived) throw new ConvexError("Archived job cards are read-only.");
+  const before = snapshot.taskCards!.find((t) => t.uuid === command.uuid);
+  return { snapshot, before, docs: docs.taskCards };
+}
+
+// The caller's program with its job cards, work orders, inspections, problem
+// reports and records, for the evidence functions.
+async function taskState(ctx: QueryCtx | MutationCtx, programUuid?: string) {
+  const state = await checkContext(ctx, programUuid);
+  const management = await managementDocs(ctx, programUuid);
+  return {
+    ...state,
+    taskCards: decode("taskCards", await taskCardDocs(ctx, state.aircraft)),
+    workOrders: decode("workOrders", await workOrderDocs(ctx, state.aircraft)),
+    inspections: await inspectionDocs(ctx, state.aircraft, management),
+    discrepancies: await discrepancyDocs(ctx, state.aircraft),
+    management: decode("management", management),
+  };
+}

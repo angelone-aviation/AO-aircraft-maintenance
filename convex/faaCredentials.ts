@@ -4,7 +4,7 @@
  * Layer: Server. One public action and internal functions; the key is stored
  *   sealed and never returned.
  * Dependencies: convex/secrets, convex/secretsMigration, convex/access,
- *   src/domain/faaCredential, convex/values.
+ *   src/domain/faaCredential, convex/values, zod.
  */
 import {
   action,
@@ -12,14 +12,20 @@ import {
   internalQuery,
   type ActionCtx,
 } from "./_generated/server";
-import { sealSecret, type SecretContext } from "./secrets";
+import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { admin, audit } from "./access";
 import { faaCredentialInput } from "../src/domain/faaCredential";
+import { z } from "zod";
 
 const VERIFY_TIMEOUT_MS = 30_000;
+
+// faaCredentialInput caps the key at 512 ASCII characters, at most 745 sealed
+// under the longest key id.
+const MAX_SEALED_KEY_LENGTH = 745;
+const sealedKey = z.string().max(MAX_SEALED_KEY_LENGTH).regex(SEALED_V2);
 
 type DrsResponse = {
   summary?: unknown;
@@ -30,7 +36,7 @@ type DrsResponse = {
 /**
  * Refuses anyone but a system administrator, for actions to call first.
  *
- * @throws {Error} "Administrator permission required."
+ * @throws {ConvexError} "Administrator permission required."
  */
 export const authorize = internalQuery({
   args: {},
@@ -88,9 +94,11 @@ export async function faaSecret(
  * @param version - The settings version the form was loaded with.
  * @returns null. Bumps the version and audits `faa.key.updated` with the
  *   renewal date and version, never the key.
- * @throws {Error} "Administrator permission required."; "The renewal date must
- *   be in the future."; "FAA key settings changed. Reload before saving."; a
- *   ZodError for a malformed date or version.
+ * @throws {ConvexError} "Administrator permission required."; "The renewal
+ *   date must be in the future."; "FAA key settings changed. Reload before
+ *   saving."
+ * @throws {z.ZodError} For a malformed date or version; after the version
+ *   check, for a key that is not sealed (v2) or too long.
  */
 export const commit = internalMutation({
   args: { key: v.string(), expiresOn: v.string(), version: v.number() },
@@ -100,9 +108,9 @@ export const commit = internalMutation({
     assertRenewalInFuture(input.expiresOn);
     const saved = await ctx.db.query("faaCredentials").unique();
     if ((saved?.version ?? 0) !== input.version)
-      throw new Error("FAA key settings changed. Reload before saving.");
+      throw new ConvexError("FAA key settings changed. Reload before saving.");
     const value = {
-      key: args.key,
+      key: sealedKey.parse(args.key),
       expiresOn: input.expiresOn,
       version: input.version + 1,
       updatedAt: Date.now(),
@@ -124,10 +132,10 @@ export const commit = internalMutation({
  * @param expiresOn - Its renewal date (YYYY-MM-DD), after today (UTC).
  * @param version - The settings version the form was loaded with.
  * @returns null. Saves as {@link commit} does.
- * @throws {Error} The {@link commit} refusals; "FAA could not verify the new
- *   key (<status>). …" or "FAA returned an unexpected response. …", each
- *   ending "The previous key is unchanged."
- * @throws {ConvexError} From sealing, before the FAA sees the key.
+ * @throws {ConvexError} From sealing, before the FAA sees the key; "FAA could
+ *   not verify the new key (<status>). …" or "FAA returned an unexpected
+ *   response. …", each ending "The previous key is unchanged."; the
+ *   {@link commit} refusals.
  */
 export const replace = action({
   args: { key: v.string(), expiresOn: v.string(), version: v.number() },
@@ -170,7 +178,7 @@ export const initializeExpiry = internalMutation({
 // ISO dates compare as text; "today" is the UTC date.
 function assertRenewalInFuture(expiresOn: string): void {
   if (expiresOn <= new Date().toISOString().slice(0, 10))
-    throw new Error("The renewal date must be in the future.");
+    throw new ConvexError("The renewal date must be in the future.");
 }
 
 // Never log the request headers or the key.
@@ -189,12 +197,12 @@ async function verifyWithFaa(key: string): Promise<void> {
     },
   );
   if (!response.ok)
-    throw new Error(
+    throw new ConvexError(
       `FAA could not verify the new key (${response.status}). The previous key is unchanged.`,
     );
   const body = (await response.json()) as DrsResponse;
   if (!body?.summary || !Array.isArray(body.documents) || body.errorMessage)
-    throw new Error(
+    throw new ConvexError(
       "FAA returned an unexpected response. The previous key is unchanged.",
     );
 }

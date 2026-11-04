@@ -1,11 +1,18 @@
-// A realistic Convex export ZIP for tests and the sample workbook, built from
-// the demo program (src/data/demo.ts): Mission operations with N206MA,
-// N208MA and N182MA (later transferred to a second program), its people,
-// flights, discrepancies, work orders, ADs, components, stock and change
-// history. Every document is shaped like its convex/schema.ts table, and
-// payloads are checked against the app's own schemas. It also holds the data
-// the workbook must never show (sign-in tables, credentials, stored files),
-// listed in `forbidden`. All people and records are fictional.
+/**
+ * Responsibility: A realistic Convex export ZIP of the demo program, for the
+ *   backup tests and the sample records workbook.
+ * Layer: Test. Fixture builder for scripts/backup tests; never shipped.
+ * Dependencies: node:crypto, fflate, src/data/demo, convex/collections
+ *   (encoding), src/domain stored-record schemas.
+ *
+ * Mission operations with N206MA, N208MA and N182MA (later transferred to a
+ * second program): its people, flights, discrepancies, work orders, ADs,
+ * components, stock and change history. Every document is shaped like its
+ * convex/schema.ts table; payloads are checked against the app's own schemas
+ * and their rows encoded as the app stores them. It also holds the data the
+ * workbook must never show (sign-in tables, credentials, stored files), listed
+ * in `forbidden`. All people and records are fictional.
+ */
 import { createHash } from "node:crypto";
 import { zipSync, strToU8, type Zippable } from "fflate";
 import { demoSnapshot } from "../../src/data/demo";
@@ -15,9 +22,14 @@ import { inspectionSchema, recordSchema } from "../../src/domain/management";
 import { poSchema } from "../../src/domain/purchaseOrders";
 import { taskCardDefaults, taskCardSchema } from "../../src/domain/taskCards";
 import { workOrderSchema } from "../../src/domain/workOrders";
+import { encode } from "../../convex/collections";
 
 const hash = (seed: string) => createHash("sha256").update(seed).digest();
-/** A stable version-4 UUID for a fixture record. */
+/**
+ * A stable version-4 UUID for a fixture record.
+ *
+ * @param seed - Names the record; the same seed gives the same UUID.
+ */
 export function uuid(seed: string) {
   const b = hash(seed);
   b[6] = (b[6] & 0x0f) | 0x40;
@@ -26,7 +38,11 @@ export function uuid(seed: string) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 const BASE32 = "0123456789abcdefghjkmnpqrstvwxyz";
-/** A stable Convex document ID. */
+/**
+ * A stable Convex document ID.
+ *
+ * @param seed - Names the document; the same seed gives the same ID.
+ */
 export function convexId(seed: string) {
   return [...hash(`id:${seed}`)]
     .slice(0, 32)
@@ -35,6 +51,14 @@ export function convexId(seed: string) {
 }
 const h = (hours: number) => Math.round(hours * 3600);
 
+/**
+ * Builds the fixture export.
+ *
+ * @param now - When the export is taken; record dates are relative to it.
+ * @returns `zip`, the export's bytes; `forbidden`, text the workbook must
+ *   never show; and `ids` of the programs, aircraft, users, groups, work
+ *   orders, inspections and components.
+ */
 export function fixtureExport(now = Date.now()) {
   const demo = demoSnapshot();
   const dayMs = 86_400_000;
@@ -494,13 +518,7 @@ export function fixtureExport(now = Date.now()) {
   // Locations, vendors, stock and components.
   const managed = (raw: unknown) => {
     const r = recordSchema.parse(raw);
-    add("management", {
-      uuid: r.uuid,
-      programUuid: r.programUuid,
-      kind: r.kind,
-      ...("aircraftUuid" in r ? { aircraftUuid: r.aircraftUuid } : {}),
-      payload: JSON.stringify(r),
-    });
+    add("management", encode("management", r));
     return r;
   };
   const L1 = uuid("location:main"),
@@ -784,12 +802,7 @@ export function fixtureExport(now = Date.now()) {
         ...raw.source,
       },
     });
-    add("airworthiness", {
-      uuid: r.uuid,
-      aircraftUuid: r.aircraftUuid,
-      programUuid: r.programUuid,
-      payload: JSON.stringify(r),
-    });
+    add("airworthiness", encode("airworthiness", r));
     return r;
   };
   const task = uuid("ad-task:stabilizer");
@@ -1025,12 +1038,7 @@ export function fixtureExport(now = Date.now()) {
       },
     ],
   });
-  for (const w of [hundred, pitot])
-    add("workOrders", {
-      uuid: w.uuid,
-      aircraftUuid: w.aircraftUuid,
-      payload: JSON.stringify(w),
-    });
+  for (const w of [hundred, pitot]) add("workOrders", encode("workOrders", w));
   const card = (raw: Record<string, unknown>) => {
     const c = taskCardSchema.parse({
       ...taskCardDefaults(String(raw.aircraftUuid)),
@@ -1041,11 +1049,7 @@ export function fixtureExport(now = Date.now()) {
       inspectionSignoff: null,
       ...raw,
     });
-    add("taskCards", {
-      uuid: c.uuid,
-      aircraftUuid: c.aircraftUuid,
-      payload: JSON.stringify(c),
-    });
+    add("taskCards", encode("taskCards", c));
     return c;
   };
   card({
@@ -1131,12 +1135,7 @@ export function fixtureExport(now = Date.now()) {
   });
   const cost = (raw: Record<string, unknown>) => {
     const c = costRecordSchema.parse({ version: 1, ...raw });
-    add("costs", {
-      uuid: c.uuid,
-      programUuid: c.programUuid,
-      aircraftUuid: c.kind === "settings" ? "" : c.aircraftUuid,
-      payload: JSON.stringify(c),
-    });
+    add("costs", encode("costs", c));
   };
   cost({
     uuid: uuid("cost:206-100"),
@@ -1222,11 +1221,7 @@ export function fixtureExport(now = Date.now()) {
       history: [],
       ...raw,
     });
-    add("purchaseOrders", {
-      uuid: p.uuid,
-      programUuid: p.programUuid,
-      payload: JSON.stringify(p),
-    });
+    add("purchaseOrders", encode("purchaseOrders", p));
     return p;
   };
   const filterLine = uuid("po-line:filter");

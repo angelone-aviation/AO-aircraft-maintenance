@@ -1,34 +1,14 @@
+/**
+ * Responsibility: Pins the record lists' layout: flight-log status filters,
+ *   pending flights linked to the Sync center, cards on phones, and the
+ *   discrepancy counts, resolved switch and change-history aircraft filter.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect, type Page } from "@playwright/test";
-async function demo(page: Page) {
-  await page.addInitScript(() =>
-    sessionStorage.setItem("angel-one-demo", "true"),
-  );
-  await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Your fleet, at a glance." }),
-  ).toBeVisible();
-  await page.evaluate(async () => {
-    await navigator.serviceWorker.ready;
-  });
-  await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "Your fleet, at a glance." }),
-  ).toBeVisible();
-}
-async function logFlight(page: Page, ending: string, time: string) {
-  await page
-    .getByRole("button", { name: "Log a completed flight", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog", { name: "Log a flight" });
-  await dialog.getByLabel("Ending Hobbs *", { exact: true }).fill(ending);
-  await dialog.getByLabel("Flight date & time").fill(time);
-  await dialog.getByLabel("Origin", { exact: true }).fill("KSEA");
-  await dialog.getByLabel("Destination", { exact: true }).fill("KBFI");
-  await dialog
-    .getByRole("button", { name: "Save flight", exact: true })
-    .click();
-  await expect(dialog).not.toBeVisible();
-}
+
+const PHONE = { width: 390, height: 844 };
+
 test("flight log filters by status, links pending entries to Sync center and stacks cards on phones", async ({
   page,
   context,
@@ -36,6 +16,7 @@ test("flight log filters by status, links pending entries to Sync center and sta
   await demo(page);
   await page.getByRole("link", { name: "Flight log", exact: true }).click();
   await expect(page.getByText("No flights in this view")).toBeVisible();
+  // One hour on from N206MA's 2,341.2 Hobbs.
   await logFlight(page, "2342.2", "2026-01-01T10:00");
   const filters = page.getByRole("group", { name: "Flight status" });
   await expect(
@@ -58,6 +39,7 @@ test("flight log filters by status, links pending entries to Sync center and sta
     page.getByRole("button", { name: "Correct", exact: true }),
   ).toBeVisible();
 
+  // Offline, the flight waits in the outbox and syncs on reconnect.
   await context.setOffline(true);
   await logFlight(page, "2343.2", "2026-01-02T10:00");
   const chip = page.getByRole("link", {
@@ -74,7 +56,7 @@ test("flight log filters by status, links pending entries to Sync center and sta
     page.getByRole("heading", { name: "0 pending entries", exact: true }),
   ).toBeVisible();
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize(PHONE);
   await page.goto("/flights");
   await expect(page.locator("table")).toHaveCount(0);
   await expect(
@@ -85,8 +67,9 @@ test("flight log filters by status, links pending entries to Sync center and sta
   ).toHaveCount(2);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390);
+  ).toBeLessThanOrEqual(PHONE.width);
 });
+
 test("discrepancy counts, resolved switch and history filter follow recorded data", async ({
   page,
 }) => {
@@ -116,9 +99,42 @@ test("discrepancy counts, resolved switch and history filter follow recorded dat
     exact: true,
   });
   await expect(reason).toBeVisible();
+  // The demo's one open report is on N208MA.
   const aircraft = page.getByLabel("Aircraft", { exact: true });
   await aircraft.selectOption({ label: "N206MA" });
   await expect(reason).toHaveCount(0);
   await aircraft.selectOption({ label: "N208MA" });
   await expect(reason).toBeVisible();
 });
+
+/** Opens the demo with the service worker controlling the page. */
+async function demo(page: Page) {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/");
+  const home = page.getByRole("heading", { name: "Your fleet, at a glance." });
+  await expect(home).toBeVisible();
+  // The service worker controls only pages loaded after it activates.
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await expect(home).toBeVisible();
+}
+
+/** Logs a KSEA to KBFI flight on the default aircraft at a Hobbs reading. */
+async function logFlight(page: Page, ending: string, time: string) {
+  await page
+    .getByRole("button", { name: "Log a completed flight", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Log a flight" });
+  await dialog.getByLabel("Ending Hobbs *", { exact: true }).fill(ending);
+  await dialog.getByLabel("Flight date & time").fill(time);
+  await dialog.getByLabel("Origin", { exact: true }).fill("KSEA");
+  await dialog.getByLabel("Destination", { exact: true }).fill("KBFI");
+  await dialog
+    .getByRole("button", { name: "Save flight", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+}

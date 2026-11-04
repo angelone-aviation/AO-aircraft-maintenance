@@ -1,5 +1,22 @@
-import type { Locator, Page } from "@playwright/test";
-import { expect } from "@playwright/test";
+/**
+ * Responsibility: Adds a saved shipping address through an address picker.
+ * Layer: Test. Playwright helper against the demo.
+ * Dependencies: @playwright/test.
+ */
+import { expect, type Locator, type Page } from "@playwright/test";
+
+// The picker option that opens the Add new shipping address dialog.
+const NEW_ADDRESS_OPTION = "__new";
+
+/**
+ * Adds `name` at `street` (Washington, DC) through the `label` picker in
+ * `form`, then checks the picker selects it.
+ * @param page - The page the address dialog opens on.
+ * @param form - The form holding the picker.
+ * @param label - The picker's label prefix, as in "<label> — Saved address".
+ * @param name - The saved address's name.
+ * @param street - Its street address.
+ */
 export async function addSavedAddress(
   page: Page,
   form: Locator,
@@ -9,7 +26,7 @@ export async function addSavedAddress(
 ) {
   await form
     .getByLabel(`${label} — Saved address`, { exact: true })
-    .selectOption("__new");
+    .selectOption(NEW_ADDRESS_OPTION);
   const address = page.getByRole("dialog", {
     name: "Add new shipping address",
     exact: true,

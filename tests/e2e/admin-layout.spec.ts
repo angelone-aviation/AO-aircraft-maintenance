@@ -1,5 +1,12 @@
+/**
+ * Responsibility: Pins the Administration layout for system and program
+ *   administrators, on desktop and phone, and what moved to Settings.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect, type Page } from "@playwright/test";
 
+/** Opens Administration in the demo, signed in as its system administrator. */
 async function openAdmin(page: Page) {
   await page.addInitScript(() =>
     sessionStorage.setItem("angel-one-demo", "true"),
@@ -82,6 +89,7 @@ test("administration tabs fit a phone without horizontal scrolling", async ({
     .boundingBox();
   expect(box).not.toBeNull();
   expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  // The segmented control's 40px minimum keeps each tab easy to tap.
   expect(box!.height).toBeGreaterThanOrEqual(40);
 });
 
@@ -89,6 +97,8 @@ test("program administrators see sectioned users, groups and aircraft, with expo
   page,
 }) => {
   await openAdmin(page);
+  // Makes the demo user a program administrator, not a system administrator,
+  // in every snapshot the demo cached; the reload below shows the result.
   await page.evaluate(
     () =>
       new Promise<void>((resolve, reject) => {

@@ -1,4 +1,39 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins Flight Program administrators: they add users, groups
+ *   and aircraft only in their current program, change and remove members'
+ *   access, and delete a group after naming who loses access.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
+import { test, expect, type Page } from "@playwright/test";
+
+const PROGRAM_GROUPS = [
+  {
+    id: "program-admin",
+    programUuid: "demo-program",
+    name: "Program administrators",
+    programAdmin: true,
+    aircraftIds: [],
+    permissions: ["read"],
+  },
+  {
+    id: "program-maintenance",
+    programUuid: "demo-program",
+    name: "Program maintenance",
+    programAdmin: false,
+    aircraftIds: [],
+    permissions: ["read", "maintenance"],
+  },
+  {
+    id: "foreign-group",
+    programUuid: "foreign",
+    name: "Foreign administrators",
+    programAdmin: true,
+    aircraftIds: [],
+    permissions: ["read"],
+  },
+];
+
 test("program administrators add users only to their current program", async ({
   page,
 }) => {
@@ -9,70 +44,7 @@ test("program administrators add users only to their current program", async ({
   await expect(
     page.getByRole("heading", { name: "Administration", exact: true }),
   ).toBeVisible();
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("angel-one-v1");
-        request.onsuccess = () => {
-          const db = request.result,
-            tx = db.transaction("snapshots", "readwrite"),
-            cursor = tx.objectStore("snapshots").openCursor();
-          cursor.onsuccess = () => {
-            const entry = cursor.result;
-            if (!entry) return;
-            const s = entry.value;
-            s.groups.push(
-              {
-                id: "program-admin",
-                programUuid: "demo-program",
-                name: "Program administrators",
-                programAdmin: true,
-                aircraftIds: [],
-                permissions: ["read"],
-              },
-              {
-                id: "program-maintenance",
-                programUuid: "demo-program",
-                name: "Program maintenance",
-                programAdmin: false,
-                aircraftIds: [],
-                permissions: ["read", "maintenance"],
-              },
-              {
-                id: "foreign-group",
-                programUuid: "foreign",
-                name: "Foreign administrators",
-                programAdmin: true,
-                aircraftIds: [],
-                permissions: ["read"],
-              },
-            );
-            s.programs.push({
-              ...s.programs[0],
-              uuid: "foreign",
-              name: "Foreign program",
-            });
-            s.user = {
-              ...s.user,
-              isAdmin: false,
-              groupIds: ["program-admin"],
-              activeProgramUuid: "demo-program",
-            };
-            s.members = s.members.map((m: { id: string }) =>
-              m.id === s.user.id ? s.user : m,
-            );
-            entry.update(s);
-            entry.continue();
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-          tx.onabort = () => reject(tx.error);
-        };
-      }),
-  );
+  await becomeProgramAdmin(page);
   await page.reload();
   await expect(
     page.getByRole("link", { name: "Administration", exact: true }),
@@ -80,6 +52,7 @@ test("program administrators add users only to their current program", async ({
   await expect(
     page.getByRole("button", { name: "Permission groups", exact: true }),
   ).toHaveCount(0);
+  // Only global administrators reset other users' passwords.
   await expect(
     page.getByRole("button", { name: "Reset password", exact: true }),
   ).toHaveCount(0);
@@ -153,6 +126,7 @@ test("program administrators add users only to their current program", async ({
     .getByRole("button", { name: "Save program access", exact: true })
     .click();
   await expect(row).toHaveCount(0);
+  // The account still exists, so it can be added back by email.
   await page
     .getByRole("button", { name: "Add existing user", exact: true })
     .click();
@@ -188,6 +162,7 @@ test("program administrators add users only to their current program", async ({
   await pilotGroup
     .getByRole("button", { name: "Delete group", exact: true })
     .click();
+  // Program pilots is the new user's only group in this program.
   await expect(dialog).toContainText("Program New User");
   await expect(dialog).toContainText("loses access to this Flight Program");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -204,3 +179,48 @@ test("program administrators add users only to their current program", async ({
   await page.reload();
   await expect(pilotGroup).toHaveCount(0);
 });
+
+/**
+ * Makes the signed-in demo user a non-administrator whose only group is the
+ * demo program's administrators, and adds a foreign program and its group,
+ * in every stored snapshot.
+ */
+async function becomeProgramAdmin(page: Page) {
+  await page.evaluate(async (groups) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value;
+      s.groups.push(...groups);
+      s.programs.push({
+        ...s.programs[0],
+        uuid: "foreign",
+        name: "Foreign program",
+      });
+      s.user = {
+        ...s.user,
+        isAdmin: false,
+        groupIds: ["program-admin"],
+        activeProgramUuid: "demo-program",
+      };
+      s.members = s.members.map((m: { id: string }) =>
+        m.id === s.user.id ? s.user : m,
+      );
+      entry.update(s);
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+  }, PROGRAM_GROUPS);
+}

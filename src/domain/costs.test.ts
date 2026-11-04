@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins work-order costs: parsing and pricing labor, parts and
+ *   other costs, the aircraft cost report, budgets, and every refusal.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/costs.ts, ./workOrders, ./partsRequests,
+ *   ./programs, ./csv, ./model, ./rejection, src/data/demo.ts,
+ *   tests/fixtures/workOrders.ts.
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
@@ -5,13 +13,16 @@ import { saveWorkOrder } from "./workOrders";
 import { partsRequestSchema } from "./partsRequests";
 import { scopedSnapshot } from "./programs";
 import { toCsv } from "./csv";
-import type { Snapshot } from "./model";
+import type { Flight, Snapshot } from "./model";
+import { Rejection } from "./rejection";
 import {
   aircraftCostReport,
   applyCostCommand,
   budgetStatus,
   costRecordSchema,
   costReportCsvRows,
+  flightSeconds,
+  formatCents,
   formatLaborHours,
   laborCents,
   parseCents,
@@ -637,3 +648,214 @@ describe("aircraft cost report", () => {
     expect(order).toBeTruthy();
   });
 });
+
+describe("cost report details", () => {
+  it("formats cents as US dollars", () => {
+    expect(formatCents(123450)).toBe("$1,234.50");
+  });
+  it("lists work orders oldest opened first", () => {
+    const f = fixture();
+    const older = {
+      ...f.order,
+      uuid: crypto.randomUUID(),
+      dateOpened: "2025-12-31",
+    };
+    f.s.workOrders = [...f.s.workOrders!, older];
+    f.run(labor(f));
+    f.run({ ...labor(f), workOrderUuid: older.uuid } as CostCommand);
+    const report = aircraftCostReport(f.s, f.order.aircraftUuid, {
+      from: "2026-01-01",
+      to: "2026-12-31",
+    });
+    expect(report.orders.map((o) => o.order.uuid)).toEqual([
+      older.uuid,
+      f.order.uuid,
+    ]);
+  });
+  it("counts only accepted flights", () => {
+    const { s } = fixture();
+    const a = s.aircraft[0];
+    const flight = {
+      ...demoFlight(a.uuid),
+      hobbsOff: a.currentHobbs,
+      hobbsOn: a.currentHobbs + 3600,
+    };
+    expect(flightSeconds(a, flight)).toBe(3600);
+    expect(flightSeconds(a, { ...flight, status: "review" })).toBe(0);
+  });
+  it("gives no percent for a zero budget, and keeps budgets per year", () => {
+    const f = fixture();
+    const budget = (year: number, amountCents: number) =>
+      f.run({
+        action: "budget.set",
+        aircraftUuid: f.order.aircraftUuid,
+        year,
+        amountCents,
+      });
+    budget(2025, 100);
+    budget(2026, 0);
+    expect(budgetStatus(f.s, f.order.aircraftUuid, 2026)).toMatchObject({
+      budgetCents: 0,
+      percent: undefined,
+      over: true,
+    });
+  });
+});
+
+function demoFlight(aircraftUuid: string): Flight {
+  return {
+    uuid: "flight",
+    aircraftUuid,
+    startTime: new Date(localNoon("2026-04-30")).toISOString(),
+    pilotId: "demo-admin",
+    authorId: "demo-admin",
+    submittedAt: 0,
+    status: "accepted",
+    landings: 1,
+    cycles: 1,
+    origin: "",
+    destination: "",
+    operation: "Mission",
+    flightRules: "VFR",
+    remarks: "",
+    discrepancy: "",
+  } as Flight;
+}
+
+type Fixture = ReturnType<typeof fixture>;
+const labor = ({ order }: Fixture, entry: object = {}): CostCommand => ({
+  action: "labor.add",
+  workOrderUuid: order.uuid,
+  entry: {
+    uuid: crypto.randomUUID(),
+    date: "2026-06-01",
+    technician: "Sam",
+    seconds: 3600,
+    ...entry,
+  },
+});
+const closeOrder = ({ s, order }: Fixture) =>
+  saveWorkOrder(
+    s,
+    {
+      ...workOrderCommand(),
+      uuid: order.uuid,
+      version: order.version,
+      fields: {
+        ...workOrderCommand().fields,
+        status: "cancelled",
+        number: order.number,
+      },
+    },
+    NOW,
+  );
+
+// Each refusal costs.ts throws itself.
+const REFUSALS: Record<string, (f: Fixture) => unknown> = {
+  "Enter hours as a number with up to two decimals.": () =>
+    parseLaborHours("1.234"),
+  "Labor hours must be greater than zero.": () => parseLaborHours("0"),
+  "A single labor entry cannot exceed 1,000 hours.": () =>
+    parseLaborHours("1000.01"),
+  "Enter a positive amount with up to two decimals.": () => parseCents("-1"),
+  "Amount is too large.": () => parseCents("1.00", 99),
+  "Choose a start and end date.": () =>
+    periodFor("custom", "2026-06-15", { from: "2026-01-01" }),
+  "Choose a start date on or before the end date.": () =>
+    periodFor("custom", "2026-06-15", { from: "2026-02-01", to: "2026-01-31" }),
+  "Select a Flight Program first.": (f) => {
+    f.s.user = { ...f.s.user, active: false };
+    return f.run({ action: "settings.laborRate", laborRateCents: 1 });
+  },
+  "Flight Program administrator access is required.": (f) => {
+    asMaintenance(f.s);
+    return f.run({ action: "settings.laborRate", laborRateCents: 1 });
+  },
+  "Aircraft not found.": (f) =>
+    f.run({
+      action: "budget.set",
+      aircraftUuid: "missing",
+      year: 2026,
+      amountCents: 1,
+    }),
+  "Work order not found.": (f) =>
+    f.run({ action: "labor.remove", workOrderUuid: "missing", uuid: "x" }),
+  "This work order is closed. Its costs are read-only.": (f) => {
+    closeOrder(f);
+    return f.run(labor(f));
+  },
+  "Cost dates cannot be in the future.": (f) =>
+    f.run(labor(f, { date: "2099-01-01" })),
+  "Only Flight Program administrators can set rates.": (f) => {
+    asMaintenance(f.s);
+    return f.run(labor(f, { rateCents: 100 }));
+  },
+  "Labor entry not found.": (f) =>
+    f.run({ action: "labor.remove", workOrderUuid: f.order.uuid, uuid: "x" }),
+  "You can only remove labor you recorded.": (f) => {
+    const command = labor(f);
+    f.run(command);
+    asMaintenance(f.s);
+    const uuid = command.action === "labor.add" ? command.entry.uuid : "";
+    return f.run({ action: "labor.remove", workOrderUuid: f.order.uuid, uuid });
+  },
+  "Cost entry not found.": (f) =>
+    f.run({ action: "other.remove", workOrderUuid: f.order.uuid, uuid: "x" }),
+  "That part was not issued to this work order.": (f) =>
+    f.run({
+      action: "part.unitCost",
+      workOrderUuid: f.order.uuid,
+      stockUuid: "missing",
+      unitCents: 1,
+    }),
+};
+
+describe("change log", () => {
+  it("writes one row per change, with the program and no aircraft", () => {
+    const { s, run } = fixture();
+    const [aircraft] = s.aircraft;
+    run({
+      action: "budget.set",
+      aircraftUuid: aircraft.uuid,
+      year: 2026,
+      amountCents: 100,
+    });
+    const [row] = s.audit;
+    expect(Object.keys(JSON.parse(JSON.stringify(row)))).toEqual([
+      "uuid",
+      "programUuid",
+      "actorId",
+      "at",
+      "action",
+      "entityUuid",
+      "reason",
+      "after",
+    ]);
+    expect(row).toMatchObject({
+      programUuid: "demo-program",
+      actorId: s.user.id,
+      at: NOW,
+      action: "cost.budget.set",
+      reason: aircraft.registration,
+    });
+    expect(row.aircraftUuid).toBeUndefined();
+  });
+});
+
+describe("refusals", () => {
+  it.each(Object.entries(REFUSALS))("%s", (message, refuse) => {
+    const f = fixture();
+    const error = thrownBy(() => refuse(f));
+    expect(error).toEqual(new Error(message));
+    expect(error).toBeInstanceOf(Rejection);
+  });
+});
+
+function thrownBy(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected a refusal.");
+}

@@ -14,17 +14,23 @@ import { Rejection } from "./rejection";
 const RATING_KINDS = ["airframe", "powerplant", "ia"] as const;
 type RatingKind = (typeof RATING_KINDS)[number];
 
+const CERTIFICATE_NUMBER_MAX_LENGTH = 100;
+// Both checks say this: past one row per kind, a row always repeats a kind,
+// and zod checks the cap first.
+const DUPLICATE_KIND = "Each certification may be selected only once.";
 const LICENSE_COPY_NAME_MAX_LENGTH = 200;
 // 5 MiB, although the refusal says "5 MB".
 const LICENSE_COPY_MAX_BYTES = 5 * 1024 * 1024;
-const LICENSE_COPY_EXTENSIONS: Record<string, string[]> = {
-  "application/pdf": ["pdf"],
-  "image/jpeg": ["jpg", "jpeg"],
-  "image/png": ["png"],
-  "image/webp": ["webp"],
-  "image/heic": ["heic"],
-  "image/heif": ["heif"],
-};
+// A Map, not an object literal: the type is user input, and "constructor"
+// would find an inherited property instead of no entry.
+const LICENSE_COPY_EXTENSIONS = new Map<string, string[]>([
+  ["application/pdf", ["pdf"]],
+  ["image/jpeg", ["jpg", "jpeg"]],
+  ["image/png", ["png"]],
+  ["image/webp", ["webp"]],
+  ["image/heic", ["heic"]],
+  ["image/heif", ["heif"]],
+]);
 
 /** Certificate kinds a member may record, the legacy ratings included. */
 export const certificationKinds = [
@@ -70,13 +76,20 @@ const legacyQualificationSchema = z.object({
 /**
  * One certificate. Dates are ISO dates or "".
  *
- * @throws {z.ZodError} From `parse()` on an invalid field, or "Renewal date
- *   must be on or after the issue date."
+ * @throws {z.ZodError} From `parse()` on an invalid field, including
+ *   "Certificate number is too long (up to 100 characters)." and "Renewal
+ *   date must be on or after the issue date."
  */
 export const certificationSchema = z
   .object({
     kind: certificationKindSchema,
-    number: z.string().trim().max(100),
+    number: z
+      .string()
+      .trim()
+      .max(
+        CERTIFICATE_NUMBER_MAX_LENGTH,
+        `Certificate number is too long (up to ${CERTIFICATE_NUMBER_MAX_LENGTH} characters).`,
+      ),
     issuedOn: date,
     expiresOn: date.optional(),
     renewalDate: date.optional(),
@@ -98,10 +111,10 @@ export const certificationSchema = z
  */
 export const certificationsSchema = z
   .array(certificationSchema)
-  .max(5)
+  .max(certificationKinds.length, DUPLICATE_KIND)
   .refine(
     (rows) => new Set(rows.map((r) => r.kind)).size === rows.length,
-    "Each certification may be selected only once.",
+    DUPLICATE_KIND,
   )
   .transform(normalizeCertifications);
 
@@ -241,7 +254,7 @@ export function validateCertificationFile(
   if (
     !name ||
     name.length > LICENSE_COPY_NAME_MAX_LENGTH ||
-    !LICENSE_COPY_EXTENSIONS[type]?.includes(extension)
+    !LICENSE_COPY_EXTENSIONS.get(type)?.includes(extension)
   )
     throw new Rejection(
       "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",

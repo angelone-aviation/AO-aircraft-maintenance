@@ -1,53 +1,18 @@
+/**
+ * Responsibility: Pins permission-group aircraft access (#34): every program
+ *   aircraft only by explicit choice, a group whose aircraft left kept
+ *   restricted, the notice for groups an earlier edit opened, and the
+ *   Disabled badge on a disabled administrator (#53).
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect, type Page } from "@playwright/test";
 
-// Edits every stored demo snapshot, then reloads.
-async function seed(page: Page, script: string) {
-  await page.evaluate(
-    (source) =>
-      new Promise<void>((resolve, reject) => {
-        const edit = new Function("s", source) as (s: unknown) => void;
-        const request = indexedDB.open("angel-one-v1");
-        request.onsuccess = () => {
-          const db = request.result,
-            tx = db.transaction("snapshots", "readwrite"),
-            cursor = tx.objectStore("snapshots").openCursor();
-          cursor.onsuccess = () => {
-            const entry = cursor.result;
-            if (!entry) return;
-            if (entry.value?.user) {
-              edit(entry.value);
-              entry.update(entry.value);
-            }
-            entry.continue();
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      }),
-    script,
-  );
-  await page.reload();
-}
-
-async function openAdmin(page: Page) {
-  await page.addInitScript(() =>
-    sessionStorage.setItem("angel-one-demo", "true"),
-  );
-  await page.goto("/admin");
-  await expect(
-    page.getByRole("heading", { name: "Administration", exact: true }),
-  ).toBeVisible();
-}
-
-async function groupsTab(page: Page) {
-  await page
-    .getByRole("group", { name: "Administration sections" })
-    .getByRole("button", { name: "Permission groups", exact: true })
-    .click();
-}
+const CHOOSE_AIRCRAFT =
+  "Choose the aircraft this group can access, or choose all aircraft in this program.";
+// Seed-script source for the N206 crew group's fields, before an id is set.
+const CREW_SOURCE = `{ name: "N206 crew", programUuid: "demo-program",
+    programAdmin: false, owner: false, permissions: ["read", "flight"] }`;
 
 test("a group whose aircraft left the program stays restricted until aircraft or all aircraft are chosen (#34)", async ({
   page,
@@ -61,21 +26,7 @@ test("a group whose aircraft left the program stays restricted until aircraft or
      s.members = s.members.map((m) =>
        m.id === "demo-pilot" ? { ...m, groupIds: ["n206-crew"] } : m);`,
   );
-  await page.goto("/programs");
-  const transfer = page.locator("section[aria-labelledby=ops-transfer-title]");
-  await transfer
-    .getByLabel("Record to transfer")
-    .selectOption({ label: "N206MA" });
-  await transfer
-    .getByLabel("Destination Flight Program")
-    .selectOption({ label: "Second program" });
-  await transfer
-    .getByLabel("Transfer reason")
-    .fill("Aircraft moved to the second program.");
-  await transfer.getByRole("button", { name: "Transfer record" }).click();
-  await expect(
-    page.getByText("Record transferred to its destination Flight Program."),
-  ).toBeVisible();
+  await transferN206ToSecondProgram(page);
 
   await page.goto("/admin");
   await groupsTab(page);
@@ -101,9 +52,7 @@ test("a group whose aircraft left the program stays restricted until aircraft or
   // Renaming alone must not open the group to every program aircraft.
   await dialog.getByLabel("Group name").fill("N206 crew (renamed)");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(
-    "Choose the aircraft this group can access, or choose all aircraft in this program.",
-  );
+  await expect(dialog.getByRole("alert")).toHaveText(CHOOSE_AIRCRAFT);
   await dialog.getByRole("button", { name: "Close dialog" }).click();
   await expect(row.locator(".adm-group-name")).toHaveText("N206 crew");
   await expect(row.locator(".adm-group-meta")).toContainText(
@@ -144,9 +93,7 @@ test("a new permission group needs an explicit aircraft access choice (#34)", as
   for (const name of ["All aircraft in this program", "Only selected aircraft"])
     await expect(dialog.getByRole("radio", { name })).not.toBeChecked();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(
-    "Choose the aircraft this group can access, or choose all aircraft in this program.",
-  );
+  await expect(dialog.getByRole("alert")).toHaveText(CHOOSE_AIRCRAFT);
   await dialog.getByRole("radio", { name: "Only selected aircraft" }).check();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog.getByRole("alert")).toBeVisible();
@@ -155,12 +102,9 @@ test("a new permission group needs an explicit aircraft access choice (#34)", as
     .check();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  const meta = (name: string) =>
-    page
-      .locator(".adm-group")
-      .filter({ hasText: name })
-      .locator(".adm-group-meta");
-  await expect(meta("Line pilots")).toContainText("All program aircraft");
+  await expect(groupMeta(page, "Line pilots")).toContainText(
+    "All program aircraft",
+  );
   // Checking an aircraft chooses selected aircraft.
   await page.getByRole("button", { name: "Add group", exact: true }).click();
   await dialog.getByLabel("Group name").fill("N182 crew");
@@ -170,7 +114,7 @@ test("a new permission group needs an explicit aircraft access choice (#34)", as
   ).toBeChecked();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(meta("N182 crew")).toContainText("1 aircraft");
+  await expect(groupMeta(page, "N182 crew")).toContainText("1 aircraft");
   // Program administrators cover every aircraft; no choice is asked.
   await page.getByRole("button", { name: "Add group", exact: true }).click();
   await dialog.getByLabel("Group name").fill("Managers");
@@ -210,47 +154,26 @@ test("Administration lists groups an edit before the #34 fix opened to all aircr
   page,
 }) => {
   await openAdmin(page);
-  const crew = `{ name: "N206 crew", programUuid: "demo-program",
-    programAdmin: false, owner: false, permissions: ["read", "flight"] }`;
-  // A change-log entry as saveGroup wrote it before the fix.
-  const saved = (at: string, before: string, after: string) =>
-    `{ uuid: crypto.randomUUID(), at: Date.parse("${at}"), actorId: "demo-admin",
-       action: "group.saved", entityUuid: ${after}.id, before: ${before},
-       after: JSON.stringify({ ...${after}, id: undefined }) }`;
   await seed(
     page,
-    `const crew = ${crew};
+    `const crew = ${CREW_SOURCE};
      s.programs.push({ ...s.programs[0], uuid: "second", name: "Second program" });
      s.groups.push({ ...crew, id: "n206-crew", aircraftIds: ["demo-206"] },
        { ...crew, id: "line-crew", name: "Line crew", aircraftIds: [] });
      s.members = s.members.map((m) =>
        m.id === "demo-pilot" ? { ...m, groupIds: ["n206-crew"] } : m);
      s.audit.unshift(
-       ${saved("2026-10-01T12:00:00Z", "undefined", '{ ...crew, id: "line-crew", name: "Line crew", aircraftIds: [] }')},
-       ${saved("2026-10-01T12:00:00Z", "undefined", '{ ...crew, id: "n206-crew", aircraftIds: ["demo-206"] }')});`,
+       ${groupSavedSource("2026-10-01T12:00:00Z", "undefined", '{ ...crew, id: "line-crew", name: "Line crew", aircraftIds: [] }')},
+       ${groupSavedSource("2026-10-01T12:00:00Z", "undefined", '{ ...crew, id: "n206-crew", aircraftIds: ["demo-206"] }')});`,
   );
-  await page.goto("/programs");
-  const transfer = page.locator("section[aria-labelledby=ops-transfer-title]");
-  await transfer
-    .getByLabel("Record to transfer")
-    .selectOption({ label: "N206MA" });
-  await transfer
-    .getByLabel("Destination Flight Program")
-    .selectOption({ label: "Second program" });
-  await transfer
-    .getByLabel("Transfer reason")
-    .fill("Aircraft moved to the second program.");
-  await transfer.getByRole("button", { name: "Transfer record" }).click();
-  await expect(
-    page.getByText("Record transferred to its destination Flight Program."),
-  ).toBeVisible();
+  await transferN206ToSecondProgram(page);
   // Before the fix, renaming the group then dropped N206MA and saved it empty.
   await seed(
     page,
-    `const crew = ${crew};
+    `const crew = ${CREW_SOURCE};
      s.groups = s.groups.map((g) =>
        g.id === "n206-crew" ? { ...g, aircraftIds: [] } : g);
-     s.audit.unshift(${saved(
+     s.audit.unshift(${groupSavedSource(
        "2026-10-20T12:00:00Z",
        'JSON.stringify({ ...crew, aircraftIds: ["demo-206"] })',
        '{ ...crew, id: "n206-crew", aircraftIds: [] }',
@@ -292,9 +215,7 @@ test("Administration lists groups an edit before the #34 fix opened to all aircr
   for (const name of ["All aircraft in this program", "Only selected aircraft"])
     await expect(dialog.getByRole("radio", { name })).not.toBeChecked();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(
-    "Choose the aircraft this group can access, or choose all aircraft in this program.",
-  );
+  await expect(dialog.getByRole("alert")).toHaveText(CHOOSE_AIRCRAFT);
   await dialog
     .getByRole("radio", { name: "All aircraft in this program" })
     .check();
@@ -317,10 +238,87 @@ test("Administration lists groups an edit before the #34 fix opened to all aircr
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(remaining).toHaveCount(0);
-  await expect(
-    page
-      .locator(".adm-group")
-      .filter({ hasText: "Line crew" })
-      .locator(".adm-group-meta"),
-  ).toContainText("1 aircraft");
+  await expect(groupMeta(page, "Line crew")).toContainText("1 aircraft");
 });
+
+/**
+ * Runs `script` on every stored demo snapshot with a signed-in user, as the
+ * body of a function of `s`, then reloads.
+ */
+async function seed(page: Page, script: string) {
+  await page.evaluate(async (source) => {
+    const edit = new Function("s", source) as (s: unknown) => void;
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      if (entry.value?.user) {
+        edit(entry.value);
+        entry.update(entry.value);
+      }
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, script);
+  await page.reload();
+}
+
+/** Seed-script source for a change-log entry as saveGroup wrote it before #34. */
+function groupSavedSource(at: string, before: string, after: string) {
+  return `{ uuid: crypto.randomUUID(), at: Date.parse("${at}"), actorId: "demo-admin",
+       action: "group.saved", entityUuid: ${after}.id, before: ${before},
+       after: JSON.stringify({ ...${after}, id: undefined }) }`;
+}
+
+async function openAdmin(page: Page) {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/admin");
+  await expect(
+    page.getByRole("heading", { name: "Administration", exact: true }),
+  ).toBeVisible();
+}
+
+async function groupsTab(page: Page) {
+  await page
+    .getByRole("group", { name: "Administration sections" })
+    .getByRole("button", { name: "Permission groups", exact: true })
+    .click();
+}
+
+/** Moves N206MA to the seeded Second program, out of the N206 crew's reach. */
+async function transferN206ToSecondProgram(page: Page) {
+  await page.goto("/programs");
+  const transfer = page.locator("section[aria-labelledby=ops-transfer-title]");
+  await transfer
+    .getByLabel("Record to transfer")
+    .selectOption({ label: "N206MA" });
+  await transfer
+    .getByLabel("Destination Flight Program")
+    .selectOption({ label: "Second program" });
+  await transfer
+    .getByLabel("Transfer reason")
+    .fill("Aircraft moved to the second program.");
+  await transfer.getByRole("button", { name: "Transfer record" }).click();
+  await expect(
+    page.getByText("Record transferred to its destination Flight Program."),
+  ).toBeVisible();
+}
+
+function groupMeta(page: Page, name: string) {
+  return page
+    .locator(".adm-group")
+    .filter({ hasText: name })
+    .locator(".adm-group-meta");
+}

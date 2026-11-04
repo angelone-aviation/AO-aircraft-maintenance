@@ -1,8 +1,16 @@
+/**
+ * Responsibility: Pins unlinking a job card template from an inspection: what
+ *   it keeps, when it is refused, and relinking.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/taskCards.ts, src/data/demo.ts,
+ *   tests/fixtures/taskCards.ts.
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import { saveTaskCard, type TaskCardCommand } from "./taskCards";
 
+/** An unsigned job card linked to the first inspection, and its unlink. */
 function fixture() {
   const state = demoSnapshot();
   const command = taskCardCommand();

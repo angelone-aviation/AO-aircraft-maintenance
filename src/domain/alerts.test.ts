@@ -1,4 +1,13 @@
+/**
+ * Responsibility: Pins which maintenance alerts fire, their keys and order,
+ *   the email preference and the digest email.
+ * Layer: Test. Vitest over pure domain functions.
+ * Dependencies: src/domain/alerts.ts, alertDigest.ts, airworthiness.ts,
+ *   components.ts, faa.ts, model.ts; src/data/demo.ts (seed),
+ *   tests/fixtures/dueFleet.ts.
+ */
 import { describe, expect, it } from "vitest";
+import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import {
   computeAlerts as allAlerts,
@@ -114,7 +123,11 @@ describe("AD alerts", () => {
 });
 
 describe("component requirement alerts", () => {
-  function setup(dueDate: string, installed = true) {
+  function setup(
+    dueDate: string,
+    installed = true,
+    patch: Partial<ComponentRequirement> = {},
+  ) {
     const s = fleet();
     const a = s.aircraft[0];
     const component: Component = {
@@ -157,6 +170,7 @@ describe("component requirement alerts", () => {
       warningCalendarMonths: 1,
       warningSeconds: 0,
       warningCycles: 0,
+      ...patch,
     };
     return { ...s, management: [component, requirement] };
   }
@@ -172,9 +186,34 @@ describe("component requirement alerts", () => {
     expect(kinds(computeAlerts(setup(plus(-1)), today))).toEqual([
       "component-past-due",
     ]);
+    const usedUp = setup(plus(60), true, { dueSeconds: 100 * 3600 });
+    expect(computeAlerts(usedUp, today)).toMatchObject([
+      {
+        kind: "component-past-due",
+        title: "Component due now: Hydraulic pump",
+      },
+    ]);
   });
   it("ignores removed components", () => {
     expect(computeAlerts(setup(plus(-1), false), today)).toEqual([]);
+  });
+  it("measures a component inspection on the alert date, not the clock's", () => {
+    const s = setup("2099-12-31");
+    Object.assign(s.management[0], { installedDate: "2099-01-01" });
+    s.inspections = [
+      {
+        uuid: "insp",
+        aircraftUuid: s.aircraft[0].uuid,
+        reference: "Pump check",
+        description: "",
+        componentUuid: "pump",
+        dueSeconds: 100 * 3600,
+      },
+    ];
+    const alerts = computeAlerts(s, "2099-06-01");
+    expect(kinds(alerts.filter((a) => a.entityUuid === "insp"))).toEqual([
+      "inspection-overdue",
+    ]);
   });
 });
 
@@ -208,6 +247,21 @@ describe("certificate alerts", () => {
     expect(at(plus(-1))).toMatchObject([
       { kind: "certificate-expired", severity: "danger" },
     ]);
+  });
+  it("shows an inactive user none, not even their own certificates", () => {
+    const s = fleet();
+    const certifications = [
+      { kind: "pilot" as const, number: "P1", issuedOn: "", expiresOn: today },
+    ];
+    expect(
+      computeAlerts({ ...s, user: { ...s.user, certifications } }, today),
+    ).toHaveLength(1);
+    expect(
+      computeAlerts(
+        { ...s, user: { ...s.user, certifications, active: false } },
+        today,
+      ),
+    ).toEqual([]);
   });
   it("includes the IA renewal date", () => {
     expect(at(plus(200), plus(3))).toMatchObject([
@@ -303,6 +357,37 @@ describe("permission filtering", () => {
   });
 });
 
+describe("ordering", () => {
+  it("lists action required first, then by due date with undated last, then by title", () => {
+    const inspection = (uuid: string, reference: string, dueDate: string) => ({
+      uuid,
+      aircraftUuid: "demo-206",
+      reference,
+      description: "",
+      dueDate,
+    });
+    const alerts = allAlerts(
+      {
+        ...fleet(),
+        inspections: [
+          inspection("soon", "Pitot", plus(10)),
+          inspection("late", "Transponder", plus(-1)),
+          inspection("later", "Annual", plus(-1)),
+          inspection("latest", "ELT", plus(-5)),
+        ],
+      },
+      today,
+    );
+    expect(alerts.map((a) => [a.severity, a.entityUuid])).toEqual([
+      ["danger", "latest"],
+      ["danger", "later"],
+      ["danger", "late"],
+      ["danger", "demo-206"],
+      ["warning", "soon"],
+    ]);
+  });
+});
+
 describe("email preference", () => {
   const groups = [
     {
@@ -339,6 +424,10 @@ describe("email preference", () => {
         "p",
       ),
     ).toBe(false);
+  });
+  it("does not default on for an administrator group without read access", () => {
+    const noRead = [{ ...groups[0], permissions: [] }];
+    expect(wantsAlertEmails({ groupIds: ["admins"] }, noRead, "p")).toBe(false);
   });
 });
 
@@ -418,3 +507,35 @@ describe("grounded aircraft alerts", () => {
     expect(grounded(plus(-1))[0].key).toBe(alert.key);
   });
 });
+
+describe("on the due fleet", () => {
+  // Characterizes current behaviour: an AD marked not applicable but awaiting
+  // review still alerts, and an AD on a removed component does not.
+  it("alerts in severity, due date and title order, with stable keys", () => {
+    const { s } = dueFleet();
+    expect(
+      allAlerts(s, DUE_FLEET_TODAY).map((x) =>
+        [x.severity, x.entityUuid, x.title, x.detail, x.dueDate, x.key].join(
+          " | ",
+        ),
+      ),
+    ).toStrictEqual(DUE_FLEET_ALERTS);
+  });
+});
+
+const DUE_FLEET_ALERTS = [
+  "danger | ad-b | AD AD-B overdue | N208MA · Inspect · due 2020-01-01 | 2020-01-01 | ad-overdue|ad-b|ad-b/monthly-2020-01-01|2020-01-01|||",
+  "danger | ad-na-review | AD AD-NA-REVIEW overdue | N206MA · Inspect · due 2020-01-01 | 2020-01-01 | ad-overdue|ad-na-review|ad-na-review/monthly-2020-01-01|2020-01-01|||",
+  "danger | ad-overdue | AD AD-OVERDUE overdue | N206MA · Inspect · due 2020-01-01 | 2020-01-01 | ad-overdue|ad-overdue|ad-overdue/monthly-2020-01-01|2020-01-01|||",
+  "danger | i-other | Inspection overdue: i-other | N208MA · i-other description · due 2026-01-01 | 2026-01-01 | inspection-overdue|i-other|2026-01-01|||",
+  "danger | i-late | Inspection overdue: i-late | N206MA · i-late description · due 2026-10-01 | 2026-10-01 | inspection-overdue|i-late|2026-10-01|||",
+  "danger | r-b | Component due now: Type b-pump | N208MA · P/N PN-b-pump S/N SN-b-pump · Life Limits: r-b limit |  | component-past-due|r-b||360000||",
+  "danger | r-now | Component due now: Type pump | N206MA · P/N PN-pump S/N SN-pump · Life Limits: r-now limit |  | component-past-due|r-now||360000||",
+  "danger | i-zero | Inspection overdue: i-zero | N206MA · i-zero description · 0 h remaining |  | inspection-overdue|i-zero||8428320||",
+  "danger | demo-206 | N206MA is grounded | i-late overdue; i-zero overdue; Type pump S/N SN-pump: r-now limit due now and 1 more |  | aircraft-grounded|demo-206|ccc3e606",
+  "danger | demo-208 | N208MA is grounded | i-other overdue; Type b-pump S/N SN-b-pump: r-b limit due now; AD AD-B overdue |  | aircraft-grounded|demo-208|1d9eefcc",
+  "warning | r-today | Component due soon: Type pump | N206MA · P/N PN-pump S/N SN-pump · Life Limits: r-today limit · due 2026-10-30 | 2026-10-30 | component-due-soon|r-today|2026-10-30|||",
+  "warning | i-today | Inspection due soon: i-today | N206MA · i-today description · due 2026-10-30 | 2026-10-30 | inspection-due-soon|i-today|2026-10-30|||",
+  "warning | ad-soon | AD AD-SOON due soon | N206MA · Inspect · due at 2351.2 h |  | ad-due-soon|ad-soon|ad-soon/hourly-2351.2||2351.2||",
+  "warning | i-cycles | Inspection due soon: i-cycles | N206MA · i-cycles description · 5 cycles remaining |  | inspection-due-soon|i-cycles|||1899|",
+];

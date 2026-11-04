@@ -1,8 +1,17 @@
+/**
+ * Responsibility: Pins members' certifications and license copies: who may
+ *   read and change them, the derived license fields, uploads tied to a saved
+ *   certification, refusals and audit entries.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/certifications, convex/admin, convex/operations
+ *   (snapshot), src/data/demo.
+ */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import schema from "./schema";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
+import type { Id } from "./_generated/dataModel";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -183,4 +192,144 @@ it("saves independent certifications, protects copies and allows the owner to ma
   expect(
     await owner.query(api.certifications.list, { userId: users.owner.id }),
   ).toEqual([]);
+});
+
+const mechanic = [
+  { kind: "mechanic", number: "M-1", issuedOn: "2020-01-01", expiresOn: "" },
+];
+const pdf = {
+  kind: "mechanic",
+  name: "license.pdf",
+  type: "application/pdf",
+  bytes: new TextEncoder().encode("%PDF-1.4").buffer,
+};
+
+it("audits each change against the member, by whoever made it, and deletes removed files", async () => {
+  const { t, users, admin } = await fixture();
+  const userId = users.owner.id;
+  await admin.mutation(api.certifications.save, {
+    userId,
+    payload: JSON.stringify(mechanic),
+  });
+  expect(await t.run((ctx) => ctx.db.get(userId))).toMatchObject({
+    licenseNumber: "M-1",
+  });
+  const id = await admin.action(api.certifications.upload, { userId, ...pdf });
+  await admin.mutation(api.certifications.remove, {
+    id: id as Id<"certificationFiles">,
+  });
+  expect(
+    await t.run((ctx) => ctx.db.system.query("_storage").collect()),
+  ).toEqual([]);
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(rows.map((r) => [r.action, r.entityUuid, r.actorId])).toEqual(
+    [
+      "user.certifications_updated",
+      "user.license_copy_uploaded",
+      "user.license_copy_deleted",
+    ].map((action) => [action, userId, users.admin.id]),
+  );
+});
+
+it("refuses a missing member or license copy", async () => {
+  const { t, users, admin, owner } = await fixture();
+  await t.run((ctx) => ctx.db.delete(users.other.id));
+  await expect(
+    admin.query(api.certifications.list, { userId: users.other.id }),
+  ).rejects.toThrow("User not found.");
+  const userId = users.owner.id;
+  await owner.mutation(api.certifications.save, {
+    userId,
+    payload: JSON.stringify(mechanic),
+  });
+  const id = (await owner.action(api.certifications.upload, {
+    userId,
+    ...pdf,
+  })) as Id<"certificationFiles">;
+  await owner.mutation(api.certifications.remove, { id });
+  await expect(owner.query(api.certifications.fileUrl, { id })).rejects.toThrow(
+    "License copy not found.",
+  );
+  await expect(
+    owner.mutation(api.certifications.remove, { id }),
+  ).rejects.toThrow("License copy not found.");
+});
+
+it("refuses to file a copy once its certification is unselected", async () => {
+  const { t, users, owner } = await fixture();
+  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["x"])));
+  await expect(
+    owner.mutation(internal.certifications.finishUpload, {
+      userId: users.owner.id,
+      kind: "mechanic",
+      storageId,
+      name: "license.pdf",
+      type: "application/pdf",
+      size: 1,
+    }),
+  ).rejects.toThrow("Certification is no longer selected.");
+});
+
+it("opens a copy whose file is gone as null, and checks a file before access", async () => {
+  const { t, users, owner, other } = await fixture();
+  const userId = users.owner.id;
+  await owner.mutation(api.certifications.save, {
+    userId,
+    payload: JSON.stringify(mechanic),
+  });
+  const id = (await owner.action(api.certifications.upload, {
+    userId,
+    ...pdf,
+  })) as Id<"certificationFiles">;
+  await t.run(async (ctx) =>
+    ctx.storage.delete((await ctx.db.get(id))!.storageId),
+  );
+  expect(await owner.query(api.certifications.fileUrl, { id })).toBeNull();
+  await expect(
+    other.action(api.certifications.upload, { userId, ...pdf, name: "" }),
+  ).rejects.toThrow(
+    "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
+  );
+});
+
+it("deletes the stored copy when its certification is unselected during the upload, keeping earlier copies", async () => {
+  const { t, users, owner } = await fixture();
+  const userId = users.owner.id;
+  await owner.mutation(api.certifications.save, {
+    userId,
+    payload: JSON.stringify(mechanic),
+  });
+  const earlier = (await owner.action(api.certifications.upload, {
+    userId,
+    ...pdf,
+  })) as Id<"certificationFiles">;
+  // Unselects the certification as the upload builds its blob: after the
+  // check, before filing.
+  let unselected: Promise<unknown> | undefined;
+  vi.stubGlobal(
+    "Blob",
+    class extends Blob {
+      constructor(...args: ConstructorParameters<typeof Blob>) {
+        super(...args);
+        unselected ??= owner.mutation(api.certifications.save, {
+          userId,
+          payload: "[]",
+        });
+      }
+    },
+  );
+  try {
+    await expect(
+      owner.action(api.certifications.upload, { userId, ...pdf }),
+    ).rejects.toMatchObject({ data: "Certification is no longer selected." });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  await unselected;
+  const { storageId } = (await t.run((ctx) => ctx.db.get(earlier)))!;
+  expect(
+    (await t.run((ctx) => ctx.db.system.query("_storage").collect())).map(
+      (blob) => blob._id,
+    ),
+  ).toEqual([storageId]);
 });

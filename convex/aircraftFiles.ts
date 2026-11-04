@@ -3,14 +3,15 @@
  *   for the snapshot, uploading and archiving them.
  * Layer: Server. A public action and mutation, internal steps, and the
  *   snapshot loader; maintenance permission writes.
- * Dependencies: convex/programContext, convex/access, src/domain/aircraftFiles,
- *   src/domain/model, convex/values.
+ * Dependencies: convex/programContext, convex/access, convex/attachments,
+ *   convex/userErrors, src/domain/aircraftFiles, src/domain/model,
+ *   convex/values.
  *
  * Form 337 copies are permanent status records (14 CFR 91.417(a)(2)(vi);
  * ADR-0004), so there is no delete path: archiving hides a copy from the
  * current list and keeps its stored file.
  */
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   mutation,
@@ -23,6 +24,8 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { checkContext } from "./programContext";
 import { audit } from "./access";
+import { storeThenFinish } from "./attachments";
+import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import {
   aircraftFileArchive,
@@ -70,8 +73,8 @@ export async function aircraftFileList(
  *
  * @param aircraftUuid - The aircraft.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} As `checkContext`; "Aircraft maintenance permission
- *   required."
+ * @throws {ConvexError} "Aircraft maintenance permission required."
+ * @throws As `checkContext`, first.
  */
 export const checkUpload = internalQuery({
   args: target,
@@ -86,8 +89,8 @@ export const checkUpload = internalQuery({
  *
  * @param storageId - The stored file; the caller deletes it on a refusal.
  * @param size - Its size; the other arguments are {@link upload}'s.
- * @throws {Error} The {@link checkUpload} refusals; the file refusals; "This
- *   aircraft already has the maximum of 200 current documents."
+ * @throws {ConvexError} The {@link checkUpload} refusals; the file refusals;
+ *   "This aircraft already has the maximum of 200 current documents."
  */
 export const finishUpload = internalMutation({
   args: {
@@ -100,8 +103,10 @@ export const finishUpload = internalMutation({
   },
   handler: async (ctx, args) => {
     const owner = await authorizeFileWriter(ctx, args);
-    validateAircraftFile(args.name, args.type, args.size);
-    assertAircraftFileRoom(await countCurrentFiles(ctx, args.aircraftUuid));
+    await exposeRejections(async () => {
+      validateAircraftFile(args.name, args.type, args.size);
+      assertAircraftFileRoom(await countCurrentFiles(ctx, args.aircraftUuid));
+    });
     const { programUuid: _program, ...fields } = args;
     await ctx.db.insert("aircraftFiles", { ...fields, uploadedAt: Date.now() });
     await audit(
@@ -132,9 +137,9 @@ export const finishUpload = internalMutation({
  * @param name - The file name; its extension must match `type`.
  * @param type - PDF, JPEG, PNG or WebP.
  * @param bytes - The file, at most 7 MB.
- * @throws {Error} "Choose a PDF, JPEG, PNG or WebP file." or "Attachments must
- *   be between 1 byte and 7 MB.", checked first; the {@link finishUpload}
- *   refusals, after which the stored file is deleted.
+ * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file." or
+ *   "Attachments must be between 1 byte and 7 MB.", checked first; the
+ *   {@link finishUpload} refusals, after which the stored file is deleted.
  */
 export const upload = action({
   args: {
@@ -145,29 +150,24 @@ export const upload = action({
     bytes: v.bytes(),
   },
   handler: async (ctx, args): Promise<void> => {
-    validateAircraftFile(args.name, args.type, args.bytes.byteLength);
+    exposeRejections(() =>
+      validateAircraftFile(args.name, args.type, args.bytes.byteLength),
+    );
     const scope = {
       aircraftUuid: args.aircraftUuid,
       programUuid: args.programUuid,
     };
     await ctx.runQuery(internal.aircraftFiles.checkUpload, scope);
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      await ctx.runMutation(internal.aircraftFiles.finishUpload, {
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.aircraftFiles.finishUpload, {
         ...scope,
         category: args.category,
         storageId,
         name: args.name,
         type: args.type,
         size: args.bytes.byteLength,
-      });
-    } catch (error) {
-      // File storage is outside the mutation's transaction.
-      await ctx.storage.delete(storageId);
-      throw error;
-    }
+      }),
+    );
   },
 });
 
@@ -178,7 +178,7 @@ export const upload = action({
  * @param id - The file.
  * @param reason - Why it is archived; trimmed, 1 to 500 characters.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} "Document not found.", checked first; the
+ * @throws {ConvexError} "Document not found.", checked first; the
  *   {@link checkUpload} refusals; "This copy is already archived."; "Enter a
  *   reason for archiving this copy."; "Keep the reason for archiving to 500
  *   characters."
@@ -191,16 +191,13 @@ export const archive = mutation({
   },
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.id);
-    if (!file) throw new Error("Document not found.");
+    if (!file) throw new ConvexError("Document not found.");
     const owner = await authorizeFileWriter(ctx, {
       aircraftUuid: file.aircraftUuid,
       programUuid: args.programUuid,
     });
-    const archived = aircraftFileArchive(
-      file,
-      owner.user,
-      args.reason,
-      Date.now(),
+    const archived = exposeRejections(() =>
+      aircraftFileArchive(file, owner.user, args.reason, Date.now()),
     );
     await ctx.db.patch(file._id, archived);
     await audit(
@@ -230,7 +227,7 @@ async function authorizeFileWriter(
   args: { aircraftUuid: string; programUuid?: string },
 ) {
   const state = await checkContext(ctx, args.programUuid);
-  assertAircraftFileWriter(state, args.aircraftUuid);
+  exposeRejections(() => assertAircraftFileWriter(state, args.aircraftUuid));
   const programUuid = state.aircraft.find(
     (a) => a.uuid === args.aircraftUuid,
   )?.programUuid;

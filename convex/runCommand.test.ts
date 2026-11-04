@@ -1,8 +1,10 @@
 /**
  * Responsibility: Pins the command transaction: context check, rollback,
- *   change-log rows, request ids, hand-off, and which errors reach the user.
+ *   change-log rows, request ids, hand-off, the post-apply hook, which errors
+ *   reach the user, and the changed-row writer.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/runCommand.ts, convex/schema.ts, src/domain/model.ts,
+ * Dependencies: convex/runCommand.ts, convex/collections.ts,
+ *   convex/schema.ts, src/domain/model.ts, src/domain/costs.ts,
  *   src/domain/rejection.ts, src/domain/flightSubmission.ts,
  *   src/domain/components.ts, src/data/demo.ts (fixture).
  *
@@ -18,9 +20,14 @@ import type { AuditEntry } from "../src/domain/model";
 import { Rejection } from "../src/domain/rejection";
 import { FlightRejection } from "../src/domain/flightSubmission";
 import { ComponentUsageError } from "../src/domain/components";
+import type { CostRecord } from "../src/domain/costs";
+import { encode } from "./collections";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import {
   runCommand,
   hydrate,
+  writeChanged,
   plainErrors,
   errorsOf,
   type Command,
@@ -312,6 +319,48 @@ it("applies a request id once and refuses its reuse for another payload", async 
   expect(await f.requests()).toHaveLength(1);
 });
 
+it("records each request id in commandRequests too, as managementRequests holds it", async () => {
+  const f = await fixture();
+  const command = planCommand(f.aircraft, {
+    request: () => ({ uuid: "request-1", payload: "first" }),
+  });
+  await f.mechanic.run(command);
+  expect(await f.mechanic.run(command)).toBeNull();
+  await f.mechanic.run(planCommand(f.aircraft));
+  const stored = [
+    { uuid: "request-1", actorId: f.mechanic.id, payload: "first" },
+  ];
+  const fields = <T extends { _id: unknown; _creationTime: number }>({
+    _id,
+    _creationTime,
+    ...row
+  }: T) => row;
+  const commandRequests = await f.t.run((ctx) =>
+    ctx.db.query("commandRequests").collect(),
+  );
+  expect(commandRequests.map(fields)).toEqual(stored);
+  expect((await f.requests()).map(fields)).toEqual(stored);
+});
+
+it("still replays a request id recorded only in managementRequests", async () => {
+  const f = await fixture();
+  await f.t.run((ctx) =>
+    ctx.db.insert("managementRequests", {
+      uuid: "request-1",
+      actorId: f.mechanic.id,
+      payload: "first",
+    }),
+  );
+  const command = planCommand(f.aircraft, {
+    request: () => ({ uuid: "request-1", payload: "first" }),
+  });
+  expect(await f.mechanic.run(command)).toBeNull();
+  expect(await f.flightPlans()).toEqual([]);
+  expect(
+    await f.t.run((ctx) => ctx.db.query("commandRequests").collect()),
+  ).toEqual([]);
+});
+
 it("hands delegated commands to their own transaction", async () => {
   const f = await fixture();
   const load = vi.fn();
@@ -324,6 +373,83 @@ it("hands delegated commands to their own transaction", async () => {
     ),
   ).toBe("queued");
   expect(load).not.toHaveBeenCalled();
+  expect(await f.rows()).toEqual([]);
+});
+
+it("runs afterApply between apply and persist, and continues with what it returns", async () => {
+  const f = await fixture();
+  const steps: string[] = [];
+  const seen: unknown[] = [];
+  const result = await f.mechanic.run(
+    planCommand(f.aircraft, {
+      apply: (_, uuid) => {
+        steps.push("apply");
+        return uuid;
+      },
+      afterApply: async (tx, working, uuid, command) => {
+        steps.push("afterApply");
+        seen.push(tx.state.user.id, working, uuid, command);
+        return `${uuid}-scheduled`;
+      },
+      persist: async ({ ctx }, _, uuid) => {
+        steps.push("persist");
+        await ctx.db.insert("flightPlans", {
+          uuid,
+          aircraftUuid: f.aircraft,
+          payload: "{}",
+        });
+      },
+    }),
+  );
+  expect(steps).toEqual(["apply", "afterApply", "persist"]);
+  expect(seen).toEqual([f.mechanic.id, { found: 0 }, "plan-1", "plan-1"]);
+  expect(result).toBe("plan-1-scheduled");
+  expect((await f.flightPlans()).map((p) => p.uuid)).toEqual([
+    "plan-1-scheduled",
+  ]);
+  expect((await f.rows()).map((r) => r.entityUuid)).toEqual([
+    "plan-1-scheduled",
+  ]);
+});
+
+it("skips afterApply for a replayed request, so nothing is scheduled twice", async () => {
+  const f = await fixture();
+  const afterApply = vi.fn(
+    async (_tx: unknown, _w: unknown, uuid: string) => uuid,
+  );
+  const command = planCommand(f.aircraft, {
+    request: () => ({ uuid: "request-1", payload: "first" }),
+    afterApply,
+  });
+  await f.mechanic.run(command);
+  expect(await f.mechanic.run(command)).toBeNull();
+  expect(afterApply).toHaveBeenCalledTimes(1);
+});
+
+it("shows a Rejection from afterApply as a ConvexError, keeps other errors unchanged, and writes nothing", async () => {
+  const f = await fixture();
+  const stale = "Work order changed. Reopen it before saving.";
+  const scheduling = (error: Error) =>
+    planCommand(f.aircraft, {
+      afterApply: async ({ ctx }) => {
+        await ctx.db.insert("flightPlans", {
+          uuid: "scheduled-before-the-refusal",
+          aircraftUuid: f.aircraft,
+          payload: "{}",
+        });
+        throw error;
+      },
+      expose: plainErrors,
+    });
+  const refused = await refusal(
+    f.mechanic.run(scheduling(new Rejection(stale))),
+  );
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({ message: stale, data: stale });
+  const fault = new Error(stale);
+  // A command's `expose` covers apply only, so a plain Error stays hidden.
+  expect(await refusal(f.mechanic.run(scheduling(fault)))).toBe(fault);
+  expect(await f.flightPlans()).toEqual([]);
   expect(await f.rows()).toEqual([]);
 });
 
@@ -447,4 +573,117 @@ it("shows a Rejection even when the command's expose names another class", async
   );
   expect(refused).toBeInstanceOf(ConvexError);
   expect(refused).toMatchObject({ data: "Flight dispatch rejected." });
+});
+
+// Cost records: one the command changes, one it leaves as stored, one it
+// does not pass, and one stored in another Flight Program.
+function costRecords(aircraftUuid: string) {
+  const budget = (uuid: string, programUuid = PROGRAM): CostRecord => ({
+    uuid,
+    version: 1,
+    programUuid,
+    kind: "budget",
+    aircraftUuid: programUuid === PROGRAM ? aircraftUuid : "other-aircraft",
+    year: 2026,
+    amountCents: 100,
+  });
+  return {
+    changed: budget("changed"),
+    unchanged: budget("unchanged"),
+    unpassed: budget("unpassed"),
+    elsewhere: budget("elsewhere", "other"),
+  };
+}
+
+// Runs writeChanged on the costs `records` gives, recording each write.
+function writeCosts(
+  records: (stored: CostRecord[]) => CostRecord[],
+  writes: string[],
+): Command<null, { stored: CostRecord[]; docs: Doc<"costs">[] }, CostRecord[]> {
+  return {
+    programUuid: PROGRAM,
+    parse: () => null,
+    load: async ({ ctx, state }) => {
+      const { snapshot, docs } = await hydrate(ctx, state, ["costs"]);
+      return { stored: snapshot.costs!, docs: docs.costs };
+    },
+    apply: ({ stored }) => records(stored),
+    persist: ({ ctx }, { docs }, next) =>
+      writeChanged(
+        tracedWrites(ctx, writes),
+        "costs",
+        docs,
+        next,
+        "Cost record belongs to another Flight Program.",
+      ),
+    audit: () => undefined,
+  };
+}
+
+// The mutation context with each insert and replace recorded by uuid.
+function tracedWrites(ctx: MutationCtx, writes: string[]): MutationCtx {
+  const db = new Proxy(ctx.db, {
+    get(target, key) {
+      const value = Reflect.get(target, key);
+      if (key !== "insert" && key !== "replace")
+        return typeof value === "function" ? value.bind(target) : value;
+      return (...args: [unknown, { uuid: string }]) => {
+        writes.push(`${key} ${args[1].uuid}`);
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+  return { ...ctx, db };
+}
+
+it("writes changed records as the codec encodes them, skips unchanged ones and never deletes", async () => {
+  const f = await fixture();
+  const costs = costRecords(f.aircraft);
+  await f.t.run(async (ctx) => {
+    for (const r of [costs.changed, costs.unchanged, costs.unpassed])
+      await ctx.db.insert("costs", encode("costs", r));
+  });
+  const added = { ...costs.changed, uuid: "added" };
+  const changed = { ...costs.changed, version: 2, amountCents: 200 };
+  const writes: string[] = [];
+  await f.mechanic.run(
+    writeCosts(() => [changed, costs.unchanged, added], writes),
+  );
+  expect(writes).toEqual(["replace changed", "insert added"]);
+  const stored = await f.t.run(async (ctx) =>
+    (await ctx.db.query("costs").collect()).map(
+      ({ _id, _creationTime, ...row }) => row,
+    ),
+  );
+  expect(stored).toEqual(
+    [changed, costs.unchanged, costs.unpassed, added].map((r) =>
+      encode("costs", r),
+    ),
+  );
+});
+
+it("refuses a uuid stored outside the loaded rows with the caller's message, and writes nothing", async () => {
+  const f = await fixture();
+  const costs = costRecords(f.aircraft);
+  await f.t.run((ctx) =>
+    ctx.db.insert("costs", encode("costs", costs.elsewhere)),
+  );
+  const writes: string[] = [];
+  const refused = await refusal(
+    f.mechanic.run(
+      writeCosts(
+        () => [costs.changed, { ...costs.elsewhere, amountCents: 1 }],
+        writes,
+      ),
+    ),
+  );
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({
+    data: "Cost record belongs to another Flight Program.",
+  });
+  expect(writes).toEqual(["insert changed"]);
+  const stored = await f.t.run((ctx) => ctx.db.query("costs").collect());
+  expect(stored.map((d) => d.payload)).toEqual([
+    encode("costs", costs.elsewhere).payload,
+  ]);
 });

@@ -1,14 +1,22 @@
-// The readable records copy (ADR-0011): one formatted Excel workbook built
-// from the nightly Convex export, for administrators, inspectors and board
-// members. It is a convenience copy; the aircraft logbooks and the encrypted
-// R2 backup (ADR-0008) are the records.
-//
-// Every status and label comes from src/domain, so the workbook says what the
-// app says. Only allow-listed tables are read: sign-in data, credentials,
-// stored files and request bookkeeping never reach the workbook.
-import ExcelJS from "exceljs";
+/**
+ * Responsibility: Builds the readable records copy (ADR-0011), one formatted
+ *   Excel workbook, from the nightly Convex export.
+ * Layer: Script. Node only: reads the export ZIP, writes one .xlsx file.
+ * Dependencies: ./exportSnapshot, ./xlsxWriter, src/domain (statuses,
+ *   labels and rules).
+ *
+ * It is a convenience copy for administrators, inspectors and board members;
+ * the aircraft logbooks and the encrypted R2 backup (ADR-0008) are the
+ * records. Every status and label comes from src/domain, so the workbook says
+ * what the app says.
+ */
 import { parseArgs } from "node:util";
-import { exportContents, readDocuments } from "./convexExport";
+import {
+  readExportSnapshot,
+  type DamagedRecord,
+  type RecordCollection,
+  type StoredPayload,
+} from "./exportSnapshot";
 import {
   aircraftStatus,
   aircraftStatusLabels,
@@ -17,11 +25,9 @@ import {
 import {
   adAircraftUuid,
   adCounters,
-  adSchema,
   adStatus,
   adTaskStatus,
   effectiveCompliance,
-  type AD,
 } from "../../src/domain/airworthiness";
 import { auditActionLabel } from "../../src/domain/auditHistory";
 import {
@@ -31,11 +37,7 @@ import {
   type Component,
   type ComponentRequirement,
 } from "../../src/domain/components";
-import {
-  costRecordSchema,
-  flightSeconds,
-  workOrderCosts,
-} from "../../src/domain/costs";
+import { flightSeconds, workOrderCosts } from "../../src/domain/costs";
 import {
   deferralDaysRemaining,
   deferralLabel,
@@ -49,132 +51,64 @@ import {
   inspectionStatus,
   inspectionStatusLabels,
 } from "../../src/domain/maintenance";
-import {
-  inspectionCounters,
-  recordSchema,
-  type ManagedRecord,
-  type Stock,
-} from "../../src/domain/management";
+import { inspectionCounters, type Stock } from "../../src/domain/management";
 import {
   hours,
   totalSeconds,
   type Aircraft,
   type AuditEntry,
-  type Discrepancy,
-  type Flight,
   type Group,
-  type Inspection,
-  type Member,
   type Snapshot,
 } from "../../src/domain/model";
-import { partsRequestSchema } from "../../src/domain/partsRequests";
 import { groupCoversAircraft, recordProgram } from "../../src/domain/programs";
 import {
   outstanding,
-  poSchema,
   poStatus,
   poTotal,
   received,
 } from "../../src/domain/purchaseOrders";
 import { shelfLifeLabels, shelfLifeStatus } from "../../src/domain/shelfLife";
-import { taskCardSchema, type TaskCard } from "../../src/domain/taskCards";
+import type { TaskCard } from "../../src/domain/taskCards";
 import { logbookPerformers } from "../../src/domain/workOrderCloseout";
-import { workOrderSchema, type WorkOrder } from "../../src/domain/workOrders";
+import {
+  MAX_DATA_ROWS,
+  writeWorkbook,
+  type Column,
+  type Row,
+  type SheetSpec,
+  type Tone,
+} from "./xlsxWriter";
 
-/** Excel's row limit, less the title and header rows of each sheet. */
-export const MAX_DATA_ROWS = 1_048_576 - 2;
-const MAX_CELL_TEXT = 32_000;
+export { MAX_DATA_ROWS };
 
+/** How to build the workbook. */
 export interface WorkbookOptions {
+  /** The .xlsx file to write. */
   out: string;
+  /** The IANA time zone for every date, time and "today". */
   timeZone: string;
   /** Which deployment the export came from, as shown on Read me. */
   deployment: string;
+  /** When the copy is made; defaults to now. */
   now?: number;
   /** Data rows per Change history sheet; tests lower it. */
   maxRowsPerSheet?: number;
 }
+/** What the build wrote: rows per sheet, and the notes shown on Read me. */
 export interface WorkbookSummary {
   sheets: { name: string; rows: number }[];
   warnings: string[];
 }
 
-// ---------------------------------------------------------------- reading --
-
-type Doc = Record<string, unknown>;
-const str = (v: unknown) => (typeof v === "string" ? v : undefined);
-const payloadOf = (d: Doc) => JSON.parse(String(d.payload)) as unknown;
-// Tables read from the export, with the fields kept from each document.
-// Anything not listed here (sign-in tables, credentials, stored-file tables,
-// upload staging, request and job bookkeeping) is never decompressed.
-const TABLES: Record<string, (d: Doc) => Doc> = {
-  programs: (d) => ({ uuid: d.uuid, name: d.name }),
-  users: (d) => ({
-    _id: d._id,
-    name: d.name,
-    email: d.email,
-    active: d.active,
-    isAdmin: d.isAdmin,
-    groupIds: d.groupIds,
-  }),
-  groups: (d) => d,
-  aircraft: (d) => d,
-  flights: (d) => d,
-  discrepancies: (d) => d,
-  inspections: (d) => d,
-  management: (d) => ({ payload: d.payload }),
-  airworthiness: (d) => ({ payload: d.payload }),
-  workOrders: (d) => ({ payload: d.payload }),
-  taskCards: (d) => ({ payload: d.payload }),
-  costs: (d) => ({ payload: d.payload }),
-  purchaseOrders: (d) => ({ payload: d.payload }),
-  partsRequests: (d) => ({ payload: d.payload }),
-  audit: (d) => d,
-  transferredAudit: (d) => ({ programUuid: d.programUuid, auditId: d.auditId }),
-  // Names only, for the Record column of Change history.
-  manuals: (d) => ({ uuid: d.uuid, label: `Manual: ${str(d.title) ?? ""}` }),
-  checklists: (d) => {
-    const p = payloadOf(d) as {
-      document?: { payload?: { metadata?: { name?: string } } };
-    };
-    return {
-      uuid: d.uuid,
-      label: `Checklist: ${p.document?.payload?.metadata?.name ?? ""}`,
-    };
-  },
-  inspectionTemplates: (d) => ({
-    uuid: d.uuid,
-    label: `Inspection template: ${(payloadOf(d) as { name?: string }).name ?? ""}`,
-  }),
-  flightPlans: (d) => {
-    const p = payloadOf(d) as { origin?: string; destination?: string };
-    return {
-      uuid: d.uuid,
-      label: `Flight plan ${p.origin ?? ""} → ${p.destination ?? ""}`,
-    };
-  },
-};
-
-async function loadExport(zipPath: string) {
-  const contents = await exportContents(zipPath);
-  const tables = new Map<string, Doc[]>();
-  for (const [table, pick] of Object.entries(TABLES)) {
-    const rows: Doc[] = [];
-    const entry = contents.tables.get(table);
-    if (entry) await readDocuments(zipPath, entry, (d) => rows.push(pick(d)));
-    tables.set(table, rows);
-  }
-  // Storage IDs only, to scrub any that appear in change-log values.
-  const storageIds = new Set<string>();
-  if (contents.storageIndex)
-    await readDocuments(zipPath, contents.storageIndex, (d) => {
-      if (typeof d._id === "string") storageIds.add(d._id);
-    });
-  return { tables, storageIds, storageFiles: contents.storageFiles };
-}
-
 // ------------------------------------------------------------------ time --
 
+/**
+ * Dates and times in one IANA time zone, as the workbook shows them.
+ *
+ * @param timeZone - An IANA name, such as "America/New_York".
+ * @returns The zone's formatters.
+ * @throws {RangeError} For a time zone Intl does not know.
+ */
 export function zoneClock(timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -241,37 +175,6 @@ type Clock = ReturnType<typeof zoneClock>;
 
 // ------------------------------------------------------------ the records --
 
-type Cell = string | number | Date | null | undefined;
-type Tone = "bad" | "warn" | "good";
-type Fmt =
-  | "text"
-  | "wrap"
-  | "date"
-  | "datetime"
-  | "hours"
-  | "count"
-  | "money"
-  | "amount";
-interface Column {
-  header: string;
-  width: number;
-  fmt?: Fmt;
-}
-interface Row {
-  cells: Cell[];
-  /** Red and amber fill the whole row; green marks only the status cell. */
-  tone?: Tone;
-  statusColumn?: number;
-}
-interface SheetSpec {
-  name: string;
-  title: string;
-  about: string;
-  columns: Column[];
-  rows: Iterable<Row>;
-  count: number;
-  freezeFirstColumn?: boolean;
-}
 type Level = "overdue" | "due-soon" | "unknown" | "ok";
 const levelTone: Record<Level, Tone | undefined> = {
   overdue: "bad",
@@ -318,135 +221,6 @@ const permissionLabels: Record<string, string> = {
   resolve: "resolve discrepancies",
   maintenance: "manage maintenance",
 };
-
-function parsed<T>(
-  schema: { safeParse(v: unknown): { success: boolean; data?: T } },
-  docs: Doc[],
-  table: string,
-  warnings: string[],
-): T[] {
-  let failed = 0;
-  const out = docs.map((d) => {
-    const value = d.payload === undefined ? d : payloadOf(d);
-    const result = schema.safeParse(value);
-    if (result.success) return result.data as T;
-    failed++;
-    return value as T;
-  });
-  if (failed)
-    warnings.push(
-      `${failed} ${table} record${failed === 1 ? "" : "s"} did not match the app's current format; shown as stored, and their status may be missing.`,
-    );
-  return out;
-}
-
-function decode(tables: Map<string, Doc[]>, now: number) {
-  const warnings: string[] = [];
-  const t = (name: string) => tables.get(name) ?? [];
-  const programs = new Map(
-    t("programs").map((p) => [String(p.uuid), String(p.name ?? "")]),
-  );
-  const members: Member[] = t("users").map((u) => ({
-    id: String(u._id),
-    name: str(u.name)?.trim() || "Unnamed user",
-    email: str(u.email) ?? "",
-    active: u.active === true,
-    isAdmin: u.isAdmin === true,
-    groupIds: (u.groupIds as string[] | undefined) ?? [],
-  }));
-  const groups: Group[] = t("groups").map((g) => ({
-    id: String(g._id),
-    programUuid: str(g.programUuid),
-    programAdmin: g.programAdmin as boolean | undefined,
-    owner: g.owner as boolean | undefined,
-    name: String(g.name ?? ""),
-    aircraftIds: (g.aircraftIds as string[] | undefined) ?? [],
-    permissions: (g.permissions as Group["permissions"] | undefined) ?? [],
-  }));
-  const aircraft = t("aircraft").map((a) => {
-    const programUuid = str(a.programUuid);
-    return {
-      ...(a as unknown as Aircraft),
-      program:
-        (programUuid && programs.get(programUuid)) || String(a.program ?? ""),
-    };
-  });
-  const snapshot: Snapshot = {
-    // A system administrator's view: every program, aircraft and record.
-    user: {
-      id: "records-copy",
-      name: "Records copy",
-      email: "",
-      active: true,
-      isAdmin: true,
-      groupIds: [],
-    },
-    authenticatedAt: now,
-    syncedAt: now,
-    programs: [...programs].map(([uuid, name]) => ({
-      uuid,
-      name,
-      version: 0,
-      address: "",
-      email: "",
-      contactName: "",
-      website: "",
-    })),
-    groups,
-    members,
-    aircraft,
-    flights: t("flights") as unknown as Flight[],
-    discrepancies: t("discrepancies") as unknown as Discrepancy[],
-    inspections: t("inspections") as unknown as Inspection[],
-    audit: [],
-    management: parsed<ManagedRecord>(
-      recordSchema,
-      t("management"),
-      "inventory and component",
-      warnings,
-    ),
-    airworthiness: parsed<AD>(adSchema, t("airworthiness"), "AD", warnings),
-    workOrders: parsed<WorkOrder>(
-      workOrderSchema,
-      t("workOrders"),
-      "work order",
-      warnings,
-    ),
-    taskCards: parsed<TaskCard>(
-      taskCardSchema,
-      t("taskCards"),
-      "job card",
-      warnings,
-    ),
-    archivedTaskCards: [],
-    costs: parsed(costRecordSchema, t("costs"), "cost", warnings),
-    purchaseOrders: parsed(
-      poSchema,
-      t("purchaseOrders"),
-      "purchase order",
-      warnings,
-    ),
-    partsRequests: parsed(
-      partsRequestSchema,
-      t("partsRequests"),
-      "parts request",
-      warnings,
-    ),
-  };
-  const audit = t("audit") as unknown as (AuditEntry & { _id?: string })[];
-  const transferred = new Map<string, string[]>();
-  for (const x of t("transferredAudit")) {
-    const id = String(x.auditId);
-    transferred.set(id, [
-      ...(transferred.get(id) ?? []),
-      String(x.programUuid),
-    ]);
-  }
-  const labels = ["manuals", "checklists", "inspectionTemplates", "flightPlans"]
-    .flatMap((name) => t(name))
-    .map((d) => [String(d.uuid), String(d.label)] as const);
-  return { snapshot, programs, audit, transferred, labels, warnings };
-}
 
 // Names people recognise in place of IDs.
 function namer(
@@ -1656,8 +1430,9 @@ function peopleSheet({ s, names }: Context): SheetSpec {
 
 // ----------------------------------------------------- change history --
 
+// Personal licence and account numbers stay out too, as on every sheet.
 const SECRET_KEY =
-  /pass(word)?|secret|token|api_?key|credential|^key$|private|hash|sha256|storage_?id|catalogId|url$|^image$/i;
+  /pass(word)?|secret|token|api_?key|credential|^key$|private|hash|sha256|storage_?id|catalogId|url$|^image$|licen[cs]eNumber|accountNumber/i;
 const SECONDS_KEY =
   /seconds$|^(current|baseline)?(hobbs|tach|cyclicHobbs|flightTimeLog)(On|Off)?$|^timeSince(New|Overhaul|Repair)$/i;
 const EPOCH_KEY = /(^at$|At$|Time$)/;
@@ -1798,7 +1573,15 @@ function changeWriter(names: Namer, clock: Clock, storageIds: Set<string>) {
     ]
       .filter(Boolean)
       .join("\n");
-  return { scrub, parse, summary, detail };
+  // Text that is not JSON keeps its punctuation; each quoted piece is hidden or
+  // named as a change-log value would be.
+  const stored = (payload: StoredPayload) => {
+    if (payload.kind === "missing") return "(no payload)";
+    if (payload.kind === "text")
+      return payload.text.split('"').map(scrubText).join('"');
+    return render(scrub(payload.value)).join("\n");
+  };
+  return { scrub, parse, summary, detail, stored };
 }
 
 function* historyRows(
@@ -1851,287 +1634,80 @@ const historyColumns: Column[] = [
   { header: "Full before and after", width: 60, fmt: "wrap" },
 ];
 
-// --------------------------------------------------------------- writing --
+// --------------------------------------------------------- damaged records --
 
-const COLOURS: Record<Tone, { fill: string; font: string }> = {
-  bad: { fill: "FFF8D7DA", font: "FF842029" },
-  warn: { fill: "FFFFF3CD", font: "FF664D03" },
-  good: { fill: "FFD1E7DD", font: "FF0F5132" },
+const RECORD_LABELS: Record<RecordCollection, string> = {
+  management: "inventory and component",
+  airworthiness: "AD",
+  workOrders: "work order",
+  taskCards: "job card",
+  costs: "cost",
+  purchaseOrders: "purchase order",
+  partsRequests: "parts request",
 };
-const FORMATS: Record<Fmt, string> = {
-  text: "General",
-  wrap: "General",
-  date: "mmm d, yyyy",
-  datetime: "mmm d, yyyy hh:mm",
-  hours: "#,##0.0",
-  count: "#,##0",
-  money: "$#,##0.00",
-  amount: "#,##0.00",
-};
-const thin = { style: "thin" as const, color: { argb: "FFD0D5DD" } };
-const border = { top: thin, left: thin, bottom: thin, right: thin };
-const styles = new Map<string, Partial<ExcelJS.Style>>();
-// One shared object per style: exceljs caches style IDs by object identity.
-function style(fmt: Fmt, tone?: Tone, strong = false): Partial<ExcelJS.Style> {
-  const key = `${fmt}|${tone ?? ""}|${strong}`;
-  let s = styles.get(key);
-  if (!s) {
-    s = {
-      numFmt: FORMATS[fmt],
-      font: {
-        name: "Calibri",
-        size: 10,
-        bold: strong,
-        ...(tone && strong ? { color: { argb: COLOURS[tone].font } } : {}),
-      },
-      alignment: {
-        vertical: "top",
-        wrapText: fmt === "wrap",
-        horizontal: ["hours", "count", "money", "amount"].includes(fmt)
-          ? "right"
-          : "left",
-      },
-      border,
-      ...(tone
-        ? {
-            fill: {
-              type: "pattern" as const,
-              pattern: "solid" as const,
-              fgColor: { argb: COLOURS[tone].fill },
-            },
-          }
-        : {}),
-    };
-    styles.set(key, s);
-  }
-  return s;
-}
-const titleStyle: Partial<ExcelJS.Style> = {
-  font: { name: "Calibri", size: 14, bold: true, color: { argb: "FF1F2A44" } },
-  alignment: { vertical: "middle" },
-};
-const subtitleStyle: Partial<ExcelJS.Style> = {
-  font: {
-    name: "Calibri",
-    size: 10,
-    italic: true,
-    color: { argb: "FF4A5568" },
-  },
-  alignment: { vertical: "top" },
-};
-const headerStyle: Partial<ExcelJS.Style> = {
-  font: { name: "Calibri", size: 10, bold: true, color: { argb: "FF1F2A44" } },
-  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDE4EE" } },
-  alignment: { vertical: "middle", wrapText: true },
-  border: {
-    ...border,
-    bottom: { style: "medium", color: { argb: "FF7A8699" } },
-  },
+const DAMAGE_NOTES: Record<StoredPayload["kind"], string> = {
+  json: "Does not match the app's current format.",
+  text: "Not JSON; shown as the stored text.",
+  missing: "The row has no payload.",
 };
 
-// Characters XML cannot hold, and unpaired surrogates.
-const UNSAFE =
-  // eslint-disable-next-line no-control-regex
-  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
-function cellValue(v: Cell): ExcelJS.CellValue {
-  if (v === undefined || v === null || v === "") return null;
-  if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
-  const text = v.replace(UNSAFE, "");
-  return text.length > MAX_CELL_TEXT
-    ? text.slice(0, MAX_CELL_TEXT) +
-        "\n… (shortened here; the encrypted backup holds the full record)"
-    : text;
+// One note per record type, in the order the records are listed.
+function damageWarnings(damaged: DamagedRecord[]) {
+  const counts = new Map<RecordCollection, number>();
+  for (const d of damaged)
+    counts.set(d.collection, (counts.get(d.collection) ?? 0) + 1);
+  return [...counts].map(
+    ([collection, n]) =>
+      `${n} ${RECORD_LABELS[collection]} record${n === 1 ? "" : "s"} did not match the app's current format; shown as stored on the Damaged records sheet.`,
+  );
 }
 
-// Row heights are set from the text, because spreadsheet apps differ in
-// whether they fit wrapped rows when a file opens. Estimates err taller.
-const LINE_POINTS = 13;
-function rowHeight(columns: Column[], cells: Cell[]) {
-  let lines = 1;
-  columns.forEach((c, i) => {
-    const v = cells[i];
-    if (typeof v !== "string" || !v) return;
-    const perLine = Math.max(4, Math.floor(c.width * 1.1));
-    const segments = v.slice(0, MAX_CELL_TEXT).split("\n");
-    lines = Math.max(
-      lines,
-      c.fmt === "wrap"
-        ? segments.reduce(
-            (sum, s) => sum + Math.max(1, Math.ceil(s.length / perLine)),
-            0,
-          )
-        : segments.length,
-    );
-  });
-  return lines > 1 ? Math.min(409, lines * LINE_POINTS + 4) : undefined;
-}
-
-function pageOptions(sheet: string, made: string, table = true) {
+function damagedSheet(
+  damaged: DamagedRecord[],
+  writer: ReturnType<typeof changeWriter>,
+): SheetSpec {
   return {
-    pageSetup: {
-      orientation: table ? ("landscape" as const) : ("portrait" as const),
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      // The title and header rows repeat on every printed page.
-      ...(table ? { printTitlesRow: "1:2" } : {}),
-      margins: {
-        left: 0.4,
-        right: 0.4,
-        top: 0.5,
-        bottom: 0.6,
-        header: 0.25,
-        footer: 0.3,
-      },
-    },
-    headerFooter: {
-      oddFooter: `&L&8Angel One records, ${made}&C&8${sheet.replaceAll("&", "&&")}&R&8Page &P of &N`,
-    },
-  };
-}
-
-function writeSheet(
-  wb: ExcelJS.stream.xlsx.WorkbookWriter,
-  spec: SheetSpec,
-  made: string,
-  subtitle: string,
-) {
-  const ws = wb.addWorksheet(spec.name, {
-    views: [
-      {
-        state: "frozen",
-        xSplit: spec.freezeFirstColumn ? 1 : 0,
-        ySplit: 2,
-      },
+    name: "Damaged records",
+    title: "Damaged records",
+    about:
+      "Records that no longer match the app's format, as stored, so no other sheet shows them.",
+    columns: [
+      { header: "Record type", width: 22, fmt: "wrap" },
+      { header: "Note", width: 30, fmt: "wrap" },
+      { header: "As stored", width: 80, fmt: "wrap" },
     ],
-    ...pageOptions(spec.name, made),
-  });
-  ws.columns = spec.columns.map((c) => ({ width: c.width }));
-  // One cell, so the text runs across the empty cells to its right.
-  const title = ws.getRow(1);
-  const richText = [
-    { font: titleStyle.font, text: spec.title },
-    { font: subtitleStyle.font, text: `    ${subtitle}` },
-  ];
-  // exceljs keys shared strings by String(value); give each title its own
-  // key, or every sheet would show the first sheet's title.
-  title.getCell(1).value = {
-    richText,
-    toString: () => richText.map((r) => r.text).join(""),
-  } as ExcelJS.CellRichTextValue;
-  title.getCell(1).style = titleStyle;
-  title.height = 24;
-  title.commit();
-  const header = ws.getRow(2);
-  spec.columns.forEach((c, i) => {
-    const cell = header.getCell(i + 1);
-    cell.value = c.header;
-    cell.style = headerStyle;
-  });
-  header.height = 30;
-  header.commit();
-  let n = 0;
-  for (const row of spec.rows) {
-    const r = ws.getRow(3 + n);
-    const rowTone = row.tone && row.tone !== "good" ? row.tone : undefined;
-    spec.columns.forEach((c, i) => {
-      const cell = r.getCell(i + 1);
-      cell.value = cellValue(row.cells[i]);
-      const status = i === row.statusColumn;
-      cell.style = style(
-        c.fmt ?? "text",
-        status ? row.tone : rowTone,
-        status && !!row.tone,
-      );
-    });
-    const height = rowHeight(spec.columns, row.cells);
-    if (height) r.height = height;
-    r.commit();
-    n++;
-  }
-  ws.autoFilter = {
-    from: { row: 2, column: 1 },
-    to: { row: 2 + n, column: spec.columns.length },
+    rows: damaged.map((d) => ({
+      cells: [
+        sentence(RECORD_LABELS[d.collection]),
+        DAMAGE_NOTES[d.payload.kind],
+        writer.stored(d.payload),
+      ],
+    })),
+    count: damaged.length,
   };
-  ws.commit();
-  return n;
-}
-
-function writeReadMe(
-  wb: ExcelJS.stream.xlsx.WorkbookWriter,
-  made: string,
-  facts: [string, string][],
-  sheets: { name: string; about: string; count: number }[],
-) {
-  const ws = wb.addWorksheet("Read me", {
-    views: [{ showGridLines: false }],
-    ...pageOptions("Read me", made, false),
-  });
-  const columns: Column[] = [
-    { header: "", width: 26, fmt: "wrap" },
-    { header: "", width: 84, fmt: "wrap" },
-    { header: "", width: 10 },
-  ];
-  ws.columns = columns.map((c) => ({ width: c.width }));
-  let n = 1;
-  const row = (cells: Cell[], styles: Partial<ExcelJS.Style>[]) => {
-    const r = ws.getRow(n++);
-    cells.forEach((v, i) => {
-      r.getCell(i + 1).value = cellValue(v);
-      if (styles[i]) r.getCell(i + 1).style = styles[i];
-    });
-    const height = rowHeight(columns, cells);
-    if (height) r.height = height;
-    r.commit();
-  };
-  const label: Partial<ExcelJS.Style> = {
-    font: { name: "Calibri", size: 10, bold: true },
-    alignment: { vertical: "top", wrapText: true },
-  };
-  const body: Partial<ExcelJS.Style> = {
-    font: { name: "Calibri", size: 10 },
-    alignment: { vertical: "top", wrapText: true },
-  };
-  row(["Angel One records: readable copy"], [titleStyle]);
-  for (const [k, v] of facts) row([k, v], [label, body]);
-  row([], []);
-  row(["Colours"], [label]);
-  row(
-    ["Overdue, grounded or expired", "Red rows need action now."],
-    [style("text", "bad", true), body],
-  );
-  row(
-    [
-      "Due soon",
-      "Amber rows come due soon (for example within 10 hours or 30 days).",
-    ],
-    [style("text", "warn", true), body],
-  );
-  row(
-    ["OK", "Green marks a status that is in order."],
-    [style("text", "good", true), body],
-  );
-  row([], []);
-  const top = n;
-  row(
-    ["Sheet", "What it shows", "Rows"],
-    [headerStyle, headerStyle, headerStyle],
-  );
-  for (const s of sheets)
-    row(
-      [s.name, s.about, s.count],
-      [style("text"), style("wrap"), style("count")],
-    );
-  ws.autoFilter = {
-    from: { row: top, column: 1 },
-    to: { row: n - 1, column: 3 },
-  };
-  ws.commit();
 }
 
 // ----------------------------------------------------------------- build --
 
+// What the colours mean, for Read me.
+const COLOUR_LEGEND: [Tone, string, string][] = [
+  ["bad", "Overdue, grounded or expired", "Red rows need action now."],
+  [
+    "warn",
+    "Due soon",
+    "Amber rows come due soon (for example within 10 hours or 30 days).",
+  ],
+  ["good", "OK", "Green marks a status that is in order."],
+];
+
+/**
+ * Builds the records workbook from a Convex export ZIP and writes it to
+ * `options.out`.
+ *
+ * @param zipPath - The Convex snapshot export.
+ * @returns Rows per sheet, and the notes shown on Read me.
+ * @throws {Error} From ./convexExport, when the ZIP is not a readable export.
+ */
 export async function buildRecordsWorkbook(
   zipPath: string,
   options: WorkbookOptions,
@@ -2139,9 +1715,10 @@ export async function buildRecordsWorkbook(
   const now = options.now ?? Date.now();
   const clock = zoneClock(options.timeZone);
   const today = clock.today(now);
-  const { tables, storageIds, storageFiles } = await loadExport(zipPath);
-  const decoded = decode(tables, now);
-  const { snapshot: s, programs, transferred, warnings } = decoded;
+  const decoded = await readExportSnapshot(zipPath, now);
+  const { snapshot: s, programs, transferred, damaged } = decoded;
+  const { storageIds, storageFiles } = decoded;
+  const warnings = damageWarnings(damaged);
   const names = namer(s, programs, decoded.labels, clock);
   // Newest first; the export order is by document ID, not by time.
   const audit = decoded.audit.sort((a, b) => b.at - a.at);
@@ -2186,6 +1763,7 @@ export async function buildRecordsWorkbook(
         count: to - from,
       };
     }),
+    ...(damaged.length ? [damagedSheet(damaged, writer)] : []),
   ];
   const made = clock.dateTimeText(now);
   const zone = `${clock.name} (${clock.zone})`;
@@ -2229,31 +1807,30 @@ export async function buildRecordsWorkbook(
       : []),
     ...warnings.map((w): [string, string] => ["Note", w]),
   ];
-  const wb = new ExcelJS.stream.xlsx.WorkbookWriter({
-    filename: options.out,
-    useStyles: true,
-    // Shared strings are the form every spreadsheet app reads, line breaks
-    // included; they are held in memory until the file is written.
-    useSharedStrings: true,
+  const written = await writeWorkbook({
+    out: options.out,
+    now,
+    made,
+    subtitle: `Times in ${clock.name} · status as of ${clock.dateText(today)} · copy for reading; the logbooks and encrypted backup are the records`,
+    readMe: {
+      title: "Angel One records: readable copy",
+      facts,
+      legend: COLOUR_LEGEND,
+    },
+    sheets,
   });
-  wb.creator = "Angel One";
-  wb.created = new Date(now);
-  wb.modified = new Date(now);
-  writeReadMe(wb, made, facts, sheets);
-  const subtitle = `Times in ${clock.name} · status as of ${clock.dateText(today)} · copy for reading; the logbooks and encrypted backup are the records`;
-  const summary: WorkbookSummary = {
-    sheets: [{ name: "Read me", rows: sheets.length }],
-    warnings,
-  };
-  for (const spec of sheets)
-    summary.sheets.push({
-      name: spec.name,
-      rows: writeSheet(wb, spec, made, subtitle),
-    });
-  await wb.commit();
-  return summary;
+  return { sheets: written, warnings };
 }
 
+/**
+ * The command line: `--zip <export> --out <file.xlsx> [--tz <IANA zone>]
+ * [--deployment <name>]`. Sets the process time zone to `--tz`, then prints
+ * the sheets written and any notes.
+ *
+ * @param argv - The arguments after the script name.
+ * @throws {Error} The usage line when --zip or --out is missing; 'Unknown
+ *   time zone "<tz>". Use an IANA name such as America/New_York.'
+ */
 export async function main(argv: string[]) {
   const { values } = parseArgs({
     args: argv,

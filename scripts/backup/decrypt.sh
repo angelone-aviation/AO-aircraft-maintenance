@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-#
-# Decrypts a file downloaded from the backup bucket, for a restore or the
-# quarterly rehearsal (docs/runbooks/backup-restore.md).
+# Responsibility: Decrypts a file downloaded from the backup bucket for a
+#   restore or rehearsal, and checks an export against its manifest.
+# Layer: Script. Run by hand; never prints an environment file's contents.
+# Dependencies: age, sha256sum or shasum, node.
 #
 #   scripts/backup/decrypt.sh <private key file> <downloaded .age file>
 #
 # Writes the decrypted file beside the encrypted one, without ".age". For an
-# export whose .manifest.json sits beside it, also checks the SHA-256 and
-# prints the document count per table, to compare after the import. Never
-# prints the contents of an environment file.
+# export with its .manifest.json beside it, also checks the SHA-256 and prints
+# the documents per table, to compare after the import. Runbook:
+# docs/runbooks/backup-restore.md. Tests: npm run test:backup.
 
 set -euo pipefail
+# The decrypted file holds production records or secrets: owner-only access.
 umask 077
 
 fail() {
@@ -36,6 +38,7 @@ echo "Decrypted to $decrypted"
 manifest=${encrypted%.zip.age}.manifest.json
 [[ "$encrypted" == *.zip.age && -f "$manifest" ]] || exit 0
 
+# macOS ships shasum; sha256sum may be missing there.
 if command -v sha256sum >/dev/null; then
   sum=$(sha256sum "$decrypted")
 else

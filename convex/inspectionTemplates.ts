@@ -1,12 +1,40 @@
+/**
+ * Responsibility: The Flight Program's inspection template library: saving
+ *   templates, activating one on an aircraft or a component, and deleting
+ *   templates with the reusable job cards made from them.
+ * Layer: Server. Three public mutations through runCommand; the rules are the
+ *   domain's.
+ * Dependencies: convex/runCommand, convex/management, convex/attachments,
+ *   src/domain (inspectionTemplates, activateTemplate,
+ *   deleteInspectionTemplates).
+ */
 import { deleteInspectionTemplates } from "../src/domain/deleteInspectionTemplates";
 import { activateTemplate } from "../src/domain/activateTemplate";
-import { inspectionSchema } from "../src/domain/management";
-import { mutation } from "./_generated/server";
+import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { runCommand, hydrate } from "./runCommand";
+import { runCommand, hydrate, writeChanged, type Hydrated } from "./runCommand";
+import { writeInspection } from "./management";
 import { deleteBlobIfUnused } from "./attachments";
 import { saveInspectionTemplates } from "../src/domain/inspectionTemplates";
+
 const args = { payload: v.string(), programUuid: v.optional(v.string()) };
+const TEMPLATE_TAKEN = "Template belongs to another Flight Program.";
+const RECORD_TAKEN = "Record belongs to another Flight Program.";
+
+type TemplateDeletion = ReturnType<typeof deleteInspectionTemplates>;
+type DeletionDocs = Hydrated<"inspectionTemplates" | "taskCards">["docs"];
+
+/**
+ * Saves templates into the caller's Flight Program library, all or none, and
+ * audits `inspectionTemplate.save` for each with its stored and saved
+ * versions.
+ *
+ * @param payload - JSON, as `saveInspectionTemplates` reads it.
+ * @param programUuid - The caller's active Flight Program.
+ * @throws {ConvexError} As `runCommand` and `saveInspectionTemplates`;
+ *   "Template belongs to another Flight Program." for a new uuid another
+ *   program uses.
+ */
 export const save = mutation({
   args,
   handler: (ctx, { payload, programUuid }) =>
@@ -16,27 +44,14 @@ export const save = mutation({
       load: ({ ctx, state }) => hydrate(ctx, state, ["inspectionTemplates"]),
       apply: ({ snapshot }, command) =>
         saveInspectionTemplates(snapshot, command),
-      persist: async ({ ctx }, { docs }, results) => {
-        for (const { next } of results) {
-          const doc = docs.inspectionTemplates.find(
-            (d) => d.uuid === next.uuid,
-          );
-          const fields = {
-            uuid: next.uuid,
-            programUuid: next.programUuid,
-            payload: JSON.stringify(next),
-          };
-          if (doc) await ctx.db.replace(doc._id, fields);
-          else if (
-            await ctx.db
-              .query("inspectionTemplates")
-              .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
-              .first()
-          )
-            throw new Error("Template belongs to another Flight Program.");
-          else await ctx.db.insert("inspectionTemplates", fields);
-        }
-      },
+      persist: ({ ctx }, { docs }, results) =>
+        writeChanged(
+          ctx,
+          "inspectionTemplates",
+          docs.inspectionTemplates,
+          results.map((r) => r.next),
+          TEMPLATE_TAKEN,
+        ),
       audit: (log, _, results) => {
         for (const { before, next } of results)
           log.entry("inspectionTemplate.save", next.uuid, {
@@ -48,6 +63,17 @@ export const save = mutation({
     }),
 });
 
+/**
+ * Activates a template on an aircraft (an inspection) or a component (a
+ * component requirement), with a draft job card per template task, and
+ * replays the domain's change-log entries.
+ *
+ * @param payload - JSON, as `activateTemplateSchema`.
+ * @param programUuid - The caller's active Flight Program.
+ * @returns The new inspection's or requirement's uuid.
+ * @throws {ConvexError} As `runCommand` and `activateTemplate`; "Record
+ *   belongs to another Flight Program." when a uuid it generated is stored.
+ */
 export const activate = mutation({
   args,
   handler: (ctx, { payload, programUuid }) =>
@@ -62,23 +88,23 @@ export const activate = mutation({
           "taskCards",
         ]),
       apply: ({ snapshot }, command) => activateTemplate(snapshot, command),
-      persist: async ({ ctx }, _, result) => {
-        const r = result.record;
-        if ("kind" in r)
-          await ctx.db.insert("management", {
-            uuid: r.uuid,
-            kind: r.kind,
-            programUuid: r.programUuid,
-            aircraftUuid: result.aircraftUuid,
-            payload: JSON.stringify(r),
-          });
-        else await ctx.db.insert("inspections", inspectionSchema.parse(r));
-        for (const task of result.tasks)
-          await ctx.db.insert("taskCards", {
-            uuid: task.uuid,
-            aircraftUuid: task.aircraftUuid,
-            payload: JSON.stringify(task),
-          });
+      persist: async ({ ctx }, { docs }, { record, tasks }) => {
+        if ("kind" in record)
+          await writeChanged(
+            ctx,
+            "management",
+            docs.management,
+            [record],
+            RECORD_TAKEN,
+          );
+        else await writeInspection(ctx, docs.inspections, record);
+        await writeChanged(
+          ctx,
+          "taskCards",
+          docs.taskCards,
+          tasks,
+          RECORD_TAKEN,
+        );
       },
       audit: (log, { snapshot }, result) =>
         log.replay(snapshot.audit, {
@@ -90,6 +116,18 @@ export const activate = mutation({
     }),
 });
 
+/**
+ * Deletes templates with the reusable job cards made from them and those
+ * cards' evidence files, all or none, and audits
+ * `taskCard.deletedWithTemplate` and `inspectionTemplate.deleted` for each.
+ * Inspections already activated stay.
+ *
+ * @param payload - JSON, as `deleteTemplatesSchema`: the templates and cards
+ *   the preview showed, at the versions it showed.
+ * @param programUuid - The caller's active Flight Program.
+ * @returns How many templates and job cards were deleted.
+ * @throws {ConvexError} As `runCommand` and `deleteInspectionTemplates`.
+ */
 export const remove = mutation({
   args,
   handler: (ctx, { payload, programUuid }) =>
@@ -105,25 +143,8 @@ export const remove = mutation({
         ]),
       apply: ({ snapshot }, command) =>
         deleteInspectionTemplates(snapshot, command),
-      persist: async ({ ctx }, { docs }, result) => {
-        for (const task of result.taskCards) {
-          const evidence = await ctx.db
-            .query("taskEvidence")
-            .withIndex("taskCard", (q) => q.eq("taskCardUuid", task.uuid))
-            .collect();
-          for (const file of evidence) {
-            await ctx.db.delete(file._id);
-            await deleteBlobIfUnused(ctx, file.storageId);
-          }
-          await ctx.db.delete(
-            docs.taskCards.find((d) => d.uuid === task.uuid)!._id,
-          );
-        }
-        for (const template of result.templates)
-          await ctx.db.delete(
-            docs.inspectionTemplates.find((d) => d.uuid === template.uuid)!._id,
-          );
-      },
+      persist: ({ ctx }, { docs }, result) =>
+        deleteTemplates(ctx, docs, result),
       audit: (log, _, result) => {
         for (const task of result.taskCards)
           log.entry("taskCard.deletedWithTemplate", task.uuid, {
@@ -145,3 +166,25 @@ export const remove = mutation({
       }),
     }),
 });
+
+async function deleteTemplates(
+  ctx: MutationCtx,
+  docs: DeletionDocs,
+  result: TemplateDeletion,
+) {
+  for (const task of result.taskCards) {
+    const evidence = await ctx.db
+      .query("taskEvidence")
+      .withIndex("taskCard", (q) => q.eq("taskCardUuid", task.uuid))
+      .collect();
+    for (const file of evidence) {
+      await ctx.db.delete(file._id);
+      await deleteBlobIfUnused(ctx, file.storageId);
+    }
+    await ctx.db.delete(docs.taskCards.find((d) => d.uuid === task.uuid)!._id);
+  }
+  for (const template of result.templates)
+    await ctx.db.delete(
+      docs.inspectionTemplates.find((d) => d.uuid === template.uuid)!._id,
+    );
+}
