@@ -202,15 +202,13 @@ it("refuses a file or row it cannot read, naming the row", () => {
       `${HEADER}\nA 1,Inspect,,,\na  1,Check,,,`,
       "CSV row 3: Duplicate item code a  1.",
     ],
-    // Characterizes current behaviour: templateTaskSchema has no messages of
-    // its own, so a bad field reads in zod's wording, one issue per line.
     [
       `${HEADER}\nA1, ,,,`,
-      "CSV row 2: Too small: expected string to have >=1 characters",
+      "CSV row 2: Enter a task instruction of up to 9,000 characters.",
     ],
     [
       `${HEADER}\n${"A".repeat(101)},Inspect,,,100001`,
-      "CSV row 2: Too big: expected string to have <=100 characters\nToo big: expected number to be <=100000",
+      "CSV row 2: Item code is too long (up to 100 characters).\nPDF page must be a positive whole number up to 100,000.",
     ],
   ];
   for (const [text, message] of cases) {
