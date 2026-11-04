@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins component templates on the server: program-scoped
  *   saving and its stored rows, setup entries added once without installing
- *   components, and refusals shown with their message.
+ *   components, refusals shown with their message, and replayed request ids.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/componentTemplates, convex/schema, src/data/demo
  *   (fixture).
@@ -153,4 +153,52 @@ it("audits the stored and saved versions, and shows every refusal with its messa
   await expect(save({ ...record, uuid: foreign })).rejects.toMatchObject(
     shown("Record belongs to another Flight Program."),
   );
+});
+
+it("saves and applies once per request id: a replay returns nothing and writes nothing", async () => {
+  const { t, a, client, record } = await setup();
+  const requestUuid = crypto.randomUUID();
+  const save = (name: string) =>
+    client.mutation(api.componentTemplates.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ ...record, name, requestUuid }),
+    });
+  const apply = {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      templateUuid: record.uuid,
+      version: 1,
+      aircraftUuid: a.uuid,
+      rowIds: ["1"],
+      requestUuid: crypto.randomUUID(),
+    }),
+  };
+  const stored = () =>
+    t.run(async (ctx) => ({
+      templates: await ctx.db.query("componentTemplates").collect(),
+      setups: await ctx.db.query("componentSetups").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+    }));
+  expect(await save(record.name)).toBe(record.uuid);
+  const saved = await stored();
+  // The domain schema drops the request id, so the template never holds it.
+  expect(JSON.parse(saved.templates[0].payload)).not.toHaveProperty(
+    "requestUuid",
+  );
+  await expect(save(record.name)).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(save("Renamed")).rejects.toMatchObject({
+    data: "Request identifier already used.",
+  });
+  expect(await client.mutation(api.componentTemplates.apply, apply)).toBe(1);
+  const applied = await stored();
+  await expect(
+    client.mutation(api.componentTemplates.apply, apply),
+  ).resolves.toBeNull();
+  expect(await stored()).toEqual(applied);
+  expect(applied.commandRequests.map((r) => r.payload)).toEqual([
+    JSON.stringify({ ...record, name: record.name, requestUuid }),
+    apply.payload,
+  ]);
 });

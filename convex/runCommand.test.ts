@@ -34,6 +34,7 @@ import {
   validationErrors,
   allErrors,
   requestOf,
+  requestUuidIn,
   RECORD_TAKEN,
   type Command,
 } from "./runCommand";
@@ -726,4 +727,17 @@ it("refuses a uuid stored outside the loaded rows with the one collision message
   expect(stored.map((d) => d.payload)).toEqual([
     encode("costs", costs.elsewhere).payload,
   ]);
+});
+
+it("reads a request id from a payload the applier parses, or none", () => {
+  const id = "6b0a9d1e-2c3f-4a5b-8c7d-9e0f1a2b3c4d";
+  expect(requestUuidIn(JSON.stringify({ kind: "save", requestUuid: id }))).toBe(
+    id,
+  );
+  expect(requestUuidIn("{")).toBeUndefined();
+  expect(requestUuidIn(JSON.stringify({ requestUuid: "taken" }))).toBe(
+    undefined,
+  );
+  expect(requestUuidIn(JSON.stringify({ kind: "save" }))).toBeUndefined();
+  expect(requestUuidIn("[1]")).toBeUndefined();
 });

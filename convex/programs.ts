@@ -19,7 +19,12 @@ import {
   partsRequestDocs,
   purchaseOrderDocs,
 } from "./programContext";
-import { runCommand, writeChanged, type ProgramContext } from "./runCommand";
+import {
+  runCommand,
+  requestOf,
+  writeChanged,
+  type ProgramContext,
+} from "./runCommand";
 import { decode } from "./collections";
 import { exposeRejections } from "./userErrors";
 import { assertProgramSelectable } from "../src/domain/programs";
@@ -62,6 +67,7 @@ const transferArgs = {
   uuid: v.string(),
   destination: v.string(),
   reason: v.string(),
+  requestUuid: v.optional(v.string()),
 };
 type TransferArgs = ObjectType<typeof transferArgs>;
 
@@ -74,9 +80,11 @@ type TransferArgs = ObjectType<typeof transferArgs>;
  * record's current owner (visibleScope): the destination sees the moved
  * records' rows, and the source keeps only rows that also concern what it
  * still holds. Rows the destination's own program and aircraft indexes would
- * not reach are listed in `transferredAudit` for its History feed.
+ * not reach are listed in `transferredAudit` for its History feed. A replayed
+ * request id changes nothing.
  *
  * @param reason - Why the records move; required.
+ * @param requestUuid - The request id, when the client sends one.
  * @throws {ConvexError} transferProgram's refusals, such as "System
  *   administrator required for Flight Program transfers."; runCommand's
  *   program refusals.
@@ -87,6 +95,8 @@ export const transfer = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => args,
+      request: ({ programUuid: _program, requestUuid, ...transfer }) =>
+        requestOf(requestUuid, JSON.stringify(transfer)),
       load: ({ ctx, state }) => loadTransfer(ctx, state, args),
       apply: ({ s }, input) => transferProgram(s, input),
       persist: async ({ ctx, state }, working, entities) => {

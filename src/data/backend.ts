@@ -298,11 +298,15 @@ export interface Backend {
    *   versions it showed.
    */
   deleteInspectionTemplates(input: DeleteTemplatesInput): Promise<unknown>;
-  /** Saves a component template as its next version. */
+  /**
+   * Saves a component template as its next version; a replayed request id
+   * changes nothing.
+   */
   saveComponentTemplate(input: ComponentTemplate): Promise<unknown>;
   /**
    * Adds a component template's chosen rows to an aircraft's component setup
-   * list. Rows already added are skipped; no component is installed.
+   * list. Rows already added are skipped; no component is installed; a
+   * replayed request id changes nothing.
    *
    * @param input - The template and the version previewed, the aircraft, and
    *   the rows to add.
@@ -469,7 +473,8 @@ export interface Backend {
   /**
    * Moves an aircraft, component or location, with the records that depend
    * on it, from the active program to another. System administrators only;
-   * existing change-log rows are never edited (ADR-0005).
+   * existing change-log rows are never edited (ADR-0005), and a replayed
+   * request id changes nothing.
    *
    * @param input - The record, the destination and the reason.
    */
@@ -768,9 +773,9 @@ function bindTemplateCalls(client: ConvexReactClient) {
     deleteInspectionTemplates: (input) =>
       client.mutation(api.inspectionTemplates.remove, programCommand(input)),
     saveComponentTemplate: (input) =>
-      client.mutation(api.componentTemplates.save, programCommand(input)),
+      client.mutation(api.componentTemplates.save, requestedCommand(input)),
     applyComponentTemplate: (input) =>
-      client.mutation(api.componentTemplates.apply, programCommand(input)),
+      client.mutation(api.componentTemplates.apply, requestedCommand(input)),
   } satisfies Partial<Backend>;
 }
 
@@ -889,7 +894,7 @@ function bindProgramCalls(client: ConvexReactClient) {
     selectProgram: (programUuid) =>
       client.mutation(api.programs.select, { programUuid }),
     transferProgram: (input) =>
-      client.mutation(api.programs.transfer, inProgram(input)),
+      client.mutation(api.programs.transfer, inProgram(requested(input))),
     updateProgramAccess: (userId, programUuid, groupIds, remove) =>
       client.mutation(api.programUsers.updateAccess, {
         userId: userId as Id<"users">,
@@ -1076,7 +1081,9 @@ function requested<T extends object>(fields: T & { requestUuid?: string }) {
   return { ...fields, requestUuid: fields.requestUuid ?? crypto.randomUUID() };
 }
 
-function requestedCommand(command: { requestUuid?: string }) {
+function requestedCommand<T extends object>(
+  command: T & { requestUuid?: string },
+) {
   return programCommand(requested(command));
 }
 

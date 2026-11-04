@@ -5,7 +5,7 @@
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
  * Dependencies: convex/values, convex/server (types), zod, ./_generated,
  *   ./programContext, ./access, ./collections, src/domain (model, programs,
- *   rejection, validationText).
+ *   rejection, validationText, commandRequest).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -13,7 +13,7 @@
  * them.
  */
 import { ConvexError } from "convex/values";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { WithOptionalSystemFields } from "convex/server";
@@ -21,6 +21,7 @@ import type { AuditEntry, Snapshot } from "../src/domain/model";
 import { activeProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
 import { validationText } from "../src/domain/validationText";
+import { requestUuidField } from "../src/domain/commandRequest";
 import {
   decode,
   encode,
@@ -169,6 +170,26 @@ export function requestOf(
 ): CommandRequest | undefined {
   return requestUuid === undefined ? undefined : { uuid: requestUuid, payload };
 }
+
+/**
+ * The request id in a JSON payload that `apply` parses, read before it does.
+ *
+ * @returns The id; undefined for a payload that is not JSON or whose id is
+ *   missing or not a UUID, which then runs unrecorded (or is refused when
+ *   `apply` parses it).
+ */
+export function requestUuidIn(payload: string): string | undefined {
+  let command: unknown;
+  try {
+    command = JSON.parse(payload);
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+  return REQUEST_ONLY.safeParse(command).data?.requestUuid;
+}
+
+const REQUEST_ONLY = z.object(requestUuidField);
 
 /** A command's change-log rows by one caller, collected in order. */
 export class CommandLog {

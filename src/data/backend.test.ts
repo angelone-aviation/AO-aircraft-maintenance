@@ -312,14 +312,14 @@ const CASES: Case[] = [
     call: (b) => b.saveComponentTemplate(opaque()),
     kind: "mutation",
     name: "componentTemplates:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "applyComponentTemplate",
     call: (b) => b.applyComponentTemplate(opaque()),
     kind: "mutation",
     name: "componentTemplates:apply",
-    args: command(),
+    args: requested(),
   },
   {
     method: "editManual",
@@ -548,7 +548,11 @@ const CASES: Case[] = [
     call: (b) => b.transferProgram(TRANSFER),
     kind: "mutation",
     name: "programs:transfer",
-    args: { ...TRANSFER, programUuid: ACTIVE_PROGRAM },
+    args: {
+      ...TRANSFER,
+      requestUuid: REQUEST_UUID,
+      programUuid: ACTIVE_PROGRAM,
+    },
   },
   {
     method: "updateProgramAccess",
@@ -841,7 +845,7 @@ it("reads the active Flight Program when each method is called", async () => {
   ]);
 });
 
-it("sends a new request id with each AD, checklist, engine-trend, cost, job-card and deferral command", async () => {
+it("sends a new request id with each AD, checklist, engine-trend, cost, job-card, deferral and component-template command", async () => {
   vi.restoreAllMocks();
   const { backend, calls } = recordingBackend();
   await backend.saveAD(opaque());
@@ -851,22 +855,25 @@ it("sends a new request id with each AD, checklist, engine-trend, cost, job-card
   await backend.costs(opaque());
   await backend.taskCard(opaque());
   await backend.deferDiscrepancy(opaque());
+  await backend.saveComponentTemplate(opaque());
+  await backend.applyComponentTemplate(opaque());
   const ids = calls.map(
     (c) => JSON.parse(c.args.payload as string).requestUuid,
   );
-  expect(new Set(ids).size).toBe(7);
+  expect(new Set(ids).size).toBe(9);
   for (const id of ids) expect(id).toMatch(UUID);
 });
 
-it("sends a new request id beside the arguments of a resolution, a parts list and a flight review", async () => {
+it("sends a new request id beside the arguments of a resolution, a parts list, a flight review and a transfer", async () => {
   vi.restoreAllMocks();
   const { backend, calls } = recordingBackend();
   await backend.resolve("report-1", "Fixed");
   await backend.resolve("report-1", "Fixed");
   await backend.saveDiscrepancyParts("report-1", 4, opaque());
   await backend.review("flight-1", "accept", "Checked", opaque());
+  await backend.transferProgram(TRANSFER);
   const ids = calls.map((c) => c.args.requestUuid);
-  expect(new Set(ids).size).toBe(4);
+  expect(new Set(ids).size).toBe(5);
   for (const id of ids) expect(id).toMatch(UUID);
 });
 
