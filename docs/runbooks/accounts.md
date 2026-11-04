@@ -66,7 +66,7 @@ A password an administrator sets, on creation or reset, must have **15 to 128 ch
 
 ## Adding an existing user to a Flight Program
 
-A Flight Program administrator can add a person who already has an active account (Administration → Add existing user). The app answers "If an active account uses this email, it now has access to this Flight Program." whether or not such an account exists, so the form cannot be used to check which emails have accounts. Each administrator gets **20 lookups an hour**, found or not. If the person does not appear in the user list afterwards, check the email address with them, or create a new user. Every addition writes a `user.program_access_added` change-log entry that names the program and groups.
+A Flight Program administrator can add a person who already has an active account (Administration → Add existing user). The app answers "If an active account uses this email, it now has access to this Flight Program." whether or not such an account exists. The answer itself reveals nothing, but a person who is added then appears in the user list, so an administrator can still learn that an email has an account (security review 2026-11-04, S11). Each administrator gets **20 lookups an hour**, found or not. If the person does not appear in the user list afterwards, check the email address with them, or create a new user. Every addition writes a `user.program_access_added` change-log entry that names the program and groups.
 
 ## Permission groups opened to all aircraft before the #34 fix
 
