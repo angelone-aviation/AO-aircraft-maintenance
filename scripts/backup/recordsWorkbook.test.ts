@@ -241,7 +241,11 @@ function editFirst(
   change(docs.find(pick)!);
   files[name] = strToU8(docs.map((d) => JSON.stringify(d)).join("\n") + "\n");
 }
-async function buildFrom(files: Record<string, Uint8Array>, name: string) {
+async function buildFrom(
+  files: Record<string, Uint8Array>,
+  name: string,
+  at = now,
+) {
   const zip = path.join(dir, `${name}.zip`);
   const out = path.join(dir, `${name}.xlsx`);
   await writeFile(zip, zipSync(files));
@@ -249,7 +253,7 @@ async function buildFrom(files: Record<string, Uint8Array>, name: string) {
     out,
     timeZone: TZ,
     deployment: "fixture",
-    now,
+    now: at,
   });
   const read = new ExcelJS.Workbook();
   await read.xlsx.readFile(out);
@@ -723,6 +727,19 @@ describe("records workbook", () => {
     ).rejects.toThrow(
       'Unknown time zone "Mars/Olympus". Use an IANA name such as America/New_York.',
     );
+  });
+
+  it("judges ADs on the copy's date, not the machine's", async () => {
+    const monthLater = now + 30 * 86_400_000;
+    const { read } = await buildFrom(
+      unzipSync(fixture.zip),
+      "later",
+      monthLater,
+    );
+    const seatRail = rows("Airworthiness directives", read).find(
+      (r) => text(r.cells["AD number"].value) === "AD 2025-DEMO-12",
+    )!;
+    expect(text(seatRail.cells.Status.value)).toBe("Overdue");
   });
 
   it("builds for an aircraft without a meter reading: its AD actions are Unknown with the reason, a passed due date still overdue", async () => {

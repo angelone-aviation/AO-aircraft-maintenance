@@ -563,7 +563,7 @@ function adRows(
   today: string,
   names: Namer,
 ): DueItem[] {
-  const counters = adCounters(s, d.ad);
+  const counters = adCounters(s, d.ad, today);
   return d.tasks
     .filter(({ status }) => status !== "Complied")
     .map(({ task, status, level }) => {
@@ -1143,7 +1143,7 @@ const OK_AD_STATUSES = [
 
 function adRow(r: AD, { s, names, clock, today }: Context): Row {
   const c = names.component(r.componentUuid);
-  const status = valueOr(() => adStatus(s, r), "Unknown");
+  const status = valueOr(() => adStatus(s, r, today), "Unknown");
   const last = effectiveCompliance(r)
     .sort((a, b) => a.date.localeCompare(b.date))
     .at(-1);
