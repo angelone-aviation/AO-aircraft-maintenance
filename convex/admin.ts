@@ -1,23 +1,22 @@
 /**
- * Responsibility: Administration: accounts, permission groups and new
- *   aircraft, and each user's own license and logbook wording.
+ * Responsibility: Administration: accounts and permission groups, and each
+ *   user's own license and logbook wording.
  * Layer: Server. Public actions and mutations over internal steps; every
  *   change is audited.
  * Dependencies: @convex-dev/auth/server, convex (access, programContext,
- *   memberships, accountGuards, fleet, validators, userErrors), src/domain
- *   (certifications, model, releaseStatements, logbookWording, logbook,
- *   programs, fleet, accountRules).
+ *   memberships, accountGuards, validators, userErrors), src/domain
+ *   (certifications, releaseStatements, logbookWording, logbook, programs,
+ *   accountRules).
  */
 import {
   certificationsSchema,
   memberLicense,
 } from "../src/domain/certifications";
-import { totalSeconds } from "../src/domain/model";
 import { releaseStatementsSchema } from "../src/domain/releaseStatements";
 import { logbookPhrasesSchema } from "../src/domain/logbookWording";
 import { licenseSchema } from "../src/domain/logbook";
 import { currentUser, group } from "./access";
-import { checkContext, context } from "./programContext";
+import { context } from "./programContext";
 import { activeProgram, programPermission } from "../src/domain/programs";
 import {
   action,
@@ -29,7 +28,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { ConvexError, v, type ObjectType } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   createAccount,
   modifyAccountCredentials,
@@ -37,9 +36,7 @@ import {
 } from "@convex-dev/auth/server";
 import { admin, audit } from "./access";
 import { programUsers, syncMemberships } from "./memberships";
-import { aircraftFields, permission } from "./validators";
-import { assertAvailableAircraft } from "./fleet";
-import { aircraftInputSchema, type AircraftInput } from "../src/domain/fleet";
+import { permission } from "./validators";
 import {
   ACCOUNT_NAME_MAX_LENGTH,
   EMAIL_UNAVAILABLE,
@@ -75,8 +72,6 @@ const groupArgs = {
   allAircraft: v.optional(v.boolean()),
   permissions: v.array(permission),
 };
-
-type NewAircraft = ObjectType<typeof aircraftFields>;
 
 /**
  * The calling system administrator, for actions, which cannot read the
@@ -389,55 +384,6 @@ export const saveGroup = mutation({
 });
 
 /**
- * Adds an aircraft to the active Flight Program at its baseline readings;
- * audits "aircraft.created".
- *
- * @param aircraft - The new aircraft; its registration is stored upper-case.
- * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} As `checkContext`; "Aircraft must belong to the active
- *   Flight Program."; "Flight Program administrator required.";
- *   "Registration, make and serial number are required."; "Cyclic Hobbs Meter
- *   requires Helicopter."; "Enable Flight time log first."; "Adjusted total
- *   time cannot be negative."
- * @throws A ZodError for a field `aircraftInputSchema` refuses; as
- *   `assertAvailableAircraft`.
- */
-export const createAircraft = mutation({
-  args: {
-    aircraft: v.object(aircraftFields),
-    programUuid: v.optional(v.string()),
-  },
-  handler: async (ctx, { aircraft: a, programUuid }) => {
-    const state = await checkContext(ctx, programUuid);
-    if (a.programUuid && a.programUuid !== activeProgram(state))
-      throw new ConvexError(
-        "Aircraft must belong to the active Flight Program.",
-      );
-    a.programUuid = activeProgram(state);
-    if (!programPermission(state, "admin"))
-      throw new ConvexError("Flight Program administrator required.");
-    const actor = await currentUser(ctx);
-    if (!a.registration.trim() || !a.make.trim() || !a.serial.trim())
-      throw new ConvexError(
-        "Registration, make and serial number are required.",
-      );
-    const input = parseAircraftInput(a);
-    const registration = input.registration.toUpperCase();
-    await assertAvailableAircraft(ctx, { uuid: input.uuid, registration });
-    const program = state.programs.find((p) => p.uuid === a.programUuid);
-    const normalized = newAircraft(a, input, registration, program?.name ?? "");
-    assertMeterEnabled(a);
-    if (totalSeconds(normalized) < 0)
-      throw new ConvexError("Adjusted total time cannot be negative.");
-    await ctx.db.insert("aircraft", normalized);
-    await audit(ctx, actor._id, "aircraft.created", a.uuid, {
-      aircraftUuid: a.uuid,
-      after: normalized,
-    });
-  },
-});
-
-/**
  * Saves the caller's own license number and certificate type; audits
  * "user.license_updated".
  *
@@ -641,71 +587,4 @@ async function recordProgramAssigned(
     before: { programUuid: null },
     after: { programUuid },
   });
-}
-
-// The fleet form's field rules (as fleet.save), applied to the baselines a new
-// aircraft starts at: the schema also refuses a negative, fractional or
-// unsafe reading, one not in whole tenths of an hour, and such an adjustment.
-function parseAircraftInput(a: NewAircraft) {
-  return aircraftInputSchema.parse({
-    twin: a.twin,
-    turbine: a.turbine,
-    amphibious: a.amphibious,
-    helicopter: a.helicopter,
-    flightTimeLog: a.flightTimeLog,
-    uuid: a.uuid,
-    version: 0,
-    registration: a.registration,
-    make: a.make,
-    model: a.model,
-    faaSearchModel: a.faaSearchModel,
-    serial: a.serial,
-    programUuid: a.programUuid,
-    meter: a.meter,
-    adjustmentSeconds: a.adjustmentSeconds,
-    currentHobbs: a.baselineHobbs,
-    currentTach: a.baselineTach,
-    currentCyclicHobbs: a.baselineCyclicHobbs,
-    currentFlightTimeLog: a.baselineFlightTimeLog,
-    cycles: a.baselineCycles,
-    landings: a.baselineLandings,
-    operationalStatus: "unknown",
-  });
-}
-
-function newAircraft(
-  a: NewAircraft,
-  input: AircraftInput,
-  registration: string,
-  program: string,
-) {
-  return {
-    ...a,
-    uuid: input.uuid,
-    make: input.make,
-    model: input.model,
-    faaSearchModel: input.faaSearchModel,
-    serial: input.serial,
-    program,
-    counterEvents: undefined,
-    baselineMeter: a.meter,
-    baselineAdjustmentSeconds: a.adjustmentSeconds,
-    registration,
-    currentHobbs: a.baselineHobbs,
-    currentTach: a.baselineTach,
-    currentCyclicHobbs: a.baselineCyclicHobbs,
-    currentFlightTimeLog: a.baselineFlightTimeLog,
-    cycles: a.baselineCycles,
-    landings: a.baselineLandings,
-    version: 0,
-    latestFlightAt: undefined,
-    operationalStatus: "unknown" as const,
-  };
-}
-
-function assertMeterEnabled(a: NewAircraft) {
-  if (a.meter === "cyclic" && !a.helicopter)
-    throw new ConvexError("Cyclic Hobbs Meter requires Helicopter.");
-  if (a.meter === "flightTimeLog" && !a.flightTimeLog)
-    throw new ConvexError("Enable Flight time log first.");
 }
