@@ -20,11 +20,11 @@ import { ConvexAuthProvider, useAuthActions } from "@convex-dev/auth/react";
 import { registerSW } from "virtual:pwa-register";
 import { AirplaneTilt, ArrowRight } from "@phosphor-icons/react";
 import { api } from "../convex/_generated/api";
-import { renewDemoAccess, useWorkspace } from "./data/store";
+import { renewDemoAccess, useWorkspace, type Workspace } from "./data/store";
 import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
 import { convexBackend } from "./data/backend";
-import { offlineValid, OFFLINE_WINDOW } from "./domain/model";
+import { offlineValid, OFFLINE_WINDOW, type Snapshot } from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
 import "./styles/tokens.css";
@@ -45,6 +45,11 @@ const demoAllowed =
 // "Server Error". Those are by far the likeliest causes, so name them.
 const SIGN_IN_FAILED =
   "Email or password is incorrect. After too many wrong tries, sign-in pauses for a while; your administrator can reset your password.";
+const DEMO_SESSION_KEY = "angel-one-demo";
+// Re-render on this beat so seven-day offline access also ends in an app left
+// open, not only at the next reload.
+const ACCESS_RECHECK_MS = 15_000;
+const DAY_MS = 86_400_000;
 const client = configuredUrl ? new ConvexReactClient(configuredUrl) : null;
 const authPrefix = "angel-one-auth:" + configuredUrl + ":";
 const authStorage = {
@@ -53,6 +58,23 @@ const authStorage = {
     localStorage.setItem(authPrefix + key, val),
   removeItem: (key: string) => localStorage.removeItem(authPrefix + key),
 };
+
+type AuthActions = ReturnType<typeof useAuthActions>;
+type LiveScreen = "loading" | "workspace" | "sign-in";
+interface LiveSession {
+  ready: boolean;
+  snapshot: Snapshot | null;
+  online: boolean;
+  socket: boolean;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  /**
+   * The server's snapshot: undefined until loaded, null without an active
+   * account and session.
+   */
+  result: Snapshot | null | undefined;
+}
+
 function clearAuthStorage() {
   for (const key of Object.keys(localStorage))
     if (key.startsWith(authPrefix)) localStorage.removeItem(key);
@@ -60,25 +82,13 @@ function clearAuthStorage() {
 function Root() {
   const [demo, setDemo] = useState(
     import.meta.env.VITE_DEMO_MODE === "true" ||
-      (demoAllowed && sessionStorage.getItem("angel-one-demo") === "true"),
+      (demoAllowed && sessionStorage.getItem(DEMO_SESSION_KEY) === "true"),
   );
   const selectDemo = () => {
-    sessionStorage.setItem("angel-one-demo", "true");
+    sessionStorage.setItem(DEMO_SESSION_KEY, "true");
     setDemo(true);
   };
-  if (demo)
-    return (
-      <DemoRoot
-        onExit={() => {
-          sessionStorage.removeItem("angel-one-demo");
-          // Signing out of the demo removes its kept manuals, as signing out
-          // of a connected workspace does.
-          void removeAllKeptManuals(useWorkspace.getState().namespace).finally(
-            () => window.location.assign("/"),
-          );
-        }}
-      />
-    );
+  if (demo) return <DemoRoot onExit={exitDemo} />;
   if (client)
     return (
       <ConvexAuthProvider client={client} storage={authStorage}>
@@ -88,17 +98,29 @@ function Root() {
         />
       </ConvexAuthProvider>
     );
-  if (!demoAllowed)
-    return (
-      <Welcome>
-        <h1>Configuration error</h1>
-        <p role="alert">
-          This build has no backend configured (VITE_CONVEX_URL is missing), so
-          sign-in and synchronization are unavailable. Contact your
-          administrator.
-        </p>
-      </Welcome>
-    );
+  if (!demoAllowed) return <ConfigurationError />;
+  return <SetupWelcome onDemo={selectDemo} />;
+}
+function exitDemo() {
+  sessionStorage.removeItem(DEMO_SESSION_KEY);
+  // Signing out of the demo removes its kept manuals, as signing out
+  // of a connected workspace does.
+  void removeAllKeptManuals(useWorkspace.getState().namespace).finally(() =>
+    window.location.assign("/"),
+  );
+}
+function ConfigurationError() {
+  return (
+    <Welcome>
+      <h1>Configuration error</h1>
+      <p role="alert">
+        This build has no backend configured (VITE_CONVEX_URL is missing), so
+        sign-in and synchronization are unavailable. Contact your administrator.
+      </p>
+    </Welcome>
+  );
+}
+function SetupWelcome({ onDemo }: { onDemo: () => void }) {
   return (
     <Welcome>
       <h1>
@@ -117,7 +139,7 @@ function Root() {
           README.md to create your administrator account.
         </p>
       </div>
-      <button className="button primary" onClick={selectDemo}>
+      <button className="button primary" onClick={onDemo}>
         Explore the local demo{" "}
         <ArrowRight size={18} weight="bold" aria-hidden="true" />
       </button>
@@ -171,7 +193,20 @@ function LiveRoot({
   client: ConvexReactClient;
   onDemo?: () => void;
 }) {
-  const { signIn, signOut } = useAuthActions();
+  const { signOut } = useAuthActions();
+  const screen = chooseLiveScreen(useLiveSession(client));
+  if (screen === "loading") return <Loading />;
+  if (screen === "workspace") {
+    const exit = () => void signOutOfLive(signOut);
+    return (
+      <AccessGate onExit={exit}>
+        <App onExit={exit} />
+      </AccessGate>
+    );
+  }
+  return <SignIn onDemo={onDemo} />;
+}
+function useLiveSession(client: ConvexReactClient): LiveSession {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const connection = useConvexConnectionState();
   const { ready, snapshot, initialize, receive, online } = useWorkspace();
@@ -183,57 +218,74 @@ function LiveRoot({
     useWorkspace.setState({ backend: convexBackend(client) });
     void initialize("live:" + configuredUrl, false);
   }, [initialize, client]);
+  const session = {
+    ready,
+    snapshot,
+    online,
+    socket: connection.isWebSocketConnected,
+    isLoading,
+    isAuthenticated,
+    result,
+  };
+  useReportConnection(session);
+  useReceiveSnapshot(session, receive);
+  useConnection(false);
+  return session;
+}
+function useReportConnection(session: LiveSession) {
+  const { online, isAuthenticated, socket, ready, result } = session;
   useEffect(() => {
     if (!ready) return;
     useWorkspace
       .getState()
-      .setConnection(
-        online,
-        isAuthenticated && connection.isWebSocketConnected && !!result,
-      );
-  }, [online, isAuthenticated, connection.isWebSocketConnected, ready, result]);
+      .setConnection(online, isAuthenticated && socket && !!result);
+  }, [online, isAuthenticated, socket, ready, result]);
+}
+// A sign-out clears the device cache only once sign-in has settled on a
+// working connection; offline, the cached snapshot keeps its seven-day access.
+function useReceiveSnapshot(
+  session: LiveSession,
+  receive: Workspace["receive"],
+) {
+  const { result, isAuthenticated, isLoading, online, socket, ready } = session;
   useEffect(() => {
     if (!ready) return;
     if (result !== undefined && isAuthenticated) void receive(result);
-    else if (
-      !isLoading &&
-      !isAuthenticated &&
-      online &&
-      connection.isWebSocketConnected
-    )
+    else if (!isLoading && !isAuthenticated && online && socket)
       void receive(null);
-  }, [
-    result,
-    isAuthenticated,
-    isLoading,
-    online,
-    connection.isWebSocketConnected,
-    ready,
-    receive,
-  ]);
-  useConnection(false);
-  async function exit() {
-    await useWorkspace.getState().signOutLocal();
-    clearAuthStorage();
-    if (navigator.onLine) await signOut();
-    window.location.reload();
-  }
-  const liveConnection = online && connection.isWebSocketConnected;
+  }, [result, isAuthenticated, isLoading, online, socket, ready, receive]);
+}
+// Offline, or with the socket down, the cached snapshot opens the workspace
+// and AccessGate enforces the seven days. Connected, it opens only once the
+// server's snapshot is for the same user, so a cached workspace never shows
+// for a signed-out or different account.
+function chooseLiveScreen(session: LiveSession): LiveScreen {
+  const { ready, snapshot, isLoading, isAuthenticated, result } = session;
+  const live = session.online && session.socket;
   if (
     !ready ||
-    (liveConnection && (isLoading || (isAuthenticated && result === undefined)))
+    (live && (isLoading || (isAuthenticated && result === undefined)))
   )
-    return <Loading />;
+    return "loading";
   if (
     snapshot &&
-    (!liveConnection ||
+    (!live ||
       (isAuthenticated && result && snapshot.user.id === result.user.id))
   )
-    return (
-      <AccessGate onExit={() => void exit()}>
-        <App onExit={() => void exit()} />
-      </AccessGate>
-    );
+    return "workspace";
+  return "sign-in";
+}
+async function signOutOfLive(signOut: AuthActions["signOut"]) {
+  await useWorkspace.getState().signOutLocal();
+  // Offline the server can't be told; removing the stored tokens is what
+  // signs this device out.
+  clearAuthStorage();
+  if (navigator.onLine) await signOut();
+  window.location.reload();
+}
+function SignIn({ onDemo }: { onDemo?: () => void }) {
+  const { signIn } = useAuthActions();
+  const { online } = useWorkspace();
   return (
     <Welcome>
       <h1>Welcome back.</h1>
@@ -242,17 +294,7 @@ function LiveRoot({
       <AsyncForm
         submitLabel="Sign in"
         disabled={!online}
-        onSubmit={async (data) => {
-          try {
-            await signIn("password", {
-              email: value(data, "email"),
-              password: String(data.get("password") ?? ""),
-              flow: "signIn",
-            });
-          } catch (error) {
-            throw new Error(errorText(error, SIGN_IN_FAILED));
-          }
-        }}
+        onSubmit={(data) => signInWithPassword(signIn, data)}
       >
         <Field label="Email">
           <input name="email" type="email" autoComplete="username" required />
@@ -279,6 +321,20 @@ function LiveRoot({
     </Welcome>
   );
 }
+async function signInWithPassword(
+  signIn: AuthActions["signIn"],
+  data: FormData,
+) {
+  try {
+    await signIn("password", {
+      email: value(data, "email"),
+      password: String(data.get("password") ?? ""),
+      flow: "signIn",
+    });
+  } catch (error) {
+    throw new Error(errorText(error, SIGN_IN_FAILED));
+  }
+}
 function AccessGate({
   children,
   onExit,
@@ -286,60 +342,64 @@ function AccessGate({
   children: React.ReactNode;
   onExit: () => void;
 }) {
-  const { snapshot, queue, demo, online } = useWorkspace();
-  const [, setNow] = useState(Date.now());
-  const now = Date.now();
+  const { snapshot } = useWorkspace();
+  const [, setTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 15000);
+    const id = setInterval(
+      () => setTick((tick) => tick + 1),
+      ACCESS_RECHECK_MS,
+    );
     return () => clearInterval(id);
   }, []);
-  if (!snapshot || !offlineValid(snapshot, now))
-    return (
-      <Welcome>
-        <h1>Time to reconnect.</h1>
-        <p>
-          Your seven-day offline access has expired. Pending entries are
-          preserved. Sign in again to continue.
-        </p>
-        <button className="button primary" onClick={onExit}>
-          Return to sign in
-        </button>
-        {demo && online && (
-          <button
-            className="button"
-            onClick={() => {
-              if (snapshot) void renewDemoAccess();
-            }}
-          >
-            Renew demo access
-          </button>
-        )}
-        {snapshot && (
-          <button
-            className="text-button"
-            onClick={() =>
-              download(
-                "angel-one-pending-entries.json",
-                JSON.stringify(
-                  queue.filter(
-                    (q) => q.operation.authorId === snapshot.user.id,
-                  ),
-                  null,
-                  2,
-                ),
-              )
-            }
-          >
-            Export my pending entries
-          </button>
-        )}
-        <small>
-          Offline access lasts {OFFLINE_WINDOW / 86400000} days from
-          authentication.
-        </small>
-      </Welcome>
-    );
+  if (!snapshot || !offlineValid(snapshot))
+    return <AccessExpired onExit={onExit} />;
   return children;
+}
+function AccessExpired({ onExit }: { onExit: () => void }) {
+  const { snapshot, queue, demo, online } = useWorkspace();
+  return (
+    <Welcome>
+      <h1>Time to reconnect.</h1>
+      <p>
+        Your seven-day offline access has expired. Pending entries are
+        preserved. Sign in again to continue.
+      </p>
+      <button className="button primary" onClick={onExit}>
+        Return to sign in
+      </button>
+      {demo && online && (
+        <button
+          className="button"
+          onClick={() => {
+            if (snapshot) void renewDemoAccess();
+          }}
+        >
+          Renew demo access
+        </button>
+      )}
+      {snapshot && (
+        <button
+          className="text-button"
+          onClick={() => exportPendingEntries(queue, snapshot.user.id)}
+        >
+          Export my pending entries
+        </button>
+      )}
+      <small>
+        Offline access lasts {OFFLINE_WINDOW / DAY_MS} days from authentication.
+      </small>
+    </Welcome>
+  );
+}
+function exportPendingEntries(queue: Workspace["queue"], userId: string) {
+  download(
+    "angel-one-pending-entries.json",
+    JSON.stringify(
+      queue.filter((q) => q.operation.authorId === userId),
+      null,
+      2,
+    ),
+  );
 }
 // Accounts are managed by administrators and there is no self-service reset
 // (ADR-0002): "Forgot?" only explains whom to ask; it makes no request.
