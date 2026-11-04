@@ -8,7 +8,10 @@
  */
 import { z } from "zod";
 
-/** A currency code as an HTML input pattern, which must match the whole value. */
+/**
+ * A currency code as an HTML input pattern, which browsers match against the
+ * whole value.
+ */
 export const CURRENCY_CODE_PATTERN = "[A-Z]{3}";
 
 /**
