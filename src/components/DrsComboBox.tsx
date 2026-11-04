@@ -1,20 +1,38 @@
-import { useEffect, useId, useMemo, useState } from "react";
+/**
+ * Responsibility: Make and model field that suggests FAA DRS names and the
+ *   names already recorded on the program's aircraft and components.
+ * Layer: UI. Reads the workspace snapshot; writes nothing.
+ * Dependencies: src/data/drsCatalog.json (DRS names), src/data/store.ts
+ *   (useWorkspace), src/domain/model.ts (Snapshot type), drsComboBox.css.
+ *
+ * Any text is accepted: a name outside the DRS list can still be saved and
+ * searched, and the field says so.
+ */
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
 import catalog from "../data/drsCatalog.json";
 import { useWorkspace } from "../data/store";
+import type { Snapshot } from "../domain/model";
 import "./drsComboBox.css";
 
-export function DrsComboBox({
-  kind,
-  id,
-  name,
-  value,
-  defaultValue = "",
-  onChange,
-  required,
-  maxLength = 150,
-  "aria-describedby": describedBy,
-}: {
-  kind: "makes" | "models";
+const MAX_SUGGESTIONS = 40;
+const CUSTOM_ENTRY = "Use custom entry";
+
+type SuggestionKind = "makes" | "models";
+type Suggestion = { value: string; source: string };
+type ComboBox = ReturnType<typeof useComboBox>;
+type ListControl = Pick<ComboBox, "open" | "active" | "choices" | "select"> & {
+  setOpen: (open: boolean) => void;
+  setActive: (update: (index: number) => number) => void;
+};
+type DrsComboBoxProps = {
+  kind: SuggestionKind;
   id?: string;
   name?: string;
   value?: string;
@@ -23,56 +41,70 @@ export function DrsComboBox({
   required?: boolean;
   maxLength?: number;
   "aria-describedby"?: string;
-}) {
+};
+
+/**
+ * Make or model field with a WAI-ARIA combobox list of FAA DRS names and
+ * names recorded in the program, then the typed text as a custom entry. A
+ * note under the field names where the current text comes from.
+ *
+ * @param props.kind - Whether to suggest makes or models.
+ * @param props.value - Controlled text; without it the field keeps its own,
+ *   starting at `defaultValue` ("" when omitted).
+ * @param props.onChange - Called with the new text on each edit or pick.
+ * @param props.maxLength - Longest text accepted; 150 when omitted.
+ * @returns The field; `id`, `name`, `required` and `aria-describedby` go to
+ *   its input, which gets a generated id when `id` is omitted.
+ */
+export function DrsComboBox(props: DrsComboBoxProps) {
   const generatedId = useId();
-  const inputId = id ?? generatedId;
+  const inputId = props.id ?? generatedId;
+  const combo = useComboBox(props);
+  useScrollActiveOption(inputId, combo.open, combo.active);
+  return (
+    <div className="drs-combobox">
+      <div className="drs-combobox-input">
+        <input
+          id={inputId}
+          name={props.name}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={combo.open}
+          aria-controls={`${inputId}-list`}
+          aria-activedescendant={
+            combo.open && combo.active >= 0
+              ? optionId(inputId, combo.active)
+              : undefined
+          }
+          aria-describedby={props["aria-describedby"]}
+          autoComplete="off"
+          value={combo.text}
+          required={props.required}
+          maxLength={props.maxLength ?? 150}
+          {...combo.handlers}
+        />
+        <span aria-hidden="true" />
+      </div>
+      {combo.text && <SourceNote exact={combo.exact} />}
+      {combo.open && (
+        <SuggestionMenu inputId={inputId} kind={props.kind} combo={combo} />
+      )}
+    </div>
+  );
+}
+
+function useComboBox({
+  kind,
+  value,
+  defaultValue = "",
+  onChange,
+}: DrsComboBoxProps) {
   const [local, setLocal] = useState(defaultValue);
-  const text = value ?? local;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  useEffect(() => {
-    if (open && active >= 0)
-      document
-        .getElementById(`${inputId}-option-${active}`)
-        ?.scrollIntoView({ block: "nearest" });
-  }, [open, active, inputId]);
-  const snapshot = useWorkspace((s) => s.snapshot);
-  const options = useMemo(() => {
-    const known = new Map(
-      catalog[kind].map((v) => [v.toLowerCase(), { value: v, source: "DRS" }]),
-    );
-    const custom = [
-      ...(snapshot?.aircraft ?? []).flatMap((a) =>
-        kind === "makes" ? [a.make] : [a.model, a.faaSearchModel],
-      ),
-      ...(snapshot?.management ?? [])
-        .filter((c) => c.kind === "component")
-        .flatMap((c) =>
-          kind === "makes" ? [c.manufacturer] : [c.model, c.faaSearchModel],
-        ),
-    ];
-    for (const v of custom)
-      if (v?.trim() && !known.has(v.toLowerCase()))
-        known.set(v.toLowerCase(), { value: v, source: "Custom" });
-    return [...known.values()];
-  }, [kind, snapshot]);
-  const query = text.trim().toLowerCase();
-  const filtered = options
-    .filter((o) => o.value.toLowerCase().includes(query))
-    .sort(
-      (a, b) =>
-        Number(b.value.toLowerCase().startsWith(query)) -
-          Number(a.value.toLowerCase().startsWith(query)) ||
-        a.value.localeCompare(b.value),
-    );
-  const matches = filtered.slice(0, 40);
-  const exact = options.find((o) => o.value.toLowerCase() === query);
-  const choices = [
-    ...matches,
-    ...(query && !exact
-      ? [{ value: text.trim(), source: "Use custom entry" }]
-      : []),
-  ];
+  const text = value ?? local;
+  const suggestions = useSuggestions(kind);
+  const { matchCount, exact, choices } = matchSuggestions(suggestions, text);
   function change(next: string) {
     setLocal(next);
     onChange?.(next);
@@ -82,96 +114,157 @@ export function DrsComboBox({
     change(next);
     setOpen(false);
   }
+  const list = { open, active, choices, select, setOpen, setActive };
+  const handlers = {
+    onFocus: () => setOpen(true),
+    onBlur: () => setOpen(false),
+    onChange: (event: ChangeEvent<HTMLInputElement>) => {
+      change(event.target.value);
+      setOpen(true);
+    },
+    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) =>
+      handleKeyDown(event, list),
+  };
+  return { text, open, active, matchCount, exact, choices, select, handlers };
+}
+
+function handleKeyDown(
+  event: KeyboardEvent<HTMLInputElement>,
+  list: ListControl,
+): void {
+  const { key } = event;
+  if (key === "ArrowDown" || key === "ArrowUp") {
+    event.preventDefault();
+    list.setOpen(true);
+    const step = key === "ArrowDown" ? 1 : -1;
+    const last = list.choices.length - 1;
+    list.setActive((i) => Math.max(0, Math.min(last, i + step)));
+    return;
+  }
+  if (key === "Escape") {
+    // Closes the list only, not an enclosing dialog.
+    event.preventDefault();
+    event.stopPropagation();
+    list.setOpen(false);
+    return;
+  }
+  const choice = list.active >= 0 ? list.choices[list.active] : undefined;
+  if (key !== "Enter" || !list.open || !choice) return;
+  event.preventDefault();
+  list.select(choice.value);
+}
+
+function useScrollActiveOption(inputId: string, open: boolean, active: number) {
+  useEffect(() => {
+    if (open && active >= 0)
+      document
+        .getElementById(optionId(inputId, active))
+        ?.scrollIntoView({ block: "nearest" });
+  }, [open, active, inputId]);
+}
+
+function useSuggestions(kind: SuggestionKind): Suggestion[] {
+  const snapshot = useWorkspace((s) => s.snapshot);
+  return useMemo(() => listSuggestions(kind, snapshot), [kind, snapshot]);
+}
+
+// A recorded name joins only when no DRS name matches it ignoring case, so
+// the DRS spelling wins.
+function listSuggestions(
+  kind: SuggestionKind,
+  snapshot: Snapshot | null,
+): Suggestion[] {
+  const known = new Map(
+    catalog[kind].map((v) => [v.toLowerCase(), { value: v, source: "DRS" }]),
+  );
+  const recorded = [
+    ...(snapshot?.aircraft ?? []).flatMap((a) =>
+      kind === "makes" ? [a.make] : [a.model, a.faaSearchModel],
+    ),
+    ...(snapshot?.management ?? [])
+      .filter((c) => c.kind === "component")
+      .flatMap((c) =>
+        kind === "makes" ? [c.manufacturer] : [c.model, c.faaSearchModel],
+      ),
+  ];
+  for (const v of recorded)
+    if (v?.trim() && !known.has(v.toLowerCase()))
+      known.set(v.toLowerCase(), { value: v, source: "Custom" });
+  return [...known.values()];
+}
+
+// Names that start with the typed text come first, then alphabetical.
+function matchSuggestions(suggestions: Suggestion[], text: string) {
+  const query = text.trim().toLowerCase();
+  const startsWithQuery = (s: Suggestion) =>
+    Number(s.value.toLowerCase().startsWith(query));
+  const matches = suggestions
+    .filter((s) => s.value.toLowerCase().includes(query))
+    .sort(
+      (a, b) =>
+        startsWithQuery(b) - startsWithQuery(a) ||
+        a.value.localeCompare(b.value),
+    );
+  const exact = suggestions.find((s) => s.value.toLowerCase() === query);
+  const custom =
+    query && !exact ? [{ value: text.trim(), source: CUSTOM_ENTRY }] : [];
+  const choices = [...matches.slice(0, MAX_SUGGESTIONS), ...custom];
+  return { matchCount: matches.length, exact, choices };
+}
+
+function SourceNote({ exact }: { exact?: Suggestion }) {
   return (
-    <div className="drs-combobox">
-      <div className="drs-combobox-input">
-        <input
-          id={inputId}
-          name={name}
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={open}
-          aria-controls={`${inputId}-list`}
-          aria-activedescendant={
-            open && active >= 0 ? `${inputId}-option-${active}` : undefined
-          }
-          aria-describedby={describedBy}
-          autoComplete="off"
-          value={text}
-          required={required}
-          maxLength={maxLength}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-          onChange={(e) => {
-            change(e.target.value);
-            setOpen(true);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-              e.preventDefault();
-              setOpen(true);
-              setActive((i) =>
-                Math.max(
-                  0,
-                  Math.min(
-                    choices.length - 1,
-                    i + (e.key === "ArrowDown" ? 1 : -1),
-                  ),
-                ),
-              );
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-            }
-            if (e.key === "Enter" && open && active >= 0 && choices[active]) {
-              e.preventDefault();
-              select(choices[active].value);
-            }
-          }}
-        />
-        <span aria-hidden="true" />
-      </div>
-      {text && (
-        <small>
-          {exact?.source ?? "Custom"}
-          {!exact
-            ? " · Not in the DRS list; can still be saved and searched."
-            : ""}
-        </small>
-      )}
-      {open && (
-        <div className="drs-combobox-menu">
+    <small>
+      {exact?.source ?? "Custom"}
+      {!exact ? " · Not in the DRS list; can still be saved and searched." : ""}
+    </small>
+  );
+}
+
+function SuggestionMenu({
+  inputId,
+  kind,
+  combo,
+}: {
+  inputId: string;
+  kind: SuggestionKind;
+  combo: ComboBox;
+}) {
+  return (
+    <div className="drs-combobox-menu">
+      <div
+        role="listbox"
+        id={`${inputId}-list`}
+        aria-label={`Suggested ${kind}`}
+      >
+        {combo.choices.map((o, i) => (
+          // Picks on mouse down with focus kept in the input: its blur would
+          // close the list before a click landed.
           <div
-            role="listbox"
-            id={`${inputId}-list`}
-            aria-label={`Suggested ${kind}`}
+            role="option"
+            id={optionId(inputId, i)}
+            aria-selected={combo.active === i}
+            key={`${o.source}:${o.value}`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              combo.select(o.value);
+            }}
           >
-            {choices.map((o, i) => (
-              <div
-                role="option"
-                id={`${inputId}-option-${i}`}
-                aria-selected={active === i}
-                key={`${o.source}:${o.value}`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  select(o.value);
-                }}
-              >
-                {o.source === "Use custom entry" ? `Use “${o.value}”` : o.value}
-                <small>{o.source}</small>
-              </div>
-            ))}
+            {o.source === CUSTOM_ENTRY ? `Use “${o.value}”` : o.value}
+            <small>{o.source}</small>
           </div>
-          {filtered.length > 40 && (
-            <small className="drs-combobox-hint">
-              Showing 40 of {filtered.length} matches. Keep typing to narrow the
-              list.
-            </small>
-          )}
-        </div>
+        ))}
+      </div>
+      {combo.matchCount > MAX_SUGGESTIONS && (
+        <small className="drs-combobox-hint">
+          Showing {MAX_SUGGESTIONS} of {combo.matchCount} matches. Keep typing
+          to narrow the list.
+        </small>
       )}
     </div>
   );
+}
+
+function optionId(inputId: string, index: number): string {
+  return `${inputId}-option-${index}`;
 }

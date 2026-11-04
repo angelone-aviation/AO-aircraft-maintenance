@@ -112,8 +112,11 @@ jobs:
         if: ${{ vars.PRODUCTION_URL != '' }}
         env:
           PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        # A first deploy to a new custom domain answers 403 or not at all for a
+        # minute or two while Cloudflare issues its certificate, so wait up to
+        # about three minutes before calling the site broken.
         run: |
-          headers=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 5 -D - -o /dev/null "$PRODUCTION_URL/")
+          headers=$(curl -fsS --retry 18 --retry-all-errors --retry-delay 10 -D - -o /dev/null "$PRODUCTION_URL/")
           echo "$headers"
           echo "$headers" | grep -qi "^content-security-policy: .*frame-ancestors 'none'"
           echo "$headers" | grep -qi "^strict-transport-security:"

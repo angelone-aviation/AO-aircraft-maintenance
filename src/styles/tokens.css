@@ -1,9 +1,14 @@
-/* Angel One design tokens (UI redesign v2).
+/*
+ * Responsibility: Design tokens (colour, typography, spacing, radii, motion),
+ *   shared keyframes and base typography for every screen.
+ * Layer: UI. Global rules only: custom properties, keyframes, html and body,
+ *   and a few helpers (.rise, .num, .eyebrow); no screen styles.
+ * Dependencies: @fontsource/outfit (weights 300–700).
  *
- * Colours, typography, spacing, radii and motion shared by every screen.
  * Light is the default; the `.dark` class on <html> switches the palette
- * (see useTheme in src/components/design.tsx). Outfit is self-hosted through
- * @fontsource so the offline PWA never fetches fonts at runtime. */
+ * (useTheme in src/components/design.tsx). Outfit is self-hosted so the
+ * offline PWA never fetches fonts at runtime.
+ */
 @import "@fontsource/outfit/300.css";
 @import "@fontsource/outfit/400.css";
 @import "@fontsource/outfit/500.css";

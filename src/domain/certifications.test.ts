@@ -1,13 +1,22 @@
+/**
+ * Responsibility: Pins how certificates fold into one mechanic certificate,
+ *   which certificate an entry cites, and the license-copy file rules.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/certifications.ts, programs.ts, rejection.ts,
+ *   src/data/demo.ts (fixture).
+ */
 import { it, expect } from "vitest";
 import {
   certificationsSchema,
   memberLicense,
   certificateOptions,
+  normalizeCertifications,
   validateCertificationFile,
   type Certification,
 } from "./certifications";
 import { demoSnapshot } from "../data/demo";
 import { scopedSnapshot } from "./programs";
+import { Rejection } from "./rejection";
 const cert = (
   kind: Certification["kind"],
   number = "12345",
@@ -115,4 +124,93 @@ it("does not expose other users' certification details or license copies to ordi
   expect(
     visible.members.find((m) => m.id === "demo-admin")?.certifications,
   ).toBeUndefined();
+});
+it("cites a mechanic by ratings and skips certificates without a number or not yet issued", () => {
+  const typeOf = (ratings: Partial<Certification>) =>
+    certificateOptions({
+      certifications: [{ ...cert("mechanic"), ...ratings }],
+    })[0].certificateType;
+  expect(typeOf({ airframe: true })).toBe("Airframe (A)");
+  expect(typeOf({ airframe: true, ia: true })).toBe("Airframe (A) IA");
+  expect(typeOf({ powerplant: true, ia: true })).toBe("Powerplant (P) IA");
+  expect(typeOf({})).toBe("Mechanic");
+  expect(typeOf({ ia: true })).toBe("Mechanic IA");
+  expect(
+    certificateOptions(
+      {
+        certifications: [
+          cert("pilot", ""),
+          { ...cert("mechanic"), issuedOn: "2026-06-02" },
+        ],
+      },
+      "2026-06-01",
+    ),
+  ).toEqual([]);
+  expect(
+    certificateOptions(
+      {
+        certifications: [
+          { ...cert("pilot"), issuedOn: "" },
+          { ...cert("mechanic"), issuedOn: "2026-06-01" },
+        ],
+      },
+      "2026-06-01",
+    ),
+  ).toHaveLength(2);
+});
+it("prints the mechanic certificate before the pilot certificate", () => {
+  expect(memberLicense({ certifications: [cert("pilot", "P-1")] })).toEqual({
+    licenseNumber: "P-1",
+    certificateType: "Pilot",
+  });
+  expect(
+    memberLicense({
+      certifications: [cert("mechanic", "M-1"), cert("pilot", "P-1")],
+    }).licenseNumber,
+  ).toBe("M-1");
+  expect(memberLicense({ certifications: [] })).toEqual({
+    licenseNumber: "",
+    certificateType: "",
+  });
+});
+it("takes a missing mechanic number and issue date from the first numbered rating", () => {
+  const rows = [cert("pilot")];
+  expect(normalizeCertifications(rows)).toBe(rows);
+  const [pilot, mechanic] = normalizeCertifications([
+    { ...cert("mechanic", ""), issuedOn: "" },
+    cert("ia", ""),
+    { ...cert("powerplant", "P-2"), issuedOn: "2021-02-03" },
+    cert("pilot", "PIL"),
+  ]);
+  expect(pilot.number).toBe("PIL");
+  expect(mechanic).toMatchObject({
+    number: "P-2",
+    issuedOn: "2021-02-03",
+    airframe: false,
+    powerplant: true,
+    ia: true,
+  });
+});
+it("accepts a license copy up to 5 MiB with a 200-character name, refusing with a Rejection", () => {
+  const MIB = 1024 * 1024;
+  const name = `${"n".repeat(196)}.PDF`;
+  expect(() =>
+    validateCertificationFile(name, "application/pdf", 5 * MIB),
+  ).not.toThrow();
+  const refusals: [string, string, number][] = [
+    [`n${name}`, "application/pdf", 1],
+    ["license.png", "image/jpeg", 1],
+    ["license.pdf", "application/pdf", 5 * MIB + 1],
+    ["license.pdf", "application/pdf", 0],
+  ];
+  for (const [file, type, size] of refusals)
+    expect(() => validateCertificationFile(file, type, size)).toThrow(
+      Rejection,
+    );
+  expect(() =>
+    validateCertificationFile("license.png", "image/jpeg", 1),
+  ).toThrow(Error("Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy."));
+  expect(() =>
+    validateCertificationFile("license.pdf", "application/pdf", 0),
+  ).toThrow(Error("License copies must be between 1 byte and 5 MB."));
 });
