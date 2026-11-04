@@ -81,6 +81,10 @@ vi.mock("./RequiredParts", () => ({
   PartsAvailability: () => null,
   requiredPartsFromForm: () => [],
 }));
+vi.mock("./ManagementShared", async (original) => ({
+  ...(await original<typeof import("./ManagementShared")>()),
+  History: () => null,
+}));
 vi.mock("./Manuals", () => ({
   ManualLink: () => null,
   ManualReferenceFields: () => null,
@@ -171,6 +175,12 @@ beforeEach(() => {
   attachInventoryFile.mockReset();
 });
 
+// The tone of the dotted status pill that reads `status`.
+function pillTone(html: string, status: string) {
+  const dot = '"><span class="ds-pill-dot" aria-hidden="true"></span>';
+  return new RegExp(`ds-tone-(\\w+)${dot}${status}<`).exec(html)?.[1];
+}
+
 function page(search = "", location = "all") {
   hooks.seeds = [null, "details", undefined, search, location];
   return renderToStaticMarkup(createElement(Components));
@@ -197,7 +207,9 @@ describe("the component list", () => {
     expect(page()).toContain("0 cycles");
     expect(page()).toContain(">Past due<");
   });
+});
 
+describe("requirement statuses", () => {
   it("fails on a limit it cannot compute (Characterizes current behaviour)", () => {
     const early = component("early", {
       installedSeconds: totalSeconds(n206) + HOUR,
@@ -206,9 +218,37 @@ describe("the component list", () => {
     expect(() => page()).toThrow(
       "Aircraft readings or date precede the installation baseline.",
     );
+    const far = { lastDate: "2026-01-01", calendarIntervalValue: 10_000 };
+    const limit = { ...far, calendarIntervalUnit: "YEARS" };
+    workspace.snapshot.management = [ENGINE, requirement("r", "engine", limit)];
+    expect(() => page()).toThrow("Calendar interval exceeds supported dates.");
   });
 
-  it("opens a linked component's details", () => {
+  it("tones each requirement's status by its level", () => {
+    const cycles = ENGINE.cyclesSinceNew;
+    workspace.snapshot.management!.push(
+      requirement("past", "engine", { dueCycles: cycles - 1 }),
+      requirement("soon", "engine", {
+        dueCycles: cycles + 1,
+        warningCycles: 5,
+      }),
+      requirement("fine", "engine", { dueCycles: cycles + 100 }),
+      requirement("land", "engine", {
+        dueLandings: 1,
+        landingReferenceAircraftUuid: "demo-208",
+      }),
+    );
+    hooks.seeds = [ENGINE, "details", undefined, "", "all"];
+    const html = renderToStaticMarkup(createElement(Components));
+    expect(pillTone(html, "Past due")).toBe("danger");
+    expect(pillTone(html, "Due soon")).toBe("warn");
+    expect(pillTone(html, "Tracked")).toBe("good");
+    expect(pillTone(html, "Set landing baseline")).toBe("warn");
+  });
+});
+
+describe("a ?item= link", () => {
+  it("opens the linked component's details", () => {
     hooks.search = { item: "pump" };
     page();
     hooks.effects[0]();

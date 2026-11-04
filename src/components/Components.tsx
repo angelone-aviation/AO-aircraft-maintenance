@@ -2,10 +2,10 @@
  * Responsibility: The Components screen: tracked components, their service
  *   and requirement forms, inventory, attachments and movements.
  * Layer: UI. Renders and collects input; rules live in src/domain.
- * Dependencies: src/domain (components, componentCalendar, requiredParts,
- *   programs, model, ata), src/data (store, errors), ./ui, ./design,
- *   ./ManagementShared and the parts, inventory, manual, job-card and
- *   work-order components.
+ * Dependencies: src/domain (components, dueItems, componentCalendar,
+ *   requiredParts, programs, model, ata), src/data (store, errors), ./ui,
+ *   ./design, ./ManagementShared and the parts, inventory, manual, job-card
+ *   and work-order components.
  *
  * Record lists keep real <table> markup restyled as CSS-grid cards, so the
  * explicit table, row and cell roles are deliberate (see .oxlintrc.json).
@@ -59,7 +59,6 @@ import {
   componentTotals,
   saveRequirement,
   tracking,
-  requirementStatus,
   requirementDueDate,
   POSITIONS,
   type Component,
@@ -67,6 +66,11 @@ import {
   type ComponentMovement,
 } from "../domain/components";
 import type { ManagementCommand } from "../domain/management";
+import {
+  dueItems,
+  type DueLevel,
+  type RequirementDue,
+} from "../domain/dueItems";
 import { AtaChapterField } from "./AtaChapterField";
 import { AsyncForm, Field, Modal, value } from "./ui";
 import {
@@ -137,7 +141,7 @@ type Track<K extends string> = Record<K, boolean>;
 type Mode =
   "details" | "edit" | "baseline" | "service" | "requirement" | "child";
 type ServiceOperation = "install" | "remove" | "overhaul" | "repair";
-type Remaining = ReturnType<typeof requirementStatus>;
+type Remaining = NonNullable<RequirementDue["due"]>;
 type Totals = ReturnType<typeof componentTotals>;
 type RequirementInput = Partial<ComponentRequirement>;
 type BaselineCommand = Extract<
@@ -166,6 +170,12 @@ const DETAIL_MODES: [Mode, string][] = [
   ["baseline", "Set baseline"],
   ["service", "Move / service"],
 ];
+const LEVEL_TONES: Record<DueLevel, Tone> = {
+  overdue: "danger",
+  "due-soon": "warn",
+  ok: "good",
+  unknown: "warn",
+};
 const DIALOG_TITLES: Record<Exclude<Mode, "details">, string> = {
   child: "Add trackable parts",
   edit: "Edit component",
@@ -337,9 +347,9 @@ export function RequirementForm({
  * details, edits, baselines, service and requirements. A `?item=` link opens
  * that component's details.
  *
- * @throws {Error} What componentTotals and requirementStatus throw for a
- *   listed component, such as "Aircraft readings or date precede the
- *   installation baseline."; the page fails.
+ * @throws {Error} What componentTotals throws for a listed component, or
+ *   what the due list caught for one of its requirements, such as "Aircraft
+ *   readings or date precede the installation baseline."; the page fails.
  */
 export function Components() {
   const screen = useComponentsScreen();
@@ -385,9 +395,24 @@ function formatMonths(days: number) {
   return (days / daysPerServiceMonth).toFixed(1);
 }
 
-// "Due now" is a reached usage limit and grounds the aircraft, like "Past due".
-function isPastDue(status: string) {
-  return status === "Past due" || status === "Due now";
+// The program's component requirements, in record order. A requirement of a
+// component installed on an aircraft the snapshot lacks is left out; its row
+// fails on the component's own totals first.
+function requirementDues(s: Snapshot) {
+  return dueItems(s).filter(
+    (d): d is RequirementDue => d.kind === "componentRequirement",
+  );
+}
+
+// T13 leaves what an uncomputable status means to each caller: here it fails
+// the page, at the component's first such requirement in record order.
+function measured(d: RequirementDue): Remaining {
+  if (!d.due) throw d.error;
+  return d.due;
+}
+
+function duesOf(due: RequirementDue[], c: Component) {
+  return due.filter((d) => d.component.uuid === c.uuid);
 }
 
 function componentIcon(type: string): IconType {
@@ -1799,21 +1824,19 @@ function CalendarUnitField({ unit }: { unit?: string }) {
 type EditRequirement = (r: ComponentRequirement) => void;
 
 function Requirements({
-  s,
+  due,
   c,
   edit,
 }: {
-  s: Snapshot;
+  due: RequirementDue[];
   c: Component;
   edit?: EditRequirement;
 }) {
-  const a = s.aircraft.find((a) => a.uuid === c.aircraftUuid);
-  const rows = (s.management ?? [])
-    .filter(
-      (r): r is ComponentRequirement =>
-        r.kind === "componentRequirement" && r.componentUuid === c.uuid,
-    )
-    .map((r) => ({ r, remaining: requirementStatus(r, c, a) }));
+  const rows = duesOf(due, c).map((d) => ({
+    r: d.requirement,
+    remaining: measured(d),
+    level: d.level,
+  }));
   return (
     <section className="mx-dialog-section">
       <h3>Service requirements</h3>
@@ -1833,7 +1856,7 @@ function RequirementsTable({
   c,
   edit,
 }: {
-  rows: { r: ComponentRequirement; remaining: Remaining }[];
+  rows: { r: ComponentRequirement; remaining: Remaining; level: DueLevel }[];
   c: Component;
   edit?: EditRequirement;
 }) {
@@ -1842,12 +1865,13 @@ function RequirementsTable({
       <table className="mx-table">
         <RequirementsHead />
         <tbody>
-          {rows.map(({ r, remaining }) => (
+          {rows.map(({ r, remaining, level }) => (
             <RequirementRow
               key={r.uuid}
               r={r}
               c={c}
               remaining={remaining}
+              level={level}
               edit={edit}
             />
           ))}
@@ -1879,11 +1903,13 @@ function RequirementRow({
   r,
   c,
   remaining,
+  level,
   edit,
 }: {
   r: ComponentRequirement;
   c: Component;
   remaining: Remaining;
+  level: DueLevel;
   edit?: EditRequirement;
 }) {
   return (
@@ -1902,20 +1928,13 @@ function RequirementRow({
         <RemainingLimits remaining={remaining} />
       </td>
       <td>
-        <StatusPill tone={requirementTone(remaining.status)}>
-          {remaining.status}
-        </StatusPill>
+        <StatusPill tone={LEVEL_TONES[level]}>{remaining.status}</StatusPill>
       </td>
       <td>
         <RequirementActions r={r} c={c} edit={edit} />
       </td>
     </tr>
   );
-}
-
-function requirementTone(status: string): Tone {
-  if (isPastDue(status)) return "danger";
-  return status === "Tracked" ? "good" : "warn";
 }
 
 function RequirementCell({ r }: { r: ComponentRequirement }) {
@@ -2101,6 +2120,7 @@ function useComponentsScreen() {
     s,
     writable,
     items,
+    due: requirementDues(s),
     requirement,
     editRequirement,
     search,
@@ -2331,13 +2351,9 @@ function ComponentRow({
   const a = s.aircraft.find((a) => a.uuid === c.aircraftUuid);
   const t = componentTotals(c, a);
   const parent = screen.items.find((p) => p.uuid === c.parentComponentUuid);
-  const statuses = (s.management ?? [])
-    .filter(
-      (r): r is ComponentRequirement =>
-        r.kind === "componentRequirement" && r.componentUuid === c.uuid,
-    )
-    .map((r) => requirementStatus(r, c, a));
-  const pastDue = statuses.some((r) => isPastDue(r.status));
+  const dues = duesOf(screen.due, c);
+  const statuses = dues.map(measured);
+  const pastDue = dues.some((d) => d.level === "overdue");
   return (
     <tr role="row" className="mx-comp-row">
       <ComponentMainCell c={c} parent={parent} pastDue={pastDue} />
@@ -2638,7 +2654,7 @@ function ComponentDetails({
         </section>
       )}
       <Requirements
-        s={s}
+        due={screen.due}
         c={c}
         edit={editable && writable ? screen.editRequirement : undefined}
       />
