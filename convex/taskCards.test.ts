@@ -220,7 +220,10 @@ it("shows a refused evidence file to the user, and keeps no file the card refuse
       name: "photo.jpg",
       type: "image/jpeg",
     }),
-  ).rejects.toThrow(`maximum of ${MAX_ATTACHMENTS} attachments`);
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: `This record already has the maximum of ${MAX_ATTACHMENTS} attachments.`,
+  });
   expect(await stored()).toBe(before);
 });
 it("rejects an inspection signoff until the inspector has a certificate on file", async () => {
