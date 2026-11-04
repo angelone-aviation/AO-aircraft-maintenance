@@ -139,10 +139,7 @@ export const submit = mutation({
       expose: errorsOf(FlightRejection),
       persist: ({ ctx }, { aircraft, management }, { changes }) =>
         persistSubmission(ctx, aircraft, management, changes),
-      audit: (log, _, { changes }) => {
-        for (const entry of changes?.audit ?? [])
-          log.entry(entry.action, entry.entityUuid, entry);
-      },
+      audit: (log, _, { changes }) => log.replay(changes?.audit ?? []),
       returns: ({ status }) => ({ status }),
     });
   },
@@ -242,10 +239,7 @@ export const reviewFlight = mutation({
       apply: ({ snapshot }) => applyReview(snapshot, review),
       persist: ({ ctx }, working, changes) =>
         persistReview(ctx, working, review.uuid, changes),
-      audit: (log, _, { audit }) => {
-        for (const entry of audit)
-          log.entry(entry.action, entry.entityUuid, entry);
-      },
+      audit: (log, _, { audit }) => log.replay(audit),
     }),
 });
 

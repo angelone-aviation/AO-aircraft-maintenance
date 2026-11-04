@@ -792,16 +792,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
               a.uuid === aircraft.uuid ? aircraft : a,
             );
           if (discrepancy) s.discrepancies.push(discrepancy);
-          for (const e of result.changes.audit)
-            audit(
-              s,
-              e.action,
-              e.entityUuid,
-              e.aircraftUuid,
-              e.reason,
-              e.before,
-              e.after,
-            );
+          for (const e of result.changes.audit) s.audit.unshift(e);
         }),
       );
       return { status };
@@ -825,16 +816,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             ? { ...f, ...changes.reviewed }
             : (changes.flights.find((r) => r.uuid === f.uuid) ?? f),
         );
-        for (const e of changes.audit)
-          audit(
-            s,
-            e.action,
-            e.entityUuid,
-            e.aircraftUuid,
-            e.reason,
-            e.before,
-            e.after,
-          );
+        for (const e of changes.audit) s.audit.unshift(e);
       }),
     updateProgramAccess: (userId, programUuid, groupIds, remove) =>
       modify((s) => {

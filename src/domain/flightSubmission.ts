@@ -3,13 +3,15 @@
  *   from the offline outbox: its checks, its records and its change log.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./management, ./flights, ./flightChecklistLink,
- *   ./flightPlans, ./aircraftStatus, ./oilInventory, ./programs, ./rejection.
+ *   ./flightPlans, ./aircraftStatus, ./oilInventory, ./programs, ./rejection,
+ *   ./changeLog.
  *
  * The server and the demo adapter run this one sequence; each loads the state
  * it reads and stores the changes it returns.
  */
 import type {
   Aircraft,
+  AuditEntry,
   Discrepancy,
   Flight,
   FlightInput,
@@ -24,6 +26,7 @@ import { dispatchGate } from "./aircraftStatus";
 import { oilInventoryDeductions, oilUsageAudit } from "./oilInventory";
 import { programIds } from "./programs";
 import { Rejection } from "./rejection";
+import { auditEntry, type AuditChange } from "./changeLog";
 
 /** A refused entry, with a message the Sync center shows as written. */
 export class FlightRejection extends Rejection {}
@@ -33,17 +36,10 @@ export type FlightOperation = Extract<Operation, { kind: "flight" }>;
 /** An outbox entry that files a problem report. */
 export type DiscrepancyOperation = Extract<Operation, { kind: "discrepancy" }>;
 
-/** A change-log entry to write with the submission; values are not yet JSON. */
-export interface SubmissionAudit {
-  action: string;
-  entityUuid: string;
-  programUuid?: string;
-  aircraftUuid?: string;
-  reason?: string;
-  before?: unknown;
-  after?: unknown;
-}
-/** What a submission stores, in this order, followed by its audit entries. */
+/**
+ * What a submission stores, in this order, followed by its change-log entries,
+ * oldest first, stamped by auditEntry (so each names the aircraft's program).
+ */
 export interface SubmissionChanges {
   /** Oil stock drawn down on the flight line. */
   stock: { before: Stock; after: Stock }[];
@@ -51,7 +47,7 @@ export interface SubmissionChanges {
   /** The aircraft with the flight's counters; absent while held for review. */
   aircraft?: Aircraft;
   discrepancy?: Discrepancy;
-  audit: SubmissionAudit[];
+  audit: AuditEntry[];
 }
 /** The outcome of submitting one outbox entry. */
 export interface Submission {
@@ -134,7 +130,9 @@ export function submitFlight(
       // A held flight changes no totals until an administrator accepts it.
       aircraft: reviewReason ? undefined : applyFlight(aircraft, input),
       discrepancy: fileFlightReport(op, aircraft, now),
-      audit: listFlightAudit(op, aircraft, flight, stock),
+      audit: listFlightAudit(op, aircraft, flight, stock).map((change) =>
+        auditEntry(s, change, now),
+      ),
     },
   };
 }
@@ -170,12 +168,16 @@ export function submitDiscrepancy(
       stock: [],
       discrepancy: report,
       audit: [
-        {
-          action: "discrepancy.created",
-          entityUuid: op.uuid,
-          aircraftUuid: op.aircraftUuid,
-          after: report,
-        },
+        auditEntry(
+          s,
+          {
+            action: "discrepancy.created",
+            entityUuid: op.uuid,
+            aircraftUuid: op.aircraftUuid,
+            after: report,
+          },
+          now,
+        ),
       ],
     },
   };
@@ -293,13 +295,12 @@ function listFlightAudit(
   aircraft: Aircraft,
   flight: Flight,
   stock: SubmissionChanges["stock"],
-): SubmissionAudit[] {
+): AuditChange[] {
   const override = flight.dispatchOverride;
   return [
     ...stock.map((change) => ({
       action: "stock.oil_used",
       entityUuid: change.before.uuid,
-      programUuid: op.programUuid,
       aircraftUuid: aircraft.uuid,
       reason: `Oil added for flight ${op.uuid}`,
       ...oilUsageAudit(change),
@@ -315,7 +316,6 @@ function listFlightAudit(
           {
             action: "flight.dispatch_override",
             entityUuid: op.uuid,
-            programUuid: op.programUuid,
             aircraftUuid: aircraft.uuid,
             reason: override.reason,
             after: override,
