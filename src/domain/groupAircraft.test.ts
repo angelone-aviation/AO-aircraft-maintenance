@@ -13,7 +13,6 @@ import { transferProgram } from "./programTransfers";
 import {
   CHOOSE_GROUP_AIRCRAFT,
   assertGroupAircraftChoice,
-  assertGroupProgramChange,
   assertGroupProgramFixed,
   groupAircraftLabel,
   listsAllAircraft,
@@ -180,47 +179,6 @@ describe("assertGroupProgramFixed", () => {
   });
 });
 
-describe("assertGroupProgramChange (#45, the demo only)", () => {
-  const legacy: Pick<Group, "programUuid"> = {};
-  const scoped: Pick<Group, "programUuid"> = { programUuid: "demo-program" };
-  it("lets a system administrator give an unscoped group its first Flight Program", () => {
-    expect(
-      assertGroupProgramChange(legacy, { programUuid: "demo-program" }, true),
-    ).toBe(true);
-    expect(() =>
-      assertGroupProgramChange(legacy, { programUuid: "demo-program" }, false),
-    ).toThrow(/system administrator/);
-  });
-  it("still refuses to move a group between Flight Programs", () => {
-    for (const systemAdmin of [true, false]) {
-      expect(() =>
-        assertGroupProgramChange(
-          scoped,
-          { programUuid: "second" },
-          systemAdmin,
-        ),
-      ).toThrow(/cannot be moved/);
-      expect(() => assertGroupProgramChange(scoped, {}, systemAdmin)).toThrow(
-        /cannot be moved/,
-      );
-      expect(
-        assertGroupProgramChange(
-          scoped,
-          { programUuid: "demo-program" },
-          systemAdmin,
-        ),
-      ).toBe(false);
-      expect(
-        assertGroupProgramChange(
-          undefined,
-          { programUuid: "demo-program" },
-          systemAdmin,
-        ),
-      ).toBe(false);
-    }
-  });
-});
-
 describe("group rules", () => {
   it("refuse with a Rejection and the exact message", () => {
     const refusals: [() => unknown, string][] = [
@@ -247,20 +205,15 @@ describe("group rules", () => {
       ],
       [
         () =>
-          assertGroupProgramChange(
+          assertGroupProgramFixed(
             { programUuid: "demo-program" },
             { programUuid: "second" },
-            true,
           ),
         "A permission group cannot be moved to another Flight Program.",
       ],
       [
         () => assertGroupProgramFixed({}, { programUuid: "second" }),
         "A permission group cannot be moved to another Flight Program.",
-      ],
-      [
-        () => assertGroupProgramChange({}, { programUuid: "second" }, false),
-        "Only a system administrator can assign an unscoped permission group to a Flight Program.",
       ],
     ];
     for (const [run, message] of refusals) {
