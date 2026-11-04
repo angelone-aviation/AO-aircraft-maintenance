@@ -29,27 +29,35 @@ import {
   validateInventoryFile,
 } from "../src/domain/inventoryAttachments";
 import { recordProgram } from "../src/domain/programs";
+
 const scope = { stockUuid: v.string(), programUuid: v.optional(v.string()) };
-async function access(
-  ctx: QueryCtx | MutationCtx,
-  args: { stockUuid: string; programUuid?: string },
-) {
-  const state = await checkContext(ctx, args.programUuid);
-  const management = (await managementDocs(ctx, args.programUuid)).map((d) =>
-    recordSchema.parse(JSON.parse(d.payload)),
-  );
-  const snapshot = { ...state, management };
-  const stock = exposeRejections(() =>
-    inventoryAttachmentAccess(snapshot, args.stockUuid),
-  );
-  return { user: state.user, programUuid: recordProgram(snapshot, stock) };
-}
+
+/**
+ * Refuses an upload before its file is stored, unless the caller administers
+ * the item's Flight Program.
+ *
+ * @param stockUuid - The stock item or component.
+ * @param programUuid - The caller's active Flight Program.
+ * @throws {ConvexError} "Inventory administrator access to this item is
+ *   required.", also for a missing item.
+ * @throws As `checkContext`, first.
+ */
 export const checkUpload = internalQuery({
   args: scope,
   handler: async (ctx, args) => {
-    await access(ctx, args);
+    await authorizeItemAdmin(ctx, args);
   },
 });
+
+/**
+ * Records a stored upload on the item, and audits `inventory.attachment` with
+ * its name and size.
+ *
+ * @param storageId - The stored file; the caller deletes it on a refusal.
+ * @param size - Its size; the other arguments are {@link upload}'s.
+ * @throws {ConvexError} The {@link checkUpload} refusals; the file refusals;
+ *   "This record already has the maximum of 25 attachments."
+ */
 export const finishUpload = internalMutation({
   args: {
     ...scope,
@@ -59,7 +67,7 @@ export const finishUpload = internalMutation({
     size: v.number(),
   },
   handler: async (ctx, args) => {
-    const owner = await access(ctx, args);
+    const owner = await authorizeItemAdmin(ctx, args);
     exposeRejections(() =>
       validateInventoryFile(args.name, args.type, args.size),
     );
@@ -81,6 +89,19 @@ export const finishUpload = internalMutation({
     });
   },
 });
+
+/**
+ * Attaches a file to a stock item or component.
+ *
+ * @param stockUuid - The item.
+ * @param programUuid - The caller's active Flight Program.
+ * @param name - The file name; its extension must match `type`.
+ * @param type - PDF, JPEG, PNG or WebP.
+ * @param bytes - The file, at most 7 MB.
+ * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file." or
+ *   "Attachments must be between 1 byte and 7 MB.", checked first; the
+ *   {@link finishUpload} refusals, after which the stored file is deleted.
+ */
 export const upload = action({
   args: { ...scope, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
@@ -101,17 +122,29 @@ export const upload = action({
         size: args.bytes.byteLength,
       });
     } catch (error) {
+      // File storage is outside the mutation's transaction.
       await ctx.storage.delete(storageId);
       throw error;
     }
   },
 });
+
+/**
+ * Removes an attachment, and its stored file once no other record uses it (a
+ * PO receipt's file is shared with the items received); audits
+ * `inventory.attachment_removed` with its name and size.
+ *
+ * @param id - The attachment.
+ * @param programUuid - The caller's active Flight Program.
+ * @throws {ConvexError} "Attachment not found.", checked first; the
+ *   {@link checkUpload} refusals for the attachment's item.
+ */
 export const remove = mutation({
   args: { id: v.id("inventoryFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.id);
     if (!file) throw new ConvexError("Attachment not found.");
-    const owner = await access(ctx, {
+    const owner = await authorizeItemAdmin(ctx, {
       stockUuid: file.stockUuid,
       programUuid: args.programUuid,
     });
@@ -130,3 +163,18 @@ export const remove = mutation({
     );
   },
 });
+
+async function authorizeItemAdmin(
+  ctx: QueryCtx | MutationCtx,
+  args: { stockUuid: string; programUuid?: string },
+) {
+  const state = await checkContext(ctx, args.programUuid);
+  const management = (await managementDocs(ctx, args.programUuid)).map((d) =>
+    recordSchema.parse(JSON.parse(d.payload)),
+  );
+  const snapshot = { ...state, management };
+  const stock = exposeRejections(() =>
+    inventoryAttachmentAccess(snapshot, args.stockUuid),
+  );
+  return { user: state.user, programUuid: recordProgram(snapshot, stock) };
+}
