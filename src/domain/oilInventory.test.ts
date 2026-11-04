@@ -1,8 +1,20 @@
+/**
+ * Responsibility: Pins flight-line oil deductions and their refusals, the oil
+ *   change-log entry, review protection, and stock change-log visibility.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/oilInventory.ts, ./programs, ./requiredParts,
+ *   ./shelfLife, ./rejection, src/data/demo.ts (seed).
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { AuditEntry, FlightInput, Snapshot } from "./model";
 import type { ManagedRecord, Stock } from "./management";
-import { oilInventoryDeductions, oilUsageAudit } from "./oilInventory";
+import {
+  oilInventoryDeductions,
+  oilUsageAudit,
+  preserveOilInventory,
+} from "./oilInventory";
+import { Rejection } from "./rejection";
 import { auditVisible, scopedSnapshot } from "./programs";
 import { partsInventory } from "./requiredParts";
 import { assertNotExpired } from "./shelfLife";
@@ -91,6 +103,51 @@ describe("flight-line oil deductions", () => {
     const s = pilot(world());
     const [change] = oilInventoryDeductions(s, flight(s));
     expect(change.after.quantity).toBe(4);
+    expect(change.after.version).toBe(1);
+    expect(change.before).toBe(s.management![1]);
+  });
+  it("draws nothing when no oil comes from inventory", () => {
+    const s = pilot(world());
+    const input = { ...flight(s), oil: [] };
+    expect(oilInventoryDeductions(s, input)).toEqual([]);
+  });
+  it("refuses a user without flight permission", () => {
+    const s = pilot(world());
+    s.groups = s.groups.map((g) => ({ ...g, permissions: ["read"] }));
+    const refused = () => oilInventoryDeductions(s, flight(s));
+    expect(refused).toThrow(Rejection);
+    expect(refused).toThrow("Flight permission is required to issue oil.");
+  });
+  it("refuses stock at another location or in another program", () => {
+    const message =
+      "Select an oil stock item and location in this Flight Program.";
+    const moved = pilot(
+      world([location, stock({ locationUuid: "elsewhere" })]),
+    );
+    const refused = () => oilInventoryDeductions(moved, flight(moved));
+    expect(refused).toThrow(Rejection);
+    expect(refused).toThrow(message);
+    const other = pilot(world([location, stock({ programUuid: "other" })]));
+    expect(() => oilInventoryDeductions(other, flight(other))).toThrow(message);
+  });
+  it("adds up both engines' draws against the unreserved quantity", () => {
+    const s = pilot(world([location, stock({ reservedQuantity: 4 })]));
+    const [left] = flight(s).oil!;
+    const input = {
+      ...flight(s),
+      oil: [
+        { ...left, engine: "left" as const },
+        { ...left, engine: "right" as const },
+      ],
+    };
+    const refused = () => oilInventoryDeductions(s, input);
+    expect(refused).toThrow(Rejection);
+    expect(refused).toThrow(
+      "Insufficient stock for OIL-1. Available: 1; requested: 2.",
+    );
+    s.management = [location, stock({ reservedQuantity: 3 })];
+    const changes = oilInventoryDeductions(s, input);
+    expect(changes.map((c) => c.after.quantity)).toEqual([3]);
   });
   it("refuses a stock item that is not marked as oil", () => {
     const s = pilot(
@@ -105,6 +162,11 @@ describe("flight-line oil deductions", () => {
     const marked = pilot(world([location, stock({ oil: false })]));
     expect(() => oilInventoryDeductions(marked, flight(marked))).toThrow(
       /not marked as oil/,
+    );
+    const refused = () => oilInventoryDeductions(marked, flight(marked));
+    expect(refused).toThrow(Rejection);
+    expect(refused).toThrow(
+      "OIL-1 is not marked as oil. Flight-line usage can only draw down oil stock.",
     );
   });
   it("refuses an expired oil lot like every other issue path (#47)", () => {
@@ -160,6 +222,31 @@ describe("flight-line oil deductions", () => {
     const inventory = partsInventory(scopedSnapshot(pilot(s)));
     expect(inventory.stock.find((x) => x.uuid === "oil-part")?.oil).toBe(true);
     expect(inventory.stock.find((x) => x.uuid === "tire")?.oil).toBeFalsy();
+  });
+});
+
+describe("flight review", () => {
+  it("keeps posted oil usage, in any engine order", () => {
+    const s = world();
+    const [single] = flight(s).oil!;
+    const left = { ...single, engine: "left" as const };
+    const right = { ...single, engine: "right" as const, start: 5 };
+    const posted = { ...flight(s), oil: [left, right] };
+    expect(() =>
+      preserveOilInventory(posted, { ...posted, oil: [right, left] }),
+    ).not.toThrow();
+    const changed = {
+      ...posted,
+      oil: [
+        left,
+        { ...right, inventory: { ...right.inventory!, quantity: 2 } },
+      ],
+    };
+    const refused = () => preserveOilInventory(posted, changed);
+    expect(refused).toThrow(Rejection);
+    expect(refused).toThrow(
+      "A flight review cannot change posted oil inventory usage. Correct stock through an inventory adjustment.",
+    );
   });
 });
 

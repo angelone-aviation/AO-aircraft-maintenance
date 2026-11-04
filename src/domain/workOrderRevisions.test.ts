@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins revisions of closed work orders: the original is kept,
+ *   compliance is not replayed, and refusals change nothing.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrders.ts, ./logbook, src/data/demo.ts,
+ *   tests/fixtures/workOrders.ts.
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
@@ -10,7 +17,9 @@ import {
   type WorkOrderCommand,
 } from "./workOrders";
 import { logbookText } from "./logbook";
-const now = Date.parse("2026-10-02T12:00:00Z");
+const NOW = Date.parse("2026-10-02T12:00:00Z");
+
+/** A work order for the first demo inspection, opened and closed today. */
 function setup() {
   const s = demoSnapshot();
   const command = workOrderCommand();
@@ -20,7 +29,7 @@ function setup() {
       s.inspections[0].description,
     ),
   ];
-  const open = saveWorkOrder(s, command, now);
+  const open = saveWorkOrder(s, command, NOW);
   const order = saveWorkOrder(
     s,
     {
@@ -35,10 +44,11 @@ function setup() {
         finalReview: "Original review",
       },
     },
-    now,
+    NOW,
   );
   return { s, order };
 }
+/** A revise command with new release, review and work-performed text. */
 function revision(
   order: WorkOrder,
 ): Extract<WorkOrderCommand, { action: "revise" }> {
@@ -59,7 +69,7 @@ function revision(
 it("preserves the original, records multiple revisions and never replays closeout compliance", () => {
   const { s, order } = setup();
   const before = structuredClone(s);
-  const revised = saveWorkOrder(s, revision(order), now + 1000);
+  const revised = saveWorkOrder(s, revision(order), NOW + 1000);
   expect(revised.status).toBe("completed");
   expect(revised.closeout).toEqual(order.closeout);
   expect(revised.tasks).toEqual(order.tasks);
@@ -67,7 +77,7 @@ it("preserves the original, records multiple revisions and never replays closeou
     number: 1,
     authorId: s.user.id,
     reason: "Corrected transcription",
-    recordedAt: now + 1000,
+    recordedAt: NOW + 1000,
   });
   expect(
     workOrderSchema.parse(JSON.parse(revised.revisions![0].previousRecord)),
@@ -85,7 +95,7 @@ it("preserves the original, records multiple revisions and never replays closeou
   expect(text).toContain("Corrected release");
   const cmd = revision(revised);
   cmd.fields.scope = "Corrected scope";
-  const second = saveWorkOrder(s, cmd, now + 2000);
+  const second = saveWorkOrder(s, cmd, NOW + 2000);
   expect(second.revisions).toHaveLength(2);
   expect(second.revisions![0]).toEqual(revised.revisions![0]);
   expect(
@@ -99,27 +109,27 @@ it("rejects missing reasons, unchanged revisions, stale writes and unauthorized 
   const { s, order } = setup();
   const before = structuredClone(s);
   expect(() =>
-    saveWorkOrder(s, { ...revision(order), reason: " " }, now),
+    saveWorkOrder(s, { ...revision(order), reason: " " }, NOW),
   ).toThrow();
   expect(() =>
-    saveWorkOrder(s, { ...revision(order), version: 0 }, now),
+    saveWorkOrder(s, { ...revision(order), version: 0 }, NOW),
   ).toThrow("changed");
   expect(s).toEqual(before);
-  const revised = saveWorkOrder(s, revision(order), now);
-  expect(() => saveWorkOrder(s, revision(revised), now)).toThrow(
+  const revised = saveWorkOrder(s, revision(order), NOW);
+  expect(() => saveWorkOrder(s, revision(revised), NOW)).toThrow(
     "Change at least one",
   );
   s.user.isAdmin = false;
   s.user.groupIds = [];
   s.groups = [];
-  expect(() => saveWorkOrder(s, revision(revised), now)).toThrow(
+  expect(() => saveWorkOrder(s, revision(revised), NOW)).toThrow(
     "access denied",
   );
 });
 it("rejects revisions on open work orders", () => {
   const s = demoSnapshot();
-  const order = saveWorkOrder(s, workOrderCommand(), now);
-  expect(() => saveWorkOrder(s, revision(order), now)).toThrow("Only closed");
+  const order = saveWorkOrder(s, workOrderCommand(), NOW);
+  expect(() => saveWorkOrder(s, revision(order), NOW)).toThrow("Only closed");
 });
 
 it("allows completed work order corrections without a final review but still requires a release statement", () => {
@@ -127,9 +137,13 @@ it("allows completed work order corrections without a final review but still req
   const command = revision(order);
   command.fields.finalReview = "";
   command.fields.releaseOutcome = "";
-  expect(() => saveWorkOrder(s, command, now)).toThrow("requires a release statement");
+  expect(() => saveWorkOrder(s, command, NOW)).toThrow(
+    "requires a release statement",
+  );
   command.fields.releaseOutcome = "Corrected release";
-  const revised = saveWorkOrder(s, command, now);
+  const revised = saveWorkOrder(s, command, NOW);
   expect(revised.finalReview).toBe("");
-  expect(JSON.parse(revised.revisions![0].previousRecord).finalReview).toBe("Original review");
+  expect(JSON.parse(revised.revisions![0].previousRecord).finalReview).toBe(
+    "Original review",
+  );
 });
