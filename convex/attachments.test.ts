@@ -1,13 +1,15 @@
 /**
- * Responsibility: Pins when a deleted record's stored file is kept or deleted.
+ * Responsibility: Pins when a stored file is kept or deleted: after its
+ *   record is deleted, and when an upload's filing is refused.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/attachments.ts, convex/storageReferences.ts,
  *   convex/schema.ts.
  */
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 import { expect, it } from "vitest";
 import schema from "./schema";
-import { deleteBlobIfUnused } from "./attachments";
+import { deleteBlobIfUnused, storeThenFinish } from "./attachments";
 import { STORAGE_REFERENCES } from "./storageReferences";
 import type { MutationCtx } from "./_generated/server";
 import type { Id, TableNames } from "./_generated/dataModel";
@@ -159,4 +161,40 @@ it("deletes a blob no record refers to", async () => {
     return storageId;
   });
   expect(await t.run((ctx) => ctx.db.system.get(blob))).toBeNull();
+});
+
+it("stores the bytes with their type and keeps them once filed", async () => {
+  const t = convexTest(schema, modules);
+  const bytes = new TextEncoder().encode("%PDF-1.4").buffer;
+  const blob = await t.run((ctx) =>
+    storeThenFinish(ctx, { bytes, type: "application/pdf" }, async (id) => id),
+  );
+  expect(await t.run((ctx) => ctx.db.system.get(blob))).toMatchObject({
+    size: bytes.byteLength,
+    contentType: "application/pdf",
+  });
+});
+
+it("deletes the stored bytes and rethrows the same error when filing is refused", async () => {
+  const t = convexTest(schema, modules);
+  const refusal = new ConvexError("Refused.");
+  const outcome = await t.run(async (ctx) => {
+    let stored: Id<"_storage"> | undefined;
+    // Caught inside the run, so the run commits and only the helper's own
+    // delete can remove the blob.
+    const error = await storeThenFinish(
+      ctx,
+      { bytes: new ArrayBuffer(1), type: "" },
+      (id) => {
+        stored = id;
+        return Promise.reject(refusal);
+      },
+    ).catch((e: unknown) => e);
+    return { same: error === refusal, stored };
+  });
+  expect(outcome.same).toBe(true);
+  expect(outcome.stored).toBeDefined();
+  expect(
+    await t.run((ctx) => ctx.db.system.query("_storage").collect()),
+  ).toEqual([]);
 });
