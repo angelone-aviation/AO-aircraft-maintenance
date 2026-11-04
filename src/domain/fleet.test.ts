@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins saving Flight Programs and aircraft: the refusals and
- *   their order, counter changes, and installed-component baselines.
+ *   their order, name limits, counter changes, and installed-component
+ *   baselines.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/fleet.ts, flights.ts, components.ts, model.ts,
  *   rejection.ts, src/data/demo.ts (fixture).
@@ -8,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
+  FLEET_NAME_MAX_LENGTH,
   applyFleet,
   aircraftInputSchema,
   normalizeWebsite,
@@ -482,4 +484,26 @@ describe("fleet refusals", () => {
     input.adjustmentSeconds = a.adjustmentSeconds;
     expect(save()).toEqual([false, "saved"]);
   });
+});
+
+const parsesProgram = (patch: Partial<Program>) =>
+  programSchema.safeParse({ ...program, ...patch }).success;
+const parsesAircraft = (patch: Partial<AircraftInput>) =>
+  aircraftInputSchema.safeParse({
+    ...aircraftInputSchema.parse(demoSnapshot().aircraft[0]),
+    ...patch,
+  }).success;
+const NAME_FIELDS: [string, (text: string) => boolean][] = [
+  ["program name", (name) => parsesProgram({ name })],
+  ["contact name", (contactName) => parsesProgram({ contactName })],
+  ["registration", (registration) => parsesAircraft({ registration })],
+  ["make", (make) => parsesAircraft({ make })],
+  ["model", (model) => parsesAircraft({ model })],
+  ["serial number", (serial) => parsesAircraft({ serial })],
+  ["FAA search model", (faaSearchModel) => parsesAircraft({ faaSearchModel })],
+];
+
+it.each(NAME_FIELDS)("caps the %s at FLEET_NAME_MAX_LENGTH", (_, parses) => {
+  expect(parses("x".repeat(FLEET_NAME_MAX_LENGTH))).toBe(true);
+  expect(parses("x".repeat(FLEET_NAME_MAX_LENGTH + 1))).toBe(false);
 });
