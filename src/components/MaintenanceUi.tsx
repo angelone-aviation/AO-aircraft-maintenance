@@ -1,15 +1,25 @@
 /**
- * Small presentation pieces shared by the maintenance screens (Inspections,
- * Components, Inventory). Built locally during the UI redesign; candidates
- * for promotion into design.tsx. Styles: src/styles/screens/maintenance.css.
+ * Responsibility: Small pieces shared by the maintenance screens: an icon
+ *   filter select and the visible caption of a record fact cell.
+ * Layer: UI. Presentational components; no state or data access.
+ * Dependencies: src/components/design.tsx (IconType), @phosphor-icons/react,
+ *   src/styles/screens/maintenance.css.
+ *
+ * Candidates for promotion into src/components/design.tsx.
  */
 import type { ReactNode } from "react";
 import { CaretDown } from "@phosphor-icons/react";
 import type { IconType } from "./design";
 import "../styles/screens/maintenance.css";
 
-/** A 44px filter control: leading icon, borderless native select, caret.
- * `label` is the accessible name (aria-label). */
+/**
+ * Filter select with a leading icon and a caret.
+ *
+ * @param props.label - The select's accessible name (`aria-label`); no
+ *   visible label is drawn.
+ * @param props.onChange - Called with the chosen option's value.
+ * @returns A `label.mx-select` wrapping the `<select>`.
+ */
 export function IconSelect({
   icon: Icon,
   label,
@@ -40,9 +50,13 @@ export function IconSelect({
   );
 }
 
-/** Visible caption for a record "fact" cell. The table keeps a visually
- * hidden header row for assistive technology, so the caption is hidden from
- * it to avoid announcing the column name twice. */
+/**
+ * Visible caption for a record fact cell, hidden from assistive technology:
+ * the table keeps a visually hidden header row, so the column name would
+ * otherwise be announced twice.
+ *
+ * @returns A `span.mx-fact-label` holding `children`.
+ */
 export function FactLabel({ children }: { children: ReactNode }) {
   return (
     <span className="mx-fact-label" aria-hidden="true">

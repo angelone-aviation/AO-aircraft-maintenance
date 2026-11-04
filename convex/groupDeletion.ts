@@ -1,4 +1,12 @@
-import { v } from "convex/values";
+/**
+ * Responsibility: Deleting a permission group after a Flight Program
+ *   administrator reviews whose access it removes.
+ * Layer: Server. A public query and mutation; the rules are the domain's
+ *   groupDeletionPlan, and the deletion is audited.
+ * Dependencies: convex/programContext, convex/access, convex/memberships,
+ *   convex/userErrors, src/domain/groupDeletion.
+ */
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -8,44 +16,54 @@ import {
 import { checkContext } from "./programContext";
 import { member, audit } from "./access";
 import { programUsers, removeGroupMemberships } from "./memberships";
+import { exposeRejections } from "./userErrors";
 import type { Id } from "./_generated/dataModel";
 import { groupDeletionPlan } from "../src/domain/groupDeletion";
+
 const args = { id: v.id("groups"), programUuid: v.optional(v.string()) };
-async function load(
-  ctx: QueryCtx | MutationCtx,
-  programUuid: string | undefined,
-  id: Id<"groups">,
-) {
-  const state = await checkContext(ctx, programUuid);
-  const group = await ctx.db.get(id);
-  return {
-    ...state,
-    members: group
-      ? (await programUsers(ctx, group.programUuid, id)).map(member)
-      : [],
-  };
-}
+
+/**
+ * Shows an administrator what deleting a group would do, for them to confirm.
+ *
+ * @param id - The group.
+ * @param programUuid - The caller's active Flight Program.
+ * @returns The group's name, its members and whether each loses access to
+ *   the program, and `expected`, which {@link remove} must be given back.
+ * @throws As `checkContext`, then `groupDeletionPlan`: "Permission group not
+ *   found."; "Flight Program administrator permission required." (a
+ *   Rejection reaches the user as a ConvexError).
+ */
 export const preview = query({
   args,
-  handler: async (ctx, args) =>
-    groupDeletionPlan(await load(ctx, args.programUuid, args.id), args.id),
+  handler: async (ctx, args) => {
+    const state = await load(ctx, args.programUuid, args.id);
+    return exposeRejections(() => groupDeletionPlan(state, args.id));
+  },
 });
+
+/**
+ * Deletes a group as reviewed, taking it out of its members' accounts and
+ * memberships only; audits "group.deleted" with the group and those members.
+ *
+ * @param expected - The reviewed plan's `expected`.
+ * @throws {ConvexError} "This group or its members changed. Close this dialog
+ *   and review deletion again." when the plan differs.
+ * @throws As {@link preview}, first.
+ */
 export const remove = mutation({
   args: { ...args, expected: v.string() },
   handler: async (ctx, args) => {
-    const state = await load(ctx, args.programUuid, args.id),
-      plan = groupDeletionPlan(state, args.id);
+    const state = await load(ctx, args.programUuid, args.id);
+    const plan = exposeRejections(() => groupDeletionPlan(state, args.id));
     if (plan.expected !== args.expected)
-      throw Error(
+      throw new ConvexError(
         "This group or its members changed. Close this dialog and review deletion again.",
       );
     const group = state.groups.find((g) => g.id === args.id)!;
     for (const user of plan.users) {
-      const doc = await ctx.db.get(
-        user.id as import("./_generated/dataModel").Id<"users">,
-      );
-      await ctx.db.patch(doc!._id, {
-        groupIds: doc!.groupIds!.filter((id) => id !== args.id),
+      const doc = (await ctx.db.get(user.id as Id<"users">))!;
+      await ctx.db.patch(doc._id, {
+        groupIds: doc.groupIds!.filter((id) => id !== args.id),
       });
     }
     await ctx.db.delete(args.id);
@@ -60,3 +78,19 @@ export const remove = mutation({
     });
   },
 });
+
+// The caller's program context, with the group's holders as its members.
+async function load(
+  ctx: QueryCtx | MutationCtx,
+  programUuid: string | undefined,
+  id: Id<"groups">,
+) {
+  const state = await checkContext(ctx, programUuid);
+  const group = await ctx.db.get(id);
+  return {
+    ...state,
+    members: group
+      ? (await programUsers(ctx, group.programUuid, id)).map(member)
+      : [],
+  };
+}

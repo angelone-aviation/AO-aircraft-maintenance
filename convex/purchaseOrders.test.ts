@@ -1,5 +1,12 @@
+/**
+ * Responsibility: Pins purchase orders: atomic receipts and replays, address
+ *   confirmation, attachments, and uuids another Flight Program holds.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/purchaseOrders, convex/poFiles, src/data/demo,
+ *   src/domain/purchaseOrders.
+ */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -356,4 +363,143 @@ it("deletes PO attachments only for program administrators while the PO is a dra
   }));
   expect(left.files).toEqual(["po-issued"]);
   expect(left.audit).toEqual(["purchaseOrder.attachment_removed"]);
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+// A program administrator, a stock location, and a PO and a stock item that
+// another Flight Program holds under the given uuids.
+async function foreignFixture(foreign: { po: string; stock: string }) {
+  const t = convexTest(schema, modules);
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", demoSnapshot().programs![0]);
+    const location = {
+      uuid: "store",
+      version: 1,
+      programUuid: "demo-program",
+      kind: "location" as const,
+      name: "Store",
+      address: "",
+      contact: "",
+    };
+    await ctx.db.insert("management", {
+      uuid: location.uuid,
+      programUuid: location.programUuid,
+      kind: location.kind,
+      payload: JSON.stringify(location),
+    });
+    await ctx.db.insert("purchaseOrders", {
+      uuid: foreign.po,
+      programUuid: "other",
+      payload: "{}",
+    });
+    await ctx.db.insert("management", {
+      uuid: foreign.stock,
+      programUuid: "other",
+      kind: "stock",
+      payload: "{}",
+    });
+    const user = await ctx.db.insert("users", {
+      name: "PO admin",
+      isAdmin: true,
+      active: true,
+      groupIds: [],
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: user,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${user}|${session}`;
+  });
+  const client = t.withIdentity({ subject });
+  const command = (c: unknown) =>
+    client.mutation(api.purchaseOrders.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      purchaseOrders: await ctx.db.query("purchaseOrders").collect(),
+      management: await ctx.db.query("management").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  return { command, stored };
+}
+
+const draft = (uuid: string) =>
+  poDraftSchema.parse({
+    uuid,
+    version: 0,
+    vendor: "Vendor",
+    vendorContact: "",
+    shipTo: "Hangar",
+    expectedDate: "",
+    currency: "USD",
+    shippingCents: 0,
+    notes: "",
+    lines: [
+      {
+        uuid: "line",
+        locationUuid: "store",
+        partNumber: "TEST-P",
+        description: "Test part",
+        quantity: 1,
+        unitCents: 100,
+        kind: "part",
+      },
+    ],
+  });
+
+it("refuses a PO uuid another Flight Program holds, and writes nothing", async () => {
+  const { command, stored } = await foreignFixture({
+    po: "taken",
+    stock: "stock-elsewhere",
+  });
+  const before = await stored();
+  await expect(
+    command({
+      kind: "save",
+      requestUuid: crypto.randomUUID(),
+      drafts: [draft("taken")],
+    }),
+  ).rejects.toMatchObject({ name: "ConvexError", data: "PO not found." });
+  expect(await stored()).toEqual(before);
+});
+
+it("refuses received stock under a uuid another Flight Program holds, and writes nothing", async () => {
+  const taken = "11111111-1111-4111-8111-111111111111";
+  const { command, stored } = await foreignFixture({
+    po: "po-elsewhere",
+    stock: taken,
+  });
+  const d = draft("po-1");
+  await command({
+    kind: "save",
+    requestUuid: crypto.randomUUID(),
+    drafts: [d],
+  });
+  await command({
+    kind: "issue",
+    requestUuid: crypto.randomUUID(),
+    uuid: d.uuid,
+    version: 1,
+    reason: "",
+  });
+  const before = await stored();
+  const receipt = {
+    kind: "receive",
+    requestUuid: crypto.randomUUID(),
+    uuid: d.uuid,
+    version: 2,
+    date: new Date().toISOString().slice(0, 10),
+    invoice: "INV-1",
+    notes: "",
+    lines: [{ lineUuid: "line", quantity: 1, condition: "new", serials: [] }],
+  };
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(taken);
+  await expect(command(receipt)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Record belongs to another Flight Program.",
+  });
+  expect(await stored()).toEqual(before);
 });

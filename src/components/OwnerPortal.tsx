@@ -1,3 +1,12 @@
+/**
+ * Responsibility: The read-only owner portal: an owner's aircraft with their
+ *   totals, upcoming maintenance, completed work and reports.
+ * Layer: UI. React components; reads the owner's snapshot and changes no
+ *   records.
+ * Dependencies: react, src/data/store.ts, src/data/adReport.ts (on demand),
+ *   src/domain/model.ts, src/domain/ownerDue.ts, ./AircraftFiles,
+ *   ./AircraftStatus, ./ExportAircraftStatus, ./ui.
+ */
 import { useState } from "react";
 import { useWorkspace, previewDemoOwner } from "../data/store";
 import {
@@ -11,7 +20,7 @@ import { ownerDueItems, type DueItem } from "../domain/ownerDue";
 import { AircraftStatusSummary } from "./AircraftStatus";
 import { ExportAircraftStatus } from "./ExportAircraftStatus";
 import { AircraftForm337 } from "./AircraftFiles";
-import { Badge, Empty, PageTitle } from "./ui";
+import { Badge, Empty, PageTitle, errorText } from "./ui";
 
 const RECENT_WORK_ORDERS = 5;
 const tone = {
@@ -48,9 +57,7 @@ function ADReportButton({
             const { saveADReport } = await import("../data/adReport");
             saveADReport(state, aircraft.uuid);
           } catch (e) {
-            setError(
-              e instanceof Error ? e.message : "Unable to export AD report.",
-            );
+            setError(errorText(e, "Unable to export AD report."));
           } finally {
             setBusy(false);
           }
@@ -170,9 +177,7 @@ export function OwnerPortal() {
             <button
               className="button"
               onClick={() =>
-                previewDemoOwner(false).catch((e) =>
-                  setError(e instanceof Error ? e.message : String(e)),
-                )
+                previewDemoOwner(false).catch((e) => setError(errorText(e)))
               }
             >
               Exit owner preview

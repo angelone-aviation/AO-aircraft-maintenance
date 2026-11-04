@@ -1,3 +1,7 @@
+# Responsibility: The local development container: the app image, the
+#   bind-mounted repository, and ports for Vite and a local Convex backend.
+# Layer: Config (development only). Neither CI nor production uses it.
+# Dependencies: .devcontainer/Dockerfile.
 services:
   app:
     build:
@@ -5,11 +9,15 @@ services:
       dockerfile: .devcontainer/Dockerfile
     init: true
     working_dir: /workspace
+    # Stays up for an editor to attach; the dev server is started by hand.
     command: ["sleep", "infinity"]
     volumes:
       - .:/workspace
+      # A volume, so Linux native packages never mix with the host's own.
       - node_modules:/workspace/node_modules
       - npm_cache:/home/node/.npm
+    # Host loopback only. 5173 is Vite; 3210 and 3211 are a local Convex
+    # backend's API and HTTP actions.
     ports:
       - "127.0.0.1:5173:5173"
       - "127.0.0.1:3210:3210"

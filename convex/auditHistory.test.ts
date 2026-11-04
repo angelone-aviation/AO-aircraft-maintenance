@@ -1,10 +1,22 @@
+/**
+ * Responsibility: Pins History paging: newest first without duplicates, the
+ *   snapshot's program and aircraft scoping, refusals that reveal nothing,
+ *   cursors, and the per-request scan budget.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/auditHistory, convex/programContext, src/data/demo,
+ *   src/domain/auditHistory.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { AUDIT_LIMIT } from "./programContext";
-import type { AuditPage } from "../src/domain/auditHistory";
+import {
+  HISTORY_NOT_FOUND,
+  type AuditFilter,
+  type AuditPage,
+} from "../src/domain/auditHistory";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -221,13 +233,14 @@ it("refuses another program's record or aircraft with the same answer as an unkn
       cursor: null,
       numItems: 5,
     });
-  const refusals = [];
-  for (const filter of [
+  const filters = [
     { entityUuid: "wo-a" },
     { aircraftUuid: a.uuid },
     { entityUuid: "no-such-record" },
     { aircraftUuid: "no-such-aircraft" },
-  ])
+  ];
+  const refusals = [];
+  for (const filter of filters)
     refusals.push(
       await page(filter).then(
         () => "answered",
@@ -236,6 +249,11 @@ it("refuses another program's record or aircraft with the same answer as an unkn
     );
   expect(new Set(refusals)).toEqual(new Set([refusals[0]]));
   expect(refusals[0]).toMatch(/History not found\./);
+  for (const filter of filters)
+    await expect(page(filter)).rejects.toMatchObject({
+      name: "ConvexError",
+      data: HISTORY_NOT_FOUND,
+    });
   // The caller's own record still pages.
   expect((await page({ entityUuid: "foreign-wo" })).page).toHaveLength(5);
 });
@@ -275,4 +293,74 @@ it("builds cursors only from entries the caller can see", async () => {
     cursor = result.continueCursor;
   }
   expect(seen).toHaveLength(visible.length);
+});
+
+it("ends a history exactly one page long as done, and combines filters", async () => {
+  const { t, ids, a } = await fixture();
+  const manager = t.withIdentity({ subject: ids.manager });
+  const page = (filter: AuditFilter, numItems: number) =>
+    manager.query(api.auditHistory.page, {
+      ...filter,
+      programUuid: "demo-program",
+      cursor: null,
+      numItems,
+    });
+  // wo-b has (AUDIT_LIMIT + 50) / 10 entries.
+  const record = await page({ entityUuid: "wo-b" }, 30);
+  expect(record).toMatchObject({ isDone: true });
+  expect(record.page).toHaveLength(30);
+  // wo-b's entries are all on the other aircraft.
+  expect(
+    await page({ entityUuid: "wo-b", aircraftUuid: a.uuid }, 30),
+  ).toMatchObject({ page: [], isDone: true });
+});
+
+it("refuses a cursor that is not a number", async () => {
+  const { t, ids } = await fixture();
+  await expect(
+    t.withIdentity({ subject: ids.manager }).query(api.auditHistory.page, {
+      programUuid: "demo-program",
+      cursor: "next",
+      numItems: 5,
+    }),
+  ).rejects.toThrow("Invalid history cursor.");
+});
+
+it("returns a short page after scanning 4,000 entries, then carries on", async () => {
+  const { t, ids } = await fixture();
+  const restricted = t.withIdentity({ subject: ids.restricted });
+  // Each round re-reads the same 7 visible aircraft rows beside 7 hidden
+  // program rows, so 2,100 hidden rows outlast the budget.
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 2100; i++)
+      await ctx.db.insert("audit", {
+        uuid: crypto.randomUUID(),
+        programUuid: "demo-program",
+        entityUuid: "some-user",
+        actorId: "actor",
+        action: "user.permissions_changed",
+        at: 10_000 + i,
+      });
+  });
+  const request = { programUuid: "demo-program", numItems: 7 };
+  const first = await restricted.query(api.auditHistory.page, {
+    ...request,
+    cursor: null,
+  });
+  expect(first).toMatchObject({ page: [], isDone: false });
+  // Characterizes current behaviour: this cursor is a hidden row's time.
+  const hidden = await t.run((ctx) =>
+    ctx.db
+      .query("audit")
+      .filter((q) => q.eq(q.field("entityUuid"), "some-user"))
+      .collect(),
+  );
+  expect(hidden.map((d) => String(d._creationTime))).toContain(
+    first.continueCursor,
+  );
+  const next = await restricted.query(api.auditHistory.page, {
+    ...request,
+    cursor: first.continueCursor,
+  });
+  expect(next.page).toHaveLength(7);
 });

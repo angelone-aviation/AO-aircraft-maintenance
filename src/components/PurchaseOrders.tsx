@@ -1,3 +1,13 @@
+/**
+ * Responsibility: Purchase orders: the orders screen, the editor, an order's
+ *   detail with its documents and files, and the inspection PO button.
+ * Layer: UI. React components; order rules live in src/domain.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/data/partsRequestPdf.ts and src/data/poPdf.ts (on
+ *   demand), src/domain (model, vendors, management, addresses, programs,
+ *   purchaseOrders), ./AircraftSpruce, ./Vendors, ./CoreReturns,
+ *   ./SavedAddresses, ./ShopList, ./ui, ./design, ./purchaseOrders.css.
+ */
 import { SpruceProductPicker, SpruceOrderProgress } from "./AircraftSpruce";
 import { localDate } from "../domain/model";
 import { VendorEditor, VendorPicker, newVendor } from "./Vendors";
@@ -26,7 +36,7 @@ import {
   type POCommand,
 } from "../domain/purchaseOrders";
 import type { Inspection } from "../domain/model";
-import { AsyncForm, DeleteFileButton, Modal, Field } from "./ui";
+import { AsyncForm, DeleteFileButton, Modal, Field, errorText } from "./ui";
 import {
   EmptyState,
   PageHeader,
@@ -1004,7 +1014,7 @@ export function PODetail({
       }
     } catch (e) {
       preview?.close();
-      setPdfError(String(e));
+      setPdfError(errorText(e));
     }
   }
   return (
@@ -1041,7 +1051,7 @@ export function PODetail({
                       await import("../data/partsRequestPdf");
                     requestPdf(r, s!, "request").save(`${r.number}-repair.pdf`);
                   } catch (e) {
-                    setPdfError(String(e));
+                    setPdfError(errorText(e));
                   }
                 }}
               >
@@ -1058,7 +1068,7 @@ export function PODetail({
                       `${r.number}-packing.pdf`,
                     );
                   } catch (e) {
-                    setPdfError(String(e));
+                    setPdfError(errorText(e));
                   }
                 }}
               >
@@ -1630,7 +1640,7 @@ function POFiles({ po }: { po: PurchaseOrder }) {
         if (!cancelled) setFiles(f);
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) setError(errorText(e));
       });
     return () => {
       cancelled = true;
@@ -1668,7 +1678,7 @@ function POFiles({ po }: { po: PurchaseOrder }) {
               await backend!.attachPOFile(po.uuid, receipt || undefined, file);
               setRefresh((n) => n + 1);
             } catch (e) {
-              setError(String(e));
+              setError(errorText(e));
             } finally {
               setBusy(false);
             }

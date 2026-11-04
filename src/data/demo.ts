@@ -1,141 +1,82 @@
-import type { Aircraft, Snapshot } from "../domain/model";
+/**
+ * Responsibility: The fictional workspace demo mode starts from, and the
+ *   sample owner it can switch to.
+ * Layer: Data. Fixture builders only; no storage, no React.
+ * Dependencies: src/domain/model.ts (types).
+ *
+ * Server tests seed from demoSnapshot() too, so a change here changes them.
+ */
+import type {
+  Aircraft,
+  Discrepancy,
+  Group,
+  Inspection,
+  Member,
+  Snapshot,
+} from "../domain/model";
+
+const DEMO_PROGRAM_UUID = "demo-program";
+const DEMO_ADMIN_ID = "demo-admin";
+const HOUR_SECONDS = 3600;
+const DAY_MS = 86_400_000;
+
+/**
+ * Builds the demo workspace: one program, three Cessnas, the administrator
+ * signed in, a pilot group, an open problem report and four inspections.
+ *
+ * @returns A new snapshot on each call, so callers may mutate it. Times are
+ *   relative to now: the report is a day old, annuals fall due in 24 and 84
+ *   days. `user` is the same object as `members[0]`.
+ */
 export function demoSnapshot(): Snapshot {
   const now = Date.now();
   const user = {
-    activeProgramUuid: "demo-program",
-    id: "demo-admin",
+    activeProgramUuid: DEMO_PROGRAM_UUID,
+    id: DEMO_ADMIN_ID,
     name: "Alex Morgan",
     email: "alex@example.test",
     isAdmin: true,
     active: true,
     groupIds: [],
   };
-  function aircraft(
-    uuid: string,
-    registration: string,
-    model: string,
-    hobbs: number,
-    cycles: number,
-  ): Aircraft {
-    return {
-      uuid,
-      registration,
-      model,
-      make: "Cessna",
-      serial: "DEMO-" + uuid,
-      program: "Mission operations",
-      programUuid: "demo-program",
-      meter: "hobbs",
-      adjustmentSeconds: 0,
-      baselineHobbs: Math.round(hobbs * 3600),
-      baselineTach: Math.round((hobbs - 80) * 3600),
-      baselineLandings: cycles + 300,
-      baselineCycles: cycles,
-      currentHobbs: Math.round(hobbs * 3600),
-      currentTach: Math.round((hobbs - 80) * 3600),
-      landings: cycles + 300,
-      cycles,
-      version: 0,
-      operationalStatus: "unknown",
-    };
-  }
-  const aircrafts = [
-    aircraft("demo-206", "N206MA", "206 Stationair", 2341.2, 1894),
-    aircraft("demo-208", "N208MA", "208 Caravan", 4218.6, 3201),
-    aircraft("demo-182", "N182MA", "182 Skylane", 1650.4, 1142),
+  const aircraft = [
+    demoAircraft("demo-206", "N206MA", "206 Stationair", 2341.2, 1894),
+    demoAircraft("demo-208", "N208MA", "208 Caravan", 4218.6, 3201),
+    demoAircraft("demo-182", "N182MA", "182 Skylane", 1650.4, 1142),
   ];
-  const date = (days: number) =>
-    new Date(now + days * 86400000).toISOString().slice(0, 10);
   return {
-    activeProgramUuid: "demo-program",
+    activeProgramUuid: DEMO_PROGRAM_UUID,
     user,
-    programs: [
-      {
-        uuid: "demo-program",
-        version: 1,
-        name: "Mission operations",
-        address: "Demo airfield",
-        email: "operations@example.test",
-        contactName: "Demo coordinator",
-        website: "https://example.test",
-      },
-    ],
+    programs: [demoProgram()],
     authenticatedAt: now,
     syncedAt: now,
-    members: [
-      user,
-      {
-        id: "demo-pilot",
-        name: "Jordan Lee",
-        email: "jordan@example.test",
-        isAdmin: false,
-        active: true,
-        groupIds: ["demo-pilots"],
-      },
-    ],
-    groups: [
-      {
-        id: "demo-pilots",
-        name: "Pilots",
-        programUuid: "demo-program",
-        aircraftIds: aircrafts.map((a) => a.uuid),
-        permissions: ["read", "flight", "discrepancy"],
-      },
-    ],
-    aircraft: aircrafts,
+    members: [user, demoPilot()],
+    groups: [demoPilotGroup(aircraft.map((a) => a.uuid))],
+    aircraft,
     flights: [],
-    discrepancies: [
-      {
-        uuid: "demo-report",
-        aircraftUuid: "demo-208",
-        description:
-          "Left landing light is intermittent. Inspect the connector before next operation.",
-        status: "open",
-        authorId: user.id,
-        createdAt: now - 86400000,
-      },
-    ],
-    inspections: [
-      {
-        uuid: "demo-insp-1",
-        aircraftUuid: "demo-206",
-        reference: "100-hour inspection",
-        description: "Airframe and engine inspection",
-        dueSeconds: 2350 * 3600,
-      },
-      {
-        uuid: "demo-insp-2",
-        aircraftUuid: "demo-206",
-        reference: "Annual inspection",
-        description: "Calendar inspection",
-        dueDate: date(84),
-      },
-      {
-        uuid: "demo-insp-3",
-        aircraftUuid: "demo-208",
-        reference: "100-hour inspection",
-        description: "Airframe and engine inspection",
-        dueSeconds: 4250 * 3600,
-      },
-      {
-        uuid: "demo-insp-4",
-        aircraftUuid: "demo-182",
-        reference: "Annual inspection",
-        description: "Calendar inspection",
-        dueDate: date(24),
-      },
-    ],
+    discrepancies: [demoReport(user.id, now)],
+    inspections: demoInspections(now),
     audit: [],
   };
 }
+
+/** The sample aircraft owner's member id, used to switch the demo to them. */
 export const DEMO_OWNER_ID = "demo-owner";
-/** Switches the demo workspace between the administrator and a sample
- * aircraft owner (N206MA), adding the owner account and group if missing. */
+
+/**
+ * Switches the demo workspace between the administrator and a sample aircraft
+ * owner of N206MA, adding the owner and their group the first time.
+ *
+ * @param s - The full demo snapshot.
+ * @param owner - True for the owner, false for the administrator.
+ * @returns A copy with that user; existing owner records are kept as they are.
+ * @throws {Error} "Demo account not found." when the administrator is missing.
+ */
 export function withDemoUser(s: Snapshot, owner: boolean): Snapshot {
   const group = {
     id: "demo-owners",
     name: "Aircraft owners",
-    programUuid: "demo-program",
+    programUuid: DEMO_PROGRAM_UUID,
     owner: true,
     aircraftIds: ["demo-206"],
     permissions: ["read" as const],
@@ -147,7 +88,7 @@ export function withDemoUser(s: Snapshot, owner: boolean): Snapshot {
     isAdmin: false,
     active: true,
     groupIds: [group.id],
-    activeProgramUuid: "demo-program",
+    activeProgramUuid: DEMO_PROGRAM_UUID,
   };
   const groups = s.groups.some((g) => g.id === group.id)
     ? s.groups
@@ -156,8 +97,119 @@ export function withDemoUser(s: Snapshot, owner: boolean): Snapshot {
     ? s.members
     : [...s.members, member];
   const user = members.find(
-    (m) => m.id === (owner ? DEMO_OWNER_ID : "demo-admin"),
+    (m) => m.id === (owner ? DEMO_OWNER_ID : DEMO_ADMIN_ID),
   );
   if (!user) throw new Error("Demo account not found.");
   return { ...s, groups, members, user };
+}
+
+// Tach runs 80 hours behind Hobbs, and landings 300 ahead of cycles.
+function demoAircraft(
+  uuid: string,
+  registration: string,
+  model: string,
+  hobbs: number,
+  cycles: number,
+): Aircraft {
+  return {
+    uuid,
+    registration,
+    model,
+    make: "Cessna",
+    serial: "DEMO-" + uuid,
+    program: "Mission operations",
+    programUuid: DEMO_PROGRAM_UUID,
+    meter: "hobbs",
+    adjustmentSeconds: 0,
+    baselineHobbs: Math.round(hobbs * HOUR_SECONDS),
+    baselineTach: Math.round((hobbs - 80) * HOUR_SECONDS),
+    baselineLandings: cycles + 300,
+    baselineCycles: cycles,
+    currentHobbs: Math.round(hobbs * HOUR_SECONDS),
+    currentTach: Math.round((hobbs - 80) * HOUR_SECONDS),
+    landings: cycles + 300,
+    cycles,
+    version: 0,
+    operationalStatus: "unknown",
+  };
+}
+
+function demoProgram(): NonNullable<Snapshot["programs"]>[number] {
+  return {
+    uuid: DEMO_PROGRAM_UUID,
+    version: 1,
+    name: "Mission operations",
+    address: "Demo airfield",
+    email: "operations@example.test",
+    contactName: "Demo coordinator",
+    website: "https://example.test",
+  };
+}
+
+function demoPilot(): Member {
+  return {
+    id: "demo-pilot",
+    name: "Jordan Lee",
+    email: "jordan@example.test",
+    isAdmin: false,
+    active: true,
+    groupIds: ["demo-pilots"],
+  };
+}
+
+function demoPilotGroup(aircraftIds: string[]): Group {
+  return {
+    id: "demo-pilots",
+    name: "Pilots",
+    programUuid: DEMO_PROGRAM_UUID,
+    aircraftIds,
+    permissions: ["read", "flight", "discrepancy"],
+  };
+}
+
+function demoReport(authorId: string, now: number): Discrepancy {
+  return {
+    uuid: "demo-report",
+    aircraftUuid: "demo-208",
+    description:
+      "Left landing light is intermittent. Inspect the connector before next operation.",
+    status: "open",
+    authorId,
+    createdAt: now - DAY_MS,
+  };
+}
+
+function demoInspections(now: number): Inspection[] {
+  const date = (days: number) =>
+    new Date(now + days * DAY_MS).toISOString().slice(0, 10);
+  return [
+    {
+      uuid: "demo-insp-1",
+      aircraftUuid: "demo-206",
+      reference: "100-hour inspection",
+      description: "Airframe and engine inspection",
+      dueSeconds: 2350 * HOUR_SECONDS,
+    },
+    {
+      uuid: "demo-insp-2",
+      aircraftUuid: "demo-206",
+      reference: "Annual inspection",
+      description: "Calendar inspection",
+      dueDate: date(84),
+    },
+    {
+      uuid: "demo-insp-3",
+      aircraftUuid: "demo-208",
+      reference: "100-hour inspection",
+      description: "Airframe and engine inspection",
+      dueSeconds: 4250 * HOUR_SECONDS,
+    },
+    {
+      uuid: "demo-insp-4",
+      aircraftUuid: "demo-182",
+      reference: "Annual inspection",
+      description: "Calendar inspection",
+      dueDate: date(24),
+    },
+  ];
 }

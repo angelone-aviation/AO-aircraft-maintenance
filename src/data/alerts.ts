@@ -1,27 +1,40 @@
+/**
+ * Responsibility: Tracks which alerts the signed-in user has read in the
+ *   active Flight Program.
+ * Layer: Data. Zustand store over the Backend and the device cache; no UI.
+ * Dependencies: zustand, src/data/local.ts, src/data/store.ts.
+ *
+ * Read state is per user and Flight Program and lives on the server; a device
+ * copy keeps the badge accurate offline until the backend answers.
+ */
 import { create } from "zustand";
 import * as local from "./local";
 import { useWorkspace } from "./store";
 
 interface AlertReads {
+  /** Whose reads `keys` holds: namespace, user and program; "" before load. */
   scope: string;
   keys: string[];
   error: string;
+  /**
+   * Switches to the current scope, starting from the device copy, then merges
+   * the server's reads. Sets `error` to "Unable to load read alerts." (or the
+   * failure's message) when the server cannot answer.
+   */
   load(): Promise<void>;
+  /**
+   * Adds the keys (with `all`, replaces the reads with them) here and on the
+   * device at once, then saves them on the server. Sets `error` to "Unable to
+   * save read alerts." (or the failure's message) when that fails.
+   */
   markRead(keys: string[], all?: boolean): Promise<void>;
 }
-// Read state is per user and Flight Program; a device copy keeps the badge
-// accurate offline until the backend answers.
-function currentScope() {
-  const { namespace, snapshot } = useWorkspace.getState();
-  return snapshot
-    ? `${namespace}:alert-reads:${snapshot.user.id}:${snapshot.activeProgramUuid ?? ""}`
-    : "";
-}
-const cache = (scope: string, keys: string[]) =>
-  local.saveFavorites(scope, keys).catch(() => undefined); // Cache only.
-const message = (error: unknown, fallback: string) =>
-  error instanceof Error ? error.message : fallback;
 
+/**
+ * The read alert keys for the workspace's user and program. Its actions do
+ * nothing without a backend and snapshot (markRead also before a load), and
+ * drop results that arrive after the user left that scope.
+ */
 export const useAlertReads = create<AlertReads>((set, get) => ({
   scope: "",
   keys: [],
@@ -41,10 +54,10 @@ export const useAlertReads = create<AlertReads>((set, get) => ({
       if (get().scope !== scope) return;
       const keys = [...new Set([...get().keys, ...remote])];
       set({ keys });
-      await cache(scope, keys);
+      await cacheReads(scope, keys);
     } catch (error) {
       if (get().scope === scope)
-        set({ error: message(error, "Unable to load read alerts.") });
+        set({ error: errorMessage(error, "Unable to load read alerts.") });
     }
   },
   async markRead(keys, all = false) {
@@ -53,11 +66,28 @@ export const useAlertReads = create<AlertReads>((set, get) => ({
     if (!scope || scope !== currentScope() || !backend || !snapshot) return;
     const next = [...new Set(all ? keys : [...get().keys, ...keys])];
     set({ keys: next, error: "" });
-    await cache(scope, next);
+    await cacheReads(scope, next);
     try {
       await backend.markAlertsRead(snapshot.activeProgramUuid, keys, all);
     } catch (error) {
-      set({ error: message(error, "Unable to save read alerts.") });
+      set({ error: errorMessage(error, "Unable to save read alerts.") });
     }
   },
 }));
+
+function currentScope(): string {
+  const { namespace, snapshot } = useWorkspace.getState();
+  return snapshot
+    ? `${namespace}:alert-reads:${snapshot.user.id}:${snapshot.activeProgramUuid ?? ""}`
+    : "";
+}
+
+// The device copy is a convenience: the server holds the read state, so a
+// failed write (or, in load(), a failed read) is ignored.
+function cacheReads(scope: string, keys: string[]) {
+  return local.saveFavorites(scope, keys).catch(() => undefined);
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}

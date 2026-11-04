@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins kept manuals' promises: per-user and per-deployment
+ *   copies, access checks, complete downloads only, purges and storage reports.
+ * Layer: Test. An in-memory Cache Storage stands in for the browser's.
+ * Dependencies: vitest, src/data/deviceManuals.ts, src/data/demo.ts,
+ *   tests/fixtures/cacheStorage.ts.
+ */
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   MemoryCacheStorage,
@@ -9,6 +16,8 @@ import type { Snapshot } from "../domain/model";
 import type { Manual } from "../domain/manuals";
 import {
   DeviceStorageError,
+  formatBytes,
+  hasKeptManuals,
   keepManual,
   keptManualsSupported,
   keptStorage,
@@ -407,4 +416,94 @@ it("reports space used and left, and asks for persistent storage only until gran
   vi.stubGlobal("navigator", {});
   expect(await keptStorage()).toEqual({});
   expect(await requestPersistentStorage()).toBeUndefined();
+});
+
+it("formats sizes in binary megabytes, switching to gigabytes at 1,024 MB", () => {
+  expect(formatBytes(1_572_864)).toBe("1.5 MB");
+  expect(formatBytes(1024 ** 3)).toBe("1.0 GB");
+  // Characterizes current behaviour: rounding can show "1024.0 MB".
+  expect(formatBytes(1024 ** 3 - 1)).toBe("1024.0 MB");
+});
+
+it("tells every listener about a change, even when one throws", async () => {
+  const s = snapshot([manual(A, 100)]);
+  const failing = vi.fn(() => {
+    throw new Error("listener broke");
+  });
+  const working = vi.fn();
+  const stopFailing = onKeptManualsChange(failing);
+  const stopWorking = onKeptManualsChange(working);
+
+  await keepManual({
+    namespace: "live:a",
+    snapshot: s,
+    uuid: A,
+    download: file(100),
+  });
+  stopWorking();
+  await removeAllKeptManuals("live:a");
+  stopFailing();
+
+  expect(failing).toHaveBeenCalledTimes(2);
+  expect(working).toHaveBeenCalledOnce();
+});
+
+it("says whether the device holds any kept manual, for any deployment", async () => {
+  expect(await hasKeptManuals()).toBe(false);
+  await keepManual({
+    namespace: "live:b",
+    snapshot: snapshot([manual(A, 100)], "another-user"),
+    uuid: A,
+    download: file(100),
+  });
+
+  expect(await hasKeptManuals()).toBe(true);
+  vi.stubGlobal("caches", {
+    keys: async () => {
+      throw new Error("The cache is unavailable.");
+    },
+  });
+  expect(await hasKeptManuals()).toBe(false);
+});
+
+it("tells listeners when a read deletes a damaged copy, and reconcile only when it removes one", async () => {
+  const s = snapshot([manual(A, 500)]);
+  await keepManual({
+    namespace: "live:a",
+    snapshot: s,
+    uuid: A,
+    download: file(500),
+  });
+  const changed = vi.fn();
+  const stop = onKeptManualsChange(changed);
+
+  await reconcileKeptManuals("live:a", s);
+  expect(changed).not.toHaveBeenCalled();
+  for (const cache of storage.caches.values())
+    for (const entry of cache.entries.values())
+      entry.body = entry.body.slice(0, 200);
+  await readKeptManual("live:a", s, A);
+  stop();
+
+  expect(changed).toHaveBeenCalledOnce();
+});
+
+it("reports a removal the device refuses, and still tells listeners", async () => {
+  const s = snapshot([manual(A, 100)]);
+  vi.stubGlobal("caches", {
+    has: async () => true,
+    open: async () => {
+      throw new Error("The cache is unavailable.");
+    },
+  });
+  const changed = vi.fn();
+  const stop = onKeptManualsChange(changed);
+
+  await expect(removeKeptManual("live:a", s, A)).rejects.toMatchObject({
+    name: "DeviceStorageError",
+    kind: "storage",
+    message: "The manual could not be removed from this device. Try again.",
+  });
+  stop();
+  expect(changed).toHaveBeenCalledOnce();
 });

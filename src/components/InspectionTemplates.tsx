@@ -1,3 +1,12 @@
+/**
+ * Responsibility: The inspection templates screen: listing, editing,
+ *   activating, exporting and deleting templates and their intervals.
+ * Layer: UI. React components; template rules live in src/domain.
+ * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
+ *   (deleteInspectionTemplates, programs, inspectionTemplates, csv, manuals),
+ *   ./TaskCsvImport, ./ActivateTemplate, ./ScheduleTracking,
+ *   ./ManagementShared, ./Manuals, ./ui.
+ */
 import { templateDeletionPreview } from "../domain/deleteInspectionTemplates";
 import { TaskCsvImportButton } from "./TaskCsvImport";
 import { ActivateTemplate } from "./ActivateTemplate";
@@ -15,7 +24,7 @@ import {
   templateLandingCsvHeaders,
   type InspectionTemplate,
 } from "../domain/inspectionTemplates";
-import { AsyncForm, Field, Modal, PageTitle, value } from "./ui";
+import { AsyncForm, Field, Modal, PageTitle, errorText, value } from "./ui";
 import { NumberField, num } from "./ManagementShared";
 import { ManualLink } from "./Manuals";
 import { toCsv } from "../domain/csv";
@@ -465,11 +474,7 @@ export function InspectionTemplates() {
                   setDeletePreview(templateDeletionPreview(s!, deleteIds));
                   setDeleteError("");
                 } catch (e) {
-                  setDeleteError(
-                    e instanceof Error
-                      ? e.message
-                      : "Unable to preview deletion.",
-                  );
+                  setDeleteError(errorText(e, "Unable to preview deletion."));
                 }
               }}
             >

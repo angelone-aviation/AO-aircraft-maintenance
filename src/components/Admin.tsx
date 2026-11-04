@@ -1,3 +1,13 @@
+/**
+ * Responsibility: The Administration screen: users, permission groups and
+ *   aircraft access.
+ * Layer: UI. React components; the server enforces every permission shown.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/domain (programs, groupAircraft, model,
+ *   groupAccessReview, accountRules), ./DeleteGroupButton,
+ *   ./PermissionGroupForm, ./GroupAccessReview, ./ProgramUsers, ./UserProfile,
+ *   ./Fleet, ./SignInMethods, ./ui, ./design, src/styles/screens/admin.css.
+ */
 import { DeleteGroupButton } from "./DeleteGroupButton";
 import { Link } from "@tanstack/react-router";
 import { GroupForm } from "./PermissionGroupForm";
@@ -23,7 +33,7 @@ import {
 import { useWorkspace } from "../data/store";
 import { aircraftMeterLabels, type Group, type Member } from "../domain/model";
 import type { GroupAccessReport } from "../domain/groupAccessReview";
-import { AsyncForm, Field, Modal } from "./ui";
+import { AsyncForm, Field, Modal, errorText } from "./ui";
 import { SignInMethodList } from "./SignInMethods";
 import {
   PASSWORD_MAX_LENGTH,
@@ -89,10 +99,7 @@ export function Administration() {
       if (group) setModal(group);
     } catch (error) {
       useWorkspace.setState({
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to switch Flight Program.",
+        error: errorText(error, "Unable to switch Flight Program."),
       });
     }
   };

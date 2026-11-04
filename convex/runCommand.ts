@@ -1,9 +1,11 @@
 /**
  * Responsibility: The one transaction every applier-backed mutation runs
- *   (ADR-0003), and the hydration of the records a command reads.
+ *   (ADR-0003): hydrating the records a command reads, and writing the ones
+ *   it changed.
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
- * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   src/domain (model, programs, rejection and the stored-record schemas).
+ * Dependencies: convex/values, convex/server (types), ./_generated,
+ *   ./programContext, ./access, ./collections, src/domain (model, programs,
+ *   rejection).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -12,19 +14,18 @@
  */
 import { ConvexError } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { WithOptionalSystemFields } from "convex/server";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 import { activeProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
-import { recordSchema } from "../src/domain/management";
-import { taskCardSchema } from "../src/domain/taskCards";
-import { workOrderSchema } from "../src/domain/workOrders";
-import { adSchema } from "../src/domain/airworthiness";
-import { partsRequestSchema } from "../src/domain/partsRequests";
-import { poSchema } from "../src/domain/purchaseOrders";
-import { checklistRecordSchema } from "../src/domain/checklists";
-import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
-import { costRecordSchema } from "../src/domain/costs";
+import {
+  decode,
+  encode,
+  type PayloadCollection,
+  type StoredRecord,
+  type StoredRow,
+} from "./collections";
 import {
   checkContext,
   managementDocs,
@@ -108,10 +109,11 @@ export interface Transaction {
  * Convex mutation is one transaction, so a throw at any step writes nothing.
  *
  * @returns What `returns` gives; undefined for a replayed request.
- * @throws {ConvexError} With the message of a Rejection thrown in `load` or
- *   `apply`, or the message `expose` gives for another `apply` error.
- * @throws {Error} "Request identifier already used." for a request id reused
- *   by another caller or with another payload. Other errors pass unchanged.
+ * @throws {ConvexError} The message of a Rejection thrown in `load`, `apply`
+ *   or `persist`, or the one `expose` gives for another `apply` error;
+ *   "Request identifier already used." for a request id reused by another
+ *   caller or with another payload; checkContext's program refusals.
+ * @throws {Error} checkContext's session refusal. Other errors pass unchanged.
  */
 export async function runCommand<C, W, R, Out = void>(
   ctx: MutationCtx,
@@ -134,7 +136,7 @@ export async function runCommand<C, W, R, Out = void>(
   const log = new CommandLog(state.user.id);
   const tx: Transaction = { ctx, state, log };
   const { working, result } = await loadAndApply(tx, command, parsed);
-  await command.persist(tx, working, result, parsed);
+  await persistCommand(tx, command, working, result, parsed);
   command.audit(log, working, result, parsed);
   for (const row of log.rows) await writeAudit(ctx, row);
   if (request)
@@ -272,6 +274,38 @@ export async function hydrate<N extends Need>(
   return { snapshot: into.snapshot, docs: into.docs as Pick<LoadedDocs, N> };
 }
 
+/** A payload collection whose records carry their own uuid. */
+export type UuidCollection = Exclude<PayloadCollection, "faaMonitors">;
+
+/**
+ * Writes a collection's records after `apply`, as the codec encodes them:
+ * replaces each loaded row whose payload changed, skips one left as stored,
+ * and inserts a record with no loaded row. Never deletes.
+ *
+ * A uuid outside the active Flight Program is never overwritten: a record
+ * whose uuid is stored but was not loaded is refused.
+ *
+ * @param loaded - The collection's rows `load` read for the command.
+ * @param records - The records to write, in order.
+ * @param refusal - The message for a uuid stored outside the loaded rows.
+ * @throws {ConvexError} `refusal`, before that record is written.
+ */
+export async function writeChanged<N extends UuidCollection>(
+  ctx: MutationCtx,
+  collection: N,
+  loaded: readonly Doc<N>[],
+  records: readonly StoredRecord<N>[],
+  refusal: string,
+): Promise<void> {
+  for (const record of records) {
+    const row = encode(collection, record);
+    const prior = loaded.find((d) => d.uuid === record.uuid);
+    if (prior?.payload === row.payload) continue;
+    if (prior) await replaceRow(ctx, prior._id, row);
+    else await insertUnclaimed(ctx, collection, row, refusal);
+  }
+}
+
 interface Hydrating {
   snapshot: Snapshot;
   docs: Partial<LoadedDocs>;
@@ -282,20 +316,12 @@ type Hydrator = (
   into: Hydrating,
 ) => Promise<void>;
 
-const payload =
-  <T>(schema: { parse(value: unknown): T }) =>
-  (d: { payload: string }) =>
-    schema.parse(JSON.parse(d.payload));
-
-// Component templates and setups are stored as written, without a schema.
-const unparsed = (d: { payload: string }) => JSON.parse(d.payload);
-
 // Reads one collection within the Flight Program and decodes it into the
 // snapshot, keeping the stored documents for persist.
 const HYDRATORS: Record<Need, Hydrator> = {
   management: async (ctx, { program }, { docs, snapshot }) => {
     docs.management = await managementDocs(ctx, program);
-    snapshot.management = docs.management.map(payload(recordSchema));
+    snapshot.management = decode("management", docs.management);
   },
   // Inspections of removed components are found through their component.
   inspections: async (ctx, { program, aircraft }, { docs, snapshot }) => {
@@ -308,17 +334,18 @@ const HYDRATORS: Record<Need, Hydrator> = {
   },
   taskCards: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.taskCards = await taskCardDocs(ctx, aircraft);
-    snapshot.taskCards = docs.taskCards.map(payload(taskCardSchema));
+    snapshot.taskCards = decode("taskCards", docs.taskCards);
   },
   archivedTaskCards: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.archivedTaskCards = await archivedTaskCardDocs(ctx, aircraft);
-    snapshot.archivedTaskCards = docs.archivedTaskCards.map(
-      payload(taskCardSchema),
+    snapshot.archivedTaskCards = decode(
+      "archivedTaskCards",
+      docs.archivedTaskCards,
     );
   },
   workOrders: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.workOrders = await workOrderDocs(ctx, aircraft);
-    snapshot.workOrders = docs.workOrders.map(payload(workOrderSchema));
+    snapshot.workOrders = decode("workOrders", docs.workOrders);
   },
   discrepancies: async (ctx, { aircraft }, { docs, snapshot }) => {
     snapshot.discrepancies = docs.discrepancies = await discrepancyDocs(
@@ -328,39 +355,41 @@ const HYDRATORS: Record<Need, Hydrator> = {
   },
   airworthiness: async (ctx, { aircraft }, { docs, snapshot }) => {
     docs.airworthiness = await airworthinessDocs(ctx, aircraft);
-    snapshot.airworthiness = docs.airworthiness.map(payload(adSchema));
+    snapshot.airworthiness = decode("airworthiness", docs.airworthiness);
   },
   partsRequests: async (ctx, { program }, { docs, snapshot }) => {
     docs.partsRequests = await partsRequestDocs(ctx, program);
-    snapshot.partsRequests = docs.partsRequests.map(
-      payload(partsRequestSchema),
-    );
+    snapshot.partsRequests = decode("partsRequests", docs.partsRequests);
   },
   purchaseOrders: async (ctx, { program }, { docs, snapshot }) => {
     docs.purchaseOrders = await purchaseOrderDocs(ctx, program);
-    snapshot.purchaseOrders = docs.purchaseOrders.map(payload(poSchema));
+    snapshot.purchaseOrders = decode("purchaseOrders", docs.purchaseOrders);
   },
   checklists: async (ctx, { program }, { docs, snapshot }) => {
     docs.checklists = await checklistDocs(ctx, program);
-    snapshot.checklists = docs.checklists.map(payload(checklistRecordSchema));
+    snapshot.checklists = decode("checklists", docs.checklists);
   },
   componentTemplates: async (ctx, { program }, { docs, snapshot }) => {
     docs.componentTemplates = await componentTemplateDocs(ctx, program);
-    snapshot.componentTemplates = docs.componentTemplates.map(unparsed);
+    snapshot.componentTemplates = decode(
+      "componentTemplates",
+      docs.componentTemplates,
+    );
   },
   componentSetups: async (ctx, { program }, { docs, snapshot }) => {
     docs.componentSetups = await componentSetupDocs(ctx, program);
-    snapshot.componentSetups = docs.componentSetups.map(unparsed);
+    snapshot.componentSetups = decode("componentSetups", docs.componentSetups);
   },
   inspectionTemplates: async (ctx, { program }, { docs, snapshot }) => {
     docs.inspectionTemplates = await inspectionTemplateDocs(ctx, program);
-    snapshot.inspectionTemplates = docs.inspectionTemplates.map(
-      payload(inspectionTemplateSchema),
+    snapshot.inspectionTemplates = decode(
+      "inspectionTemplates",
+      docs.inspectionTemplates,
     );
   },
   costs: async (ctx, { program, aircraft }, { docs, snapshot }) => {
     docs.costs = await costDocs(ctx, program, aircraft);
-    snapshot.costs = docs.costs.map(payload(costRecordSchema));
+    snapshot.costs = decode("costs", docs.costs);
   },
 };
 
@@ -377,7 +406,7 @@ async function isReplayed(
     .unique();
   if (!prior) return false;
   if (prior.actorId !== state.user.id || prior.payload !== request.payload)
-    throw new Error("Request identifier already used.");
+    throw new ConvexError("Request identifier already used.");
   return true;
 }
 
@@ -397,6 +426,44 @@ async function loadAndApply<C, W, R, Out>(
   } catch (error) {
     throw exposed(error, command.expose);
   }
+}
+
+async function persistCommand<C, W, R, Out>(
+  tx: Transaction,
+  command: Command<C, W, R, Out>,
+  working: W,
+  result: R,
+  parsed: C,
+) {
+  try {
+    await command.persist(tx, working, result, parsed);
+  } catch (error) {
+    throw exposed(error);
+  }
+}
+
+// A row without system fields is a valid replacement; Convex's types cannot
+// show that for a table chosen at run time.
+function replaceRow<N extends UuidCollection>(
+  ctx: MutationCtx,
+  id: Id<N>,
+  row: StoredRow<N>,
+) {
+  return ctx.db.replace(id, row as WithOptionalSystemFields<Doc<N>>);
+}
+
+async function insertUnclaimed<N extends UuidCollection>(
+  ctx: MutationCtx,
+  collection: N,
+  row: StoredRow<N>,
+  refusal: string,
+) {
+  const stored = await ctx.db
+    .query(collection)
+    .withIndex("uuid", (q) => q.eq("uuid", row.uuid))
+    .first();
+  if (stored) throw new ConvexError(refusal);
+  await ctx.db.insert(collection, row);
 }
 
 // A Rejection, or an error the command's own policy names, becomes a

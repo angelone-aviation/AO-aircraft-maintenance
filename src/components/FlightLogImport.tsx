@@ -1,3 +1,11 @@
+/**
+ * Responsibility: The Import logbook button: previews a flight logbook file
+ *   and saves its rows as flights.
+ * Layer: UI. React component; parsing and planning live in src/domain.
+ * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
+ *   src/domain/model.ts, src/domain/flightLogImport.ts, ./ui, ./design,
+ *   ./engineTrends.css.
+ */
 import "./engineTrends.css";
 import { useState } from "react";
 import { UploadSimple } from "@phosphor-icons/react";
@@ -12,7 +20,7 @@ import {
   type LogbookFormat,
   type PlannedRow,
 } from "../domain/flightLogImport";
-import { AsyncForm, Badge, Field, value } from "./ui";
+import { AsyncForm, Badge, Field, errorText, value } from "./ui";
 import { Dialog } from "./design";
 
 const operations: FlightInput["operation"][] = [
@@ -188,7 +196,7 @@ function FlightLogImportForm() {
                 saved++;
               } catch (e) {
                 errors.push(
-                  `Row ${entry.row.row}: ${e instanceof Error ? e.message : "Not saved."}`,
+                  `Row ${entry.row.row}: ${errorText(e, "Not saved.")}`,
                 );
               }
             }

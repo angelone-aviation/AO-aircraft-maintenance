@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins inventory attachments: who may upload and remove them,
+ *   the file checks and per-item cap, their audit rows, and when a stored
+ *   file is deleted.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/inventoryFiles.ts, convex/schema.ts,
+ *   src/domain/inventoryAttachments, tests/fixtures/requiredParts.
+ */
 import { convexTest } from "convex-test";
 import { expect, it } from "vitest";
 import schema from "./schema";
@@ -10,9 +18,14 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
-it("stores inventory attachments, returns view URLs only to inventory admins, and rejects wrong scopes", async () => {
+const PROGRAM = "demo-program";
+const STOCK = "parts-stock";
+const PDF = new TextEncoder().encode("%PDF-1.4").buffer;
+
+// An inventory administrator and a reader of the parts fixture's program.
+async function fixture() {
   const t = convexTest(schema, modules);
-  const identities = await t.run(async (ctx) => {
+  const subjects = await t.run(async (ctx) => {
     const s = partsFixture();
     for (const p of s.programs!) await ctx.db.insert("programs", p);
     for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
@@ -23,10 +36,10 @@ it("stores inventory attachments, returns view URLs only to inventory admins, an
         programUuid: r.programUuid,
         payload: JSON.stringify(r),
       });
-    const createUser = async (programAdmin: boolean) => {
+    const account = async (programAdmin: boolean) => {
       const group = await ctx.db.insert("groups", {
         name: "Inventory group",
-        programUuid: "demo-program",
+        programUuid: PROGRAM,
         programAdmin,
         permissions: ["read"],
         aircraftIds: [],
@@ -43,10 +56,16 @@ it("stores inventory attachments, returns view URLs only to inventory admins, an
       });
       return { subject: `${user}|${session}` };
     };
-    return { admin: await createUser(true), reader: await createUser(false) };
+    return { admin: await account(true), reader: await account(false) };
   });
-  const admin = t.withIdentity(identities.admin),
-    reader = t.withIdentity(identities.reader);
+  return {
+    t,
+    admin: t.withIdentity(subjects.admin),
+    reader: t.withIdentity(subjects.reader),
+  };
+}
+it("stores inventory attachments, returns view URLs only to inventory admins, and rejects wrong scopes", async () => {
+  const { t, admin, reader } = await fixture();
   const args = {
     stockUuid: "parts-stock",
     programUuid: "demo-program",
@@ -129,38 +148,7 @@ it("accepts supported files and rejects empty, oversized or mismatched uploads",
   ).toThrow("7 MB");
 });
 it("caps attachments per item and removes them with their unshared blob", async () => {
-  const t = convexTest(schema, modules);
-  const identity = await t.run(async (ctx) => {
-    const s = partsFixture();
-    for (const p of s.programs!) await ctx.db.insert("programs", p);
-    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
-    for (const r of s.management!)
-      await ctx.db.insert("management", {
-        uuid: r.uuid,
-        kind: r.kind,
-        programUuid: r.programUuid,
-        payload: JSON.stringify(r),
-      });
-    const group = await ctx.db.insert("groups", {
-      name: "Inventory admins",
-      programUuid: "demo-program",
-      programAdmin: true,
-      permissions: ["read"],
-      aircraftIds: [],
-    });
-    const user = await ctx.db.insert("users", {
-      name: "Admin",
-      active: true,
-      isAdmin: false,
-      groupIds: [group],
-    });
-    const session = await ctx.db.insert("authSessions", {
-      userId: user,
-      expirationTime: Date.now() + 86400000,
-    });
-    return { subject: `${user}|${session}` };
-  });
-  const admin = t.withIdentity(identity);
+  const { t, admin } = await fixture();
   const ids = await t.run(async (ctx) => {
     const rows = [];
     for (let i = 0; i < 25; i++) {
@@ -194,4 +182,100 @@ it("caps attachments per item and removes them with their unshared blob", async 
   });
   expect(await t.run((ctx) => ctx.db.get(ids[0].id))).toBeNull();
   expect(await t.run((ctx) => ctx.storage.getUrl(ids[0].storageId))).toBeNull();
+});
+it("checks the file before access, and deletes the stored file when filing is refused", async () => {
+  const { t, admin, reader } = await fixture();
+  const upload = {
+    stockUuid: STOCK,
+    programUuid: PROGRAM,
+    name: "extra.pdf",
+    type: "application/pdf",
+    bytes: PDF,
+  };
+  await expect(
+    reader.action(api.inventoryFiles.upload, {
+      ...upload,
+      name: "page.html",
+      type: "text/html",
+    }),
+  ).rejects.toThrow("Choose a PDF, JPEG, PNG or WebP file.");
+  await expect(
+    admin.action(api.inventoryFiles.upload, { ...upload, stockUuid: "gone" }),
+  ).rejects.toThrow("Inventory administrator access to this item is required.");
+  const blobs = () => t.run((ctx) => ctx.db.system.query("_storage").collect());
+  await t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(new Blob(["kept"]));
+    for (let i = 0; i < 25; i++)
+      await ctx.db.insert("inventoryFiles", {
+        stockUuid: STOCK,
+        storageId,
+        name: `file-${i}.pdf`,
+        type: "application/pdf",
+        size: 4,
+        uploadedAt: i,
+      });
+  });
+  expect(await blobs()).toHaveLength(1);
+  await expect(admin.action(api.inventoryFiles.upload, upload)).rejects.toThrow(
+    "This record already has the maximum of 25 attachments.",
+  );
+  expect(await blobs()).toHaveLength(1);
+});
+
+it("keeps a file a PO receipt still uses, and audits each change with the file's name and size", async () => {
+  const { t, admin } = await fixture();
+  const { id, storageId } = await t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(new Blob(["receipt"]));
+    const file = {
+      storageId,
+      name: "receipt.pdf",
+      type: "application/pdf",
+      size: 7,
+      uploadedAt: 1,
+    };
+    await ctx.db.insert("poFiles", {
+      ...file,
+      poUuid: "po",
+      programUuid: PROGRAM,
+    });
+    return {
+      storageId,
+      id: await ctx.db.insert("inventoryFiles", { ...file, stockUuid: STOCK }),
+    };
+  });
+  await admin.mutation(api.inventoryFiles.remove, { id, programUuid: PROGRAM });
+  expect(await t.run((ctx) => ctx.db.get(id))).toBeNull();
+  expect(await t.run((ctx) => ctx.storage.getUrl(storageId))).not.toBeNull();
+  await admin.action(api.inventoryFiles.upload, {
+    stockUuid: STOCK,
+    programUuid: PROGRAM,
+    name: "invoice.pdf",
+    type: "application/pdf",
+    bytes: PDF,
+  });
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(
+    rows.map(({ action, entityUuid, programUuid, before, after }) => ({
+      action,
+      entityUuid,
+      programUuid,
+      before,
+      after,
+    })),
+  ).toEqual([
+    {
+      action: "inventory.attachment_removed",
+      entityUuid: STOCK,
+      programUuid: PROGRAM,
+      before: JSON.stringify({ name: "receipt.pdf", size: 7 }),
+      after: undefined,
+    },
+    {
+      action: "inventory.attachment",
+      entityUuid: STOCK,
+      programUuid: PROGRAM,
+      before: undefined,
+      after: JSON.stringify({ name: "invoice.pdf", size: PDF.byteLength }),
+    },
+  ]);
 });

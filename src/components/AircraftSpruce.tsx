@@ -1,4 +1,12 @@
-import { ConvexError } from "convex/values";
+/**
+ * Responsibility: The Aircraft Spruce supplier link: a program's account
+ *   connection, the product picker on requests and orders, and a purchase
+ *   order's supplier progress.
+ * Layer: UI. React components; the supplier is reached only through the
+ *   workspace backend.
+ * Dependencies: react, @tanstack/react-router, src/data/store.ts,
+ *   src/domain/programs.ts, src/domain/aircraftSpruce.ts, ./ui.tsx.
+ */
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
@@ -9,13 +17,8 @@ import {
   type SpruceProduct,
   type SpruceOrderSnapshot,
 } from "../domain/aircraftSpruce";
-import { AsyncForm, Field, safeHref } from "./ui";
+import { AsyncForm, Field, errorText, safeHref } from "./ui";
 
-function supplierError(error: unknown, fallback: string) {
-  return error instanceof ConvexError && typeof error.data === "string"
-    ? error.data
-    : fallback;
-}
 /** The active program's Aircraft Spruce connection, shown in Settings →
  * Flight Program (h3 under that section's h2). */
 export function AircraftSpruceAccount() {
@@ -58,9 +61,7 @@ function Account({ programUuid }: { programUuid: string }) {
       setStatus(await backend!.spruceStatus(programUuid));
       setNotice(message);
     } catch (e) {
-      setNotice(
-        e instanceof Error ? e.message : "Aircraft Spruce request failed.",
-      );
+      setNotice(errorText(e, "Aircraft Spruce request failed."));
     } finally {
       setBusy(false);
     }
@@ -303,7 +304,7 @@ function ProductPicker({
                 if (!products.length) setError("No matching products.");
               } catch (e) {
                 setError(
-                  supplierError(
+                  errorText(
                     e,
                     "Search failed. Try again or check the connection under Vendors.",
                   ),

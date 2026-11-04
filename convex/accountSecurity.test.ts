@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Pins account security end to end: the uniform refusal of an
+ *   unavailable email, account-request limits, sessions ended on disable,
+ *   sign-in lockout and reset, and the answer to adding an existing user.
+ * Layer: Test. convex-test suite with real password hashing; never shipped.
+ * Dependencies: convex/admin, convex/programUsers, convex/accountGuards,
+ *   convex/auth, convex/schema, src/domain (accountRules, passwordRules),
+ *   src/data/demo (fixture), jose.
+ */
 import { convexTest } from "convex-test";
 import { it, vi, expect, beforeAll } from "vitest";
 // These tests hash real passwords (scrypt) several times each; under a busy
@@ -18,6 +27,14 @@ import {
   PASSWORD_LENGTH_MESSAGE,
 } from "../src/domain/passwordRules";
 import type { Id } from "./_generated/dataModel";
+import { reserveNewAccount } from "./accountGuards";
+// Lets a test take the email between the free-email check and createAccount,
+// the race that assertCreatedHere and uniformCreateError answer; every other
+// call runs the real check.
+vi.mock("./accountGuards", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./accountGuards")>();
+  return { ...real, reserveNewAccount: vi.fn(real.reserveNewAccount) };
+});
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -108,6 +125,13 @@ const message = (p: Promise<unknown>) =>
     () => "",
     (e: Error) => e.message,
   );
+const refused = (p: Promise<unknown>) =>
+  p.then(
+    () => {
+      throw new Error("Expected a refusal.");
+    },
+    (error: unknown) => error,
+  );
 const signIn = (f: Fixture, email: string, password: string) =>
   f.t.action(api.auth.signIn, {
     provider: "password",
@@ -188,6 +212,50 @@ it("system administrator account creation fails the same way for an existing ema
   ).toEqual(before);
   const audit = await f.t.run((ctx) => ctx.db.query("audit").collect());
   expect(audit.filter((a) => a.action === "user.created")).toHaveLength(1);
+});
+
+it("refuses an unavailable email with one class and message on every path", async () => {
+  const f = await fixture();
+  await provision(f, "taken@example.test");
+  const accounts = () =>
+    f.t.run(async (ctx) => ({
+      users: await ctx.db.query("users").collect(),
+      logins: await ctx.db.query("authAccounts").collect(),
+    }));
+  const before = await accounts();
+  const person = { email: "taken@example.test", name: "Intruder" };
+  const creators = [
+    (password: string) =>
+      f.program.action(api.programUsers.create, {
+        ...person,
+        password,
+        programUuid: "home",
+        groupIds: [f.ids.own],
+      }),
+    (password: string) =>
+      f.system.action(api.admin.createUser, { ...person, password }),
+  ];
+  const refusals = [];
+  for (const create of creators) {
+    refusals.push(await refused(create(PASSWORD)));
+    // Taken after the check: createAccount refuses a wrong password
+    // (uniformCreateError) and returns the existing user for the right one
+    // (assertCreatedHere).
+    for (const password of ["some-other-password-9", PASSWORD]) {
+      vi.mocked(reserveNewAccount).mockResolvedValueOnce({
+        available: true,
+        checkedAt: Date.now(),
+      });
+      refusals.push(await refused(create(password)));
+    }
+  }
+  for (const error of refusals)
+    expect(error).toMatchObject({
+      name: "ConvexError",
+      data: EMAIL_UNAVAILABLE,
+      message: EMAIL_UNAVAILABLE,
+    });
+  expect(await accounts()).toEqual(before);
 });
 
 it("discard removes only an unfinished account created in the same call", async () => {
@@ -377,7 +445,11 @@ it("locks an account after the configured failed sign-ins, and a password reset 
   expect(
     audit.find((a) => a.action === "user.password_reset")?.after,
   ).toContain("signInLockoutCleared");
-  const ok = (await signIn(f, "pilot@example.test", "a-brand-new-password-1")) as {
+  const ok = (await signIn(
+    f,
+    "pilot@example.test",
+    "a-brand-new-password-1",
+  )) as {
     tokens: unknown;
   };
   expect(ok.tokens).toBeTruthy();

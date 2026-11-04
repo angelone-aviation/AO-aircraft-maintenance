@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins component removal and installation through work orders:
+ *   the inventory tag, cancellation, stale closeouts and access refusals.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrders.ts, ./management, ./inventoryPrinting,
+ *   tests/fixtures/requiredParts.ts, tests/fixtures/workOrders.ts,
+ *   tests/fixtures/componentMovement.ts.
+ */
 import { expect, it } from "vitest";
 import { partsFixture } from "../../tests/fixtures/requiredParts";
 import { workOrderComponent } from "../../tests/fixtures/workOrders";
@@ -5,7 +13,13 @@ import { movementOrderCommand } from "../../tests/fixtures/componentMovement";
 import { saveWorkOrder } from "./workOrders";
 import { applyManagement } from "./management";
 import { inventoryTagFields } from "./inventoryPrinting";
-const now = Date.parse("2026-10-08T12:00:00Z");
+const NOW = Date.parse("2026-10-08T12:00:00Z");
+const TODAY = "2026-10-08";
+
+/**
+ * An engine installed LEFT, a command removing it today to the parts location
+ * (bin A), and the completed work order that carries that removal.
+ */
 function setup() {
   const s = partsFixture();
   const c = { ...workOrderComponent(), installPosition: "LEFT" as const };
@@ -15,7 +29,7 @@ function setup() {
     uuid: c.uuid,
     version: c.version,
     operation: "remove" as const,
-    date: "2026-10-08",
+    date: TODAY,
     reason: "Removed for workshop inspection",
     requestUuid: crypto.randomUUID(),
     locationUuid: "parts-location",
@@ -26,7 +40,7 @@ function setup() {
 }
 it("requires a work order, leaves planned removals installed, and preserves aircraft tag and logbook history", () => {
   const { s, c, service, close } = setup();
-  expect(() => applyManagement(s, service, now)).toThrow(
+  expect(() => applyManagement(s, service, NOW)).toThrow(
     "through a work order",
   );
   expect(() =>
@@ -38,7 +52,7 @@ it("requires a work order, leaves planned removals installed, and preserves airc
         requestUuid: crypto.randomUUID(),
         reason: "Try direct installation",
       },
-      now,
+      NOW,
     ),
   ).toThrow("through a work order");
   const open = saveWorkOrder(
@@ -48,10 +62,10 @@ it("requires a work order, leaves planned removals installed, and preserves airc
       fields: { ...close.fields, status: "open", completionDate: "" },
       tasks: close.tasks.map((t) => ({ ...t, status: "requested" })),
     },
-    now,
+    NOW,
   );
   expect(s.management!.find((r) => r.uuid === c.uuid)).toEqual(c);
-  const final = saveWorkOrder(s, { ...close, version: open.version }, now);
+  const final = saveWorkOrder(s, { ...close, version: open.version }, NOW);
   const stored = s.management!.find((r) => r.uuid === c.uuid)!;
   if (stored.kind !== "component") throw new Error("Missing component");
   expect(stored).toMatchObject({
@@ -64,7 +78,7 @@ it("requires a work order, leaves planned removals installed, and preserves airc
     lastOperator: s.aircraft[0].registration,
     nhaSerial: s.aircraft[0].serial,
     position: "LEFT",
-    removalDate: "2026-10-08",
+    removalDate: TODAY,
     reference: final.number,
   });
   s.aircraft[0].registration = "CHANGED";
@@ -85,7 +99,7 @@ it("cancellation leaves inventory unchanged; stale closeout fails atomically", (
       ...close,
       fields: { ...close.fields, status: "open", completionDate: "" },
     },
-    now,
+    NOW,
   );
   saveWorkOrder(
     s,
@@ -95,7 +109,7 @@ it("cancellation leaves inventory unchanged; stale closeout fails atomically", (
       fields: { ...close.fields, status: "cancelled" },
       tasks: close.tasks.map((t) => ({ ...t, status: "cancelled" })),
     },
-    now,
+    NOW,
   );
   expect(s.management!.find((r) => r.uuid === c.uuid)).toEqual(c);
   const next = {
@@ -105,7 +119,7 @@ it("cancellation leaves inventory unchanged; stale closeout fails atomically", (
   };
   c.version++;
   const before = structuredClone(s);
-  expect(() => saveWorkOrder(s, next, now)).toThrow("tracking changed");
+  expect(() => saveWorkOrder(s, next, NOW)).toThrow("tracking changed");
   expect(s).toEqual(before);
 });
 it("uses saved manual incoming tag details before a system removal", () => {
@@ -137,7 +151,7 @@ it("rejects foreign-program stock and inaccessible source aircraft when planning
       installPosition: "LEFT" as const,
     })),
   };
-  expect(() => saveWorkOrder(s, plan, now)).toThrow(
+  expect(() => saveWorkOrder(s, plan, NOW)).toThrow(
     "maintenance access denied",
   );
   c.programUuid = s.aircraft[0].programUuid;
@@ -153,7 +167,7 @@ it("rejects foreign-program stock and inaccessible source aircraft when planning
       permissions: ["read", "maintenance"],
     },
   ];
-  expect(() => saveWorkOrder(s, plan, now)).toThrow(
+  expect(() => saveWorkOrder(s, plan, NOW)).toThrow(
     "Component maintenance access denied",
   );
 });
@@ -169,9 +183,9 @@ it("retains long work descriptions in the movement and logbook", () => {
       ...close,
       fields: { ...close.fields, status: "open", completionDate: "" },
     },
-    now,
+    NOW,
   );
-  const final = saveWorkOrder(s, { ...close, version: open.version }, now);
+  const final = saveWorkOrder(s, { ...close, version: open.version }, NOW);
   expect(final.closeout!.workPerformed).toContain(
     close.componentWork![0].description.trim(),
   );

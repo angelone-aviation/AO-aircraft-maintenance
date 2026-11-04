@@ -1,14 +1,36 @@
+/**
+ * Responsibility: Deferring an open discrepancy under an MEL item or 14 CFR
+ *   91.213(d), and when a deferral expires.
+ * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
+ * Dependencies: zod, ./model, ./rejection.
+ */
 import { z } from "zod";
 import { can, isLocalToday, type Discrepancy, type Snapshot } from "./model";
+import { Rejection } from "./rejection";
 
-// MEL repair intervals in calendar days, excluding the day of discovery.
-// Category A intervals come from the MEL item itself.
+const DAY_MS = 86400000;
+
+/**
+ * MEL repair intervals by category, in calendar days excluding the day of
+ * discovery (MMEL preamble repair categories). Category A intervals come from
+ * the MEL item itself.
+ */
 export const MEL_CATEGORY_DAYS = { B: 3, C: 10, D: 120 } as const;
+
 const placard = z
   .string()
   .trim()
   .min(1, "Enter the placard text.")
   .max(500, "Keep the placard text under 500 characters.");
+
+/**
+ * A deferral as the user enters it: an MEL item and repair category (days
+ * from the MEL, 1–365, for category A only), or 91.213(d) inoperative
+ * equipment confirmed not to be a hazard. Both need placard text.
+ *
+ * @throws {z.ZodError} From `parse()`, with a message for each field, and
+ *   "Category A requires the number of days from the MEL; …" on `days`.
+ */
 export const deferralInputSchema = z
   .discriminatedUnion("type", [
     z.strictObject({
@@ -44,7 +66,14 @@ export const deferralInputSchema = z
       path: ["days"],
     },
   );
+
+/** A parsed deferral input. */
 export type DeferralInput = z.infer<typeof deferralInputSchema>;
+
+/**
+ * A recorded deferral: the input, who deferred it and when, and its expiry
+ * date (MEL deferrals only).
+ */
 export type Deferral = DeferralInput & {
   deferredOn: string;
   deferredAt: number;
@@ -52,18 +81,29 @@ export type Deferral = DeferralInput & {
   deferredByName: string;
   expiresOn?: string;
 };
+
+/**
+ * A request to defer one discrepancy, dated the day it is made.
+ *
+ * @throws {z.ZodError} From `parse()` on an invalid field or deferral.
+ */
 export const deferCommandSchema = z.strictObject({
   uuid: z.string().min(1),
   deferredOn: z.iso.date(),
   deferral: deferralInputSchema,
 });
+
+/** A parsed defer command. */
 export type DeferCommand = z.infer<typeof deferCommandSchema>;
 
-const dayMs = 86400000;
-const addDays = (date: string, days: number) =>
-  new Date(Date.parse(date + "T00:00:00Z") + days * dayMs)
-    .toISOString()
-    .slice(0, 10);
+/**
+ * Works out when a deferral expires.
+ *
+ * @param input - The deferral; category A must carry its days.
+ * @param deferredOn - The deferral date (YYYY-MM-DD).
+ * @returns The deferral date plus the category's days for an MEL item, or
+ *   undefined for 91.213(d), which does not expire.
+ */
 export function deferralExpiry(
   input: DeferralInput,
   deferredOn: string,
@@ -74,30 +114,62 @@ export function deferralExpiry(
     input.category === "A" ? input.days! : MEL_CATEGORY_DAYS[input.category],
   );
 }
-/** Days left including today; 0 on the last valid day, negative once expired. */
+
+/**
+ * Counts the days a deferral has left.
+ *
+ * @param d - The deferral's expiry date, if any.
+ * @param today - The day to count from (YYYY-MM-DD).
+ * @returns Days left including today: 0 on the last valid day, negative once
+ *   expired; undefined when the deferral does not expire.
+ */
 export function deferralDaysRemaining(
   d: Pick<Deferral, "expiresOn">,
   today: string,
 ): number | undefined {
-  return d.expiresOn === undefined
-    ? undefined
-    : Math.round(
-        (Date.parse(d.expiresOn + "T00:00:00Z") -
-          Date.parse(today + "T00:00:00Z")) /
-          dayMs,
-      );
+  if (d.expiresOn === undefined) return undefined;
+  const ms =
+    Date.parse(d.expiresOn + "T00:00:00Z") - Date.parse(today + "T00:00:00Z");
+  return Math.round(ms / DAY_MS);
 }
+
+/**
+ * Tells whether a deferral has expired.
+ *
+ * @param d - The deferral's expiry date, if any.
+ * @param today - The day to judge on (YYYY-MM-DD).
+ * @returns True from the day after the expiry date; false without one.
+ */
 export const deferralExpired = (
   d: Pick<Deferral, "expiresOn">,
   today: string,
 ) => (deferralDaysRemaining(d, today) ?? 0) < 0;
+
+/**
+ * Names a deferral for status reasons and lists.
+ *
+ * @param d - The deferral.
+ * @returns "MEL <item> (Category <c>)", or "14 CFR 91.213(d) inoperative
+ *   equipment".
+ */
 export function deferralLabel(d: Deferral) {
   return d.type === "mel"
     ? `MEL ${d.melItem} (Category ${d.category})`
     : "14 CFR 91.213(d) inoperative equipment";
 }
 
-/** Returns the deferred discrepancy; callers persist and audit it. */
+/**
+ * Defers an open discrepancy, recording who deferred it, when, and its expiry.
+ *
+ * @param s - Snapshot holding the discrepancy and the user; not changed.
+ * @param raw - The command, parsed with {@link deferCommandSchema}.
+ * @param now - The time recorded as `deferredAt`.
+ * @returns A copy of the discrepancy; the caller persists and audits it.
+ * @throws {Rejection} "Report not found.", "You do not have permission for
+ *   this aircraft." (needs `resolve`), "Only open discrepancies can be
+ *   deferred.", "This discrepancy is already deferred.", "The deferral date
+ *   must be today."; {z.ZodError} for a bad command.
+ */
 export function deferDiscrepancy(
   s: Snapshot,
   raw: unknown,
@@ -105,14 +177,14 @@ export function deferDiscrepancy(
 ): Discrepancy {
   const command = deferCommandSchema.parse(raw);
   const d = s.discrepancies.find((d) => d.uuid === command.uuid);
-  if (!d) throw new Error("Report not found.");
+  if (!d) throw new Rejection("Report not found.");
   if (!can(s, d.aircraftUuid, "resolve"))
-    throw new Error("You do not have permission for this aircraft.");
+    throw new Rejection("You do not have permission for this aircraft.");
   if (d.status !== "open")
-    throw new Error("Only open discrepancies can be deferred.");
-  if (d.deferral) throw new Error("This discrepancy is already deferred.");
+    throw new Rejection("Only open discrepancies can be deferred.");
+  if (d.deferral) throw new Rejection("This discrepancy is already deferred.");
   if (!isLocalToday(command.deferredOn, now))
-    throw new Error("The deferral date must be today.");
+    throw new Rejection("The deferral date must be today.");
   return {
     ...d,
     deferral: {
@@ -124,4 +196,10 @@ export function deferDiscrepancy(
       expiresOn: deferralExpiry(command.deferral, command.deferredOn),
     },
   };
+}
+
+function addDays(date: string, days: number) {
+  return new Date(Date.parse(date + "T00:00:00Z") + days * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
 }

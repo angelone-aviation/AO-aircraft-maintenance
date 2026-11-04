@@ -1,56 +1,59 @@
+/**
+ * Responsibility: The caller's Flight Program context, its checks, and the
+ *   program-scoped loaders every server read goes through.
+ * Layer: Server. Convex reads only; the permission rules come from src/domain.
+ * Dependencies: convex/values, ./_generated, ./access, src/domain (programs,
+ *   model, ownerView).
+ *
+ * Loaders read one tenant, per program or per aircraft of the program, so
+ * reads and reactive invalidation stay within it.
+ */
+import { ConvexError } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { currentUser, member, group } from "./access";
 import { activeProgram, programPermission } from "../src/domain/programs";
 import type { Snapshot } from "../src/domain/model";
 import { isOwnerView } from "../src/domain/ownerView";
+
 type Ctx = QueryCtx | MutationCtx;
-// Loads only the caller's tenant: their own groups plus the active program's
-// groups, the active program's aircraft, and manuals for those aircraft.
-// Programs stay a full read: one small row per tenant, admins switch between
-// all of them, and program names are unique across tenants.
+/** The aircraft a per-aircraft loader reads for. */
+type AircraftRefs = { uuid: string }[];
+
+/** How many change-log rows the snapshot's History list holds. */
+export const AUDIT_LIMIT = 250;
+const AIRCRAFT_AUDIT_LIMIT = 50;
+
+/**
+ * The caller's tenant as a Snapshot: their own groups plus the active
+ * program's, the program's aircraft and their manuals, and every program (one
+ * small row each; administrators switch between them all). Other collections
+ * start empty.
+ *
+ * @param known - The caller, when already loaded.
+ * @throws {Error} The session refusal of currentUser, when `known` is absent.
+ */
 export async function context(ctx: Ctx, known?: Doc<"users">) {
   const user = known ?? (await currentUser(ctx));
   const caller = member(user);
   const programs = await ctx.db.query("programs").collect();
-  const own = user.isAdmin
-    ? await ctx.db.query("groups").collect()
-    : (
-        await Promise.all((user.groupIds ?? []).map((id) => ctx.db.get(id)))
-      ).filter((g): g is Doc<"groups"> => g !== null);
+  const own = await ownGroups(ctx, user);
   const program = activeProgram({
     user: caller,
     groups: own.map(group),
     programs,
   });
-  const local =
-    user.isAdmin || !program
-      ? []
-      : await ctx.db
-          .query("groups")
-          .withIndex("program", (q) => q.eq("programUuid", program))
-          .collect();
-  const groups = [
-    ...new Map([...own, ...local].map((g) => [g._id, g])).values(),
-  ].map(group);
+  const groups = await withProgramGroups(ctx, user, program, own);
   const aircraft = await ctx.db
     .query("aircraft")
     .withIndex("program", (q) => q.eq("programUuid", program))
     .collect();
-  const manuals = await perAircraft(aircraft, (id) =>
-    ctx.db
-      .query("manuals")
-      .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
-      .collect(),
-  );
   return {
     user: caller,
     groups,
     programs,
     aircraft,
-    manuals: manuals.map(
-      ({ storageId: _storage, _id, _creationTime, ...manual }) => manual,
-    ),
+    manuals: await snapshotManuals(ctx, aircraft),
     members: [],
     flights: [],
     inspections: [],
@@ -60,6 +63,18 @@ export async function context(ctx: Ctx, known?: Doc<"users">) {
     authenticatedAt: Date.now(),
   } satisfies Snapshot;
 }
+
+/**
+ * The caller's context, checked before any program-scoped command or
+ * auxiliary query reads further. Administrators pass the read check.
+ *
+ * @param expected - The Flight Program the client acted in.
+ * @throws {Error} The session refusal of currentUser.
+ * @throws {ConvexError} In this order: "Flight Program permission denied."
+ *   without read permission; "Aircraft owner access is read-only." for an
+ *   aircraft owner; "Flight Program changed. Reopen the form in the correct
+ *   program." when `expected` is not the active program.
+ */
 export async function checkContext(
   ctx: Ctx,
   expected?: string,
@@ -67,44 +82,58 @@ export async function checkContext(
 ) {
   const state = await context(ctx, known);
   if (!state.user.isAdmin && !programPermission(state, "read"))
-    throw new Error("Flight Program permission denied.");
-  // Aircraft owners only read their snapshot; every program-scoped command
-  // and auxiliary query passes through here.
+    throw new ConvexError("Flight Program permission denied.");
   if (isOwnerView(state))
-    throw new Error("Aircraft owner access is read-only.");
+    throw new ConvexError("Aircraft owner access is read-only.");
   if (activeProgram(state) !== expected)
-    throw new Error(
+    throw new ConvexError(
       "Flight Program changed. Reopen the form in the correct program.",
     );
   return state;
 }
 
-// Program-scoped row loaders. Every caller passes the active program (or its
-// aircraft), so reads and reactive invalidation stay within one tenant.
-type Aircraft = { uuid: string }[];
+/**
+ * Runs one loader per aircraft, in parallel.
+ *
+ * @returns Every aircraft's rows, in the order of `aircraft`.
+ */
 export async function perAircraft<T>(
-  aircraft: Aircraft,
+  aircraft: AircraftRefs,
   load: (aircraftUuid: string) => Promise<T[]>,
 ) {
   return (await Promise.all(aircraft.map((a) => load(a.uuid)))).flat();
 }
+
+/**
+ * The program's records, plus legacy rows stored without a program: the
+ * domain derives their program from their location, component or aircraft
+ * (recordProgram).
+ *
+ * @param programUuid - The program; undefined reads only the rows without one.
+ */
 export async function managementDocs(ctx: Ctx, programUuid?: string) {
   const docs = await ctx.db
     .query("management")
     .withIndex("program", (q) => q.eq("programUuid", programUuid))
     .collect();
   if (programUuid === undefined) return docs;
-  // Legacy rows without a program column derive ownership from their location,
-  // component or aircraft (recordProgram), so they stay visible to the domain.
   const legacy = await ctx.db
     .query("management")
     .withIndex("program", (q) => q.eq("programUuid", undefined))
     .collect();
   return [...docs, ...legacy];
 }
+
+/**
+ * The aircraft's inspections, plus those of removed components, which travel
+ * with the component rather than an aircraft.
+ *
+ * @param management - The program's records, to find removed components.
+ * @returns Each inspection once.
+ */
 export async function inspectionDocs(
   ctx: Ctx,
-  aircraft: Aircraft,
+  aircraft: AircraftRefs,
   management: Doc<"management">[],
 ) {
   const docs = await perAircraft(aircraft, (id) =>
@@ -113,7 +142,6 @@ export async function inspectionDocs(
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-  // Schedules of removed components travel with the component, not an aircraft.
   const loose = await Promise.all(
     management
       .filter((d) => d.kind === "component" && !d.aircraftUuid)
@@ -128,62 +156,80 @@ export async function inspectionDocs(
     ...new Map([...docs, ...loose.flat()].map((d) => [d._id, d])).values(),
   ];
 }
-export const flightDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's flights. */
+export const flightDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("flights")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-export const discrepancyDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's problem reports. */
+export const discrepancyDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("discrepancies")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-export const taskCardDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's job cards. */
+export const taskCardDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("taskCards")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-export const archivedTaskCardDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's archived job cards. */
+export const archivedTaskCardDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("archivedTaskCards")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-export const workOrderDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's work orders. */
+export const workOrderDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("workOrders")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-export const flightPlanDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's flight plans. */
+export const flightPlanDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("flightPlans")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-export const faaMonitorDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's FAA airworthiness-directive monitors. */
+export const faaMonitorDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("faaMonitors")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
-export const airworthinessDocs = (ctx: Ctx, aircraft: Aircraft) =>
+
+/** The aircraft's airworthiness-directive records. */
+export const airworthinessDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>
     ctx.db
       .query("airworthiness")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
+
+/** The program's parts requests; none without a program. */
 export const partsRequestDocs = (ctx: Ctx, programUuid?: string) =>
   programUuid
     ? ctx.db
@@ -191,6 +237,8 @@ export const partsRequestDocs = (ctx: Ctx, programUuid?: string) =>
         .withIndex("program", (q) => q.eq("programUuid", programUuid))
         .collect()
     : Promise.resolve([]);
+
+/** The program's purchase orders; none without a program. */
 export const purchaseOrderDocs = (ctx: Ctx, programUuid?: string) =>
   programUuid
     ? ctx.db
@@ -198,6 +246,8 @@ export const purchaseOrderDocs = (ctx: Ctx, programUuid?: string) =>
         .withIndex("program", (q) => q.eq("programUuid", programUuid))
         .collect()
     : Promise.resolve([]);
+
+/** The program's checklists; none without a program. */
 export const checklistDocs = (ctx: Ctx, programUuid?: string) =>
   programUuid
     ? ctx.db
@@ -205,6 +255,8 @@ export const checklistDocs = (ctx: Ctx, programUuid?: string) =>
         .withIndex("program", (q) => q.eq("programUuid", programUuid))
         .collect()
     : Promise.resolve([]);
+
+/** The program's component templates; none without a program. */
 export const componentTemplateDocs = (ctx: Ctx, programUuid?: string) =>
   programUuid
     ? ctx.db
@@ -212,6 +264,8 @@ export const componentTemplateDocs = (ctx: Ctx, programUuid?: string) =>
         .withIndex("program", (q) => q.eq("programUuid", programUuid))
         .collect()
     : Promise.resolve([]);
+
+/** The program's component setups; none without a program. */
 export const componentSetupDocs = (ctx: Ctx, programUuid?: string) =>
   programUuid
     ? ctx.db
@@ -219,11 +273,15 @@ export const componentSetupDocs = (ctx: Ctx, programUuid?: string) =>
         .withIndex("program", (q) => q.eq("programUuid", programUuid))
         .collect()
     : Promise.resolve([]);
-// Cost rows for the program's aircraft plus the program's settings row.
+
+/**
+ * The aircraft's cost records, plus the program's settings row (stored with
+ * aircraftUuid "").
+ */
 export async function costDocs(
   ctx: Ctx,
   programUuid: string | undefined,
-  aircraft: Aircraft,
+  aircraft: AircraftRefs,
 ) {
   const rows = await perAircraft(aircraft, (id) =>
     ctx.db
@@ -241,13 +299,21 @@ export async function costDocs(
     : [];
   return [...rows, ...settings];
 }
+
+/** The program's inspection templates; without one, the unassigned ones. */
 export const inspectionTemplateDocs = (ctx: Ctx, programUuid?: string) =>
   ctx.db
     .query("inspectionTemplates")
     .withIndex("program", (q) => q.eq("programUuid", programUuid))
     .collect();
-// Change-log rows a transfer listed for a program (see transferredAudit),
-// newest first, below an optional _creationTime.
+
+/**
+ * Change-log rows a transfer listed for the program (see transferredAudit).
+ *
+ * @param take - The most rows to return.
+ * @param before - Only rows whose audit `_creationTime` is below this.
+ * @returns Newest first; none without a program.
+ */
 export async function transferredAuditDocs(
   ctx: Ctx,
   programUuid: string | undefined,
@@ -267,13 +333,17 @@ export async function transferredAuditDocs(
     (d): d is Doc<"audit"> => d !== null,
   );
 }
-// The History page renders the snapshot list; keep it to recent activity.
-export const AUDIT_LIMIT = 250;
-const AIRCRAFT_AUDIT_LIMIT = 50;
+
+/**
+ * Recent activity for the History list: the program's rows, the latest
+ * AIRCRAFT_AUDIT_LIMIT of each aircraft, and the rows transfers listed.
+ *
+ * @returns At most {@link AUDIT_LIMIT} rows, each once, newest `at` first.
+ */
 export async function auditDocs(
   ctx: Ctx,
   programUuid: string | undefined,
-  aircraft: Aircraft,
+  aircraft: AircraftRefs,
 ) {
   const docs = [
     ...(await ctx.db
@@ -293,4 +363,45 @@ export async function auditDocs(
   return [...new Map(docs.map((d) => [d._id, d])).values()]
     .sort((a, b) => b.at - a.at)
     .slice(0, AUDIT_LIMIT);
+}
+
+// An administrator holds every group; anyone else, the groups they list.
+async function ownGroups(ctx: Ctx, user: Doc<"users">) {
+  if (user.isAdmin) return ctx.db.query("groups").collect();
+  const groups = await Promise.all(
+    (user.groupIds ?? []).map((id) => ctx.db.get(id)),
+  );
+  return groups.filter((g): g is Doc<"groups"> => g !== null);
+}
+
+// A non-administrator's context also lists the active program's other groups;
+// an administrator's own list already holds every group. Each group once.
+async function withProgramGroups(
+  ctx: Ctx,
+  user: Doc<"users">,
+  program: string | undefined,
+  own: Doc<"groups">[],
+) {
+  const local =
+    user.isAdmin || !program
+      ? []
+      : await ctx.db
+          .query("groups")
+          .withIndex("program", (q) => q.eq("programUuid", program))
+          .collect();
+  return [...new Map([...own, ...local].map((g) => [g._id, g])).values()].map(
+    group,
+  );
+}
+
+async function snapshotManuals(ctx: Ctx, aircraft: AircraftRefs) {
+  const manuals = await perAircraft(aircraft, (id) =>
+    ctx.db
+      .query("manuals")
+      .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
+      .collect(),
+  );
+  return manuals.map(
+    ({ storageId: _storage, _id, _creationTime, ...manual }) => manual,
+  );
 }

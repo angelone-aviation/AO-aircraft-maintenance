@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins parts requests: linked requests, inventory access,
+ *   reservations and issues in stock history, and a request uuid another
+ *   Flight Program holds.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/partsRequests, convex/purchaseOrders, src/data/demo,
+ *   src/domain (partsRequests, purchaseOrders).
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -291,4 +299,55 @@ it("records request reservations and issues in the stock item's own history (#49
     quantity: 6,
     reservedQuantity: 2,
   });
+});
+
+it("refuses a request uuid another Flight Program holds, and writes nothing", async () => {
+  const t = convexTest(schema, modules);
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", demoSnapshot().programs![0]);
+    await ctx.db.insert("partsRequests", {
+      uuid: "taken",
+      programUuid: "other",
+      payload: "{}",
+    });
+    const userId = await ctx.db.insert("users", {
+      name: "Buyer",
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const sessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${userId}|${sessionId}`;
+  });
+  const draft = requestDraftSchema.parse({
+    uuid: "taken",
+    version: 0,
+    source: { kind: "stock" },
+    mode: "parts",
+    date: new Date().toISOString().slice(0, 10),
+    engineer: "Tech",
+    priority: "P2 Routine",
+    requiredBy: "",
+    currency: "USD",
+    lines: [{ uuid: "l", partNumber: "P", description: "Part", quantity: 1 }],
+  });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      requests: await ctx.db.query("partsRequests").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  const before = await stored();
+  await expect(
+    t.withIdentity({ subject }).mutation(api.partsRequests.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ kind: "save", requestUuid: "taken", draft }),
+    }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Request identifier already used.",
+  });
+  expect(await stored()).toEqual(before);
 });
