@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the published security headers: the CSP in
- *   public/_headers, headers on pages and routes, caching, and no
- *   deployment-only files served.
+ *   public/_headers, headers on pages and routes, caching, security.txt,
+ *   and no deployment-only files served.
  * Layer: Test. Playwright spec against the production build's static server.
  * Dependencies: @playwright/test, node:fs.
  *
@@ -14,6 +14,7 @@ import { readFileSync, readdirSync } from "node:fs";
 
 // Only the app's own scripts; WebAssembly for the PDF.js decoders, no eval.
 const SCRIPT_SOURCES = ["'self'", "'wasm-unsafe-eval'"];
+const SECURITY_TXT = "/.well-known/security.txt";
 
 test("the published policy keeps scripts, framing and plugins locked down", () => {
   const file = readFileSync("public/_headers", "utf8");
@@ -79,6 +80,39 @@ test("hashed assets are cached for good; the shell and worker are revalidated", 
   }
   const theme = await request.get("/theme-init.js");
   expect(theme.headers()["cache-control"]).not.toContain("immutable");
+});
+
+test("security.txt names the security contact and has not expired", async ({
+  request,
+}) => {
+  for (const path of [SECURITY_TXT, "/.well-known/security-policy.txt"]) {
+    const response = await request.get(path);
+    expect(response.status(), path).toBe(200);
+    expect(response.headers()["content-type"], path).toContain("text/plain");
+  }
+  const text = await (await request.get(SECURITY_TXT)).text();
+  expect(text).toContain("Contact: mailto:accounts@angeloneonline.org");
+  // RFC 9116 says to treat an expired file as absent: renew it before the
+  // date (docs/go-live-checklist.md, recurring tasks).
+  const expires = Date.parse(text.match(/^Expires: (.+)$/m)?.[1] ?? "");
+  expect(expires).toBeGreaterThan(Date.now());
+});
+
+test("an installed app still opens security.txt, not the app", async ({
+  page,
+}) => {
+  await page.goto("/");
+  // The service worker controls only pages loaded after it activates.
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  const controlled = await page.evaluate(
+    () => navigator.serviceWorker.controller !== null,
+  );
+  expect(controlled).toBe(true);
+  await page.goto(SECURITY_TXT);
+  await expect(page.locator("body")).toContainText("Contact: mailto:");
 });
 
 test("deployment-only files are not published", async ({ request }) => {

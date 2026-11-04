@@ -114,6 +114,9 @@ export default defineConfig({
           },
         ],
         navigateFallback: "/index.html",
+        // security.txt and the disclosure policy (SECURITY.md) must open as
+        // themselves even in an installed app, not as the app shell.
+        navigateFallbackDenylist: [/^\/\.well-known\//],
         cleanupOutdatedCaches: true,
       },
     }),
