@@ -7,7 +7,11 @@
  *   tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
-import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
+import {
+  DUE_FLEET_TODAY,
+  dueFleet,
+  withoutMeterReading,
+} from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import {
   ALERTS_SKIPPED_AD_STATUSES,
@@ -541,6 +545,18 @@ describe("on the due fleet", () => {
         ),
       ),
     ).toStrictEqual(DUE_FLEET_ALERTS);
+  });
+
+  it("skips an AD limit an aircraft without a meter reading cannot judge, not its passed due date", () => {
+    const { s, c } = dueFleet();
+    withoutMeterReading(s, c);
+    const onC = allAlerts(s, DUE_FLEET_TODAY).filter(
+      (x) => x.aircraftUuid === c.uuid,
+    );
+    expect(onC.map((x) => `${x.kind} ${x.title}`)).toStrictEqual([
+      "ad-overdue AD AD-UNREAD-LATE overdue",
+      "aircraft-grounded N182MA is grounded",
+    ]);
   });
 });
 

@@ -1,15 +1,17 @@
 /**
  * Responsibility: Pins the dashboard's inspection marks and outlook order,
- *   its component-limit count, its aircraft filters, what pilot view leaves
- *   out, and who may log a flight.
+ *   its component-limit count, its aircraft filters, a card without a meter
+ *   reading, what pilot view leaves out, and who may log a flight.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/Dashboard.tsx, src/data/demo.ts,
- *   src/domain (components, model), react-dom/server.
+ *   src/domain (components, model), react-dom/server,
+ *   tests/fixtures/dueFleet.ts.
  */
 // @vitest-environment node
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { componentSchema, requirementSchema } from "../domain/components";
 import {
@@ -228,6 +230,23 @@ describe("aircraft cards", () => {
     const outsider = page();
     expect(outsider).not.toContain("Log flight");
     expect(outsider).not.toContain("Log a flight");
+  });
+});
+
+describe("an aircraft without a meter reading", () => {
+  it("shows its total as not recorded and judges what it can read", () => {
+    withoutMeterReading(snapshot, snapshot.aircraft[1]);
+    const html = page();
+    const card = html
+      .slice(html.indexOf(">N208MA</h3>"))
+      .split("</article>")[0]
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ");
+    expect(card).toContain("Total Not recorded");
+    expect(card).toContain("AD AD-UNREAD-LATE overdue");
+    expect(card).toContain(
+      "100-hour inspection Maintenance information needed",
+    );
   });
 });
 

@@ -209,6 +209,8 @@ export function validatePlanFlight(
  *   and flags for a flight awaiting review, a status other than airworthy,
  *   open discrepancies, inspections and component requirements due by the
  *   flight's end (UTC date), and those it cannot measure.
+ * @throws {Rejection} As {@link totalSeconds}, when a plan is queued on an
+ *   aircraft whose meter has no reading.
  */
 export function projectQueue(s: Snapshot, aircraftUuid: string) {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;

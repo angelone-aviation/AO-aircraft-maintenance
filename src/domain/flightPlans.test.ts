@@ -7,7 +7,7 @@
  *   tests/fixtures (icao-text.json, the due fleet).
  */
 import { describe, it, expect } from "vitest";
-import { dueFleet } from "../../tests/fixtures/dueFleet";
+import { dueFleet, withoutMeterReading } from "../../tests/fixtures/dueFleet";
 import items from "../../tests/fixtures/icao-text.json";
 import { parseIcao } from "./pdf/icao";
 import { demoSnapshot } from "../data/demo";
@@ -552,6 +552,17 @@ describe("queue flags on the due fleet", () => {
     s.flightPlans = [{ ...draft(), aircraftUuid: c.uuid, durationMinutes: 60 }];
     expect(projectQueue(s, c.uuid)[0].flags).toContain(
       "i-collective: Collective component tracking requires a helicopter collective hourmeter reading.",
+    );
+  });
+
+  // Characterizes current behaviour: the projected total reads the meter, so
+  // the queue fails before it reaches the due items.
+  it("fails the queue of an aircraft without a meter reading", () => {
+    const { s, c } = dueFleet();
+    withoutMeterReading(s, c);
+    s.flightPlans = [{ ...draft(), aircraftUuid: c.uuid, durationMinutes: 60 }];
+    expect(() => projectQueue(s, c.uuid)).toThrow(
+      new Rejection("Flight time log reading is required."),
     );
   });
 

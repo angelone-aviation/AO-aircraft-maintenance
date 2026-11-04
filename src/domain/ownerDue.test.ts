@@ -6,7 +6,11 @@
  *   rejection.ts; src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
-import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
+import {
+  DUE_FLEET_TODAY,
+  dueFleet,
+  withoutMeterReading,
+} from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask } from "./airworthiness";
 import { totalSeconds, type Snapshot } from "./model";
@@ -215,6 +219,29 @@ describe("on the due fleet", () => {
       new Rejection(
         "Collective component tracking requires a helicopter collective hourmeter reading.",
       ),
+    );
+  });
+
+  // Characterizes current behaviour: an inspection on such an aircraft still
+  // throws the meter's refusal (see @throws), failing the whole list.
+  it("lists the ADs of an aircraft without a meter reading", () => {
+    const { s, c } = dueFleet();
+    withoutMeterReading(s, c);
+    s.inspections = s.inspections.filter((i) => i.aircraftUuid !== c.uuid);
+    const rows = ownerDueItems(s, c, DUE_FLEET_TODAY);
+    expect(rows.map((i) => Object.values(i).join(" | "))).toStrictEqual([
+      "ad-unread-late | AD | AD AD-UNREAD-LATE · Subject | overdue | Hours remaining: Counter unavailable · Months remaining (approx.): 81.9 overdue",
+      "ad-unread | AD | AD AD-UNREAD · Subject | unknown | Hours remaining: Counter unavailable",
+    ]);
+    s.inspections.push({
+      uuid: "annual",
+      aircraftUuid: c.uuid,
+      reference: "Annual",
+      description: "",
+      dueDate: "2027-01-01",
+    });
+    expect(() => ownerDueItems(s, c, DUE_FLEET_TODAY)).toThrow(
+      new Rejection("Flight time log reading is required."),
     );
   });
 });

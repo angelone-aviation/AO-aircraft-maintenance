@@ -487,29 +487,20 @@ export function adAuditRecord(r: AD) {
  * @param r - The AD.
  * @param today - The local date a component's totals are read on.
  * @returns Hours (decimal), cycles and landings; null when the aircraft or
- *   component is unknown or the component's totals cannot be computed.
+ *   component is unknown or its totals cannot be read, such as an aircraft
+ *   meter without a reading.
  */
 export function adCounters(
   s: Snapshot,
   r: AD,
   today = localDate(),
 ): Counters | null {
-  const a = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
-  if (!a) return null;
-  if (!r.componentUuid)
-    return {
-      hours: totalSeconds(a) / SECONDS_PER_HOUR,
-      cycles: a.cycles,
-      landings: a.landings,
-    };
-  const c = findComponent(s, r.componentUuid);
-  const t = c && readComponentTotals(c, a, today);
-  if (!t) return null;
-  return {
-    hours: t.timeSinceNew / SECONDS_PER_HOUR,
-    cycles: t.cyclesSinceNew,
-    landings: a.landings,
-  };
+  try {
+    return readCounters(s, r, today);
+  } catch (error) {
+    if (error instanceof Rejection) return null;
+    throw error;
+  }
 }
 
 /**
@@ -1053,7 +1044,7 @@ function assertWithinTotals(
   entry: ADCompliance,
   now: number,
 ) {
-  const counters = adCounters(s, r, localDate(now));
+  const counters = readCounters(s, r, localDate(now));
   if (!counters) return;
   const component = findComponent(s, r.componentUuid);
   const hoursOver =
@@ -1090,6 +1081,28 @@ function addDays(isoDate: string, days: number) {
   const d = new Date(isoDate + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+// adCounters, except that an aircraft meter without a reading throws its
+// Rejection: compliance on an aircraft AD is refused until there is a reading
+// to check its hours against.
+function readCounters(s: Snapshot, r: AD, today: string): Counters | null {
+  const a = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
+  if (!a) return null;
+  if (!r.componentUuid)
+    return {
+      hours: totalSeconds(a) / SECONDS_PER_HOUR,
+      cycles: a.cycles,
+      landings: a.landings,
+    };
+  const c = findComponent(s, r.componentUuid);
+  const t = c && readComponentTotals(c, a, today);
+  if (!t) return null;
+  return {
+    hours: t.timeSinceNew / SECONDS_PER_HOUR,
+    cycles: t.cyclesSinceNew,
+    landings: a.landings,
+  };
 }
 
 // Totals that cannot be computed (readings before the installation baseline,

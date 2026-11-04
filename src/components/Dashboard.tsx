@@ -4,7 +4,8 @@
  * Layer: UI. Screen over the workspace snapshot; status rules live in
  *   src/domain.
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
- *   aircraftStatus, management, partsPlanning, requiredParts, pilotView),
+ *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
+ *   rejection),
  *   ./design and the aircraft, flight, parts and FAA components.
  */
 import {
@@ -54,6 +55,7 @@ import {
 } from "../domain/maintenance";
 import { maintenancePartsPlans, type PartsPlan } from "../domain/partsPlanning";
 import { partsNeedAttention } from "../domain/requiredParts";
+import { Rejection } from "../domain/rejection";
 import {
   aircraftMeterLabels,
   can,
@@ -993,13 +995,20 @@ function CardNotes({
 }
 
 function CardMeters({ aircraft: a }: { aircraft: Aircraft }) {
+  const total = readTotalSeconds(a);
   return (
     <dl className="dash-meters">
       <div>
         <dt>Total</dt>
         <dd>
-          {hours(totalSeconds(a))}
-          <span className="dash-unit"> h</span>
+          {total === undefined ? (
+            "Not recorded"
+          ) : (
+            <>
+              {hours(total)}
+              <span className="dash-unit"> h</span>
+            </>
+          )}
         </dd>
       </div>
       <Meter term="Hobbs">{tenths(a.currentHobbs)}</Meter>
@@ -1008,6 +1017,17 @@ function CardMeters({ aircraft: a }: { aircraft: Aircraft }) {
       {a.turbine && <Meter term="Cycles">{a.cycles.toLocaleString()}</Meter>}
     </dl>
   );
+}
+
+// Total time is read from the aircraft's own meter, which can lack a reading;
+// the card says so instead of failing the whole page.
+function readTotalSeconds(a: Aircraft) {
+  try {
+    return totalSeconds(a);
+  } catch (error) {
+    if (error instanceof Rejection) return undefined;
+    throw error;
+  }
 }
 
 function Meter({ term, children }: { term: string; children: ReactNode }) {

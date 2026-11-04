@@ -58,6 +58,28 @@ export function dueFleet() {
   return { s, a, b, c };
 }
 
+/**
+ * Makes the aircraft's flight time log its meter, with no reading, so its
+ * total time cannot be read, and gives it two ADs: `ad-unread`, an hours
+ * limit, and `ad-unread-late`, the same plus an action whose due date has
+ * passed.
+ *
+ * @param s - The snapshot; its ADs gain the two.
+ * @param a - An aircraft the snapshot holds; changed in place.
+ */
+export function withoutMeterReading(s: Snapshot, a: Aircraft) {
+  Object.assign(a, {
+    flightTimeLog: true,
+    meter: "flightTimeLog",
+    currentFlightTimeLog: undefined,
+  });
+  s.airworthiness = [
+    ...(s.airworthiness ?? []),
+    ad(a, "ad-unread", {}, [hourly(5000)]),
+    ad(a, "ad-unread-late", {}, [hourly(5000), monthly("2020-01-01")]),
+  ];
+}
+
 function fleetInspections(a: Aircraft, b: Aircraft, c: Aircraft) {
   const on = (x: Aircraft, uuid: string, fields: Partial<Inspection>) => ({
     uuid,

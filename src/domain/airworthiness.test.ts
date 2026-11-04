@@ -854,8 +854,28 @@ it("leaves the counter unavailable for the aircraft meter's refusals too", () =>
     s.aircraft[0] = a;
     s.management = [installedEngine(a, {})];
     expect(adCounters(s, r)).toBeNull();
+    expect(adCounters(s, { ...r, componentUuid: "" })).toBeNull();
     expect(() => totalSeconds(a)).toThrow(Rejection);
   }
+});
+
+it("judges an aircraft AD without a meter reading on its dates, refusing compliance", () => {
+  const { s, r } = setup();
+  Object.assign(s.aircraft[0], {
+    meter: "flightTimeLog",
+    currentFlightTimeLog: undefined,
+  });
+  const late = { ...r.tasks[0], dueDate: "2020-01-01" };
+  expect(adStatus(s, r)).toBe("Counter unavailable");
+  expect(adStatus(s, { ...r, tasks: [...r.tasks, late] })).toBe("Overdue");
+  expect(() =>
+    applyADCommand(s, {
+      kind: "comply",
+      uuid: r.uuid,
+      version: r.version,
+      entry: entry(r.tasks[0].uuid),
+    }),
+  ).toThrow(new Rejection("Flight time log reading is required."));
 });
 
 it("lets a fault in the component's totals through, not as an unavailable counter", () => {
