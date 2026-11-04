@@ -1,7 +1,7 @@
 /**
  * Responsibility: Completing a work order: the close-out its readings,
- *   serviced components, compliance and component work make up, and the
- *   component work lines it would write.
+ *   serviced components, compliance and component work make up, and what it
+ *   would write about its components.
  * Layer: Domain. Updates the working snapshot; no I/O, no React.
  * Dependencies: zod, ../model, ../workOrders (types), ../certifications,
  *   ../workOrderComponentWork, ../workOrderCloseoutSchema, ../rejection,
@@ -88,48 +88,45 @@ export function completeWorkOrder(
   return closeoutRecord(ctx, readings, components, compliance, serviceResults);
 }
 
+/** What completing an order would write about its components. */
+export interface ComponentCloseoutPreview {
+  /** The serviced components at completion, after the chosen work. */
+  components: ComponentSummary[];
+  /** One line per repair, overhaul or move, as the close-out writes it. */
+  workLines: string[];
+}
+
 /**
- * The component work lines completing the order would add to its work
- * performed, worked out on a copy of the records, for the logbook preview.
+ * What completing the order would write about its components, worked out on
+ * a copy of the records, for the logbook preview.
  *
  * @param s - The snapshot; left unchanged.
- * @param order - The order as it would be saved.
+ * @param order - The order as it would be saved, with its component work.
  * @param readings - The aircraft's readings at completion.
- * @param componentWork - The work chosen for each included component.
  * @param now - The time, in epoch milliseconds.
- * @returns One line per repair, overhaul or move, as the close-out writes
- *   it; none while the close-out would refuse the work as chosen.
+ * @returns The close-out's components and work lines; null without a
+ *   completion date, or while the close-out would refuse them as chosen.
  */
-export function previewComponentWork(
+export function previewComponentCloseout(
   s: Snapshot,
   order: WorkOrder,
   readings: CompletionReadings,
-  componentWork: ComponentWork[],
   now: number,
-): string[] {
-  const a = s.aircraft.find((a) => a.uuid === order.aircraftUuid)!;
-  const ctx = { s, order, a, finalAircraft: atCompletion(a, readings), now };
+): ComponentCloseoutPreview | null {
+  // Usage is read on the completion date; until one is entered there is
+  // nothing to read it on.
+  if (!z.iso.date().safeParse(order.completionDate).success) return null;
   const records = {
     ...s,
     management: structuredClone(s.management),
     inspections: structuredClone(s.inspections),
   };
   try {
-    const results = applyWorkOrderComponentWork(
-      records,
-      order,
-      ctx.finalAircraft,
-      componentWork,
-      now,
-    );
-    const components = results.map((r) =>
-      componentSummary(ctx, r.componentUuid, componentWork),
-    );
-    return componentWorkLines(results, components, ctx.finalAircraft);
+    return closeComponents(records, order, readings, now);
   } catch (error) {
     // Saving refuses the same choices with this message; until the user
-    // fixes them, the preview has no line to show.
-    if (error instanceof Rejection || error instanceof z.ZodError) return [];
+    // fixes them, the preview keeps the opening readings.
+    if (error instanceof Rejection || error instanceof z.ZodError) return null;
     throw error;
   }
 }
@@ -166,6 +163,34 @@ function closeoutRecord(
     components,
     compliance,
   });
+}
+
+// The close-out's component steps, without compliance: `s` is changed.
+function closeComponents(
+  s: Snapshot,
+  order: WorkOrder,
+  readings: CompletionReadings,
+  now: number,
+): ComponentCloseoutPreview {
+  const a = s.aircraft.find((a) => a.uuid === order.aircraftUuid)!;
+  const ctx = { s, order, a, finalAircraft: atCompletion(a, readings), now };
+  const completed = order.tasks.filter((t) => t.status === "completed");
+  const work = order.componentWork ?? [];
+  const components = [...servicedComponentIds(s, order, completed)].map(
+    (uuid) => componentSummary(ctx, uuid, work),
+  );
+  const results = applyWorkOrderComponentWork(
+    s,
+    order,
+    ctx.finalAircraft,
+    work,
+    now,
+  );
+  updateServicedTotals(components, results);
+  return {
+    components,
+    workLines: componentWorkLines(results, components, ctx.finalAircraft),
+  };
 }
 
 function componentWorkLines(

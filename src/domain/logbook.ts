@@ -12,7 +12,11 @@
 import { z } from "zod";
 import type { Snapshot } from "./model";
 import type { WorkOrder } from "./workOrders";
-import { logbookPerformers, workPerformedText } from "./workOrderCloseout";
+import {
+  logbookPerformers,
+  workPerformedText,
+  type ComponentCloseoutPreview,
+} from "./workOrderCloseout";
 import { Rejection } from "./rejection";
 
 const SECONDS_PER_HOUR = 3600;
@@ -113,15 +117,62 @@ export function logbookText(
     throw new Rejection(
       "Complete the work order before generating a logbook entry.",
     );
+  return entryText(s, order, {
+    template,
+    signer,
+    inspection,
+    component,
+    preview,
+    closing: null,
+  });
+}
+
+/**
+ * The maintenance entry the work order form previews: drafted from the
+ * order's current job cards, as {@link logbookText} in preview mode.
+ *
+ * @param order - The order as the form would save it.
+ * @param signer - Who would certify it.
+ * @param closing - What completing the order would write about its
+ *   components: these replace the opening readings, and the work lines follow
+ *   the wording (or precede its prompt). Null keeps the opening readings.
+ * @returns The entry's lines, joined by "\n".
+ */
+export function logbookSampleText(
+  s: Snapshot,
+  order: WorkOrder,
+  signer: Signer,
+  closing: ComponentCloseoutPreview | null,
+) {
+  return entryText(s, order, {
+    template: "maintenance",
+    signer,
+    inspection: emptyInspectionEntry,
+    component: emptyComponentEntry,
+    preview: true,
+    closing,
+  });
+}
+
+type Entry = {
+  template: LogbookTemplate;
+  signer: Signer;
+  inspection: InspectionEntry;
+  component: ComponentEntry;
+  preview: boolean;
+  closing: ComponentCloseoutPreview | null;
+};
+
+function entryText(s: Snapshot, order: WorkOrder, entry: Entry) {
+  const { template, signer, inspection, component, preview, closing } = entry;
   return [
     ...describeHeading(order, template, preview),
     ...(template === "inspection" ? [describeInspection(inspection), ""] : []),
     template === "ad" ? "Work and compliance references:" : "Work performed:",
     order.revisedWorkPerformed ??
       order.closeout?.workPerformed ??
-      (workPerformedText(s, order, preview) ||
-        "[Select Include in log book entry on a task or job card to see its wording here.]"),
-    ...describeComponents(order, preview),
+      draftWork(s, order, preview, closing?.workLines ?? []),
+    ...describeComponents(order, preview, closing?.components),
     ...describeCompliance(order.closeout?.compliance ?? []),
     "",
     ...describeCorrections(order),
@@ -178,11 +229,34 @@ function describeInspection(inspection: InspectionEntry) {
   return `Completed ${annual ? "an" : "a"} ${annual ? "Annual" : "100-Hour"} inspection of this aircraft in accordance with the scope and detail of 14 CFR Part 43, Appendix D, and ${inspection.checklist.trim() || "[manufacturer's inspection checklist]"}. Service Bulletins and Airworthiness Directives checked through ${inspection.reviewedThrough.trim() || "[review date / bi-weekly issue]"}.`;
 }
 
+// The close-out writes its component work lines after the wording; without
+// wording, the prompt stays below them.
+function draftWork(
+  s: Snapshot,
+  order: WorkOrder,
+  preview: boolean,
+  workLines: string[],
+) {
+  const wording = workPerformedText(s, order, preview);
+  const parts = wording
+    ? [wording, ...workLines]
+    : [
+        ...workLines,
+        "[Select Include in log book entry on a task or job card to see its wording here.]",
+      ];
+  return parts.join("\n\n");
+}
+
 // Without a close-out, the components' readings are those taken when the order
 // opened, and a finished entry says so.
-function describeComponents(order: WorkOrder, preview: boolean) {
+function describeComponents(
+  order: WorkOrder,
+  preview: boolean,
+  closing?: ComponentCloseoutPreview["components"],
+) {
   const components =
     order.closeout?.components ??
+    closing ??
     order.componentReadings.map((c) => ({
       ...c,
       label: preview ? c.label : `${c.label} (opening readings)`,

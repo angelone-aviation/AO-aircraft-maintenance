@@ -8,7 +8,7 @@
 import { memberLicense } from "../domain/certifications";
 import type { ComponentWork } from "../domain/workOrderComponentWork";
 import { useState } from "react";
-import { logbookText } from "../domain/logbook";
+import { logbookSampleText } from "../domain/logbook";
 import {
   localDate,
   totalSeconds,
@@ -22,15 +22,11 @@ import {
   type WorkOrder,
   type WorkTask,
 } from "../domain/workOrders";
-import {
-  previewComponentWork,
-  workPerformedText,
-} from "../domain/workOrderCloseout";
+import { previewComponentCloseout } from "../domain/workOrderCloseout";
 import { Field } from "./ui";
 
 // Hour readings are entered in hours and stored in seconds.
 const SECONDS_PER_HOUR = 3600;
-const WORK_PERFORMED = "Work performed:\n";
 
 type Header = WorkOrder["aircraft"];
 type SampleProps = {
@@ -51,8 +47,9 @@ type SampleProps = {
  * would generate, redrawn as the form changes. Unfinished work is included
  * until the user unticks it. Readings and component lines come from the
  * functions saving and closing the order use. Completion readings appear
- * once the order's status is completed, and component work once the close-out
- * would accept it; until then the opening header is used.
+ * once the order's status is completed, and the close-out's component
+ * readings and work once it would accept them; until then the opening header
+ * is used.
  *
  * @param props.initial - The saved order, whose header and readings are kept.
  * @param props.fields - The form's current values, read by input name.
@@ -81,8 +78,8 @@ export function LogbookSample(props: SampleProps) {
       <p className="muted">
         Preview only. The final entry includes completed work only. Aircraft
         readings use the opening header until completion readings are entered;
-        component readings use the selected header. Compliance results are added
-        at closeout.
+        component readings use the selected header until the order is completed.
+        Compliance results are added at closeout.
       </p>
       <Field label="Sample log book entry text">
         <textarea
@@ -103,41 +100,15 @@ function sampleText(props: SampleProps, a: Aircraft, includePlanned: boolean) {
     tasks: includePlanned ? tasks : cancelUnfinished(tasks),
   };
   const license = memberLicense(s.user, order.completionDate);
-  const generated = logbookText(
+  const closing =
+    props.status === "completed"
+      ? previewComponentCloseout(sample, order, order.aircraft, Date.now())
+      : null;
+  return logbookSampleText(
     sample,
     order,
-    "maintenance",
     { userId: s.user.id, name: s.user.name, ...license },
-    undefined,
-    undefined,
-    // Preview mode, which logbookText needs for an order still open.
-    true,
-  );
-  if (props.status !== "completed") return generated;
-  return withComponentWork(generated, sample, order, props.componentWork);
-}
-
-// The close-out writes its component work lines after the work performed.
-// Without wording selected, the entry's prompt stays below the lines.
-function withComponentWork(
-  text: string,
-  s: Snapshot,
-  order: WorkOrder,
-  componentWork: ComponentWork[],
-) {
-  const lines = previewComponentWork(
-    s,
-    order,
-    order.aircraft,
-    componentWork,
-    Date.now(),
-  );
-  if (!lines.length) return text;
-  const work = workPerformedText(s, order, true);
-  const body = work ? [work, ...lines] : [...lines, ""];
-  return text.replace(
-    `${WORK_PERFORMED}${work}`,
-    () => `${WORK_PERFORMED}${body.join("\n\n")}`,
+    closing,
   );
 }
 
@@ -163,6 +134,7 @@ function sampleOrder(props: SampleProps, a: Aircraft): WorkOrder {
     finalReview: field("finalReview", initial?.finalReview),
     aircraft: closingHeader(props, a, initial?.aircraft ?? openingReading(a)),
     componentReadings: headerComponents(props, a),
+    componentWork: props.componentWork,
     tasks: props.tasks,
   };
 }

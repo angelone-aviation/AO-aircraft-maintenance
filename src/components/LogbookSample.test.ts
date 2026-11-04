@@ -126,10 +126,16 @@ describe("LogbookSample against the saved entry", () => {
     };
   }
 
-  function sample(s: Snapshot, command: SaveCommand, fields: FormData) {
+  function sample(
+    s: Snapshot,
+    command: SaveCommand,
+    fields: FormData,
+    initial?: WorkOrder,
+  ) {
     const markup = renderToStaticMarkup(
       createElement(LogbookSample, {
         s,
+        initial,
         uuid: command.uuid,
         aircraftUuid: command.fields.aircraftUuid,
         componentUuids: command.componentUuids,
@@ -219,6 +225,96 @@ describe("LogbookSample against the saved entry", () => {
     expect(preview).toContain(`Work performed:\n${work}\n`);
   });
 
+  it("lists a completed order's components at completion, as closing does", () => {
+    const { s, command } = order();
+    const opened = saveWorkOrder(s, command, now);
+    const a = s.aircraft[0];
+    s.aircraft[0] = {
+      ...a,
+      currentHobbs: a.currentHobbs + FLOWN_SECONDS,
+      currentTach: a.currentTach + FLOWN_SECONDS,
+      cycles: a.cycles + 2,
+    };
+    const completed = {
+      ...command,
+      version: opened.version,
+      fields: {
+        ...command.fields,
+        status: "completed" as const,
+        completionDate: "2026-10-01",
+        releaseOutcome: "Released",
+      },
+      componentWork: [
+        {
+          componentUuid: "engine",
+          version: 0,
+          action: "service" as const,
+          description: "",
+          reference: "",
+        },
+      ],
+    };
+    const fields = new FormData();
+    fields.set("completionDate", "2026-10-01");
+    const preview = sample(s, completed, fields, opened);
+    const records = structuredClone(s);
+    const saved = saveWorkOrder(records, completed, now);
+    const signer = { userId: s.user.id, name: s.user.name, ...noLicense };
+    const text = logbookText(
+      records,
+      saved,
+      "maintenance",
+      signer,
+      undefined,
+      undefined,
+      true,
+    );
+    const block = linesFrom(text, "Component:", 3);
+    expect(block[2]).toBe(
+      "TSN: 115.0 h; TSO: 35.0 h; TSR: Not recorded; Cycles: 42; Service days: 273",
+    );
+    expect(linesFrom(preview, "Component:", 3)).toEqual(block);
+    const opening = "TSN: 110.0 h; TSO: 30.0 h; TSR: Not recorded; Cycles: 40";
+    expect(
+      linesFrom(
+        sample(s, completed, new FormData(), opened),
+        "Component:",
+        3,
+      )[2],
+    ).toBe(opening);
+    const open = { ...completed.fields, status: "open" as const };
+    expect(
+      linesFrom(
+        sample(s, { ...completed, fields: open }, fields, opened),
+        "Component:",
+        3,
+      )[2],
+    ).toBe(opening);
+  });
+
+  it("writes component work above the wording prompt without wording", () => {
+    const { s, command } = order();
+    command.tasks = command.tasks.map((t) => ({
+      ...t,
+      includeInLogbook: false,
+    }));
+    command.fields = { ...command.fields, status: "completed" };
+    command.componentWork = [
+      {
+        componentUuid: "engine",
+        version: 0,
+        action: "repair",
+        description: "Blade dressed",
+        reference: "",
+      },
+    ];
+    const fields = new FormData();
+    fields.set("completionDate", "2026-10-01");
+    expect(sample(s, command, fields)).toContain(
+      "Work performed:\nEngine · LEFT (P/N PN; S/N SN): Repaired on 2026-10-01. Blade dressed. TSN 110.0 h; TSO 30.0 h; TSR 0.0 h.\n\n[Select Include in log book entry on a task or job card to see its wording here.]\n",
+    );
+  });
+
   it("leaves component work out while closing would refuse it", () => {
     const { s, command } = order();
     command.fields = { ...command.fields, status: "completed" };
@@ -237,6 +333,9 @@ describe("LogbookSample against the saved entry", () => {
     expect(withWork([{ ...repair, description: "" }])).not.toContain(
       "Repaired on",
     );
+    expect(withWork([{ ...repair, description: "" }])).toContain(
+      "TSN: 110.0 h; TSO: 30.0 h; TSR: Not recorded; Cycles: 40\n",
+    );
     expect(
       withWork([repair, { ...repair, componentUuid: "other" }]),
     ).not.toContain("Repaired on");
@@ -246,6 +345,7 @@ describe("LogbookSample against the saved entry", () => {
 type SaveCommand = Extract<WorkOrderCommand, { action: "save" }>;
 
 const noLicense = { licenseNumber: "", certificateType: "" };
+const FLOWN_SECONDS = 5 * 3600;
 
 const isOpen = (command: SaveCommand) => command.fields.status === "open";
 
