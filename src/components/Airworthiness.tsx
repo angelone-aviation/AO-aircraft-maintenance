@@ -32,13 +32,17 @@ import { useWorkspace, type Workspace } from "../data/store";
 import { can } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import {
+  AD_RECURRING_CHOICES,
   DASHBOARD_SETTLED_AD_STATUSES,
   REASON_MAX_LENGTH,
   REQUIRED_COMPLIANCE_FIELDS,
   adAircraftUuid,
   adNumber,
   adSaveIsCorrection,
+  adSchema,
+  adSourceSchema,
   adStatus,
+  adTaskSchema,
   adTaskStatus,
   blankAD,
   blankADTask,
@@ -99,16 +103,9 @@ const SOURCE_FIELDS = [
   ["supersededBy", "Superseded by (source reference)"],
   ["url", "FAA document URL"],
 ] as const;
-const SECTIONS = ["Airframe", "Engine", "Propeller", "Appliance"];
-const RECURRING_CHOICES = ["Unknown", "Yes", "No"];
-const APPLICABILITY_CHOICES = [
-  "Needs review",
-  "Applicable",
-  "Not applicable",
-  "Superseded",
-  PCW,
-];
-const RECURRENCE_CHOICES = ["Unknown", "One-time", "Recurring"];
+const SECTIONS = adSourceSchema.shape.section.options;
+const APPLICABILITY_CHOICES = adSchema.shape.applicability.options;
+const RECURRENCE_CHOICES = adTaskSchema.shape.recurrence.unwrap().options;
 const PRIOR_HOURS_LABELS = {
   aircraftHours: "Aircraft total time at compliance (hours)",
   componentHours: "Component total time at compliance (hours)",
@@ -1171,7 +1168,7 @@ function SourceFields({ ad, draft }: DraftProps) {
           value={draft.source.recurring}
           onChange={(e) => updateSource(ad, "recurring", e.target.value)}
         >
-          <Choices values={RECURRING_CHOICES} />
+          <Choices values={AD_RECURRING_CHOICES} />
         </select>
       </Field>
     </>

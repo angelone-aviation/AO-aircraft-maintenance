@@ -13,11 +13,13 @@ import { demoSnapshot } from "../data/demo";
 import { parseADTables } from "../data/adImport";
 import tables from "../../tests/fixtures/ad-report-tables.json";
 import {
+  AD_RECURRING_CHOICES,
   adAuditRecord,
   adCommandSchema,
   adComplianceSchema,
   adCounters,
   adSchema,
+  adSourceSchema,
   adStatus,
   adTaskStatus,
   applyADCommand,
@@ -1072,6 +1074,13 @@ describe("AD decisions the AD form shares", () => {
       expect(parses(REASON_MAX_LENGTH + 1)).toBe(false);
     }
     expect(REASON_MAX_LENGTH).toBe(1500);
+  });
+
+  it("offers every recurring answer, unknown first", () => {
+    expect(AD_RECURRING_CHOICES).toEqual(["Unknown", "Yes", "No"]);
+    expect([...AD_RECURRING_CHOICES].sort()).toEqual(
+      [...adSourceSchema.shape.recurring.options].sort(),
+    );
   });
 
   it("requires a compliance entry's date, method and mechanic", () => {

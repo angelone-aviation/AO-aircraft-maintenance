@@ -156,6 +156,13 @@ export const adSchema = z.object({
 /** An AD's FAA source. */
 export type ADSource = z.infer<typeof adSourceSchema>;
 
+/** The source's `recurring` answers in the AD form's order: unknown first. */
+export const AD_RECURRING_CHOICES: readonly ADSource["recurring"][] = [
+  "Unknown",
+  "Yes",
+  "No",
+];
+
 // Stored records keep parsing; new saves and imports must link over http(s).
 const writableSourceSchema = adSourceSchema.extend({
   url: z
