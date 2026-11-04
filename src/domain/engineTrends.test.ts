@@ -1,15 +1,29 @@
+/**
+ * Responsibility: Pins engine-log parsing (formats, channels, units, summary
+ *   math), flags against limits, chart series, and trend commands.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/engineTrends.ts, ./rejection, tests/fixtures
+ *   (JPI and Garmin exports).
+ */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   applyEngineTrendCommand,
   channelForHeader,
   defaultEngineLimits,
   detectEngineFormat,
   engineFlags,
+  engineSeries,
   hottest,
   parseEngineLog,
+  parseExportDate,
+  parseExportTime,
   type EngineTrend,
+  type EngineTrendCommand,
+  type EngineTrendData,
 } from "./engineTrends";
+import { Rejection } from "./rejection";
 const fixture = (name: string) =>
   readFileSync(`tests/fixtures/${name}`, "utf8");
 const trend = (
@@ -209,5 +223,144 @@ describe("engine flags and commands", () => {
     expect(limits.limits).toEqual({ chtMaxF: 420, oilPressureMinPsi: 30 });
     expect(imported.limits).toEqual(defaultEngineLimits);
     expect(trend(summary).aircraftUuid).toBe("a1");
+  });
+});
+
+describe("export dates, times and file rules", () => {
+  it("reads ISO and US dates and 24-hour times, refusing impossible ones", () => {
+    expect(
+      ["2026-9-4", "9/4/26", "09/04/2026", "2026-02-30", "13/01/26", "x"].map(
+        parseExportDate,
+      ),
+    ).toEqual([
+      "2026-09-04",
+      "2026-09-04",
+      "2026-09-04",
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(["9:05", "09:05:07", "24:00", "10:60"].map(parseExportTime)).toEqual(
+      ["09:05:00", "09:05:07", undefined, undefined],
+    );
+  });
+
+  it("refuses unusable files as a Rejection", () => {
+    const log = (rows: string) => `DATE,TIME,C1,RPM\n${rows}`;
+    for (const [text, message] of [
+      [
+        "x".repeat(7 * 1024 * 1024 + 1),
+        "Engine data files must be at most 7 MB.",
+      ],
+      ["Date,Altitude\n2026-01-01,5000", "Unrecognized engine data file."],
+      [
+        "C1,RPM\n350,2400",
+        "The engine data file has no recognizable date column.",
+      ],
+      [
+        log("x,10:00,350,2400"),
+        "The engine data file has no recognizable date column.",
+      ],
+      [
+        log("2099-01-01,10:00,350,2400"),
+        "Engine data dated 2099-01-01 is in the future.",
+      ],
+      [
+        log("2026-01-01,10:00,350,0"),
+        "No engine samples were found with the engine running.",
+      ],
+    ]) {
+      const parse = () => parseEngineLog(text, "x.csv");
+      expect(parse).toThrow(Rejection);
+      expect(parse).toThrow(message);
+    }
+    expect(() =>
+      parseEngineLog(
+        "DATE,TIME,C1\n2026-01-01,10:00,350\n2026-01-09,10:00,350",
+        "x.csv",
+      ),
+    ).toThrow(z.ZodError);
+  });
+
+  it("dates a flight by its first dated row and keeps 200 characters of its name", () => {
+    // Characterizes current behaviour: the date comes from the first dated
+    // row even when that sample is skipped with the engine stopped.
+    const s = parseEngineLog(
+      "DATE,TIME,C1,RPM\n2026-01-01,23:59,300,0\n2026-01-02,00:01,350,2400",
+      "f".repeat(250),
+    );
+    expect(s).toMatchObject({
+      date: "2026-01-01",
+      start: "2026-01-01T23:59:00",
+      durationSeconds: 120,
+      samples: 1,
+    });
+    expect(s.fileName).toHaveLength(200);
+  });
+
+  it("converts bar and kPa, and counts cruise from 80% of the highest RPM", () => {
+    const s = parseEngineLog(
+      [
+        "DATE,TIME,C1 (°C),Oil Press (bar),MAP (kPa),RPM",
+        "2026-01-01,10:00,100,4,100,2500",
+        "2026-01-01,10:01,100,1,100,1999",
+        "2026-01-01,10:02,100,3,100,2000",
+      ].join("\n"),
+      "x.csv",
+    );
+    expect(s.channels).toMatchObject({
+      CHT1: { max: 212 },
+      OILP: { max: 58 },
+      MAP: { max: 29.5 },
+    });
+    expect(s.minCruiseOilPressure).toBe(43.5);
+  });
+
+  it("charts series in display order", () => {
+    expect(engineSeries.map((series) => series.key)).toEqual([
+      "cht",
+      "chtSpread",
+      "egt",
+      "egtSpread",
+      "tit",
+      "oilt",
+      "oilp",
+      "rpm",
+      "map",
+      "ff",
+    ]);
+  });
+
+  it("refuses commands as a Rejection", () => {
+    const summary = parseEngineLog(fixture("engine-jpi-edm830.csv"), "j.csv");
+    const context = { aircraftUuid: "a1", actorId: "u1", now: 1 };
+    const full = {
+      trends: Array.from({ length: 1000 }, (_, i) =>
+        trend({ ...summary, samples: i + 100 }),
+      ),
+      limits: defaultEngineLimits,
+    };
+    const cases: [EngineTrendData, EngineTrendCommand, string][] = [
+      [
+        full,
+        { action: "remove", uuid: crypto.randomUUID() },
+        "Engine trend import not found.",
+      ],
+      [
+        full,
+        { action: "import", uuid: crypto.randomUUID(), summary },
+        "An aircraft can keep up to 1000 engine trend imports. Remove old imports first.",
+      ],
+      [
+        { ...full, trends: [trend(summary)] },
+        { action: "import", uuid: crypto.randomUUID(), summary },
+        "This engine data file was already imported.",
+      ],
+    ];
+    for (const [data, command, message] of cases) {
+      const apply = () => applyEngineTrendCommand(data, command, context);
+      expect(apply).toThrow(Rejection);
+      expect(apply).toThrow(message);
+    }
   });
 });
