@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins Geoapify address lookups: who may run them, the
- *   per-second, per-user, per-program and global daily allowances, and how
- *   the administrator's key is checked, sealed, saved and audited.
+ *   per-second, per-user, per-program and global daily allowances, the
+ *   request and its failures, and how the administrator's key is checked,
+ *   sealed, saved and audited.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/addressVerification, src/domain/model, src/data/demo.
  */
@@ -178,7 +179,103 @@ it("gives each user a daily lookup share under the global cap", async () => {
   ).rejects.toThrow(/Your address lookup allowance/);
 });
 
+it("sends Geoapify only the physical address, with the key, and reads its reply", async () => {
+  const fetcher = reply({
+    results: [
+      {
+        formatted: "Washington, DC",
+        housenumber: "1600",
+        street: "Pennsylvania Avenue NW",
+        city: "Washington",
+        state_code: "DC",
+        country: "United States",
+        result_type: "city",
+        rank: { confidence: 0.4 },
+        datasource: { attribution: "Source" },
+      },
+    ],
+  });
+  const results = await lookupWith(fetcher);
+  const [[url, init]] = fetcher.mock.calls;
+  const sent = new URL(String(url));
+  expect(sent.origin + sent.pathname).toBe(
+    "https://api.geoapify.com/v1/geocode/search",
+  );
+  expect(Object.fromEntries(sent.searchParams)).toEqual({
+    text: "1600 Pennsylvania Avenue NW, Washington, 20500, United States",
+    format: "json",
+    limit: "5",
+    lang: "en",
+    bias: "countrycode:none",
+    apiKey: DEPLOYMENT_KEY,
+  });
+  expect(String(url)).not.toMatch(/receiving|555/i);
+  expect(init).toMatchObject({
+    redirect: "error",
+    signal: expect.any(AbortSignal),
+  });
+  expect(results).toEqual([
+    {
+      formatted: "Washington, DC",
+      street: "1600 Pennsylvania Avenue NW",
+      city: "Washington",
+      region: "DC",
+      postalCode: "",
+      country: "United States",
+      confidence: 0.4,
+      matchLevel: "city",
+      attribution: "Source",
+    },
+  ]);
+});
+
+it("shows a failed connection without the key the network error quotes", async () => {
+  const fetcher = vi
+    .fn()
+    .mockRejectedValue(Error(`URL failed with apiKey=${DEPLOYMENT_KEY}`));
+  const error = await lookupWith(fetcher).catch((e: unknown) => e);
+  expect(error).toMatchObject({
+    name: "ConvexError",
+    data: "Address lookup could not connect. Your address has not been changed.",
+  });
+  expect(String(error)).not.toContain(DEPLOYMENT_KEY);
+});
+
+it.each([
+  [
+    401,
+    "The Geoapify key was not accepted. Ask a system administrator to check Address verification in Settings → System.",
+  ],
+  [
+    403,
+    "The Geoapify key was not accepted. Ask a system administrator to check Address verification in Settings → System.",
+  ],
+  [429, "Address lookup quota reached. Try again later."],
+  [
+    500,
+    "The address service is unavailable. Your address has not been changed.",
+  ],
+])("shows HTTP %i from Geoapify to the user", async (status, message) => {
+  await expect(lookupWith(reply({}, status))).rejects.toMatchObject({
+    name: "ConvexError",
+    data: message,
+  });
+});
+
+it("shows an unreadable reply plainly", async () => {
+  const unexpected = {
+    name: "ConvexError",
+    data: "The address service returned an unexpected response. Your address has not been changed.",
+  };
+  await expect(lookupWith(reply({ results: "none" }))).rejects.toMatchObject(
+    unexpected,
+  );
+  const notJson = vi.fn().mockResolvedValue(new Response("not json"));
+  await expect(lookupWith(notJson)).rejects.toMatchObject(unexpected);
+});
+
 const CREDENTIALS_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+const DEPLOYMENT_KEY = "deployment-key-long-enough";
 const KEY = "test-key-that-is-long-enough";
 const today = () => new Date().toISOString().slice(0, 10);
 const settings = (fields: { day?: string; used?: number } = {}) => ({
@@ -371,3 +468,27 @@ it("saves a key sealed, and only once Geoapify accepts it", async () => {
   });
   expect(row!.key).not.toContain(KEY);
 });
+
+const reply = (body: unknown, status = 200) =>
+  vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }));
+
+// One lookup by a new system administrator, so the one-a-second pacing never
+// decides, with the deployment's key and `fetcher` standing in for Geoapify.
+async function lookupWith(fetcher: typeof fetch) {
+  vi.stubEnv("GEOAPIFY_API_KEY", DEPLOYMENT_KEY);
+  vi.stubGlobal("fetch", fetcher);
+  const { user } = await fixture();
+  return (await user()).action(api.addressVerification.lookup, {
+    payload: JSON.stringify({
+      street: "1600 Pennsylvania Avenue NW",
+      city: "Washington",
+      region: "",
+      postalCode: "20500",
+      country: "United States",
+      contactName: "Receiving",
+      email: "receiving@example.com",
+      phone: "+1 202 555 0100",
+    }),
+    programUuid: "demo-program",
+  });
+}
