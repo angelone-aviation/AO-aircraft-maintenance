@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins a Flight Program's default groups: created with a new
+ *   program, backfilled by name only, audited, and refused to non-admins.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/defaultGroups.ts, convex/fleet.ts, convex/schema.ts,
+ *   src/domain/defaultPermissionGroups, src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -107,4 +114,39 @@ it("backfills only missing names and preserves custom groups and user assignment
       programUuid: "demo-program",
     }),
   ).rejects.toThrow(/Administrator/);
+});
+it("names what it created and kept, audits each new group, and refuses an unknown program", async () => {
+  const { t, ids, admin } = await fixture();
+  await t.run((ctx) =>
+    ctx.db.insert("groups", {
+      programUuid: "demo-program",
+      name: " pilots ",
+      aircraftIds: [],
+      permissions: ["read", "flight"],
+      programAdmin: false,
+    }),
+  );
+  const result = await admin.mutation(api.defaultGroups.initialize, {
+    programUuid: "demo-program",
+  });
+  expect(result).toEqual({
+    created: defaultPermissionGroups
+      .map((g) => g.name)
+      .filter((name) => name !== "Pilots"),
+    preserved: [" pilots "],
+  });
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(rows).toHaveLength(4);
+  for (const row of rows)
+    expect(row).toMatchObject({
+      action: "group.saved",
+      actorId: ids.user,
+      programUuid: "demo-program",
+    });
+  await expect(
+    admin.mutation(api.defaultGroups.initialize, { programUuid: "missing" }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Flight Program not found.",
+  });
 });
