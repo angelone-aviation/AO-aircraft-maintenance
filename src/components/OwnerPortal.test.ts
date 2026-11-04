@@ -1,15 +1,17 @@
 /**
- * Responsibility: Pins what the owner portal lists for an aircraft and when
- *   it offers to leave the demo's owner preview. The exports need a browser:
- *   tests/e2e/aircraft-status-export.spec.ts covers them.
+ * Responsibility: Pins what the owner portal lists for an aircraft, a total
+ *   time it cannot read, and when it offers to leave the demo's owner
+ *   preview. The exports need a browser: tests/e2e/aircraft-status-export.spec.ts
+ *   covers them.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/OwnerPortal.tsx, src/data/demo.ts
- *   (demoSnapshot), react-dom/server.
+ *   (demoSnapshot), react-dom/server, tests/fixtures/dueFleet.ts.
  */
 // @vitest-environment node
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import type { Snapshot } from "../domain/model";
 import { OwnerPortal } from "./OwnerPortal";
@@ -66,6 +68,20 @@ describe("OwnerPortal", () => {
   it("lists open discrepancies only", () => {
     expect(render()).toContain("Cracked fairing");
     expect(render()).not.toContain("Old leak");
+  });
+
+  it("shows a total time it cannot read as not recorded", () => {
+    const s = demoSnapshot();
+    withoutMeterReading(s, s.aircraft[0]);
+    const { snapshot } = workspace;
+    workspace.snapshot = { ...snapshot, aircraft: s.aircraft.slice(0, 1) };
+    try {
+      expect(render()).toContain(
+        "<dt>Total time (Flight time log)</dt><dd>Not recorded</dd>",
+      );
+    } finally {
+      workspace.snapshot = snapshot;
+    }
   });
 
   it("offers to leave the owner preview only in the demo", () => {

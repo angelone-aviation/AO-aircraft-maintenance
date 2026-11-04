@@ -4,9 +4,10 @@
  *   every refusal in order, and the change they store and audit.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/management.ts, ./model, ./rejection,
- *   src/data/demo.ts, tests/fixtures/componentMovement.ts.
+ *   src/data/demo.ts, tests/fixtures/componentMovement.ts and dueFleet.ts.
  */
 import { applyThroughWorkOrder } from "../../tests/fixtures/componentMovement";
+import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -713,6 +714,21 @@ const refusals: [string, (w: World) => object][] = [
       seconds: 0,
       cycles: 0,
     }),
+  ],
+  [
+    "Flight time log reading is required.",
+    ({ s, a }) => {
+      withoutMeterReading(s, a);
+      return {
+        ...common(),
+        action: "inspection.complete",
+        uuid: "phase",
+        version: 1,
+        date: "2026-10-01",
+        seconds: 0,
+        cycles: 0,
+      };
+    },
   ],
   [
     "Enter aircraft total landings at completion.",

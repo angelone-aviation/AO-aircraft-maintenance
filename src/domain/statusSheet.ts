@@ -11,7 +11,7 @@
  */
 import {
   localDate,
-  totalSeconds,
+  recordedTotalSeconds,
   aircraftMeterLabels,
   type Aircraft,
   type Inspection,
@@ -64,7 +64,8 @@ export interface StatusSheet {
 /**
  * Builds the status sheet content for one aircraft as recorded in `s`, with
  * its inspections and ADs from {@link dueItems}. A Component whose times
- * cannot be computed reads "Review" instead of failing the sheet.
+ * cannot be computed reads "Review", and a total time that cannot be read
+ * "Not recorded", instead of failing the sheet.
  * @param s - Snapshot holding the aircraft and its records.
  * @param aircraftUuid - The aircraft to report on.
  * @param today - Local `YYYY-MM-DD` that due dates are counted from.
@@ -129,7 +130,7 @@ function overviewSection(s: Snapshot, a: Aircraft): StatusSection {
     rows: [
       [
         a.operationalStatus,
-        `${formatHours(totalSeconds(a))} hours`,
+        formatTotal(recordedTotalSeconds(a)),
         `${formatHours(a.currentHobbs)} / ${formatHours(a.currentTach)}`,
         `${a.cycles} / ${a.landings}`,
         aircraftMeterLabels[a.meter],
@@ -138,6 +139,14 @@ function overviewSection(s: Snapshot, a: Aircraft): StatusSection {
     ],
     notes,
   };
+}
+
+// Only damaged data has a meter without a reading: the aircraft form requires
+// one.
+function formatTotal(seconds: number | undefined) {
+  return seconds === undefined
+    ? "Not recorded"
+    : `${formatHours(seconds)} hours`;
 }
 
 function componentsSection(

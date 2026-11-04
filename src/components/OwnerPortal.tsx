@@ -12,7 +12,7 @@ import { useWorkspace, previewDemoOwner } from "../data/store";
 import {
   aircraftMeterLabels,
   hours,
-  totalSeconds,
+  recordedTotalSeconds,
   type Aircraft,
   type Snapshot,
 } from "../domain/model";
@@ -102,7 +102,7 @@ function OwnerAircraft({ state, aircraft: a }: AircraftProps) {
       </div>
       <dl className="details">
         <dt>Total time ({aircraftMeterLabels[a.meter]})</dt>
-        <dd>{hours(totalSeconds(a))} h</dd>
+        <dd>{totalLabel(a)}</dd>
         <dt>Cycles</dt>
         <dd>{a.cycles.toLocaleString()}</dd>
         <dt>Landings</dt>
@@ -118,6 +118,12 @@ function OwnerAircraft({ state, aircraft: a }: AircraftProps) {
       </div>
     </section>
   );
+}
+
+// Only damaged data has a meter without a reading.
+function totalLabel(a: Aircraft) {
+  const total = recordedTotalSeconds(a);
+  return total === undefined ? "Not recorded" : <>{hours(total)} h</>;
 }
 
 function NextDue({ items }: { items: DueItem[] }) {

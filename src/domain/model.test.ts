@@ -1,9 +1,10 @@
 /**
  * Responsibility: Pins the meter, hours and flight entry rules of the core
- *   model: the reading an aircraft's own meter gives, hours typed as text,
- *   the flight entry limits, who may fly, and the R66's cycles.
+ *   model: the reading an aircraft's own meter gives, its total time when
+ *   recorded, hours typed as text, the flight entry limits, who may fly, and
+ *   the R66's cycles.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/model.ts, ./rejection.
+ * Dependencies: src/domain/model.ts, ./rejection, src/data/demo.ts (seed).
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -16,10 +17,12 @@ import {
   NOTE_MAX_LENGTH,
   operationSchema,
   parseHours,
+  recordedTotalSeconds,
   type Aircraft,
   type FlightInput,
 } from "./model";
 import { Rejection } from "./rejection";
+import { demoSnapshot } from "../data/demo";
 
 const READINGS = {
   meter: "hobbs" as Aircraft["meter"],
@@ -61,6 +64,33 @@ describe("aircraftMeterReading", () => {
         }),
       "Collective hourmeter reading is required.",
     );
+  });
+});
+
+describe("recordedTotalSeconds", () => {
+  const aircraft = {
+    ...demoSnapshot().aircraft[0],
+    ...READINGS,
+    adjustmentSeconds: 60,
+  };
+
+  it("is the total time, or undefined when the meter has no reading", () => {
+    expect(recordedTotalSeconds(aircraft)).toBe(3660);
+    for (const meter of ["flightTimeLog", "cyclic"] as const)
+      expect(
+        recordedTotalSeconds({
+          ...aircraft,
+          meter,
+          currentFlightTimeLog: undefined,
+          currentCyclicHobbs: undefined,
+        }),
+      ).toBeUndefined();
+  });
+
+  it("lets any other error through", () => {
+    expect(() =>
+      recordedTotalSeconds(undefined as unknown as Aircraft),
+    ).toThrow(TypeError);
   });
 });
 

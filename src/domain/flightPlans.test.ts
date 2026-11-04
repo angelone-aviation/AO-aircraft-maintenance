@@ -581,15 +581,17 @@ describe("queue flags on the due fleet", () => {
     );
   });
 
-  // Characterizes current behaviour: the projected total reads the meter, so
-  // the queue fails before it reaches the due items.
-  it("fails the queue of an aircraft without a meter reading", () => {
+  it("projects the queue of an aircraft without a meter reading, with no total", () => {
     const { s, c } = dueFleet();
     withoutMeterReading(s, c);
     s.flightPlans = [{ ...draft(), aircraftUuid: c.uuid, durationMinutes: 60 }];
-    expect(() => projectQueue(s, c.uuid)).toThrow(
-      new Rejection("Flight time log reading is required."),
-    );
+    const [entry] = projectQueue(s, c.uuid);
+    expect(entry.minutes).toBe(60);
+    expect(entry.totalSeconds).toBeUndefined();
+    expect(entry.flags).toStrictEqual([
+      "Aircraft status: unknown",
+      "i-collective: Collective component tracking requires a helicopter collective hourmeter reading.",
+    ]);
   });
 
   it("flags a requirement it cannot project instead of failing the queue", () => {

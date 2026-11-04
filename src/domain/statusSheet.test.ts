@@ -1,13 +1,15 @@
 /**
  * Responsibility: Pins the status sheet content: header, section order,
  *   placeholder rows, sort orders, which records are listed, component
- *   fallbacks, the failure on an uncomputable inspection, and the notes
- *   under each table.
+ *   fallbacks, the failure on an uncomputable inspection, a total it cannot
+ *   read, and the notes under each table.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/statusSheet.ts, airworthiness.ts, components.ts,
- *   model.ts, rejection.ts, src/data/demo.ts (fixture).
+ *   model.ts, rejection.ts, src/data/demo.ts and tests/fixtures/dueFleet.ts
+ *   (fixtures).
  */
 import { expect, it } from "vitest";
+import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { blankAD } from "./airworthiness";
 import { componentSchema } from "./components";
@@ -180,6 +182,18 @@ it("fails when an inspection's status cannot be computed", () => {
   expect(() => sheet(s)).toThrow(
     "Aircraft readings or date precede the installation baseline.",
   );
+});
+
+// Characterizes current behaviour: its inspections still fail the sheet, as
+// any uncomputable inspection does.
+it("records a total it cannot read as not recorded", () => {
+  const s = demoSnapshot();
+  withoutMeterReading(s, s.aircraft[0]);
+  expect(() => sheet(s)).toThrow(
+    new Rejection("Flight time log reading is required."),
+  );
+  s.inspections = [];
+  expect(section(s, "overview").rows[0][1]).toBe("Not recorded");
 });
 
 it("notes each calendar exemption reason once, after the table", () => {
