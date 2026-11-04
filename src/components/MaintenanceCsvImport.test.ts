@@ -4,7 +4,8 @@
  *   forms, and job cards made from imported tasks.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/MaintenanceCsvImport.tsx, react-dom/server,
- *   src/data/demo.ts (seed), src/domain (manuals, maintenanceCsv).
+ *   src/data/demo.ts (seed), src/domain (manuals, maintenanceCsv,
+ *   taskCards).
  *
  * Server rendering keeps no state and calls no handlers, so mocks keep each
  * component's useState values by name and key and capture buttons, fields,
@@ -16,7 +17,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { Manual } from "../domain/manuals";
-import { csvSourceKey } from "../domain/maintenanceCsv";
+import { CSV_MAX_BYTES, csvSourceKey } from "../domain/maintenanceCsv";
+import {
+  TASK_TEXT_MAX_LENGTH,
+  taskCardFieldsSchema,
+} from "../domain/taskCards";
 import type { Snapshot } from "../domain/model";
 import { MaintenanceCsvImportButton } from "./MaintenanceCsvImport";
 
@@ -324,6 +329,10 @@ describe("maintenance CSV import", () => {
     expect(await submit(label, csvFiles({ components: big }))).toBe(
       "components: use a CSV file up to 2 MB.",
     );
+    const largest = "x".repeat(CSV_MAX_BYTES);
+    expect(await submit(label, csvFiles({ components: largest }))).not.toBe(
+      "components: use a CSV file up to 2 MB.",
+    );
     const latin1 = new Uint8Array([0x69, 0x64, 0xe9]);
     expect(await submit(label, csvFiles({ tasks: latin1 }))).toBe(
       "tasks: save the CSV as UTF-8.",
@@ -425,5 +434,31 @@ describe("maintenance CSV import", () => {
     );
     click("Create job card template");
     expect(ui.fields.get("Task title")!.defaultValue).toBe("x".repeat(200));
+  });
+
+  it("limits task text to what a job card's fields hold", async () => {
+    open();
+    const tasks = [TASKS, "t1,inspection,phase-1,A1,Check tire,All,5-1,3,7"];
+    const inspections = [INSPECTIONS, ...inspectionRows(1)].join("\n");
+    await submit(
+      "Validate and preview CSVs",
+      csvFiles({ inspections, tasks: tasks.join("\n") }),
+    );
+    click("Create job card template");
+    for (const label of [
+      "Task title",
+      "Task instruction",
+      "Task applicability",
+    ])
+      expect(ui.fields.get(label)!.maxLength).toBe(TASK_TEXT_MAX_LENGTH);
+    const { title, description, applicability } = taskCardFieldsSchema.shape;
+    for (const field of [title, description, applicability]) {
+      const fits = (length: number) =>
+        field.safeParse("x".repeat(length)).success;
+      expect([
+        fits(TASK_TEXT_MAX_LENGTH),
+        fits(TASK_TEXT_MAX_LENGTH + 1),
+      ]).toEqual([true, false]);
+    }
   });
 });

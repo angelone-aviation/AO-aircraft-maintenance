@@ -26,6 +26,8 @@ import {
   type ManualCandidate,
 } from "../domain/manualDiscovery";
 import {
+  CSV_MAX_BYTES,
+  CSV_MAX_MEGABYTES,
   csvSourceKey,
   importHeaders,
   parseMaintenanceCsv,
@@ -33,7 +35,11 @@ import {
   type ImportBatch,
   type ImportKind,
 } from "../domain/maintenanceCsv";
-import { taskCardDefaults, type TaskCardCommand } from "../domain/taskCards";
+import {
+  TASK_TEXT_MAX_LENGTH,
+  taskCardDefaults,
+  type TaskCardCommand,
+} from "../domain/taskCards";
 import { toCsv } from "../domain/csv";
 import {
   ApplicabilityEditor,
@@ -44,13 +50,9 @@ import { ManualLink } from "./Manuals";
 import { AsyncForm, Field, Modal, download, value } from "./ui";
 
 const IMPORT_KINDS = Object.keys(importHeaders) as ImportKind[];
-// readCsvRows refuses larger files; checking first spares reading them.
-const MAX_CSV_BYTES = 2 * 1024 * 1024;
 // Rows of each table, and errors, shown at once.
 const ROWS_PER_PAGE = 100;
 const ERRORS_SHOWN = 100;
-// The task-card schema's text limit.
-const TASK_TEXT_MAX = 10000;
 // A suggested task title: the item code and the start of the instruction.
 const TITLE_INSTRUCTION_CHARS = 120;
 const TITLE_CHARS = 200;
@@ -754,7 +756,7 @@ function TaskTextFields({ task }: { task: ImportedTask }) {
         <input
           name="title"
           defaultValue={taskTitle(task)}
-          maxLength={TASK_TEXT_MAX}
+          maxLength={TASK_TEXT_MAX_LENGTH}
           required
         />
       </Field>
@@ -762,7 +764,7 @@ function TaskTextFields({ task }: { task: ImportedTask }) {
         <textarea
           name="instruction"
           defaultValue={task.instruction}
-          maxLength={TASK_TEXT_MAX}
+          maxLength={TASK_TEXT_MAX_LENGTH}
           required
         />
       </Field>
@@ -770,7 +772,7 @@ function TaskTextFields({ task }: { task: ImportedTask }) {
         <textarea
           name="applicability"
           defaultValue={task.applicability}
-          maxLength={TASK_TEXT_MAX}
+          maxLength={TASK_TEXT_MAX_LENGTH}
         />
       </Field>
       <ManualLink reference={task.reference} />
@@ -800,8 +802,9 @@ async function readCsvFiles(d: FormData) {
   for (const k of IMPORT_KINDS) {
     const file = d.get(k);
     if (!(file instanceof File) || !file.size) continue;
-    if (file.size > MAX_CSV_BYTES)
-      throw new Error(`${k}: use a CSV file up to 2 MB.`);
+    // readCsvRows refuses larger files; checking first spares reading them.
+    if (file.size > CSV_MAX_BYTES)
+      throw new Error(`${k}: use a CSV file up to ${CSV_MAX_MEGABYTES} MB.`);
     files[k] = await decodeUtf8(k, file);
   }
   if (!Object.keys(files).length)
