@@ -6,9 +6,10 @@
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/domain (model, management, maintenance, forecast,
  *   shelfLife, componentInventory, partsPlanning, ata, programs, addresses,
- *   inventoryAttachments, componentCalendar), ./ManagementShared and sibling
- *   screens' parts (Components, PartsRequests, PurchaseOrders, TaskCards,
- *   WorkOrders, Manuals, RequiredParts, Inventory*), ./ui, ./design.
+ *   inventoryAttachments, componentCalendar, rejection), ./ManagementShared
+ *   and sibling screens' parts (Components, PartsRequests, PurchaseOrders,
+ *   TaskCards, WorkOrders, Manuals, RequiredParts, Inventory*), ./ui,
+ *   ./design.
  *
  * Record lists keep real <table> markup restyled as CSS-grid cards, with
  * explicit table roles because some browsers drop table semantics when display
@@ -40,7 +41,10 @@ import {
   InventoryAttachments,
   InventoryFilePicker,
 } from "./InventoryAttachments";
-import { maintenancePartsPlans } from "../domain/partsPlanning";
+import {
+  maintenancePartsPlans,
+  plannedNeedsFor,
+} from "../domain/partsPlanning";
 import { PartsAvailability, requiredPartsFromForm } from "./RequiredParts";
 import { TaskCsvImportButton } from "./TaskCsvImport";
 import {
@@ -58,10 +62,12 @@ import {
   can,
   hours,
   aircraftMeterLabels,
+  recordedTotalSeconds,
   type Aircraft,
   type Inspection,
   type Snapshot,
 } from "../domain/model";
+import { Rejection } from "../domain/rejection";
 import {
   INSPECTION_REFERENCE_MAX_LENGTH,
   PURCHASE_REFERENCE_MAX_LENGTH,
@@ -142,6 +148,13 @@ const HOUR_SECONDS = 3600;
 const DAY_MS = 86400000;
 // Rows after the eighth share one entrance-animation delay.
 const MAX_STAGGERED_ROWS = 8;
+const UNMEASURED: ReturnType<typeof inspectionStatus> = {
+  hoursRemaining: undefined,
+  cyclesRemaining: undefined,
+  landingsRemaining: undefined,
+  daysRemaining: undefined,
+  status: "unknown",
+};
 
 type Basis = "h" | "cycles" | "landings" | "days";
 const units: Record<Basis, [string, string]> = {
@@ -526,8 +539,10 @@ function InspectionRow({
 }) {
   const { s, inspection: i } = props;
   const a = s.aircraft.find((a) => a.uuid === i.aircraftUuid)!;
-  const counters = inspectionCounters(i, a, s.management);
-  const status = inspectionStatus(i, a, undefined, counters);
+  const counters = readCounters(i, a, s.management);
+  const status = counters
+    ? inspectionStatus(i, a, undefined, counters)
+    : UNMEASURED;
   const look = inspectionLook(status.status, i.archived);
   const row = { ...props, aircraft: a, look };
   return (
@@ -542,6 +557,24 @@ function InspectionRow({
       <InspectionToolsCell inspection={i} aircraft={a} />
     </tr>
   );
+}
+
+// An aircraft whose meter has no reading (only damaged data: the aircraft
+// form requires one) has no usage to measure. Its schedules show an unknown
+// status, as in the due list, and completion opens blank; the command is
+// still refused.
+function readCounters(
+  i: Inspection,
+  a: Aircraft,
+  records: Snapshot["management"],
+) {
+  try {
+    return inspectionCounters(i, a, records);
+  } catch (error) {
+    if (error instanceof Rejection && recordedTotalSeconds(a) === undefined)
+      return undefined;
+    throw error;
+  }
 }
 
 function InspectionMainCell({
@@ -926,7 +959,7 @@ function limitsFromForm(d: FormData) {
 function CompletionFields({ s, record }: { s: Snapshot; record: Inspection }) {
   const aircraft = () =>
     s.aircraft.find((a) => a.uuid === record.aircraftUuid)!;
-  const counters = () => inspectionCounters(record, aircraft(), s.management);
+  const counters = readCounters(record, aircraft(), s.management);
   return (
     <>
       <p>
@@ -948,13 +981,13 @@ function CompletionFields({ s, record }: { s: Snapshot; record: Inspection }) {
         label="Tracked total at completion (hours)"
         decimal
         required
-        initial={counters().seconds / HOUR_SECONDS}
+        initial={counters && counters.seconds / HOUR_SECONDS}
       />
       <NumberField
         name="cycles"
         label="Tracked cycles at completion"
         required
-        initial={counters().cycles}
+        initial={counters?.cycles}
       />
       {tracksLandings(record) && (
         <LandingsAtCompletion landings={aircraft().landings} />
@@ -1755,18 +1788,13 @@ function StockQtyCell({
   );
 }
 
-// A planned part matches the stock item by its id or its part number.
 function PlannedNeeds({ item: r, plans }: { item: Stock; plans: Plans }) {
-  const matches = (part: Plans[number]["parts"][number]) =>
-    part.stockUuid === r.uuid || part.partNumber === r.partNumber;
-  return plans
-    .filter((p) => p.parts.some(matches))
-    .map((p) => (
-      <span className="mx-fact-note" key={p.uuid}>
-        {p.label}: needs {p.parts.find(matches)!.quantity}
-        {p.upcoming ? " · Due / open" : " · Scheduled"}
-      </span>
-    ));
+  return plannedNeedsFor(plans, r).map(({ plan: p, quantity }) => (
+    <span className="mx-fact-note" key={p.uuid}>
+      {p.label}: needs {quantity}
+      {p.upcoming ? " · Due / open" : " · Scheduled"}
+    </span>
+  ));
 }
 
 function ComponentRow(props: InventoryProps & { component: Component }) {

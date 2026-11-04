@@ -1,6 +1,7 @@
 /**
  * Responsibility: Parts demand for maintenance planning: which open work
- *   needs parts, and how many of each are still to get.
+ *   needs parts, how many of each are still to get, and which work needs a
+ *   given stock lot.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/partsRequests.ts, dueItems.ts, airworthiness.ts;
  *   model.ts and requiredParts.ts (types).
@@ -89,6 +90,34 @@ export function requestedParts(
     .filter((r) => !r.recurring || isForecastTemplate(s, r, linked))
     .flatMap((r) => r.lines.map((line) => outstandingLine(s, r, line)))
     .filter((p) => p.quantity > 0);
+}
+
+/** A plan's need for one stock lot. */
+export interface PlannedNeed {
+  plan: PartsPlan;
+  quantity: number;
+}
+
+/**
+ * Lists the planned work that needs a stock lot. A record's part names its lot
+ * by id; a parts-request line names only a part number, which any lot of that
+ * number can fill.
+ *
+ * @param plans - The parts plans, as maintenancePartsPlans lists them.
+ * @param stock - The stock lot.
+ * @returns In plan order, each plan with a part naming the lot's id or part
+ *   number, and the quantity of the first such part.
+ */
+export function plannedNeedsFor(
+  plans: PartsPlan[],
+  stock: { uuid: string; partNumber: string },
+): PlannedNeed[] {
+  const matches = (part: RequiredPart) =>
+    part.stockUuid === stock.uuid || part.partNumber === stock.partNumber;
+  return plans.flatMap((plan) => {
+    const part = plan.parts.find(matches);
+    return part ? [{ plan, quantity: part.quantity }] : [];
+  });
 }
 
 // As in the alerts, an inspection or requirement whose status cannot be

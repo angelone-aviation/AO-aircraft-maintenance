@@ -10,7 +10,7 @@
 import { z } from "zod";
 import {
   can,
-  totalSeconds,
+  recordedTotalSeconds,
   type Aircraft,
   type Snapshot,
   type Flight,
@@ -210,12 +210,11 @@ export function validatePlanFlight(
  * @param aircraftUuid - The aircraft; it must be in the snapshot when it has
  *   queued plans.
  * @returns One entry per plan in {@link queuedPlans} order: the plan, the
- *   cumulative minutes and cycles, its end time, the projected total seconds,
- *   and flags for a flight awaiting review, a status other than airworthy,
- *   open discrepancies, inspections and component requirements due by the
+ *   cumulative minutes and cycles, its end time, the projected total seconds
+ *   (undefined when the aircraft's meter has no reading), and flags for a
+ *   flight awaiting review, a status other than airworthy, open
+ *   discrepancies, inspections and component requirements due by the
  *   flight's end (UTC date), and those it cannot measure.
- * @throws {Rejection} As {@link totalSeconds}, when a plan is queued on an
- *   aircraft whose meter has no reading.
  */
 export function projectQueue(s: Snapshot, aircraftUuid: string) {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
@@ -235,7 +234,7 @@ export function projectQueue(s: Snapshot, aircraftUuid: string) {
       minutes,
       cycles,
       end,
-      totalSeconds: totalSeconds(projected),
+      totalSeconds: recordedTotalSeconds(projected),
       flags: listFlags(s, p, projected, end.slice(0, 10)),
     };
   });

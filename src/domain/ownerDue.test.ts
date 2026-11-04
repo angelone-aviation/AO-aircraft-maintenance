@@ -222,9 +222,7 @@ describe("on the due fleet", () => {
     );
   });
 
-  // Characterizes current behaviour: an inspection on such an aircraft still
-  // throws the meter's refusal (see @throws), failing the whole list.
-  it("lists the ADs of an aircraft without a meter reading", () => {
+  it("lists an aircraft without a meter reading, its inspections for review", () => {
     const { s, c } = dueFleet();
     withoutMeterReading(s, c);
     s.inspections = s.inspections.filter((i) => i.aircraftUuid !== c.uuid);
@@ -240,9 +238,13 @@ describe("on the due fleet", () => {
       description: "",
       dueDate: "2027-01-01",
     });
-    expect(() => ownerDueItems(s, c, DUE_FLEET_TODAY)).toThrow(
-      new Rejection("Flight time log reading is required."),
-    );
+    expect(ownerDueItems(s, c, DUE_FLEET_TODAY)[1]).toStrictEqual({
+      uuid: "annual",
+      kind: "Inspection",
+      label: "Annual",
+      status: "unknown",
+      remaining: "Review",
+    });
   });
 });
 

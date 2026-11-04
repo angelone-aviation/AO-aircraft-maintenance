@@ -365,13 +365,18 @@ function AircraftPlansHeading({ group }: { group: Group }) {
               Full queue <strong>{durationLabel(last.minutes)}</strong>
             </span>
             <span>
-              Projected total <strong>{hours(last.totalSeconds)} h</strong>
+              Projected total <strong>{totalLabel(last.totalSeconds)}</strong>
             </span>
           </>
         )}
       </p>
     </header>
   );
+}
+
+// Only damaged data has a meter without a reading to project from.
+function totalLabel(seconds: number | undefined) {
+  return seconds === undefined ? "Not recorded" : <>{hours(seconds)} h</>;
 }
 
 function QueueTable(props: PlanActions & { group: Group }) {

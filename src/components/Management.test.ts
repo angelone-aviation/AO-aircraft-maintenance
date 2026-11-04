@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins the inspections and inventory screens: sorting,
- *   filters and due lines, saving and completing a schedule, inventory rows
- *   and counts, a new item's attachments, and items opened from a link.
+ *   filters and due lines, an aircraft without a meter reading, saving and
+ *   completing a schedule, inventory rows and counts, a new item's
+ *   attachments, and items opened from a link.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/Management.tsx, react-dom/server, convex/values
- *   (ConvexError), src/data/demo.ts (seed).
+ *   (ConvexError), src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  *
  * Server rendering keeps no state, so the mocks keep each screen's state by
  * component name between renders, and capture click and change handlers by
@@ -21,6 +22,7 @@ import {
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConvexError } from "convex/values";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import type { Inspection, Snapshot } from "../domain/model";
 import type { Location, Stock } from "../domain/management";
@@ -303,6 +305,28 @@ describe("inspections", () => {
         cycles: 1900,
       }),
     );
+  });
+});
+
+describe("inspections on an aircraft without a meter reading", () => {
+  beforeEach(() => {
+    const a = s.aircraft.find((x) => x.uuid === s.inspections[0].aircraftUuid)!;
+    withoutMeterReading(s, a);
+    s.inspections = [s.inspections[0]];
+  });
+
+  it("lists them as unknown, with their limits and nothing remaining", () => {
+    const html = inspections();
+    expect(titles(html)).toEqual(["100-hour inspection"]);
+    expect(html).toMatch(/class="mx-due-what">Due [\d,.]+ h </);
+    expect(html).toContain('<span class="ds-pill ds-tone-neutral">Unknown<');
+    expect(html).not.toContain("mx-due-left");
+  });
+
+  it("starts completion from blank readings", () => {
+    const html = act(inspections, "Complete");
+    expect(html).toMatch(/<input [^>]*name="seconds"\/>/);
+    expect(html).toMatch(/<input [^>]*name="cycles"\/>/);
   });
 });
 

@@ -5,12 +5,13 @@
  *   tests/e2e/flight-plans.spec.ts covers it.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/FlightPlans.tsx, src/data/demo.ts
- *   (demoSnapshot), react-dom/server.
+ *   (demoSnapshot), react-dom/server, tests/fixtures/dueFleet.ts.
  */
 // @vitest-environment node
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import type { FlightPlan } from "../domain/flightPlans";
 import type { Snapshot } from "../domain/model";
@@ -101,6 +102,16 @@ describe("FlightPlans", () => {
     const html = render({ search: "kb2" });
     expect(html).not.toContain("KB1");
     expect(html).toMatch(/data-label="Cumulative">2h 00m</);
+  });
+
+  it("projects the queue of an aircraft without a meter reading, with no total", () => {
+    const s = demoSnapshot();
+    const html = () =>
+      render({}, { aircraft: s.aircraft, airworthiness: s.airworthiness });
+    expect(html()).toMatch(/Projected total <strong>[\d,.]+ h<\/strong>/);
+    withoutMeterReading(s, s.aircraft[0]);
+    expect(html()).toContain("Projected total <strong>Not recorded</strong>");
+    expect(html()).toMatch(/data-label="Cumulative">2h 00m</);
   });
 
   it("lists a plan only when it contains every search word", () => {

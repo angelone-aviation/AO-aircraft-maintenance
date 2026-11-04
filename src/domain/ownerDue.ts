@@ -6,7 +6,7 @@
  * Dependencies: ./model, ./dueItems, ./adRemaining, ./rejection.
  */
 import type { Aircraft, Snapshot } from "./model";
-import { localDate } from "./model";
+import { localDate, recordedTotalSeconds } from "./model";
 import { adRemaining } from "./adRemaining";
 import {
   dueItems,
@@ -51,10 +51,10 @@ const HIDDEN_AD_APPLICABILITY = ["Not applicable", "Superseded"];
  * @returns Live inspections, installed components' limits and ADs neither
  *   not applicable nor superseded, ordered overdue, due soon, unknown, ok.
  *   `remaining` lists what is left, "Not set" when nothing limits it, or
- *   "Review" for a component limit it cannot compute or an inspection whose
- *   component is missing.
+ *   "Review" for a component limit it cannot compute, or an inspection whose
+ *   component is missing or whose aircraft meter has no reading.
  * @throws As {@link inspectionCounters} and {@link inspectionStatus}, except
- *   "Inspection component not found.".
+ *   for those inspections.
  */
 export function ownerDueItems(
   s: Snapshot,
@@ -103,7 +103,7 @@ function inspectionRow(item: InspectionDue): DueItem {
     kind: "Inspection" as const,
     label: i.reference || i.description,
   };
-  if (!item.due) return { ...row, ...reviewIfMissing(item.error) };
+  if (!item.due) return { ...row, ...reviewIfUnmeasured(item) };
   const r = item.due;
   return {
     ...row,
@@ -117,11 +117,13 @@ function inspectionRow(item: InspectionDue): DueItem {
   };
 }
 
-// An inspection whose component is no longer on this aircraft is listed for
+// An inspection whose component is no longer on this aircraft, or whose
+// aircraft meter has no reading (only damaged data lacks one), is listed for
 // review, as a component limit is, rather than failing the whole list.
-function reviewIfMissing(error: unknown) {
-  if (error instanceof Rejection && error.message === MISSING_COMPONENT)
-    return NEEDS_REVIEW;
+function reviewIfUnmeasured({ error, aircraft }: InspectionDue) {
+  if (!(error instanceof Rejection)) throw error;
+  if (error.message === MISSING_COMPONENT) return NEEDS_REVIEW;
+  if (recordedTotalSeconds(aircraft) === undefined) return NEEDS_REVIEW;
   throw error;
 }
 

@@ -538,6 +538,24 @@ export function totalSeconds(aircraft: Aircraft): number {
 }
 
 /**
+ * The aircraft's total time, for a screen that shows it rather than records
+ * against it. The aircraft form requires a meter reading, so only damaged or
+ * hand-edited data lacks one.
+ *
+ * @param aircraft - The aircraft.
+ * @returns As {@link totalSeconds}, or undefined when its meter has no
+ *   reading.
+ */
+export function recordedTotalSeconds(aircraft: Aircraft): number | undefined {
+  try {
+    return totalSeconds(aircraft);
+  } catch (error) {
+    if (error instanceof Rejection) return undefined;
+    throw error;
+  }
+}
+
+/**
  * Formats seconds as hours for display.
  *
  * @param seconds - The time in seconds.

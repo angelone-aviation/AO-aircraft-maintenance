@@ -28,6 +28,7 @@ import {
 import { completeWorkOrder, workPerformedText } from "./workOrderCloseout";
 import {
   copyWorkOrderTemplates,
+  isPreparingJobCards,
   taskCardMatchesWorkItem,
   workItemCompletionIssue,
 } from "./workOrderCards";
@@ -49,6 +50,7 @@ import { componentTotals, type Component } from "./components";
 import type { TaskCard } from "./taskCards";
 import { Rejection } from "./rejection";
 import { auditEntry } from "./changeLog";
+export { isPreparingJobCards } from "./workOrderCards";
 
 const TEXT_MAX_LENGTH = 10_000;
 const ID_MAX_LENGTH = 200;
@@ -310,17 +312,6 @@ type Removal = {
  */
 export const isOpenWorkOrder = (w: WorkOrder) =>
   !CLOSED_STATUSES.includes(w.status);
-
-/**
- * Whether a work order's job cards are still being copied from templates;
- * until they finish, the order takes no edits.
- *
- * @param w - The work order.
- * @returns True while a template copy is running or has failed.
- */
-export function isPreparingJobCards(w: WorkOrder): boolean {
-  return !!w.templateCopy && w.templateCopy.status !== "completed";
-}
 
 /**
  * The work orders an item can be added to.
@@ -715,7 +706,7 @@ function assertWritable(
   command: WorkOrderCommand,
   existing: WorkOrder | undefined,
 ): string {
-  if (existing?.templateCopy && existing.templateCopy.status !== "completed")
+  if (existing && isPreparingJobCards(existing))
     throw new Rejection(
       "Job cards are still being prepared. Finish or resume preparation before editing or closing this work order.",
     );
