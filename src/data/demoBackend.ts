@@ -1,3 +1,10 @@
+/**
+ * Responsibility: The demo adapter of Backend: every command runs the shared
+ *   domain rules on the full fictional snapshot kept on the device.
+ * Layer: Data. Browser only; no Convex server, no React.
+ * Dependencies: ./backend, ./store (types), ./local, ./demoAircraftFiles,
+ *   convex/values (ConvexError), and the src/domain modules it runs.
+ */
 import {
   groupDeletionPlan,
   deletePermissionGroup,
@@ -87,7 +94,7 @@ import {
 import { ConvexError } from "convex/values";
 import type { Aircraft, AuditEntry, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
-import { deferDiscrepancy } from "../domain/deferrals";
+import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import {
   rebuildFlights,
   resequencedFlights,
@@ -103,9 +110,16 @@ import { groupAccessReports } from "../domain/groupAccessReview";
 import type { Backend } from "./backend";
 import type { Workspace } from "./store";
 type DemoWorkspace = { getState(): Workspace };
-// The local demo's Backend: every command runs the shared domain rules on
-// the full demo snapshot in IndexedDB, then hands the workspace its scoped
-// view (store.ts).
+/**
+ * The local demo's Backend: every command runs the shared domain rules on the
+ * full demo snapshot in IndexedDB, saves it, and hands the workspace its
+ * scoped view, as the server's snapshot query would.
+ *
+ * @param workspace - The demo workspace, read for its namespace and state.
+ * @returns The adapter. Its writes run one at a time, need `online`, and
+ *   throw the domain's refusals unchanged; outbox entries it refuses throw a
+ *   ConvexError, so the Sync center holds them.
+ */
 export function demoBackend(workspace: DemoWorkspace): Backend {
   // Serialize read-modify-write so concurrent demo commands cannot overwrite
   // each other's changes.
@@ -942,24 +956,19 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     resolve: (uuid, resolution) =>
       modify((s) => {
-        if (!resolution.trim()) throw new Error("Describe the repair.");
-        const d = s.discrepancies.find((d) => d.uuid === uuid)!;
-        if (d.status === "resolved") throw new Error("Already resolved.");
-        const before = { ...d };
-        Object.assign(d, {
-          status: "resolved",
-          resolution,
-          resolvedAt: Date.now(),
-          resolvedBy: s.user.id,
-        });
+        const next = resolveDiscrepancy(s, uuid, resolution);
+        const before = s.discrepancies.find((d) => d.uuid === uuid);
+        s.discrepancies = s.discrepancies.map((d) =>
+          d.uuid === uuid ? next : d,
+        );
         audit(
           s,
           "discrepancy.resolved",
           uuid,
-          d.aircraftUuid,
+          next.aircraftUuid,
           resolution,
           before,
-          d,
+          next,
         );
       }),
     review: (uuid, decision, reason, input) =>
