@@ -23,6 +23,8 @@ import { InspectionPOButton } from "./PurchaseOrders";
 import { InventoryPrintButtons } from "./InventoryPrinting";
 import { ScanButton } from "./InventoryScanner";
 import {
+  EXPIRING_SOON_DAYS,
+  matchesShelfLife,
   shelfLifeLabels,
   shelfLifeStatus,
   usableQuantity,
@@ -61,7 +63,15 @@ import {
   type Snapshot,
 } from "../domain/model";
 import {
+  INSPECTION_REFERENCE_MAX_LENGTH,
+  PURCHASE_REFERENCE_MAX_LENGTH,
+  STOCK_VENDOR_MAX_LENGTH,
   inspectionCounters,
+  inventoryCounts,
+  mayMaintain,
+  needsReorder,
+  stockSchema,
+  tracksLandings,
   type Component,
   type ManagedRecord,
   type ManagementCommand,
@@ -946,7 +956,7 @@ function CompletionFields({ s, record }: { s: Snapshot; record: Inspection }) {
         required
         initial={counters().cycles}
       />
-      {(record.intervalLandings || record.dueLandings !== undefined) && (
+      {tracksLandings(record) && (
         <LandingsAtCompletion landings={aircraft().landings} />
       )}
     </>
@@ -1008,7 +1018,7 @@ function InspectionTextFields({ record }: { record: Inspection | undefined }) {
         <input
           name="reference"
           defaultValue={record?.reference}
-          maxLength={2000}
+          maxLength={INSPECTION_REFERENCE_MAX_LENGTH}
         />
       </Field>
       <Field label="Description">
@@ -1356,23 +1366,10 @@ function inventoryStock(s: Snapshot) {
   };
 }
 
-// "Expiring soon" includes items already expired.
-function shelfLifeMatches(
-  shelfLife: "" | ShelfLife,
-  day: string,
-  expirationDate?: string,
-) {
-  return (
-    !shelfLife ||
-    shelfLifeStatus(expirationDate, day) === shelfLife ||
-    (shelfLife === "soon" && shelfLifeStatus(expirationDate, day) === "expired")
-  );
-}
-
 function inventoryRows(s: Snapshot, view: View, stock: InventoryStock) {
   const day = today();
   const query = view.search.toLowerCase();
-  const shown = (date?: string) => shelfLifeMatches(view.shelfLife, day, date);
+  const shown = (date?: string) => matchesShelfLife(view.shelfLife, date, day);
   return {
     stockRows: stock.stock
       .filter((r) => shown(r.expirationDate))
@@ -1475,37 +1472,25 @@ function LinkedItemNotice({ s, writable, backend, link }: InventoryProps) {
 }
 
 function InventoryStats({ stock: inventory }: { stock: InventoryStock }) {
-  const { stock, storedComponents } = inventory;
-  const day = today();
-  const costed = stock.filter((r) => r.cost !== undefined);
-  const recordedValue = costed.reduce(
-    (n, r) => n + (r.cost ?? 0) * r.quantity,
-    0,
+  const counts = inventoryCounts(
+    inventory.stock,
+    inventory.storedComponents,
+    today(),
   );
   return (
     <StatsStrip className="mx-stats">
-      <StatTile label="Stock items" value={stock.length} />
-      <StatTile
-        label="At or below reorder"
-        value={stock.filter((r) => r.quantity <= r.minimum).length}
-      />
-      <StatTile
-        label="Expired or expiring"
-        value={
-          [...stock, ...storedComponents].filter((r) =>
-            shelfLifeStatus(r.expirationDate, day),
-          ).length
-        }
-      />
+      <StatTile label="Stock items" value={counts.stockItems} />
+      <StatTile label="At or below reorder" value={counts.atOrBelowReorder} />
+      <StatTile label="Expired or expiring" value={counts.expiredOrExpiring} />
       <StatTile
         label="Recorded stock value"
         value={
-          costed.length
-            ? recordedValue.toLocaleString("en-US", {
+          counts.recordedValue === undefined
+            ? "—"
+            : counts.recordedValue.toLocaleString("en-US", {
                 style: "currency",
                 currency: "USD",
               })
-            : "—"
         }
       />
     </StatsStrip>
@@ -1529,7 +1514,9 @@ function InventoryFilters({ view }: { view: View }) {
         onChange={(v) => view.setShelfLife(v as "" | ShelfLife)}
       >
         <option value="">All items</option>
-        <option value="soon">Expired or expiring within 30 days</option>
+        <option value="soon">
+          {`Expired or expiring within ${EXPIRING_SOON_DAYS} days`}
+        </option>
         <option value="expired">Expired</option>
       </IconSelect>
     </Toolbar>
@@ -1622,7 +1609,7 @@ function StockRow(
   props: InventoryProps & { stock: InventoryStock; item: Stock; plans: Plans },
 ) {
   const { item: r } = props;
-  const reorder = r.quantity <= r.minimum;
+  const reorder = needsReorder(r);
   return (
     <tr role="row" className="mx-inv-row">
       <StockMainCell item={r} reorder={reorder} />
@@ -1812,15 +1799,11 @@ function ComponentRow(props: InventoryProps & { component: Component }) {
   );
 }
 
-// Installing or servicing needs maintenance permission on the component's
-// aircraft, or in the program for a component on none.
 function ComponentActionsCell(
   props: InventoryProps & { component: Component },
 ) {
   const { s, writable, component: c } = props;
-  const movable =
-    can(s, c.aircraftUuid, "maintenance") ||
-    (!c.aircraftUuid && programPermission(s, "maintenance"));
+  const movable = mayMaintain(s, c.aircraftUuid);
   return (
     <td role="cell" className="mx-cell-actions">
       <button
@@ -2296,7 +2279,7 @@ function StockConditionFields({
           name="condition"
           defaultValue={record?.kind === "stock" ? record.condition : "new"}
         >
-          {["new", "overhauled", "as removed", "core"].map((c) => (
+          {stockSchema.shape.condition.options.map((c) => (
             <option key={c}>{c}</option>
           ))}
         </select>
@@ -2321,9 +2304,9 @@ function StockConditionFields({
 }
 
 const PURCHASE_FIELDS = [
-  ["vendor", "Vendor", 200],
-  ["invoiceNumber", "Invoice #", 100],
-  ["poRef", "PO Ref", 100],
+  ["vendor", "Vendor", STOCK_VENDOR_MAX_LENGTH],
+  ["invoiceNumber", "Invoice #", PURCHASE_REFERENCE_MAX_LENGTH],
+  ["poRef", "PO Ref", PURCHASE_REFERENCE_MAX_LENGTH],
 ] as const;
 
 function PurchaseFields({ item }: { item: Stock | undefined }) {

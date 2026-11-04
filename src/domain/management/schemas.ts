@@ -25,6 +25,15 @@ const positive = count.positive();
 const date = z.iso.date();
 const base = { uuid: text, version: count, programUuid: z.string().optional() };
 
+/** The longest vendor name a stock lot records. */
+export const STOCK_VENDOR_MAX_LENGTH = 200;
+
+/** The longest invoice number or PO reference a stock lot records. */
+export const PURCHASE_REFERENCE_MAX_LENGTH = 100;
+
+/** The longest reference an inspection schedule records. */
+export const INSPECTION_REFERENCE_MAX_LENGTH = 2000;
+
 /**
  * A storage location of a Flight Program.
  *
@@ -78,9 +87,13 @@ export const stockSchema = z.object({
   ...base,
   kind: z.literal("stock"),
   expirationDate: date.optional(),
-  vendor: z.string().trim().max(200).optional(),
-  invoiceNumber: z.string().trim().max(100).optional(),
-  poRef: z.string().trim().max(100).optional(),
+  vendor: z.string().trim().max(STOCK_VENDOR_MAX_LENGTH).optional(),
+  invoiceNumber: z
+    .string()
+    .trim()
+    .max(PURCHASE_REFERENCE_MAX_LENGTH)
+    .optional(),
+  poRef: z.string().trim().max(PURCHASE_REFERENCE_MAX_LENGTH).optional(),
   cost: z
     .number()
     .nonnegative()
@@ -140,7 +153,7 @@ export const inspectionSchema = z.object({
   ...base,
   componentUuid: text.optional(),
   aircraftUuid: text,
-  reference: z.string().trim().max(2000).default(""),
+  reference: z.string().trim().max(INSPECTION_REFERENCE_MAX_LENGTH).default(""),
   description: text,
   dueSeconds: count.optional(),
   dueCycles: count.optional(),

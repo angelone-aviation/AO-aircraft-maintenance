@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins shelf-life flags, usable quantity, and the refusal to
- *   issue or reserve expired stock on every path that moves it.
+ * Responsibility: Pins shelf-life flags, the shelf-life filter, usable
+ *   quantity, and the refusal to issue or reserve expired stock on every path
+ *   that moves it.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/shelfLife.ts, ./management, ./partsRequests,
  *   ./purchaseOrders, ./rejection, src/data/demo.ts (seed).
@@ -14,9 +15,11 @@ import {
   addDays,
   assertNotExpired,
   expiredForUse,
+  matchesShelfLife,
   shelfLifeLabels,
   shelfLifeStatus,
   usableQuantity,
+  type ShelfLife,
 } from "./shelfLife";
 import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-20T12:00:00Z");
@@ -61,6 +64,15 @@ describe("shelf life", () => {
     expect(shelfLifeStatus("2026-10-20", today)).toBe("soon");
     expect(shelfLifeStatus("2026-11-19", today)).toBe("soon");
     expect(shelfLifeStatus("2026-11-20", today)).toBeUndefined();
+  });
+  it("filters on a flag, expiring soon taking in expired lots", () => {
+    const today = "2026-10-20";
+    const dates = ["2026-10-19", "2026-11-01", "2027-01-01", undefined];
+    const passing = (filter: ShelfLife | "") =>
+      dates.filter((date) => matchesShelfLife(filter, date, today));
+    expect(passing("")).toEqual(dates);
+    expect(passing("expired")).toEqual(["2026-10-19"]);
+    expect(passing("soon")).toEqual(["2026-10-19", "2026-11-01"]);
   });
   it("adds calendar days across month and year ends", () => {
     expect(addDays("2026-12-15", 30)).toBe("2027-01-14");
