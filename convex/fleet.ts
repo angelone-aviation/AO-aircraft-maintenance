@@ -14,6 +14,7 @@ import {
   runCommand,
   hydrate,
   writeChanged,
+  validationErrors,
   type CommandLog,
 } from "./runCommand";
 import { ensureDefaultGroups } from "./defaultGroups";
@@ -31,9 +32,10 @@ import { activeProgram } from "../src/domain/programs";
  * baselines of the components installed on it.
  *
  * @param payload - The fleet command, as JSON, with its request id.
- * @throws {ConvexError} A domain Rejection; "Aircraft belongs to another
- *   Flight Program." or "This registration cannot be used." for an aircraft
- *   uuid or registration held elsewhere; runCommand's refusals.
+ * @throws {ConvexError} A domain Rejection; a refused field as its issue
+ *   text ("Use tenths of an hour.", …); "Aircraft belongs to another Flight
+ *   Program." or "This registration cannot be used." for an aircraft uuid or
+ *   registration held elsewhere; runCommand's refusals.
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -46,6 +48,7 @@ export const save = mutation({
       load: ({ ctx, state }) =>
         hydrate(ctx, state, ["management", "inspections"]),
       apply: ({ snapshot }, command) => applyFleet(snapshot, command),
+      expose: validationErrors,
       persist: async ({ ctx, state, log }, { docs }, result) => {
         if (result.aircraft)
           await saveAircraft(ctx, state.aircraft, result.aircraft);

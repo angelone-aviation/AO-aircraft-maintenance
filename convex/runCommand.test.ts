@@ -455,7 +455,8 @@ it("shows a Rejection from afterApply as a ConvexError, keeps other errors uncha
   expect(refused).toBeInstanceOf(ConvexError);
   expect(refused).toMatchObject({ message: stale, data: stale });
   const fault = new Error(stale);
-  // A command's `expose` covers apply only, so a plain Error stays hidden.
+  // A command's `expose` covers parse and apply only, so a plain Error stays
+  // hidden.
   expect(await refusal(f.mechanic.run(scheduling(fault)))).toBe(fault);
   expect(await f.flightPlans()).toEqual([]);
   expect(await f.rows()).toEqual([]);
@@ -532,7 +533,8 @@ it("shows a Rejection from persist as a ConvexError and writes nothing", async (
       }),
     ),
   );
-  // A command's `expose` covers apply only, so a plain Error stays hidden.
+  // A command's `expose` covers parse and apply only, so a plain Error stays
+  // hidden.
   expect(hidden).toBe(fault);
   expect(await f.flightPlans()).toEqual([]);
   expect(await f.rows()).toEqual([]);
@@ -551,7 +553,8 @@ it("keeps any other error hidden, from load or apply, and unchanged", async () =
     ),
   );
   expect(fromApply).toBe(fault);
-  // Characterizes current behaviour: a command's `expose` covers apply only.
+  // Characterizes current behaviour: a command's `expose` covers parse and
+  // apply only.
   const fromLoad = await refusal(
     f.mechanic.run(
       planCommand(f.aircraft, {
@@ -583,21 +586,27 @@ it("shows a Rejection even when the command's expose names another class", async
   expect(refused).toMatchObject({ data: "Flight dispatch rejected." });
 });
 
-it("shows a zod refusal from apply only to a command that opts in", async () => {
+it("shows a zod refusal from parse or apply only to a command that opts in", async () => {
   const f = await fixture();
   const refuseName = () => z.string().min(1, "Enter a plan name.").parse("");
-  const hidden = await refusal(
-    f.mechanic.run(planCommand(f.aircraft, { apply: refuseName })),
-  );
-  expect(hidden).toBeInstanceOf(ZodError);
-  expect(hidden).not.toBeInstanceOf(ConvexError);
-  const shown = await refusal(
-    f.mechanic.run(
-      planCommand(f.aircraft, { apply: refuseName, expose: validationErrors }),
-    ),
-  );
-  expect(shown).toBeInstanceOf(ConvexError);
-  expect(shown).toMatchObject({ data: "Enter a plan name." });
+  for (const step of ["parse", "apply"] as const) {
+    const hidden = await refusal(
+      f.mechanic.run(planCommand(f.aircraft, { [step]: refuseName })),
+    );
+    expect(hidden).toBeInstanceOf(ZodError);
+    expect(hidden).not.toBeInstanceOf(ConvexError);
+    const shown = await refusal(
+      f.mechanic.run(
+        planCommand(f.aircraft, {
+          [step]: refuseName,
+          expose: validationErrors,
+        }),
+      ),
+    );
+    expect(shown).toBeInstanceOf(ConvexError);
+    expect(shown).toMatchObject({ data: "Enter a plan name." });
+  }
+  expect(await f.flightPlans()).toEqual([]);
 });
 
 it("gives a zod refusal's issue text under validationErrors and allErrors only", () => {
