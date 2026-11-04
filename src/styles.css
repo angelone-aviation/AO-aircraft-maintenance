@@ -1543,45 +1543,6 @@ input[type="radio"] {
   gap: 28px;
   padding: clamp(20px, 4vw, 48px) clamp(16px, 4vw, 48px) 72px;
 }
-.welcome-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 75%);
-  -webkit-mask-image: radial-gradient(
-    ellipse at 50% 40%,
-    black 30%,
-    transparent 75%
-  );
-  pointer-events: none;
-}
-.welcome-art {
-  position: absolute;
-  right: -6%;
-  top: 8%;
-  width: min(60vw, 820px);
-}
-.welcome-theme {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 2;
-  display: inline-grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
-  transition: background var(--dur-fast);
-}
-.welcome-theme:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
 .welcome-card {
   position: relative;
   width: min(460px, 100%);
@@ -1720,11 +1681,11 @@ input[type="radio"] {
 .mission-slogan p {
   margin: 0 0 4px;
   color: #aab3d6;
-  font-size: 15.5px;
+  /* clamp keeps the verse on one line from phone widths up. */
+  font-size: clamp(11px, 2.4vw, 15.5px);
   font-weight: 300;
   font-style: italic;
   line-height: 1.6;
-  /* Verse stays one line; cite sits on the line below. */
   white-space: nowrap;
 }
 .mission-slogan cite {
@@ -1752,11 +1713,6 @@ input[type="radio"] {
 @media (max-width: 759px) {
   .welcome {
     padding-top: 72px;
-  }
-  .welcome-art {
-    right: -30%;
-    top: 4%;
-    width: 120%;
   }
 }
 

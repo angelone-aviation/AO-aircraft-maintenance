@@ -430,7 +430,6 @@ function PasswordField() {
 function Welcome({ children }: { children: React.ReactNode }) {
   return (
     <div className="welcome">
-      <span className="welcome-grid" aria-hidden="true" />
       <main className="welcome-card">
         <Wordmark width={176} />
         {children}
