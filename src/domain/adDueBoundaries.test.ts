@@ -1,3 +1,14 @@
+/**
+ * Responsibility: Pins where an AD limit turns due soon and overdue, as the
+ *   task, the AD, the aircraft status and the dispatch gate all report it.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/aircraftStatus.ts, ./airworthiness, ./model,
+ *   src/data/demo.ts (seed).
+ *
+ * The app-wide rule (GLOSSARY "Overdue"): a usage limit (hours, cycles,
+ * landings) is reached at 0 remaining, because the next flight would exceed
+ * it; a calendar limit stays valid through the end of its due date.
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { aircraftStatus, dispatchGate } from "./aircraftStatus";
@@ -10,13 +21,12 @@ import {
 } from "./airworthiness";
 import { localDate, totalSeconds, type Snapshot } from "./model";
 
-// The app-wide rule (GLOSSARY "Overdue"): a usage limit (hours, cycles,
-// landings) is reached at 0 remaining, because the next flight would exceed
-// it; a calendar limit stays valid through the end of its due date.
+const DAY_MS = 86_400_000;
+const HOUR_SECONDS = 3600;
 const today = localDate();
 const N206 = "demo-206";
 const addDays = (n: number) =>
-  new Date(Date.parse(today + "T00:00:00Z") + n * 86400000)
+  new Date(Date.parse(today + "T00:00:00Z") + n * DAY_MS)
     .toISOString()
     .slice(0, 10);
 
@@ -42,7 +52,7 @@ function withAD(limit: Partial<ADTask>) {
   return { s, r };
 }
 const aircraft = (s: Snapshot) => s.aircraft.find((a) => a.uuid === N206)!;
-const hoursNow = () => totalSeconds(aircraft(demoSnapshot())) / 3600;
+const hoursNow = () => totalSeconds(aircraft(demoSnapshot())) / HOUR_SECONDS;
 
 /** What the AD and the aircraft report for the limit. */
 function views(limit: Partial<ADTask>) {
@@ -52,6 +62,7 @@ function views(limit: Partial<ADTask>) {
     dispatchGate(s, N206, undefined, today);
     gate = "open";
   } catch {
+    // The gate refuses a blocked aircraft by throwing.
     gate = "blocked";
   }
   return {
