@@ -849,10 +849,7 @@ it("leaves the counter unavailable when component totals cannot be read", () => 
   });
 });
 
-// Characterizes current behaviour: the aircraft meter's own refusals
-// (src/domain/model.ts) are plain Errors, so a catch narrowed to Rejection
-// would not cover the same set.
-it("leaves the counter unavailable for the aircraft meter's plain errors too", () => {
+it("leaves the counter unavailable for the aircraft meter's refusals too", () => {
   const { s } = setup();
   const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
   const unread: Partial<Aircraft>[] = [
@@ -864,8 +861,7 @@ it("leaves the counter unavailable for the aircraft meter's plain errors too", (
     s.aircraft[0] = a;
     s.management = [installedEngine(a, {})];
     expect(adCounters(s, r)).toBeNull();
-    expect(() => totalSeconds(a)).toThrow(Error);
-    expect(() => totalSeconds(a)).not.toThrow(Rejection);
+    expect(() => totalSeconds(a)).toThrow(Rejection);
   }
 });
 

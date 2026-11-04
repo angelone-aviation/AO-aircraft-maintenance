@@ -3,12 +3,13 @@
  *   inspections, audit entries), the Snapshot read model, the offline outbox
  *   entry, and the shared permission, meter, hours and local-date rules.
  * Layer: Domain. Pure types, zod schemas and functions; no I/O, no React.
- * Dependencies: zod; src/domain/flightFluids.ts, flightChecklistSchema.ts and
- *   programs.ts; types from the feature modules.
+ * Dependencies: zod; src/domain/flightFluids.ts, flightChecklistSchema.ts,
+ *   programs.ts and rejection.ts; types from the feature modules.
  */
 import { fuelSchema, oilSchema } from "./flightFluids";
 import { checklistFlightSchema } from "./flightChecklistSchema";
 import { ownsActive, activeProgram, groupCoversAircraft } from "./programs";
+import { Rejection } from "./rejection";
 import { z } from "zod";
 
 const HOUR_SECONDS = 3600;
@@ -438,7 +439,7 @@ export const aircraftMeterLabels = {
  *
  * @param aircraft - The aircraft's meter and current readings.
  * @returns The reading in seconds.
- * @throws {Error} "Flight time log reading is required." or "Collective
+ * @throws {Rejection} "Flight time log reading is required." or "Collective
  *   hourmeter reading is required." when that meter has no reading.
  */
 export function aircraftMeterReading(
@@ -453,12 +454,12 @@ export function aircraftMeterReading(
 ): number {
   if (aircraft.meter === "flightTimeLog") {
     if (aircraft.currentFlightTimeLog === undefined)
-      throw new Error("Flight time log reading is required.");
+      throw new Rejection("Flight time log reading is required.");
     return aircraft.currentFlightTimeLog;
   }
   if (aircraft.meter === "cyclic") {
     if (aircraft.currentCyclicHobbs === undefined)
-      throw new Error("Collective hourmeter reading is required.");
+      throw new Rejection("Collective hourmeter reading is required.");
     return aircraft.currentCyclicHobbs;
   }
   return aircraft.meter === "hobbs"
@@ -509,7 +510,7 @@ export function isLocalToday(d: string, now = Date.now()): boolean {
  *
  * @param aircraft - The aircraft.
  * @returns Its meter reading plus its adjustment, in seconds.
- * @throws {Error} The {@link aircraftMeterReading} errors.
+ * @throws {Rejection} As {@link aircraftMeterReading}.
  */
 export function totalSeconds(aircraft: Aircraft): number {
   return aircraftMeterReading(aircraft) + aircraft.adjustmentSeconds;
@@ -534,17 +535,17 @@ export function hours(seconds: number): string {
  *
  * @param value - The typed hours, such as "1234.5".
  * @returns The seconds, or undefined when the value is blank.
- * @throws {Error} "Use positive hours with at most one decimal place." for any
- *   other text (spaces around a number included); "Meter reading is too
- *   large." past the largest safe integer.
+ * @throws {Rejection} "Use positive hours with at most one decimal place."
+ *   for any other text (spaces around a number included); "Meter reading is
+ *   too large." past the largest safe integer.
  */
 export function parseHours(value: string): number | undefined {
   if (!value.trim()) return undefined;
   if (!/^\d+(\.\d)?$/.test(value))
-    throw new Error("Use positive hours with at most one decimal place.");
+    throw new Rejection("Use positive hours with at most one decimal place.");
   const result = Math.round(Number(value) * HOUR_SECONDS);
   if (!Number.isSafeInteger(result))
-    throw new Error("Meter reading is too large.");
+    throw new Rejection("Meter reading is too large.");
   return result;
 }
 
