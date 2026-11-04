@@ -1,3 +1,16 @@
+/**
+ * Responsibility: Sign-in for every method: the Convex Auth configuration,
+ *   the rules that keep account creation with administrators, and the
+ *   change-log entry for each sign-in.
+ * Layer: Server. The library's public sign-in functions and its internal
+ *   store; accounts are made in admin.ts and programUsers.ts.
+ * Dependencies: @convex-dev/auth, @oslojs (crypto, encoding), convex/access,
+ *   convex/ssoProviders, convex/identities.
+ *
+ * Refusals stay plain Errors, as the library's own wrong-password refusal is,
+ * so production shows each as "Server Error" and a disabled account cannot be
+ * told from a wrong password.
+ */
 import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { sha256 } from "@oslojs/crypto/sha2";
@@ -10,14 +23,20 @@ import { audit } from "./access";
 import { ssoProviders } from "./ssoProviders";
 import { userForIdentity } from "./identities";
 
-// Failed password sign-ins allowed per account per hour before it is locked
-// (one more attempt then every 6 minutes). Counted per account in
-// `authRateLimits`; an administrator password reset clears it. See
-// docs/runbooks/accounts.md.
+/**
+ * Failed password sign-ins allowed per account per hour before it is locked
+ * (one more attempt then every 6 minutes). Counted per account in
+ * `authRateLimits`; an administrator password reset clears it. See
+ * docs/runbooks/accounts.md.
+ */
 export const MAX_FAILED_SIGN_INS_PER_HOUR = 10;
 
-// Provisioning is only available through the administrator action. Blocking the
-// provider's signup/reset flows here also blocks direct unauthenticated API calls.
+// A session ends a week after sign-in, however active it is.
+const SESSION_TOTAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Provisioning is only available through the administrator action. Blocking
+// the provider's signup and reset flows here also blocks direct
+// unauthenticated API calls.
 const library = convexAuth({
   providers: [
     Password({
@@ -34,7 +53,7 @@ const library = convexAuth({
   ],
   // The option name is the library's spelling.
   signIn: { maxFailedAttempsPerHour: MAX_FAILED_SIGN_INS_PER_HOUR },
-  session: { totalDurationMs: 7 * 24 * 60 * 60 * 1000 },
+  session: { totalDurationMs: SESSION_TOTAL_DURATION_MS },
   callbacks: {
     // Replaces the library's user creation and linking for every method.
     // Administrators create accounts through createAccount (admin.ts,
@@ -61,24 +80,38 @@ const library = convexAuth({
       );
     },
     // A disabled account gets no session from any sign-in method. The
-    // Password provider's profile() cannot do this: it is called synchronously,
-    // without database access, before the password is checked. This callback
-    // runs inside the sign-in transaction for every provider, so throwing
-    // here creates nothing.
+    // Password provider's profile() cannot do this: it is called
+    // synchronously, without database access, before the password is checked.
+    // This callback runs inside the sign-in transaction for every provider, so
+    // throwing here creates nothing.
     async beforeSessionCreation(ctx, { userId }) {
       const user = await ctx.db.get(userId as GenericId<"users">);
       if (user?.active !== true) throw new Error("Invalid credentials");
     },
   },
 });
+
+/**
+ * Convex Auth's public functions: the session check (`auth`), the sign-in
+ * and sign-out actions, and whether the caller is signed in.
+ *
+ * @throws {Error} From `signIn`: "Accounts are managed by your
+ *   administrator." for a sign-up or reset; "Invalid credentials" for a
+ *   disabled account.
+ */
 export const { auth, signIn, signOut, isAuthenticated } = library;
 
-// The library's own store, run by `store` below as a nested transaction.
+/** The library's own store, which {@link store} runs as a nested transaction. */
 export const libraryStore = library.store;
 
-/** The library's internal read and write function ("auth:store"), with the
- * change-log entry for every successful sign-in and its method (ADR-0009).
- * Arguments are checked by libraryStore. */
+/**
+ * The library's internal read and write function ("auth:store"), with a
+ * `user.signed_in` change-log entry naming the method for every successful
+ * sign-in (ADR-0009). Token refreshes are not logged.
+ *
+ * @param args - The library's request; libraryStore checks it.
+ * @returns What libraryStore returns.
+ */
 export const store = internalMutation({
   args: { args: v.any() },
   handler: async (ctx, { args }): Promise<unknown> => {

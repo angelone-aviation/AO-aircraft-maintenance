@@ -4,8 +4,8 @@
  * Layer: Server. A public query and actions over internal steps; the key is
  *   stored sealed and never returned.
  * Dependencies: convex/access, convex/programContext, convex/secrets,
- *   convex/secretsMigration, convex/rateLimits, src/domain/model,
- *   src/domain/programs, src/domain/addressLookup, zod.
+ *   convex/secretsMigration, convex/rateLimits, convex/userErrors,
+ *   src/domain/model, src/domain/programs, src/domain/addressLookup, zod.
  */
 import {
   action,
@@ -16,12 +16,13 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { admin, audit } from "./access";
 import { checkContext } from "./programContext";
 import { sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
 import { consume, DAY } from "./rateLimits";
+import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import { programPermission } from "../src/domain/programs";
 import {
@@ -71,7 +72,7 @@ type Settings = Doc<"addressVerificationSettings">;
  *
  * @returns `configured` when a key is saved or set on the deployment
  *   (GEOAPIFY_API_KEY), and the settings version {@link setKey} expects.
- * @throws {Error} "Administrator permission required."
+ * @throws {ConvexError} "Administrator permission required."
  */
 export const status = query({
   args: {},
@@ -88,7 +89,7 @@ export const status = query({
 /**
  * Refuses anyone but a system administrator, for actions to call first.
  *
- * @throws {Error} "Administrator permission required."
+ * @throws {ConvexError} "Administrator permission required."
  */
 export const authorizeAdmin = internalQuery({
   args: {},
@@ -105,10 +106,11 @@ export const authorizeAdmin = internalQuery({
  *
  * @param programUuid - The caller's active Flight Program.
  * @returns The saved key, still sealed, or "" to use GEOAPIFY_API_KEY.
- * @throws {Error} As `checkContext`; "Maintenance access required for address
- *   lookups." for a non-administrator who maintains none of the aircraft;
- *   "Address lookup is not enabled. …"; "Today's address lookup allowance …".
- * @throws {ConvexError} From `consume`, for the per-second and daily shares.
+ * @throws {ConvexError} "Maintenance access required for address lookups."
+ *   for a non-administrator who maintains none of the aircraft; "Address
+ *   lookup is not enabled. …"; "Today's address lookup allowance …"; the
+ *   per-second and daily shares' refusals from `consume`.
+ * @throws As `checkContext`, first.
  */
 export const reserve = internalMutation({
   args: { programUuid: v.optional(v.string()) },
@@ -117,7 +119,7 @@ export const reserve = internalMutation({
     assertMayLookUp(s);
     const saved = await ctx.db.query("addressVerificationSettings").unique();
     if (!saved?.key && !process.env.GEOAPIFY_API_KEY)
-      throw new Error(
+      throw new ConvexError(
         "Address lookup is not enabled. A system administrator must add a free Geoapify API key in Settings → System → Address verification.",
       );
     const now = Date.now();
@@ -137,8 +139,8 @@ export const reserve = internalMutation({
  * @param programUuid - The caller's active Flight Program.
  * @returns Suggestions, as `fetchAddressSuggestions`.
  * @throws {z.ZodError} For an invalid address.
- * @throws {Error} As {@link reserve}, `openStoredSecret` and
- *   `fetchAddressSuggestions`.
+ * @throws As {@link reserve}, `openStoredSecret` and
+ *   `fetchAddressSuggestions` (its Rejections as ConvexError).
  */
 export const lookup = action({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -151,7 +153,7 @@ export const lookup = action({
     const key = stored
       ? await openStoredSecret(ctx, stored, GEOAPIFY_SECRET)
       : process.env.GEOAPIFY_API_KEY || "";
-    return fetchAddressSuggestions(input, key);
+    return exposeRejections(fetchAddressSuggestions(input, key));
   },
 });
 
@@ -161,8 +163,8 @@ export const lookup = action({
  *
  * @param key - The key, sealed.
  * @param version - The settings version the administrator last read.
- * @throws {Error} "Administrator permission required."; "Address settings
- *   changed. Reload before saving." when `version` is stale.
+ * @throws {ConvexError} "Administrator permission required."; "Address
+ *   settings changed. Reload before saving." when `version` is stale.
  */
 export const commit = internalMutation({
   args: { key: v.string(), version: v.number() },
@@ -170,7 +172,7 @@ export const commit = internalMutation({
     const user = await admin(ctx);
     const saved = await ctx.db.query("addressVerificationSettings").unique();
     if ((saved?.version ?? 0) !== args.version)
-      throw new Error("Address settings changed. Reload before saving.");
+      throw new ConvexError("Address settings changed. Reload before saving.");
     const version = args.version + 1;
     if (saved) await ctx.db.patch(saved._id, { key: args.key, version });
     else
@@ -198,8 +200,10 @@ export const commit = internalMutation({
  *
  * @param key - The new key, in plain text; it is saved sealed.
  * @param version - The settings version from {@link status}.
- * @throws {Error} "Administrator permission required.", before the key is
- *   read; as `sealSecret`, `fetchAddressSuggestions` and {@link commit}.
+ * @throws {ConvexError} "Administrator permission required.", before the key
+ *   is read.
+ * @throws As `sealSecret`, `fetchAddressSuggestions` (its Rejections as
+ *   ConvexError) and {@link commit}.
  * @throws {z.ZodError} For a malformed key.
  */
 export const setKey = action({
@@ -208,7 +212,7 @@ export const setKey = action({
     await ctx.runQuery(internal.addressVerification.authorizeAdmin, {});
     const key = keySchema.parse(args.key);
     const sealed = await sealSecret(key, GEOAPIFY_SECRET);
-    await fetchAddressSuggestions(KEY_CHECK_ADDRESS, key);
+    await exposeRejections(fetchAddressSuggestions(KEY_CHECK_ADDRESS, key));
     await ctx.runMutation(internal.addressVerification.commit, {
       key: sealed,
       version: args.version,
@@ -220,7 +224,7 @@ export const setKey = action({
 function assertMayLookUp(s: Snapshot): void {
   if (s.user.isAdmin || programPermission(s, "admin")) return;
   if (s.aircraft.some((a) => can(s, a.uuid, "maintenance"))) return;
-  throw new Error("Maintenance access required for address lookups.");
+  throw new ConvexError("Maintenance access required for address lookups.");
 }
 
 async function consumeAllowances(
@@ -237,7 +241,7 @@ async function consumeAllowances(
     "Please wait a second before another address lookup.",
   );
   if (usedToday >= GLOBAL_DAILY_LOOKUPS)
-    throw new Error(
+    throw new ConvexError(
       "Today's address lookup allowance is used. Try again tomorrow.",
     );
   await consume(

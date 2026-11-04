@@ -1,9 +1,27 @@
-import { v } from "convex/values";
+/**
+ * Responsibility: A Flight Program's default permission groups: creating the
+ *   ones it lacks, with a new program or as a backfill.
+ * Layer: Server. A helper for program-creating mutations and a public
+ *   mutation for the system administrator; every group created is audited.
+ * Dependencies: convex/access, convex/runCommand (CommandLog type),
+ *   src/domain/defaultPermissionGroups.
+ */
+import { ConvexError, v } from "convex/values";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { admin, audit } from "./access";
 import type { CommandLog } from "./runCommand";
 import { missingDefaultGroups } from "../src/domain/defaultPermissionGroups";
-// Inside a command, pass its log so the rows are written with the command's.
+
+/**
+ * Creates each default group whose name, ignoring case, the program does not
+ * already have; existing groups and assignments stay as they are. Audits
+ * `group.saved` with each new group's fields.
+ *
+ * @param actorId - Who the change-log rows name.
+ * @param log - Inside a command, its log, so the rows are written with the
+ *   command's; otherwise they are written now.
+ * @returns The names of the groups created and of those already there.
+ */
 export async function ensureDefaultGroups(
   ctx: MutationCtx,
   programUuid: string,
@@ -27,7 +45,17 @@ export async function ensureDefaultGroups(
     preserved: existing.map((g) => g.name),
   };
 }
-// Idempotent backfill for programs created before automatic default groups.
+
+/**
+ * Adds the default groups a program created before they were automatic still
+ * lacks, as {@link ensureDefaultGroups}. Running it again creates nothing.
+ *
+ * @param programUuid - The program, in any Flight Program.
+ * @returns As {@link ensureDefaultGroups}.
+ * @throws {Error} The session refusal of `admin`.
+ * @throws {ConvexError} "Administrator permission required."; "Flight Program
+ *   not found."
+ */
 export const initialize = mutation({
   args: { programUuid: v.string() },
   handler: async (ctx, { programUuid }) => {
@@ -36,7 +64,7 @@ export const initialize = mutation({
       .query("programs")
       .withIndex("uuid", (q) => q.eq("uuid", programUuid))
       .unique();
-    if (!program) throw Error("Flight Program not found.");
+    if (!program) throw new ConvexError("Flight Program not found.");
     return ensureDefaultGroups(ctx, programUuid, actor._id);
   },
 });

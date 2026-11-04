@@ -214,3 +214,13 @@ it("accepts a license copy up to 5 MiB with a 200-character name, refusing with 
     validateCertificationFile("license.pdf", "application/pdf", 0),
   ).toThrow(Error("License copies must be between 1 byte and 5 MB."));
 });
+it("refuses a license copy whose type is named after an Object property", () => {
+  for (const type of ["constructor", "toString", "__proto__"]) {
+    expect(() => validateCertificationFile("license.pdf", type, 1)).toThrow(
+      Rejection,
+    );
+    expect(() => validateCertificationFile("license.pdf", type, 1)).toThrow(
+      "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
+    );
+  }
+});

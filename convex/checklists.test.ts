@@ -1,9 +1,20 @@
+/**
+ * Responsibility: Pins checklist saving: permission, stale versions, the
+ *   snapshot, and the change-log summary that leaves out the body.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/checklists, convex/schema, src/domain/checklists,
+ *   src/data/demo (fixture).
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { emptyChecklist, type ChecklistRecord } from "../src/domain/checklists";
+import {
+  checklistCounts,
+  emptyChecklist,
+  type ChecklistRecord,
+} from "../src/domain/checklists";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -56,10 +67,22 @@ it("persists checklist definitions and audits, rejects read-only and stale mutat
   await expect(reader.mutation(api.checklists.save, args)).rejects.toThrow(
     "permission",
   );
+  await expect(
+    reader.mutation(api.checklists.save, args),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Checklist editing permission denied.",
+  });
   await editor.mutation(api.checklists.save, args);
   await expect(editor.mutation(api.checklists.save, args)).rejects.toThrow(
     "changed",
   );
+  await expect(
+    editor.mutation(api.checklists.save, args),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "This checklist changed. Reopen it before saving; your draft has not been applied.",
+  });
   const snapshot = await reader.query(api.operations.snapshot);
   expect(snapshot!.checklists).toHaveLength(1);
   expect(snapshot!.checklists![0]).toMatchObject({
@@ -77,4 +100,10 @@ it("persists checklist definitions and audits, rejects read-only and stale mutat
   ).rejects.toThrow("permission");
   const docs = await t.run((ctx) => ctx.db.query("audit").collect());
   expect(docs.some((d) => d.action === "checklist.saved")).toBe(true);
+  const saved = docs.find((d) => d.action === "checklist.saved")!;
+  expect(JSON.parse(saved.after!)).toEqual({
+    version: 1,
+    name: record.document.payload.metadata.name,
+    ...checklistCounts(record.document),
+  });
 });

@@ -1,13 +1,23 @@
+/**
+ * Responsibility: Pins the aircraft and Flight Program rules for permission
+ *   groups, and the aircraft label, including after a transfer.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/groupAircraft.ts, model.ts, programs.ts,
+ *   programTransfers.ts, rejection.ts, src/data/demo.ts (fixture).
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { can, type Group, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
 import { transferProgram } from "./programTransfers";
 import {
+  CHOOSE_GROUP_AIRCRAFT,
   assertGroupAircraftChoice,
   assertGroupProgramChange,
   groupAircraftLabel,
+  listsAllAircraft,
 } from "./groupAircraft";
+import { Rejection } from "./rejection";
 
 // N206 crew is limited to N206MA, then N206MA moves to another program.
 function restrictedGroupAfterTransfer() {
@@ -193,5 +203,56 @@ describe("assertGroupProgramChange (#45)", () => {
         ),
       ).toBe(false);
     }
+  });
+});
+
+describe("group rules", () => {
+  it("refuse with a Rejection and the exact message", () => {
+    const refusals: [() => unknown, string][] = [
+      [
+        () =>
+          assertGroupAircraftChoice(undefined, {
+            owner: true,
+            aircraftIds: [],
+            allAircraft: true,
+          }),
+        "Aircraft owner groups must name their aircraft.",
+      ],
+      [
+        () =>
+          assertGroupAircraftChoice(undefined, {
+            aircraftIds: ["demo-206"],
+            allAircraft: true,
+          }),
+        "Choose all aircraft in this program or selected aircraft, not both.",
+      ],
+      [
+        () => assertGroupAircraftChoice(undefined, { aircraftIds: [] }),
+        "Choose the aircraft this group can access, or choose all aircraft in this program.",
+      ],
+      [
+        () =>
+          assertGroupProgramChange(
+            { programUuid: "demo-program" },
+            { programUuid: "second" },
+            true,
+          ),
+        "A permission group cannot be moved to another Flight Program.",
+      ],
+      [
+        () => assertGroupProgramChange({}, { programUuid: "second" }, false),
+        "Only a system administrator can assign an unscoped permission group to a Flight Program.",
+      ],
+    ];
+    for (const [run, message] of refusals) {
+      expect(run).toThrow(Rejection);
+      expect(run).toThrow(Error(message));
+    }
+    expect(CHOOSE_GROUP_AIRCRAFT).toBe(refusals[2][1]);
+  });
+  it("lists every aircraft only through a non-owner group's empty list", () => {
+    expect(listsAllAircraft({ aircraftIds: [] })).toBe(true);
+    expect(listsAllAircraft({ owner: true, aircraftIds: [] })).toBe(false);
+    expect(listsAllAircraft({ aircraftIds: ["demo-206"] })).toBe(false);
   });
 });

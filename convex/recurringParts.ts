@@ -3,21 +3,18 @@
  *   work order's open tasks, as the work order is saved.
  * Layer: Server. Mutation helper inside the work-order transactions; the
  *   caller writes the change-log entries it returns.
- * Dependencies: src/domain/recurringParts (the rule), the partsRequests,
- *   airworthiness and management schemas, convex/programContext (loaders).
+ * Dependencies: src/domain/recurringParts (the rule), convex/collections
+ *   (decoding), convex/programContext (loaders), src/domain types.
  */
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 import type { WorkOrder, WorkTask } from "../src/domain/workOrders";
-import {
-  partsRequestSchema,
-  type PartsRequest,
-} from "../src/domain/partsRequests";
+import type { PartsRequest } from "../src/domain/partsRequests";
 import { generateRecurringRequests } from "../src/domain/recurringParts";
-import { adSchema } from "../src/domain/airworthiness";
-import { recordSchema, type ManagedRecord } from "../src/domain/management";
+import type { ManagedRecord } from "../src/domain/management";
 import { airworthinessDocs, partsRequestDocs } from "./programContext";
+import { decode } from "./collections";
 
 const FINISHED_STATUSES = ["completed", "cancelled"];
 
@@ -41,8 +38,9 @@ export async function prepareRecurringParts(
     (a) => a.uuid === order.aircraftUuid,
   )?.programUuid;
   if (!program) return [];
-  const requests = (await partsRequestDocs(ctx, program)).map((d) =>
-    partsRequestSchema.parse(JSON.parse(d.payload)),
+  const requests = decode(
+    "partsRequests",
+    await partsRequestDocs(ctx, program),
   );
   const pending = order.tasks.filter((task) =>
     isOwedOccurrence(requests, order, task),
@@ -100,8 +98,9 @@ async function loadSources(
   const requirements = await loadRequirementRecords(ctx, pending);
   const airworthiness = pending.some((t) => t.source.kind === "airworthiness")
     ? (state.airworthiness ??
-      (await airworthinessDocs(ctx, [{ uuid: order.aircraftUuid }])).map((d) =>
-        adSchema.parse(JSON.parse(d.payload)),
+      decode(
+        "airworthiness",
+        await airworthinessDocs(ctx, [{ uuid: order.aircraftUuid }]),
       ))
     : [];
   const management = [...(state.management ?? []), ...requirements];
@@ -135,7 +134,7 @@ async function loadRequirementRecords(
       .query("management")
       .withIndex("uuid", (q) => q.eq("uuid", task.source.uuid))
       .unique();
-    if (d) records.push(recordSchema.parse(JSON.parse(d.payload)));
+    if (d) records.push(...decode("management", [d]));
   }
   return records;
 }

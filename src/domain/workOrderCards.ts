@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Job cards on a work order: copying task-card templates for
+ *   new work items, and whether an item's job cards let it be completed.
+ * Layer: Domain. Mutates a working snapshot; no I/O, no React.
+ * Dependencies: src/domain/model.ts and workOrders.ts (types), taskCards.ts.
+ *
+ * A job card is an independent copy: later template edits never reach it.
+ */
 import type { Snapshot } from "./model";
 import type { WorkOrder } from "./workOrders";
 import {
@@ -7,9 +15,24 @@ import {
   taskCardFieldsSchema,
   taskCardSchema,
   type TaskCard,
+  type TaskCardFields,
 } from "./taskCards";
 
-// Called on isolated state after the order is validated; failures roll back the entire order save.
+type WorkItem = WorkOrder["tasks"][number];
+
+/**
+ * Copies the aircraft's task-card templates into draft job cards for the work
+ * items a save adds, at most once per template per order.
+ *
+ * @param s - The working snapshot. It gains each copy and a
+ *   "taskCard.created_from_template" audit entry; a throw leaves it
+ *   half-written, so the caller discards the whole save.
+ * @param order - The order as saved, after validation.
+ * @param previous - The stored order; only uncancelled items it lacks count.
+ * @param now - The save time.
+ * @returns How many job cards were created.
+ * @throws As saveTaskCard, for a template that no longer saves.
+ */
 export function copyWorkOrderTemplates(
   s: Snapshot,
   order: WorkOrder,
@@ -21,134 +44,183 @@ export function copyWorkOrderTemplates(
       t.status !== "cancelled" &&
       !previous?.tasks.some((p) => p.uuid === t.uuid),
   );
-  const originals = (s.taskCards ?? []).filter(
+  const sourceItem = (t: TaskCard) =>
+    added.find((item) => matchesItemSource(t, item));
+  const copyUuids = mapCopiedTemplates(s, order);
+  const selected = (s.taskCards ?? []).filter(
     (t) =>
       t.aircraftUuid === order.aircraftUuid &&
       isTaskTemplate(t) &&
-      t.status !== "canceled",
+      t.status !== "canceled" &&
+      sourceItem(t) &&
+      !copyUuids.has(t.uuid),
   );
-  const sourceTask = (t: TaskCard) =>
-    added.find(
-      (item) =>
-        (item.source.kind === "inspection" &&
-          t.inspectionUuid === item.source.uuid) ||
-        (item.source.kind === "componentRequirement" &&
-          t.requirementUuid === item.source.uuid) ||
-        (item.source.kind === "discrepancy" &&
-          t.discrepancyUuid === item.source.uuid),
-    );
-  const map = new Map(
-    (s.taskCards ?? [])
-      .filter((t) => t.workOrderUuid === order.uuid && t.sourceTaskCardUuid)
-      .map((t) => [t.sourceTaskCardUuid!, t.uuid]),
-  );
-  const selected = originals.filter((t) => sourceTask(t) && !map.has(t.uuid));
-  selected.forEach((t) => map.set(t.uuid, crypto.randomUUID()));
+  selected.forEach((t) => copyUuids.set(t.uuid, crypto.randomUUID()));
   const created = selected.map((original) => {
-    const fields = taskCardFieldsSchema.parse(original);
-    const task = saveTaskCard(
-      s,
-      {
-        action: "save",
-        uuid: map.get(original.uuid)!,
-        version: 0,
-        fields: {
-          ...fields,
-          workOrderUuid: order.uuid,
-          cardNumber: "",
-          status: "draft",
-          assignedTechnician: "",
-          findings: "",
-          actualWork: "",
-          measurements: "",
-          actualLabor: null,
-          completionDate: "",
-          partsUsed: [],
-          functionalTestOutcome: fields.functionalTestRequired
-            ? "pending"
-            : "not-required",
-          functionalTestResults: "",
-          prerequisiteUuids: [],
-          steps: copyTemplateSteps(fields.steps),
-        },
-      },
-      now,
-    );
-    const copy = taskCardSchema.parse({
-      ...task,
-      sourceTaskCardUuid: original.uuid,
-      sourceTaskCardVersion: original.version,
-      workTaskUuid: sourceTask(original)!.uuid,
+    const copy = createJobCard(s, order, original, now, {
+      uuid: copyUuids.get(original.uuid)!,
+      workTaskUuid: sourceItem(original)!.uuid,
     });
-    s.taskCards = s.taskCards!.map((t) => (t.uuid === copy.uuid ? copy : t));
     return { original, copy };
   });
-  // Record the template origin for each independent copy.
-  for (const { original, copy } of created) {
-    const after = s.taskCards!.find((t) => t.uuid === copy.uuid)!;
-    s.audit.unshift({
-      uuid: crypto.randomUUID(),
-      programUuid: s.aircraft.find((a) => a.uuid === order.aircraftUuid)
-        ?.programUuid,
-      actorId: s.user.id,
-      at: now,
-      action: "taskCard.created_from_template",
-      entityUuid: copy.uuid,
-      aircraftUuid: order.aircraftUuid,
-      reason: `Copied ${original.cardNumber} version ${original.version} to ${order.number}.`,
-      after: JSON.stringify(after),
-    });
-  }
+  for (const { original, copy } of created)
+    auditTemplateCopy(s, order, original, copy.uuid, now);
   return created.length;
 }
 
+/**
+ * Explains why a work item cannot be marked completed yet, or "" when it can.
+ *
+ * @param s - The snapshot.
+ * @param orderUuid - The item's work order.
+ * @param item - The work item.
+ * @returns The first that applies: "Finish preparing the job cards before
+ *   completing this item."; "Add the associated job card templates to this
+ *   work order before completing this item."; "Complete and sign off every
+ *   job card for this item on this work order before marking it completed."
+ */
 export function workItemCompletionIssue(
   s: Snapshot,
   orderUuid: string,
-  item: WorkOrder["tasks"][number],
+  item: WorkItem,
 ) {
   const preparation = s.workOrders?.find(
     (w) => w.uuid === orderUuid,
   )?.templateCopy;
   if (preparation && preparation.status !== "completed")
     return "Finish preparing the job cards before completing this item.";
-  const matches = (t: TaskCard) => taskCardMatchesWorkItem(t, item);
   const cards = (s.taskCards ?? []).filter(
-    (t) => t.workOrderUuid === orderUuid && matches(t),
+    (t) => t.workOrderUuid === orderUuid && taskCardMatchesWorkItem(t, item),
   );
-  const missing = (s.taskCards ?? []).some(
-    (t) =>
-      isTaskTemplate(t) &&
-      t.status !== "canceled" &&
-      matches(t) &&
-      !cards.some((c) => c.sourceTaskCardUuid === t.uuid),
-  );
-  // Existing copies remain fixed even when the template library gains tasks later.
-  if (!cards.length && missing)
+  // Only an item with no job cards at all waits for templates: copies stay
+  // fixed when the template library later gains tasks.
+  if (!cards.length && hasActiveTemplate(s, item))
     return "Add the associated job card templates to this work order before completing this item.";
-  if (
-    cards.some(
-      (t) =>
-        t.status !== "completed" ||
-        !t.technicianSignoff ||
-        (t.inspectionSignoffRequired && !t.inspectionSignoff),
-    )
-  )
+  if (cards.some((t) => !isSignedOff(t)))
     return "Complete and sign off every job card for this item on this work order before marking it completed.";
   return "";
 }
 
-export function taskCardMatchesWorkItem(
-  t: TaskCard,
-  item: WorkOrder["tasks"][number],
-): boolean {
+/**
+ * Tells whether a task card belongs to a work item.
+ *
+ * @param t - The task card.
+ * @param item - The work item.
+ * @returns True when the card was copied for the item, or names the same
+ *   inspection, component requirement or discrepancy.
+ */
+export function taskCardMatchesWorkItem(t: TaskCard, item: WorkItem): boolean {
+  return t.workTaskUuid === item.uuid || matchesItemSource(t, item);
+}
+
+function matchesItemSource(t: TaskCard, item: WorkItem) {
+  const { kind, uuid } = item.source;
   return (
-    t.workTaskUuid === item.uuid ||
-    (item.source.kind === "inspection" &&
-      t.inspectionUuid === item.source.uuid) ||
-    (item.source.kind === "componentRequirement" &&
-      t.requirementUuid === item.source.uuid) ||
-    (item.source.kind === "discrepancy" &&
-      t.discrepancyUuid === item.source.uuid)
+    (kind === "inspection" && t.inspectionUuid === uuid) ||
+    (kind === "componentRequirement" && t.requirementUuid === uuid) ||
+    (kind === "discrepancy" && t.discrepancyUuid === uuid)
+  );
+}
+
+// Template uuid to job card uuid, for the copies this order already holds.
+function mapCopiedTemplates(s: Snapshot, order: WorkOrder) {
+  return new Map(
+    (s.taskCards ?? [])
+      .filter((t) => t.workOrderUuid === order.uuid && t.sourceTaskCardUuid)
+      .map((t) => [t.sourceTaskCardUuid!, t.uuid]),
+  );
+}
+
+function createJobCard(
+  s: Snapshot,
+  order: WorkOrder,
+  original: TaskCard,
+  now: number,
+  link: { uuid: string; workTaskUuid: string },
+) {
+  const task = saveTaskCard(
+    s,
+    {
+      action: "save",
+      uuid: link.uuid,
+      version: 0,
+      fields: draftJobCardFields(original, order),
+    },
+    now,
+  );
+  const copy = taskCardSchema.parse({
+    ...task,
+    sourceTaskCardUuid: original.uuid,
+    sourceTaskCardVersion: original.version,
+    workTaskUuid: link.workTaskUuid,
+  });
+  s.taskCards = s.taskCards!.map((t) => (t.uuid === copy.uuid ? copy : t));
+  return copy;
+}
+
+// The template's instructions with none of its recorded work, so a legacy
+// template that holds results never passes them on.
+function draftJobCardFields(
+  original: TaskCard,
+  order: WorkOrder,
+): TaskCardFields {
+  const fields = taskCardFieldsSchema.parse(original);
+  return {
+    ...fields,
+    workOrderUuid: order.uuid,
+    cardNumber: "",
+    status: "draft",
+    assignedTechnician: "",
+    findings: "",
+    actualWork: "",
+    measurements: "",
+    actualLabor: null,
+    completionDate: "",
+    partsUsed: [],
+    functionalTestOutcome: fields.functionalTestRequired
+      ? "pending"
+      : "not-required",
+    functionalTestResults: "",
+    prerequisiteUuids: [],
+    steps: copyTemplateSteps(fields.steps),
+  };
+}
+
+function auditTemplateCopy(
+  s: Snapshot,
+  order: WorkOrder,
+  original: TaskCard,
+  copyUuid: string,
+  now: number,
+) {
+  const after = s.taskCards!.find((t) => t.uuid === copyUuid)!;
+  s.audit.unshift({
+    uuid: crypto.randomUUID(),
+    programUuid: s.aircraft.find((a) => a.uuid === order.aircraftUuid)
+      ?.programUuid,
+    actorId: s.user.id,
+    at: now,
+    action: "taskCard.created_from_template",
+    entityUuid: copyUuid,
+    aircraftUuid: order.aircraftUuid,
+    reason: `Copied ${original.cardNumber} version ${original.version} to ${order.number}.`,
+    after: JSON.stringify(after),
+  });
+}
+
+function hasActiveTemplate(s: Snapshot, item: WorkItem) {
+  return (s.taskCards ?? []).some(
+    (t) =>
+      isTaskTemplate(t) &&
+      t.status !== "canceled" &&
+      taskCardMatchesWorkItem(t, item),
+  );
+}
+
+function isSignedOff(t: TaskCard) {
+  return (
+    t.status === "completed" &&
+    !!t.technicianSignoff &&
+    !(t.inspectionSignoffRequired && !t.inspectionSignoff)
   );
 }

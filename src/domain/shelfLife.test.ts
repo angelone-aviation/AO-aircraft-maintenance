@@ -3,7 +3,7 @@
  *   issue or reserve expired stock on every path that moves it.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/shelfLife.ts, ./management, ./partsRequests,
- *   ./purchaseOrders, src/data/demo.ts (seed).
+ *   ./purchaseOrders, ./rejection, src/data/demo.ts (seed).
  */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -18,6 +18,7 @@ import {
   shelfLifeStatus,
   usableQuantity,
 } from "./shelfLife";
+import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-20T12:00:00Z");
 function fixture(expirationDate?: string) {
   const s = demoSnapshot();
@@ -97,6 +98,7 @@ describe("shelf life", () => {
     move("adjust");
     expect(stockOf(s).quantity).toBe(1);
     expect(() => assertNotExpired(stockOf(s), now)).toThrow("expired");
+    expect(() => move("issue")).toThrow(Rejection);
     expect(() =>
       assertNotExpired({ partNumber: "X", expirationDate: "2026-10-21" }, now),
     ).not.toThrow();

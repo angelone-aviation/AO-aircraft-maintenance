@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins saved addresses: who may list and save them, program
+ *   boundaries, the checks and cap on saving, and what readers see.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/savedAddresses.ts, convex/schema.ts,
+ *   src/domain/addresses, src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -227,4 +234,74 @@ it("caps saved addresses per Flight Program", async () => {
       payload: JSON.stringify({ ...input, uuid: "one-too-many" }),
     }),
   ).rejects.toThrow(/up to 200/);
+});
+it("lists entries by name, and shows location contacts and legacy text only to administrators", async () => {
+  const { t, a, reader } = await setup();
+  for (const [uuid, name] of [
+    ["c", "zulu dock"],
+    ["a", "Alpha hangar"],
+    ["b", "bravo gate"],
+  ])
+    await a.mutation(api.savedAddresses.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ ...input, uuid, name }),
+    });
+  await t.run((ctx) =>
+    ctx.db.insert("management", {
+      uuid: "hangar",
+      programUuid: "demo-program",
+      kind: "location",
+      payload: JSON.stringify({
+        uuid: "hangar",
+        version: 1,
+        programUuid: "demo-program",
+        kind: "location",
+        name: "Hangar",
+        address: "Legacy hangar address",
+        contact: "Receiving team",
+        addressDetails: input.address,
+      }),
+    }),
+  );
+  const args = { programUuid: "demo-program" };
+  const seen = await reader.query(api.savedAddresses.list, args);
+  expect(seen.entries.map((e) => e.name)).toEqual([
+    "Alpha hangar",
+    "bravo gate",
+    "zulu dock",
+  ]);
+  expect(seen.locations[0]).toMatchObject({ uuid: "hangar", legacy: "" });
+  const full = await a.query(api.savedAddresses.list, args);
+  expect(full.locations[0]).toMatchObject({
+    legacy: "Legacy hangar address",
+    address: { contactName: "Receiving team", phone: "+1 202 555 0100" },
+  });
+});
+it("audits each save, and still saves an edit when the program is at the cap", async () => {
+  const { t, a } = await setup();
+  const save = (entry: object) =>
+    a.mutation(api.savedAddresses.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ ...input, ...entry }),
+    });
+  await save({});
+  await t.run(async (ctx) => {
+    for (let i = 1; i < 200; i++)
+      await ctx.db.insert("savedAddresses", {
+        ...input,
+        uuid: `seed-${i}`,
+        name: `Seed ${i}`,
+        nameKey: `seed ${i}`,
+        programUuid: "demo-program",
+      });
+  });
+  expect(await save({ version: 1, name: "Main hangar" })).toMatchObject({
+    version: 2,
+    name: "Main hangar",
+  });
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(rows.map((r) => [r.action, r.entityUuid, r.programUuid])).toEqual([
+    ["address.saved", input.uuid, "demo-program"],
+    ["address.saved", input.uuid, "demo-program"],
+  ]);
 });

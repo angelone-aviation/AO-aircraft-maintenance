@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins utilization windows and notes, due-date projection,
+ *   remaining text, and the forecast's items, order and failure notes.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/forecast.ts, ./airworthiness, ./components,
+ *   ./model, src/data/demo.ts (seed).
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask, adCounters } from "./airworthiness";
@@ -8,7 +15,16 @@ import {
   type Inspection,
   type Snapshot,
 } from "./model";
-import { addDays, forecast, projectDue, utilization, weekOf } from "./forecast";
+import {
+  addDays,
+  daysBetween,
+  forecast,
+  inspectionProjections,
+  projectDue,
+  remainingText,
+  utilization,
+  weekOf,
+} from "./forecast";
 
 const today = "2026-10-30";
 const aircraftUuid = "demo-206";
@@ -75,6 +91,7 @@ describe("utilization", () => {
     expect(u.cyclesPerDay).toBeCloseTo(9 / 90);
     expect(u.landingsPerDay).toBeCloseTo(18 / 90);
     expect(u.confidence).toBe("normal");
+    expect(u.note).toBe("Based on 9 flights over 90 days (last 90 days).");
   });
   it("ignores flights held for review or rejected", () => {
     const held = steady.map((f) => ({ ...f, status: "review" as const }));
@@ -102,6 +119,9 @@ describe("utilization", () => {
     expect(u.days).toBe(1);
     expect(u.secondsPerDay).toBe(4 * H);
     expect(u.confidence).toBe("low");
+    expect(u.note).toBe(
+      "Low confidence: based on all history, 2 flights over 1 day; the last 90 days had too little data.",
+    );
   });
   it("uses the window length when history extends before it", () => {
     const u = utilization(
@@ -159,6 +179,29 @@ describe("projectDue", () => {
       addDays(today, 6),
     );
     expect(projectDue({ landings: 3 }, rates, today)?.basis).toBe("landings");
+  });
+  it("stops projecting beyond a century", () => {
+    const perDay = { secondsPerDay: H };
+    expect(projectDue({ seconds: 36500 * H }, perDay, today)?.date).toBe(
+      addDays(today, 36500),
+    );
+    expect(projectDue({ seconds: 36501 * H }, perDay, today)).toBeUndefined();
+  });
+});
+
+describe("remainingText and daysBetween", () => {
+  it("joins the limits that are set, marking negative ones overdue", () => {
+    expect(
+      remainingText({ seconds: 1.5 * H, cycles: -3, dueDate: "2027-01-31" }),
+    ).toBe("1.5 h · 3 cycles overdue · due 2027-01-31");
+    expect(remainingText({ seconds: -H, landings: 4 })).toBe(
+      "1.0 h overdue · 4 landings",
+    );
+    expect(remainingText({})).toBe("");
+  });
+  it("counts whole days, negative when the end comes first", () => {
+    expect(daysBetween("2026-10-01", "2026-10-31")).toBe(30);
+    expect(daysBetween("2026-10-31", "2026-10-01")).toBe(-30);
   });
 });
 
@@ -262,6 +305,18 @@ describe("forecast", () => {
     ];
     expect(forecast(s, today)[0].projection?.basis).toBe("calendar");
   });
+  it("lists a requirement whose totals cannot be read, with the reason", () => {
+    const s = state();
+    const installed = component(true);
+    installed.installedSeconds = totalSeconds(aircraft()) + H;
+    s.management = [installed, requirement];
+    const [item] = forecast(s, today);
+    expect(item).toMatchObject({ key: "r1", status: "unknown", remaining: "" });
+    expect(item.projection).toBeUndefined();
+    expect(item.note).toBe(
+      "Aircraft readings or date precede the installation baseline.",
+    );
+  });
   it("projects AD task hours and skips complied tasks", () => {
     const s = state();
     const r = blankAD(aircraftUuid);
@@ -283,6 +338,47 @@ describe("forecast", () => {
       basis: "hours",
       overdue: false,
     });
+  });
+});
+
+describe("forecast order and inspection hints", () => {
+  it("sorts by projected date, then title, with unprojected items last", () => {
+    const s = state();
+    const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
+    const due = totalSeconds(a) + 2 * H;
+    s.inspections = [
+      inspection({ reference: "Z later", dueDate: "2027-06-01" }),
+      inspection({ reference: "B", dueSeconds: due }),
+      inspection({ reference: "A", dueSeconds: due }),
+      inspection({ reference: "Overdue", dueDate: "2026-10-01" }),
+    ];
+    expect(forecast(s, today).map((i) => i.title)).toEqual([
+      "Overdue",
+      "A",
+      "B",
+      "Z later",
+    ]);
+    s.flights = [];
+    expect(forecast(s, today).map((i) => i.title)).toEqual([
+      "Overdue",
+      "Z later",
+      "A",
+      "B",
+    ]);
+  });
+  it("hints only upcoming inspection projections", () => {
+    const s = state();
+    const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
+    const upcoming = inspection({ dueSeconds: totalSeconds(a) + 2 * H });
+    s.inspections = [
+      upcoming,
+      inspection({ dueDate: "2026-10-01" }),
+      inspection({ dueCycles: a.cycles + 1 }),
+    ];
+    s.flights = steady.map((f) => ({ ...f, cycles: 0 }));
+    expect(inspectionProjections(s, today)).toEqual(
+      new Map([[upcoming.uuid, addDays(today, 10)]]),
+    );
   });
 });
 
