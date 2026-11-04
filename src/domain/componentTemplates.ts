@@ -7,7 +7,7 @@
  *   ./programs, ./rejection, ./changeLog.
  */
 import { z } from "zod";
-import { readCsvRows } from "./maintenanceCsv";
+import { CSV_MAX_BYTES, readCsvRows } from "./maintenanceCsv";
 import { ataChapterSchema } from "./ata";
 import { POSITIONS } from "./components";
 import { can, type Aircraft, type Snapshot } from "./model";
@@ -17,7 +17,6 @@ import { auditEntry } from "./changeLog";
 
 const TEXT_MAX_LENGTH = 150;
 const TEMPLATE_ROWS_MAX = 500;
-const CSV_MAX_BYTES = 2 * 1024 * 1024;
 const REQUIRED_HEADER_COUNT = 4;
 
 const text = z.string().trim().min(1).max(TEXT_MAX_LENGTH);

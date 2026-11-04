@@ -3,8 +3,8 @@
  *   detection, applying a template to an aircraft as setups, and when a
  *   setup is pending or its parent ready.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/componentTemplates.ts, ./programs, ./rejection,
- *   src/data/demo.ts (seed).
+ * Dependencies: src/domain/componentTemplates.ts, ./maintenanceCsv,
+ *   ./programs, ./rejection, src/data/demo.ts (seed).
  */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -18,6 +18,7 @@ import {
   setupParentReady,
   validateRows,
 } from "./componentTemplates";
+import { CSV_MAX_BYTES } from "./maintenanceCsv";
 import { scopedSnapshot } from "./programs";
 import { Rejection } from "./rejection";
 const csv =
@@ -133,6 +134,12 @@ it("reads columns in any order and case, numbers rows without an ID, and names t
   expect(() =>
     parseComponentTemplateCsv(csv + "x".repeat(2 * 1024 * 1024)),
   ).toThrow("CSV must be under 2 MB.");
+});
+it("measures the CSV limit in UTF-8 bytes, up to and including it", () => {
+  const atLimit = "é".repeat(CSV_MAX_BYTES / 2);
+  const size = "CSV must be under 2 MB.";
+  expect(() => parseComponentTemplateCsv(atLimit)).not.toThrow(size);
+  expect(() => parseComponentTemplateCsv(atLimit + "x")).toThrow(size);
 });
 it("refuses duplicate row IDs and unknown parents", () => {
   const [engine, blade] = parseComponentTemplateCsv(csv);
