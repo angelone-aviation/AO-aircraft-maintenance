@@ -1,4 +1,13 @@
-import { v } from "convex/values";
+/**
+ * Responsibility: Files attached to a purchase order or one of its receipts:
+ *   uploading and removing them, with their stored blobs.
+ * Layer: Server. A public action and mutation over internal steps; the
+ *   program's inventory administrators only.
+ * Dependencies: convex/programContext, convex/attachments, convex/access,
+ *   convex/userErrors, src/domain (programs, purchaseOrders,
+ *   inventoryAttachments).
+ */
+import { ConvexError, v } from "convex/values";
 import {
   action,
   mutation,
@@ -14,6 +23,7 @@ import {
   MAX_ATTACHMENTS,
 } from "./attachments";
 import { audit } from "./access";
+import { exposeRejections } from "./userErrors";
 import { programPermission } from "../src/domain/programs";
 import { poSchema, poAttachmentRemovable } from "../src/domain/purchaseOrders";
 import { validateInventoryFile } from "../src/domain/inventoryAttachments";
@@ -28,16 +38,16 @@ async function access(
 ) {
   const s = await checkContext(ctx, args.programUuid);
   if (!programPermission(s, "admin"))
-    throw Error("Inventory administrator access required.");
+    throw new ConvexError("Inventory administrator access required.");
   const doc = await ctx.db
     .query("purchaseOrders")
     .withIndex("uuid", (q) => q.eq("uuid", args.poUuid))
     .unique();
   if (!doc || doc.programUuid !== args.programUuid)
-    throw Error("PO not found.");
+    throw new ConvexError("PO not found.");
   const po = poSchema.parse(JSON.parse(doc.payload));
   const receipt = po.receipts.find((r) => r.uuid === args.receiptUuid);
-  if (args.receiptUuid && !receipt) throw Error("Receipt not found.");
+  if (args.receiptUuid && !receipt) throw new ConvexError("Receipt not found.");
   return { po, receipt, s };
 }
 export const check = internalQuery({
@@ -56,7 +66,9 @@ export const finish = internalMutation({
   },
   handler: async (ctx, args) => {
     const { po, receipt } = await access(ctx, args);
-    validateInventoryFile(args.name, args.type, args.size);
+    exposeRejections(() =>
+      validateInventoryFile(args.name, args.type, args.size),
+    );
     assertAttachmentRoom(
       await ctx.db
         .query("poFiles")
@@ -85,7 +97,9 @@ export const finish = internalMutation({
 export const upload = action({
   args: { ...scope, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
-    validateInventoryFile(args.name, args.type, args.bytes.byteLength);
+    exposeRejections(() =>
+      validateInventoryFile(args.name, args.type, args.bytes.byteLength),
+    );
     const target = {
       poUuid: args.poUuid,
       receiptUuid: args.receiptUuid,
@@ -113,13 +127,15 @@ export const remove = mutation({
   args: { id: v.id("poFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.id);
-    if (!file) throw Error("Attachment not found.");
+    if (!file) throw new ConvexError("Attachment not found.");
     const { po, s } = await access(ctx, {
       poUuid: file.poUuid,
       programUuid: args.programUuid,
     });
     if (!poAttachmentRemovable(po))
-      throw Error("Attachments can be deleted only while the PO is a draft.");
+      throw new ConvexError(
+        "Attachments can be deleted only while the PO is a draft.",
+      );
     await ctx.db.delete(file._id);
     await deleteBlobIfUnused(ctx, file.storageId);
     await audit(ctx, s.user.id, "purchaseOrder.attachment_removed", po.uuid, {

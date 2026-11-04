@@ -4,9 +4,9 @@
  * Layer: Server. A public query and mutation; the rules are the domain's
  *   groupDeletionPlan, and the deletion is audited.
  * Dependencies: convex/programContext, convex/access, convex/memberships,
- *   src/domain/groupDeletion.
+ *   convex/userErrors, src/domain/groupDeletion.
  */
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -16,6 +16,7 @@ import {
 import { checkContext } from "./programContext";
 import { member, audit } from "./access";
 import { programUsers, removeGroupMemberships } from "./memberships";
+import { exposeRejections } from "./userErrors";
 import type { Id } from "./_generated/dataModel";
 import { groupDeletionPlan } from "../src/domain/groupDeletion";
 
@@ -28,13 +29,16 @@ const args = { id: v.id("groups"), programUuid: v.optional(v.string()) };
  * @param programUuid - The caller's active Flight Program.
  * @returns The group's name, its members and whether each loses access to
  *   the program, and `expected`, which {@link remove} must be given back.
- * @throws {Error} As `checkContext`; "Permission group not found."; "Flight
- *   Program administrator permission required."
+ * @throws As `checkContext`, then `groupDeletionPlan`: "Permission group not
+ *   found."; "Flight Program administrator permission required." (a
+ *   Rejection reaches the user as a ConvexError).
  */
 export const preview = query({
   args,
-  handler: async (ctx, args) =>
-    groupDeletionPlan(await load(ctx, args.programUuid, args.id), args.id),
+  handler: async (ctx, args) => {
+    const state = await load(ctx, args.programUuid, args.id);
+    return exposeRejections(() => groupDeletionPlan(state, args.id));
+  },
 });
 
 /**
@@ -42,16 +46,17 @@ export const preview = query({
  * memberships only; audits "group.deleted" with the group and those members.
  *
  * @param expected - The reviewed plan's `expected`.
- * @throws {Error} As {@link preview}; "This group or its members changed.
- *   Close this dialog and review deletion again." when the plan differs.
+ * @throws {ConvexError} "This group or its members changed. Close this dialog
+ *   and review deletion again." when the plan differs.
+ * @throws As {@link preview}, first.
  */
 export const remove = mutation({
   args: { ...args, expected: v.string() },
   handler: async (ctx, args) => {
     const state = await load(ctx, args.programUuid, args.id);
-    const plan = groupDeletionPlan(state, args.id);
+    const plan = exposeRejections(() => groupDeletionPlan(state, args.id));
     if (plan.expected !== args.expected)
-      throw new Error(
+      throw new ConvexError(
         "This group or its members changed. Close this dialog and review deletion again.",
       );
     const group = state.groups.find((g) => g.id === args.id)!;

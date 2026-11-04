@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Searching FAA DRS for a Flight Program's ADs: who may search
+ *   and the daily allowances shared by every program on the one FAA key.
+ * Layer: Server. A public action over internal steps; maintenance permission
+ *   on the aircraft searches.
+ * Dependencies: convex/rateLimits, convex/faaCredentials,
+ *   convex/programContext, convex/userErrors, src/domain (model, management,
+ *   faaSearch).
+ */
 import {
   action,
   internalMutation,
@@ -9,6 +18,7 @@ import { faaSecret } from "./faaCredentials";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { checkContext, managementDocs } from "./programContext";
+import { exposeRejections } from "./userErrors";
 import { can } from "../src/domain/model";
 import { recordSchema } from "../src/domain/management";
 import {
@@ -23,14 +33,14 @@ export const authorize = internalQuery({
     const s = await checkContext(ctx, args.programUuid);
     const input = faaSearchSchema.parse(JSON.parse(args.payload));
     if (!can(s, input.aircraftUuid, "maintenance"))
-      throw Error("Aircraft maintenance permission required.");
+      throw new ConvexError("Aircraft maintenance permission required.");
     const management = (await managementDocs(ctx, args.programUuid)).map((d) =>
       recordSchema.parse(JSON.parse(d.payload)),
     );
     const assets = searchAssets({ ...s, management }, input.aircraftUuid);
     for (const a of input.assets)
       if (!assets.some((x) => x.id === a.id))
-        throw Error(
+        throw new ConvexError(
           "A selected component is no longer installed on this aircraft. Refresh the search form.",
         );
     return input;
@@ -94,7 +104,7 @@ export const search = action({
     await ctx.runMutation(internal.faaSearch.reserve, {
       programUuid: args.programUuid,
     });
-    const result = await searchFAA(credential.key, input);
+    const result = await exposeRejections(searchFAA(credential.key, input));
     await ctx.runQuery(internal.faaSearch.authorize, args);
     return result;
   },

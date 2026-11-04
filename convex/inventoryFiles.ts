@@ -1,4 +1,12 @@
-import { v } from "convex/values";
+/**
+ * Responsibility: Files attached to a stock item or component: uploading and
+ *   removing them, with their stored blobs.
+ * Layer: Server. A public action and mutation over internal steps; the
+ *   program's inventory administrators only, and every change is audited.
+ * Dependencies: convex/programContext, convex/attachments, convex/access,
+ *   convex/userErrors, src/domain (management, inventoryAttachments, programs).
+ */
+import { ConvexError, v } from "convex/values";
 import {
   action,
   mutation,
@@ -14,6 +22,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { checkContext, managementDocs } from "./programContext";
 import { audit } from "./access";
+import { exposeRejections } from "./userErrors";
 import { recordSchema } from "../src/domain/management";
 import {
   inventoryAttachmentAccess,
@@ -30,7 +39,9 @@ async function access(
     recordSchema.parse(JSON.parse(d.payload)),
   );
   const snapshot = { ...state, management };
-  const stock = inventoryAttachmentAccess(snapshot, args.stockUuid);
+  const stock = exposeRejections(() =>
+    inventoryAttachmentAccess(snapshot, args.stockUuid),
+  );
   return { user: state.user, programUuid: recordProgram(snapshot, stock) };
 }
 export const checkUpload = internalQuery({
@@ -49,7 +60,9 @@ export const finishUpload = internalMutation({
   },
   handler: async (ctx, args) => {
     const owner = await access(ctx, args);
-    validateInventoryFile(args.name, args.type, args.size);
+    exposeRejections(() =>
+      validateInventoryFile(args.name, args.type, args.size),
+    );
     assertAttachmentRoom(
       await ctx.db
         .query("inventoryFiles")
@@ -71,7 +84,9 @@ export const finishUpload = internalMutation({
 export const upload = action({
   args: { ...scope, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
-    validateInventoryFile(args.name, args.type, args.bytes.byteLength);
+    exposeRejections(() =>
+      validateInventoryFile(args.name, args.type, args.bytes.byteLength),
+    );
     const target = { stockUuid: args.stockUuid, programUuid: args.programUuid };
     await ctx.runQuery(internal.inventoryFiles.checkUpload, target);
     const storageId = await ctx.storage.store(
@@ -95,7 +110,7 @@ export const remove = mutation({
   args: { id: v.id("inventoryFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.id);
-    if (!file) throw new Error("Attachment not found.");
+    if (!file) throw new ConvexError("Attachment not found.");
     const owner = await access(ctx, {
       stockUuid: file.stockUuid,
       programUuid: args.programUuid,

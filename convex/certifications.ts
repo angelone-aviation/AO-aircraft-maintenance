@@ -3,9 +3,9 @@
  *   them: saving, listing, opening, uploading and deleting.
  * Layer: Server. Public functions for the member themself or a system
  *   administrator; every change is audited against the member.
- * Dependencies: convex/access, src/domain/certifications.
+ * Dependencies: convex/access, convex/userErrors, src/domain/certifications.
  */
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   query,
   mutation,
@@ -18,6 +18,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { currentUser, audit } from "./access";
+import { exposeRejections } from "./userErrors";
 import {
   certificationsSchema,
   certificationKindSchema,
@@ -33,7 +34,7 @@ const target = { userId: v.id("users"), kind: v.string() };
  *
  * @param userId - The member.
  * @param payload - JSON, as `certificationsSchema`.
- * @throws {Error} As {@link list}; a ZodError for an invalid payload.
+ * @throws As {@link list}; a ZodError for an invalid payload.
  */
 export const save = mutation({
   args: { userId: v.id("users"), payload: v.string() },
@@ -53,8 +54,9 @@ export const save = mutation({
  *
  * @param userId - The member.
  * @returns The member's copies, described without their stored files.
- * @throws {Error} As `currentUser`; "Only the account owner or an
- *   administrator may access license records."; "User not found."
+ * @throws {Error} The session refusal of `currentUser`.
+ * @throws {ConvexError} "Only the account owner or an administrator may access
+ *   license records."; "User not found."
  */
 export const list = query({
   args: { userId: v.id("users") },
@@ -82,13 +84,13 @@ export const list = query({
  *
  * @param id - The copy.
  * @returns A URL to download it, or null when its stored file is gone.
- * @throws {Error} "License copy not found."; as {@link list}.
+ * @throws {ConvexError} "License copy not found."; as {@link list}.
  */
 export const fileUrl = query({
   args: { id: v.id("certificationFiles") },
   handler: async (ctx, { id }) => {
     const file = await ctx.db.get(id);
-    if (!file) throw new Error("License copy not found.");
+    if (!file) throw new ConvexError("License copy not found.");
     await authorize(ctx, file.userId);
     return ctx.storage.getUrl(file.storageId);
   },
@@ -99,8 +101,9 @@ export const fileUrl = query({
  *
  * @param userId - The member.
  * @param kind - The certification the copy is for.
- * @throws {Error} As {@link list}; a ZodError for an unknown kind; "Save this
- *   certification before attaching its license copy."
+ * @throws {ConvexError} "Save this certification before attaching its
+ *   license copy."
+ * @throws As {@link list}; a ZodError for an unknown kind.
  */
 export const checkUpload = internalQuery({
   args: target,
@@ -108,7 +111,7 @@ export const checkUpload = internalQuery({
     const { user } = await authorize(ctx, args.userId);
     const kind = certificationKindSchema.parse(args.kind);
     if (!holdsCertification(user, kind))
-      throw new Error(
+      throw new ConvexError(
         "Save this certification before attaching its license copy.",
       );
   },
@@ -120,8 +123,8 @@ export const checkUpload = internalQuery({
  *
  * @param storageId - The stored copy.
  * @returns The new copy's id.
- * @throws {Error} As {@link checkUpload}, but "Certification is no longer
- *   selected."; as `validateCertificationFile`.
+ * @throws {ConvexError} As {@link checkUpload}, but "Certification is no
+ *   longer selected."; the refusals of `validateCertificationFile`.
  */
 export const finishUpload = internalMutation({
   args: {
@@ -135,8 +138,10 @@ export const finishUpload = internalMutation({
     const { actor, user } = await authorize(ctx, args.userId);
     const kind = certificationKindSchema.parse(args.kind);
     if (!holdsCertification(user, kind))
-      throw new Error("Certification is no longer selected.");
-    validateCertificationFile(args.name, args.type, args.size);
+      throw new ConvexError("Certification is no longer selected.");
+    exposeRejections(() =>
+      validateCertificationFile(args.name, args.type, args.size),
+    );
     const id = await ctx.db.insert("certificationFiles", {
       ...args,
       kind,
@@ -156,13 +161,15 @@ export const finishUpload = internalMutation({
  * @param type - The file's MIME type.
  * @param bytes - The file.
  * @returns The new copy's id.
- * @throws {Error} As `validateCertificationFile`, before any access check; as
- *   {@link checkUpload} and {@link finishUpload}.
+ * @throws {ConvexError} The refusals of `validateCertificationFile`, before
+ *   any access check; as {@link checkUpload} and {@link finishUpload}.
  */
 export const upload = action({
   args: { ...target, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<string> => {
-    validateCertificationFile(args.name, args.type, args.bytes.byteLength);
+    exposeRejections(() =>
+      validateCertificationFile(args.name, args.type, args.bytes.byteLength),
+    );
     await ctx.runQuery(internal.certifications.checkUpload, {
       userId: args.userId,
       kind: args.kind,
@@ -193,13 +200,13 @@ export const upload = action({
  * "user.license_copy_deleted".
  *
  * @param id - The copy.
- * @throws {Error} "License copy not found."; as {@link list}.
+ * @throws {ConvexError} "License copy not found."; as {@link list}.
  */
 export const remove = mutation({
   args: { id: v.id("certificationFiles") },
   handler: async (ctx, { id }) => {
     const file = await ctx.db.get(id);
-    if (!file) throw new Error("License copy not found.");
+    if (!file) throw new ConvexError("License copy not found.");
     const { actor } = await authorize(ctx, file.userId);
     await ctx.storage.delete(file.storageId);
     await ctx.db.delete(id);
@@ -210,11 +217,11 @@ export const remove = mutation({
 async function authorize(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
   const actor = await currentUser(ctx);
   if (actor._id !== userId && !actor.isAdmin)
-    throw new Error(
+    throw new ConvexError(
       "Only the account owner or an administrator may access license records.",
     );
   const user = await ctx.db.get(userId);
-  if (!user) throw new Error("User not found.");
+  if (!user) throw new ConvexError("User not found.");
   return { actor, user };
 }
 
