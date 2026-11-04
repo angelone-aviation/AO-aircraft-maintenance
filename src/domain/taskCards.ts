@@ -1104,3 +1104,9 @@ function validateStep(step: TaskStep) {
   )
     throw new Rejection("A step measurement is outside its limits.");
 }
+
+/**
+ * The most characters a job card's text fields hold, such as its title,
+ * description and applicability.
+ */
+export const TASK_TEXT_MAX_LENGTH = 10000;

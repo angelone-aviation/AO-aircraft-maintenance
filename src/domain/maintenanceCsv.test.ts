@@ -7,6 +7,8 @@
  */
 import { expect, it } from "vitest";
 import {
+  CSV_MAX_BYTES,
+  CSV_MAX_MEGABYTES,
   csvSourceKey,
   importHeaders,
   parseMaintenanceCsv,
@@ -179,6 +181,12 @@ it("keeps unknown values blank and validates calendar units without rounding the
 it("rejects oversized or excessive-row files", () => {
   expect(() => readCsv("x".repeat(2 * 1024 * 1024 + 1))).toThrow("2 MB");
   expect(() => readCsv("id\n" + "x\n".repeat(2001))).toThrow("2,000");
+});
+it("reads text up to the exported default size", () => {
+  expect(readCsv("x".repeat(CSV_MAX_BYTES))).toHaveLength(1);
+  expect(() => readCsv("x".repeat(CSV_MAX_BYTES + 1))).toThrow(
+    `CSV files must be at most ${CSV_MAX_MEGABYTES} MB.`,
+  );
 });
 it("deduplicates imported tasks per saved parent while allowing the same source for another parent", () => {
   const s = demoSnapshot();

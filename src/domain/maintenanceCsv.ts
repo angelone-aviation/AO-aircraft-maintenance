@@ -14,6 +14,16 @@ const NUMBER_MAX = 1000000;
 const INSPECTION_TEXT_MAX = 2000;
 const COMPONENT_TEXT_MAX = 10000;
 
+/** The largest CSV file {@link readCsvRows} reads by default, in megabytes. */
+export const CSV_MAX_MEGABYTES = 2;
+
+/**
+ * The same limit in bytes. {@link readCsvRows} measures the decoded text,
+ * which is never longer than the file's UTF-8 bytes, so a file within this
+ * limit passes its size check.
+ */
+export const CSV_MAX_BYTES = CSV_MAX_MEGABYTES * 1024 * 1024;
+
 const REQUIREMENT_TYPES = {
   life_limit: "Life Limits",
   overhaul: "Overhaul Requirement",
@@ -132,7 +142,7 @@ export function readCsv(text: string): string[][] {
  */
 export function readCsvRows(
   text: string,
-  { maxMegabytes = 2, maxRecords = 2000 } = {},
+  { maxMegabytes = CSV_MAX_MEGABYTES, maxRecords = 2000 } = {},
 ): { cells: string[]; row: number }[] {
   if (text.length > maxMegabytes * 1024 * 1024)
     throw new Rejection(`CSV files must be at most ${maxMegabytes} MB.`);

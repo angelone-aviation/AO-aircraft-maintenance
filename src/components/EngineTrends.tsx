@@ -11,7 +11,9 @@ import { useWorkspace } from "../data/store";
 import { can } from "../domain/model";
 import {
   CHT_SPREAD_LIMIT_F,
+  ENGINE_FILE_MAX_BYTES,
   ENGINE_FILE_MAX_MEGABYTES,
+  ENGINE_LIMIT_BOUNDS,
   defaultEngineLimits,
   engineFlags,
   engineSeries,
@@ -31,21 +33,19 @@ const SOURCE_LABELS: Record<EngineSummary["source"], string> = {
 };
 const TRENDS_FAILED = "Engine trends could not be loaded.";
 const SECONDS_PER_HOUR = 3600;
-const BYTES_PER_MEGABYTE = 1024 * 1024;
-// The limit fields, with the bounds engineLimitsSchema sets.
 const LIMIT_FIELDS = [
   {
     name: "cht",
     key: "chtMaxF",
     label: "CHT limit (°F)",
     hint: `Default ${defaultEngineLimits.chtMaxF} °F.`,
-    range: { min: 200, max: 700 },
+    range: ENGINE_LIMIT_BOUNDS.chtMaxF,
   },
   {
     name: "oil",
     key: "oilPressureMinPsi",
     label: "Minimum cruise oil pressure (psi)",
-    range: { min: 0, max: 200 },
+    range: ENGINE_LIMIT_BOUNDS.oilPressureMinPsi,
   },
 ] as const;
 // The chart's SVG box. The margins hold the labels: value labels sit labelGap
@@ -432,8 +432,11 @@ function LogForm({
 
 async function readEngineLog(d: FormData) {
   const file = d.get("engineLog");
-  const maxBytes = ENGINE_FILE_MAX_MEGABYTES * BYTES_PER_MEGABYTE;
-  if (!(file instanceof File) || !file.size || file.size > maxBytes)
+  if (
+    !(file instanceof File) ||
+    !file.size ||
+    file.size > ENGINE_FILE_MAX_BYTES
+  )
     throw new Error(
       `Choose an engine monitor CSV up to ${ENGINE_FILE_MAX_MEGABYTES} MB.`,
     );

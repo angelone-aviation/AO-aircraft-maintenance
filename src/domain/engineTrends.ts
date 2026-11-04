@@ -22,6 +22,21 @@ export const CHT_SPREAD_LIMIT_F = 50;
 /** Most engine trend imports an aircraft keeps. */
 export const MAX_ENGINE_TRENDS = 1000;
 
+/**
+ * Largest engine-data file accepted, in bytes; {@link parseEngineLog} applies
+ * it to the decoded text's length.
+ */
+export const ENGINE_FILE_MAX_BYTES = ENGINE_FILE_MAX_MEGABYTES * 1024 * 1024;
+
+/**
+ * The values an aircraft's engine limits may take: its highest CHT in °F and
+ * its lowest cruise oil pressure in psi.
+ */
+export const ENGINE_LIMIT_BOUNDS = {
+  chtMaxF: { min: 200, max: 700 },
+  oilPressureMinPsi: { min: 0, max: 200 },
+} as const;
+
 // Samples at or above this share of the file's highest RPM count as cruise.
 const CRUISE_RPM_SHARE = 0.8;
 const HEADER_SEARCH_ROWS = 20;
@@ -44,8 +59,8 @@ const NO_DATE_COLUMN = "The engine data file has no recognizable date column.";
  *   0–200 psi.
  */
 export const engineLimitsSchema = z.object({
-  chtMaxF: z.number().finite().min(200).max(700),
-  oilPressureMinPsi: z.number().finite().min(0).max(200),
+  chtMaxF: boundedReading(ENGINE_LIMIT_BOUNDS.chtMaxF),
+  oilPressureMinPsi: boundedReading(ENGINE_LIMIT_BOUNDS.oilPressureMinPsi),
 });
 
 /** Parsed engine limits. */
@@ -234,7 +249,7 @@ export function parseExportTime(text: string) {
  * @throws {z.ZodError} When the summary fails the schema (over 7 days long).
  */
 export function parseEngineLog(text: string, fileName: string): EngineSummary {
-  if (text.length > ENGINE_FILE_MAX_MEGABYTES * 1024 * 1024)
+  if (text.length > ENGINE_FILE_MAX_BYTES)
     throw new Rejection(
       `Engine data files must be at most ${ENGINE_FILE_MAX_MEGABYTES} MB.`,
     );
@@ -618,4 +633,8 @@ function maxAndAverage(
 
 function isSameFlight(a: EngineSummary, b: EngineSummary) {
   return a.date === b.date && a.start === b.start && a.samples === b.samples;
+}
+
+function boundedReading({ min, max }: { min: number; max: number }) {
+  return z.number().finite().min(min).max(max);
 }
