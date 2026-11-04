@@ -23,6 +23,7 @@ import {
   linkedTaskCards,
   signoffsOfferedInEditor,
   signoffsOfferedInList,
+  TASK_TEXT_MAX_LENGTH,
   taskCardFieldsSchema,
   taskCardStatuses,
   taskLinkLocked,
@@ -1296,4 +1297,13 @@ it("records a job-card command with the card before and after; saveTaskCard alon
     entry(created, edited),
     entry(undefined, created),
   ]);
+});
+
+it("holds TASK_TEXT_MAX_LENGTH (10,000) characters in a card's text fields", () => {
+  const { title, description } = taskCardFieldsSchema.shape;
+  const fits = (n: number) =>
+    [title, description].map((f) => f.safeParse("x".repeat(n)).success);
+  expect(TASK_TEXT_MAX_LENGTH).toBe(10_000);
+  expect(fits(TASK_TEXT_MAX_LENGTH)).toEqual([true, true]);
+  expect(fits(TASK_TEXT_MAX_LENGTH + 1)).toEqual([false, false]);
 });
