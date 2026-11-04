@@ -16,7 +16,7 @@ import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditActionLabel } from "../../src/domain/auditHistory";
 import { fixtureExport } from "./exportFixture";
-import { buildRecordsWorkbook, zoneClock } from "./recordsWorkbook";
+import { buildRecordsWorkbook, main, zoneClock } from "./recordsWorkbook";
 
 const TZ = "America/New_York";
 process.env.TZ = TZ;
@@ -704,4 +704,61 @@ describe("records workbook", () => {
     // Spawns node and bundles the workbook with esbuild: seconds of work that
     // pass vitest's 5 s default only on an idle machine.
   }, 30_000);
+
+  it("refuses a time zone Intl does not know, and a command line without its files", async () => {
+    const out = path.join(dir, "refused.xlsx");
+    await expect(
+      buildRecordsWorkbook(zipPath, {
+        out,
+        timeZone: "Mars/Olympus",
+        deployment: "fixture",
+        now,
+      }),
+    ).rejects.toThrow(RangeError);
+    await expect(main(["--zip", zipPath])).rejects.toThrow(
+      /^Usage: node scripts\/backup\/records-workbook\.mjs --zip /,
+    );
+    await expect(
+      main(["--zip", zipPath, "--out", out, "--tz", "Mars/Olympus"]),
+    ).rejects.toThrow(
+      'Unknown time zone "Mars/Olympus". Use an IANA name such as America/New_York.',
+    );
+  });
+
+  // Characterizes current behaviour: the due list reads an AD's counters
+  // unguarded, so an aircraft without a meter reading stops the build unless
+  // its AD no longer applies.
+  it("stops on an aircraft without a meter reading unless its AD no longer applies", async () => {
+    const withoutReading = (tail: string) => {
+      const files = unzipSync(fixture.zip);
+      let uuid = "";
+      editFirst(
+        files,
+        "aircraft",
+        (d) => {
+          d.meter = "flightTimeLog";
+          uuid = String(d.uuid);
+        },
+        (d) => d.registration === tail,
+      );
+      return { files, uuid };
+    };
+    await expect(
+      buildFrom(withoutReading("N206MA").files, "no-reading"),
+    ).rejects.toThrow("Flight time log reading is required.");
+
+    const { files, uuid } = withoutReading("N182MA");
+    editFirst(
+      files,
+      "airworthiness",
+      (d) => {
+        const ad = JSON.parse(String(d.payload));
+        d.payload = JSON.stringify({ ...ad, applicability: "Not applicable" });
+      },
+      (d) => JSON.parse(String(d.payload)).aircraftUuid === uuid,
+    );
+    const { summary } = await buildFrom(files, "spared");
+    const due = summary.sheets.find((x) => x.name === "Due list");
+    expect(due?.rows).toBe(rows("Due list").length - 1);
+  });
 });
