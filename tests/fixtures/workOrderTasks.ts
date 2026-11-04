@@ -1,7 +1,16 @@
-import type { Locator, Page } from "@playwright/test";
-import { expect } from "@playwright/test";
+/**
+ * Responsibility: Opens a work order's tasks, and the single open movement
+ *   order.
+ * Layer: Test. Playwright helpers against the demo.
+ * Dependencies: @playwright/test.
+ */
+import { expect, type Locator, type Page } from "@playwright/test";
 
-/** Work-order tasks render as collapsed <details>; open task `n` (1-based). */
+/**
+ * Work-order tasks render as collapsed <details>; opens task `n` (1-based)
+ * unless it is already open.
+ * @param dialog - The work order's dialog.
+ */
 export async function expandTask(dialog: Locator, n: number) {
   const task = dialog.locator("details.work-order-task-details").nth(n - 1);
   if ((await task.getAttribute("open")) === null)
@@ -10,8 +19,12 @@ export async function expandTask(dialog: Locator, n: number) {
 }
 
 /**
- * The work-order list no longer shows the scope, so a movement order is the
- * single open order; confirm Task 1 names the expected part, then open it.
+ * Opens the single open work order, a component movement, checks that Task 1
+ * names `part`, and expands it. The list no longer shows the scope, so the
+ * task is what identifies the order.
+ * @param page - A demo page with exactly one open order.
+ * @param part - Text Task 1's summary must contain.
+ * @returns The order's dialog, with Task 1 expanded.
  */
 export async function openMovementOrder(page: Page, part: string) {
   await page.goto("/work-orders");
