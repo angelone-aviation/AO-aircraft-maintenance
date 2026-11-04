@@ -9,11 +9,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  ENGINE_FILE_MAX_BYTES,
+  ENGINE_LIMIT_BOUNDS,
   applyEngineTrendCommand,
   channelForHeader,
   defaultEngineLimits,
   detectEngineFormat,
   engineFlags,
+  engineLimitsSchema,
   engineSeries,
   hottest,
   parseEngineLog,
@@ -362,5 +365,38 @@ describe("export dates, times and file rules", () => {
       expect(apply).toThrow(Rejection);
       expect(apply).toThrow(message);
     }
+  });
+});
+
+describe("limits shared with the engine trends form", () => {
+  it("bounds each engine limit at 200–700 °F and 0–200 psi", () => {
+    expect(ENGINE_LIMIT_BOUNDS).toEqual({
+      chtMaxF: { min: 200, max: 700 },
+      oilPressureMinPsi: { min: 0, max: 200 },
+    });
+    for (const [key, { min, max }] of Object.entries(ENGINE_LIMIT_BOUNDS)) {
+      const valid = (value: number) =>
+        engineLimitsSchema.safeParse({ ...defaultEngineLimits, [key]: value })
+          .success;
+      expect([min - 1, min, max, max + 1].map(valid)).toEqual([
+        false,
+        true,
+        true,
+        false,
+      ]);
+    }
+  });
+
+  it("refuses a file only beyond its byte limit", () => {
+    const sizeRefusal = (length: number) => {
+      try {
+        parseEngineLog("x".repeat(length), "big.csv");
+      } catch (e) {
+        return (e as Error).message.startsWith("Engine data files must be");
+      }
+      return false;
+    };
+    expect(sizeRefusal(ENGINE_FILE_MAX_BYTES)).toBe(false);
+    expect(sizeRefusal(ENGINE_FILE_MAX_BYTES + 1)).toBe(true);
   });
 });
