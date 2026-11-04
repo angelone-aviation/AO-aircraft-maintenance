@@ -19,7 +19,7 @@ import {
   partsRequestDocs,
   purchaseOrderDocs,
 } from "./programContext";
-import { runCommand, type ProgramContext } from "./runCommand";
+import { runCommand, writeChanged, type ProgramContext } from "./runCommand";
 import { decode } from "./collections";
 import { programIds } from "../src/domain/programs";
 import { transferProgram } from "../src/domain/programTransfers";
@@ -64,6 +64,7 @@ const transferArgs = {
   reason: v.string(),
 };
 type TransferArgs = ObjectType<typeof transferArgs>;
+const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 /**
  * A system administrator moves an aircraft, component or location from the
@@ -171,7 +172,8 @@ async function loadCommitments(
   };
 }
 
-// Patches only what the transfer changed; other columns stay as stored.
+// Writes only what the transfer changed: aircraft and inspections are patched,
+// payload rows replaced with their encoded row.
 async function persistTransfer(
   ctx: MutationCtx,
   state: ProgramContext,
@@ -185,48 +187,45 @@ async function persistTransfer(
         program: a.program,
         version: a.version,
       });
-  await patchManagement(ctx, s.management ?? [], documents);
+  await writeChanged(
+    ctx,
+    "management",
+    documents,
+    s.management ?? [],
+    RECORD_TAKEN,
+  );
   for (const i of inspections)
     if (i.version !== working.versions.get(i._id))
       await ctx.db.patch(i._id, {
         programUuid: i.programUuid,
         version: i.version,
       });
-  await patchOwner(ctx, s.checklists ?? [], checklists);
-  await patchOwner(ctx, s.componentSetups ?? [], setups);
+  await writeChanged(
+    ctx,
+    "checklists",
+    checklists,
+    moved(s.checklists ?? [], checklists),
+    RECORD_TAKEN,
+  );
+  await writeChanged(
+    ctx,
+    "componentSetups",
+    setups,
+    moved(s.componentSetups ?? [], setups),
+    RECORD_TAKEN,
+  );
 }
 
-async function patchManagement(
-  ctx: MutationCtx,
-  records: NonNullable<Snapshot["management"]>,
-  documents: Doc<"management">[],
+// Checklists and component setups move with their aircraft by program alone;
+// the rest of the program's are left as stored.
+function moved<R extends { uuid: string; programUuid: string }>(
+  records: R[],
+  documents: { uuid: string; programUuid: string }[],
 ) {
-  for (const r of records) {
-    const d = documents.find((d) => d.uuid === r.uuid)!;
-    if (JSON.stringify(r) === d.payload) continue;
-    await ctx.db.patch(d._id, {
-      programUuid: r.programUuid,
-      aircraftUuid:
-        "aircraftUuid" in r ? r.aircraftUuid || undefined : undefined,
-      payload: JSON.stringify(r),
-    });
-  }
-}
-
-// Checklists and component setups move with their aircraft by program alone.
-async function patchOwner(
-  ctx: MutationCtx,
-  records: { uuid: string; programUuid: string }[],
-  documents: Doc<"checklists" | "componentSetups">[],
-) {
-  for (const r of records) {
-    const d = documents.find((d) => d.uuid === r.uuid)!;
-    if (r.programUuid !== d.programUuid)
-      await ctx.db.patch(d._id, {
-        programUuid: r.programUuid,
-        payload: JSON.stringify(r),
-      });
-  }
+  return records.filter(
+    (r) =>
+      r.programUuid !== documents.find((d) => d.uuid === r.uuid)!.programUuid,
+  );
 }
 
 // ponytail: one transaction; a very long record history may need batching.

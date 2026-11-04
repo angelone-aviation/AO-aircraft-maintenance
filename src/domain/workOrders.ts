@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Work orders: the stored record and its commands, the work
+ *   items an aircraft offers, progress, attachment rules, and the applier
+ *   every work-order command runs through (saveWorkOrder).
+ * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
+ * Dependencies: zod, ./model, ./programs, ./components, ./adOwnership,
+ *   ./componentInventory, ./inventoryAttachments, ./logbookWording,
+ *   ./rejection, and the ./workOrder* modules.
+ */
 import { removedTaskCards } from "./workOrderTaskRemoval";
 import { adAircraftUuid } from "./adOwnership";
 import {
@@ -30,9 +39,11 @@ import {
   latestLocalDate,
   localDate,
   totalSeconds,
+  type Inspection,
   type Snapshot,
 } from "./model";
 import { componentTotals, type Component } from "./components";
+import { Rejection } from "./rejection";
 const text = z.string().trim().max(10000);
 const id = z.string().min(1).max(200);
 export const workOrderStatuses = [
@@ -264,6 +275,36 @@ export function newWorkTask(source: WorkSource, description: string): WorkTask {
     partsDelay: "",
   };
 }
+/**
+ * Adds an inspection to a work order as a new requested task, described by
+ * the inspection's reference and description.
+ *
+ * Whether the order is open, and whether the inspection is already on it, are
+ * left to saveWorkOrder, which checks the second after its component checks.
+ *
+ * @param order - The work order, which is not changed.
+ * @param inspection - The inspection the command names, or undefined when the
+ *   snapshot holds none.
+ * @returns A copy of the order with the task appended.
+ * @throws {Rejection} "Work item is unavailable for this aircraft." for a
+ *   missing or archived inspection, or one on another aircraft.
+ */
+export function addInspectionTask(
+  order: WorkOrder,
+  inspection: Inspection | undefined,
+): WorkOrder {
+  if (
+    !inspection ||
+    inspection.archived ||
+    inspection.aircraftUuid !== order.aircraftUuid
+  )
+    throw new Rejection("Work item is unavailable for this aircraft.");
+  const task = newWorkTask(
+    { kind: "inspection", uuid: inspection.uuid },
+    `${inspection.reference}: ${inspection.description}`,
+  );
+  return { ...order, tasks: [...order.tasks, task] };
+}
 export function workOrderProgress(s: Snapshot, w: WorkOrder) {
   const cards = (s.taskCards ?? []).filter((t) => t.workOrderUuid === w.uuid);
   const discrepancyIds = new Set([
@@ -375,6 +416,12 @@ export function saveWorkOrder(
   if (command.action === "copyTemplates") {
     if (!existing) throw new Error("Work order not found.");
     next = { ...existing };
+  } else if (command.action === "add" && command.source.kind === "inspection") {
+    const { uuid } = command.source;
+    next = addInspectionTask(
+      existing!,
+      s.inspections.find((i) => i.uuid === uuid),
+    );
   } else if (command.action === "add") {
     const item = sources.find(
       (x) =>

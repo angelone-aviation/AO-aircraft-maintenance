@@ -1,13 +1,33 @@
+/**
+ * Responsibility: The AD-record mutation: saves, compliance and corrections,
+ *   through the airworthiness domain applier.
+ * Layer: Server. Convex mutation over runCommand; the rules live in
+ *   src/domain/airworthiness.
+ * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
+ *   src/domain/airworthiness.
+ */
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { runCommand, hydrate } from "./runCommand";
+import { runCommand, hydrate, writeChanged } from "./runCommand";
+import { decode } from "./collections";
 import {
   adAuditRecord,
   adCommandReason,
-  adSchema,
   adCommandSchema,
   applyADCommand,
 } from "../src/domain/airworthiness";
+
+/**
+ * Applies one AD command in the active Flight Program and writes an
+ * "ad.<kind>" change-log row for each AD record it changed, with the record
+ * before and after.
+ *
+ * @param payload - The AD command, as JSON.
+ * @returns How many AD records the command changed.
+ * @throws {ConvexError} A domain Rejection; "AD record belongs to another
+ *   Flight Program." for an AD uuid another program holds; runCommand's
+ *   program refusals.
+ */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
   handler: (ctx, args) =>
@@ -17,26 +37,14 @@ export const save = mutation({
       load: ({ ctx, state }) =>
         hydrate(ctx, state, ["airworthiness", "management", "workOrders"]),
       apply: ({ snapshot }, command) => applyADCommand(snapshot, command),
-      persist: async ({ ctx }, { docs }, changed) => {
-        for (const r of changed) {
-          const value = {
-            uuid: r.uuid,
-            aircraftUuid: r.aircraftUuid,
-            programUuid: r.programUuid,
-            payload: JSON.stringify(r),
-          };
-          const old = docs.airworthiness.find((d) => d.uuid === r.uuid);
-          if (old) await ctx.db.replace(old._id, value);
-          else if (
-            await ctx.db
-              .query("airworthiness")
-              .withIndex("uuid", (q) => q.eq("uuid", r.uuid))
-              .first()
-          )
-            throw new Error("AD record belongs to another Flight Program.");
-          else await ctx.db.insert("airworthiness", value);
-        }
-      },
+      persist: ({ ctx }, { docs }, changed) =>
+        writeChanged(
+          ctx,
+          "airworthiness",
+          docs.airworthiness,
+          changed,
+          "AD record belongs to another Flight Program.",
+        ),
       audit: (log, { docs }, changed, command) => {
         for (const r of changed) {
           const old = docs.airworthiness.find((d) => d.uuid === r.uuid);
@@ -45,7 +53,7 @@ export const save = mutation({
             programUuid: r.programUuid,
             reason: adCommandReason(command),
             before: old
-              ? adAuditRecord(adSchema.parse(JSON.parse(old.payload)))
+              ? adAuditRecord(decode("airworthiness", [old])[0])
               : undefined,
             after: adAuditRecord(r),
           });

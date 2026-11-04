@@ -1,12 +1,40 @@
-import { ensureDefaultGroups } from "./defaultGroups";
-import { activeProgram } from "../src/domain/programs";
-import { mutation } from "./_generated/server";
-import { v } from "convex/values";
-import { currentUser } from "./access";
-import { runCommand, hydrate } from "./runCommand";
-import type { MutationCtx } from "./_generated/server";
+/**
+ * Responsibility: The fleet mutation: saving an aircraft or a Flight Program,
+ *   with the installed components an aircraft's readings move.
+ * Layer: Server. Convex mutation over runCommand; the rules live in
+ *   src/domain/fleet.
+ * Dependencies: convex/values, ./_generated, ./access, ./runCommand,
+ *   ./defaultGroups, src/domain (fleet, model, programs).
+ */
+import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { applyFleet, fleetCommandSchema } from "../src/domain/fleet";
+import { v, ConvexError } from "convex/values";
+import { currentUser } from "./access";
+import {
+  runCommand,
+  hydrate,
+  writeChanged,
+  type CommandLog,
+} from "./runCommand";
+import { ensureDefaultGroups } from "./defaultGroups";
+import {
+  applyFleet,
+  fleetCommandSchema,
+  type Program,
+} from "../src/domain/fleet";
+import type { Aircraft } from "../src/domain/model";
+import { activeProgram } from "../src/domain/programs";
+
+/**
+ * Saves an aircraft or a Flight Program once per request id. A new program
+ * gets its default permission groups; an aircraft's new readings move the
+ * baselines of the components installed on it.
+ *
+ * @param payload - The fleet command, as JSON, with its request id.
+ * @throws {ConvexError} A domain Rejection; "Aircraft belongs to another
+ *   Flight Program." or "This registration cannot be used." for an aircraft
+ *   uuid or registration held elsewhere; runCommand's refusals.
+ */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
   handler: async (ctx, { payload, programUuid }) =>
@@ -19,42 +47,17 @@ export const save = mutation({
         hydrate(ctx, state, ["management", "inspections"]),
       apply: ({ snapshot }, command) => applyFleet(snapshot, command),
       persist: async ({ ctx, state, log }, { docs }, result) => {
-        const { aircraft, programs } = state;
-        if (result.aircraft) {
-          const existing = aircraft.find(
-            (a) => a.uuid === result.aircraft!.uuid,
-          );
-          await assertAvailableAircraft(ctx, result.aircraft, existing);
-          const {
-            _id: ignoredId,
-            _creationTime: ignoredTime,
-            ...fields
-          } = result.aircraft as typeof result.aircraft & {
-            _id?: unknown;
-            _creationTime?: number;
-          };
-          if (existing) await ctx.db.replace(existing._id, fields);
-          else await ctx.db.insert("aircraft", fields);
-        }
-        if (result.program) {
-          const existing = programs.find(
-            (p) => p.uuid === result.program!.uuid,
-          );
-          if (existing) await ctx.db.replace(existing._id, result.program);
-          else {
-            await ctx.db.insert("programs", result.program);
-            await ensureDefaultGroups(
-              ctx,
-              result.program.uuid,
-              log.actorId,
-              log,
-            );
-          }
-        }
-        for (const component of result.components) {
-          const doc = docs.management.find((r) => r.uuid === component.uuid)!;
-          await ctx.db.patch(doc._id, { payload: JSON.stringify(component) });
-        }
+        if (result.aircraft)
+          await saveAircraft(ctx, state.aircraft, result.aircraft);
+        if (result.program)
+          await saveProgram(ctx, state.programs, result.program, log);
+        await writeChanged(
+          ctx,
+          "management",
+          docs.management,
+          result.components,
+          "Record belongs to another Flight Program.",
+        );
       },
       audit: (log, { snapshot }, result) =>
         log.replay(snapshot.audit, {
@@ -62,8 +65,18 @@ export const save = mutation({
         }),
     }),
 });
-// Program state is tenant-scoped, so identifiers and registrations are checked
-// globally here without revealing which other program holds them.
+
+/**
+ * Checks that an aircraft's uuid and registration are free before it is
+ * saved. Program state is tenant-scoped, so identifiers and registrations
+ * are checked globally here without revealing which other program holds
+ * them.
+ *
+ * @param existing - The stored aircraft of the caller's program, if any.
+ * @throws {ConvexError} "Aircraft belongs to another Flight Program." for a
+ *   new aircraft whose uuid is stored; "This registration cannot be used."
+ *   for a registration another aircraft holds.
+ */
 export async function assertAvailableAircraft(
   ctx: MutationCtx,
   next: { uuid: string; registration: string },
@@ -76,11 +89,39 @@ export async function assertAvailableAircraft(
       .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
       .first())
   )
-    throw new Error("Aircraft belongs to another Flight Program.");
+    throw new ConvexError("Aircraft belongs to another Flight Program.");
   const holder = await ctx.db
     .query("aircraft")
     .withIndex("registration", (q) => q.eq("registration", next.registration))
     .first();
   if (holder && holder.uuid !== next.uuid)
-    throw new Error("This registration cannot be used.");
+    throw new ConvexError("This registration cannot be used.");
+}
+
+async function saveAircraft(
+  ctx: MutationCtx,
+  stored: Doc<"aircraft">[],
+  aircraft: Aircraft,
+) {
+  const existing = stored.find((a) => a.uuid === aircraft.uuid);
+  await assertAvailableAircraft(ctx, aircraft, existing);
+  // The applier's aircraft can still carry the stored document's system fields.
+  const { _id, _creationTime, ...fields } = aircraft as Aircraft & {
+    _id?: unknown;
+    _creationTime?: number;
+  };
+  if (existing) await ctx.db.replace(existing._id, fields);
+  else await ctx.db.insert("aircraft", fields);
+}
+
+async function saveProgram(
+  ctx: MutationCtx,
+  stored: Doc<"programs">[],
+  program: Program,
+  log: CommandLog,
+) {
+  const existing = stored.find((p) => p.uuid === program.uuid);
+  if (existing) return ctx.db.replace(existing._id, program);
+  await ctx.db.insert("programs", program);
+  await ensureDefaultGroups(ctx, program.uuid, log.actorId, log);
 }
