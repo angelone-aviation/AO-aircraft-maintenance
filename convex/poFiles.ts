@@ -21,6 +21,7 @@ import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
   MAX_ATTACHMENTS,
+  storeThenFinish,
 } from "./attachments";
 import { audit } from "./access";
 import { exposeRejections } from "./userErrors";
@@ -128,22 +129,15 @@ export const upload = action({
       programUuid: args.programUuid,
     };
     await ctx.runQuery(internal.poFiles.check, target);
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      await ctx.runMutation(internal.poFiles.finish, {
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.poFiles.finish, {
         ...target,
         storageId,
         name: args.name,
         type: args.type,
         size: args.bytes.byteLength,
-      });
-    } catch (error) {
-      // File storage is outside the mutation's transaction.
-      await ctx.storage.delete(storageId);
-      throw error;
-    }
+      }),
+    );
   },
 });
 

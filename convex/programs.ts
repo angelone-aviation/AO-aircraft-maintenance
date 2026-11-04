@@ -39,13 +39,7 @@ export const select = mutation({
   handler: async (ctx, { programUuid }) => {
     const user = await currentUser(ctx),
       state = await context(ctx, user);
-    if (
-      programUuid
-        ? !state.programs.some((p) => p.uuid === programUuid) ||
-          (!user.isAdmin &&
-            !programIds(state.user, state.groups).includes(programUuid))
-        : !user.isAdmin
-    )
+    if (!maySelect(user, state, programUuid))
       throw new ConvexError("Flight Program access denied.");
     await ctx.db.patch(user._id, { activeProgramUuid: programUuid });
     await audit(
@@ -83,9 +77,9 @@ type TransferArgs = ObjectType<typeof transferArgs>;
  * not reach are listed in `transferredAudit` for its History feed.
  *
  * @param reason - Why the records move; required.
- * @throws {Error} transferProgram's refusals, such as "System administrator
- *   required for Flight Program transfers."
- * @throws {ConvexError} runCommand's program refusals.
+ * @throws {ConvexError} transferProgram's refusals, such as "System
+ *   administrator required for Flight Program transfers."; runCommand's
+ *   program refusals.
  */
 export const transfer = mutation({
   args: transferArgs,
@@ -267,5 +261,20 @@ function leavesWithTransfer(row: Doc<"audit">, args: TransferArgs) {
   return (
     row.programUuid !== args.destination &&
     !(args.kind === "aircraft" && row.aircraftUuid === args.uuid)
+  );
+}
+
+// "" selects the unassigned records, which only a system administrator sees;
+// any other program must exist, and a non-administrator must be a member.
+function maySelect(
+  user: Doc<"users">,
+  state: Awaited<ReturnType<typeof context>>,
+  programUuid: string,
+) {
+  if (!programUuid) return user.isAdmin === true;
+  if (!state.programs.some((p) => p.uuid === programUuid)) return false;
+  return (
+    user.isAdmin === true ||
+    programIds(state.user, state.groups).includes(programUuid)
   );
 }
