@@ -8,10 +8,21 @@ import { z } from "zod";
 
 const ISO_CURRENCY_CODE = /^[A-Z]{3}$/;
 const BYTE_ORDER_MARK = 0xfeff;
-const SEARCH_MIN_LENGTH = 2;
-
-// The product picker tells users it shows "up to 30 matches".
-const SEARCH_RESULT_LIMIT = 30;
+/**
+ * The shortest catalog search, once trimmed; {@link catalogSearch} refuses a
+ * shorter one.
+ */
+export const SEARCH_MIN_LENGTH = 2;
+/** The longest catalog search the supplier search action accepts. */
+export const SEARCH_MAX_LENGTH = 200;
+/** The most products one catalog search returns. */
+export const SEARCH_RESULT_LIMIT = 30;
+/** The longest supplier order number an order sync accepts. */
+export const ORDER_NUMBER_MAX_LENGTH = 100;
+/** The longest account user id {@link spruceCredentials} accepts. */
+export const USERID_MAX_LENGTH = 100;
+/** The longest password or API key {@link spruceCredentials} accepts. */
+export const SECRET_MAX_LENGTH = 500;
 
 // Product links are rendered, so only https links to the supplier's own sites
 // are kept.
@@ -39,9 +50,9 @@ const MAX_ORDER_LINES = 1000;
  *   currency that is not three capital letters.
  */
 export const spruceCredentials = z.object({
-  userid: z.string().trim().min(1).max(100),
-  password: z.string().min(1).max(500),
-  apikey: z.string().trim().min(1).max(500),
+  userid: z.string().trim().min(1).max(USERID_MAX_LENGTH),
+  password: z.string().min(1).max(SECRET_MAX_LENGTH),
+  apikey: z.string().trim().min(1).max(SECRET_MAX_LENGTH),
   currency: z.string().regex(ISO_CURRENCY_CODE),
 });
 

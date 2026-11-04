@@ -6,6 +6,10 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  SEARCH_MIN_LENGTH,
+  SEARCH_RESULT_LIMIT as RESULT_LIMIT,
+  SECRET_MAX_LENGTH,
+  USERID_MAX_LENGTH,
   csvRecords,
   csvRows,
   catalogSearch,
@@ -138,6 +142,14 @@ describe("catalogSearch", () => {
       Error("Unexpected Aircraft Spruce CSV row."),
     );
   });
+  it("shares its search minimum and result limit with the product picker", () => {
+    const search = (query: string) => () =>
+      catalogSearch(catalog(), query, "USD", 1);
+    expect(search("a")).toThrow("Enter at least two characters.");
+    expect(search("ab")()).toEqual([]);
+    expect("ab").toHaveLength(SEARCH_MIN_LENGTH);
+    expect(RESULT_LIMIT).toBe(SEARCH_RESULT_LIMIT);
+  });
   it("keeps only https links to the supplier's own sites", () => {
     const withUrl = (url: string) =>
       catalogSearch(
@@ -244,6 +256,20 @@ describe("account and part schemas", () => {
     expect(accepts({ password: "" })).toBe(false);
     expect(accepts({ currency: "usd" })).toBe(false);
     expect(accepts({ currency: "US" })).toBe(false);
+  });
+  it("caps the user id, password and API key at the limits the form shares", () => {
+    const account = {
+      userid: "u".repeat(USERID_MAX_LENGTH),
+      password: "p".repeat(SECRET_MAX_LENGTH),
+      apikey: "k".repeat(SECRET_MAX_LENGTH),
+      currency: "USD",
+    };
+    expect(spruceCredentials.safeParse(account).success).toBe(true);
+    for (const key of ["userid", "password", "apikey"] as const)
+      expect(
+        spruceCredentials.safeParse({ ...account, [key]: account[key] + "x" })
+          .success,
+      ).toBe(false);
   });
   it("needs a part number and a currency code on a linked part", () => {
     const part = { partNumber: "AN3", uom: "", currency: "CAD", catalogAt: 1 };

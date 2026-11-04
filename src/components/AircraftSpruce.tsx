@@ -12,6 +12,12 @@ import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
 import { programPermission } from "../domain/programs";
 import {
+  ORDER_NUMBER_MAX_LENGTH,
+  SEARCH_MAX_LENGTH,
+  SEARCH_MIN_LENGTH,
+  SEARCH_RESULT_LIMIT,
+  SECRET_MAX_LENGTH,
+  USERID_MAX_LENGTH,
   priceCents,
   type SpruceStatus,
   type SpruceProduct,
@@ -20,13 +26,6 @@ import {
 } from "../domain/aircraftSpruce";
 import { AsyncForm, Field, errorText, safeHref } from "./ui";
 
-// The limits spruceCredentials sets.
-const USERID_MAX_LENGTH = 100;
-const SECRET_MAX_LENGTH = 500;
-// catalogSearch refuses a shorter search, so the button waits for one.
-const SEARCH_MIN_LENGTH = 2;
-const SEARCH_MAX_LENGTH = 200;
-const ORDER_NUMBER_MAX_LENGTH = 100;
 const CREDENTIAL_FIELDS = [
   {
     key: "userid",
@@ -542,8 +541,7 @@ function ProductResults({
     <>
       {results.length > 0 && (
         <p>
-          Showing up to 30 matches. Supplier availability is separate from your
-          inventory.
+          {`Showing up to ${SEARCH_RESULT_LIMIT} matches. Supplier availability is separate from your inventory.`}
         </p>
       )}
       {results.map((p) => (
