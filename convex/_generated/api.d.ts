@@ -25,7 +25,6 @@ import type * as certifications from "../certifications.js";
 import type * as checklists from "../checklists.js";
 import type * as componentTemplates from "../componentTemplates.js";
 import type * as costs from "../costs.js";
-import type * as counterEvents from "../counterEvents.js";
 import type * as crons from "../crons.js";
 import type * as defaultGroups from "../defaultGroups.js";
 import type * as engineTrends from "../engineTrends.js";
@@ -61,7 +60,6 @@ import type * as ssoProviders from "../ssoProviders.js";
 import type * as taskCards from "../taskCards.js";
 import type * as taskImports from "../taskImports.js";
 import type * as validators from "../validators.js";
-import type * as workOrderCleanup from "../workOrderCleanup.js";
 import type * as workOrderCopies from "../workOrderCopies.js";
 import type * as workOrders from "../workOrders.js";
 
@@ -89,7 +87,6 @@ declare const fullApi: ApiFromModules<{
   checklists: typeof checklists;
   componentTemplates: typeof componentTemplates;
   costs: typeof costs;
-  counterEvents: typeof counterEvents;
   crons: typeof crons;
   defaultGroups: typeof defaultGroups;
   engineTrends: typeof engineTrends;
@@ -125,7 +122,6 @@ declare const fullApi: ApiFromModules<{
   taskCards: typeof taskCards;
   taskImports: typeof taskImports;
   validators: typeof validators;
-  workOrderCleanup: typeof workOrderCleanup;
   workOrderCopies: typeof workOrderCopies;
   workOrders: typeof workOrders;
 }>;

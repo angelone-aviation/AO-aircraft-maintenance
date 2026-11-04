@@ -1,7 +1,13 @@
-/* Component record lists keep real <table> markup restyled as CSS-grid cards,
- * so the explicit table/row/cell roles are deliberate: some browsers drop
- * table semantics when display changes on table elements. */
-/* eslint-disable jsx-a11y/no-redundant-roles, jsx-a11y/no-interactive-element-to-noninteractive-role */
+/**
+ * Responsibility: The Components screen: tracked components, their service
+ *   and requirement forms, inventory, attachments and movements.
+ * Layer: UI. Renders and collects input; rules live in src/domain.
+ * Dependencies: src/domain (components, inventory, required parts), src/data
+ *   (store), sibling screens (PartsRequests, InventoryScanner, DrsComboBox).
+ *
+ * Record lists keep real <table> markup restyled as CSS-grid cards, so the
+ * explicit table, row and cell roles are deliberate (see .oxlintrc.json).
+ */
 import { RequestPartsButton } from "./PartsRequests";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ScanButton } from "./InventoryScanner";

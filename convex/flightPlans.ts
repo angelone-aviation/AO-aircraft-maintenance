@@ -3,13 +3,14 @@
  *   or cancelling it, through the flight-plan domain applier.
  * Layer: Server. Convex mutation over runCommand; the rules live in
  *   src/domain/flightPlans.
- * Dependencies: convex/values, zod, ./_generated, ./access, ./runCommand,
- *   src/domain/flightPlans.
+ * Dependencies: convex/values, zod, ./_generated, ./access, ./collections,
+ *   ./runCommand, src/domain/flightPlans.
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { authorized } from "./access";
-import { runCommand, type ProgramContext } from "./runCommand";
+import { decode } from "./collections";
+import { runCommand, writeChanged, type ProgramContext } from "./runCommand";
 import {
   flightPlanSchema,
   saveFlightPlan,
@@ -20,6 +21,7 @@ const commandSchema = z.object({
   plan: flightPlanSchema,
   baseVersion: z.number().int().nonnegative(),
 });
+const PLAN_ID_USED = "Plan ID already used.";
 
 /**
  * Saves a flight plan on one aircraft and writes a "plan.saved" or
@@ -40,15 +42,8 @@ export const save = mutation({
       parse: () => commandSchema.parse(JSON.parse(args.payload)),
       load: ({ ctx, state }, command) => loadPlan(ctx, state, command),
       apply: ({ s }, command) => saveFlightPlan(s, command),
-      persist: async ({ ctx }, { existing }, next) => {
-        const record = {
-          uuid: next.uuid,
-          aircraftUuid: next.aircraftUuid,
-          payload: JSON.stringify(next),
-        };
-        if (existing) await ctx.db.replace(existing._id, record);
-        else await ctx.db.insert("flightPlans", record);
-      },
+      persist: ({ ctx }, { plans }, next) =>
+        writeChanged(ctx, "flightPlans", plans, [next], PLAN_ID_USED),
       audit: (log, { existing }, next) =>
         log.entry(
           next.status === "cancelled" ? "plan.cancelled" : "plan.saved",
@@ -77,7 +72,7 @@ async function loadPlan(
     .withIndex("uuid", (q) => q.eq("uuid", command.plan.uuid))
     .unique();
   if (existing && existing.aircraftUuid !== command.plan.aircraftUuid)
-    throw new ConvexError("Plan ID already used.");
+    throw new ConvexError(PLAN_ID_USED);
   const plans = await ctx.db
     .query("flightPlans")
     .withIndex("aircraft", (q) =>
@@ -86,11 +81,10 @@ async function loadPlan(
     .collect();
   return {
     existing,
+    plans,
     s: {
       ...state,
-      flightPlans: plans.map((p) =>
-        flightPlanSchema.parse(JSON.parse(p.payload)),
-      ),
+      flightPlans: decode("flightPlans", plans),
       flights: await ctx.db
         .query("flights")
         .withIndex("plan", (q) => q.eq("flightPlanUuid", command.plan.uuid))

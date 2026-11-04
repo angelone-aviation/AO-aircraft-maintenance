@@ -1,16 +1,17 @@
 /**
  * Responsibility: Pins the FAA DRS searches that monitor an aircraft, and how
  *   their results merge into one candidate list.
- * Layer: Test. Vitest suite with a stubbed fetch; never shipped in the build.
+ * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/faaMonitoringSearch.ts, ./components,
- *   ./airworthiness, ./rejection, src/data/demo.ts (seed).
+ *   ./airworthiness, ./faa, ./rejection, src/data/demo.ts (seed).
  */
-import { it, expect, vi } from "vitest";
+import { it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { componentSchema } from "./components";
 import { blankAD } from "./airworthiness";
+import { drsCandidate, type FaaCandidate } from "./faa";
 import {
-  fetchMonitoringCandidates,
+  mergeMonitoringCandidates,
   monitoringQueries,
   monitoringScope,
 } from "./faaMonitoringSearch";
@@ -158,67 +159,37 @@ it("searches tracked AD numbers ten at a time, and each extra keyword once", () 
   ]);
 });
 
-const query = (label: string, assetIds: string[]) => ({
-  type: "ADFRAWD" as const,
-  filters: { Keyword: [label] },
-  label,
-  assetIds,
-});
-const docs = (...guids: string[]) =>
-  new Response(
-    JSON.stringify({
-      summary: { hasMoreItems: false },
-      documents: guids.map((guid) => ({
-        documentGuid: guid,
-        "drs:documentNumber": `2026-${guid}`,
-      })),
-    }),
-  );
-const pages = (...responses: Response[]) => {
-  const request = vi.fn<typeof fetch>();
-  for (const response of responses) request.mockResolvedValueOnce(response);
-  return request;
-};
-
-it("lists each candidate once, in order, with the assets whose searches found it", async () => {
-  const request = pages(docs("1", "2"), docs("2", "3"), docs("1"));
-  const queries = [
-    query("A", ["engine"]),
-    query("B", []),
-    query("C", ["prop"]),
-  ];
-  const found = await fetchMonitoringCandidates("key", queries, request);
-  expect(found.map((c) => [c.id, c.matchedAssetIds])).toEqual([
-    ["ADFRAWD:1", ["engine", "prop"]],
-    ["ADFRAWD:2", ["engine"]],
-    ["ADFRAWD:3", undefined],
+it("merges a search's candidates by id with every finding search's assets, up to 400", () => {
+  const candidate = (guid: string) =>
+    drsCandidate(
+      { documentGuid: guid, "drs:documentNumber": `2026-${guid}` },
+      "ADFRAWD",
+    );
+  const query = (label: string, assetIds: string[]) => ({
+    type: "ADFRAWD" as const,
+    filters: { Keyword: [label] },
+    label,
+    assetIds,
+  });
+  const found = new Map<string, FaaCandidate>();
+  mergeMonitoringCandidates(found, query("A", ["engine"]), [candidate("1")]);
+  mergeMonitoringCandidates(found, query("B", []), [
+    candidate("2"),
+    candidate("1"),
   ]);
-});
-
-it("refuses no searches and too many documents, and names a failed search", async () => {
-  const none = fetchMonitoringCandidates("key", [], pages());
-  await expect(none).rejects.toBeInstanceOf(Rejection);
-  await expect(none).rejects.toThrow(
-    "No aircraft or component search data is available.",
+  mergeMonitoringCandidates(found, query("C", ["prop", "engine"]), [
+    candidate("1"),
+  ]);
+  expect([...found.values()].map((c) => [c.id, c.matchedAssetIds])).toEqual([
+    ["ADFRAWD:1", ["engine", "prop"]],
+    ["ADFRAWD:2", undefined],
+  ]);
+  const many = Array.from({ length: 398 }, (_, i) => candidate(`m${i}`));
+  mergeMonitoringCandidates(found, query("D", []), many);
+  const attempt = () =>
+    mergeMonitoringCandidates(found, query("E", []), [candidate("extra")]);
+  expect(attempt).toThrow(Rejection);
+  expect(attempt).toThrow(
+    "E: More than 400 documents across monitoring searches. Narrow additional keywords before checking again.",
   );
-  const many = (from: number) =>
-    docs(...Array.from({ length: 201 }, (_, i) => String(from + i)));
-  const tooMany = fetchMonitoringCandidates(
-    "key",
-    [query("A", []), query("B", [])],
-    pages(many(0), many(1000)),
-  );
-  await expect(tooMany).rejects.toBeInstanceOf(Rejection);
-  await expect(tooMany).rejects.toThrow(
-    "B: More than 400 documents across monitoring searches. Narrow additional keywords before checking again.",
-  );
-  const failed = fetchMonitoringCandidates(
-    "key",
-    [query("A", [])],
-    pages(new Response("", { status: 503 })),
-  );
-  await expect(failed).rejects.toThrow(
-    "A: FAA request failed (503). Try again later.",
-  );
-  await expect(failed).rejects.not.toBeInstanceOf(Rejection);
 });

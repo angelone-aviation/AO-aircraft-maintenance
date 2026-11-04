@@ -83,21 +83,37 @@ const hours = z
   .max(INTERVAL_MAX)
   .refine((n) => Number.isInteger(n * 10), "Use tenths of an hour.");
 
+const INSTRUCTION_MAX_LENGTH = 9000;
+const INSTRUCTION_REQUIRED = `Enter a task instruction of up to ${INSTRUCTION_MAX_LENGTH.toLocaleString("en-US")} characters.`;
+const PDF_PAGE_MAX = 100000;
+const PDF_PAGE_RANGE = `PDF page must be a positive whole number up to ${PDF_PAGE_MAX.toLocaleString("en-US")}.`;
+
 /**
  * One task instruction in a template, copied to a task card when the template
- * is activated.
+ * is activated. Its messages name the task CSV columns.
  *
- * @throws {z.ZodError} From `parse()` on an empty instruction, over-long text
- *   or an unknown field.
+ * @throws {z.ZodError} From `parse()`: "Enter a task instruction of up to
+ *   9,000 characters."; "<Item code | Applicability | Zone | Manual
+ *   reference> is too long (up to 100 | 1,000 characters)."; "PDF page must
+ *   be a positive whole number up to 100,000."; or an unknown field.
  */
 export const templateTaskSchema = z.strictObject({
-  itemCode: z.string().max(100),
-  instruction: z.string().trim().min(1).max(9000),
-  applicability: z.string().max(1000),
+  itemCode: taskText("Item code", 100),
+  instruction: z
+    .string()
+    .trim()
+    .min(1, INSTRUCTION_REQUIRED)
+    .max(INSTRUCTION_MAX_LENGTH, INSTRUCTION_REQUIRED),
+  applicability: taskText("Applicability", 1000),
   manualReference: manualReferenceSchema.optional(),
-  zone: z.string().max(1000).optional(),
-  referenceText: z.string().max(1000).optional(),
-  pdfPage: z.number().int().positive().max(100000).optional(),
+  zone: taskText("Zone", 1000).optional(),
+  referenceText: taskText("Manual reference", 1000).optional(),
+  pdfPage: z
+    .number()
+    .int(PDF_PAGE_RANGE)
+    .positive(PDF_PAGE_RANGE)
+    .max(PDF_PAGE_MAX, PDF_PAGE_RANGE)
+    .optional(),
 });
 
 /** A parsed template task. */
@@ -606,4 +622,15 @@ function describeRowError(e: unknown) {
       )
       .join("; ");
   return e instanceof Error ? e.message : "Invalid row";
+}
+
+// Text a template task may leave blank; past its limit the message names the
+// field as the task CSV's column does.
+function taskText(label: string, maxLength: number) {
+  return z
+    .string()
+    .max(
+      maxLength,
+      `${label} is too long (up to ${maxLength.toLocaleString("en-US")} characters).`,
+    );
 }

@@ -3,7 +3,8 @@
  *   on issuing a purchase order.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/addresses.ts, src/domain/management.ts,
- *   src/domain/purchaseOrders.ts, src/data/demo.ts (fixture).
+ *   src/domain/purchaseOrders.ts, src/domain/rejection.ts,
+ *   src/data/demo.ts (fixture).
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -16,6 +17,7 @@ import {
   addressFromForm,
   type Address,
 } from "./addresses";
+import { Rejection } from "./rejection";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement } from "./management";
 import { applyPOCommand, poDraftSchema } from "./purchaseOrders";
@@ -298,6 +300,14 @@ describe("assertConfirmedAddress", () => {
     ).toThrow(
       Error("Review and confirm the shipping address before issuing this PO."),
     );
+  });
+  it("refuses as a Rejection, so the server shows the message", () => {
+    expect(() =>
+      assertConfirmedAddress({ ...address(), city: "", confirmed: false }),
+    ).toThrow(Rejection);
+    expect(() =>
+      assertConfirmedAddress({ ...address(), confirmed: false }),
+    ).toThrow(Rejection);
   });
 });
 

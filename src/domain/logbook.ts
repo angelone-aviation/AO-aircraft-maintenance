@@ -17,11 +17,18 @@ import { Rejection } from "./rejection";
 
 const SECONDS_PER_HOUR = 3600;
 const NOT_RECORDED = "Not recorded";
+const SIGNER_FIELD_MAX_LENGTH = 100;
 
-/** The certificate type and license number a signer enters. */
+/**
+ * The certificate type and license number a signer enters, trimmed.
+ *
+ * @throws {z.ZodError} From `parse()`: "Enter a license / certificate number
+ *   of up to 100 characters." or "Enter a certificate type of up to 100
+ *   characters."
+ */
 export const licenseSchema = z.object({
-  licenseNumber: z.string().trim().min(1).max(100),
-  certificateType: z.string().trim().min(1).max(100),
+  licenseNumber: signerField("license / certificate number"),
+  certificateType: signerField("certificate type"),
 });
 
 /** The entry templates, with the label each shows and titles the entry. */
@@ -292,4 +299,13 @@ function hours(seconds: number | null) {
 
 function hoursOn(seconds: number, timeBasis: string | undefined) {
   return `${hours(seconds)}${timeBasis ? ` ${timeBasis}` : ""}`;
+}
+
+function signerField(name: string) {
+  const message = `Enter a ${name} of up to ${SIGNER_FIELD_MAX_LENGTH} characters.`;
+  return z
+    .string()
+    .trim()
+    .min(1, message)
+    .max(SIGNER_FIELD_MAX_LENGTH, message);
 }

@@ -54,7 +54,7 @@ npm run setup:auth
 npm run setup:admin
 ```
 
-`setup:auth` generates signing keys on the selected deployment without printing them, preserves an existing key, and sets `SITE_URL` (default `http://localhost:5173`; override with the `SITE_URL` environment variable). It also creates `CREDENTIALS_ENCRYPTION_KEY` (32 random bytes, base64) if the deployment has none. That key encrypts saved Aircraft Spruce, FAA and Geoapify credentials with AES-GCM; saving those credentials fails until it is set. To set it by hand: `openssl rand -base64 32 | npx convex env set CREDENTIALS_ENCRYPTION_KEY`. Never change or delete it in place on a deployment with saved credentials, or administrators must re-enter them; to rotate it, follow [the credential key runbook](docs/runbooks/credentials-key.md). After deploying, run `npx convex run secretsMigration:reseal` once per deployment (see [Deployment](#deployment)). It encrypts credentials saved before encryption and re-seals older values in the current format. After that, unencrypted values are refused. `setup:admin` prompts for name, email, and a hidden password (15–128 characters, not a common password). It passes the password to the deployment through a temporary `BOOTSTRAP_ADMIN_PASSWORD` environment variable (over stdin, never in process arguments) and removes it afterward. It only works with an empty user database and invokes an internal function, never a public signup endpoint. Keep credentials private.
+`setup:auth` generates signing keys on the selected deployment without printing them, preserves an existing key, and sets `SITE_URL` (default `http://localhost:5173`; override with the `SITE_URL` environment variable). It also creates `CREDENTIALS_ENCRYPTION_KEY` (32 random bytes, base64) if the deployment has none. That key encrypts saved Aircraft Spruce, FAA and Geoapify credentials with AES-GCM; saving those credentials fails until it is set. To set it by hand: `openssl rand -base64 32 | npx convex env set CREDENTIALS_ENCRYPTION_KEY`. Never change or delete it in place on a deployment with saved credentials, or administrators must re-enter them; to rotate it, follow [the credential key runbook](docs/runbooks/credentials-key.md). Unencrypted values are refused. `setup:admin` prompts for name, email, and a hidden password (15–128 characters, not a common password). It passes the password to the deployment through a temporary `BOOTSTRAP_ADMIN_PASSWORD` environment variable (over stdin, never in process arguments) and removes it afterward. It only works with an empty user database and invokes an internal function, never a public signup endpoint. Keep credentials private.
 
 Maintenance alerts appear under the bell in the header for everyone, including demo mode. To also email a daily digest (13:00 UTC) of new alerts, set a [Resend](https://resend.com) API key and a verified sender on the deployment: `npx convex env set RESEND_API_KEY re_...` and `npx convex env set RESEND_FROM "Angel One <alerts@your-domain>"`. Without both, email is skipped and in-app alerts keep working. Digests link back to `SITE_URL`. Program administrators receive digests by default; anyone can change this under Settings → My account (or My certifications). System administrators whose alert email is on also get an "Off-site backups" warning, at the top of their digest or on its own, while the newest nightly off-site backup is more than 36 hours old or none has been recorded; Settings → System shows the newest copy.
 
@@ -133,9 +133,6 @@ Production is also copied off-site every night by the **Nightly backup** workflo
 
 ```bash
 npx convex run memberships:backfill
-npx convex run management:backfillOilMarker
-npx convex run counterEvents:recordChanges
-npx convex run secretsMigration:reseal   # repeat until it reports complete: true
 ```
 
 **Once, after the deploy that adds the permission-group check, run this read-only CHECK** (it changes nothing; run it after `memberships:backfill`):
@@ -154,25 +151,7 @@ npx convex run memberships:backfill
 
 Until it runs, Flight Program member lists (pilot pickers, group-deletion reviews) show only accounts changed after the deploy. Permissions are unaffected: they still come from each user's group list.
 
-After deploying the version that restricts flight-line oil usage to stock marked **Engine oil**, mark the stock already used that way (safe to rerun; it batches itself through the change log):
-
-```bash
-npx convex run management:backfillOilMarker
-```
-
-It marks every stock item that has a `stock.oil_used` change-log entry and appends one `stock.oil_marker_backfill` entry per item it changes; existing entries are not modified. Until it runs, pilots cannot draw down oil from items that are not yet marked. Administrators can mark other oil items on the inventory item.
-
-After deploying the version in which a counter change overrides only the counters an administrator changed (issue #35), record that for counter changes saved earlier and repair the totals they hid (safe to rerun; it skips aircraft already recorded):
-
-```bash
-npx convex run counterEvents:recordChanges
-```
-
-Earlier versions replayed each counter change as a snapshot of every counter, so a correction, an accepted backdated flight or a rejection before it never reached the totals. For each such counter change it reads the aircraft's values from the `aircraft.updated` change-log entry that saved it, then rebuilds the totals from the flight log. It appends `aircraft.counters_recalculated` (or `aircraft.counter_changes_recorded` when the totals were already right) and one `flight.resequenced` entry per flight whose starting readings moved; existing entries are not modified. Changed totals raise the aircraft version, so pending entries started against the old totals are held for review. Aircraft it cannot rebuild are left untouched and listed under `needsReview` with the reason; review their counter history with a Flight Program administrator. Until it runs, the first flight review on each aircraft works this out from the flight log instead; that is exact unless an earlier review's change had already been lost.
-
 `groupAudit:findWidenedGroups` is a read-only check, not a migration. Until the fix for #34, editing a permission group whose selected aircraft had all moved to another Flight Program saved it with no aircraft, which opens it to every aircraft in the program. The check reads each group's `group.saved` change-log entries and lists, under `widened`, groups an edit emptied that way and, under `review`, groups covering all aircraft whose log cannot show that this was chosen. It never changes a group: a system administrator reviews each in Administration → Permission groups, where the same groups are listed, and saves an explicit aircraft choice. Follow the [accounts runbook](docs/runbooks/accounts.md#permission-groups-opened-to-all-aircraft-before-the-34-fix).
-
-`secretsMigration:reseal` re-encrypts saved Aircraft Spruce, FAA and Geoapify credentials in the current format, which ties each value to its table, Flight Program and field. Until it reports `complete: true`, credentials saved before encryption still work. If it reports remaining rows, run it again. Key rotation is in the [credential key runbook](docs/runbooks/credentials-key.md).
 
 The Docker and dev-container workflow is described below. Compose publishes Vite port 5173 and local Convex ports 3210/3211 on the host loopback interface. Cloud Convex development also works.
 

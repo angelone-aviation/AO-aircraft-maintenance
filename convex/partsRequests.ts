@@ -2,9 +2,9 @@
  * Responsibility: The parts-request mutation: saving, reserving, releasing,
  *   issuing and cancelling, through the parts-request domain applier.
  * Layer: Server. Convex mutation over runCommand; the rules live in
- *   src/domain/partsRequests and src/domain/recurringParts.
+ *   src/domain/partsRequests.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   src/domain (model, management, partsRequests, recurringParts).
+ *   src/domain (model, management, partsRequests).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -17,14 +17,14 @@ import {
 } from "../src/domain/partsRequests";
 import type { Snapshot } from "../src/domain/model";
 import type { ManagedRecord } from "../src/domain/management";
-import { generateRecurringRequests } from "../src/domain/recurringParts";
 
 const REQUEST_TAKEN = "Request identifier already used.";
 
 /**
  * Applies one parts-request command in the active Flight Program, with the
- * stock it moves. Saving an active recurring list also creates the requests
- * it owes the open work orders on its aircraft.
+ * stock it moves. Saving an active recurring list also writes the requests
+ * the applier creates for the open work orders on its aircraft, each with its
+ * change-log row.
  *
  * @param payload - The request command, as JSON.
  * @returns The uuid of the request the command changed.
@@ -55,10 +55,9 @@ export const execute = mutation({
           ctx,
           "partsRequests",
           docs.partsRequests,
-          [r],
+          changedRequests(s, docs.partsRequests, r),
           REQUEST_TAKEN,
         );
-        if (r.recurring && !r.cancelled) await insertOwedRequests(ctx, s, r);
         await patchStock(ctx, docs.management, s.management ?? []);
       },
       audit: (log, { snapshot }) =>
@@ -67,18 +66,18 @@ export const execute = mutation({
     }),
 });
 
-// An active recurring list owes a request to each open work order on its
-// aircraft that has none from it yet (generateRecurringRequests).
-async function insertOwedRequests(
-  ctx: MutationCtx,
+// The command's request, then the occurrences the applier created for a saved
+// list: the requests with no stored row. Only these are written, so a loaded
+// row the command left alone is never rewritten.
+function changedRequests(
   s: Snapshot,
-  list: PartsRequest,
+  loaded: Doc<"partsRequests">[],
+  saved: PartsRequest,
 ) {
-  for (const order of s.workOrders ?? []) {
-    if (order.aircraftUuid !== list.aircraftUuid) continue;
-    for (const created of generateRecurringRequests(s, order))
-      await ctx.db.insert("partsRequests", encode("partsRequests", created));
-  }
+  const stored = new Set(loaded.map((d) => d.uuid));
+  return (s.partsRequests ?? []).filter(
+    (r) => r.uuid === saved.uuid || !stored.has(r.uuid),
+  );
 }
 
 // Parts commands change stock quantities, never a record's columns, so a
