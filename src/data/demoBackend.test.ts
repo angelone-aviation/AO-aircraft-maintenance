@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, flight
  *   review, AD changes, attachments, manual edits, saved addresses, FAA
- *   monitor commands, program selection, membership and group saves against
- *   the server's rules: the same refusals, stored records and change-log rows.
+ *   monitor commands, program selection, membership and group saves, and
+ *   recurring parts lists against the server's rules: the same refusals,
+ *   stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
@@ -31,11 +32,17 @@ import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import type { Flight, FlightInput, Snapshot } from "../domain/model";
 import { applyFlight } from "../domain/flights";
-import { adAuditRecord, blankAD, type AD } from "../domain/airworthiness";
+import {
+  adAuditRecord,
+  blankAD,
+  blankADTask,
+  type AD,
+} from "../domain/airworthiness";
 import { Rejection } from "../domain/rejection";
 import { MAX_ATTACHMENTS } from "../domain/attachments";
 import { saveTaskCard } from "../domain/taskCards";
-import { saveWorkOrder } from "../domain/workOrders";
+import { newWorkTask, saveWorkOrder } from "../domain/workOrders";
+import { requestDraftSchema } from "../domain/partsRequests";
 import { poSchema } from "../domain/purchaseOrders";
 import type { Manual } from "../domain/manuals";
 import type { Group } from "../domain/model";
@@ -863,3 +870,51 @@ it.each<[string, Partial<typeof GROUP> & { allAircraft?: boolean }, string]>([
     expect(await stored()).toEqual(before);
   },
 );
+
+it("serves each open work order once when a recurring parts list is saved", async () => {
+  let order = "";
+  const { backend, stored } = await demo("demo-recurring", (seed) => {
+    const ad = blankAD("demo-206");
+    ad.applicability = "Applicable";
+    ad.reviewRequired = false;
+    ad.tasks = [{ ...blankADTask(), recurrence: "Recurring" }];
+    seed.airworthiness = [ad];
+    seed.workOrders = [];
+    seed.taskCards = [];
+    const command = workOrderCommand();
+    command.tasks = [
+      newWorkTask({ kind: "airworthiness", uuid: ad.tasks[0].uuid }, "AD"),
+    ];
+    order = saveWorkOrder(seed, command).uuid;
+  });
+  const task = (await stored()).airworthiness![0].tasks[0];
+  await backend.partsRequest({
+    kind: "save",
+    requestUuid: crypto.randomUUID(),
+    draft: requestDraftSchema.parse({
+      uuid: "list",
+      version: 0,
+      source: { kind: "airworthiness", uuid: task.uuid },
+      recurring: true,
+      mode: "parts",
+      date: "2026-10-20",
+      engineer: "Tech",
+      priority: "P2 Routine",
+      requiredBy: "",
+      currency: "USD",
+      lines: [
+        { uuid: "filter", partNumber: "F", description: "Filter", quantity: 1 },
+      ],
+    }),
+  });
+  const s = await stored();
+  expect(
+    s.partsRequests!.map((r) => [r.templateUuid, r.source.workOrderUuid]),
+  ).toEqual([
+    [undefined, ""],
+    ["list", order],
+  ]);
+  expect(
+    s.audit.filter((a) => a.action === "partsRequest.recurring"),
+  ).toHaveLength(1);
+});

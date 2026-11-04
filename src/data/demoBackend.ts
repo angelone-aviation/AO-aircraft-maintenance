@@ -28,7 +28,6 @@ import {
   memberLicense,
   validateCertificationFile,
 } from "../domain/certifications";
-import { generateRecurringRequests } from "../domain/recurringParts";
 import {
   parseAddressSave,
   saveAddress,
@@ -36,7 +35,10 @@ import {
   type SavedAddress,
   type StoredAddresses,
 } from "../domain/savedAddresses";
-import { applyRequestCommand } from "../domain/partsRequests";
+import {
+  applyRequestCommand,
+  generateRecurringRequests,
+} from "../domain/partsRequests";
 import {
   saveComponentTemplate,
   applyComponentTemplate,
@@ -561,12 +563,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     partsRequest: (command) =>
       modify((s) => {
-        const r = applyRequestCommand(s, command);
-        if (r.recurring && !r.cancelled)
-          for (const order of s.workOrders ?? []) {
-            if (order.aircraftUuid === r.aircraftUuid)
-              generateRecurringRequests(s, order);
-          }
+        applyRequestCommand(s, command);
       }),
     engineTrends: async (aircraftUuid) => {
       const s = workspace.getState().snapshot!;
