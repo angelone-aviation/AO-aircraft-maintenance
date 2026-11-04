@@ -26,6 +26,8 @@ import { authorized, audit } from "./access";
 import {
   runCommand,
   hydrate,
+  requestOf,
+  requestUuidIn,
   writeChanged,
   type Hydrated,
   type ProgramContext,
@@ -60,8 +62,10 @@ const NOT_FOUND = "Work order not found.";
  * correct a component) through `saveWorkOrder`, and persists what it changed:
  * job cards, inspections, component records, recurring parts requests and the
  * order itself. Template copies run as scheduled batches (workOrderCopies.ts).
+ * A replayed request id changes nothing.
  *
- * @param payload - JSON, as `workOrderCommandSchema`.
+ * @param payload - JSON, as `workOrderCommandSchema`, with its request id,
+ *   which that schema drops.
  * @param programUuid - The caller's active Flight Program.
  * @returns The work order's uuid.
  * @throws {ConvexError} As `runCommand`, and the refusals of `saveWorkOrder`
@@ -74,6 +78,7 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => workOrderCommandSchema.parse(JSON.parse(args.payload)),
+      request: () => requestOf(requestUuidIn(args.payload), args.payload),
       load: loadWorkOrder,
       apply: ({ working }, command) => ({
         next: saveWorkOrder(working, command, Date.now(), {

@@ -384,7 +384,7 @@ const CASES: Case[] = [
     call: (b) => b.workOrder(opaque()),
     kind: "mutation",
     name: "workOrders:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "resumeWorkOrderTemplates",
@@ -468,7 +468,7 @@ const CASES: Case[] = [
     call: (b) => b.savePlan(opaque()),
     kind: "mutation",
     name: "flightPlans:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "engineTrends",
@@ -845,7 +845,7 @@ it("reads the active Flight Program when each method is called", async () => {
   ]);
 });
 
-it("sends a new request id with each AD, checklist, engine-trend, cost, job-card, deferral and component-template command", async () => {
+it("sends a new request id with each AD, checklist, engine-trend, cost, job-card, deferral, component-template, work-order and flight-plan command", async () => {
   vi.restoreAllMocks();
   const { backend, calls } = recordingBackend();
   await backend.saveAD(opaque());
@@ -857,10 +857,12 @@ it("sends a new request id with each AD, checklist, engine-trend, cost, job-card
   await backend.deferDiscrepancy(opaque());
   await backend.saveComponentTemplate(opaque());
   await backend.applyComponentTemplate(opaque());
+  await backend.workOrder(opaque());
+  await backend.savePlan(opaque());
   const ids = calls.map(
     (c) => JSON.parse(c.args.payload as string).requestUuid,
   );
-  expect(new Set(ids).size).toBe(9);
+  expect(new Set(ids).size).toBe(11);
   for (const id of ids) expect(id).toMatch(UUID);
 });
 

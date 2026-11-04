@@ -349,8 +349,9 @@ export interface Backend {
   ): Promise<unknown>;
 
   /**
-   * Applies a work-order command. Copying an inspection's templates runs as
-   * scheduled batches; see {@link Backend.resumeWorkOrderTemplates}.
+   * Applies a work-order command; a replayed request id changes nothing.
+   * Copying an inspection's templates runs as scheduled batches; see
+   * {@link Backend.resumeWorkOrderTemplates}.
    */
   workOrder(command: WorkOrderCommand): Promise<unknown>;
   /**
@@ -429,7 +430,7 @@ export interface Backend {
     reason: string,
     input: FlightInput,
   ): Promise<unknown>;
-  /** Saves or cancels a flight plan. */
+  /** Saves or cancels a flight plan; a replayed request id changes nothing. */
   savePlan(command: PlanCommand): Promise<unknown>;
   /** Lists an aircraft's engine-trend imports and limits (or the defaults). */
   engineTrends(aircraftUuid: string): Promise<EngineTrendData>;
@@ -812,7 +813,7 @@ function bindManualCalls(client: ConvexReactClient) {
 function bindWorkCalls(client: ConvexReactClient) {
   return {
     workOrder: (command) =>
-      client.mutation(api.workOrders.save, programCommand(command)),
+      client.mutation(api.workOrders.save, requestedCommand(command)),
     resumeWorkOrderTemplates: (workOrderUuid) =>
       client.mutation(api.workOrderCopies.resume, inProgram({ workOrderUuid })),
     attachWorkOrderFile: async (workOrderUuid, file) =>
@@ -867,7 +868,7 @@ function bindFlightCalls(client: ConvexReactClient) {
         inProgram(requested({ uuid, decision, reason, input })),
       ),
     savePlan: (command) =>
-      client.mutation(api.flightPlans.save, programCommand(command)),
+      client.mutation(api.flightPlans.save, requestedCommand(command)),
     engineTrends: (aircraftUuid) =>
       client.query(api.engineTrends.list, inProgram({ aircraftUuid })),
     engineTrend: (aircraftUuid, command) =>

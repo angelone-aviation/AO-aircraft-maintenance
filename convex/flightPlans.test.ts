@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins the flight-plan mutation's change-log rows and its
- *   refusal of a plan uuid stored on another aircraft.
+ * Responsibility: Pins the flight-plan mutation's change-log rows, its
+ *   refusal of a plan uuid stored on another aircraft, and replayed request
+ *   ids.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/flightPlans, src/data/demo.
  */
@@ -38,15 +39,16 @@ async function fixture() {
     return `${userId}|${sessionId}`;
   });
   const admin = t.withIdentity({ subject });
-  const save = (plan: object, baseVersion: number) =>
+  const save = (plan: object, baseVersion: number, requestUuid?: string) =>
     admin.mutation(api.flightPlans.save, {
       programUuid: "demo-program",
-      payload: JSON.stringify({ plan, baseVersion }),
+      payload: JSON.stringify({ plan, baseVersion, requestUuid }),
     });
   const stored = () =>
     t.run(async (ctx) => ({
       plans: await ctx.db.query("flightPlans").collect(),
       audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
     }));
   return { t, plan: proposedPlan(s.aircraft[0]), save, stored };
 }
@@ -83,6 +85,22 @@ it("refuses a plan uuid stored on another aircraft, and writes nothing", async (
     data: "Plan ID already used.",
   });
   expect(await stored()).toEqual(before);
+});
+
+it("saves once per request id: a replay returns nothing and writes nothing", async () => {
+  const { plan, save, stored } = await fixture();
+  const requestUuid = crypto.randomUUID();
+  expect(await save(plan, 0, requestUuid)).toBe(plan.uuid);
+  const saved = await stored();
+  expect(saved.commandRequests).toMatchObject([{ uuid: requestUuid }]);
+  // ADR-0003: a replay succeeds with no payload, where a resave of version 0
+  // is refused as stale.
+  await expect(save(plan, 0, requestUuid)).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(
+    save({ ...plan, version: 1, status: "cancelled" }, 1, requestUuid),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+  expect(await stored()).toEqual(saved);
 });
 
 // A proposed plan as a PDF import produces it.
