@@ -2,16 +2,19 @@
  * Responsibility: Pins what the address lookup sends to Geoapify, how it reads
  *   the reply, and the messages it fails with.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/addressLookup.ts, src/domain/addresses.ts.
+ * Dependencies: src/domain/addressLookup.ts, src/domain/addresses.ts,
+ *   src/domain/validationText.ts.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
+  addressLookupSchema,
   fetchAddressSuggestions,
   lookupInput,
   parseAddressSuggestions,
 } from "./addressLookup";
 import { addressSchema } from "./addresses";
+import { validationText } from "./validationText";
 
 const address = () =>
   addressSchema.parse({
@@ -30,6 +33,13 @@ const result = (formatted: string, extra: object = {}) => ({
   formatted,
   ...extra,
 });
+const refusal = (fields: object) => {
+  const parsed = addressLookupSchema.safeParse({
+    ...lookupInput(address()),
+    ...fields,
+  });
+  return parsed.success ? "" : validationText(parsed.error);
+};
 afterEach(() => vi.unstubAllGlobals());
 
 describe("lookupInput", () => {
@@ -49,6 +59,35 @@ describe("lookupInput", () => {
     expect(() => lookupInput({ ...address(), country: "" })).toThrow(
       z.ZodError,
     );
+    expect(refusal({ street: " ", country: "" })).toBe(
+      "Enter a street address to look up.\nEnter a country to look up.",
+    );
+  });
+  it("names each field over its limit", () => {
+    expect(
+      refusal({
+        street: "s".repeat(2001),
+        city: "c".repeat(301),
+        region: "r".repeat(301),
+        postalCode: "9".repeat(101),
+        country: "C".repeat(151),
+      }),
+    ).toBe(
+      [
+        "Street address is too long to look up (up to 2,000 characters).",
+        "City is too long to look up (up to 300 characters).",
+        "State / province is too long to look up (up to 300 characters).",
+        "ZIP / postal code is too long to look up (up to 100 characters).",
+        "Country is too long to look up (up to 150 characters).",
+      ].join("\n"),
+    );
+    expect(
+      refusal({
+        street: "s".repeat(2000),
+        city: "c".repeat(300),
+        region: "r".repeat(300),
+      }),
+    ).toBe("");
   });
   it("caps postal code and country below what an address stores", () => {
     // Characterizes current behaviour (roadmap Finding 8): an address the app

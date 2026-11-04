@@ -15,16 +15,20 @@ const LOOKUP_TIMEOUT_MS = 15000;
 /**
  * The physical address fields sent to Geoapify, trimmed.
  *
- * @throws {z.ZodError} From `parse()` on a blank street or country, or a field
- *   over its limit. Postal code (100) and country (150) are capped below the
+ * @throws {z.ZodError} From `parse()`: "Enter a street address to look up.",
+ *   "Enter a country to look up.", or "<Field> is too long to look up (up to
+ *   N characters)." Postal code (100) and country (150) are capped below the
  *   300 characters an {@link Address} may store.
  */
 export const addressLookupSchema = z.object({
-  street: z.string().trim().min(1).max(2000),
-  city: z.string().trim().max(300),
-  region: z.string().trim().max(300),
-  postalCode: z.string().trim().max(100),
-  country: z.string().trim().min(1).max(150),
+  street: lookupField("Street address", 2000).min(
+    1,
+    "Enter a street address to look up.",
+  ),
+  city: lookupField("City", 300),
+  region: lookupField("State / province", 300),
+  postalCode: lookupField("ZIP / postal code", 100),
+  country: lookupField("Country", 150).min(1, "Enter a country to look up."),
 });
 
 /** A parsed {@link addressLookupSchema} input. */
@@ -182,4 +186,14 @@ function describeHttpFailure(status: number): string {
     return "The Geoapify key was not accepted. Ask a system administrator to check Address verification in Settings → System.";
   if (status === 429) return "Address lookup quota reached. Try again later.";
   return "The address service is unavailable. Your address has not been changed.";
+}
+
+function lookupField(label: string, maxLength: number) {
+  return z
+    .string()
+    .trim()
+    .max(
+      maxLength,
+      `${label} is too long to look up (up to ${maxLength.toLocaleString("en-US")} characters).`,
+    );
 }
