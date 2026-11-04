@@ -1,4 +1,12 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins inspection templates: interval-only CSV imports grouped
+ *   by aircraft type, editing without compliance, templates saved from a
+ *   manual's CSV, and creating an inspection from a template once.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path, src/domain (maintenanceCsv,
+ *   csv).
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
 import { importHeaders } from "../../src/domain/maintenanceCsv";
 import { toCsv } from "../../src/domain/csv";
@@ -11,18 +19,7 @@ test.beforeEach(async ({ page }) => {
 test("imports interval-only templates grouped by aircraft type, persists and edits without compliance", async ({
   page,
 }) => {
-  await page.goto("/inspection-templates");
-  await page
-    .getByRole("button", { name: "Import template CSV", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog", {
-    name: "Import interval templates",
-    exact: true,
-  });
-  await dialog.getByLabel("Manufacturer", { exact: true }).fill("Cessna");
-  await dialog
-    .getByLabel("Aircraft type / component model", { exact: true })
-    .fill("441");
+  const dialog = await openTemplateImport(page);
   await dialog.getByLabel("Inspection group", { exact: true }).fill("Phases");
   await dialog
     .getByLabel("Template CSV", { exact: true })
@@ -62,10 +59,7 @@ test("imports interval-only templates grouped by aircraft type, persists and edi
   ).toHaveCount(0);
   await editor.getByRole("checkbox", { name: "Hours", exact: true }).check();
   await editor.getByLabel("Hour interval / limit", { exact: true }).fill("110");
-  await editor
-    .getByRole("button", { name: "Save template", exact: true })
-    .click();
-  await expect(editor).not.toBeVisible();
+  await saveTemplate(editor);
   await page.reload();
   await page.getByLabel("Search templates").fill("Phase 2");
   await expect(row).toContainText("110 hours");
@@ -81,10 +75,7 @@ test("imports interval-only templates grouped by aircraft type, persists and edi
     .fill("P100");
   await editor.getByRole("checkbox", { name: "Hours", exact: true }).check();
   await editor.getByLabel("Hour interval / limit", { exact: true }).fill("500");
-  await editor
-    .getByRole("button", { name: "Save template", exact: true })
-    .click();
-  await expect(editor).not.toBeVisible();
+  await saveTemplate(editor);
   await page.getByLabel("Search templates").fill("");
   await expect(
     page.getByRole("heading", { name: /Component model:.*P100/ }),
@@ -118,23 +109,8 @@ test("saves manual CSV candidates and linked tasks as a reusable template", asyn
     name: "Import maintenance CSV",
     exact: true,
   });
-  const file = (
-    kind: "inspections" | "tasks",
-    row: Record<string, unknown>,
-  ) => ({
-    name: kind + ".csv",
-    mimeType: "text/csv",
-    buffer: Buffer.from(
-      toCsv([
-        {
-          ...Object.fromEntries(importHeaders[kind].map((h) => [h, ""])),
-          ...row,
-        },
-      ]),
-    ),
-  });
   await csv.getByLabel("Inspections CSV").setInputFiles(
-    file("inspections", {
+    csvFile("inspections", {
       id: "phase",
       name: "Reusable phase",
       description: "Inspect seals",
@@ -143,7 +119,7 @@ test("saves manual CSV candidates and linked tasks as a reusable template", asyn
     }),
   );
   await csv.getByLabel("Tasks CSV").setInputFiles(
-    file("tasks", {
+    csvFile("tasks", {
       id: "seal",
       parent_type: "inspection",
       parent_id: "phase",
@@ -161,10 +137,7 @@ test("saves manual CSV candidates and linked tasks as a reusable template", asyn
     exact: true,
   });
   await expect(editor.getByText("1 reusable checklist tasks")).toBeVisible();
-  await editor
-    .getByRole("button", { name: "Save template", exact: true })
-    .click();
-  await expect(editor).not.toBeVisible();
+  await saveTemplate(editor);
   await page.goto("/inspection-templates");
   await expect(
     page.getByRole("cell", {
@@ -195,10 +168,7 @@ test("creates an aircraft inspection from a template with compliance and blocks 
   await editor.getByLabel("Hour interval / limit", { exact: true }).fill("100");
   await editor.getByRole("checkbox", { name: "Calendar", exact: true }).check();
   await editor.getByLabel("Calendar interval", { exact: true }).fill("12");
-  await editor
-    .getByRole("button", { name: "Save template", exact: true })
-    .click();
-  await expect(editor).not.toBeVisible();
+  await saveTemplate(editor);
   await page
     .getByRole("button", { name: "Create inspection", exact: true })
     .click();
@@ -217,6 +187,7 @@ test("creates an aircraft inspection from a template with compliance and blocks 
   await create
     .getByLabel("Last compliance date", { exact: true })
     .fill("2025-12-12");
+  // Calendar months run to the end of the due month (14 CFR 91.409).
   await expect(create.getByRole("status")).toContainText("2026-12-31");
   await create.getByRole("checkbox", { name: /I reviewed/ }).check();
   await create
@@ -226,6 +197,7 @@ test("creates an aircraft inspection from a template with compliance and blocks 
   await page
     .getByRole("link", { name: "Open Inspections", exact: true })
     .click();
+  // Complied at 2,200 hours, due 100 hours later.
   await expect(
     page.getByRole("row").filter({ hasText: "Activated phase" }),
   ).toContainText("2,300.0 h");
@@ -247,18 +219,7 @@ test("creates an aircraft inspection from a template with compliance and blocks 
 test("imports all 59 supplied C441 inspection rows including narrative-only requirements", async ({
   page,
 }) => {
-  await page.goto("/inspection-templates");
-  await page
-    .getByRole("button", { name: "Import template CSV", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog", {
-    name: "Import interval templates",
-    exact: true,
-  });
-  await dialog.getByLabel("Manufacturer", { exact: true }).fill("Cessna");
-  await dialog
-    .getByLabel("Aircraft type / component model", { exact: true })
-    .fill("441");
+  const dialog = await openTemplateImport(page);
   await dialog
     .getByLabel("Template CSV", { exact: true })
     .setInputFiles(path.resolve("tests/fixtures/c441-inspections-source.csv"));
@@ -297,3 +258,37 @@ test("imports all 59 supplied C441 inspection rows including narrative-only requ
     editor.getByLabel("Hour interval / limit", { exact: true }),
   ).toHaveValue("");
 });
+
+/** Opens the template CSV import for Cessna 441 templates. */
+async function openTemplateImport(page: Page): Promise<Locator> {
+  await page.goto("/inspection-templates");
+  await page
+    .getByRole("button", { name: "Import template CSV", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Import interval templates",
+    exact: true,
+  });
+  await dialog.getByLabel("Manufacturer", { exact: true }).fill("Cessna");
+  await dialog
+    .getByLabel("Aircraft type / component model", { exact: true })
+    .fill("441");
+  return dialog;
+}
+
+async function saveTemplate(editor: Locator) {
+  await editor
+    .getByRole("button", { name: "Save template", exact: true })
+    .click();
+  await expect(editor).not.toBeVisible();
+}
+
+/** A one-row maintenance CSV upload with every header, blank unless given. */
+function csvFile(kind: "inspections" | "tasks", row: Record<string, unknown>) {
+  const blank = Object.fromEntries(importHeaders[kind].map((h) => [h, ""]));
+  return {
+    name: kind + ".csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(toCsv([{ ...blank, ...row }])),
+  };
+}

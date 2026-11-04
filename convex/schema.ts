@@ -536,6 +536,13 @@ export default defineSchema({
     actorId: v.string(),
     payload: v.string(),
   }).index("uuid", ["uuid"]),
+  // managementRequests under its ADR-0003 name, written alongside it until
+  // replays read from here (T18). The fields match, so rows copy over as is.
+  commandRequests: defineTable({
+    uuid: v.string(),
+    actorId: v.string(),
+    payload: v.string(),
+  }).index("uuid", ["uuid"]),
   inspections: defineTable({
     calendarExempt: v.optional(v.boolean()),
     calendarExemptReason: v.optional(v.string()),

@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Finding maintenance items in a reference manual: the
+ *   candidate list, its model association, and the forms that turn a
+ *   candidate into an inspection, a component or a component requirement.
+ * Layer: UI. React components; matching rules live in src/domain.
+ * Dependencies: react, react-dom, src/data/store.ts, src/domain
+ *   (manualDiscovery, manuals, components, programs, model, maintenance, ata,
+ *   readings), ./Components, ./Manuals, ./ManagementShared, ./ui and others.
+ */
 import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
@@ -29,7 +38,14 @@ import {
 import { endOfDueMonth } from "../domain/maintenance";
 import { AtaChapterField } from "./AtaChapterField";
 import { ataChapterSchema } from "../domain/ata";
+import { hoursToSeconds } from "../domain/readings";
 
+/**
+ * Opens the manual's maintenance-item finder; online, with maintenance
+ * permission on the manual's aircraft.
+ *
+ * @param manual - The reference manual to search.
+ */
 export function ManualDiscoveryButton({ manual }: { manual: Manual }) {
   const [open, setOpen] = useState(false);
   const { snapshot: s, online, connected } = useWorkspace();
@@ -59,6 +75,7 @@ export function ManualDiscoveryButton({ manual }: { manual: Manual }) {
     </>
   );
 }
+/** The required check that the user reviewed a candidate against its source. */
 export function ReviewConfirmation() {
   return (
     <label className="checkbox">
@@ -67,6 +84,13 @@ export function ReviewConfirmation() {
     </label>
   );
 }
+/**
+ * Associates a manual with the aircraft or component model it applies to.
+ *
+ * @param manual - The manual.
+ * @param scope - Its current association, if any.
+ * @param onDone - Called after the association is saved.
+ */
 export function ApplicabilityEditor({
   manual,
   scope,
@@ -489,6 +513,15 @@ function ManualDiscovery({ manualUuid }: { manualUuid: string }) {
     </>
   );
 }
+/**
+ * Records one manual candidate as an inspection, a component or a component
+ * requirement, pre-filled from the manual's text.
+ *
+ * @param row - The candidate.
+ * @param scope - The manual's association, which picks the aircraft.
+ * @param action - What to record it as.
+ * @param onDone - Called after it is saved.
+ */
 export function CandidateForm({
   row,
   scope,
@@ -540,7 +573,8 @@ export function CandidateForm({
       : /\boverhaul\b/i.test(row.text)
         ? "Overhaul Requirement"
         : "Inspection Requirement",
-    intervalSeconds: row.hours === undefined ? undefined : row.hours * 3600,
+    intervalSeconds:
+      row.hours === undefined ? undefined : hoursToSeconds(row.hours),
     intervalCycles: row.cycles,
     calendarIntervalValue: row.months,
     calendarIntervalUnit: "MONTHS",

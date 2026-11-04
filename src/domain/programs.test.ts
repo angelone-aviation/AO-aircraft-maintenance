@@ -8,8 +8,10 @@ import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { ManagedRecord } from "./management";
 import type { AuditEntry, Group, Member } from "./model";
+import { Rejection } from "./rejection";
 import {
   activeProgram,
+  assertProgramSelectable,
   auditVisible,
   groupCoversAircraft,
   ownsActive,
@@ -88,6 +90,26 @@ describe("groups and programs", () => {
       activeProgram(snapshotAs([], { isAdmin: true, activeProgramUuid }));
     expect(admin("other")).toBe("other");
     expect(admin("")).toBeUndefined();
+  });
+  it("selects a program the user may read, and unassigned records only for a system administrator", () => {
+    const member = snapshotAs([
+      group("a"),
+      group("b", { programUuid: "other", permissions: ["flight"] }),
+    ]);
+    const admin = snapshotAs([], { isAdmin: true });
+    const select = (s: typeof member, programUuid: string) => () =>
+      assertProgramSelectable(s, programUuid);
+    expect(select(member, HOME)).not.toThrow();
+    expect(select(admin, "other")).not.toThrow();
+    expect(select(admin, "")).not.toThrow();
+    for (const [s, programUuid] of [
+      [member, "other"],
+      [member, ""],
+      [admin, "missing"],
+    ] as const) {
+      expect(select(s, programUuid)).toThrow(Rejection);
+      expect(select(s, programUuid)).toThrow("Flight Program access denied.");
+    }
   });
 });
 

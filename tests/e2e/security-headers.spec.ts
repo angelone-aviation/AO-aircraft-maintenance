@@ -1,25 +1,26 @@
+/**
+ * Responsibility: Pins the published security headers: the CSP in
+ *   public/_headers, headers on pages and routes, caching, and no
+ *   deployment-only files served.
+ * Layer: Test. Playwright spec against the production build's static server.
+ * Dependencies: @playwright/test, node:fs.
+ *
+ * The suite is served by scripts/serve-dist.mjs, which applies public/_headers
+ * the way Cloudflare does. These checks keep the published policy from being
+ * loosened by accident; the CSP itself is exercised by every other spec.
+ */
 import { test, expect } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 
-// The suite is served by scripts/serve-dist.mjs, which applies public/_headers
-// the way Cloudflare does. These checks keep the published policy from being
-// loosened by accident; the CSP itself is exercised by every other spec.
-function directives(policy: string) {
-  return new Map(
-    policy
-      .split(";")
-      .map((part) => part.trim().split(/\s+/))
-      .filter((tokens) => tokens[0])
-      .map(([name, ...sources]) => [name, sources]),
-  );
-}
+// Only the app's own scripts; WebAssembly for the PDF.js decoders, no eval.
+const SCRIPT_SOURCES = ["'self'", "'wasm-unsafe-eval'"];
 
 test("the published policy keeps scripts, framing and plugins locked down", () => {
   const file = readFileSync("public/_headers", "utf8");
   const policy = file.match(/Content-Security-Policy: (.+)/)?.[1] ?? "";
   const csp = directives(policy);
   expect(csp.get("default-src")).toEqual(["'self'"]);
-  expect(csp.get("script-src")).toEqual(["'self'", "'wasm-unsafe-eval'"]);
+  expect(csp.get("script-src")).toEqual(SCRIPT_SOURCES);
   expect(csp.get("object-src")).toEqual(["'none'"]);
   expect(csp.get("frame-ancestors")).toEqual(["'none'"]);
   expect(csp.get("base-uri")).toEqual(["'self'"]);
@@ -47,10 +48,7 @@ test("pages and app routes carry the security headers", async ({ request }) => {
     expect(response.headers()["content-type"]).toContain("text/html");
     const headers = response.headers();
     const csp = directives(headers["content-security-policy"] ?? "");
-    expect(csp.get("script-src"), path).toEqual([
-      "'self'",
-      "'wasm-unsafe-eval'",
-    ]);
+    expect(csp.get("script-src"), path).toEqual(SCRIPT_SOURCES);
     expect(csp.get("frame-ancestors"), path).toEqual(["'none'"]);
     expect(headers["strict-transport-security"]).toMatch(
       /max-age=\d{8,}; includeSubDomains/,
@@ -91,3 +89,14 @@ test("deployment-only files are not published", async ({ request }) => {
     expect(await response.text(), path).toContain('<div id="root">');
   }
 });
+
+/** A CSP's directives by name, each with its sources in order. */
+function directives(policy: string) {
+  return new Map(
+    policy
+      .split(";")
+      .map((part) => part.trim().split(/\s+/))
+      .filter((tokens) => tokens[0])
+      .map(([name, ...sources]) => [name, sources]),
+  );
+}

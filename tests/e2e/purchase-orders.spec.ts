@@ -1,6 +1,17 @@
+/**
+ * Responsibility: Pins purchase orders from an inspection's required parts:
+ *   the shortage split across two vendors, then one PO issued, shipped,
+ *   received in two parts, given documents and closed, with its history kept.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, tests/fixtures (requiredParts,
+ *   savedAddress), src/domain (model, requiredParts types).
+ */
+import { test, expect, type Page } from "@playwright/test";
 import { addSavedAddress } from "../fixtures/savedAddress";
-import { test, expect } from "@playwright/test";
-import { partsFixture, neededPart } from "../fixtures/requiredParts";
+import { partsFixture } from "../fixtures/requiredParts";
+import type { Snapshot } from "../../src/domain/model";
+import type { RequiredPart } from "../../src/domain/requiredParts";
+
 test("inspection vendor POs ship, receive once, attach documents and retain history", async ({
   page,
 }) => {
@@ -16,44 +27,16 @@ test("inspection vendor POs ship, receive once, attach documents and retain hist
     if (location.kind === "location")
       location.address = `${location.name} delivery address`;
   }
-  await page.evaluate(async (fixture) => {
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open("angel-one-v1");
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const db = request.result,
-          tx = db.transaction("snapshots", "readwrite"),
-          cursor = tx.objectStore("snapshots").openCursor();
-        cursor.onsuccess = () => {
-          const e = cursor.result;
-          if (!e) return;
-          const s = e.value;
-          s.management = fixture.management;
-          s.inspections[0].requiredParts = [
-            {
-              locationUuid: "parts-location",
-              stockUuid: "parts-stock",
-              quantity: 6,
-            },
-          ];
-          delete s.partsInventory;
-          e.update(s);
-          e.continue();
-        };
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-    });
-  }, fixture);
+  await storeRequiredParts(page, fixture.management, [
+    { locationUuid: "parts-location", stockUuid: "parts-stock", quantity: 6 },
+  ]);
   await page.goto("/inspections");
   await page.reload();
   await page
     .getByRole("button", { name: "Create PO for parts", exact: true })
     .click();
-  let dialog = page.getByRole("dialog").last();
+  // Dialogs stack: the last is on top, the first is the PO's detail.
+  const dialog = page.getByRole("dialog").last();
   await expect(
     dialog.getByLabel("Shipping address — Street address"),
   ).toHaveCount(0);
@@ -70,6 +53,7 @@ test("inspection vendor POs ship, receive once, attach documents and retain hist
     "Main receiving",
     "Main hangar delivery",
   );
+  // 6 required, 2 in stock: 4 to order.
   await expect(
     dialog.getByLabel("Part 1 quantity", { exact: true }),
   ).toHaveValue("4");
@@ -89,29 +73,18 @@ test("inspection vendor POs ship, receive once, attach documents and retain hist
   await page
     .getByRole("link", { name: "Purchase orders", exact: true })
     .click();
-  await expect(
-    page.getByRole("row").filter({ hasText: "Tire Vendor A" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("row").filter({ hasText: "Tire Vendor B" }),
-  ).toBeVisible();
-  await page
-    .getByRole("row")
-    .filter({ hasText: "Tire Vendor A" })
-    .getByRole("button")
-    .click();
+  await expect(vendorRow(page, "Tire Vendor A")).toBeVisible();
+  await expect(vendorRow(page, "Tire Vendor B")).toBeVisible();
+  await vendorRow(page, "Tire Vendor A").getByRole("button").click();
   const detail = page.getByRole("dialog").first();
   await detail.getByRole("button", { name: "Issue PO", exact: true }).click();
-  await page
-    .getByRole("dialog")
-    .last()
+  await dialog
     .getByRole("button", { name: "Finalize PO", exact: true })
     .click();
   await expect(detail.getByRole("heading").first()).toContainText("Issued");
   await detail
     .getByRole("button", { name: "Record shipment", exact: true })
     .click();
-  dialog = page.getByRole("dialog").last();
   await dialog.getByLabel("Carrier", { exact: true }).fill("UPS");
   await dialog.getByLabel("Tracking number").fill("TRACK-123");
   await dialog.getByLabel("FILTER-1 quantity shipped").fill("2");
@@ -123,7 +96,6 @@ test("inspection vendor POs ship, receive once, attach documents and retain hist
     await detail
       .getByRole("button", { name: "Receive parts", exact: true })
       .click();
-    dialog = page.getByRole("dialog").last();
     await dialog.getByLabel("Invoice number", { exact: true }).fill(`INV-${i}`);
     await dialog.getByLabel("FILTER-1 quantity received").fill("1");
     await dialog
@@ -151,24 +123,61 @@ test("inspection vendor POs ship, receive once, attach documents and retain hist
     .click();
   expect((await download).suggestedFilename()).toMatch(/PO-.*\.pdf/);
   await detail.getByRole("button", { name: "Close PO", exact: true }).click();
-  await page
-    .getByRole("dialog")
-    .last()
-    .getByRole("button", { name: "Confirm", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(detail.getByRole("heading").first()).toContainText("Closed");
   await page.reload();
-  await page
-    .getByRole("row")
-    .filter({ hasText: "Tire Vendor A" })
-    .getByRole("button")
-    .click();
+  await vendorRow(page, "Tire Vendor A").getByRole("button").click();
   await expect(
     page
       .getByRole("dialog")
       .getByRole("link", { name: "invoice.pdf", exact: true }),
   ).toBeVisible();
+  // The 2 in stock plus Vendor A's 2 received; Vendor B's order is a draft.
   await page.goto("/inventory");
   const row = page.getByRole("row").filter({ hasText: "FILTER-1" });
   await expect(row.locator("td").nth(3)).toContainText("4");
 });
+
+/**
+ * Replaces the management records in every snapshot on the device and puts
+ * `requiredParts` on the first inspection.
+ */
+async function storeRequiredParts(
+  page: Page,
+  management: Snapshot["management"],
+  requiredParts: RequiredPart[],
+) {
+  await page.evaluate(
+    async (records) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("angel-one-v1");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+      });
+      const tx = db.transaction("snapshots", "readwrite");
+      const cursor = tx.objectStore("snapshots").openCursor();
+      cursor.onsuccess = () => {
+        const entry = cursor.result;
+        if (!entry) return;
+        const s = entry.value;
+        s.management = records.management;
+        s.inspections[0].requiredParts = records.requiredParts;
+        // The stored parts view is derived from management; dropping it
+        // makes the app rebuild it from the seeded records.
+        delete s.partsInventory;
+        entry.update(s);
+        entry.continue();
+      };
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    },
+    { management, requiredParts },
+  );
+}
+
+function vendorRow(page: Page, vendor: string) {
+  return page.getByRole("row").filter({ hasText: vendor });
+}

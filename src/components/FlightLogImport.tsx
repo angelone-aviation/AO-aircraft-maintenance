@@ -53,7 +53,7 @@ type PreviewRowProps = { row: PlannedRow; draft: Draft; registration: string };
 /**
  * The Import logbook button and its dialog: preview a ForeFlight or Garmin
  * Pilot CSV, choose rows, and queue them as flights by the signed-in pilot.
- * Rows with an error or that look like a logged flight start unselected.
+ * Rows with an error or a possible duplicate start unselected.
  *
  * @returns Nothing unless the user may log a flight on some aircraft.
  */

@@ -1,9 +1,10 @@
 /**
  * Responsibility: Prints a purchase order as a PDF to send to the vendor.
- * Layer: Data. Browser-side jsPDF rendering; no React.
- * Dependencies: jspdf, src/domain/model.ts, src/domain/purchaseOrders.ts.
+ * Layer: Data. Browser-side PDF document; no React.
+ * Dependencies: src/data/pdfLayout.ts, src/domain/model.ts,
+ *   src/domain/purchaseOrders.ts.
  */
-import { jsPDF } from "jspdf";
+import { paragraphPdf, type Paragraph } from "./pdfLayout";
 import { localDate, type Snapshot } from "../domain/model";
 import {
   poStatus,
@@ -11,16 +12,8 @@ import {
   type PurchaseOrder,
 } from "../domain/purchaseOrders";
 
-const MARGIN_MM = 17;
-const TOP_MM = 18;
-const TEXT_WIDTH_MM = 176;
-const LAST_LINE_MM = 275;
-const LINE_MM = 6;
-const PARAGRAPH_GAP_MM = 2;
-const BOLD_FONT_PT = 12;
-const BODY_FONT_PT = 10;
+const CENTS_PER_UNIT = 100;
 
-type Page = { doc: jsPDF; y: number };
 type POLine = PurchaseOrder["lines"][number];
 type Allocation = NonNullable<POLine["requestAllocations"]>[number];
 
@@ -35,92 +28,82 @@ type Allocation = NonNullable<POLine["requestAllocations"]>[number];
  * @returns The document, ready for `save()`.
  */
 export function poPdf(po: PurchaseOrder, snapshot?: Snapshot) {
-  const page: Page = { doc: new jsPDF(), y: TOP_MM };
-  writeText(page, `PURCHASE ORDER ${po.number}`, true);
-  writeText(
-    page,
-    `${poStatus(po)} | Revision ${po.revision} | ${localDate(po.issuedAt ?? po.createdAt)}`,
+  const out: Paragraph[] = [
+    { text: `PURCHASE ORDER ${po.number}`, bold: true },
+    {
+      text: `${poStatus(po)} | Revision ${po.revision} | ${localDate(po.issuedAt ?? po.createdAt)}`,
+    },
+  ];
+  if (po.phase === "draft")
+    out.push({ text: "DRAFT - NOT ISSUED", bold: true });
+  out.push(
+    { text: `Vendor: ${po.vendor}`, bold: true },
+    { text: po.vendorContact },
+    { text: `Deliver to: ${po.shipTo}` },
+    { text: `Expected delivery: ${po.expectedDate || "Not specified"}` },
   );
-  if (po.phase === "draft") writeText(page, "DRAFT - NOT ISSUED", true);
-  writeText(page, `Vendor: ${po.vendor}`, true);
-  writeText(page, po.vendorContact);
-  writeText(page, `Deliver to: ${po.shipTo}`);
-  writeText(page, `Expected delivery: ${po.expectedDate || "Not specified"}`);
   for (const [i, l] of po.lines.entries())
-    writePOLine(page, po, i, l, snapshot);
-  writeText(page, `Shipping: ${formatMoney(po, po.shippingCents)}`);
-  writeText(page, `Total ordered: ${formatMoney(po, poTotal(po))}`, true);
-  writeText(page, po.notes);
-  return page.doc;
+    out.push(...listLineParagraphs(po, i, l, snapshot));
+  out.push(
+    { text: `Shipping: ${formatMoney(po, po.shippingCents)}` },
+    { text: `Total ordered: ${formatMoney(po, poTotal(po))}`, bold: true },
+    { text: po.notes },
+  );
+  return paragraphPdf(out);
 }
 
 function formatMoney(po: PurchaseOrder, cents: number): string {
-  return `${po.currency} ${(cents / 100).toFixed(2)}`;
+  return `${po.currency} ${(cents / CENTS_PER_UNIT).toFixed(2)}`;
 }
 
-function writePOLine(
-  page: Page,
+function listLineParagraphs(
   po: PurchaseOrder,
   i: number,
   l: POLine,
   snapshot?: Snapshot,
-): void {
-  writeText(page, `${i + 1}. ${l.partNumber} - ${l.description}`, true);
+): Paragraph[] {
+  const out: Paragraph[] = [
+    { text: `${i + 1}. ${l.partNumber} - ${l.description}`, bold: true },
+  ];
   if (l.sprucePart)
-    writeText(
-      page,
-      `Aircraft Spruce part: ${l.sprucePart.partNumber} | Order unit: ${l.sprucePart.uom || "Verify unit"}`,
-    );
-  writeText(
-    page,
-    `Qty: ${l.quantity} | Unit: ${formatMoney(po, l.unitCents)} | Amount: ${formatMoney(po, l.quantity * l.unitCents)}`,
-  );
+    out.push({
+      text: `Aircraft Spruce part: ${l.sprucePart.partNumber} | Order unit: ${l.sprucePart.uom || "Verify unit"}`,
+    });
+  out.push({
+    text: `Qty: ${l.quantity} | Unit: ${formatMoney(po, l.unitCents)} | Amount: ${formatMoney(po, l.quantity * l.unitCents)}`,
+  });
   for (const a of l.requestAllocations ?? [])
-    writeAllocation(page, l, a, snapshot);
-  if (l.cancelled) writeText(page, `Cancelled quantity: ${l.cancelled}`);
+    out.push(...listAllocationParagraphs(l, a, snapshot));
+  if (l.cancelled) out.push({ text: `Cancelled quantity: ${l.cancelled}` });
   if (l.kind === "component")
-    writeText(
-      page,
-      `Trackable component | ${l.componentType} | ${l.manufacturer} ${l.model}`,
-    );
+    out.push({
+      text: `Trackable component | ${l.componentType} | ${l.manufacturer} ${l.model}`,
+    });
+  return out;
 }
 
 // A repair line also carries the component and work from the request line.
-function writeAllocation(
-  page: Page,
+function listAllocationParagraphs(
   l: POLine,
   a: Allocation,
   snapshot?: Snapshot,
-): void {
+): Paragraph[] {
   const request = snapshot?.partsRequests?.find(
     (r) => r.uuid === a.requestUuid,
   );
   const item = request?.lines.find((r) => r.uuid === a.lineUuid);
+  const out: Paragraph[] = [];
   if (request)
-    writeText(
-      page,
-      `Request: ${request.number} | Aircraft: ${request.aircraftRegistration || "Stock"} | Allocated: ${a.quantity}`,
-    );
-  if (!item || !l.repairComponentUuid) return;
-  writeText(
-    page,
-    `Repair service: ${l.repairWork} | Serial: ${item.componentSerial || "Not recorded"}`,
+    out.push({
+      text: `Request: ${request.number} | Aircraft: ${request.aircraftRegistration || "Stock"} | Allocated: ${a.quantity}`,
+    });
+  if (!item || !l.repairComponentUuid) return out;
+  out.push(
+    {
+      text: `Repair service: ${l.repairWork} | Serial: ${item.componentSerial || "Not recorded"}`,
+    },
+    { text: `Defect: ${item.defect}` },
+    { text: `Work requested: ${item.workRequested}` },
   );
-  writeText(page, `Defect: ${item.defect}`);
-  writeText(page, `Work requested: ${item.workRequested}`);
-}
-
-function writeText(page: Page, value: string, bold = false): void {
-  const { doc } = page;
-  doc.setFont("helvetica", bold ? "bold" : "normal");
-  doc.setFontSize(bold ? BOLD_FONT_PT : BODY_FONT_PT);
-  for (const row of doc.splitTextToSize(value, TEXT_WIDTH_MM)) {
-    if (page.y > LAST_LINE_MM) {
-      doc.addPage();
-      page.y = TOP_MM;
-    }
-    doc.text(row, MARGIN_MM, page.y);
-    page.y += LINE_MM;
-  }
-  page.y += PARAGRAPH_GAP_MM;
+  return out;
 }

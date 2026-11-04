@@ -35,7 +35,9 @@ export interface AuditChange {
  * @returns The change, stamped with `uuid` (random unless given), `at` =
  *   `now`, `actorId`, and `programUuid`: the Flight Program owning
  *   `aircraftUuid`, else the active one, unless `change` names one. `before`
- *   and `after` are stored as JSON; keys `change` omits stay absent.
+ *   and `after` are stored as JSON; keys `change` omits stay absent. Keys run
+ *   `uuid`, `programUuid`, `actorId`, `at`, then the change's other keys in
+ *   its order, then `before` and `after`.
  */
 export function auditEntry(
   s: Snapshot,
@@ -44,8 +46,8 @@ export function auditEntry(
 ): AuditEntry {
   const { uuid, before, after, ...fields } = change;
   return {
-    programUuid: owningProgram(s, change.aircraftUuid),
     uuid: uuid ?? crypto.randomUUID(),
+    programUuid: owningProgram(s, change.aircraftUuid),
     actorId: s.user.id,
     at: now,
     ...fields,

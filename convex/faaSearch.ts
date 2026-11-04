@@ -3,7 +3,7 @@
  *   and the daily allowances shared by every program on the one FAA key.
  * Layer: Server. A public action over internal steps; maintenance permission
  *   on the aircraft searches.
- * Dependencies: convex/rateLimits, convex/faaCredentials,
+ * Dependencies: convex/rateLimits, convex/faaCredentials, convex/faaDrs,
  *   convex/programContext, convex/userErrors, src/domain (model, management,
  *   faaSearch).
  */
@@ -15,6 +15,7 @@ import {
 } from "./_generated/server";
 import { consume, DAY, MINUTE } from "./rateLimits";
 import { faaSecret } from "./faaCredentials";
+import { searchFAA } from "./faaDrs";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { checkContext, managementDocs } from "./programContext";
@@ -24,7 +25,6 @@ import { recordSchema } from "../src/domain/management";
 import {
   faaSearchSchema,
   searchAssets,
-  searchFAA,
   type FaaSearchResult,
 } from "../src/domain/faaSearch";
 

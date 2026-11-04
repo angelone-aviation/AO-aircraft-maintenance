@@ -3,7 +3,7 @@
  *   guided flight and its checklist link carry the readings.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/flightFluids.ts, ./guidedFlight, ./checklists,
- *   ./flightChecklistLink, ./model, src/data/demo.ts (seed).
+ *   ./flightChecklistLink, ./model, ./validationText, src/data/demo.ts (seed).
  */
 import { guidedDraftSchema, suggestedStartSection } from "./guidedFlight";
 import { oilUseSincePreviousStart } from "./flightFluids";
@@ -16,6 +16,7 @@ import {
   fluidRate,
   oilLevelLabel,
 } from "./flightFluids";
+import { validationText } from "./validationText";
 import { demoSnapshot } from "../data/demo";
 import { emptyChecklist } from "./checklists";
 import { guidedFlightLink, type GuidedDraft } from "./guidedFlight";
@@ -344,9 +345,9 @@ describe("reading limits and labels", () => {
       );
     const left = { ...reading, engine: "left" };
     const right = { ...reading, engine: "right" };
-    expect(() => oilSchema.parse([left, right, right])).toThrow(
-      "expected array to have <=2 items",
-    );
+    expect(
+      validationText(oilSchema.safeParse([left, right, right]).error!),
+    ).toBe("Use a single engine or separate left/right engines.");
   });
 
   it("labels oil levels by band or volume", () => {

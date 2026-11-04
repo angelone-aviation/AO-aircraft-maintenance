@@ -4,8 +4,8 @@
  * Layer: Server. Public mutations and an action over internal steps; every
  *   change is audited, and a user's access to other programs stays untouched.
  * Dependencies: @convex-dev/auth/server, convex/programContext, convex/access,
- *   convex/memberships, convex/accountGuards, src/domain (programs, model,
- *   accountRules).
+ *   convex/memberships, convex/accountGuards, convex/userErrors, src/domain
+ *   (programs, model, accountRules).
  */
 import { ConvexError, v } from "convex/values";
 import { createAccount } from "@convex-dev/auth/server";
@@ -28,6 +28,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   ADD_EXISTING_RESULT,
   EMAIL_UNAVAILABLE,
+  grantsRead,
+  normalizeAccount,
+  programGroupIds,
 } from "../src/domain/accountRules";
 import {
   assertCreatedHere,
@@ -37,14 +40,9 @@ import {
   reserveNewAccount,
   uniformCreateError,
 } from "./accountGuards";
+import { exposeRejections } from "./userErrors";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const NAME_MAX_LENGTH = 150;
-
-// The default read-only group (src/domain/defaultPermissionGroups.ts), matched
-// by name and exact shape, so a renamed or widened group is never granted to
-// a user nobody chose it for.
-const OBSERVERS_GROUP_NAME = "Observers";
+const READ_ACCESS_REQUIRED = "Select a group with read access.";
 
 const scopeArgs = {
   programUuid: v.string(),
@@ -70,8 +68,8 @@ export const check = internalQuery({
   args: scopeArgs,
   handler: async (ctx, args) => {
     const state = await authorizeProgramAdmin(ctx, args);
-    if (!args.groupIds.length)
-      requireObserversGroup(state.groups, args.programUuid);
+    // With no group chosen the account gets Observers, so it must exist.
+    if (!args.groupIds.length) memberGroupIds(state.groups, args);
   },
 });
 
@@ -116,7 +114,7 @@ export const finish = internalMutation({
       throw new Error(
         "Only a newly provisioned account can be activated here.",
       );
-    const groupIds = withReadAccess(state.groups, scope);
+    const groupIds = memberGroupIds(state.groups, scope);
     await ctx.db.patch(userId, { active: true, isAdmin: false, groupIds });
     await syncMemberships(ctx, userId);
     await audit(ctx, state.user.id, "user.created", userId, {
@@ -151,7 +149,9 @@ export const create = action({
   handler: async (ctx, args): Promise<string> => {
     const scope = { programUuid: args.programUuid, groupIds: args.groupIds };
     await ctx.runQuery(internal.programUsers.check, scope);
-    const { email, name } = parseNewAccount(args.email, args.name);
+    const { email, name } = exposeRejections(() =>
+      normalizeAccount(args.email, args.name),
+    );
     assertNewPassword(args.password, email);
     const { available, checkedAt } = await ctx.runMutation(
       internal.programUsers.reserve,
@@ -251,15 +251,16 @@ export const updateAccess = mutation({
  * @param groupIds - Groups of that program, at least one with read access.
  * @param email - The account's email, normalized before the lookup.
  * @returns {@link ADD_EXISTING_RESULT}, whether or not an account was found.
- * @throws {ConvexError} The {@link updateAccess} scope refusals; "Select at
- *   least one group with read access."; the allowance's refusal.
+ * @throws {ConvexError} The {@link updateAccess} scope refusals; "Select a
+ *   group with read access." for no group that grants it; the allowance's
+ *   refusal.
  */
 export const addExisting = mutation({
   args: { ...scopeArgs, email: v.string() },
   handler: async (ctx, args) => {
     const state = await authorizeProgramAdmin(ctx, args);
-    if (!args.groupIds.length || !grantsRead(state.groups, args.groupIds))
-      throw new ConvexError("Select at least one group with read access.");
+    if (!grantsRead(state.groups, args.groupIds))
+      throw new ConvexError(READ_ACCESS_REQUIRED);
     // Every lookup counts, found or not, and the answer is the same either
     // way (issue #29, S11), so the function cannot list accounts quickly.
     await consumeAccountRequest(
@@ -305,14 +306,6 @@ async function authorizeProgramAdmin(
       );
   }
   return state;
-}
-
-function parseNewAccount(rawEmail: string, rawName: string) {
-  const email = normalizeEmail(rawEmail);
-  const name = rawName.trim();
-  if (!EMAIL_PATTERN.test(email) || !name || name.length > NAME_MAX_LENGTH)
-    throw new ConvexError("A valid email and name are required.");
-  return { email, name };
 }
 
 async function createInactiveAccount(
@@ -375,33 +368,15 @@ function isUnfinishedAccount(
   );
 }
 
-// The selected groups, plus the Observers group when none of them grants read
-// access.
-function withReadAccess(
+// The chosen groups, plus Observers when none of them grants read access; the
+// ids come from the scope and the program's groups, so they are group ids.
+function memberGroupIds(
   groups: Group[],
   scope: { programUuid: string; groupIds: Id<"groups">[] },
-): Id<"groups">[] {
-  const groupIds = [...new Set(scope.groupIds)];
-  if (grantsRead(groups, groupIds)) return groupIds;
-  const observers = requireObserversGroup(groups, scope.programUuid);
-  return [...groupIds, observers.id as Id<"groups">];
-}
-
-function requireObserversGroup(groups: Group[], programUuid: string): Group {
-  const observers = groups.find(
-    (g) =>
-      g.programUuid === programUuid &&
-      g.name === OBSERVERS_GROUP_NAME &&
-      !g.programAdmin &&
-      !g.aircraftIds.length &&
-      g.permissions.length === 1 &&
-      g.permissions[0] === "read",
-  );
-  if (!observers)
-    throw new ConvexError(
-      "Select a permission group; Observers read-only access is unavailable.",
-    );
-  return observers;
+) {
+  return exposeRejections(() =>
+    programGroupIds(groups, scope.programUuid, scope.groupIds),
+  ) as Id<"groups">[];
 }
 
 function assertGrantsRead(groups: Group[], groupIds: string[]): void {
@@ -410,11 +385,5 @@ function assertGrantsRead(groups: Group[], groupIds: string[]): void {
       "Select at least one permission group or remove program access.",
     );
   if (!grantsRead(groups, groupIds))
-    throw new ConvexError("Select a group with read access.");
-}
-
-function grantsRead(groups: Group[], groupIds: string[]): boolean {
-  return groups.some(
-    (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
-  );
+    throw new ConvexError(READ_ACCESS_REQUIRED);
 }

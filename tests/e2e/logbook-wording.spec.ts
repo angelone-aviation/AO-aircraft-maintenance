@@ -1,6 +1,17 @@
+/**
+ * Responsibility: Pins logbook wording on a work order: the sample entry with
+ *   the AC 43.13 fallback, saved phrases and release statements kept through a
+ *   reload, and the generated entry for the closed order.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, src/domain/model (localDate),
+ *   tests/fixtures/workOrderTasks.
+ */
 import { test, expect } from "@playwright/test";
 import { localDate } from "../../src/domain/model";
 import { expandTask } from "../fixtures/workOrderTasks";
+
+const OPERATIONALLY_CHECKED_LINE =
+  /Task #1 Cabin fittings: Operationally checked IAW Standard Practice found in AC43.13/;
 
 test("saves custom wording and generates selected work with the reference fallback", async ({
   page,
@@ -22,6 +33,7 @@ test("saves custom wording and generates selected work with the reference fallba
   await expect(sample).not.toHaveValue(/Task #1 Cabin fittings/);
   await expandTask(dialog, 1);
   await dialog.getByLabel("Include in log book entry").check();
+  // With no manual reference the line cites AC 43.13 (14 CFR 43.13(a)).
   await expect(sample).toHaveValue(
     /Task #1 Cabin fittings: performed IAW Standard Practice found in AC43.13/,
   );
@@ -30,6 +42,7 @@ test("saves custom wording and generates selected work with the reference fallba
     .fill("AMM 25-10");
   await expect(sample).toHaveValue(/IAW AMM 25-10/);
   await dialog.getByLabel("Task 1 maintenance manual reference").fill("");
+  // Task 1 is still open, so it is in the sample only on request.
   await dialog.getByLabel("Include unfinished work in sample").uncheck();
   await expect(sample).not.toHaveValue(/Task #1 Cabin fittings/);
   await dialog.getByLabel("Include unfinished work in sample").check();
@@ -43,9 +56,7 @@ test("saves custom wording and generates selected work with the reference fallba
   await dialog
     .getByLabel("Log book wording", { exact: true })
     .selectOption("Operationally checked");
-  await expect(sample).toHaveValue(
-    /Task #1 Cabin fittings: Operationally checked IAW Standard Practice found in AC43.13/,
-  );
+  await expect(sample).toHaveValue(OPERATIONALLY_CHECKED_LINE);
   await dialog
     .getByRole("button", { name: "Open work order", exact: true })
     .click();
@@ -74,6 +85,7 @@ test("saves custom wording and generates selected work with the reference fallba
   await dialog
     .getByRole("button", { name: "Add release statement", exact: true })
     .click();
+  // The five starter statements come first; a user's own is the sixth.
   await dialog.getByLabel("Statement 6 name").fill("My release");
   await dialog.getByLabel("Statement 6 text").fill("Completed and reviewed.");
   await dialog
@@ -98,6 +110,6 @@ test("saves custom wording and generates selected work with the reference fallba
     /Completed and reviewed for this order\./,
   );
   await expect(page.getByLabel("Logbook entry text")).toHaveValue(
-    /Task #1 Cabin fittings: Operationally checked IAW Standard Practice found in AC43.13/,
+    OPERATIONALLY_CHECKED_LINE,
   );
 });

@@ -3,7 +3,8 @@
  *   on an inspection template or as job cards on an inspection.
  * Layer: Domain. Parser and applier on a working snapshot; no I/O, no React.
  * Dependencies: zod; src/domain/maintenanceCsv.ts, model.ts, programs.ts,
- *   manuals.ts, inspectionTemplates.ts, taskCards.ts, rejection.ts.
+ *   manuals.ts, inspectionTemplates.ts, taskCards.ts, rejection.ts,
+ *   validationText.ts.
  *
  * Two formats are read: the sample file (taskCsvHeaders) and the legacy
  * tasks.csv export, whose parent ids are ignored for the chosen target.
@@ -27,6 +28,7 @@ import {
   type TaskCardCommand,
 } from "./taskCards";
 import { Rejection } from "./rejection";
+import { validationText } from "./validationText";
 
 // parseTaskCsv counts UTF-8 bytes; the request schema counts characters.
 const MAX_CSV_SIZE = 2 * 1024 * 1024;
@@ -53,7 +55,8 @@ const normalized = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
  * @returns One task per data row, in file order.
  * @throws {Rejection} For an over-2 MB, empty or wrongly headed file, or as
  *   "CSV row N: …" for a bad row, PDF page, or missing or repeated item code
- *   (compared ignoring case and spacing).
+ *   (compared ignoring case and spacing); a task field that fails its schema
+ *   gives that schema's {@link validationText}.
  */
 export function parseTaskCsv(text: string): TemplateTask[] {
   if (new TextEncoder().encode(text).length > MAX_CSV_SIZE)
@@ -75,9 +78,7 @@ export function parseTaskCsv(text: string): TemplateTask[] {
       codes.add(key);
       return task;
     } catch (e) {
-      throw new Rejection(
-        `CSV row ${row}: ${e instanceof Error ? e.message : "Invalid task"}`,
-      );
+      throw new Rejection(`CSV row ${row}: ${rowErrorText(e)}`);
     }
   });
 }
@@ -140,6 +141,11 @@ export function importTaskCsv(s: Snapshot, raw: TaskCsvImport) {
   s.taskCards = next.taskCards;
   s.audit = next.audit;
   return { template: undefined, tasks: cards, count: cards.length };
+}
+
+function rowErrorText(error: unknown): string {
+  if (error instanceof z.ZodError) return validationText(error);
+  return error instanceof Error ? error.message : "Invalid task";
 }
 
 function readHeaderFormat(header: string[]): "sample" | "legacy" {

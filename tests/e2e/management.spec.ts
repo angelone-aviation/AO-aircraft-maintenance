@@ -1,20 +1,20 @@
+/**
+ * Responsibility: Pins the core maintenance screens: a recurring inspection
+ *   completed with history kept, component install, removal and overhaul,
+ *   stock balances and over-issue, component baselines and service
+ *   requirements, and inspection tracking choices.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, src/domain/model (localDate),
+ *   tests/fixtures/workOrderTasks.
+ */
 import { test, expect, type Page } from "@playwright/test";
 import { localDate } from "../../src/domain/model";
 import { openMovementOrder } from "../fixtures/workOrderTasks";
-async function finishMovement(page: Page, part: string) {
-  const d = await openMovementOrder(page, part);
-  await d.getByLabel("Task 1 status").selectOption("completed");
-  await d
-    .getByLabel("Task 1 work notes")
-    .fill("Component movement performed and verified");
-  await d.getByLabel("Work order status").selectOption("completed");
-  await d.getByLabel("Completion date").fill(localDate());
-  await d.getByLabel("Release outcome").fill("Reviewed movement");
-  page.once("dialog", (d) => d.accept());
-  await d.getByRole("button", { name: "Save work order", exact: true }).click();
-  await expect(d).not.toBeVisible();
-  await page.goto("/components");
-}
+
+const DAY_MS = 86400000;
+// Service age counts average months (365.25 / 12 days), not calendar months.
+const AVERAGE_MONTH_DAYS = 30.4375;
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() =>
     sessionStorage.setItem("angel-one-demo", "true"),
@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
     page.getByRole("heading", { name: "Your fleet, at a glance." }),
   ).toBeVisible();
 });
+
 test("creates a recurring inspection, completes it, and preserves history", async ({
   page,
 }) => {
@@ -43,7 +44,7 @@ test("creates a recurring inspection, completes it, and preserves history", asyn
     .getByRole("button", { name: "Save inspection", exact: true })
     .click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  let row = page.getByRole("row").filter({ hasText: "TEST-100" });
+  const row = page.getByRole("row").filter({ hasText: "TEST-100" });
   await expect(row).toContainText("2,400.0");
   await row.getByRole("button", { name: "Complete", exact: true }).click();
   await page.getByLabel("Completion date").fill("2026-01-15");
@@ -54,10 +55,11 @@ test("creates a recurring inspection, completes it, and preserves history", asyn
     .getByRole("button", { name: "Record completion", exact: true })
     .click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  // Due 100 hours after the aircraft's 2,341.2, and 12 calendar months after
+  // completion, to the end of that month (14 CFR 91.409).
   await expect(row).toContainText("2,441.2");
   await expect(row).toContainText("2027-01-31");
   await page.reload();
-  row = page.getByRole("row").filter({ hasText: "TEST-100" });
   await row.getByRole("button", { name: "Details" }).click();
   await expect(page.getByLabel("ATA Chapter", { exact: true })).toHaveValue(
     "05",
@@ -70,6 +72,7 @@ test("creates a recurring inspection, completes it, and preserves history", asyn
     page.getByText("Inspection completed and signed", { exact: true }),
   ).toBeVisible();
 });
+
 test("creates a component, installs, removes, and records overhaul", async ({
   page,
 }) => {
@@ -101,34 +104,15 @@ test("creates a component, installs, removes, and records overhaul", async ({
     await row
       .getByRole("button", { name: "Add Service/Inspections", exact: true })
       .click();
-    if (operation === "overhaul") {
-      await page.getByLabel("Service action").selectOption(operation);
-      await page
-        .getByLabel("Work performed / reason")
-        .fill("Workshop overhaul");
-      await page
-        .getByRole("button", { name: "Save service event", exact: true })
-        .click();
-      await expect(page.getByRole("dialog")).not.toBeVisible();
-    } else {
-      if (operation === "remove")
-        await page.getByLabel("Shelf / bin", { exact: true }).fill("Shelf B");
-      await page
-        .getByLabel("Movement description / reason")
-        .fill("Workshop " + operation);
-      await page
-        .getByRole("button", {
-          name: "Add movement to work order",
-          exact: true,
-        })
-        .click();
-      await expect(page.getByRole("dialog")).not.toBeVisible();
-      await finishMovement(page, "ENG-100");
-    }
+    if (operation === "remove")
+      await page.getByLabel("Shelf / bin", { exact: true }).fill("Shelf B");
+    if (operation === "overhaul") await recordOverhaul(page);
+    else await moveComponent(page, "Workshop " + operation, "ENG-100");
     await expect(row).toContainText(
       operation === "install" ? "Installed" : "In storage",
     );
   }
+  // An overhaul resets time since overhaul but not time since new.
   await expect(row).toContainText("250.0 h");
   await expect(row).toContainText("0.0 h");
   await expect(row).toContainText("ATA 72: Engine – Turbine / Reciprocating");
@@ -149,6 +133,7 @@ test("creates a component, installs, removes, and records overhaul", async ({
     page.getByRole("row").filter({ hasText: "ENG-100" }),
   ).toContainText("ATA 00: General");
 });
+
 test("manages stock balances, rejects over-issue, and disables offline writes", async ({
   page,
   context,
@@ -202,6 +187,7 @@ test("manages stock balances, rejects over-issue, and disables offline writes", 
   await page.getByLabel("Quantity (counted balance for adjustment)").fill("4");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  // One left is at or below the reorder point of 2.
   await expect(row).toContainText("Reorder");
   await context.setOffline(true);
   await expect(
@@ -229,7 +215,7 @@ test("records legacy component fields, verified baselines, and separate service 
     .fill("Workshop Manufacturing");
   await page.getByLabel("ATA Chapter", { exact: true }).selectOption("29");
   await page.getByLabel("Parts location", { exact: true }).fill("Legacy store");
-  const installed = new Date(Date.now() - 10 * 86400000)
+  const installed = new Date(Date.now() - 10 * DAY_MS)
     .toISOString()
     .slice(0, 10);
   await page
@@ -261,14 +247,7 @@ test("records legacy component fields, verified baselines, and separate service 
   await page
     .getByLabel("Installation position", { exact: true })
     .selectOption("LEFT");
-  await page
-    .getByLabel("Movement description / reason")
-    .fill("Install hydraulic pump");
-  await page
-    .getByRole("button", { name: "Add movement to work order", exact: true })
-    .click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await finishMovement(page, "PUMP-500");
+  await moveComponent(page, "Install hydraulic pump", "PUMP-500");
   await row.getByRole("button", { name: "Details", exact: true }).click();
   await page.getByRole("button", { name: "Set baseline", exact: true }).click();
   await page.getByLabel("Installation date", { exact: true }).fill(installed);
@@ -281,8 +260,10 @@ test("records legacy component fields, verified baselines, and separate service 
   await expect(page.getByRole("dialog")).not.toBeVisible();
 
   await expect(row).toContainText("Workshop Manufacturing");
+  // 100 TSN at install plus the 10 hours flown since 2,331.2.
   await expect(row).toContainText("110.0 h");
   // Columns are now grouped: readings (2) and nearest service remaining (3).
+  // 0.657 months at install plus ten days in service (0.33 months).
   await expect(row.getByRole("cell").nth(2)).toContainText(
     "Calendar time since new: 1.0 months",
   );
@@ -318,13 +299,15 @@ test("records legacy component fields, verified baselines, and separate service 
   const requirement = page
     .getByRole("row")
     .filter({ hasText: "Repair follow-up" });
+  // Due at 5 + 50 TSR, and one calendar month after 2026-01-15, to the end of
+  // that month; cycles count from the 50 at install toward the 500 limit.
   await expect(requirement).toContainText("55.0 TSR");
   await expect(requirement).toContainText("2026-02-28");
   const remainingDays = Math.round(
-    (Date.parse("2026-02-28") - Date.parse(localDate())) / 86400000,
+    (Date.parse("2026-02-28") - Date.parse(localDate())) / DAY_MS,
   );
   await expect(row.getByRole("cell").nth(3)).toContainText(
-    `≈ ${(remainingDays / 30.4375).toFixed(1)} months`,
+    `≈ ${(remainingDays / AVERAGE_MONTH_DAYS).toFixed(1)} months`,
   );
 
   await expect(
@@ -391,6 +374,7 @@ test("inspection tracking toggles and saves before opening linked requests", asy
   await form
     .getByLabel("Last complied at (aircraft total landings)", { exact: true })
     .fill("200");
+  // Opening linked requests saves the new inspection first.
   await form
     .getByRole("button", { name: "Add parts / repair request", exact: true })
     .click();
@@ -428,3 +412,39 @@ test("inspection tracking toggles and saves before opening linked requests", asy
     }),
   ).toBeVisible();
 });
+
+/** Records a workshop overhaul as a service event on the open component. */
+async function recordOverhaul(page: Page) {
+  await page.getByLabel("Service action").selectOption("overhaul");
+  await page.getByLabel("Work performed / reason").fill("Workshop overhaul");
+  await page
+    .getByRole("button", { name: "Save service event", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+}
+
+/**
+ * Adds the open install or removal to a work order, completes that order,
+ * and returns to Components: a component only moves when its order closes.
+ */
+async function moveComponent(page: Page, reason: string, part: string) {
+  await page.getByLabel("Movement description / reason").fill(reason);
+  await page
+    .getByRole("button", { name: "Add movement to work order", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  const order = await openMovementOrder(page, part);
+  await order.getByLabel("Task 1 status").selectOption("completed");
+  await order
+    .getByLabel("Task 1 work notes")
+    .fill("Component movement performed and verified");
+  await order.getByLabel("Work order status").selectOption("completed");
+  await order.getByLabel("Completion date").fill(localDate());
+  await order.getByLabel("Release outcome").fill("Reviewed movement");
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await order
+    .getByRole("button", { name: "Save work order", exact: true })
+    .click();
+  await expect(order).not.toBeVisible();
+  await page.goto("/components");
+}

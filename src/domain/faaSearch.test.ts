@@ -1,17 +1,17 @@
 /**
  * Responsibility: Pins FAA search assets, DRS filters and their limits, and
- *   how searchFAA groups requests and merges and orders results.
+ *   how a search's assets share DRS queries.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/faaSearch.ts, ./faa, ./components, ./rejection,
  *   src/data/demo.ts (seed).
  */
-import { it, expect, vi } from "vitest";
+import { it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
   searchAssets,
   blankSearch,
   searchFilters,
-  searchFAA,
+  faaSearchQueries,
   faaSearchSchema,
 } from "./faaSearch";
 import type { Component } from "./components";
@@ -81,40 +81,6 @@ it("validates empty searches, date ranges and FAA filter limits before requests"
     searchFilters(f, { ...f.assets[0], model: "" }, "ADFRAWD"),
   ).toThrow("model or keyword");
 });
-it("queries identical engines once per document type, merges asset assignments and prefers current final rules", async () => {
-  const s = demoSnapshot();
-  s.management = [component("left"), component("right")];
-  const f = blankSearch(
-    "demo-206",
-    searchAssets(s, "demo-206").filter((a) => a.id),
-  );
-  const response = (emergency: boolean) =>
-    new Response(
-      JSON.stringify({
-        summary: { hasMoreItems: false },
-        documents: [
-          {
-            documentGuid: emergency ? "emergency" : "final",
-            "drs:documentNumber": "2026-01-01",
-            "drs:status": "Current",
-            docLastModifiedDate: "2026-01-01",
-            documentURL: `https://drs.faa.gov/${emergency ? "emergency" : "final"}`,
-          },
-        ],
-      }),
-    );
-  const request = vi
-    .fn<typeof fetch>()
-    .mockImplementation(async (url) =>
-      response(String(url).includes("ADFREAD")),
-    );
-  const r = await searchFAA("synthetic", f, request);
-  expect(request).toHaveBeenCalledTimes(2);
-  expect(r).toHaveLength(1);
-  expect(r[0].assetIds).toEqual(["left", "right"]);
-  expect(r[0].candidate.emergency).toBe(false);
-  expect(r[0].documents).toHaveLength(2);
-});
 it("uses emergency-specific product and date metadata and supports historical searches", () => {
   const s = demoSnapshot();
   const f = blankSearch("demo-206", searchAssets(s, "demo-206"));
@@ -174,19 +140,6 @@ it("uses explicit FAA model overrides without rewriting profile identities", asy
   expect(searchAssets(s, s.aircraft[0].uuid)[0].model).toBe("C441");
 });
 
-function drs(documents: Record<string, string>[]) {
-  return new Response(
-    JSON.stringify({ summary: { hasMoreItems: false }, documents }),
-  );
-}
-const ad = (number: string, fields: Record<string, string> = {}) => ({
-  documentGuid: number,
-  "drs:documentNumber": number,
-  "drs:status": "Current",
-  docLastModifiedDate: "2026-01-01",
-  documentURL: `https://drs.faa.gov/${number}`,
-  ...fields,
-});
 function airframeSearch() {
   const s = demoSnapshot();
   return blankSearch("demo-206", searchAssets(s, "demo-206").slice(0, 1));
@@ -228,46 +181,32 @@ it("names the date filter by field and a component under Airframe as an applianc
   ).toHaveProperty("drs:adfreadCitationPublishDate");
 });
 
-it("orders ADs by effective date, else issue date, then number, and prefers current documents", async () => {
-  const request = vi.fn<typeof fetch>().mockImplementation(async (url) =>
-    String(url).includes("ADFREAD")
-      ? drs([
-          ad("2024-01-01", { documentURL: "https://drs.faa.gov/emergency" }),
-        ])
-      : drs([
-          ad("2024-01-01", {
-            "drs:effectiveDate": "2024-02-01",
-            "drs:status": "Historical",
-          }),
-          ad("2025-02-02", { "drs:adfrawdIssueDate": "2025-03-01" }),
-          ad("2025-03-03", { "drs:effectiveDate": "2025-03-01" }),
-          ad("2020-01-01"),
-        ]),
-  );
-  const r = await searchFAA("synthetic", airframeSearch(), request);
-  expect(r.map((x) => x.candidate.source.number)).toEqual([
-    "2025-03-03",
-    "2025-02-02",
-    "2024-01-01",
-    "2020-01-01",
+it("plans one DRS query per document type and distinct filters, final rules first", () => {
+  const s = demoSnapshot();
+  s.management = [
+    component("left"),
+    component("right"),
+    { ...component("prop"), componentType: "Propeller" },
+  ];
+  const form = blankSearch("demo-206", searchAssets(s, "demo-206"));
+  const queries = faaSearchQueries(form);
+  expect(queries.map((q) => [q.type, q.assets])).toEqual([
+    ["ADFRAWD", [""]],
+    ["ADFRAWD", ["left", "right"]],
+    ["ADFRAWD", ["prop"]],
+    ["ADFREAD", [""]],
+    ["ADFREAD", ["left", "right"]],
+    ["ADFREAD", ["prop"]],
   ]);
-  expect(r[2].candidate).toMatchObject({ status: "Current", emergency: true });
-  expect(r[2].documents).toHaveLength(2);
-});
-
-it("refuses more than 400 ADs without returning any", async () => {
-  const many = (prefix: string) =>
-    drs(Array.from({ length: 201 }, (_, i) => ad(`${prefix}-${i}`)));
-  const request = vi
-    .fn<typeof fetch>()
-    .mockImplementation(async (url) =>
-      many(String(url).includes("ADFREAD") ? "2026-02" : "2026-01"),
-    );
-  const search = searchFAA("synthetic", airframeSearch(), request);
-  await expect(search).rejects.toThrow(Rejection);
-  await expect(
-    searchFAA("synthetic", airframeSearch(), request),
-  ).rejects.toThrow(
-    "More than 400 ADs matched. Narrow your search; no partial results were imported.",
+  expect(queries[1].filters).toEqual(
+    searchFilters(form, form.assets[1], "ADFRAWD"),
+  );
+  expect(
+    faaSearchQueries({ ...form, finalRules: false }).map((q) => q.type),
+  ).toEqual(["ADFREAD", "ADFREAD", "ADFREAD"]);
+  expect(() => faaSearchQueries({ ...form, assets: [] })).toThrow();
+  const blank = { ...form.assets[0], model: "" };
+  expect(() => faaSearchQueries({ ...form, assets: [blank] })).toThrow(
+    Rejection,
   );
 });

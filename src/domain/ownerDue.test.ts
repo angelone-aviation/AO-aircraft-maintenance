@@ -5,7 +5,7 @@
  * Dependencies: src/domain/ownerDue.ts, airworthiness.ts, model.ts,
  *   rejection.ts; src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask } from "./airworthiness";
@@ -14,6 +14,16 @@ import { ownerDueCounts, ownerDueItems } from "./ownerDue";
 import { Rejection } from "./rejection";
 
 const today = "2026-10-30";
+
+// adStatus judges AD due dates on the clock, not on `today`, so the clock is
+// held at `today` too; otherwise these pins break as the real date moves on.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(`${today}T12:00:00`));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function owned() {
   const s: Snapshot = {
