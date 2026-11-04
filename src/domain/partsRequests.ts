@@ -1094,10 +1094,12 @@ function commitRequest(
   return saved;
 }
 
-// Parts rows name no program of their own: the server stamps the command's
-// program as it writes them, and the demo keeps them without.
+// Parts rows name the program the command runs in, as the server has always
+// stamped them, not the program of the request's aircraft.
 function recordPartsChange(s: Snapshot, change: AuditChange, now: number) {
-  s.audit.unshift(auditEntry(s, { programUuid: undefined, ...change }, now));
+  s.audit.unshift(
+    auditEntry(s, { ...change, programUuid: activeProgram(s) }, now),
+  );
 }
 
 // Saving a list serves the open work orders on its aircraft at once, so none

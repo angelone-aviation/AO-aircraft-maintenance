@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins task file imports on the server: into a template or as
- *   draft job cards, access checks, and all-or-none refusals.
+ *   draft job cards, access checks, all-or-none refusals, and replayed
+ *   request ids.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/taskImports, convex/schema,
  *   src/domain/inspectionTemplates, src/data/demo (fixture).
@@ -17,7 +18,9 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
-it("atomically persists file tasks to templates and inspections with server access checks", async () => {
+// A template at version 1 in the demo program, a technician (maintenance) and
+// a reader, and a reviewed two-task CSV import into the template.
+async function setup() {
   const t = convexTest(schema, modules);
   const template = {
     ...emptyTemplate(),
@@ -75,6 +78,11 @@ it("atomically persists file tasks to templates and inspections with server acce
     programUuid: "demo-program",
     payload: JSON.stringify(i),
   });
+  return { t, ids, csv, input, args };
+}
+
+it("atomically persists file tasks to templates and inspections with server access checks", async () => {
+  const { t, ids, csv, input, args } = await setup();
   await expect(
     t.withIdentity(ids.reader).mutation(api.taskImports.save, args(input)),
   ).rejects.toThrow("access");
@@ -115,4 +123,33 @@ it("atomically persists file tasks to templates and inspections with server acce
     status: "draft",
     technicianSignoff: null,
   });
+});
+
+it("imports once per request id: a replay returns nothing and writes nothing", async () => {
+  const { t, ids, input, args } = await setup();
+  const tech = t.withIdentity(ids.tech);
+  const requested = { ...args(input), requestUuid: crypto.randomUUID() };
+  const stored = () =>
+    t.run(async (ctx) => ({
+      templates: await ctx.db.query("inspectionTemplates").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+    }));
+  expect(await tech.mutation(api.taskImports.save, requested)).toBe(2);
+  const saved = await stored();
+  expect(saved.commandRequests).toMatchObject([
+    { uuid: requested.requestUuid, payload: requested.payload },
+  ]);
+  // ADR-0003: a replay succeeds with no payload, where a second import of the
+  // same version is refused.
+  await expect(tech.mutation(api.taskImports.save, requested)).resolves.toBe(
+    null,
+  );
+  expect(await stored()).toEqual(saved);
+  await expect(
+    tech.mutation(api.taskImports.save, {
+      ...requested,
+      payload: JSON.stringify({ ...input, targetVersion: 2 }),
+    }),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
 });

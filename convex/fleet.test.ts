@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the fleet mutation's stored rows: an aircraft save
  *   that moves installed component baselines, and the refusals for an
- *   aircraft uuid or registration held elsewhere.
+ *   aircraft uuid or registration held elsewhere or a field the schema
+ *   refuses.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/fleet, convex/collections, src/data/demo,
  *   src/domain/fleet, tests/fixtures/workOrders.
@@ -113,5 +114,22 @@ it("refuses an aircraft uuid or registration held elsewhere, as a ConvexError", 
   ).rejects.toMatchObject({
     name: "ConvexError",
     data: "This registration cannot be used.",
+  });
+});
+
+it("shows an aircraft field the schema refuses as its issue text, as a ConvexError", async () => {
+  const { aircraft, save } = await fixture();
+  const input = aircraftInputSchema.parse(aircraft);
+  await expect(
+    save({ ...input, currentHobbs: input.currentHobbs + 1 }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Use tenths of an hour.",
+  });
+  await expect(
+    save({ ...input, registration: " ", currentTach: input.currentTach + 1 }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Too small: expected string to have >=1 characters\nUse tenths of an hour.",
   });
 });

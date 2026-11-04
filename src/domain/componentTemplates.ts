@@ -4,7 +4,7 @@
  *   setup is pending or ready to complete.
  * Layer: Domain. Zod schemas, rules and appliers; no I/O, no React.
  * Dependencies: zod, ./maintenanceCsv, ./ata, ./components, ./model,
- *   ./programs, ./rejection.
+ *   ./programs, ./rejection, ./changeLog.
  */
 import { z } from "zod";
 import { readCsvRows } from "./maintenanceCsv";
@@ -13,6 +13,7 @@ import { POSITIONS } from "./components";
 import { can, type Aircraft, type Snapshot } from "./model";
 import { activeProgram, ownsActive, programPermission } from "./programs";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
 
 const TEXT_MAX_LENGTH = 150;
 const TEMPLATE_ROWS_MAX = 500;
@@ -131,10 +132,12 @@ export function parseComponentTemplateCsv(csv: string) {
 }
 
 /**
- * Saves a template to the active Flight Program, creating it at version 0.
+ * Saves a template to the active Flight Program, creating it at version 0,
+ * and adds a "componentTemplate.save" change-log entry with the template
+ * before and after.
  *
  * @param s - The working snapshot; `componentTemplates` gets the saved
- *   template.
+ *   template and the change log its entry.
  * @param raw - A {@link componentTemplateSchema} payload.
  * @returns The template as saved, with its version incremented.
  * @throws {z.ZodError} On an invalid payload.
@@ -162,6 +165,14 @@ export function saveComponentTemplate(s: Snapshot, raw: unknown) {
     ...(s.componentTemplates ?? []).filter((t) => t.uuid !== next.uuid),
     next,
   ];
+  s.audit.unshift(
+    auditEntry(s, {
+      action: "componentTemplate.save",
+      entityUuid: next.uuid,
+      before: old,
+      after: next,
+    }),
+  );
   return next;
 }
 
@@ -258,7 +269,8 @@ export function setupParentReady(s: Snapshot, d: ComponentSetup): boolean {
  * linked to their parents. A row already applied to the aircraft is skipped,
  * so applying again adds nothing; any refusal adds nothing at all.
  *
- * @param s - The working snapshot; `componentSetups` gets the new setups.
+ * @param s - The working snapshot; `componentSetups` gets the new setups, and
+ *   the change log a "component.setupImported" entry for each.
  * @param raw - `{ templateUuid, version, aircraftUuid, rowIds }`.
  * @returns The setups added.
  * @throws {z.ZodError} On an invalid payload.
@@ -291,6 +303,15 @@ export function applyComponentTemplate(s: Snapshot, raw: unknown) {
   }
   linkParents(added, setupOf);
   s.componentSetups = [...(s.componentSetups ?? []), ...added];
+  for (const d of added)
+    s.audit.unshift(
+      auditEntry(s, {
+        action: "component.setupImported",
+        entityUuid: d.uuid,
+        aircraftUuid: d.aircraftUuid,
+        after: d,
+      }),
+    );
   return added;
 }
 

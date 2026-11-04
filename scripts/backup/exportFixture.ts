@@ -1412,7 +1412,7 @@ export function fixtureExport(now = Date.now()) {
     catalogAt: at(-15),
     catalogCount: 120,
   });
-  add("managementRequests", {
+  add("commandRequests", {
     uuid: uuid("request:1"),
     actorId: U.casey,
     payload: JSON.stringify({ requestUuid: "FIXTURE-REQUEST-PAYLOAD" }),

@@ -4,7 +4,8 @@
  * Layer: Domain. Zod schemas, rules and an applier on a working snapshot; no
  *   I/O, no React.
  * Dependencies: zod, src/domain/model.ts, src/domain/programs.ts,
- *   src/domain/rejection.ts, src/domain/commandRequest.ts.
+ *   src/domain/rejection.ts, src/domain/commandRequest.ts,
+ *   src/domain/changeLog.ts.
  *
  * The format nests category → group → list → item; the schemas are loose so
  * fields this app does not read survive import, edit and export unchanged.
@@ -14,6 +15,7 @@ import { can, type Snapshot } from "./model";
 import { activeProgram, ownsActive, programPermission } from "./programs";
 import { Rejection } from "./rejection";
 import { requestUuidField } from "./commandRequest";
+import { auditEntry } from "./changeLog";
 
 // Limits from docs/checklists.md. Convex keeps each record in one document of
 // at most 1 MiB, so the encoded document must leave room for the record.
@@ -224,9 +226,11 @@ export function checklistEditable(
 
 /**
  * Saves a checklist set over the version the editor opened, as the next
- * version, stamped with the user and time.
+ * version, stamped with the user and time, and adds a "checklist.saved"
+ * change-log entry holding its version, name and counts: the body is large
+ * and stays out of the change log.
  *
- * @param s - The working snapshot; its `checklists` are replaced.
+ * @param s - The working snapshot; its `checklists` and change log change.
  * @param raw - The command, untrusted.
  * @param now - The save time in epoch milliseconds.
  * @returns The saved record, which replaces any earlier one with its uuid.
@@ -268,6 +272,22 @@ export function saveChecklist(
     ...(s.checklists ?? []).filter((c) => c.uuid !== next.uuid),
     next,
   ];
+  s.audit.unshift(
+    auditEntry(
+      s,
+      {
+        action: "checklist.saved",
+        entityUuid: next.uuid,
+        aircraftUuid: next.aircraftUuid || undefined,
+        after: {
+          version: next.version,
+          name: next.document.payload.metadata.name,
+          ...checklistCounts(next.document),
+        },
+      },
+      now,
+    ),
+  );
   return next;
 }
 

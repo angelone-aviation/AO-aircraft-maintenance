@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins checklist saving: permission, stale versions, the
- *   snapshot, and the change-log summary that leaves out the body.
+ *   snapshot, and the change-log row: the program, and a summary that leaves
+ *   out the body.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/checklists, convex/schema, src/domain/checklists,
  *   src/data/demo (fixture).
@@ -101,6 +102,13 @@ it("persists checklist definitions and audits, rejects read-only and stale mutat
   const docs = await t.run((ctx) => ctx.db.query("audit").collect());
   expect(docs.some((d) => d.action === "checklist.saved")).toBe(true);
   const saved = docs.find((d) => d.action === "checklist.saved")!;
+  expect(saved).toMatchObject({
+    programUuid: record.programUuid,
+    entityUuid: record.uuid,
+    aircraftUuid: record.aircraftUuid,
+  });
+  expect(saved).not.toHaveProperty("before");
+  expect(saved).not.toHaveProperty("reason");
   expect(JSON.parse(saved.after!)).toEqual({
     version: 1,
     name: record.document.payload.metadata.name,
@@ -152,7 +160,6 @@ it("saves once per request id: a replay returns nothing and writes nothing", asy
       checklists: await ctx.db.query("checklists").collect(),
       audit: await ctx.db.query("audit").collect(),
       commandRequests: await ctx.db.query("commandRequests").collect(),
-      managementRequests: await ctx.db.query("managementRequests").collect(),
     }));
 
   await expect(

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the command transaction: context check, rollback,
- *   change-log rows, request ids, hand-off, the post-apply hook, which errors
- *   reach the user, and the changed-row writer.
+ *   change-log rows, request ids, the post-apply hook, which errors reach the
+ *   user (and the expose policies), and the changed-row writer.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/runCommand.ts, convex/collections.ts,
  *   convex/schema.ts, src/domain/model.ts, src/domain/costs.ts,
@@ -14,6 +14,7 @@
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
 import { ConvexError } from "convex/values";
+import { z, ZodError } from "zod";
 import schema from "./schema";
 import { demoSnapshot } from "../src/data/demo";
 import type { AuditEntry } from "../src/domain/model";
@@ -30,7 +31,11 @@ import {
   writeChanged,
   plainErrors,
   errorsOf,
+  validationErrors,
+  allErrors,
   requestOf,
+  requestUuidIn,
+  RECORD_TAKEN,
   type Command,
 } from "./runCommand";
 const modules = import.meta.glob([
@@ -81,7 +86,7 @@ async function fixture() {
         .run(async (ctx) => (await runCommand(ctx, command)) ?? null);
   const rows = () => t.run((ctx) => ctx.db.query("audit").collect());
   const requests = () =>
-    t.run((ctx) => ctx.db.query("managementRequests").collect());
+    t.run((ctx) => ctx.db.query("commandRequests").collect());
   const flightPlans = () =>
     t.run((ctx) => ctx.db.query("flightPlans").collect());
   return {
@@ -192,10 +197,11 @@ it("writes the command's audit entry exactly once, after its documents", async (
   expect(JSON.parse(rows[0].after!)).toEqual({ uuid: "plan-1" });
 });
 
-it("replays the applier's entries, re-stamped or exactly as recorded", async () => {
+it("replays the applier's entries as the caller's, or exactly as recorded", async () => {
   const f = await fixture();
   const domain: AuditEntry = {
     uuid: "domain-entry",
+    programUuid: PROGRAM,
     at: 1,
     actorId: "domain-actor",
     action: "stock.issue",
@@ -214,8 +220,8 @@ it("replays the applier's entries, re-stamped or exactly as recorded", async () 
     },
     persist: async () => {},
     audit: (log, { snapshot }) => {
-      log.replay(snapshot.audit, { programUuid: PROGRAM });
-      log.record(snapshot.audit, { programUuid: PROGRAM });
+      log.replay(snapshot.audit);
+      log.record(snapshot.audit);
     },
   });
   const [replayed, recorded] = await f.rows();
@@ -230,7 +236,7 @@ it("replays the applier's entries, re-stamped or exactly as recorded", async () 
     after: domain.after,
   });
   expect(replayed.uuid).not.toBe("domain-entry");
-  expect(recorded).toMatchObject({ ...domain, programUuid: PROGRAM });
+  expect(recorded).toMatchObject(domain);
 });
 
 it("rolls back and exposes only expected rejections when the domain refuses", async () => {
@@ -320,7 +326,7 @@ it("applies a request id once and refuses its reuse for another payload", async 
   expect(await f.requests()).toHaveLength(1);
 });
 
-it("records each request id in commandRequests too, as managementRequests holds it", async () => {
+it("records each request id once, in commandRequests and not managementRequests", async () => {
   const f = await fixture();
   const command = planCommand(f.aircraft, {
     request: () => ({ uuid: "request-1", payload: "first" }),
@@ -336,17 +342,16 @@ it("records each request id in commandRequests too, as managementRequests holds 
     _creationTime,
     ...row
   }: T) => row;
-  const commandRequests = await f.t.run((ctx) =>
-    ctx.db.query("commandRequests").collect(),
-  );
-  expect(commandRequests.map(fields)).toEqual(stored);
   expect((await f.requests()).map(fields)).toEqual(stored);
+  expect(
+    await f.t.run((ctx) => ctx.db.query("managementRequests").collect()),
+  ).toEqual([]);
 });
 
-it("still replays a request id recorded only in managementRequests", async () => {
+it("replays a request id commandRequests already holds, writing nothing", async () => {
   const f = await fixture();
   await f.t.run((ctx) =>
-    ctx.db.insert("managementRequests", {
+    ctx.db.insert("commandRequests", {
       uuid: "request-1",
       actorId: f.mechanic.id,
       payload: "first",
@@ -357,9 +362,8 @@ it("still replays a request id recorded only in managementRequests", async () =>
   });
   expect(await f.mechanic.run(command)).toBeNull();
   expect(await f.flightPlans()).toEqual([]);
-  expect(
-    await f.t.run((ctx) => ctx.db.query("commandRequests").collect()),
-  ).toEqual([]);
+  expect(await f.rows()).toEqual([]);
+  expect(await f.requests()).toHaveLength(1);
 });
 
 it("runs a command sent without a request id every time, recording none", async () => {
@@ -451,7 +455,8 @@ it("shows a Rejection from afterApply as a ConvexError, keeps other errors uncha
   expect(refused).toBeInstanceOf(ConvexError);
   expect(refused).toMatchObject({ message: stale, data: stale });
   const fault = new Error(stale);
-  // A command's `expose` covers apply only, so a plain Error stays hidden.
+  // A command's `expose` covers parse and apply only, so a plain Error stays
+  // hidden.
   expect(await refusal(f.mechanic.run(scheduling(fault)))).toBe(fault);
   expect(await f.flightPlans()).toEqual([]);
   expect(await f.rows()).toEqual([]);
@@ -528,7 +533,8 @@ it("shows a Rejection from persist as a ConvexError and writes nothing", async (
       }),
     ),
   );
-  // A command's `expose` covers apply only, so a plain Error stays hidden.
+  // A command's `expose` covers parse and apply only, so a plain Error stays
+  // hidden.
   expect(hidden).toBe(fault);
   expect(await f.flightPlans()).toEqual([]);
   expect(await f.rows()).toEqual([]);
@@ -547,7 +553,8 @@ it("keeps any other error hidden, from load or apply, and unchanged", async () =
     ),
   );
   expect(fromApply).toBe(fault);
-  // Characterizes current behaviour: a command's `expose` covers apply only.
+  // Characterizes current behaviour: a command's `expose` covers parse and
+  // apply only.
   const fromLoad = await refusal(
     f.mechanic.run(
       planCommand(f.aircraft, {
@@ -577,6 +584,42 @@ it("shows a Rejection even when the command's expose names another class", async
   );
   expect(refused).toBeInstanceOf(ConvexError);
   expect(refused).toMatchObject({ data: "Flight dispatch rejected." });
+});
+
+it("shows a zod refusal from parse or apply only to a command that opts in", async () => {
+  const f = await fixture();
+  const refuseName = () => z.string().min(1, "Enter a plan name.").parse("");
+  for (const step of ["parse", "apply"] as const) {
+    const hidden = await refusal(
+      f.mechanic.run(planCommand(f.aircraft, { [step]: refuseName })),
+    );
+    expect(hidden).toBeInstanceOf(ZodError);
+    expect(hidden).not.toBeInstanceOf(ConvexError);
+    const shown = await refusal(
+      f.mechanic.run(
+        planCommand(f.aircraft, {
+          [step]: refuseName,
+          expose: validationErrors,
+        }),
+      ),
+    );
+    expect(shown).toBeInstanceOf(ConvexError);
+    expect(shown).toMatchObject({ data: "Enter a plan name." });
+  }
+  expect(await f.flightPlans()).toEqual([]);
+});
+
+it("gives a zod refusal's issue text under validationErrors and allErrors only", () => {
+  const refused = z
+    .object({ name: z.string().min(1, "Enter a name."), code: z.number() })
+    .safeParse({ name: "", code: "x" }).error!;
+  const text = "Enter a name.\nInvalid input: expected number, received string";
+  expect(validationErrors(refused)).toBe(text);
+  expect(allErrors(refused)).toBe(text);
+  expect(plainErrors(refused)).toBeUndefined();
+  expect(validationErrors(new ZodError([]))).toBeUndefined();
+  expect(validationErrors(new Error("Plan overlaps."))).toBeUndefined();
+  expect(allErrors(new Error("Plan overlaps."))).toBe("Plan overlaps.");
 });
 
 // Cost records: one the command changes, one it leaves as stored, one it
@@ -613,13 +656,7 @@ function writeCosts(
     },
     apply: ({ stored }) => records(stored),
     persist: ({ ctx }, { docs }, next) =>
-      writeChanged(
-        tracedWrites(ctx, writes),
-        "costs",
-        docs,
-        next,
-        "Cost record belongs to another Flight Program.",
-      ),
+      writeChanged(tracedWrites(ctx, writes), "costs", docs, next),
     audit: () => undefined,
   };
 }
@@ -666,7 +703,7 @@ it("writes changed records as the codec encodes them, skips unchanged ones and n
   );
 });
 
-it("refuses a uuid stored outside the loaded rows with the caller's message, and writes nothing", async () => {
+it("refuses a uuid stored outside the loaded rows with the one collision message, and writes nothing", async () => {
   const f = await fixture();
   const costs = costRecords(f.aircraft);
   await f.t.run((ctx) =>
@@ -682,12 +719,24 @@ it("refuses a uuid stored outside the loaded rows with the caller's message, and
     ),
   );
   expect(refused).toBeInstanceOf(ConvexError);
-  expect(refused).toMatchObject({
-    data: "Cost record belongs to another Flight Program.",
-  });
+  expect(refused).toMatchObject({ data: RECORD_TAKEN });
+  expect(RECORD_TAKEN).toBe("Record belongs to another Flight Program.");
   expect(writes).toEqual(["insert changed"]);
   const stored = await f.t.run((ctx) => ctx.db.query("costs").collect());
   expect(stored.map((d) => d.payload)).toEqual([
     encode("costs", costs.elsewhere).payload,
   ]);
+});
+
+it("reads a request id from a payload the applier parses, or none", () => {
+  const id = "6b0a9d1e-2c3f-4a5b-8c7d-9e0f1a2b3c4d";
+  expect(requestUuidIn(JSON.stringify({ kind: "save", requestUuid: id }))).toBe(
+    id,
+  );
+  expect(requestUuidIn("{")).toBeUndefined();
+  expect(requestUuidIn(JSON.stringify({ requestUuid: "taken" }))).toBe(
+    undefined,
+  );
+  expect(requestUuidIn(JSON.stringify({ kind: "save" }))).toBeUndefined();
+  expect(requestUuidIn("[1]")).toBeUndefined();
 });

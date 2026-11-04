@@ -109,6 +109,36 @@ it("persists work orders and audit entries; rejects unauthorized, stale and cros
     tech.mutation(api.workOrders.save, { ...args, programUuid: "wrong" }),
   ).rejects.toThrow("Program changed");
 });
+it("saves once per request id, which the order never stores: a replay writes nothing", async () => {
+  const { t, tech } = await fixture();
+  const command = { ...workOrderCommand(), requestUuid: crypto.randomUUID() };
+  const args = { programUuid: PROGRAM, payload: JSON.stringify(command) };
+  const stored = () =>
+    t.run(async (ctx) => ({
+      workOrders: await ctx.db.query("workOrders").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+    }));
+  expect(await tech.mutation(api.workOrders.save, args)).toBe(command.uuid);
+  const saved = await stored();
+  expect(saved.commandRequests).toMatchObject([
+    { uuid: command.requestUuid, payload: args.payload },
+  ]);
+  expect(JSON.parse(saved.workOrders[0].payload)).not.toHaveProperty(
+    "requestUuid",
+  );
+  // ADR-0003: a replay succeeds with no payload, where a resave of version 0
+  // is refused as stale.
+  await expect(tech.mutation(api.workOrders.save, args)).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(
+    tech.mutation(api.workOrders.save, {
+      ...args,
+      payload: JSON.stringify({ ...command, version: 1 }),
+    }),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+});
+
 it("uploads authorized maintenance attachments and prevents uploads after closing", async () => {
   const { tech, reader } = await fixture();
   const command = workOrderCommand();
@@ -276,6 +306,10 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
         a.action === "inspection.complete" && a.entityUuid === inspectionId,
     ),
   ).toBe(true);
+  // The completion names the aircraft's program (none before Batch 296).
+  expect(
+    after.audit.find((a) => a.action === "inspection.complete")?.programUuid,
+  ).toBe(PROGRAM);
   await expect(
     tech.mutation(api.workOrders.save, {
       programUuid: PROGRAM,

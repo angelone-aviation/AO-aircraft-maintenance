@@ -223,8 +223,11 @@ it("returns each save in order and prepends one audit entry per template", () =>
     first.uuid,
   ]);
   expect(s.audit[0]).toMatchObject({
+    programUuid: "demo-program",
+    actorId: s.user.id,
     action: "inspectionTemplate.save",
     before: undefined,
+    after: JSON.stringify(results[1].next),
   });
 });
 

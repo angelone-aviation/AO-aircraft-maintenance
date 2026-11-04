@@ -35,7 +35,7 @@ import {
   type Component,
   type ComponentRequirement,
 } from "./components";
-import { scopedSnapshot } from "./programs";
+import { activeProgram, scopedSnapshot } from "./programs";
 import { blankAD, blankADTask } from "./airworthiness";
 import { addressSchema, formatAddress } from "./addresses";
 import { Rejection } from "./rejection";
@@ -332,6 +332,13 @@ describe("shared parts requests", () => {
       "partsRequest.reserve",
       "partsRequest.save",
     ]);
+    expect(
+      new Set(
+        s.audit
+          .filter((a) => ["request", "stock"].includes(a.entityUuid))
+          .map((a) => a.programUuid),
+      ),
+    ).toEqual(new Set([activeProgram(s)]));
     // A PO receipt that reserves for the request is recorded too.
     let p = po({ kind: "save", requestUuid: "po-save", drafts: [draftPO(1)] });
     p = po({

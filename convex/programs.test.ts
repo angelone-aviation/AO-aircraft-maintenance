@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins Flight Program isolation: what each program and role
- *   sees and may write, program selection, and transfers between programs.
+ *   sees and may write, program selection, and transfers between programs,
+ *   once per request id.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/programs and the mutations it isolates, src/data/demo,
  *   src/domain/fleet.
@@ -1015,4 +1016,41 @@ it("location transfers wait for reserved stock and open purchase-order lines del
     programUuid: "B",
     reservedQuantity: 0,
   });
+});
+
+it("transfers once per request id: a replay returns nothing and writes nothing", async () => {
+  const { t, system } = await setup();
+  const requestUuid = crypto.randomUUID();
+  const transfer = (reason: string) =>
+    system.mutation(api.programs.transfer, {
+      programUuid: "A",
+      kind: "location",
+      uuid: "location-A",
+      destination: "B",
+      reason,
+      requestUuid,
+    });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      management: await ctx.db.query("management").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      transferredAudit: await ctx.db.query("transferredAudit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+    }));
+  await transfer("Move stores");
+  const saved = await stored();
+  expect(saved.commandRequests).toMatchObject([{ uuid: requestUuid }]);
+  expect(JSON.parse(saved.commandRequests[0].payload)).toEqual({
+    kind: "location",
+    uuid: "location-A",
+    destination: "B",
+    reason: "Move stores",
+  });
+  // ADR-0003: a replay succeeds with no payload.
+  await expect(transfer("Move stores")).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(transfer("Move stores again")).rejects.toMatchObject({
+    data: "Request identifier already used.",
+  });
+  expect(await stored()).toEqual(saved);
 });

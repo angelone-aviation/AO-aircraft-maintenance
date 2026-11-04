@@ -3,10 +3,11 @@
  *   records: admit it, run its action, store the change and audit it.
  * Layer: Domain. Updates the working snapshot; no I/O, no React (a `now` left
  *   to its default reads the clock).
- * Dependencies: ../model, ./schemas, ./context, ./checks, ./inspections,
- *   ./records, ./componentService.
+ * Dependencies: ../model, ../changeLog, ./schemas, ./context, ./checks,
+ *   ./inspections, ./records, ./componentService.
  */
 import type { Inspection, Snapshot } from "../model";
+import { auditEntry } from "../changeLog";
 import {
   managementCommandSchema,
   type ManagedRecord,
@@ -43,17 +44,21 @@ export function applyManagement(
   const ctx = { existing, aircraft, records, now };
   const { next, extras, updatedInspections } = applyCommand(s, c, ctx);
   storeChange(s, records, next, extras, updatedInspections);
-  s.audit.unshift({
-    uuid: c.requestUuid,
-    actorId: s.user.id,
-    at: now,
-    action: c.action + ("operation" in c ? "." + c.operation : ""),
-    entityUuid: next.uuid,
-    aircraftUuid: scope || undefined,
-    reason: c.reason,
-    before: existing ? JSON.stringify(existing) : undefined,
-    after: JSON.stringify(next),
-  });
+  s.audit.unshift(
+    auditEntry(
+      s,
+      {
+        uuid: c.requestUuid,
+        action: c.action + ("operation" in c ? "." + c.operation : ""),
+        entityUuid: next.uuid,
+        aircraftUuid: scope || undefined,
+        reason: c.reason,
+        before: existing,
+        after: next,
+      },
+      now,
+    ),
+  );
   return {
     next,
     before: existing,

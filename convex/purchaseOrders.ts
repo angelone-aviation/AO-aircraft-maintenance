@@ -26,9 +26,9 @@ const PO_NOT_FOUND = "PO not found.";
  *
  * @param payload - The purchase-order command, as JSON.
  * @returns The uuids of the purchase orders the command changed.
- * @throws {ConvexError} The domain's refusal; "PO not found." for a PO uuid
- *   and "Record belongs to another Flight Program." for a stock or component
- *   uuid that another Flight Program holds; runCommand's program refusals.
+ * @throws {ConvexError} The domain's refusal; "Record belongs to another
+ *   Flight Program." for a PO, stock or component uuid that another Flight
+ *   Program holds; runCommand's program refusals.
  */
 export const execute = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -49,24 +49,16 @@ export const execute = mutation({
       // Unexpected parser/schema/runtime errors retain server-side details only.
       expose: plainErrors,
       persist: async ({ ctx }, { snapshot: s, docs }, changes) => {
-        await writeChanged(
-          ctx,
-          "purchaseOrders",
-          docs.purchaseOrders,
-          changes,
-          PO_NOT_FOUND,
-        );
+        await writeChanged(ctx, "purchaseOrders", docs.purchaseOrders, changes);
         await writeChanged(
           ctx,
           "management",
           docs.management,
           s.management ?? [],
-          "Record belongs to another Flight Program.",
         );
         await patchRequests(ctx, docs.partsRequests, s.partsRequests ?? []);
       },
-      audit: (log, { snapshot }) =>
-        log.record(snapshot.audit, { programUuid: args.programUuid }),
+      audit: (log, { snapshot }) => log.record(snapshot.audit),
       returns: (changes) => changes.map((p) => p.uuid),
     }),
 });

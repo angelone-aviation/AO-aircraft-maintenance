@@ -3,9 +3,9 @@
  *   (ADR-0003): hydrating the records a command reads, and writing the ones
  *   it changed.
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
- * Dependencies: convex/values, convex/server (types), ./_generated,
+ * Dependencies: convex/values, convex/server (types), zod, ./_generated,
  *   ./programContext, ./access, ./collections, src/domain (model, programs,
- *   rejection).
+ *   rejection, validationText, commandRequest).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -13,12 +13,15 @@
  * them.
  */
 import { ConvexError } from "convex/values";
+import { z, ZodError } from "zod";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { WithOptionalSystemFields } from "convex/server";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 import { activeProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
+import { validationText } from "../src/domain/validationText";
+import { requestUuidField } from "../src/domain/commandRequest";
 import {
   decode,
   encode,
@@ -72,8 +75,9 @@ export interface Command<C, W, R, Out = void> {
   /** The domain applier: pure apart from mutating the working state. */
   apply(working: W, command: C): R;
   /**
-   * The message to show for an error `apply` throws that is not a Rejection,
-   * or undefined to keep it hidden. A Rejection is always shown as written.
+   * The message to show for an error `parse` or `apply` throws that is not a
+   * Rejection, or undefined to keep it hidden. A Rejection is always shown as
+   * written.
    */
   expose?(error: unknown): string | undefined;
   /**
@@ -115,13 +119,13 @@ export interface Transaction {
  * Runs a command in the caller's mutation, in order: check the caller's Flight
  * Program context before the payload is read; parse; return early for a
  * replayed request id; load; apply; afterApply; persist; write the change-log
- * rows once through the audit writer; record the request id. A Convex mutation is one transaction, so a throw at any step writes
- * nothing.
+ * rows once through the audit writer; record the request id. A Convex
+ * mutation is one transaction, so a throw at any step writes nothing.
  *
  * @returns What `returns` gives; undefined for a replayed request.
- * @throws {ConvexError} The message of a Rejection thrown in `load`, `apply`,
- *   `afterApply` or `persist`, or the one `expose` gives for another `apply`
- *   error; "Request identifier already used." for a request id reused by
+ * @throws {ConvexError} The message of a Rejection thrown in `parse`, `load`,
+ *   `apply`, `afterApply` or `persist`, or the one `expose` gives for another
+ *   `parse` or `apply` error; "Request identifier already used." for a request id reused by
  *   another caller or with another payload; checkContext's program refusals.
  * @throws {Error} checkContext's session refusal. Other errors pass unchanged.
  */
@@ -138,7 +142,7 @@ export async function runCommand<C, W, R, Out = void>(
   command: Command<C, W, R, Out>,
 ): Promise<Out | undefined> {
   const state = await checkContext(ctx, command.programUuid, command.actor);
-  const parsed = command.parse(state);
+  const parsed = parseCommand(command, state);
   const request = command.request?.(parsed);
   if (request && (await isReplayed(ctx, state, request))) return undefined;
   const log = new CommandLog(state.user.id);
@@ -167,6 +171,26 @@ export function requestOf(
   return requestUuid === undefined ? undefined : { uuid: requestUuid, payload };
 }
 
+/**
+ * The request id in a JSON payload that `apply` parses, read before it does.
+ *
+ * @returns The id; undefined for a payload that is not JSON or whose id is
+ *   missing or not a UUID, which then runs unrecorded (or is refused when
+ *   `apply` parses it).
+ */
+export function requestUuidIn(payload: string): string | undefined {
+  let command: unknown;
+  try {
+    command = JSON.parse(payload);
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+  return REQUEST_ONLY.safeParse(command).data?.requestUuid;
+}
+
+const REQUEST_ONLY = z.object(requestUuidField);
+
 /** A command's change-log rows by one caller, collected in order. */
 export class CommandLog {
   readonly rows: AuditRow[] = [];
@@ -178,15 +202,10 @@ export class CommandLog {
   }
 
   /**
-   * Adds the applier's entries as new rows by the caller, stamped now. Their
-   * own program, aircraft, reason and values are kept unless `stamp`
-   * overrides them (an explicit undefined clears one).
+   * Adds the applier's entries as new rows by the caller, stamped now, each
+   * with its own program, aircraft, reason and values.
    */
-  replay(
-    entries: AuditEntry[],
-    stamp:
-      Partial<AuditFields> | ((entry: AuditEntry) => Partial<AuditFields>) = {},
-  ) {
+  replay(entries: AuditEntry[]) {
     for (const e of entries)
       this.entry(e.action, e.entityUuid, {
         programUuid: e.programUuid,
@@ -194,16 +213,15 @@ export class CommandLog {
         reason: e.reason,
         before: e.before ? JSON.parse(e.before) : undefined,
         after: e.after ? JSON.parse(e.after) : undefined,
-        ...(typeof stamp === "function" ? stamp(e) : stamp),
       });
   }
 
   /**
-   * Adds the applier's entries exactly as it recorded them: its ids, times
-   * and actor. `stamp` sets the program on every row.
+   * Adds the applier's entries exactly as it recorded them: its ids, times,
+   * actor and program.
    */
-  record(entries: AuditEntry[], stamp: { programUuid?: string } = {}) {
-    for (const e of entries) this.rows.push({ ...e, ...stamp });
+  record(entries: AuditEntry[]) {
+    this.rows.push(...entries);
   }
 }
 
@@ -220,13 +238,25 @@ export const plainErrors = (error: unknown) =>
     : undefined;
 
 /**
+ * An `expose` policy that shows a zod refusal as the issue text the browser
+ * shows for it ({@link validationText}). Opt-in, so a command that wants its
+ * parser errors kept hidden, as the offline outbox does, keeps them hidden.
+ *
+ * @returns That text for a ZodError with issues, else undefined.
+ */
+export const validationErrors = (error: unknown) =>
+  error instanceof ZodError ? validationText(error) || undefined : undefined;
+
+/**
  * An `expose` policy that shows every applier error, including parser
  * errors, as a user-facing rejection.
  *
- * @returns The error's message, or the thrown value as text.
+ * @returns A ZodError's issue text, as {@link validationErrors}; else the
+ *   error's message, or the thrown value as text.
  */
 export const allErrors = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+  validationErrors(error) ??
+  (error instanceof Error ? error.message : String(error));
 
 /**
  * An `expose` policy that shows errors of one class only.
@@ -297,6 +327,12 @@ export async function hydrate<N extends Need>(
 export type UuidCollection = Exclude<PayloadCollection, "faaMonitors">;
 
 /**
+ * The refusal for a new record whose uuid is already stored outside the rows
+ * a command loaded: one message for every record type.
+ */
+export const RECORD_TAKEN = "Record belongs to another Flight Program.";
+
+/**
  * Writes a collection's records after `apply`, as the codec encodes them:
  * replaces each loaded row whose payload changed, skips one left as stored,
  * and inserts a record with no loaded row. Never deletes.
@@ -306,22 +342,20 @@ export type UuidCollection = Exclude<PayloadCollection, "faaMonitors">;
  *
  * @param loaded - The collection's rows `load` read for the command.
  * @param records - The records to write, in order.
- * @param refusal - The message for a uuid stored outside the loaded rows.
- * @throws {ConvexError} `refusal`, before that record is written.
+ * @throws {ConvexError} {@link RECORD_TAKEN}, before that record is written.
  */
 export async function writeChanged<N extends UuidCollection>(
   ctx: MutationCtx,
   collection: N,
   loaded: readonly Doc<N>[],
   records: readonly StoredRecord<N>[],
-  refusal: string,
 ): Promise<void> {
   for (const record of records) {
     const row = encode(collection, record);
     const prior = loaded.find((d) => d.uuid === record.uuid);
     if (prior?.payload === row.payload) continue;
     if (prior) await replaceRow(ctx, prior._id, row);
-    else await insertUnclaimed(ctx, collection, row, refusal);
+    else await insertUnclaimed(ctx, collection, row);
   }
 }
 
@@ -420,7 +454,7 @@ async function isReplayed(
   request: CommandRequest,
 ) {
   const prior = await ctx.db
-    .query("managementRequests")
+    .query("commandRequests")
     .withIndex("uuid", (q) => q.eq("uuid", request.uuid))
     .unique();
   if (!prior) return false;
@@ -429,21 +463,27 @@ async function isReplayed(
   return true;
 }
 
-// The same row goes to both tables while commandRequests takes over from
-// managementRequests (ADR-0003, expand); replays still read the old one, which
-// alone holds the ids recorded before.
 async function recordRequest(
   ctx: MutationCtx,
   state: ProgramContext,
   request: CommandRequest,
 ) {
-  const row = {
+  await ctx.db.insert("commandRequests", {
     uuid: request.uuid,
     actorId: state.user.id,
     payload: request.payload,
-  };
-  await ctx.db.insert("managementRequests", row);
-  await ctx.db.insert("commandRequests", row);
+  });
+}
+
+function parseCommand<C, W, R, Out>(
+  command: Command<C, W, R, Out>,
+  state: ProgramContext,
+) {
+  try {
+    return command.parse(state);
+  } catch (error) {
+    throw exposed(error, command.expose);
+  }
 }
 
 async function loadAndApply<C, W, R, Out>(
@@ -507,13 +547,12 @@ async function insertUnclaimed<N extends UuidCollection>(
   ctx: MutationCtx,
   collection: N,
   row: StoredRow<N>,
-  refusal: string,
 ) {
   const stored = await ctx.db
     .query(collection)
     .withIndex("uuid", (q) => q.eq("uuid", row.uuid))
     .first();
-  if (stored) throw new ConvexError(refusal);
+  if (stored) throw new ConvexError(RECORD_TAKEN);
   await ctx.db.insert(collection, row);
 }
 

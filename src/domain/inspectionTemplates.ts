@@ -4,7 +4,7 @@
  *   manual candidates or CSV files.
  * Layer: Domain. Zod schemas and an applier; no I/O, no React.
  * Dependencies: zod, ./model, ./programs, ./manuals, ./manualDiscovery,
- *   ./maintenanceCsv, ./rejection.
+ *   ./maintenanceCsv, ./rejection, ./changeLog.
  *
  * A template holds intervals only, never compliance (last done, next due):
  * those belong to the aircraft records made when a template is activated.
@@ -21,6 +21,7 @@ import {
 import type { ManualCandidate } from "./manualDiscovery";
 import { readCsvRows, type ImportedTask } from "./maintenanceCsv";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
 
 const INTERVAL_MAX = 1000000;
 
@@ -294,16 +295,14 @@ export function saveInspectionTemplates(
   });
   s.inspectionTemplates = records;
   for (const { before, next } of results)
-    s.audit.unshift({
-      uuid: crypto.randomUUID(),
-      programUuid: next.programUuid,
-      actorId: s.user.id,
-      at: Date.now(),
-      action: "inspectionTemplate.save",
-      entityUuid: next.uuid,
-      before: before ? JSON.stringify(before) : undefined,
-      after: JSON.stringify(next),
-    });
+    s.audit.unshift(
+      auditEntry(s, {
+        action: "inspectionTemplate.save",
+        entityUuid: next.uuid,
+        before,
+        after: next,
+      }),
+    );
   return results;
 }
 

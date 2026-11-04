@@ -15,7 +15,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { runCommand, hydrate, errorsOf } from "./runCommand";
+import { runCommand, hydrate, errorsOf, requestOf } from "./runCommand";
 import { decode } from "./collections";
 import {
   context,
@@ -68,11 +68,12 @@ import {
   deferCommandSchema,
   deferDiscrepancy as applyDeferral,
   resolveDiscrepancy as applyResolution,
+  resolvedFields,
 } from "../src/domain/deferrals";
 import {
   operationSchema,
   type Aircraft,
-  type Discrepancy,
+  type AuditEntry,
   type Flight,
   type FlightInput,
   type Operation,
@@ -151,7 +152,9 @@ export const submit = mutation({
 /**
  * Resolves an open problem report with a description of the repair, as the
  * deferrals domain allows, and writes a "discrepancy.resolved" change-log row.
+ * A replayed request id changes nothing.
  *
+ * @param requestUuid - The request id, when the client sends one.
  * @throws {Error} "Report not found."
  * @throws {ConvexError} The refusals of checkContext; "You do not have
  *   permission for this aircraft." without the resolve permission; the
@@ -163,34 +166,33 @@ export const resolveDiscrepancy = mutation({
     uuid: v.string(),
     resolution: v.string(),
     programUuid: v.optional(v.string()),
+    requestUuid: v.optional(v.string()),
   },
-  handler: (ctx, { uuid, resolution, programUuid }) =>
+  handler: (ctx, { uuid, resolution, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => uuid,
+      request: () =>
+        requestOf(requestUuid, JSON.stringify({ uuid, resolution })),
       load: ({ ctx, state }) => loadReport(ctx, state, uuid),
       apply: ({ s }) => applyResolution(s, uuid, resolution),
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, resolvedFields(next));
       },
-      audit: (log, { d }, next) =>
-        log.entry("discrepancy.resolved", uuid, {
-          aircraftUuid: d.aircraftUuid,
-          before: d,
-          after: resolvedFields(next),
-          reason: resolution,
-        }),
+      audit: (log, { s }) => log.replay(oldestFirst(s.audit)),
     }),
 });
 
 /**
  * Records a deferral on a problem report, as the deferrals domain allows,
- * and writes a "discrepancy.deferred" change-log row.
+ * and writes a "discrepancy.deferred" change-log row. A replayed request id
+ * changes nothing.
  *
- * @param payload - The deferral command, as JSON.
- * @throws {Error} "Report not found.", or the domain's refusal.
- * @throws {ConvexError} The refusals of checkContext, or "You do not have
- *   permission for this aircraft." without the resolve permission.
+ * @param payload - The deferral command, as JSON, with its request id.
+ * @throws {Error} "Report not found."; a ZodError for a malformed command.
+ * @throws {ConvexError} The refusals of checkContext; "You do not have
+ *   permission for this aircraft." without the resolve permission; the
+ *   domain's refusals, such as "This discrepancy is already deferred."
  */
 export const deferDiscrepancy = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -198,25 +200,20 @@ export const deferDiscrepancy = mutation({
     runCommand(ctx, {
       programUuid,
       parse: () => deferCommandSchema.parse(JSON.parse(payload)),
+      request: (command) => requestOf(command.requestUuid, payload),
       load: ({ ctx, state }, command) => loadReport(ctx, state, command.uuid),
       apply: ({ s }, command) => applyDeferral(s, command),
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, { deferral: next.deferral });
       },
-      audit: (log, { d }, next) =>
-        log.entry("discrepancy.deferred", d.uuid, {
-          programUuid,
-          aircraftUuid: d.aircraftUuid,
-          reason: next.deferral!.placard,
-          before: d,
-          after: next.deferral,
-        }),
+      audit: (log, { s }) => log.replay(oldestFirst(s.audit)),
     }),
 });
 
 const reviewArgs = {
   uuid: v.string(),
   programUuid: v.optional(v.string()),
+  requestUuid: v.optional(v.string()),
   decision: v.union(v.literal("accept"), v.literal("reject")),
   reason: v.string(),
   input: v.object(flightFields),
@@ -226,8 +223,10 @@ const reviewArgs = {
  * A program administrator accepts or rejects a flight, with corrections, as
  * the domain's reviewFlight allows. The aircraft's totals are rebuilt from its
  * flights, and the change log gets "flight.reviewed" plus "flight.resequenced"
- * for each other flight whose readings moved.
+ * for each other flight whose readings moved. A replayed request id changes
+ * nothing.
  *
+ * @param requestUuid - The request id, when the client sends one.
  * @throws {ConvexError} The refusals of checkContext; "Flight Program
  *   administrator required."; "You do not have permission for this
  *   aircraft."; then reviewFlight's refusals, such as "Flight not found."
@@ -235,10 +234,11 @@ const reviewArgs = {
  */
 export const reviewFlight = mutation({
   args: reviewArgs,
-  handler: (ctx, { programUuid, ...review }) =>
+  handler: (ctx, { programUuid, requestUuid, ...review }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => review,
+      request: () => requestOf(requestUuid, JSON.stringify(review)),
       load: ({ ctx, state }) => loadReview(ctx, state, review),
       apply: ({ snapshot }) => applyReview(snapshot, review),
       persist: ({ ctx }, working, changes) =>
@@ -253,12 +253,14 @@ export const reviewFlight = mutation({
 /**
  * Saves the parts a problem report needs, and writes a "discrepancy.parts"
  * change-log row. The domain checks maintenance permission and the parts
- * version.
+ * version. A replayed request id changes nothing.
  *
  * @param version - The parts version the client edited.
  * @param payload - The required parts, as JSON.
- * @throws {Error} "Report not found.", or the domain's refusal.
- * @throws {ConvexError} The refusals of checkContext.
+ * @param requestUuid - The request id, when the client sends one.
+ * @throws {Error} "Report not found."; a ZodError for a malformed list.
+ * @throws {ConvexError} The refusals of checkContext; the domain's refusals,
+ *   such as "Parts changed. Reopen the report and try again."
  */
 export const saveDiscrepancyParts = mutation({
   args: {
@@ -266,16 +268,19 @@ export const saveDiscrepancyParts = mutation({
     version: v.number(),
     payload: v.string(),
     programUuid: v.optional(v.string()),
+    requestUuid: v.optional(v.string()),
   },
-  handler: (ctx, { uuid, version, payload, programUuid }) =>
+  handler: (ctx, { uuid, version, payload, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => payload,
+      request: () =>
+        requestOf(requestUuid, JSON.stringify({ uuid, version, payload })),
       load: async ({ ctx, state }) => {
         const d = await reportByUuid(ctx, uuid);
         const { snapshot } = await hydrate(ctx, state, ["management"]);
-        snapshot.discrepancies = [d];
-        return { d, snapshot, before: structuredClone(d) };
+        snapshot.discrepancies = [reportOf(d)];
+        return { d, snapshot };
       },
       apply: ({ snapshot }, payload) =>
         applyDiscrepancyParts(
@@ -290,13 +295,7 @@ export const saveDiscrepancyParts = mutation({
           partsVersion: result.partsVersion,
         });
       },
-      audit: (log, { d, before }, result) =>
-        log.entry("discrepancy.parts", uuid, {
-          aircraftUuid: d.aircraftUuid,
-          before,
-          after: result,
-          reason: "Required parts updated",
-        }),
+      audit: (log, { snapshot }) => log.replay(oldestFirst(snapshot.audit)),
     }),
 });
 
@@ -675,16 +674,18 @@ async function persistSubmission(
 async function loadReport(ctx: MutationCtx, state: Snapshot, uuid: string) {
   const d = await reportByUuid(ctx, uuid);
   await authorized(ctx, d.aircraftUuid, "resolve", state);
-  const { _id, _creationTime, ...report } = d;
-  return { d, s: { ...state, discrepancies: [report] } };
+  return { d, s: { ...state, discrepancies: [reportOf(d)] } };
 }
 
-// The fields resolving sets, in the order the change log has always stored
-// them.
-function resolvedFields(d: Discrepancy) {
-  const { status, resolution, resolvedBy, resolvedAt } = d;
-  return { status, resolution, resolvedBy, resolvedAt };
+// The report as the domain and the demo hold it, so the change log records
+// the report, not Convex's system fields.
+function reportOf({ _id, _creationTime, ...report }: Doc<"discrepancies">) {
+  return report;
 }
+
+// Appliers list their entries newest first, as the change log does; rows are
+// written in the order the changes happened.
+const oldestFirst = (entries: AuditEntry[]) => [...entries].reverse();
 
 async function reportByUuid(ctx: MutationCtx, uuid: string) {
   const d = await ctx.db

@@ -26,6 +26,8 @@ import { authorized, audit } from "./access";
 import {
   runCommand,
   hydrate,
+  requestOf,
+  requestUuidIn,
   writeChanged,
   type Hydrated,
   type ProgramContext,
@@ -53,30 +55,22 @@ type LoadedWorkOrder = Awaited<ReturnType<typeof loadWorkOrder>>;
 
 // The tenant guard's message. Every row a save writes was loaded from the
 // program or has a fresh uuid, so data the app wrote never meets it.
-const RECORD_TAKEN = "Record belongs to another Flight Program.";
 const NOT_FOUND = "Work order not found.";
-
-const COPY_REFUSALS = new Set([
-  "Work order changed. Reopen it before saving.",
-  "This work order is closed.",
-  "This item is already on the work order.",
-]);
 
 /**
  * Runs one work order command (save, revise, add work, copy templates or
  * correct a component) through `saveWorkOrder`, and persists what it changed:
  * job cards, inspections, component records, recurring parts requests and the
  * order itself. Template copies run as scheduled batches (workOrderCopies.ts).
+ * A replayed request id changes nothing.
  *
- * @param payload - JSON, as `workOrderCommandSchema`.
+ * @param payload - JSON, as `workOrderCommandSchema`, with its request id,
+ *   which that schema drops.
  * @param programUuid - The caller's active Flight Program.
  * @returns The work order's uuid.
- * @throws {ConvexError} As `runCommand`, `saveWorkOrder` and
- *   `queueTemplateCopies`; "Work order maintenance access denied."; "Job cards
- *   are still being prepared. …"; "Work order not found."; for adding an
- *   inspection or copying templates, also "Work order changed. Reopen it
- *   before saving.", "This work order is closed." and "This item is already
- *   on the work order."
+ * @throws {ConvexError} As `runCommand`, and the refusals of `saveWorkOrder`
+ *   and `queueTemplateCopies`; "Work order maintenance access denied."; "Job
+ *   cards are still being prepared. …"; "Work order not found."
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -84,13 +78,12 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => workOrderCommandSchema.parse(JSON.parse(args.payload)),
+      request: () => requestOf(requestUuidIn(args.payload), args.payload),
       load: loadWorkOrder,
       apply: ({ working }, command) => ({
-        next: showCopyRefusals(command, () =>
-          saveWorkOrder(working, command, Date.now(), {
-            deferTemplateCopies: true,
-          }),
-        ),
+        next: saveWorkOrder(working, command, Date.now(), {
+          deferTemplateCopies: true,
+        }),
       }),
       afterApply: scheduleJobs,
       persist: persistWorkOrder,
@@ -287,30 +280,6 @@ function assertEditable(state: ProgramContext, previous: WorkOrder) {
     );
 }
 
-// Production hides a plain Error's message. Adding an inspection and copying
-// templates showed these refusals as ConvexError before saveWorkOrder ran
-// them, and saveWorkOrder still throws them as plain Error.
-function showCopyRefusals(
-  command: WorkOrderCommand,
-  save: () => WorkOrder,
-): WorkOrder {
-  try {
-    return save();
-  } catch (error) {
-    if (!isCopyCommand(command) || !isCopyRefusal(error)) throw error;
-    throw new ConvexError(error.message);
-  }
-}
-
-const isCopyCommand = (command: WorkOrderCommand) =>
-  command.action === "copyTemplates" ||
-  (command.action === "add" && command.source.kind === "inspection");
-
-const isCopyRefusal = (error: unknown): error is Error =>
-  error instanceof Error &&
-  error.constructor === Error &&
-  COPY_REFUSALS.has(error.message);
-
 // Starts the jobs a save owes: recurring parts requests, then template copies.
 // They need the applied order, and the order records its copy job, so they
 // run before persist (ADR-0003). Copying templates copies them for every item,
@@ -342,17 +311,16 @@ async function persistWorkOrder(
     "archivedTaskCards",
     [],
     working.archivedTaskCards ?? [],
-    RECORD_TAKEN,
   );
   await deleteRemovedCards(ctx, docs.taskCards, cards);
   const added = cards.filter((card) => !previousCards.has(card.uuid));
-  await writeChanged(ctx, "taskCards", docs.taskCards, added, RECORD_TAKEN);
+  await writeChanged(ctx, "taskCards", docs.taskCards, added);
   for (const inspection of working.inspections)
     if (inspection.version !== loaded.previousInspections.get(inspection.uuid))
       await writeInspection(ctx, docs.inspections, inspection);
   const records = changedRecords(loaded);
-  await writeChanged(ctx, "management", docs.management, records, RECORD_TAKEN);
-  await writeChanged(ctx, "workOrders", docs.workOrders, [next], RECORD_TAKEN);
+  await writeChanged(ctx, "management", docs.management, records);
+  await writeChanged(ctx, "workOrders", docs.workOrders, [next]);
 }
 
 async function deleteRemovedCards(

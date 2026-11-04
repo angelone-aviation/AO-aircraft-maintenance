@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the parts a problem report or inspection needs: saved
- *   and audited on the server, with maintenance access to the aircraft only,
- *   and the stock snapshot without private vendor details.
+ *   and audited on the server (the change-log row as stored) once per request
+ *   id, with maintenance access to the aircraft only, and the stock snapshot
+ *   without private vendor details.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex (operations, management, schema),
  *   tests/fixtures/requiredParts.ts.
@@ -18,7 +19,9 @@ const modules = import.meta.glob([
   "!./**/*.d.ts",
 ]);
 const DAY_MS = 86_400_000;
-it("persists linked parts and audits changes while enforcing aircraft and stock permissions", async () => {
+// The parts fixture with a technician (read and maintenance) and a reader on
+// its first aircraft, and the command that saves one needed part.
+async function setup() {
   const t = convexTest(schema, modules);
   const identities = await t.run(async (ctx) => {
     const s = partsFixture();
@@ -57,18 +60,53 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
       reader: await makeUser(["read"]),
     };
   });
-  const tech = t.withIdentity(identities.tech),
-    reader = t.withIdentity(identities.reader);
   const input = {
     uuid: "parts-report",
     version: 0,
     programUuid: "demo-program",
     payload: JSON.stringify([neededPart]),
   };
+  return {
+    t,
+    tech: t.withIdentity(identities.tech),
+    reader: t.withIdentity(identities.reader),
+    identities,
+    input,
+  };
+}
+
+it("persists linked parts and audits changes while enforcing aircraft and stock permissions", async () => {
+  const { t, tech, reader, identities, input } = await setup();
   await expect(
     reader.mutation(api.operations.saveDiscrepancyParts, input),
   ).rejects.toThrow("Permission");
+  const report = () =>
+    t.run((ctx) =>
+      ctx.db
+        .query("discrepancies")
+        .withIndex("uuid", (q) => q.eq("uuid", input.uuid))
+        .unique(),
+    );
+  const stored = await report();
   await tech.mutation(api.operations.saveDiscrepancyParts, input);
+  // The row holds the report before and after, as the demo logs it, without
+  // Convex's system fields, and the aircraft's program (none before Batch
+  // 296).
+  const rows = await t.run(async (ctx) =>
+    (await ctx.db.query("audit").collect()).filter(
+      (r) => r.action === "discrepancy.parts",
+    ),
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    actorId: identities.tech.subject.split("|")[0],
+    entityUuid: input.uuid,
+    aircraftUuid: stored!.aircraftUuid,
+    reason: "Required parts updated",
+  });
+  expect(rows[0].programUuid).toBe("demo-program");
+  expect(rows[0].before).toBe(JSON.stringify(recordOf(stored!)));
+  expect(JSON.parse(rows[0].after!)).toEqual(recordOf((await report())!));
   await expect(
     tech.mutation(api.operations.saveDiscrepancyParts, input),
   ).rejects.toThrow("changed");
@@ -98,3 +136,47 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
     after!.inspections.find((r) => r.uuid === i.uuid)!.requiredParts,
   ).toEqual([neededPart]);
 });
+
+it("saves a parts list once per request id: a replay returns nothing and writes nothing", async () => {
+  const { t, tech, input } = await setup();
+  const requested = { ...input, requestUuid: crypto.randomUUID() };
+  const stored = () =>
+    t.run(async (ctx) => ({
+      discrepancies: await ctx.db.query("discrepancies").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+    }));
+  await tech.mutation(api.operations.saveDiscrepancyParts, requested);
+  const saved = await stored();
+  expect(saved.commandRequests).toMatchObject([
+    {
+      uuid: requested.requestUuid,
+      payload: JSON.stringify({
+        uuid: input.uuid,
+        version: input.version,
+        payload: input.payload,
+      }),
+    },
+  ]);
+  // ADR-0003: a replay succeeds with no payload.
+  await expect(
+    tech.mutation(api.operations.saveDiscrepancyParts, requested),
+  ).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(
+    tech.mutation(api.operations.saveDiscrepancyParts, {
+      ...requested,
+      version: 1,
+    }),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+  expect(await stored()).toEqual(saved);
+});
+
+// A stored row without Convex's system fields, as the domain holds a record.
+function recordOf<T extends { _id: string; _creationTime: number }>({
+  _id,
+  _creationTime,
+  ...record
+}: T) {
+  return record;
+}

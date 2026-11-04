@@ -14,7 +14,13 @@ import {
   taskCardDocs,
   archivedTaskCardDocs,
 } from "./programContext";
-import { runCommand, hydrate, plainErrors, writeChanged } from "./runCommand";
+import {
+  runCommand,
+  hydrate,
+  plainErrors,
+  requestOf,
+  writeChanged,
+} from "./runCommand";
 import { decode, encode } from "./collections";
 import type { Snapshot } from "../src/domain/model";
 import {
@@ -25,13 +31,15 @@ import {
 
 /**
  * Applies one cost command to the active Flight Program's cost records. An
- * unchanged record is neither saved nor audited again.
+ * unchanged record is neither saved nor audited again, and a replayed request
+ * id changes nothing.
  *
- * @param payload - The cost command, as JSON.
- * @returns The uuid of the cost record the command targets.
+ * @param payload - The cost command, as JSON, with its request id.
+ * @returns The uuid of the cost record the command targets; nothing for a
+ *   replay.
  * @throws {ConvexError} The domain's refusal, such as "Work order not
- *   found."; "Cost record belongs to another Flight Program."; and
- *   runCommand's program refusals.
+ *   found."; "Record belongs to another Flight Program." for a cost uuid
+ *   another program holds; and runCommand's program refusals.
  */
 export const execute = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -39,6 +47,7 @@ export const execute = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => costCommandSchema.parse(JSON.parse(args.payload)),
+      request: (command) => requestOf(command.requestUuid, args.payload),
       load: async ({ ctx, state }, command) => {
         const { snapshot: s, docs } = await hydrate(ctx, state, ["costs"]);
         if ("workOrderUuid" in command)
@@ -49,13 +58,7 @@ export const execute = mutation({
       // Explicit domain validation messages are safe, actionable feedback.
       expose: plainErrors,
       persist: ({ ctx }, { docs }, next) =>
-        writeChanged(
-          ctx,
-          "costs",
-          docs,
-          [next],
-          "Cost record belongs to another Flight Program.",
-        ),
+        writeChanged(ctx, "costs", docs, [next]),
       audit: (log, { s, docs }, next) => {
         const prior = docs.find((d) => d.uuid === next.uuid);
         if (prior?.payload !== encode("costs", next).payload)

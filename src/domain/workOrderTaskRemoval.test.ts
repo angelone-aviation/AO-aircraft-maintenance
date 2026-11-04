@@ -65,6 +65,27 @@ it("removes selected tasks and unused copies while retaining templates and an au
   ).toBe(true);
 });
 
+it("records an archived card with the order's program and aircraft, the reason and the card before", () => {
+  const { state, order, copy, remove } = fixture();
+  saveWorkOrder(state, remove, now);
+  const entry = state.audit.find(
+    (e) => e.action === "taskCard.archived_with_task",
+  );
+  expect(entry).toEqual({
+    uuid: expect.any(String),
+    programUuid: state.aircraft.find((a) => a.uuid === order.aircraftUuid)!
+      .programUuid,
+    actorId: state.user.id,
+    at: now,
+    action: "taskCard.archived_with_task",
+    entityUuid: copy.uuid,
+    aircraftUuid: order.aircraftUuid,
+    reason:
+      "Job card archived with its removed work-order task; signatures and evidence retained.",
+    before: JSON.stringify(copy),
+  });
+});
+
 it.each(["signed", "work", "evidence", "task-notes", "completed"] as const)(
   "archives %s without signer approval and preserves its recorded data",
   (kind) => {

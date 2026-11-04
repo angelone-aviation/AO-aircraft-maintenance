@@ -204,7 +204,10 @@ export interface Backend {
    * the stock, components and parts requests it changes.
    */
   purchaseOrder(command: POCommand): Promise<unknown>;
-  /** Applies a cost command; an unchanged record is not saved or logged. */
+  /**
+   * Applies a cost command; an unchanged record is not saved or logged, and
+   * a replayed request id changes nothing.
+   */
   costs(command: CostCommand): Promise<unknown>;
   /**
    * Applies an inventory or inspection command; a replayed request id
@@ -277,29 +280,38 @@ export interface Backend {
   saveChecklist(command: ChecklistCommand): Promise<unknown>;
   /**
    * Imports reviewed task CSV rows, all or none: into a template as its next
-   * version, or onto an inspection as draft job cards.
+   * version, or onto an inspection as draft job cards; a replayed request id
+   * changes nothing.
    */
   importTaskCsv(input: TaskCsvImport): Promise<unknown>;
-  /** Saves templates into the program's library, all or none. */
+  /**
+   * Saves templates into the program's library, all or none; a replayed
+   * request id changes nothing.
+   */
   saveInspectionTemplates(records: InspectionTemplate[]): Promise<unknown>;
   /**
    * Activates a template on an aircraft or a component, with a draft job card
-   * for each template task.
+   * for each template task; a replayed request id changes nothing.
    */
   activateTemplate(input: ActivateTemplateInput): Promise<unknown>;
   /**
    * Deletes templates with the reusable job cards made from them and those
-   * cards' evidence, all or none; activated inspections stay.
+   * cards' evidence, all or none; activated inspections stay, and a replayed
+   * request id changes nothing.
    *
    * @param input - The templates and cards the preview showed, at the
    *   versions it showed.
    */
   deleteInspectionTemplates(input: DeleteTemplatesInput): Promise<unknown>;
-  /** Saves a component template as its next version. */
+  /**
+   * Saves a component template as its next version; a replayed request id
+   * changes nothing.
+   */
   saveComponentTemplate(input: ComponentTemplate): Promise<unknown>;
   /**
    * Adds a component template's chosen rows to an aircraft's component setup
-   * list. Rows already added are skipped; no component is installed.
+   * list. Rows already added are skipped; no component is installed; a
+   * replayed request id changes nothing.
    *
    * @param input - The template and the version previewed, the aircraft, and
    *   the rows to add.
@@ -337,8 +349,9 @@ export interface Backend {
   ): Promise<unknown>;
 
   /**
-   * Applies a work-order command. Copying an inspection's templates runs as
-   * scheduled batches; see {@link Backend.resumeWorkOrderTemplates}.
+   * Applies a work-order command; a replayed request id changes nothing.
+   * Copying an inspection's templates runs as scheduled batches; see
+   * {@link Backend.resumeWorkOrderTemplates}.
    */
   workOrder(command: WorkOrderCommand): Promise<unknown>;
   /**
@@ -351,7 +364,10 @@ export interface Backend {
   attachWorkOrderFile(workOrderUuid: string, file: File): Promise<unknown>;
   /** Removes an open work order's attachment. */
   removeWorkOrderFile(id: string): Promise<unknown>;
-  /** Applies a job-card command; archived job cards are read-only. */
+  /**
+   * Applies a job-card command; archived job cards are read-only, and a
+   * replayed request id changes nothing.
+   */
   taskCard(command: TaskCardCommand): Promise<unknown>;
   /**
    * Attaches evidence to an open job card, which clears its technician,
@@ -377,12 +393,19 @@ export interface Backend {
    *   "accepted"; a resent entry gets the status stored for it.
    */
   submit(operation: Operation): Promise<{ status: string }>;
-  /** Resolves an open problem report, describing the repair done. */
+  /**
+   * Resolves an open problem report, describing the repair done; a replayed
+   * request id changes nothing.
+   */
   resolve(uuid: string, resolution: string): Promise<unknown>;
-  /** Records a deferral on a problem report, as the deferral rules allow. */
+  /**
+   * Records a deferral on a problem report, as the deferral rules allow; a
+   * replayed request id changes nothing.
+   */
   deferDiscrepancy(command: DeferCommand): Promise<unknown>;
   /**
-   * Saves the parts a problem report needs.
+   * Saves the parts a problem report needs; a replayed request id changes
+   * nothing.
    *
    * @param version - The parts version edited; a stale one is refused.
    * @param parts - The required parts.
@@ -394,8 +417,8 @@ export interface Backend {
   ): Promise<unknown>;
   /**
    * Accepts or rejects a held or rejected flight with corrections, then
-   * rebuilds the aircraft's totals from its flights. Program administrators
-   * only.
+   * rebuilds the aircraft's totals from its flights; a replayed request id
+   * changes nothing. Program administrators only.
    *
    * @param decision - Whether the flight counts.
    * @param reason - Why, for the change log.
@@ -407,7 +430,7 @@ export interface Backend {
     reason: string,
     input: FlightInput,
   ): Promise<unknown>;
-  /** Saves or cancels a flight plan. */
+  /** Saves or cancels a flight plan; a replayed request id changes nothing. */
   savePlan(command: PlanCommand): Promise<unknown>;
   /** Lists an aircraft's engine-trend imports and limits (or the defaults). */
   engineTrends(aircraftUuid: string): Promise<EngineTrendData>;
@@ -456,7 +479,8 @@ export interface Backend {
   /**
    * Moves an aircraft, component or location, with the records that depend
    * on it, from the active program to another. System administrators only;
-   * existing change-log rows are never edited (ADR-0005).
+   * existing change-log rows are never edited (ADR-0005), and a replayed
+   * request id changes nothing.
    *
    * @param input - The record, the destination and the reason.
    */
@@ -702,7 +726,7 @@ function bindInventoryCalls(client: ConvexReactClient) {
     purchaseOrder: (command) =>
       client.mutation(api.purchaseOrders.execute, programCommand(command)),
     costs: (command) =>
-      client.mutation(api.costs.execute, programCommand(command)),
+      client.mutation(api.costs.execute, requestedCommand(command)),
     manage: (command) =>
       client.mutation(api.management.execute, programCommand(command)),
     poFiles: (poUuid) =>
@@ -747,17 +771,26 @@ function bindTemplateCalls(client: ConvexReactClient) {
     saveChecklist: (command) =>
       client.mutation(api.checklists.save, requestedCommand(command)),
     importTaskCsv: (input) =>
-      client.mutation(api.taskImports.save, programCommand(input)),
+      client.mutation(api.taskImports.save, requested(programCommand(input))),
     saveInspectionTemplates: (records) =>
-      client.mutation(api.inspectionTemplates.save, programCommand(records)),
+      client.mutation(
+        api.inspectionTemplates.save,
+        requested(programCommand(records)),
+      ),
     activateTemplate: (input) =>
-      client.mutation(api.inspectionTemplates.activate, programCommand(input)),
+      client.mutation(
+        api.inspectionTemplates.activate,
+        requested(programCommand(input)),
+      ),
     deleteInspectionTemplates: (input) =>
-      client.mutation(api.inspectionTemplates.remove, programCommand(input)),
+      client.mutation(
+        api.inspectionTemplates.remove,
+        requested(programCommand(input)),
+      ),
     saveComponentTemplate: (input) =>
-      client.mutation(api.componentTemplates.save, programCommand(input)),
+      client.mutation(api.componentTemplates.save, requestedCommand(input)),
     applyComponentTemplate: (input) =>
-      client.mutation(api.componentTemplates.apply, programCommand(input)),
+      client.mutation(api.componentTemplates.apply, requestedCommand(input)),
   } satisfies Partial<Backend>;
 }
 
@@ -780,7 +813,7 @@ function bindManualCalls(client: ConvexReactClient) {
 function bindWorkCalls(client: ConvexReactClient) {
   return {
     workOrder: (command) =>
-      client.mutation(api.workOrders.save, programCommand(command)),
+      client.mutation(api.workOrders.save, requestedCommand(command)),
     resumeWorkOrderTemplates: (workOrderUuid) =>
       client.mutation(api.workOrderCopies.resume, inProgram({ workOrderUuid })),
     attachWorkOrderFile: async (workOrderUuid, file) =>
@@ -794,7 +827,7 @@ function bindWorkCalls(client: ConvexReactClient) {
         inProgram({ id: id as Id<"workOrderFiles"> }),
       ),
     taskCard: (command) =>
-      client.mutation(api.taskCards.save, programCommand(command)),
+      client.mutation(api.taskCards.save, requestedCommand(command)),
     attachTaskEvidence: async (taskCardUuid, category, file) =>
       client.action(
         api.taskCards.upload,
@@ -815,23 +848,27 @@ function bindFlightCalls(client: ConvexReactClient) {
     resolve: (uuid, resolution) =>
       client.mutation(
         api.operations.resolveDiscrepancy,
-        inProgram({ uuid, resolution }),
+        inProgram(requested({ uuid, resolution })),
       ),
     deferDiscrepancy: (command) =>
-      client.mutation(api.operations.deferDiscrepancy, programCommand(command)),
+      client.mutation(
+        api.operations.deferDiscrepancy,
+        requestedCommand(command),
+      ),
     saveDiscrepancyParts: (uuid, version, parts) =>
       client.mutation(api.operations.saveDiscrepancyParts, {
         uuid,
         version,
         ...programCommand(parts),
+        requestUuid: crypto.randomUUID(),
       }),
     review: (uuid, decision, reason, input) =>
       client.mutation(
         api.operations.reviewFlight,
-        inProgram({ uuid, decision, reason, input }),
+        inProgram(requested({ uuid, decision, reason, input })),
       ),
     savePlan: (command) =>
-      client.mutation(api.flightPlans.save, programCommand(command)),
+      client.mutation(api.flightPlans.save, requestedCommand(command)),
     engineTrends: (aircraftUuid) =>
       client.query(api.engineTrends.list, inProgram({ aircraftUuid })),
     engineTrend: (aircraftUuid, command) =>
@@ -872,7 +909,7 @@ function bindProgramCalls(client: ConvexReactClient) {
     selectProgram: (programUuid) =>
       client.mutation(api.programs.select, { programUuid }),
     transferProgram: (input) =>
-      client.mutation(api.programs.transfer, inProgram(input)),
+      client.mutation(api.programs.transfer, inProgram(requested(input))),
     updateProgramAccess: (userId, programUuid, groupIds, remove) =>
       client.mutation(api.programUsers.updateAccess, {
         userId: userId as Id<"users">,
@@ -1055,9 +1092,14 @@ function programCommand(command: unknown) {
 
 // One request id per call, which the Convex client resends unchanged if it
 // retries the mutation; an id the caller chose for its intent is kept.
-function requestedCommand(command: { requestUuid?: string }) {
-  const requestUuid = command.requestUuid ?? crypto.randomUUID();
-  return programCommand({ ...command, requestUuid });
+function requested<T extends object>(fields: T & { requestUuid?: string }) {
+  return { ...fields, requestUuid: fields.requestUuid ?? crypto.randomUUID() };
+}
+
+function requestedCommand<T extends object>(
+  command: T & { requestUuid?: string },
+) {
+  return programCommand(requested(command));
 }
 
 async function readFileFields(file: File) {

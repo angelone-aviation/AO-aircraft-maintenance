@@ -53,7 +53,7 @@ import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
 import { reviewFlight } from "../domain/flightReview";
-import { saveChecklist, checklistCounts } from "../domain/checklists";
+import { saveChecklist } from "../domain/checklists";
 import {
   inventoryAttachmentAccess,
   validateInventoryFile,
@@ -76,7 +76,7 @@ import {
   type ManualChange,
 } from "../domain/manuals";
 import {
-  saveTaskCard,
+  applyTaskCardCommand,
   taskWritable,
   evidenceRemovable,
 } from "../domain/taskCards";
@@ -106,7 +106,7 @@ import {
 } from "../domain/engineTrends";
 import { applyManagement } from "../domain/management";
 import { ConvexError } from "convex/values";
-import type { AuditEntry, Snapshot } from "../domain/model";
+import type { AuditEntry, Discrepancy, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
 import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import * as local from "./local";
@@ -202,27 +202,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     deleteInspectionTemplates: (input) =>
       modify((s) => {
-        const result = deleteInspectionTemplates(s, input);
-        for (const task of result.taskCards)
-          audit(
-            s,
-            "taskCard.deletedWithTemplate",
-            task.uuid,
-            task.aircraftUuid,
-            "Deleted with its inspection template.",
-            task,
-            undefined,
-          );
-        for (const template of result.templates)
-          audit(
-            s,
-            "inspectionTemplate.deleted",
-            template.uuid,
-            undefined,
-            "Deleted template and associated reusable job cards.",
-            template,
-            undefined,
-          );
+        deleteInspectionTemplates(s, input);
       }),
     activateTemplate: (input) =>
       modify((s) => {
@@ -301,17 +281,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     taskCard: (command) =>
       modify((s) => {
-        const before = s.taskCards?.find((t) => t.uuid === command.uuid);
-        const after = saveTaskCard(s, command);
-        audit(
-          s,
-          "taskCard." + command.action,
-          after.uuid,
-          after.aircraftUuid,
-          undefined,
-          before,
-          after,
-        );
+        applyTaskCardCommand(s, command);
       }),
     attachTaskEvidence: async (taskCardUuid, category, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
@@ -744,34 +714,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     saveChecklist: (command) =>
       modify((s) => {
-        const next = saveChecklist(s, command);
-        audit(
-          s,
-          "checklist.saved",
-          next.uuid,
-          next.aircraftUuid || undefined,
-          undefined,
-          undefined,
-          {
-            version: next.version,
-            name: next.document.payload.metadata.name,
-            ...checklistCounts(next.document),
-          },
-        );
+        saveChecklist(s, command);
       }),
     savePlan: (command) =>
       modify((s) => {
-        const before = s.flightPlans?.find((p) => p.uuid === command.plan.uuid);
-        const after = saveFlightPlan(s, command);
-        audit(
-          s,
-          after.status === "cancelled" ? "plan.cancelled" : "plan.saved",
-          after.uuid,
-          after.aircraftUuid,
-          undefined,
-          before,
-          after,
-        );
+        saveFlightPlan(s, command);
       }),
     transferProgram: (input) => modify((s) => transferProgram(s, input)),
     selectProgram: (programUuid) =>
@@ -861,54 +808,12 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     saveDiscrepancyParts: (uuid, version, parts) =>
       modify((s) => {
-        const before = structuredClone(
-          s.discrepancies.find((d) => d.uuid === uuid),
-        );
-        const d = saveDiscrepancyParts(s, uuid, version, parts);
-        audit(
-          s,
-          "discrepancy.parts",
-          uuid,
-          d.aircraftUuid,
-          "Required parts updated",
-          before,
-          d,
-        );
+        saveDiscrepancyParts(s, uuid, version, parts);
       }),
     deferDiscrepancy: (command) =>
-      modify((s) => {
-        const next = deferDiscrepancy(s, command);
-        const before = s.discrepancies.find((d) => d.uuid === next.uuid);
-        s.discrepancies = s.discrepancies.map((d) =>
-          d.uuid === next.uuid ? next : d,
-        );
-        audit(
-          s,
-          "discrepancy.deferred",
-          next.uuid,
-          next.aircraftUuid,
-          next.deferral!.placard,
-          before,
-          next.deferral,
-        );
-      }),
+      modify((s) => replaceReport(s, deferDiscrepancy(s, command))),
     resolve: (uuid, resolution) =>
-      modify((s) => {
-        const next = resolveDiscrepancy(s, uuid, resolution);
-        const before = s.discrepancies.find((d) => d.uuid === uuid);
-        s.discrepancies = s.discrepancies.map((d) =>
-          d.uuid === uuid ? next : d,
-        );
-        audit(
-          s,
-          "discrepancy.resolved",
-          uuid,
-          next.aircraftUuid,
-          resolution,
-          before,
-          next,
-        );
-      }),
+      modify((s) => replaceReport(s, resolveDiscrepancy(s, uuid, resolution))),
     review: (uuid, decision, reason, input) =>
       modify((s) => {
         const changes = reviewFlight(s, { uuid, decision, reason, input });
@@ -1320,4 +1225,12 @@ function storedAddresses(
     sameName: kept.find((a) => savedAddressNameKey(a.name) === nameKey) ?? null,
     count: kept.length,
   };
+}
+
+// The deferral appliers return a changed copy and leave the snapshot's report
+// as it was, as the server's persist step expects.
+function replaceReport(s: Snapshot, next: Discrepancy) {
+  s.discrepancies = s.discrepancies.map((d) =>
+    d.uuid === next.uuid ? next : d,
+  );
 }

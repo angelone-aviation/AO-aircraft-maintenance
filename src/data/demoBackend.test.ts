@@ -1,14 +1,15 @@
 /**
- * Responsibility: Pins the demo adapter's discrepancy resolution, flight
- *   review, AD changes, attachments, manual edits, saved addresses, FAA
- *   monitor commands, program selection, membership and group saves, and
- *   recurring parts lists against the server's rules: the same refusals,
- *   stored records and change-log rows.
+ * Responsibility: Pins the demo adapter's discrepancy resolution, deferral
+ *   and parts, checklist, job-card and flight-plan saves, template deletion,
+ *   component templates, flight review, AD changes, attachments, manual
+ *   edits, saved addresses, FAA monitor commands, program selection,
+ *   membership and group saves, and recurring parts lists against the
+ *   server's rules: the same refusals, stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
- *   taskCards, workOrders, purchaseOrders, manuals, addresses, faa),
- *   tests/fixtures.
+ *   checklists, taskCards, flightPlans, deleteInspectionTemplates,
+ *   workOrders, purchaseOrders, manuals, addresses, faa), tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -16,9 +17,13 @@
  * flight review skipped the administrator, aircraft, crew, problem-report,
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
- * and crashed on a missing flight. Before Batch 296 its AD rows named no
- * Flight Program. Before Batch 273 it took any number of attachments. Before
- * Batch 285 it audited a manual edit's whole record, saved addresses without
+ * and crashed on a missing flight. Before Batch 296 its AD, deferral,
+ * resolution, parts, checklist, job-card, flight-plan and template-deletion
+ * rows named no Flight Program, a resolution row held the whole report after,
+ * where the server keeps the resolved fields, and it logged no component
+ * template save or setup.
+ * Before Batch 273 it took any number of attachments. Before Batch 285 it
+ * audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
  * FAA monitor's run and error on configure, and ignored an unknown candidate.
  * Before Batch 292 it said "Select at least one group with read access." and
@@ -30,7 +35,8 @@ import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
 import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
-import type { Flight, FlightInput, Snapshot } from "../domain/model";
+import type { Aircraft, Flight, FlightInput, Snapshot } from "../domain/model";
+import { localDate } from "../domain/model";
 import { applyFlight } from "../domain/flights";
 import {
   adAuditRecord,
@@ -41,6 +47,9 @@ import {
 import { Rejection } from "../domain/rejection";
 import { MAX_ATTACHMENTS } from "../domain/attachments";
 import { saveTaskCard } from "../domain/taskCards";
+import { emptyChecklist } from "../domain/checklists";
+import type { FlightPlan } from "../domain/flightPlans";
+import { templateDeletionPreview } from "../domain/deleteInspectionTemplates";
 import { newWorkTask, saveWorkOrder } from "../domain/workOrders";
 import { requestDraftSchema } from "../domain/partsRequests";
 import { poSchema } from "../domain/purchaseOrders";
@@ -50,6 +59,7 @@ import { addressSchema } from "../domain/addresses";
 import type { FaaMonitor } from "../domain/faa";
 import type { Backend } from "./backend";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
+import { templateDeletionFixture } from "../../tests/fixtures/templateDeletion";
 import {
   workOrderCommand,
   workOrderComponent,
@@ -73,7 +83,7 @@ async function demo(namespace: string, edit: (s: Snapshot) => void = () => {}) {
   };
 }
 
-it("resolves with the trimmed repair and audits the record before and after", async () => {
+it("resolves with the trimmed repair and audits it as the server does: the program, the resolved fields", async () => {
   const { backend, stored } = await demo("demo-resolve");
   const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
   await backend.resolve(REPORT, "  Reseated the connector ");
@@ -86,16 +96,275 @@ it("resolves with the trimmed repair and audits the record before and after", as
     resolvedBy: s.user.id,
     resolvedAt: expect.any(Number),
   });
-  expect(s.audit[0]).toMatchObject({
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: after.resolvedAt,
     action: "discrepancy.resolved",
     entityUuid: REPORT,
     aircraftUuid: after.aircraftUuid,
-    actorId: s.user.id,
     reason: "  Reseated the connector ",
+    before: JSON.stringify(before),
+    after: JSON.stringify({
+      status: "resolved",
+      resolution: "Reseated the connector",
+      resolvedBy: s.user.id,
+      resolvedAt: after.resolvedAt,
+    }),
+  });
+});
+
+it("defers and audits it as the server does: the program, the placard, the deferral", async () => {
+  const { backend, stored } = await demo("demo-defer");
+  const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
+  await backend.deferDiscrepancy({
+    uuid: REPORT,
+    deferredOn: localDate(),
+    deferral: { type: "91.213d", placard: " LDG LT INOP ", notHazard: true },
+  });
+  const s = await stored();
+  const after = s.discrepancies.find((d) => d.uuid === REPORT)!;
+  expect(after).toEqual({
+    ...before,
+    deferral: {
+      type: "91.213d",
+      placard: "LDG LT INOP",
+      notHazard: true,
+      deferredOn: localDate(),
+      deferredAt: expect.any(Number),
+      deferredBy: s.user.id,
+      deferredByName: s.user.name,
+      expiresOn: undefined,
+    },
+  });
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: after.deferral!.deferredAt,
+    action: "discrepancy.deferred",
+    entityUuid: REPORT,
+    aircraftUuid: after.aircraftUuid,
+    reason: "LDG LT INOP",
+    before: JSON.stringify(before),
+    after: JSON.stringify(after.deferral),
+  });
+});
+
+it("saves a report's parts and audits it as the server does, with the program", async () => {
+  const { backend, stored } = await demo("demo-parts");
+  const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
+  await backend.saveDiscrepancyParts(REPORT, 0, []);
+  const s = await stored();
+  const after = s.discrepancies.find((d) => d.uuid === REPORT)!;
+  expect(after).toEqual({ ...before, requiredParts: [], partsVersion: 1 });
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    action: "discrepancy.parts",
+    entityUuid: REPORT,
+    aircraftUuid: after.aircraftUuid,
+    reason: "Required parts updated",
     before: JSON.stringify(before),
     after: JSON.stringify(after),
   });
 });
+
+it("saves a checklist and audits it as the server does: the program, the counts", async () => {
+  const { backend, stored } = await demo("demo-checklist");
+  const aircraftUuid = (await stored()).aircraft[0].uuid;
+  const record = {
+    uuid: crypto.randomUUID(),
+    version: 0,
+    programUuid: "demo-program",
+    aircraftUuid,
+    sourceName: "demo.fmd",
+    updatedAt: 0,
+    updatedBy: "",
+    document: emptyChecklist(),
+  };
+  await backend.saveChecklist({ record, baseVersion: 0 });
+  const s = await stored();
+  const saved = s.checklists!.find((c) => c.uuid === record.uuid)!;
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: saved.updatedAt,
+    action: "checklist.saved",
+    entityUuid: record.uuid,
+    aircraftUuid,
+    after: JSON.stringify({
+      version: 1,
+      name: "New checklist",
+      lists: 0,
+      entries: 0,
+      checks: 0,
+    }),
+  });
+});
+
+it("saves a job card and audits it as the server does, with the program", async () => {
+  const { backend, stored } = await demo("demo-task-card");
+  const command = taskCardCommand();
+  await backend.taskCard(command);
+  const s = await stored();
+  const saved = s.taskCards!.find((t) => t.uuid === command.uuid)!;
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: saved.updatedAt,
+    action: "taskCard.save",
+    entityUuid: command.uuid,
+    aircraftUuid: command.fields.aircraftUuid,
+    before: undefined,
+    after: JSON.stringify(saved),
+  });
+  expect(s.audit[0]).not.toHaveProperty("reason");
+});
+
+it("saves and cancels a flight plan, auditing each as the server does, with the program", async () => {
+  const { backend, stored } = await demo("demo-flight-plan");
+  const plan = flightPlan(demoSnapshot().aircraft[0]);
+  await backend.savePlan({ plan, baseVersion: 0 });
+  const saved = (await stored()).flightPlans!.find(
+    (p) => p.uuid === plan.uuid,
+  )!;
+  await backend.savePlan({
+    plan: { ...saved, status: "cancelled" },
+    baseVersion: 1,
+  });
+  const s = await stored();
+  const cancelled = s.flightPlans!.find((p) => p.uuid === plan.uuid)!;
+  const entry = (action: string, before: unknown, after: unknown) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    action,
+    entityUuid: plan.uuid,
+    aircraftUuid: plan.aircraftUuid,
+    before: before && JSON.stringify(before),
+    after: JSON.stringify(after),
+  });
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry("plan.cancelled", saved, cancelled),
+    entry("plan.saved", undefined, saved),
+  ]);
+});
+
+it("deletes templates, auditing each card, then each template, as the server does, with the program", async () => {
+  const f = templateDeletionFixture();
+  const { backend, stored } = await demo("demo-template-deletion", (seed) =>
+    Object.assign(seed, f.s),
+  );
+  await backend.deleteInspectionTemplates(
+    templateDeletionPreview(f.s, [f.template.uuid]),
+  );
+  const s = await stored();
+  const entry = (record: { uuid: string }, fields: object) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    entityUuid: record.uuid,
+    ...fields,
+    before: JSON.stringify(record),
+  });
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry(f.template, {
+      action: "inspectionTemplate.deleted",
+      reason: "Deleted template and associated reusable job cards.",
+    }),
+    entry(f.task, {
+      action: "taskCard.deletedWithTemplate",
+      aircraftUuid: f.task.aircraftUuid,
+      reason: "Deleted with its inspection template.",
+    }),
+  ]);
+});
+
+it("audits a component template save and each setup it adds, as the server does", async () => {
+  const { backend, stored } = await demo("demo-component-template");
+  const a = demoSnapshot().aircraft[0];
+  const row = {
+    id: "1",
+    parentId: "",
+    componentType: "Engine" as const,
+    partNumber: "P1",
+    model: "Engine",
+    manufacturer: "",
+  };
+  const template = { uuid: crypto.randomUUID(), version: 0, name: "Kit" };
+  await backend.saveComponentTemplate({
+    ...template,
+    make: a.make,
+    model: a.model,
+    rows: [row],
+  });
+  await backend.applyComponentTemplate({
+    templateUuid: template.uuid,
+    version: 1,
+    aircraftUuid: a.uuid,
+    rowIds: ["1"],
+  });
+  const s = await stored();
+  const [setup] = s.componentSetups!;
+  const entry = (fields: object) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    ...fields,
+  });
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry({
+      action: "component.setupImported",
+      entityUuid: setup.uuid,
+      aircraftUuid: a.uuid,
+      after: JSON.stringify(setup),
+    }),
+    entry({
+      action: "componentTemplate.save",
+      entityUuid: template.uuid,
+      after: JSON.stringify(s.componentTemplates![0]),
+    }),
+  ]);
+});
+
+// A proposed plan as a PDF import produces it.
+function flightPlan(aircraft: Aircraft): FlightPlan {
+  return {
+    uuid: crypto.randomUUID(),
+    version: 0,
+    aircraftUuid: aircraft.uuid,
+    registration: aircraft.registration,
+    departureAt: "2026-09-30T22:05:00Z",
+    origin: "MZBZ",
+    destination: "KCHA",
+    alternate: "",
+    durationMinutes: 293,
+    cycles: 1,
+    landings: 1,
+    flightRules: "I",
+    aircraftType: "C441",
+    flightType: "G",
+    speed: "N0255",
+    level: "F270",
+    route: "DCT",
+    pilotText: "",
+    equipment: "",
+    otherInformation: "",
+    sourceName: "plan.pdf",
+    sourceHash: "a".repeat(64),
+    status: "proposed",
+    createdAt: 0,
+  };
+}
 
 it.each([
   [

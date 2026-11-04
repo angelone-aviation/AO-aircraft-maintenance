@@ -202,7 +202,7 @@ const CASES: Case[] = [
     call: (b) => b.costs(opaque()),
     kind: "mutation",
     name: "costs:execute",
-    args: command(),
+    args: requested(),
   },
   {
     method: "poFiles",
@@ -284,42 +284,42 @@ const CASES: Case[] = [
     call: (b) => b.importTaskCsv(opaque()),
     kind: "mutation",
     name: "taskImports:save",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "deleteInspectionTemplates",
     call: (b) => b.deleteInspectionTemplates(opaque()),
     kind: "mutation",
     name: "inspectionTemplates:remove",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "activateTemplate",
     call: (b) => b.activateTemplate(opaque()),
     kind: "mutation",
     name: "inspectionTemplates:activate",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "saveInspectionTemplates",
     call: (b) => b.saveInspectionTemplates(opaque()),
     kind: "mutation",
     name: "inspectionTemplates:save",
-    args: command(),
+    args: { ...command(), requestUuid: REQUEST_UUID },
   },
   {
     method: "saveComponentTemplate",
     call: (b) => b.saveComponentTemplate(opaque()),
     kind: "mutation",
     name: "componentTemplates:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "applyComponentTemplate",
     call: (b) => b.applyComponentTemplate(opaque()),
     kind: "mutation",
     name: "componentTemplates:apply",
-    args: command(),
+    args: requested(),
   },
   {
     method: "editManual",
@@ -358,7 +358,7 @@ const CASES: Case[] = [
     call: (b) => b.taskCard(opaque()),
     kind: "mutation",
     name: "taskCards:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "attachTaskEvidence",
@@ -384,7 +384,7 @@ const CASES: Case[] = [
     call: (b) => b.workOrder(opaque()),
     kind: "mutation",
     name: "workOrders:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "resumeWorkOrderTemplates",
@@ -426,6 +426,7 @@ const CASES: Case[] = [
     args: {
       uuid: "report-1",
       resolution: "Replaced the fuse.",
+      requestUuid: REQUEST_UUID,
       programUuid: ACTIVE_PROGRAM,
     },
   },
@@ -434,14 +435,19 @@ const CASES: Case[] = [
     call: (b) => b.deferDiscrepancy(opaque()),
     kind: "mutation",
     name: "operations:deferDiscrepancy",
-    args: command(),
+    args: requested(),
   },
   {
     method: "saveDiscrepancyParts",
     call: (b) => b.saveDiscrepancyParts("report-1", 4, opaque()),
     kind: "mutation",
     name: "operations:saveDiscrepancyParts",
-    args: { uuid: "report-1", version: 4, ...command() },
+    args: {
+      uuid: "report-1",
+      version: 4,
+      ...command(),
+      requestUuid: REQUEST_UUID,
+    },
   },
   {
     method: "review",
@@ -454,6 +460,7 @@ const CASES: Case[] = [
       decision: "accept",
       reason: "Checked",
       input: COMMAND,
+      requestUuid: REQUEST_UUID,
     },
   },
   {
@@ -461,7 +468,7 @@ const CASES: Case[] = [
     call: (b) => b.savePlan(opaque()),
     kind: "mutation",
     name: "flightPlans:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "engineTrends",
@@ -541,7 +548,11 @@ const CASES: Case[] = [
     call: (b) => b.transferProgram(TRANSFER),
     kind: "mutation",
     name: "programs:transfer",
-    args: { ...TRANSFER, programUuid: ACTIVE_PROGRAM },
+    args: {
+      ...TRANSFER,
+      requestUuid: REQUEST_UUID,
+      programUuid: ACTIVE_PROGRAM,
+    },
   },
   {
     method: "updateProgramAccess",
@@ -834,17 +845,41 @@ it("reads the active Flight Program when each method is called", async () => {
   ]);
 });
 
-it("sends a new request id with each AD, checklist and engine-trend command", async () => {
+it("sends a new request id with each AD, checklist, engine-trend, cost, job-card, deferral, component-template, work-order and flight-plan command", async () => {
   vi.restoreAllMocks();
   const { backend, calls } = recordingBackend();
   await backend.saveAD(opaque());
   await backend.saveAD(opaque());
   await backend.saveChecklist(opaque());
   await backend.engineTrend("aircraft-1", opaque());
+  await backend.costs(opaque());
+  await backend.taskCard(opaque());
+  await backend.deferDiscrepancy(opaque());
+  await backend.saveComponentTemplate(opaque());
+  await backend.applyComponentTemplate(opaque());
+  await backend.workOrder(opaque());
+  await backend.savePlan(opaque());
   const ids = calls.map(
     (c) => JSON.parse(c.args.payload as string).requestUuid,
   );
-  expect(new Set(ids).size).toBe(4);
+  expect(new Set(ids).size).toBe(11);
+  for (const id of ids) expect(id).toMatch(UUID);
+});
+
+it("sends a new request id beside the arguments of a resolution, a parts list, a flight review, a transfer, a task import and template commands", async () => {
+  vi.restoreAllMocks();
+  const { backend, calls } = recordingBackend();
+  await backend.resolve("report-1", "Fixed");
+  await backend.resolve("report-1", "Fixed");
+  await backend.saveDiscrepancyParts("report-1", 4, opaque());
+  await backend.review("flight-1", "accept", "Checked", opaque());
+  await backend.transferProgram(TRANSFER);
+  await backend.importTaskCsv(opaque());
+  await backend.saveInspectionTemplates(opaque());
+  await backend.activateTemplate(opaque());
+  await backend.deleteInspectionTemplates(opaque());
+  const ids = calls.map((c) => c.args.requestUuid);
+  expect(new Set(ids).size).toBe(9);
   for (const id of ids) expect(id).toMatch(UUID);
 });
 

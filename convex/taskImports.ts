@@ -7,25 +7,32 @@
  */
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { runCommand, hydrate } from "./runCommand";
+import { runCommand, hydrate, requestOf } from "./runCommand";
 import { importTaskCsv } from "../src/domain/taskCsv";
 
 /**
  * Imports a reviewed task CSV, all or none: into a template as its next
  * version, or onto an inspection as draft job cards. Replays the domain's
- * change-log entries.
+ * change-log entries. A replayed request id changes nothing.
  *
  * @param payload - JSON, as `taskCsvImportSchema`.
  * @param programUuid - The caller's active Flight Program.
+ * @param requestUuid - The request id, when the client sends one; it travels
+ *   beside the payload, which the domain parses strictly.
  * @returns How many tasks were imported.
  * @throws {ConvexError} As `runCommand` and `importTaskCsv`.
  */
 export const save = mutation({
-  args: { payload: v.string(), programUuid: v.optional(v.string()) },
-  handler: (ctx, { payload, programUuid }) =>
+  args: {
+    payload: v.string(),
+    programUuid: v.optional(v.string()),
+    requestUuid: v.optional(v.string()),
+  },
+  handler: (ctx, { payload, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => JSON.parse(payload),
+      request: () => requestOf(requestUuid, payload),
       load: ({ ctx, state }) =>
         hydrate(ctx, state, [
           "inspectionTemplates",
@@ -50,7 +57,7 @@ export const save = mutation({
             payload: JSON.stringify(task),
           });
       },
-      audit: (log, { snapshot }) => log.replay(snapshot.audit, { programUuid }),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (result) => result.count,
     }),
 });

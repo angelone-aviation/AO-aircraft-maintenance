@@ -6,11 +6,20 @@
  * Dependencies: convex/runCommand, src/domain/componentTemplates.
  *
  * Both parse the payload inside the domain step and show every error it
- * throws, so malformed input is refused with its message too.
+ * throws, so malformed input is refused with its message too. Their request
+ * id is read from the payload first; the domain schemas drop it, so it is
+ * never stored in a template or setup.
  */
-import { v, ConvexError } from "convex/values";
+import { v } from "convex/values";
 import { mutation } from "./_generated/server";
-import { runCommand, hydrate, allErrors } from "./runCommand";
+import {
+  runCommand,
+  hydrate,
+  writeChanged,
+  allErrors,
+  requestOf,
+  requestUuidIn,
+} from "./runCommand";
 import {
   saveComponentTemplate,
   applyComponentTemplate,
@@ -20,16 +29,17 @@ const args = { payload: v.string(), programUuid: v.optional(v.string()) };
 
 /**
  * Saves a component template as its next version in the caller's Flight
- * Program, and audits `componentTemplate.save` with the stored and saved
- * versions.
+ * Program, and writes the `componentTemplate.save` row saveComponentTemplate
+ * records. A replayed request id changes nothing.
  *
- * @param payload - JSON, as `saveComponentTemplate` reads it.
+ * @param payload - JSON, as `saveComponentTemplate` reads it, with its
+ *   request id.
  * @param programUuid - The caller's active Flight Program.
  * @returns The template's uuid.
  * @throws {ConvexError} As `runCommand`; any error saveComponentTemplate or
  *   the JSON parser throws, with its message ("Template changed. Reopen
- *   it.", …); "Template belongs to another Flight Program." for a new uuid
- *   another program uses.
+ *   it.", …) or a zod refusal's issue text; "Record belongs to another
+ *   Flight Program." for a new uuid another program uses.
  */
 export const save = mutation({
   args,
@@ -37,52 +47,35 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => args.payload,
+      request: (payload) => requestOf(requestUuidIn(payload), payload),
       load: ({ ctx, state }) => hydrate(ctx, state, ["componentTemplates"]),
       apply: ({ snapshot }, payload) =>
         saveComponentTemplate(snapshot, JSON.parse(payload)),
       expose: allErrors,
-      persist: async ({ ctx }, { docs }, next) => {
-        const old = docs.componentTemplates.find((d) => d.uuid === next.uuid);
-        const fields = {
-          uuid: next.uuid,
-          programUuid: next.programUuid,
-          payload: JSON.stringify(next),
-        };
-        if (old) await ctx.db.replace(old._id, fields);
-        // The scoped load cannot see other programs' templates.
-        else if (
-          await ctx.db
-            .query("componentTemplates")
-            .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
-            .first()
-        )
-          throw new ConvexError("Template belongs to another Flight Program.");
-        else await ctx.db.insert("componentTemplates", fields);
-      },
-      audit: (log, { docs }, next) => {
-        const old = docs.componentTemplates.find((d) => d.uuid === next.uuid);
-        log.entry("componentTemplate.save", next.uuid, {
-          programUuid: next.programUuid,
-          before: old ? JSON.parse(old.payload) : undefined,
-          after: next,
-        });
-      },
+      persist: ({ ctx }, { docs }, next) =>
+        writeChanged(ctx, "componentTemplates", docs.componentTemplates, [
+          next,
+        ]),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (next) => next.uuid,
     }),
 });
 
 /**
  * Adds the chosen rows of a component template to an aircraft's component
- * setup list, and audits `component.setupImported` for each. A row already
- * added is skipped; no component is installed.
+ * setup list, and writes the `component.setupImported` row
+ * applyComponentTemplate records for each, in row order. A row already added
+ * is skipped; no component is installed. A replayed request id changes
+ * nothing.
  *
  * @param payload - JSON: `templateUuid`, the template `version` previewed,
- *   `aircraftUuid` and the `rowIds` to add.
+ *   `aircraftUuid`, the `rowIds` to add and the request id.
  * @param programUuid - The caller's active Flight Program.
  * @returns How many rows were added.
  * @throws {ConvexError} As `runCommand`; any error applyComponentTemplate or
  *   the JSON parser throws, with its message ("Template changed. Reopen the
- *   preview.", "Aircraft make and model must match the template.", …).
+ *   preview.", "Aircraft make and model must match the template.", …) or a
+ *   zod refusal's issue text.
  */
 export const apply = mutation({
   args,
@@ -90,6 +83,7 @@ export const apply = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => args.payload,
+      request: (payload) => requestOf(requestUuidIn(payload), payload),
       load: ({ ctx, state }) =>
         hydrate(ctx, state, [
           "componentTemplates",
@@ -99,23 +93,9 @@ export const apply = mutation({
       apply: ({ snapshot }, payload) =>
         applyComponentTemplate(snapshot, JSON.parse(payload)),
       expose: allErrors,
-      persist: async ({ ctx }, _, added) => {
-        for (const d of added)
-          await ctx.db.insert("componentSetups", {
-            uuid: d.uuid,
-            programUuid: d.programUuid,
-            aircraftUuid: d.aircraftUuid,
-            payload: JSON.stringify(d),
-          });
-      },
-      audit: (log, _, added) => {
-        for (const d of added)
-          log.entry("component.setupImported", d.uuid, {
-            programUuid: d.programUuid,
-            aircraftUuid: d.aircraftUuid,
-            after: d,
-          });
-      },
+      persist: ({ ctx }, { docs }, added) =>
+        writeChanged(ctx, "componentSetups", docs.componentSetups, added),
+      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
       returns: (added) => added.length,
     }),
 });

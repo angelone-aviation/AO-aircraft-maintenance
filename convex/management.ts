@@ -14,6 +14,7 @@ import {
   runCommand,
   hydrate,
   writeChanged,
+  RECORD_TAKEN,
   type LoadedDocs,
 } from "./runCommand";
 import type { MutationCtx } from "./_generated/server";
@@ -24,8 +25,6 @@ import {
   managementCommandSchema,
   inspectionSchema,
 } from "../src/domain/management";
-
-const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 type ManagementResult = ReturnType<typeof applyManagement>;
 type ManagementDocs = Pick<LoadedDocs, "management" | "inspections">;
@@ -77,22 +76,6 @@ export const execute = mutation({
 });
 
 /**
- * Refuses a new record uuid that any Flight Program already uses: scoped
- * loads cannot see other programs' rows, so the check reads globally.
- *
- * @throws {ConvexError} "Record belongs to another Flight Program."
- */
-export async function assertNewManagementUuid(ctx: MutationCtx, uuid: string) {
-  if (
-    await ctx.db
-      .query("management")
-      .withIndex("uuid", (q) => q.eq("uuid", uuid))
-      .first()
-  )
-    throw new ConvexError(RECORD_TAKEN);
-}
-
-/**
  * Writes an inspection a command saved: replaces its loaded row, or inserts
  * it when no Flight Program stores its uuid. The system fields a completion
  * inherits from the loaded row are stripped.
@@ -129,13 +112,7 @@ async function persistRecords(
   docs: ManagementDocs,
   result: Pick<ManagementResult, "records" | "updatedInspections">,
 ) {
-  await writeChanged(
-    ctx,
-    "management",
-    docs.management,
-    result.records,
-    RECORD_TAKEN,
-  );
+  await writeChanged(ctx, "management", docs.management, result.records);
   for (const inspection of result.updatedInspections) {
     const doc = docs.inspections.find((i) => i.uuid === inspection.uuid)!;
     await ctx.db.patch(doc._id, {

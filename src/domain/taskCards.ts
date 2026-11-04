@@ -1,12 +1,13 @@
 /**
  * Responsibility: Job cards: their stored shape, who may write, sign, link or
  *   unlink them and which cards, links and signoffs the screens offer, and
- *   the one command that saves, signs, links or unlinks one.
+ *   the one command that saves, signs, links or unlinks one, with its
+ *   change-log entry.
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   left to its default reads the clock).
  * Dependencies: zod; ./logbookWording, ./programs, ./manuals, ./model,
  *   ./certifications, ./ata, ./workOrders, ./shelfLife, ./management (types),
- *   ./rejection.
+ *   ./commandRequest, ./rejection, ./changeLog.
  */
 import { logbookSelectionFields } from "./logbookWording";
 import { recordProgram } from "./programs";
@@ -18,9 +19,14 @@ import { ataChapterSchema } from "./ata";
 import { isOpenWorkOrder } from "./workOrders";
 import { expiredForUse } from "./shelfLife";
 import type { Stock } from "./management";
+import { requestUuidField } from "./commandRequest";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
 
-/** The longest text a job card field holds. */
+/**
+ * The most characters a job card's text fields hold, such as its title,
+ * description and applicability.
+ */
 export const TASK_TEXT_MAX_LENGTH = 10000;
 /** The longest card number. */
 export const CARD_NUMBER_MAX_LENGTH = 100;
@@ -204,7 +210,8 @@ export type TaskPart = TaskCardFields["partsUsed"][number];
 
 /**
  * The commands {@link saveTaskCard} runs, by `action`: save the fields, link
- * or unlink a record, or sign as technician, inspector or for a step.
+ * or unlink a record, or sign as technician, inspector or for a step; each
+ * may carry its request id.
  *
  * @throws {z.ZodError} From `parse()` on an unknown action or invalid field.
  */
@@ -213,24 +220,28 @@ export const taskCardCommandSchema = z.discriminatedUnion("action", [
     action: z.literal("save"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     fields: taskCardFieldsSchema,
   }),
   z.object({
     action: z.literal("link"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     link: taskLinkSchema,
   }),
   z.object({
     action: z.literal("unlink"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     link: taskLinkSchema,
   }),
   z.object({
     action: z.literal("sign"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     kind: z.enum(["technician", "inspection", "step"]),
     stepUuid: z.string().uuid().optional(),
   }),
@@ -637,6 +648,38 @@ export function saveTaskCard(
     ...(s.taskCards ?? []).filter((t) => t.uuid !== next.uuid),
     next,
   ];
+  return next;
+}
+
+/**
+ * Runs a job-card command the user sent, as {@link saveTaskCard}, and adds
+ * its "taskCard.<action>" change-log entry with the card before and after.
+ * Work orders, template activation and CSV imports save cards through
+ * saveTaskCard and log for themselves.
+ *
+ * @returns The card as saved.
+ * @throws As {@link saveTaskCard}.
+ */
+export function applyTaskCardCommand(
+  s: Snapshot,
+  raw: TaskCardCommand,
+  now = Date.now(),
+): TaskCard {
+  const before = s.taskCards?.find((t) => t.uuid === raw.uuid);
+  const next = saveTaskCard(s, raw, now);
+  s.audit.unshift(
+    auditEntry(
+      s,
+      {
+        action: "taskCard." + raw.action,
+        entityUuid: next.uuid,
+        aircraftUuid: next.aircraftUuid,
+        before,
+        after: next,
+      },
+      now,
+    ),
+  );
   return next;
 }
 
@@ -1104,9 +1147,3 @@ function validateStep(step: TaskStep) {
   )
     throw new Rejection("A step measurement is outside its limits.");
 }
-
-/**
- * The most characters a job card's text fields hold, such as its title,
- * description and applicability.
- */
-export const TASK_TEXT_MAX_LENGTH = 10000;

@@ -111,7 +111,7 @@ sequenceDiagram
   UI->>B: backend.workOrder(command)
   B->>M: { payload: JSON, programUuid }
   M->>RC: parse, load, apply, persist, audit
-  RC->>RC: checkContext (program, read, not owner view), parse, request-id replay check (commandRequests and managementRequests)
+  RC->>RC: checkContext (program, read, not owner view), parse, request-id replay check (commandRequests)
   RC->>T: load or hydrate(needs), record-level authorized()
   RC->>D: apply(working, command)
   RC->>T: persist changed documents

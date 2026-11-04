@@ -313,7 +313,7 @@ it("refuses an AD uuid another Flight Program holds, and writes nothing", async 
       programUuid: "demo-program",
       payload: JSON.stringify({ kind: "save", record: r }),
     }),
-  ).rejects.toThrow("AD record belongs to another Flight Program.");
+  ).rejects.toThrow("Record belongs to another Flight Program.");
   expect(await stored()).toEqual(before);
 });
 
@@ -403,7 +403,6 @@ it("applies an AD command once per request id: a replay returns nothing and writ
       ads: await ctx.db.query("airworthiness").collect(),
       audit: await ctx.db.query("audit").collect(),
       commandRequests: await ctx.db.query("commandRequests").collect(),
-      managementRequests: await ctx.db.query("managementRequests").collect(),
     }));
 
   await expect(

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins job cards: saving and access, signer identity and
- *   signoff rules, template unlinking, evidence, archived cards, and a card
- *   uuid outside the Flight Program.
+ *   signoff rules, template unlinking, evidence, archived cards, a card uuid
+ *   outside the Flight Program, and replayed request ids.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/taskCards, convex/operations, convex/attachments,
  *   src/data/demo, src/domain/taskCards, tests/fixtures/taskCards.
@@ -81,6 +81,19 @@ it("persists cards, enforces access and prevents forged signoffs", async () => {
   const s = await tech.query(api.operations.snapshot, {});
   expect(s?.taskCards?.[0].technicianSignoff).toBeNull();
   expect(s?.audit.some((a) => a.action === "taskCard.save")).toBe(true);
+  // The row names the aircraft's program (ADR-0003; none before Batch 296).
+  const [row] = await t.run(async (ctx) =>
+    (await ctx.db.query("audit").collect()).filter(
+      (r) => r.action === "taskCard.save",
+    ),
+  );
+  expect(row).toMatchObject({
+    entityUuid: command.uuid,
+    aircraftUuid: command.fields.aircraftUuid,
+  });
+  expect(JSON.parse(row.after!)).toEqual(s!.taskCards![0]);
+  expect(row.programUuid).toBe("demo-program");
+  expect(row).not.toHaveProperty("before");
   await expect(tech.mutation(api.taskCards.save, args)).rejects.toThrow(
     "changed",
   );
@@ -464,11 +477,46 @@ it("refuses a job card uuid stored outside the Flight Program, and an archived c
   const before = await stored();
   await expect(save(command)).rejects.toMatchObject({
     name: "ConvexError",
-    data: "Job card not found.",
+    data: "Record belongs to another Flight Program.",
   });
   await expect(save(archived)).rejects.toMatchObject({
     name: "ConvexError",
     data: "Archived job cards are read-only.",
   });
   expect(await stored()).toEqual(before);
+});
+
+it("saves a job card once per request id: a replay returns nothing and writes nothing", async () => {
+  const { t, tech } = await fixture();
+  const requestUuid = crypto.randomUUID();
+  const command = { ...taskCardCommand(), requestUuid };
+  const save = (c: unknown) =>
+    tech.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      taskCards: await ctx.db.query("taskCards").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+    }));
+  await expect(save(command)).resolves.toBe(command.uuid);
+  const saved = await stored();
+  expect(saved.taskCards).toHaveLength(1);
+  expect(saved.commandRequests).toMatchObject([
+    { uuid: requestUuid, payload: JSON.stringify(command) },
+  ]);
+  // ADR-0003: a replay succeeds with no payload.
+  await expect(save(command)).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(
+    save({ ...command, requestUuid: undefined }),
+  ).rejects.toMatchObject({
+    data: "Job card changed. Reopen it before saving.",
+  });
+  await expect(
+    save({ ...command, fields: { ...command.fields, title: "Other" } }),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+  expect(await stored()).toEqual(saved);
 });

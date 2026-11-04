@@ -1,13 +1,17 @@
 /**
  * Responsibility: Deleting inspection templates together with the reusable
- *   job-card templates they created, after a confirmed preview.
- * Layer: Domain. Pure zod schema and functions; no I/O, no React.
- * Dependencies: zod, src/domain/model.ts, programs.ts, rejection.ts.
+ *   job-card templates they created, after a confirmed preview, with their
+ *   change-log entries.
+ * Layer: Domain. Zod schema, rules and an applier on a working snapshot; no
+ *   I/O, no React.
+ * Dependencies: zod, src/domain/model.ts, programs.ts, rejection.ts,
+ *   changeLog.ts.
  *
  * The schedules and component requirements a template created stay, as do
  * job cards copied into work orders (docs/maintenance-csv-import.md).
  */
 import { z } from "zod";
+import { auditEntry } from "./changeLog";
 import { can, type Snapshot } from "./model";
 import { ownsActive, programPermission } from "./programs";
 import { Rejection } from "./rejection";
@@ -54,7 +58,9 @@ export function templateDeletionPreview(s: Snapshot, uuids: string[]) {
 
 /**
  * Deletes inspection templates and their job-card templates, with the cards'
- * evidence, from a working snapshot.
+ * evidence, from a working snapshot, and adds a "taskCard.deletedWithTemplate"
+ * entry for each card, then an "inspectionTemplate.deleted" entry for each
+ * template, holding the record before.
  *
  * @param s - The working snapshot; changed in place.
  * @param raw - The confirmed deletion.
@@ -86,6 +92,7 @@ export function deleteInspectionTemplates(
   );
   s.taskCards = s.taskCards?.filter((t) => !tasks.has(t.uuid));
   s.taskEvidence = s.taskEvidence?.filter((e) => !tasks.has(e.taskCardUuid));
+  recordDeletion(s, result);
   return result;
 }
 
@@ -164,6 +171,31 @@ function assertTaskCardsDeletable(
   if (dependent)
     throw new Rejection(
       `Job card “${dependent.title}” depends on a card selected for deletion. Remove its prerequisite links before deleting these templates.`,
+    );
+}
+
+function recordDeletion(
+  s: Snapshot,
+  { templates, taskCards }: ReturnType<typeof templateDeletionPreview>,
+) {
+  for (const card of taskCards)
+    s.audit.unshift(
+      auditEntry(s, {
+        action: "taskCard.deletedWithTemplate",
+        entityUuid: card.uuid,
+        aircraftUuid: card.aircraftUuid,
+        reason: "Deleted with its inspection template.",
+        before: card,
+      }),
+    );
+  for (const template of templates)
+    s.audit.unshift(
+      auditEntry(s, {
+        action: "inspectionTemplate.deleted",
+        entityUuid: template.uuid,
+        reason: "Deleted template and associated reusable job cards.",
+        before: template,
+      }),
     );
 }
 

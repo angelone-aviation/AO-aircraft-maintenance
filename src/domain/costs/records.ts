@@ -2,9 +2,10 @@
  * Responsibility: The stored shapes of cost records (work-order costs,
  *   budgets, the labor rate) and of the cost command.
  * Layer: Domain. Zod schemas and types; no I/O, no React.
- * Dependencies: zod; ./units (limits).
+ * Dependencies: zod; ./units (limits), ../commandRequest.
  */
 import { z } from "zod";
+import { requestUuidField } from "../commandRequest";
 import {
   MAX_CENTS,
   MAX_ENTRY_MINUTES,
@@ -125,7 +126,8 @@ export type OtherCost = z.infer<typeof otherCostSchema>;
 
 /**
  * A cost command: add or remove labor or another cost, set or clear a part's
- * manual unit cost, set a budget, or set the labor rate.
+ * manual unit cost, set a budget, or set the labor rate; each may carry its
+ * request id.
  *
  * @throws {z.ZodError} From `parse()` on an invalid command; "Enter labor
  *   hours." for labor with both or neither of minutes and seconds.
@@ -133,6 +135,7 @@ export type OtherCost = z.infer<typeof otherCostSchema>;
 export const costCommandSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("labor.add"),
+    ...requestUuidField,
     workOrderUuid: id,
     // Current apps send exact seconds; older apps send whole minutes.
     entry: z
@@ -150,11 +153,13 @@ export const costCommandSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.enum(["labor.remove", "other.remove"]),
+    ...requestUuidField,
     workOrderUuid: id,
     uuid: id,
   }),
   z.object({
     action: z.literal("other.add"),
+    ...requestUuidField,
     workOrderUuid: id,
     entry: z.object({
       uuid: z.string().uuid(),
@@ -165,6 +170,7 @@ export const costCommandSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("part.unitCost"),
+    ...requestUuidField,
     workOrderUuid: id,
     stockUuid: id,
     // null clears the manual cost and falls back to the stock unit cost.
@@ -172,11 +178,16 @@ export const costCommandSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("budget.set"),
+    ...requestUuidField,
     aircraftUuid: id,
     year: budgetYear,
     amountCents: cents,
   }),
-  z.object({ action: z.literal("settings.laborRate"), laborRateCents: rate }),
+  z.object({
+    action: z.literal("settings.laborRate"),
+    ...requestUuidField,
+    laborRateCents: rate,
+  }),
 ]);
 /** A parsed cost command. */
 export type CostCommand = z.infer<typeof costCommandSchema>;

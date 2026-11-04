@@ -4,30 +4,39 @@
  * Layer: Server. Convex mutation over runCommand; the rules live in
  *   src/domain/flightPlans.
  * Dependencies: convex/values, zod, ./_generated, ./access, ./collections,
- *   ./runCommand, src/domain/flightPlans.
+ *   ./runCommand, src/domain (flightPlans, commandRequest).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { authorized } from "./access";
 import { decode } from "./collections";
-import { runCommand, writeChanged, type ProgramContext } from "./runCommand";
+import {
+  runCommand,
+  requestOf,
+  writeChanged,
+  type ProgramContext,
+} from "./runCommand";
 import {
   flightPlanSchema,
   saveFlightPlan,
   type PlanCommand,
 } from "../src/domain/flightPlans";
 import { z } from "zod";
+import { requestUuidField } from "../src/domain/commandRequest";
 const commandSchema = z.object({
   plan: flightPlanSchema,
   baseVersion: z.number().int().nonnegative(),
+  ...requestUuidField,
 });
 const PLAN_ID_USED = "Plan ID already used.";
 
 /**
- * Saves a flight plan on one aircraft and writes a "plan.saved" or
- * "plan.cancelled" change-log row with the plan before and after.
+ * Saves a flight plan on one aircraft and writes the "plan.saved" or
+ * "plan.cancelled" row saveFlightPlan records. A replayed request id changes
+ * nothing.
  *
- * @param payload - The plan and the version it was edited from, as JSON.
+ * @param payload - The plan and the version it was edited from, as JSON,
+ *   with its request id.
  * @returns The plan's uuid.
  * @throws {ConvexError} "Plan ID already used." for a plan uuid stored on
  *   another aircraft; a domain Rejection, such as "Plan changed. Reopen it
@@ -40,20 +49,12 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => commandSchema.parse(JSON.parse(args.payload)),
+      request: (command) => requestOf(command.requestUuid, args.payload),
       load: ({ ctx, state }, command) => loadPlan(ctx, state, command),
       apply: ({ s }, command) => saveFlightPlan(s, command),
       persist: ({ ctx }, { plans }, next) =>
-        writeChanged(ctx, "flightPlans", plans, [next], PLAN_ID_USED),
-      audit: (log, { existing }, next) =>
-        log.entry(
-          next.status === "cancelled" ? "plan.cancelled" : "plan.saved",
-          next.uuid,
-          {
-            aircraftUuid: next.aircraftUuid,
-            before: existing ? JSON.parse(existing.payload) : undefined,
-            after: next,
-          },
-        ),
+        writeChanged(ctx, "flightPlans", plans, [next]),
+      audit: (log, { s }) => log.replay(s.audit),
       returns: (next) => next.uuid,
     }),
 });
@@ -80,7 +81,6 @@ async function loadPlan(
     )
     .collect();
   return {
-    existing,
     plans,
     s: {
       ...state,

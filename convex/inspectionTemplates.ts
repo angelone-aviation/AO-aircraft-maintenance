@@ -12,35 +12,47 @@ import { deleteInspectionTemplates } from "../src/domain/deleteInspectionTemplat
 import { activateTemplate } from "../src/domain/activateTemplate";
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { runCommand, hydrate, writeChanged, type Hydrated } from "./runCommand";
+import {
+  runCommand,
+  hydrate,
+  requestOf,
+  writeChanged,
+  type Hydrated,
+} from "./runCommand";
 import { writeInspection } from "./management";
 import { deleteBlobIfUnused } from "./attachments";
 import { saveInspectionTemplates } from "../src/domain/inspectionTemplates";
 
-const args = { payload: v.string(), programUuid: v.optional(v.string()) };
-const TEMPLATE_TAKEN = "Template belongs to another Flight Program.";
-const RECORD_TAKEN = "Record belongs to another Flight Program.";
+// The payload of a template save is a bare list, so the request id travels
+// beside it, for all three commands alike.
+const args = {
+  payload: v.string(),
+  programUuid: v.optional(v.string()),
+  requestUuid: v.optional(v.string()),
+};
 
 type TemplateDeletion = ReturnType<typeof deleteInspectionTemplates>;
 type DeletionDocs = Hydrated<"inspectionTemplates" | "taskCards">["docs"];
 
 /**
  * Saves templates into the caller's Flight Program library, all or none, and
- * audits `inspectionTemplate.save` for each with its stored and saved
- * versions.
+ * writes the `inspectionTemplate.save` row saveInspectionTemplates records for
+ * each, in save order. A replayed request id changes nothing.
  *
  * @param payload - JSON, as `saveInspectionTemplates` reads it.
  * @param programUuid - The caller's active Flight Program.
+ * @param requestUuid - The request id, when the client sends one.
  * @throws {ConvexError} As `runCommand` and `saveInspectionTemplates`;
- *   "Template belongs to another Flight Program." for a new uuid another
+ *   "Record belongs to another Flight Program." for a new uuid another
  *   program uses.
  */
 export const save = mutation({
   args,
-  handler: (ctx, { payload, programUuid }) =>
+  handler: (ctx, { payload, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => JSON.parse(payload),
+      request: () => requestOf(requestUuid, payload),
       load: ({ ctx, state }) => hydrate(ctx, state, ["inspectionTemplates"]),
       apply: ({ snapshot }, command) =>
         saveInspectionTemplates(snapshot, command),
@@ -50,36 +62,31 @@ export const save = mutation({
           "inspectionTemplates",
           docs.inspectionTemplates,
           results.map((r) => r.next),
-          TEMPLATE_TAKEN,
         ),
-      audit: (log, _, results) => {
-        for (const { before, next } of results)
-          log.entry("inspectionTemplate.save", next.uuid, {
-            programUuid: next.programUuid,
-            before,
-            after: next,
-          });
-      },
+      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
     }),
 });
 
 /**
  * Activates a template on an aircraft (an inspection) or a component (a
  * component requirement), with a draft job card per template task, and
- * replays the domain's change-log entries.
+ * replays the domain's change-log entries. A replayed request id changes
+ * nothing.
  *
  * @param payload - JSON, as `activateTemplateSchema`.
  * @param programUuid - The caller's active Flight Program.
+ * @param requestUuid - The request id, when the client sends one.
  * @returns The new inspection's or requirement's uuid.
  * @throws {ConvexError} As `runCommand` and `activateTemplate`; "Record
  *   belongs to another Flight Program." when a uuid it generated is stored.
  */
 export const activate = mutation({
   args,
-  handler: (ctx, { payload, programUuid }) =>
+  handler: (ctx, { payload, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => JSON.parse(payload),
+      request: () => requestOf(requestUuid, payload),
       load: ({ ctx, state }) =>
         hydrate(ctx, state, [
           "inspectionTemplates",
@@ -90,50 +97,36 @@ export const activate = mutation({
       apply: ({ snapshot }, command) => activateTemplate(snapshot, command),
       persist: async ({ ctx }, { docs }, { record, tasks }) => {
         if ("kind" in record)
-          await writeChanged(
-            ctx,
-            "management",
-            docs.management,
-            [record],
-            RECORD_TAKEN,
-          );
+          await writeChanged(ctx, "management", docs.management, [record]);
         else await writeInspection(ctx, docs.inspections, record);
-        await writeChanged(
-          ctx,
-          "taskCards",
-          docs.taskCards,
-          tasks,
-          RECORD_TAKEN,
-        );
+        await writeChanged(ctx, "taskCards", docs.taskCards, tasks);
       },
-      audit: (log, { snapshot }, result) =>
-        log.replay(snapshot.audit, {
-          aircraftUuid: result.aircraftUuid,
-          programUuid,
-          before: undefined,
-        }),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (result) => result.record.uuid,
     }),
 });
 
 /**
  * Deletes templates with the reusable job cards made from them and those
- * cards' evidence files, all or none, and audits
- * `taskCard.deletedWithTemplate` and `inspectionTemplate.deleted` for each.
- * Inspections already activated stay.
+ * cards' evidence files, all or none, and writes the
+ * `taskCard.deletedWithTemplate` and `inspectionTemplate.deleted` rows
+ * deleteInspectionTemplates records, in that order. Inspections already
+ * activated stay. A replayed request id changes nothing.
  *
  * @param payload - JSON, as `deleteTemplatesSchema`: the templates and cards
  *   the preview showed, at the versions it showed.
  * @param programUuid - The caller's active Flight Program.
+ * @param requestUuid - The request id, when the client sends one.
  * @returns How many templates and job cards were deleted.
  * @throws {ConvexError} As `runCommand` and `deleteInspectionTemplates`.
  */
 export const remove = mutation({
   args,
-  handler: (ctx, { payload, programUuid }) =>
+  handler: (ctx, { payload, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => JSON.parse(payload),
+      request: () => requestOf(requestUuid, payload),
       load: ({ ctx, state }) =>
         hydrate(ctx, state, [
           "inspectionTemplates",
@@ -145,21 +138,7 @@ export const remove = mutation({
         deleteInspectionTemplates(snapshot, command),
       persist: ({ ctx }, { docs }, result) =>
         deleteTemplates(ctx, docs, result),
-      audit: (log, _, result) => {
-        for (const task of result.taskCards)
-          log.entry("taskCard.deletedWithTemplate", task.uuid, {
-            programUuid,
-            aircraftUuid: task.aircraftUuid,
-            before: task,
-            reason: "Deleted with its inspection template.",
-          });
-        for (const template of result.templates)
-          log.entry("inspectionTemplate.deleted", template.uuid, {
-            programUuid,
-            before: template,
-            reason: `Deleted template and associated reusable job cards.`,
-          });
-      },
+      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
       returns: (result) => ({
         templates: result.templates.length,
         taskCards: result.taskCards.length,

@@ -36,13 +36,17 @@ const target = { userId: v.id("users"), kind: v.string() };
  *
  * @param userId - The member.
  * @param payload - JSON, as `certificationsSchema`.
- * @throws As {@link list}; a ZodError for an invalid payload.
+ * @throws As {@link list}.
+ * @throws {ConvexError} The issue text of certifications
+ *   `certificationsSchema` refuses.
  */
 export const save = mutation({
   args: { userId: v.id("users"), payload: v.string() },
   handler: async (ctx, args) => {
     const { actor } = await authorize(ctx, args.userId);
-    const certifications = certificationsSchema.parse(JSON.parse(args.payload));
+    const certifications = exposeRejections(() =>
+      certificationsSchema.parse(JSON.parse(args.payload)),
+    );
     await ctx.db.patch(args.userId, {
       certifications,
       ...memberLicense({ certifications }),

@@ -490,7 +490,10 @@ it("refuses a PO uuid another Flight Program holds, and writes nothing", async (
       requestUuid: crypto.randomUUID(),
       drafts: [draft("taken")],
     }),
-  ).rejects.toMatchObject({ name: "ConvexError", data: "PO not found." });
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Record belongs to another Flight Program.",
+  });
   expect(await stored()).toEqual(before);
 });
 

@@ -528,16 +528,17 @@ export default defineSchema({
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
     .index("program", ["programUuid", "aircraftUuid"]),
-  // The request ids of every runCommand command that carries one, despite the
-  // name: with the caller and payload, a replay is a no-op and any other reuse
-  // is refused (convex/runCommand.ts).
+  // Retired: nothing reads or writes it since commandRequests replaced it. It
+  // stays declared only because Convex refuses a deploy whose schema drops a
+  // table that still holds rows; a later batch drops it once it is empty.
   managementRequests: defineTable({
     uuid: v.string(),
     actorId: v.string(),
     payload: v.string(),
   }).index("uuid", ["uuid"]),
-  // managementRequests under its ADR-0003 name, written alongside it until
-  // replays read from here (T18). The fields match, so rows copy over as is.
+  // The request id of every runCommand command that carries one, with its
+  // caller and payload: a replay is a no-op and any other reuse is refused
+  // (convex/runCommand.ts, ADR-0003). It replaced managementRequests.
   commandRequests: defineTable({
     uuid: v.string(),
     actorId: v.string(),

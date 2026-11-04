@@ -225,7 +225,6 @@ it("applies a command once per request id: a replay returns the same and writes 
       limits: await ctx.db.query("engineTrendLimits").collect(),
       audit: await ctx.db.query("audit").collect(),
       commandRequests: await ctx.db.query("commandRequests").collect(),
-      managementRequests: await ctx.db.query("managementRequests").collect(),
     }));
 
   await expect(

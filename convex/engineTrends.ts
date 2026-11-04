@@ -3,22 +3,21 @@
  *   pressure limits: listing them, importing, removing and setting limits.
  * Layer: Server. A public query and a mutation through runCommand; read
  *   permission on the aircraft to list, maintenance to change.
- * Dependencies: zod, convex/programContext, convex/runCommand,
- *   src/domain/model, src/domain/engineTrends, src/domain/commandRequest.
+ * Dependencies: convex/programContext, convex/runCommand, src/domain/model,
+ *   src/domain/engineTrends.
  */
 import { query, mutation } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { z } from "zod";
 import { checkContext } from "./programContext";
 import {
   requestOf,
+  requestUuidIn,
   runCommand,
   type CommandLog,
   type Transaction,
 } from "./runCommand";
 import { can } from "../src/domain/model";
-import { requestUuidField } from "../src/domain/commandRequest";
 import {
   applyEngineTrendCommand,
   defaultEngineLimits,
@@ -31,8 +30,6 @@ const target = {
   aircraftUuid: v.string(),
   programUuid: v.optional(v.string()),
 };
-
-const REQUEST_ONLY = z.object(requestUuidField);
 
 type Stored = Awaited<ReturnType<typeof loadTrends>>;
 type Working = Awaited<ReturnType<typeof loadForChange>>;
@@ -146,19 +143,6 @@ async function loadForChange(
     actorId: state.user.id,
     scope: { programUuid, aircraftUuid },
   };
-}
-
-// Read before apply parses the command. A payload that is not JSON, or whose
-// id is malformed, is refused when apply parses it, so here it has no id.
-function requestUuidIn(payload: string): string | undefined {
-  let command: unknown;
-  try {
-    command = JSON.parse(payload);
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  return REQUEST_ONLY.safeParse(command).data?.requestUuid;
 }
 
 // A ZodError's message is its issue list as JSON, which starts with "[".

@@ -752,7 +752,7 @@ describe("records workbook", () => {
     expect(text(seatRail.cells.Status.value)).toBe("Overdue");
   });
 
-  it("builds for an aircraft without a meter reading: its AD actions are Unknown with the reason, a passed due date still overdue", async () => {
+  it("builds for an aircraft without a meter reading: its AD actions read Counter unavailable, a passed due date still overdue", async () => {
     const withoutReading = () => {
       const files = unzipSync(fixture.zip);
       editFirst(
@@ -801,9 +801,11 @@ describe("records workbook", () => {
           text(r.cells.Item.value) === `AD ${number}`,
       )!;
     const unknown = adRow("2024-DEMO-03");
-    expect(text(unknown.cells.Status.value)).toBe("Unknown");
+    // The domain judges the counter unavailable (adCounters returns null for
+    // an aircraft meter without a reading), as the app's screens show it.
+    expect(text(unknown.cells.Status.value)).toBe("Counter unavailable");
     expect(text(unknown.cells.Detail.value)).toBe(
-      "Inspect attach brackets for cracks; repeat every 100 h.\nFlight time log reading is required.",
+      "Inspect attach brackets for cracks; repeat every 100 h.",
     );
     expect(text(unknown.cells["Due at"].value)).toBe("2,400.0 h");
     expect(unknown.cells["Hours left"].value).toBeNull();

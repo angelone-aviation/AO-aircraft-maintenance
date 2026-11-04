@@ -29,6 +29,7 @@ import { authorized, audit } from "./access";
 import {
   runCommand,
   hydrate,
+  requestOf,
   writeChanged,
   type ProgramContext,
 } from "./runCommand";
@@ -43,7 +44,7 @@ import { exposeRejections } from "./userErrors";
 import { validateWorkOrderFile } from "../src/domain/workOrders";
 import { withNewEvidence } from "../src/domain/attachments";
 import {
-  saveTaskCard,
+  applyTaskCardCommand,
   taskCardCommandSchema,
   taskWritable,
   evidenceRemovable,
@@ -54,14 +55,15 @@ const NO_OPEN_CARD = "An open job card and maintenance access are required.";
 const NO_EVIDENCE = "Evidence not found.";
 
 /**
- * Saves a job card in the active Flight Program and writes a
- * "taskCard.<action>" change-log row with the card before and after.
+ * Saves a job card in the active Flight Program and writes the
+ * "taskCard.<action>" row applyTaskCardCommand records. A replayed request id
+ * changes nothing.
  *
- * @param payload - The job-card command, as JSON.
- * @returns The card's uuid.
- * @throws {ConvexError} "Archived job cards are read-only."; "Job card not
- *   found." for a card uuid outside the program; a domain Rejection;
- *   runCommand's program refusals.
+ * @param payload - The job-card command, as JSON, with its request id.
+ * @returns The card's uuid; nothing for a replay.
+ * @throws {ConvexError} "Archived job cards are read-only."; "Record belongs
+ *   to another Flight Program." for a card uuid outside the program; a
+ *   domain Rejection; runCommand's program refusals.
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -69,16 +71,12 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => taskCardCommandSchema.parse(JSON.parse(args.payload)),
+      request: (command) => requestOf(command.requestUuid, args.payload),
       load: ({ ctx, state }, command) => loadCard(ctx, state, command),
-      apply: ({ snapshot }, command) => saveTaskCard(snapshot, command),
+      apply: ({ snapshot }, command) => applyTaskCardCommand(snapshot, command),
       persist: ({ ctx }, { docs }, next) =>
-        writeChanged(ctx, "taskCards", docs, [next], "Job card not found."),
-      audit: (log, { before }, next, command) =>
-        log.entry("taskCard." + command.action, next.uuid, {
-          aircraftUuid: next.aircraftUuid,
-          before,
-          after: next,
-        }),
+        writeChanged(ctx, "taskCards", docs, [next]),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (next) => next.uuid,
     }),
 });
@@ -235,8 +233,7 @@ async function loadCard(
     .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
     .unique();
   if (archived) throw new ConvexError("Archived job cards are read-only.");
-  const before = snapshot.taskCards!.find((t) => t.uuid === command.uuid);
-  return { snapshot, before, docs: docs.taskCards };
+  return { snapshot, docs: docs.taskCards };
 }
 
 // The caller's program with its job cards, work orders, inspections, problem
