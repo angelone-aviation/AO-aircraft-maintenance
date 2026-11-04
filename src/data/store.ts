@@ -1,3 +1,15 @@
+/**
+ * Responsibility: The workspace store: the scoped snapshot every screen reads,
+ *   the device outbox of offline flights and problem reports, and its sync.
+ * Layer: Data. Zustand store over IndexedDB and the Backend; no UI.
+ * Dependencies: zustand, convex/values, src/data (local, backend, demo,
+ *   demoBackend, deviceManuals), src/domain (model, programs, flights,
+ *   flightChecklistLink, flightPlans, aircraftStatus).
+ *
+ * Only flights and problem reports queue offline; every other write needs a
+ * connection. The client checks in enqueue() are a convenience: the server
+ * checks each entry again when it syncs.
+ */
 import { validateChecklistFlight } from "../domain/flightChecklistLink";
 import { validatePlanFlight } from "../domain/flightPlans";
 import { scopedSnapshot } from "../domain/programs";
@@ -12,32 +24,116 @@ import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
 import { demoSnapshot, withDemoUser } from "./demo";
 import type { Backend } from "./backend";
 import { demoBackend } from "./demoBackend";
+
+// The demo keeps its full fictional snapshot under this suffix of the
+// namespace and shows the workspace a scoped copy, as the server would.
+const DEMO_FULL_SUFFIX = ":all";
+// Snapshots cached before Flight Program scoping lack this version and are
+// not shown; the next snapshot from the server replaces them.
+const PROGRAM_SCOPE_VERSION = 1;
+
+/** The workspace state and actions the screens use, through useWorkspace. */
 export interface Workspace {
+  /** False until {@link Workspace.initialize} has read the device cache. */
   ready: boolean;
+  /** The scoped snapshot shown; null before sign-in or after sign-out. */
   snapshot: Snapshot | null;
+  /** This namespace's outbox, oldest first. */
   queue: QueuedOperation[];
+  /** The device-cache namespace: "demo", or "live:" and the deployment URL. */
   namespace: string;
   demo: boolean;
   online: boolean;
   connected: boolean;
   syncing: boolean;
+  /** Set when the session ended or the user signed out; nothing may queue. */
   blocked: boolean;
   error: string;
   notice: string;
   favorites: string[];
   backend: Backend | null;
+  /**
+   * Opens a namespace from the device cache: its snapshot and outbox. The
+   * demo opens its full snapshot (else the cached one, else a fresh demo)
+   * and scopes it. Sets
+   * `error` to "Persistent storage is unavailable. Enable browser storage
+   * before adding offline entries." when IndexedDB fails.
+   *
+   * @param namespace - The device-cache namespace.
+   * @param demo - Whether this is the demo, which uses the demo backend.
+   */
   initialize(namespace: string, demo: boolean): Promise<void>;
+  /**
+   * Shows and caches a snapshot from the server, then reconciles kept manuals
+   * and flushes. Null means the session ended: the cached snapshot and kept
+   * manuals are removed and the workspace is blocked. A call that finishes
+   * after a newer one started is dropped.
+   *
+   * @param snapshot - The new snapshot, or null when signed out.
+   */
   receive(snapshot: Snapshot | null): Promise<void>;
+  /**
+   * Records the browser's and the backend's connection; flushes once both
+   * are up.
+   *
+   * @param online - Whether the browser reports a network.
+   * @param connected - Whether the backend connection is open.
+   */
   setConnection(online: boolean, connected: boolean): void;
+  /**
+   * Saves a flight or problem report on the device, stamped with the active
+   * program, then tries to sync it.
+   *
+   * @param operation - The entry, written by the signed-in user.
+   * @throws {Error} "Your offline access expired. Reconnect and sign in;
+   *   pending entries are preserved."; "Account does not match this
+   *   entry."; "You cannot add entries for this aircraft."; for a flight
+   *   linked to a plan with a queued flight, "This plan has a failed flight
+   *   entry. Discard it in the Sync center before logging the flight
+   *   again." or "This plan already has a flight pending synchronization.";
+   *   and as validateFlight, validateChecklistFlight, dispatchGate and
+   *   validatePlanFlight.
+   */
   enqueue(operation: Operation): Promise<void>;
+  /**
+   * Sends the signed-in author's entries for the active program, one at a
+   * time, while connected and within the offline window. A server rejection
+   * is kept on the entry for the Sync center; other failures are retried on
+   * the next flush. A flush requested while one runs adds one more pass.
+   *
+   * @param retry - Also resend entries holding a server rejection.
+   */
   flush(retry?: boolean): Promise<void>;
+  /**
+   * Deletes an outbox entry from the device without sending it.
+   *
+   * @param uuid - The entry's operation uuid.
+   */
   discard(uuid: string): Promise<void>;
+  /**
+   * Adds or removes a favorite aircraft, kept per user on this device; does
+   * nothing without a snapshot.
+   *
+   * @param uuid - The aircraft's uuid.
+   */
   toggleFavorite(uuid: string): Promise<void>;
+  /**
+   * Signs out on this device: removes the cached snapshot, unsent form
+   * drafts and kept manuals, and blocks the workspace. The outbox stays, to
+   * sync when the same user signs in again.
+   */
   signOutLocal(): Promise<void>;
 }
-// Server rejections (ConvexError, or any failure reported by the Convex
-// backend as "[CONVEX M(...)] ...") will not succeed on resend; anything else
-// (dropped connection, timeout, client-side failure) is retried automatically.
+
+/**
+ * Whether a sync failure is a server rejection that will fail again if
+ * resent: a ConvexError, or any error the Convex client reports as
+ * "[CONVEX M(...)] ...". Anything else (a dropped connection, a timeout, a
+ * client-side failure) is retried automatically.
+ *
+ * @param error - The failure from `backend.submit`.
+ * @returns True for a permanent rejection.
+ */
 export function permanentSyncError(error: unknown) {
   return (
     error instanceof ConvexError ||
@@ -60,8 +156,10 @@ let flushRequested = false;
 let retryRequested = false;
 // Drops snapshot completions that finish after a newer receive() started.
 let receiveSequence = 0;
-// Device-local drafts keyed by namespace; cleared on sign-out.
-const draftPrefixes = [
+// Unsent form drafts, kept per namespace under these localStorage prefixes by
+// the guided-flight, flight-session and checklist screens; cleared on
+// sign-out.
+const DRAFT_PREFIXES = [
   "angel-one-guided:",
   "angel-one-flight-sessions:",
   "angel-one-checks:",
@@ -75,10 +173,14 @@ function clearDeviceDrafts(namespace: string) {
   }
   for (const key of keys)
     if (
-      draftPrefixes.some((prefix) => key.startsWith(prefix + namespace + ":"))
+      DRAFT_PREFIXES.some((prefix) => key.startsWith(prefix + namespace + ":"))
     )
       localStorage.removeItem(key);
 }
+/**
+ * The app's one workspace store. Writes other than outbox entries go through
+ * `backend` methods; the store itself only caches what the server sends.
+ */
 export const useWorkspace = create<Workspace>((set, get) => ({
   ready: false,
   snapshot: null,
@@ -110,7 +212,7 @@ export const useWorkspace = create<Workspace>((set, get) => ({
         local.readQueue(namespace),
       ]);
       const full = demo
-        ? ((await local.readSnapshot(namespace + ":all")) ??
+        ? ((await local.readSnapshot(namespace + DEMO_FULL_SUFFIX)) ??
           cached ??
           demoSnapshot())
         : cached;
@@ -119,11 +221,12 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       const snapshot = full
         ? demo
           ? scopedSnapshot(full)
-          : full.programScopeVersion === 1
+          : full.programScopeVersion === PROGRAM_SCOPE_VERSION
             ? full
             : null
         : null;
-      if (demo && full) await local.saveSnapshot(namespace + ":all", full);
+      if (demo && full)
+        await local.saveSnapshot(namespace + DEMO_FULL_SUFFIX, full);
       // Persist before showing the workspace, so once it renders no startup
       // write is still pending that could overwrite a newer one.
       if (snapshot && demo) await local.saveSnapshot(namespace, snapshot);
@@ -323,24 +426,36 @@ async function flushPass(namespace: string, backend: Backend, retry: boolean) {
     }
   }
 }
-/** Local demo only: preview the read-only owner portal as a sample owner. */
+/**
+ * Demo only: switches the demo user to a sample aircraft owner, to preview
+ * the read-only owner portal, or back.
+ *
+ * @param owner - True to view as the owner, false to return.
+ * @throws {Error} "Owner preview is available in the demo." outside the demo.
+ */
 export async function previewDemoOwner(owner: boolean) {
   const current = useWorkspace.getState();
   if (!current.demo) throw new Error("Owner preview is available in the demo.");
   const all =
-    (await local.readSnapshot(current.namespace + ":all")) ?? current.snapshot!;
+    (await local.readSnapshot(current.namespace + DEMO_FULL_SUFFIX)) ??
+    current.snapshot!;
   const next = withDemoUser(all, owner);
-  await local.saveSnapshot(current.namespace + ":all", next);
+  await local.saveSnapshot(current.namespace + DEMO_FULL_SUFFIX, next);
   await current.receive(scopedSnapshot(next));
 }
-/** Local demo only: restart the offline window. Demo changes rebuild the
- * workspace from the full snapshot, so renew that one too. */
+/**
+ * Demo only: restarts the offline window. Demo changes rebuild the workspace
+ * from the full snapshot, so that one is renewed too.
+ *
+ * @throws {Error} "Renewal is available in the demo." outside the demo.
+ */
 export async function renewDemoAccess() {
   const current = useWorkspace.getState();
   if (!current.demo) throw new Error("Renewal is available in the demo.");
   const all =
-    (await local.readSnapshot(current.namespace + ":all")) ?? current.snapshot!;
+    (await local.readSnapshot(current.namespace + DEMO_FULL_SUFFIX)) ??
+    current.snapshot!;
   const next = { ...all, authenticatedAt: Date.now() };
-  await local.saveSnapshot(current.namespace + ":all", next);
+  await local.saveSnapshot(current.namespace + DEMO_FULL_SUFFIX, next);
   await current.receive(scopedSnapshot(next));
 }

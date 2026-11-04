@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the workspace store: outbox queuing and refusals, sync
+ *   passes and failures, snapshot order, sign-out, and the demo backend
+ *   commands run through it.
+ * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
+ * Dependencies: src/data/store.ts, src/data/local.ts, src/data/demo.ts,
+ *   tests/fixtures.
+ */
 import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
 import { persistOperation, readQueue, readSnapshot } from "./local";
@@ -626,5 +634,144 @@ it("removes kept manuals on sign-out, when the session ends and when a snapshot 
   await keep(a);
   await useWorkspace.getState().signOutLocal();
   expect(await kept()).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
+async function signedInWorkspace(namespace: string, submit = vi.fn()) {
+  const workspace = await liveWorkspace(namespace, submit);
+  workspace.setState({ snapshot: demoSnapshot(), queue: [] });
+  return workspace;
+}
+
+it("refuses entries the device may not queue", async () => {
+  const workspace = await signedInWorkspace("enqueue-refusals-test");
+  const own = discrepancy("demo-program", demoSnapshot().aircraft[0].uuid);
+  workspace.setState({ blocked: true });
+  await expect(workspace.getState().enqueue(own)).rejects.toThrow(
+    "Your offline access expired. Reconnect and sign in; pending entries are preserved.",
+  );
+  workspace.setState({ blocked: false });
+  await expect(
+    workspace.getState().enqueue({ ...own, authorId: "someone-else" }),
+  ).rejects.toThrow("Account does not match this entry.");
+  await expect(
+    workspace.getState().enqueue({ ...own, aircraftUuid: "elsewhere" }),
+  ).rejects.toThrow("You cannot add entries for this aircraft.");
+  expect(await readQueue("enqueue-refusals-test")).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
+it("queues an entry for the active program and reports a held sync", async () => {
+  const namespace = "enqueue-saved-test";
+  const submit = vi.fn().mockResolvedValue({ status: "review" });
+  const workspace = await signedInWorkspace(namespace, submit);
+  const { aircraft } = demoSnapshot();
+  const { programUuid: _ignored, ...entry } = discrepancy(
+    "x",
+    aircraft[0].uuid,
+  );
+  workspace.setState({ connected: false });
+  await workspace.getState().enqueue(entry);
+  expect(workspace.getState().notice).toBe(
+    "Entry saved on this device. It will sync when connected.",
+  );
+  expect(workspace.getState().queue[0].operation.programUuid).toBe(
+    "demo-program",
+  );
+  workspace.getState().setConnection(true, true);
+  await vi.waitFor(() =>
+    expect(workspace.getState().notice).toBe(
+      "Entry synced and held for administrator review. Aircraft totals are unchanged.",
+    ),
+  );
+  vi.unstubAllGlobals();
+});
+
+it("allows one queued flight per flight plan", async () => {
+  const workspace = await signedInWorkspace("plan-queue-test");
+  const snapshot = demoSnapshot();
+  const a = snapshot.aircraft[0];
+  const planUuid = crypto.randomUUID();
+  const plan = { uuid: planUuid, aircraftUuid: a.uuid, status: "proposed" };
+  workspace.setState({
+    snapshot: { ...snapshot, flightPlans: [plan as never] },
+  });
+  const planned = () => {
+    const flight = demoFlight(a.uuid, 1, a.currentHobbs + 3600, 0);
+    return { ...flight, input: { ...flight.input, flightPlanUuid: planUuid } };
+  };
+  const pending = { operation: planned(), queuedAt: 1 };
+  workspace.setState({ queue: [pending] });
+  await expect(workspace.getState().enqueue(planned())).rejects.toThrow(
+    "This plan already has a flight pending synchronization.",
+  );
+  workspace.setState({ queue: [{ ...pending, error: "Rejected" }] });
+  await expect(workspace.getState().enqueue(planned())).rejects.toThrow(
+    "This plan has a failed flight entry. Discard it in the Sync center before logging the flight again.",
+  );
+  vi.unstubAllGlobals();
+});
+
+it("keeps the outbox but clears this namespace's drafts on sign-out", async () => {
+  const { MemoryCacheStorage } =
+    await import("../../tests/fixtures/cacheStorage");
+  vi.stubGlobal("caches", new MemoryCacheStorage());
+  const namespace = "sign-out-test";
+  const drafts: Record<string, string> = {
+    [`angel-one-guided:${namespace}:user`]: "{}",
+    [`angel-one-checks:${namespace}:user:list`]: "{}",
+    "angel-one-guided:other:user": "{}",
+  };
+  Object.defineProperty(drafts, "removeItem", {
+    value: (key: string) => delete drafts[key],
+  });
+  vi.stubGlobal("localStorage", drafts);
+  const entry = discrepancy("demo-program");
+  await persistOperation(namespace, { operation: entry, queuedAt: 1 });
+  const workspace = await signedInWorkspace(namespace);
+  await workspace.getState().signOutLocal();
+  expect(Object.keys(drafts)).toEqual(["angel-one-guided:other:user"]);
+  expect(workspace.getState()).toMatchObject({ snapshot: null, blocked: true });
+  expect(await readQueue(namespace)).toHaveLength(1);
+  vi.unstubAllGlobals();
+});
+
+it("keeps favorites per user and offers demo-only tools only in the demo", async () => {
+  const { previewDemoOwner, renewDemoAccess } = await import("./store");
+  const local = await import("./local");
+  const workspace = await signedInWorkspace("favorites-test");
+  const userId = demoSnapshot().user.id;
+  await workspace.getState().toggleFavorite("demo-206");
+  expect(await local.readFavorites(`favorites-test:${userId}`)).toEqual([
+    "demo-206",
+  ]);
+  await workspace.getState().toggleFavorite("demo-206");
+  expect(workspace.getState().favorites).toEqual([]);
+  await expect(previewDemoOwner(true)).rejects.toThrow(
+    "Owner preview is available in the demo.",
+  );
+  await expect(renewDemoAccess()).rejects.toThrow(
+    "Renewal is available in the demo.",
+  );
+  vi.unstubAllGlobals();
+});
+
+// Keep last: replaces the device cache module for a fresh store.
+it("reports device storage that cannot be read", async () => {
+  vi.resetModules();
+  const unavailable = () => Promise.reject(new Error("blocked"));
+  vi.doMock("./local", () => ({
+    readSnapshot: unavailable,
+    readQueue: unavailable,
+  }));
+  vi.stubGlobal("navigator", { onLine: true });
+  const { useWorkspace } = await import("./store");
+  await useWorkspace.getState().initialize("no-storage-test", false);
+  expect(useWorkspace.getState()).toMatchObject({
+    ready: true,
+    error:
+      "Persistent storage is unavailable. Enable browser storage before adding offline entries.",
+  });
+  vi.doUnmock("./local");
   vi.unstubAllGlobals();
 });
