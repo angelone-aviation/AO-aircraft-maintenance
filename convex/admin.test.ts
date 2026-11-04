@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins administration's refusals, their messages and class,
- *   account names counted after trimming, and the new-aircraft checks the
- *   aircraft schema makes first.
+ *   account emails, account names and group names trimmed as stored, and the
+ *   new-aircraft checks the aircraft schema makes first.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/admin.ts, convex/schema.ts, src/data/demo.ts (fixture).
  */
@@ -354,17 +354,72 @@ it("counts an account name after trimming, as it is stored", async () => {
   ]);
 });
 
-// Characterizes current behaviour: programUsers.create trims the email.
-it("refuses a new account's email typed with spaces around it", async () => {
-  const { system } = await fixture();
-  const run = system.action(api.admin.createUser, {
-    email: " spaced@example.test",
+it("trims an account email typed with spaces around it, as sign-in does", async () => {
+  const password = "Tarmac-sunrise gauge 4417";
+  vi.stubEnv("BOOTSTRAP_ADMIN_PASSWORD", password);
+  const first = convexTest(schema, modules);
+  await first.action(internal.admin.bootstrap, {
+    email: " First@Example.test ",
+    name: "First",
+  });
+  const { t, system } = await fixture();
+  await system.action(api.admin.createUser, {
+    email: "  Spaced@Example.test ",
     name: "Spaced",
+    password,
+  });
+  const logins = async (run: typeof t) =>
+    (await run.run((ctx) => ctx.db.query("authAccounts").collect())).map(
+      (a) => a.providerAccountId,
+    );
+  expect(await logins(first)).toEqual(["first@example.test"]);
+  expect(await logins(t)).toEqual(["spaced@example.test"]);
+});
+
+it("resets the password of a login stored with spaces around its email", async () => {
+  const { t, system } = await fixture();
+  const email = " legacy@example.test ";
+  const id = await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {
+      name: "Legacy",
+      email,
+      active: true,
+      isAdmin: false,
+      groupIds: [],
+    });
+    await ctx.db.insert("authAccounts", {
+      userId,
+      provider: "password",
+      providerAccountId: email,
+      secret: "old hash",
+    });
+    return userId;
+  });
+  await system.action(api.admin.resetPassword, {
+    id,
     password: "Tarmac-sunrise gauge 4417",
   });
-  expect(await refusal(run)).toMatchObject({
+  const login = await t.run((ctx) => ctx.db.query("authAccounts").unique());
+  expect(login).toMatchObject({ providerAccountId: email });
+  expect(login?.secret).not.toBe("old hash");
+});
+
+it("counts a group name after trimming, as it is stored", async () => {
+  const { t, system } = await fixture();
+  const save = (name: string) =>
+    system.mutation(api.admin.saveGroup, {
+      programUuid: "home",
+      name,
+      aircraftIds: [],
+      allAircraft: true,
+      permissions: ["read"],
+    });
+  const padded = (length: number) => ` ${"x".repeat(length)} `;
+  const id = await save(padded(100));
+  expect((await t.run((ctx) => ctx.db.get(id)))?.name).toBe("x".repeat(100));
+  expect(await refusal(save(padded(101)))).toMatchObject({
     name: "ConvexError",
-    data: "A valid email and name are required.",
+    data: "Group name is required.",
   });
 });
 

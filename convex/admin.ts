@@ -41,6 +41,7 @@ import { aircraftFields, permission } from "./validators";
 import { assertAvailableAircraft } from "./fleet";
 import { aircraftInputSchema, type AircraftInput } from "../src/domain/fleet";
 import {
+  ACCOUNT_NAME_MAX_LENGTH,
   EMAIL_UNAVAILABLE,
   normalizeAccount,
   normalizeGroup,
@@ -76,9 +77,6 @@ const groupArgs = {
 };
 
 type NewAircraft = ObjectType<typeof aircraftFields>;
-
-// updateUser's own limit, measured like normalizeAccount's: after trimming.
-const NAME_MAX_LENGTH = 150;
 
 /**
  * The calling system administrator, for actions, which cannot read the
@@ -136,14 +134,14 @@ export const reserveCreate = internalMutation({
 /**
  * Creates an active account with no groups; audits "user.created".
  *
- * @param email - The login email, normalized before use.
+ * @param email - The login email; stored trimmed and lower-cased, the form
+ *   sign-in looks it up in.
  * @param name - The person's name; up to 150 characters after trimming, and
  *   stored trimmed.
  * @param password - 15 or more characters, not a common one (ADR-0009).
  * @returns The new user's id.
- * @throws {ConvexError} As `admin`; "A valid email and name are required.",
- *   also for an email with spaces around it; the password's and the
- *   allowance's refusals; EMAIL_UNAVAILABLE.
+ * @throws {ConvexError} As `admin`; "A valid email and name are required.";
+ *   the password's and the allowance's refusals; EMAIL_UNAVAILABLE.
  */
 export const createUser = action({
   args: accountArgs,
@@ -317,7 +315,7 @@ export const updateUser = mutation({
     await assertAdministratorRemains(ctx, before, args);
     const groupIds = await chooseGroups(ctx, args.groupIds, args.programUuids);
     const name = args.name?.trim();
-    if (name !== undefined && (!name || name.length > NAME_MAX_LENGTH))
+    if (name !== undefined && (!name || name.length > ACCOUNT_NAME_MAX_LENGTH))
       throw new ConvexError("Enter a name of up to 150 characters.");
     const certifications =
       args.certificationsPayload === undefined
@@ -497,12 +495,7 @@ export const saveReleaseStatements = mutation({
   },
 });
 
-// An email typed with spaces around it is refused here, where
-// normalizeAccount and programUsers.create trim it: kept until the owner
-// decides, as the name rule was.
 function validateAccount(email: string, name: string, password: string) {
-  if (email !== email.trim())
-    throw new ConvexError("A valid email and name are required.");
   const account = exposeRejections(() => normalizeAccount(email, name));
   assertNewPassword(password, email);
   return account;

@@ -16,7 +16,6 @@ import { validateOwnerGroup } from "./ownerView";
 import { Rejection } from "./rejection";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ACCOUNT_NAME_MAX_LENGTH = 150;
 const GROUP_NAME_MAX_LENGTH = 100;
 
 // The default read-only group (src/domain/defaultPermissionGroups.ts), matched
@@ -58,6 +57,9 @@ export const PASSWORD_MIN_LENGTH = 15;
 
 /** Longest password an administrator may set. */
 export const PASSWORD_MAX_LENGTH = 128;
+
+/** Longest account name, counted after trimming, as it is stored. */
+export const ACCOUNT_NAME_MAX_LENGTH = 150;
 
 /** A permission group as its save form submits it. */
 export interface GroupInput {
@@ -148,7 +150,7 @@ export function observersGroup(
  *   set), and `assigned`: true when this save gives an unscoped group its
  *   first Flight Program.
  * @throws {Rejection} In order: as `assertGroupProgramChange`; "Group name is
- *   required." (blank, or over 100 characters before trimming); "Write
+ *   required." (blank, or over 100 characters after trimming); "Write
  *   permissions also require read access."; as `validateOwnerGroup` and
  *   `assertGroupAircraftChoice`; "Select a Flight Program for this group."
  */
@@ -158,7 +160,8 @@ export function normalizeGroup(
   systemAdmin: boolean,
 ): { fields: GroupFields; assigned: boolean } {
   const assigned = assertGroupProgramChange(existing, input, systemAdmin);
-  if (!input.name.trim() || input.name.length > GROUP_NAME_MAX_LENGTH)
+  const name = input.name.trim();
+  if (!name || name.length > GROUP_NAME_MAX_LENGTH)
     throw new Rejection("Group name is required.");
   if (!input.permissions.includes("read") && input.permissions.length)
     throw new Rejection("Write permissions also require read access.");
@@ -170,7 +173,7 @@ export function normalizeGroup(
     programUuid: input.programUuid,
     programAdmin: input.programAdmin ?? false,
     owner: input.owner ?? false,
-    name: input.name.trim(),
+    name,
     aircraftIds: [...new Set(input.aircraftIds)],
     permissions: [...new Set(input.permissions)],
   };

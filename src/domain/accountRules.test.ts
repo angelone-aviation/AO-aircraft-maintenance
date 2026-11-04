@@ -136,14 +136,22 @@ describe("normalizeGroup", () => {
     );
   });
 
-  // Characterizes current behaviour: the length is checked before trimming,
-  // as convex/admin.ts saveGroup does, and no permissions at all is allowed.
-  it("measures the name before trimming and allows no permissions", () => {
-    const padded = ` ${"x".repeat(99)} `;
+  it("measures the name after trimming, as it is stored", () => {
+    const padded = (length: number) => ` ${"x".repeat(length)} `;
+    const saved = normalizeGroup(
+      input({ name: padded(100) }),
+      undefined,
+      false,
+    );
+    expect(saved.fields.name).toBe("x".repeat(100));
     expectRejection(
-      () => normalizeGroup(input({ name: padded }), undefined, false),
+      () => normalizeGroup(input({ name: padded(101) }), undefined, false),
       "Group name is required.",
     );
+  });
+
+  // Characterizes current behaviour: no permissions at all is allowed.
+  it("allows no permissions", () => {
     const none = normalizeGroup(input({ permissions: [] }), undefined, false);
     expect(none.fields.permissions).toEqual([]);
   });
