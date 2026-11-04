@@ -4,7 +4,7 @@
  * Layer: UI. React components; flight rules live in src/domain.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
  *   (flightFluids, model, programs, checklists, guidedFlight, flights,
- *   aircraftStatus), ./Checklists, ./FlightFluids, ./FlightForm,
+ *   readings, aircraftStatus), ./Checklists, ./FlightFluids, ./FlightForm,
  *   ./FlightParts, ./AircraftStatus, ./design, ./ui.
  */
 import { oilLevelLabel } from "../domain/flightFluids";
@@ -20,6 +20,7 @@ import {
   type GuidedDraft,
 } from "../domain/guidedFlight";
 import { validateFlight } from "../domain/flights";
+import { parseHours, readingText } from "../domain/readings";
 import { ChecklistReader } from "./Checklists";
 import { FlightFluidFields } from "./FlightFluids";
 import { FlightForm } from "./FlightForm";
@@ -264,23 +265,23 @@ export function GuidedFlight({
       <dl className="flight-readings">
         <div>
           <dt>Hobbs</dt>
-          <dd>{(draft.opening.hobbs / 3600).toFixed(1)} hr</dd>
+          <dd>{readingText(draft.opening.hobbs)} hr</dd>
         </div>
         <div>
           <dt>Tach</dt>
-          <dd>{(draft.opening.tach / 3600).toFixed(1)} hr</dd>
+          <dd>{readingText(draft.opening.tach)} hr</dd>
         </div>
         {aircraft?.flightTimeLog &&
           draft.opening.flightTimeLog !== undefined && (
             <div>
               <dt>Flight time log</dt>
-              <dd>{(draft.opening.flightTimeLog / 3600).toFixed(1)} hr</dd>
+              <dd>{readingText(draft.opening.flightTimeLog)} hr</dd>
             </div>
           )}
         {draft.opening.cyclic !== undefined && (
           <div>
             <dt>Cyclic</dt>
-            <dd>{(draft.opening.cyclic / 3600).toFixed(1)} hr</dd>
+            <dd>{readingText(draft.opening.cyclic)} hr</dd>
           </div>
         )}
       </dl>
@@ -417,8 +418,20 @@ export function GuidedFlight({
   const primaryShutdown = shutdownMeters.find(
     (m) => m.meter === aircraft?.meter,
   );
-  const shutdownHours = (k: (typeof shutdownMeters)[number]["key"]) =>
+  type ShutdownKey = (typeof shutdownMeters)[number]["key"];
+  // A number, not text, so React compares it numerically and leaves an entry
+  // such as "2342.0" as typed.
+  const shutdownHours = (k: ShutdownKey) =>
     draft?.[k as "hobbsOn"] === undefined ? "" : draft[k as "hobbsOn"]! / 3600;
+  // Only whole tenths of an hour are kept, as the flight log takes them; a
+  // refused entry leaves the last reading the field accepted.
+  const recordShutdown = (k: ShutdownKey, typed: string) => {
+    try {
+      update({ [k]: parseHours(typed) });
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
   const shutdownPanel = draft && (
     <section className="guided-readings flight-guided-readings">
       <div className="flight-section-head">
@@ -435,7 +448,7 @@ export function GuidedFlight({
             startInput={false}
             startLabel={`Preflight ${label}`}
             startValue={
-              opening === undefined ? "Unknown" : (opening / 3600).toFixed(1)
+              opening === undefined ? "Unknown" : readingText(opening)
             }
             endLabel={`Shutdown ${label}`}
             endSrSuffix=" (hours)"
@@ -447,14 +460,7 @@ export function GuidedFlight({
                 placeholder="0.0"
                 inputMode="decimal"
                 value={shutdownHours(k)}
-                onChange={(e) =>
-                  update({
-                    [k]:
-                      e.target.value === ""
-                        ? undefined
-                        : Math.round(Number(e.target.value) * 3600),
-                  })
-                }
+                onChange={(e) => recordShutdown(k, e.target.value)}
               />
             }
           />
