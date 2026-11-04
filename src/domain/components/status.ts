@@ -10,7 +10,18 @@ import { calendarDue, daysBetween, shiftCalendarDate } from "./calendar";
 import type { Component, ComponentRequirement } from "./records";
 import { componentTotals, usageOnBasis } from "./usage";
 
-const DEFAULT_WARNING_LANDINGS = 10;
+const SECONDS_PER_HOUR = 3600;
+
+/**
+ * The due-soon warnings a new requirement starts with. A stored requirement
+ * without a landing warning warns at this one.
+ */
+export const REQUIREMENT_WARNING_DEFAULTS = {
+  warningSeconds: 25 * SECONDS_PER_HOUR,
+  warningCycles: 10,
+  warningLandings: 10,
+  warningCalendarMonths: 1,
+} as const;
 
 interface LimitsLeft {
   seconds: number | undefined;
@@ -40,8 +51,8 @@ export function requirementDueDate(
  * @returns Seconds, cycles, landings and days left (undefined where not
  *   limited or not computable), and the first status that applies: "Past
  *   due", "Due now" (a usage limit at 0), "Set landing baseline", "Set time
- *   baseline", "Due soon" (within a warning; 10 landings by default), or
- *   "Tracked".
+ *   baseline", "Due soon" (within a warning; see
+ *   {@link REQUIREMENT_WARNING_DEFAULTS} for landings), or "Tracked".
  * @throws As {@link componentTotals} and {@link calendarDue}.
  */
 export function requirementStatus(
@@ -119,6 +130,7 @@ function isWithinWarning(r: ComponentRequirement, left: LimitsLeft): boolean {
     (left.seconds !== undefined && left.seconds <= r.warningSeconds) ||
     (left.cycles !== undefined && left.cycles <= r.warningCycles) ||
     (left.landings !== undefined &&
-      left.landings <= (r.warningLandings ?? DEFAULT_WARNING_LANDINGS))
+      left.landings <=
+        (r.warningLandings ?? REQUIREMENT_WARNING_DEFAULTS.warningLandings))
   );
 }

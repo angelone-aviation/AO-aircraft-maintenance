@@ -16,6 +16,12 @@ import { requestStatus } from "./partsRequests";
 import { outstanding } from "./purchaseOrders";
 import { Rejection } from "./rejection";
 
+/**
+ * The longest transfer reason the transfer form accepts, as other change-log
+ * reasons allow. {@link transferProgram} does not refuse a longer one.
+ */
+export const TRANSFER_REASON_MAX_LENGTH = 2000;
+
 /** A request to move one record to another Flight Program. */
 export interface ProgramTransfer {
   kind: "aircraft" | "component" | "location";

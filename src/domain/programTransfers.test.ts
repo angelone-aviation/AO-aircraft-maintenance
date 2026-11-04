@@ -1,15 +1,21 @@
 /**
  * Responsibility: Pins Flight Program transfers: what moves with each record,
- *   the refusals users see, and the change log left untouched.
+ *   the refusals users see, the reason limit, and the change log left
+ *   untouched.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/programTransfers.ts, programs.ts, auditHistory.ts,
- *   partsRequests.ts, purchaseOrders.ts, checklists.ts, rejection.ts;
+ *   partsRequests.ts, purchaseOrders.ts, checklists.ts, fleet.ts, rejection.ts;
  *   src/data/demo.ts and tests/fixtures/workOrders.ts (fixtures).
  */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { workOrderComponent } from "../../tests/fixtures/workOrders";
-import { transferProgram, type ProgramTransfer } from "./programTransfers";
+import {
+  TRANSFER_REASON_MAX_LENGTH,
+  transferProgram,
+  type ProgramTransfer,
+} from "./programTransfers";
+import { fleetCommandSchema } from "./fleet";
 import { auditVisible } from "./programs";
 import { canPageAuditFilter } from "./auditHistory";
 import type { AuditEntry } from "./model";
@@ -393,4 +399,34 @@ it("moves a stored component off its aircraft and out of its location, but not o
     expect(() => transferProgram(s, move)).toThrow(Rejection);
     expect(() => transferProgram(s, move)).toThrow(Error(message));
   }
+});
+
+it("caps a transfer reason where other change-log reasons stop", () => {
+  const save = (reason: string) =>
+    fleetCommandSchema.safeParse({
+      requestUuid: crypto.randomUUID(),
+      reason,
+      action: "program.save",
+      program: demoSnapshot().programs![0],
+    }).success;
+  expect(save("x".repeat(TRANSFER_REASON_MAX_LENGTH))).toBe(true);
+  expect(save("x".repeat(TRANSFER_REASON_MAX_LENGTH + 1))).toBe(false);
+});
+
+// Characterizes current behaviour: only the transfer form caps the reason.
+it("records a transfer reason longer than the form allows", () => {
+  const s = demoSnapshot();
+  s.programs = [
+    ...s.programs!,
+    { ...s.programs![0], uuid: "other", name: "Other" },
+  ];
+  s.user.activeProgramUuid = "demo-program";
+  const reason = "x".repeat(TRANSFER_REASON_MAX_LENGTH + 1);
+  transferProgram(s, {
+    kind: "aircraft",
+    uuid: s.aircraft[0].uuid,
+    destination: "other",
+    reason,
+  });
+  expect(s.audit[0]).toMatchObject({ action: "program.transferred", reason });
 });

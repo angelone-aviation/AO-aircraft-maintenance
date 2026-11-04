@@ -20,9 +20,15 @@ const HOUR_SECONDS = 3600;
 const TENTH_HOUR_SECONDS = 360;
 const TENTHS_MESSAGE = "Use tenths of an hour.";
 
+/**
+ * The longest name, registration, make, model or serial number a Flight
+ * Program or aircraft records.
+ */
+export const FLEET_NAME_MAX_LENGTH = 150;
+
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const seconds = count.refine(isWholeTenths, TENTHS_MESSAGE);
-const text = z.string().trim().min(1).max(150);
+const text = z.string().trim().min(1).max(FLEET_NAME_MAX_LENGTH);
 
 /**
  * Turns what a person typed as a website into a link: trimmed, with
@@ -53,7 +59,7 @@ export const programSchema = z.object({
   addressDetails: addressSchema.optional(),
   address: z.string().trim().max(4000),
   email: z.union([z.literal(""), z.email()]),
-  contactName: z.string().trim().max(150),
+  contactName: z.string().trim().max(FLEET_NAME_MAX_LENGTH),
   website: z
     .string()
     .transform(normalizeWebsite)
@@ -85,8 +91,8 @@ export const aircraftInputSchema = z.object({
   registration: text,
   make: text,
   model: text,
-  faaSearchModel: z.string().trim().max(150).optional(),
-  serial: z.string().trim().max(150),
+  faaSearchModel: z.string().trim().max(FLEET_NAME_MAX_LENGTH).optional(),
+  serial: z.string().trim().max(FLEET_NAME_MAX_LENGTH),
   programUuid: z.string().optional(),
   meter: z.enum(["hobbs", "tach", "cyclic", "flightTimeLog"]),
   adjustmentSeconds: z

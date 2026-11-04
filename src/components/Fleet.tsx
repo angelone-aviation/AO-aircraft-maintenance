@@ -3,8 +3,9 @@
  *   Flight Programs page and dialog.
  * Layer: UI. React components; aircraft and program rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
- *   (aircraftStatus, addresses, programs, model, fleet, readings), ./Costs,
- *   ./AircraftStatus, ./AircraftPhoto, ./Components, ./ui and others.
+ *   (aircraftStatus, addresses, programs, programTransfers, model, fleet,
+ *   readings), ./Costs, ./AircraftStatus, ./AircraftPhoto, ./Components, ./ui
+ *   and others.
  */
 import { AircraftCostSummary } from "./Costs";
 import { AircraftStatusReasons } from "./AircraftStatus";
@@ -24,18 +25,21 @@ import {
   can,
   aircraftMeterLabels,
   hours,
+  logsEngineStartsAsCycles,
   totalSeconds,
   type Aircraft,
   type Snapshot,
 } from "../domain/model";
 import { hoursField, parseHours } from "../domain/readings";
 import {
+  FLEET_NAME_MAX_LENGTH,
   parseAdjustment,
   normalizeWebsite,
   type Program,
   type AircraftInput,
   type FleetCommand,
 } from "../domain/fleet";
+import { TRANSFER_REASON_MAX_LENGTH } from "../domain/programTransfers";
 import { AsyncForm, Field, Modal, value, safeHref } from "./ui";
 import { History } from "./ManagementShared";
 import {
@@ -70,11 +74,6 @@ const profileLabel: Record<Aircraft["operationalStatus"], string> = {
   maintenance: "Maintenance",
   grounded: "Grounded",
 };
-// Name limits mirror the fleet schemas (src/domain/fleet.ts), which refuse
-// longer values on save. A transfer reason is held to the 2,000 characters
-// other change-log reasons allow; the transfer itself sets no limit.
-const NAME_MAX_LENGTH = 150;
-const REASON_MAX_LENGTH = 2000;
 const TEXT_FIELDS = [
   ["registration", "Registration"],
   ["make", "Make"],
@@ -256,11 +255,6 @@ function useFleet() {
   };
 }
 
-// The R66 counts its turbine's engine starts as cycles.
-function isR66(model: string) {
-  return model.trim().toUpperCase() === "R66";
-}
-
 type AircraftFormState = ReturnType<typeof useAircraftForm>;
 
 function useAircraftForm(initial?: Aircraft) {
@@ -395,7 +389,7 @@ function AircraftIdentity({ s, initial }: { s: Snapshot; initial?: Aircraft }) {
             <input
               name={k}
               defaultValue={initial?.[k]}
-              maxLength={NAME_MAX_LENGTH}
+              maxLength={FLEET_NAME_MAX_LENGTH}
               required={k !== "serial"}
             />
           )}
@@ -683,7 +677,7 @@ function AircraftCounters({
       {form.turbine && (
         <Field
           label={
-            initial && isR66(initial.model)
+            initial && logsEngineStartsAsCycles(initial.model)
               ? "Engine start cycles"
               : "Current cycles"
           }
@@ -987,7 +981,7 @@ function countersMeter(a: Aircraft): [string, string] {
 }
 
 function countersLabel(a: Aircraft) {
-  if (isR66(a.model)) return "Engine starts / landings";
+  if (logsEngineStartsAsCycles(a.model)) return "Engine starts / landings";
   return a.turbine ? "Cycles / landings" : "Landings";
 }
 
@@ -1154,7 +1148,7 @@ function ProgramFields({ record }: { record?: Program }) {
         <input
           name="name"
           defaultValue={record?.name}
-          maxLength={NAME_MAX_LENGTH}
+          maxLength={FLEET_NAME_MAX_LENGTH}
           required
         />
       </Field>
@@ -1264,7 +1258,11 @@ function TransferFields({
       </Field>
       <DestinationField s={s} />
       <Field label="Transfer reason">
-        <textarea name="reason" required maxLength={REASON_MAX_LENGTH} />
+        <textarea
+          name="reason"
+          required
+          maxLength={TRANSFER_REASON_MAX_LENGTH}
+        />
       </Field>
     </>
   );
