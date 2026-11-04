@@ -93,7 +93,6 @@ read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY
 npx convex run memberships:backfill
 npx convex run management:backfillOilMarker
 npx convex run counterEvents:recordChanges
-npx convex run secretsMigration:reseal   # repeat until it reports complete: true
 unset CONVEX_DEPLOY_KEY
 ```
 

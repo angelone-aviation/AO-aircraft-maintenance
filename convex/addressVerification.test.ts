@@ -3,7 +3,8 @@
  *   per-second, per-user, per-program and global daily allowances, and how
  *   the administrator's key is checked, sealed, saved and audited.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/addressVerification, src/domain/model, src/data/demo.
+ * Dependencies: convex/addressVerification, convex/secrets, src/domain/model,
+ *   src/data/demo.
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
@@ -12,6 +13,7 @@ import { api, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import type { Permission } from "../src/domain/model";
+import { sealSecret } from "./secrets";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -56,9 +58,14 @@ it("protects the key, authorizes lookups, and rate-limits them without saving co
   ).rejects.toThrow();
   expect(fetcher).not.toHaveBeenCalled();
   // Test server persistence separately from the provider; lookups use the
-  // action below.
+  // action below. The key is committed sealed, as setKey seals it.
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", CREDENTIALS_KEY);
   await admin.mutation(internal.addressVerification.commit, {
-    key: "test-key-that-is-long-enough",
+    key: await sealSecret("test-key-that-is-long-enough", {
+      table: "addressVerificationSettings",
+      programUuid: "",
+      field: "key",
+    }),
     version: 0,
   });
   const status = await admin.query(api.addressVerification.status, {});
