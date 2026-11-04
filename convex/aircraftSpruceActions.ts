@@ -201,9 +201,10 @@ export const search = action({
  * @returns How many lines were saved. Spends one of the program's hourly order
  *   syncs right after the access check; inventory and the PO stay unchanged.
  * @throws {ConvexError} "Link an Aircraft Spruce account first."; "Enter an
- *   exact order number."; "No matching orders found. Existing sync retained.
- *   …"; "Order export is too large. Select an individual order."; the
- *   allowance's or the download's refusal.
+ *   exact order number."; "Too many order lines. Select an individual
+ *   order."; "No matching orders found. Existing sync retained. …"; "Order
+ *   export is too large. Select an individual order."; the allowance's or the
+ *   download's refusal.
  */
 export const sync = action({
   args: { programUuid: v.string(), poUuid: v.string(), order: v.string() },
