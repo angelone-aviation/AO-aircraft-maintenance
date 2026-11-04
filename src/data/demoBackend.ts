@@ -1186,11 +1186,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         )
           throw Error("Flight Program administrator required.");
         const before = s.groups.find((g) => g.id === group.id);
-        const { fields, assigned } = normalizeGroup(
-          { ...group, allAircraft },
-          before,
-          s.user.isAdmin,
-        );
+        const fields = normalizeGroup({ ...group, allAircraft }, before);
         if (
           fields.aircraftIds.some(
             (id) =>
@@ -1214,16 +1210,6 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           before,
           allAircraft === undefined ? next : { ...next, allAircraft },
         );
-        if (assigned)
-          audit(
-            s,
-            "group.program_assigned",
-            next.id,
-            undefined,
-            undefined,
-            { programUuid: null },
-            { programUuid: group.programUuid },
-          );
       }),
     resetPassword: async () => {
       throw new Error(

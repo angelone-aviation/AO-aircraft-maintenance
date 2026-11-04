@@ -397,10 +397,15 @@ export function adAuditRecord(r: AD) {
  *
  * @param s - The aircraft and the program's components.
  * @param r - The AD.
+ * @param today - The local date a component's totals are read on.
  * @returns Hours (decimal), cycles and landings; null when the aircraft or
  *   component is unknown or the component's totals cannot be computed.
  */
-export function adCounters(s: Snapshot, r: AD): Counters | null {
+export function adCounters(
+  s: Snapshot,
+  r: AD,
+  today = localDate(),
+): Counters | null {
   const a = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
   if (!a) return null;
   if (!r.componentUuid)
@@ -410,7 +415,7 @@ export function adCounters(s: Snapshot, r: AD): Counters | null {
       landings: a.landings,
     };
   const c = findComponent(s, r.componentUuid);
-  const t = c && readComponentTotals(c, a);
+  const t = c && readComponentTotals(c, a, today);
   if (!t) return null;
   return {
     hours: t.timeSinceNew / SECONDS_PER_HOUR,
@@ -425,7 +430,8 @@ export function adCounters(s: Snapshot, r: AD): Counters | null {
  * @param s - The aircraft and the program's components.
  * @param r - The AD.
  * @param t - One of its actions.
- * @param today - The local date calendar limits compare against.
+ * @param today - The local date calendar limits compare against and a
+ *   component's totals are read on.
  * @returns "Complied" when compliance ends it; "Due not set" when nothing is
  *   due; "Counter unavailable" when a usage limit cannot be read; else
  *   "Overdue", "Due soon" (30 or fewer days, hours, cycles or landings left)
@@ -442,7 +448,7 @@ export function adTaskStatus(
   if (last && !hasInterval(t)) return "Due not set";
   // A passed due date is overdue even when a usage counter is unavailable.
   if (t.dueDate && t.dueDate < today) return "Overdue";
-  const counters = adCounters(s, r);
+  const counters = adCounters(s, r, today);
   if (isCounterUnavailable(s, r, t, counters)) return "Counter unavailable";
   return rankRemaining(t, counters, today);
 }
@@ -453,10 +459,11 @@ export function adTaskStatus(
  *
  * @param s - The aircraft and the program's components.
  * @param r - The AD.
+ * @param today - The local date its actions are judged on.
  * @returns "Removed component", "Needs review", a closed applicability, PCW
  *   for a non-recurring AD without actions, or an {@link adTaskStatus}.
  */
-export function adStatus(s: Snapshot, r: AD) {
+export function adStatus(s: Snapshot, r: AD, today = localDate()) {
   const c = findComponent(s, r.componentUuid);
   if (c && !c.installed) return "Removed component";
   if (r.reviewRequired || r.applicability === "Needs review")
@@ -468,7 +475,7 @@ export function adStatus(s: Snapshot, r: AD) {
     r.source.recurring === "No"
   )
     return "Previously Complied With (PCW)";
-  const statuses: string[] = r.tasks.map((t) => adTaskStatus(s, r, t));
+  const statuses: string[] = r.tasks.map((t) => adTaskStatus(s, r, t, today));
   return AD_STATUS_PRIORITY.find((x) => statuses.includes(x)) ?? "Due not set";
 }
 
@@ -995,11 +1002,13 @@ function addDays(isoDate: string, days: number) {
 
 // Totals that cannot be computed (readings before the installation baseline,
 // a missing meter reading) leave the counter unavailable, not the AD failing.
-function readComponentTotals(c: Component, a: Aircraft) {
+// Those are Rejections; any other error is a fault and propagates.
+function readComponentTotals(c: Component, a: Aircraft, today: string) {
   try {
-    return componentTotals(c, a);
-  } catch {
-    return null;
+    return componentTotals(c, a, today);
+  } catch (error) {
+    if (error instanceof Rejection) return null;
+    throw error;
   }
 }
 

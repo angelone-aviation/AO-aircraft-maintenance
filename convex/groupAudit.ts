@@ -1,15 +1,14 @@
 /**
  * Responsibility: Finds permission groups that an edit before the fix for #34
  *   silently opened to every aircraft in their Flight Program.
- * Layer: Server. A public query for system administrators and a one-time
- *   internal check; read-only, nothing here changes a group.
+ * Layer: Server. A public query for system administrators; read-only, nothing
+ *   here changes a group.
  * Dependencies: convex/access, convex/memberships,
  *   src/domain/groupAccessReview.
  *
  * An administrator reviews each group found in Administration.
  */
-import { v } from "convex/values";
-import { internalQuery, query, type QueryCtx } from "./_generated/server";
+import { query, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { admin, group } from "./access";
 import { programUsers } from "./memberships";
@@ -19,14 +18,9 @@ import {
   endsAllAircraftPeriod,
   groupAccessFinding,
   groupAccessReport,
-  groupAccessSummary,
   sortReports,
   type GroupAccessFinding,
 } from "../src/domain/groupAccessReview";
-
-// Groups the one-time check reads per run, by default and at most.
-const PAGE_SIZE = 50;
-const MAX_PAGE_SIZE = 200;
 
 /**
  * Lists the permission groups to review, for Administration → Permission
@@ -42,50 +36,6 @@ export const groupsToReview = query({
   handler: async (ctx) => {
     await admin(ctx);
     return reviewGroups(ctx, await ctx.db.query("groups").collect());
-  },
-});
-
-/**
- * The one-time check after deploying the fix:
- * `npx convex run groupAudit:findWidenedGroups`. It walks the groups table in
- * pages; while `isDone` is false, run it again with
- * `'{"cursor": "<continueCursor>"}'`.
- *
- * @param cursor - The previous page's `continueCursor`; none to start.
- * @param numItems - Groups per page, rounded down to 1 through 200; 50 when
- *   omitted.
- * @returns `widened`: groups whose change log shows that an edit emptied
- *   their aircraft list; `review`: groups covering all aircraft whose log
- *   cannot show that this was chosen; each with a one-line `summary`. Also
- *   the page's `groupsScanned`, `isDone` and `continueCursor`.
- */
-export const findWidenedGroups = internalQuery({
-  args: {
-    cursor: v.optional(v.union(v.string(), v.null())),
-    numItems: v.optional(v.number()),
-  },
-  handler: async (ctx, { cursor, numItems }) => {
-    const batch = await ctx.db.query("groups").paginate({
-      cursor: cursor ?? null,
-      numItems: Math.min(
-        Math.max(Math.floor(numItems ?? PAGE_SIZE), 1),
-        MAX_PAGE_SIZE,
-      ),
-    });
-    const reports = (await reviewGroups(ctx, batch.page)).map((r) => ({
-      ...r,
-      summary: `${r.groupName} (${r.programName}): ${groupAccessSummary(
-        r,
-        (at) => new Date(at).toISOString(),
-      )}`,
-    }));
-    return {
-      widened: reports.filter((r) => r.flag === "widened"),
-      review: reports.filter((r) => r.flag === "review"),
-      groupsScanned: batch.page.length,
-      isDone: batch.isDone,
-      continueCursor: batch.continueCursor,
-    };
   },
 });
 

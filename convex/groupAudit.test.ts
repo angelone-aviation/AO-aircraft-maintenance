@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins the #34 follow-up review: which groups are flagged
- *   widened or for review, paging and its page sizes, and who may list them.
+ *   widened or for review, and who may list them.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/groupAudit, convex/defaultGroups, convex/schema,
  *   src/data/demo (fixture).
@@ -8,7 +8,7 @@
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
-import { api, internal } from "./_generated/api";
+import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { ensureDefaultGroups } from "./defaultGroups";
 import type { Id } from "./_generated/dataModel";
@@ -147,9 +147,11 @@ async function setup() {
       reason: "Aircraft moved to program B.",
     });
   const check = async () => {
-    const result = await t.query(internal.groupAudit.findWidenedGroups, {});
-    expect(result.isDone).toBe(true);
-    return result;
+    const reports = await as("system").query(api.groupAudit.groupsToReview, {});
+    return {
+      widened: reports.filter((r) => r.flag === "widened"),
+      review: reports.filter((r) => r.flag === "review"),
+    };
   };
   return { t, ids, as, createGroup, editBeforeFix, transferA1, check };
 }
@@ -171,7 +173,7 @@ const saveArgs = (
 });
 
 it("finds a group an edit before the fix widened after its aircraft was transferred, and changes nothing", async () => {
-  const { t, ids, as, createGroup, editBeforeFix, transferA1, check } =
+  const { t, ids, createGroup, editBeforeFix, transferA1, check } =
     await setup();
   const crew = await createGroup("A1 crew", ["plane-A1", "plane-A2"]);
   await transferA1();
@@ -220,13 +222,7 @@ it("finds a group an edit before the fix widened after its aircraft was transfer
           active: true,
         },
       ],
-      summary: `A1 crew (Program A): Limited to PLANE-A1 (now in Program B) and PLANE-A2 until programAdmin saved it with no aircraft on ${new Date(editedAt).toISOString()}.`,
     },
-  ]);
-  // Administration lists the same group.
-  const { summary: _summary, ...report } = result.widened[0];
-  expect(await as("system").query(api.groupAudit.groupsToReview, {})).toEqual([
-    report,
   ]);
   // Read-only: the group and the change log are untouched.
   expect(await stored()).toEqual(beforeCheck);
@@ -314,54 +310,6 @@ it("keeps flagging a widened group renamed without an explicit choice, and group
   expect(result.review).toMatchObject([
     { groupId: unlogged, reason: "no_history" },
   ]);
-});
-
-it("pages through groups with a cursor", async () => {
-  const { t, createGroup } = await setup();
-  for (const name of ["One", "Two", "Three"]) await createGroup(name, []);
-  const found: string[] = [];
-  let cursor: string | null = null;
-  for (let pages = 0; ; pages++) {
-    const result: {
-      review: { groupName: string }[];
-      groupsScanned: number;
-      isDone: boolean;
-      continueCursor: string;
-    } = await t.query(internal.groupAudit.findWidenedGroups, {
-      cursor,
-      numItems: 2,
-    });
-    expect(result.groupsScanned).toBeLessThanOrEqual(2);
-    found.push(...result.review.map((r) => r.groupName));
-    if (result.isDone) break;
-    cursor = result.continueCursor;
-    expect(pages).toBeLessThan(5);
-  }
-  expect(found.sort()).toEqual(["One", "Three", "Two"]);
-});
-
-it("reads 50 groups per page by default, and 1 to 200 when asked", async () => {
-  const { t } = await setup();
-  await t.run(async (ctx) => {
-    for (let i = 0; i < 200; i++)
-      await ctx.db.insert("groups", {
-        programUuid: "A",
-        name: `Group ${i}`,
-        aircraftIds: ["plane-A1"],
-        permissions: ["read"],
-      });
-  });
-  const scanned = async (numItems?: number) =>
-    (
-      await t.query(
-        internal.groupAudit.findWidenedGroups,
-        numItems === undefined ? {} : { numItems },
-      )
-    ).groupsScanned;
-  expect(await scanned()).toBe(50);
-  expect(await scanned(1000)).toBe(200);
-  expect(await scanned(0)).toBe(1);
-  expect(await scanned(2.9)).toBe(2);
 });
 
 it("refuses the Administration query to anyone but a system administrator", async () => {

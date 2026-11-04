@@ -2,27 +2,35 @@
  * Responsibility: The live sample log book entry on the work order form: the
  *   maintenance entry the order would generate with the values entered so far.
  * Layer: UI. A read-only preview; saves nothing.
- * Dependencies: react, src/domain (certifications, components, logbook, model,
- *   workOrders, workOrderComponentWork), ./ui.
+ * Dependencies: react, src/domain (certifications, logbook, model,
+ *   workOrders, workOrderCloseout, workOrderComponentWork types), ./ui.
  */
 import { memberLicense } from "../domain/certifications";
-import {
-  componentWorkLabels,
-  type ComponentWork,
-} from "../domain/workOrderComponentWork";
+import type { ComponentWork } from "../domain/workOrderComponentWork";
 import { useState } from "react";
-import { componentTotals, type Component } from "../domain/components";
 import { logbookText } from "../domain/logbook";
-import { totalSeconds, type Aircraft, type Snapshot } from "../domain/model";
 import {
+  localDate,
+  totalSeconds,
+  type Aircraft,
+  type Snapshot,
+} from "../domain/model";
+import {
+  componentReading,
   installedComponents,
+  openingReading,
   type WorkOrder,
   type WorkTask,
 } from "../domain/workOrders";
+import {
+  previewComponentWork,
+  workPerformedText,
+} from "../domain/workOrderCloseout";
 import { Field } from "./ui";
 
 // Hour readings are entered in hours and stored in seconds.
 const SECONDS_PER_HOUR = 3600;
+const WORK_PERFORMED = "Work performed:\n";
 
 type Header = WorkOrder["aircraft"];
 type SampleProps = {
@@ -41,9 +49,10 @@ type SampleProps = {
 /**
  * The "Sample log book entry" panel: the maintenance entry this work order
  * would generate, redrawn as the form changes. Unfinished work is included
- * until the user unticks it. Completion readings and component work appear
- * only once the order's status is completed; until then the opening header
- * is used.
+ * until the user unticks it. Readings and component lines come from the
+ * functions saving and closing the order use. Completion readings appear
+ * once the order's status is completed, and component work once the close-out
+ * would accept it; until then the opening header is used.
  *
  * @param props.initial - The saved order, whose header and readings are kept.
  * @param props.fields - The form's current values, read by input name.
@@ -88,11 +97,15 @@ export function LogbookSample(props: SampleProps) {
 
 function sampleText(props: SampleProps, a: Aircraft, includePlanned: boolean) {
   const { s, tasks } = props;
-  const order = sampleOrder(props, a);
+  const sample = includePlanned ? s : withCompletedCardsOnly(s);
+  const order = {
+    ...sampleOrder(props, a),
+    tasks: includePlanned ? tasks : cancelUnfinished(tasks),
+  };
   const license = memberLicense(s.user, order.completionDate);
   const generated = logbookText(
-    includePlanned ? s : withCompletedCardsOnly(s),
-    { ...order, tasks: includePlanned ? tasks : cancelUnfinished(tasks) },
+    sample,
+    order,
     "maintenance",
     { userId: s.user.id, name: s.user.name, ...license },
     undefined,
@@ -100,13 +113,32 @@ function sampleText(props: SampleProps, a: Aircraft, includePlanned: boolean) {
     // Preview mode, which logbookText needs for an order still open.
     true,
   );
-  const summary =
-    props.status === "completed"
-      ? componentSummary(s, props.componentWork, order.completionDate)
-      : "";
-  return summary
-    ? generated.replace("Work performed:\n", `Work performed:\n${summary}\n\n`)
-    : generated;
+  if (props.status !== "completed") return generated;
+  return withComponentWork(generated, sample, order, props.componentWork);
+}
+
+// The close-out writes its component work lines after the work performed.
+// Without wording selected, the entry's prompt stays below the lines.
+function withComponentWork(
+  text: string,
+  s: Snapshot,
+  order: WorkOrder,
+  componentWork: ComponentWork[],
+) {
+  const lines = previewComponentWork(
+    s,
+    order,
+    order.aircraft,
+    componentWork,
+    Date.now(),
+  );
+  if (!lines.length) return text;
+  const work = workPerformedText(s, order, true);
+  const body = work ? [work, ...lines] : [...lines, ""];
+  return text.replace(
+    `${WORK_PERFORMED}${work}`,
+    () => `${WORK_PERFORMED}${body.join("\n\n")}`,
+  );
 }
 
 function sampleOrder(props: SampleProps, a: Aircraft): WorkOrder {
@@ -129,20 +161,9 @@ function sampleOrder(props: SampleProps, a: Aircraft): WorkOrder {
     priority: initial?.priority ?? "routine",
     releaseOutcome: props.releaseOutcome || "[release outcome]",
     finalReview: field("finalReview", initial?.finalReview),
-    aircraft: closingHeader(props, a, initial?.aircraft ?? openingHeader(a)),
+    aircraft: closingHeader(props, a, initial?.aircraft ?? openingReading(a)),
     componentReadings: headerComponents(props, a),
     tasks: props.tasks,
-  };
-}
-
-function openingHeader(a: Aircraft): Header {
-  return {
-    ...a,
-    totalSeconds: totalSeconds(a),
-    hobbs: a.currentHobbs,
-    tach: a.currentTach,
-    cyclicHobbs: a.currentCyclicHobbs,
-    flightTimeLog: a.currentFlightTimeLog,
   };
 }
 
@@ -200,25 +221,17 @@ function enteredReading(
   return Number.isFinite(value) ? value * scale : undefined;
 }
 
+// Saving refuses a component not installed here; the sample leaves it out.
 function headerComponents(props: SampleProps, a: Aircraft) {
   const { s, initial, aircraftUuid } = props;
+  const now = Date.now();
   return props.componentUuids.flatMap((id) => {
     const prior = initial?.componentReadings.find(
       (c) => c.componentUuid === id,
     );
     if (prior) return [prior];
     const c = installedComponents(s, aircraftUuid).find((c) => c.uuid === id);
-    if (!c) return [];
-    return [
-      {
-        ...componentTotals(c, a),
-        componentUuid: id,
-        label: c.componentType,
-        serial: c.serial,
-        partNumber: c.partNumber,
-        recordedAt: Date.now(),
-      },
-    ];
+    return c ? [componentReading(c, a, localDate(now), now)] : [];
   });
 }
 
@@ -232,32 +245,5 @@ function withCompletedCardsOnly(s: Snapshot): Snapshot {
 function cancelUnfinished(tasks: WorkTask[]): WorkTask[] {
   return tasks.map((task) =>
     task.status === "completed" ? task : { ...task, status: "cancelled" },
-  );
-}
-
-// Close-out writes the final component lines; the sample approximates them.
-function componentSummary(s: Snapshot, work: ComponentWork[], date: string) {
-  return work
-    .filter((item) => item.action !== "service")
-    .map((item) => {
-      const c = s.management?.find(
-        (r) => r.kind === "component" && r.uuid === item.componentUuid,
-      );
-      return c?.kind === "component" ? componentLine(c, item, date) : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-function componentLine(c: Component, item: ComponentWork, date: string) {
-  const { action } = item;
-  const reference = item.reference ? ` IAW ${item.reference}` : "";
-  const repair = action === "repair" || action === "both";
-  const overhaul = action === "overhaul" || action === "both";
-  return (
-    `${c.componentType} (P/N ${c.partNumber}; S/N ${c.serial}): ` +
-    `${componentWorkLabels[action]} on ${date}. ${item.description}` +
-    `${reference}.${repair ? " TSR resets to 0.0 h." : ""}` +
-    `${overhaul ? " TSO resets to 0.0 h." : ""}`
   );
 }

@@ -3,13 +3,15 @@
  *   flight validation, conflict order, counter advance, the chronology replay
  *   and its change-history wording.
  * Layer: Test. Vitest suite on the demo fleet; never shipped in the build.
- * Dependencies: ./flights, ./model, ./fleet (types), src/data/demo.ts.
+ * Dependencies: ./flights, ./model, ./fleet (types), ./rejection,
+ *   src/data/demo.ts.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { demoSnapshot } from "../data/demo";
 import type { AircraftCounterEvent } from "./fleet";
 import type { Aircraft, Flight, FlightInput } from "./model";
+import { Rejection } from "./rejection";
 import {
   applyFlight,
   conflictReason,
@@ -330,6 +332,7 @@ describe("rebuildFlights", () => {
     expect(() => rebuildFlights(opening, [first, lower])).toThrow(
       "Cannot accept this chronology: Hobbs reading is lower than the current counter.",
     );
+    expect(() => rebuildFlights(opening, [first, lower])).toThrow(Rejection);
   });
 
   it("refuses an accepted flight that validateFlight refuses", () => {

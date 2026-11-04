@@ -355,6 +355,8 @@ function matchingComponents(s: Snapshot, t: InspectionTemplate) {
 
 // The domain stamps each schedule it creates with this source key, so a
 // second activation of one template, mode and target is caught before saving.
+// As on the server, an inspection on the component's aircraft counts too: the
+// template may have moved from an aircraft to a component model.
 function scheduleExists(
   s: Snapshot,
   t: InspectionTemplate,
@@ -362,15 +364,22 @@ function scheduleExists(
   target: string,
 ) {
   const sourceKey = `template:${t.uuid}:${mode}`;
-  if (t.applicability.kind !== "component")
-    return s.inspections.some(
-      (i) => i.aircraftUuid === target && i.sourceKey === sourceKey,
-    );
-  return !!s.management?.some(
-    (r) =>
-      r.kind === "componentRequirement" &&
-      r.componentUuid === target &&
-      r.sourceKey === sourceKey,
+  const aircraftUuid =
+    t.applicability.kind === "component"
+      ? s.management?.find(
+          (c): c is Component => c.kind === "component" && c.uuid === target,
+        )?.aircraftUuid
+      : target;
+  return (
+    s.inspections.some(
+      (i) => i.aircraftUuid === aircraftUuid && i.sourceKey === sourceKey,
+    ) ||
+    !!s.management?.some(
+      (r) =>
+        r.kind === "componentRequirement" &&
+        r.componentUuid === target &&
+        r.sourceKey === sourceKey,
+    )
   );
 }
 
@@ -418,7 +427,7 @@ function nextDuePreview(d: FormData, t: InspectionTemplate, mode: Mode) {
   const landings = dueAfter(
     sc.landings,
     num(d, "lastLandings"),
-    sc.lastLandings,
+    !(sc.initial || t.landingMode === "ABSOLUTE"),
   );
   if (landings !== undefined) parts.push(`${landings} aircraft landings`);
   const date = calendarDueDate(t, sc, value(d, "lastDate"));
