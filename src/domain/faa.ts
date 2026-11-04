@@ -18,6 +18,7 @@ type DrsType = "ADFRAWD" | "ADFREAD";
 const MAX_CANDIDATES = 400;
 
 const MIN_TERM_LENGTH = 2;
+const MANUAL_CHECK_INTERVAL_MS = 60_000;
 const DRS_SITE = "https://drs.faa.gov/";
 const DRS_MAX_PAGES = 20;
 const DRS_TIMEOUT_MS = 30000;
@@ -123,6 +124,70 @@ export function emptyMonitor(aircraftUuid: string): FaaMonitor {
     runId: "",
     candidates: [],
   };
+}
+
+/**
+ * Applies a command to an aircraft's monitor. Configuring saves the settings
+ * and drops any running check, so the next check verifies them; reviewing
+ * records a reason on a candidate; checking starts a run.
+ *
+ * @param monitor - The aircraft's monitor; left unchanged.
+ * @param cmd - The command, for this monitor's aircraft.
+ * @param now - The current time, in ms.
+ * @returns The changed monitor; after a check, its `runId` is the run to start.
+ * @throws {Rejection} "Candidate not found." for a review of an unknown
+ *   candidate; "Wait one minute before checking again." for a check within a
+ *   minute of the last attempt.
+ */
+export function applyFaaCommand(
+  monitor: FaaMonitor,
+  cmd: FaaCommand,
+  now: number,
+): FaaMonitor {
+  if (cmd.kind === "configure")
+    return {
+      ...monitor,
+      enabled: cmd.enabled,
+      terms: cmd.terms,
+      runId: "",
+      error: "Settings changed. Run a check to verify coverage.",
+    };
+  if (cmd.kind === "review") return reviewCandidate(monitor, cmd, now);
+  if (monitorAttemptedWithin(monitor, MANUAL_CHECK_INTERVAL_MS, now))
+    throw new Rejection("Wait one minute before checking again.");
+  return startFaaRun(monitor, now);
+}
+
+/**
+ * Starts a check: a new run id, attempted now, with no error.
+ *
+ * @param monitor - The aircraft's monitor; left unchanged.
+ * @param now - The current time, in ms.
+ * @returns The monitor expecting the new run; results of any other run are
+ *   ignored.
+ */
+export function startFaaRun(monitor: FaaMonitor, now: number): FaaMonitor {
+  return {
+    ...monitor,
+    runId: crypto.randomUUID(),
+    lastAttempt: now,
+    error: "",
+  };
+}
+
+/**
+ * Whether a monitor's last check started less than `ms` before `now`.
+ *
+ * @param monitor - The aircraft's monitor.
+ * @param ms - The interval.
+ * @param now - The current time, in ms.
+ */
+export function monitorAttemptedWithin(
+  monitor: FaaMonitor,
+  ms: number,
+  now: number,
+): boolean {
+  return !!monitor.lastAttempt && now - monitor.lastAttempt < ms;
 }
 
 /**
@@ -282,6 +347,22 @@ export function mergeCandidates(old: FaaCandidate[], incoming: FaaCandidate[]) {
       "Monitoring history reached 400 documents; narrow the monitoring scope before continuing.",
     );
   return [...map.values()];
+}
+
+function reviewCandidate(
+  monitor: FaaMonitor,
+  cmd: Extract<FaaCommand, { kind: "review" }>,
+  now: number,
+): FaaMonitor {
+  const index = monitor.candidates.findIndex((c) => c.id === cmd.id);
+  if (index < 0) throw new Rejection("Candidate not found.");
+  const candidates = [...monitor.candidates];
+  candidates[index] = {
+    ...candidates[index],
+    reviewReason: cmd.reason,
+    reviewedAt: now,
+  };
+  return { ...monitor, candidates };
 }
 
 function readDrsField(d: Record<string, unknown>, key: string) {

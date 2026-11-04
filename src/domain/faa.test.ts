@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins FAA DRS candidate parsing, paging and limits, keyword
- *   batching, candidate merging and the aircraft's search terms.
+ *   batching, candidate merging, monitor commands and the aircraft's search
+ *   terms.
  * Layer: Test. Vitest suite with a stubbed fetch; never shipped in the build.
  * Dependencies: src/domain/faa.ts, ./airworthiness, ./components,
  *   ./rejection, src/data/demo.ts (seed).
@@ -10,6 +11,7 @@ import { demoSnapshot } from "../data/demo";
 import { blankAD } from "./airworthiness";
 import { componentSchema } from "./components";
 import {
+  applyFaaCommand,
   drsCandidate,
   emptyMonitor,
   faaMonitorSchema,
@@ -17,7 +19,10 @@ import {
   fetchDrsCandidates,
   fetchDrsFiltered,
   mergeCandidates,
+  monitorAttemptedWithin,
+  startFaaRun,
   type FaaCandidate,
+  type FaaMonitor,
 } from "./faa";
 import { Rejection } from "./rejection";
 
@@ -246,6 +251,87 @@ describe("monitor history", () => {
     expect(withTerms([" ab "])).toBe(true);
     expect(withTerms(["a"])).toBe(false);
     expect(withTerms(Array(31).fill("ab"))).toBe(false);
+  });
+});
+
+describe("monitor commands", () => {
+  const NOW = 1_000_000;
+  const MINUTE = 60_000;
+  const candidate = (id: string): FaaCandidate =>
+    drsCandidate(doc(id), "ADFRAWD");
+  const monitor = (fields: Partial<FaaMonitor> = {}): FaaMonitor => ({
+    ...emptyMonitor("demo-206"),
+    runId: "earlier",
+    error: "Earlier error.",
+    candidates: [candidate("a"), candidate("b")],
+    ...fields,
+  });
+  const aircraftUuid = "demo-206";
+
+  it("saves settings and drops the running check, so the next check verifies them", () => {
+    const before = monitor();
+    const cmd = {
+      kind: "configure" as const,
+      aircraftUuid,
+      enabled: true,
+      terms: ["441"],
+    };
+    expect(applyFaaCommand(before, cmd, NOW)).toEqual({
+      ...before,
+      enabled: true,
+      terms: ["441"],
+      runId: "",
+      error: "Settings changed. Run a check to verify coverage.",
+    });
+    expect(before).toEqual(monitor());
+  });
+
+  it("records a review on the named candidate only, and refuses an unknown one", () => {
+    const before = monitor();
+    const review = (id: string) =>
+      applyFaaCommand(
+        before,
+        { kind: "review", aircraftUuid, id, reason: "Not applicable." },
+        NOW,
+      );
+    expect(review(candidate("b").id).candidates).toEqual([
+      candidate("a"),
+      { ...candidate("b"), reviewReason: "Not applicable.", reviewedAt: NOW },
+    ]);
+    expect(before).toEqual(monitor());
+    expect(() => review("missing")).toThrow(Rejection);
+    expect(() => review("missing")).toThrow(Error("Candidate not found."));
+  });
+
+  it("starts a check with a new run, unless one started within the last minute", () => {
+    const check = { kind: "check", aircraftUuid } as const;
+    const started = applyFaaCommand(
+      monitor({ lastAttempt: NOW - MINUTE }),
+      check,
+      NOW,
+    );
+    expect(started).toMatchObject({ lastAttempt: NOW, error: "" });
+    expect(started.runId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(startFaaRun(monitor(), NOW).runId).not.toBe(started.runId);
+    const recent = () =>
+      applyFaaCommand(monitor({ lastAttempt: NOW - MINUTE + 1 }), check, NOW);
+    expect(recent).toThrow(Rejection);
+    expect(recent).toThrow(Error("Wait one minute before checking again."));
+  });
+
+  it("tells whether the last check started within an interval", () => {
+    expect(monitorAttemptedWithin(monitor(), MINUTE, NOW)).toBe(false);
+    for (const [ago, within] of [
+      [MINUTE - 1, true],
+      [MINUTE, false],
+    ] as const)
+      expect(
+        monitorAttemptedWithin(
+          monitor({ lastAttempt: NOW - ago }),
+          MINUTE,
+          NOW,
+        ),
+      ).toBe(within);
   });
 });
 
