@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins aircraft photos: maintenance permission within the
+ *   active program, replacing and removing the stored image, the audit
+ *   entries, and that no stored file outlives a failed save.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/aircraftPhotos, convex/operations (snapshot),
+ *   src/data/demo.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -9,7 +17,7 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
-it("scopes aircraft photos and replaces/removes storage without changing aircraft records", async () => {
+async function fixture() {
   const t = convexTest(schema, modules),
     demo = demoSnapshot();
   const ids = await t.run(async (ctx) => {
@@ -46,12 +54,16 @@ it("scopes aircraft photos and replaces/removes storage without changing aircraf
     return { aircraft, user, session, group };
   });
   const client = t.withIdentity({ subject: `${ids.user}|${ids.session}` });
-  const args = {
-    aircraftUuid: demo.aircraft[0].uuid,
-    programUuid: "demo-program",
-    type: "image/png",
-    bytes: new Uint8Array([137, 80, 78, 71]).buffer,
-  };
+  return { t, ids, client };
+}
+const args = {
+  aircraftUuid: demoSnapshot().aircraft[0].uuid,
+  programUuid: "demo-program",
+  type: "image/png",
+  bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+};
+it("scopes aircraft photos and replaces/removes storage without changing aircraft records", async () => {
+  const { t, ids, client } = await fixture();
   await expect(
     client.action(api.aircraftPhotos.upload, {
       ...args,
@@ -88,4 +100,60 @@ it("scopes aircraft photos and replaces/removes storage without changing aircraf
   await expect(client.action(api.aircraftPhotos.upload, args)).rejects.toThrow(
     /permission/,
   );
+});
+
+it("audits each change and deletes a removed photo's image", async () => {
+  const { t, client } = await fixture();
+  const target = {
+    aircraftUuid: args.aircraftUuid,
+    programUuid: args.programUuid,
+  };
+  // Characterizes current behaviour: remove audits without a photo.
+  await client.mutation(api.aircraftPhotos.remove, target);
+  await client.action(api.aircraftPhotos.upload, args);
+  await client.mutation(api.aircraftPhotos.remove, target);
+  const entry = (action: string) => ({
+    action,
+    entityUuid: args.aircraftUuid,
+    ...target,
+  });
+  expect(await t.run((ctx) => ctx.db.query("audit").collect())).toMatchObject([
+    entry("aircraft.photo_removed"),
+    entry("aircraft.photo_updated"),
+    entry("aircraft.photo_removed"),
+  ]);
+  expect(
+    await t.run((ctx) => ctx.db.system.query("_storage").collect()),
+  ).toHaveLength(0);
+});
+
+it("keeps no stored file when saving fails, and validates before permission", async () => {
+  const { t, ids, client } = await fixture();
+  const blobs = () =>
+    t.run(
+      async (ctx) => (await ctx.db.system.query("_storage").collect()).length,
+    );
+  // Two rows for one aircraft make finish's unique() read throw.
+  await t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(new Blob(["old"]));
+    for (let i = 0; i < 2; i++)
+      await ctx.db.insert("aircraftPhotos", {
+        aircraftUuid: args.aircraftUuid,
+        storageId,
+      });
+  });
+  await expect(
+    client.action(api.aircraftPhotos.upload, args),
+  ).rejects.toThrow();
+  expect(await blobs()).toBe(1);
+  await t.run((ctx) => ctx.db.patch(ids.group, { programAdmin: false }));
+  await expect(
+    client.action(api.aircraftPhotos.upload, { ...args, type: "text/html" }),
+  ).rejects.toThrow("Choose a JPEG, PNG or WebP aircraft photo.");
+  await expect(
+    client.mutation(api.aircraftPhotos.remove, {
+      aircraftUuid: args.aircraftUuid,
+      programUuid: args.programUuid,
+    }),
+  ).rejects.toThrow("Aircraft maintenance permission required.");
 });
