@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins the guided flight refusals, the start section choice
- *   and the draft's shutdown readings; the checklist-run record is pinned in
+ * Responsibility: Pins the guided flight refusals, the section choices and
+ *   the draft's shutdown readings; the checklist-run record is pinned in
  *   flightFluids.test.ts.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/guidedFlight.ts, ./rejection.
@@ -9,6 +9,8 @@ import { expect, it } from "vitest";
 import {
   guidedDraftSchema,
   guidedFlightLink,
+  suggestedPreflightSection,
+  suggestedShutdownSection,
   suggestedStartSection,
   type GuidedDraft,
 } from "./guidedFlight";
@@ -39,9 +41,10 @@ it("refuses unverified meters, then incomplete fluids", () => {
   );
 });
 
+const sections = (...titles: string[]) =>
+  titles.map((title, i) => ({ objectId: `s${i}`, title }));
+
 it("starts engines from the first plain start section", () => {
-  const sections = (...titles: string[]) =>
-    titles.map((title, i) => ({ objectId: `s${i}`, title }));
   expect(
     suggestedStartSection(
       sections("Preflight", "Pre-start", "Engine start", "Starting"),
@@ -50,6 +53,19 @@ it("starts engines from the first plain start section", () => {
   expect(suggestedStartSection(sections("Before start", "Taxi"))).toBe("");
   expect(suggestedStartSection([{ objectId: "untitled" }])).toBe("");
 });
+
+it.each([
+  [["Cockpit", "Before start", "Taxi", "After flight", "Secure"], "s1", "s3"],
+  [["Pre-flight", "Preflight walk", "Shutdown", "After-flight"], "s0", "s2"],
+  [["Alpha", "Beta", "Gamma"], "s0", "s2"],
+  [[], "", ""],
+])(
+  "reads preflight and shutdown from the first titled sections, else the ends: %j",
+  (titles, preflight, shutdown) => {
+    expect(suggestedPreflightSection(sections(...titles))).toBe(preflight);
+    expect(suggestedShutdownSection(sections(...titles))).toBe(shutdown);
+  },
+);
 
 // Finding 4: the guided flight stored 2342.25 h as typed, and only the final
 // review met the tenths-of-an-hour rule.

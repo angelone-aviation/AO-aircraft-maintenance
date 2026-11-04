@@ -3,7 +3,8 @@
  *   one aircraft or component, with draft task cards for its tasks.
  * Layer: Domain. Zod schema, rules and one applier; no I/O, no React.
  * Dependencies: zod, ./inspectionTemplates, ./model, ./programs,
- *   ./manualDiscovery, ./management, ./taskCards, ./rejection.
+ *   ./manualDiscovery, ./management, ./maintenance, ./components/calendar,
+ *   ./taskCards, ./rejection.
  */
 import { z } from "zod";
 import {
@@ -11,10 +12,13 @@ import {
   taskApplicabilityText,
   type InspectionTemplate,
 } from "./inspectionTemplates";
+import type { Component } from "./components";
 import { can, type Snapshot } from "./model";
 import { ownsActive } from "./programs";
 import { matchesAircraft, matchesComponent } from "./manualDiscovery";
 import { applyManagement } from "./management";
+import { endOfDueMonth } from "./maintenance";
+import { calendarDue } from "./components/calendar";
 import { saveTaskCard, taskCardDefaults } from "./taskCards";
 import { Rejection } from "./rejection";
 
@@ -25,6 +29,9 @@ const MONTHS_PER_YEAR = 12;
 const REQUIREMENT_WARNING_MONTHS = 1;
 const REQUIREMENT_WARNING_SECONDS = 10 * HOUR_SECONDS;
 const REQUIREMENT_WARNING_CYCLES = 10;
+
+/** The longest description a schedule made from a template may carry. */
+export const TEMPLATE_DESCRIPTION_MAX_LENGTH = 2000;
 
 const count = z.number().int().nonnegative();
 
@@ -41,7 +48,7 @@ export const activateTemplateSchema = z.strictObject({
   templateVersion: count,
   targetUuid: z.string().min(1),
   mode: z.enum(["initial", "recurring"]),
-  description: z.string().trim().min(1).max(2000),
+  description: z.string().trim().min(1).max(TEMPLATE_DESCRIPTION_MAX_LENGTH),
   lastSeconds: count.optional(),
   lastCycles: count.optional(),
   lastLandings: count.optional(),
@@ -51,6 +58,32 @@ export const activateTemplateSchema = z.strictObject({
 
 /** A request to schedule a template. */
 export type ActivateTemplateInput = z.infer<typeof activateTemplateSchema>;
+
+/**
+ * A template schedule's limits, and which of them are absolute rather than
+ * counted from the last compliance.
+ */
+export interface TemplateLimits {
+  hours?: number;
+  cycles?: number;
+  landings?: number;
+  /** The recurring calendar interval, in the template's calendar unit. */
+  calendar?: number;
+  absoluteHours: boolean;
+  absoluteCycles: boolean;
+  absoluteLandings: boolean;
+}
+
+/**
+ * Hours (not seconds), cycles, landings and a date (YYYY-MM-DD), any of them
+ * unknown.
+ */
+export interface ScheduleReadings {
+  hours?: number;
+  cycles?: number;
+  landings?: number;
+  date?: string;
+}
 
 /**
  * Explains why an aircraft template cannot become a schedule yet.
@@ -72,6 +105,117 @@ export function templateActivationIssue(t: InspectionTemplate) {
 }
 
 /**
+ * The source key stamped on each schedule made from a template, so that a
+ * second schedule of one template and mode on one target is refused.
+ *
+ * @param templateUuid - The template.
+ * @param mode - The initial or recurring schedule.
+ * @returns `template:<templateUuid>:<mode>`.
+ */
+export function templateSourceKey(
+  templateUuid: string,
+  mode: ActivateTemplateInput["mode"],
+): string {
+  return `template:${templateUuid}:${mode}`;
+}
+
+/**
+ * Whether a template's schedule already exists on a target, so activating it
+ * again is refused: an inspection with its source key on the target's
+ * aircraft (a component's aircraft too, as the template may have moved from
+ * an aircraft model), or a component requirement with it on the target.
+ *
+ * @param s - The inspections, components and component requirements.
+ * @param t - The template.
+ * @param mode - The initial or recurring schedule.
+ * @param targetUuid - The aircraft or component chosen.
+ * @returns True when the schedule exists.
+ */
+export function templateScheduleExists(
+  s: Snapshot,
+  t: Pick<InspectionTemplate, "uuid" | "applicability">,
+  mode: ActivateTemplateInput["mode"],
+  targetUuid: string,
+): boolean {
+  const sourceKey = templateSourceKey(t.uuid, mode);
+  const aircraftUuid =
+    t.applicability.kind === "component"
+      ? s.management?.find(
+          (c): c is Component =>
+            c.kind === "component" && c.uuid === targetUuid,
+        )?.aircraftUuid
+      : targetUuid;
+  return (
+    s.inspections.some(
+      (i) => i.sourceKey === sourceKey && i.aircraftUuid === aircraftUuid,
+    ) ||
+    !!s.management?.some(
+      (r) =>
+        r.kind === "componentRequirement" &&
+        r.sourceKey === sourceKey &&
+        r.componentUuid === targetUuid,
+    )
+  );
+}
+
+/**
+ * The limits of a schedule made from the template. An initial schedule takes
+ * the first-time thresholds, always absolute and without a calendar limit.
+ *
+ * @param t - The template.
+ * @param initial - True for the initial schedule, false for the recurring one.
+ * @returns The limits, possibly none.
+ */
+export function templateLimits(
+  t: InspectionTemplate,
+  initial: boolean,
+): TemplateLimits {
+  return {
+    hours: initial ? t.initialHours : t.hours,
+    cycles: initial ? t.initialCycles : t.cycles,
+    landings: initial ? t.initialLandings : t.landings,
+    calendar: initial ? undefined : t.calendarValue,
+    absoluteHours: initial || t.hourMode === "ABSOLUTE",
+    absoluteCycles: initial || t.cycleMode === "ABSOLUTE",
+    // Older templates have no landing mode; theirs count from the last
+    // compliance.
+    absoluteLandings: initial || t.landingMode === "ABSOLUTE",
+  };
+}
+
+/**
+ * When a schedule made from the template first falls due: an absolute limit
+ * as it stands, any other limit after the last compliance (hours to the
+ * tenth), and the calendar limit from the last compliance date, to the end of
+ * the due month for an aircraft inspection. A limit is left out when its last
+ * compliance is missing or the date is not a valid date.
+ *
+ * @param t - The template.
+ * @param initial - True for the initial schedule, false for the recurring one.
+ * @param last - The last compliance.
+ * @returns The due hours, cycles, landings and date.
+ */
+export function templateNextDue(
+  t: InspectionTemplate,
+  initial: boolean,
+  last: ScheduleReadings,
+): ScheduleReadings {
+  const limits = templateLimits(t, initial);
+  return {
+    hours: dueAfter(
+      limits.hours,
+      last.hours,
+      limits.absoluteHours,
+      // Hours are kept in tenths; this also hides floating-point noise.
+      (sum) => Number(sum.toFixed(1)),
+    ),
+    cycles: dueAfter(limits.cycles, last.cycles, limits.absoluteCycles),
+    landings: dueAfter(limits.landings, last.landings, limits.absoluteLandings),
+    date: readCalendarDue(t, limits.calendar, last.date),
+  };
+}
+
+/**
  * Creates an inspection (aircraft template) or component requirement
  * (component template), once per target, and a draft task card per task.
  *
@@ -89,8 +233,11 @@ export function activateTemplate(s: Snapshot, raw: ActivateTemplateInput) {
   const aircraftUuid = component ? component.aircraftUuid : input.targetUuid;
   assertMaintainableAircraft(s, t, aircraftUuid);
   const limits = readScheduleLimits(t, input.mode === "initial");
-  const sourceKey = `template:${t.uuid}:${input.mode}`;
-  assertNotActivated(s, sourceKey, aircraftUuid, input.targetUuid);
+  if (templateScheduleExists(s, t, input.mode, input.targetUuid))
+    throw new Rejection(
+      "This template schedule already exists for the selected target. Open the existing record to edit it.",
+    );
+  const sourceKey = templateSourceKey(t.uuid, input.mode);
   const nextState = structuredClone(s);
   const uuid = crypto.randomUUID();
   const a: Activation = { t, input, limits, uuid, sourceKey, aircraftUuid };
@@ -116,7 +263,7 @@ export function activateTemplate(s: Snapshot, raw: ActivateTemplateInput) {
 interface Activation {
   t: InspectionTemplate;
   input: ActivateTemplateInput;
-  limits: ReturnType<typeof readScheduleLimits>;
+  limits: TemplateLimits;
   uuid: string;
   sourceKey: string;
   aircraftUuid: string;
@@ -170,53 +317,18 @@ function assertMaintainableAircraft(
     throw new Rejection("Choose a matching aircraft with maintenance access.");
 }
 
-// An initial schedule uses the template's first-time thresholds, always as
-// absolute limits and without a calendar limit.
 function readScheduleLimits(t: InspectionTemplate, initial: boolean) {
-  const hours = initial ? t.initialHours : t.hours,
-    cycles = initial ? t.initialCycles : t.cycles,
-    landings = initial ? t.initialLandings : t.landings,
-    calendar = initial ? undefined : t.calendarValue;
+  const limits = templateLimits(t, initial);
   if (
-    hours === undefined &&
-    cycles === undefined &&
-    landings === undefined &&
-    calendar === undefined
+    limits.hours === undefined &&
+    limits.cycles === undefined &&
+    limits.landings === undefined &&
+    limits.calendar === undefined
   )
     throw new Rejection(
       "This schedule has no numeric limits. Add verified intervals to the template first.",
     );
-  return {
-    hours,
-    cycles,
-    landings,
-    calendar,
-    absoluteHours: initial || t.hourMode === "ABSOLUTE",
-    absoluteCycles: initial || t.cycleMode === "ABSOLUTE",
-    absoluteLandings: initial || t.landingMode === "ABSOLUTE",
-  };
-}
-
-function assertNotActivated(
-  s: Snapshot,
-  sourceKey: string,
-  aircraftUuid: string,
-  targetUuid: string,
-) {
-  if (
-    s.inspections.some(
-      (i) => i.sourceKey === sourceKey && i.aircraftUuid === aircraftUuid,
-    ) ||
-    s.management?.some(
-      (r) =>
-        r.kind === "componentRequirement" &&
-        r.sourceKey === sourceKey &&
-        r.componentUuid === targetUuid,
-    )
-  )
-    throw new Rejection(
-      "This template schedule already exists for the selected target. Open the existing record to edit it.",
-    );
+  return limits;
 }
 
 // A component requirement keeps each limit as an interval with its mode.
@@ -270,9 +382,7 @@ function inspectionCommand(a: Activation) {
       intervalLandings: limits.absoluteLandings ? undefined : landings,
       dueLandings: limits.absoluteLandings ? landings : undefined,
       intervalMonths:
-        calendar === undefined
-          ? undefined
-          : calendar * (t.calendarUnit === "YEARS" ? MONTHS_PER_YEAR : 1),
+        calendar === undefined ? undefined : toMonths(calendar, t.calendarUnit),
       dueSeconds: limits.absoluteHours ? toSeconds(hours) : undefined,
       dueCycles: limits.absoluteCycles ? cycles : undefined,
     },
@@ -328,6 +438,43 @@ function createTaskCards(
       },
     }),
   );
+}
+
+function dueAfter(
+  limit: number | undefined,
+  last: number | undefined,
+  absolute: boolean,
+  round = (sum: number) => sum,
+) {
+  if (limit === undefined || absolute) return limit;
+  return last === undefined ? undefined : round(last + limit);
+}
+
+function readCalendarDue(
+  t: InspectionTemplate,
+  interval: number | undefined,
+  lastDate: string | undefined,
+) {
+  if (interval === undefined || !lastDate) return undefined;
+  try {
+    return t.applicability.kind === "component"
+      ? calendarDue(lastDate, interval, t.calendarUnit)
+      : endOfDueMonth(lastDate, toMonths(interval, t.calendarUnit));
+  } catch (error) {
+    // A date still being typed, or one past the calendar's range, has no due
+    // date yet.
+    if (
+      error instanceof Rejection ||
+      error instanceof z.ZodError ||
+      error instanceof RangeError
+    )
+      return undefined;
+    throw error;
+  }
+}
+
+function toMonths(value: number, unit: InspectionTemplate["calendarUnit"]) {
+  return value * (unit === "YEARS" ? MONTHS_PER_YEAR : 1);
 }
 
 function limitMode(absolute: boolean) {

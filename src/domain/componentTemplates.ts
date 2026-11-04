@@ -1,6 +1,7 @@
 /**
  * Responsibility: Component templates (a program's recommended components for
- *   one make and model), their CSV form, and applying them as setups.
+ *   one make and model), their CSV form, applying them as setups, and when a
+ *   setup is pending or ready to complete.
  * Layer: Domain. Zod schemas, rules and appliers; no I/O, no React.
  * Dependencies: zod, ./maintenanceCsv, ./ata, ./components, ./model,
  *   ./programs, ./rejection.
@@ -214,6 +215,40 @@ export function componentDuplicate(
     ) ||
     (s.componentSetups ?? []).some(
       (r) => r.aircraftUuid === aircraftUuid && same(r.row),
+    )
+  );
+}
+
+/**
+ * The setups still pending, in stored order (see {@link ComponentSetup}).
+ *
+ * @param s - The setups and the program's components.
+ * @returns The setups no component has been created for.
+ */
+export function pendingComponentSetups(s: Snapshot): ComponentSetup[] {
+  const management = s.management ?? [];
+  return (s.componentSetups ?? []).filter(
+    (d) => !management.some((c) => c.kind === "component" && c.uuid === d.uuid),
+  );
+}
+
+/**
+ * Whether a setup's parent is ready for it: a child waits until its parent is
+ * an installed component on the child's aircraft.
+ *
+ * @param s - The program's components.
+ * @param d - The setup.
+ * @returns True for a setup without a parent, or with its parent ready.
+ */
+export function setupParentReady(s: Snapshot, d: ComponentSetup): boolean {
+  return (
+    !d.parentComponentUuid ||
+    (s.management ?? []).some(
+      (c) =>
+        c.kind === "component" &&
+        c.uuid === d.parentComponentUuid &&
+        c.installed &&
+        c.aircraftUuid === d.aircraftUuid,
     )
   );
 }

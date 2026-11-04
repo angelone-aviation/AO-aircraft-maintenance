@@ -1,16 +1,23 @@
 /**
  * Responsibility: Pins activating an inspection template as an inspection or
- *   component requirement with task cards, and every refusal.
+ *   component requirement with task cards, every refusal, and the source
+ *   key, duplicate check, limits and next due the activation form shares.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/activateTemplate.ts, ./inspectionTemplates,
  *   ./components, ./rejection, src/data/demo.ts (seed).
  */
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { emptyTemplate } from "./inspectionTemplates";
 import {
   activateTemplate,
+  activateTemplateSchema,
+  TEMPLATE_DESCRIPTION_MAX_LENGTH,
   templateActivationIssue,
+  templateLimits,
+  templateNextDue,
+  templateScheduleExists,
+  templateSourceKey,
   type ActivateTemplateInput,
 } from "./activateTemplate";
 import type { Component } from "./components";
@@ -266,4 +273,123 @@ it.each([
   expect(activate).toThrow(Rejection);
   expect(activate).toThrow(message);
   expect(s).toEqual(before);
+});
+
+describe("what the activation form shares with the server", () => {
+  const component = {
+    kind: "component" as const,
+    model: "P100",
+    manufacturer: "Acme",
+    partNumber: "P1",
+  };
+
+  it("keys a schedule by template and mode", () => {
+    expect(templateSourceKey("t-1", "initial")).toBe("template:t-1:initial");
+  });
+
+  it("finds a schedule already made on the target, or on a component's aircraft", () => {
+    const { s, t, input } = fixture();
+    const c = pump(t.programUuid, input.targetUuid);
+    s.management = [c];
+    const moved = { ...t, applicability: component };
+    expect(templateScheduleExists(s, t, "recurring", input.targetUuid)).toBe(
+      false,
+    );
+    activateTemplate(s, input);
+    expect(templateScheduleExists(s, t, "recurring", input.targetUuid)).toBe(
+      true,
+    );
+    expect(templateScheduleExists(s, t, "initial", input.targetUuid)).toBe(
+      false,
+    );
+    expect(templateScheduleExists(s, t, "recurring", "other")).toBe(false);
+    expect(templateScheduleExists(s, moved, "recurring", c.uuid)).toBe(true);
+    s.inspections = [];
+    expect(templateScheduleExists(s, moved, "recurring", c.uuid)).toBe(false);
+    s.inspectionTemplates = [moved];
+    activateTemplate(s, { ...input, targetUuid: c.uuid });
+    expect(templateScheduleExists(s, moved, "recurring", c.uuid)).toBe(true);
+  });
+
+  it("takes absolute first-time thresholds for an initial schedule", () => {
+    const { t } = fixture();
+    Object.assign(t, { initialHours: 50, initialLandings: 5, landings: 9 });
+    expect(templateLimits(t, true)).toEqual({
+      hours: 50,
+      cycles: undefined,
+      landings: 5,
+      calendar: undefined,
+      absoluteHours: true,
+      absoluteCycles: true,
+      absoluteLandings: true,
+    });
+    expect(templateLimits(t, false)).toEqual({
+      hours: 100,
+      cycles: undefined,
+      landings: 9,
+      calendar: 12,
+      absoluteHours: false,
+      absoluteCycles: false,
+      absoluteLandings: false,
+    });
+    Object.assign(t, { hourMode: "ABSOLUTE", landingMode: "ABSOLUTE" });
+    expect(templateLimits(t, false)).toMatchObject({
+      absoluteHours: true,
+      absoluteLandings: true,
+    });
+  });
+
+  it("falls due after the last compliance, absolute limits as they stand", () => {
+    const { t } = fixture();
+    Object.assign(t, { hours: 0.2, cycles: 50, landings: 50 });
+    expect(
+      templateNextDue(t, false, { hours: 0.1, cycles: 5, date: "2025-12-12" }),
+    ).toEqual({
+      hours: 0.3,
+      cycles: 55,
+      landings: undefined,
+      date: "2026-12-31",
+    });
+    Object.assign(t, { cycleMode: "ABSOLUTE", landingMode: "ABSOLUTE" });
+    expect(templateNextDue(t, false, {})).toEqual({
+      hours: undefined,
+      cycles: 50,
+      landings: 50,
+      date: undefined,
+    });
+    expect(templateNextDue({ ...t, initialHours: 7 }, true, {})).toEqual({
+      hours: 7,
+      cycles: undefined,
+      landings: undefined,
+      date: undefined,
+    });
+  });
+
+  it("dates an aircraft inspection to its month end and a component requirement exactly", () => {
+    const { t } = fixture();
+    const date = "2025-12-12";
+    const yearly = { ...t, calendarValue: 1, calendarUnit: "YEARS" as const };
+    expect(templateNextDue(yearly, false, { date }).date).toBe("2026-12-31");
+    const days = {
+      ...t,
+      applicability: component,
+      calendarValue: 30,
+      calendarUnit: "DAYS" as const,
+    };
+    expect(templateNextDue(days, false, { date }).date).toBe("2026-01-11");
+    for (const typing of ["2026-1", "2026-02-30"]) {
+      expect(templateNextDue(t, false, { date: typing }).date).toBeUndefined();
+      expect(
+        templateNextDue(days, false, { date: typing }).date,
+      ).toBeUndefined();
+    }
+  });
+
+  it("limits the description to the exported length", () => {
+    const { input } = fixture();
+    const parse = (description: string) =>
+      activateTemplateSchema.safeParse({ ...input, description }).success;
+    expect(parse("x".repeat(TEMPLATE_DESCRIPTION_MAX_LENGTH))).toBe(true);
+    expect(parse("x".repeat(TEMPLATE_DESCRIPTION_MAX_LENGTH + 1))).toBe(false);
+  });
 });

@@ -4,7 +4,7 @@
  * Layer: UI. React components; sessions live in this browser's localStorage
  *   until the completed flight is queued.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (model, programs, flightPlans, flightSession), ./FlightForm.tsx,
+ *   (model, programs, flightPlans, flights, flightSession), ./FlightForm.tsx,
  *   ./PreflightMaintenance.tsx, ./FlightParts.tsx, ./design.tsx, ./ui.tsx.
  */
 import { useState, type ReactNode } from "react";
@@ -20,6 +20,7 @@ import {
   type Snapshot,
 } from "../domain/model";
 import { activeProgram } from "../domain/programs";
+import { flightOptionalEntries } from "../domain/flights";
 import {
   flightSessionSchema,
   plannedFlightPrefill,
@@ -453,7 +454,11 @@ function AircraftCheck({ s, aircraft }: { s: Snapshot; aircraft: Aircraft }) {
   );
 }
 
+// The flight time log row keeps to the aircraft's option: the shared rule
+// also counts the meter, which would add the row for an older record whose
+// meter is the flight time log without the option.
 function Readings({ aircraft: a }: { aircraft: Aircraft }) {
+  const shown = flightOptionalEntries(a, a.meter);
   return (
     <dl className="flight-readings">
       <Reading term="Hobbs">{hours(a.currentHobbs)} h</Reading>
@@ -463,7 +468,7 @@ function Readings({ aircraft: a }: { aircraft: Aircraft }) {
           {optionalHours(a.currentFlightTimeLog)}
         </Reading>
       )}
-      {(a.helicopter || a.meter === "cyclic") && (
+      {shown.cyclic && (
         <Reading term="Collective hourmeter">
           {optionalHours(a.currentCyclicHobbs)}
         </Reading>

@@ -4,7 +4,7 @@
  * Layer: UI. React component; the schedule saves through the workspace backend.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
  *   (model, manualDiscovery, inspectionTemplates, activateTemplate,
- *   maintenance, components), ./ui, ./ManagementShared, ./InspectionTemplates.
+ *   components), ./ui, ./ManagementShared, ./InspectionTemplates.
  */
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -13,27 +13,22 @@ import { can, type Snapshot } from "../domain/model";
 import { matchesAircraft, matchesComponent } from "../domain/manualDiscovery";
 import type { InspectionTemplate } from "../domain/inspectionTemplates";
 import {
+  TEMPLATE_DESCRIPTION_MAX_LENGTH,
   templateActivationIssue,
+  templateLimits,
+  templateNextDue,
+  templateScheduleExists,
   type ActivateTemplateInput,
 } from "../domain/activateTemplate";
-import { endOfDueMonth } from "../domain/maintenance";
-import { calendarDue, type Component } from "../domain/components";
+import type { Component } from "../domain/components";
 import { AsyncForm, Field, value } from "./ui";
 import { NumberField, num, secs, today } from "./ManagementShared";
 import { TemplateIntervals } from "./InspectionTemplates";
 
-/** The activation command's description limit (activateTemplateSchema). */
-const DESCRIPTION_MAX_LENGTH = 2000;
-const MONTHS_PER_YEAR = 12;
-
 type Mode = "" | "initial" | "recurring";
 type Draft = ReturnType<typeof useActivationDraft>;
-/** A schedule's limits, and which last compliance it asks for. */
+/** Which last compliance a schedule asks for. */
 type Schedule = {
-  initial: boolean;
-  hours?: number;
-  cycles?: number;
-  landings?: number;
   lastHours: boolean;
   lastCycles: boolean;
   lastLandings: boolean;
@@ -60,7 +55,8 @@ export function ActivateTemplate({
   const { snapshot: s, backend, online, connected } = useWorkspace();
   const draft = useActivationDraft(t);
   const issue = templateActivationIssue(t);
-  const duplicate = scheduleExists(s!, t, draft.mode, draft.target);
+  const duplicate =
+    !!draft.mode && templateScheduleExists(s!, t, draft.mode, draft.target);
   const targetCount = matchingTargets(s!, t).length;
   return (
     <>
@@ -305,11 +301,11 @@ function DescriptionFields({ template: t }: { template: InspectionTemplate }) {
         <textarea
           name="description"
           defaultValue={description}
-          maxLength={DESCRIPTION_MAX_LENGTH}
+          maxLength={TEMPLATE_DESCRIPTION_MAX_LENGTH}
           required
         />
       </Field>
-      {description.length > DESCRIPTION_MAX_LENGTH && (
+      {description.length > TEMPLATE_DESCRIPTION_MAX_LENGTH && (
         <p>
           Shorten the description to 2,000 characters before saving. The full
           definition remains in the template.
@@ -353,111 +349,36 @@ function matchingComponents(s: Snapshot, t: InspectionTemplate) {
   );
 }
 
-// The domain stamps each schedule it creates with this source key, so a
-// second activation of one template, mode and target is caught before saving.
-// As on the server, an inspection on the component's aircraft counts too: the
-// template may have moved from an aircraft to a component model.
-function scheduleExists(
-  s: Snapshot,
-  t: InspectionTemplate,
-  mode: Mode,
-  target: string,
-) {
-  const sourceKey = `template:${t.uuid}:${mode}`;
-  const aircraftUuid =
-    t.applicability.kind === "component"
-      ? s.management?.find(
-          (c): c is Component => c.kind === "component" && c.uuid === target,
-        )?.aircraftUuid
-      : target;
-  return (
-    s.inspections.some(
-      (i) => i.aircraftUuid === aircraftUuid && i.sourceKey === sourceKey,
-    ) ||
-    !!s.management?.some(
-      (r) =>
-        r.kind === "componentRequirement" &&
-        r.componentUuid === target &&
-        r.sourceKey === sourceKey,
-    )
-  );
-}
-
 // A one-time initial schedule and absolute limits need no last compliance;
-// recurring limits counted from it do. Landings have no mode on older
-// templates, and those count from the last compliance.
+// recurring limits counted from it do.
 function scheduleFor(t: InspectionTemplate, mode: Mode): Schedule {
-  const initial = mode === "initial";
-  const recurring = !!mode && !initial;
-  const hours = initial ? t.initialHours : t.hours;
-  const cycles = initial ? t.initialCycles : t.cycles;
-  const landings = initial ? t.initialLandings : t.landings;
+  const recurring = mode === "recurring";
+  const limits = templateLimits(t, mode === "initial");
   return {
-    initial,
-    hours,
-    cycles,
-    landings,
-    lastHours:
-      recurring && hours !== undefined && t.hourMode === "FROM_LAST_COMPLIED",
+    lastHours: recurring && limits.hours !== undefined && !limits.absoluteHours,
     lastCycles:
-      recurring && cycles !== undefined && t.cycleMode === "FROM_LAST_COMPLIED",
+      recurring && limits.cycles !== undefined && !limits.absoluteCycles,
     lastLandings:
-      recurring && landings !== undefined && t.landingMode !== "ABSOLUTE",
-    lastDate: recurring && t.calendarValue !== undefined,
+      recurring && limits.landings !== undefined && !limits.absoluteLandings,
+    lastDate: recurring && limits.calendar !== undefined,
   };
 }
 
 function nextDuePreview(d: FormData, t: InspectionTemplate, mode: Mode) {
-  const sc = scheduleFor(t, mode);
-  const parts: string[] = [];
-  const hours = dueAfter(
-    sc.hours,
-    num(d, "lastHours"),
-    !(sc.initial || t.hourMode === "ABSOLUTE"),
-    // Hours are kept in tenths; this also hides floating-point noise.
-    (sum) => Number(sum.toFixed(1)),
-  );
-  if (hours !== undefined) parts.push(`${hours} hours`);
-  const cycles = dueAfter(
-    sc.cycles,
-    num(d, "lastCycles"),
-    !(sc.initial || t.cycleMode === "ABSOLUTE"),
-  );
-  if (cycles !== undefined) parts.push(`${cycles} cycles`);
-  const landings = dueAfter(
-    sc.landings,
-    num(d, "lastLandings"),
-    !(sc.initial || t.landingMode === "ABSOLUTE"),
-  );
-  if (landings !== undefined) parts.push(`${landings} aircraft landings`);
-  const date = calendarDueDate(t, sc, value(d, "lastDate"));
-  if (date !== undefined) parts.push(date);
-  return parts.join(" or ");
-}
-
-function dueAfter(
-  limit: number | undefined,
-  last: number | undefined,
-  fromLast: boolean,
-  round = (sum: number) => sum,
-) {
-  if (limit === undefined) return undefined;
-  if (!fromLast) return limit;
-  return last === undefined ? undefined : round(last + limit);
-}
-
-function calendarDueDate(t: InspectionTemplate, sc: Schedule, date: string) {
-  const interval = t.calendarValue;
-  if (!sc.lastDate || !date || interval === undefined) return undefined;
-  try {
-    if (t.applicability.kind === "component")
-      return calendarDue(date, interval, t.calendarUnit);
-    const months = t.calendarUnit === "YEARS" ? MONTHS_PER_YEAR : 1;
-    return endOfDueMonth(date, interval * months);
-  } catch {
-    // A date still being typed has no due date yet; the preview omits it.
-    return undefined;
-  }
+  const due = templateNextDue(t, mode === "initial", {
+    hours: num(d, "lastHours"),
+    cycles: num(d, "lastCycles"),
+    landings: num(d, "lastLandings"),
+    date: value(d, "lastDate"),
+  });
+  return [
+    due.hours !== undefined && `${due.hours} hours`,
+    due.cycles !== undefined && `${due.cycles} cycles`,
+    due.landings !== undefined && `${due.landings} aircraft landings`,
+    due.date,
+  ]
+    .filter(Boolean)
+    .join(" or ");
 }
 
 function activationInput(

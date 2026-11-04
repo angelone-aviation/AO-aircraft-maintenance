@@ -18,6 +18,8 @@ import {
   parseComponentTemplateCsv,
   matchesComponentTemplate,
   componentDuplicate,
+  pendingComponentSetups,
+  setupParentReady,
   type ComponentTemplate,
   type ComponentSetup,
 } from "../domain/componentTemplates";
@@ -162,34 +164,12 @@ function downloadSample() {
   download("component-template.csv", csvFor(), "text/csv");
 }
 
-// A setup stays pending until a component is created with its uuid.
-function pendingSetups(s: Snapshot) {
-  const management = s.management ?? [];
-  return (s.componentSetups ?? []).filter(
-    (d) => !management.some((c) => c.kind === "component" && c.uuid === d.uuid),
-  );
-}
-
-// A child waits until its parent is an installed component on its aircraft.
-function parentReady(s: Snapshot, d: ComponentSetup) {
-  return (
-    !d.parentComponentUuid ||
-    (s.management ?? []).some(
-      (c) =>
-        c.kind === "component" &&
-        c.uuid === d.parentComponentUuid &&
-        c.installed &&
-        c.aircraftUuid === d.aircraftUuid,
-    )
-  );
-}
-
 function PendingSetups({
   s,
   writable,
   onComplete,
 }: WriteProps & { onComplete: (setup: ComponentSetup) => void }) {
-  const pending = pendingSetups(s);
+  const pending = pendingComponentSetups(s);
   if (!pending.length) return null;
   return (
     <details open>
@@ -229,7 +209,7 @@ function PendingRow({
   setup: d,
   onComplete,
 }: WriteProps & { setup: ComponentSetup; onComplete: () => void }) {
-  const ready = parentReady(s, d);
+  const ready = setupParentReady(s, d);
   const parentSetup = (s.componentSetups ?? []).find(
     (p) => p.uuid === d.parentComponentUuid,
   );

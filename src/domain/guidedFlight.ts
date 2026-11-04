@@ -1,6 +1,7 @@
 /**
- * Responsibility: The guided flight draft a pilot fills in step by step, and
- *   the checklist-run record it attaches to the logged flight.
+ * Responsibility: The guided flight draft a pilot fills in step by step, the
+ *   checklist sections it suggests, and the checklist-run record it attaches
+ *   to the logged flight.
  * Layer: Domain. Zod schema and pure functions; no I/O, no React.
  * Dependencies: zod, ./model, ./checklists, ./flightPlans, ./flightFluids,
  *   ./flightChecklistSchema, ./readings, ./rejection.
@@ -20,6 +21,10 @@ import { meterReadingSchema } from "./readings";
 import { Rejection } from "./rejection";
 
 const OVERRIDE_REASON_MAX_LENGTH = 1000;
+const PREFLIGHT_TITLE = /pre.?flight|before.*start/i;
+const SHUTDOWN_TITLE = /shut.?down|after.*flight/i;
+
+type Section = { objectId: string; title?: string };
 
 /**
  * A guided flight in progress, saved on the device between steps: the opening
@@ -132,9 +137,7 @@ export function guidedFlightLink(draft: GuidedDraft, twin: boolean) {
  * @param lists - The checklist's sections, in order.
  * @returns That section's objectId, or "" when none matches.
  */
-export function suggestedStartSection(
-  lists: { objectId: string; title?: string }[],
-) {
+export function suggestedStartSection(lists: Section[]) {
   return (
     lists.find(
       (l) =>
@@ -142,6 +145,32 @@ export function suggestedStartSection(
         !/before|after|pre.?start/i.test(l.title ?? ""),
     )?.objectId ?? ""
   );
+}
+
+/**
+ * Picks the checklist section a new flight takes preflight readings in: the
+ * first titled like "Preflight" or "Before start", else the first section.
+ *
+ * @param lists - The checklist's sections, in order.
+ * @returns That section's objectId, or "" for a checklist with none.
+ */
+export function suggestedPreflightSection(lists: Section[]) {
+  return (titledSection(lists, PREFLIGHT_TITLE) ?? lists[0])?.objectId ?? "";
+}
+
+/**
+ * Picks the checklist section a new flight takes shutdown readings in: the
+ * first titled like "Shutdown" or "After flight", else the last section.
+ *
+ * @param lists - The checklist's sections, in order.
+ * @returns That section's objectId, or "" for a checklist with none.
+ */
+export function suggestedShutdownSection(lists: Section[]) {
+  return (titledSection(lists, SHUTDOWN_TITLE) ?? lists.at(-1))?.objectId ?? "";
+}
+
+function titledSection(lists: Section[], title: RegExp) {
+  return lists.find((l) => title.test(l.title ?? ""));
 }
 
 // Fuel and each engine's oil need a starting level and the quantity added

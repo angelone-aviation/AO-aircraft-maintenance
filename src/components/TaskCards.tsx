@@ -7,6 +7,9 @@
  *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders),
  *   ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording, ./TaskCsvImport,
  *   ./Manuals, ./ui.
+ *
+ * A template holds instructions only: results, parts and signoffs go on the
+ * job card a work order copies from it.
  */
 import { ZodError } from "zod";
 import { RequestPartsButton } from "./PartsRequests";
@@ -24,32 +27,42 @@ import { recordProgram } from "../domain/programs";
 import type { Stock } from "../domain/management";
 import { expiredForUse, usableQuantity } from "../domain/shelfLife";
 import { taskCardMatchesWorkItem } from "../domain/workOrderCards";
-import type { WorkTask } from "../domain/workOrders";
+import type { WorkOrder, WorkTask } from "../domain/workOrders";
 import { TaskCsvImportButton } from "./TaskCsvImport";
 import { ManualReferenceFields } from "./Manuals";
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
-import { useWorkspace } from "../data/store";
-import { can } from "../domain/model";
+import { useWorkspace, type Workspace } from "../data/store";
+import { can, type Snapshot } from "../domain/model";
 import { ATA_GROUPS, ataLabel } from "../domain/ata";
 import { isOpenWorkOrder, validateWorkOrderFile } from "../domain/workOrders";
 import {
+  CARD_NUMBER_MAX_LENGTH,
+  TASK_TEXT_MAX_LENGTH,
   applyTaskLink,
   canUnlinkTaskCard,
   evidenceCategories,
   evidenceRemovable,
   inspectorCertificateProblem,
   inspectorCertificateRequired,
+  isResultTextField,
   isTaskClosed,
   isTaskTemplate,
-  linkField,
+  linkableTaskCards,
+  linkedTaskCards,
+  signoffsOfferedInEditor,
+  signoffsOfferedInList,
   taskCardDefaults,
   taskCardFieldsSchema,
   taskCardStatuses,
+  taskLinkLocked,
+  taskLinksWritable,
+  taskStatusChoices,
   taskWritable,
   type TaskCard,
   type TaskCardFields,
   type TaskLink,
+  type TaskLinkField,
   type TaskPart,
 } from "../domain/taskCards";
 import {
@@ -62,226 +75,55 @@ import {
   errorText,
   value,
 } from "./ui";
-const label = (s: string) => s.replaceAll("-", " ");
-const nullableNumber = (s: string) => (s === "" ? null : Number(s));
+
+// A longer description shows its first 157 characters and an ellipsis.
+const PREVIEW_MAX_LENGTH = 160;
+const PREVIEW_KEPT_LENGTH = 157;
+const PART_TEXT_FIELDS = [
+  ["Part number", "partNumber"],
+  ["Description", "description"],
+  ["Serial / lot", "serialLot"],
+  ["Removed component details", "removedComponent"],
+  ["Installed component details", "installedComponent"],
+] as const;
+
 type Selection = { uuid?: string; defaults?: TaskCardFields };
-const compareCardZones = (a: TaskCard, b: TaskCard) => {
-  const az = cardZone(a),
-    bz = cardZone(b);
-  if (!az || !bz)
-    return az
-      ? -1
-      : bz
-        ? 1
-        : a.cardNumber.localeCompare(b.cardNumber, undefined, {
-            numeric: true,
-          });
-  return (
-    az.localeCompare(bz, undefined, { numeric: true, sensitivity: "base" }) ||
-    a.cardNumber.localeCompare(b.cardNumber, undefined, { numeric: true })
-  );
-};
 type CardOrder = "zone" | "number";
-function CardOrderSelect({
-  value,
-  onChange,
-}: {
-  value: CardOrder;
-  onChange: (value: CardOrder) => void;
-}) {
-  return (
-    <div className="job-card-order">
-      <Field label="Order by">
-        <select
-          value={value}
-          onChange={(event) => onChange(event.target.value as CardOrder)}
-        >
-          <option value="zone">Zone</option>
-          <option value="number">Card number</option>
-        </select>
-      </Field>
-    </div>
-  );
-}
-const compareCardNumbers = (a: TaskCard, b: TaskCard) =>
-  a.cardNumber.localeCompare(b.cardNumber, undefined, { numeric: true });
+type SignKind = "technician" | "inspection";
+type Choice = { uuid: string; name: string };
+type Filters = { aircraft: string; status: string; search: string };
+type FilterState = {
+  aircraft: string;
+  setAircraft: (uuid: string) => void;
+  status: string;
+  setStatus: (status: string) => void;
+};
+type Removal = ReturnType<typeof useCardRemoval>;
+type LinkedView = {
+  s: Snapshot;
+  link: TaskLink;
+  aircraftUuid: string;
+  cards: TaskCard[];
+  writable: boolean;
+  removal: Removal;
+  onSelect: (selection: Selection) => void;
+};
+type EditorProps = {
+  initial?: TaskCard;
+  defaults?: TaskCardFields;
+  onSaved: (uuid: string) => void;
+  onClose: () => void;
+};
+type Editor = ReturnType<typeof useTaskCardEditor>;
+type PartProps = { e: Editor; part: TaskPart; index: number };
 
-function CardPreview({ card }: { card: TaskCard }) {
-  const description = card.description.replace(/\s+/g, " ").trim();
-  return (
-    <small className="block muted">
-      <strong>Zone: {cardZone(card) || "Unspecified"}</strong>
-      {description && (
-        <span className="block">
-          {description.length > 160
-            ? `${description.slice(0, 157)}…`
-            : description}
-        </span>
-      )}
-    </small>
-  );
-}
-
-function JobCardStatus({ card }: { card: TaskCard }) {
-  const { snapshot, backend, online, connected } = useWorkspace();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const writable =
-    !!snapshot &&
-    !!backend &&
-    online &&
-    connected &&
-    taskWritable(snapshot, card);
-  const statuses = isTaskTemplate(card)
-    ? (["draft", "canceled"] as const)
-    : taskCardStatuses;
-
-  return (
-    <>
-      <select
-        className="job-card-status-select"
-        aria-label={`Task status for ${card.cardNumber}`}
-        aria-busy={busy}
-        title={label(card.status)}
-        value={card.status}
-        disabled={!writable || busy}
-        onChange={async (event) => {
-          const status = event.target.value as TaskCardFields["status"];
-          if (!backend || !writable || status === card.status) return;
-          setBusy(true);
-          setError("");
-          try {
-            await backend.taskCard({
-              action: "save",
-              uuid: card.uuid,
-              version: card.version,
-              fields: { ...taskCardFieldsSchema.parse(card), status },
-            });
-          } catch (error) {
-            setError(cardErrorText(error));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {statuses.map((status) => (
-          <option key={status} value={status}>
-            {label(status)}
-          </option>
-        ))}
-      </select>
-      {error && (
-        <small className="job-card-status-error error" role="alert">
-          {error}
-        </small>
-      )}
-    </>
-  );
-}
-
-function JobCardSignoffs({ card }: { card: TaskCard }) {
-  const { snapshot, backend, online, connected } = useWorkspace();
-  const [busy, setBusy] = useState<"technician" | "inspection">();
-  const [error, setError] = useState("");
-  const writable =
-    !!snapshot &&
-    !!backend &&
-    online &&
-    connected &&
-    taskWritable(snapshot, card);
-  const sameSigner = card.technicianSignoff?.userId === snapshot?.user.id;
-  // Why this user cannot sign as inspector, if they cannot.
-  const certificateProblem = snapshot
-    ? inspectorCertificateProblem(snapshot.user, localDate())
-    : inspectorCertificateRequired;
-  const certified = !certificateProblem;
-
-  async function sign(kind: "technician" | "inspection") {
-    if (!backend || !writable || busy) return;
-    setBusy(kind);
-    setError("");
-    try {
-      await signTaskCard(card, kind, (command) => backend.taskCard(command));
-    } catch (error) {
-      setError(cardErrorText(error));
-    } finally {
-      setBusy(undefined);
-    }
-  }
-
-  return (
-    <div
-      className="job-card-summary-signoffs"
-      aria-label={`Signoffs for ${card.cardNumber}`}
-    >
-      {isTaskTemplate(card) ? (
-        <small className="muted">Sign on the work-order copy.</small>
-      ) : (
-        <>
-          <button
-            type="button"
-            className="button small"
-            disabled={
-              !writable ||
-              !!busy ||
-              card.status === "draft" ||
-              !!card.technicianSignoff
-            }
-            onClick={() => void sign("technician")}
-            title={
-              card.technicianSignoff
-                ? `${card.technicianSignoff.name} · ${new Date(card.technicianSignoff.at).toLocaleString()}`
-                : "Record technician signoff"
-            }
-          >
-            {busy === "technician"
-              ? "Signing…"
-              : card.technicianSignoff
-                ? "Technician signed"
-                : "Technician signoff"}
-          </button>
-          <button
-            type="button"
-            className="button small"
-            disabled={
-              !writable ||
-              !!busy ||
-              card.status === "draft" ||
-              !card.technicianSignoff ||
-              !!card.inspectionSignoff ||
-              sameSigner ||
-              !certified
-            }
-            onClick={() => void sign("inspection")}
-            title={
-              card.inspectionSignoff
-                ? `${card.inspectionSignoff.name} · ${new Date(card.inspectionSignoff.at).toLocaleString()}`
-                : certificateProblem
-                  ? certificateProblem
-                  : sameSigner
-                    ? "Inspection must be signed by a different person"
-                    : !card.technicianSignoff
-                      ? "Technician signoff is required first"
-                      : "Record inspection signoff"
-            }
-          >
-            {busy === "inspection"
-              ? "Signing…"
-              : card.inspectionSignoff
-                ? "Inspection signed"
-                : "Inspection signoff"}
-          </button>
-          {error && (
-            <small className="error" role="alert">
-              {error}
-            </small>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
+/**
+ * The Job cards screen: every job card and template the user can see, with
+ * filters, inline status and signoffs, and the card editor.
+ *
+ * @returns The screen. Creating, editing, signing and uploading need a
+ *   connection; offline it lists the cached cards.
+ */
 export function TaskCards() {
   const { snapshot: state, online, connected } = useWorkspace();
   const s = state!;
@@ -290,133 +132,27 @@ export function TaskCards() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [orderBy, setOrderBy] = useState<CardOrder>("zone");
-  const rows = (s.taskCards ?? [])
-    .filter(
-      (t) =>
-        (!aircraft || t.aircraftUuid === aircraft) &&
-        (!status ||
-          (status === "template"
-            ? isTaskTemplate(t)
-            : !isTaskTemplate(t) && t.status === status)) &&
-        `${t.cardNumber} ${t.title}`
-          .toLowerCase()
-          .includes(search.toLowerCase()),
-    )
-    .sort(orderBy === "zone" ? compareCardZones : compareCardNumbers);
+  const rows = filterCards(s.taskCards, { aircraft, status, search }, orderBy);
+  const live = online && connected;
+  const filters = { aircraft, setAircraft, status, setStatus };
   return (
     <>
-      <PageTitle
-        eyebrow="MAINTENANCE"
-        title="Job cards"
-        description="Instructions, notes, work results, parts and signoffs for individual maintenance tasks."
-        action={
-          <button
-            className="button primary"
-            disabled={
-              !online ||
-              !connected ||
-              !s.aircraft.some((a) => can(s, a.uuid, "maintenance"))
-            }
-            onClick={() => setSelected({})}
-          >
-            New job card
-          </button>
-        }
-      />
+      <JobCardsTitle s={s} live={live} onCreate={() => setSelected({})} />
       <TaskCsvImportButton />
       <div className="management-toolbar">
-        <Field label="Aircraft">
-          <select
-            value={aircraft}
-            onChange={(e) => setAircraft(e.target.value)}
-          >
-            <option value="">All aircraft</option>
-            {s.aircraft.map((a) => (
-              <option key={a.uuid} value={a.uuid}>
-                {a.registration}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Task status filter">
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">All statuses</option>
-            <option value="template">Reusable templates</option>
-            {taskCardStatuses.map((v) => (
-              <option key={v} value={v}>
-                {label(v)}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <CardFilters s={s} filters={filters} />
         <CardOrderSelect value={orderBy} onChange={setOrderBy} />
         <Field label="Search job cards">
           <input value={search} onChange={(e) => setSearch(e.target.value)} />
         </Field>
       </div>
-      {(!online || !connected) && (
+      {!live && (
         <p className="notice">
           Cached job cards are available. Reconnect to edit, sign or upload
           evidence.
         </p>
       )}
-      {rows.length ? (
-        <div className="panel table-wrap">
-          <table className="job-card-summary-table">
-            <thead>
-              <tr>
-                <th>Task status</th>
-                <th>Card / title</th>
-                <th>Aircraft / work order</th>
-                <th>ATA chapter</th>
-                <th>Signoffs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((t) => (
-                <tr key={t.uuid}>
-                  <td>
-                    <JobCardStatus card={t} />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="text-button"
-                      aria-label={`Details for ${t.cardNumber}`}
-                      onClick={() => setSelected({ uuid: t.uuid })}
-                    >
-                      <strong>{t.cardNumber}</strong> · {t.title}
-                    </button>
-                    <CardPreview card={t} />
-                  </td>
-                  <td>
-                    {
-                      s.aircraft.find((a) => a.uuid === t.aircraftUuid)
-                        ?.registration
-                    }
-                    <br />
-                    {s.workOrders?.find((w) => w.uuid === t.workOrderUuid)
-                      ?.number ?? "Unassigned"}
-                  </td>
-                  <td>{ataLabel(t.ataChapter)}</td>
-                  <td>
-                    <JobCardSignoffs card={t} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        // Without rows the table would still scroll sideways at narrow widths
-        // with nothing focusable in it, so show only the empty state.
-        <div className="panel">
-          <Empty title="No job cards">
-            Create a card here or add one from an inspection, service
-            requirement or discrepancy.
-          </Empty>
-        </div>
-      )}
+      <CardRows s={s} rows={rows} onSelect={setSelected} />
       {selected && (
         <TaskCardDialog
           selection={selected}
@@ -427,57 +163,41 @@ export function TaskCards() {
     </>
   );
 }
-export function WorkItemJobCards({
-  workOrderUuid,
-  item,
-}: {
+
+/**
+ * The job cards on one work item of a work order, as a collapsible list with
+ * inline status and signoffs.
+ *
+ * @param props.workOrderUuid - The work order.
+ * @param props.item - The work item; a card belongs to it through its linked
+ *   inspection, service requirement or discrepancy.
+ * @returns The list, ordered by zone unless the user picks card number.
+ */
+export function WorkItemJobCards(props: {
   workOrderUuid: string;
   item: WorkTask;
 }) {
   const { snapshot: s } = useWorkspace();
   const [selected, setSelected] = useState<Selection>();
   const [orderBy, setOrderBy] = useState<CardOrder>("zone");
+  const { workOrderUuid, item } = props;
   const cards = (s?.taskCards ?? [])
-    .filter(
-      (card) =>
-        card.workOrderUuid === workOrderUuid &&
-        taskCardMatchesWorkItem(card, item),
-    )
-    .sort(orderBy === "zone" ? compareCardZones : compareCardNumbers);
+    .filter((card) => card.workOrderUuid === workOrderUuid)
+    .filter((card) => taskCardMatchesWorkItem(card, item))
+    .sort(cardOrder(orderBy));
   return (
     <details
       className="work-item-job-cards"
       aria-label={`Job cards for ${item.description}`}
     >
       <summary>Job cards ({cards.length})</summary>
-
       <div className="job-card-list-heading">
         <CardOrderSelect value={orderBy} onChange={setOrderBy} />
       </div>
       {cards.length ? (
         <ul className="job-card-summary-list">
           {cards.map((card) => (
-            <li key={card.uuid}>
-              <span className="job-card-summary-status">
-                <JobCardStatus card={card} />
-              </span>
-              <div className="job-card-summary-content">
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => setSelected({ uuid: card.uuid })}
-                >
-                  {card.cardNumber} · {card.title}
-                </button>
-                <CardPreview card={card} />
-                <small className="block muted">
-                  Technician: {card.technicianSignoff ? "Signed" : "Pending"}
-                  {card.inspectionSignoffRequired &&
-                    ` · Inspection: ${card.inspectionSignoff ? "Signed" : "Pending"}`}
-                </small>
-              </div>
-              <JobCardSignoffs card={card} />
-            </li>
+            <WorkItemCard key={card.uuid} card={card} onSelect={setSelected} />
           ))}
         </ul>
       ) : (
@@ -493,73 +213,35 @@ export function WorkItemJobCards({
     </details>
   );
 }
-export function LinkedTaskCards({
-  aircraftUuid,
-  link,
-}: {
+
+/**
+ * A button that opens the job cards linked to a work order, or the job card
+ * templates linked to an inspection, service requirement or discrepancy, to
+ * create, add and (for templates) remove links.
+ *
+ * @param props.aircraftUuid - The aircraft whose cards are listed.
+ * @param props.link - The linked record. A work order lists its own job cards;
+ *   any other record lists the linked cards that are not work-order copies.
+ * @returns Nothing until the snapshot loads. Changes need a connection,
+ *   maintenance access and, for a work order, that it is still open. Removing
+ *   unlinks the selected cards one at a time and stops at the first refusal,
+ *   leaving the rest selected.
+ */
+export function LinkedTaskCards(props: {
   aircraftUuid: string;
   link: TaskLink;
 }) {
-  const { snapshot: s, backend, online, connected } = useWorkspace();
+  const { snapshot: s, online, connected } = useWorkspace();
   const [open, setOpen] = useState(false),
     [selected, setSelected] = useState<Selection>();
   const [orderBy, setOrderBy] = useState<CardOrder>("zone");
-  const [removing, setRemoving] = useState(false);
-  const [removeIds, setRemoveIds] = useState<string[]>([]);
-  const [removeBusy, setRemoveBusy] = useState(false);
-  const [removeError, setRemoveError] = useState("");
+  const removal = useCardRemoval();
   if (!s) return null;
-  const cards = (s.taskCards ?? [])
-    .filter(
-      (t) =>
-        t.aircraftUuid === aircraftUuid &&
-        t[linkField[link.kind]] === link.uuid &&
-        (link.kind === "workOrder" || !t.workOrderUuid),
-    )
-    .sort(orderBy === "zone" ? compareCardZones : compareCardNumbers);
-  const available = (s.taskCards ?? [])
-    .filter(
-      (t) =>
-        t.aircraftUuid === aircraftUuid &&
-        !t[linkField[link.kind]] &&
-        (link.kind === "workOrder" ? !isTaskTemplate(t) : !t.workOrderUuid) &&
-        taskWritable(s, t),
-    )
-    .sort(orderBy === "zone" ? compareCardZones : compareCardNumbers);
-  const parentOpen =
-    link.kind !== "workOrder" ||
-    s.workOrders?.some((w) => w.uuid === link.uuid && isOpenWorkOrder(w));
+  const { aircraftUuid, link } = props;
+  const cards = linkedTaskCards(s, aircraftUuid, link).sort(cardOrder(orderBy));
   const writable =
-    online && connected && can(s, aircraftUuid, "maintenance") && parentOpen;
-  const removable = cards.filter((card) => canUnlinkTaskCard(s, card, link));
-  async function removeSelected() {
-    if (!backend || !writable || removeBusy) return;
-    setRemoveBusy(true);
-    setRemoveError("");
-    try {
-      for (const id of removeIds) {
-        const card = s!.taskCards?.find((item) => item.uuid === id);
-        if (!card || !canUnlinkTaskCard(s!, card, link))
-          throw new Error(
-            "A selected card changed. Review the remaining selection.",
-          );
-        await backend.taskCard({
-          action: "unlink",
-          uuid: card.uuid,
-          version: card.version,
-          link,
-        });
-        setRemoveIds((current) =>
-          current.filter((selected) => selected !== id),
-        );
-      }
-      setRemoving(false);
-    } catch (error) {
-      setRemoveError(cardErrorText(error));
-    } finally {
-      setRemoveBusy(false);
-    }
-  }
+    online && connected && taskLinksWritable(s, aircraftUuid, link);
+  const view = { ...props, s, cards, writable, removal };
   return (
     <>
       <button
@@ -567,193 +249,16 @@ export function LinkedTaskCards({
         className="button small"
         onClick={() => setOpen(true)}
       >
-        {link.kind === "workOrder" ? "Job cards" : "Job card templates"} (
+        {props.link.kind === "workOrder" ? "Job cards" : "Job card templates"} (
         {cards.length})
       </button>
-      {open &&
-        createPortal(
-          <div onSubmit={(e) => e.stopPropagation()}>
-            <Modal
-              title={
-                link.kind === "workOrder"
-                  ? "Work-order job cards"
-                  : "Linked job card templates"
-              }
-              onClose={() => setOpen(false)}
-            >
-              {link.kind !== "workOrder" && (
-                <p>
-                  These are reusable instructions. Adding this source to a work
-                  order creates independent job cards for that order.
-                </p>
-              )}
-              <CardOrderSelect value={orderBy} onChange={setOrderBy} />
-              {link.kind !== "workOrder" && (
-                <div className="job-card-remove-controls">
-                  {!removing ? (
-                    <button
-                      type="button"
-                      className="button"
-                      disabled={!writable || !removable.length}
-                      onClick={() => {
-                        setRemoving(true);
-                        setRemoveIds([]);
-                        setRemoveError("");
-                      }}
-                    >
-                      Remove job cards
-                    </button>
-                  ) : (
-                    <>
-                      <p>
-                        Select cards to remove from this linked item. Cards
-                        remain available to link again; existing work-order
-                        copies are unchanged.
-                      </p>
-                      <div className="job-card-remove-actions">
-                        <button
-                          type="button"
-                          className="button small"
-                          disabled={removeBusy || !writable}
-                          onClick={() =>
-                            setRemoveIds(removable.map((card) => card.uuid))
-                          }
-                        >
-                          Select all removable
-                        </button>
-                        <button
-                          type="button"
-                          className="button primary"
-                          disabled={
-                            removeBusy || !writable || !removeIds.length
-                          }
-                          onClick={() => void removeSelected()}
-                        >
-                          {removeBusy
-                            ? "Removing…"
-                            : `Remove selected (${removeIds.length})`}
-                        </button>
-                        <button
-                          type="button"
-                          className="button"
-                          disabled={removeBusy}
-                          onClick={() => {
-                            setRemoving(false);
-                            setRemoveIds([]);
-                            setRemoveError("");
-                          }}
-                        >
-                          Cancel removal
-                        </button>
-                      </div>
-                      {removeError && (
-                        <p className="error" role="alert">
-                          {removeError}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              <ul className="job-card-summary-list">
-                {cards.map((t) => (
-                  <li key={t.uuid}>
-                    <span className="job-card-summary-status">
-                      <JobCardStatus card={t} />
-                    </span>
-                    <div className="job-card-summary-content">
-                      {removing && (
-                        <label className="job-card-remove-choice">
-                          <input
-                            type="checkbox"
-                            aria-label={`Remove ${t.cardNumber} from linked item`}
-                            checked={removeIds.includes(t.uuid)}
-                            disabled={
-                              removeBusy ||
-                              !writable ||
-                              !canUnlinkTaskCard(s, t, link)
-                            }
-                            onChange={(event) =>
-                              setRemoveIds((current) =>
-                                event.target.checked
-                                  ? [...current, t.uuid]
-                                  : current.filter((id) => id !== t.uuid),
-                              )
-                            }
-                          />
-                          {canUnlinkTaskCard(s, t, link)
-                            ? "Select to remove"
-                            : "Cannot remove recorded or closed work"}
-                        </label>
-                      )}
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() => setSelected({ uuid: t.uuid })}
-                      >
-                        {t.cardNumber} · {t.title}
-                      </button>
-                      <CardPreview card={t} />
-                    </div>
-                    <JobCardSignoffs card={t} />
-                  </li>
-                ))}
-              </ul>
-              {!cards.length && <p>No job cards linked yet.</p>}
-              <button
-                type="button"
-                className="button primary"
-                disabled={!writable}
-                onClick={() =>
-                  setSelected({
-                    defaults: applyTaskLink(
-                      s,
-                      taskCardDefaults(aircraftUuid),
-                      link,
-                    ),
-                  })
-                }
-              >
-                {link.kind === "workOrder"
-                  ? "Create linked job card"
-                  : "Create job card template"}
-              </button>
-              {!!available.length && (
-                <AsyncForm
-                  submitLabel={
-                    link.kind === "workOrder"
-                      ? "Add existing job card"
-                      : "Add existing job card template"
-                  }
-                  disabled={!writable}
-                  onSubmit={async (data) => {
-                    const t = available.find(
-                      (t) => t.uuid === value(data, "task"),
-                    )!;
-                    await backend!.taskCard({
-                      action: "link",
-                      uuid: t.uuid,
-                      version: t.version,
-                      link,
-                    });
-                  }}
-                >
-                  <Field label="Existing job card">
-                    <select name="task">
-                      {available.map((t) => (
-                        <option key={t.uuid} value={t.uuid}>
-                          {t.cardNumber} · {t.title}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </AsyncForm>
-              )}
-            </Modal>
-          </div>,
-          document.body,
-        )}
+      {open && (
+        <LinkedCardsModal
+          view={{ ...view, onSelect: setSelected }}
+          order={{ orderBy, setOrderBy }}
+          onClose={() => setOpen(false)}
+        />
+      )}
       {selected && (
         <TaskCardDialog
           selection={selected}
@@ -764,6 +269,15 @@ export function LinkedTaskCards({
     </>
   );
 }
+
+/**
+ * A card's number and title as a button that opens the card in the job card
+ * dialog, for cards listed outside the job card screens, such as archived
+ * ones.
+ *
+ * @param props.card - The job card.
+ * @returns The button, and the dialog while it is open.
+ */
 export function ArchivedJobCardButton({ card }: { card: TaskCard }) {
   const [open, setOpen] = useState(false);
   return (
@@ -785,6 +299,586 @@ export function ArchivedJobCardButton({ card }: { card: TaskCard }) {
     </>
   );
 }
+
+function JobCardsTitle(props: {
+  s: Snapshot;
+  live: boolean;
+  onCreate: () => void;
+}) {
+  const { s } = props;
+  return (
+    <PageTitle
+      eyebrow="MAINTENANCE"
+      title="Job cards"
+      description="Instructions, notes, work results, parts and signoffs for individual maintenance tasks."
+      action={
+        <button
+          className="button primary"
+          disabled={
+            !props.live ||
+            !s.aircraft.some((a) => can(s, a.uuid, "maintenance"))
+          }
+          onClick={props.onCreate}
+        >
+          New job card
+        </button>
+      }
+    />
+  );
+}
+
+function CardFilters({ s, filters: f }: { s: Snapshot; filters: FilterState }) {
+  return (
+    <>
+      <Field label="Aircraft">
+        <select
+          value={f.aircraft}
+          onChange={(e) => f.setAircraft(e.target.value)}
+        >
+          <option value="">All aircraft</option>
+          {s.aircraft.map((a) => (
+            <option key={a.uuid} value={a.uuid}>
+              {a.registration}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Task status filter">
+        <select value={f.status} onChange={(e) => f.setStatus(e.target.value)}>
+          <option value="">All statuses</option>
+          <option value="template">Reusable templates</option>
+          {taskCardStatuses.map((v) => (
+            <option key={v} value={v}>
+              {label(v)}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </>
+  );
+}
+
+function CardRows(props: {
+  s: Snapshot;
+  rows: TaskCard[];
+  onSelect: (selection: Selection) => void;
+}) {
+  if (!props.rows.length)
+    // Without rows the table would still scroll sideways at narrow widths
+    // with nothing focusable in it, so show only the empty state.
+    return (
+      <div className="panel">
+        <Empty title="No job cards">
+          Create a card here or add one from an inspection, service requirement
+          or discrepancy.
+        </Empty>
+      </div>
+    );
+  return (
+    <div className="panel table-wrap">
+      <table className="job-card-summary-table">
+        <thead>
+          <tr>
+            <th>Task status</th>
+            <th>Card / title</th>
+            <th>Aircraft / work order</th>
+            <th>ATA chapter</th>
+            <th>Signoffs</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.rows.map((t) => (
+            <CardRow key={t.uuid} {...props} card={t} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CardRow(props: {
+  s: Snapshot;
+  card: TaskCard;
+  onSelect: (selection: Selection) => void;
+}) {
+  const { s, card: t } = props;
+  return (
+    <tr>
+      <td>
+        <JobCardStatus card={t} />
+      </td>
+      <td>
+        <button
+          type="button"
+          className="text-button"
+          aria-label={`Details for ${t.cardNumber}`}
+          onClick={() => props.onSelect({ uuid: t.uuid })}
+        >
+          <strong>{t.cardNumber}</strong> · {t.title}
+        </button>
+        <CardPreview card={t} />
+      </td>
+      <td>
+        {s.aircraft.find((a) => a.uuid === t.aircraftUuid)?.registration}
+        <br />
+        {s.workOrders?.find((w) => w.uuid === t.workOrderUuid)?.number ??
+          "Unassigned"}
+      </td>
+      <td>{ataLabel(t.ataChapter)}</td>
+      <td>
+        <JobCardSignoffs card={t} />
+      </td>
+    </tr>
+  );
+}
+
+function WorkItemCard(props: {
+  card: TaskCard;
+  onSelect: (selection: Selection) => void;
+}) {
+  const { card } = props;
+  return (
+    <li>
+      <span className="job-card-summary-status">
+        <JobCardStatus card={card} />
+      </span>
+      <div className="job-card-summary-content">
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => props.onSelect({ uuid: card.uuid })}
+        >
+          {card.cardNumber} · {card.title}
+        </button>
+        <CardPreview card={card} />
+        <small className="block muted">
+          Technician: {card.technicianSignoff ? "Signed" : "Pending"}
+          {card.inspectionSignoffRequired &&
+            ` · Inspection: ${card.inspectionSignoff ? "Signed" : "Pending"}`}
+        </small>
+      </div>
+      <JobCardSignoffs card={card} />
+    </li>
+  );
+}
+
+function CardOrderSelect({
+  value,
+  onChange,
+}: {
+  value: CardOrder;
+  onChange: (value: CardOrder) => void;
+}) {
+  return (
+    <div className="job-card-order">
+      <Field label="Order by">
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value as CardOrder)}
+        >
+          <option value="zone">Zone</option>
+          <option value="number">Card number</option>
+        </select>
+      </Field>
+    </div>
+  );
+}
+
+function CardPreview({ card }: { card: TaskCard }) {
+  const description = card.description.replace(/\s+/g, " ").trim();
+  return (
+    <small className="block muted">
+      <strong>Zone: {cardZone(card) || "Unspecified"}</strong>
+      {description && (
+        <span className="block">
+          {description.length > PREVIEW_MAX_LENGTH
+            ? `${description.slice(0, PREVIEW_KEPT_LENGTH)}…`
+            : description}
+        </span>
+      )}
+    </small>
+  );
+}
+
+function JobCardStatus({ card }: { card: TaskCard }) {
+  const workspace = useWorkspace();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const { backend } = workspace;
+  const writable = summaryWritable(workspace, card);
+  const statuses = taskStatusChoices(card);
+  const choose = async (status: string) => {
+    if (!backend || !writable || status === card.status) return;
+    setBusy(true);
+    await withCardError(setError, () =>
+      backend.taskCard(statusCommand(card, status)),
+    );
+    setBusy(false);
+  };
+  return (
+    <>
+      <select
+        className="job-card-status-select"
+        aria-label={`Task status for ${card.cardNumber}`}
+        aria-busy={busy}
+        title={label(card.status)}
+        value={card.status}
+        disabled={!writable || busy}
+        onChange={(event) => choose(event.target.value)}
+      >
+        {statuses.map((status) => (
+          <option key={status} value={status}>
+            {label(status)}
+          </option>
+        ))}
+      </select>
+      {error && (
+        <small className="job-card-status-error error" role="alert">
+          {error}
+        </small>
+      )}
+    </>
+  );
+}
+
+function JobCardSignoffs({ card }: { card: TaskCard }) {
+  const workspace = useWorkspace();
+  const [busy, setBusy] = useState<SignKind>();
+  const [error, setError] = useState("");
+  const { backend } = workspace;
+  const writable = summaryWritable(workspace, card);
+  async function sign(kind: SignKind) {
+    if (!backend || !writable || busy) return;
+    setBusy(kind);
+    await withCardError(setError, () =>
+      signTaskCard(card, kind, (command) => backend.taskCard(command)),
+    );
+    setBusy(undefined);
+  }
+  return (
+    <div
+      className="job-card-summary-signoffs"
+      aria-label={`Signoffs for ${card.cardNumber}`}
+    >
+      {isTaskTemplate(card) ? (
+        <small className="muted">Sign on the work-order copy.</small>
+      ) : (
+        <SummarySignoffButtons
+          card={card}
+          snapshot={workspace.snapshot}
+          state={{ busy, writable, error }}
+          onSign={(kind) => void sign(kind)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SummarySignoffButtons(props: {
+  card: TaskCard;
+  snapshot: Snapshot | null;
+  state: { busy?: SignKind; writable: boolean; error: string };
+  onSign: (kind: SignKind) => void;
+}) {
+  const { card, snapshot } = props;
+  const { busy, error } = props.state;
+  const sameSigner = card.technicianSignoff?.userId === snapshot?.user.id;
+  // Why this user cannot sign as inspector, if they cannot.
+  const certificateProblem = snapshot
+    ? inspectorCertificateProblem(snapshot.user, localDate())
+    : inspectorCertificateRequired;
+  const offered =
+    snapshot && signoffsOfferedInList(card, snapshot.user, localDate());
+  const blocked = !props.state.writable || !!busy;
+  const { technicianSignoff: technician, inspectionSignoff: inspection } = card;
+  return (
+    <>
+      <SignButton
+        signer="Technician"
+        state={{ signing: busy === "technician", signed: !!technician }}
+        disabled={blocked || !offered?.technician}
+        title={technician ? signedBy(technician) : "Record technician signoff"}
+        onClick={() => props.onSign("technician")}
+      />
+      <SignButton
+        signer="Inspection"
+        state={{ signing: busy === "inspection", signed: !!inspection }}
+        disabled={blocked || !offered?.inspection}
+        title={inspectionTitle(card, certificateProblem, sameSigner)}
+        onClick={() => props.onSign("inspection")}
+      />
+      {error && (
+        <small className="error" role="alert">
+          {error}
+        </small>
+      )}
+    </>
+  );
+}
+
+function SignButton(props: {
+  signer: string;
+  state: { signing: boolean; signed: boolean };
+  disabled: boolean;
+  title: string;
+  onClick: () => void;
+}) {
+  const { signing, signed } = props.state;
+  const text = signing
+    ? "Signing…"
+    : `${props.signer} ${signed ? "signed" : "signoff"}`;
+  return (
+    <button
+      type="button"
+      className="button small"
+      disabled={props.disabled}
+      onClick={props.onClick}
+      title={props.title}
+    >
+      {text}
+    </button>
+  );
+}
+
+function useCardRemoval() {
+  const [removing, setRemoving] = useState(false);
+  const [removeIds, setRemoveIds] = useState<string[]>([]);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  // Starting and cancelling both begin from an empty selection.
+  const reset = (on: boolean) => {
+    setRemoving(on);
+    setRemoveIds([]);
+    setRemoveError("");
+  };
+  return {
+    removing,
+    setRemoving,
+    removeIds,
+    setRemoveIds,
+    removeBusy,
+    setRemoveBusy,
+    removeError,
+    setRemoveError,
+    reset,
+  };
+}
+
+function LinkedCardsModal(props: {
+  view: LinkedView;
+  order: { orderBy: CardOrder; setOrderBy: (order: CardOrder) => void };
+  onClose: () => void;
+}) {
+  const { view } = props;
+  const { orderBy, setOrderBy } = props.order;
+  const templates = view.link.kind !== "workOrder";
+  const available = linkableTaskCards(
+    view.s,
+    view.aircraftUuid,
+    view.link,
+  ).sort(cardOrder(orderBy));
+  return createPortal(
+    <div onSubmit={(e) => e.stopPropagation()}>
+      <Modal
+        title={templates ? "Linked job card templates" : "Work-order job cards"}
+        onClose={props.onClose}
+      >
+        {templates && (
+          <p>
+            These are reusable instructions. Adding this source to a work order
+            creates independent job cards for that order.
+          </p>
+        )}
+        <CardOrderSelect value={orderBy} onChange={setOrderBy} />
+        {templates && <RemoveControls view={view} />}
+        <ul className="job-card-summary-list">
+          {view.cards.map((t) => (
+            <LinkedCardItem key={t.uuid} view={view} card={t} />
+          ))}
+        </ul>
+        {!view.cards.length && <p>No job cards linked yet.</p>}
+        <LinkedCardActions view={view} available={available} />
+      </Modal>
+    </div>,
+    document.body,
+  );
+}
+
+function RemoveControls({ view }: { view: LinkedView }) {
+  const { removal: r } = view;
+  const removable = view.cards.filter((card) =>
+    canUnlinkTaskCard(view.s, card, view.link),
+  );
+  if (!r.removing)
+    return (
+      <div className="job-card-remove-controls">
+        <button
+          type="button"
+          className="button"
+          disabled={!view.writable || !removable.length}
+          onClick={() => r.reset(true)}
+        >
+          Remove job cards
+        </button>
+      </div>
+    );
+  return (
+    <div className="job-card-remove-controls">
+      <p>
+        Select cards to remove from this linked item. Cards remain available to
+        link again; existing work-order copies are unchanged.
+      </p>
+      <RemoveActions view={view} removable={removable} />
+      {r.removeError && (
+        <p className="error" role="alert">
+          {r.removeError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RemoveActions(props: { view: LinkedView; removable: TaskCard[] }) {
+  const { view } = props;
+  const { removal: r, writable } = view;
+  const { backend } = useWorkspace();
+  return (
+    <div className="job-card-remove-actions">
+      <button
+        type="button"
+        className="button small"
+        disabled={r.removeBusy || !writable}
+        onClick={() => r.setRemoveIds(props.removable.map((card) => card.uuid))}
+      >
+        Select all removable
+      </button>
+      <button
+        type="button"
+        className="button primary"
+        disabled={r.removeBusy || !writable || !r.removeIds.length}
+        onClick={() => void removeSelected(view, backend)}
+      >
+        {r.removeBusy ? "Removing…" : `Remove selected (${r.removeIds.length})`}
+      </button>
+      <button
+        type="button"
+        className="button"
+        disabled={r.removeBusy}
+        onClick={() => r.reset(false)}
+      >
+        Cancel removal
+      </button>
+    </div>
+  );
+}
+
+function LinkedCardItem({
+  view,
+  card: t,
+}: {
+  view: LinkedView;
+  card: TaskCard;
+}) {
+  return (
+    <li>
+      <span className="job-card-summary-status">
+        <JobCardStatus card={t} />
+      </span>
+      <div className="job-card-summary-content">
+        {view.removal.removing && <RemoveChoice view={view} card={t} />}
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => view.onSelect({ uuid: t.uuid })}
+        >
+          {t.cardNumber} · {t.title}
+        </button>
+        <CardPreview card={t} />
+      </div>
+      <JobCardSignoffs card={t} />
+    </li>
+  );
+}
+
+function RemoveChoice({ view, card: t }: { view: LinkedView; card: TaskCard }) {
+  const { removal: r } = view;
+  const removable = canUnlinkTaskCard(view.s, t, view.link);
+  return (
+    <label className="job-card-remove-choice">
+      <input
+        type="checkbox"
+        aria-label={`Remove ${t.cardNumber} from linked item`}
+        checked={r.removeIds.includes(t.uuid)}
+        disabled={r.removeBusy || !view.writable || !removable}
+        onChange={(event) =>
+          r.setRemoveIds((current) =>
+            event.target.checked
+              ? [...current, t.uuid]
+              : current.filter((id) => id !== t.uuid),
+          )
+        }
+      />
+      {removable ? "Select to remove" : "Cannot remove recorded or closed work"}
+    </label>
+  );
+}
+
+function LinkedCardActions(props: { view: LinkedView; available: TaskCard[] }) {
+  const { s, link, writable, onSelect } = props.view;
+  const orders = link.kind === "workOrder";
+  const defaults = () =>
+    applyTaskLink(s, taskCardDefaults(props.view.aircraftUuid), link);
+  return (
+    <>
+      <button
+        type="button"
+        className="button primary"
+        disabled={!writable}
+        onClick={() => onSelect({ defaults: defaults() })}
+      >
+        {orders ? "Create linked job card" : "Create job card template"}
+      </button>
+      {!!props.available.length && (
+        <AddExistingCard view={props.view} available={props.available} />
+      )}
+    </>
+  );
+}
+
+function AddExistingCard(props: { view: LinkedView; available: TaskCard[] }) {
+  const { link, writable } = props.view;
+  const { backend } = useWorkspace();
+  return (
+    <AsyncForm
+      submitLabel={
+        link.kind === "workOrder"
+          ? "Add existing job card"
+          : "Add existing job card template"
+      }
+      disabled={!writable}
+      onSubmit={async (data) => {
+        const t = props.available.find((t) => t.uuid === value(data, "task"))!;
+        await backend!.taskCard({
+          action: "link",
+          uuid: t.uuid,
+          version: t.version,
+          link,
+        });
+      }}
+    >
+      <Field label="Existing job card">
+        <select name="task">
+          {props.available.map((t) => (
+            <option key={t.uuid} value={t.uuid}>
+              {t.cardNumber} · {t.title}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </AsyncForm>
+  );
+}
+
 function TaskCardDialog({
   selection,
   onSelect,
@@ -819,196 +913,77 @@ function TaskCardDialog({
     document.body,
   );
 }
-function TaskCardEditor({
-  initial,
-  defaults,
-  onSaved,
-  onClose,
-}: {
-  initial?: TaskCard;
-  defaults?: TaskCardFields;
-  onSaved: (uuid: string) => void;
-  onClose: () => void;
-}) {
+
+function TaskCardEditor(props: EditorProps) {
+  const e = useTaskCardEditor(props);
+  const { initial } = e;
+  return (
+    <>
+      <EditorNotices e={e} />
+      <CardForm e={e} onSaved={props.onSaved} onClose={props.onClose} />
+      {initial && !e.template && <EditorSignoffs e={e} initial={initial} />}
+      {initial ? (
+        <Evidence
+          card={initial}
+          writable={e.writable && !e.dirty && !e.busy && !e.template}
+        />
+      ) : (
+        <p>Save the draft to upload evidence and record signoffs.</p>
+      )}
+      <p className="muted">
+        Job-card completion records the work performed. Update inspection
+        compliance, discrepancy resolution and component installation records in
+        their respective screens.
+      </p>
+    </>
+  );
+}
+
+function useTaskCardEditor({ initial, defaults }: EditorProps) {
   const { snapshot: state, backend, online, connected } = useWorkspace();
   const s = state!;
   const [uuid] = useState(initial?.uuid ?? crypto.randomUUID());
-  const [f, setFields] = useState<TaskCardFields>(
-    initial
-      ? taskCardFieldsSchema.parse(initial)
-      : (defaults ??
-          taskCardDefaults(
-            s.aircraft.find((a) => can(s, a.uuid, "maintenance"))?.uuid ?? "",
-          )),
-  );
+  const [f, setFields] = useState(initialFields(s, initial, defaults));
   const [revising, setRevising] = useState(false);
-  const revisionOrder = initial?.workOrderUuid
-    ? s.workOrders?.find((order) => order.uuid === initial.workOrderUuid)
-    : undefined;
-  const canRevise =
-    !!revisionOrder &&
-    !isOpenWorkOrder(revisionOrder) &&
-    online &&
-    connected &&
-    can(s, f.aircraftUuid, "maintenance");
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const live = online && connected;
+  return {
+    s,
+    backend,
+    live,
+    initial,
+    defaults,
+    uuid,
+    f,
+    setFields,
+    change: <K extends keyof TaskCardFields>(key: K, v: TaskCardFields[K]) =>
+      setFields({ ...f, [key]: v }),
+    revising,
+    setRevising,
+    busy,
+    setBusy,
+    error,
+    setError,
+    template: isTaskTemplate(f),
+    writable:
+      live &&
+      can(s, f.aircraftUuid, "maintenance") &&
+      (!initial || taskWritable(s, initial)),
+    dirty:
+      !initial ||
+      JSON.stringify(taskCardFieldsSchema.parse(initial)) !== JSON.stringify(f),
+  };
+}
+
+function EditorNotices({ e }: { e: Editor }) {
+  const { s, initial } = e;
   const archived =
     !!initial &&
     !!s.archivedTaskCards?.some((card) => card.uuid === initial.uuid);
-  const template = isTaskTemplate(f);
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const change = <K extends keyof TaskCardFields>(
-    key: K,
-    v: TaskCardFields[K],
-  ) => setFields({ ...f, [key]: v });
-  const writable =
-    online &&
-    connected &&
-    can(s, f.aircraftUuid, "maintenance") &&
-    (!initial || taskWritable(s, initial));
-  const dirty =
-    !initial ||
-    JSON.stringify(taskCardFieldsSchema.parse(initial)) !== JSON.stringify(f);
-  const saveWarnings = writable
-    ? taskCardSaveWarnings(s, uuid, f, initial)
-    : [];
-  const signingWarnings =
-    !template && writable ? taskCardSigningWarnings(f, dirty, initial) : [];
-  const certificateProblem = inspectorCertificateProblem(s.user, localDate());
-  const certified = !certificateProblem;
-  const components = (s.management ?? []).filter(
-    (c) =>
-      c.kind === "component" &&
-      c.aircraftUuid === f.aircraftUuid &&
-      (c.installed || c.uuid === f.componentUuid),
-  );
-  const programUuid = s.aircraft.find(
-    (a) => a.uuid === f.aircraftUuid,
-  )?.programUuid;
-  const stockItems = (s.management ?? []).filter(
-    (r): r is Stock =>
-      r.kind === "stock" && recordProgram(s, r) === programUuid,
-  );
-  const locations = (s.management ?? []).filter(
-    (r) => r.kind === "location" && recordProgram(s, r) === programUuid,
-  );
-  const requirements = (s.management ?? []).filter(
-    (r) =>
-      r.kind === "componentRequirement" && r.componentUuid === f.componentUuid,
-  );
-  const textField = (
-    name: string,
-    key: keyof TaskCardFields,
-    multiline = false,
-  ) => (
-    <Field
-      label={name}
-      hint={
-        key === "actualWork"
-          ? "Used for the log book entry. Optional — not required to save or sign."
-          : undefined
-      }
-    >
-      {multiline ? (
-        <textarea
-          value={String(f[key] ?? "")}
-          disabled={
-            template &&
-            [
-              "findings",
-              "actualWork",
-              "measurements",
-              "functionalTestResults",
-            ].includes(key)
-          }
-          maxLength={10000}
-          onChange={(e) => setFields({ ...f, [key]: e.target.value })}
-        />
-      ) : (
-        <input
-          value={String(f[key] ?? "")}
-          disabled={
-            template &&
-            [
-              "findings",
-              "actualWork",
-              "measurements",
-              "functionalTestResults",
-            ].includes(key)
-          }
-          maxLength={key === "cardNumber" ? 100 : 10000}
-          onChange={(e) => setFields({ ...f, [key]: e.target.value })}
-        />
-      )}
-    </Field>
-  );
-  const selectLink = (
-    name: string,
-    key:
-      | "inspectionUuid"
-      | "componentUuid"
-      | "requirementUuid"
-      | "discrepancyUuid"
-      | "workOrderUuid",
-    items: { uuid: string; name: string }[],
-    disabled = false,
-  ) => (
-    <Field label={name}>
-      <select
-        value={f[key]}
-        disabled={
-          disabled ||
-          (!!initial &&
-            ((isTaskTemplate(initial) &&
-              (key === "workOrderUuid" || !!initial[key])) ||
-              !!initial.sourceTaskCardUuid))
-        }
-        onChange={(e) => {
-          const v = e.target.value;
-          if (key === "componentUuid")
-            setFields({ ...f, componentUuid: v, requirementUuid: "" });
-          else change(key, v);
-        }}
-      >
-        <option value="">None</option>
-        {f[key] && !items.some((i) => i.uuid === f[key]) && (
-          <option value={f[key]}>Previously linked record</option>
-        )}
-        {items.map((i) => (
-          <option key={i.uuid} value={i.uuid}>
-            {i.name}
-          </option>
-        ))}
-      </select>
-    </Field>
-  );
-  const updatePart = (id: string, patch: Partial<TaskPart>) =>
-    change(
-      "partsUsed",
-      f.partsUsed.map((x) => (x.uuid === id ? { ...x, ...patch } : x)),
-    );
-  async function sign(
-    kind: "technician" | "inspection" | "step",
-    stepUuid?: string,
-  ) {
-    if (!initial) return;
-    setBusy(true);
-    setError("");
-    try {
-      await signTaskCard(
-        initial,
-        kind,
-        (command) => backend!.taskCard(command),
-        stepUuid,
-      );
-    } catch (e) {
-      setError(cardErrorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  const signature = (sig: TaskCard["technicianSignoff"]) =>
-    sig ? `${sig.name} · ${new Date(sig.at).toLocaleString()}` : "Not signed";
+  const order = initial?.workOrderUuid
+    ? s.workOrders?.find((o) => o.uuid === initial.workOrderUuid)
+    : undefined;
   return (
     <>
       {initial && !archived && (
@@ -1023,45 +998,66 @@ function TaskCardEditor({
         </p>
       )}
       {!archived && initial?.status === "completed" && (
-        <div className="job-card-revision-action">
-          <button
-            type="button"
-            className="button"
-            disabled={!canRevise}
-            onClick={() => setRevising(true)}
-          >
-            Revise
-          </button>
-          <p className="muted">
-            {revisionOrder && isOpenWorkOrder(revisionOrder)
-              ? "Written-record revisions are available after the work order is closed."
-              : "Correct the work order’s written record with a reason. The original job card and signatures are preserved."}
-          </p>
-        </div>
+        <RevisionAction e={e} order={order} />
       )}
-      {revising &&
-        revisionOrder &&
-        createPortal(
-          <Modal
-            title={`Revise written record · ${initial?.cardNumber}`}
-            onClose={() => setRevising(false)}
-            wide
-          >
-            <p>
-              Work order {revisionOrder.number}. This revises the work order’s
-              written record, including log book wording.
-            </p>
-            <WorkOrderRevisions
-              key={revisionOrder.version}
-              order={revisionOrder}
-              initiallyEditing
-              onDone={() => setRevising(false)}
-            />
-          </Modal>,
-          document.body,
-        )}
+      {e.revising && order && <RevisionDialog e={e} order={order} />}
+      <TemplateNotes e={e} />
+    </>
+  );
+}
 
-      {template && (
+function RevisionAction({ e, order }: { e: Editor; order?: WorkOrder }) {
+  const canRevise =
+    !!order &&
+    !isOpenWorkOrder(order) &&
+    e.live &&
+    can(e.s, e.f.aircraftUuid, "maintenance");
+  return (
+    <div className="job-card-revision-action">
+      <button
+        type="button"
+        className="button"
+        disabled={!canRevise}
+        onClick={() => e.setRevising(true)}
+      >
+        Revise
+      </button>
+      <p className="muted">
+        {order && isOpenWorkOrder(order)
+          ? "Written-record revisions are available after the work order is closed."
+          : "Correct the work order’s written record with a reason. The original job card and signatures are preserved."}
+      </p>
+    </div>
+  );
+}
+
+function RevisionDialog({ e, order }: { e: Editor; order: WorkOrder }) {
+  return createPortal(
+    <Modal
+      title={`Revise written record · ${e.initial?.cardNumber}`}
+      onClose={() => e.setRevising(false)}
+      wide
+    >
+      <p>
+        Work order {order.number}. This revises the work order’s written record,
+        including log book wording.
+      </p>
+      <WorkOrderRevisions
+        key={order.version}
+        order={order}
+        initiallyEditing
+        onDone={() => e.setRevising(false)}
+      />
+    </Modal>,
+    document.body,
+  );
+}
+
+function TemplateNotes({ e }: { e: Editor }) {
+  const source = e.initial?.sourceTaskCardUuid;
+  return (
+    <>
+      {e.template && (
         <details className="job-card-help">
           <summary>About this reusable template</summary>
           <p>
@@ -1071,548 +1067,698 @@ function TaskCardEditor({
           </p>
         </details>
       )}
-      {initial?.sourceTaskCardUuid && (
+      {source && (
         <p>
           Work-order copy of template{" "}
-          {s.taskCards?.find((t) => t.uuid === initial.sourceTaskCardUuid)
-            ?.cardNumber ?? initial.sourceTaskCardUuid}
-          , version {initial.sourceTaskCardVersion}. Template edits do not
+          {e.s.taskCards?.find((t) => t.uuid === source)?.cardNumber ?? source},
+          version {e.initial?.sourceTaskCardVersion}. Template edits do not
           change this copy.
         </p>
       )}
-      {!!saveWarnings.length && (
-        <div className="notice" role="alert">
-          <strong>Before saving:</strong>
-          <ul>
-            {saveWarnings.map((warning, index) => (
-              <li key={index}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {!!signingWarnings.length && (
-        <div className="notice" role="status">
-          <strong>Before signing:</strong>
-          <ul>
-            {signingWarnings.map((warning, index) => (
-              <li key={index}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <AsyncForm
-        submitLabel={template ? "Save job card template" : "Save job card"}
-        onClose={onClose}
-        disabled={!writable || busy}
-        onSubmit={async () => {
-          if (saveWarnings.length) throw new Error(saveWarnings.join("\n"));
-          await backend!.taskCard({
-            action: "save",
-            uuid,
-            version: initial?.version ?? 0,
-            fields: f,
-          });
-          onSaved(uuid);
-        }}
-      >
-        <div className="job-card-header-fields">
-          <Field label="Aircraft">
-            <select
-              value={f.aircraftUuid}
-              disabled={!!initial || !!defaults}
-              onChange={(e) =>
-                setFields({
-                  ...taskCardDefaults(e.target.value),
-                  cardNumber: f.cardNumber,
-                  title: f.title,
-                })
-              }
-            >
-              {s.aircraft
-                .filter((a) => !!initial || can(s, a.uuid, "maintenance"))
-                .map((a) => (
-                  <option key={a.uuid} value={a.uuid}>
-                    {a.registration}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          {textField("Card number (automatic if blank)", "cardNumber")}
-          {textField("Title", "title")}
-          <Field label="ATA chapter">
-            <select
-              value={f.ataChapter ?? ""}
-              onChange={(e) =>
-                change(
-                  "ataChapter",
-                  (e.target.value as TaskCardFields["ataChapter"]) || undefined,
-                )
-              }
-            >
-              <option value="">Unassigned</option>
-              {ATA_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.chapters.map(([code, name]) => (
-                    <option key={code} value={code}>
-                      {code} · {name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </Field>
-          <Field label="Task status">
-            <select
-              value={f.status}
-              disabled={!initial}
-              onChange={(e) =>
-                change("status", e.target.value as TaskCardFields["status"])
-              }
-            >
-              {(template
-                ? (["draft", "canceled"] as const)
-                : taskCardStatuses
-              ).map((v) => (
-                <option key={v} value={v}>
-                  {label(v)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {selectLink(
-            "Work order",
-            "workOrderUuid",
-            (s.workOrders ?? [])
-              .filter(
-                (w) =>
-                  w.aircraftUuid === f.aircraftUuid &&
-                  (isOpenWorkOrder(w) || w.uuid === f.workOrderUuid),
-              )
-              .map((w) => ({ uuid: w.uuid, name: w.number })),
-            !!initial?.workOrderUuid || template,
-          )}
-        </div>
-        <div className="job-card-workspace">
-          <details open className="job-card-panel job-card-instructions">
-            <summary>Instructions and maintenance data</summary>
-            {textField("Description", "description", true)}
-            {textField("Applicability", "applicability", true)}
-            <LogbookWording
-              included={f.includeInLogbook}
-              phrase={f.logbookPhrase}
-              onChange={(patch) =>
-                setFields((current) => ({ ...current, ...patch }))
-              }
-            />
-            {/* References are part of the job card itself; the checkbox above only controls log book inclusion. */}
-            {textField("Maintenance-data reference", "maintenanceReference")}
-            <ManualReferenceFields
-              initial={f.manualReference}
-              onChange={(ref) => change("manualReference", ref)}
-            />
-            <div className="form-grid">
-              {textField("Reference revision", "referenceRevision")}
-              <Field label="Reference date">
-                <input
-                  type="date"
-                  value={f.referenceDate}
-                  onChange={(e) => change("referenceDate", e.target.value)}
-                />
-              </Field>
-            </div>
-          </details>
-          <details open className="job-card-panel job-card-links">
-            <summary>Linked records</summary>
-            <div className="job-card-linked-fields">
-              {selectLink(
-                "Inspection",
-                "inspectionUuid",
-                s.inspections
-                  .filter(
-                    (i) =>
-                      i.aircraftUuid === f.aircraftUuid &&
-                      (!i.archived || i.uuid === f.inspectionUuid),
-                  )
-                  .map((i) => ({
-                    uuid: i.uuid,
-                    name: `${i.reference}: ${i.description}`,
-                  })),
-              )}
-              {selectLink(
-                "Component",
-                "componentUuid",
-                components.map((c) => ({
-                  uuid: c.uuid,
-                  name:
-                    c.kind === "component"
-                      ? `${c.componentType} · ${c.serial}`
-                      : "",
-                })),
-              )}
-              {selectLink(
-                "Component service requirement",
-                "requirementUuid",
-                requirements.map((r) => ({
-                  uuid: r.uuid,
-                  name: r.kind === "componentRequirement" ? r.description : "",
-                })),
-              )}
-              {selectLink(
-                "Originating discrepancy",
-                "discrepancyUuid",
-                s.discrepancies
-                  .filter(
-                    (d) =>
-                      d.aircraftUuid === f.aircraftUuid &&
-                      (d.status === "open" || d.uuid === f.discrepancyUuid),
-                  )
-                  .map((d) => ({ uuid: d.uuid, name: d.description })),
-              )}
-            </div>
-          </details>
-        </div>
-        <details>
-          <summary>Parts used and component changes</summary>
-          <fieldset disabled={template}>
-            {f.partsUsed.map((part, index) => (
-              <div className="panel" key={part.uuid}>
-                <h3>Part {index + 1}</h3>
-                <Field label={`Part ${index + 1} source`}>
-                  <select
-                    value={part.source ?? "non-stock"}
-                    onChange={(e) =>
-                      updatePart(part.uuid, {
-                        source: e.target.value as "stock" | "non-stock",
-                        stockUuid: "",
-                        locationUuid: "",
-                      })
-                    }
-                  >
-                    <option value="non-stock">Non-stock item</option>
-                    <option value="stock">Inventory stock</option>
-                  </select>
-                </Field>
-                {part.source === "stock" && (
-                  <>
-                    <Field label={`Part ${index + 1} inventory location`}>
-                      <select
-                        required
-                        value={part.locationUuid ?? ""}
-                        onChange={(e) =>
-                          updatePart(part.uuid, {
-                            locationUuid: e.target.value,
-                            stockUuid: "",
-                          })
-                        }
-                      >
-                        <option value="">Select location</option>
-                        {part.locationUuid &&
-                          !locations.some(
-                            (r) => r.uuid === part.locationUuid,
-                          ) && (
-                            <option value={part.locationUuid}>
-                              Previously linked inventory location
-                            </option>
-                          )}
-                        {locations.map((location) => (
-                          <option key={location.uuid} value={location.uuid}>
-                            {location.kind === "location" ? location.name : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label={`Part ${index + 1} stock item`}>
-                      <select
-                        required
-                        value={part.stockUuid ?? ""}
-                        onChange={(e) => {
-                          const stock = stockItems.find(
-                            (r) => r.uuid === e.target.value,
-                          );
-                          updatePart(part.uuid, {
-                            stockUuid: stock?.uuid ?? "",
-                            partNumber: stock?.partNumber ?? "",
-                            description: stock?.description ?? "",
-                          });
-                        }}
-                      >
-                        <option value="">Select stock item</option>
-                        {part.stockUuid &&
-                          !stockItems.some(
-                            (r) => r.uuid === part.stockUuid,
-                          ) && (
-                            <option value={part.stockUuid}>
-                              {part.partNumber} · Previously linked stock item
-                            </option>
-                          )}
-                        {stockItems
-                          .filter(
-                            (stock) => stock.locationUuid === part.locationUuid,
-                          )
-                          .map((stock) => {
-                            // Expired lots cannot be issued, so they cannot be
-                            // chosen; a lot linked before it expired stays.
-                            const expired = expiredForUse(stock.expirationDate);
-                            return (
-                              <option
-                                key={stock.uuid}
-                                value={stock.uuid}
-                                disabled={
-                                  expired && stock.uuid !== part.stockUuid
-                                }
-                              >
-                                {`${stock.partNumber} · ${stock.description} · ${
-                                  expired
-                                    ? `Expired ${stock.expirationDate}`
-                                    : `Available: ${usableQuantity(stock)}`
-                                }`}
-                              </option>
-                            );
-                          })}
-                      </select>
-                    </Field>
-                    {!locations.length && (
-                      <p className="muted">
-                        Selecting stock requires inventory access and a saved
-                        inventory location.
-                      </p>
-                    )}
-                    <p className="muted">
-                      This links the part to inventory. Record stock issues
-                      through Inventory → Move stock.
-                    </p>
-                  </>
-                )}
+    </>
+  );
+}
 
-                {(
-                  [
-                    ["Part number", "partNumber"],
-                    ["Description", "description"],
-                    ["Serial / lot", "serialLot"],
-                    ["Removed component details", "removedComponent"],
-                    ["Installed component details", "installedComponent"],
-                  ] as const
-                ).map(([name, key]) => (
-                  <Field key={key} label={`Part ${index + 1} ${name}`}>
-                    <input
-                      value={part[key]}
-                      readOnly={part.source === "stock" && key === "partNumber"}
-                      required={key === "partNumber"}
-                      maxLength={10000}
-                      onChange={(e) =>
-                        updatePart(part.uuid, { [key]: e.target.value })
-                      }
-                    />
-                  </Field>
-                ))}
-                <Field label={`Part ${index + 1} quantity`}>
-                  <input
-                    type="number"
-                    min="0.000001"
-                    step="any"
-                    value={part.quantity}
-                    onChange={(e) =>
-                      updatePart(part.uuid, {
-                        quantity: Number(e.target.value),
-                      })
-                    }
-                  />
-                </Field>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() =>
-                    change(
-                      "partsUsed",
-                      f.partsUsed.filter((x) => x.uuid !== part.uuid),
-                    )
-                  }
-                >
-                  Remove part {index + 1}
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="button"
-              onClick={() =>
-                change("partsUsed", [
-                  ...f.partsUsed,
-                  {
-                    uuid: crypto.randomUUID(),
-                    partNumber: "",
-                    description: "",
-                    quantity: 1,
-                    serialLot: "",
-                    removedComponent: "",
-                    installedComponent: "",
-                  },
-                ])
-              }
-            >
-              Add part used
-            </button>
-          </fieldset>
-        </details>
-        <details open>
-          <summary>Notes / remarks</summary>
-          {textField("Notes / remarks", "notesRemarks", true)}
-        </details>
-        {!!f.steps.length && (
-          <details>
-            <summary>Previously recorded step details</summary>
-            {f.steps.map((step, index) => (
-              <div key={step.uuid}>
-                <p>
-                  {index + 1}. {step.instruction}
-                </p>
-                {step.requiredResult && (
-                  <p>Required result: {step.requiredResult}</p>
-                )}
-                {step.result && <p>Result: {step.result}</p>}
-                {step.measurement !== null && (
-                  <p>
-                    Measurement: {step.measurement} {step.units}
-                  </p>
-                )}
-                {(step.lowerLimit !== null || step.upperLimit !== null) && (
-                  <p>
-                    Limits: {step.lowerLimit ?? "—"} to {step.upperLimit ?? "—"}{" "}
-                    {step.units}
-                  </p>
-                )}
-                {initial?.stepSignoffs[step.uuid] && (
-                  <p>Signed: {signature(initial.stepSignoffs[step.uuid])}</p>
-                )}
-              </div>
-            ))}
-          </details>
-        )}
-        <details open>
-          <summary>Execution</summary>
-          <fieldset disabled={template}>
-            {textField("Actual work performed", "actualWork", true)}
-            <div className="form-grid">
-              <Field
-                label="Actual labor (hours)"
-                hint="Optional — leave blank if no labor time is recorded."
-              >
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={f.actualLabor ?? ""}
-                  onChange={(e) =>
-                    change("actualLabor", nullableNumber(e.target.value))
-                  }
-                />
-              </Field>
-              <Field
-                label="Completion date"
-                hint="Optional — automatically records today’s date when you sign if left blank."
-              >
-                <input
-                  type="date"
-                  max={localDate()}
-                  value={f.completionDate}
-                  onChange={(e) => change("completionDate", e.target.value)}
-                />
-              </Field>
-            </div>
-          </fieldset>
-        </details>
-        <details open>
-          <summary>Verification</summary>
-          <label className="block">
-            <input
-              type="checkbox"
-              checked={f.inspectionSignoffRequired}
-              onChange={(e) =>
-                change("inspectionSignoffRequired", e.target.checked)
-              }
-            />{" "}
-            Inspection signoff required
-          </label>
-        </details>
+function CardWarnings(props: {
+  title: string;
+  role: "alert" | "status";
+  warnings: string[];
+}) {
+  if (!props.warnings.length) return null;
+  return (
+    <div className="notice" role={props.role}>
+      <strong>{props.title}</strong>
+      <ul>
+        {props.warnings.map((warning, index) => (
+          <li key={index}>{warning}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CardForm(props: {
+  e: Editor;
+  onSaved: (uuid: string) => void;
+  onClose: () => void;
+}) {
+  const { e } = props;
+  const saving = e.writable
+    ? taskCardSaveWarnings(e.s, e.uuid, e.f, e.initial)
+    : [];
+  const signing =
+    !e.template && e.writable
+      ? taskCardSigningWarnings(e.f, e.dirty, e.initial)
+      : [];
+  return (
+    <>
+      <CardWarnings title="Before saving:" role="alert" warnings={saving} />
+      <CardWarnings title="Before signing:" role="status" warnings={signing} />
+      <AsyncForm
+        submitLabel={e.template ? "Save job card template" : "Save job card"}
+        onClose={props.onClose}
+        disabled={!e.writable || e.busy}
+        onSubmit={() => saveCard(e, saving, props.onSaved)}
+      >
+        <CardFields e={e} />
       </AsyncForm>
-      {initial && !template && (
-        <section>
-          <h3>Signoffs</h3>
-          <p>
-            Save changes before signing. Signing records your account and the
-            current time. Changes to card content or evidence clear existing
-            signoffs.
-          </p>
-          {dirty && (
-            <p className="notice">
-              Save your changes before signing or uploading evidence.
-            </p>
-          )}
-          <p>Technician: {signature(initial.technicianSignoff)}</p>
-          <button
-            type="button"
-            className="button"
-            disabled={!writable || busy || dirty || initial.status === "draft"}
-            onClick={() => void sign("technician")}
-          >
-            Technician signoff
-          </button>
-          <p>Inspection: {signature(initial.inspectionSignoff)}</p>
-          <button
-            type="button"
-            className="button"
-            disabled={
-              !writable ||
-              busy ||
-              dirty ||
-              !initial.technicianSignoff ||
-              initial.technicianSignoff.userId === s.user.id ||
-              !certified
-            }
-            aria-describedby={
-              !initial.inspectionSignoff && !certified
-                ? `inspector-certificate-${initial.uuid}`
-                : undefined
-            }
-            onClick={() => void sign("inspection")}
-          >
-            Inspection signoff
-          </button>
-          {!initial.inspectionSignoff && !certified && (
-            <p className="muted" id={`inspector-certificate-${initial.uuid}`}>
-              {certificateProblem}
-            </p>
-          )}
-          {!initial.inspectionSignoff &&
-            initial.technicianSignoff?.userId === s.user.id && (
-              <p className="muted">
-                Inspection must be signed by a different person than the
-                technician.
-              </p>
-            )}
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-        </section>
-      )}
-      {initial ? (
-        <Evidence
-          card={initial}
-          writable={writable && !dirty && !busy && !template}
+    </>
+  );
+}
+
+function CardFields({ e }: { e: Editor }) {
+  return (
+    <>
+      <HeaderFields e={e} />
+      <div className="job-card-workspace">
+        <InstructionsPanel e={e} />
+        <LinksPanel e={e} />
+      </div>
+      <PartsUsed e={e} />
+      <details open>
+        <summary>Notes / remarks</summary>
+        <TextField
+          e={e}
+          label="Notes / remarks"
+          field="notesRemarks"
+          multiline
         />
+      </details>
+      {!!e.f.steps.length && <StepDetails e={e} />}
+      <ExecutionPanel e={e} />
+      <VerificationPanel e={e} />
+    </>
+  );
+}
+
+function HeaderFields({ e }: { e: Editor }) {
+  return (
+    <div className="job-card-header-fields">
+      <AircraftField e={e} />
+      <TextField
+        e={e}
+        label="Card number (automatic if blank)"
+        field="cardNumber"
+      />
+      <TextField e={e} label="Title" field="title" />
+      <AtaField e={e} />
+      <StatusField e={e} />
+      <LinkSelect
+        e={e}
+        label="Work order"
+        field="workOrderUuid"
+        choices={workOrderChoices(e.s, e.f)}
+        disabled={!!e.initial?.workOrderUuid || e.template}
+      />
+    </div>
+  );
+}
+
+function AircraftField({ e }: { e: Editor }) {
+  const { s, f, initial } = e;
+  return (
+    <Field label="Aircraft">
+      <select
+        value={f.aircraftUuid}
+        disabled={!!initial || !!e.defaults}
+        onChange={(event) =>
+          e.setFields({
+            ...taskCardDefaults(event.target.value),
+            cardNumber: f.cardNumber,
+            title: f.title,
+          })
+        }
+      >
+        {s.aircraft
+          .filter((a) => !!initial || can(s, a.uuid, "maintenance"))
+          .map((a) => (
+            <option key={a.uuid} value={a.uuid}>
+              {a.registration}
+            </option>
+          ))}
+      </select>
+    </Field>
+  );
+}
+
+function AtaField({ e }: { e: Editor }) {
+  return (
+    <Field label="ATA chapter">
+      <select
+        value={e.f.ataChapter ?? ""}
+        onChange={(event) =>
+          e.change(
+            "ataChapter",
+            (event.target.value as TaskCardFields["ataChapter"]) || undefined,
+          )
+        }
+      >
+        <option value="">Unassigned</option>
+        {ATA_GROUPS.map((g) => (
+          <optgroup key={g.label} label={g.label}>
+            {g.chapters.map(([code, name]) => (
+              <option key={code} value={code}>
+                {code} · {name}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function StatusField({ e }: { e: Editor }) {
+  return (
+    <Field label="Task status">
+      <select
+        value={e.f.status}
+        disabled={!e.initial}
+        onChange={(event) =>
+          e.change("status", event.target.value as TaskCardFields["status"])
+        }
+      >
+        {taskStatusChoices(e.f).map((v) => (
+          <option key={v} value={v}>
+            {label(v)}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function TextField(props: {
+  e: Editor;
+  label: string;
+  field: keyof TaskCardFields;
+  multiline?: boolean;
+}) {
+  const { e, field } = props;
+  const shared = {
+    value: String(e.f[field] ?? ""),
+    disabled: e.template && isResultTextField(field),
+    onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      e.setFields({ ...e.f, [field]: event.target.value }),
+  };
+  const limit =
+    field === "cardNumber" ? CARD_NUMBER_MAX_LENGTH : TASK_TEXT_MAX_LENGTH;
+  return (
+    <Field
+      label={props.label}
+      hint={
+        field === "actualWork"
+          ? "Used for the log book entry. Optional — not required to save or sign."
+          : undefined
+      }
+    >
+      {props.multiline ? (
+        <textarea {...shared} maxLength={TASK_TEXT_MAX_LENGTH} />
       ) : (
-        <p>Save the draft to upload evidence and record signoffs.</p>
+        <input {...shared} maxLength={limit} />
+      )}
+    </Field>
+  );
+}
+
+function LinkSelect(props: {
+  e: Editor;
+  label: string;
+  field: TaskLinkField;
+  choices: Choice[];
+  disabled?: boolean;
+}) {
+  const { e, field, choices } = props;
+  const current = e.f[field];
+  const choose = (v: string) =>
+    field === "componentUuid"
+      ? e.setFields({ ...e.f, componentUuid: v, requirementUuid: "" })
+      : e.change(field, v);
+  return (
+    <Field label={props.label}>
+      <select
+        value={current}
+        disabled={props.disabled || taskLinkLocked(e.initial, field)}
+        onChange={(event) => choose(event.target.value)}
+      >
+        <option value="">None</option>
+        {current && !choices.some((i) => i.uuid === current) && (
+          <option value={current}>Previously linked record</option>
+        )}
+        {choices.map((i) => (
+          <option key={i.uuid} value={i.uuid}>
+            {i.name}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function InstructionsPanel({ e }: { e: Editor }) {
+  const { f } = e;
+  return (
+    <details open className="job-card-panel job-card-instructions">
+      <summary>Instructions and maintenance data</summary>
+      <TextField e={e} label="Description" field="description" multiline />
+      <TextField e={e} label="Applicability" field="applicability" multiline />
+      <LogbookWording
+        included={f.includeInLogbook}
+        phrase={f.logbookPhrase}
+        onChange={(patch) =>
+          e.setFields((current) => ({ ...current, ...patch }))
+        }
+      />
+      {/* References are part of the job card itself; the checkbox above only
+          controls log book inclusion. */}
+      <TextField
+        e={e}
+        label="Maintenance-data reference"
+        field="maintenanceReference"
+      />
+      <ManualReferenceFields
+        initial={f.manualReference}
+        onChange={(ref) => e.change("manualReference", ref)}
+      />
+      <div className="form-grid">
+        <TextField e={e} label="Reference revision" field="referenceRevision" />
+        <Field label="Reference date">
+          <input
+            type="date"
+            value={f.referenceDate}
+            onChange={(event) => e.change("referenceDate", event.target.value)}
+          />
+        </Field>
+      </div>
+    </details>
+  );
+}
+
+function LinksPanel({ e }: { e: Editor }) {
+  const choices = linkChoices(e.s, e.f);
+  return (
+    <details open className="job-card-panel job-card-links">
+      <summary>Linked records</summary>
+      <div className="job-card-linked-fields">
+        <LinkSelect
+          e={e}
+          label="Inspection"
+          field="inspectionUuid"
+          choices={choices.inspections}
+        />
+        <LinkSelect
+          e={e}
+          label="Component"
+          field="componentUuid"
+          choices={choices.components}
+        />
+        <LinkSelect
+          e={e}
+          label="Component service requirement"
+          field="requirementUuid"
+          choices={choices.requirements}
+        />
+        <LinkSelect
+          e={e}
+          label="Originating discrepancy"
+          field="discrepancyUuid"
+          choices={choices.discrepancies}
+        />
+      </div>
+    </details>
+  );
+}
+
+function PartsUsed({ e }: { e: Editor }) {
+  return (
+    <details>
+      <summary>Parts used and component changes</summary>
+      <fieldset disabled={e.template}>
+        {e.f.partsUsed.map((part, index) => (
+          <PartEditor key={part.uuid} e={e} part={part} index={index} />
+        ))}
+        <button
+          type="button"
+          className="button"
+          onClick={() => e.change("partsUsed", [...e.f.partsUsed, newPart()])}
+        >
+          Add part used
+        </button>
+      </fieldset>
+    </details>
+  );
+}
+
+function PartEditor({ e, part, index }: PartProps) {
+  const n = index + 1;
+  return (
+    <div className="panel">
+      <h3>Part {n}</h3>
+      <Field label={`Part ${n} source`}>
+        <select
+          value={part.source ?? "non-stock"}
+          onChange={(event) =>
+            updatePart(e, part.uuid, {
+              source: event.target.value as "stock" | "non-stock",
+              stockUuid: "",
+              locationUuid: "",
+            })
+          }
+        >
+          <option value="non-stock">Non-stock item</option>
+          <option value="stock">Inventory stock</option>
+        </select>
+      </Field>
+      {part.source === "stock" && (
+        <StockFields e={e} part={part} index={index} />
+      )}
+      <PartDetails e={e} part={part} index={index} />
+      <button
+        type="button"
+        className="text-button"
+        onClick={() =>
+          e.change(
+            "partsUsed",
+            e.f.partsUsed.filter((x) => x.uuid !== part.uuid),
+          )
+        }
+      >
+        Remove part {n}
+      </button>
+    </div>
+  );
+}
+
+function StockFields(props: PartProps) {
+  const { stockItems, locations } = inventory(props.e.s, props.e.f);
+  return (
+    <>
+      <LocationSelect {...props} locations={locations} />
+      <StockSelect {...props} stockItems={stockItems} />
+      {!locations.length && (
+        <p className="muted">
+          Selecting stock requires inventory access and a saved inventory
+          location.
+        </p>
       )}
       <p className="muted">
-        Job-card completion records the work performed. Update inspection
-        compliance, discrepancy resolution and component installation records in
-        their respective screens.
+        This links the part to inventory. Record stock issues through Inventory
+        → Move stock.
       </p>
     </>
   );
 }
+
+function LocationSelect(
+  props: PartProps & { locations: ReturnType<typeof inventory>["locations"] },
+) {
+  const { part, locations } = props;
+  return (
+    <Field label={`Part ${props.index + 1} inventory location`}>
+      <select
+        required
+        value={part.locationUuid ?? ""}
+        onChange={(event) =>
+          updatePart(props.e, part.uuid, {
+            locationUuid: event.target.value,
+            stockUuid: "",
+          })
+        }
+      >
+        <option value="">Select location</option>
+        {part.locationUuid &&
+          !locations.some((r) => r.uuid === part.locationUuid) && (
+            <option value={part.locationUuid}>
+              Previously linked inventory location
+            </option>
+          )}
+        {locations.map((location) => (
+          <option key={location.uuid} value={location.uuid}>
+            {location.kind === "location" ? location.name : ""}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function StockSelect(props: PartProps & { stockItems: Stock[] }) {
+  const { part, stockItems } = props;
+  const choose = (uuid: string) => {
+    const stock = stockItems.find((r) => r.uuid === uuid);
+    updatePart(props.e, part.uuid, {
+      stockUuid: stock?.uuid ?? "",
+      partNumber: stock?.partNumber ?? "",
+      description: stock?.description ?? "",
+    });
+  };
+  return (
+    <Field label={`Part ${props.index + 1} stock item`}>
+      <select
+        required
+        value={part.stockUuid ?? ""}
+        onChange={(event) => choose(event.target.value)}
+      >
+        <option value="">Select stock item</option>
+        {part.stockUuid &&
+          !stockItems.some((r) => r.uuid === part.stockUuid) && (
+            <option value={part.stockUuid}>
+              {part.partNumber} · Previously linked stock item
+            </option>
+          )}
+        {stockItems
+          .filter((stock) => stock.locationUuid === part.locationUuid)
+          .map((stock) => (
+            <StockOption
+              key={stock.uuid}
+              stock={stock}
+              linked={part.stockUuid}
+            />
+          ))}
+      </select>
+    </Field>
+  );
+}
+
+// Expired lots cannot be issued, so they cannot be chosen; a lot linked
+// before it expired stays.
+function StockOption({ stock, linked }: { stock: Stock; linked?: string }) {
+  const expired = expiredForUse(stock.expirationDate);
+  const status = expired
+    ? `Expired ${stock.expirationDate}`
+    : `Available: ${usableQuantity(stock)}`;
+  return (
+    <option value={stock.uuid} disabled={expired && stock.uuid !== linked}>
+      {`${stock.partNumber} · ${stock.description} · ${status}`}
+    </option>
+  );
+}
+
+function PartDetails({ e, part, index }: PartProps) {
+  return (
+    <>
+      {PART_TEXT_FIELDS.map(([name, key]) => (
+        <Field key={key} label={`Part ${index + 1} ${name}`}>
+          <input
+            value={part[key]}
+            readOnly={part.source === "stock" && key === "partNumber"}
+            required={key === "partNumber"}
+            maxLength={TASK_TEXT_MAX_LENGTH}
+            onChange={(event) =>
+              updatePart(e, part.uuid, { [key]: event.target.value })
+            }
+          />
+        </Field>
+      ))}
+      <Field label={`Part ${index + 1} quantity`}>
+        <input
+          type="number"
+          min="0.000001"
+          step="any"
+          value={part.quantity}
+          onChange={(event) =>
+            updatePart(e, part.uuid, { quantity: Number(event.target.value) })
+          }
+        />
+      </Field>
+    </>
+  );
+}
+
+function StepDetails({ e }: { e: Editor }) {
+  const signoffs = e.initial?.stepSignoffs;
+  return (
+    <details>
+      <summary>Previously recorded step details</summary>
+      {e.f.steps.map((step, index) => (
+        <div key={step.uuid}>
+          <p>
+            {index + 1}. {step.instruction}
+          </p>
+          {step.requiredResult && <p>Required result: {step.requiredResult}</p>}
+          {step.result && <p>Result: {step.result}</p>}
+          {step.measurement !== null && (
+            <p>
+              Measurement: {step.measurement} {step.units}
+            </p>
+          )}
+          {(step.lowerLimit !== null || step.upperLimit !== null) && (
+            <p>
+              Limits: {step.lowerLimit ?? "—"} to {step.upperLimit ?? "—"}{" "}
+              {step.units}
+            </p>
+          )}
+          {signoffs?.[step.uuid] && (
+            <p>Signed: {signatureText(signoffs[step.uuid])}</p>
+          )}
+        </div>
+      ))}
+    </details>
+  );
+}
+
+function ExecutionPanel({ e }: { e: Editor }) {
+  return (
+    <details open>
+      <summary>Execution</summary>
+      <fieldset disabled={e.template}>
+        <TextField
+          e={e}
+          label="Actual work performed"
+          field="actualWork"
+          multiline
+        />
+        <ExecutionFields e={e} />
+      </fieldset>
+    </details>
+  );
+}
+
+function ExecutionFields({ e }: { e: Editor }) {
+  return (
+    <div className="form-grid">
+      <Field
+        label="Actual labor (hours)"
+        hint="Optional — leave blank if no labor time is recorded."
+      >
+        <input
+          type="number"
+          min="0"
+          step="any"
+          value={e.f.actualLabor ?? ""}
+          onChange={(event) =>
+            e.change("actualLabor", nullableNumber(event.target.value))
+          }
+        />
+      </Field>
+      <Field
+        label="Completion date"
+        hint="Optional — automatically records today’s date when you sign if left blank."
+      >
+        <input
+          type="date"
+          max={localDate()}
+          value={e.f.completionDate}
+          onChange={(event) => e.change("completionDate", event.target.value)}
+        />
+      </Field>
+    </div>
+  );
+}
+
+function VerificationPanel({ e }: { e: Editor }) {
+  return (
+    <details open>
+      <summary>Verification</summary>
+      <label className="block">
+        <input
+          type="checkbox"
+          checked={e.f.inspectionSignoffRequired}
+          onChange={(event) =>
+            e.change("inspectionSignoffRequired", event.target.checked)
+          }
+        />{" "}
+        Inspection signoff required
+      </label>
+    </details>
+  );
+}
+
+function EditorSignoffs({ e, initial }: { e: Editor; initial: TaskCard }) {
+  const blocked = !e.writable || e.busy || e.dirty;
+  const offered = signoffsOfferedInEditor(initial, e.s.user, localDate());
+  return (
+    <section>
+      <h3>Signoffs</h3>
+      <p>
+        Save changes before signing. Signing records your account and the
+        current time. Changes to card content or evidence clear existing
+        signoffs.
+      </p>
+      {e.dirty && (
+        <p className="notice">
+          Save your changes before signing or uploading evidence.
+        </p>
+      )}
+      <p>Technician: {signatureText(initial.technicianSignoff)}</p>
+      <button
+        type="button"
+        className="button"
+        disabled={blocked || !offered.technician}
+        onClick={() => void signCard(e, "technician")}
+      >
+        Technician signoff
+      </button>
+      <InspectionSignoff
+        e={e}
+        initial={initial}
+        disabled={blocked || !offered.inspection}
+      />
+      {e.error && (
+        <p className="error" role="alert">
+          {e.error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function InspectionSignoff(props: {
+  e: Editor;
+  initial: TaskCard;
+  disabled: boolean;
+}) {
+  const { e, initial } = props;
+  const certificateProblem = inspectorCertificateProblem(e.s.user, localDate());
+  const sameSigner = initial.technicianSignoff?.userId === e.s.user.id;
+  const unsigned = !initial.inspectionSignoff;
+  const noteId = `inspector-certificate-${initial.uuid}`;
+  return (
+    <>
+      <p>Inspection: {signatureText(initial.inspectionSignoff)}</p>
+      <button
+        type="button"
+        className="button"
+        disabled={props.disabled}
+        aria-describedby={unsigned && certificateProblem ? noteId : undefined}
+        onClick={() => void signCard(e, "inspection")}
+      >
+        Inspection signoff
+      </button>
+      {unsigned && certificateProblem && (
+        <p className="muted" id={noteId}>
+          {certificateProblem}
+        </p>
+      )}
+      {unsigned && sameSigner && (
+        <p className="muted">
+          Inspection must be signed by a different person than the technician.
+        </p>
+      )}
+    </>
+  );
+}
+
 function Evidence({ card, writable }: { card: TaskCard; writable: boolean }) {
   const { snapshot: s, backend } = useWorkspace();
   const [file, setFile] = useState<File>();
@@ -1640,38 +1786,337 @@ function Evidence({ card, writable }: { card: TaskCard; writable: boolean }) {
       </ul>
       {!files.length && <p>No evidence attached.</p>}
       {!isTaskClosed(card) && (
-        <AsyncForm
-          submitLabel="Upload evidence"
-          disabled={!writable}
-          onSubmit={async (data) => {
-            if (!file) throw new Error("Choose an evidence file.");
-            validateWorkOrderFile(file.name, file.type, file.size);
-            await backend!.attachTaskEvidence(
-              card.uuid,
-              value(data, "category") as (typeof evidenceCategories)[number],
-              file,
-            );
-          }}
-        >
-          <Field label="Evidence category">
-            <select name="category">
-              {evidenceCategories.map((v) => (
-                <option key={v} value={v}>
-                  {label(v)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Evidence file" hint="PDF, JPEG or PNG, up to 7 MB">
-            <input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              onChange={(e) => setFile(e.target.files?.[0])}
-            />
-          </Field>
-        </AsyncForm>
+        <EvidenceUpload
+          card={card}
+          file={file}
+          onFile={setFile}
+          writable={writable}
+        />
       )}
     </section>
+  );
+}
+
+function EvidenceUpload(props: {
+  card: TaskCard;
+  file?: File;
+  onFile: (file?: File) => void;
+  writable: boolean;
+}) {
+  const { backend } = useWorkspace();
+  const { file } = props;
+  return (
+    <AsyncForm
+      submitLabel="Upload evidence"
+      disabled={!props.writable}
+      onSubmit={(data) => uploadEvidence(backend!, props.card, file, data)}
+    >
+      <Field label="Evidence category">
+        <select name="category">
+          {evidenceCategories.map((v) => (
+            <option key={v} value={v}>
+              {label(v)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Evidence file" hint="PDF, JPEG or PNG, up to 7 MB">
+        <input
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png"
+          onChange={(event) => props.onFile(event.target.files?.[0])}
+        />
+      </Field>
+    </AsyncForm>
+  );
+}
+
+const label = (s: string) => s.replaceAll("-", " ");
+const nullableNumber = (s: string) => (s === "" ? null : Number(s));
+
+function cardOrder(orderBy: CardOrder) {
+  return orderBy === "zone" ? compareCardZones : compareCardNumbers;
+}
+
+// Cards without a zone sort after those with one, then by card number.
+function compareCardZones(a: TaskCard, b: TaskCard) {
+  const az = cardZone(a),
+    bz = cardZone(b);
+  if (az && bz)
+    return (
+      az.localeCompare(bz, undefined, { numeric: true, sensitivity: "base" }) ||
+      compareCardNumbers(a, b)
+    );
+  if (az) return -1;
+  if (bz) return 1;
+  return compareCardNumbers(a, b);
+}
+
+function compareCardNumbers(a: TaskCard, b: TaskCard) {
+  return a.cardNumber.localeCompare(b.cardNumber, undefined, { numeric: true });
+}
+
+function filterCards(
+  cards: TaskCard[] | undefined,
+  filters: Filters,
+  orderBy: CardOrder,
+) {
+  return (cards ?? [])
+    .filter((card) => matchesFilters(card, filters))
+    .sort(cardOrder(orderBy));
+}
+
+function matchesFilters(card: TaskCard, filters: Filters) {
+  return (
+    (!filters.aircraft || card.aircraftUuid === filters.aircraft) &&
+    matchesStatus(card, filters.status) &&
+    `${card.cardNumber} ${card.title}`
+      .toLowerCase()
+      .includes(filters.search.toLowerCase())
+  );
+}
+
+// "template" picks the reusable templates; a status picks job cards only.
+function matchesStatus(card: TaskCard, status: string) {
+  if (!status) return true;
+  if (status === "template") return isTaskTemplate(card);
+  return !isTaskTemplate(card) && card.status === status;
+}
+
+function summaryWritable(
+  w: Pick<Workspace, "snapshot" | "backend" | "online" | "connected">,
+  card: TaskCard,
+) {
+  return (
+    !!w.snapshot &&
+    !!w.backend &&
+    w.online &&
+    w.connected &&
+    taskWritable(w.snapshot, card)
+  );
+}
+
+function statusCommand(card: TaskCard, status: string) {
+  const fields = {
+    ...taskCardFieldsSchema.parse(card),
+    status: status as TaskCardFields["status"],
+  };
+  return {
+    action: "save" as const,
+    uuid: card.uuid,
+    version: card.version,
+    fields,
+  };
+}
+
+function signedBy(sig: NonNullable<TaskCard["technicianSignoff"]>) {
+  return `${sig.name} · ${new Date(sig.at).toLocaleString()}`;
+}
+
+function signatureText(sig: TaskCard["technicianSignoff"]) {
+  return sig ? signedBy(sig) : "Not signed";
+}
+
+function inspectionTitle(
+  card: TaskCard,
+  certificateProblem: string | undefined,
+  sameSigner: boolean,
+) {
+  if (card.inspectionSignoff) return signedBy(card.inspectionSignoff);
+  if (certificateProblem) return certificateProblem;
+  if (sameSigner) return "Inspection must be signed by a different person";
+  if (!card.technicianSignoff) return "Technician signoff is required first";
+  return "Record inspection signoff";
+}
+
+async function removeSelected(view: LinkedView, backend: Workspace["backend"]) {
+  const { removal: r } = view;
+  if (!backend || !view.writable || r.removeBusy) return;
+  r.setRemoveBusy(true);
+  r.setRemoveError("");
+  try {
+    for (const id of r.removeIds) await unlinkCard(view, backend, id);
+    r.setRemoving(false);
+  } catch (error) {
+    r.setRemoveError(cardErrorText(error));
+  } finally {
+    r.setRemoveBusy(false);
+  }
+}
+
+async function unlinkCard(
+  { s, link, removal }: LinkedView,
+  backend: NonNullable<Workspace["backend"]>,
+  id: string,
+) {
+  const card = s.taskCards?.find((item) => item.uuid === id);
+  if (!card || !canUnlinkTaskCard(s, card, link))
+    throw new Error("A selected card changed. Review the remaining selection.");
+  await backend.taskCard({
+    action: "unlink",
+    uuid: card.uuid,
+    version: card.version,
+    link,
+  });
+  removal.setRemoveIds((current) =>
+    current.filter((selected) => selected !== id),
+  );
+}
+
+function initialFields(
+  s: Snapshot,
+  initial?: TaskCard,
+  defaults?: TaskCardFields,
+): TaskCardFields {
+  if (initial) return taskCardFieldsSchema.parse(initial);
+  return (
+    defaults ??
+    taskCardDefaults(
+      s.aircraft.find((a) => can(s, a.uuid, "maintenance"))?.uuid ?? "",
+    )
+  );
+}
+
+async function saveCard(
+  e: Editor,
+  warnings: string[],
+  onSaved: (uuid: string) => void,
+) {
+  if (warnings.length) throw new Error(warnings.join("\n"));
+  await e.backend!.taskCard({
+    action: "save",
+    uuid: e.uuid,
+    version: e.initial?.version ?? 0,
+    fields: e.f,
+  });
+  onSaved(e.uuid);
+}
+
+async function signCard(e: Editor, kind: SignKind) {
+  const { initial } = e;
+  if (!initial) return;
+  e.setBusy(true);
+  await withCardError(e.setError, () =>
+    signTaskCard(initial, kind, (command) => e.backend!.taskCard(command)),
+  );
+  e.setBusy(false);
+}
+
+// Clears the error, runs the command and shows a refusal in its place.
+async function withCardError(
+  setError: (message: string) => void,
+  command: () => Promise<unknown>,
+) {
+  setError("");
+  try {
+    await command();
+  } catch (error) {
+    setError(cardErrorText(error));
+  }
+}
+
+function workOrderChoices(s: Snapshot, f: TaskCardFields): Choice[] {
+  return (s.workOrders ?? [])
+    .filter(
+      (w) =>
+        w.aircraftUuid === f.aircraftUuid &&
+        (isOpenWorkOrder(w) || w.uuid === f.workOrderUuid),
+    )
+    .map((w) => ({ uuid: w.uuid, name: w.number }));
+}
+
+// Archived inspections, removed components and discrepancies no longer open
+// stay listed only while the card still links them.
+function linkChoices(s: Snapshot, f: TaskCardFields) {
+  const records = s.management ?? [];
+  return {
+    inspections: s.inspections
+      .filter(
+        (i) =>
+          i.aircraftUuid === f.aircraftUuid &&
+          (!i.archived || i.uuid === f.inspectionUuid),
+      )
+      .map((i) => ({ uuid: i.uuid, name: `${i.reference}: ${i.description}` })),
+    components: records
+      .filter(
+        (c) =>
+          c.kind === "component" &&
+          c.aircraftUuid === f.aircraftUuid &&
+          (c.installed || c.uuid === f.componentUuid),
+      )
+      .map((c) => ({
+        uuid: c.uuid,
+        name: c.kind === "component" ? `${c.componentType} · ${c.serial}` : "",
+      })),
+    requirements: records
+      .filter(
+        (r) =>
+          r.kind === "componentRequirement" &&
+          r.componentUuid === f.componentUuid,
+      )
+      .map((r) => ({
+        uuid: r.uuid,
+        name: r.kind === "componentRequirement" ? r.description : "",
+      })),
+    discrepancies: s.discrepancies
+      .filter(
+        (d) =>
+          d.aircraftUuid === f.aircraftUuid &&
+          (d.status === "open" || d.uuid === f.discrepancyUuid),
+      )
+      .map((d) => ({ uuid: d.uuid, name: d.description })),
+  };
+}
+
+// Stock and locations come from the aircraft's own Flight Program.
+function inventory(s: Snapshot, f: TaskCardFields) {
+  const programUuid = s.aircraft.find(
+    (a) => a.uuid === f.aircraftUuid,
+  )?.programUuid;
+  const records = s.management ?? [];
+  return {
+    stockItems: records.filter(
+      (r): r is Stock =>
+        r.kind === "stock" && recordProgram(s, r) === programUuid,
+    ),
+    locations: records.filter(
+      (r) => r.kind === "location" && recordProgram(s, r) === programUuid,
+    ),
+  };
+}
+
+function updatePart(e: Editor, id: string, patch: Partial<TaskPart>) {
+  e.change(
+    "partsUsed",
+    e.f.partsUsed.map((x) => (x.uuid === id ? { ...x, ...patch } : x)),
+  );
+}
+
+function newPart(): TaskPart {
+  return {
+    uuid: crypto.randomUUID(),
+    partNumber: "",
+    description: "",
+    quantity: 1,
+    serialLot: "",
+    removedComponent: "",
+    installedComponent: "",
+  };
+}
+
+async function uploadEvidence(
+  backend: NonNullable<Workspace["backend"]>,
+  card: TaskCard,
+  file: File | undefined,
+  data: FormData,
+) {
+  if (!file) throw new Error("Choose an evidence file.");
+  validateWorkOrderFile(file.name, file.type, file.size);
+  const category = value(data, "category");
+  await backend.attachTaskEvidence(
+    card.uuid,
+    category as (typeof evidenceCategories)[number],
+    file,
   );
 }
 
