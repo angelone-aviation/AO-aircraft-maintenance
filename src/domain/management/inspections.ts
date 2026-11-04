@@ -54,6 +54,19 @@ export function saveInspection(
 }
 
 /**
+ * Whether an inspection schedule counts aircraft landings, so its completion
+ * must record them.
+ *
+ * @param i - The schedule.
+ * @returns True with a landings interval or a one-time landings limit.
+ */
+export function tracksLandings(
+  i: Pick<Inspection, "intervalLandings" | "dueLandings">,
+): boolean {
+  return !!i.intervalLandings || i.dueLandings !== undefined;
+}
+
+/**
  * Records an inspection's compliance and sets its next due point; without a
  * recurring interval, the schedule is archived.
  *
@@ -73,10 +86,7 @@ export function completeInspection(
   if (existing.archived) throw new Rejection("Inspection is archived.");
   checkDate(c.date, ctx.now);
   const counters = inspectionCounters(existing, ctx.aircraft!, ctx.records);
-  if (
-    (existing.intervalLandings || existing.dueLandings !== undefined) &&
-    c.landings === undefined
-  )
+  if (tracksLandings(existing) && c.landings === undefined)
     throw new Rejection("Enter aircraft total landings at completion.");
   if (
     c.seconds > counters.seconds ||

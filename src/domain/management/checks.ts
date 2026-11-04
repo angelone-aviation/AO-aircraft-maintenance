@@ -22,6 +22,21 @@ const INVENTORY_KINDS = ["stock", "location", "vendor"];
 const MANUAL_LINKED_KINDS = ["componentRequirement", "component"];
 
 /**
+ * Whether the user may change maintenance records on an aircraft, or records
+ * on no aircraft.
+ *
+ * @param s - The snapshot.
+ * @param aircraftUuid - The records' aircraft, if any.
+ * @returns Maintenance permission on that aircraft; with none, in the active
+ *   Flight Program.
+ */
+export function mayMaintain(s: Snapshot, aircraftUuid: string | undefined) {
+  return aircraftUuid
+    ? can(s, aircraftUuid, "maintenance")
+    : programPermission(s, "maintenance");
+}
+
+/**
  * Admits a parsed command through every check its action does not own, in a
  * fixed order. A saved record is stamped with its Flight Program.
  *
@@ -154,11 +169,11 @@ function authorize(s: Snapshot, c: ManagementCommand, existing: Existing) {
 }
 
 function mayWrite(s: Snapshot, c: ManagementCommand, scope?: string) {
-  if (scope) return can(s, scope, "maintenance");
   const inventory =
     c.action === "stock.move" ||
     (c.action === "record.save" && INVENTORY_KINDS.includes(c.record.kind));
-  return programPermission(s, inventory ? "admin" : "maintenance");
+  if (inventory && !scope) return programPermission(s, "admin");
+  return mayMaintain(s, scope);
 }
 
 function findScopeAircraft(s: Snapshot, existing: Existing, scope?: string) {

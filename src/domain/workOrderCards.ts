@@ -11,6 +11,7 @@ import type { WorkOrder } from "./workOrders";
 import {
   copyTemplateSteps,
   isTaskTemplate,
+  linkField,
   saveTaskCard,
   taskCardFieldsSchema,
   taskCardSchema,
@@ -19,6 +20,12 @@ import {
 } from "./taskCards";
 
 type WorkItem = WorkOrder["tasks"][number];
+
+const TEMPLATE_SOURCE_KINDS = [
+  "inspection",
+  "componentRequirement",
+  "discrepancy",
+] as const;
 
 /**
  * Copies the aircraft's task-card templates into draft job cards for the work
@@ -102,6 +109,19 @@ export function workItemCompletionIssue(
 }
 
 /**
+ * Whether a kind of work item gets job cards copied from task-card templates.
+ *
+ * @param kind - The item's source kind.
+ * @returns True for inspections, component requirements and discrepancies;
+ *   false for AD actions and manual work, which have no templates.
+ */
+export function copiesJobCardTemplates(
+  kind: WorkItem["source"]["kind"],
+): kind is (typeof TEMPLATE_SOURCE_KINDS)[number] {
+  return (TEMPLATE_SOURCE_KINDS as readonly string[]).includes(kind);
+}
+
+/**
  * Tells whether a task card belongs to a work item.
  *
  * @param t - The task card.
@@ -115,11 +135,7 @@ export function taskCardMatchesWorkItem(t: TaskCard, item: WorkItem): boolean {
 
 function matchesItemSource(t: TaskCard, item: WorkItem) {
   const { kind, uuid } = item.source;
-  return (
-    (kind === "inspection" && t.inspectionUuid === uuid) ||
-    (kind === "componentRequirement" && t.requirementUuid === uuid) ||
-    (kind === "discrepancy" && t.discrepancyUuid === uuid)
-  );
+  return copiesJobCardTemplates(kind) && t[linkField[kind]] === uuid;
 }
 
 // Template uuid to job card uuid, for the copies this order already holds.

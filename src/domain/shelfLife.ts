@@ -36,6 +36,25 @@ export function shelfLifeStatus(
   return daysLeft <= EXPIRING_SOON_DAYS ? "soon" : undefined;
 }
 
+/**
+ * Whether a lot passes a shelf-life filter; "soon" also passes lots already
+ * expired.
+ *
+ * @param filter - The flag to show, or "" for every lot.
+ * @param expirationDate - The lot's expiration date, if any.
+ * @param today - The day to judge on (YYYY-MM-DD).
+ * @returns True when the filter is "" or the lot's flag matches it.
+ */
+export function matchesShelfLife(
+  filter: ShelfLife | "",
+  expirationDate: string | undefined,
+  today: string,
+): boolean {
+  if (!filter) return true;
+  const status = shelfLifeStatus(expirationDate, today);
+  return status === filter || (filter === "soon" && status === "expired");
+}
+
 /** Display name of each shelf-life flag. */
 export const shelfLifeLabels: Record<ShelfLife, string> = {
   expired: "Expired",

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the component work a closing work order applies: the
- *   components it covers, the refusals, usage resets, and moves with their
- *   attached parts.
+ *   components it covers, the refusals, which work resets which counter,
+ *   usage resets, and moves with their attached parts.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/workOrderComponentWork.ts, workOrders.ts,
  *   components.ts, model.ts, logbook.ts, rejection.ts, src/data/demo.ts and
@@ -28,6 +28,7 @@ import {
 } from "./components";
 import {
   applyWorkOrderComponentWork,
+  serviceDone,
   workOrderComponentIds,
   type ComponentWork,
 } from "./workOrderComponentWork";
@@ -475,5 +476,26 @@ describe("applying component work", () => {
     expect(workOrderComponentIds(s, order, true)).toEqual([c.uuid]);
     order.tasks[0].status = "cancelled";
     expect(workOrderComponentIds(s, order, true)).toEqual([]);
+  });
+});
+
+describe("which counters component work resets", () => {
+  it("repairs on repair or both, and overhauls on overhaul or both", () => {
+    const actions = [
+      "service",
+      "repair",
+      "overhaul",
+      "both",
+      "install",
+      "remove",
+    ] as const;
+    expect(actions.map((action) => serviceDone({ action }))).toEqual([
+      { repair: false, overhaul: false },
+      { repair: true, overhaul: false },
+      { repair: false, overhaul: true },
+      { repair: true, overhaul: true },
+      { repair: false, overhaul: false },
+      { repair: false, overhaul: false },
+    ]);
   });
 });

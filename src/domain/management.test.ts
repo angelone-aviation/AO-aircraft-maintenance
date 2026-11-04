@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins inventory and inspection commands: schedules and
- *   completions, component usage, stock balances, permissions, every refusal
- *   in order, and the change they store and audit.
+ *   completions, component usage, stock balances, permissions, field limits,
+ *   every refusal in order, and the change they store and audit.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/management.ts, ./model, ./rejection,
  *   src/data/demo.ts, tests/fixtures/componentMovement.ts.
@@ -10,9 +10,16 @@ import { applyThroughWorkOrder } from "../../tests/fixtures/componentMovement";
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
+  INSPECTION_REFERENCE_MAX_LENGTH,
+  PURCHASE_REFERENCE_MAX_LENGTH,
+  STOCK_VENDOR_MAX_LENGTH,
   applyManagement,
   componentTotals,
   inspectionCounters,
+  inspectionSchema,
+  mayMaintain,
+  stockSchema,
+  tracksLandings,
   validateMaintenanceTotals,
   type Component,
   type ManagedRecord,
@@ -961,6 +968,65 @@ describe("maintenance totals", () => {
       lastSeconds: totalSeconds(a) + 1,
     };
     expect(() => validateMaintenanceTotals(a, [], [elsewhere])).not.toThrow();
+  });
+});
+
+describe("schedule and inventory rules", () => {
+  it("tracks landings with a landings interval or a one-time landings limit", () => {
+    expect(tracksLandings({})).toBe(false);
+    expect(tracksLandings({ intervalLandings: 100 })).toBe(true);
+    expect(tracksLandings({ dueLandings: 0 })).toBe(true);
+  });
+
+  it("lets maintenance change an aircraft's records there, and others in the program", () => {
+    const s = demoSnapshot();
+    const [a, b] = s.aircraft;
+    expect([mayMaintain(s, a.uuid), mayMaintain(s, undefined)]).toEqual([
+      true,
+      true,
+    ]);
+    s.user = { ...s.user, isAdmin: false, groupIds: ["mechanics"] };
+    s.groups = [
+      {
+        id: "mechanics",
+        name: "Mechanics",
+        programUuid: s.activeProgramUuid,
+        aircraftIds: [a.uuid],
+        permissions: ["read", "maintenance"],
+      },
+    ];
+    expect(
+      [a.uuid, b.uuid, undefined].map((uuid) => mayMaintain(s, uuid)),
+    ).toEqual([true, false, true]);
+    s.groups[0].permissions = ["read", "flight"];
+    expect([mayMaintain(s, a.uuid), mayMaintain(s, undefined)]).toEqual([
+      false,
+      false,
+    ]);
+  });
+
+  it("limits a lot's vendor and purchase references and a schedule's reference", () => {
+    expect([
+      STOCK_VENDOR_MAX_LENGTH,
+      PURCHASE_REFERENCE_MAX_LENGTH,
+      INSPECTION_REFERENCE_MAX_LENGTH,
+    ]).toEqual([200, 100, 2000]);
+    const { s } = world();
+    const lot = stored(s, "oil");
+    const inspection = s.inspections[0];
+    const lotFits = (key: string, n: number) =>
+      stockSchema.safeParse({ ...lot, [key]: "x".repeat(n) }).success;
+    expect(lotFits("vendor", STOCK_VENDOR_MAX_LENGTH)).toBe(true);
+    expect(lotFits("vendor", STOCK_VENDOR_MAX_LENGTH + 1)).toBe(false);
+    for (const key of ["invoiceNumber", "poRef"]) {
+      expect(lotFits(key, PURCHASE_REFERENCE_MAX_LENGTH)).toBe(true);
+      expect(lotFits(key, PURCHASE_REFERENCE_MAX_LENGTH + 1)).toBe(false);
+    }
+    const reference = (n: number) =>
+      inspectionSchema.safeParse({ ...inspection, reference: "x".repeat(n) })
+        .success;
+    expect(reference(INSPECTION_REFERENCE_MAX_LENGTH)).toBe(true);
+    expect(reference(INSPECTION_REFERENCE_MAX_LENGTH + 1)).toBe(false);
   });
 });
 
