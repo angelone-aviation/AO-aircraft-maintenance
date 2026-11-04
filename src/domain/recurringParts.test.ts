@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins recurring parts lists: one occurrence per open task
- *   and list, numbering, change log, the lists' own rules, and which sources
- *   a server loads for them.
+ *   and list, numbering, change log, the lists' own rules, the applier
+ *   serving open work orders, and which sources a server loads for them.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/recurringParts.ts, partsRequests.ts,
  *   airworthiness.ts, workOrders.ts, partsPlanning.ts, model.ts,
@@ -314,6 +314,60 @@ it("numbers, labels and logs one occurrence per open task of a list on this airc
     action: "partsRequest.recurring",
     entityUuid: created[0].uuid,
   });
+});
+
+it("serves the open work orders on its aircraft when a list is saved or resent, in one command", () => {
+  const { s, order, template, draft, command } = fixture();
+  const now = Date.parse("2026-11-03T12:00:00Z");
+  const occurrences = () =>
+    s.partsRequests!.filter((r) => r.templateUuid === template.uuid);
+  const edit = {
+    kind: "save" as const,
+    requestUuid: "edit",
+    draft: { ...draft, version: template.version },
+  };
+  applyRequestCommand(s, edit, now);
+  expect(occurrences()).toEqual([
+    expect.objectContaining({
+      createdAt: now,
+      source: {
+        kind: "workTask",
+        uuid: order.tasks[0].uuid,
+        workOrderUuid: order.uuid,
+      },
+    }),
+  ]);
+  expect(s.audit.slice(0, 2).map((e) => e.action)).toEqual([
+    "partsRequest.recurring",
+    "partsRequest.save",
+  ]);
+  const owed = () =>
+    saveWorkOrder(s, {
+      ...command,
+      uuid: crypto.randomUUID(),
+      tasks: [newWorkTask(command.tasks[0].source, "Next")],
+    });
+  owed();
+  applyRequestCommand(s, edit, now);
+  expect(occurrences()).toHaveLength(2);
+  applyRequestCommand(s, edit, now);
+  expect(occurrences()).toHaveLength(2);
+  owed();
+  applyRequestCommand(s, {
+    ...edit,
+    requestUuid: "once",
+    draft: { ...draft, uuid: "once", recurring: false },
+  });
+  const list = s.partsRequests!.find((r) => r.uuid === template.uuid)!;
+  s.partsRequests!.push({ ...list, uuid: "second", history: [] });
+  applyRequestCommand(s, {
+    kind: "cancel",
+    requestUuid: "cancel",
+    uuid: list.uuid,
+    version: list.version,
+    reason: "Retired",
+  });
+  expect(s.partsRequests!.filter((r) => r.templateUuid)).toHaveLength(2);
 });
 
 it("gives a completed or cancelled work order no occurrences", () => {

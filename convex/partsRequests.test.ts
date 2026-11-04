@@ -360,74 +360,11 @@ it("refuses a request uuid another Flight Program holds, and writes nothing", as
 });
 
 it("owes the open work orders on its aircraft when a recurring list is saved, once", async () => {
-  const t = convexTest(schema, modules),
-    s = demoSnapshot();
-  const ad = blankAD(s.aircraft[0].uuid);
-  ad.source.number = "2026-01-01";
-  ad.applicability = "Applicable";
-  ad.reviewRequired = false;
-  ad.tasks = [
-    {
-      ...blankADTask(),
-      description: "AD inspection",
-      recurrence: "Recurring",
-      intervalHours: 100,
-    },
-  ];
-  const subject = await t.run(async (ctx) => {
-    await ctx.db.insert("programs", s.programs![0]);
-    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
-    await ctx.db.insert("airworthiness", {
-      uuid: ad.uuid,
-      aircraftUuid: ad.aircraftUuid,
-      payload: JSON.stringify(ad),
-    });
-    const userId = await ctx.db.insert("users", {
-      name: "Tech",
-      active: true,
-      isAdmin: true,
-      groupIds: [],
-    });
-    const sessionId = await ctx.db.insert("authSessions", {
-      userId,
-      expirationTime: Date.now() + DAY_MS,
-    });
-    return `${userId}|${sessionId}`;
-  });
-  const user = t.withIdentity({ subject });
-  const args = (payload: unknown) => ({
-    programUuid: "demo-program",
-    payload: JSON.stringify(payload),
-  });
-  const source = { kind: "airworthiness" as const, uuid: ad.tasks[0].uuid };
+  const { user, args, source, saveList, occurrences } =
+    await recurringListSetup();
   const order = workOrderCommand();
   order.tasks = [newWorkTask(source, "AD inspection")];
   await user.mutation(api.workOrders.save, args(order));
-  const saveList = (version: number) => {
-    const draft = requestDraftSchema.parse({
-      uuid: "list",
-      version,
-      source,
-      recurring: true,
-      mode: "parts",
-      date: "2026-10-20",
-      engineer: "Tech",
-      priority: "P2 Routine",
-      requiredBy: "",
-      currency: "USD",
-      lines: [
-        { uuid: "filter", partNumber: "F", description: "Filter", quantity: 2 },
-      ],
-    });
-    return user.mutation(
-      api.partsRequests.execute,
-      args({ kind: "save", requestUuid: crypto.randomUUID(), draft }),
-    );
-  };
-  const occurrences = async () =>
-    (await t.run((ctx) => ctx.db.query("partsRequests").collect()))
-      .map((d) => JSON.parse(d.payload))
-      .filter((r) => r.templateUuid === "list");
   await saveList(0);
   expect(await occurrences()).toEqual([
     expect.objectContaining({
@@ -436,6 +373,84 @@ it("owes the open work orders on its aircraft when a recurring list is saved, on
   ]);
   await saveList(1);
   expect(await occurrences()).toHaveLength(1);
+});
+
+it("writes each occurrence a saved list owes with its change-log row, latest first", async () => {
+  const { t, user, args, source, saveList, occurrences } =
+    await recurringListSetup();
+  const orders = [];
+  for (let i = 0; i < 2; i++) {
+    const order = workOrderCommand();
+    order.tasks = [newWorkTask(source, "AD inspection")];
+    await user.mutation(api.workOrders.save, args(order));
+    orders.push(order);
+  }
+  const before = (await storedRows(t)).audit.length;
+  await saveList(0, "list-save");
+  const { requests, audit } = await storedRows(t);
+  const created = await occurrences();
+  expect(
+    created.map((r) => [r.number, r.source.workOrderUuid, r.sourceLabel]),
+  ).toEqual([
+    ["PR-00002", orders[0].uuid, "WO-2026-0001: AD 2026-01-01: AD inspection"],
+    ["PR-00003", orders[1].uuid, "WO-2026-0002: AD 2026-01-01: AD inspection"],
+  ]);
+  const rows = audit.slice(before);
+  expect(rows.map((r) => [r.action, r.entityUuid])).toEqual([
+    ["partsRequest.recurring", created[1].uuid],
+    ["partsRequest.recurring", created[0].uuid],
+    ["partsRequest.save", "list"],
+  ]);
+  for (const row of rows.slice(0, 2)) {
+    const stored = requests.find((d) => d.uuid === row.entityUuid)!;
+    expect(row).toMatchObject({
+      uuid: row.entityUuid,
+      programUuid: "demo-program",
+      aircraftUuid: orders[0].fields.aircraftUuid,
+      after: stored.payload,
+    });
+  }
+});
+
+// Characterizes current behaviour: resending a list's save is a replay, but
+// it still creates what the list owes an order that has no occurrence yet.
+it("creates what a list still owes when its save is resent, and nothing else", async () => {
+  const { t, user, args, source, saveList, occurrences } =
+    await recurringListSetup();
+  const order = workOrderCommand();
+  order.tasks = [newWorkTask(source, "AD inspection")];
+  await user.mutation(api.workOrders.save, args(order));
+  await saveList(0, "list-save");
+  // An open order no generation has served, written straight to its table.
+  const unserved = await t.run(async (ctx) => {
+    const doc = await ctx.db
+      .query("workOrders")
+      .withIndex("uuid", (q) => q.eq("uuid", order.uuid))
+      .unique();
+    const copy = JSON.parse(doc!.payload);
+    copy.uuid = crypto.randomUUID();
+    copy.tasks[0].uuid = crypto.randomUUID();
+    await ctx.db.insert("workOrders", {
+      uuid: copy.uuid,
+      aircraftUuid: copy.aircraftUuid,
+      payload: JSON.stringify(copy),
+    });
+    return copy;
+  });
+  const first = await storedRows(t);
+  const list = first.requests.find((d) => d.uuid === "list");
+  await saveList(0, "list-save");
+  const second = await storedRows(t);
+  expect(second.requests.find((d) => d.uuid === "list")).toEqual(list);
+  const [, added] = await occurrences();
+  expect(added).toMatchObject({
+    number: "PR-00003",
+    source: { uuid: unserved.tasks[0].uuid, workOrderUuid: unserved.uuid },
+  });
+  expect(second.requests).toHaveLength(first.requests.length + 1);
+  expect(
+    second.audit.slice(first.audit.length).map((r) => r.entityUuid),
+  ).toEqual([added.uuid]);
 });
 
 it("replays an identical repair-request resend, and refuses a different command with its request id", async () => {
@@ -544,3 +559,85 @@ it("replays an identical repair-request resend, and refuses a different command 
   });
   expect(await stored()).toEqual(first);
 });
+
+// An administrator of the demo program with one recurring 100-hour AD task on
+// the first aircraft; `saveList` saves a recurring list of two filters for it.
+async function recurringListSetup() {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const ad = blankAD(s.aircraft[0].uuid);
+  ad.source.number = "2026-01-01";
+  ad.applicability = "Applicable";
+  ad.reviewRequired = false;
+  ad.tasks = [
+    {
+      ...blankADTask(),
+      description: "AD inspection",
+      recurrence: "Recurring",
+      intervalHours: 100,
+    },
+  ];
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", s.programs![0]);
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("airworthiness", {
+      uuid: ad.uuid,
+      aircraftUuid: ad.aircraftUuid,
+      payload: JSON.stringify(ad),
+    });
+    const userId = await ctx.db.insert("users", {
+      name: "Tech",
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const sessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + DAY_MS,
+    });
+    return `${userId}|${sessionId}`;
+  });
+  const user = t.withIdentity({ subject });
+  const args = (payload: unknown) => ({
+    programUuid: "demo-program",
+    payload: JSON.stringify(payload),
+  });
+  const source = { kind: "airworthiness" as const, uuid: ad.tasks[0].uuid };
+  const saveList = (
+    version: number,
+    requestUuid: string = crypto.randomUUID(),
+  ) => {
+    const draft = requestDraftSchema.parse({
+      uuid: "list",
+      version,
+      source,
+      recurring: true,
+      mode: "parts",
+      date: "2026-10-20",
+      engineer: "Tech",
+      priority: "P2 Routine",
+      requiredBy: "",
+      currency: "USD",
+      lines: [
+        { uuid: "filter", partNumber: "F", description: "Filter", quantity: 2 },
+      ],
+    });
+    return user.mutation(
+      api.partsRequests.execute,
+      args({ kind: "save", requestUuid, draft }),
+    );
+  };
+  const occurrences = async () =>
+    (await storedRows(t)).requests
+      .map((d) => JSON.parse(d.payload))
+      .filter((r) => r.templateUuid === "list")
+      .sort((a, b) => a.number.localeCompare(b.number));
+  return { t, user, args, source, saveList, occurrences };
+}
+
+function storedRows(t: ReturnType<typeof convexTest>) {
+  return t.run(async (ctx) => ({
+    requests: await ctx.db.query("partsRequests").collect(),
+    audit: await ctx.db.query("audit").collect(),
+  }));
+}
