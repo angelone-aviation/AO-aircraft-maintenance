@@ -2,7 +2,7 @@
  * Responsibility: Pins the months-in-service conversion, its round trip and
  *   its limits.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/componentCalendar.ts.
+ * Dependencies: src/domain/componentCalendar.ts, ./rejection.
  */
 import { expect, it } from "vitest";
 import {
@@ -10,6 +10,7 @@ import {
   serviceDaysFromMonths,
   serviceMonthsFromDays,
 } from "./componentCalendar";
+import { Rejection } from "./rejection";
 it("converts months and preserves existing day baselines on reopening and saving", () => {
   expect(serviceDaysFromMonths("12")).toBe(365);
   expect(serviceDaysFromMonths("0")).toBe(0);
@@ -22,6 +23,7 @@ it.each(["", " ", "-1", "Infinity", "NaN", "12000"])(
   "rejects invalid service months %s",
   (value) => {
     expect(() => serviceDaysFromMonths(value)).toThrow("prior months");
+    expect(() => serviceDaysFromMonths(value)).toThrow(Rejection);
   },
 );
 it("uses an average month and shows months to three decimals", () => {

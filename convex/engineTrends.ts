@@ -3,15 +3,22 @@
  *   pressure limits: listing them, importing, removing and setting limits.
  * Layer: Server. A public query and a mutation through runCommand; read
  *   permission on the aircraft to list, maintenance to change.
- * Dependencies: convex/programContext, convex/runCommand, src/domain/model,
- *   src/domain/engineTrends.
+ * Dependencies: zod, convex/programContext, convex/runCommand,
+ *   src/domain/model, src/domain/engineTrends, src/domain/commandRequest.
  */
 import { query, mutation } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
+import { z } from "zod";
 import { checkContext } from "./programContext";
-import { runCommand, type CommandLog, type Transaction } from "./runCommand";
+import {
+  requestOf,
+  runCommand,
+  type CommandLog,
+  type Transaction,
+} from "./runCommand";
 import { can } from "../src/domain/model";
+import { requestUuidField } from "../src/domain/commandRequest";
 import {
   applyEngineTrendCommand,
   defaultEngineLimits,
@@ -24,6 +31,8 @@ const target = {
   aircraftUuid: v.string(),
   programUuid: v.optional(v.string()),
 };
+
+const REQUEST_ONLY = z.object(requestUuidField);
 
 type Stored = Awaited<ReturnType<typeof loadTrends>>;
 type Working = Awaited<ReturnType<typeof loadForChange>>;
@@ -51,10 +60,11 @@ export const list = query({
 
 /**
  * Imports an engine-data summary, removes an import or sets the limits, and
- * audits `engineTrend.imported`, `.removed` or `.limits`.
+ * audits `engineTrend.imported`, `.removed` or `.limits`. A replayed request
+ * id changes nothing.
  *
- * @param payload - JSON, as `engineTrendCommandSchema`; the other arguments
- *   are {@link list}'s.
+ * @param payload - JSON, as `engineTrendCommandSchema`, with its request id;
+ *   the other arguments are {@link list}'s.
  * @throws {ConvexError} As `runCommand`; "Aircraft maintenance permission
  *   required."; "Engine trend data is invalid." for a payload the command
  *   schema refuses; any other error the applier throws, with its message
@@ -67,6 +77,11 @@ export const execute = mutation({
       programUuid: args.programUuid,
       // Parsed inside apply: malformed data is a user-facing rejection too.
       parse: () => args.payload,
+      request: (payload) =>
+        requestOf(
+          requestUuidIn(payload),
+          JSON.stringify({ aircraftUuid: args.aircraftUuid, payload }),
+        ),
       load: (tx) => loadForChange(tx, args.aircraftUuid),
       apply: ({ loaded, actorId }, payload) =>
         applyEngineTrendCommand(dataOf(loaded), JSON.parse(payload), {
@@ -131,6 +146,19 @@ async function loadForChange(
     actorId: state.user.id,
     scope: { programUuid, aircraftUuid },
   };
+}
+
+// Read before apply parses the command. A payload that is not JSON, or whose
+// id is malformed, is refused when apply parses it, so here it has no id.
+function requestUuidIn(payload: string): string | undefined {
+  let command: unknown;
+  try {
+    command = JSON.parse(payload);
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+  return REQUEST_ONLY.safeParse(command).data?.requestUuid;
 }
 
 // A ZodError's message is its issue list as JSON, which starts with "[".

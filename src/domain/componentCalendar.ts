@@ -2,11 +2,12 @@
  * Responsibility: Converts a component's time in service between the days
  *   stored and the months people type and read.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: None.
+ * Dependencies: ./rejection.
  *
  * Service age is a duration, so a month is an average month; calendar
  * deadlines still use calendar dates.
  */
+import { Rejection } from "./rejection";
 
 // About 1,000 years; the error message states the same cap in months.
 const MAX_SERVICE_DAYS = 365000;
@@ -29,7 +30,7 @@ export const serviceMonthsFromDays = (days: number): number =>
  *
  * @param value - The months as typed; decimals allowed.
  * @returns Days, rounded to the nearest whole day.
- * @throws {Error} "Enter valid prior months in service between 0 and
+ * @throws {Rejection} "Enter valid prior months in service between 0 and
  *   11991.786." when the value is blank, not a finite number, negative, or
  *   over 365,000 days.
  */
@@ -42,7 +43,7 @@ export function serviceDaysFromMonths(value: string): number {
     months < 0 ||
     days > MAX_SERVICE_DAYS
   )
-    throw new Error(
+    throw new Rejection(
       "Enter valid prior months in service between 0 and 11991.786.",
     );
   return days;

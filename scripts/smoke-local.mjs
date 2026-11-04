@@ -129,6 +129,7 @@ async function createTestProgram(activeProgramUuid) {
   return uuid;
 }
 
+// A new aircraft's baselines are its readings when saved.
 async function createTestAircraft(programUuid) {
   const uuid = randomUUID();
   const aircraft = {
@@ -137,14 +138,9 @@ async function createTestAircraft(programUuid) {
     make: "Cessna",
     model: "172 (test)",
     serial: "LOCAL-TEST",
-    program: "Local smoke test",
     programUuid,
     meter: "hobbs",
     adjustmentSeconds: 0,
-    baselineHobbs: 100 * HOUR,
-    baselineTach: 90 * HOUR,
-    baselineCycles: 100,
-    baselineLandings: 200,
     currentHobbs: 100 * HOUR,
     currentTach: 90 * HOUR,
     cycles: 100,
@@ -152,7 +148,15 @@ async function createTestAircraft(programUuid) {
     version: 0,
     operationalStatus: "unknown",
   };
-  await client.mutation(api.admin.createAircraft, { aircraft, programUuid });
+  await client.mutation(api.fleet.save, {
+    programUuid,
+    payload: JSON.stringify({
+      action: "aircraft.save",
+      requestUuid: randomUUID(),
+      reason: "Local smoke test",
+      aircraft,
+    }),
+  });
   return uuid;
 }
 

@@ -247,6 +247,24 @@ it("refuses order lines too large to store", async () => {
   });
 });
 
+it("shows an export of over 1,000 order lines as a ConvexError", async () => {
+  const { admin } = await setup();
+  await linkAccount(admin);
+  const line = orderFields.map((f) => (f === "ORN" ? "77" : "")).join(",");
+  const rows = `${line}\n`.repeat(1001);
+  stubFetch(exportLink(), new Response(`${orderFields.join(",")}\n${rows}`));
+  await expect(
+    admin.action(api.aircraftSpruceActions.sync, {
+      programUuid: PROGRAM,
+      poUuid: "po",
+      order: "77",
+    }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Too many order lines. Select an individual order.",
+  });
+});
+
 it("deletes a refreshed catalog file the commit refuses", async () => {
   const { t, admin } = await setup();
   await linkAccount(admin);

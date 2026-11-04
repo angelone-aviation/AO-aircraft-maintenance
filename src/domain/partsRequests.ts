@@ -5,8 +5,8 @@
  * Layer: Domain. Zod schemas and an applier over a working snapshot; no I/O,
  *   no React.
  * Dependencies: zod; ./model, ./programs, ./addresses, ./aircraftSpruce,
- *   ./adOwnership, ./adCompliance, ./shelfLife, ./rejection; types from
- *   ./purchaseOrders, ./management, ./components, ./workOrders.
+ *   ./adOwnership, ./adCompliance, ./shelfLife, ./changeLog, ./rejection;
+ *   types from ./purchaseOrders, ./management, ./components, ./workOrders.
  */
 import { adAircraftUuid } from "./adOwnership";
 import { lastCompliance } from "./adCompliance";
@@ -22,6 +22,7 @@ import {
 } from "./model";
 import { activeProgram, programPermission, recordProgram } from "./programs";
 import { assertNotExpired } from "./shelfLife";
+import { auditEntry, type AuditChange } from "./changeLog";
 import { Rejection } from "./rejection";
 import type { PurchaseOrder } from "./purchaseOrders";
 import type { Stock } from "./management";
@@ -397,16 +398,17 @@ export function auditStockChange(
   reason: string,
   now: number,
 ) {
-  s.audit.unshift({
-    uuid: crypto.randomUUID(),
-    at: now,
-    actorId: s.user.id,
-    action: `stock.${action}`,
-    entityUuid: stock.uuid,
-    reason,
-    before,
-    after: JSON.stringify(stock),
-  });
+  recordPartsChange(
+    s,
+    {
+      action: `stock.${action}`,
+      entityUuid: stock.uuid,
+      reason,
+      before: JSON.parse(before),
+      after: stock,
+    },
+    now,
+  );
 }
 
 /**
@@ -1075,21 +1077,27 @@ function commitRequest(
   });
   const saved = partsRequestSchema.parse(r);
   s.partsRequests = [...requests.filter((x) => x.uuid !== saved.uuid), saved];
-  s.audit.unshift({
-    uuid: c.requestUuid,
-    at: now,
-    actorId: s.user.id,
-    action: `partsRequest.${c.kind}`,
-    entityUuid: saved.uuid,
-    aircraftUuid: saved.aircraftUuid || undefined,
-    before: previous
-      ? JSON.stringify(
-          original.partsRequests?.find((x) => x.uuid === saved.uuid),
-        )
-      : undefined,
-    after: JSON.stringify(saved),
-  });
+  recordPartsChange(
+    s,
+    {
+      uuid: c.requestUuid,
+      action: `partsRequest.${c.kind}`,
+      entityUuid: saved.uuid,
+      aircraftUuid: saved.aircraftUuid || undefined,
+      before: previous
+        ? original.partsRequests?.find((x) => x.uuid === saved.uuid)
+        : undefined,
+      after: saved,
+    },
+    now,
+  );
   return saved;
+}
+
+// Parts rows name no program of their own: the server stamps the command's
+// program as it writes them, and the demo keeps them without.
+function recordPartsChange(s: Snapshot, change: AuditChange, now: number) {
+  s.audit.unshift(auditEntry(s, { programUuid: undefined, ...change }, now));
 }
 
 // Saving a list serves the open work orders on its aircraft at once, so none
@@ -1214,16 +1222,20 @@ function addOccurrences(
     const r = copyTemplate(run, template, task);
     requests.push(r);
     created.push(r);
-    s.audit.unshift({
-      uuid: r.uuid,
-      at: now,
-      actorId: s.user.id,
-      action: "partsRequest.recurring",
-      entityUuid: r.uuid,
-      aircraftUuid: order.aircraftUuid,
-      programUuid: program,
-      after: JSON.stringify(r),
-    });
+    s.audit.unshift(
+      auditEntry(
+        s,
+        {
+          uuid: r.uuid,
+          programUuid: program,
+          action: "partsRequest.recurring",
+          entityUuid: r.uuid,
+          aircraftUuid: order.aircraftUuid,
+          after: r,
+        },
+        now,
+      ),
+    );
   }
   return created;
 }

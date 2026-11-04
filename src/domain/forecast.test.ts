@@ -3,9 +3,10 @@
  *   remaining text, and the forecast's items, order and failure notes.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/forecast.ts, ./airworthiness, ./components,
- *   ./model, src/data/demo.ts (seed).
+ *   ./model, src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
+import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask, adCounters } from "./airworthiness";
 import type { Component, ComponentRequirement } from "./components";
@@ -387,3 +388,58 @@ it("groups dates by Monday week", () => {
   expect(weekOf("2026-10-26")).toBe("2026-10-26");
   expect(weekOf("2026-11-01")).toBe("2026-10-26");
 });
+
+describe("forecast on the due fleet", () => {
+  // Characterizes current behaviour: inventory requirements and ADs on a
+  // removed component list without an aircraft; an AD awaiting review lists.
+  it("lists each item with its status, remaining text, projection and note", () => {
+    const { s } = dueFleet();
+    const rows = forecast(s, DUE_FLEET_TODAY).map((x) =>
+      [
+        x.key,
+        x.aircraftUuid ?? "inventory",
+        x.title,
+        x.status,
+        x.remaining,
+        x.projection &&
+          `${x.projection.date} ${x.projection.basis} ${x.projection.overdue}`,
+        x.note,
+      ].join(" | "),
+    );
+    expect(rows).toStrictEqual(DUE_FLEET_FORECAST);
+  });
+
+  it("measures a component inspection's counters on the forecast date", () => {
+    const { s } = dueFleet();
+    const gear = s.management!.find((r) => r.uuid === "gear")!;
+    Object.assign(gear, { installedDate: "2099-01-01" });
+    expect(
+      forecast(s, "2099-06-01").find((x) => x.key === "i-gear"),
+    ).toMatchObject({ status: "scheduled", remaining: "110.0 h" });
+  });
+});
+
+const NO_FLIGHTS = "No accepted flights recorded for this aircraft.";
+const NOT_PROJECTED = `${NO_FLIGHTS} Usage limits are not projected.`;
+const DUE_FLEET_FORECAST = [
+  `ad-b:ad-b/monthly-2020-01-01 | demo-208 | AD AD-B | Overdue | due 2020-01-01 | 2026-10-30 calendar true | ${NO_FLIGHTS}`,
+  `ad-overdue:ad-overdue/monthly-2020-01-01 | demo-206 | AD AD-OVERDUE | Overdue | due 2020-01-01 | 2026-10-30 calendar true | ${NO_FLIGHTS}`,
+  `i-late | demo-206 | i-late | overdue | due 2026-10-01 | 2026-10-30 calendar true | ${NO_FLIGHTS}`,
+  `i-other | demo-208 | i-other | overdue | due 2026-01-01 | 2026-10-30 calendar true | ${NO_FLIGHTS}`,
+  `i-today | demo-206 | i-today | due-soon | due 2026-10-30 | 2026-10-30 calendar false | ${NO_FLIGHTS}`,
+  `i-zero | demo-206 | i-zero | overdue | 0.0 h | 2026-10-30 hours true | ${NOT_PROJECTED}`,
+  `r-b | demo-208 | Type b-pump PN-b-pump S/N SN-b-pump | Due now | 0.0 h | 2026-10-30 hours true | ${NOT_PROJECTED}`,
+  `r-now | demo-206 | Type pump PN-pump S/N SN-pump | Due now | 0.0 h | 2026-10-30 hours true | ${NOT_PROJECTED}`,
+  `r-today | demo-206 | Type pump PN-pump S/N SN-pump | Due soon | due 2026-10-30 | 2026-10-30 calendar false | ${NO_FLIGHTS}`,
+  "r-removed | inventory | Type removed PN-removed S/N SN-removed | Tracked | due 2026-11-15 | 2026-11-15 calendar false | Calendar limit only.",
+  `i-ok | demo-206 | i-ok | scheduled | due 2027-06-01 | 2027-06-01 calendar false | ${NO_FLIGHTS}`,
+  `ad-review:ad-review/monthly-2030-01-01 | demo-206 | AD AD-REVIEW | Scheduled | due 2030-01-01 | 2030-01-01 calendar false | ${NO_FLIGHTS}`,
+  "ad-removed:ad-removed/hourly-300 | inventory | AD AD-REMOVED | Scheduled | 200.0 h |  | Held in inventory; usage limits do not advance.",
+  `ad-soon:ad-soon/hourly-2351.2 | demo-206 | AD AD-SOON | Due soon | 10.0 h |  | ${NOT_PROJECTED}`,
+  "i-collective | demo-182 | i-collective | unknown |  |  | Collective component tracking requires a helicopter collective hourmeter reading.",
+  `i-cycles | demo-206 | i-cycles | due-soon | 5 cycles |  | ${NOT_PROJECTED}`,
+  `i-gear | demo-206 | i-gear | scheduled | 110.0 h |  | ${NOT_PROJECTED}`,
+  "i-missing | demo-206 | i-missing | unknown |  |  | Inspection component not found.",
+  "r-early | demo-206 | Type early PN-early S/N SN-early | unknown |  |  | Aircraft readings or date precede the installation baseline.",
+  `r-tracked | demo-206 | Type pump PN-pump S/N SN-pump | Tracked | 500 cycles |  | ${NOT_PROJECTED}`,
+];

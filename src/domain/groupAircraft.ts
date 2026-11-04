@@ -55,33 +55,22 @@ export function assertGroupAircraftChoice(
 }
 
 /**
- * Checks a change to a group's Flight Program, which is fixed once set. The
- * one change allowed is a system administrator giving an unscoped
- * (pre-program) group its first program (#45).
+ * Checks that a stored group keeps its Flight Program, which is fixed once
+ * the group is saved.
  *
  * @param before - The stored group; undefined for a new one.
  * @param next - The group as it will be saved.
- * @param systemAdmin - Whether the user is a system administrator.
- * @returns True for that first assignment, so the caller can audit it.
  * @throws {Rejection} "A permission group cannot be moved to another Flight
- *   Program."; "Only a system administrator can assign an unscoped permission
- *   group to a Flight Program."
+ *   Program." for any other program, also for a group stored without one.
  */
-export function assertGroupProgramChange(
+export function assertGroupProgramFixed(
   before: Pick<Group, "programUuid"> | undefined,
   next: Pick<Group, "programUuid">,
-  systemAdmin: boolean,
 ) {
-  if (!before || before.programUuid === next.programUuid) return false;
-  if (before.programUuid)
+  if (before && before.programUuid !== next.programUuid)
     throw new Rejection(
       "A permission group cannot be moved to another Flight Program.",
     );
-  if (!systemAdmin)
-    throw new Rejection(
-      "Only a system administrator can assign an unscoped permission group to a Flight Program.",
-    );
-  return !!next.programUuid;
 }
 
 /**
@@ -99,11 +88,8 @@ export function groupAircraftLabel(
 ) {
   if (!g.aircraftIds.length)
     return g.owner ? "No aircraft assigned" : "All program aircraft";
-  // An unscoped group grants nothing yet; its ids are judged on assignment.
-  const count = g.programUuid
-    ? g.aircraftIds.filter((id) =>
-        aircraft.some((a) => a.uuid === id && a.programUuid === g.programUuid),
-      ).length
-    : g.aircraftIds.length;
+  const count = g.aircraftIds.filter((id) =>
+    aircraft.some((a) => a.uuid === id && a.programUuid === g.programUuid),
+  ).length;
   return count ? `${count} aircraft` : "No aircraft in this program";
 }

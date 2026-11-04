@@ -2,8 +2,8 @@
  * Responsibility: Pins counter events in the flight chronology: what an
  *   aircraft save records, and how rebuilt flights honour or refuse it.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/fleet.ts, ./flights, ./model, src/data/demo.ts
- *   (seed).
+ * Dependencies: src/domain/fleet.ts, ./flights, ./model, ./rejection,
+ *   src/data/demo.ts (seed).
  */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -14,6 +14,7 @@ import {
 } from "./fleet";
 import { applyFlight, rebuildFlights, resequencedFlights } from "./flights";
 import { totalSeconds, type Aircraft, type Flight } from "./model";
+import { Rejection } from "./rejection";
 
 const HOUR_SECONDS = 3600;
 const h = (hours: number) => Math.round(hours * HOUR_SECONDS);
@@ -201,13 +202,11 @@ describe("counter events in the flight chronology", () => {
     const landings = rebuildFlights(a, [{ ...first, landings: 2 }], [first]);
     expect(totalSeconds(landings.aircraft)).toBe(totalSeconds(current));
     expect(landings.aircraft.landings).toBe(opening.landings + 2);
-    expect(() =>
-      rebuildFlights(
-        a,
-        [{ ...first, hobbsOn: opening.currentHobbs + h(1.4) }],
-        [first],
-      ),
-    ).toThrow(/Cannot accept this chronology: .*time source/);
+    const corrected = [{ ...first, hobbsOn: opening.currentHobbs + h(1.4) }];
+    expect(() => rebuildFlights(a, corrected, [first])).toThrow(
+      /Cannot accept this chronology: .*time source/,
+    );
+    expect(() => rebuildFlights(a, corrected, [first])).toThrow(Rejection);
   });
   it("derives what a legacy event changed from the flights as stored, and records it", () => {
     const { opening, first, before, legacy, corrected } = legacyHistory();

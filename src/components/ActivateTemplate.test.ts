@@ -15,6 +15,7 @@ import {
   emptyTemplate,
   type InspectionTemplate,
 } from "../domain/inspectionTemplates";
+import type { Component } from "../domain/components";
 import type { Snapshot } from "../domain/model";
 import { ActivateTemplate } from "./ActivateTemplate";
 
@@ -115,6 +116,60 @@ describe("ActivateTemplate", () => {
     expect(form.disabled).toBe(true);
     expect(render(t, "initial", aircraft.uuid)).not.toContain("already");
     expect(form.disabled).toBe(false);
+  });
+
+  it("flags the schedule the server refuses once a template moves to a component model", () => {
+    const t = template({ hours: 100 });
+    const engine = {
+      kind: "component",
+      uuid: "engine-1",
+      aircraftUuid: aircraft.uuid,
+      installed: true,
+      componentType: "Engine",
+      manufacturer: "Lycoming",
+      model: "IO-540",
+      partNumber: "",
+      serial: "L-1",
+    } as Component;
+    const earlier = {
+      ...workspace.snapshot.inspections[0],
+      aircraftUuid: aircraft.uuid,
+      sourceKey: `template:${t.uuid}:recurring`,
+    };
+    workspace.snapshot = {
+      ...workspace.snapshot,
+      inspections: [...workspace.snapshot.inspections, earlier],
+      management: [...(workspace.snapshot.management ?? []), engine],
+    };
+    const moved = template({
+      hours: 100,
+      applicability: {
+        kind: "component",
+        manufacturer: "Lycoming",
+        model: "IO-540",
+        partNumber: "",
+      },
+    });
+    expect(render(moved, "recurring", engine.uuid)).toContain(
+      "This schedule already exists.",
+    );
+    expect(form.disabled).toBe(true);
+  });
+
+  it("previews only absolute limits before a schedule is chosen", () => {
+    render(template({ initialHours: 50, hours: 100, landings: 50 }), "");
+    form.onChange(data({}));
+    expect(previews).toEqual([""]);
+    const absolute = template({
+      initialHours: 50,
+      hours: 100,
+      hourMode: "ABSOLUTE",
+      landings: 50,
+      landingMode: "ABSOLUTE",
+    });
+    render(absolute, "");
+    form.onChange(data({}));
+    expect(previews).toEqual(["100 hours or 50 aircraft landings"]);
   });
 
   it("previews hours from the last compliance in tenths", () => {

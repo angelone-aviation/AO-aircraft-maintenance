@@ -7,7 +7,7 @@
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { runCommand } from "./runCommand";
+import { requestOf, runCommand } from "./runCommand";
 import type { Snapshot } from "../src/domain/model";
 import {
   checklistCommandSchema,
@@ -19,12 +19,12 @@ import {
 /**
  * Saves a checklist set as its next version, and audits `checklist.saved`
  * with its version, name and counts: the body is large and stays out of the
- * change log.
+ * change log. A replayed request id changes nothing.
  *
- * @param payload - JSON, as `checklistCommandSchema`: the set and the version
- *   it was edited from.
+ * @param payload - JSON, as `checklistCommandSchema`: the set, the version
+ *   it was edited from, and the request id.
  * @param programUuid - The caller's active Flight Program.
- * @returns The set's uuid.
+ * @returns The set's uuid; nothing for a replay.
  * @throws {ConvexError} As `runCommand`; "Checklist editing permission
  *   denied."; "This checklist changed. Reopen it before saving; your draft
  *   has not been applied."
@@ -35,6 +35,7 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => checklistCommandSchema.parse(JSON.parse(args.payload)),
+      request: (command) => requestOf(command.requestUuid, args.payload),
       load: ({ ctx, state }, command) =>
         loadChecklist(ctx, state, command.record.uuid),
       apply: ({ s }, command) => saveChecklist(s, command),
