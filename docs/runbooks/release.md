@@ -1,13 +1,13 @@
 # Release, rollback and website hosting
 
-The website is a static build served by **Cloudflare Workers Static Assets** (no Worker script); the backend, database and files stay on **Convex**. Releases are started by hand from GitHub Actions; nothing deploys automatically yet. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
+The website is a static build served by **Cloudflare Workers Static Assets** (no Worker script); the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
 
 ## What runs where
 
 | Piece | File | When | Secrets |
 |---|---|---|---|
 | CI | `.github/workflows/ci.yml` | Every pull request and every push to `main` | None |
-| Deploy | `.github/workflows/deploy.yml` | By hand, from `main` only | `production` environment |
+| Deploy | `.github/workflows/deploy.yml` | After a green CI push to `main`, or by hand from `main` | `production` environment |
 | First-time setup | `.github/workflows/first-time-setup.yml` | By hand, once, from `main` only, on a new empty deployment | `production` environment |
 | Nightly backup | `.github/workflows/backup.yml` | Every night at 08:41 UTC, or by hand ([backup runbook](backup-restore.md)) | `backups` environment |
 | Dependency updates | `.github/dependabot.yml` | Weekly, grouped minor/patch pull requests | None |
@@ -15,14 +15,14 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 
 **CI** runs `npm ci`, `npm run check`, the backup job's tests (`npm run test:backup`) and the Playwright suite. The browser tests serve the production build with the production headers (`scripts/serve-dist.mjs` applies `public/_headers` the way Cloudflare does) and fail on any Content-Security-Policy violation. On failure, the run keeps the Playwright report and traces as the `playwright-report` artifact for 14 days.
 
-**Deploy** refuses to run unless you confirm a backup, then:
+**Deploy** (manual runs refuse unless you confirm a backup; auto runs follow a green CI push):
 
 1. runs `npm run check`;
 2. checks `CONVEX_DEPLOY_KEY` is a production key;
 3. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It stops before the push if the build fails or the Convex URL is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`);
 4. checks the build points at that Convex URL;
 5. publishes `dist/` with `npx wrangler@4.151.3 deploy`, tagging the Cloudflare version with the commit;
-6. if `PRODUCTION_URL` is set, checks the live site answers with the security headers.
+6. if `PRODUCTION_URL` is set, confirms that Cloudflare version tag is active, then checks the live site headers when the runner is not blocked by Cloudflare bot/WAF (a public HTTP 403 from GitHub Actions is treated as a warning once the tag is live).
 
 The backend goes live a few seconds before the website, so Convex functions must keep working for the previous website version (and for installed apps that have not reloaded yet).
 

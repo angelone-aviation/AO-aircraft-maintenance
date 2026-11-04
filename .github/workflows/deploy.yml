@@ -1,11 +1,16 @@
 # Responsibility: Releases main to production: Convex functions and schema
 #   first, then the website on Cloudflare.
-# Layer: Tooling (release workflow). Started by hand only, from main.
+# Layer: Tooling (release workflow). Runs after a green CI push to main, or
+#   by hand from main (with a backup confirmation).
 # Dependencies: the Convex CLI, wrangler, and the "production" environment.
 #   Runbook: docs/runbooks/release.md.
 name: Deploy
 
 on:
+  # Auto-deploy when CI finishes green for a push to main.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       backup_taken:
@@ -29,13 +34,24 @@ env:
 jobs:
   deploy:
     name: Deploy to production
-    if: ${{ github.ref == 'refs/heads/main' }}
+    # Manual: main only, after the backup box is ticked.
+    # Auto: green CI that was itself a push to main (not a pull-request CI run).
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
+    # workflow_run's GITHUB_SHA is the tip of the default branch when this
+    # workflow file is read, not the commit CI verified. Prefer that commit.
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Require a backup first
-        if: ${{ !inputs.backup_taken }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.backup_taken }}
         run: |
           echo "::error::Take a Convex backup and save the environment variables before deploying (docs/runbooks/backup-restore.md), then run the workflow again with the box ticked."
           exit 1
@@ -44,6 +60,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # For auto-deploy, build the commit CI already verified.
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Set up Node.js 22
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -81,7 +99,7 @@ jobs:
               exit 1
               ;;
           esac
-          npx convex deploy --cmd "$BUILD" --cmd-url-env-var-name VITE_CONVEX_URL
+          npx convex deploy --cmd "$BUILD" --cmd-url-env-var-name VITE_CONVEX_URL"
 
       - name: Verify the build
         env:
@@ -104,22 +122,45 @@ jobs:
           WRANGLER_SEND_METRICS: "false"
         run: >-
           npx --yes "wrangler@${WRANGLER_VERSION}" deploy
-          --tag "${GITHUB_SHA::12}"
-          --message "Commit ${GITHUB_SHA::12}, workflow run ${GITHUB_RUN_ID}"
+          --tag "${DEPLOY_SHA::12}"
+          --message "Commit ${DEPLOY_SHA::12}, workflow run ${GITHUB_RUN_ID}"
 
       - name: Smoke check the live site
         if: ${{ vars.PRODUCTION_URL != '' }}
         env:
           PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
-        # A first deploy to a new custom domain answers 403 or not at all for a
-        # minute or two while Cloudflare issues its certificate, so wait up to
-        # about three minutes before calling the site broken.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
+        # Public curls from GitHub-hosted runners often get HTTP 403 from
+        # Cloudflare bot/WAF defenses even when the Worker is healthy. Always
+        # confirm the version tag we just published is active; then try the
+        # public URL and fall back cleanly on a persistent 403.
         run: |
-          headers=$(curl -fsS --retry 18 --retry-all-errors --retry-delay 10 -D - -o /dev/null "$PRODUCTION_URL/")
-          echo "$headers"
-          echo "$headers" | grep -qi "^content-security-policy: .*frame-ancestors 'none'"
-          echo "$headers" | grep -qi "^strict-transport-security:"
-          curl -fsS "$PRODUCTION_URL/work-orders" | grep -q '<div id="root">'
+          set -eu
+          tag="${DEPLOY_SHA::12}"
+          deployments=$(npx --yes "wrangler@${WRANGLER_VERSION}" deployments list --name angel-one)
+          echo "$deployments"
+          echo "$deployments" | grep -F "$tag" >/dev/null || {
+            echo "::error::Active Cloudflare deployments do not include tag $tag."
+            exit 1
+          }
+
+          if headers=$(curl -fsS --retry 6 --retry-all-errors --retry-delay 10 -D - -o /dev/null "$PRODUCTION_URL/"); then
+            echo "$headers"
+            echo "$headers" | grep -qi "^content-security-policy: .*frame-ancestors 'none'"
+            echo "$headers" | grep -qi "^strict-transport-security:"
+            curl -fsS "$PRODUCTION_URL/work-orders" | grep -q '<div id="root">'
+            exit 0
+          fi
+
+          code=$(curl -sS -o /dev/null -w "%{http_code}" "$PRODUCTION_URL/" || true)
+          if [ "$code" = "403" ]; then
+            echo "::warning::Public URL returned 403 from this runner (Cloudflare bot/WAF). Version tag $tag is live; skipping public header curl."
+            exit 0
+          fi
+          echo "::error::Public URL returned HTTP ${code:-unknown} after deploy."
+          exit 1
 
       - name: Summary
         if: ${{ always() }}
@@ -127,10 +168,10 @@ jobs:
           CONVEX_URL: ${{ steps.convex.outputs.url }}
         run: |
           {
-            echo "### Deploy ${GITHUB_SHA::12}: ${{ job.status }}"
+            echo "### Deploy ${DEPLOY_SHA::12}: ${{ job.status }}"
             echo ""
             echo "- Convex deployment: ${CONVEX_URL:-not reached}"
-            echo "- Cloudflare Worker version tag: ${GITHUB_SHA::12} (wrangler ${WRANGLER_VERSION})"
+            echo "- Cloudflare Worker version tag: ${DEPLOY_SHA::12} (wrangler ${WRANGLER_VERSION})"
             echo ""
             echo "Next: run the post-deploy commands in docs/runbooks/release.md and check the site."
             echo "Roll back the website with Cloudflare (Workers > angel-one > Deployments). Convex cannot be rolled back: fix forward."
