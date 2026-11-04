@@ -3,20 +3,23 @@
  *   work order's open tasks, as the work order is saved.
  * Layer: Server. Mutation helper inside the work-order transactions; the
  *   caller writes the change-log entries it returns.
- * Dependencies: src/domain/recurringParts (the rule), convex/collections
- *   (decoding), convex/programContext (loaders), src/domain types.
+ * Dependencies: src/domain/partsRequests (the rule and what it needs loaded),
+ *   convex/collections (decoding), convex/programContext (loaders),
+ *   src/domain types.
  */
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
-import type { WorkOrder, WorkTask } from "../src/domain/workOrders";
-import type { PartsRequest } from "../src/domain/partsRequests";
-import { generateRecurringRequests } from "../src/domain/recurringParts";
+import type { WorkOrder } from "../src/domain/workOrders";
+import {
+  generateRecurringRequests,
+  recurringPartsNeeds,
+} from "../src/domain/partsRequests";
 import type { ManagedRecord } from "../src/domain/management";
 import { airworthinessDocs, partsRequestDocs } from "./programContext";
 import { decode } from "./collections";
 
-const FINISHED_STATUSES = ["completed", "cancelled"];
+type Needs = ReturnType<typeof recurringPartsNeeds>;
 
 /**
  * Inserts a parts request for each open task of a work order that an active
@@ -42,14 +45,12 @@ export async function prepareRecurringParts(
     "partsRequests",
     await partsRequestDocs(ctx, program),
   );
-  const pending = order.tasks.filter((task) =>
-    isOwedOccurrence(requests, order, task),
-  );
-  if (!pending.length || FINISHED_STATUSES.includes(order.status)) return [];
+  const needs = recurringPartsNeeds(order, requests);
+  if (!owesAny(needs)) return [];
   const s: Snapshot = {
     ...state,
     partsRequests: requests,
-    ...(await loadSources(ctx, state, order, pending)),
+    ...(await loadSources(ctx, state, order, needs)),
     audit: [],
   };
   for (const r of generateRecurringRequests(s, order)) {
@@ -62,27 +63,13 @@ export async function prepareRecurringParts(
   return s.audit;
 }
 
-// Owed: an open task that an active recurring list on the aircraft covers,
-// with no occurrence of that list for this task and work order yet.
-function isOwedOccurrence(
-  requests: PartsRequest[],
-  order: WorkOrder,
-  task: WorkTask,
-): boolean {
-  if (FINISHED_STATUSES.includes(task.status)) return false;
-  return requests.some(
-    (r) =>
-      r.recurring &&
-      !r.cancelled &&
-      r.aircraftUuid === order.aircraftUuid &&
-      r.source.kind === task.source.kind &&
-      r.source.uuid === task.source.uuid &&
-      !requests.some(
-        (instance) =>
-          instance.templateUuid === r.uuid &&
-          instance.source.uuid === task.uuid &&
-          instance.source.workOrderUuid === order.uuid,
-      ),
+// A recurring list is saved only for an inspection, component requirement or
+// AD task (normalizeDraft), so a task it owes always needs one loaded.
+function owesAny(needs: Needs): boolean {
+  return (
+    needs.inspections.length > 0 ||
+    needs.requirements.length > 0 ||
+    needs.airworthiness
   );
 }
 
@@ -92,11 +79,11 @@ async function loadSources(
   ctx: MutationCtx,
   state: Snapshot,
   order: WorkOrder,
-  pending: WorkTask[],
+  needs: Needs,
 ): Promise<Pick<Snapshot, "inspections" | "management" | "airworthiness">> {
-  const inspections = await loadInspections(ctx, pending);
-  const requirements = await loadRequirementRecords(ctx, pending);
-  const airworthiness = pending.some((t) => t.source.kind === "airworthiness")
+  const inspections = await loadInspections(ctx, needs.inspections);
+  const requirements = await loadRequirementRecords(ctx, needs.requirements);
+  const airworthiness = needs.airworthiness
     ? (state.airworthiness ??
       decode(
         "airworthiness",
@@ -109,14 +96,13 @@ async function loadSources(
 
 async function loadInspections(
   ctx: MutationCtx,
-  tasks: WorkTask[],
+  uuids: string[],
 ): Promise<Doc<"inspections">[]> {
   const inspections = [];
-  for (const task of tasks) {
-    if (task.source.kind !== "inspection") continue;
+  for (const uuid of uuids) {
     const d = await ctx.db
       .query("inspections")
-      .withIndex("uuid", (q) => q.eq("uuid", task.source.uuid))
+      .withIndex("uuid", (q) => q.eq("uuid", uuid))
       .unique();
     if (d) inspections.push(d);
   }
@@ -125,14 +111,13 @@ async function loadInspections(
 
 async function loadRequirementRecords(
   ctx: MutationCtx,
-  tasks: WorkTask[],
+  uuids: string[],
 ): Promise<ManagedRecord[]> {
   const records = [];
-  for (const task of tasks) {
-    if (task.source.kind !== "componentRequirement") continue;
+  for (const uuid of uuids) {
     const d = await ctx.db
       .query("management")
-      .withIndex("uuid", (q) => q.eq("uuid", task.source.uuid))
+      .withIndex("uuid", (q) => q.eq("uuid", uuid))
       .unique();
     if (d) records.push(...decode("management", [d]));
   }
