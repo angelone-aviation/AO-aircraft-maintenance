@@ -22,7 +22,12 @@ import {
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
 import { can, type Aircraft, type Snapshot } from "../domain/model";
-import type { Manual, ManualApplicability } from "../domain/manuals";
+import {
+  APPLICABILITY_NAME_MAX_LENGTH,
+  APPLICABILITY_PART_NUMBER_MAX_LENGTH,
+  type Manual,
+  type ManualApplicability,
+} from "../domain/manuals";
 import {
   manualApplicability,
   matchesAircraft,
@@ -30,8 +35,17 @@ import {
   type ManualCandidate,
 } from "../domain/manualDiscovery";
 import { programPermission } from "../domain/programs";
-import type { Component, ComponentRequirement } from "../domain/components";
-import type { ManagementCommand } from "../domain/management";
+import {
+  COMPONENT_NOTES_MAX_LENGTH,
+  COMPONENT_TYPE_MAX_LENGTH,
+  REQUIREMENT_DESCRIPTION_MAX_LENGTH,
+  type Component,
+  type ComponentRequirement,
+} from "../domain/components";
+import {
+  INSPECTION_REFERENCE_MAX_LENGTH,
+  type ManagementCommand,
+} from "../domain/management";
 import { ComponentForm, RequirementForm } from "./Components";
 import {
   ManualLink,
@@ -52,15 +66,9 @@ import { AtaChapterField } from "./AtaChapterField";
 import { ataChapterSchema } from "../domain/ata";
 import { hoursToSeconds } from "../domain/readings";
 
-// Input limits mirror manualApplicabilitySchema (src/domain/manuals.ts),
-// inspectionSchema (src/domain/management/schemas.ts) and the component
-// schemas (src/domain/components/records.ts), which refuse longer values.
-const MODEL_MAX_LENGTH = 150;
-const PART_NUMBER_MAX_LENGTH = 100;
-const COMPONENT_TYPE_MAX_LENGTH = 100;
-const REQUIREMENT_DESCRIPTION_MAX_LENGTH = 255;
-const NOTES_MAX_LENGTH = 10_000;
-const INSPECTION_TEXT_MAX_LENGTH = 2000;
+// Mirror inspectionSchema (src/domain/management/schemas.ts), which refuses
+// longer values but exports neither limit.
+const INSPECTION_DESCRIPTION_MAX_LENGTH = 2000;
 const MATERIALS_MAX_LENGTH = 5000;
 // Suggestions shown per kind, and added by "Show more suggestions".
 const SUGGESTIONS_PAGE = 100;
@@ -251,7 +259,7 @@ function ApplicableModelFields({
         <input
           name="manufacturer"
           defaultValue={scope?.manufacturer}
-          maxLength={MODEL_MAX_LENGTH}
+          maxLength={APPLICABILITY_NAME_MAX_LENGTH}
         />
       </Field>
       <Field label="Applicable model">
@@ -259,7 +267,7 @@ function ApplicableModelFields({
           name="model"
           defaultValue={scope?.model}
           required
-          maxLength={MODEL_MAX_LENGTH}
+          maxLength={APPLICABILITY_NAME_MAX_LENGTH}
         />
       </Field>
       {component && (
@@ -267,7 +275,7 @@ function ApplicableModelFields({
           <input
             name="partNumber"
             defaultValue={scope?.partNumber}
-            maxLength={PART_NUMBER_MAX_LENGTH}
+            maxLength={APPLICABILITY_PART_NUMBER_MAX_LENGTH}
           />
         </Field>
       )}
@@ -882,7 +890,7 @@ function componentDefaults(
     model: ofModel ? scope.model : "",
     manufacturer: ofModel ? scope.manufacturer : "",
     partNumber: ofModel ? scope.partNumber : "",
-    notes: row.text.slice(0, NOTES_MAX_LENGTH),
+    notes: row.text.slice(0, COMPONENT_NOTES_MAX_LENGTH),
     manualReference: row.reference,
     ...row.componentDefaults,
   };
@@ -1022,7 +1030,7 @@ function requirementDefaults(
     sourceKey: row.sourceKey,
     manualReference: row.reference,
     description: row.name.slice(0, REQUIREMENT_DESCRIPTION_MAX_LENGTH),
-    notes: row.text.slice(0, NOTES_MAX_LENGTH),
+    notes: row.text.slice(0, COMPONENT_NOTES_MAX_LENGTH),
     requirementType: requirementType(row, isLife),
     intervalSeconds:
       row.hours === undefined ? undefined : hoursToSeconds(row.hours),
@@ -1311,18 +1319,18 @@ function InspectionTextFields({ row }: { row: ManualCandidate }) {
           name="reference"
           defaultValue={row.name}
           required
-          maxLength={INSPECTION_TEXT_MAX_LENGTH}
+          maxLength={INSPECTION_REFERENCE_MAX_LENGTH}
         />
       </Field>
       <Field label="Description / items">
         <textarea
           name="description"
-          defaultValue={row.text.slice(0, INSPECTION_TEXT_MAX_LENGTH)}
+          defaultValue={row.text.slice(0, INSPECTION_DESCRIPTION_MAX_LENGTH)}
           required
-          maxLength={INSPECTION_TEXT_MAX_LENGTH}
+          maxLength={INSPECTION_DESCRIPTION_MAX_LENGTH}
         />
       </Field>
-      {row.text.length > INSPECTION_TEXT_MAX_LENGTH && (
+      {row.text.length > INSPECTION_DESCRIPTION_MAX_LENGTH && (
         <p>
           The description is limited to 2,000 characters. The complete extracted
           text and source PDF remain available above; verify the full checklist
