@@ -10,7 +10,7 @@
  */
 import { removedTaskCards } from "./workOrderTaskRemoval";
 import { adAircraftUuid } from "./adOwnership";
-import { TRACKED_APPLICABILITY } from "./airworthiness";
+import { isTrackedAD } from "./airworthiness";
 import {
   componentCorrectionCommandSchema,
   componentCorrectionSchema,
@@ -572,12 +572,7 @@ export function validateWorkOrderFile(
 
 function adSources(s: Snapshot, aircraftUuid: string): OfferedWork[] {
   return (s.airworthiness ?? [])
-    .filter(
-      (r) =>
-        adAircraftUuid(s, r) === aircraftUuid &&
-        TRACKED_APPLICABILITY.includes(r.applicability) &&
-        !r.reviewRequired,
-    )
+    .filter((r) => adAircraftUuid(s, r) === aircraftUuid && isTrackedAD(r))
     .flatMap((r) =>
       r.tasks.map((t) => ({
         source: { kind: "airworthiness" as const, uuid: t.uuid },

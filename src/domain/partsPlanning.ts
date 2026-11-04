@@ -16,7 +16,7 @@ import {
   type RequestLine,
   type RequestSource,
 } from "./partsRequests";
-import { TRACKED_APPLICABILITY, type AD } from "./airworthiness";
+import { isTrackedAD } from "./airworthiness";
 import {
   dueItems,
   type AdDue,
@@ -158,7 +158,7 @@ function planComponentRequirements(
 // AD tasks have no parts of their own; only parts requests plan them.
 function planAirworthiness(s: Snapshot, due: MaintenanceDue[]): PartsPlan[] {
   return due.flatMap((item) =>
-    item.kind === "ad" && isPlanned(item.ad) ? planADTasks(s, item) : [],
+    item.kind === "ad" && isTrackedAD(item.ad) ? planADTasks(s, item) : [],
   );
 }
 
@@ -178,10 +178,6 @@ function planADTasks(s: Snapshot, item: AdDue): PartsPlan[] {
       },
     ];
   });
-}
-
-function isPlanned(ad: AD) {
-  return !ad.reviewRequired && TRACKED_APPLICABILITY.includes(ad.applicability);
 }
 
 function isUpcoming(item: InspectionDue | RequirementDue) {

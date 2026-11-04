@@ -879,14 +879,19 @@ it("reports not applicable and superseded ADs by their applicability", () => {
 
 it("offers a reviewed AD's actions for work only when it is tracked", () => {
   const { s, r } = setup();
-  const offered = (applicability: AD["applicability"]) => {
-    s.airworthiness = [{ ...r, applicability }];
+  const offered = (
+    applicability: AD["applicability"],
+    reviewRequired = false,
+  ) => {
+    s.airworthiness = [{ ...r, applicability, reviewRequired }];
     return workSources(s, r.aircraftUuid).some(
       (x) => x.source.kind === "airworthiness",
     );
   };
   const tracked = ["Applicable", "Previously Complied With (PCW)"];
-  expect(adSchema.shape.applicability.options.filter(offered)).toEqual(tracked);
+  const options = adSchema.shape.applicability.options;
+  expect(options.filter((a) => offered(a))).toEqual(tracked);
+  expect(options.filter((a) => offered(a, true))).toEqual([]);
   expect(TRACKED_APPLICABILITY).toEqual(tracked);
 });
 
