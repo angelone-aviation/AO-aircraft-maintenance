@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins parts requests: stock reservations, issues and
+ *   cancellation, purchase-order progress, request status, source labels and
+ *   every refusal.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/partsRequests.ts, ./purchaseOrders, ./components,
+ *   ./airworthiness, ./addresses, ./management, ./programs, src/data/demo.ts.
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement } from "./management";
@@ -5,20 +13,30 @@ import {
   applyRequestCommand,
   requestDraftSchema,
   requestLineProgress,
+  requestLineSchema,
+  requestPurchases,
   requestStatus,
+  resolveRequestSource,
+  type PartsRequest,
   type RequestCommand,
+  type RequestDraft,
+  type RequestSource,
 } from "./partsRequests";
 import {
   applyPOCommand,
   poDraftSchema,
   type POCommand,
+  type PurchaseOrder,
 } from "./purchaseOrders";
 import {
   componentSchema,
   serviceComponent,
+  type Component,
   type ComponentRequirement,
 } from "./components";
 import { scopedSnapshot } from "./programs";
+import { blankAD, blankADTask } from "./airworthiness";
+import { addressSchema, formatAddress } from "./addresses";
 const now = Date.parse("2026-10-20T12:00:00Z");
 function fixture() {
   const s = demoSnapshot();
@@ -830,4 +848,314 @@ describe("request status (#55)", () => {
     });
     expect(requestStatus(s, request())).toBe("Partially issued");
   });
+});
+
+type Fixture = ReturnType<typeof fixture>;
+const AIRCRAFT_UUID = demoSnapshot().aircraft[0].uuid;
+const save = ({ s, draft }: Fixture, fields: Partial<RequestDraft>) =>
+  applyRequestCommand(
+    s,
+    {
+      kind: "save",
+      requestUuid: crypto.randomUUID(),
+      draft: { ...draft, ...fields },
+    },
+    now,
+  );
+const saveNew = (f: Fixture, fields: Partial<RequestDraft>) =>
+  save(f, { uuid: "new", version: 0, ...fields });
+const change = (
+  { s }: Fixture,
+  kind: "reserve" | "release" | "issue",
+  fields: object = {},
+) =>
+  applyRequestCommand(
+    s,
+    {
+      kind,
+      requestUuid: crypto.randomUUID(),
+      uuid: "request",
+      version: 1,
+      lineUuid: "item",
+      stockUuid: "stock",
+      quantity: 1,
+      alternateConfirmed: false,
+      ...fields,
+    },
+    now,
+  );
+const cancel = ({ s }: Fixture, version = 1) =>
+  applyRequestCommand(
+    s,
+    {
+      kind: "cancel",
+      requestUuid: crypto.randomUUID(),
+      uuid: "request",
+      version,
+      reason: "x",
+    },
+    now,
+  );
+const stored = ({ s }: Fixture, fields: Partial<PartsRequest>) =>
+  Object.assign(s.partsRequests![0], fields);
+const repairLine = requestLineSchema.parse({
+  uuid: "item",
+  partNumber: "PUMP",
+  description: "Pump",
+  quantity: 1,
+  componentUuid: "component",
+  defect: "Leak",
+  workRequested: "Repair",
+});
+const withComponent = (f: Fixture, fields: Partial<Component> = {}) => {
+  f.s.management!.push(
+    componentSchema.parse({
+      uuid: "component",
+      version: 1,
+      programUuid: "demo-program",
+      kind: "component",
+      aircraftUuid: "",
+      componentType: "Pump",
+      partNumber: "PUMP",
+      serial: "SN1",
+      manufacturer: "Maker",
+      notes: "",
+      trackTime: true,
+      trackCycles: true,
+      trackCalendar: false,
+      installed: false,
+      locationUuid: "store",
+      installedSeconds: 0,
+      installedCycles: 0,
+      timeSinceNew: 0,
+      timeSinceOverhaul: null,
+      timeSinceRepair: null,
+      cyclesSinceNew: 0,
+      serviceDaysBase: 0,
+      ...fields,
+    }),
+  );
+  return f;
+};
+const withStock = (f: Fixture, fields: object) => {
+  Object.assign(
+    f.s.management!.find((x) => x.uuid === "stock")!,
+    fields,
+  );
+  return f;
+};
+const asMechanic = (f: Fixture) => {
+  f.s.user = {
+    ...f.s.user,
+    isAdmin: false,
+    groupIds: ["mechanic"],
+    activeProgramUuid: "demo-program",
+  };
+  f.s.groups = [
+    {
+      id: "mechanic",
+      name: "Mechanic",
+      programUuid: "demo-program",
+      aircraftIds: [AIRCRAFT_UUID],
+      permissions: ["read", "maintenance"],
+    },
+  ];
+  return f;
+};
+
+// Each refusal applyRequestCommand throws itself, in the order it checks.
+const REFUSALS: Record<string, (f: Fixture) => unknown> = {
+  "Choose a Flight Program.": (f) => {
+    f.s.user.activeProgramUuid = "";
+    return saveNew(f, {});
+  },
+  "Recurring parts require a recurring inspection, service or AD task.": (f) =>
+    saveNew(f, { recurring: true }),
+  "Request identifier already used.": (f) =>
+    applyRequestCommand(
+      f.s,
+      {
+        kind: "save",
+        requestUuid: "create",
+        draft: { ...f.draft, engineer: "Other" },
+      },
+      now,
+    ),
+  "Request is outside this Flight Program.": (f) => {
+    stored(f, { programUuid: "other-program" });
+    return save(f, { version: 1 });
+  },
+  "Request changed. Reopen it before saving.": (f) => save(f, {}),
+  "Save the work-order task before requesting parts.": (f) =>
+    saveNew(f, {
+      source: { kind: "workTask", uuid: "task", workOrderUuid: "order" },
+    }),
+  "AD task is unavailable.": (f) =>
+    saveNew(f, {
+      source: { kind: "airworthiness", uuid: "task", workOrderUuid: "" },
+    }),
+  "Linked item is unavailable.": (f) =>
+    saveNew(f, {
+      source: { kind: "discrepancy", uuid: "missing", workOrderUuid: "" },
+    }),
+  "Linked item is outside this Flight Program.": (f) =>
+    saveNew(withComponent(f, { programUuid: "other-program" }), {
+      source: { kind: "component", uuid: "component", workOrderUuid: "" },
+    }),
+  "Stock item is unavailable.": (f) =>
+    saveNew(f, {
+      source: { kind: "stock", uuid: "missing", workOrderUuid: "" },
+    }),
+  "Aircraft is outside this Flight Program.": (f) => {
+    const report = f.s.discrepancies[0];
+    const a = f.s.aircraft.find((a) => a.uuid === report.aircraftUuid)!;
+    a.programUuid = "other-program";
+    return saveNew(f, {
+      source: { kind: "discrepancy", uuid: report.uuid, workOrderUuid: "" },
+    });
+  },
+  "Maintenance access is required.": (f) => saveNew(asMechanic(f), {}),
+  "Cancelled requests are read-only.": (f) => {
+    stored(f, { cancelled: true });
+    return save(f, { version: 1 });
+  },
+  "Create a separate recurring parts list; an existing request cannot change its recurrence type.":
+    (f) => {
+      stored(f, { recurring: true });
+      return save(f, { version: 1 });
+    },
+  "Request date cannot be in the future.": (f) =>
+    saveNew(f, { date: "2099-01-01" }),
+  "Duplicate request lines.": (f) =>
+    saveNew(f, { lines: [f.draft.lines[0], f.draft.lines[0]] }),
+  "Request source cannot change.": (f) =>
+    save(f, {
+      version: 1,
+      source: { kind: "stock", uuid: "stock", workOrderUuid: "" },
+    }),
+  "Release reservations and remove draft PO allocations before changing lines or purchasing details. Fulfilled lines are retained for traceability.":
+    (f) => {
+      change(f, "reserve");
+      return save(f, { version: 2, vendor: "Other vendor" });
+    },
+  "Choose an uninstalled serialized component in this Flight Program; repair quantity must be one.":
+    (f) => saveNew(f, { mode: "repair", lines: [repairLine] }),
+  "This component already has an open repair request.": (f) => {
+    saveNew(withComponent(f), { mode: "repair", lines: [repairLine] });
+    return saveNew(f, { uuid: "second", mode: "repair", lines: [repairLine] });
+  },
+  "Enter the defect and work requested for repair.": (f) =>
+    saveNew(withComponent(f), {
+      mode: "repair",
+      lines: [{ ...repairLine, defect: "" }],
+    }),
+  "Use a repair request for an existing serialized component.": (f) =>
+    saveNew(f, {
+      lines: [{ ...f.draft.lines[0], componentUuid: "component" }],
+    }),
+  "Request not found.": (f) =>
+    change(f, "reserve", { uuid: "missing", version: 0 }),
+  "Reserve or issue parts against an occurrence request, not the recurring list.":
+    (f) => {
+      stored(f, { recurring: true });
+      return change(f, "reserve");
+    },
+  "Inventory administrator access is required to reserve, issue or cancel requests.":
+    (f) => {
+      stored(f, { aircraftUuid: AIRCRAFT_UUID });
+      return change(asMechanic(f), "reserve");
+    },
+  "Remove draft allocations or cancel outstanding PO quantities first.": (
+    f,
+  ) => {
+    f.po({ kind: "save", requestUuid: "po-save", drafts: [f.draftPO(5)] });
+    return cancel(f);
+  },
+  "Reserved stock is unavailable.": (f) => {
+    change(f, "reserve");
+    f.s.management = f.s.management!.filter((x) => x.uuid !== "stock");
+    return cancel(f, 2);
+  },
+  "Repair components are shipped and received through their purchase order.": (
+    f,
+  ) => {
+    stored(f, { mode: "repair" });
+    return change(f, "reserve");
+  },
+  "Select a stock item in this Flight Program.": (f) =>
+    change(f, "reserve", { stockUuid: "missing" }),
+  "Select the requested part or explicitly confirm its listed alternate.": (
+    f,
+  ) => change(withStock(f, { partNumber: "OTHER" }), "reserve"),
+  "Only serviceable stock can be reserved.": (f) =>
+    change(withStock(f, { condition: "core" }), "reserve"),
+  "Quantity exceeds uncommitted demand or available stock.": (f) =>
+    change(f, "reserve", { quantity: 3 }),
+  "Quantity exceeds this request’s reservation.": (f) => change(f, "release"),
+};
+
+describe("refusals", () => {
+  it.each(Object.entries(REFUSALS))("%s", (message, refuse) => {
+    expect(() => refuse(fixture())).toThrow(new Error(message));
+  });
+});
+
+it("labels each source by what it links to", () => {
+  const f = withComponent(fixture());
+  const ad = blankAD(AIRCRAFT_UUID);
+  ad.source.number = "2026-01-01";
+  ad.tasks = [{ ...blankADTask(), description: "Inspect" }];
+  f.s.airworthiness = [ad];
+  const report = f.s.discrepancies[0];
+  const resolve = (kind: RequestSource["kind"], uuid = "") =>
+    resolveRequestSource(f.s, { kind, uuid, workOrderUuid: "" });
+  expect(resolve("stock").label).toBe("Inventory stock request");
+  expect(resolve("stock", "stock").label).toBe("Inventory: TIRE");
+  expect(resolve("discrepancy", report.uuid).label).toBe(report.description);
+  expect(resolve("airworthiness", ad.tasks[0].uuid).label).toBe(
+    "AD 2026-01-01: Inspect",
+  );
+  expect(resolve("component", "component")).toMatchObject({
+    label: "PUMP · S/N SN1",
+    componentUuid: "component",
+  });
+});
+
+it("replaces a free-text address with its structured details on save", () => {
+  const details = addressSchema.parse({ street: "1 Main St", city: "Town" });
+  const saved = saveNew(fixture(), { shipTo: "Old", shipToDetails: details });
+  expect(saved.shipTo).toBe(formatAddress(details));
+  expect(saved.shipTo).not.toBe("Old");
+});
+
+it("cancels units off the last allocations and receives into the first", () => {
+  const allocation = (requestUuid: string, quantity: number) => ({
+    requestUuid,
+    lineUuid: "item",
+    quantity,
+  });
+  const order = {
+    uuid: "po",
+    lines: [
+      {
+        uuid: "line",
+        quantity: 5,
+        cancelled: 1,
+        requestAllocations: [allocation("first", 2), allocation("last", 3)],
+      },
+    ],
+    receipts: [{ lines: [{ lineUuid: "line", quantity: 3 }] }],
+    shipments: [],
+    history: [],
+  } as unknown as PurchaseOrder;
+  expect(
+    requestPurchases([order]).map((p) => [
+      p.requestUuid,
+      p.quantity,
+      p.received,
+    ]),
+  ).toEqual([
+    ["first", 2, 2],
+    ["last", 2, 1],
+  ]);
 });
