@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins template CSV parsing, row checks, saving, duplicate
- *   detection and applying a template to an aircraft as setups.
+ *   detection, applying a template to an aircraft as setups, and when a
+ *   setup is pending or its parent ready.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/componentTemplates.ts, ./programs, ./rejection,
  *   src/data/demo.ts (seed).
@@ -13,6 +14,8 @@ import {
   applyComponentTemplate,
   componentDuplicate,
   matchesComponentTemplate,
+  pendingComponentSetups,
+  setupParentReady,
   validateRows,
 } from "./componentTemplates";
 import { scopedSnapshot } from "./programs";
@@ -215,4 +218,27 @@ it("links to the first setup when a row was applied twice (characterizes current
   s.componentSetups!.push({ ...first, uuid: crypto.randomUUID() });
   const [blade] = applyComponentTemplate(s, { ...input, rowIds: ["blade"] });
   expect(blade.parentComponentUuid).toBe(first.uuid);
+});
+it("keeps a setup pending until a component has its uuid, and a child until its parent is installed on its aircraft", () => {
+  const { s, a, input } = fixture();
+  const [engine, blade] = applyComponentTemplate(s, input);
+  expect(pendingComponentSetups(s)).toEqual([engine, blade]);
+  expect(setupParentReady(s, engine)).toBe(true);
+  expect(setupParentReady(s, blade)).toBe(false);
+  const installed = (aircraftUuid: string, ready: boolean) =>
+    ({
+      kind: "component",
+      uuid: engine.uuid,
+      aircraftUuid,
+      installed: ready,
+    }) as NonNullable<typeof s.management>[number];
+  for (const [aircraftUuid, ready, expected] of [
+    [s.aircraft[1].uuid, true, false],
+    [a.uuid, false, false],
+    [a.uuid, true, true],
+  ] as const) {
+    s.management = [installed(aircraftUuid, ready)];
+    expect(setupParentReady(s, blade)).toBe(expected);
+  }
+  expect(pendingComponentSetups(s)).toEqual([blade]);
 });
