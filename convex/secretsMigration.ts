@@ -1,13 +1,11 @@
 /**
- * Responsibility: Re-seals every saved credential (plaintext, v1, or v2 under
- *   another key) as v2 under the active key, and gates legacy plaintext on it.
- * Layer: Server. Internal functions; run by hand after deploying and after
- *   each key rotation: `npx convex run secretsMigration:reseal`.
+ * Responsibility: Re-seals every saved credential under the active key after a
+ *   key rotation, and opens a stored credential for a provider call.
+ * Layer: Server. Internal functions, run by hand after each key rotation:
+ *   `npx convex run secretsMigration:reseal`.
  * Dependencies: convex/secrets.ts, convex/values, convex/_generated.
  *
- * Plaintext values saved before encryption keep working, with a warning, until
- * the migration has completed once; afterwards they are refused. Keys and
- * rotation: docs/runbooks/credentials-key.md.
+ * Rotation: docs/runbooks/credentials-key.md.
  */
 import {
   internalAction,
@@ -19,17 +17,12 @@ import { internal } from "./_generated/api";
 import { v, type Infer } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import {
-  activeKeyId,
-  isSealed,
   needsReseal,
   openSecret,
   sealSecret,
   type SecretContext,
 } from "./secrets";
 
-// Name of the completion row. Renaming it would accept plaintext again until
-// the next complete run.
-const MIGRATION = "credentials-v2";
 const SPRUCE_FIELDS = ["userid", "password", "apikey"] as const;
 
 const target = v.union(
@@ -61,41 +54,22 @@ type StoredCredential = {
 };
 
 /**
- * Tells whether legacy plaintext credentials are still accepted.
+ * Opens a stored credential for a provider call.
  *
- * @returns True until the migration has completed once.
- */
-export const legacyPlaintextAccepted = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<boolean> =>
-    !(await ctx.db
-      .query("credentialMigrations")
-      .withIndex("name", (q) => q.eq("name", MIGRATION))
-      .first()),
-});
-
-/**
- * Opens a stored credential for a provider call, accepting legacy plaintext
- * only while {@link legacyPlaintextAccepted} says so.
- *
- * @param ctx - Action context, for the plaintext check.
+ * @param _ctx - Unused since plaintext is refused outright; kept so the three
+ *   callers need not change (docs/architecture/t21-inventory.md).
  * @param stored - The value as stored.
  * @param context - The row and field it was read from.
  * @returns The plaintext credential.
- * @throws {ConvexError} As {@link openSecret}, including "A saved credential is
- *   not encrypted. …" for plaintext once the migration has completed.
+ * @throws {ConvexError} As {@link openSecret}: "A saved credential is not
+ *   encrypted. …" for plaintext or v1.
  */
-export async function openStoredSecret(
-  ctx: Pick<ActionCtx, "runQuery">,
+export function openStoredSecret(
+  _ctx: Pick<ActionCtx, "runQuery">,
   stored: string,
   context: SecretContext,
 ): Promise<string> {
-  if (isSealed(stored)) return openSecret(stored, context);
-  const legacyPlaintext = await ctx.runQuery(
-    internal.secretsMigration.legacyPlaintextAccepted,
-    {},
-  );
-  return openSecret(stored, context, { legacyPlaintext });
+  return openSecret(stored, context);
 }
 
 /**
@@ -160,48 +134,21 @@ export const replace = internalMutation({
 });
 
 /**
- * Records that every credential is sealed under `keyId`, which ends the
- * acceptance of legacy plaintext. Upserts the one completion row.
- *
- * @param keyId - The key the run sealed with.
- */
-export const complete = internalMutation({
-  args: { keyId: v.string() },
-  handler: async (ctx, args): Promise<void> => {
-    const done = await ctx.db
-      .query("credentialMigrations")
-      .withIndex("name", (q) => q.eq("name", MIGRATION))
-      .first();
-    if (done)
-      await ctx.db.patch(done._id, {
-        keyId: args.keyId,
-        completedAt: Date.now(),
-      });
-    else
-      await ctx.db.insert("credentialMigrations", {
-        name: MIGRATION,
-        keyId: args.keyId,
-        completedAt: Date.now(),
-      });
-  },
-});
-
-/**
  * Re-seals every credential that is not v2 under the active key, one
- * compare-and-swap at a time, and marks the migration complete when none is
- * left. Idempotent; run again until it reports `complete: true`.
+ * compare-and-swap at a time. Idempotent; run again until it reports
+ * `complete: true`.
  *
  * @returns How many values this run replaced, how many still need it, and
  *   whether none does.
  * @throws {ConvexError} From the key configuration, or when a value cannot be
- *   opened; values replaced before the throw stay replaced.
+ *   opened (plaintext and v1 included); values replaced before the throw stay
+ *   replaced.
  */
 export const reseal = internalAction({
   args: {},
   handler: async (
     ctx,
   ): Promise<{ resealed: number; remaining: number; complete: boolean }> => {
-    const keyId = activeKeyId();
     let resealed = 0;
     for (const row of await ctx.runQuery(internal.secretsMigration.stored, {}))
       if (needsReseal(row.value) && (await resealCredential(ctx, row)))
@@ -209,8 +156,6 @@ export const reseal = internalAction({
     const remaining = (
       await ctx.runQuery(internal.secretsMigration.stored, {})
     ).filter((row) => needsReseal(row.value)).length;
-    if (!remaining)
-      await ctx.runMutation(internal.secretsMigration.complete, { keyId });
     return { resealed, remaining, complete: !remaining };
   },
 });
@@ -236,9 +181,7 @@ async function resealCredential(
     programUuid: row.programUuid,
     field: row.target.field,
   };
-  const plain = await openSecret(row.value, context, {
-    legacyPlaintext: true,
-  });
+  const plain = await openSecret(row.value, context);
   const to = await sealSecret(plain, context);
   return ctx.runMutation(internal.secretsMigration.replace, {
     target: row.target,

@@ -1,21 +1,78 @@
+/**
+ * Responsibility: The component work section of a work order: what was done
+ *   to each included component, with the tracking it will reset at closeout.
+ * Layer: UI. React component; tracking and labels come from src/domain.
+ * Dependencies: src/domain (model, components, requiredParts,
+ *   workOrderComponentWork), ./ui.tsx.
+ */
 import { partsInventory } from "../domain/requiredParts";
-import { localDate } from "../domain/model";
+import {
+  aircraftMeterReading,
+  localDate,
+  totalSeconds,
+  type Aircraft,
+  type Snapshot,
+} from "../domain/model";
 import {
   POSITIONS,
   componentTotals,
   type Component,
 } from "../domain/components";
 import {
-  aircraftMeterReading,
-  totalSeconds,
-  type Snapshot,
-} from "../domain/model";
-import {
   componentWorkLabels,
   type ComponentWork,
 } from "../domain/workOrderComponentWork";
 import { Field } from "./ui";
 
+const SECONDS_PER_HOUR = 3600;
+// The limits componentWorkSchema sets.
+const SHELF_MAX_LENGTH = 150;
+const DESCRIPTION_MAX_LENGTH = 10000;
+const REFERENCE_MAX_LENGTH = 2000;
+// Movements come only from a planned movement task (PlanComponentMovement).
+const MOVEMENTS: readonly string[] = ["install", "remove"];
+
+type WorkProps = {
+  closing: boolean;
+  s: Snapshot;
+  ids: string[];
+  aircraftUuid: string;
+  fields?: FormData;
+  choices: ComponentWork[];
+  onChange: (choices: ComponentWork[]) => void;
+};
+type EntryProps = Pick<WorkProps, "choices" | "onChange"> & {
+  id: string;
+  completion: Completion;
+};
+type Completion = {
+  s: Snapshot;
+  closing: boolean;
+  date: string;
+  aircraft: Aircraft;
+};
+type ItemProps = {
+  c: Component;
+  label: string;
+  choice?: ComponentWork;
+  patch: (changes: Partial<ComponentWork>) => void;
+  completion: Completion;
+};
+type ChosenProps = ItemProps & { choice: ComponentWork };
+
+/**
+ * The work performed on each component a work order includes: serviced,
+ * repaired, overhauled, or the movement its task plans, with a preview of
+ * the TSO and TSR the closeout resets. While closing, the readings and date
+ * come from the completion fields and the work is required.
+ *
+ * @param props.aircraftUuid - The order's aircraft, which must be in `s`.
+ * @param props.ids - The included components; nothing renders without any.
+ * @param props.fields - The work order form, read for completion readings
+ *   while `closing`.
+ * @param props.choices - The saved choices; `onChange` receives them with
+ *   the changed component's choice moved to the end.
+ */
 export function WorkOrderComponentWork({
   s,
   ids,
@@ -24,56 +81,14 @@ export function WorkOrderComponentWork({
   choices,
   onChange,
   closing,
-}: {
-  closing: boolean;
-  s: Snapshot;
-  ids: string[];
-  aircraftUuid: string;
-  fields?: FormData;
-  choices: ComponentWork[];
-  onChange: (choices: ComponentWork[]) => void;
-}) {
-  const aircraft = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
-  const number = (name: string, fallback: number, scale = 3600) => {
-    const raw = closing ? fields?.get(name) : undefined;
-    return raw !== null && raw !== undefined && raw !== ""
-      ? Number(raw) * scale
-      : fallback;
-  };
-  const hobbs = number("completionHobbs", aircraft.currentHobbs);
-  const tach = number("completionTach", aircraft.currentTach);
-  const cyclic =
-    aircraft.currentCyclicHobbs === undefined
-      ? undefined
-      : number("completionCyclicHobbs", aircraft.currentCyclicHobbs);
-  const flightTimeLog =
-    aircraft.currentFlightTimeLog === undefined
-      ? undefined
-      : number("completionFlightTimeLog", aircraft.currentFlightTimeLog);
-  const atCompletion = {
-    ...aircraft,
-    currentHobbs: hobbs,
-    currentTach: tach,
-    currentCyclicHobbs: cyclic,
-    currentFlightTimeLog: flightTimeLog,
-    cycles: number("completionCycles", aircraft.cycles, 1),
-    landings: number("completionLandings", aircraft.landings, 1),
-    adjustmentSeconds:
-      number("completionTotalHours", totalSeconds(aircraft)) -
-      aircraftMeterReading({
-        ...aircraft,
-        currentHobbs: hobbs,
-        currentTach: tach,
-        currentCyclicHobbs: cyclic,
-        currentFlightTimeLog: flightTimeLog,
-      }),
-  };
+}: WorkProps) {
+  const current = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
+  const aircraft = completionAircraft(current, closing ? fields : undefined);
   const date = String(
     (closing && fields?.get("completionDate")) || localDate(),
   );
-  const hours = (seconds: number | null) =>
-    seconds === null ? "Not recorded" : `${(seconds / 3600).toFixed(1)} h`;
   if (!ids.length) return null;
+  const completion = { s, closing, date, aircraft };
   return (
     <section className="panel" aria-label="Component work performed">
       <h3>Component work performed</h3>
@@ -83,174 +98,268 @@ export function WorkOrderComponentWork({
         closes, using its completion date and verified readings. Lifetime totals
         are retained.
       </p>
-      {ids.map((id) => {
-        const c = s.management?.find(
-          (r): r is Component => r.kind === "component" && r.uuid === id,
-        );
-        if (!c)
-          return (
-            <p role="alert" key={id}>
-              An included component is unavailable. Review the component
-              selection.
-            </p>
-          );
-        const choice = choices.find((item) => item.componentUuid === id);
-        const patch = (changes: Partial<ComponentWork>) =>
-          onChange([
-            ...choices.filter((item) => item.componentUuid !== id),
-            {
-              componentUuid: id,
-              version: c.version,
-              action: "service",
-              description: "",
-              reference: "",
-              ...choice,
-              ...changes,
-            },
-          ]);
-        let totals;
-        try {
-          totals = componentTotals(c, atCompletion, date);
-        } catch {
-          /* Validation below explains invalid readings. */
-        }
-        const repair = choice?.action === "repair" || choice?.action === "both";
-        const overhaul =
-          choice?.action === "overhaul" || choice?.action === "both";
-        const label = `${c.componentType}${c.installPosition ? ` · ${c.installPosition}` : ""} · ${c.serial}`;
-        return (
-          <div className="panel" key={id}>
-            <h4>{label}</h4>
-            <p>P/N {c.partNumber || "Not recorded"}</p>
-            <Field label={`${label} work performed`}>
-              <select
-                required={closing}
-                value={choice?.action ?? ""}
-                onChange={(e) =>
-                  patch({ action: e.target.value as ComponentWork["action"] })
-                }
-              >
-                <option value="">Select work performed</option>
-                {Object.entries(componentWorkLabels)
-                  .filter(([value]) =>
-                    choice?.taskUuid
-                      ? value === choice.action
-                      : !["install", "remove"].includes(value),
-                  )
-                  .map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-            {totals ? (
-              <p>
-                {closing ? "At completion" : "Current readings (preview)"}: TSN{" "}
-                {hours(totals.timeSinceNew)}; cycles {totals.cyclesSinceNew}.
-                TSO {hours(totals.timeSinceOverhaul)} →{" "}
-                {hours(overhaul ? 0 : totals.timeSinceOverhaul)}; TSR{" "}
-                {hours(totals.timeSinceRepair)} →{" "}
-                {hours(repair ? 0 : totals.timeSinceRepair)}.
-              </p>
-            ) : (
-              <p role="alert">
-                Completion readings or date precede this component’s baseline.
-                Review the completion fields.
-              </p>
-            )}
-            {choice?.action === "install" && (
-              <Field label={`${label} installation position`}>
-                <select
-                  value={choice.installPosition ?? ""}
-                  onChange={(e) =>
-                    patch({
-                      installPosition: e.target
-                        .value as Component["installPosition"],
-                    })
-                  }
-                  required
-                >
-                  <option value="">Select position</option>
-                  {POSITIONS.map((p) => (
-                    <option key={p}>{p}</option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            {choice?.action === "remove" && (
-              <>
-                <Field label={`${label} inventory location`}>
-                  <select
-                    value={choice.locationUuid ?? ""}
-                    onChange={(e) =>
-                      patch({ locationUuid: e.target.value || undefined })
-                    }
-                  >
-                    <option value="">Select location</option>
-                    {partsInventory(s).locations.map((l) => (
-                      <option key={l.uuid} value={l.uuid}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label={`${label} shelf / bin`}>
-                  <input
-                    maxLength={150}
-                    value={choice.partsLocation ?? ""}
-                    onChange={(e) => patch({ partsLocation: e.target.value })}
-                  />
-                </Field>
-              </>
-            )}
-            {choice && choice.version !== c.version && (
-              <button
-                type="button"
-                onClick={() => patch({ version: c.version })}
-              >
-                Confirm current component readings
-              </button>
-            )}
-            {(repair ||
-              overhaul ||
-              choice?.action === "install" ||
-              choice?.action === "remove") && (
-              <>
-                <Field label={`${label} work description`}>
-                  <textarea
-                    required={closing}
-                    maxLength={10000}
-                    value={choice?.description ?? ""}
-                    onChange={(e) => patch({ description: e.target.value })}
-                  />
-                </Field>
-                <Field
-                  label={`${label} supporting document / reference`}
-                  hint="Optional; attachments can be added to the work order."
-                >
-                  <input
-                    maxLength={2000}
-                    value={choice?.reference ?? ""}
-                    onChange={(e) => patch({ reference: e.target.value })}
-                  />
-                </Field>
-                <p className="notice">
-                  {closing
-                    ? "Closing this order records"
-                    : "Planned for closeout:"}{" "}
-                  {componentWorkLabels[choice!.action].toLowerCase()}
-                  {closing ? ` on ${date}` : ""}
-                  {overhaul
-                    ? " and renews applicable overhaul requirements"
-                    : ""}
-                  .
-                </p>
-              </>
-            )}
-          </div>
-        );
-      })}
+      {ids.map((id) => (
+        <ComponentEntry
+          key={id}
+          id={id}
+          choices={choices}
+          onChange={onChange}
+          completion={completion}
+        />
+      ))}
     </section>
+  );
+}
+
+// Completion fields hold hours; a blank one keeps the current reading.
+function completionAircraft(aircraft: Aircraft, fields?: FormData) {
+  const number = (name: string, fallback: number, scale = SECONDS_PER_HOUR) => {
+    const raw = fields?.get(name);
+    return raw !== null && raw !== undefined && raw !== ""
+      ? Number(raw) * scale
+      : fallback;
+  };
+  const meters = {
+    currentHobbs: number("completionHobbs", aircraft.currentHobbs),
+    currentTach: number("completionTach", aircraft.currentTach),
+    currentCyclicHobbs:
+      aircraft.currentCyclicHobbs === undefined
+        ? undefined
+        : number("completionCyclicHobbs", aircraft.currentCyclicHobbs),
+    currentFlightTimeLog:
+      aircraft.currentFlightTimeLog === undefined
+        ? undefined
+        : number("completionFlightTimeLog", aircraft.currentFlightTimeLog),
+  };
+  return {
+    ...aircraft,
+    ...meters,
+    cycles: number("completionCycles", aircraft.cycles, 1),
+    landings: number("completionLandings", aircraft.landings, 1),
+    adjustmentSeconds:
+      number("completionTotalHours", totalSeconds(aircraft)) -
+      aircraftMeterReading({ ...aircraft, ...meters }),
+  };
+}
+
+function patchChoice(
+  choices: ComponentWork[],
+  c: Component,
+  changes: Partial<ComponentWork>,
+): ComponentWork[] {
+  const choice = choices.find((item) => item.componentUuid === c.uuid);
+  return [
+    ...choices.filter((item) => item.componentUuid !== c.uuid),
+    {
+      componentUuid: c.uuid,
+      version: c.version,
+      action: "service",
+      description: "",
+      reference: "",
+      ...choice,
+      ...changes,
+    },
+  ];
+}
+
+function componentLabel(c: Component) {
+  const position = c.installPosition ? ` · ${c.installPosition}` : "";
+  return `${c.componentType}${position} · ${c.serial}`;
+}
+
+function ComponentEntry({ id, choices, onChange, completion }: EntryProps) {
+  const c = completion.s.management?.find(
+    (r): r is Component => r.kind === "component" && r.uuid === id,
+  );
+  if (!c)
+    return (
+      <p role="alert">
+        An included component is unavailable. Review the component selection.
+      </p>
+    );
+  return (
+    <ComponentWorkItem
+      c={c}
+      label={componentLabel(c)}
+      choice={choices.find((item) => item.componentUuid === id)}
+      patch={(changes) => onChange(patchChoice(choices, c, changes))}
+      completion={completion}
+    />
+  );
+}
+
+const repairs = (choice?: ComponentWork) =>
+  choice?.action === "repair" || choice?.action === "both";
+const overhauls = (choice?: ComponentWork) =>
+  choice?.action === "overhaul" || choice?.action === "both";
+
+function ComponentWorkItem(props: ItemProps) {
+  const { c, label, choice, patch } = props;
+  const moving = choice?.action === "install" || choice?.action === "remove";
+  return (
+    <div className="panel">
+      <h4>{label}</h4>
+      <p>P/N {c.partNumber || "Not recorded"}</p>
+      <WorkSelect {...props} />
+      <TrackingPreview {...props} />
+      {choice?.action === "install" && (
+        <InstallPosition {...props} choice={choice} />
+      )}
+      {choice?.action === "remove" && (
+        <RemovalLocation {...props} choice={choice} />
+      )}
+      {choice && choice.version !== c.version && (
+        <button type="button" onClick={() => patch({ version: c.version })}>
+          Confirm current component readings
+        </button>
+      )}
+      {(repairs(choice) || overhauls(choice) || moving) && (
+        <WorkDetails {...props} choice={choice!} />
+      )}
+    </div>
+  );
+}
+
+// A movement's action is fixed by its task; other work cannot become one.
+function WorkSelect({ label, choice, patch, completion }: ItemProps) {
+  const offered = Object.entries(componentWorkLabels).filter(([value]) =>
+    choice?.taskUuid ? value === choice.action : !MOVEMENTS.includes(value),
+  );
+  return (
+    <Field label={`${label} work performed`}>
+      <select
+        required={completion.closing}
+        value={choice?.action ?? ""}
+        onChange={(e) =>
+          patch({ action: e.target.value as ComponentWork["action"] })
+        }
+      >
+        <option value="">Select work performed</option>
+        {offered.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function TrackingPreview({ c, choice, completion }: ItemProps) {
+  const totals = tryComponentTotals(c, completion);
+  if (!totals)
+    return (
+      <p role="alert">
+        Completion readings or date precede this component’s baseline. Review
+        the completion fields.
+      </p>
+    );
+  return (
+    <p>
+      {completion.closing ? "At completion" : "Current readings (preview)"}: TSN{" "}
+      {hoursText(totals.timeSinceNew)}; cycles {totals.cyclesSinceNew}. TSO{" "}
+      {hoursText(totals.timeSinceOverhaul)} →{" "}
+      {hoursText(overhauls(choice) ? 0 : totals.timeSinceOverhaul)}; TSR{" "}
+      {hoursText(totals.timeSinceRepair)} →{" "}
+      {hoursText(repairs(choice) ? 0 : totals.timeSinceRepair)}.
+    </p>
+  );
+}
+
+// componentTotals refuses readings before the component's baseline; the
+// preview then asks the user to review the completion fields instead.
+function tryComponentTotals(c: Component, { aircraft, date }: Completion) {
+  try {
+    return componentTotals(c, aircraft, date);
+  } catch {
+    return undefined;
+  }
+}
+
+function hoursText(seconds: number | null) {
+  if (seconds === null) return "Not recorded";
+  return `${(seconds / SECONDS_PER_HOUR).toFixed(1)} h`;
+}
+
+function InstallPosition({ label, choice, patch }: ChosenProps) {
+  return (
+    <Field label={`${label} installation position`}>
+      <select
+        value={choice.installPosition ?? ""}
+        onChange={(e) =>
+          patch({
+            installPosition: e.target.value as Component["installPosition"],
+          })
+        }
+        required
+      >
+        <option value="">Select position</option>
+        {POSITIONS.map((p) => (
+          <option key={p}>{p}</option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function RemovalLocation({ label, choice, patch, completion }: ChosenProps) {
+  return (
+    <>
+      <Field label={`${label} inventory location`}>
+        <select
+          value={choice.locationUuid ?? ""}
+          onChange={(e) => patch({ locationUuid: e.target.value || undefined })}
+        >
+          <option value="">Select location</option>
+          {partsInventory(completion.s).locations.map((l) => (
+            <option key={l.uuid} value={l.uuid}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label={`${label} shelf / bin`}>
+        <input
+          maxLength={SHELF_MAX_LENGTH}
+          value={choice.partsLocation ?? ""}
+          onChange={(e) => patch({ partsLocation: e.target.value })}
+        />
+      </Field>
+    </>
+  );
+}
+
+function WorkDetails({ label, choice, patch, completion }: ChosenProps) {
+  const { closing, date } = completion;
+  return (
+    <>
+      <Field label={`${label} work description`}>
+        <textarea
+          required={closing}
+          maxLength={DESCRIPTION_MAX_LENGTH}
+          value={choice.description ?? ""}
+          onChange={(e) => patch({ description: e.target.value })}
+        />
+      </Field>
+      <Field
+        label={`${label} supporting document / reference`}
+        hint="Optional; attachments can be added to the work order."
+      >
+        <input
+          maxLength={REFERENCE_MAX_LENGTH}
+          value={choice.reference ?? ""}
+          onChange={(e) => patch({ reference: e.target.value })}
+        />
+      </Field>
+      <p className="notice">
+        {closing ? "Closing this order records" : "Planned for closeout:"}{" "}
+        {componentWorkLabels[choice.action].toLowerCase()}
+        {closing ? ` on ${date}` : ""}
+        {overhauls(choice)
+          ? " and renews applicable overhaul requirements"
+          : ""}
+        .
+      </p>
+    </>
   );
 }

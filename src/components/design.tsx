@@ -1,103 +1,12 @@
 /**
- * Angel One design system — shared building blocks (UI redesign v2).
+ * Responsibility: The design system's shared building blocks: layout, status
+ *   and data display, controls, dialogs, brand images, breakpoint and theme.
+ * Layer: UI. Presentational React components and hooks; no workspace data.
+ * Dependencies: react, @phosphor-icons/react, src/styles/design.css.
  *
- * THIS COMMENT IS THE CONTRACT for screen work. Tokens live in
- * src/styles/tokens.css (imported once by main.tsx); component styles live in
- * src/styles/design.css (imported here). Icons: import from
- * "@phosphor-icons/react" (e.g. `import { Airplane } from "@phosphor-icons/react"`)
- * and pass the component itself (not an element) wherever a prop is typed
- * `IconType`. Weights: regular by default, "duotone" for KPI / list leading
- * icons (the components below apply it), "bold" inside primary buttons,
- * "fill" for a selected favourite star.
- *
- * Tones: `Tone = "good" | "warn" | "danger" | "neutral" | "blue"`; "warning"
- * is accepted as an alias of "warn" so existing Badge tones map directly.
- * Status mapping: airworthy → good, due soon → warn, grounded → danger,
- * scheduled → neutral.
- *
- * ── Layout ──────────────────────────────────────────────────────────────
- * <PageHeader eyebrow title accent? description? actions? hero? className?>
- *   eyebrow: string (rendered uppercase, --blue), title: string,
- *   accent?: string — second clause rendered in --blue weight 300 inside the
- *   same <h1> ("Your fleet," + "at a glance." → accessible name
- *   "Your fleet, at a glance."), description?: ReactNode, actions?: ReactNode
- *   (buttons, right-aligned, wrap on phones), hero?: boolean — dashboard-size h1.
- * <Toolbar end?> children left, `end` right (wraps). For filter rows.
- * <SearchField label value onChange placeholder?> 42px search input with
- *   magnifying-glass icon; label is the accessible name (aria-label).
- *
- * ── Status / data display ───────────────────────────────────────────────
- * <StatusPill tone dot?=true> label — 12.5px/600 pill with a 6px dot.
- * <IconTile icon tone?="blue" size?="lg"|"md"|"sm" weight?="duotone">
- *   44/40/34px rounded tile with a tinted background and the icon.
- * <KpiStrip columns?=4> one bordered container of <KpiTile>s (4-up ≥1100px,
- *   2×2 below). <KpiTile label value icon? tone?="blue" valueTone? footnote?>
- *   value: ReactNode (42px tabular); valueTone colours the number
- *   (e.g. "warn" for inspections approaching, "danger" for open discrepancies).
- * <StatsStrip> container of <StatTile label value> (30px values, auto-fit).
- * <ProgressTrack value tone?="blue" marker? thin? label?>
- *   value 0–1; marker draws the 14px ring at the progress point; label →
- *   aria-label (role="progressbar" when given, otherwise decorative).
- * <ListCard title? className? children> padded surface card holding ListRows
- *   (hairline between rows, none above the first). title renders an <h2>.
- * <ListRow icon? tone? title sub? meta? badge? action? onClick? className?>
- *   44px duotone icon tile, title (16.5px/600) + sub (14px muted), both
- *   ellipsised; meta (15px tabular), badge (usually a StatusPill), action
- *   (usually buttons). Grid 1fr auto auto auto (desktop) → 1fr auto (tablet)
- *   → 1fr (phone). onClick renders the whole row as a <button>; do NOT pass an
- *   interactive `action` together with onClick (no nested controls).
- * <EmptyState title children? action?> dashed empty box.
- * <NoticeBar tone?="blue" icon? children> inline notice (e.g. the amber
- *   "Local demo." bar). Pass role="status"/"alert" via `role` if it announces.
- *   Links inside it are underlined in --blue-on-soft.
- *
- * ── Controls ────────────────────────────────────────────────────────────
- * <Switch checked onChange(checked) label disabled? name? className?>
- *   Native checkbox with role="switch" (aria-checked follows `checked`), so
- *   Playwright getByLabel(label).check() and getByRole("switch") both work.
- * <Segmented label options value onChange mode?="pressed">
- *   options: { value: string; label: string; count?: number|string;
- *   icon?: IconType; disabled?: boolean }[]. Pill track of <button>s; the
- *   selected one gets aria-pressed="true" (mode "pressed") or
- *   aria-current="page" (mode "current"). Button accessible name is the label
- *   only (count is aria-hidden), so getByRole("button", { name }) keeps working.
- * <RoundButton label onClick icon? onNavy?> 40px round icon button
- *   (dialog/sheet close). label → aria-label.
- *
- * ── Overlays ────────────────────────────────────────────────────────────
- * <Dialog open?=true onClose title subtitle? footer? size? header?
- *         dismissOnScrim?=true closeLabel?="Close dialog" className? children>
- *   Native <dialog> opened with showModal(): role=dialog + aria-modal, focus
- *   trapped by the browser, Escape closes (only the top-most of nested
- *   dialogs), a click on the scrim closes
- *   (dismissOnScrim), focus returns to the opener on close. Centred modal
- *   ≥760px (`pop`), bottom sheet with grab handle <760px (`sheet`).
- *   size: "default" (720px) | "narrow" (560) | "wide" (1100) | "full" (1480).
- *   header: replaces the standard header (e.g. a navy hero header); the title
- *   is then used as aria-label. footer: sticky action row (Cancel / Save).
- *   Accessible name = title, so getByRole("dialog", { name: title }) works.
- *
- * ── Brand ───────────────────────────────────────────────────────────────
- * <Wordmark variant?="auto"|"navy"|"white" width? height? className?>
- *   "auto" shows the navy wordmark in light and the white one in dark.
- * <AircraftArt className? opacity?=0.34 drift?> the inverted line drawing
- *   (public/branding/cessna-oblique.svg) for navy panels; decorative only,
- *   never behind text.
- *
- * ── Hooks ───────────────────────────────────────────────────────────────
- * useBreakpoint(): "desktop" (≥1100) | "tablet" (760–1099) | "phone" (<760).
- * useTheme(): { theme: "light"|"dark", toggle(), setTheme(t) } — persisted in
- *   localStorage["angelone-theme"]; applies `.dark` on <html>.
- *
- * ── Global CSS primitives (restyled in src/styles.css; use, don't restyle) ─
- * .button (outline, 46px) · .button.primary (blue fill, white text; put a
- * bold Phosphor icon first) · .button.soft (blue-soft fill) · .button.small
- * (40px) · .button.danger · .icon-button (44px square) · .text-button ·
- * .panel (surface card, 14px radius) · .badge.{neutral,good,warning,danger}
- * (pills; prefer StatusPill in new markup) · .field / .form-grid (labels 14px
- * muted, inputs 48px on --bg) · .table-scroll + table (uppercase 12px headers,
- * hairline rows) · .tabs (now a segmented pill track) · .notice / .callout /
- * .error · .eyebrow · .muted · .rise (entrance; style={{"--i": n}} staggers).
+ * Screens build from these and from the global primitives in src/styles.css
+ * (.button, .panel, .field, tables), styled by the tokens in
+ * src/styles/tokens.css; restyling either per screen breaks the shared look.
  */
 import {
   useCallback,
@@ -107,18 +16,55 @@ import {
   useSyncExternalStore,
   type ComponentType,
   type CSSProperties,
+  type MouseEvent,
+  type PointerEvent,
   type ReactNode,
+  type RefObject,
+  type SyntheticEvent,
 } from "react";
 import { MagnifyingGlass, X, type IconWeight } from "@phosphor-icons/react";
 import "../styles/design.css";
 
+const DESKTOP_QUERY = "(min-width: 1100px)";
+const PHONE_QUERY = "(max-width: 759px)";
+const THEME_KEY = "angelone-theme";
+const INLINE_ICON_SIZE = 18;
+const TILE_ICON_SIZES = { lg: 22, md: 20, sm: 18 } as const;
+const WORDMARK_SRC = {
+  navy: "/branding/angelone.png",
+  white: "/branding/angelone-white.png",
+} as const;
+const WORDMARK_WIDTH = 156;
+
+/**
+ * A Phosphor icon component, passed as `Airplane`, not `<Airplane />`.
+ * Weights: regular by default, duotone in KPI and list tiles (set here),
+ * bold inside primary buttons, fill for a selected favourite star.
+ */
 export type IconType = ComponentType<{
   size?: number | string;
   weight?: IconWeight;
   "aria-hidden"?: boolean | "true" | "false";
 }>;
+/**
+ * A colour role. Aircraft status maps airworthy to good, due soon to warn,
+ * grounded to danger and scheduled to neutral.
+ */
 export type Tone = "good" | "warn" | "danger" | "neutral" | "blue";
+// Badge's "warning" tone means "warn", so Badge tones pass straight through.
 type ToneInput = Tone | "warning";
+type DialogProps = {
+  onClose: () => void;
+  title: string;
+  subtitle?: ReactNode;
+  header?: ReactNode;
+  footer?: ReactNode;
+  size?: "default" | "narrow" | "wide" | "full";
+  dismissOnScrim?: boolean;
+  closeLabel?: string;
+  className?: string;
+  children?: ReactNode;
+};
 const tone = (t: ToneInput | undefined, fallback: Tone = "neutral"): Tone =>
   t === "warning" ? "warn" : (t ?? fallback);
 const cx = (...c: (string | false | null | undefined)[]) =>
@@ -126,20 +72,14 @@ const cx = (...c: (string | false | null | undefined)[]) =>
 
 /* ───────────────────────────── Hooks ───────────────────────────── */
 
+/** A layout size: desktop from 1100px wide, phone below 760px. */
 export type Breakpoint = "desktop" | "tablet" | "phone";
-const desktopQuery = "(min-width: 1100px)";
-const phoneQuery = "(max-width: 759px)";
-function readBreakpoint(): Breakpoint {
-  if (typeof window === "undefined" || !window.matchMedia) return "desktop";
-  if (window.matchMedia(desktopQuery).matches) return "desktop";
-  return window.matchMedia(phoneQuery).matches ? "phone" : "tablet";
-}
-function subscribeBreakpoint(notify: () => void) {
-  if (typeof window === "undefined" || !window.matchMedia) return () => {};
-  const queries = [desktopQuery, phoneQuery].map((q) => window.matchMedia(q));
-  queries.forEach((q) => q.addEventListener("change", notify));
-  return () => queries.forEach((q) => q.removeEventListener("change", notify));
-}
+
+/**
+ * The current layout size, updated as the window crosses a breakpoint.
+ *
+ * @returns "desktop" without a window or matchMedia (server rendering).
+ */
 export function useBreakpoint(): Breakpoint {
   return useSyncExternalStore(
     subscribeBreakpoint,
@@ -148,35 +88,27 @@ export function useBreakpoint(): Breakpoint {
   );
 }
 
+/** The colour theme; dark puts `.dark` on <html>. */
 export type Theme = "light" | "dark";
-const THEME_KEY = "angelone-theme";
 const themeListeners = new Set<() => void>();
-function storedTheme(): Theme {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === "dark" || saved === "light") return saved;
-  } catch {
-    // Storage blocked: fall through to the system preference.
-  }
-  try {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  } catch {
-    return "light";
-  }
-}
 let currentTheme: Theme =
   typeof window === "undefined" ? "light" : storedTheme();
-function applyTheme(theme: Theme) {
-  if (typeof document !== "undefined")
-    document.documentElement.classList.toggle("dark", theme === "dark");
-}
-/** Applies the persisted theme to <html>; main.tsx calls it before render. */
+
+/**
+ * Applies the saved theme, or else the system preference, to <html>. Call it
+ * before the first render so the page does not flash the wrong theme.
+ */
 export function initTheme() {
   currentTheme = storedTheme();
   applyTheme(currentTheme);
 }
+
+/**
+ * Switches the theme for every useTheme caller and saves it on the device
+ * (localStorage "angelone-theme").
+ *
+ * @param theme - Applied at once; when storage is blocked it lasts this visit.
+ */
 export function setTheme(theme: Theme) {
   currentTheme = theme;
   applyTheme(theme);
@@ -187,6 +119,13 @@ export function setTheme(theme: Theme) {
   }
   themeListeners.forEach((l) => l());
 }
+
+/**
+ * The current theme and ways to change it.
+ *
+ * @returns `theme` ("light" when server rendered), `toggle` between light
+ *   and dark, and `setTheme`.
+ */
 export function useTheme() {
   const theme = useSyncExternalStore(
     (l) => {
@@ -205,6 +144,14 @@ export function useTheme() {
 
 /* ───────────────────────────── Layout ──────────────────────────── */
 
+/**
+ * A page's heading block: eyebrow, h1, description, and actions on the right
+ * that wrap on phones.
+ *
+ * @param props.accent - A second clause in blue inside the same h1: "Your
+ *   fleet," and "at a glance." read "Your fleet, at a glance.".
+ * @param props.hero - The dashboard-size heading.
+ */
 export function PageHeader({
   eyebrow,
   title,
@@ -242,6 +189,7 @@ export function PageHeader({
   );
 }
 
+/** A filter row: children on the left, `end` on the right; both wrap. */
 export function Toolbar({
   children,
   end,
@@ -259,6 +207,13 @@ export function Toolbar({
   );
 }
 
+/**
+ * A search input with a magnifier icon.
+ *
+ * @param props.label - Its accessible name, and the placeholder unless one is
+ *   given.
+ * @param props.onChange - Receives the typed text.
+ */
 export function SearchField({
   label,
   value,
@@ -274,7 +229,7 @@ export function SearchField({
 }) {
   return (
     <label className={cx("ds-search", className)}>
-      <MagnifyingGlass size={18} aria-hidden="true" />
+      <MagnifyingGlass size={INLINE_ICON_SIZE} aria-hidden="true" />
       <input
         type="search"
         aria-label={label}
@@ -288,6 +243,12 @@ export function SearchField({
 
 /* ───────────────────────── Status / data ───────────────────────── */
 
+/**
+ * A status pill with a coloured dot.
+ *
+ * @param props.tone - Defaults to neutral.
+ * @param props.dot - False leaves the dot out.
+ */
 export function StatusPill({
   tone: t,
   dot = true,
@@ -307,7 +268,14 @@ export function StatusPill({
   );
 }
 
-const tileSize = { lg: 22, md: 20, sm: 18 } as const;
+/**
+ * A rounded tinted tile holding an icon; decorative, so hidden from screen
+ * readers.
+ *
+ * @param props.tone - Defaults to blue.
+ * @param props.size - lg (the default), md or sm.
+ * @param props.weight - Defaults to duotone.
+ */
 export function IconTile({
   icon: Icon,
   tone: t,
@@ -331,11 +299,15 @@ export function IconTile({
       )}
       aria-hidden="true"
     >
-      <Icon size={tileSize[size]} weight={weight} aria-hidden="true" />
+      <Icon size={TILE_ICON_SIZES[size]} weight={weight} aria-hidden="true" />
     </span>
   );
 }
 
+/**
+ * One bordered strip of KpiTiles: two by two, or `columns` across (default
+ * 4) from 1100px wide.
+ */
 export function KpiStrip({
   columns = 4,
   children,
@@ -355,6 +327,14 @@ export function KpiStrip({
   );
 }
 
+/**
+ * A key figure: label, large tabular value, and an optional icon tile and
+ * footnote.
+ *
+ * @param props.tone - The icon tile's tone; defaults to blue.
+ * @param props.valueTone - Colours the value, such as warn for inspections
+ *   coming due or danger for open discrepancies.
+ */
 export function KpiTile({
   label,
   value,
@@ -389,6 +369,7 @@ export function KpiTile({
   );
 }
 
+/** A strip of StatTiles that fits as many across as there is room for. */
 export function StatsStrip({
   children,
   className,
@@ -399,6 +380,7 @@ export function StatsStrip({
   return <div className={cx("ds-stats-strip", className)}>{children}</div>;
 }
 
+/** A label over a value, inside a StatsStrip. */
 export function StatTile({
   label,
   value,
@@ -414,6 +396,15 @@ export function StatTile({
   );
 }
 
+/**
+ * A progress bar.
+ *
+ * @param props.value - From 0 to 1; clamped, and shown to a tenth of a
+ *   percent.
+ * @param props.marker - Draws a ring at the progress point.
+ * @param props.label - Makes it a named progressbar from 0 to 100; without
+ *   one it is decorative and hidden from screen readers.
+ */
 export function ProgressTrack({
   value,
   tone: t,
@@ -429,7 +420,7 @@ export function ProgressTrack({
   label?: string;
   className?: string;
 }) {
-  const pct = Math.round(Math.min(1, Math.max(0, value || 0)) * 1000) / 10;
+  const pct = progressPercent(value);
   return (
     <div
       className={cx(
@@ -438,15 +429,7 @@ export function ProgressTrack({
         "ds-tone-" + tone(t, "blue"),
         className,
       )}
-      {...(label
-        ? {
-            role: "progressbar",
-            "aria-label": label,
-            "aria-valuemin": 0,
-            "aria-valuemax": 100,
-            "aria-valuenow": pct,
-          }
-        : { "aria-hidden": true })}
+      {...progressRole(label, pct)}
     >
       <div className="ds-progress-fill" style={{ width: pct + "%" }} />
       {marker && (
@@ -456,6 +439,7 @@ export function ProgressTrack({
   );
 }
 
+/** A padded card of ListRows, with an optional h2 title. */
 export function ListCard({
   title,
   children,
@@ -473,56 +457,38 @@ export function ListCard({
   );
 }
 
+/**
+ * A list row: icon tile, title over a muted sub-line, then meta, badge and
+ * action columns that stack on narrower screens.
+ *
+ * @param props.meta - Left out when undefined, null or "" (0 still shows).
+ * @param props.onClick - Makes the whole row one button; pass no interactive
+ *   `action` with it, since controls cannot nest.
+ */
 export function ListRow({
-  icon,
-  tone: t,
-  title,
-  sub,
-  meta,
-  badge,
-  action,
   onClick,
   className,
-}: {
-  icon?: IconType;
-  tone?: ToneInput;
-  title: ReactNode;
-  sub?: ReactNode;
-  meta?: ReactNode;
-  badge?: ReactNode;
-  action?: ReactNode;
+  ...content
+}: RowContent & {
   onClick?: () => void;
   className?: string;
 }) {
-  const content = (
-    <>
-      <span className="ds-list-lead">
-        {icon && <IconTile icon={icon} tone={t ?? "blue"} />}
-        <span className="ds-list-text">
-          <strong className="ds-list-title">{title}</strong>
-          {sub && <span className="ds-list-sub">{sub}</span>}
-        </span>
-      </span>
-      {meta !== undefined && meta !== null && meta !== "" && (
-        <span className="ds-list-meta">{meta}</span>
-      )}
-      {badge && <span className="ds-list-badge">{badge}</span>}
-      {action && <span className="ds-list-action">{action}</span>}
-    </>
-  );
   return onClick ? (
     <button
       type="button"
       className={cx("ds-list-row", className)}
       onClick={onClick}
     >
-      {content}
+      <ListRowContent {...content} />
     </button>
   ) : (
-    <div className={cx("ds-list-row", className)}>{content}</div>
+    <div className={cx("ds-list-row", className)}>
+      <ListRowContent {...content} />
+    </div>
   );
 }
 
+/** A dashed empty-state box: title, explanation and an optional action. */
 export function EmptyState({
   title,
   children,
@@ -543,6 +509,12 @@ export function EmptyState({
   );
 }
 
+/**
+ * An inline notice, such as the amber "Local demo." bar.
+ *
+ * @param props.tone - Defaults to blue.
+ * @param props.role - "status" or "alert" when it should be announced.
+ */
 export function NoticeBar({
   tone: t,
   icon: Icon,
@@ -563,7 +535,7 @@ export function NoticeBar({
     >
       {Icon && (
         <span className="ds-notice-icon">
-          <Icon size={18} weight="duotone" aria-hidden="true" />
+          <Icon size={INLINE_ICON_SIZE} weight="duotone" aria-hidden="true" />
         </span>
       )}
       <div className="ds-notice-body">{children}</div>
@@ -573,6 +545,12 @@ export function NoticeBar({
 
 /* ─────────────────────────── Controls ──────────────────────────── */
 
+/**
+ * An on/off switch: a native checkbox with role="switch", found by its label
+ * or as a switch.
+ *
+ * @param props.onChange - Receives the new checked state.
+ */
 export function Switch({
   checked,
   onChange,
@@ -605,6 +583,7 @@ export function Switch({
   );
 }
 
+/** One choice in a Segmented control; a count shows after its label. */
 export type SegmentedOption = {
   value: string;
   label: string;
@@ -612,6 +591,16 @@ export type SegmentedOption = {
   icon?: IconType;
   disabled?: boolean;
 };
+
+/**
+ * A pill track of buttons that picks one value.
+ *
+ * @param props.label - The group's accessible name.
+ * @param props.mode - Marks the chosen button aria-pressed ("pressed", the
+ *   default) or aria-current="page" ("current").
+ * @returns The group. Each button is named by its label alone: counts are
+ *   hidden from screen readers, and an empty count is left out.
+ */
 export function Segmented({
   label,
   options,
@@ -633,38 +622,26 @@ export function Segmented({
       role="group"
       aria-label={label}
     >
-      {options.map((o) => {
-        const selected = o.value === value;
-        const Icon = o.icon;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            disabled={o.disabled}
-            aria-pressed={mode === "pressed" ? selected : undefined}
-            aria-current={mode === "current" && selected ? "page" : undefined}
-            onClick={() => onChange(o.value)}
-          >
-            {Icon && (
-              <Icon
-                size={17}
-                weight={selected ? "duotone" : "regular"}
-                aria-hidden="true"
-              />
-            )}
-            {o.label}
-            {o.count !== undefined && o.count !== "" && (
-              <span className="ds-seg-count" aria-hidden="true">
-                {o.count}
-              </span>
-            )}
-          </button>
-        );
-      })}
+      {options.map((o) => (
+        <SegmentButton
+          key={o.value}
+          option={o}
+          selected={o.value === value}
+          mode={mode}
+          onChange={onChange}
+        />
+      ))}
     </div>
   );
 }
 
+/**
+ * A round icon button, such as a dialog's close button.
+ *
+ * @param props.label - Its accessible name.
+ * @param props.icon - Defaults to X.
+ * @param props.onNavy - Colours it for a navy background.
+ */
 export function RoundButton({
   label,
   onClick,
@@ -685,148 +662,72 @@ export function RoundButton({
       aria-label={label}
       onClick={onClick}
     >
-      <Icon size={18} aria-hidden="true" />
+      <Icon size={INLINE_ICON_SIZE} aria-hidden="true" />
     </button>
   );
 }
 
 /* ─────────────────────────── Overlays ──────────────────────────── */
 
+/**
+ * A modal dialog on the native <dialog>, named by its title: focus stays
+ * inside while it is open and returns to the opener when it closes. It is a
+ * centred panel from 760px wide and a bottom sheet below.
+ *
+ * @param props.open - False renders nothing; defaults to true.
+ * @param props.onClose - Called by Escape (the top-most dialog only), the
+ *   close button and, unless `dismissOnScrim` is false, a click on the scrim.
+ * @param props.size - default (720px), narrow (560), wide (1100) or full
+ *   (1480).
+ * @param props.header - Replaces the title and close button; the title then
+ *   names the dialog through aria-label.
+ * @param props.footer - A sticky action row, such as Cancel and Save.
+ */
 export function Dialog({
   open = true,
-  onClose,
-  title,
-  subtitle,
-  header,
-  footer,
-  size = "default",
-  dismissOnScrim = true,
-  closeLabel = "Close dialog",
-  className,
-  children,
-}: {
-  open?: boolean;
-  onClose: () => void;
-  title: string;
-  subtitle?: ReactNode;
-  header?: ReactNode;
-  footer?: ReactNode;
-  size?: "default" | "narrow" | "wide" | "full";
-  dismissOnScrim?: boolean;
-  closeLabel?: string;
-  className?: string;
-  children?: ReactNode;
-}) {
+  ...props
+}: DialogProps & { open?: boolean }) {
   if (!open) return null;
-  return (
-    <DialogInner
-      onClose={onClose}
-      title={title}
-      subtitle={subtitle}
-      header={header}
-      footer={footer}
-      size={size}
-      dismissOnScrim={dismissOnScrim}
-      closeLabel={closeLabel}
-      className={className}
-    >
-      {children}
-    </DialogInner>
-  );
+  return <DialogInner {...props} />;
 }
 
-/** Dialog without the `open` switch; Modal in ui.tsx renders through it. */
+/** The Dialog frame without `open`: mount it only while it is shown. */
 export const DialogFrame = DialogInner;
 function DialogInner({
-  onClose,
-  title,
-  subtitle,
-  header,
-  footer,
   size = "default",
   dismissOnScrim = true,
   closeLabel = "Close dialog",
-  className,
-  children,
-}: {
-  onClose: () => void;
-  title: string;
-  subtitle?: ReactNode;
-  header?: ReactNode;
-  footer?: ReactNode;
-  size?: "default" | "narrow" | "wide" | "full";
-  dismissOnScrim?: boolean;
-  closeLabel?: string;
-  className?: string;
-  children?: ReactNode;
-}) {
+  ...props
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
-  const pressStartedOnScrim = useRef(false);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
+  const dismiss = useDismiss(props.onClose, dismissOnScrim);
   const titleId = useId();
   const subtitleId = useId();
-  useEffect(() => {
-    const dialog = ref.current!;
-    const opener =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    if (!dialog.open) dialog.showModal();
-    return () => {
-      if (dialog.open) dialog.close();
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
-    };
-  }, []);
+  useModal(ref);
   // The scrim click is a pointer convenience; Escape (onCancel) and the
   // close button are the keyboard paths.
   return (
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <dialog
       ref={ref}
-      className={cx("ds-dialog", size !== "default" && size, className)}
+      className={cx("ds-dialog", size !== "default" && size, props.className)}
       aria-modal="true"
-      aria-labelledby={header ? undefined : titleId}
-      aria-label={header ? title : undefined}
-      aria-describedby={!header && subtitle ? subtitleId : undefined}
-      onCancel={(e) => {
-        // React passes a nested dialog's cancel (Escape) up the component
-        // tree, through portals, to every dialog that renders it. Only the
-        // dialog the browser cancelled closes; its parents keep their forms.
-        if (e.target !== e.currentTarget) return;
-        e.preventDefault();
-        onCloseRef.current();
-      }}
-      onPointerDown={(e) => {
-        pressStartedOnScrim.current = e.target === e.currentTarget;
-      }}
-      onClick={(e) => {
-        if (
-          dismissOnScrim &&
-          pressStartedOnScrim.current &&
-          e.target === e.currentTarget
-        )
-          onCloseRef.current();
-        pressStartedOnScrim.current = false;
-      }}
+      {...dialogNames(props, titleId, subtitleId)}
+      onCancel={dismiss.onCancel}
+      onPointerDown={dismiss.onPointerDown}
+      onClick={dismiss.onClick}
     >
       <div className="ds-dialog-panel">
-        {header ?? (
-          <div className="ds-dialog-header">
-            <div>
-              <h2 id={titleId}>{title}</h2>
-              {subtitle && <p id={subtitleId}>{subtitle}</p>}
-            </div>
-            <RoundButton
-              label={closeLabel}
-              onClick={() => onCloseRef.current()}
-            />
-          </div>
+        {props.header ?? (
+          <DialogHeader
+            title={props.title}
+            subtitle={props.subtitle}
+            ids={[titleId, subtitleId]}
+            closeLabel={closeLabel}
+            onClose={dismiss.close}
+          />
         )}
-        <div className="ds-dialog-body">{children}</div>
-        {footer && <div className="ds-dialog-footer">{footer}</div>}
+        <div className="ds-dialog-body">{props.children}</div>
+        {props.footer && <div className="ds-dialog-footer">{props.footer}</div>}
       </div>
     </dialog>
   );
@@ -834,57 +735,55 @@ function DialogInner({
 
 /* ───────────────────────────── Brand ───────────────────────────── */
 
+/**
+ * The Angel One wordmark.
+ *
+ * @param props.variant - navy, white, or auto (the default): navy in the
+ *   light theme and white in the dark one.
+ * @param props.width - In pixels; 156 unless only a height is given.
+ */
 export function Wordmark({
   variant = "auto",
-  width,
-  height,
   className,
-}: {
-  variant?: "auto" | "navy" | "white";
-  width?: number;
-  height?: number;
-  className?: string;
-}) {
-  const style: CSSProperties = {
-    width: width ?? (height ? "auto" : 156),
-    height: height ?? "auto",
-  };
-  const img = (src: string, kind: "navy" | "white") => (
-    <img
+  ...size
+}: WordmarkProps) {
+  // Auto renders both images; CSS shows the one that suits the theme.
+  const themed = (kind: "navy" | "white") => (
+    <WordmarkImage
       key={kind}
-      src={src}
-      alt="Angel One"
+      kind={kind}
+      {...size}
       className={cx(
         "ds-wordmark",
         variant === "auto" && "auto",
         "ds-wordmark-" + kind,
         className,
       )}
-      style={style}
-      width={width}
-      height={height}
     />
   );
-  if (variant === "navy") return img("/branding/angelone.png", "navy");
+  if (variant === "navy") return themed("navy");
   if (variant === "white")
     return (
-      <img
-        src="/branding/angelone-white.png"
-        alt="Angel One"
+      <WordmarkImage
+        kind="white"
+        {...size}
         className={cx("ds-wordmark", className)}
-        style={style}
-        width={width}
-        height={height}
       />
     );
   return (
     <>
-      {img("/branding/angelone.png", "navy")}
-      {img("/branding/angelone-white.png", "white")}
+      {themed("navy")}
+      {themed("white")}
     </>
   );
 }
 
+/**
+ * The inverted aircraft line drawing for navy panels; decorative, and never
+ * placed behind text.
+ *
+ * @param props.drift - Lets it drift slowly.
+ */
 export function AircraftArt({
   className,
   opacity = 0.34,
@@ -901,6 +800,239 @@ export function AircraftArt({
       aria-hidden="true"
       className={cx("ds-aircraft-art", drift && "drift", className)}
       style={{ "--art-opacity": opacity } as CSSProperties}
+    />
+  );
+}
+
+type WordmarkProps = {
+  variant?: "auto" | "navy" | "white";
+  width?: number;
+  height?: number;
+  className?: string;
+};
+type RowContent = {
+  icon?: IconType;
+  tone?: ToneInput;
+  title: ReactNode;
+  sub?: ReactNode;
+  meta?: ReactNode;
+  badge?: ReactNode;
+  action?: ReactNode;
+};
+
+function readBreakpoint(): Breakpoint {
+  if (typeof window === "undefined" || !window.matchMedia) return "desktop";
+  if (window.matchMedia(DESKTOP_QUERY).matches) return "desktop";
+  return window.matchMedia(PHONE_QUERY).matches ? "phone" : "tablet";
+}
+
+function subscribeBreakpoint(notify: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const queries = [DESKTOP_QUERY, PHONE_QUERY].map((q) => window.matchMedia(q));
+  queries.forEach((q) => q.addEventListener("change", notify));
+  return () => queries.forEach((q) => q.removeEventListener("change", notify));
+}
+
+function storedTheme(): Theme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "dark" || saved === "light") return saved;
+  } catch {
+    // Storage blocked: fall through to the system preference.
+  }
+  try {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  } catch {
+    // No matchMedia to ask: light.
+    return "light";
+  }
+}
+
+function applyTheme(theme: Theme) {
+  if (typeof document !== "undefined")
+    document.documentElement.classList.toggle("dark", theme === "dark");
+}
+
+// The fill's width in percent: clamped to 0–100 (NaN reads as 0) and rounded
+// to one decimal place.
+function progressPercent(value: number) {
+  return Math.round(Math.min(1, Math.max(0, value || 0)) * 1000) / 10;
+}
+
+function progressRole(label: string | undefined, pct: number) {
+  if (!label) return { "aria-hidden": true } as const;
+  return {
+    role: "progressbar",
+    "aria-label": label,
+    "aria-valuemin": 0,
+    "aria-valuemax": 100,
+    "aria-valuenow": pct,
+  } as const;
+}
+
+function ListRowContent({
+  icon,
+  tone: t,
+  title,
+  sub,
+  meta,
+  badge,
+  action,
+}: RowContent) {
+  return (
+    <>
+      <span className="ds-list-lead">
+        {icon && <IconTile icon={icon} tone={t ?? "blue"} />}
+        <span className="ds-list-text">
+          <strong className="ds-list-title">{title}</strong>
+          {sub && <span className="ds-list-sub">{sub}</span>}
+        </span>
+      </span>
+      {meta !== undefined && meta !== null && meta !== "" && (
+        <span className="ds-list-meta">{meta}</span>
+      )}
+      {badge && <span className="ds-list-badge">{badge}</span>}
+      {action && <span className="ds-list-action">{action}</span>}
+    </>
+  );
+}
+
+function SegmentButton({
+  option: o,
+  selected,
+  mode,
+  onChange,
+}: {
+  option: SegmentedOption;
+  selected: boolean;
+  mode: "pressed" | "current";
+  onChange: (value: string) => void;
+}) {
+  const Icon = o.icon;
+  return (
+    <button
+      type="button"
+      disabled={o.disabled}
+      aria-pressed={mode === "pressed" ? selected : undefined}
+      aria-current={mode === "current" && selected ? "page" : undefined}
+      onClick={() => onChange(o.value)}
+    >
+      {Icon && (
+        <Icon
+          size={17}
+          weight={selected ? "duotone" : "regular"}
+          aria-hidden="true"
+        />
+      )}
+      {o.label}
+      {o.count !== undefined && o.count !== "" && (
+        <span className="ds-seg-count" aria-hidden="true">
+          {o.count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// Opens the dialog modally on mount; on unmount closes it and returns focus
+// to the element that opened it.
+function useModal(ref: RefObject<HTMLDialogElement | null>) {
+  useEffect(() => {
+    const dialog = ref.current!;
+    const opener =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    if (!dialog.open) dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [ref]);
+}
+
+// The handlers read the latest onClose through a ref, so a new onClose never
+// re-runs the effect that opened the dialog.
+function useDismiss(onClose: () => void, dismissOnScrim: boolean) {
+  const onCloseRef = useRef(onClose);
+  const pressStartedOnScrim = useRef(false);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  return {
+    close: () => onCloseRef.current(),
+    onCancel: (e: SyntheticEvent<HTMLDialogElement>) => {
+      // React passes a nested dialog's cancel (Escape) up the component
+      // tree, through portals, to every dialog that renders it. Only the
+      // dialog the browser cancelled closes; its parents keep their forms.
+      if (e.target !== e.currentTarget) return;
+      e.preventDefault();
+      onCloseRef.current();
+    },
+    onPointerDown: (e: PointerEvent<HTMLDialogElement>) => {
+      pressStartedOnScrim.current = e.target === e.currentTarget;
+    },
+    // Only a press that began on the scrim closes, so a drag that starts in
+    // the panel and ends outside it leaves the dialog open.
+    onClick: (e: MouseEvent<HTMLDialogElement>) => {
+      const own = pressStartedOnScrim.current && e.target === e.currentTarget;
+      if (dismissOnScrim && own) onCloseRef.current();
+      pressStartedOnScrim.current = false;
+    },
+  };
+}
+
+// A custom header has no h2 to point at, so the title names the dialog.
+function dialogNames(
+  { header, title, subtitle }: DialogProps,
+  titleId: string,
+  subtitleId: string,
+) {
+  return {
+    "aria-labelledby": header ? undefined : titleId,
+    "aria-label": header ? title : undefined,
+    "aria-describedby": !header && subtitle ? subtitleId : undefined,
+  };
+}
+
+function DialogHeader(props: {
+  title: string;
+  subtitle?: ReactNode;
+  ids: [title: string, subtitle: string];
+  closeLabel: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="ds-dialog-header">
+      <div>
+        <h2 id={props.ids[0]}>{props.title}</h2>
+        {props.subtitle && <p id={props.ids[1]}>{props.subtitle}</p>}
+      </div>
+      <RoundButton label={props.closeLabel} onClick={props.onClose} />
+    </div>
+  );
+}
+
+function WordmarkImage(
+  props: Pick<WordmarkProps, "width" | "height"> & {
+    kind: "navy" | "white";
+    className: string;
+  },
+) {
+  const { width, height } = props;
+  return (
+    <img
+      src={WORDMARK_SRC[props.kind]}
+      alt="Angel One"
+      className={props.className}
+      style={{
+        width: width ?? (height ? "auto" : WORDMARK_WIDTH),
+        height: height ?? "auto",
+      }}
+      width={width}
+      height={height}
     />
   );
 }

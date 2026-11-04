@@ -1,9 +1,11 @@
 /**
- * Responsibility: Pins work-order close-out through saveWorkOrder: completion
- *   readings, compliance updates, component work and the logbook text.
+ * Responsibility: Pins work-order close-out: compliance, readings at
+ *   completion, component data, every refusal in order, and the logbook
+ *   wording it freezes.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/workOrders.ts, ./model, ./logbook, ./components,
- *   ./rejection, src/data/demo.ts, tests/fixtures/workOrders.ts.
+ * Dependencies: src/domain/workOrderCloseout.ts, ./workOrders, ./logbook,
+ *   ./components, ./rejection; tests/fixtures (work orders, task cards);
+ *   src/data/demo.ts (seed).
  */
 import { it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -25,6 +27,9 @@ import {
   emptyInspectionEntry,
 } from "./logbook";
 import { componentTotals, type ComponentRequirement } from "./components";
+import { completeWorkOrder, workPerformedText } from "./workOrderCloseout";
+import type { CompletionReadings } from "./workOrderCloseoutSchema";
+import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-02T12:00:00Z");
 function setup() {
@@ -230,14 +235,17 @@ it("requires explicit readings for backdated closeout and rejects invalid readin
   command.fields.completionDate = "2026-10-01";
   const snapshot = structuredClone(s);
   expect(() => saveWorkOrder(s, command, now)).toThrow("backdated");
-  expect(() => saveWorkOrder(s, command, now)).toThrow(Rejection);
   expect(s).toEqual(snapshot);
-  const outside = {
-    ...command,
-    completionReadings: { totalSeconds: 0, hobbs: 0, tach: 0, cycles: 0 },
-  };
-  expect(() => saveWorkOrder(s, outside, now)).toThrow("Completion readings");
-  expect(() => saveWorkOrder(s, outside, now)).toThrow(Rejection);
+  expect(() =>
+    saveWorkOrder(
+      s,
+      {
+        ...command,
+        completionReadings: { totalSeconds: 0, hobbs: 0, tach: 0, cycles: 0 },
+      },
+      now,
+    ),
+  ).toThrow("Completion readings");
   expect(s).toEqual(snapshot);
   const final = saveWorkOrder(
     s,
@@ -387,3 +395,225 @@ it.each([undefined, "", "  "])(
     expect(logbookText(s, final, "maintenance", signer)).toContain(expected);
   },
 );
+
+/**
+ * An open order on the first inspection, plus an engine with a recurring
+ * inspection requirement; `closing` is that order completed today with every
+ * item completed.
+ */
+function closeoutWorld() {
+  const { s, cmd } = setup();
+  const a = s.aircraft[0];
+  const engine = { ...workOrderComponent(), programUuid: a.programUuid };
+  const requirement: ComponentRequirement = {
+    uuid: "service",
+    version: 1,
+    programUuid: a.programUuid,
+    kind: "componentRequirement",
+    aircraftUuid: a.uuid,
+    componentUuid: engine.uuid,
+    requirementType: "Inspection Requirement",
+    description: "Engine recurring inspection",
+    notes: "",
+    calendarIntervalUnit: "MONTHS",
+    calendarIntervalValue: 6,
+    timeBasis: "TSN",
+    timeLimitMode: "FROM_LAST_COMPLIED",
+    intervalSeconds: 10 * 3600,
+    cycleLimitMode: "FROM_LAST_COMPLIED",
+    lastSeconds: 0,
+    lastCycles: 0,
+    lastDate: "2026-01-01",
+    warningCalendarMonths: 1,
+    warningSeconds: 0,
+    warningCycles: 0,
+  };
+  s.management = [engine, requirement];
+  cmd.tasks.push(
+    newWorkTask(
+      { kind: "componentRequirement", uuid: requirement.uuid },
+      requirement.description,
+    ),
+  );
+  const order = saveWorkOrder(s, cmd, now);
+  const closing: WorkOrder = {
+    ...order,
+    status: "completed",
+    completionDate: "2026-10-02",
+    tasks: order.tasks.map((t) => ({ ...t, status: "completed" })),
+  };
+  const opening = {
+    totalSeconds: order.aircraft.totalSeconds,
+    hobbs: order.aircraft.hobbs,
+    tach: order.aircraft.tach,
+    cycles: order.aircraft.cycles,
+  };
+  return { s, a, engine, requirement, order: closing, opening };
+}
+type CloseoutWorld = ReturnType<typeof closeoutWorld>;
+type Attempt = { order?: WorkOrder; supplied?: CompletionReadings };
+
+// Each refusal, triggered alone; completeWorkOrder checks them in this order.
+const closeoutRefusals: [string, (w: CloseoutWorld) => Attempt][] = [
+  [
+    "Enter aircraft readings at completion for a backdated work order.",
+    (w) => ({ order: { ...w.order, completionDate: "2026-10-01" } }),
+  ],
+  [
+    "Completion readings must be between the work-order opening readings and current aircraft readings.",
+    (w) => ({ supplied: { ...w.opening, cycles: w.opening.cycles - 1 } }),
+  ],
+  [
+    "Enter the Collective hourmeter reading at completion.",
+    (w) => {
+      Object.assign(w.a, {
+        meter: "cyclic",
+        currentCyclicHobbs: w.a.currentHobbs,
+      });
+      return { supplied: w.opening };
+    },
+  ],
+  [
+    "Completion Collective hourmeter must be between opening and current readings.",
+    (w) => ({ supplied: { ...w.opening, cyclicHobbs: 1 } }),
+  ],
+  [
+    "Enter the Flight time log reading at completion.",
+    (w) => {
+      Object.assign(w.a, {
+        meter: "flightTimeLog",
+        currentFlightTimeLog: w.a.currentHobbs,
+      });
+      return { supplied: w.opening };
+    },
+  ],
+  [
+    "Completion Flight time log must be between opening and current readings.",
+    (w) => ({ supplied: { ...w.opening, flightTimeLog: 1 } }),
+  ],
+  [
+    "Enter aircraft total landings at completion.",
+    (w) => {
+      w.s.inspections[0].dueLandings = 5000;
+      return { supplied: w.opening };
+    },
+  ],
+  [
+    "Completion landings must be between opening and current aircraft totals.",
+    (w) => ({ supplied: { ...w.opening, landings: w.a.landings + 1 } }),
+  ],
+  [
+    "The work-order completion date cannot precede its completed job cards.",
+    (w) => {
+      const card = taskCardCommand().fields;
+      w.s.taskCards = [
+        {
+          ...card,
+          uuid: crypto.randomUUID(),
+          version: 1,
+          createdAt: now,
+          createdBy: w.s.user.id,
+          updatedAt: now,
+          technicianSignoff: null,
+          inspectionSignoff: null,
+          stepSignoffs: {},
+          workOrderUuid: w.order.uuid,
+          status: "completed",
+          completionDate: "2026-10-03",
+        },
+      ];
+      return {};
+    },
+  ],
+  [
+    "A serviced component has moved or has tracking changes after the completion date. Review its tracking before closing this order.",
+    (w) => {
+      w.engine.removedDate = "2026-10-05";
+      return {};
+    },
+  ],
+  [
+    "The inspection is unavailable for this work order.",
+    (w) => {
+      w.s.inspections[0].aircraftUuid = w.s.aircraft[1].uuid;
+      return {};
+    },
+  ],
+  [
+    "The component service requirement is unavailable.",
+    (w) => {
+      w.requirement.aircraftUuid = w.s.aircraft[1].uuid;
+      return {};
+    },
+  ],
+  [
+    "Component compliance would precede existing compliance or lacks a verified time baseline.",
+    (w) => {
+      w.requirement.lastDate = "2026-12-01";
+      return {};
+    },
+  ],
+];
+
+it.each(closeoutRefusals)("refuses close-out: %s", (message, build) => {
+  const w = closeoutWorld();
+  const { order = w.order, supplied } = build(w);
+  let error: unknown;
+  try {
+    completeWorkOrder(w.s, order, supplied, now);
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toBeInstanceOf(Rejection);
+  expect((error as Error).message).toBe(message);
+});
+
+it("records the close-out: readings, signer, components, compliance and work", () => {
+  const w = closeoutWorld();
+  w.s.user.licenseNumber = "12345";
+  w.s.user.certificateType = "A&P";
+  const inspection = w.s.inspections[0].uuid;
+  const service = {
+    componentUuid: "engine",
+    version: w.engine.version,
+    action: "service" as const,
+    description: "",
+    reference: "",
+  };
+  const closeout = completeWorkOrder(w.s, w.order, undefined, now, [service]);
+  const totals = componentTotals(w.engine, w.a, "2026-10-02");
+  expect(closeout).toMatchObject({
+    recordedAt: now,
+    aircraft: {
+      totalSeconds: totalSeconds(w.a),
+      cycles: w.a.cycles,
+      registration: w.a.registration,
+    },
+    completedBy: {
+      userId: w.s.user.id,
+      licenseNumber: "12345",
+      certificateType: "A&P",
+    },
+    components: [
+      {
+        componentUuid: "engine",
+        label: "Engine",
+        timeSinceNew: totals.timeSinceNew,
+        cyclesSinceNew: totals.cyclesSinceNew,
+        serviceDays: totals.serviceDays,
+      },
+    ],
+    componentWork: [{ componentUuid: "engine", action: "service" }],
+  });
+  expect(closeout.compliance.map((c) => [c.kind, c.uuid])).toEqual([
+    ["inspection", inspection],
+    ["componentRequirement", "service"],
+  ]);
+  expect(closeout.compliance[1]).toMatchObject({
+    timeBasis: "TSN",
+    date: "2026-10-02",
+    seconds: totals.timeSinceNew,
+    dueSeconds: totals.timeSinceNew + 10 * 3600,
+  });
+  expect(closeout.workPerformed).toBe(workPerformedText(w.s, w.order));
+});

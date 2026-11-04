@@ -55,13 +55,7 @@ import type {
   ManualEdit,
   ManualInput,
 } from "../domain/manuals";
-import type {
-  Aircraft,
-  FlightInput,
-  Group,
-  Member,
-  Operation,
-} from "../domain/model";
+import type { FlightInput, Group, Member, Operation } from "../domain/model";
 import type { OffsiteCopy } from "../domain/offsiteBackups";
 import type { RequestCommand } from "../domain/partsRequests";
 import type { ProgramTransfer } from "../domain/programTransfers";
@@ -424,13 +418,6 @@ export interface Backend {
    * nothing.
    */
   fleet(command: FleetCommand): Promise<unknown>;
-  /**
-   * Creates an aircraft in the active program through the administrator
-   * path, whose checks differ from {@link Backend.fleet}'s; prefer fleet.
-   *
-   * @param aircraft - The new aircraft with its baselines.
-   */
-  createAircraft(aircraft: Aircraft): Promise<unknown>;
   /** Sets an aircraft's photo, replacing any earlier one. */
   uploadAircraftPhoto(aircraftUuid: string, file: File): Promise<unknown>;
   /** Removes an aircraft's photo; logged even when it had none. */
@@ -852,8 +839,6 @@ function bindAircraftCalls(client: ConvexReactClient) {
   return {
     fleet: (command) =>
       client.mutation(api.fleet.save, programCommand(command)),
-    createAircraft: (aircraft) =>
-      client.mutation(api.admin.createAircraft, inProgram({ aircraft })),
     uploadAircraftPhoto: async (aircraftUuid, file) =>
       client.action(api.aircraftPhotos.upload, {
         ...inProgram({ aircraftUuid }),

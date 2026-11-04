@@ -4,19 +4,20 @@
  *   entry, and the shared permission, meter, hours and local-date rules.
  * Layer: Domain. Pure types, zod schemas and functions; no I/O, no React.
  * Dependencies: zod; src/domain/flightFluids.ts, flightChecklistSchema.ts,
- *   programs.ts and rejection.ts; types from the feature modules.
+ *   programs.ts, readings.ts and rejection.ts; types from the feature modules.
  */
 import { fuelSchema, oilSchema } from "./flightFluids";
 import { checklistFlightSchema } from "./flightChecklistSchema";
 import { ownsActive, activeProgram, groupCoversAircraft } from "./programs";
+import { meterReadingSchema } from "./readings";
 import { Rejection } from "./rejection";
 import { z } from "zod";
 
+/** Typed hours as stored seconds; see ./readings, kept here for importers. */
+export { parseHours } from "./readings";
+
 const HOUR_SECONDS = 3600;
 const HOUR_MS = HOUR_SECONDS * 1000;
-
-// Meters read in tenths of an hour; readings are stored in seconds.
-const TENTH_HOUR_SECONDS = 360;
 
 // The world's time zones run from UTC-12 to UTC+14.
 const FURTHEST_BEHIND_UTC_MS = 12 * HOUR_MS;
@@ -116,15 +117,6 @@ export interface Aircraft {
   latestFlightAt?: string;
   operationalStatus: "unknown" | "airworthy" | "maintenance" | "grounded";
 }
-const meterSchema = z
-  .number()
-  .int()
-  .nonnegative()
-  .refine(
-    (n) => n % TENTH_HOUR_SECONDS === 0,
-    "Meter readings must use tenths of an hour",
-  );
-
 /** One engine start logged with a flight: the engine, duration and peak EGT. */
 export const engineStartSchema = z.object({
   engine: z.enum(["single", "left", "right"]),
@@ -162,10 +154,10 @@ export const flightInputSchema = z.object({
   pilotId: z.string().min(1),
   copilotId: z.string().optional(),
   startTime: z.iso.datetime({ offset: true }),
-  hobbsOn: meterSchema.optional(),
-  tachOn: meterSchema.optional(),
-  cyclicHobbsOn: meterSchema.optional(),
-  flightTimeLogOn: meterSchema.optional(),
+  hobbsOn: meterReadingSchema.optional(),
+  tachOn: meterReadingSchema.optional(),
+  cyclicHobbsOn: meterReadingSchema.optional(),
+  flightTimeLogOn: meterReadingSchema.optional(),
   landings: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
   cycles: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
   origin: z.string().max(100),
@@ -528,25 +520,6 @@ export function hours(seconds: number): string {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
-}
-
-/**
- * Reads hours as typed, with at most one decimal, as whole seconds.
- *
- * @param value - The typed hours, such as "1234.5".
- * @returns The seconds, or undefined when the value is blank.
- * @throws {Rejection} "Use positive hours with at most one decimal place."
- *   for any other text (spaces around a number included); "Meter reading is
- *   too large." past the largest safe integer.
- */
-export function parseHours(value: string): number | undefined {
-  if (!value.trim()) return undefined;
-  if (!/^\d+(\.\d)?$/.test(value))
-    throw new Rejection("Use positive hours with at most one decimal place.");
-  const result = Math.round(Number(value) * HOUR_SECONDS);
-  if (!Number.isSafeInteger(result))
-    throw new Rejection("Meter reading is too large.");
-  return result;
 }
 
 function formatUtcDate(ms: number): string {

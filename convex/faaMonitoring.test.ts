@@ -3,8 +3,9 @@
  *   successful check kept when a later FAA call fails, the FAA allowances
  *   charged, and the cap on enabled monitors per Flight Program.
  * Layer: Test. convex-test suite with a stubbed FAA DRS; never shipped.
- * Dependencies: convex/faa.ts, convex/faaSearch.ts, convex/schema.ts,
- *   src/domain/faa.ts, src/data/demo.ts (fixture).
+ * Dependencies: convex/faa.ts, convex/faaSearch.ts, convex/faaCredentials.ts,
+ *   convex/secrets.ts, convex/schema.ts, src/domain/faa.ts, src/data/demo.ts
+ *   (fixture).
  */
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
@@ -14,6 +15,8 @@ import { demoSnapshot } from "../src/data/demo";
 import { emptyMonitor } from "../src/domain/faa";
 import { MAX_ENABLED_FAA_MONITORS } from "./faa";
 import { FAA_PROGRAM_DAILY } from "./faaSearch";
+import { FAA_SECRET } from "./faaCredentials";
+import { sealSecret } from "./secrets";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -21,6 +24,13 @@ const modules = import.meta.glob([
   "!./**/*.d.ts",
 ]);
 const DAY_MS = 86_400_000;
+const CREDENTIALS_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+
+// The stored FAA key, sealed as saving one seals it.
+async function sealedFaaKey() {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", CREDENTIALS_KEY);
+  return sealSecret("synthetic", FAA_SECRET);
+}
 it("completes targeted monitoring and retains the last successful check when a later FAA call fails", async () => {
   const t = convexTest(schema, modules);
   const aircraft = {
@@ -28,10 +38,11 @@ it("completes targeted monitoring and retains the last successful check when a l
     model: "C441",
     faaSearchModel: "441",
   };
+  const key = await sealedFaaKey();
   const id = await t.run(async (ctx) => {
     await ctx.db.insert("aircraft", aircraft);
     await ctx.db.insert("faaCredentials", {
-      key: "synthetic",
+      key,
       expiresOn: "2099-01-01",
       version: 1,
       updatedAt: 0,
@@ -103,11 +114,12 @@ async function monitorSetup() {
     model: "C441",
     faaSearchModel: "441",
   };
+  const key = await sealedFaaKey();
   const identity = await t.run(async (ctx) => {
     await ctx.db.insert("programs", demoSnapshot().programs![0]);
     await ctx.db.insert("aircraft", aircraft);
     await ctx.db.insert("faaCredentials", {
-      key: "synthetic",
+      key,
       expiresOn: "2099-01-01",
       version: 1,
       updatedAt: 0,
