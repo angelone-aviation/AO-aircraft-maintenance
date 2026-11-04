@@ -25,11 +25,11 @@ import {
   type ADCompliance,
   type ADTask,
 } from "./airworthiness";
-import { componentSchema } from "./components";
+import { componentSchema, type Component } from "./components";
 import { Rejection } from "./rejection";
 import { fetchDrsCandidates, mergeCandidates } from "./faa";
 import { aircraftStatus } from "./aircraftStatus";
-import { localDate, type Snapshot } from "./model";
+import { localDate, totalSeconds, type Aircraft, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
 import { workSources } from "./workOrders";
 function setup() {
@@ -838,29 +838,7 @@ it("leaves the counter unavailable when component totals cannot be read", () => 
   const { s } = setup();
   const a = s.aircraft[0];
   s.management = [
-    componentSchema.parse({
-      kind: "component",
-      uuid: "engine-1",
-      version: 0,
-      aircraftUuid: a.uuid,
-      componentType: "Engine",
-      manufacturer: "",
-      model: "",
-      partNumber: "PN",
-      serial: "SN",
-      notes: "",
-      installed: true,
-      trackTime: true,
-      trackCycles: true,
-      trackCalendar: false,
-      installedSeconds: a.currentHobbs + 3600,
-      installedCycles: a.cycles,
-      timeSinceNew: 0,
-      timeSinceOverhaul: null,
-      timeSinceRepair: null,
-      cyclesSinceNew: 0,
-      serviceDaysBase: 0,
-    }),
+    installedEngine(a, { installedSeconds: a.currentHobbs + 3600 }),
   ];
   const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
   expect(adCounters(s, r)).toBeNull();
@@ -871,9 +849,56 @@ it("leaves the counter unavailable when component totals cannot be read", () => 
   });
 });
 
+// Characterizes current behaviour: the aircraft meter's own refusals
+// (src/domain/model.ts) are plain Errors, so a catch narrowed to Rejection
+// would not cover the same set.
+it("leaves the counter unavailable for the aircraft meter's plain errors too", () => {
+  const { s } = setup();
+  const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
+  const unread: Partial<Aircraft>[] = [
+    { meter: "flightTimeLog", currentFlightTimeLog: undefined },
+    { meter: "cyclic", currentCyclicHobbs: undefined },
+  ];
+  for (const meter of unread) {
+    const a = { ...s.aircraft[0], ...meter };
+    s.aircraft[0] = a;
+    s.management = [installedEngine(a, {})];
+    expect(adCounters(s, r)).toBeNull();
+    expect(() => totalSeconds(a)).toThrow(Error);
+    expect(() => totalSeconds(a)).not.toThrow(Rejection);
+  }
+});
+
 it("reports not applicable and superseded ADs by their applicability", () => {
   const { s, r } = setup();
   expect(CLOSED_APPLICABILITY).toEqual(["Not applicable", "Superseded"]);
   for (const applicability of CLOSED_APPLICABILITY)
     expect(adStatus(s, { ...r, applicability })).toBe(applicability);
 });
+
+function installedEngine(a: Aircraft, fields: Partial<Component>) {
+  return componentSchema.parse({
+    kind: "component",
+    uuid: "engine-1",
+    version: 0,
+    aircraftUuid: a.uuid,
+    componentType: "Engine",
+    manufacturer: "",
+    model: "",
+    partNumber: "PN",
+    serial: "SN",
+    notes: "",
+    installed: true,
+    trackTime: true,
+    trackCycles: true,
+    trackCalendar: false,
+    installedSeconds: 0,
+    installedCycles: a.cycles,
+    timeSinceNew: 0,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+    cyclesSinceNew: 0,
+    serviceDaysBase: 0,
+    ...fields,
+  });
+}
