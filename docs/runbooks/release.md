@@ -15,6 +15,8 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 
 **CI** runs `npm ci`, `npm run check`, the backup job's tests (`npm run test:backup`) and the Playwright suite. The browser tests serve the production build with the production headers (`scripts/serve-dist.mjs` applies `public/_headers` the way Cloudflare does) and fail on any Content-Security-Policy violation. On failure, the run keeps the Playwright report and traces as the `playwright-report` artifact for 14 days.
 
+**Security gates** are two more CI jobs that run alongside it; like every CI job, either one failing also holds back Deploy. **Dependency audit (production)** runs `npm audit --omit=dev --audit-level=high` on `package-lock.json`. When it fails, upgrade the named package in its own change, never with `npm audit fix --force`. **Secret scan (gitleaks)** scans every branch and tag, full history, with gitleaks 8.30.1. Its version and SHA-256 are pinned in `ci.yml`, and Dependabot does not raise them. When it fails, treat the secret as leaked: rotate it first, then remove it from the code. History keeps the old value, so once it no longer works, add its `Fingerprint` (from `gitleaks git --redact -v .`) to `.gitleaksignore` with a `#` line giving the date and reason. Made-up test values go in `.gitleaks.toml`, matched by exact value and path.
+
 **Deploy** (manual runs refuse unless you confirm a backup; auto runs follow a green CI push):
 
 1. runs `npm run check`;
@@ -71,7 +73,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
    - **Required reviewers**: the technical owner. (On GitHub Free this rule is only available for public repositories; then keep write access to the repository limited.)
    - **Environment secrets**: `CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Do not add them as repository secrets.
    - **Environment variable** `PRODUCTION_URL` = `https://ops.angeloneaviation.org` (turns on the smoke check).
-2. Protect `main`: require a pull request and the **Check and browser tests** status check.
+2. Protect `main`: require a pull request and the **Check and browser tests**, **Dependency audit (production)** and **Secret scan (gitleaks)** status checks. A private repository needs GitHub Pro or higher for this.
 3. Settings → Code security: turn on Dependabot alerts and security updates. Version updates come from `.github/dependabot.yml`.
 
 ## Release
@@ -154,5 +156,4 @@ npx wrangler@4.151.3 dev               # Cloudflare's own runtime, on this compu
 ## Not set up yet
 
 - **Previews per change** ([ADR-0007](../adr/0007-convex-pro-single-seat.md)): Convex preview deployments plus Cloudflare Worker Previews. `preview_urls` is off in `wrangler.jsonc` until then. Previews are public by default.
-- **Automatic deploys** from `main`: the Deploy workflow is manual on purpose.
 - **Wrangler version**: the workflows run a pinned `wrangler` through `npx`, which Dependabot does not update. Raise `WRANGLER_VERSION` in `deploy.yml` and the version in this runbook together.

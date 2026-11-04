@@ -1,8 +1,9 @@
 # Responsibility: Checks every pull request and push to main: standards on
 #   changed files, typecheck, lint, unit and server tests, build, backup-job
-#   tests and browser tests.
-# Layer: Tooling (CI). Needs no secrets and never deploys.
-# Dependencies: npm, Playwright Chromium, age,
+#   tests, browser tests, production dependency audit and secret scan.
+# Layer: Tooling (CI). Needs no secrets and never deploys; a green run for a
+#   push to main starts deploy.yml, so every job here gates production.
+# Dependencies: npm, Playwright Chromium, age, gitleaks, .gitleaks.toml,
 #   .claude/hooks/check-standards.mjs, scripts/serve-dist.mjs.
 #
 # The browser tests serve the production build in demo mode with the
@@ -19,7 +20,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Superseded pull-request runs are cancelled; every main commit is checked.
+  # Superseded pull-request runs are cancelled. A main run is never stopped,
+  # but GitHub keeps one waiting run per group, so a newer push replaces it.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -98,3 +100,54 @@ jobs:
             test-results/
           retention-days: 14
           if-no-files-found: ignore
+
+  audit:
+    name: Dependency audit (production)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      # Reads package-lock.json only, so it needs no npm ci.
+      - name: High and critical advisories in production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      # Dependabot does not update this pin: take the version and the
+      # linux_x64 line of the release's checksums file together.
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Every branch and tag, full history: a secret deleted in a later
+          # commit is still readable in the history.
+          fetch-depth: 0
+
+      - name: Install gitleaks (checksum verified)
+        run: |
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tarball"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$tarball" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" gitleaks
+
+      # Exceptions live only in .gitleaks.toml: inline gitleaks:allow comments
+      # are ignored, as CONSTRAINTS.md §7 bans inline suppressions.
+      - name: Scan the git history for secrets
+        run: |
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 --ignore-gitleaks-allow .
