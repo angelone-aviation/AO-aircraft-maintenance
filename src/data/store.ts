@@ -3,7 +3,7 @@
  *   the device outbox of offline flights and problem reports, and its sync.
  * Layer: Data. Zustand store over IndexedDB and the Backend; no UI.
  * Dependencies: zustand, convex/values, src/data (local, backend, demo,
- *   demoBackend, deviceManuals), src/domain (model, programs, flights,
+ *   demoBackend, deviceManuals, errors), src/domain (model, programs, flights,
  *   flightChecklistLink, flightPlans, aircraftStatus).
  *
  * Only flights and problem reports queue offline; every other write needs a
@@ -24,6 +24,7 @@ import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
 import { demoSnapshot, withDemoUser } from "./demo";
 import type { Backend } from "./backend";
 import { demoBackend } from "./demoBackend";
+import { CONVEX_FAILURE_PREFIX, errorText } from "./errors";
 
 // The demo keeps its full fictional snapshot under this suffix of the
 // namespace and shows the workspace a scoped copy, as the server would.
@@ -98,8 +99,9 @@ export interface Workspace {
   /**
    * Sends the signed-in author's entries for the active program, one at a
    * time, while connected and within the offline window. A server rejection
-   * is kept on the entry for the Sync center; other failures are retried on
-   * the next flush. A flush requested while one runs adds one more pass.
+   * is kept on the entry for the Sync center, as errorText words it; other
+   * failures are retried on the next flush. A flush requested while one runs
+   * adds one more pass.
    *
    * @param retry - Also resend entries holding a server rejection.
    */
@@ -137,7 +139,7 @@ export interface Workspace {
 export function permanentSyncError(error: unknown) {
   return (
     error instanceof ConvexError ||
-    (error instanceof Error && error.message.startsWith("[CONVEX "))
+    (error instanceof Error && error.message.startsWith(CONVEX_FAILURE_PREFIX))
   );
 }
 function canFlush(state: Workspace) {
@@ -416,12 +418,7 @@ async function flushPass(namespace: string, backend: Backend, retry: boolean) {
       if (!permanentSyncError(error)) continue;
       await local.persistOperation(namespace, {
         ...entry,
-        error:
-          error instanceof ConvexError && typeof error.data === "string"
-            ? error.data
-            : error instanceof Error
-              ? error.message
-              : "Sync failed. Your entry is preserved.",
+        error: errorText(error),
       });
     }
   }

@@ -4,13 +4,14 @@
  *   commands run through it.
  * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
  * Dependencies: src/data/store.ts, src/data/local.ts, src/data/demo.ts,
- *   tests/fixtures.
+ *   tests/fixtures, convex/values.
  */
 import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
 import { persistOperation, readQueue, readSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import type { Backend } from "./backend";
+import type { Value } from "convex/values";
 it("automatically flushes preserved entries when login supplies a new snapshot", async () => {
   vi.stubGlobal("navigator", { onLine: true });
   const { useWorkspace } = await import("./store");
@@ -209,9 +210,9 @@ it("retries transient sync failures automatically and holds server rejections fo
   expect(queue.find((q) => q.operation.uuid === flaky.uuid)?.error).toBe(
     undefined,
   );
-  expect(
-    queue.find((q) => q.operation.uuid === rejected.uuid)?.error,
-  ).toContain("Server Error");
+  expect(queue.find((q) => q.operation.uuid === rejected.uuid)?.error).toBe(
+    "Something went wrong. Try again, and tell an administrator if it keeps happening.",
+  );
   submit.mockClear();
   submit.mockResolvedValue({ status: "accepted" });
   await workspace.getState().flush();
@@ -220,6 +221,32 @@ it("retries transient sync failures automatically and holds server rejections fo
   await workspace.getState().flush(true);
   expect(submit).toHaveBeenLastCalledWith(rejected);
   expect(await readQueue(namespace)).toEqual([]);
+  vi.unstubAllGlobals();
+});
+it("keeps a ConvexError's refusal, not the client's wrapper, on a rejected entry", async () => {
+  const { ConvexError } = await import("convex/values");
+  const namespace = "sync-refusal-text-test";
+  const refusal = "Aircraft changed. Reload it and try again.";
+  const asText = discrepancy("A"),
+    asObject = discrepancy("A");
+  await persistOperation(namespace, { operation: asText, queuedAt: 1 });
+  await persistOperation(namespace, { operation: asObject, queuedAt: 2 });
+  // Shaped as the Convex client throws it: the wrapper is the message and the
+  // server's refusal is the data.
+  const submit = vi.fn(async (op: { uuid: string }) => {
+    const error = new ConvexError<Value>(
+      "[CONVEX M(operations:submit)] [Request ID: x] Server Error",
+    );
+    error.data =
+      op.uuid === asText.uuid ? refusal : { code: "x", message: refusal };
+    throw error;
+  });
+  const workspace = await liveWorkspace(namespace, submit);
+  await workspace.getState().flush();
+  expect((await readQueue(namespace)).map((q) => q.error)).toEqual([
+    refusal,
+    refusal,
+  ]);
   vi.unstubAllGlobals();
 });
 it("sends an entry queued while a flush is already running", async () => {
