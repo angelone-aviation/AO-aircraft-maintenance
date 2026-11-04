@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins the manual PDF file rule, page references into a
- *   manual, and the rules for editing, renaming and re-associating one.
+ * Responsibility: Pins the manual PDF file rule, applicability limits, page
+ *   references into a manual, and the rules for editing, renaming and
+ *   re-associating one.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/manuals.ts, rejection.ts, src/data/demo.ts
  *   (fixture).
@@ -11,6 +12,7 @@ import { ZodError } from "zod";
 import {
   MAX_MANUAL_BYTES,
   editManual,
+  manualApplicabilitySchema,
   manualEditSchema,
   renameManual,
   setManualApplicability,
@@ -220,5 +222,28 @@ describe("manual changes", () => {
     expect(() =>
       setManualApplicability(s, manual, { ...applicability, model: "" }),
     ).toThrow(ZodError);
+  });
+});
+
+describe("manual applicability", () => {
+  const applicability = {
+    kind: "aircraft" as const,
+    manufacturer: "Cessna",
+    model: "441",
+    partNumber: "",
+  };
+
+  it.each([
+    ["manufacturer", 150],
+    ["model", 150],
+    ["partNumber", 100],
+  ])("accepts a %s of up to %i characters", (key, max) => {
+    const parses = (length: number) =>
+      manualApplicabilitySchema.safeParse({
+        ...applicability,
+        [key]: "A".repeat(length),
+      }).success;
+    expect(parses(max)).toBe(true);
+    expect(parses(max + 1)).toBe(false);
   });
 });

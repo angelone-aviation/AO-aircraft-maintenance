@@ -8,6 +8,7 @@
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
+  TEMPLATE_CSV_MAX_BYTES,
   emptyTemplate,
   inspectionTemplateSchema,
   parseTemplateCsv,
@@ -415,4 +416,22 @@ it("reports bad rows in place and leaves rows not applicable unselected", () => 
     [5, "", false],
     [6, "", true],
   ]);
+});
+
+it.each([
+  ["name", 200],
+  ["group", 150],
+  ["description", 10000],
+  ["conditions", 2000],
+])("accepts a %s of up to %i characters", (key, max) => {
+  const parses = (length: number) =>
+    inspectionTemplateSchema.safeParse({
+      ...sample(),
+      [key]: "A".repeat(length),
+    }).success;
+  expect(parses(max)).toBe(true);
+  expect(parses(max + 1)).toBe(false);
+});
+it("reads a template CSV file of up to 2 MiB", () => {
+  expect(TEMPLATE_CSV_MAX_BYTES).toBe(2 * 1024 * 1024);
 });

@@ -12,12 +12,17 @@ import { Rejection } from "./rejection";
 /** The largest manual PDF accepted: 200 MiB (the refusal says "200 MB"). */
 export const MAX_MANUAL_BYTES = 200 * 1024 * 1024;
 
+/** Longest manufacturer or model an applicability names. */
+export const APPLICABILITY_NAME_MAX_LENGTH = 150;
+/** Longest part number an applicability names. */
+export const APPLICABILITY_PART_NUMBER_MAX_LENGTH = 100;
+
 /** The aircraft or component model a manual applies to. */
 export const manualApplicabilitySchema = z.object({
   kind: z.enum(["aircraft", "component"]),
-  manufacturer: z.string().trim().max(150),
-  model: z.string().trim().min(1).max(150),
-  partNumber: z.string().trim().max(100),
+  manufacturer: z.string().trim().max(APPLICABILITY_NAME_MAX_LENGTH),
+  model: z.string().trim().min(1).max(APPLICABILITY_NAME_MAX_LENGTH),
+  partNumber: z.string().trim().max(APPLICABILITY_PART_NUMBER_MAX_LENGTH),
 });
 
 /** A parsed {@link manualApplicabilitySchema} applicability. */

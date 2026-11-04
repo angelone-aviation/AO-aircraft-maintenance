@@ -12,7 +12,8 @@ import { can, type Snapshot } from "./model";
 import { ownsActive, programPermission } from "./programs";
 import { Rejection } from "./rejection";
 
-const MAX_TEMPLATES_PER_DELETION = 100;
+/** Most templates one deletion may select. */
+export const MAX_TEMPLATES_PER_DELETION = 100;
 
 type Versioned = { uuid: string; version: number };
 

@@ -29,6 +29,17 @@ const INTERVAL_MAX = 1000000;
 const TEMPLATE_MAX_BYTES = 800000;
 const SAVE_MAX_BYTES = 2 * 1024 * 1024;
 
+/** Longest template name. */
+export const TEMPLATE_NAME_MAX_LENGTH = 200;
+/** Longest inspection group, the heading templates are listed under. */
+export const TEMPLATE_GROUP_MAX_LENGTH = 150;
+/** Longest template description. */
+export const TEMPLATE_DESCRIPTION_MAX_LENGTH = 10000;
+/** Longest conditions or applicability note. */
+export const TEMPLATE_CONDITIONS_MAX_LENGTH = 2000;
+/** Largest template CSV file the import reads. */
+export const TEMPLATE_CSV_MAX_BYTES = 2 * 1024 * 1024;
+
 const LIMIT_MODES = ["ABSOLUTE", "FROM_LAST_COMPLIED"] as const;
 const CALENDAR_UNITS = ["DAYS", "MONTHS", "YEARS"] as const;
 const TIME_BASES = ["TSN", "TSO", "TSR"] as const;
@@ -164,11 +175,11 @@ export const inspectionTemplateSchema = z
     version: z.number().int().nonnegative(),
     programUuid: z.string().optional(),
     sourceKey: z.string().max(300).optional(),
-    name: z.string().trim().min(1).max(200),
-    group: z.string().trim().max(150),
+    name: z.string().trim().min(1).max(TEMPLATE_NAME_MAX_LENGTH),
+    group: z.string().trim().max(TEMPLATE_GROUP_MAX_LENGTH),
     applicability: manualApplicabilitySchema,
-    description: z.string().trim().max(10000),
-    conditions: z.string().trim().max(2000),
+    description: z.string().trim().max(TEMPLATE_DESCRIPTION_MAX_LENGTH),
+    conditions: z.string().trim().max(TEMPLATE_CONDITIONS_MAX_LENGTH),
     requirementType: z.enum(REQUIREMENT_TYPES),
     hours: hours.optional(),
     cycles: count.optional(),
