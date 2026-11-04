@@ -149,7 +149,10 @@ it("keeps no stored file when saving fails, and validates before permission", as
   await t.run((ctx) => ctx.db.patch(ids.group, { programAdmin: false }));
   await expect(
     client.action(api.aircraftPhotos.upload, { ...args, type: "text/html" }),
-  ).rejects.toThrow("Choose a JPEG, PNG or WebP aircraft photo.");
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Choose a JPEG, PNG or WebP aircraft photo.",
+  });
   await expect(
     client.mutation(api.aircraftPhotos.remove, {
       aircraftUuid: args.aircraftUuid,

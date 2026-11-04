@@ -54,6 +54,7 @@ type LoadedWorkOrder = Awaited<ReturnType<typeof loadWorkOrder>>;
 // The tenant guard's message. Every row a save writes was loaded from the
 // program or has a fresh uuid, so data the app wrote never meets it.
 const RECORD_TAKEN = "Record belongs to another Flight Program.";
+const NOT_FOUND = "Work order not found.";
 
 const COPY_REFUSALS = new Set([
   "Work order changed. Reopen it before saving.",
@@ -123,12 +124,8 @@ const fileArgs = {
  */
 export const checkUpload = internalQuery({
   args: fileArgs,
-  handler: async (ctx, args) => {
-    const state = await checkContext(ctx, args.programUuid);
-    const doc = await findWorkOrder(ctx, args.workOrderUuid);
-    if (!doc) throw new ConvexError("Work order not found.");
-    return (await authorizeOpenOrder(ctx, state, doc))._id;
-  },
+  handler: async (ctx, args) =>
+    (await openWorkOrder(ctx, args.programUuid, args, NOT_FOUND)).user._id,
 });
 
 /**
@@ -145,10 +142,12 @@ export const finishUpload = internalMutation({
     size: v.number(),
   },
   handler: async (ctx, args) => {
-    const state = await checkContext(ctx, args.programUuid);
-    const doc = await findWorkOrder(ctx, args.workOrderUuid);
-    if (!doc) throw new ConvexError("Work order not found.");
-    const user = await authorizeOpenOrder(ctx, state, doc);
+    const { doc, user } = await openWorkOrder(
+      ctx,
+      args.programUuid,
+      args,
+      NOT_FOUND,
+    );
     assertAttachmentRoom(
       await ctx.db
         .query("workOrderFiles")
@@ -210,16 +209,17 @@ export const upload = action({
 export const removeFile = mutation({
   args: { id: v.id("workOrderFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const state = await checkContext(ctx, args.programUuid);
-    const file = await ctx.db.get(args.id);
-    const doc = file && (await findWorkOrder(ctx, file.workOrderUuid));
-    if (!file || !doc) throw new ConvexError("Attachment not found.");
-    const user = await authorizeOpenOrder(ctx, state, doc);
-    await ctx.db.delete(file._id);
-    await deleteBlobIfUnused(ctx, file.storageId);
+    const { target, doc, user } = await openWorkOrder(
+      ctx,
+      args.programUuid,
+      await ctx.db.get(args.id),
+      "Attachment not found.",
+    );
+    await ctx.db.delete(target._id);
+    await deleteBlobIfUnused(ctx, target.storageId);
     await audit(ctx, user._id, "workOrder.attachment_removed", doc.uuid, {
       aircraftUuid: doc.aircraftUuid,
-      before: { name: file.name },
+      before: { name: target.name },
     });
   },
 });
@@ -239,7 +239,7 @@ async function loadWorkOrder(
       ? command.fields.aircraftUuid
       : orders.snapshot.workOrders!.find((w) => w.uuid === command.uuid)
           ?.aircraftUuid;
-  if (!aircraftUuid) throw new ConvexError("Work order not found.");
+  if (!aircraftUuid) throw new ConvexError(NOT_FOUND);
   await authorized(ctx, aircraftUuid, "maintenance", state);
   const { working, docs } = await loadWorking(ctx, state, orders);
   return {
@@ -387,13 +387,22 @@ function findWorkOrder(ctx: QueryCtx | MutationCtx, uuid: string) {
     .unique();
 }
 
-async function authorizeOpenOrder(
+// The one access check of the attachment functions, on the order `target`
+// (an upload's arguments, or a filed attachment) names: the Flight Program,
+// then that the order exists, then maintenance access to its aircraft, then
+// that the order is open. The program comes first, so a caller outside it
+// learns nothing about the record.
+async function openWorkOrder<T extends { workOrderUuid: string }>(
   ctx: QueryCtx | MutationCtx,
-  state: ProgramContext,
-  doc: Doc<"workOrders">,
+  programUuid: string | undefined,
+  target: T | null,
+  missing: string,
 ) {
+  const state = await checkContext(ctx, programUuid);
+  const doc = target && (await findWorkOrder(ctx, target.workOrderUuid));
+  if (!target || !doc) throw new ConvexError(missing);
   const user = await authorized(ctx, doc.aircraftUuid, "maintenance", state);
   if (!isOpenWorkOrder(workOrderSchema.parse(JSON.parse(doc.payload))))
     throw new ConvexError("This work order is closed.");
-  return user;
+  return { target, doc, user };
 }

@@ -57,6 +57,7 @@ describe("prepareSavedAddress", () => {
     expect(() => prepareSavedAddress(incomplete)).toThrow(
       Error("City is required. Phone is required."),
     );
+    expect(() => prepareSavedAddress(incomplete)).toThrow(Rejection);
   });
 });
 

@@ -32,8 +32,10 @@ import { preserveOilInventory } from "./oilInventory";
 import { validatePlanFlight } from "./flightPlans";
 import { validateMaintenanceTotals } from "./management";
 
-const MIN_REASON_LENGTH = 5;
-const MAX_REASON_LENGTH = 5000;
+/** The fewest characters a review explanation may hold once trimmed. */
+export const REVIEW_REASON_MIN_LENGTH = 5;
+/** The most characters a review explanation may hold as entered. */
+export const REVIEW_REASON_MAX_LENGTH = 5000;
 const FLIGHT_ENTRIES = Object.keys(flightInputSchema.shape) as Array<
   keyof FlightInput
 >;
@@ -42,8 +44,8 @@ const FLIGHT_ENTRIES = Object.keys(flightInputSchema.shape) as Array<
 export interface FlightReview {
   uuid: string;
   decision: "accept" | "reject";
-  /** Why, for the change log: 5 characters or more once trimmed, and at most
-   * 5000 as entered. */
+  /** Why, for the change log, within {@link REVIEW_REASON_MIN_LENGTH} and
+   * {@link REVIEW_REASON_MAX_LENGTH}. */
   reason: string;
   /** All of the flight's entries: one left out or undefined is cleared. */
   input: FlightInput;
@@ -139,8 +141,8 @@ function findReviewedAircraft(s: Snapshot, aircraftUuid: string): Aircraft {
 
 function assertReason(reason: string) {
   if (
-    reason.trim().length < MIN_REASON_LENGTH ||
-    reason.length > MAX_REASON_LENGTH
+    reason.trim().length < REVIEW_REASON_MIN_LENGTH ||
+    reason.length > REVIEW_REASON_MAX_LENGTH
   )
     throw new Rejection("Provide a meaningful review explanation.");
 }

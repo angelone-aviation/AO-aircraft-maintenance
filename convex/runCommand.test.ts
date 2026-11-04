@@ -30,6 +30,7 @@ import {
   writeChanged,
   plainErrors,
   errorsOf,
+  requestOf,
   type Command,
 } from "./runCommand";
 const modules = import.meta.glob([
@@ -361,19 +362,22 @@ it("still replays a request id recorded only in managementRequests", async () =>
   ).toEqual([]);
 });
 
-it("hands delegated commands to their own transaction", async () => {
+it("runs a command sent without a request id every time, recording none", async () => {
   const f = await fixture();
-  const load = vi.fn();
+  expect(requestOf("request-1", "first")).toEqual({
+    uuid: "request-1",
+    payload: "first",
+  });
+  const command = planCommand(f.aircraft, {
+    request: () => requestOf(undefined, "first"),
+  });
+  expect(await f.mechanic.run(command)).toBe("plan-1");
+  expect(await f.mechanic.run(command)).toBe("plan-1");
+  expect(await f.flightPlans()).toHaveLength(2);
+  expect(await f.requests()).toEqual([]);
   expect(
-    await f.mechanic.run(
-      planCommand(f.aircraft, {
-        delegate: async () => "queued",
-        load,
-      }),
-    ),
-  ).toBe("queued");
-  expect(load).not.toHaveBeenCalled();
-  expect(await f.rows()).toEqual([]);
+    await f.t.run((ctx) => ctx.db.query("commandRequests").collect()),
+  ).toEqual([]);
 });
 
 it("runs afterApply between apply and persist, and continues with what it returns", async () => {

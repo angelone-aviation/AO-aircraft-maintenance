@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins AD records end to end: report import, review, saves,
- *   compliance, refusals that change nothing, and due status.
+ *   compliance, their change-log entries, refusals that change nothing, and
+ *   due status.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/airworthiness.ts, ./aircraftStatus,
  *   ./components, ./model, ./programs, ./rejection, ./workOrders,
@@ -829,10 +830,7 @@ it("checks completion counters against component totals on the caller's date", (
   expect(comply("2098-12-01T12:00:00")).not.toThrow();
 });
 
-// Characterizes current behaviour: the aircraft meter's own refusals
-// (src/domain/model.ts) are plain Errors, so a catch narrowed to Rejection
-// would not cover the same set.
-it("leaves the counter unavailable for the aircraft meter's plain errors too", () => {
+it("leaves the counter unavailable for the aircraft meter's refusals too", () => {
   const { s } = setup();
   const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
   const unread: Partial<Aircraft>[] = [
@@ -844,9 +842,22 @@ it("leaves the counter unavailable for the aircraft meter's plain errors too", (
     s.aircraft[0] = a;
     s.management = [installedEngine(a, {})];
     expect(adCounters(s, r)).toBeNull();
-    expect(() => totalSeconds(a)).toThrow(Error);
-    expect(() => totalSeconds(a)).not.toThrow(Rejection);
+    expect(() => totalSeconds(a)).toThrow(Rejection);
   }
+});
+
+it("lets a fault in the component's totals through, not as an unavailable counter", () => {
+  const { s } = setup();
+  const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
+  const engine = installedEngine(s.aircraft[0], {});
+  const fault = new TypeError("Broken component record.");
+  Object.defineProperty(engine, "trackTime", {
+    get() {
+      throw fault;
+    },
+  });
+  s.management = [engine];
+  expect(() => adCounters(s, r)).toThrow(fault);
 });
 
 it("reports not applicable and superseded ADs by their applicability", () => {
@@ -882,3 +893,75 @@ function installedEngine(a: Aircraft, fields: Partial<Component>) {
     ...fields,
   });
 }
+
+describe("AD change log", () => {
+  const NOW = Date.parse("2026-11-04T12:00:00Z");
+  const adEntry = (s: Snapshot, kind: string, r: AD, before?: AD) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: NOW,
+    action: "ad." + kind,
+    entityUuid: r.uuid,
+    aircraftUuid: r.aircraftUuid,
+    reason: undefined,
+    before: before && JSON.stringify(adAuditRecord(before)),
+    after: JSON.stringify(adAuditRecord(r)),
+  });
+
+  it("adds one entry per changed AD, newest first", () => {
+    const { s, r } = setup();
+    const logged = s.audit.length;
+    const source = (number: string) => ({ ...r.source, number });
+    const changed = applyADCommand(
+      s,
+      {
+        kind: "import",
+        aircraftUuid: r.aircraftUuid,
+        entries: [source("2026-02-02"), source("2026-03-03")].map((x) => ({
+          source: x,
+          componentUuid: "",
+        })),
+      },
+      NOW,
+    );
+    expect(changed).toHaveLength(2);
+    expect(s.audit.length).toBe(logged + 2);
+    expect(s.audit.slice(0, 2)).toEqual([
+      adEntry(s, "import", changed[1]),
+      adEntry(s, "import", changed[0]),
+    ]);
+  });
+
+  it("records a correction's trimmed reason and the AD before it", () => {
+    const { s, r } = setup();
+    const [changed] = applyADCommand(
+      s,
+      {
+        kind: "save",
+        record: { ...r, reason: "Fleet note" },
+        reason: "  Paragraph (g) reread ",
+      },
+      NOW,
+    );
+    expect(s.audit[0]).toEqual({
+      ...adEntry(s, "save", changed, r),
+      reason: "Paragraph (g) reread",
+    });
+  });
+
+  it("adds nothing for an unchanged import or a refused command", () => {
+    const { s, r } = setup();
+    const audit = [...s.audit];
+    const unchanged = {
+      kind: "import" as const,
+      aircraftUuid: r.aircraftUuid,
+      entries: [{ source: r.source, componentUuid: "" }],
+    };
+    expect(applyADCommand(s, unchanged, NOW)).toEqual([]);
+    expect(() =>
+      applyADCommand(s, { kind: "save", record: { ...r, version: 0 } }, NOW),
+    ).toThrow(Rejection);
+    expect(s.audit).toEqual(audit);
+  });
+});

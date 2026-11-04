@@ -1,11 +1,15 @@
 /**
  * Responsibility: Pins the account-administration rules: the groups a new
- *   member gets, the Observers fallback, group saves and account details.
+ *   member gets, the Observers fallback, the groups that replace a member's
+ *   access, group saves and account details.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/accountRules.ts, ./model (types), ./rejection.
  */
 import { describe, expect, it } from "vitest";
 import {
+  assertAccessGroups,
+  assertGrantsRead,
+  assertProgramGroups,
   grantsRead,
   normalizeAccount,
   normalizeGroup,
@@ -104,6 +108,42 @@ describe("grantsRead", () => {
   });
 });
 
+describe("member access refusals", () => {
+  it("refuses a group of another program, or an unknown one", () => {
+    expect(() =>
+      assertProgramGroups(GROUPS, PROGRAM, ["mechanics", "observers"]),
+    ).not.toThrow();
+    for (const id of ["elsewhere", "missing"])
+      expectRejection(
+        () => assertProgramGroups(GROUPS, PROGRAM, ["mechanics", id]),
+        "Users can only be assigned groups in this Flight Program.",
+      );
+  });
+
+  it("refuses groups without read access, none included, when adding", () => {
+    expect(() =>
+      assertGrantsRead(GROUPS, ["writers", "mechanics"]),
+    ).not.toThrow();
+    for (const ids of [["writers"], []])
+      expectRejection(
+        () => assertGrantsRead(GROUPS, ids),
+        "Select a group with read access.",
+      );
+  });
+
+  it("asks for a group, or removal, before read access when changing", () => {
+    expect(() => assertAccessGroups(GROUPS, ["mechanics"])).not.toThrow();
+    expectRejection(
+      () => assertAccessGroups(GROUPS, []),
+      "Select at least one permission group or remove program access.",
+    );
+    expectRejection(
+      () => assertAccessGroups(GROUPS, ["writers"]),
+      "Select a group with read access.",
+    );
+  });
+});
+
 describe("normalizeGroup", () => {
   const input = (fields: Partial<GroupInput> = {}): GroupInput => ({
     programUuid: PROGRAM,
@@ -114,38 +154,38 @@ describe("normalizeGroup", () => {
   });
 
   it("trims the name, drops repeats and defaults the flags to false", () => {
-    expect(normalizeGroup(input(), undefined, false)).toEqual({
-      fields: {
-        programUuid: PROGRAM,
-        programAdmin: false,
-        owner: false,
-        name: "Line crew",
-        aircraftIds: ["a1", "a2"],
-        permissions: ["read", "flight"],
-      },
-      assigned: false,
+    expect(normalizeGroup(input(), undefined)).toEqual({
+      programUuid: PROGRAM,
+      programAdmin: false,
+      owner: false,
+      name: "Line crew",
+      aircraftIds: ["a1", "a2"],
+      permissions: ["read", "flight"],
     });
   });
 
-  it("reports a system administrator's first program assignment", () => {
+  it("gives no program to a group stored without one (#45 retired)", () => {
     const unscoped = group("legacy", { programUuid: undefined });
-    expect(normalizeGroup(input(), unscoped, true).assigned).toBe(true);
     expectRejection(
-      () => normalizeGroup(input(), unscoped, false),
-      "Only a system administrator can assign an unscoped permission group to a Flight Program.",
+      () => normalizeGroup(input(), unscoped),
+      "A permission group cannot be moved to another Flight Program.",
     );
   });
 
-  // Characterizes current behaviour: the length is checked before trimming,
-  // as convex/admin.ts saveGroup does, and no permissions at all is allowed.
-  it("measures the name before trimming and allows no permissions", () => {
-    const padded = ` ${"x".repeat(99)} `;
+  it("measures the name after trimming, as it is stored", () => {
+    const padded = (length: number) => ` ${"x".repeat(length)} `;
+    const saved = normalizeGroup(input({ name: padded(100) }), undefined);
+    expect(saved.name).toBe("x".repeat(100));
     expectRejection(
-      () => normalizeGroup(input({ name: padded }), undefined, false),
+      () => normalizeGroup(input({ name: padded(101) }), undefined),
       "Group name is required.",
     );
-    const none = normalizeGroup(input({ permissions: [] }), undefined, false);
-    expect(none.fields.permissions).toEqual([]);
+  });
+
+  // Characterizes current behaviour: no permissions at all is allowed.
+  it("allows no permissions", () => {
+    const none = normalizeGroup(input({ permissions: [] }), undefined);
+    expect(none.permissions).toEqual([]);
   });
 
   it.each<[string, Partial<GroupInput>]>([
@@ -165,21 +205,18 @@ describe("normalizeGroup", () => {
     ],
     ["Select a Flight Program for this group.", { programUuid: undefined }],
   ])("refuses with %j", (message, fields) => {
-    expectRejection(
-      () => normalizeGroup(input(fields), undefined, false),
-      message,
-    );
+    expectRejection(() => normalizeGroup(input(fields), undefined), message);
   });
 
   it("checks the program before the name, and the name before the rest", () => {
     const moved = group("crew", { programUuid: "other" });
     const broken = input({ name: "", permissions: ["flight"] });
     expectRejection(
-      () => normalizeGroup(broken, moved, true),
+      () => normalizeGroup(broken, moved),
       "A permission group cannot be moved to another Flight Program.",
     );
     expectRejection(
-      () => normalizeGroup(broken, undefined, true),
+      () => normalizeGroup(broken, undefined),
       "Group name is required.",
     );
   });

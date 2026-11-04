@@ -1,10 +1,14 @@
 /**
- * Responsibility: Pins the demo adapter's discrepancy resolution and flight
- *   review against the server's rules: the same refusals, stored records and
- *   change-log rows.
+ * Responsibility: Pins the demo adapter's discrepancy resolution, flight
+ *   review, AD changes, attachments, manual edits, saved addresses, FAA
+ *   monitor commands, program selection, membership and group saves, and
+ *   recurring parts lists against the server's rules: the same refusals,
+ *   stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
- *   (seed), src/domain (model, flights, rejection).
+ *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
+ *   taskCards, workOrders, purchaseOrders, manuals, addresses, faa),
+ *   tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -12,7 +16,15 @@
  * flight review skipped the administrator, aircraft, crew, problem-report,
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
- * and crashed on a missing flight.
+ * and crashed on a missing flight. Before Batch 296 its AD rows named no
+ * Flight Program. Before Batch 273 it took any number of attachments. Before
+ * Batch 285 it audited a manual edit's whole record, saved addresses without
+ * the administrator check or the 200 cap and with its own messages, kept an
+ * FAA monitor's run and error on configure, and ignored an unknown candidate.
+ * Before Batch 292 it said "Select at least one group with read access." and
+ * "Select groups within this Flight Program.", and saved a group with a name
+ * over 100 characters, write permissions without read, or no Flight Program,
+ * untrimmed and with repeats.
  */
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
@@ -20,7 +32,28 @@ import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import type { Flight, FlightInput, Snapshot } from "../domain/model";
 import { applyFlight } from "../domain/flights";
+import {
+  adAuditRecord,
+  blankAD,
+  blankADTask,
+  type AD,
+} from "../domain/airworthiness";
 import { Rejection } from "../domain/rejection";
+import { MAX_ATTACHMENTS } from "../domain/attachments";
+import { saveTaskCard } from "../domain/taskCards";
+import { newWorkTask, saveWorkOrder } from "../domain/workOrders";
+import { requestDraftSchema } from "../domain/partsRequests";
+import { poSchema } from "../domain/purchaseOrders";
+import type { Manual } from "../domain/manuals";
+import type { Group } from "../domain/model";
+import { addressSchema } from "../domain/addresses";
+import type { FaaMonitor } from "../domain/faa";
+import type { Backend } from "./backend";
+import { taskCardCommand } from "../../tests/fixtures/taskCards";
+import {
+  workOrderCommand,
+  workOrderComponent,
+} from "../../tests/fixtures/workOrders";
 
 const REPORT = "demo-report";
 const LENGTH = "Describe the repair in 1–5000 characters.";
@@ -292,3 +325,596 @@ it.each([
     expect(await stored()).toEqual(before);
   },
 );
+
+it("audits AD changes as the server does: with the program, newest first", async () => {
+  const { backend, stored } = await demo("demo-ad");
+  const before = await stored();
+  const aircraftUuid = before.aircraft[0].uuid;
+  const source = (number: string) => ({
+    ...blankAD(aircraftUuid).source,
+    number,
+    subject: "Inspect",
+  });
+  await backend.saveAD({
+    kind: "import",
+    aircraftUuid,
+    entries: [source("2099-02-02"), source("2099-01-01")].map((s) => ({
+      source: s,
+      componentUuid: "",
+    })),
+  });
+  const s = await stored();
+  const saved = (number: string) =>
+    s.airworthiness!.find((r) => r.source.number === number)!;
+  const row = (r: AD) => ({
+    uuid: expect.any(String),
+    programUuid: r.programUuid,
+    actorId: s.user.id,
+    at: expect.any(Number),
+    action: "ad.import",
+    entityUuid: r.uuid,
+    aircraftUuid,
+    reason: undefined,
+    before: undefined,
+    after: JSON.stringify(adAuditRecord(r)),
+  });
+  expect(saved("2099-01-01").programUuid).toBe("demo-program");
+  expect(s.audit).toEqual([
+    row(saved("2099-01-01")),
+    row(saved("2099-02-02")),
+    ...before.audit,
+  ]);
+});
+
+const FULL = "This record already has the maximum of 25 attachments.";
+const SIGNED = { userId: "demo-admin", name: "Alex Morgan", at: 1 };
+const STORED = { name: "old.pdf", size: 1, uploadedAt: 0, url: "" };
+const pdf = () =>
+  new File(["%PDF-1.4"], "scan.pdf", { type: "application/pdf" });
+const full = <T>(file: (i: number) => T) =>
+  Array.from({ length: MAX_ATTACHMENTS }, (_, i) => file(i));
+
+// The seed plus an open job card signed on its step, by its technician and by
+// its inspector; an open work order; a component; and a draft purchase order.
+function withRecords(s: Snapshot) {
+  s.taskCards = [];
+  s.workOrders = [];
+  s.management = [workOrderComponent()];
+  const card = saveTaskCard(s, taskCardCommand());
+  s.taskCards = [
+    {
+      ...card,
+      technicianSignoff: SIGNED,
+      inspectionSignoff: SIGNED,
+      stepSignoffs: { [card.steps[0].uuid]: SIGNED },
+    },
+  ];
+  saveWorkOrder(s, workOrderCommand());
+  s.purchaseOrders = [
+    poSchema.parse({
+      uuid: "po",
+      version: 0,
+      vendor: "Vendor",
+      vendorContact: "",
+      shipTo: "Hangar",
+      expectedDate: "",
+      currency: "USD",
+      shippingCents: 0,
+      notes: "",
+      lines: [
+        {
+          uuid: "line",
+          stockUuid: "",
+          locationUuid: "store",
+          partNumber: "TIRE",
+          description: "Tire",
+          quantity: 1,
+          unitCents: 0,
+          kind: "part",
+        },
+      ],
+      programUuid: "demo-program",
+      number: "PO-1",
+      phase: "draft",
+      revision: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      shipments: [],
+      receipts: [],
+      history: [],
+    }),
+  ];
+}
+
+it("files evidence on a signed job card: every signoff cleared, at a new version", async () => {
+  const { backend, stored } = await demo("demo-evidence", (seed) => {
+    withRecords(seed);
+    // Another card's full set of files does not limit this one.
+    seed.taskEvidence = full((i) => ({
+      ...STORED,
+      uuid: `file-${i}`,
+      taskCardUuid: "another-card",
+      category: "photo" as const,
+    }));
+  });
+  const card = (await stored()).taskCards![0];
+  await backend.attachTaskEvidence(card.uuid, "parts-traceability", pdf());
+  const s = await stored();
+  const evidence = s.taskEvidence!.at(-1)!;
+  expect(evidence).toMatchObject({
+    taskCardUuid: card.uuid,
+    category: "parts-traceability",
+    name: "scan.pdf",
+    url: expect.stringMatching(/^data:application\/pdf;base64,/),
+  });
+  expect(s.taskCards).toEqual([
+    {
+      ...card,
+      technicianSignoff: null,
+      inspectionSignoff: null,
+      stepSignoffs: {},
+      version: card.version + 1,
+      updatedAt: evidence.uploadedAt,
+    },
+  ]);
+  expect(s.audit[0]).toMatchObject({
+    action: "taskCard.evidence",
+    entityUuid: card.uuid,
+    aircraftUuid: card.aircraftUuid,
+    before: undefined,
+    after: JSON.stringify({ name: "scan.pdf", category: "parts-traceability" }),
+  });
+});
+
+it.each<
+  [string, (s: Snapshot) => void, (backend: Backend, s: Snapshot) => unknown]
+>([
+  [
+    "a job card",
+    (s) =>
+      (s.taskEvidence = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        taskCardUuid: s.taskCards![0].uuid,
+        category: "photo",
+      }))),
+    (backend, s) =>
+      backend.attachTaskEvidence(s.taskCards![0].uuid, "photo", pdf()),
+  ],
+  [
+    "a work order",
+    (s) =>
+      (s.workOrderAttachments = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        workOrderUuid: s.workOrders![0].uuid,
+      }))),
+    (backend, s) => backend.attachWorkOrderFile(s.workOrders![0].uuid, pdf()),
+  ],
+  [
+    "an inventory item",
+    (s) =>
+      (s.inventoryAttachments = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        stockUuid: "engine",
+        type: "application/pdf",
+      }))),
+    (backend) => backend.attachInventoryFile("engine", pdf()),
+  ],
+  [
+    "a purchase order",
+    (s) =>
+      (s.purchaseOrderFiles = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        poUuid: "po",
+        type: "application/pdf",
+      }))),
+    (backend) => backend.attachPOFile("po", undefined, pdf()),
+  ],
+])(
+  "refuses another attachment on %s that holds the maximum, as the server does",
+  async (record, fill, attach) => {
+    const { backend, stored } = await demo(`demo-full-${record}`, (seed) => {
+      withRecords(seed);
+      fill(seed);
+    });
+    const before = await stored();
+    const error = await Promise.resolve(attach(backend, before)).catch(
+      (e) => e,
+    );
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message: FULL });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+const MANUAL: Manual = {
+  uuid: "manual",
+  aircraftUuid: "demo-206",
+  title: "Pilot handbook",
+  documentNumber: "PH-1",
+  revision: "A",
+  revisionDate: "2026-01-01",
+  applicability: {
+    kind: "aircraft",
+    manufacturer: "Cessna",
+    model: "206",
+    partNumber: "",
+  },
+  filename: "handbook.pdf",
+  size: 10,
+  pageCount: 2,
+  uploadedAt: 1,
+  uploadedBy: "demo-admin",
+};
+
+it("audits a manual edit with the six editable fields before, as the server does", async () => {
+  const { backend, stored } = await demo("demo-manual-edit", (seed) => {
+    seed.manuals = [MANUAL];
+  });
+  const edit = {
+    title: "Pilot handbook",
+    documentNumber: "PH-2",
+    revision: "B",
+    revisionDate: "2026-02-01",
+    aircraftUuid: "demo-208",
+  };
+  await backend.editManual(MANUAL.uuid, edit);
+  const s = await stored();
+  expect(s.manuals).toEqual([{ ...MANUAL, ...edit, applicability: undefined }]);
+  expect(s.audit[0]).toMatchObject({
+    action: "manual.edit",
+    entityUuid: MANUAL.uuid,
+    aircraftUuid: "demo-206",
+    before: JSON.stringify({
+      title: "Pilot handbook",
+      documentNumber: "PH-1",
+      revision: "A",
+      revisionDate: "2026-01-01",
+      aircraftUuid: "demo-206",
+      applicability: MANUAL.applicability,
+    }),
+    after: JSON.stringify(edit),
+  });
+});
+
+const PROGRAM = "demo-program";
+const address = (uuid: string, name: string, version = 0) => ({
+  uuid,
+  version,
+  name,
+  address: addressSchema.parse({
+    street: "123 Main St",
+    city: "Wichita",
+    region: "KS",
+    postalCode: "67209",
+    country: "USA",
+    contactName: "Receiving",
+    email: "receiving@example.com",
+    phone: "316 555 0100",
+  }),
+});
+const kept = (uuid: string, name: string, programUuid = PROGRAM) => ({
+  ...address(uuid, name, 1),
+  programUuid,
+});
+
+it("saves an address as its next version, named and confirmed", async () => {
+  const { backend, stored } = await demo("demo-address");
+  const saved = await backend.saveAddress(PROGRAM, address("a", " Hangar "));
+  expect(saved).toEqual({
+    ...address("a", "Hangar", 1),
+    address: {
+      ...address("a", "").address,
+      addressName: "Hangar",
+      confirmed: true,
+    },
+    programUuid: PROGRAM,
+  });
+  expect((await stored()).savedAddresses).toEqual([saved]);
+});
+
+it.each<[string, (s: Snapshot) => void, ReturnType<typeof address>, string]>([
+  [
+    "a member who is not a program administrator",
+    (s) => (s.user = { ...s.members[1], activeProgramUuid: PROGRAM }),
+    address("a", "Hangar"),
+    "Flight Program administrator required.",
+  ],
+  [
+    "an incomplete entry",
+    () => {},
+    { ...address("a", "Hangar"), name: " " },
+    "Enter an address name and complete the recipient name, address, email and phone fields.",
+  ],
+  [
+    "an address of another program",
+    (s) => (s.savedAddresses = [kept("a", "Hangar", "second")]),
+    address("a", "Hangar", 1),
+    "Address not found in this Flight Program.",
+  ],
+  [
+    "a stale version",
+    (s) => (s.savedAddresses = [kept("a", "Hangar")]),
+    address("a", "Hangar"),
+    "Address changed. Reopen it before saving.",
+  ],
+  [
+    "a name another address uses",
+    (s) => (s.savedAddresses = [kept("a", "Hangar")]),
+    address("b", "HANGAR"),
+    "An address with this name already exists in this program. Select it or use another name.",
+  ],
+  [
+    "a new address beyond the 200 a program keeps",
+    (s) =>
+      (s.savedAddresses = Array.from({ length: 200 }, (_, i) =>
+        kept(`kept-${i}`, `Hangar ${i}`),
+      )),
+    address("new", "Another hangar"),
+    "A Flight Program can keep up to 200 saved addresses. Edit an existing address instead.",
+  ],
+])(
+  "refuses an address save for %s with the server's message and changes nothing",
+  async (_, edit, input, message) => {
+    const { backend, stored } = await demo(`demo-address-${message}`, edit);
+    const before = await stored();
+    const error = await backend.saveAddress(PROGRAM, input).catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+const MONITOR: FaaMonitor = {
+  aircraftUuid: "demo-206",
+  enabled: false,
+  terms: [],
+  error: "The FAA did not answer.",
+  runId: "run-1",
+  candidates: [],
+};
+
+it("configures an FAA monitor as the server does: the run and its error reset", async () => {
+  const { backend, stored } = await demo("demo-faa-configure", (seed) => {
+    seed.faaMonitors = [MONITOR];
+  });
+  await backend.faaCommand({
+    kind: "configure",
+    aircraftUuid: MONITOR.aircraftUuid,
+    enabled: true,
+    terms: ["IO-540"],
+  });
+  expect((await stored()).faaMonitors).toEqual([
+    {
+      ...MONITOR,
+      enabled: true,
+      terms: ["IO-540"],
+      runId: "",
+      error: "Settings changed. Run a check to verify coverage.",
+    },
+  ]);
+});
+
+it.each<[string, (backend: Backend) => Promise<unknown>]>([
+  [
+    "Candidate not found.",
+    (backend) =>
+      backend.faaCommand({
+        kind: "review",
+        aircraftUuid: MONITOR.aircraftUuid,
+        id: "unknown",
+        reason: "Not applicable",
+      }),
+  ],
+  [
+    "Flight Program access denied.",
+    (backend) => backend.selectProgram("unknown-program"),
+  ],
+])(
+  "refuses with the server's Rejection %s and changes nothing",
+  async (message, run) => {
+    const { backend, stored } = await demo(`demo-refuse-${message}`, (seed) => {
+      seed.faaMonitors = [MONITOR];
+    });
+    const before = await stored();
+    const error = await run(backend).catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+// The seed plus a write-only group in the program and a group elsewhere.
+function withGroups(s: Snapshot) {
+  const group = (id: string, fields: Partial<Group>): Group => ({
+    id,
+    name: id,
+    programUuid: PROGRAM,
+    aircraftIds: [],
+    permissions: ["read"],
+    ...fields,
+  });
+  s.groups.push(
+    group("writers", { permissions: ["flight"] }),
+    group("elsewhere", { programUuid: "second" }),
+  );
+}
+
+const PILOT = "demo-pilot";
+it.each<[string, (backend: Backend) => Promise<unknown>, string]>([
+  [
+    "a group of another program",
+    (backend) =>
+      backend.updateProgramAccess(PILOT, PROGRAM, ["elsewhere"], false),
+    "Users can only be assigned groups in this Flight Program.",
+  ],
+  [
+    "no group",
+    (backend) => backend.updateProgramAccess(PILOT, PROGRAM, [], false),
+    "Select at least one permission group or remove program access.",
+  ],
+  [
+    "groups without read access",
+    (backend) =>
+      backend.updateProgramAccess(PILOT, PROGRAM, ["writers"], false),
+    "Select a group with read access.",
+  ],
+  [
+    "groups without read access, adding someone",
+    (backend) =>
+      backend.addExistingProgramUser("jordan@example.test", PROGRAM, [
+        "writers",
+      ]),
+    "Select a group with read access.",
+  ],
+  [
+    "a group of another program, adding someone",
+    (backend) =>
+      backend.addExistingProgramUser("jordan@example.test", PROGRAM, [
+        "demo-pilots",
+        "elsewhere",
+      ]),
+    "Users can only be assigned groups in this Flight Program.",
+  ],
+])(
+  "refuses a member's access with %s, with the server's message",
+  async (label, run, message) => {
+    const { backend, stored } = await demo(`demo-access-${label}`, withGroups);
+    const before = await stored();
+    const error = await run(backend).catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+it("creates a program user with the email and name normalized and the groups once each", async () => {
+  const { backend, stored } = await demo("demo-create-user");
+  const id = await backend.createProgramUser(
+    " Sam@Example.TEST ",
+    " Sam Rivera ",
+    "correct horse battery staple 42",
+    PROGRAM,
+    ["demo-pilots", "demo-pilots"],
+  );
+  expect((await stored()).members.at(-1)).toEqual({
+    id,
+    email: "sam@example.test",
+    name: "Sam Rivera",
+    active: true,
+    isAdmin: false,
+    activeProgramUuid: PROGRAM,
+    groupIds: ["demo-pilots"],
+  });
+});
+
+const GROUP = {
+  name: "Mechanics",
+  programUuid: PROGRAM,
+  aircraftIds: ["demo-206"],
+  permissions: ["read", "maintenance"] as Group["permissions"],
+};
+
+it("saves a group as the server stores it: name trimmed, no repeats, flags false", async () => {
+  const { backend, stored } = await demo("demo-group-save");
+  await backend.saveGroup({
+    ...GROUP,
+    name: "  Mechanics ",
+    aircraftIds: ["demo-206", "demo-206"],
+    permissions: ["read", "maintenance", "read"],
+  });
+  const s = await stored();
+  const saved = s.groups.at(-1)!;
+  expect(saved).toEqual({
+    ...GROUP,
+    programAdmin: false,
+    owner: false,
+    id: expect.any(String),
+  });
+  expect(s.audit[0]).toMatchObject({
+    action: "group.saved",
+    entityUuid: saved.id,
+    after: JSON.stringify(saved),
+  });
+});
+
+it.each<[string, Partial<typeof GROUP> & { allAircraft?: boolean }, string]>([
+  [
+    "a name over 100 characters",
+    { name: "x".repeat(101) },
+    "Group name is required.",
+  ],
+  [
+    "write permissions without read",
+    { permissions: ["flight"] },
+    "Write permissions also require read access.",
+  ],
+  [
+    "no Flight Program",
+    { programUuid: undefined, aircraftIds: [], allAircraft: true },
+    "Select a Flight Program for this group.",
+  ],
+])(
+  "refuses a group with %s, as the server does",
+  async (_, fields, message) => {
+    const { backend, stored } = await demo(`demo-group-${message}`);
+    const before = await stored();
+    const error = await backend
+      .saveGroup({ ...GROUP, ...fields })
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+it("serves each open work order once when a recurring parts list is saved", async () => {
+  let order = "";
+  const { backend, stored } = await demo("demo-recurring", (seed) => {
+    const ad = blankAD("demo-206");
+    ad.applicability = "Applicable";
+    ad.reviewRequired = false;
+    ad.tasks = [{ ...blankADTask(), recurrence: "Recurring" }];
+    seed.airworthiness = [ad];
+    seed.workOrders = [];
+    seed.taskCards = [];
+    const command = workOrderCommand();
+    command.tasks = [
+      newWorkTask({ kind: "airworthiness", uuid: ad.tasks[0].uuid }, "AD"),
+    ];
+    order = saveWorkOrder(seed, command).uuid;
+  });
+  const task = (await stored()).airworthiness![0].tasks[0];
+  await backend.partsRequest({
+    kind: "save",
+    requestUuid: crypto.randomUUID(),
+    draft: requestDraftSchema.parse({
+      uuid: "list",
+      version: 0,
+      source: { kind: "airworthiness", uuid: task.uuid },
+      recurring: true,
+      mode: "parts",
+      date: "2026-10-20",
+      engineer: "Tech",
+      priority: "P2 Routine",
+      requiredBy: "",
+      currency: "USD",
+      lines: [
+        { uuid: "filter", partNumber: "F", description: "Filter", quantity: 1 },
+      ],
+    }),
+  });
+  const s = await stored();
+  expect(
+    s.partsRequests!.map((r) => [r.templateUuid, r.source.workOrderUuid]),
+  ).toEqual([
+    [undefined, ""],
+    ["list", order],
+  ]);
+  expect(
+    s.audit.filter((a) => a.action === "partsRequest.recurring"),
+  ).toHaveLength(1);
+});
