@@ -53,6 +53,14 @@ describe("attachment files", () => {
       Rejection,
     );
   });
+  it("refuses a type named after an Object property", () => {
+    for (const type of ["constructor", "toString", "__proto__"]) {
+      expect(() => validateInventoryFile("a.pdf", type, 1)).toThrow(Rejection);
+      expect(() => validateInventoryFile("a.pdf", type, 1)).toThrow(
+        "Choose a PDF, JPEG, PNG or WebP file.",
+      );
+    }
+  });
 });
 
 describe("attachment access", () => {
