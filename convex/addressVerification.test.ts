@@ -72,19 +72,27 @@ it("protects the key, authorizes lookups, and rate-limits them without saving co
     email: "private@example.com",
     phone: "5555555555",
   };
-  expect(
-    await admin.action(api.addressVerification.lookup, {
-      payload: JSON.stringify(input),
-      programUuid: "demo-program",
-    }),
-  ).toEqual([]);
-  expect(String(fetcher.mock.calls[0][0])).not.toContain("private");
-  await expect(
-    admin.action(api.addressVerification.lookup, {
-      payload: JSON.stringify(input),
-      programUuid: "demo-program",
-    }),
-  ).rejects.toThrow(/wait a second/);
+  // Both lookups run at one frozen instant: on a busy machine real time could
+  // cross the one-second window between them and skip the refusal.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(Math.ceil((Date.now() + 60000) / 1000) * 1000 + 100);
+    expect(
+      await admin.action(api.addressVerification.lookup, {
+        payload: JSON.stringify(input),
+        programUuid: "demo-program",
+      }),
+    ).toEqual([]);
+    expect(String(fetcher.mock.calls[0][0])).not.toContain("private");
+    await expect(
+      admin.action(api.addressVerification.lookup, {
+        payload: JSON.stringify(input),
+        programUuid: "demo-program",
+      }),
+    ).rejects.toThrow(/wait a second/);
+  } finally {
+    vi.useRealTimers();
+  }
   const audit = await t.run((ctx) => ctx.db.query("audit").collect());
   expect(JSON.stringify(audit)).not.toContain("test-key");
   await expect(
