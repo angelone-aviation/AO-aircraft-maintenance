@@ -2,10 +2,11 @@
  * Responsibility: A Flight Program's named ship-to addresses, the check they
  *   pass before saving, and the address choices a form offers.
  * Layer: Domain. Pure zod schema and function; no I/O, no React.
- * Dependencies: zod, src/domain/addresses.ts.
+ * Dependencies: zod, src/domain/addresses.ts, src/domain/rejection.ts.
  */
 import { z } from "zod";
 import { addressSchema, addressIssues, type Address } from "./addresses";
+import { Rejection } from "./rejection";
 
 /**
  * A saved address as an administrator submits it. Trims the name.
@@ -47,15 +48,15 @@ export type AddressChoices = {
  * @param input - The entry as submitted.
  * @returns The parsed entry, its address named after the entry and confirmed.
  * @throws {z.ZodError} When the entry fails {@link savedAddressInput}.
- * @throws {Error} The {@link addressIssues} messages joined with spaces, when
- *   the address is not complete enough to ship to.
+ * @throws {Rejection} The {@link addressIssues} messages joined with spaces,
+ *   when the address is not complete enough to ship to.
  */
 export function prepareSavedAddress(
   input: SavedAddressInput,
 ): SavedAddressInput {
   const parsed = savedAddressInput.parse(input);
   const issues = addressIssues(parsed.address);
-  if (issues.length) throw Error(issues.join(" "));
+  if (issues.length) throw new Rejection(issues.join(" "));
   return {
     ...parsed,
     address: { ...parsed.address, addressName: parsed.name, confirmed: true },

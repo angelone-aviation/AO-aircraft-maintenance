@@ -1,11 +1,13 @@
 /**
  * Responsibility: Pins the check a saved address passes before it is stored.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/savedAddresses.ts, src/domain/addresses.ts.
+ * Dependencies: src/domain/savedAddresses.ts, src/domain/addresses.ts,
+ *   ./rejection.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { addressSchema } from "./addresses";
+import { Rejection } from "./rejection";
 import { prepareSavedAddress } from "./savedAddresses";
 
 const entry = () => ({
@@ -47,5 +49,6 @@ describe("prepareSavedAddress", () => {
     expect(() => prepareSavedAddress(incomplete)).toThrow(
       Error("City is required. Phone is required."),
     );
+    expect(() => prepareSavedAddress(incomplete)).toThrow(Rejection);
   });
 });
