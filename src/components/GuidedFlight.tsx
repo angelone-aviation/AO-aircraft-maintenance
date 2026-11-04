@@ -4,8 +4,8 @@
  * Layer: UI. React components; flight rules live in src/domain.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
  *   (flightFluids, model, programs, checklists, guidedFlight, flights,
- *   readings, aircraftStatus), ./Checklists, ./FlightFluids, ./FlightForm,
- *   ./FlightParts, ./AircraftStatus, ./design, ./ui.
+ *   flightSession, readings, aircraftStatus), ./Checklists, ./FlightFluids,
+ *   ./FlightForm, ./FlightParts, ./AircraftStatus, ./design, ./ui.
  *
  * Drafts live only in this browser's localStorage, so every storage failure
  * offers an export of the draft rather than losing its readings.
@@ -29,13 +29,16 @@ import {
   type ChecklistRecord,
 } from "../domain/checklists";
 import {
+  suggestedPreflightSection,
+  suggestedShutdownSection,
   suggestedStartSection,
   guidedDraftSchema,
   guidedFlightLink,
   type GuidedDraft,
 } from "../domain/guidedFlight";
-import { validateFlight } from "../domain/flights";
-import { parseHours, readingText } from "../domain/readings";
+import { flightOptionalEntries, validateFlight } from "../domain/flights";
+import { plannedFlightRules } from "../domain/flightSession";
+import { SECONDS_PER_HOUR, parseHours, readingText } from "../domain/readings";
 import { ChecklistReader } from "./Checklists";
 import { FlightFluidFields } from "./FlightFluids";
 import { FlightForm } from "./FlightForm";
@@ -61,13 +64,6 @@ import { errorText } from "./ui";
 
 // src/data/store.ts clears localStorage keys with this prefix on sign-out.
 const DRAFT_KEY_PREFIX = "angel-one-guided";
-// Unless the pilot picks them, a new flight reads the first section whose
-// title matches at preflight and at shutdown.
-const PREFLIGHT_TITLE = /pre.?flight|before.*start/i;
-const SHUTDOWN_TITLE = /shut.?down|after.*flight/i;
-// ICAO flight rules: Y (IFR, then VFR) departs under IFR, Z under VFR.
-const IFR_DEPARTURE_RULES: readonly string[] = ["I", "Y"];
-const SECONDS_PER_HOUR = 3600;
 // Long enough for the browser to start the download before the URL goes.
 const DOWNLOAD_URL_LIFETIME_MS = 1000;
 const START_SECTION = {
@@ -1215,8 +1211,6 @@ function setupChoices(
 // A chosen section counts while the checklist still has it.
 function sectionChoices(lists: ChecklistList[], chosen: Chosen) {
   const has = (id?: string) => lists.some((l) => l.objectId === id);
-  const titled = (title: RegExp) =>
-    lists.find((l) => title.test(l.title ?? ""));
   const { preflight, startSection, shutdown } = chosen;
   return {
     lists,
@@ -1224,12 +1218,8 @@ function sectionChoices(lists: ChecklistList[], chosen: Chosen) {
       startSection === "" || has(startSection)
         ? startSection!
         : suggestedStartSection(lists),
-    preflightId: has(preflight)
-      ? preflight
-      : ((titled(PREFLIGHT_TITLE) ?? lists[0])?.objectId ?? ""),
-    shutdownId: has(shutdown)
-      ? shutdown
-      : ((titled(SHUTDOWN_TITLE) ?? lists.at(-1))?.objectId ?? ""),
+    preflightId: has(preflight) ? preflight : suggestedPreflightSection(lists),
+    shutdownId: has(shutdown) ? shutdown : suggestedShutdownSection(lists),
   };
 }
 
@@ -1268,10 +1258,11 @@ function withEngineStart(
   }));
 }
 
-// Hobbs and tach always; the flight time log and collective hourmeter when
-// the aircraft has them or reads its primary meter from them.
+// Hobbs and tach always; the flight time log and collective hourmeter as any
+// flight on the aircraft records them.
 function shutdownMeters(draft: GuidedDraft, aircraft?: Aircraft) {
   const { opening } = draft;
+  const shown = flightOptionalEntries(aircraft ?? {}, aircraft?.meter);
   const meters: {
     key: ShutdownKey;
     meter: Aircraft["meter"];
@@ -1281,14 +1272,14 @@ function shutdownMeters(draft: GuidedDraft, aircraft?: Aircraft) {
     { key: "hobbsOn", meter: "hobbs", label: "Hobbs", opening: opening.hobbs },
     { key: "tachOn", meter: "tach", label: "Tach", opening: opening.tach },
   ];
-  if (aircraft?.flightTimeLog || aircraft?.meter === "flightTimeLog")
+  if (shown.flightTimeLog)
     meters.push({
       key: "flightTimeLogOn",
       meter: "flightTimeLog",
       label: "Flight time log",
       opening: opening.flightTimeLog,
     });
-  if (aircraft?.helicopter || aircraft?.meter === "cyclic")
+  if (shown.cyclic)
     meters.push({
       key: "cyclicHobbsOn",
       meter: "cyclic",
@@ -1354,7 +1345,7 @@ function flightInput(
     destination: plan.destination,
     landings: plan.landings,
     cycles: plan.cycles,
-    flightRules: IFR_DEPARTURE_RULES.includes(plan.flightRules) ? "IFR" : "VFR",
+    flightRules: plannedFlightRules(plan),
     operation: "Mission",
     remarks: `Planned route: ${plan.route}`,
     discrepancy: "",

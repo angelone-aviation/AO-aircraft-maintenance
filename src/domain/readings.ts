@@ -10,7 +10,8 @@
 import { z } from "zod";
 import { Rejection } from "./rejection";
 
-const SECONDS_PER_HOUR = 3600;
+/** Seconds in an hour: the factor between typed hours and stored seconds. */
+export const SECONDS_PER_HOUR = 3600;
 const TENTH_HOUR_SECONDS = SECONDS_PER_HOUR / 10;
 
 /**
