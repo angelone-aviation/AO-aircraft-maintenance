@@ -1,6 +1,7 @@
 /**
- * Responsibility: Shelf life of stock lots: expired or expiring soon, how much
- *   of a lot is usable, and the guard that stops expired stock being used.
+ * Responsibility: Whether stock lots can be used: serviceable conditions,
+ *   shelf life (expired or expiring soon), how much of a lot is usable, and
+ *   the guard that stops expired stock being used.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./rejection.
  *
@@ -13,6 +14,12 @@ const DAY_MS = 86400000;
 
 /** Lots expiring within this many days are flagged as expiring soon. */
 export const EXPIRING_SOON_DAYS = 30;
+
+/**
+ * The conditions in which a stock lot can fill a request or a required part;
+ * as-removed parts and cores cannot.
+ */
+export const SERVICEABLE_CONDITIONS: readonly string[] = ["new", "overhauled"];
 
 /** A lot's shelf-life flag: past its date, or within the warning window. */
 export type ShelfLife = "expired" | "soon";

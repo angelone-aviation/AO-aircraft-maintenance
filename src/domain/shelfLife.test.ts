@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins shelf-life flags, usable quantity, and the refusal to
- *   issue or reserve expired stock on every path that moves it.
+ * Responsibility: Pins serviceable conditions, shelf-life flags, usable
+ *   quantity, and the refusal to issue or reserve expired stock on every path
+ *   that moves it.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/shelfLife.ts, ./management, ./partsRequests,
  *   ./purchaseOrders, ./rejection, src/data/demo.ts (seed).
@@ -11,6 +12,7 @@ import { applyManagement, type Stock } from "./management";
 import { applyRequestCommand, requestDraftSchema } from "./partsRequests";
 import { applyPOCommand, poDraftSchema } from "./purchaseOrders";
 import {
+  SERVICEABLE_CONDITIONS,
   addDays,
   assertNotExpired,
   expiredForUse,
@@ -246,5 +248,11 @@ describe("shelf life", () => {
       expirationDate: "2027-06-30",
     });
     expect(p.receipts[1].lines[0].expirationDate).toBe("2027-06-30");
+  });
+});
+
+describe("serviceable conditions", () => {
+  it("are new and overhauled; as-removed parts and cores are not", () => {
+    expect(SERVICEABLE_CONDITIONS).toEqual(["new", "overhauled"]);
   });
 });

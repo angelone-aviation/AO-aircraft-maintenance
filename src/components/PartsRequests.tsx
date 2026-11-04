@@ -6,8 +6,9 @@
  * Dependencies: react, react-dom, @phosphor-icons/react, src/data (store;
  *   partsRequestPdf on demand), src/domain (model, vendors, management,
  *   components, addresses, programs, requiredParts, shelfLife, partsRequests,
- *   purchaseOrders, costs/units), ./Vendors, ./AircraftSpruce,
- *   ./SavedAddresses, ./PurchaseOrders, ./ui, ./design, ./ShopList, CSS.
+ *   partsRequestRules, purchaseOrders (types), aircraftSpruce, costs/units),
+ *   ./Vendors, ./AircraftSpruce, ./SavedAddresses, ./PurchaseOrders, ./ui,
+ *   ./design, ./ShopList, CSS.
  */
 import { VendorPicker, newVendor } from "./Vendors";
 import { localDate } from "../domain/model";
@@ -18,7 +19,10 @@ import { SpruceProductPicker } from "./AircraftSpruce";
 import { SavedAddressPicker } from "./SavedAddresses";
 import { formatAddress } from "../domain/addresses";
 import { CENTS_PER_DOLLAR } from "../domain/costs/units";
-import type { SpruceProduct } from "../domain/aircraftSpruce";
+import {
+  SPRUCE_VENDOR_NAME,
+  type SpruceProduct,
+} from "../domain/aircraftSpruce";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
@@ -26,7 +30,11 @@ import type { Backend } from "../data/backend";
 import { can, type Snapshot } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import { partsInventory } from "../domain/requiredParts";
-import { expiredForUse, usableQuantity } from "../domain/shelfLife";
+import {
+  SERVICEABLE_CONDITIONS,
+  expiredForUse,
+  usableQuantity,
+} from "../domain/shelfLife";
 import {
   recurringRequestSource,
   requestMatchesSource,
@@ -39,7 +47,8 @@ import {
   type PartsRequest,
   type RequestLine,
 } from "../domain/partsRequests";
-import { poLineSchema, type PODraft } from "../domain/purchaseOrders";
+import type { PODraft } from "../domain/purchaseOrders";
+import { REQUEST_STATUSES, requestPODraft } from "../domain/partsRequestRules";
 import { POEditor, PODetail } from "./PurchaseOrders";
 import { AsyncForm, Field, Modal, errorText } from "./ui";
 import {
@@ -66,28 +75,7 @@ const PRIORITIES: RequestDraft["priority"][] = [
   "P2 Routine",
   "P3 Stock",
 ];
-/** Every status `requestStatus` reports, in the order the filter lists them. */
-const REQUEST_STATUSES = [
-  "Recurring",
-  "Requested",
-  "Reserved",
-  "On purchase order",
-  "Out for repair",
-  "Received / awaiting issue",
-  "Partially issued",
-  "Fulfilled",
-  "Cancelled",
-];
 const REQUEST_TABLE_STYLE = { "--shop-table-min": "900px" } as CSSProperties;
-// A request without a vendor takes this one when an Aircraft Spruce product
-// is chosen.
-const SPRUCE_VENDOR = "Aircraft Spruce";
-// Stock in these conditions can fill a request; as-removed parts and cores
-// cannot.
-const SERVICEABLE_CONDITIONS = ["new", "overhauled"];
-// A location uuid that matches no location, so the PO editor makes the buyer
-// choose one when no stock, component or location suggests it.
-const UNCHOSEN_LOCATION = "choose-location";
 const SOURCE_PAGES: Partial<Record<RequestSource["kind"], string>> = {
   airworthiness: "/airworthiness",
   stock: "/inventory",
@@ -185,50 +173,8 @@ export function PartsRequests() {
   return <RequestWorkspace page />;
 }
 
-/**
- * A purchase order draft for the selected requests: one line per request
- * line still to order, allocated to that line. Repair lines return their
- * component; part lines use matching stock.
- *
- * @param s - The snapshot holding the requests, stock and components.
- * @param ids - The selected request uuids; cancelled ones are skipped.
- * @returns A new draft (version 0) with the first request's vendor, currency,
- *   ship-to and required-by date. Its vendor and ship-to may be empty; the
- *   PO editor checks them on save.
- * @throws {Error} "Select an open request.", "Select occurrence requests for
- *   purchasing, not recurring lists.", "Select requests with the same vendor,
- *   currency and ship-to address." or "Selected requests are already
- *   reserved, ordered or fulfilled."
- */
-export function requestPODraft(s: Snapshot, ids: string[]): PODraft {
-  const requests = (s.partsRequests ?? []).filter(
-    (r) => ids.includes(r.uuid) && !r.cancelled,
-  );
-  assertPurchasable(requests);
-  const first = requests[0];
-  const inventory = partsInventory(s);
-  const lines = requests.flatMap((r) =>
-    r.lines.flatMap((l) => requestPOLines(s, r, l, inventory)),
-  );
-  if (!lines.length)
-    throw Error(
-      "Selected requests are already reserved, ordered or fulfilled.",
-    );
-  return {
-    uuid: crypto.randomUUID(),
-    version: 0,
-    vendor: first.vendor,
-    vendorContact: first.vendorAddress,
-    vendorAddressDetails: first.vendorAddressDetails,
-    shippingAddress: first.shipToDetails,
-    shipTo: first.shipTo,
-    currency: first.currency,
-    expectedDate: first.requiredBy,
-    shippingCents: 0,
-    notes: requests.map((r) => `${r.number}: ${r.notes}`).join("\n"),
-    lines,
-  };
-}
+// Moved to the domain; kept here for the importers of this screen.
+export { requestPODraft };
 
 // The dialog is portalled to the body, and stops submit events there so a
 // request form inside it never submits a form around the button.
@@ -1028,7 +974,10 @@ function LineSupplierPicker({ editor, line: l }: LineProps) {
       currency={editor.draft.currency}
       onSelect={(product, cents) => {
         editor.linePatch(l.uuid, spruceChange(l, product, cents));
-        editor.setDraft((d) => ({ ...d, vendor: d.vendor || SPRUCE_VENDOR }));
+        editor.setDraft((d) => ({
+          ...d,
+          vendor: d.vendor || SPRUCE_VENDOR_NAME,
+        }));
       }}
     />
   );
@@ -2300,86 +2249,4 @@ async function saveRequestPdf(
   } catch (e) {
     onError(errorText(e));
   }
-}
-
-// Purchasing works on occurrence requests that share one vendor, currency
-// and ship-to, so they can become a single order.
-function assertPurchasable(requests: PartsRequest[]) {
-  if (!requests.length) throw Error("Select an open request.");
-  if (requests.some((r) => r.recurring))
-    throw Error(
-      "Select occurrence requests for purchasing, not recurring lists.",
-    );
-  const first = requests[0];
-  if (
-    requests.some(
-      (r) =>
-        r.vendor.toLowerCase() !== first.vendor.toLowerCase() ||
-        r.currency !== first.currency ||
-        r.shipTo.trim() !== first.shipTo.trim(),
-    )
-  )
-    throw Error(
-      "Select requests with the same vendor, currency and ship-to address.",
-    );
-}
-
-// One PO line for what a request line still needs ordered, or none.
-function requestPOLines(
-  s: Snapshot,
-  r: PartsRequest,
-  l: RequestLine,
-  inventory: Inventory,
-) {
-  const quantity = requestLineProgress(s, r, l.uuid).toOrder;
-  if (!quantity) return [];
-  const component = findRecord(s, "component", l.componentUuid);
-  const stock = inventory.stock.find((x) => x.partNumber === l.partNumber);
-  const stockRecord = s.management?.find(
-    (x) => x.uuid === stock?.uuid && x.kind === "stock",
-  );
-  const repair = r.mode === "repair";
-  return [
-    poLineSchema.parse({
-      uuid: crypto.randomUUID(),
-      stockUuid: r.mode === "parts" ? (stock?.uuid ?? "") : "",
-      locationUuid: poLineLocation(stock, component, inventory),
-      partNumber: l.partNumber,
-      description: repair
-        ? `${l.description} — ${l.service}: ${l.workRequested}`
-        : l.description,
-      quantity,
-      unitCents: l.quotedCents,
-      sprucePart: l.sprucePart,
-      kind: lineKind(r, stockRecord),
-      aircraftUuid: r.aircraftUuid,
-      workOrderUuid: r.source.workOrderUuid,
-      inspectionUuid: r.source.kind === "inspection" ? r.source.uuid : "",
-      requestAllocations: [{ requestUuid: r.uuid, lineUuid: l.uuid, quantity }],
-      ...(repair
-        ? { repairComponentUuid: l.componentUuid, repairWork: l.service }
-        : {}),
-    }),
-  ];
-}
-
-// Delivered to the part's stock lot, the repaired component's location, or
-// the first inventory location.
-function poLineLocation(
-  stock: InventoryStock | undefined,
-  component: ManagedRecord | undefined,
-  inventory: Inventory,
-) {
-  return (
-    stock?.locationUuid ||
-    (component?.kind === "component" ? component.locationUuid : "") ||
-    inventory.locations[0]?.uuid ||
-    UNCHOSEN_LOCATION
-  );
-}
-
-// A repair returns a tracked component; a part takes its stock's category.
-function lineKind(r: PartsRequest, stock: ManagedRecord | undefined) {
-  if (r.mode === "repair") return "component";
-  return stock?.kind === "stock" ? stock.category : "part";
 }
