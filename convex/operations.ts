@@ -174,10 +174,9 @@ export const resolveDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, resolvedFields(next));
       },
-      // The stored row has always held the document, system fields too, and
-      // no program.
-      audit: (log, { s, d }) =>
-        log.replay(oldestFirst(s.audit), { programUuid: undefined, before: d }),
+      // The row has always named no program.
+      audit: (log, { s }) =>
+        log.replay(oldestFirst(s.audit), { programUuid: undefined }),
     }),
 });
 
@@ -204,10 +203,8 @@ export const deferDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, { deferral: next.deferral });
       },
-      // The stored row has always held the document, system fields too, and
-      // the program the client named.
-      audit: (log, { s, d }) =>
-        log.replay(oldestFirst(s.audit), { programUuid, before: d }),
+      // The row has always named the program the client named.
+      audit: (log, { s }) => log.replay(oldestFirst(s.audit), { programUuid }),
     }),
 });
 
@@ -272,7 +269,7 @@ export const saveDiscrepancyParts = mutation({
       load: async ({ ctx, state }) => {
         const d = await reportByUuid(ctx, uuid);
         const { snapshot } = await hydrate(ctx, state, ["management"]);
-        snapshot.discrepancies = [d];
+        snapshot.discrepancies = [reportOf(d)];
         return { d, snapshot };
       },
       apply: ({ snapshot }, payload) =>
@@ -288,8 +285,7 @@ export const saveDiscrepancyParts = mutation({
           partsVersion: result.partsVersion,
         });
       },
-      // The applier works on the stored document, so its entry holds the
-      // system fields, as the row always has; the row names no program.
+      // The row has always named no program.
       audit: (log, { snapshot }) =>
         log.replay(oldestFirst(snapshot.audit), { programUuid: undefined }),
     }),
@@ -670,8 +666,13 @@ async function persistSubmission(
 async function loadReport(ctx: MutationCtx, state: Snapshot, uuid: string) {
   const d = await reportByUuid(ctx, uuid);
   await authorized(ctx, d.aircraftUuid, "resolve", state);
-  const { _id, _creationTime, ...report } = d;
-  return { d, s: { ...state, discrepancies: [report] } };
+  return { d, s: { ...state, discrepancies: [reportOf(d)] } };
+}
+
+// The report as the domain and the demo hold it, so the change log records
+// the report, not Convex's system fields.
+function reportOf({ _id, _creationTime, ...report }: Doc<"discrepancies">) {
+  return report;
 }
 
 // Appliers list their entries newest first, as the change log does; rows are

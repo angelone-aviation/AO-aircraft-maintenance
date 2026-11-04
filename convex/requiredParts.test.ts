@@ -78,8 +78,8 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
     );
   const stored = await report();
   await tech.mutation(api.operations.saveDiscrepancyParts, input);
-  // The row has always held the document, system fields too, before and
-  // after, and no program.
+  // The row holds the report before and after, as the demo logs it, without
+  // Convex's system fields; it names no program.
   const rows = await t.run(async (ctx) =>
     (await ctx.db.query("audit").collect()).filter(
       (r) => r.action === "discrepancy.parts",
@@ -93,8 +93,8 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
     reason: "Required parts updated",
   });
   expect(rows[0]).not.toHaveProperty("programUuid");
-  expect(JSON.parse(rows[0].before!)).toEqual(stored);
-  expect(JSON.parse(rows[0].after!)).toEqual(await report());
+  expect(rows[0].before).toBe(JSON.stringify(recordOf(stored!)));
+  expect(JSON.parse(rows[0].after!)).toEqual(recordOf((await report())!));
   await expect(
     tech.mutation(api.operations.saveDiscrepancyParts, input),
   ).rejects.toThrow("changed");
@@ -124,3 +124,12 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
     after!.inspections.find((r) => r.uuid === i.uuid)!.requiredParts,
   ).toEqual([neededPart]);
 });
+
+// A stored row without Convex's system fields, as the domain holds a record.
+function recordOf<T extends { _id: string; _creationTime: number }>({
+  _id,
+  _creationTime,
+  ...record
+}: T) {
+  return record;
+}

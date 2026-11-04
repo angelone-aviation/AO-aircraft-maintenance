@@ -580,7 +580,8 @@ describe("discrepancy resolution", () => {
     });
     // Characterizes current behaviour: the row carries no programUuid.
     expect(row).not.toHaveProperty("programUuid");
-    expect(JSON.parse(row.before!)).toEqual(stored);
+    // The report as the demo logs it, without Convex's system fields.
+    expect(row.before).toBe(JSON.stringify(recordOf(stored!)));
     expect(row.after).toBe(
       JSON.stringify({
         status: "resolved",
@@ -590,7 +591,7 @@ describe("discrepancy resolution", () => {
       }),
     );
   });
-  it("stores a deferral and its change-log row as before: the document before, the client's program", async () => {
+  it("stores a deferral and its change-log row: the report before, the client's program", async () => {
     const { t, pilot, admin, ids, a } = await fixture();
     const uuid = crypto.randomUUID();
     await pilot.mutation(api.operations.submit, {
@@ -642,7 +643,7 @@ describe("discrepancy resolution", () => {
         entityUuid: uuid,
         aircraftUuid: a.uuid,
         reason: "ALT INOP",
-        before: JSON.stringify(stored),
+        before: JSON.stringify(recordOf(stored!)),
         after: JSON.stringify({
           type: "mel",
           melItem: "24-1",
@@ -1360,4 +1361,13 @@ function checklistRun(
     skipped: [],
     totalChecks: 0,
   };
+}
+
+// A stored row without Convex's system fields, as the domain holds a record.
+function recordOf<T extends { _id: string; _creationTime: number }>({
+  _id,
+  _creationTime,
+  ...record
+}: T) {
+  return record;
 }
