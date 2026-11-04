@@ -1,5 +1,12 @@
-// Google and Microsoft sign-in (ADR-0009) through the real sign-in library and
-// HTTP routes, against stand-ins for the providers' endpoints.
+/**
+ * Responsibility: Pins Google and Microsoft sign-in for existing accounts
+ *   (ADR-0009): linking, refusals, disabled users, linked identities and the
+ *   change log, and the password rules on create and reset.
+ * Layer: Test. convex-test suite through the real sign-in library and HTTP
+ *   routes, against stand-ins for the providers' endpoints; never shipped.
+ * Dependencies: @convex-dev/auth, jose, convex (auth, admin, identities,
+ *   schema), src/domain (signInMethods, passwordRules).
+ */
 import { convexTest } from "convex-test";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { exportPKCS8, generateKeyPair } from "jose";
@@ -109,6 +116,12 @@ afterAll(() => {
 });
 
 const PASSWORD = "correct-horse-battery-1";
+const DAY_MS = 86_400_000;
+
+/**
+ * A signed-in system administrator, and a helper that provisions a password
+ * account the supported way.
+ */
 async function fixture() {
   const t = convexTest(schema, modules);
   const admin = await t.run(async (ctx) => {
@@ -121,7 +134,7 @@ async function fixture() {
     });
     const session = await ctx.db.insert("authSessions", {
       userId: user,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     return { user, identity: { subject: `${user}|${session}` } };
   });

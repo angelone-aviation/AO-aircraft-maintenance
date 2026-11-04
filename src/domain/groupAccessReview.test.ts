@@ -1,3 +1,9 @@
+/**
+ * Responsibility: Tests the review of groups an edit before #34 may have
+ *   silently opened to every aircraft in their Flight Program.
+ * Layer: Test. Vitest over pure domain functions.
+ * Dependencies: vitest; src/data/demo.ts, src/domain/groupAccessReview.ts.
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { AuditEntry, Group } from "./model";
@@ -6,10 +12,9 @@ import {
   groupAccessReport,
   groupAccessReports,
   groupAccessSummary,
+  sortReports,
 } from "./groupAccessReview";
 
-// Follow-up to #34: find groups that an edit before the fix silently opened
-// to every aircraft in their Flight Program.
 const DAY = 86400000;
 const group = (fields: Partial<Group> = {}): Group => ({
   id: "crew",
@@ -96,7 +101,8 @@ describe("groupAccessFinding", () => {
     const history = newestFirst(
       saved(created, state({ aircraftIds: ["demo-206"] })),
       saved(created + DAY, state(), state({ aircraftIds: ["demo-206"] })),
-      // A client from before #34 may still save an unchanged all-aircraft group.
+      // A client from before #34 may still save an unchanged all-aircraft
+      // group.
       saved(created + 2 * DAY, state({ name: "Crew" }), state()),
     );
     expect(groupAccessFinding(group(), history, created)).toMatchObject({
@@ -205,6 +211,16 @@ describe("groupAccessFinding", () => {
       flag: "review",
       reason: "no_history",
       aircraftBefore: [],
+    });
+    // An edit found it open, although the entry before left it limited.
+    const gap = newestFirst(
+      saved(created, state({ aircraftIds: ["demo-206"] })),
+      saved(created + DAY, state({ name: "Crew" }), state()),
+    );
+    expect(groupAccessFinding(group(), gap, created)).toMatchObject({
+      flag: "review",
+      reason: "unrecorded_change",
+      savedAt: created + DAY,
     });
   });
 
@@ -339,5 +355,55 @@ describe("groupAccessReports", () => {
     ).toBe(
       "An aircraft owner group with no aircraft until the system saved it as an ordinary group on Nov 3, 2026.",
     );
+  });
+
+  it("falls back for an unknown program and actor, and names the system", () => {
+    const report = (savedBy: string) =>
+      groupAccessReport(
+        group(),
+        { flag: "review", reason: "no_before", savedBy, aircraftBefore: [] },
+        { programs: [], aircraft: [], users: [] },
+      );
+    expect(report("demo-admin")).toMatchObject({
+      programName: "Unknown Flight Program",
+      savedBy: { id: "demo-admin", name: "an unknown user" },
+    });
+    expect(report("system").savedBy).toEqual({
+      id: "system",
+      name: "the system",
+    });
+  });
+
+  it("sorts widened before review, then by program and group name", () => {
+    const base = groupAccessReport(group(), groupAccessFinding(group(), [])!, {
+      programs: [],
+      aircraft: [],
+      users: [],
+    });
+    const r = (
+      flag: "widened" | "review",
+      programName: string,
+      groupName: string,
+    ) => ({
+      ...base,
+      flag,
+      programName,
+      groupName,
+    });
+    const reports = [
+      r("review", "Alpha", "Crew"),
+      r("widened", "Beta", "Crew"),
+      r("widened", "Alpha", "Pilots"),
+      r("widened", "Alpha", "Crew"),
+    ];
+    expect(
+      sortReports(reports).map((x) => [x.flag, x.programName, x.groupName]),
+    ).toEqual([
+      ["widened", "Alpha", "Crew"],
+      ["widened", "Alpha", "Pilots"],
+      ["widened", "Beta", "Crew"],
+      ["review", "Alpha", "Crew"],
+    ]);
+    expect(reports[0].flag).toBe("review");
   });
 });

@@ -22,10 +22,12 @@ import {
   componentDescendants,
   movement,
   rebaseServicedRequirements,
+  saveRequirement,
+  componentAircraftSeconds,
   type Component,
   type ComponentRequirement,
 } from "./components";
-import { localDate, totalSeconds } from "./model";
+import { localDate, totalSeconds, type Snapshot } from "./model";
 import { Rejection } from "./rejection";
 const now = Date.parse("2026-09-29T12:00:00Z");
 const common = () => ({
@@ -834,3 +836,221 @@ it("re-bases only the reset counters, and refuses work dated before a later comp
     "A component requirement has later compliance. Review its tracking before backdating this repair or overhaul.",
   );
 });
+
+const TODAY = "2026-09-29";
+const AIRCRAFT = demoSnapshot().aircraft[0];
+const INSTALLED: Partial<Component> = {
+  aircraftUuid: AIRCRAFT.uuid,
+  installed: true,
+  installedDate: "2026-09-01",
+  installPosition: "MAIN",
+  partsLocation: undefined,
+  installedSeconds: totalSeconds(AIRCRAFT),
+  installedCycles: AIRCRAFT.cycles,
+};
+const outForRepair = { poUuid: "po", date: "2026-09-01" };
+const part = (fields: Partial<Component>): Component => ({
+  ...base(),
+  ...fields,
+});
+const validate =
+  (
+    r: Partial<Component>,
+    existing?: Partial<Component>,
+    ...stored: Component[]
+  ) =>
+  (s: Snapshot) => {
+    s.management = stored;
+    return validateComponent(s, part(r), existing && part(existing), now);
+  };
+const save =
+  (r: Partial<ComponentRequirement>, c: Partial<Component> = {}) =>
+  (s: Snapshot) => {
+    s.management = [part(c)];
+    return saveRequirement(s, { ...requirement(c.aircraftUuid), ...r }, now);
+  };
+const service =
+  (existing: Partial<Component>, action: Partial<ServiceAction>) =>
+  (s: Snapshot) =>
+    serviceComponent(
+      s,
+      part(existing),
+      { operation: "install", date: TODAY, ...action },
+      now,
+    );
+type ServiceAction = Parameters<typeof serviceComponent>[2];
+
+// Each error the module throws itself, by the public function that reaches it
+// (the attachment cycle is pinned above).
+const REFUSALS: Record<string, Record<string, (s: Snapshot) => unknown>> = {
+  validateComponent: {
+    "Receive this component from repair before editing it.": validate(
+      {},
+      { outForRepair },
+    ),
+    "The attached parent cannot be changed through component details.":
+      validate({ parentComponentUuid: "engine" }, {}),
+    "Select a parent component in the same Flight Program.": validate({
+      parentComponentUuid: "engine",
+    }),
+    "A component cannot be attached to its own descendant.": validate(
+      { parentComponentUuid: "magneto" },
+      undefined,
+      part({ uuid: "magneto", parentComponentUuid: "component" }),
+    ),
+    "Attached parts must stay with their parent component's aircraft or inventory location.":
+      validate(
+        { parentComponentUuid: "engine" },
+        undefined,
+        part({ uuid: "engine", partsLocation: "Shelf B" }),
+      ),
+    "Select at least one tracking dimension.": validate({
+      trackTime: false,
+      trackCycles: false,
+      trackCalendar: false,
+    }),
+    "Part number and serial already exist.": validate(
+      {},
+      undefined,
+      part({ uuid: "other", partNumber: "pn1", serial: "sn1" }),
+    ),
+    "Dates cannot be in the future.": validate({ removedDate: "2099-01-01" }),
+    "Since-overhaul and since-repair readings cannot exceed since-new usage. Enter the verified component TSN; zero means new, not unknown.":
+      validate({ timeSinceRepair: 200 * 3600 }),
+    "Enter the inventory shelf, bin, or room.": validate({
+      partsLocation: undefined,
+    }),
+    "Installed components need an aircraft and installation date.": validate({
+      installed: true,
+    }),
+    "Select an installation position.": validate({
+      ...INSTALLED,
+      installPosition: undefined,
+    }),
+    "A requirement still uses a tracking dimension being disabled.": (s) => {
+      s.management = [requirement()];
+      return validateComponent(s, part({ trackTime: false }), undefined, now);
+    },
+    "Use movement or baseline actions to change installation and usage.":
+      validate({ timeSinceNew: 101 * 3600 }, {}),
+    "Move the component to inventory before changing its tracking dimensions.":
+      validate({ ...INSTALLED, trackCycles: false }, INSTALLED),
+  },
+  saveRequirement: {
+    "Component not found.": (s) =>
+      saveRequirement({ ...s, management: [] }, requirement(), now),
+    "Component location changed. Refresh and try again.": save({
+      aircraftUuid: "elsewhere",
+    }),
+    "Set at least one service limit.": save({
+      intervalSeconds: undefined,
+      intervalCycles: undefined,
+      calendarIntervalValue: undefined,
+    }),
+    "Enable the corresponding tracking dimension on the component first.": save(
+      {},
+      { trackTime: false },
+    ),
+    "Set a verified TSO baseline before adding a time limit.": save({
+      timeBasis: "TSO",
+    }),
+    "Aircraft landing limits require an installed component.": save({
+      intervalLandings: 50,
+    }),
+    "Review the landing baseline for the new aircraft before saving this service requirement.":
+      save(
+        { intervalLandings: 50, landingReferenceAircraftUuid: "elsewhere" },
+        INSTALLED,
+      ),
+    "Dates cannot be in the future.": save({ lastDate: "2099-01-01" }),
+    "Last compliance exceeds current component usage.": save({
+      lastCycles: 26,
+    }),
+    "Enter last compliance for each relative interval.": save({
+      lastSeconds: undefined,
+    }),
+  },
+  serviceComponent: {
+    "Receive this component from repair before servicing or installing it.":
+      service({ outForRepair }, { operation: "repair" }),
+    "Move the parent component; its attached parts move with it.": service(
+      { parentComponentUuid: "engine" },
+      {},
+    ),
+    "Use today’s date for current reading snapshots. Set verified historical values through the baseline form.":
+      service({}, { operation: "repair", date: "2026-09-01" }),
+    "Component installation state has changed.": service(
+      {},
+      { operation: "remove" },
+    ),
+    "Move the component to inventory before recording overhaul or repair.":
+      service(INSTALLED, { operation: "overhaul" }),
+    "Select a valid aircraft.": service({}, { aircraftUuid: "elsewhere" }),
+    "Permission denied for destination aircraft.": (s) => {
+      s.user = { ...s.user, isAdmin: false, groupIds: [] };
+      return service(
+        {},
+        { aircraftUuid: AIRCRAFT.uuid, installPosition: "MAIN" },
+      )(s);
+    },
+    "Select an installation position.": service(
+      {},
+      { aircraftUuid: AIRCRAFT.uuid },
+    ),
+    "Enter the inventory shelf, bin, or room.": service(INSTALLED, {
+      operation: "remove",
+    }),
+  },
+  rebaseServicedRequirements: {
+    "A component requirement has later compliance. Review its tracking before backdating this repair or overhaul.":
+      (s) => {
+        s.management = [base(), requirement()];
+        const work = { overhaul: false, repair: true, date: "2026-01-01" };
+        return rebaseServicedRequirements(
+          s,
+          base(),
+          componentTotals(base()),
+          work,
+          now,
+        );
+      },
+  },
+  componentTotals: {
+    "Installed aircraft not found.": () =>
+      componentTotals(part({ installed: true })),
+    "Aircraft readings or date precede the installation baseline.": () =>
+      componentTotals(
+        part({ ...INSTALLED, installedSeconds: totalSeconds(AIRCRAFT) + 1 }),
+        AIRCRAFT,
+      ),
+  },
+  componentAircraftSeconds: {
+    "Collective component tracking requires a helicopter collective hourmeter reading.":
+      () => componentAircraftSeconds({ usageMeter: "collective" }, AIRCRAFT),
+  },
+  calendarDue: {
+    "Calendar interval exceeds supported dates.": () =>
+      calendarDue("9999-12-15", 1, "MONTHS"),
+  },
+};
+
+// An installed component always has its aircraft in a consistent snapshot,
+// so this one is a fault, not a refusal written for the user.
+const FAULTS = new Set(["Installed aircraft not found."]);
+
+describe.each(Object.entries(REFUSALS))("%s refusals", (_, refusals) => {
+  it.each(Object.entries(refusals))("%s", (message, run) => {
+    const error = thrownBy(() => run(demoSnapshot()));
+    expect(error).toEqual(new Error(message));
+    expect(error instanceof Rejection).toBe(!FAULTS.has(message));
+  });
+});
+
+function thrownBy(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected a refusal.");
+}

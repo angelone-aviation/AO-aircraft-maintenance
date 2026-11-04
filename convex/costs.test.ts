@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins cost records: who may see and set money, how labor
- *   is stored, program isolation, closed work orders, part unit costs, and a
- *   record uuid another Flight Program holds.
+ *   is stored, program isolation, closed work orders, part unit costs, a
+ *   replayed labor entry, and a record uuid another Flight Program holds.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/costs, convex/workOrders, convex/operations,
  *   src/data/demo, src/domain/costs, tests/fixtures/workOrders.
@@ -21,6 +21,13 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
+
+/**
+ * Seeds the demo program and a second one, "other", with a maintenance
+ * technician and a program administrator in the demo program and an
+ * administrator of the other.
+ */
 async function fixture() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -53,7 +60,7 @@ async function fixture() {
       });
       const session = await ctx.db.insert("authSessions", {
         userId: user,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { subject: `${user}|${session}` };
     };
@@ -341,6 +348,37 @@ it("refuses a new cost record whose uuid another Flight Program holds, and write
     data: "Cost record belongs to another Flight Program.",
   });
   expect(await stored()).toEqual(before);
+});
+
+it("leaves the record and the change log as they were for a replayed labor entry", async () => {
+  const { t, tech } = await fixture();
+  const order = workOrderCommand();
+  await tech.mutation(api.workOrders.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(order),
+  });
+  const labor = {
+    action: "labor.add",
+    workOrderUuid: order.uuid,
+    entry: {
+      uuid: crypto.randomUUID(),
+      date: today,
+      technician: "Tech",
+      minutes: 30,
+    },
+  };
+  await run(tech, labor);
+  const stored = () =>
+    t.run(async (ctx) => ({
+      costs: await ctx.db.query("costs").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  const before = await stored();
+  await run(tech, labor);
+  expect(await stored()).toEqual(before);
+  expect(
+    before.audit.filter((a) => a.action === "cost.labor.add"),
+  ).toHaveLength(1);
 });
 
 // Issues stock-0 to a task of the order, and stock-1 to a job card the order

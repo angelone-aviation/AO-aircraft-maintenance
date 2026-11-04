@@ -1,5 +1,13 @@
+/**
+ * Responsibility: Pins the Flight time log meter: enabling it without changing
+ *   total time, logging a flight on it alone, and turning it off again.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, tests/fixtures/localDateTime.
+ */
 import { test, expect } from "@playwright/test";
 import { localDateTime } from "../fixtures/localDateTime";
+
+const MINUTE_MS = 60 * 1000;
 
 test("configures Flight time log and records a flight without Hobbs or tach readings", async ({
   page,
@@ -43,9 +51,11 @@ test("configures Flight time log and records a flight without Hobbs or tach read
   await expect(
     dialog.getByLabel("Starting Flight time log (hours)"),
   ).toHaveValue("100.0");
+  // Enabling the log is a counter change timed now, and a flight at or before
+  // it would be held for chronology review.
   await dialog
     .getByLabel("Flight date & time")
-    .fill(localDateTime(Date.now() + 60000));
+    .fill(localDateTime(Date.now() + MINUTE_MS));
   await dialog
     .getByLabel("Ending Flight time log", { exact: false })
     .fill("101.2");

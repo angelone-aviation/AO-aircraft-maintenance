@@ -8,6 +8,7 @@
 import {
   adCounters,
   adTaskStatus,
+  CLOSED_APPLICABILITY,
   type AD,
   type ADTask,
 } from "./airworthiness";
@@ -43,7 +44,6 @@ const SECONDS_PER_HOUR = 3600;
 const UTC_MIDNIGHT = "T00:00:00Z";
 // Sorts after every ISO date, so unprojected items come last.
 const UNPROJECTED_SORT_KEY = "9999";
-const CLOSED_APPLICABILITY = ["Not applicable", "Superseded"];
 const NO_RATES: Rates = {
   secondsPerDay: 0,
   collectiveSecondsPerDay: 0,

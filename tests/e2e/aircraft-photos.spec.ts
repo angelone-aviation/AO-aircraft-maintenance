@@ -1,5 +1,12 @@
+/**
+ * Responsibility: Pins an aircraft photo: added from the aircraft editor,
+ *   shown on the dashboard across a reload, and removable.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path.
+ */
 import { test, expect } from "@playwright/test";
 import path from "node:path";
+
 test("aircraft photo persists on dashboard and can be removed", async ({
   page,
 }) => {

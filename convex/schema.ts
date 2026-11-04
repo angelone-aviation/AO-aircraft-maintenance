@@ -78,6 +78,7 @@ export default defineSchema({
   spruceAccounts: defineTable({
     programUuid: v.string(),
     version: v.number(),
+    // userid, password and apikey are sealed (convex/secrets.ts).
     credentials: v.optional(
       v.object({
         userid: v.string(),
@@ -111,6 +112,10 @@ export default defineSchema({
   })
     .index("user", ["userId"])
     .index("storage", ["storageId"]),
+  // Convex Auth's users table with the app's fields added; the library's own
+  // (name to isAnonymous) stay as it writes them. Its "phone" index is left
+  // out: only the library's default account linking reads it, and
+  // createOrUpdateUser (convex/auth.ts) replaces that.
   users: defineTable({
     certifications: v.optional(
       v.array(
@@ -264,7 +269,8 @@ export default defineSchema({
     payload: v.string(),
     userId: v.string(),
     createdAt: v.number(),
-    // Base64 SHA-256 the browser declared; only a blob with these bytes can be claimed.
+    // Base64 SHA-256 the browser declared; only a blob with these bytes can be
+    // claimed.
     sha256: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
   })
@@ -303,6 +309,8 @@ export default defineSchema({
     windowStart: v.number(),
     count: v.number(),
   }).index("key", ["key"]),
+  // The one Geoapify row: the sealed API key, and the UTC day's lookup count
+  // that caps lookups for the whole deployment.
   addressVerificationSettings: defineTable({
     key: v.optional(v.string()),
     version: v.number(),
@@ -316,6 +324,7 @@ export default defineSchema({
     keyId: v.string(),
     completedAt: v.number(),
   }).index("name", ["name"]),
+  // The one FAA DRS key row; `key` is sealed (convex/secrets.ts).
   faaCredentials: defineTable({
     key: v.optional(v.string()),
     expiresOn: v.string(),
@@ -372,7 +381,8 @@ export default defineSchema({
   workOrderCopyBatches: defineTable({
     jobId: v.id("workOrderCopyJobs"),
     batch: v.number(),
-    // Immutable template contents captured in the same transaction as the request.
+    // Immutable template contents captured in the same transaction as the
+    // request.
     cards: v.array(
       v.object({
         payload: v.string(),
@@ -419,6 +429,8 @@ export default defineSchema({
     uuid: v.string(),
     authorId: v.string(),
     submittedAt: v.number(),
+    // "review" is a held flight: it conflicts with the aircraft's counters,
+    // which stay unchanged until an administrator reviews it.
     status: v.union(
       v.literal("accepted"),
       v.literal("review"),
@@ -435,6 +447,8 @@ export default defineSchema({
     .index("aircraft", ["aircraftUuid"])
     .index("plan", ["flightPlanUuid"]),
   discrepancies: defineTable({
+    // A problem report has no version of its own; this one guards edits to
+    // its required parts (src/domain/requiredParts.ts).
     partsVersion: v.optional(v.number()),
     requiredParts: v.optional(
       v.array(
@@ -514,6 +528,9 @@ export default defineSchema({
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
     .index("program", ["programUuid", "aircraftUuid"]),
+  // The request ids of every runCommand command that carries one, despite the
+  // name: with the caller and payload, a replay is a no-op and any other reuse
+  // is refused (convex/runCommand.ts).
   managementRequests: defineTable({
     uuid: v.string(),
     actorId: v.string(),
@@ -584,6 +601,8 @@ export default defineSchema({
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
     .index("component", ["componentUuid"]),
+  // The change log. Append-only: writeAudit (convex/access.ts) is its only
+  // insert, and no code patches or deletes a row (CONTEXT.md §5).
   audit: defineTable({
     programUuid: v.optional(v.string()),
     uuid: v.string(),

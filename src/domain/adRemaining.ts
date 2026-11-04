@@ -5,7 +5,12 @@
  * Dependencies: ./adCompliance, ./airworthiness, ./componentCalendar, ./model.
  */
 import { lastCompliance } from "./adCompliance";
-import { adCounters, type AD, type ADTask } from "./airworthiness";
+import {
+  adCounters,
+  CLOSED_APPLICABILITY,
+  type AD,
+  type ADTask,
+} from "./airworthiness";
 import { daysPerServiceMonth } from "./componentCalendar";
 import { localDate, type Snapshot } from "./model";
 
@@ -13,7 +18,6 @@ const SECONDS_PER_HOUR = 3600;
 const MS_PER_DAY = 86_400_000;
 const DUE_NOT_SET = "Due not set";
 const COUNTER_UNAVAILABLE = "Counter unavailable";
-const CLOSED_APPLICABILITY = ["Not applicable", "Superseded"];
 
 type RemainingRow = { label: string; value: string };
 

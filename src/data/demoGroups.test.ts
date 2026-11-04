@@ -1,10 +1,18 @@
+/**
+ * Responsibility: Pins the demo's group saves: a group keeps its aircraft
+ *   after they leave the program, and an unscoped group gets one program.
+ * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
+ * Dependencies: src/data/store.ts, src/data/local.ts, src/data/demo.ts,
+ *   src/domain/model.ts (types).
+ *
+ * The demo mirrors convex/admin.ts saveGroup (#34, #45).
+ */
 import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
 import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import type { Permission } from "../domain/model";
 
-// The demo backend mirrors convex/admin.ts saveGroup (#34, #45).
 it("the demo keeps a group restricted after its aircraft leave the program and assigns unscoped groups", async () => {
   vi.stubGlobal("navigator", { onLine: true });
   const namespace = "demo-groups-test";

@@ -1,6 +1,7 @@
 /**
  * Responsibility: Reference manuals: the stored manual and what it applies
- *   to, edits to one, the PDF file rule, and references to a manual's pages.
+ *   to, the rules for editing one, the PDF file rule, and references to a
+ *   manual's pages.
  * Layer: Domain. Pure zod schemas and functions; no I/O, no React.
  * Dependencies: zod, src/domain/model.ts, src/domain/rejection.ts.
  */
@@ -112,3 +113,134 @@ export const manualEditSchema = manualInputSchema
 
 /** A parsed {@link manualEditSchema} edit. */
 export type ManualEdit = z.infer<typeof manualEditSchema>;
+
+/**
+ * A checked change to one manual: the fields to write, and the change-log
+ * entry's `before` and `after`.
+ */
+export interface ManualChange<T> {
+  /** The fields to set; a key present as `undefined` clears that field. */
+  patch: Partial<ManualEdit>;
+  before: T;
+  after: T;
+}
+
+/**
+ * Refuses a manual the user may not maintain.
+ *
+ * @param s - The snapshot, for the user's access.
+ * @param manual - The manual, or nothing when it does not exist.
+ * @throws {Rejection} "Maintenance access is required." for a missing manual
+ *   or one on an aircraft the user cannot maintain.
+ */
+export function assertManualMaintainer<M extends Manual>(
+  s: Snapshot,
+  manual: M | null | undefined,
+): asserts manual is M {
+  if (!manual || !can(s, manual.aircraftUuid, "maintenance"))
+    throw new Rejection("Maintenance access is required.");
+}
+
+/**
+ * Checks an edit to a manual's details. It may move the manual to another
+ * aircraft of the same Flight Program that the user maintains.
+ *
+ * @param s - The snapshot, for the aircraft and the user's access.
+ * @param manual - The manual, or nothing when it does not exist.
+ * @param raw - The details, as {@link manualEditSchema}; leaving out
+ *   applicability clears it.
+ * @returns The details to write; `before` holds the editable fields as they
+ *   were, and `after` the parsed details.
+ * @throws {Rejection} As {@link assertManualMaintainer}, first; then "Choose
+ *   an aircraft in the same Flight Program with maintenance access."
+ * @throws {z.ZodError} For invalid details, after the access check.
+ */
+export function editManual(
+  s: Snapshot,
+  manual: Manual | null | undefined,
+  raw: unknown,
+): ManualChange<ManualEdit> {
+  assertManualMaintainer(s, manual);
+  const input = manualEditSchema.parse(raw);
+  assertSameProgramTarget(s, manual.aircraftUuid, input.aircraftUuid);
+  return {
+    // Named even when absent, so writing the patch clears the stored one.
+    patch: { ...input, applicability: input.applicability },
+    before: {
+      title: manual.title,
+      documentNumber: manual.documentNumber,
+      revision: manual.revision,
+      revisionDate: manual.revisionDate,
+      aircraftUuid: manual.aircraftUuid,
+      applicability: manual.applicability,
+    },
+    after: input,
+  };
+}
+
+/**
+ * Checks a new title for a manual; its PDF and references stay.
+ *
+ * @param s - The snapshot, for the user's access.
+ * @param manual - The manual, or nothing when it does not exist.
+ * @param raw - The title; trimmed, 1 to 300 characters.
+ * @returns The title to write, with the old and new title for the change log.
+ * @throws {Rejection} As {@link assertManualMaintainer}, first.
+ * @throws {z.ZodError} For an invalid title.
+ */
+export function renameManual(
+  s: Snapshot,
+  manual: Manual | null | undefined,
+  raw: unknown,
+): ManualChange<{ title: string }> {
+  assertManualMaintainer(s, manual);
+  const title = manualInputSchema.shape.title.parse(raw);
+  return {
+    patch: { title },
+    before: { title: manual.title },
+    after: { title },
+  };
+}
+
+/**
+ * Checks the aircraft or component model a manual applies to.
+ *
+ * @param s - The snapshot, for the user's access.
+ * @param manual - The manual, or nothing when it does not exist.
+ * @param raw - The applicability, as {@link manualApplicabilitySchema}.
+ * @returns The applicability to write, with the old and new one for the
+ *   change log.
+ * @throws {Rejection} As {@link assertManualMaintainer}, first.
+ * @throws {z.ZodError} For an invalid applicability.
+ */
+export function setManualApplicability(
+  s: Snapshot,
+  manual: Manual | null | undefined,
+  raw: unknown,
+): ManualChange<ManualApplicability | undefined> {
+  assertManualMaintainer(s, manual);
+  const applicability = manualApplicabilitySchema.parse(raw);
+  return {
+    patch: { applicability },
+    before: manual.applicability,
+    after: applicability,
+  };
+}
+
+function assertSameProgramTarget(
+  s: Snapshot,
+  fromUuid: string,
+  toUuid: string,
+): void {
+  const source = s.aircraft.find((a) => a.uuid === fromUuid);
+  const target = s.aircraft.find((a) => a.uuid === toUuid);
+  if (
+    !target ||
+    !source ||
+    target.programUuid !== source.programUuid ||
+    !can(s, target.uuid, "maintenance")
+  )
+    throw new Rejection(
+      "Choose an aircraft in the same Flight Program with maintenance access.",
+    );
+}

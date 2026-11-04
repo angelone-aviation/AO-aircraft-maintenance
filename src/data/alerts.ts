@@ -2,7 +2,8 @@
  * Responsibility: Tracks which alerts the signed-in user has read in the
  *   active Flight Program.
  * Layer: Data. Zustand store over the Backend and the device cache; no UI.
- * Dependencies: zustand, src/data/local.ts, src/data/store.ts.
+ * Dependencies: zustand, src/data/local.ts, src/data/store.ts,
+ *   src/data/errors.ts.
  *
  * Read state is per user and Flight Program and lives on the server; a device
  * copy keeps the badge accurate offline until the backend answers.
@@ -10,6 +11,7 @@
 import { create } from "zustand";
 import * as local from "./local";
 import { useWorkspace } from "./store";
+import { errorText } from "./errors";
 
 interface AlertReads {
   /** Whose reads `keys` holds: namespace, user and program; "" before load. */
@@ -18,14 +20,15 @@ interface AlertReads {
   error: string;
   /**
    * Switches to the current scope, starting from the device copy, then merges
-   * the server's reads. Sets `error` to "Unable to load read alerts." (or the
-   * failure's message) when the server cannot answer.
+   * the server's reads. Sets `error` to the failure's errorText, falling back
+   * to "Unable to load read alerts.", when the server cannot answer.
    */
   load(): Promise<void>;
   /**
    * Adds the keys (with `all`, replaces the reads with them) here and on the
-   * device at once, then saves them on the server. Sets `error` to "Unable to
-   * save read alerts." (or the failure's message) when that fails.
+   * device at once, then saves them on the server. Sets `error` to the
+   * failure's errorText, falling back to "Unable to save read alerts.", when
+   * that fails.
    */
   markRead(keys: string[], all?: boolean): Promise<void>;
 }
@@ -57,7 +60,7 @@ export const useAlertReads = create<AlertReads>((set, get) => ({
       await cacheReads(scope, keys);
     } catch (error) {
       if (get().scope === scope)
-        set({ error: errorMessage(error, "Unable to load read alerts.") });
+        set({ error: errorText(error, "Unable to load read alerts.") });
     }
   },
   async markRead(keys, all = false) {
@@ -70,7 +73,7 @@ export const useAlertReads = create<AlertReads>((set, get) => ({
     try {
       await backend.markAlertsRead(snapshot.activeProgramUuid, keys, all);
     } catch (error) {
-      set({ error: errorMessage(error, "Unable to save read alerts.") });
+      set({ error: errorText(error, "Unable to save read alerts.") });
     }
   },
 }));
@@ -86,8 +89,4 @@ function currentScope(): string {
 // failed write (or, in load(), a failed read) is ignored.
 function cacheReads(scope: string, keys: string[]) {
   return local.saveFavorites(scope, keys).catch(() => undefined);
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
 }

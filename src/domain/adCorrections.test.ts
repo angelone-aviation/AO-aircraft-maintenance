@@ -1,3 +1,9 @@
+/**
+ * Responsibility: Pins AD corrections: when a save needs a reason, appended
+ *   compliance corrections, and stale one-time limits left by #42.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/airworthiness.ts, ./model, src/data/demo.ts (seed).
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -17,9 +23,10 @@ import {
 } from "./airworthiness";
 import { localDate, type Snapshot } from "./model";
 
+const DAY_MS = 86_400_000;
 const today = localDate();
 const daysAgo = (n: number) =>
-  new Date(Date.parse(today + "T00:00:00Z") - n * 86400000)
+  new Date(Date.parse(today + "T00:00:00Z") - n * DAY_MS)
     .toISOString()
     .slice(0, 10);
 // A reviewed, applicable AD: repeat every 100 h, next due 2400 h. The demo
@@ -126,21 +133,25 @@ function asProgramAdmin(s: Snapshot) {
   ];
   s.user = { ...s.user, isAdmin: false, groupIds: ["pa"] };
 }
+/** One imported AD, awaiting its first review. */
+function importForReview() {
+  const s = demoSnapshot();
+  applyADCommand(s, {
+    kind: "import",
+    aircraftUuid: s.aircraft[0].uuid,
+    entries: [
+      {
+        componentUuid: "",
+        source: { ...blankAD("").source, number: "2026-05-05", subject: "X" },
+      },
+    ],
+  });
+  return { s, imported: current(s) };
+}
 
 describe("AD correction reasons", () => {
   it("needs a reason to change an AD once its applicability is decided, but not for its first review", () => {
-    const s = demoSnapshot();
-    applyADCommand(s, {
-      kind: "import",
-      aircraftUuid: s.aircraft[0].uuid,
-      entries: [
-        {
-          componentUuid: "",
-          source: { ...blankAD("").source, number: "2026-05-05", subject: "X" },
-        },
-      ],
-    });
-    const imported = current(s);
+    const { s, imported } = importForReview();
     expect(adSaveIsCorrection(undefined)).toBe(false);
     expect(adSaveIsCorrection(imported)).toBe(false);
     // The first review decides applicability; it is not a correction.
