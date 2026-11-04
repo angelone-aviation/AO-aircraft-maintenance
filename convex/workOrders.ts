@@ -10,7 +10,7 @@
 import { prepareRecurringParts } from "./recurringParts";
 import { ConvexError, v } from "convex/values";
 import { can, type Snapshot } from "../src/domain/model";
-import { startCopy, queueTemplateCopies } from "./workOrderCopies";
+import { queueTemplateCopies } from "./workOrderCopies";
 import {
   mutation,
   action,
@@ -50,18 +50,27 @@ import { exposeRejections } from "./userErrors";
 type LoadedWorkOrder = Awaited<ReturnType<typeof loadWorkOrder>>;
 type ManagementRecord = NonNullable<Snapshot["management"]>[number];
 
+const COPY_REFUSALS = new Set([
+  "Work order changed. Reopen it before saving.",
+  "This work order is closed.",
+  "This item is already on the work order.",
+]);
+
 /**
  * Runs one work order command (save, revise, add work, copy templates or
- * correct a component) and persists what it changed: job cards, inspections,
- * component records, recurring parts requests and the order itself. Template
- * copies run as scheduled batches (workOrderCopies.ts).
+ * correct a component) through `saveWorkOrder`, and persists what it changed:
+ * job cards, inspections, component records, recurring parts requests and the
+ * order itself. Template copies run as scheduled batches (workOrderCopies.ts).
  *
  * @param payload - JSON, as `workOrderCommandSchema`.
  * @param programUuid - The caller's active Flight Program.
  * @returns The work order's uuid.
- * @throws {ConvexError} As `runCommand`, `saveWorkOrder` and `startCopy`;
- *   "Work order maintenance access denied."; "Job cards are still being
- *   prepared. …"; "Work order not found."
+ * @throws {ConvexError} As `runCommand`, `saveWorkOrder` and
+ *   `queueTemplateCopies`; "Work order maintenance access denied."; "Job cards
+ *   are still being prepared. …"; "Work order not found."; for adding an
+ *   inspection or copying templates, also "Work order changed. Reopen it
+ *   before saving.", "This work order is closed." and "This item is already
+ *   on the work order."
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -69,17 +78,15 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => workOrderCommandSchema.parse(JSON.parse(args.payload)),
-      delegate: (state, command) =>
-        command.action === "copyTemplates" ||
-        (command.action === "add" && command.source.kind === "inspection")
-          ? startCopy(ctx, state, command)
-          : undefined,
       load: loadWorkOrder,
       apply: ({ working }, command) => ({
-        next: saveWorkOrder(working, command, Date.now(), {
-          deferTemplateCopies: true,
-        }),
+        next: showCopyRefusals(command, () =>
+          saveWorkOrder(working, command, Date.now(), {
+            deferTemplateCopies: true,
+          }),
+        ),
       }),
+      afterApply: scheduleJobs,
       persist: persistWorkOrder,
       audit: (log, { working, previous }, { next }, command) => {
         log.replay(working.audit);
@@ -274,20 +281,52 @@ function assertEditable(state: ProgramContext, previous: WorkOrder) {
     );
 }
 
-async function persistWorkOrder(
+// Production hides a plain Error's message. Adding an inspection and copying
+// templates showed these refusals as ConvexError before saveWorkOrder ran
+// them, and saveWorkOrder still throws them as plain Error.
+function showCopyRefusals(
+  command: WorkOrderCommand,
+  save: () => WorkOrder,
+): WorkOrder {
+  try {
+    return save();
+  } catch (error) {
+    if (!isCopyCommand(command) || !isCopyRefusal(error)) throw error;
+    throw new ConvexError(error.message);
+  }
+}
+
+const isCopyCommand = (command: WorkOrderCommand) =>
+  command.action === "copyTemplates" ||
+  (command.action === "add" && command.source.kind === "inspection");
+
+const isCopyRefusal = (error: unknown): error is Error =>
+  error instanceof Error &&
+  error.constructor === Error &&
+  COPY_REFUSALS.has(error.message);
+
+// Starts the jobs a save owes: recurring parts requests, then template copies.
+// They need the applied order, and the order records its copy job, so they
+// run before persist (ADR-0003). Copying templates copies them for every item,
+// not only the items it adds.
+async function scheduleJobs(
   { ctx, state, log }: Transaction,
+  loaded: LoadedWorkOrder,
+  { next }: { next: WorkOrder },
+  command: WorkOrderCommand,
+) {
+  log.record(await prepareRecurringParts(ctx, loaded.working, next));
+  const previous =
+    command.action === "copyTemplates" ? undefined : loaded.previous;
+  return { next: await queueTemplateCopies(ctx, next, previous, state) };
+}
+
+async function persistWorkOrder(
+  { ctx }: Transaction,
   loaded: LoadedWorkOrder,
   result: { next: WorkOrder },
 ) {
   const { working } = loaded;
-  // Scheduling that must run between apply and persist.
-  log.record(await prepareRecurringParts(ctx, working, result.next));
-  result.next = await queueTemplateCopies(
-    ctx,
-    result.next,
-    loaded.previous,
-    state,
-  );
   await persistTaskCards(ctx, working, loaded.previousCards);
   await persistInspections(ctx, working, loaded.previousInspections);
   for (const record of working.management ?? [])

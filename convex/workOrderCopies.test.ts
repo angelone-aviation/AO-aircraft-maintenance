@@ -10,7 +10,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { workOrderCommand } from "../tests/fixtures/workOrders";
+import {
+  workOrderCommand,
+  workOrderComponent,
+} from "../tests/fixtures/workOrders";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { saveTaskCard } from "../src/domain/taskCards";
 import { newWorkTask, workOrderSchema } from "../src/domain/workOrders";
@@ -285,6 +288,186 @@ it("adds inspections with no templates immediately and rejects cross-aircraft in
       payload: JSON.stringify({ ...add, version: state.order.version }),
     }),
   ).rejects.toThrow("This item is already on the work order.");
+});
+
+it("shows the refusals of adding an inspection and copying templates as ConvexErrors", async () => {
+  const { user, command, add, start, read } = await setup(0);
+  const save = (payload: object) =>
+    user
+      .mutation(api.workOrders.save, {
+        programUuid: "demo-program",
+        payload: JSON.stringify(payload),
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+  const copy = { action: "copyTemplates", uuid: command.uuid };
+  const unknown = { uuid: crypto.randomUUID(), version: 0 };
+  const unavailable = { kind: "inspection", uuid: "no-such-inspection" };
+  const shown = async (message: string, payloads: object[]) => {
+    for (const payload of payloads)
+      expect(await save(payload), message).toMatchObject({
+        name: "ConvexError",
+        data: message,
+      });
+  };
+  await shown("Work order not found.", [
+    { ...add, ...unknown },
+    { ...copy, ...unknown },
+  ]);
+  await shown("Work item is unavailable for this aircraft.", [
+    { ...add, source: unavailable },
+  ]);
+  await start();
+  await shown("Work order changed. Reopen it before saving.", [
+    add,
+    { ...copy, version: 1 },
+  ]);
+  await shown("This item is already on the work order.", [
+    { ...add, version: 2 },
+  ]);
+  const { order } = await read();
+  await save({
+    ...command,
+    version: order.version,
+    fields: { ...command.fields, status: "cancelled" },
+    tasks: order.tasks,
+  });
+  await shown("This work order is closed.", [
+    { ...add, version: order.version + 1 },
+    { ...copy, version: order.version + 1 },
+  ]);
+});
+
+it("copies templates added to the library after their item was added", async () => {
+  const { t, user, command, original, start, read } = await setup(0);
+  await start();
+  expect((await read()).jobs).toHaveLength(0);
+  await t.run((ctx) =>
+    ctx.db.insert("taskCards", {
+      uuid: original.uuid,
+      aircraftUuid: original.aircraftUuid,
+      payload: JSON.stringify(original),
+    }),
+  );
+  await user.mutation(api.workOrders.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      action: "copyTemplates",
+      uuid: command.uuid,
+      version: 2,
+    }),
+  });
+  await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+  const copies = (await read()).cards.filter((c) => c.workOrderUuid);
+  expect(copies.map((c) => c.sourceTaskCardUuid)).toEqual([original.uuid]);
+});
+
+// Adding an inspection and copying templates run saveWorkOrder's checks in its
+// order, as the demo and every other save do: the version before an open
+// order, and component movements before a duplicate (finding 49).
+it("checks a stale version, then a component movement, then a duplicate", async () => {
+  const { t, user, command, add, start, read } = await setup(0);
+  const save = (payload: object) =>
+    user.mutation(api.workOrders.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(payload),
+    });
+  const component = { ...workOrderComponent(), programUuid: "demo-program" };
+  await t.run((ctx) =>
+    ctx.db.insert("management", {
+      uuid: component.uuid,
+      kind: component.kind,
+      aircraftUuid: component.aircraftUuid,
+      programUuid: component.programUuid,
+      payload: JSON.stringify(component),
+    }),
+  );
+  await start();
+  const removal = newWorkTask(
+    { kind: "manual", uuid: crypto.randomUUID() },
+    "Remove engine",
+  );
+  await save({
+    ...command,
+    version: 2,
+    tasks: [...(await read()).order.tasks, removal],
+    componentWork: [
+      {
+        componentUuid: component.uuid,
+        version: component.version,
+        action: "remove",
+        taskUuid: removal.uuid,
+        partsLocation: "Shelf A",
+        description: "Removed for overhaul",
+        reference: "",
+      },
+    ],
+  });
+  // The engine's tracking changes after the order planned its removal.
+  await t.run(async (ctx) => {
+    const doc = (await ctx.db.query("management").first())!;
+    await ctx.db.patch(doc._id, {
+      payload: JSON.stringify({ ...component, version: 1 }),
+    });
+  });
+  const moved =
+    "Component tracking changed. Review the component readings before saving.";
+  await expect(save({ ...add, version: 3 })).rejects.toThrow(moved);
+  await expect(
+    save({ action: "copyTemplates", uuid: command.uuid, version: 3 }),
+  ).rejects.toThrow(moved);
+  const { order } = await read();
+  await save({
+    ...command,
+    version: 3,
+    fields: { ...command.fields, status: "cancelled" },
+    tasks: order.tasks,
+    componentWork: [],
+  });
+  await expect(save({ ...add, version: 3 })).rejects.toThrow(
+    "Work order changed. Reopen it before saving.",
+  );
+});
+
+// Characterizes current behaviour: copying is refused, not offered, when a
+// completed item lacks a template added after it was completed.
+it("refuses to add work while a completed item lacks its template's job card", async () => {
+  const { t, user, command, add, original, start, read } = await setup(0);
+  const save = (payload: object) =>
+    user.mutation(api.workOrders.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(payload),
+    });
+  await start();
+  const { order } = await read();
+  await save({
+    ...command,
+    version: order.version,
+    tasks: order.tasks.map((task) => ({ ...task, status: "completed" })),
+  });
+  await t.run((ctx) =>
+    ctx.db.insert("taskCards", {
+      uuid: original.uuid,
+      aircraftUuid: original.aircraftUuid,
+      payload: JSON.stringify(original),
+    }),
+  );
+  const missing =
+    "Add the associated job card templates to this work order before completing this item.";
+  const version = order.version + 1;
+  await expect(
+    save({
+      ...add,
+      version,
+      source: { kind: "inspection", uuid: "demo-insp-2" },
+    }),
+  ).rejects.toThrow(missing);
+  await expect(
+    save({ action: "copyTemplates", uuid: command.uuid, version }),
+  ).rejects.toThrow(missing);
+  expect((await read()).jobs).toHaveLength(0);
 });
 
 it("refuses to close a work order that adds items with templates to copy", async () => {
