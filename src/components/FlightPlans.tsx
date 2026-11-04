@@ -15,6 +15,12 @@ import { useState, type CSSProperties } from "react";
 import { useWorkspace } from "../data/store";
 import { can, hours, type Snapshot } from "../domain/model";
 import {
+  COUNT_MAX,
+  DURATION_MAX_MINUTES,
+  FLIGHT_RULE_OPTIONS,
+  PERSONS_MAX,
+  PLACE_MAX_LENGTH,
+  TEXT_MAX_LENGTH,
   durationLabel,
   flightPlanSchema,
   linkedPlanFlight,
@@ -44,19 +50,6 @@ import {
 } from "./design";
 import { OpsSelect } from "./OpsList";
 import { FlightSessions } from "./FlightSession";
-
-// flightPlanSchema's limits (src/domain/flightPlans.ts).
-const PLACE_MAX_LENGTH = 100;
-const TEXT_MAX_LENGTH = 5000;
-const DURATION_MAX_MINUTES = 5999;
-const COUNT_MAX = 1000;
-const PERSONS_MAX = 999;
-const FLIGHT_RULE_OPTIONS = [
-  ["I", "IFR"],
-  ["V", "VFR"],
-  ["Y", "IFR then VFR"],
-  ["Z", "VFR then IFR"],
-] as const;
 
 type Draft = ParsedPlan & { sourceName: string; sourceHash: string };
 type Group = ReturnType<typeof planGroups>[number];

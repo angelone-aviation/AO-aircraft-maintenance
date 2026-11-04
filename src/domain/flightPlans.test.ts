@@ -12,6 +12,7 @@ import items from "../../tests/fixtures/icao-text.json";
 import { parseIcao } from "./pdf/icao";
 import { demoSnapshot } from "../data/demo";
 import {
+  FLIGHT_RULE_OPTIONS,
   durationLabel,
   flightPlanSchema,
   projectQueue,
@@ -562,5 +563,43 @@ describe("queue flags on the due fleet", () => {
     expect(projectQueue(s, a.uuid)[0].flags).toContain(
       "Type early: verify installation baseline for planned date",
     );
+  });
+});
+
+describe("plan field limits", () => {
+  const long = (length: number) => "A".repeat(length);
+  const cases: [keyof FlightPlan, unknown, unknown][] = [
+    ["origin", long(100), long(101)],
+    ["destination", long(100), long(101)],
+    ["route", long(5000), long(5001)],
+    ["pilotText", long(5000), long(5001)],
+    ["durationMinutes", 5999, 6000],
+    ["enduranceMinutes", 5999, 6000],
+    ["cycles", 1000, 1001],
+    ["landings", 1000, 1001],
+    ["personsOnBoard", 999, 1000],
+  ];
+
+  it.each(cases)(
+    "accepts %s at its limit and refuses one past it",
+    (key, at, past) => {
+      const parses = (value: unknown) =>
+        flightPlanSchema.safeParse({ ...draft(), [key]: value }).success;
+      expect(parses(at)).toBe(true);
+      expect(parses(past)).toBe(false);
+    },
+  );
+
+  it("accepts exactly the ICAO flight rules the form offers", () => {
+    const parses = (flightRules: string) =>
+      flightPlanSchema.safeParse({ ...draft(), flightRules }).success;
+    expect(FLIGHT_RULE_OPTIONS.map(([rule]) => rule)).toEqual([
+      "I",
+      "V",
+      "Y",
+      "Z",
+    ]);
+    expect(FLIGHT_RULE_OPTIONS.every(([rule]) => parses(rule))).toBe(true);
+    expect(parses("X")).toBe(false);
   });
 });
