@@ -685,10 +685,11 @@ function buildRequest(
 ): PartsRequest {
   const { s, program, requests, previous, now } = ctx;
   assertDraft(ctx, d);
-  for (const line of d.lines) prepareLine(ctx, d, line, aircraftUuid);
+  const lines = d.lines.map((l) => prepareLine(ctx, d, l, aircraftUuid));
   const { aircraft } = source;
   return {
     ...d,
+    lines,
     templateUuid: previous?.templateUuid,
     programUuid: program,
     aircraftUuid,
@@ -745,27 +746,33 @@ function changesPurchasing(previous: PartsRequest, d: RequestDraft) {
   );
 }
 
+// The serial, TSN and TSO go on a copy of the line, never the command: the
+// command is the request id's record (findReplay), so stamping it would
+// refuse an identical resend.
 function prepareLine(
   ctx: RequestContext,
   d: RequestDraft,
   line: RequestLine,
   aircraftUuid: string,
-) {
+): RequestLine {
   if (d.mode !== "repair") {
     if (line.componentUuid)
       throw new Rejection(
         "Use a repair request for an existing serialized component.",
       );
-    return;
+    return line;
   }
   const component = findRepairable(ctx, line, aircraftUuid);
   if (hasOpenRepair(ctx, d.uuid, component.uuid))
     throw new Rejection("This component already has an open repair request.");
-  line.componentSerial = component.serial;
-  line.componentTSN = component.timeSinceNew;
-  line.componentTSO = component.timeSinceOverhaul;
   if (!line.defect || !line.workRequested)
     throw new Rejection("Enter the defect and work requested for repair.");
+  return {
+    ...line,
+    componentSerial: component.serial,
+    componentTSN: component.timeSinceNew,
+    componentTSO: component.timeSinceOverhaul,
+  };
 }
 
 // A repair ships one serialized component of the program, held loose in

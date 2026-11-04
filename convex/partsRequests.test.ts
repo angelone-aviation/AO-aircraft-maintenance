@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins parts requests: linked requests, inventory access,
- *   reservations and issues in stock history, and a request uuid another
- *   Flight Program holds.
+ *   reservations and issues in stock history, request-id replay, and a
+ *   request uuid another Flight Program holds.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/partsRequests, convex/purchaseOrders, src/data/demo,
  *   src/domain (partsRequests, purchaseOrders).
@@ -350,4 +350,111 @@ it("refuses a request uuid another Flight Program holds, and writes nothing", as
     data: "Request identifier already used.",
   });
   expect(await stored()).toEqual(before);
+});
+
+it("replays an identical repair-request resend, and refuses a different command with its request id", async () => {
+  const t = convexTest(schema, modules);
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", demoSnapshot().programs![0]);
+    const pump = {
+      uuid: "pump",
+      version: 1,
+      programUuid: "demo-program",
+      kind: "component",
+      aircraftUuid: "",
+      componentType: "Pump",
+      partNumber: "PUMP",
+      serial: "SN1",
+      manufacturer: "Maker",
+      notes: "",
+      trackTime: true,
+      trackCycles: true,
+      trackCalendar: false,
+      installed: false,
+      locationUuid: "store",
+      installedSeconds: 0,
+      installedCycles: 0,
+      timeSinceNew: 360000,
+      timeSinceOverhaul: 180000,
+      timeSinceRepair: null,
+      cyclesSinceNew: 0,
+      serviceDaysBase: 0,
+    } as const;
+    const store = {
+      uuid: "store",
+      version: 1,
+      programUuid: "demo-program",
+      kind: "location",
+      name: "Store",
+      address: "Hangar",
+      contact: "",
+    } as const;
+    for (const record of [store, pump])
+      await ctx.db.insert("management", {
+        uuid: record.uuid,
+        programUuid: record.programUuid,
+        kind: record.kind,
+        payload: JSON.stringify(record),
+      });
+    const userId = await ctx.db.insert("users", {
+      name: "Buyer",
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const sessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${userId}|${sessionId}`;
+  });
+  const draft = requestDraftSchema.parse({
+    uuid: "repair",
+    version: 0,
+    source: { kind: "stock" },
+    mode: "repair",
+    date: new Date().toISOString().slice(0, 10),
+    engineer: "Tech",
+    priority: "P2 Routine",
+    requiredBy: "",
+    currency: "USD",
+    lines: [
+      {
+        uuid: "l",
+        partNumber: "PUMP",
+        description: "Pump",
+        quantity: 1,
+        componentUuid: "pump",
+        defect: "Leak",
+        workRequested: "Repair leak",
+      },
+    ],
+  });
+  const run = (c: unknown) =>
+    t.withIdentity({ subject }).mutation(api.partsRequests.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const save = { kind: "save", requestUuid: "send", draft };
+  const stored = () =>
+    t.run(async (ctx) => ({
+      requests: await ctx.db.query("partsRequests").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  expect(await run(save)).toBe("repair");
+  const first = await stored();
+  expect(JSON.parse(first.requests[0].payload).lines[0]).toMatchObject({
+    componentSerial: "SN1",
+    componentTSN: 360000,
+    componentTSO: 180000,
+  });
+  expect(await run(save)).toBe("repair");
+  expect(await stored()).toEqual(first);
+  await expect(
+    run({ ...save, draft: { ...draft, engineer: "Other" } }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Request identifier already used.",
+  });
+  expect(await stored()).toEqual(first);
 });
