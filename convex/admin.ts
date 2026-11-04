@@ -298,7 +298,8 @@ export const recordPasswordReset = internalMutation({
  *   active administrator."; "Group not found."; "Flight Program not found.";
  *   "Permission groups must belong to the selected Flight Programs."; "Select
  *   an existing permission group for this Flight Program."; "Enter a name of
- *   up to 150 characters." (counted after trimming)
+ *   up to 150 characters." (counted after trimming); the issue text of
+ *   certifications `certificationsSchema` refuses.
  */
 export const updateUser = mutation({
   args: {
@@ -319,10 +320,13 @@ export const updateUser = mutation({
     const name = args.name?.trim();
     if (name !== undefined && (!name || name.length > NAME_MAX_LENGTH))
       throw new ConvexError("Enter a name of up to 150 characters.");
+    const payload = args.certificationsPayload;
     const certifications =
-      args.certificationsPayload === undefined
+      payload === undefined
         ? undefined
-        : certificationsSchema.parse(JSON.parse(args.certificationsPayload));
+        : exposeRejections(() =>
+            certificationsSchema.parse(JSON.parse(payload)),
+          );
     await ctx.db.patch(args.id, {
       active: args.active,
       isAdmin: args.isAdmin,
@@ -443,13 +447,14 @@ export const createAircraft = mutation({
  * Saves the caller's own license number and certificate type; audits
  * "user.license_updated".
  *
- * @throws As `currentUser`; a ZodError for fields `licenseSchema` refuses.
+ * @throws As `currentUser`.
+ * @throws {ConvexError} The issue text of fields `licenseSchema` refuses.
  */
 export const saveLicense = mutation({
   args: { licenseNumber: v.string(), certificateType: v.string() },
   handler: async (ctx, args) => {
     const user = await currentUser(ctx);
-    const fields = licenseSchema.parse(args);
+    const fields = exposeRejections(() => licenseSchema.parse(args));
     await ctx.db.patch(user._id, fields);
     await audit(ctx, user._id, "user.license_updated", user._id, {
       after: fields,
@@ -461,14 +466,17 @@ export const saveLicense = mutation({
  * Replaces the caller's own logbook phrases; audits
  * "user.logbook_phrases_updated".
  *
- * @throws As `currentUser`; a ZodError for phrases `logbookPhrasesSchema`
+ * @throws As `currentUser`.
+ * @throws {ConvexError} The issue text of phrases `logbookPhrasesSchema`
  *   refuses.
  */
 export const saveLogbookPhrases = mutation({
   args: { phrases: v.array(v.string()) },
   handler: async (ctx, { phrases }) => {
     const user = await currentUser(ctx);
-    const logbookPhrases = logbookPhrasesSchema.parse(phrases);
+    const logbookPhrases = exposeRejections(() =>
+      logbookPhrasesSchema.parse(phrases),
+    );
     await ctx.db.patch(user._id, { logbookPhrases });
     await audit(ctx, user._id, "user.logbook_phrases_updated", user._id, {
       after: { logbookPhrases },
@@ -480,7 +488,8 @@ export const saveLogbookPhrases = mutation({
  * Replaces the caller's own return-to-service statements; audits
  * "user.release_statements_updated".
  *
- * @throws As `currentUser`; a ZodError for statements
+ * @throws As `currentUser`.
+ * @throws {ConvexError} The issue text of statements
  *   `releaseStatementsSchema` refuses.
  */
 export const saveReleaseStatements = mutation({
@@ -489,7 +498,9 @@ export const saveReleaseStatements = mutation({
   },
   handler: async (ctx, { statements }) => {
     const user = await currentUser(ctx);
-    const releaseStatements = releaseStatementsSchema.parse(statements);
+    const releaseStatements = exposeRejections(() =>
+      releaseStatementsSchema.parse(statements),
+    );
     await ctx.db.patch(user._id, { releaseStatements });
     await audit(ctx, user._id, "user.release_statements_updated", user._id, {
       after: { releaseStatements },

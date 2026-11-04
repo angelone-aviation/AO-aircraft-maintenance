@@ -9,6 +9,8 @@
 import type { ManagedRecord } from "../src/domain/management";
 import { convexTest } from "convex-test";
 import { describe, it, expect } from "vitest";
+import { ConvexError } from "convex/values";
+import { ZodError } from "zod";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { demoSnapshot } from "../src/data/demo";
@@ -309,6 +311,19 @@ describe("flight submissions and reviews", () => {
     expect(s!.flights.find((f) => f.uuid === first.uuid)?.hobbsOn).toBe(
       first.input.hobbsOn,
     );
+  });
+
+  // The outbox decides hold or retry by class (outboxRefusals.test.ts), so
+  // showing zod refusals elsewhere (Batch 422) must not reach this path.
+  it("characterizes current behaviour: refuses an entry its schema refuses with zod's own error", async () => {
+    const { pilot, op } = await fixture();
+    const invalid = op();
+    invalid.input.fuel = { unit: "L", start: 10, added: 0, end: 20 };
+    const error = await pilot
+      .mutation(api.operations.submit, { operation: invalid })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ZodError);
+    expect(error).not.toBeInstanceOf(ConvexError);
   });
 });
 describe("flight review on runCommand", () => {

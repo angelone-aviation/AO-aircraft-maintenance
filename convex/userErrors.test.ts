@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins that refusals from functions outside runCommand reach
- *   the client as ConvexErrors with their message, and that faults and the
- *   session refusal keep their own class.
+ *   the client as ConvexErrors with their message or zod issue text, and
+ *   that faults and the session refusal keep their own class.
  * Layer: Test. Unit and convex-test suite; never shipped in the build.
- * Dependencies: convex/userErrors.ts, convex/schema.ts, src/domain/rejection,
- *   src/domain/faaSearch, src/data/demo.ts (fixture).
+ * Dependencies: convex/userErrors.ts, convex/schema.ts, src/domain
+ *   (rejection, validationText, faaSearch, and the certification, license
+ *   and wording schemas), src/data/demo.ts (fixture).
  *
  * convex-test does not redact errors as production does, so the refusals are
  * checked by class: only a ConvexError keeps its message in production.
@@ -12,12 +13,18 @@
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import { ConvexError } from "convex/values";
+import { z, ZodError } from "zod";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { blankSearch, searchAssets } from "../src/domain/faaSearch";
 import type { Permission } from "../src/domain/model";
 import { Rejection } from "../src/domain/rejection";
+import { validationText } from "../src/domain/validationText";
+import { certificationsSchema } from "../src/domain/certifications";
+import { licenseSchema } from "../src/domain/logbook";
+import { logbookPhrasesSchema } from "../src/domain/logbookWording";
+import { releaseStatementsSchema } from "../src/domain/releaseStatements";
 import { exposeRejections } from "./userErrors";
 
 const modules = import.meta.glob([
@@ -87,6 +94,24 @@ it("passes any other error through unchanged and returns what the work returns",
   ).toBe(refused);
   expect(exposeRejections(() => 7)).toBe(7);
   expect(await exposeRejections(Promise.resolve(7))).toBe(7);
+});
+
+it("shows a zod refusal as its issue text, and keeps one without issues hidden", async () => {
+  const name = z.string().min(1, "Enter a name.");
+  expect(thrown(() => exposeRejections(() => name.parse("")))).toMatchObject(
+    shown("Enter a name."),
+  );
+  expect(await refusal(exposeRejections(name.parseAsync("")))).toMatchObject(
+    shown("Enter a name."),
+  );
+  const empty = new ZodError([]);
+  expect(
+    thrown(() =>
+      exposeRejections(() => {
+        throw empty;
+      }),
+    ),
+  ).toBe(empty);
 });
 
 async function server() {
@@ -330,6 +355,73 @@ it("shows refusals from functions outside runCommand to the client", async () =>
   ];
   for (const [message, run] of cases)
     expect(await refusal(run()), message).toMatchObject(shown(message));
+});
+
+it("shows the issue text of a refused certification, license or logbook wording", async () => {
+  const { ids, as } = await server();
+  const member = as(ids.maintainer);
+  const certifications = [
+    {
+      kind: "mechanic",
+      number: "1",
+      issuedOn: "2026-01-02",
+      renewalDate: "2026-01-01",
+    },
+  ];
+  const payload = JSON.stringify(certifications);
+  const license = { licenseNumber: " ", certificateType: "A&P" };
+  const phrases = ["Inspected", "inspected"];
+  const statements = [
+    { label: "Return", text: "Returned to service." },
+    { label: "return", text: "Returned again." },
+  ];
+  const cases: [string, z.ZodType, unknown, () => Promise<unknown>][] = [
+    [
+      "Renewal date must be on or after the issue date.",
+      certificationsSchema,
+      certifications,
+      () =>
+        member.mutation(api.certifications.save, {
+          userId: ids.maintainer.id,
+          payload,
+        }),
+    ],
+    [
+      "Renewal date must be on or after the issue date.",
+      certificationsSchema,
+      certifications,
+      () =>
+        as(ids.systemAdmin).mutation(api.admin.updateUser, {
+          id: ids.maintainer.id,
+          active: true,
+          isAdmin: false,
+          groupIds: [ids.maintainer.group],
+          certificationsPayload: payload,
+        }),
+    ],
+    [
+      "Enter a license / certificate number of up to 100 characters.",
+      licenseSchema,
+      license,
+      () => member.mutation(api.admin.saveLicense, license),
+    ],
+    [
+      "Remove duplicate phrases.",
+      logbookPhrasesSchema,
+      phrases,
+      () => member.mutation(api.admin.saveLogbookPhrases, { phrases }),
+    ],
+    [
+      "Use a unique name for each release statement.",
+      releaseStatementsSchema,
+      statements,
+      () => member.mutation(api.admin.saveReleaseStatements, { statements }),
+    ],
+  ];
+  for (const [message, refuses, input, run] of cases) {
+    expect(validationText(refuses.safeParse(input).error!)).toBe(message);
+    expect(await refusal(run()), message).toMatchObject(shown(message));
+  }
 });
 
 it("keeps a fault and the session refusal out of the user's sight", async () => {

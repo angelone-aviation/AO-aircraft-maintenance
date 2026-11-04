@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the command transaction: context check, rollback,
- *   change-log rows, request ids, hand-off, the post-apply hook, which errors
- *   reach the user, and the changed-row writer.
+ *   change-log rows, request ids, the post-apply hook, which errors reach the
+ *   user (and the expose policies), and the changed-row writer.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/runCommand.ts, convex/collections.ts,
  *   convex/schema.ts, src/domain/model.ts, src/domain/costs.ts,
@@ -14,6 +14,7 @@
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
 import { ConvexError } from "convex/values";
+import { z, ZodError } from "zod";
 import schema from "./schema";
 import { demoSnapshot } from "../src/data/demo";
 import type { AuditEntry } from "../src/domain/model";
@@ -30,6 +31,8 @@ import {
   writeChanged,
   plainErrors,
   errorsOf,
+  validationErrors,
+  allErrors,
   requestOf,
   type Command,
 } from "./runCommand";
@@ -577,6 +580,36 @@ it("shows a Rejection even when the command's expose names another class", async
   );
   expect(refused).toBeInstanceOf(ConvexError);
   expect(refused).toMatchObject({ data: "Flight dispatch rejected." });
+});
+
+it("shows a zod refusal from apply only to a command that opts in", async () => {
+  const f = await fixture();
+  const refuseName = () => z.string().min(1, "Enter a plan name.").parse("");
+  const hidden = await refusal(
+    f.mechanic.run(planCommand(f.aircraft, { apply: refuseName })),
+  );
+  expect(hidden).toBeInstanceOf(ZodError);
+  expect(hidden).not.toBeInstanceOf(ConvexError);
+  const shown = await refusal(
+    f.mechanic.run(
+      planCommand(f.aircraft, { apply: refuseName, expose: validationErrors }),
+    ),
+  );
+  expect(shown).toBeInstanceOf(ConvexError);
+  expect(shown).toMatchObject({ data: "Enter a plan name." });
+});
+
+it("gives a zod refusal's issue text under validationErrors and allErrors only", () => {
+  const refused = z
+    .object({ name: z.string().min(1, "Enter a name."), code: z.number() })
+    .safeParse({ name: "", code: "x" }).error!;
+  const text = "Enter a name.\nInvalid input: expected number, received string";
+  expect(validationErrors(refused)).toBe(text);
+  expect(allErrors(refused)).toBe(text);
+  expect(plainErrors(refused)).toBeUndefined();
+  expect(validationErrors(new ZodError([]))).toBeUndefined();
+  expect(validationErrors(new Error("Plan overlaps."))).toBeUndefined();
+  expect(allErrors(new Error("Plan overlaps."))).toBe("Plan overlaps.");
 });
 
 // Cost records: one the command changes, one it leaves as stored, one it

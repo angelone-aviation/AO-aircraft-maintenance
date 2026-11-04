@@ -3,9 +3,9 @@
  *   (ADR-0003): hydrating the records a command reads, and writing the ones
  *   it changed.
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
- * Dependencies: convex/values, convex/server (types), ./_generated,
+ * Dependencies: convex/values, convex/server (types), zod, ./_generated,
  *   ./programContext, ./access, ./collections, src/domain (model, programs,
- *   rejection).
+ *   rejection, validationText).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -13,12 +13,14 @@
  * them.
  */
 import { ConvexError } from "convex/values";
+import { ZodError } from "zod";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { WithOptionalSystemFields } from "convex/server";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 import { activeProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
+import { validationText } from "../src/domain/validationText";
 import {
   decode,
   encode,
@@ -220,13 +222,25 @@ export const plainErrors = (error: unknown) =>
     : undefined;
 
 /**
+ * An `expose` policy that shows a zod refusal as the issue text the browser
+ * shows for it ({@link validationText}). Opt-in, so a command that wants its
+ * parser errors kept hidden, as the offline outbox does, keeps them hidden.
+ *
+ * @returns That text for a ZodError with issues, else undefined.
+ */
+export const validationErrors = (error: unknown) =>
+  error instanceof ZodError ? validationText(error) || undefined : undefined;
+
+/**
  * An `expose` policy that shows every applier error, including parser
  * errors, as a user-facing rejection.
  *
- * @returns The error's message, or the thrown value as text.
+ * @returns A ZodError's issue text, as {@link validationErrors}; else the
+ *   error's message, or the thrown value as text.
  */
 export const allErrors = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+  validationErrors(error) ??
+  (error instanceof Error ? error.message : String(error));
 
 /**
  * An `expose` policy that shows errors of one class only.
