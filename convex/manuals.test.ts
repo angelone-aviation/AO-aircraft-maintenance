@@ -486,3 +486,116 @@ it("checks every storage reference in the schema before deleting a blob", () => 
     STORAGE_REFERENCES.map((r) => `${r.table}.${r.field}`).sort(),
   );
 });
+
+it("audits each manual change with what it changed, and refuses as ConvexError, access before the payload", async () => {
+  const { t, tech, reader } = await fixture();
+  const uuid = crypto.randomUUID();
+  const applicability = {
+    kind: "aircraft" as const,
+    manufacturer: "Cessna",
+    model: "441",
+    partNumber: "",
+  };
+  await t.run(async (ctx) => {
+    await ctx.db.insert("manuals", {
+      ...input,
+      applicability,
+      uuid,
+      storageId: await ctx.storage.store(pdf),
+      uploadedAt: 1,
+      uploadedBy: "original",
+    });
+  });
+  const program = { uuid, programUuid: "demo-program" };
+  const access = {
+    name: "ConvexError",
+    data: "Maintenance access is required.",
+  };
+  for (const run of [
+    () => reader.mutation(api.manuals.edit, { ...program, payload: "{" }),
+    () => reader.mutation(api.manuals.rename, { ...program, title: " " }),
+    () =>
+      reader.mutation(api.manuals.setApplicability, {
+        ...program,
+        payload: "{",
+      }),
+    () =>
+      tech.mutation(api.manuals.rename, {
+        ...program,
+        uuid: "missing",
+        title: "A",
+      }),
+  ])
+    await expect(run()).rejects.toMatchObject(access);
+  // In the schema's key order, which the stored change-log text keeps.
+  const details = {
+    title: "Corrected title",
+    documentNumber: "DOC-2",
+    revision: "Rev 16",
+    revisionDate: "2026-01-01",
+    aircraftUuid: input.aircraftUuid,
+  };
+  const elsewhere = demoSnapshot().aircraft[1].uuid;
+  await expect(
+    tech.mutation(api.manuals.edit, {
+      ...program,
+      payload: JSON.stringify({ ...details, aircraftUuid: elsewhere }),
+    }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Choose an aircraft in the same Flight Program with maintenance access.",
+  });
+  await tech.mutation(api.manuals.edit, {
+    ...program,
+    payload: JSON.stringify(details),
+  });
+  await tech.mutation(api.manuals.rename, { ...program, title: " Renamed " });
+  const component = {
+    ...applicability,
+    kind: "component" as const,
+    partNumber: "PN",
+  };
+  await tech.mutation(api.manuals.setApplicability, {
+    ...program,
+    payload: JSON.stringify(component),
+  });
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(
+    rows.map(({ action, entityUuid, aircraftUuid, before, after }) => ({
+      action,
+      entityUuid,
+      aircraftUuid,
+      before,
+      after,
+    })),
+  ).toEqual([
+    {
+      action: "manual.edit",
+      entityUuid: uuid,
+      aircraftUuid: input.aircraftUuid,
+      before: JSON.stringify({
+        title: input.title,
+        documentNumber: input.documentNumber,
+        revision: input.revision,
+        revisionDate: input.revisionDate,
+        aircraftUuid: input.aircraftUuid,
+        applicability,
+      }),
+      after: JSON.stringify(details),
+    },
+    {
+      action: "manual.rename",
+      entityUuid: uuid,
+      aircraftUuid: input.aircraftUuid,
+      before: JSON.stringify({ title: "Corrected title" }),
+      after: JSON.stringify({ title: "Renamed" }),
+    },
+    {
+      action: "manual.applicability",
+      entityUuid: uuid,
+      aircraftUuid: input.aircraftUuid,
+      before: undefined,
+      after: JSON.stringify(component),
+    },
+  ]);
+});

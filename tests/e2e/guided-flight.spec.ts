@@ -1,5 +1,40 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins the guided flight: preflight readings kept through a
+ *   pause, reloads and an offline save, engine start readings, the review,
+ *   and fluids and oil stock logged once, for measured and range oil.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path.
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
+
+const OIL_RECORDS = [
+  {
+    kind: "location",
+    uuid: "oil-location",
+    version: 0,
+    programUuid: "demo-program",
+    name: "Oil cabinet",
+    address: "",
+    contact: "",
+  },
+  {
+    kind: "stock",
+    uuid: "oil-stock",
+    version: 0,
+    programUuid: "demo-program",
+    locationUuid: "oil-location",
+    partNumber: "OIL-TEST",
+    description: "Oil bottle",
+    category: "supply",
+    oil: true,
+    condition: "new",
+    alternates: "",
+    quantity: 3,
+    minimum: 0,
+  },
+];
+
 for (const rangeOil of [false, true])
   test(`guided flight recovers preflight readings offline, reviews and logs fluids once (${rangeOil ? "range oil" : "measured oil"})`, async ({
     page,
@@ -23,61 +58,7 @@ for (const rangeOil of [false, true])
       .getByRole("button", { name: "Save flight plan", exact: true })
       .click();
     await expect(dialog).not.toBeVisible();
-    await page.evaluate(async () => {
-      await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("angel-one-v1");
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => {
-          const db = request.result,
-            tx = db.transaction("snapshots", "readwrite"),
-            cursor = tx.objectStore("snapshots").openCursor();
-          cursor.onsuccess = () => {
-            const entry = cursor.result;
-            if (!entry) return;
-            const s = entry.value;
-            // This scenario exercises turbine start readings; piston behavior has separate coverage.
-            s.aircraft.find(
-              (a: { uuid: string }) => a.uuid === "demo-206",
-            ).turbine = true;
-            s.management = [
-              ...(s.management ?? []),
-              {
-                kind: "location",
-                uuid: "oil-location",
-                version: 0,
-                programUuid: "demo-program",
-                name: "Oil cabinet",
-                address: "",
-                contact: "",
-              },
-              {
-                kind: "stock",
-                uuid: "oil-stock",
-                version: 0,
-                programUuid: "demo-program",
-                locationUuid: "oil-location",
-                partNumber: "OIL-TEST",
-                description: "Oil bottle",
-                category: "supply",
-                oil: true,
-                condition: "new",
-                alternates: "",
-                quantity: 3,
-                minimum: 0,
-              },
-            ];
-            delete s.partsInventory;
-            entry.update(s);
-            entry.continue();
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      });
-    });
+    await seedTurbineWithOil(page);
     await page.reload();
     await page.goto("/checklists");
     await page
@@ -115,30 +96,7 @@ for (const rangeOil of [false, true])
     await guided
       .getByLabel("Fuel quantity added (US gal)", { exact: true })
       .fill("10");
-    if (rangeOil) {
-      await guided
-        .getByLabel("Engine oil unit", { exact: true })
-        .selectOption("range");
-      await expect(
-        guided
-          .getByLabel("Engine oil starting level (range)")
-          .locator("option"),
-      ).toHaveText([
-        "Select level",
-        "Add",
-        "25% above Add",
-        "50% above Add",
-        "75% above Add",
-        "Full",
-      ]);
-      await guided
-        .getByLabel("Engine oil starting level (range)")
-        .selectOption("25");
-    } else {
-      await guided
-        .getByLabel("Engine oil starting level (US qt)", { exact: true })
-        .fill("6");
-    }
+    await enterStartingOil(guided, rangeOil);
     await guided
       .getByLabel("Engine oil quantity added (US qt)", { exact: true })
       .fill("1");
@@ -233,6 +191,7 @@ for (const rangeOil of [false, true])
     await expect(guided).toContainText("Flight saved on this device");
     await context.setOffline(false);
     await page.getByRole("link", { name: "Flight log", exact: true }).click();
+    // 30 US gal at the start, 10 added and 25 at shutdown, over 1.0 hour.
     const row = page
       .getByRole("row")
       .filter({ hasText: "Fuel: 15 US gal used" });
@@ -240,24 +199,8 @@ for (const rangeOil of [false, true])
     await expect(row).toContainText(
       "Inventory used: 1 × OIL-TEST · Oil cabinet",
     );
-    const remaining = await page.evaluate(
-      async () =>
-        new Promise<number>((resolve, reject) => {
-          const request = indexedDB.open("angel-one-v1");
-          request.onerror = () => reject(request.error);
-          request.onsuccess = () => {
-            const db = request.result,
-              tx = db.transaction("snapshots", "readonly"),
-              q = tx.objectStore("snapshots").getAll();
-            q.onsuccess = () => {
-              const records = q.result.flatMap((s) => s.management ?? []);
-              resolve(records.find((r) => r.uuid === "oil-stock")?.quantity);
-              db.close();
-            };
-          };
-        }),
-    );
-    expect(remaining).toBe(2);
+    // One of the three seeded bottles was used, once.
+    expect(await readOilStock(page)).toBe(2);
     await expect(row).toContainText("32 s · max EGT 680 °C");
     if (rangeOil) {
       await expect(row).toContainText("single oil: range only");
@@ -276,3 +219,84 @@ for (const rangeOil of [false, true])
       page.getByRole("region", { name: "Interactive checklist" }),
     ).toHaveCount(1);
   });
+
+// This scenario exercises turbine start readings; piston behaviour has
+// separate coverage.
+async function seedTurbineWithOil(page: Page) {
+  await page.evaluate(async (records) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value;
+      s.aircraft.find((a: { uuid: string }) => a.uuid === "demo-206").turbine =
+        true;
+      s.management = [...(s.management ?? []), ...records];
+      delete s.partsInventory;
+      entry.update(s);
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, OIL_RECORDS);
+}
+
+/** The seeded oil stock's quantity in the device's snapshots. */
+async function readOilStock(page: Page) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const snapshots = await new Promise<StoredManagement[]>((resolve) => {
+      const store = db
+        .transaction("snapshots", "readonly")
+        .objectStore("snapshots");
+      const all = store.getAll();
+      all.onsuccess = () => resolve(all.result);
+    });
+    db.close();
+    const records = snapshots.flatMap((s) => s.management ?? []);
+    return records.find((r) => r.uuid === "oil-stock")?.quantity;
+  });
+}
+
+/** Enters the starting oil as a range (25% above Add) or as 6 US qt. */
+async function enterStartingOil(guided: Locator, rangeOil: boolean) {
+  if (!rangeOil) {
+    await guided
+      .getByLabel("Engine oil starting level (US qt)", { exact: true })
+      .fill("6");
+    return;
+  }
+  await guided
+    .getByLabel("Engine oil unit", { exact: true })
+    .selectOption("range");
+  await expect(
+    guided.getByLabel("Engine oil starting level (range)").locator("option"),
+  ).toHaveText([
+    "Select level",
+    "Add",
+    "25% above Add",
+    "50% above Add",
+    "75% above Add",
+    "Full",
+  ]);
+  await guided
+    .getByLabel("Engine oil starting level (range)")
+    .selectOption("25");
+}
+
+interface StoredManagement {
+  management?: { uuid: string; quantity?: number }[];
+}

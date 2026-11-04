@@ -29,10 +29,13 @@ import { storageReferenced } from "./storageReferences";
 import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import {
+  assertManualMaintainer,
+  editManual,
   manualInputSchema,
-  manualEditSchema,
-  manualApplicabilitySchema,
+  renameManual,
+  setManualApplicability,
   validateManualFile,
+  type ManualChange,
   type ManualInput,
 } from "../src/domain/manuals";
 
@@ -274,15 +277,10 @@ export const setApplicability = mutation({
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
     const manual = await loadMaintainedManual(ctx, s, args.uuid);
-    const applicability = manualApplicabilitySchema.parse(
-      JSON.parse(args.payload),
+    const change = exposeRejections(() =>
+      setManualApplicability(s, manual, JSON.parse(args.payload)),
     );
-    await ctx.db.patch(manual._id, { applicability });
-    await audit(ctx, s.user.id, "manual.applicability", manual.uuid, {
-      aircraftUuid: manual.aircraftUuid,
-      before: manual.applicability,
-      after: applicability,
-    });
+    await saveManualChange(ctx, s, manual, "manual.applicability", change);
   },
 });
 
@@ -305,13 +303,8 @@ export const rename = mutation({
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
     const manual = await loadMaintainedManual(ctx, s, args.uuid);
-    const title = manualInputSchema.shape.title.parse(args.title);
-    await ctx.db.patch(manual._id, { title });
-    await audit(ctx, s.user.id, "manual.rename", manual.uuid, {
-      aircraftUuid: manual.aircraftUuid,
-      before: { title: manual.title },
-      after: { title },
-    });
+    const change = exposeRejections(() => renameManual(s, manual, args.title));
+    await saveManualChange(ctx, s, manual, "manual.rename", change);
   },
 });
 
@@ -336,26 +329,10 @@ export const edit = mutation({
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
     const manual = await loadMaintainedManual(ctx, s, args.uuid);
-    const input = manualEditSchema.parse(JSON.parse(args.payload));
-    assertSameProgramAircraft(s, manual.aircraftUuid, input.aircraftUuid);
-    // Naming applicability even when absent clears it: patch removes a field
-    // set to undefined.
-    await ctx.db.patch(manual._id, {
-      ...input,
-      applicability: input.applicability,
-    });
-    await audit(ctx, s.user.id, "manual.edit", manual.uuid, {
-      aircraftUuid: manual.aircraftUuid,
-      before: {
-        title: manual.title,
-        documentNumber: manual.documentNumber,
-        revision: manual.revision,
-        revisionDate: manual.revisionDate,
-        aircraftUuid: manual.aircraftUuid,
-        applicability: manual.applicability,
-      },
-      after: input,
-    });
+    const change = exposeRejections(() =>
+      editManual(s, manual, JSON.parse(args.payload)),
+    );
+    await saveManualChange(ctx, s, manual, "manual.edit", change);
   },
 });
 
@@ -429,31 +406,31 @@ function findManual(ctx: QueryCtx, uuid: string) {
     .unique();
 }
 
+// Checked before the payload is read, so a caller without access is refused
+// the same way whatever it sent.
 async function loadMaintainedManual(
   ctx: MutationCtx,
   s: Snapshot,
   uuid: string,
 ): Promise<Doc<"manuals">> {
   const manual = await findManual(ctx, uuid);
-  if (!manual || !can(s, manual.aircraftUuid, "maintenance"))
-    throw new ConvexError("Maintenance access is required.");
-  return manual;
+  return exposeRejections(() => {
+    assertManualMaintainer(s, manual);
+    return manual;
+  });
 }
 
-function assertSameProgramAircraft(
+async function saveManualChange<T>(
+  ctx: MutationCtx,
   s: Snapshot,
-  fromUuid: string,
-  toUuid: string,
-): void {
-  const source = s.aircraft.find((a) => a.uuid === fromUuid);
-  const target = s.aircraft.find((a) => a.uuid === toUuid);
-  if (
-    !target ||
-    !source ||
-    target.programUuid !== source.programUuid ||
-    !can(s, target.uuid, "maintenance")
-  )
-    throw new ConvexError(
-      "Choose an aircraft in the same Flight Program with maintenance access.",
-    );
+  manual: Doc<"manuals">,
+  action: string,
+  change: ManualChange<T>,
+): Promise<void> {
+  await ctx.db.patch(manual._id, change.patch);
+  await audit(ctx, s.user.id, action, manual.uuid, {
+    aircraftUuid: manual.aircraftUuid,
+    before: change.before,
+    after: change.after,
+  });
 }

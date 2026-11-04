@@ -8,7 +8,11 @@
  * Status is derived from recorded data only. A missing or uncomputable
  * schedule adds no reason here; it never implies readiness elsewhere.
  */
-import { adAircraftUuid, adTaskStatus } from "./airworthiness";
+import {
+  adAircraftUuid,
+  adTaskStatus,
+  CLOSED_APPLICABILITY,
+} from "./airworthiness";
 import {
   requirementStatus,
   type Component,
@@ -27,7 +31,6 @@ import { Rejection } from "./rejection";
 
 const OVERRIDE_REASON_MAX = 1000;
 const DISCREPANCY_LABEL_MAX = 80;
-const INACTIVE_AD_APPLICABILITY = ["Not applicable", "Superseded"];
 const EARLIEST_ZONE_OFFSET_MS = 12 * 3600000;
 
 /** How fit an aircraft is to fly (GLOSSARY "Aircraft status"). */
@@ -241,7 +244,7 @@ function listAdFindings(s: Snapshot, a: Aircraft, today: string) {
   return (s.airworthiness ?? []).flatMap((r): Finding[] => {
     if (
       adAircraftUuid(s, r) !== a.uuid ||
-      INACTIVE_AD_APPLICABILITY.includes(r.applicability)
+      CLOSED_APPLICABILITY.includes(r.applicability)
     )
       return [];
     const component = records.find(

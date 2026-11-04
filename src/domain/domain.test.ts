@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins core rules across modules: flight integrity, the
+ *   offline window, permissions, inspection deadlines, CSV safety and local
+ *   calendar dates.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/model.ts, ./flights, ./maintenance, ./csv,
+ *   src/data/demo.ts (seed).
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -18,11 +26,13 @@ import {
   inspectionStatus,
 } from "./maintenance";
 import { toCsv } from "./csv";
+
+const HOUR_SECONDS = 3600;
 const input: FlightInput = {
   aircraftUuid: "demo-206",
   pilotId: "demo-admin",
   startTime: "2026-01-01T10:00:00Z",
-  hobbsOn: 2342 * 3600,
+  hobbsOn: 2342 * HOUR_SECONDS,
   landings: 1,
   cycles: 1,
   origin: "AAA",
@@ -37,7 +47,11 @@ describe("flight integrity", () => {
     const a = demoSnapshot().aircraft[0];
     expect(() => validateFlight(a, input)).not.toThrow();
     expect(() =>
-      validateFlight(a, { ...input, hobbsOn: undefined, tachOn: 5000 * 3600 }),
+      validateFlight(a, {
+        ...input,
+        hobbsOn: undefined,
+        tachOn: 5000 * HOUR_SECONDS,
+      }),
     ).toThrow("hobbs");
   });
   it("holds stale versions, decreasing meters and backdated flights", () => {
@@ -65,12 +79,12 @@ describe("flight integrity", () => {
       ...first,
       uuid: "2",
       startTime: "2026-01-02T10:00:00Z",
-      hobbsOn: 2343 * 3600,
+      hobbsOn: 2343 * HOUR_SECONDS,
     };
     const result = rebuildFlights(a, [second, first]);
-    expect(result.aircraft.currentHobbs).toBe(2343 * 3600);
+    expect(result.aircraft.currentHobbs).toBe(2343 * HOUR_SECONDS);
     expect(result.aircraft.cycles).toBe(a.baselineCycles + 2);
-    expect(result.flights[1].hobbsOff).toBe(2342 * 3600);
+    expect(result.flights[1].hobbsOff).toBe(2342 * HOUR_SECONDS);
   });
   it("rejects corrections that break a later meter reading", () => {
     const a = demoSnapshot().aircraft[0];
@@ -80,13 +94,13 @@ describe("flight integrity", () => {
       authorId: "a",
       submittedAt: 0,
       status: "accepted",
-      hobbsOn: 2344 * 3600,
+      hobbsOn: 2344 * HOUR_SECONDS,
     };
     const second: Flight = {
       ...first,
       uuid: "2",
       startTime: "2026-01-02T00:00:00Z",
-      hobbsOn: 2343 * 3600,
+      hobbsOn: 2343 * HOUR_SECONDS,
     };
     expect(() => rebuildFlights(a, [first, second])).toThrow("lower");
   });
@@ -152,7 +166,7 @@ describe("access and deadlines", () => {
           aircraftUuid: a.uuid,
           reference: "",
           description: "",
-          dueSeconds: a.currentHobbs + 10 * 3600,
+          dueSeconds: a.currentHobbs + 10 * HOUR_SECONDS,
         },
         a,
       ).hoursRemaining,

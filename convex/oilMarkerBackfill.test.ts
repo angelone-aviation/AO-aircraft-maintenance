@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the one-off backfill that marks stock already used as
+ *   flight-line oil: once, across batches, appending one change-log row per
+ *   item marked and editing none.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/management.ts (backfillOilMarker), convex/schema.ts,
+ *   src/domain/management.ts.
+ */
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
 import schema from "./schema";

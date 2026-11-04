@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins FAA AD monitoring runs: targeted queries, the last
+ *   successful check kept when a later FAA call fails, the FAA allowances
+ *   charged, and the cap on enabled monitors per Flight Program.
+ * Layer: Test. convex-test suite with a stubbed FAA DRS; never shipped.
+ * Dependencies: convex/faa.ts, convex/faaSearch.ts, convex/schema.ts,
+ *   src/domain/faa.ts, src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { expect, it, vi } from "vitest";
 import schema from "./schema";
@@ -12,6 +20,7 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
 it("completes targeted monitoring and retains the last successful check when a later FAA call fails", async () => {
   const t = convexTest(schema, modules);
   const aircraft = {
@@ -83,6 +92,10 @@ it("completes targeted monitoring and retains the last successful check when a l
     vi.unstubAllGlobals();
   }
 });
+/**
+ * Seeds the demo program and aircraft (model 441), a saved FAA key and a
+ * system administrator.
+ */
 async function monitorSetup() {
   const t = convexTest(schema, modules);
   const aircraft = {
@@ -107,7 +120,7 @@ async function monitorSetup() {
     });
     const session = await ctx.db.insert("authSessions", {
       userId,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     return { subject: `${userId}|${session}` };
   });

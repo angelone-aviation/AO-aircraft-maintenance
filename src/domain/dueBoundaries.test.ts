@@ -1,3 +1,15 @@
+/**
+ * Responsibility: Pins where component and inspection limits turn due soon
+ *   and overdue, as every screen that shows them reports it.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/aircraftStatus.ts, ./alerts, ./components,
+ *   ./forecast, ./maintenance, ./model, ./ownerDue, ./partsPlanning,
+ *   src/data/demo.ts (seed).
+ *
+ * One rule for every limit: a usage limit (hours, cycles, landings) is
+ * reached at 0 remaining, because the next flight would exceed it; a calendar
+ * limit stays valid through the end of its due date.
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { aircraftStatus, dispatchGate } from "./aircraftStatus";
@@ -11,20 +23,19 @@ import {
 } from "./components";
 import { forecast } from "./forecast";
 import { inspectionStatus } from "./maintenance";
-import { localDate, totalSeconds, type Snapshot } from "./model";
+import { localDate, totalSeconds, type Aircraft, type Snapshot } from "./model";
 import { ownerDueItems } from "./ownerDue";
 import { maintenancePartsPlans } from "./partsPlanning";
 
-// One rule for every limit: a usage limit (hours, cycles, landings) is
-// reached at 0 remaining, because the next flight would exceed it; a calendar
-// limit stays valid through the end of its due date.
+const DAY_MS = 86_400_000;
+const HOUR_SECONDS = 3600;
+const TENTH_HOUR_SECONDS = 360;
 const today = localDate();
 const N206 = "demo-206";
 const addDays = (n: number) =>
-  new Date(Date.parse(today + "T00:00:00Z") + n * 86400000)
+  new Date(Date.parse(today + "T00:00:00Z") + n * DAY_MS)
     .toISOString()
     .slice(0, 10);
-const tenth = 360; // 0.1 h in seconds
 
 function setup() {
   const s = demoSnapshot();
@@ -37,9 +48,9 @@ function setup() {
 }
 const aircraft = (s: Snapshot) => s.aircraft.find((a) => a.uuid === N206)!;
 
-function addComponent(s: Snapshot, limit: Partial<ComponentRequirement>) {
-  const a = aircraft(s);
-  const c: Component = componentSchema.parse({
+/** An installed propeller with 100 h and 20 cycles since new. */
+function propeller(a: Aircraft): Component {
+  return componentSchema.parse({
     uuid: "prop",
     kind: "component",
     version: 1,
@@ -56,12 +67,16 @@ function addComponent(s: Snapshot, limit: Partial<ComponentRequirement>) {
     installedDate: "2026-01-01",
     installedSeconds: totalSeconds(a),
     installedCycles: a.cycles,
-    timeSinceNew: 100 * 3600,
+    timeSinceNew: 100 * HOUR_SECONDS,
     timeSinceOverhaul: null,
     timeSinceRepair: null,
     cyclesSinceNew: 20,
     serviceDaysBase: 0,
   });
+}
+function addComponent(s: Snapshot, limit: Partial<ComponentRequirement>) {
+  const a = aircraft(s);
+  const c = propeller(a);
   const r: ComponentRequirement = requirementSchema.parse({
     uuid: "prop-life",
     kind: "componentRequirement",
@@ -76,7 +91,7 @@ function addComponent(s: Snapshot, limit: Partial<ComponentRequirement>) {
     timeLimitMode: "ABSOLUTE",
     cycleLimitMode: "ABSOLUTE",
     warningCalendarMonths: 1,
-    warningSeconds: 10 * 3600,
+    warningSeconds: 10 * HOUR_SECONDS,
     warningCycles: 10,
     requiredParts: [{ locationUuid: "store", stockUuid: "seal", quantity: 1 }],
     ...limit,
@@ -106,6 +121,7 @@ function views(s: Snapshot) {
     dispatchGate(s, N206, undefined, today);
     gate = "open";
   } catch {
+    // The gate refuses a blocked aircraft by throwing.
     gate = "blocked";
   }
   const alerts = computeAlerts(s, today)
@@ -153,15 +169,15 @@ describe("component requirement limits", () => {
     },
   );
   it.each([
-    [-tenth, "Past due", overdue("component-past-due")],
+    [-TENTH_HOUR_SECONDS, "Past due", overdue("component-past-due")],
     [0, "Due now", overdue("component-past-due")],
-    [tenth, "Due soon", dueSoon("component-due-soon")],
+    [TENTH_HOUR_SECONDS, "Due soon", dueSoon("component-due-soon")],
   ])(
     "an hours limit with %i s remaining is %s",
     (remaining, status, expected) => {
       const s = setup();
       const { c, r, a } = addComponent(s, {
-        dueSeconds: 100 * 3600 + remaining,
+        dueSeconds: 100 * HOUR_SECONDS + remaining,
       });
       expect(requirementStatus(r, c, a, today).status).toBe(status);
       expect(views(s)).toEqual(expected);
@@ -215,9 +231,9 @@ describe("inspection limits", () => {
     },
   );
   it.each([
-    [-tenth, "overdue", overdue("inspection-overdue")],
+    [-TENTH_HOUR_SECONDS, "overdue", overdue("inspection-overdue")],
     [0, "overdue", overdue("inspection-overdue")],
-    [tenth, "due-soon", dueSoon("inspection-due-soon")],
+    [TENTH_HOUR_SECONDS, "due-soon", dueSoon("inspection-due-soon")],
   ])(
     "an hours limit with %i s remaining is %s",
     (remaining, status, expected) => {

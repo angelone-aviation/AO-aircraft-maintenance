@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the command transaction: context check, rollback,
- *   change-log rows, request ids, hand-off, which errors reach the user, and
- *   the changed-row writer.
+ *   change-log rows, request ids, hand-off, the post-apply hook, which errors
+ *   reach the user, and the changed-row writer.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/runCommand.ts, convex/collections.ts,
  *   convex/schema.ts, src/domain/model.ts, src/domain/costs.ts,
@@ -331,6 +331,83 @@ it("hands delegated commands to their own transaction", async () => {
     ),
   ).toBe("queued");
   expect(load).not.toHaveBeenCalled();
+  expect(await f.rows()).toEqual([]);
+});
+
+it("runs afterApply between apply and persist, and continues with what it returns", async () => {
+  const f = await fixture();
+  const steps: string[] = [];
+  const seen: unknown[] = [];
+  const result = await f.mechanic.run(
+    planCommand(f.aircraft, {
+      apply: (_, uuid) => {
+        steps.push("apply");
+        return uuid;
+      },
+      afterApply: async (tx, working, uuid, command) => {
+        steps.push("afterApply");
+        seen.push(tx.state.user.id, working, uuid, command);
+        return `${uuid}-scheduled`;
+      },
+      persist: async ({ ctx }, _, uuid) => {
+        steps.push("persist");
+        await ctx.db.insert("flightPlans", {
+          uuid,
+          aircraftUuid: f.aircraft,
+          payload: "{}",
+        });
+      },
+    }),
+  );
+  expect(steps).toEqual(["apply", "afterApply", "persist"]);
+  expect(seen).toEqual([f.mechanic.id, { found: 0 }, "plan-1", "plan-1"]);
+  expect(result).toBe("plan-1-scheduled");
+  expect((await f.flightPlans()).map((p) => p.uuid)).toEqual([
+    "plan-1-scheduled",
+  ]);
+  expect((await f.rows()).map((r) => r.entityUuid)).toEqual([
+    "plan-1-scheduled",
+  ]);
+});
+
+it("skips afterApply for a replayed request, so nothing is scheduled twice", async () => {
+  const f = await fixture();
+  const afterApply = vi.fn(
+    async (_tx: unknown, _w: unknown, uuid: string) => uuid,
+  );
+  const command = planCommand(f.aircraft, {
+    request: () => ({ uuid: "request-1", payload: "first" }),
+    afterApply,
+  });
+  await f.mechanic.run(command);
+  expect(await f.mechanic.run(command)).toBeNull();
+  expect(afterApply).toHaveBeenCalledTimes(1);
+});
+
+it("shows a Rejection from afterApply as a ConvexError, keeps other errors unchanged, and writes nothing", async () => {
+  const f = await fixture();
+  const stale = "Work order changed. Reopen it before saving.";
+  const scheduling = (error: Error) =>
+    planCommand(f.aircraft, {
+      afterApply: async ({ ctx }) => {
+        await ctx.db.insert("flightPlans", {
+          uuid: "scheduled-before-the-refusal",
+          aircraftUuid: f.aircraft,
+          payload: "{}",
+        });
+        throw error;
+      },
+      expose: plainErrors,
+    });
+  const refused = await refusal(
+    f.mechanic.run(scheduling(new Rejection(stale))),
+  );
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({ message: stale, data: stale });
+  const fault = new Error(stale);
+  // A command's `expose` covers apply only, so a plain Error stays hidden.
+  expect(await refusal(f.mechanic.run(scheduling(fault)))).toBe(fault);
+  expect(await f.flightPlans()).toEqual([]);
   expect(await f.rows()).toEqual([]);
 });
 

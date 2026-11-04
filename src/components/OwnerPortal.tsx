@@ -23,68 +23,69 @@ import { AircraftForm337 } from "./AircraftFiles";
 import { Badge, Empty, PageTitle, errorText } from "./ui";
 
 const RECENT_WORK_ORDERS = 5;
-const tone = {
-  overdue: "danger",
-  "due-soon": "warning",
-  ok: "good",
-  unknown: "neutral",
+const DUE_BADGES = {
+  overdue: { tone: "danger", label: "Overdue" },
+  "due-soon": { tone: "warning", label: "Due soon" },
+  ok: { tone: "good", label: "Scheduled" },
+  unknown: { tone: "neutral", label: "Needs review" },
 } as const;
-const statusLabel = {
-  overdue: "Overdue",
-  "due-soon": "Due soon",
-  ok: "Scheduled",
-  unknown: "Needs review",
-};
 
-function ADReportButton({
-  state,
-  aircraft,
-}: {
-  state: Snapshot;
-  aircraft: Aircraft;
-}) {
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+type AircraftProps = { state: Snapshot; aircraft: Aircraft };
+
+/**
+ * The owner portal, shown for every route of an owner view: each of the
+ * owner's aircraft with its totals, next due items, open discrepancies, five
+ * most recently completed work orders, Form 337 copies and reports. In the
+ * demo's owner preview it offers a way back.
+ *
+ * @returns The portal; it changes no records.
+ */
+export function OwnerPortal() {
+  const { snapshot: s, demo } = useWorkspace();
+  const [error, setError] = useState("");
   return (
-    <div>
-      <button
-        className="button"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          setError("");
-          try {
-            const { saveADReport } = await import("../data/adReport");
-            saveADReport(state, aircraft.uuid);
-          } catch (e) {
-            setError(errorText(e, "Unable to export AD report."));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {busy ? "Generating PDF…" : "AD compliance report"}
-      </button>
-      {error && <p role="alert">{error}</p>}
-    </div>
+    <>
+      <PageTitle
+        eyebrow="OWNER PORTAL"
+        title="Your aircraft"
+        description="Current totals, upcoming maintenance and completed work. Read-only."
+        action={demo && <ExitPreviewButton onError={setError} />}
+      />
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {s!.aircraft.map((a) => (
+        <OwnerAircraft key={a.uuid} state={s!} aircraft={a} />
+      ))}
+      {!s!.aircraft.length && (
+        <Empty title="No aircraft assigned">
+          Ask your Flight Program administrator to assign your aircraft.
+        </Empty>
+      )}
+      <p className="muted">
+        Recorded status only. Missing information never implies aircraft
+        readiness; this is not a maintenance release.
+      </p>
+    </>
   );
 }
 
-function OwnerAircraft({
-  state,
-  aircraft: a,
-}: {
-  state: Snapshot;
-  aircraft: Aircraft;
-}) {
-  const items = ownerDueItems(state, a);
-  const reports = state.discrepancies.filter(
-    (d) => d.aircraftUuid === a.uuid && d.status === "open",
+function ExitPreviewButton({ onError }: { onError: (error: string) => void }) {
+  return (
+    <button
+      className="button"
+      onClick={() =>
+        previewDemoOwner(false).catch((e) => onError(errorText(e)))
+      }
+    >
+      Exit owner preview
+    </button>
   );
-  const orders = (state.workOrders ?? [])
-    .filter((w) => w.aircraftUuid === a.uuid && w.status === "completed")
-    .sort((x, y) => y.completionDate.localeCompare(x.completionDate))
-    .slice(0, RECENT_WORK_ORDERS);
+}
+
+function OwnerAircraft({ state, aircraft: a }: AircraftProps) {
   return (
     <section className="panel" aria-labelledby={`owner-${a.uuid}`}>
       <div className="section-heading compact">
@@ -107,6 +108,21 @@ function OwnerAircraft({
         <dt>Landings</dt>
         <dd>{a.landings.toLocaleString()}</dd>
       </dl>
+      <NextDue items={ownerDueItems(state, a)} />
+      <OpenDiscrepancies state={state} aircraft={a} />
+      <RecentWork state={state} aircraft={a} />
+      <AircraftForm337 state={state} aircraft={a} />
+      <div className="filters">
+        <ExportAircraftStatus state={state} aircraftUuid={a.uuid} />
+        <ADReportButton state={state} aircraft={a} />
+      </div>
+    </section>
+  );
+}
+
+function NextDue({ items }: { items: DueItem[] }) {
+  return (
+    <>
       <h3>Next due</h3>
       {items.length ? (
         items.map((i) => (
@@ -117,7 +133,9 @@ function OwnerAircraft({
                 {i.kind} · {i.remaining}
               </small>
             </div>
-            <Badge tone={tone[i.status]}>{statusLabel[i.status]}</Badge>
+            <Badge tone={DUE_BADGES[i.status].tone}>
+              {DUE_BADGES[i.status].label}
+            </Badge>
           </div>
         ))
       ) : (
@@ -125,6 +143,16 @@ function OwnerAircraft({
           No inspections, component limits or ADs recorded.
         </p>
       )}
+    </>
+  );
+}
+
+function OpenDiscrepancies({ state, aircraft }: AircraftProps) {
+  const reports = state.discrepancies.filter(
+    (d) => d.aircraftUuid === aircraft.uuid && d.status === "open",
+  );
+  return (
+    <>
       <h3>Open discrepancies</h3>
       {reports.length ? (
         reports.map((d) => (
@@ -138,6 +166,17 @@ function OwnerAircraft({
       ) : (
         <p className="muted">No open discrepancies.</p>
       )}
+    </>
+  );
+}
+
+function RecentWork({ state, aircraft }: AircraftProps) {
+  const orders = (state.workOrders ?? [])
+    .filter((w) => w.aircraftUuid === aircraft.uuid && w.status === "completed")
+    .sort((x, y) => y.completionDate.localeCompare(x.completionDate))
+    .slice(0, RECENT_WORK_ORDERS);
+  return (
+    <>
       <h3>Recently completed work</h3>
       {orders.length ? (
         orders.map((w) => (
@@ -153,55 +192,32 @@ function OwnerAircraft({
       ) : (
         <p className="muted">No completed work orders.</p>
       )}
-      <AircraftForm337 state={state} aircraft={a} />
-      <div className="filters">
-        <ExportAircraftStatus state={state} aircraftUuid={a.uuid} />
-        <ADReportButton state={state} aircraft={a} />
-      </div>
-    </section>
+    </>
   );
 }
 
-/** Read-only portal for aircraft owners; rendered for every route. */
-export function OwnerPortal() {
-  const { snapshot: s, demo } = useWorkspace();
+function ADReportButton({ state, aircraft }: AircraftProps) {
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      // Loaded on demand, so jsPDF stays out of the portal until it is used.
+      const { saveADReport } = await import("../data/adReport");
+      saveADReport(state, aircraft.uuid);
+    } catch (e) {
+      setError(errorText(e, "Unable to export AD report."));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <>
-      <PageTitle
-        eyebrow="OWNER PORTAL"
-        title="Your aircraft"
-        description="Current totals, upcoming maintenance and completed work. Read-only."
-        action={
-          demo && (
-            <button
-              className="button"
-              onClick={() =>
-                previewDemoOwner(false).catch((e) => setError(errorText(e)))
-              }
-            >
-              Exit owner preview
-            </button>
-          )
-        }
-      />
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {s!.aircraft.map((a) => (
-        <OwnerAircraft key={a.uuid} state={s!} aircraft={a} />
-      ))}
-      {!s!.aircraft.length && (
-        <Empty title="No aircraft assigned">
-          Ask your Flight Program administrator to assign your aircraft.
-        </Empty>
-      )}
-      <p className="muted">
-        Recorded status only. Missing information never implies aircraft
-        readiness; this is not a maintenance release.
-      </p>
-    </>
+    <div>
+      <button className="button" disabled={busy} onClick={save}>
+        {busy ? "Generating PDF…" : "AD compliance report"}
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </div>
   );
 }

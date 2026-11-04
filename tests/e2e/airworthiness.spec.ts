@@ -1,4 +1,11 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins the AD register: the Word report import, recurring
+ *   compliance and its PDF, one-time limits and corrections, the FAA key
+ *   settings and search prefill, and the applicability statuses.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:fs, node:path.
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
 import { existsSync } from "node:fs";
 // A real customer AD report; kept out of git, so the import test runs only
@@ -56,42 +63,20 @@ test("previews the original Word report without inventing component assignments"
 test("records recurring compliance, persists it, exports a PDF, and flags due work", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Add AD", exact: true }).click();
-  let dialog = page.getByRole("dialog");
-  await dialog.getByLabel("AD number", { exact: true }).fill("2026-01-01");
-  await dialog
-    .getByLabel("Subject", { exact: true })
-    .fill("Inspect attachment fittings");
-  await dialog
-    .getByLabel("Applicability", { exact: true })
-    .selectOption("Applicable");
-  await dialog.getByLabel("Applicability and source changes reviewed").check();
-  await dialog.getByRole("button", { name: "Add required action" }).click();
-  await dialog
-    .getByLabel("Required action", { exact: true })
-    .fill("Inspect fittings per paragraph (g)");
-  await dialog.getByLabel("Action recurrence").selectOption("Recurring");
-  await dialog.getByRole("checkbox", { name: "Hours", exact: true }).check();
-  await dialog.getByLabel("Next due hours").fill("2300");
-  await dialog.getByLabel("Repeat every hours").fill("100");
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await page.locator(".ad-register-group > summary").first().click();
+  let dialog = await fillRecurringHoursAD(
+    page,
+    "2026-01-01",
+    "Inspect attachment fittings",
+  );
+  await saveAD(dialog);
+  await openFirstRegisterGroup(page);
   await expect(page.getByText("Overdue", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Details for AD 2026-01-01" }).click();
-  await page
-    .getByRole("button", { name: "Record compliance", exact: true })
-    .click();
-  dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Hours at completion").fill("2340");
-  await dialog
-    .getByLabel("Method of compliance")
-    .fill("Inspected fittings; no defects");
-  await dialog.getByRole("button", { name: "Save compliance" }).click();
-  await expect(dialog).not.toBeVisible();
+  await recordCompliance(page);
   await page.reload();
-  await page.locator(".ad-register-group > summary").first().click();
+  await openFirstRegisterGroup(page);
   await page.getByRole("button", { name: "Details for AD 2026-01-01" }).click();
+  // Next due: compliance at 2340 hours plus the 100-hour repeat.
   await expect(page.getByText(/2440 hours/)).toBeVisible();
   await page.getByText("Compliance history (1)", { exact: false }).click();
   await expect(page.getByText(/Inspected fittings; no defects/)).toBeVisible();
@@ -112,48 +97,24 @@ test("records recurring compliance, persists it, exports a PDF, and flags due wo
   await dialog
     .getByLabel("Reason for change")
     .fill("Due hours corrected from paragraph (g).");
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  await saveAD(dialog);
   await page.goto("/");
   await expect(page.getByRole("link", { name: /AD 2026-01-01/ })).toBeVisible();
 });
 test("flags a one-time limit left after compliance, clears it with a reason, and corrects compliance", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Add AD", exact: true }).click();
-  let dialog = page.getByRole("dialog");
-  await dialog.getByLabel("AD number", { exact: true }).fill("2026-04-04");
-  await dialog
-    .getByLabel("Subject", { exact: true })
-    .fill("Inspect wing attach fittings");
-  await dialog
-    .getByLabel("Applicability", { exact: true })
-    .selectOption("Applicable");
-  await dialog.getByLabel("Applicability and source changes reviewed").check();
-  await dialog.getByRole("button", { name: "Add required action" }).click();
-  await dialog
-    .getByLabel("Required action", { exact: true })
-    .fill("Inspect fittings per paragraph (g)");
-  await dialog.getByLabel("Action recurrence").selectOption("Recurring");
-  await dialog.getByRole("checkbox", { name: "Hours", exact: true }).check();
-  await dialog.getByLabel("Next due hours").fill("2300");
-  await dialog.getByLabel("Repeat every hours").fill("100");
+  let dialog = await fillRecurringHoursAD(
+    page,
+    "2026-04-04",
+    "Inspect wing attach fittings",
+  );
   // A new AD is not a correction.
   await expect(dialog.getByLabel("Reason for change")).toHaveCount(0);
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await page.locator(".ad-register-group > summary").first().click();
+  await saveAD(dialog);
+  await openFirstRegisterGroup(page);
   await page.getByRole("button", { name: "Details for AD 2026-04-04" }).click();
-  await page
-    .getByRole("button", { name: "Record compliance", exact: true })
-    .click();
-  dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Hours at completion").fill("2340");
-  await dialog
-    .getByLabel("Method of compliance")
-    .fill("Inspected fittings; no defects");
-  await dialog.getByRole("button", { name: "Save compliance" }).click();
-  await expect(dialog).not.toBeVisible();
+  await recordCompliance(page);
   // A one-time date on the repeating action after compliance, as compliance
   // recorded before the #42 fix left behind.
   await page.getByRole("button", { name: "Review / edit AD" }).click();
@@ -167,8 +128,7 @@ test("flags a one-time limit left after compliance, clears it with a reason, and
   await dialog
     .getByLabel("Reason for change")
     .fill("Initial calendar limit from paragraph (f).");
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  await saveAD(dialog);
   const row = page.getByRole("row").filter({ hasText: "2026-04-04" });
   await expect(row).toContainText("Overdue");
   await expect(row).toContainText(
@@ -203,6 +163,7 @@ test("flags a one-time limit left after compliance, clears it with a reason, and
   await expect(dialog).not.toBeVisible();
   await page.getByRole("button", { name: "Details for AD 2026-04-04" }).click();
   dialog = page.getByRole("dialog");
+  // The corrected 2330 hours plus the 100-hour repeat.
   await expect(dialog.getByText(/2430 hours/)).toBeVisible();
   await dialog.getByText("Compliance history (1)", { exact: false }).click();
   await expect(
@@ -276,9 +237,8 @@ test("marking an AD not applicable completes review and persists the status", as
   await dialog
     .getByLabel("Subject", { exact: true })
     .fill("Applicability review test");
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await page.locator(".ad-register-group > summary").first().click();
+  await saveAD(dialog);
+  await openFirstRegisterGroup(page);
   await page.getByRole("button", { name: "Review / edit AD" }).click();
   dialog = page.getByRole("dialog");
   await dialog
@@ -290,10 +250,9 @@ test("marking an AD not applicable completes review and persists the status", as
   await expect(
     dialog.getByLabel("Applicability and source changes reviewed"),
   ).toBeChecked();
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  await saveAD(dialog);
   await page.reload();
-  await page.locator(".ad-register-group > summary").first().click();
+  await openFirstRegisterGroup(page);
   await expect(page.getByText("Not applicable", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Review / edit AD" }).click();
   dialog = page.getByRole("dialog");
@@ -325,10 +284,9 @@ test("records previous compliance with aircraft total time and date", async ({
   await dialog
     .getByLabel("Aircraft total time at compliance (hours)")
     .fill("1234.5");
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  await saveAD(dialog);
   await page.reload();
-  await page.locator(".ad-register-group > summary").first().click();
+  await openFirstRegisterGroup(page);
   await expect(
     page.getByText("Previously Complied With (PCW)", { exact: true }),
   ).toBeVisible();
@@ -366,10 +324,57 @@ test("saves a superseded AD and its replacement reference", async ({
   await expect(
     dialog.getByLabel("Applicability and source changes reviewed"),
   ).toBeChecked();
-  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  await saveAD(dialog);
   await page.reload();
-  await page.locator(".ad-register-group > summary").first().click();
+  await openFirstRegisterGroup(page);
   await expect(page.getByText("Superseded", { exact: true })).toBeVisible();
   await expect(page.getByText(/Superseded by: 2026-03-01/)).toBeVisible();
 });
+
+/** Opens a new AD with one recurring action due at 2300 hours, every 100. */
+async function fillRecurringHoursAD(
+  page: Page,
+  number: string,
+  subject: string,
+): Promise<Locator> {
+  await page.getByRole("button", { name: "Add AD", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("AD number", { exact: true }).fill(number);
+  await dialog.getByLabel("Subject", { exact: true }).fill(subject);
+  await dialog
+    .getByLabel("Applicability", { exact: true })
+    .selectOption("Applicable");
+  await dialog.getByLabel("Applicability and source changes reviewed").check();
+  await dialog.getByRole("button", { name: "Add required action" }).click();
+  await dialog
+    .getByLabel("Required action", { exact: true })
+    .fill("Inspect fittings per paragraph (g)");
+  await dialog.getByLabel("Action recurrence").selectOption("Recurring");
+  await dialog.getByRole("checkbox", { name: "Hours", exact: true }).check();
+  await dialog.getByLabel("Next due hours").fill("2300");
+  await dialog.getByLabel("Repeat every hours").fill("100");
+  return dialog;
+}
+
+/** Records compliance at 2340 hours on the AD whose details are open. */
+async function recordCompliance(page: Page) {
+  await page
+    .getByRole("button", { name: "Record compliance", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Hours at completion").fill("2340");
+  await dialog
+    .getByLabel("Method of compliance")
+    .fill("Inspected fittings; no defects");
+  await dialog.getByRole("button", { name: "Save compliance" }).click();
+  await expect(dialog).not.toBeVisible();
+}
+
+async function saveAD(dialog: Locator) {
+  await dialog.getByRole("button", { name: "Save AD", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+
+async function openFirstRegisterGroup(page: Page) {
+  await page.locator(".ad-register-group > summary").first().click();
+}
