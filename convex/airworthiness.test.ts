@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins AD records: atomic saves, maintenance access, version
+ *   checks, compliance and its correction, and an AD uuid another Flight
+ *   Program holds.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/airworthiness, convex/operations, src/data/demo,
+ *   src/domain/airworthiness.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -258,4 +266,47 @@ it("lets maintenance record AD compliance but only a Flight Program administrato
     complianceEntries: 2,
     latestCompliance: { corrects: original.uuid, hours: 2330 },
   });
+});
+
+it("refuses an AD uuid another Flight Program holds, and writes nothing", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const r = blankAD(s.aircraft[0].uuid);
+  r.source.number = "2026-01-01";
+  r.source.subject = "Inspect";
+  const subject = await t.run(async (ctx) => {
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("programs", s.programs![0]);
+    await ctx.db.insert("airworthiness", {
+      uuid: r.uuid,
+      aircraftUuid: "other-aircraft",
+      programUuid: "other",
+      payload: "{}",
+    });
+    const id = await ctx.db.insert("users", {
+      active: true,
+      isAdmin: true,
+      name: "Administrator",
+      groupIds: [],
+      activeProgramUuid: "demo-program",
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: id,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${id}|${session}`;
+  });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      ads: await ctx.db.query("airworthiness").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  const before = await stored();
+  await expect(
+    t.withIdentity({ subject }).mutation(api.airworthiness.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ kind: "save", record: r }),
+    }),
+  ).rejects.toThrow("AD record belongs to another Flight Program.");
+  expect(await stored()).toEqual(before);
 });

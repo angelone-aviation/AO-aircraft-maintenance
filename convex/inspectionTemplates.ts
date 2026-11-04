@@ -4,22 +4,22 @@
  *   templates with the reusable job cards made from them.
  * Layer: Server. Three public mutations through runCommand; the rules are the
  *   domain's.
- * Dependencies: convex/runCommand, convex/attachments, src/domain
- *   (inspectionTemplates, activateTemplate, deleteInspectionTemplates,
- *   management).
+ * Dependencies: convex/runCommand, convex/management, convex/attachments,
+ *   src/domain (inspectionTemplates, activateTemplate,
+ *   deleteInspectionTemplates).
  */
 import { deleteInspectionTemplates } from "../src/domain/deleteInspectionTemplates";
 import { activateTemplate } from "../src/domain/activateTemplate";
-import { inspectionSchema } from "../src/domain/management";
 import { mutation, type MutationCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
-import type { WithoutSystemFields } from "convex/server";
-import { ConvexError, v } from "convex/values";
-import { runCommand, hydrate, type Hydrated } from "./runCommand";
+import { v } from "convex/values";
+import { runCommand, hydrate, writeChanged, type Hydrated } from "./runCommand";
+import { writeInspection } from "./management";
 import { deleteBlobIfUnused } from "./attachments";
 import { saveInspectionTemplates } from "../src/domain/inspectionTemplates";
 
 const args = { payload: v.string(), programUuid: v.optional(v.string()) };
+const TEMPLATE_TAKEN = "Template belongs to another Flight Program.";
+const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 type TemplateDeletion = ReturnType<typeof deleteInspectionTemplates>;
 type DeletionDocs = Hydrated<"inspectionTemplates" | "taskCards">["docs"];
@@ -44,20 +44,14 @@ export const save = mutation({
       load: ({ ctx, state }) => hydrate(ctx, state, ["inspectionTemplates"]),
       apply: ({ snapshot }, command) =>
         saveInspectionTemplates(snapshot, command),
-      persist: async ({ ctx }, { docs }, results) => {
-        for (const { next } of results) {
-          const doc = docs.inspectionTemplates.find(
-            (d) => d.uuid === next.uuid,
-          );
-          const fields = {
-            uuid: next.uuid,
-            programUuid: next.programUuid,
-            payload: JSON.stringify(next),
-          };
-          if (doc) await ctx.db.replace(doc._id, fields);
-          else await insertTemplate(ctx, fields);
-        }
-      },
+      persist: ({ ctx }, { docs }, results) =>
+        writeChanged(
+          ctx,
+          "inspectionTemplates",
+          docs.inspectionTemplates,
+          results.map((r) => r.next),
+          TEMPLATE_TAKEN,
+        ),
       audit: (log, _, results) => {
         for (const { before, next } of results)
           log.entry("inspectionTemplate.save", next.uuid, {
@@ -77,7 +71,8 @@ export const save = mutation({
  * @param payload - JSON, as `activateTemplateSchema`.
  * @param programUuid - The caller's active Flight Program.
  * @returns The new inspection's or requirement's uuid.
- * @throws {ConvexError} As `runCommand` and `activateTemplate`.
+ * @throws {ConvexError} As `runCommand` and `activateTemplate`; "Record
+ *   belongs to another Flight Program." when a uuid it generated is stored.
  */
 export const activate = mutation({
   args,
@@ -93,23 +88,23 @@ export const activate = mutation({
           "taskCards",
         ]),
       apply: ({ snapshot }, command) => activateTemplate(snapshot, command),
-      persist: async ({ ctx }, _, result) => {
-        const r = result.record;
-        if ("kind" in r)
-          await ctx.db.insert("management", {
-            uuid: r.uuid,
-            kind: r.kind,
-            programUuid: r.programUuid,
-            aircraftUuid: result.aircraftUuid,
-            payload: JSON.stringify(r),
-          });
-        else await ctx.db.insert("inspections", inspectionSchema.parse(r));
-        for (const task of result.tasks)
-          await ctx.db.insert("taskCards", {
-            uuid: task.uuid,
-            aircraftUuid: task.aircraftUuid,
-            payload: JSON.stringify(task),
-          });
+      persist: async ({ ctx }, { docs }, { record, tasks }) => {
+        if ("kind" in record)
+          await writeChanged(
+            ctx,
+            "management",
+            docs.management,
+            [record],
+            RECORD_TAKEN,
+          );
+        else await writeInspection(ctx, docs.inspections, record);
+        await writeChanged(
+          ctx,
+          "taskCards",
+          docs.taskCards,
+          tasks,
+          RECORD_TAKEN,
+        );
       },
       audit: (log, { snapshot }, result) =>
         log.replay(snapshot.audit, {
@@ -171,20 +166,6 @@ export const remove = mutation({
       }),
     }),
 });
-
-// The scoped load cannot see other programs' templates.
-async function insertTemplate(
-  ctx: MutationCtx,
-  fields: WithoutSystemFields<Doc<"inspectionTemplates">>,
-) {
-  const taken = await ctx.db
-    .query("inspectionTemplates")
-    .withIndex("uuid", (q) => q.eq("uuid", fields.uuid))
-    .first();
-  if (taken)
-    throw new ConvexError("Template belongs to another Flight Program.");
-  await ctx.db.insert("inspectionTemplates", fields);
-}
 
 async function deleteTemplates(
   ctx: MutationCtx,

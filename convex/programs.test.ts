@@ -17,6 +17,8 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
+
 async function setup() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -94,7 +96,7 @@ async function setup() {
       users[name] = id;
       sessions[name] = await ctx.db.insert("authSessions", {
         userId: id,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
     }
     return { users, sessions, gA, gB };
@@ -145,6 +147,28 @@ it("isolates snapshots, pilot directory, stock locations, and unassigned data by
       (m) => m.name === "onlyA",
     ),
   ).toBe(false);
+});
+it("refuses unassigned records to all but a system administrator, a missing program to everyone, and a transfer to others", async () => {
+  const { system, onlyA } = await setup();
+  const denied = { name: "ConvexError", data: "Flight Program access denied." };
+  await expect(
+    onlyA.mutation(api.programs.select, { programUuid: "" }),
+  ).rejects.toMatchObject(denied);
+  await expect(
+    system.mutation(api.programs.select, { programUuid: "missing" }),
+  ).rejects.toMatchObject(denied);
+  await expect(
+    onlyA.mutation(api.programs.transfer, {
+      programUuid: "A",
+      kind: "aircraft",
+      uuid: "plane-A",
+      destination: "B",
+      reason: "Move base",
+    }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "System administrator required for Flight Program transfers.",
+  });
 });
 it("enforces active program and roles on raw writes, automatic ownership, and stale or forged offline submissions", async () => {
   const { multi, onlyA } = await setup();
@@ -459,7 +483,7 @@ it("transfers stored component ownership with requirements and history, while bl
     });
     const session = await ctx.db.insert("authSessions", {
       userId: user,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     await ctx.db.insert("audit", {
       uuid: crypto.randomUUID(),

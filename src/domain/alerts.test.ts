@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins which maintenance alerts fire, their keys and order,
+ *   the email preference and the digest email.
+ * Layer: Test. Vitest over pure domain functions.
+ * Dependencies: src/domain/alerts.ts, alertDigest.ts, airworthiness.ts,
+ *   components.ts, faa.ts, model.ts; src/data/demo.ts (seed).
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -114,7 +121,11 @@ describe("AD alerts", () => {
 });
 
 describe("component requirement alerts", () => {
-  function setup(dueDate: string, installed = true) {
+  function setup(
+    dueDate: string,
+    installed = true,
+    patch: Partial<ComponentRequirement> = {},
+  ) {
     const s = fleet();
     const a = s.aircraft[0];
     const component: Component = {
@@ -157,6 +168,7 @@ describe("component requirement alerts", () => {
       warningCalendarMonths: 1,
       warningSeconds: 0,
       warningCycles: 0,
+      ...patch,
     };
     return { ...s, management: [component, requirement] };
   }
@@ -171,6 +183,13 @@ describe("component requirement alerts", () => {
     ]);
     expect(kinds(computeAlerts(setup(plus(-1)), today))).toEqual([
       "component-past-due",
+    ]);
+    const usedUp = setup(plus(60), true, { dueSeconds: 100 * 3600 });
+    expect(computeAlerts(usedUp, today)).toMatchObject([
+      {
+        kind: "component-past-due",
+        title: "Component due now: Hydraulic pump",
+      },
     ]);
   });
   it("ignores removed components", () => {
@@ -208,6 +227,21 @@ describe("certificate alerts", () => {
     expect(at(plus(-1))).toMatchObject([
       { kind: "certificate-expired", severity: "danger" },
     ]);
+  });
+  it("shows an inactive user none, not even their own certificates", () => {
+    const s = fleet();
+    const certifications = [
+      { kind: "pilot" as const, number: "P1", issuedOn: "", expiresOn: today },
+    ];
+    expect(
+      computeAlerts({ ...s, user: { ...s.user, certifications } }, today),
+    ).toHaveLength(1);
+    expect(
+      computeAlerts(
+        { ...s, user: { ...s.user, certifications, active: false } },
+        today,
+      ),
+    ).toEqual([]);
   });
   it("includes the IA renewal date", () => {
     expect(at(plus(200), plus(3))).toMatchObject([
@@ -303,6 +337,37 @@ describe("permission filtering", () => {
   });
 });
 
+describe("ordering", () => {
+  it("lists action required first, then by due date with undated last, then by title", () => {
+    const inspection = (uuid: string, reference: string, dueDate: string) => ({
+      uuid,
+      aircraftUuid: "demo-206",
+      reference,
+      description: "",
+      dueDate,
+    });
+    const alerts = allAlerts(
+      {
+        ...fleet(),
+        inspections: [
+          inspection("soon", "Pitot", plus(10)),
+          inspection("late", "Transponder", plus(-1)),
+          inspection("later", "Annual", plus(-1)),
+          inspection("latest", "ELT", plus(-5)),
+        ],
+      },
+      today,
+    );
+    expect(alerts.map((a) => [a.severity, a.entityUuid])).toEqual([
+      ["danger", "latest"],
+      ["danger", "later"],
+      ["danger", "late"],
+      ["danger", "demo-206"],
+      ["warning", "soon"],
+    ]);
+  });
+});
+
 describe("email preference", () => {
   const groups = [
     {
@@ -339,6 +404,10 @@ describe("email preference", () => {
         "p",
       ),
     ).toBe(false);
+  });
+  it("does not default on for an administrator group without read access", () => {
+    const noRead = [{ ...groups[0], permissions: [] }];
+    expect(wantsAlertEmails({ groupIds: ["admins"] }, noRead, "p")).toBe(false);
   });
 });
 

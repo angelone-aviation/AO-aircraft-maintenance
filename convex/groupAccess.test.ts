@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins permission-group access on the server: all aircraft
+ *   only by explicit choice (#34), an unscoped group's first Flight Program
+ *   (#45), and the last active administrator kept (#52).
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/admin.ts, convex/programs.ts, convex/memberships.ts,
+ *   convex/schema.ts, src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -11,7 +19,13 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
 
+/**
+ * Seeds programs A and B with aircraft A1, A2 and B, an A managers group, an
+ * A1 crew group and a legacy unscoped group, and signs in a system
+ * administrator, a disabled former one, A's program administrator and crew.
+ */
 async function setup() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -73,7 +87,7 @@ async function setup() {
       users[name] = id;
       sessions[name] = await ctx.db.insert("authSessions", {
         userId: id,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       for (const groupId of groupIds)
         await ctx.db.insert("memberships", {

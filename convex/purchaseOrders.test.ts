@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins purchase orders: atomic receipts and replays, address
- *   confirmation, attachments, and uuids another Flight Program holds.
+ *   confirmation, attachments and who may list them, and uuids another Flight
+ *   Program holds.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/purchaseOrders, convex/poFiles, src/data/demo,
  *   src/domain/purchaseOrders.
@@ -17,6 +18,8 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
+
 it("persists PO receipts atomically and replays without double inventory or audit entries", async () => {
   const t = convexTest(schema, modules);
   const demo = demoSnapshot();
@@ -30,7 +33,7 @@ it("persists PO receipts atomically and replays without double inventory or audi
     });
     const session = await ctx.db.insert("authSessions", {
       userId: user,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     await ctx.db.insert("management", {
       uuid: "store",
@@ -139,6 +142,12 @@ it("persists PO receipts atomically and replays without double inventory or audi
     poUuid: d.uuid,
   });
   expect(files).toHaveLength(1);
+  expect(files[0]).toEqual({
+    uuid: expect.any(String),
+    name: "invoice.pdf",
+    receiptUuid: receipt.requestUuid,
+    url: expect.any(String),
+  });
   const inventoryFiles = await t.run((ctx) =>
     ctx.db.query("inventoryFiles").collect(),
   );
@@ -169,7 +178,7 @@ it("returns an actionable address confirmation error without issuing the PO", as
     });
     const session = await ctx.db.insert("authSessions", {
       userId,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     await ctx.db.insert("management", {
       uuid: "store",
@@ -261,7 +270,7 @@ it("deletes PO attachments only for program administrators while the PO is a dra
     ) =>
       `${user}|${await ctx.db.insert("authSessions", {
         userId: user,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       })}`;
     const readers = await ctx.db.insert("groups", {
       programUuid: "demo-program",
@@ -367,11 +376,11 @@ it("deletes PO attachments only for program administrators while the PO is a dra
 
 afterEach(() => vi.restoreAllMocks());
 
-// A program administrator, a stock location, and a PO and a stock item that
-// another Flight Program holds under the given uuids.
+// A system administrator, a reader, a stock location, and a PO and a stock
+// item that another Flight Program holds under the given uuids.
 async function foreignFixture(foreign: { po: string; stock: string }) {
   const t = convexTest(schema, modules);
-  const subject = await t.run(async (ctx) => {
+  const subjects = await t.run(async (ctx) => {
     await ctx.db.insert("programs", demoSnapshot().programs![0]);
     const location = {
       uuid: "store",
@@ -399,19 +408,33 @@ async function foreignFixture(foreign: { po: string; stock: string }) {
       kind: "stock",
       payload: "{}",
     });
-    const user = await ctx.db.insert("users", {
+    const admin = await ctx.db.insert("users", {
       name: "PO admin",
       isAdmin: true,
       active: true,
       groupIds: [],
     });
-    const session = await ctx.db.insert("authSessions", {
-      userId: user,
-      expirationTime: Date.now() + 86400000,
+    const readers = await ctx.db.insert("groups", {
+      programUuid: "demo-program",
+      name: "Readers",
+      aircraftIds: [],
+      permissions: ["read"],
     });
-    return `${user}|${session}`;
+    const reader = await ctx.db.insert("users", {
+      name: "Reader",
+      isAdmin: false,
+      active: true,
+      groupIds: [readers],
+      activeProgramUuid: "demo-program",
+    });
+    const subject = async (userId: typeof admin) =>
+      `${userId}|${await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: Date.now() + DAY_MS,
+      })}`;
+    return { admin: await subject(admin), reader: await subject(reader) };
   });
-  const client = t.withIdentity({ subject });
+  const client = t.withIdentity({ subject: subjects.admin });
   const command = (c: unknown) =>
     client.mutation(api.purchaseOrders.execute, {
       programUuid: "demo-program",
@@ -423,7 +446,12 @@ async function foreignFixture(foreign: { po: string; stock: string }) {
       management: await ctx.db.query("management").collect(),
       audit: await ctx.db.query("audit").collect(),
     }));
-  return { command, stored };
+  const files = (as: keyof typeof subjects, poUuid: string) =>
+    t.withIdentity({ subject: subjects[as] }).query(api.purchaseOrders.files, {
+      programUuid: "demo-program",
+      poUuid,
+    });
+  return { command, stored, files };
 }
 
 const draft = (uuid: string) =>
@@ -464,6 +492,21 @@ it("refuses a PO uuid another Flight Program holds, and writes nothing", async (
     }),
   ).rejects.toMatchObject({ name: "ConvexError", data: "PO not found." });
   expect(await stored()).toEqual(before);
+});
+
+it("lists a PO's files only for an inventory administrator, and only within the Flight Program", async () => {
+  const { files } = await foreignFixture({
+    po: "po-elsewhere",
+    stock: "stock-elsewhere",
+  });
+  await expect(files("reader", "po-elsewhere")).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Inventory administrator access required.",
+  });
+  await expect(files("admin", "po-elsewhere")).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "PO not found.",
+  });
 });
 
 it("refuses received stock under a uuid another Flight Program holds, and writes nothing", async () => {

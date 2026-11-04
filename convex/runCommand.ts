@@ -78,6 +78,12 @@ export interface Command<C, W, R, Out = void> {
    * or undefined to keep it hidden. A Rejection is always shown as written.
    */
   expose?(error: unknown): string | undefined;
+  /**
+   * Work that needs the applied state and the transaction, between `apply`
+   * and `persist`, such as scheduling the work-order job copies (ADR-0003).
+   * What it returns replaces the applier's result.
+   */
+  afterApply?(tx: Transaction, working: W, result: R, command: C): Promise<R>;
   /** Writes the documents the command changed. */
   persist(tx: Transaction, working: W, result: R, command: C): Promise<void>;
   /** Adds the command's change-log rows, written once after persist. */
@@ -92,7 +98,7 @@ export interface Command<C, W, R, Out = void> {
  */
 export type ProgramContext = Awaited<ReturnType<typeof checkContext>>;
 
-/** What `load` and `persist` work with. */
+/** What `load`, `afterApply` and `persist` work with. */
 export interface Transaction {
   ctx: MutationCtx;
   state: ProgramContext;
@@ -104,15 +110,16 @@ export interface Transaction {
 /**
  * Runs a command in the caller's mutation, in order: check the caller's Flight
  * Program context before the payload is read; parse; hand off (`delegate`);
- * return early for a replayed request id; load; apply; persist; write the
- * change-log rows once through the audit writer; record the request id. A
- * Convex mutation is one transaction, so a throw at any step writes nothing.
+ * return early for a replayed request id; load; apply; afterApply; persist;
+ * write the change-log rows once through the audit writer; record the request
+ * id. A Convex mutation is one transaction, so a throw at any step writes
+ * nothing.
  *
  * @returns What `returns` gives; undefined for a replayed request.
- * @throws {ConvexError} The message of a Rejection thrown in `load`, `apply`
- *   or `persist`, or the one `expose` gives for another `apply` error;
- *   "Request identifier already used." for a request id reused by another
- *   caller or with another payload; checkContext's program refusals.
+ * @throws {ConvexError} The message of a Rejection thrown in `load`, `apply`,
+ *   `afterApply` or `persist`, or the one `expose` gives for another `apply`
+ *   error; "Request identifier already used." for a request id reused by
+ *   another caller or with another payload; checkContext's program refusals.
  * @throws {Error} checkContext's session refusal. Other errors pass unchanged.
  */
 export async function runCommand<C, W, R, Out = void>(
@@ -135,7 +142,8 @@ export async function runCommand<C, W, R, Out = void>(
   if (request && (await isReplayed(ctx, state, request))) return undefined;
   const log = new CommandLog(state.user.id);
   const tx: Transaction = { ctx, state, log };
-  const { working, result } = await loadAndApply(tx, command, parsed);
+  const { working, result: applied } = await loadAndApply(tx, command, parsed);
+  const result = await runAfterApply(tx, command, working, applied, parsed);
   await persistCommand(tx, command, working, result, parsed);
   command.audit(log, working, result, parsed);
   for (const row of log.rows) await writeAudit(ctx, row);
@@ -425,6 +433,21 @@ async function loadAndApply<C, W, R, Out>(
     return { working, result: command.apply(working, parsed) };
   } catch (error) {
     throw exposed(error, command.expose);
+  }
+}
+
+async function runAfterApply<C, W, R, Out>(
+  tx: Transaction,
+  command: Command<C, W, R, Out>,
+  working: W,
+  result: R,
+  parsed: C,
+) {
+  if (!command.afterApply) return result;
+  try {
+    return await command.afterApply(tx, working, result, parsed);
+  } catch (error) {
+    throw exposed(error);
   }
 }
 

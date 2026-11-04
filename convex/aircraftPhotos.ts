@@ -3,8 +3,8 @@
  *   and removing it with its stored image.
  * Layer: Server. A public action and mutation over internal steps; every
  *   change needs maintenance permission on the aircraft and is audited.
- * Dependencies: convex/programContext, convex/access, convex/userErrors,
- *   src/domain/model, src/domain/aircraftPhotos.
+ * Dependencies: convex/programContext, convex/access, convex/attachments,
+ *   convex/userErrors, src/domain/model, src/domain/aircraftPhotos.
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -20,6 +20,7 @@ import { checkContext } from "./programContext";
 import { can } from "../src/domain/model";
 import { validateAircraftPhoto } from "../src/domain/aircraftPhotos";
 import { audit } from "./access";
+import { storeThenFinish } from "./attachments";
 import { exposeRejections } from "./userErrors";
 
 const target = {
@@ -93,18 +94,9 @@ export const upload = action({
       programUuid: args.programUuid,
     };
     await ctx.runQuery(internal.aircraftPhotos.check, scope);
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.aircraftPhotos.finish, { ...scope, storageId }),
     );
-    try {
-      await ctx.runMutation(internal.aircraftPhotos.finish, {
-        ...scope,
-        storageId,
-      });
-    } catch (error) {
-      await ctx.storage.delete(storageId);
-      throw error;
-    }
   },
 });
 

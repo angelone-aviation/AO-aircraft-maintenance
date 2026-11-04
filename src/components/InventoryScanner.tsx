@@ -186,7 +186,10 @@ async function startCamera(
     if (session.stopped || !video.current) return on.stop();
     video.current.srcObject = media;
     await video.current.play();
-    if (!session.stopped) on.setLive(true);
+    // Closing while play() was pending already ran stop(), so a timer started
+    // now would never be cleared.
+    if (session.stopped) return;
+    on.setLive(true);
     const readCode = createFrameReader(video, jsQR);
     session.timer = window.setInterval(() => {
       const code = readCode();
