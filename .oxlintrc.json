@@ -6,5 +6,31 @@
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "warn",
     "jsx-a11y/prefer-tag-over-role": "off"
-  }
+  },
+  "overrides": [
+    {
+      // The design system's <dialog> closes on a scrim click as a pointer
+      // convenience; Escape (onCancel) and the close button are the keyboard
+      // paths, so the click needs no key handler. CONSTRAINTS.md §7: rules
+      // change here, with a reason, never inline.
+      "files": ["src/components/design.tsx"],
+      "rules": {
+        "jsx-a11y/click-events-have-key-events": "off",
+        "jsx-a11y/no-noninteractive-element-interactions": "off"
+      }
+    },
+    {
+      // Record lists keep real <table> markup restyled as CSS-grid cards, so
+      // the explicit table, row and cell roles are deliberate: some browsers
+      // drop table semantics when display changes on table elements.
+      "files": [
+        "src/components/Components.tsx",
+        "src/components/Management.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/no-redundant-roles": "off",
+        "jsx-a11y/no-interactive-element-to-noninteractive-role": "off"
+      }
+    }
+  ]
 }

@@ -1,19 +1,17 @@
 /**
- * Responsibility: The FAA DRS searches a monitored aircraft needs, and running
- *   them into one list of AD candidates.
- * Layer: Domain. Pure functions, except fetchMonitoringCandidates, which
- *   calls the FAA DRS API through faa.ts (CONTEXT.md §5); only Convex actions
- *   run it.
- * Dependencies: ./model (types), ./airworthiness, ./faaSearch, ./faa,
+ * Responsibility: The FAA DRS searches a monitored aircraft needs, and merging
+ *   their results into one list of AD candidates.
+ * Layer: Domain. Pure functions; no I/O. convex/faaDrs.ts runs the searches.
+ * Dependencies: ./model (types), ./airworthiness, ./faaSearch, ./faa (types),
  *   ./rejection.
  */
 import type { Snapshot } from "./model";
 import { adAircraftUuid } from "./airworthiness";
 import { blankSearch, searchAssets, searchFilters } from "./faaSearch";
-import { fetchDrsFiltered, type FaaCandidate } from "./faa";
+import type { DrsType, FaaCandidate } from "./faa";
 import { Rejection } from "./rejection";
 
-const DRS_TYPES = ["ADFRAWD", "ADFREAD"] as const;
+const DRS_TYPES: readonly DrsType[] = ["ADFRAWD", "ADFREAD"];
 const AD_NUMBERS_PER_REQUEST = 10;
 
 // The monitor stores at most 400 candidates (faa.ts MAX_CANDIDATES), and a
@@ -22,8 +20,12 @@ const MAX_MONITORING_DOCUMENTS = 400;
 
 type Scope = Pick<Snapshot, "aircraft" | "management" | "airworthiness">;
 
-interface MonitoringQuery {
-  type: (typeof DRS_TYPES)[number];
+/**
+ * One DRS search of a monitor check; `label` names it in an error, and
+ * `assetIds` are the aircraft ("") or components it covers.
+ */
+export interface MonitoringQuery {
+  type: DrsType;
   filters: Record<string, string[]>;
   label: string;
   assetIds: string[];
@@ -97,34 +99,26 @@ export function monitoringScope(
 }
 
 /**
- * Runs the monitoring searches in order against FAA DRS.
+ * Merges one monitoring search's candidates into the check's results, each
+ * once by id, with the assets of every search that found it.
  *
- * @param key - The FAA DRS API key.
- * @param queries - From {@link monitoringQueries}.
- * @param request - The fetch to use (a stub in tests).
- * @returns Each candidate once, in the order found, with the assetIds of the
- *   queries that found it (undefined if none named an asset).
- * @throws {Rejection} "No aircraft or component search data is available.",
- *   or "<label>: More than 400 documents across monitoring searches. …".
- * @throws {Error} "<label>: <reason>" when a search fails.
+ * @param found - The check's candidates so far, by id; updated in place.
+ * @param q - The search.
+ * @param candidates - What DRS returned for it.
+ * @throws {Rejection} "<label>: More than 400 documents across monitoring
+ *   searches. Narrow additional keywords before checking again."
  */
-export async function fetchMonitoringCandidates(
-  key: string,
-  queries: ReturnType<typeof monitoringQueries>,
-  request: typeof fetch = fetch,
-) {
-  if (!queries.length)
-    throw new Rejection("No aircraft or component search data is available.");
-  const found = new Map<string, FaaCandidate>();
-  for (const q of queries) {
-    for (const c of await searchDrs(key, q, request))
-      found.set(c.id, withAssetIds(c, q.assetIds, found.get(c.id)));
-    if (found.size > MAX_MONITORING_DOCUMENTS)
-      throw new Rejection(
-        `${q.label}: More than 400 documents across monitoring searches. Narrow additional keywords before checking again.`,
-      );
-  }
-  return [...found.values()];
+export function mergeMonitoringCandidates(
+  found: Map<string, FaaCandidate>,
+  q: MonitoringQuery,
+  candidates: FaaCandidate[],
+): void {
+  for (const c of candidates)
+    found.set(c.id, withAssetIds(c, q.assetIds, found.get(c.id)));
+  if (found.size > MAX_MONITORING_DOCUMENTS)
+    throw new Rejection(
+      `${q.label}: More than 400 documents across monitoring searches. Narrow additional keywords before checking again.`,
+    );
 }
 
 function trackedAdBatches(s: Scope, aircraftUuid: string) {
@@ -170,19 +164,4 @@ function mergeRepeatedQueries(queries: MonitoringQuery[]) {
 function withAssetIds(c: FaaCandidate, ids: string[], prior?: FaaCandidate) {
   const all = [...new Set([...(prior?.matchedAssetIds ?? []), ...ids])];
   return { ...c, matchedAssetIds: all.length ? all : undefined };
-}
-
-async function searchDrs(
-  key: string,
-  q: MonitoringQuery,
-  request: typeof fetch,
-) {
-  try {
-    return await fetchDrsFiltered(key, q.type, q.filters, request);
-  } catch (e) {
-    // Name the search that failed; the stored error is all the user sees.
-    throw Error(
-      `${q.label}: ${e instanceof Error ? e.message : "FAA request failed"}`,
-    );
-  }
 }

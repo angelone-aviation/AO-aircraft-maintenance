@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins the inspection template library: schema, save rules
- *   and refusals, manual candidates and CSV import.
+ * Responsibility: Pins the inspection template library: schema and its
+ *   messages, save rules and refusals, manual candidates and CSV import.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/inspectionTemplates.ts, src/domain/programs.ts,
  *   src/domain/rejection.ts, src/data/demo.ts (seed), tests/fixtures.
@@ -17,6 +17,7 @@ import {
   templateCsvHeaders,
   templateFromCandidate,
   templateIdentity,
+  templateTaskSchema,
 } from "./inspectionTemplates";
 import { scopedSnapshot } from "./programs";
 import { Rejection } from "./rejection";
@@ -293,6 +294,56 @@ const csv = (...rows: string[]) =>
 const parse = (text: string) =>
   parseTemplateCsv(text, sample().applicability, "G");
 
+it("names a template task's bad field as the task CSV does", () => {
+  const task = {
+    itemCode: "A1",
+    instruction: "Inspect",
+    applicability: "",
+  };
+  const refusals: [object, string][] = [
+    [
+      { instruction: " " },
+      "Enter a task instruction of up to 9,000 characters.",
+    ],
+    [
+      { instruction: "x".repeat(9001) },
+      "Enter a task instruction of up to 9,000 characters.",
+    ],
+    [
+      { itemCode: "x".repeat(101) },
+      "Item code is too long (up to 100 characters).",
+    ],
+    [
+      { applicability: "x".repeat(1001) },
+      "Applicability is too long (up to 1,000 characters).",
+    ],
+    [{ zone: "x".repeat(1001) }, "Zone is too long (up to 1,000 characters)."],
+    [
+      { referenceText: "x".repeat(1001) },
+      "Manual reference is too long (up to 1,000 characters).",
+    ],
+    ...[0, 1.5, 100001].map((pdfPage): [object, string] => [
+      { pdfPage },
+      "PDF page must be a positive whole number up to 100,000.",
+    ]),
+  ];
+  for (const [change, message] of refusals) {
+    const result = templateTaskSchema.safeParse({ ...task, ...change });
+    expect(result.error?.issues.map((i) => i.message)).toEqual([message]);
+  }
+  expect(
+    templateTaskSchema.parse({
+      ...task,
+      instruction: "x".repeat(9000),
+      itemCode: "x".repeat(100),
+      applicability: "x".repeat(1000),
+      zone: "x".repeat(1000),
+      referenceText: "x".repeat(1000),
+      pdfPage: 100000,
+    }).pdfPage,
+  ).toBe(100000);
+});
+
 it("refuses an unusable CSV header as a Rejection", () => {
   for (const [text, message] of [
     [templateCsvHeaders.join(","), "Choose a CSV with headers and records."],
@@ -340,7 +391,8 @@ it("turns a narrative-only row's description into its conditions", () => {
   );
   expect(narrative.template!.conditions).toBe("After a hard landing");
   expect(scheduled.template!.conditions).toBe("");
-  // Characterizes current behaviour: landing columns do not count as a schedule.
+  // Characterizes current behaviour: landing columns do not count as a
+  // schedule.
   expect(landingsOnly.template!.conditions).toBe("Every 500 landings");
 });
 

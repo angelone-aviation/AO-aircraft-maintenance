@@ -914,6 +914,13 @@ Record each consumer's current output. Every difference between consumers is the
 | b5 | `src/domain/aircraftStatus.ts` | must produce identical grounded and due-soon reasons on the characterization fleet; any difference needs sign-off |
 | — | T8 b3 and T17 b1 | consume the module |
 
+**Design as built (b1, 2026-11-04).** The per-task `DueItem` above could not reproduce the owner portal, which shows one row per AD with the AD's own status and every action's `adRemaining` text, so the shape changed; the output did not:
+
+- **One item per AD.** `AdDue` carries `adStatus` as `status` and its level, and `tasks` with each action's `adTaskStatus` and level, so the owner view reads the AD and the Dispatch gate reads the actions.
+- **Records and source results, not `label` and `remaining`.** Items carry their records (inspection; requirement and component; AD and component), the aircraft, and the status function's own result as `due`, or what it threw as `error`. Each caller words labels differently, and converting hours to seconds would not round-trip exactly.
+- **`dueItems(s, aircraftUuid?, today?)`.** Without an aircraft it lists the whole program in record order, with inventory requirements and ADs whose aircraft is absent, because alerts, parts planning and the forecast iterate the program and keep that order on ties.
+- **Everything is listed,** closed ADs at level ok. Each caller's selection (which ADs, what a throw means) stays an explicit filter there until its difference is decided. `urgency` waits for a caller that needs it (b3). The union is `MaintenanceDue`, because `ownerDue.ts` already exports `DueItem`.
+
 ---
 
 ### T14. Recurring-parts occurrences generated inside the appliers

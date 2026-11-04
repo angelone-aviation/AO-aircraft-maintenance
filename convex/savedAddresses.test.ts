@@ -305,3 +305,66 @@ it("audits each save, and still saves an edit when the program is at the cap", a
     ["address.saved", input.uuid, "demo-program"],
   ]);
 });
+
+it("refuses as ConvexError in order: administrator, entry, owner, version, name, cap", async () => {
+  const { t, a, b, reader } = await setup();
+  const save = (who: typeof a, programUuid: string, payload: string) =>
+    who.mutation(api.savedAddresses.save, { programUuid, payload });
+  const refused = (data: string) => ({ name: "ConvexError", data });
+  const entry = (fields: object) => JSON.stringify({ ...input, ...fields });
+  await expect(save(reader, "demo-program", "{")).rejects.toMatchObject(
+    refused("Flight Program administrator required."),
+  );
+  const incomplete = refused(
+    "Enter an address name and complete the recipient name, address, email and phone fields.",
+  );
+  for (const payload of ["{", entry({ name: " " }), entry({ version: -1 })])
+    await expect(save(a, "demo-program", payload)).rejects.toMatchObject(
+      incomplete,
+    );
+  await save(b, "other-program", entry({ uuid: "foreign" }));
+  await expect(
+    save(a, "demo-program", entry({ uuid: "foreign", version: 5 })),
+  ).rejects.toMatchObject(refused("Address not found in this Flight Program."));
+  await save(a, "demo-program", entry({}));
+  await expect(
+    save(a, "demo-program", entry({ uuid: "other", version: 1 })),
+  ).rejects.toMatchObject(refused("Address changed. Reopen it before saving."));
+  await t.run(async (ctx) => {
+    for (let i = 1; i < 200; i++)
+      await ctx.db.insert("savedAddresses", {
+        ...input,
+        uuid: `seed-${i}`,
+        name: `Seed ${i}`,
+        nameKey: `seed ${i}`,
+        programUuid: "demo-program",
+      });
+  });
+  await expect(
+    save(a, "demo-program", entry({ uuid: "new", name: " SEED 7 " })),
+  ).rejects.toMatchObject(
+    refused(
+      "An address with this name already exists in this program. Select it or use another name.",
+    ),
+  );
+  await expect(
+    save(a, "demo-program", entry({ uuid: "new", name: "Fresh" })),
+  ).rejects.toMatchObject(
+    refused(
+      "A Flight Program can keep up to 200 saved addresses. Edit an existing address instead.",
+    ),
+  );
+  const stored = await t.run((ctx) =>
+    ctx.db
+      .query("savedAddresses")
+      .withIndex("uuid", (q) => q.eq("uuid", input.uuid))
+      .unique(),
+  );
+  expect(stored).toMatchObject({
+    version: 1,
+    name: input.name,
+    nameKey: input.name.toLowerCase(),
+    programUuid: "demo-program",
+    address: { ...input.address, addressName: input.name, confirmed: true },
+  });
+});

@@ -5,7 +5,7 @@
  * Layer: Domain. Zod schemas, rules and an applier on a working snapshot; no
  *   I/O, no React.
  * Dependencies: zod, src/domain/addresses.ts, programs.ts, model.ts,
- *   management.ts, components.ts, rejection.ts.
+ *   management.ts, components.ts, changeLog.ts, rejection.ts.
  */
 import { addressSchema, formatAddress } from "./addresses";
 import { activeProgram, ownsActive, programPermission } from "./programs";
@@ -13,6 +13,7 @@ import { z } from "zod";
 import { can, totalSeconds, type Aircraft, type Snapshot } from "./model";
 import { validateMaintenanceTotals } from "./management";
 import { componentAircraftSeconds, type Component } from "./components";
+import { auditEntry, type AuditChange } from "./changeLog";
 import { Rejection } from "./rejection";
 
 const HOUR_SECONDS = 3600;
@@ -269,16 +270,18 @@ function saveProgram(s: Snapshot, c: ProgramSave, now: number): FleetChange {
   s.aircraft = s.aircraft.map((a) =>
     a.programUuid === program.uuid ? { ...a, program: program.name } : a,
   );
-  s.audit.unshift({
-    uuid: c.requestUuid,
-    actorId: s.user.id,
-    at: now,
-    action: before ? "program.updated" : "program.created",
-    entityUuid: program.uuid,
-    reason: c.reason,
-    before: before ? JSON.stringify(before) : undefined,
-    after: JSON.stringify(program),
-  });
+  recordFleetChange(
+    s,
+    {
+      uuid: c.requestUuid,
+      action: before ? "program.updated" : "program.created",
+      entityUuid: program.uuid,
+      reason: c.reason,
+      before,
+      after: program,
+    },
+    now,
+  );
   return { program, components: [] };
 }
 
@@ -479,31 +482,39 @@ function auditAircraftSave(
   beforeRecords: NonNullable<Snapshot["management"]>,
   now: number,
 ) {
-  s.audit.unshift({
-    uuid: c.requestUuid,
-    actorId: s.user.id,
-    at: now,
-    action: before ? "aircraft.updated" : "aircraft.created",
-    entityUuid: next.uuid,
-    aircraftUuid: next.uuid,
-    reason: c.reason,
-    before: before ? JSON.stringify(before) : undefined,
-    after: JSON.stringify(next),
-  });
-  for (const component of components)
-    s.audit.unshift({
-      uuid: c.requestUuid + "-" + component.uuid,
-      actorId: s.user.id,
-      at: now,
-      action: "component.aircraft_baseline_adjusted",
-      entityUuid: component.uuid,
+  recordFleetChange(
+    s,
+    {
+      uuid: c.requestUuid,
+      action: before ? "aircraft.updated" : "aircraft.created",
+      entityUuid: next.uuid,
       aircraftUuid: next.uuid,
       reason: c.reason,
-      before: JSON.stringify(
-        beforeRecords.find((r) => r.uuid === component.uuid),
-      ),
-      after: JSON.stringify(component),
-    });
+      before,
+      after: next,
+    },
+    now,
+  );
+  for (const component of components)
+    recordFleetChange(
+      s,
+      {
+        uuid: `${c.requestUuid}-${component.uuid}`,
+        action: "component.aircraft_baseline_adjusted",
+        entityUuid: component.uuid,
+        aircraftUuid: next.uuid,
+        reason: c.reason,
+        before: beforeRecords.find((r) => r.uuid === component.uuid),
+        after: component,
+      },
+      now,
+    );
+}
+
+// Fleet rows name no program of their own: the server stamps the saved or
+// active one as it writes them, and the demo keeps them without.
+function recordFleetChange(s: Snapshot, change: AuditChange, now: number) {
+  s.audit.unshift(auditEntry(s, { programUuid: undefined, ...change }, now));
 }
 
 function isWholeTenths(n: number) {

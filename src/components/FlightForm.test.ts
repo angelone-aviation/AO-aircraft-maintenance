@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins what the flight form collects in each phase, how it
+ *   saves new flights, preflights and reviews, and the dispatch gate.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/components/FlightForm.tsx, src/data/demo.ts
+ *   (demoSnapshot), react-dom/server.
+ */
 // @vitest-environment node
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -5,7 +12,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { FlightForm } from "./FlightForm";
 let snapshot = demoSnapshot();
+let online = true;
 const enqueue = vi.fn();
+const backend = { review: vi.fn() };
 let submit: ((data: FormData) => Promise<void>) | undefined;
 vi.mock("./ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ui")>();
@@ -18,12 +27,14 @@ vi.mock("./ui", async (importOriginal) => {
   };
 });
 vi.mock("../data/store", () => {
-  const state = () => ({ snapshot, enqueue, online: true, connected: true });
+  const state = () => ({ snapshot, enqueue, backend, online, connected: true });
   return { useWorkspace: Object.assign(state, { getState: state }) };
 });
 beforeEach(() => {
   snapshot = demoSnapshot();
+  online = true;
   enqueue.mockReset();
+  backend.review.mockReset();
 });
 function render(phase: "preflight" | "end", turbine: boolean, twin = false) {
   snapshot.aircraft[0].turbine = turbine;
@@ -36,6 +47,31 @@ function render(phase: "preflight" | "end", turbine: boolean, twin = false) {
     }),
   );
 }
+const flightData = () => {
+  const data = new FormData();
+  for (const [key, value] of Object.entries({
+    pilot: snapshot.user.id,
+    time: "2026-01-01T10:00",
+    hobbs: "123.4",
+    tach: "123.4",
+    origin: "AAA",
+    destination: "BBB",
+    landings: "1",
+    operation: "Mission",
+    rules: "VFR",
+    reason: "Counter corrected",
+  }))
+    data.set(key, value);
+  return data;
+};
+const form = (props: Partial<ComponentProps<typeof FlightForm>>) =>
+  renderToStaticMarkup(
+    createElement(FlightForm, {
+      aircraftUuid: snapshot.aircraft[0].uuid,
+      onDone: () => {},
+      ...props,
+    }),
+  );
 it("collects preflight fluids without closing meters or engine start readings", () => {
   const html = render("preflight", true);
   expect(html).toContain("Save preflight &amp; start flight");
@@ -128,4 +164,75 @@ it("shows grounding reasons, requires an administrator override and disables sav
   );
   expect(blocked).toContain("Ask a Flight Program administrator");
   expect(blocked).toContain('<form><fieldset disabled="">');
+});
+it("refuses a preflight it has no way to save", async () => {
+  form({ phase: "preflight" });
+  await expect(submit!(flightData())).rejects.toThrow(
+    "Preflight saving is unavailable.",
+  );
+  expect(enqueue).not.toHaveBeenCalled();
+});
+it("departs IFR from a plan filed I or Y, and VFR otherwise", () => {
+  const plan = (flightRules: string) =>
+    ({
+      uuid: crypto.randomUUID(),
+      aircraftUuid: snapshot.aircraft[0].uuid,
+      departureAt: "2026-11-05T08:00:00.000Z",
+      flightRules,
+      route: "DCT",
+    }) as ComponentProps<typeof FlightForm>["plan"];
+  const checked = (rules: string) =>
+    form({ plan: plan(rules) }).match(/checked="" value="(\w+)"/)?.[1];
+  expect(form({}).match(/checked="" value="(\w+)"/)?.[1]).toBe("VFR");
+  expect(["I", "Y", "V", "Z"].map(checked)).toEqual([
+    "IFR",
+    "IFR",
+    "VFR",
+    "VFR",
+  ]);
+});
+it("names an R66's turbine cycles as engine starts", () => {
+  snapshot.aircraft[0].turbine = true;
+  snapshot.aircraft[0].model = " r66 ";
+  expect(form({})).toContain("Engine start cycles");
+  snapshot.aircraft[0].model = "206";
+  expect(form({})).not.toContain("Engine start cycles");
+});
+it("queues a new flight against its opening version without legacy oil ends", async () => {
+  const oil = [
+    { engine: "single" as const, unit: "US qt" as const, start: 5, end: 6 },
+  ];
+  snapshot.aircraft[0].version = 4;
+  form({ prefill: { oil } });
+  await submit!(flightData());
+  expect(enqueue).toHaveBeenCalledWith(
+    expect.objectContaining({
+      baseVersion: 4,
+      input: expect.objectContaining({
+        oil: [{ engine: "single", unit: "US qt", start: 5 }],
+      }),
+    }),
+  );
+});
+it("reviews a held flight online only, keeping its stored oil", async () => {
+  const held = {
+    uuid: "held",
+    aircraftUuid: snapshot.aircraft[0].uuid,
+    startTime: "2026-01-01T10:00:00.000Z",
+    status: "review",
+    oil: [
+      { engine: "single" as const, unit: "US qt" as const, start: 5, end: 6 },
+    ],
+  } as ComponentProps<typeof FlightForm>["initial"];
+  online = false;
+  expect(form({ initial: held })).toContain('<form><fieldset disabled="">');
+  online = true;
+  form({ initial: held });
+  await submit!(flightData());
+  expect(backend.review).toHaveBeenCalledWith(
+    "held",
+    "accept",
+    "Counter corrected",
+    expect.objectContaining({ oil: held!.oil }),
+  );
 });

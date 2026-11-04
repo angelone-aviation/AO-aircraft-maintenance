@@ -1,10 +1,10 @@
 /**
  * Responsibility: Copies an aircraft's job-card templates onto a work order in
  *   scheduled batches, and shows and resumes the copy's progress.
- * Layer: Server. Helpers for workOrders.save, internal batch workers and one
+ * Layer: Server. A helper for workOrders.save, internal batch workers and one
  *   public mutation; maintenance permission writes.
- * Dependencies: convex/access, convex/programContext, convex/recurringParts,
- *   src/domain (model, taskCards, workOrders, workOrderCards).
+ * Dependencies: convex/access, convex/programContext, src/domain (model,
+ *   taskCards, workOrders, workOrderCards).
  *
  * A work order can name hundreds of templates, more than one mutation may
  * write, so the request captures them and scheduled batches copy them.
@@ -18,9 +18,8 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { audit, writeAudit } from "./access";
+import { audit } from "./access";
 import { checkContext } from "./programContext";
-import { prepareRecurringParts } from "./recurringParts";
 import { can, type Snapshot } from "../src/domain/model";
 import {
   copyTemplateSteps,
@@ -30,11 +29,8 @@ import {
 } from "../src/domain/taskCards";
 import {
   isOpenWorkOrder,
-  newWorkTask,
   workOrderSchema,
   type WorkOrder,
-  type WorkOrderCommand,
-  type WorkSource,
   type WorkTask,
 } from "../src/domain/workOrders";
 import { taskCardMatchesWorkItem } from "../src/domain/workOrderCards";
@@ -44,10 +40,6 @@ import { taskCardMatchesWorkItem } from "../src/domain/workOrderCards";
 // a batch of its own.
 const BATCH_SIZE = 10;
 const BATCH_BYTES = 400_000;
-const PREPARING =
-  "Job cards are still being prepared. Finish or resume preparation before editing or closing this work order.";
-const MAINTENANCE_DENIED = "Work order maintenance access denied.";
-const WORK_ORDER_CLOSED = "This work order is closed.";
 
 type Job = Doc<"workOrderCopyJobs">;
 type CardCopy = Doc<"workOrderCopyBatches">["cards"][number];
@@ -97,55 +89,6 @@ export async function queueTemplateCopies(
       total: selected.length,
     },
   };
-}
-
-/**
- * Adds an inspection to a work order, or copies the templates its items
- * still lack, and queues the copies; workOrders.save hands both commands here.
- *
- * @param ctx - Mutation context; saves the order and audits the command.
- * @param state - The caller's snapshot.
- * @param command - `add` with an inspection source, or `copyTemplates`.
- * @returns The work order's uuid.
- * @throws {ConvexError} "Work order not found."; "Work order maintenance access
- *   denied."; "This work order is closed."; "Job cards are still being
- *   prepared. …"; "Work order changed. Reopen it before saving."; "Work item
- *   is unavailable for this aircraft."; "This item is already on the work
- *   order."; as {@link queueTemplateCopies}.
- * @throws {Error} "Unsupported copy command." for any other command.
- */
-export async function startCopy(
-  ctx: MutationCtx,
-  state: Snapshot,
-  command: WorkOrderCommand,
-) {
-  const doc = await orderDocument(ctx, command.uuid);
-  const before = workOrderSchema.parse(JSON.parse(doc.payload));
-  assertCopyAllowed(state, before, command.version);
-  let next = { ...before, version: before.version + 1 };
-  if (command.action === "add" && command.source.kind === "inspection")
-    next.tasks = [
-      ...before.tasks,
-      await inspectionTask(ctx, before, command.source),
-    ];
-  else if (command.action !== "copyTemplates")
-    throw new Error("Unsupported copy command.");
-  next = workOrderSchema.parse(next);
-  next = await queueTemplateCopies(
-    ctx,
-    next,
-    command.action === "copyTemplates" ? undefined : before,
-    state,
-  );
-  for (const entry of await prepareRecurringParts(ctx, state, next))
-    await writeAudit(ctx, entry);
-  await ctx.db.patch(doc._id, { payload: JSON.stringify(next) });
-  await audit(ctx, state.user.id, "workOrder." + command.action, next.uuid, {
-    aircraftUuid: next.aircraftUuid,
-    before,
-    after: next,
-  });
-  return next.uuid;
 }
 
 /**
@@ -245,14 +188,15 @@ export const resume = mutation({
     const doc = await orderDocument(ctx, args.workOrderUuid);
     const order = workOrderSchema.parse(JSON.parse(doc.payload));
     if (!can(state, order.aircraftUuid, "maintenance"))
-      throw new ConvexError(MAINTENANCE_DENIED);
+      throw new ConvexError("Work order maintenance access denied.");
     const jobs = await ctx.db
       .query("workOrderCopyJobs")
       .withIndex("workOrder", (q) => q.eq("workOrderUuid", order.uuid))
       .collect();
     const job = jobs.find((j) => j._id === order.templateCopy?.jobId);
     if (!job || job.status === "completed") return;
-    if (!isOpenWorkOrder(order)) throw new ConvexError(WORK_ORDER_CLOSED);
+    if (!isOpenWorkOrder(order))
+      throw new ConvexError("This work order is closed.");
     if (job.status === "running" && (await isWorkerQueued(ctx, job))) return;
     const scheduledId = await ctx.scheduler.runAfter(
       0,
@@ -366,44 +310,6 @@ async function storeBatches(
       batch,
       cards: pending,
     });
-}
-
-function assertCopyAllowed(state: Snapshot, order: WorkOrder, version: number) {
-  if (!can(state, order.aircraftUuid, "maintenance"))
-    throw new ConvexError(MAINTENANCE_DENIED);
-  if (!isOpenWorkOrder(order)) throw new ConvexError(WORK_ORDER_CLOSED);
-  if (order.templateCopy && order.templateCopy.status !== "completed")
-    throw new ConvexError(PREPARING);
-  if (order.version !== version)
-    throw new ConvexError("Work order changed. Reopen it before saving.");
-}
-
-async function inspectionTask(
-  ctx: MutationCtx,
-  order: WorkOrder,
-  source: WorkSource,
-): Promise<WorkTask> {
-  const inspection = await ctx.db
-    .query("inspections")
-    .withIndex("uuid", (q) => q.eq("uuid", source.uuid))
-    .unique();
-  if (
-    !inspection ||
-    inspection.archived ||
-    inspection.aircraftUuid !== order.aircraftUuid
-  )
-    throw new ConvexError("Work item is unavailable for this aircraft.");
-  if (
-    order.tasks.some(
-      (t) =>
-        t.source.kind === "inspection" && t.source.uuid === inspection.uuid,
-    )
-  )
-    throw new ConvexError("This item is already on the work order.");
-  return newWorkTask(
-    source,
-    `${inspection.reference}: ${inspection.description}`,
-  );
 }
 
 async function insertCopy(

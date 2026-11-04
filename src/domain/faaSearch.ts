@@ -1,13 +1,13 @@
 /**
  * Responsibility: FAA AD searches for one aircraft: the form, the assets it
- *   covers, the DRS filters per asset, and the merged results.
- * Layer: Domain. Zod schemas and functions; `searchFAA` calls the FAA DRS API
- *   through ./faa (a known exception to the no-I/O rule, CONTEXT.md §5).
+ *   covers, the DRS queries per asset, and the merged results.
+ * Layer: Domain. Zod schemas and pure functions; no I/O. convex/faaDrs.ts
+ *   sends the queries.
  * Dependencies: zod, ./airworthiness, ./faa, ./model, ./rejection.
  */
 import { z } from "zod";
 import { adNumber } from "./airworthiness";
-import { fetchDrsFiltered, type FaaCandidate } from "./faa";
+import type { DrsType, FaaCandidate } from "./faa";
 import type { Snapshot } from "./model";
 import { Rejection } from "./rejection";
 
@@ -16,9 +16,8 @@ import { Rejection } from "./rejection";
 const MAX_FILTERS = 5;
 const MAX_RESULTS = 400;
 
-type DocumentType = "ADFRAWD" | "ADFREAD";
 // Final rules, then emergency ADs.
-const DOCUMENT_TYPES: readonly DocumentType[] = ["ADFRAWD", "ADFREAD"];
+const DOCUMENT_TYPES: readonly DrsType[] = ["ADFRAWD", "ADFREAD"];
 
 const text = z.string().trim().max(200);
 
@@ -93,6 +92,13 @@ export interface FaaSearchResult {
   candidate: FaaCandidate;
   assetIds: string[];
   documents: { url: string; emergency: boolean }[];
+}
+
+/** One DRS request of a search, and the assets that share its filters. */
+export interface FaaSearchQuery {
+  type: DrsType;
+  filters: Record<string, string[]>;
+  assets: string[];
 }
 
 /**
@@ -185,7 +191,7 @@ export function blankSearch(
 export function searchFilters(
   s: FaaSearchInput,
   a: FaaSearchInput["assets"][number],
-  type: DocumentType,
+  type: DrsType,
 ) {
   const p = "drs:" + type.toLowerCase();
   const emergency = type === "ADFREAD";
@@ -220,36 +226,74 @@ export function searchFilters(
 }
 
 /**
- * Runs a search against FAA DRS, one request per distinct set of filters,
- * and merges the documents by AD number.
+ * Plans a search's DRS requests: one per document type and distinct set of
+ * filters, so assets with identical filters share a request.
  *
- * @param key - The FAA DRS API key.
  * @param raw - The search.
- * @param request - The fetch to use.
- * @returns The ADs, newest effective (else issued) date first, then by AD
- *   number descending.
+ * @returns The queries, final rules first, each type's in asset order.
  * @throws {z.ZodError} On an invalid search.
- * @throws {Rejection} A {@link searchFilters} refusal, or "More than 400 ADs
- *   matched. …", in which case nothing is returned.
+ * @throws {Rejection} A {@link searchFilters} refusal for any asset.
  */
-export async function searchFAA(
-  key: string,
-  raw: FaaSearchInput,
-  request: typeof fetch = fetch,
-): Promise<FaaSearchResult[]> {
+export function faaSearchQueries(raw: FaaSearchInput): FaaSearchQuery[] {
   const input = faaSearchSchema.parse(raw);
-  const found = new Map<string, FaaSearchResult>();
-  for (const q of groupQueries(input).values()) {
-    const candidates = await fetchDrsFiltered(key, q.type, q.filters, request);
-    mergeResults(found, candidates, q.assets);
-  }
-  return [...found.values()].sort(compareNewestFirst);
+  const types = DOCUMENT_TYPES.filter((type) =>
+    type === "ADFRAWD" ? input.finalRules : input.emergency,
+  );
+  const queries = new Map<string, FaaSearchQuery>();
+  for (const type of types)
+    for (const asset of input.assets)
+      addQuery(queries, {
+        type,
+        filters: searchFilters(input, asset, type),
+        assets: [asset.id],
+      });
+  return [...queries.values()];
 }
 
-interface DrsQuery {
-  type: DocumentType;
-  filters: Record<string, string[]>;
-  assets: string[];
+/**
+ * Merges one query's candidates into a search's results by AD number.
+ *
+ * @param found - The results so far, by AD number; updated in place.
+ * @param candidates - What DRS returned for the query.
+ * @param assets - The query's asset ids.
+ * @throws {Rejection} "More than 400 ADs matched. Narrow your search; no
+ *   partial results were imported."
+ */
+export function mergeSearchResults(
+  found: Map<string, FaaSearchResult>,
+  candidates: FaaCandidate[],
+  assets: string[],
+): void {
+  for (const candidate of candidates) {
+    const id = adNumber(candidate.source.number);
+    const old = found.get(id);
+    if (old) mergeCandidate(old, candidate, assets);
+    else
+      found.set(id, {
+        candidate,
+        assetIds: [...assets],
+        documents: [
+          { url: candidate.source.url, emergency: candidate.emergency },
+        ],
+      });
+    if (found.size > MAX_RESULTS)
+      throw new Rejection(
+        "More than 400 ADs matched. Narrow your search; no partial results were imported.",
+      );
+  }
+}
+
+/**
+ * Orders a search's results for review.
+ *
+ * @param found - The results, by AD number.
+ * @returns The ADs, newest effective (else issued) date first, then by AD
+ *   number descending.
+ */
+export function sortSearchResults(
+  found: Map<string, FaaSearchResult>,
+): FaaSearchResult[] {
+  return [...found.values()].sort(compareNewestFirst);
 }
 
 function faaSection(componentType: string): SearchAsset["section"] {
@@ -270,43 +314,11 @@ function dateFilterKey(field: FaaSearchInput["dateField"], p: string) {
 }
 
 // Assets with identical filters share one request.
-function groupQueries(input: FaaSearchInput) {
-  const queries = new Map<string, DrsQuery>();
-  for (const type of DOCUMENT_TYPES) {
-    if (type === "ADFRAWD" ? !input.finalRules : !input.emergency) continue;
-    for (const asset of input.assets) {
-      const filters = searchFilters(input, asset, type);
-      const id = type + JSON.stringify(filters);
-      const q = queries.get(id);
-      if (q) q.assets.push(asset.id);
-      else queries.set(id, { type, filters, assets: [asset.id] });
-    }
-  }
-  return queries;
-}
-
-function mergeResults(
-  found: Map<string, FaaSearchResult>,
-  candidates: FaaCandidate[],
-  assets: string[],
-) {
-  for (const candidate of candidates) {
-    const id = adNumber(candidate.source.number);
-    const old = found.get(id);
-    if (old) mergeCandidate(old, candidate, assets);
-    else
-      found.set(id, {
-        candidate,
-        assetIds: [...assets],
-        documents: [
-          { url: candidate.source.url, emergency: candidate.emergency },
-        ],
-      });
-    if (found.size > MAX_RESULTS)
-      throw new Rejection(
-        "More than 400 ADs matched. Narrow your search; no partial results were imported.",
-      );
-  }
+function addQuery(queries: Map<string, FaaSearchQuery>, q: FaaSearchQuery) {
+  const id = q.type + JSON.stringify(q.filters);
+  const shared = queries.get(id);
+  if (shared) shared.assets.push(...q.assets);
+  else queries.set(id, q);
 }
 
 // One AD can come back as a final rule and an emergency AD: keep every

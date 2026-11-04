@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins the removal of retired work-order authorization fields
- *   from orders and caches, never from the change log.
+ *   from submissions and cached snapshots, never from the change log.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/workOrderCleanup.ts, workOrders.ts;
  *   src/data/demo.ts and tests/fixtures/workOrders.ts (fixtures).
@@ -11,7 +11,6 @@ import { workOrderFieldsSchema } from "./workOrders";
 import {
   cleanWorkOrderSnapshot,
   removeWorkOrderAuthorization,
-  retiredWorkOrderFields,
 } from "./workOrderCleanup";
 import { demoSnapshot } from "../data/demo";
 it("drops retired fields from old submissions and cached work orders but leaves cached history untouched", () => {
@@ -51,14 +50,10 @@ it("drops retired fields from old submissions and cached work orders but leaves 
   expect(cleaned.aircraft).toEqual(s.aircraft);
 });
 
-it("copies a payload without the retired fields, reports only those, and passes non-objects through", () => {
+it("copies a payload without the retired fields and passes non-objects through", () => {
   const saved = { uuid: "wo", estimate: "100", customerApproval: "yes" };
   expect(removeWorkOrderAuthorization(saved)).toEqual({ uuid: "wo" });
   expect(saved.estimate).toBe("100");
-  expect(retiredWorkOrderFields(saved)).toEqual({
-    estimate: "100",
-    customerApproval: "yes",
-  });
   const list = [saved];
   for (const value of [null, undefined, "estimate", list])
     expect(removeWorkOrderAuthorization(value)).toBe(value);

@@ -1,15 +1,15 @@
 /**
  * Responsibility: Choosing the caller's active Flight Program, and moving an
  *   aircraft, component or location with its dependent records to another.
- * Layer: Server. Convex mutations; the transfer rules live in
- *   src/domain/programTransfers.
+ * Layer: Server. Convex mutations; the selection and transfer rules live in
+ *   src/domain (programs, programTransfers).
  * Dependencies: convex/values, ./_generated, ./access, ./programContext,
- *   ./runCommand, ./collections, src/domain (model, programs,
+ *   ./runCommand, ./collections, ./userErrors, src/domain (model, programs,
  *   programTransfers).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { v, ConvexError, type ObjectType } from "convex/values";
+import { v, type ObjectType } from "convex/values";
 import { currentUser, audit } from "./access";
 import {
   context,
@@ -21,7 +21,8 @@ import {
 } from "./programContext";
 import { runCommand, writeChanged, type ProgramContext } from "./runCommand";
 import { decode } from "./collections";
-import { programIds } from "../src/domain/programs";
+import { exposeRejections } from "./userErrors";
+import { assertProgramSelectable } from "../src/domain/programs";
 import { transferProgram } from "../src/domain/programTransfers";
 import type { Snapshot } from "../src/domain/model";
 
@@ -39,8 +40,7 @@ export const select = mutation({
   handler: async (ctx, { programUuid }) => {
     const user = await currentUser(ctx),
       state = await context(ctx, user);
-    if (!maySelect(user, state, programUuid))
-      throw new ConvexError("Flight Program access denied.");
+    exposeRejections(() => assertProgramSelectable(state, programUuid));
     await ctx.db.patch(user._id, { activeProgramUuid: programUuid });
     await audit(
       ctx,
@@ -180,13 +180,7 @@ async function persistTransfer(
   working: TransferState,
 ) {
   const { s, documents, inspections, checklists, setups } = working;
-  for (const a of state.aircraft)
-    if (JSON.stringify(a) !== working.originals.get(a.uuid))
-      await ctx.db.patch(a._id, {
-        programUuid: a.programUuid,
-        program: a.program,
-        version: a.version,
-      });
+  await patchMovedAircraft(ctx, state.aircraft, working.originals);
   await writeChanged(
     ctx,
     "management",
@@ -214,6 +208,22 @@ async function persistTransfer(
     moved(s.componentSetups ?? [], setups),
     RECORD_TAKEN,
   );
+}
+
+// transferProgram changes only an aircraft's program and version, so only
+// those are patched.
+async function patchMovedAircraft(
+  ctx: MutationCtx,
+  aircraft: ProgramContext["aircraft"],
+  originals: Map<string, string>,
+) {
+  for (const a of aircraft)
+    if (JSON.stringify(a) !== originals.get(a.uuid))
+      await ctx.db.patch(a._id, {
+        programUuid: a.programUuid,
+        program: a.program,
+        version: a.version,
+      });
 }
 
 // Checklists and component setups move with their aircraft by program alone;
@@ -260,20 +270,5 @@ function leavesWithTransfer(row: Doc<"audit">, args: TransferArgs) {
   return (
     row.programUuid !== args.destination &&
     !(args.kind === "aircraft" && row.aircraftUuid === args.uuid)
-  );
-}
-
-// "" selects the unassigned records, which only a system administrator sees;
-// any other program must exist, and a non-administrator must be a member.
-function maySelect(
-  user: Doc<"users">,
-  state: Awaited<ReturnType<typeof context>>,
-  programUuid: string,
-) {
-  if (!programUuid) return user.isAdmin === true;
-  if (!state.programs.some((p) => p.uuid === programUuid)) return false;
-  return (
-    user.isAdmin === true ||
-    programIds(state.user, state.groups).includes(programUuid)
   );
 }

@@ -5,10 +5,9 @@
  *   change is audited.
  * Dependencies: @convex-dev/auth/server, convex (access, programContext,
  *   memberships, accountGuards, fleet, validators, userErrors), src/domain
- *   (ownerView, certifications, model, releaseStatements, logbookWording,
- *   logbook, programs, groupAircraft, fleet, accountRules).
+ *   (certifications, model, releaseStatements, logbookWording, logbook,
+ *   programs, fleet, accountRules).
  */
-import { validateOwnerGroup } from "../src/domain/ownerView";
 import {
   certificationsSchema,
   memberLicense,
@@ -17,7 +16,7 @@ import { totalSeconds } from "../src/domain/model";
 import { releaseStatementsSchema } from "../src/domain/releaseStatements";
 import { logbookPhrasesSchema } from "../src/domain/logbookWording";
 import { licenseSchema } from "../src/domain/logbook";
-import { currentUser } from "./access";
+import { currentUser, group } from "./access";
 import { checkContext, context } from "./programContext";
 import { activeProgram, programPermission } from "../src/domain/programs";
 import {
@@ -38,20 +37,20 @@ import {
 } from "@convex-dev/auth/server";
 import { admin, audit } from "./access";
 import { programUsers, syncMemberships } from "./memberships";
-import {
-  assertGroupAircraftChoice,
-  assertGroupProgramChange,
-} from "../src/domain/groupAircraft";
 import { aircraftFields, permission } from "./validators";
 import { assertAvailableAircraft } from "./fleet";
 import { aircraftInputSchema, type AircraftInput } from "../src/domain/fleet";
-import { EMAIL_UNAVAILABLE } from "../src/domain/accountRules";
+import {
+  EMAIL_UNAVAILABLE,
+  normalizeAccount,
+  normalizeGroup,
+  observersGroup,
+} from "../src/domain/accountRules";
 import {
   assertCreatedHere,
   assertNewPassword,
   clearSignInLockout,
   endSessions,
-  normalizeEmail,
   reserveNewAccount,
   uniformCreateError,
 } from "./accountGuards";
@@ -76,17 +75,10 @@ const groupArgs = {
   permissions: v.array(permission),
 };
 
-type GroupArgs = ObjectType<typeof groupArgs>;
 type NewAircraft = ObjectType<typeof aircraftFields>;
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// updateUser's own limit, measured like normalizeAccount's: after trimming.
 const NAME_MAX_LENGTH = 150;
-const GROUP_NAME_MAX_LENGTH = 100;
-
-// The default read-only group (src/domain/defaultPermissionGroups.ts), matched
-// by name and exact shape, so a renamed or widened group is never granted to
-// a user nobody chose it for.
-const OBSERVERS_GROUP_NAME = "Observers";
 
 /**
  * The calling system administrator, for actions, which cannot read the
@@ -145,18 +137,23 @@ export const reserveCreate = internalMutation({
  * Creates an active account with no groups; audits "user.created".
  *
  * @param email - The login email, normalized before use.
- * @param name - The person's name; up to 150 characters, stored trimmed.
+ * @param name - The person's name; up to 150 characters after trimming, and
+ *   stored trimmed.
  * @param password - 15 or more characters, not a common one (ADR-0009).
  * @returns The new user's id.
- * @throws {ConvexError} As `admin`; "A valid email and name are required.";
- *   the password's and the allowance's refusals; EMAIL_UNAVAILABLE.
+ * @throws {ConvexError} As `admin`; "A valid email and name are required.",
+ *   also for an email with spaces around it; the password's and the
+ *   allowance's refusals; EMAIL_UNAVAILABLE.
  */
 export const createUser = action({
   args: accountArgs,
-  handler: async (ctx, { email, name, password }): Promise<string> => {
+  handler: async (ctx, args): Promise<string> => {
     await ctx.runQuery(internal.admin.checkAdmin, {});
-    validateAccount(email, name, password);
-    email = normalizeEmail(email);
+    const { email, name } = validateAccount(
+      args.email,
+      args.name,
+      args.password,
+    );
     const { actorId, available, checkedAt } = await ctx.runMutation(
       internal.admin.reserveCreate,
       { email },
@@ -164,9 +161,9 @@ export const createUser = action({
     if (!available) throw new ConvexError(EMAIL_UNAVAILABLE);
     const { user } = await createAccount(ctx, {
       provider: "password",
-      account: { id: email, secret: password },
+      account: { id: email, secret: args.password },
       profile: {
-        name: name.trim(),
+        name,
         email,
         active: true,
         isAdmin: false,
@@ -207,13 +204,13 @@ export const bootstrap = internalAction({
       throw new ConvexError(
         "Set BOOTSTRAP_ADMIN_PASSWORD with npm run setup:admin.",
       );
-    validateAccount(email, name, password);
+    const account = validateAccount(email, name, password);
     const { user } = await createAccount(ctx, {
       provider: "password",
-      account: { id: normalizeEmail(email), secret: password },
+      account: { id: account.email, secret: password },
       profile: {
-        name: name.trim(),
-        email: normalizeEmail(email),
+        name: account.name,
+        email: account.email,
         active: true,
         isAdmin: true,
         groupIds: [],
@@ -301,7 +298,7 @@ export const recordPasswordReset = internalMutation({
  *   active administrator."; "Group not found."; "Flight Program not found.";
  *   "Permission groups must belong to the selected Flight Programs."; "Select
  *   an existing permission group for this Flight Program."; "Enter a name of
- *   up to 150 characters."
+ *   up to 150 characters." (counted after trimming)
  */
 export const updateUser = mutation({
   args: {
@@ -319,10 +316,8 @@ export const updateUser = mutation({
     if (!before) throw new ConvexError("User not found.");
     await assertAdministratorRemains(ctx, before, args);
     const groupIds = await chooseGroups(ctx, args.groupIds, args.programUuids);
-    if (
-      args.name !== undefined &&
-      (!args.name.trim() || args.name.length > NAME_MAX_LENGTH)
-    )
+    const name = args.name?.trim();
+    if (name !== undefined && (!name || name.length > NAME_MAX_LENGTH))
       throw new ConvexError("Enter a name of up to 150 characters.");
     const certifications =
       args.certificationsPayload === undefined
@@ -332,7 +327,7 @@ export const updateUser = mutation({
       active: args.active,
       isAdmin: args.isAdmin,
       groupIds,
-      ...(args.name === undefined ? {} : { name: args.name.trim() }),
+      ...(name === undefined ? {} : { name }),
       ...(certifications === undefined
         ? {}
         : { certifications, ...memberLicense({ certifications }) }),
@@ -357,10 +352,11 @@ export const updateUser = mutation({
  * @returns The group's id.
  * @throws {ConvexError} "Administrator permission required for this Flight
  *   Program."; "Flight Program changed. Reopen the form in the correct
- *   program."; "Group not found."; "Group name is required."; "Write
- *   permissions also require read access."; "Select a Flight Program for
- *   this group."; "Group aircraft must belong to its Flight Program."
- * @throws The group rules of src/domain/groupAircraft and ownerView.
+ *   program."; "Group not found."; then `normalizeGroup`'s refusals, among
+ *   them "Group name is required.", "Write permissions also require read
+ *   access." and "Select a Flight Program for this group." (also for a
+ *   program that does not exist); "Group aircraft must belong to its Flight
+ *   Program."
  */
 export const saveGroup = mutation({
   args: groupArgs,
@@ -371,19 +367,10 @@ export const saveGroup = mutation({
     const existing = args.id ? await ctx.db.get(args.id) : undefined;
     if (args.id && !existing) throw new ConvexError("Group not found.");
     const before = existing ?? undefined;
-    const assigned = exposeRejections(() =>
-      assertGroupProgramChange(before, args, actor.isAdmin === true),
+    const { fields, assigned } = exposeRejections(() =>
+      normalizeGroup(args, before && group(before), actor.isAdmin === true),
     );
-    assertGroupFields(before, args);
-    await assertGroupScope(ctx, args.programUuid, args.aircraftIds);
-    const fields = {
-      programUuid: args.programUuid,
-      programAdmin: args.programAdmin ?? false,
-      owner: args.owner ?? false,
-      name: args.name.trim(),
-      aircraftIds: [...new Set(args.aircraftIds)],
-      permissions: [...new Set(args.permissions)],
-    };
+    await assertGroupScope(ctx, fields.programUuid, fields.aircraftIds);
     const id = args.id ?? (await ctx.db.insert("groups", fields));
     if (args.id) await ctx.db.patch(id, fields);
     await audit(ctx, actor._id, "group.saved", id, {
@@ -510,14 +497,15 @@ export const saveReleaseStatements = mutation({
   },
 });
 
+// An email typed with spaces around it is refused here, where
+// normalizeAccount and programUsers.create trim it: kept until the owner
+// decides, as the name rule was.
 function validateAccount(email: string, name: string, password: string) {
-  if (
-    !EMAIL_PATTERN.test(email) ||
-    !name.trim() ||
-    name.length > NAME_MAX_LENGTH
-  )
+  if (email !== email.trim())
     throw new ConvexError("A valid email and name are required.");
+  const account = exposeRejections(() => normalizeAccount(email, name));
   assertNewPassword(password, email);
+  return account;
 }
 
 // Only an active administrator counts, so changing a disabled one cannot
@@ -557,7 +545,7 @@ async function chooseGroups(
     );
   for (const uuid of new Set(programUuids))
     if (!grantsRead(groups, groupIds, uuid))
-      groupIds.push(observersGroup(groups, uuid)._id);
+      groupIds.push(requireObservers(groups, uuid));
   return groupIds;
 }
 
@@ -574,21 +562,13 @@ function grantsRead(
   );
 }
 
-function observersGroup(groups: Doc<"groups">[], uuid: string) {
-  const observers = groups.find(
-    (g) =>
-      g.programUuid === uuid &&
-      g.name === OBSERVERS_GROUP_NAME &&
-      !g.programAdmin &&
-      !g.aircraftIds.length &&
-      g.permissions.length === 1 &&
-      g.permissions[0] === "read",
-  );
+function requireObservers(groups: Doc<"groups">[], uuid: string) {
+  const observers = observersGroup(groups.map(group), uuid);
   if (!observers)
     throw new ConvexError(
       "Select an existing permission group for this Flight Program.",
     );
-  return observers;
+  return observers.id as Id<"groups">;
 }
 
 function accessFields(
@@ -630,31 +610,15 @@ async function assertProgramAdministrator(
     );
 }
 
-function assertGroupFields(
-  before: Doc<"groups"> | undefined,
-  group: GroupArgs,
-) {
-  if (!group.name.trim() || group.name.length > GROUP_NAME_MAX_LENGTH)
-    throw new ConvexError("Group name is required.");
-  if (!group.permissions.includes("read") && group.permissions.length)
-    throw new ConvexError("Write permissions also require read access.");
-  exposeRejections(() => {
-    validateOwnerGroup(group);
-    assertGroupAircraftChoice(before, group);
-  });
-}
-
 async function assertGroupScope(
   ctx: MutationCtx,
-  programUuid: string | undefined,
+  programUuid: string,
   aircraftIds: string[],
 ) {
-  const program =
-    programUuid &&
-    (await ctx.db
-      .query("programs")
-      .withIndex("uuid", (q) => q.eq("uuid", programUuid))
-      .unique());
+  const program = await ctx.db
+    .query("programs")
+    .withIndex("uuid", (q) => q.eq("uuid", programUuid))
+    .unique();
   if (!program)
     throw new ConvexError("Select a Flight Program for this group.");
   for (const uuid of aircraftIds) {

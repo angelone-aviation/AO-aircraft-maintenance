@@ -311,6 +311,160 @@ describe("flight submissions and reviews", () => {
     );
   });
 });
+describe("flight review on runCommand", () => {
+  it("shows review refusals as ConvexError, in order, and writes nothing", async () => {
+    const { t, pilot, admin, op, a } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: held });
+    const stored = () =>
+      t.run(async (ctx) => ({
+        flights: await ctx.db.query("flights").collect(),
+        aircraft: await ctx.db.query("aircraft").collect(),
+        audit: await ctx.db.query("audit").collect(),
+      }));
+    const before = await stored();
+    const review = (
+      changes: Partial<FlightInput> = {},
+      reason = "Checked",
+      uuid: string = held.uuid,
+    ) => ({
+      programUuid: "demo-program",
+      uuid,
+      decision: "accept" as const,
+      reason,
+      input: { ...held.input, ...changes },
+    });
+    const run = { checklistRun: checklistRun(held.input.startTime, a) };
+    // Batch 299: each was a plain error, which production shows as "Server
+    // Error"; Batch 92's checklist Rejection was one too, thrown outside
+    // runCommand.
+    const refusals: [typeof admin, ReturnType<typeof review>, string][] = [
+      [pilot, review(), "Flight Program administrator required."],
+      [admin, review({}, "ok"), "Provide a meaningful review explanation."],
+      [admin, review({}, "Checked", "missing"), "Flight not found."],
+      [
+        admin,
+        review(run),
+        "A review cannot change the recorded checklist run.",
+      ],
+      [
+        admin,
+        review({ aircraftUuid: "secret-aircraft" }),
+        "A correction cannot change aircraft.",
+      ],
+      [admin, review({ pilotId: "ghost" }), "Pilot not found."],
+      [
+        admin,
+        review({ hobbsOn: undefined }),
+        "The hobbs reading is required for this aircraft.",
+      ],
+    ];
+    for (const [caller, args, data] of refusals)
+      await expect(
+        caller.mutation(api.operations.reviewFlight, args),
+      ).rejects.toMatchObject({ name: "ConvexError", data });
+    expect(await stored()).toEqual(before);
+  });
+
+  it("characterizes current behaviour: a malformed correction stays a plain error", async () => {
+    const { pilot, admin, op, a } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: held });
+    const error = await admin
+      .mutation(api.operations.reviewFlight, {
+        programUuid: "demo-program",
+        uuid: held.uuid,
+        decision: "accept",
+        reason: "Checked",
+        input: { ...held.input, hobbsOn: a.currentHobbs + 1800 + 180 },
+      })
+      .catch((e: Error) => e);
+    expect(error).toMatchObject({ message: /tenths of an hour/ });
+    expect(error).not.toMatchObject({ name: "ConvexError" });
+  });
+
+  it("stores the reviewed flight over its row and logs it with its system fields", async () => {
+    const { t, pilot, admin, op, ids } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: held });
+    const row = () =>
+      t.run(async (ctx) =>
+        ctx.db
+          .query("flights")
+          .withIndex("uuid", (q) => q.eq("uuid", held.uuid))
+          .unique(),
+      );
+    const original = (await row())!;
+    const input = { ...held.input, remarks: "Paper log" };
+    await admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: held.uuid,
+      decision: "accept",
+      reason: "Checked",
+      input,
+    });
+    const reviewed = (await row())!;
+    expect(reviewed).toEqual({
+      ...original,
+      ...input,
+      status: "accepted",
+      reviewReason: "Checked",
+      hobbsOff: original.hobbsOff,
+      tachOff: original.tachOff,
+    });
+    const log = await t.run(async (ctx) =>
+      (await ctx.db.query("audit").collect()).find(
+        (r) => r.action === "flight.reviewed",
+      ),
+    );
+    expect(log).toMatchObject({ actorId: ids.admin, reason: "Checked" });
+    expect(log).not.toHaveProperty("programUuid");
+    expect(JSON.parse(log!.before!)).toEqual(original);
+    expect(JSON.parse(log!.after!)).toEqual(reviewed);
+  });
+
+  it("clears the copilot and a reading the review leaves blank, as the demo does", async () => {
+    const { t, pilot, admin, op, ids, a } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    held.input = {
+      ...held.input,
+      copilotId: ids.admin,
+      tachOn: a.currentTach + 3600,
+    };
+    await pilot.mutation(api.operations.submit, { operation: held });
+    // FlightForm sends a cleared field as undefined, which Convex drops.
+    await admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: held.uuid,
+      decision: "accept",
+      reason: "No copilot aboard",
+      input: { ...held.input, copilotId: undefined, tachOn: undefined },
+    });
+    const stored = await t.run(async (ctx) => ({
+      flight: (await ctx.db.query("flights").first())!,
+      aircraft: await ctx.db
+        .query("aircraft")
+        .withIndex("uuid", (q) => q.eq("uuid", a.uuid))
+        .unique(),
+      log: (await ctx.db.query("audit").collect()).find(
+        (r) => r.action === "flight.reviewed",
+      )!,
+    }));
+    expect(stored.flight).not.toHaveProperty("copilotId");
+    expect(stored.flight).not.toHaveProperty("tachOn");
+    expect(stored.aircraft!.currentTach).toBe(a.currentTach);
+    expect(JSON.parse(stored.log.before!)).toMatchObject({
+      copilotId: ids.admin,
+      tachOn: a.currentTach + 3600,
+    });
+    expect(JSON.parse(stored.log.after!)).toEqual(stored.flight);
+  });
+});
+
 describe("discrepancy resolution", () => {
   it("restricts resolution and retains the explanation and actor", async () => {
     const { pilot, admin, ids, a } = await fixture();
@@ -1051,3 +1205,22 @@ it("rejects insufficient or foreign oil stock atomically and retries after reple
   );
   expect(result.quantity).toBe(1);
 });
+
+// A valid checklist run the flight was not logged with.
+function checklistRun(
+  startedAt: string,
+  a: { currentHobbs: number; currentTach: number },
+) {
+  return {
+    sessionUuid: crypto.randomUUID(),
+    checklistUuid: crypto.randomUUID(),
+    checklistVersion: 1,
+    checklistName: "Preflight",
+    startedAt,
+    metersVerifiedAt: startedAt,
+    preflight: { hobbs: a.currentHobbs, tach: a.currentTach },
+    checked: [],
+    skipped: [],
+    totalChecks: 0,
+  };
+}

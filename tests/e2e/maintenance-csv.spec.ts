@@ -1,22 +1,17 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins the maintenance CSV import: the AI instructions, a task
+ *   with a missing parent refused, one-time and recurring inspections, a
+ *   component requirement and a draft job card imported once, all persisted.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path, src/domain (maintenanceCsv, csv).
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
 import {
   importHeaders,
   type ImportKind,
 } from "../../src/domain/maintenanceCsv";
 import { toCsv } from "../../src/domain/csv";
-const file = (kind: ImportKind, rows: Record<string, unknown>[]) => ({
-  name: `${kind}.csv`,
-  mimeType: "text/csv",
-  buffer: Buffer.from(
-    toCsv(
-      rows.map((r) => ({
-        ...Object.fromEntries(importHeaders[kind].map((h) => [h, ""])),
-        ...r,
-      })),
-    ),
-  ),
-});
 
 test("imports reviewed inspection, component requirement and linked draft task with persistence and duplicate checks", async ({
   page,
@@ -25,28 +20,20 @@ test("imports reviewed inspection, component requirement and linked draft task w
     sessionStorage.setItem("angel-one-demo", "true"),
   );
   await page.goto("/manuals");
-  await page
-    .getByRole("button", { name: "Upload manual", exact: true })
-    .click();
-  const upload = page.getByRole("dialog", { name: "Upload reference manual" });
-  await upload
-    .getByLabel("Manual title", { exact: true })
-    .fill("CSV test source — fictional data");
-  await upload
-    .getByLabel("Revision / temporary revisions", { exact: true })
-    .fill("TEST");
-  await upload
-    .getByLabel("PDF manual", { exact: true })
-    .setInputFiles(path.resolve("tests/fixtures/icao-flight-plan.pdf"));
-  await upload
-    .getByRole("button", { name: "Save manual", exact: true })
-    .click();
-  await expect(upload).not.toBeVisible();
+  await uploadSourceManual(page);
   await page
     .getByRole("button", { name: "Import maintenance CSV", exact: true })
     .click();
   const dialog = page.getByRole("dialog", {
     name: "Import maintenance CSV",
+    exact: true,
+  });
+  const createInspection = dialog.getByRole("button", {
+    name: "Create inspection",
+    exact: true,
+  });
+  const createJobCard = dialog.getByRole("button", {
+    name: "Create job card template",
     exact: true,
   });
   const instructions = page.waitForEvent("download");
@@ -57,7 +44,7 @@ test("imports reviewed inspection, component requirement and linked draft task w
     "maintenance-csv-ai-instructions.txt",
   );
   await dialog.getByLabel("Inspections CSV").setInputFiles(
-    file("inspections", [
+    csvFile("inspections", [
       {
         id: "test-phase",
         name: "CSV test phase",
@@ -70,7 +57,7 @@ test("imports reviewed inspection, component requirement and linked draft task w
     ]),
   );
   await dialog.getByLabel("Components CSV").setInputFiles(
-    file("components", [
+    csvFile("components", [
       {
         id: "test-pump",
         name: "CSV test pump",
@@ -90,7 +77,7 @@ test("imports reviewed inspection, component requirement and linked draft task w
     ]),
   );
   await dialog.getByLabel("Tasks CSV").setInputFiles(
-    file("tasks", [
+    csvFile("tasks", [
       {
         id: "test-step",
         parent_type: "inspection",
@@ -100,17 +87,14 @@ test("imports reviewed inspection, component requirement and linked draft task w
       },
     ]),
   );
-  await dialog
-    .getByRole("button", { name: "Validate and preview CSVs" })
-    .click();
+  await validateCsvs(dialog);
+  // A task whose parent is in none of the CSVs refuses the whole preview.
   await expect(dialog.getByRole("alert")).toContainText(
     "parent missing was not found",
   );
-  await expect(
-    dialog.getByRole("button", { name: "Create inspection", exact: true }),
-  ).toHaveCount(0);
+  await expect(createInspection).toHaveCount(0);
   await dialog.getByLabel("Tasks CSV").setInputFiles(
-    file("tasks", [
+    csvFile("tasks", [
       {
         id: "test-step",
         parent_type: "inspection",
@@ -122,24 +106,18 @@ test("imports reviewed inspection, component requirement and linked draft task w
       },
     ]),
   );
-  await dialog
-    .getByRole("button", { name: "Validate and preview CSVs" })
-    .click();
+  await validateCsvs(dialog);
   await expect(
     dialog.getByText(
       "Ready for review: 1 inspections, 1 component requirements, 1 tasks.",
     ),
   ).toBeVisible();
-  await dialog
-    .getByRole("button", { name: "Create job card template", exact: true })
-    .click();
+  await createJobCard.click();
   await expect(
     dialog.getByRole("region", { name: "CSV task form" }),
   ).toContainText("Save the parent inspection");
-  await dialog
-    .getByRole("button", { name: "Create inspection", exact: true })
-    .click();
-  let form = dialog.getByRole("region", { name: "CSV record form" });
+  await createInspection.click();
+  const form = dialog.getByRole("region", { name: "CSV record form" });
   await form.getByLabel("Target aircraft").selectOption("demo-206");
   await form.getByLabel("Schedule to create").selectOption("initial");
   await expect(
@@ -153,9 +131,7 @@ test("imports reviewed inspection, component requirement and linked draft task w
     .getByRole("button", { name: "Save inspection", exact: true })
     .click();
   await expect(form).not.toBeVisible();
-  await dialog
-    .getByRole("button", { name: "Create inspection", exact: true })
-    .click();
+  await createInspection.click();
   await form.getByLabel("Target aircraft").selectOption("demo-206");
   await form.getByLabel("Schedule to create").selectOption("recurring");
   await form
@@ -199,9 +175,7 @@ test("imports reviewed inspection, component requirement and linked draft task w
     .getByRole("button", { name: "Calculate and save", exact: true })
     .click();
   await expect(form).not.toBeVisible();
-  await dialog
-    .getByRole("button", { name: "Create job card template", exact: true })
-    .click();
+  await createJobCard.click();
   const taskForm = dialog.getByRole("region", { name: "CSV task form" });
   await taskForm
     .getByLabel("Saved parent record")
@@ -209,9 +183,7 @@ test("imports reviewed inspection, component requirement and linked draft task w
   await taskForm.getByRole("checkbox", { name: /I checked/ }).check();
   await taskForm.getByRole("button", { name: "Save draft task" }).click();
   await expect(taskForm).not.toBeVisible();
-  await dialog
-    .getByRole("button", { name: "Create job card template", exact: true })
-    .click();
+  await createJobCard.click();
   await taskForm
     .getByLabel("Saved parent record")
     .selectOption({ label: "N206MA · CSV test phase" });
@@ -228,8 +200,46 @@ test("imports reviewed inspection, component requirement and linked draft task w
     page.getByRole("dialog").getByLabel("Applicability", { exact: true }),
   ).toHaveValue("Test fixture only");
   await page.goto("/inspections");
+  // One-time at the CSV's 2,000 initial hours; recurring at 2,300 + 100.
   const phaseRows = page.getByRole("row").filter({ hasText: "CSV test phase" });
   await expect(phaseRows).toHaveCount(2);
   await expect(phaseRows.first()).toContainText("2,000.0");
   await expect(phaseRows.last()).toContainText("2,400.0");
 });
+
+/** Uploads the manual the CSV rows cite by PDF page. */
+async function uploadSourceManual(page: Page) {
+  await page
+    .getByRole("button", { name: "Upload manual", exact: true })
+    .click();
+  const upload = page.getByRole("dialog", { name: "Upload reference manual" });
+  await upload
+    .getByLabel("Manual title", { exact: true })
+    .fill("CSV test source — fictional data");
+  await upload
+    .getByLabel("Revision / temporary revisions", { exact: true })
+    .fill("TEST");
+  await upload
+    .getByLabel("PDF manual", { exact: true })
+    .setInputFiles(path.resolve("tests/fixtures/icao-flight-plan.pdf"));
+  await upload
+    .getByRole("button", { name: "Save manual", exact: true })
+    .click();
+  await expect(upload).not.toBeVisible();
+}
+
+async function validateCsvs(dialog: Locator) {
+  await dialog
+    .getByRole("button", { name: "Validate and preview CSVs" })
+    .click();
+}
+
+/** A maintenance CSV upload with every header, blank unless a row gives it. */
+function csvFile(kind: ImportKind, rows: Record<string, unknown>[]) {
+  const blank = Object.fromEntries(importHeaders[kind].map((h) => [h, ""]));
+  return {
+    name: `${kind}.csv`,
+    mimeType: "text/csv",
+    buffer: Buffer.from(toCsv(rows.map((r) => ({ ...blank, ...r })))),
+  };
+}

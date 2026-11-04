@@ -810,6 +810,38 @@ const REFUSALS: Record<string, (f: Fixture) => unknown> = {
     }),
 };
 
+describe("change log", () => {
+  it("writes one row per change, with the program and no aircraft", () => {
+    const { s, run } = fixture();
+    const [aircraft] = s.aircraft;
+    run({
+      action: "budget.set",
+      aircraftUuid: aircraft.uuid,
+      year: 2026,
+      amountCents: 100,
+    });
+    const [row] = s.audit;
+    expect(Object.keys(JSON.parse(JSON.stringify(row)))).toEqual([
+      "uuid",
+      "programUuid",
+      "actorId",
+      "at",
+      "action",
+      "entityUuid",
+      "reason",
+      "after",
+    ]);
+    expect(row).toMatchObject({
+      programUuid: "demo-program",
+      actorId: s.user.id,
+      at: NOW,
+      action: "cost.budget.set",
+      reason: aircraft.registration,
+    });
+    expect(row.aircraftUuid).toBeUndefined();
+  });
+});
+
 describe("refusals", () => {
   it.each(Object.entries(REFUSALS))("%s", (message, refuse) => {
     const f = fixture();

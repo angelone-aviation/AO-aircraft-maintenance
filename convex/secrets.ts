@@ -5,21 +5,21 @@
  *   actions that call the provider.
  * Dependencies: convex/values (ConvexError).
  *
- * Format v2, `enc:v2:<keyId>:<iv>:<ciphertext>`, binds each value to its key
- * id, table, Flight Program and field, so a copy in another row or field does
- * not decrypt. v1, `enc:v1:<iv>:<data>` (key k1, unbound), is still read until
- * secretsMigration re-seals it. Keys: docs/runbooks/credentials-key.md.
+ * The one format, `enc:v2:<keyId>:<iv>:<ciphertext>`, binds each value to its
+ * key id, table, Flight Program and field, so a copy in another row or field
+ * does not decrypt. Older v1 and plaintext values predate production's empty
+ * start on 2026-11-03 and are refused (docs/architecture/t21-inventory.md).
+ * Keys: docs/runbooks/credentials-key.md.
  */
 import { ConvexError } from "convex/values";
 
-// Holds key k1, the only key v1 values were sealed with.
+// Holds key k1, the first key and the default one.
 const LEGACY_ENV = "CREDENTIALS_ENCRYPTION_KEY";
 // More keys, as `k2=<base64>,k3=<base64>`.
 const KEYS_ENV = "CREDENTIALS_ENCRYPTION_KEYS";
 // The key id new values are sealed with; k1 when unset.
 const ACTIVE_ENV = "CREDENTIALS_ENCRYPTION_KEY_ID";
 const LEGACY_KEY_ID = "k1";
-const V1 = "enc:v1:";
 const V2 = "enc:v2:";
 const KEY_ID = /^[a-z0-9]{1,16}$/;
 const AES_256_KEY_BYTES = 32;
@@ -79,16 +79,7 @@ export const SEALED_V2 =
   /^enc:v2:[a-z0-9]{1,16}:[A-Za-z0-9+/]+={0,2}:[A-Za-z0-9+/]+={0,2}$/;
 
 /**
- * Tells a sealed value (v1 or v2) from legacy plaintext, by prefix only.
- *
- * @param value - A stored credential.
- * @returns True when it starts with `enc:v1:` or `enc:v2:`.
- */
-export const isSealed = (value: string): boolean =>
-  value.startsWith(V1) || value.startsWith(V2);
-
-/**
- * Tells whether the migration must re-seal a stored credential.
+ * Tells whether a key rotation must re-seal a stored credential.
  *
  * @param value - A stored credential.
  * @returns True unless it is v2 under the active key.
@@ -100,38 +91,26 @@ export const needsReseal = (value: string): boolean =>
 /**
  * Decrypts a stored credential for a provider call.
  *
- * @param stored - The value as stored: v2, v1, or legacy plaintext.
+ * @param stored - The value as stored.
  * @param context - The row and field it was read from; must match the seal.
- * @param options - `legacyPlaintext` accepts a value saved before encryption
- *   existed, and logs a warning naming the table and field, never the value.
  * @returns The plaintext credential.
- * @throws {ConvexError} "A saved credential could not be decrypted. An
- *   administrator must enter it again." for a wrong key, context or damaged
- *   value; "A saved credential is not encrypted. An administrator must enter it
- *   again." for refused plaintext; "Credential encryption key <id> is not
- *   configured …" when its key is unset; or a key format error.
+ * @throws {ConvexError} "A saved credential is not encrypted. An administrator
+ *   must enter it again." for any value that is not v2, plaintext and v1
+ *   included; "A saved credential could not be decrypted. An administrator
+ *   must enter it again." for a wrong key, context or damaged value;
+ *   "Credential encryption key <id> is not configured …" when its key is
+ *   unset; or a key format error.
  */
 export async function openSecret(
   stored: string,
   context: SecretContext,
-  options: { legacyPlaintext?: boolean } = {},
 ): Promise<string> {
-  if (stored.startsWith(V2)) {
-    const [keyId, iv, data] = stored.slice(V2.length).split(":");
-    return decrypt(keyId, iv, data, bindContext(keyId, context));
-  }
-  if (stored.startsWith(V1)) {
-    const [iv, data] = stored.slice(V1.length).split(":");
-    return decrypt(LEGACY_KEY_ID, iv, data);
-  }
-  if (!options.legacyPlaintext)
+  if (!stored.startsWith(V2))
     throw new ConvexError(
       "A saved credential is not encrypted. An administrator must enter it again.",
     );
-  console.warn(
-    `Unencrypted legacy credential read from ${context.table}.${context.field}; run secretsMigration:reseal.`,
-  );
-  return stored;
+  const [keyId, iv, data] = stored.slice(V2.length).split(":");
+  return decrypt(keyId, iv, data, bindContext(keyId, context));
 }
 
 const toBase64 = (bytes: Uint8Array): string =>
@@ -190,16 +169,12 @@ async function decrypt(
   keyId: string,
   iv: string,
   data: string,
-  additionalData?: Uint8Array<ArrayBuffer>,
+  additionalData: Uint8Array<ArrayBuffer>,
 ): Promise<string> {
   const key = await importKey(keyId, "decrypt");
   try {
     const plain = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: fromBase64(iv),
-        ...(additionalData ? { additionalData } : {}),
-      },
+      { name: "AES-GCM", iv: fromBase64(iv), additionalData },
       key,
       fromBase64(data),
     );

@@ -3,7 +3,7 @@
  *   active one, their permissions in it, and the snapshot they may read.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts and management.ts (types), adOwnership.ts,
- *   ownerView.ts, partsRequests.ts, requiredParts.ts.
+ *   ownerView.ts, partsRequests.ts, requiredParts.ts, rejection.ts.
  *
  * The snapshot query and the demo adapter both send scopedSnapshot(), so what
  * it strips never reaches the browser.
@@ -21,6 +21,7 @@ import type {
 } from "./model";
 import type { ManagedRecord } from "./management";
 import { isOwnerView, ownerSnapshot } from "./ownerView";
+import { Rejection } from "./rejection";
 
 // Inventory records are administrator data: they hold costs, vendors and
 // invoices.
@@ -107,6 +108,26 @@ export function activeProgram(
   return s.user.activeProgramUuid && allowed.includes(s.user.activeProgramUuid)
     ? s.user.activeProgramUuid
     : allowed[0];
+}
+
+/**
+ * Refuses to make a Flight Program the user's active one unless it exists and
+ * they may read it. "" selects the unassigned records, which only a system
+ * administrator sees.
+ *
+ * @param s - The user, the groups and the programs.
+ * @param programUuid - The program to activate, or "".
+ * @throws {Rejection} "Flight Program access denied."
+ */
+export function assertProgramSelectable(
+  s: Pick<Snapshot, "user" | "groups" | "programs">,
+  programUuid: string,
+): void {
+  const selectable = programUuid
+    ? (s.programs ?? []).some((p) => p.uuid === programUuid) &&
+      (s.user.isAdmin || programIds(s.user, s.groups).includes(programUuid))
+    : s.user.isAdmin;
+  if (!selectable) throw new Rejection("Flight Program access denied.");
 }
 
 /**

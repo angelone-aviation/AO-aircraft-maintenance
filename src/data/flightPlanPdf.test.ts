@@ -140,7 +140,9 @@ it("accepts exactly 10 MiB, then closes the reader quietly when PDF.js fails", a
     ),
   ).rejects.toThrow(/PDF/);
   expect(stages).toEqual(SUCCESS_STAGES.slice(0, 5));
-});
+  // Builds and parses a 10 MiB file: seconds of work, past vitest's 5 s
+  // default on a busy machine.
+}, 30_000);
 
 it("refuses a PDF of more than one page", async () => {
   const readFlightPlanPdf = await loadImporter();

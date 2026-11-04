@@ -3,9 +3,10 @@
  *   and how parts requests total what is still needed.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/partsPlanning.ts, partsRequests.ts, workOrders.ts,
- *   tests/fixtures (parts, work orders).
+ *   rejection.ts, tests/fixtures (parts, work orders, the due fleet).
  */
 import { describe, expect, it } from "vitest";
+import { DUE_FLEET_PART, dueFleet } from "../../tests/fixtures/dueFleet";
 import { neededPart, partsFixture } from "../../tests/fixtures/requiredParts";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
 import { maintenancePartsPlans, requestedParts } from "./partsPlanning";
@@ -14,6 +15,7 @@ import {
   requestDraftSchema,
   type RequestSource,
 } from "./partsRequests";
+import { Rejection } from "./rejection";
 import { newWorkTask, saveWorkOrder } from "./workOrders";
 
 const now = Date.parse("2026-10-02T12:00:00Z");
@@ -147,5 +149,56 @@ describe("requested parts", () => {
       },
     ];
     expect(requestedParts(s, manual)).toEqual([line(3, 2, 1)]);
+  });
+});
+
+describe("on the due fleet", () => {
+  // Characterizes current behaviour, including an AD on a removed component
+  // and one on an aircraft the snapshot does not hold.
+  it("plans record work with parts in record order", () => {
+    const { s } = dueFleet();
+    expect(
+      maintenancePartsPlans(s).map((p) =>
+        [p.uuid, p.aircraftUuid, p.label, p.upcoming, p.parts.length].join(
+          " | ",
+        ),
+      ),
+    ).toStrictEqual([
+      "i-zero | demo-206 | i-zero | true | 1",
+      "i-other | demo-208 | i-other | true | 1",
+      "i-ok | demo-206 | i-ok | false | 1",
+      "r-now | demo-206 | Type pump: r-now limit | true | 1",
+      "r-tracked | demo-206 | Type pump: r-tracked limit | false | 1",
+      "ad-removed/hourly-300 | demo-206 | AD AD-REMOVED: Inspect | false | 1",
+      "ad-overdue/monthly-2020-01-01 | demo-206 | AD AD-OVERDUE: Inspect | true | 1",
+      "ad-unset/task | demo-206 | AD AD-UNSET: Inspect | true | 1",
+      "ad-counter/hourly-500 | demo-206 | AD AD-COUNTER: Inspect | true | 1",
+      "ad-b/monthly-2020-01-01 | demo-208 | AD AD-B: Inspect | true | 1",
+      "ad-gone/monthly-2020-01-01 | gone | AD AD-GONE: Inspect | true | 1",
+    ]);
+  });
+
+  it("fails the whole list when work with parts has a status it cannot compute", () => {
+    // Characterizes current behaviour: unlike the alerts, the plans do not
+    // skip such an item.
+    const withParts = (uuid: string) => {
+      const { s } = dueFleet();
+      const records = [...s.inspections, ...(s.management ?? [])];
+      Object.assign(
+        records.find((r) => r.uuid === uuid)!,
+        {
+          requiredParts: [DUE_FLEET_PART],
+        },
+      );
+      return () => maintenancePartsPlans(s);
+    };
+    expect(withParts("i-missing")).toThrow(
+      new Rejection("Inspection component not found."),
+    );
+    expect(withParts("r-early")).toThrow(
+      new Rejection(
+        "Aircraft readings or date precede the installation baseline.",
+      ),
+    );
   });
 });

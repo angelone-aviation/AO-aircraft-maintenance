@@ -503,11 +503,20 @@ it("shows the administrator's refusals as ConvexErrors, the uniform email refusa
         }),
     ],
     [
-      "Select at least one group with read access.",
+      "Select a group with read access.",
       () =>
         admin.mutation(api.programUsers.addExisting, {
           programUuid: "home",
           groupIds: [],
+          email: "someone@example.test",
+        }),
+    ],
+    [
+      "Select a group with read access.",
+      () =>
+        admin.mutation(api.programUsers.addExisting, {
+          programUuid: "home",
+          groupIds: [noRead],
           email: "someone@example.test",
         }),
     ],

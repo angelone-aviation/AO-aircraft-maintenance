@@ -3,7 +3,7 @@
  *   the checklist-run record it attaches to the logged flight.
  * Layer: Domain. Zod schema and pure functions; no I/O, no React.
  * Dependencies: zod, ./model, ./checklists, ./flightPlans, ./flightFluids,
- *   ./flightChecklistSchema, ./rejection.
+ *   ./flightChecklistSchema, ./readings, ./rejection.
  */
 import { flightInputSchema } from "./model";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import {
   oilInventorySchema,
 } from "./flightFluids";
 import { checklistFlightSchema } from "./flightChecklistSchema";
+import { meterReadingSchema } from "./readings";
 import { Rejection } from "./rejection";
 
 const OVERRIDE_REASON_MAX_LENGTH = 1000;
@@ -23,8 +24,10 @@ const OVERRIDE_REASON_MAX_LENGTH = 1000;
 /**
  * A guided flight in progress, saved on the device between steps: the opening
  * meter readings, checklist and plan, progress, and fluid and meter readings.
+ * Shutdown meter readings are whole tenths of an hour, as the flight takes.
  *
- * @throws {z.ZodError} From `parse()` on a missing or mistyped field.
+ * @throws {z.ZodError} From `parse()` on a missing or mistyped field, or a
+ *   shutdown reading between tenths.
  */
 export const guidedDraftSchema = z.object({
   uuid: z.string().uuid(),
@@ -74,10 +77,10 @@ export const guidedDraftSchema = z.object({
       }),
     )
     .optional(),
-  hobbsOn: z.number().optional(),
-  tachOn: z.number().optional(),
-  cyclicHobbsOn: z.number().optional(),
-  flightTimeLogOn: z.number().optional(),
+  hobbsOn: meterReadingSchema.optional(),
+  tachOn: meterReadingSchema.optional(),
+  cyclicHobbsOn: meterReadingSchema.optional(),
+  flightTimeLogOn: meterReadingSchema.optional(),
 });
 /** A guided flight in progress. */
 export type GuidedDraft = z.infer<typeof guidedDraftSchema>;

@@ -93,13 +93,13 @@ describe("errorText for validation errors", () => {
     throw new Error("Expected the schema to refuse the input.");
   };
 
-  it("shows each issue message once, never zod's JSON", () => {
+  it("shows each issue message, never zod's JSON", () => {
     const error = thrown(() =>
       lookupInput({ ...blankAddress(), street: " ", country: "" }),
     );
     expect((error as ZodError).issues).toHaveLength(2);
     expect(errorText(error, "Fallback.")).toBe(
-      "Too small: expected string to have >=1 characters",
+      "Enter a street address to look up.\nEnter a country to look up.",
     );
   });
 

@@ -2,12 +2,12 @@
  * Responsibility: Pins AD records end to end: report import, review, saves,
  *   compliance, refusals that change nothing, and due status.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/airworthiness.ts, ./faa, ./aircraftStatus,
+ * Dependencies: src/domain/airworthiness.ts, ./aircraftStatus,
  *   ./components, ./model, ./programs, ./rejection, ./workOrders,
  *   src/data/adImport.ts, src/data/demo.ts,
  *   tests/fixtures/ad-report-tables.json.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { parseADTables } from "../data/adImport";
 import tables from "../../tests/fixtures/ad-report-tables.json";
@@ -27,7 +27,6 @@ import {
 } from "./airworthiness";
 import { componentSchema, type Component } from "./components";
 import { Rejection } from "./rejection";
-import { fetchDrsCandidates, mergeCandidates } from "./faa";
 import { aircraftStatus } from "./aircraftStatus";
 import { localDate, totalSeconds, type Aircraft, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
@@ -178,75 +177,6 @@ describe("AD report import and compliance", () => {
       adSchema.parse({ ...r, tasks: [{ ...r.tasks[0], intervalDays: -1 }] }),
     ).toThrow();
   });
-});
-const doc = (id: string, modified = "2026-01-01") => ({
-  documentGuid: id,
-  "drs:documentNumber": "2026-01-01",
-  "drs:status": "Current",
-  docLastModifiedDate: modified,
-  documentURL: "https://drs.faa.gov/browse/test",
-  "drs:adfrawdSubject": "Inspect",
-  "drs:adfrawdMake": ["Textron"],
-  "drs:adfrawdModel": ["441"],
-});
-it("checks both final and emergency ADs, paginates, and preserves review only for unchanged candidates", async () => {
-  const request = vi.fn<typeof fetch>();
-  request
-    .mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          summary: { hasMoreItems: true },
-          documents: [doc("1")],
-        }),
-      ),
-    )
-    .mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          summary: { hasMoreItems: false },
-          documents: [doc("2")],
-        }),
-      ),
-    )
-    .mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ summary: { hasMoreItems: false }, documents: [] }),
-      ),
-    );
-  const result = await fetchDrsCandidates("test-key", ["441"], request);
-  expect(result).toHaveLength(2);
-  expect(JSON.parse(request.mock.calls[1][1]!.body as string).offset).toBe(1);
-  expect(request.mock.calls[2][0]).toContain("ADFREAD");
-  const reviewed = { ...result[0], reviewReason: "Checked applicability" };
-  expect(mergeCandidates([reviewed], result)[0].reviewReason).toBe(
-    "Checked applicability",
-  );
-  expect(
-    mergeCandidates([reviewed], [{ ...result[0], modified: "2026-02-01" }])[0]
-      .reviewReason,
-  ).toBe("");
-});
-it("fails closed on authentication and malformed FAA responses", async () => {
-  await expect(
-    fetchDrsCandidates(
-      "bad",
-      ["441"],
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(new Response("", { status: 403 })),
-    ),
-  ).rejects.toThrow("API key");
-  await expect(
-    fetchDrsCandidates(
-      "key",
-      ["441"],
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ errorMessage: "error" })),
-        ),
-    ),
-  ).rejects.toThrow("Unexpected");
 });
 it("keeps component AD history with the installed component and flags unavailable counters", () => {
   const { s } = setup();

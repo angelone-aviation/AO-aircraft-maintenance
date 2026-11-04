@@ -1,4 +1,10 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins the aircraft's inspection schedules: remaining or
+ *   overdue units shown, and numeric sorting in both directions.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
+import { test, expect, type Locator } from "@playwright/test";
 
 test("aircraft inspection schedules display remaining units and offer numeric sorting", async ({
   page,
@@ -21,21 +27,23 @@ test("aircraft inspection schedules display remaining units and offer numeric so
   ).toBeVisible();
   const sort = region.getByLabel("Sort inspection schedules by");
   await sort.selectOption("hours");
-  const amounts = async () => {
-    const texts = await region.locator(".list-row").allInnerTexts();
-    return texts.flatMap((text) => {
-      const match = text.match(/([\d.]+) hours (remaining|overdue)/);
-      return match
-        ? [Number(match[1]) * (match[2] === "overdue" ? -1 : 1)]
-        : [];
-    });
-  };
-  const ascending = await amounts();
+  const ascending = await readRemainingHours(region);
   expect(ascending).toEqual([...ascending].sort((a, b) => a - b));
   await region.getByLabel("Inspection sort order").selectOption("descending");
-  const descending = await amounts();
+  const descending = await readRemainingHours(region);
   expect(descending).toEqual([...descending].sort((a, b) => b - a));
   await sort.selectOption("months");
   await sort.selectOption("cycles");
   await sort.selectOption("name");
 });
+
+// Overdue hours count below zero, so ascending order starts with the most
+// overdue schedule.
+async function readRemainingHours(region: Locator): Promise<number[]> {
+  const texts = await region.locator(".list-row").allInnerTexts();
+  return texts.flatMap((text) => {
+    const match = text.match(/([\d.]+) hours (remaining|overdue)/);
+    if (!match) return [];
+    return [Number(match[1]) * (match[2] === "overdue" ? -1 : 1)];
+  });
+}

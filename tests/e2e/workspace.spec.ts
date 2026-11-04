@@ -1,20 +1,19 @@
+/**
+ * Responsibility: Pins the workspace across the app: offline entries that
+ *   survive a reload and sync once, conflicting flights held for review, the
+ *   phone layout, the seven-day offline lock, demo administration, and
+ *   starting meter readings.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect, type Page } from "@playwright/test";
-async function demo(page: Page) {
-  await page.addInitScript(() =>
-    sessionStorage.setItem("angel-one-demo", "true"),
-  );
-  await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Your fleet, at a glance." }),
-  ).toBeVisible();
-  await page.evaluate(async () => {
-    await navigator.serviceWorker.ready;
-  });
-  await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "Your fleet, at a glance." }),
-  ).toBeVisible();
-}
+
+const PHONE = { width: 390, height: 844 };
+const DAY_MS = 86_400_000;
+// A cached snapshot opens offline for seven days from sign-in
+// (OFFLINE_WINDOW); one day more locks it.
+const EXPIRED_SIGN_IN_DAYS = 8;
+
 test("offline flight and discrepancy persist across reload and synchronize once", async ({
   page,
   context,
@@ -30,12 +29,7 @@ test("offline flight and discrepancy persist across reload and synchronize once"
   await page.getByLabel("Flight date & time").fill("2026-01-01T10:00");
   await page.getByRole("button", { name: "Save flight", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
-  await page.getByRole("button", { name: "Report a problem" }).click();
-  await page
-    .getByLabel("What did you observe?")
-    .fill("Offline inspection: oil leak under cowling");
-  await page.getByRole("button", { name: "Save report" }).click();
+  await reportProblem(page, "Offline inspection: oil leak under cowling");
   // Both entries must be queued before reloading.
   await expect(page.getByText("Offline · 2 pending")).toBeVisible();
   await page.reload();
@@ -63,6 +57,7 @@ test("offline flight and discrepancy persist across reload and synchronize once"
     }),
   ).toHaveCount(1);
 });
+
 test("conflicting flights require admin review and preserve audit evidence", async ({
   page,
   context,
@@ -101,14 +96,15 @@ test("conflicting flights require admin review and preserve audit evidence", asy
     page.getByText("Verified sequence against the pilot log.", { exact: true }),
   ).toBeVisible();
 });
+
 test("mobile navigation, favorites and discrepancy resolution work", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize(PHONE);
   await demo(page);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390);
+  ).toBeLessThanOrEqual(PHONE.width);
   await page
     .getByRole("button", { name: "Favorite N206MA", exact: true })
     .click();
@@ -127,39 +123,15 @@ test("mobile navigation, favorites and discrepancy resolution work", async ({
     page.getByText("Cleaned and secured the light connector."),
   ).toBeVisible();
 });
+
 test("seven-day expiry locks cached data without deleting pending entries", async ({
   page,
   context,
 }) => {
   await demo(page);
   await context.setOffline(true);
-  await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
-  await page.getByRole("button", { name: "Report a problem" }).click();
-  await page
-    .getByLabel("What did you observe?")
-    .fill("Preserve through expiry");
-  await page.getByRole("button", { name: "Save report" }).click();
-  await page.evaluate(async () => {
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open("angel-one-v1");
-      request.onsuccess = () => {
-        const db = request.result;
-        const tx = db.transaction("snapshots", "readwrite");
-        const store = tx.objectStore("snapshots");
-        const read = store.get("demo");
-        read.onsuccess = () => {
-          const s = read.result;
-          s.authenticatedAt = Date.now() - 8 * 86400000;
-          store.put(s, "demo");
-        };
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-    });
-  });
+  await reportProblem(page, "Preserve through expiry");
+  await expireSignIn(page);
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Time to reconnect." }),
@@ -173,6 +145,7 @@ test("seven-day expiry locks cached data without deleting pending entries", asyn
     "angel-one-pending-entries.json",
   );
 });
+
 test("administration creates aircraft, groups and user access in demo", async ({
   page,
 }) => {
@@ -222,38 +195,19 @@ test("starting readings follow aircraft selection and show historical values whe
   page,
 }) => {
   await demo(page);
+  const startingHobbs = page.getByLabel("Starting Hobbs (hours)");
+  const startingTach = page.getByLabel("Starting tach (hours)");
   await page.getByRole("button", { name: "Log a flight", exact: true }).click();
   await page.getByLabel("Aircraft", { exact: true }).selectOption("demo-208");
-  await expect(page.getByLabel("Starting Hobbs (hours)")).toHaveValue("4218.6");
-  await expect(page.getByLabel("Starting tach (hours)")).toHaveValue("4138.6");
+  await expect(startingHobbs).toHaveValue("4218.6");
+  await expect(startingTach).toHaveValue("4138.6");
   await page.getByLabel("Aircraft", { exact: true }).selectOption("demo-206");
-  for (const [time, hobbs, tach] of [
-    ["2026-01-01T10:00", "2342.2", "2262.2"],
-    ["2026-01-02T10:00", "2343.2", "2263.2"],
-  ]) {
-    if (time.includes("01-02")) {
-      await page
-        .getByRole("button", { name: "Log a flight", exact: true })
-        .click();
-      await expect(page.getByLabel("Starting Hobbs (hours)")).toHaveValue(
-        "2342.2",
-      );
-      await expect(page.getByLabel("Starting tach (hours)")).toHaveValue(
-        "2262.2",
-      );
-    }
-    await page.getByLabel("Flight date & time").fill(time);
-    await page.getByLabel("Ending Hobbs *", { exact: true }).fill(hobbs);
-    await page.getByLabel("Ending tach", { exact: true }).fill(tach);
-    await page
-      .getByRole("button", { name: "Save flight", exact: true })
-      .click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await expect(page.getByRole("status")).toContainText(
-      "Entry synchronized successfully.",
-    );
-    await page.getByRole("button", { name: "Dismiss notification" }).click();
-  }
+  await saveSyncedFlight(page, ["2026-01-01T10:00", "2342.2", "2262.2"]);
+  // The next flight starts from the last one's ending readings.
+  await page.getByRole("button", { name: "Log a flight", exact: true }).click();
+  await expect(startingHobbs).toHaveValue("2342.2");
+  await expect(startingTach).toHaveValue("2262.2");
+  await saveSyncedFlight(page, ["2026-01-02T10:00", "2343.2", "2263.2"]);
   await page.getByRole("link", { name: "Flight log", exact: true }).click();
   // Each meter column shows the ending reading above its starting reading.
   for (const heading of ["Hobbs", "Tach"])
@@ -276,7 +230,73 @@ test("starting readings follow aircraft selection and show historical values whe
   await firstFlight
     .getByRole("button", { name: "Correct", exact: true })
     .click();
-  await expect(page.getByLabel("Starting Hobbs (hours)")).toHaveValue("2341.2");
-  await expect(page.getByLabel("Starting tach (hours)")).toHaveValue("2261.2");
-  await expect(page.getByLabel("Starting Hobbs (hours)")).not.toBeEditable();
+  await expect(startingHobbs).toHaveValue("2341.2");
+  await expect(startingTach).toHaveValue("2261.2");
+  await expect(startingHobbs).not.toBeEditable();
 });
+
+/**
+ * Opens the demo home with the service worker controlling the page, which it
+ * does only for pages loaded after it activates.
+ */
+async function demo(page: Page) {
+  const home = page.getByRole("heading", { name: "Your fleet, at a glance." });
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/");
+  await expect(home).toBeVisible();
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await page.reload();
+  await expect(home).toBeVisible();
+}
+
+async function reportProblem(page: Page, observation: string) {
+  await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
+  await page.getByRole("button", { name: "Report a problem" }).click();
+  await page.getByLabel("What did you observe?").fill(observation);
+  await page.getByRole("button", { name: "Save report" }).click();
+}
+
+/** Backdates the stored demo sign-in past the offline window. */
+async function expireSignIn(page: Page) {
+  const age = EXPIRED_SIGN_IN_DAYS * DAY_MS;
+  await page.evaluate(async (ageMs) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const store = tx.objectStore("snapshots");
+    const read = store.get("demo");
+    read.onsuccess = () => {
+      const s = read.result;
+      s.authenticatedAt = Date.now() - ageMs;
+      store.put(s, "demo");
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, age);
+}
+
+/** Fills and saves an online flight, then dismisses its sync notice. */
+async function saveSyncedFlight(
+  page: Page,
+  [time, hobbs, tach]: [string, string, string],
+) {
+  await page.getByLabel("Flight date & time").fill(time);
+  await page.getByLabel("Ending Hobbs *", { exact: true }).fill(hobbs);
+  await page.getByLabel("Ending tach", { exact: true }).fill(tach);
+  await page.getByRole("button", { name: "Save flight", exact: true }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.getByRole("status")).toContainText(
+    "Entry synchronized successfully.",
+  );
+  await page.getByRole("button", { name: "Dismiss notification" }).click();
+}

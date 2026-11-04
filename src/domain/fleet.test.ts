@@ -73,6 +73,53 @@ describe("aircraft and programs", () => {
       applyFleet(s, { ...common(), action: "program.save", program }),
     ).toThrow("changed");
   });
+  it("writes program and aircraft rows without a program of their own", () => {
+    const s = demoSnapshot();
+    const now = Date.parse("2026-06-15T12:00:00Z");
+    const save = common();
+    applyFleet(s, { ...save, action: "program.save", program }, now);
+    applyFleet(
+      s,
+      {
+        ...common(),
+        action: "aircraft.save",
+        aircraft: aircraftInputSchema.parse(s.aircraft[0]),
+      },
+      now,
+    );
+    const [aircraftRow, programRow] = s.audit;
+    const storedKeys = (row: object) =>
+      Object.keys(JSON.parse(JSON.stringify(row)));
+    expect(storedKeys(programRow)).toEqual([
+      "uuid",
+      "actorId",
+      "at",
+      "action",
+      "entityUuid",
+      "reason",
+      "after",
+    ]);
+    expect(programRow).toMatchObject({
+      uuid: save.requestUuid,
+      actorId: s.user.id,
+      at: now,
+      action: "program.created",
+      entityUuid: program.uuid,
+      reason: save.reason,
+    });
+    expect(storedKeys(aircraftRow)).toEqual([
+      "uuid",
+      "actorId",
+      "at",
+      "action",
+      "entityUuid",
+      "aircraftUuid",
+      "reason",
+      "before",
+      "after",
+    ]);
+    expect(aircraftRow.programUuid).toBeUndefined();
+  });
   it("preserves installed component usage when total-time/cycle baselines are corrected", () => {
     const s = demoSnapshot(),
       a = s.aircraft[0];
@@ -118,6 +165,12 @@ describe("aircraft and programs", () => {
     expect(JSON.parse(s.audit[0].before!).installedSeconds).toBe(
       c.installedSeconds,
     );
+    expect(s.audit[0]).toMatchObject({
+      action: "component.aircraft_baseline_adjusted",
+      entityUuid: c.uuid,
+      aircraftUuid: a.uuid,
+      programUuid: undefined,
+    });
     expect(change.components[0].version).toBe(2);
   });
   it("replays meter/counter changes without overwriting historic flight readings", () => {

@@ -1,15 +1,17 @@
 /**
  * Responsibility: Pins the generated logbook entry text for each template,
- *   for closed, historical and previewed orders, and its refusal.
+ *   for closed, historical and previewed orders, its refusal, and the
+ *   signer's license fields.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/logbook.ts, workOrders.ts, rejection.ts,
- *   src/data/demo.ts and tests/fixtures/workOrders.ts.
+ *   validationText.ts, src/data/demo.ts and tests/fixtures/workOrders.ts.
  */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
-import { logbookText } from "./logbook";
+import { licenseSchema, logbookText } from "./logbook";
 import { Rejection } from "./rejection";
+import { validationText } from "./validationText";
 import {
   saveWorkOrder,
   workOrderFieldsSchema,
@@ -54,6 +56,27 @@ function closedOrder() {
   };
   return { s, final };
 }
+
+describe("licenseSchema", () => {
+  const refusal = (fields: object) => {
+    const parsed = licenseSchema.safeParse(fields);
+    return parsed.success ? "" : validationText(parsed.error);
+  };
+  it("asks for each field in plain words, trimmed, up to 100 characters", () => {
+    expect(refusal({ licenseNumber: " ", certificateType: "" })).toBe(
+      "Enter a license / certificate number of up to 100 characters.\nEnter a certificate type of up to 100 characters.",
+    );
+    expect(
+      refusal({ licenseNumber: "1".repeat(101), certificateType: "A&P" }),
+    ).toBe("Enter a license / certificate number of up to 100 characters.");
+    expect(
+      licenseSchema.parse({
+        licenseNumber: ` ${"1".repeat(100)} `,
+        certificateType: " A&P ",
+      }),
+    ).toEqual({ licenseNumber: "1".repeat(100), certificateType: "A&P" });
+  });
+});
 
 describe("logbook entry", () => {
   it("writes a component entry from the close-out, line for line", () => {
