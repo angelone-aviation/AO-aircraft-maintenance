@@ -1,7 +1,7 @@
 /**
  * Responsibility: Shared building blocks for forms and pages: the modal, the
  *   async form and delete button, labelled fields, badges, empty states, page
- *   titles, safe links, text and blank-CSV downloads, and the text shown for
+ *   titles, safe links, file and blank-CSV downloads, and the text shown for
  *   an error.
  * Layer: UI. Shared components; no Convex imports.
  * Dependencies: react, @phosphor-icons/react, ./design.tsx, src/data/store.ts,
@@ -278,17 +278,18 @@ export function value(data: FormData, key: string) {
 }
 
 /**
- * Saves text as a file by clicking a temporary object-URL link, which is
- * revoked a second later.
+ * Saves text, or a blob's bytes, as a file by clicking a temporary object-URL
+ * link, which is revoked a second later.
  *
+ * @param contents - The text, or a blob whose bytes are saved unchanged.
  * @param type - The file's MIME type; defaults to application/json.
  */
 export function download(
   name: string,
-  text: string,
+  contents: string | Blob,
   type = "application/json",
 ) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+  const url = URL.createObjectURL(new Blob([contents], { type }));
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
@@ -298,16 +299,21 @@ export function download(
 
 /**
  * Saves a CSV template for an importer: the byte-order mark and the quoted
- * header row only, ending in CRLF, as text/csv.
+ * header row only, ending in CRLF.
  *
  * @param name - The file name.
  * @param headers - The importer's column names, in order.
+ * @param type - The file's MIME type; defaults to text/csv.
  */
-export function downloadBlankCsv(name: string, headers: readonly string[]) {
+export function downloadBlankCsv(
+  name: string,
+  headers: readonly string[],
+  type = "text/csv",
+) {
   const [headerRow] = toCsv([
     Object.fromEntries(headers.map((h) => [h, ""])),
   ]).split("\r\n");
-  download(name, `${headerRow}\r\n`, "text/csv");
+  download(name, `${headerRow}\r\n`, type);
 }
 
 function FormFooter({

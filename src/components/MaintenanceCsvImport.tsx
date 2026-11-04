@@ -6,7 +6,7 @@
  *   src/domain/maintenanceCsv.ts.
  * Dependencies: react, react-dom, src/data/store.ts, src/domain
  *   (inspectionTemplates, programs, model, manuals, manualDiscovery,
- *   maintenanceCsv, taskCards, csv), ./TaskCsvImport, ./InspectionTemplates,
+ *   maintenanceCsv, taskCards), ./TaskCsvImport, ./InspectionTemplates,
  *   ./ManualDiscovery, ./Manuals, ./ui.
  */
 import { TaskCsvImportButton } from "./TaskCsvImport";
@@ -40,14 +40,20 @@ import {
   taskCardDefaults,
   type TaskCardCommand,
 } from "../domain/taskCards";
-import { toCsv } from "../domain/csv";
 import {
   ApplicabilityEditor,
   CandidateForm,
   ReviewConfirmation,
 } from "./ManualDiscovery";
 import { ManualLink } from "./Manuals";
-import { AsyncForm, Field, Modal, download, value } from "./ui";
+import {
+  AsyncForm,
+  Field,
+  Modal,
+  download,
+  downloadBlankCsv,
+  value,
+} from "./ui";
 
 const IMPORT_KINDS = Object.keys(importHeaders) as ImportKind[];
 // Rows of each table, and errors, shown at once.
@@ -216,7 +222,13 @@ function ImportDownloads({ manual }: { manual: Manual }) {
           type="button"
           className="button"
           key={k}
-          onClick={() => saveText(`${k}.csv`, headerCsv(k))}
+          onClick={() =>
+            downloadBlankCsv(
+              `${k}.csv`,
+              importHeaders[k],
+              "text/csv;charset=utf-8",
+            )
+          }
         >
           Download {k} template
         </button>
@@ -225,7 +237,11 @@ function ImportDownloads({ manual }: { manual: Manual }) {
         type="button"
         className="button"
         onClick={() =>
-          saveText("maintenance-csv-ai-instructions.txt", instructions(manual))
+          download(
+            "maintenance-csv-ai-instructions.txt",
+            instructions(manual),
+            "text/plain;charset=utf-8",
+          )
         }
       >
         Download AI instructions
@@ -783,18 +799,6 @@ function TaskTextFields({ task }: { task: ImportedTask }) {
       </p>
     </>
   );
-}
-
-function headerCsv(kind: ImportKind) {
-  const blank = Object.fromEntries(importHeaders[kind].map((h) => [h, ""]));
-  return toCsv([blank]).split("\r\n")[0] + "\r\n";
-}
-
-function saveText(name: string, text: string) {
-  const type = name.endsWith(".csv")
-    ? "text/csv;charset=utf-8"
-    : "text/plain;charset=utf-8";
-  download(name, text, type);
 }
 
 async function readCsvFiles(d: FormData) {

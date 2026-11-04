@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the checklist reader (personal checkmarks and skips,
  *   their storage, resets and navigation) and the checklists screen (library
- *   search, new and imported drafts, import refusals).
+ *   search, new and imported drafts, import refusals, the .fmd export).
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/Checklists.tsx, react-dom/server,
  *   src/data/demo.ts (seed), src/domain/checklists.ts.
@@ -117,7 +117,8 @@ vi.mock("../data/fmd", () => ({
     if (ui.imported instanceof Error) throw ui.imported;
     return structuredClone(ui.imported);
   },
-  exportFmd: async () => new Blob(["fmd"]),
+  exportFmd: async () =>
+    new Blob(["fmd"], { type: "application/octet-stream" }),
 }));
 vi.mock("../data/store", () => ({
   useWorkspace: Object.assign(() => ui.workspace, {
@@ -404,6 +405,38 @@ describe("Checklists", () => {
     ui.imported = Error("Unable to read this FMD file.");
     await change(new File(["x"], "a.fmd"));
     expect(render()).toContain("Unable to read this FMD file.");
+  });
+
+  it("exports the open checklist as an .fmd file named after it", async () => {
+    const link = { href: "", download: "", click: vi.fn() };
+    vi.stubGlobal("document", { createElement: () => link });
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      blobs.push(blob as Blob);
+      return "blob:fmd";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const exportAs = async (name: string) => {
+      const open = record();
+      open.document.payload.metadata.name = name;
+      s.checklists = [open];
+      render(h(Checklists));
+      const button = ui.buttons.find((b) => b.text === "Export .fmd")!;
+      await (button.props.onClick as () => Promise<void>)();
+      return link.download;
+    };
+    expect(await exportAs("C206: Normal/Ops 2.1")).toBe(
+      "C206_ Normal_Ops 2.1.fmd",
+    );
+    expect(await exportAs("")).toBe("checklist.fmd");
+    vi.restoreAllMocks();
+    expect(link.click).toHaveBeenCalledTimes(2);
+    expect(link.href).toBe("blob:fmd");
+    expect(blobs.map((b) => b.type)).toEqual([
+      "application/octet-stream",
+      "application/octet-stream",
+    ]);
+    expect(await blobs[0].text()).toBe("fmd");
   });
 
   it("needs a connection and edit access to change checklists", () => {

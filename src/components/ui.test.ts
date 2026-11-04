@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the markup, labelling, link and form-value rules of the
- *   shared UI building blocks, the blank-CSV download, and that they show
- *   errors as src/data does.
+ *   shared UI building blocks, the blob and blank-CSV downloads, and that
+ *   they show errors as src/data does.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/ui.tsx, react-dom/server, src/data/errors.ts.
  */
@@ -18,6 +18,7 @@ import {
   Field,
   Modal,
   PageTitle,
+  download,
   downloadBlankCsv,
   errorText,
   safeHref,
@@ -189,7 +190,7 @@ describe("value", () => {
   });
 });
 
-describe("downloadBlankCsv", () => {
+describe("download and downloadBlankCsv", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -213,6 +214,24 @@ describe("downloadBlankCsv", () => {
         '\uFEFF"kind","interval_hours","say ""hi"""\r\n',
       ),
     );
+    downloadBlankCsv("utf8.csv", ["kind"], "text/csv;charset=utf-8");
+    expect(blobs[1].type).toBe("text/csv;charset=utf-8");
+  });
+
+  it("saves a blob's bytes unchanged, under the type it is given", async () => {
+    const link = { href: "", download: "", click: vi.fn() };
+    vi.stubGlobal("document", { createElement: () => link });
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      blobs.push(blob as Blob);
+      return "blob:file";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const bytes = new Uint8Array([0, 0xff, 0xfe, 0x80]);
+    download("a.fmd", new Blob([bytes]), "application/octet-stream");
+    expect(link).toMatchObject({ href: "blob:file", download: "a.fmd" });
+    expect(blobs[0].type).toBe("application/octet-stream");
+    expect(new Uint8Array(await blobs[0].arrayBuffer())).toEqual(bytes);
   });
 });
 

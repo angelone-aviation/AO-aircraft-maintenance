@@ -44,14 +44,12 @@ import { importFmd, exportFmd } from "../data/fmd";
 import { ChecklistEditor } from "./ChecklistEditor";
 import { EmptyState, IconTile, PageHeader, SearchField } from "./design";
 import { OpsSelect } from "./OpsList";
-import { errorText } from "./ui";
+import { download, errorText } from "./ui";
 import "./checklists.css";
 import "../styles/screens/operations.css";
 
 // importFmd's limit, checked before the file is read.
 const FMD_MAX_BYTES = 2 * 1024 * 1024;
-// Long enough for the browser to start the download.
-const EXPORT_URL_LIFETIME_MS = 1000;
 
 /** A user's marks on a checklist set's entries, by entry objectId. */
 export type Progress = Record<string, "checked" | "skipped">;
@@ -365,12 +363,8 @@ function ExportButton({
 
 async function downloadFmd(checklist: ChecklistDocument) {
   const blob = await exportFmd(checklist);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${(checklist.payload.metadata.name || "checklist").replace(/[^a-zA-Z0-9 _.-]/g, "_")}.fmd`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), EXPORT_URL_LIFETIME_MS);
+  const name = checklist.payload.metadata.name || "checklist";
+  download(`${name.replace(/[^a-zA-Z0-9 _.-]/g, "_")}.fmd`, blob, blob.type);
 }
 
 function CategoryTabs({ r }: { r: Reader }) {
