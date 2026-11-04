@@ -74,34 +74,6 @@ export function assertGroupProgramFixed(
 }
 
 /**
- * {@link assertGroupProgramFixed}, except that a system administrator may
- * give an unscoped (pre-program) group its first program (#45). Only the
- * offline demo still allows that; the server retired it (T21), since no
- * unscoped group exists. Remove this with the demo's copy.
- *
- * @param before - The stored group; undefined for a new one.
- * @param next - The group as it will be saved.
- * @param systemAdmin - Whether the user is a system administrator.
- * @returns True for that first assignment, so the caller can audit it.
- * @throws {Rejection} "A permission group cannot be moved to another Flight
- *   Program." for a group that has one; "Only a system administrator can
- *   assign an unscoped permission group to a Flight Program."
- */
-export function assertGroupProgramChange(
-  before: Pick<Group, "programUuid"> | undefined,
-  next: Pick<Group, "programUuid">,
-  systemAdmin: boolean,
-) {
-  if (!before || before.programUuid === next.programUuid) return false;
-  if (before.programUuid) assertGroupProgramFixed(before, next);
-  if (!systemAdmin)
-    throw new Rejection(
-      "Only a system administrator can assign an unscoped permission group to a Flight Program.",
-    );
-  return !!next.programUuid;
-}
-
-/**
  * Summarizes the aircraft a group covers, for Administration.
  *
  * @param g - The group.

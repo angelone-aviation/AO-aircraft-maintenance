@@ -246,6 +246,7 @@ Steps:
 - **Actual:** "A permission group cannot be moved to another Flight Program." It also cannot be saved without a program, so it can only be deleted.
 - **Repro:** `repro/acl/acl-unscoped-group-cannot-be-assigned.js (server: acl/acl-unscoped-group-server.js)`
 - **Cause:** `convex/admin.ts:314` treats undefined → program as a move; the demo mirror does the same.
+- **Retired (2026-11-04, Batch 414):** production started with no data, so no unscoped group can exist (T21, `docs/architecture/t21-inventory.md`). The assignment path was removed from the server and the demo, and the refusal above is now the intended behaviour. Both repro scripts report "REPRODUCED" by design; leave them out of repro runs.
 
 ### inv-2
 

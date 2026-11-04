@@ -107,3 +107,69 @@ it("persists checklist definitions and audits, rejects read-only and stale mutat
     ...checklistCounts(record.document),
   });
 });
+
+it("saves once per request id: a replay returns nothing and writes nothing", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const subject = await t.run(async (ctx) => {
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("programs", s.programs![0]);
+    const id = await ctx.db.insert("users", {
+      active: true,
+      isAdmin: true,
+      name: "Administrator",
+      groupIds: [],
+      activeProgramUuid: s.programs![0].uuid,
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: id,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${id}|${session}`;
+  });
+  const editor = t.withIdentity({ subject });
+  const record: ChecklistRecord = {
+    uuid: crypto.randomUUID(),
+    version: 0,
+    programUuid: s.programs![0].uuid,
+    aircraftUuid: s.aircraft[0].uuid,
+    document: emptyChecklist(),
+    sourceName: "test.fmd",
+    updatedAt: 0,
+    updatedBy: "",
+  };
+  const requestUuid = crypto.randomUUID();
+  const args = (sourceName: string) => ({
+    programUuid: record.programUuid,
+    payload: JSON.stringify({
+      record: { ...record, sourceName },
+      baseVersion: 0,
+      requestUuid,
+    }),
+  });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      checklists: await ctx.db.query("checklists").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+      managementRequests: await ctx.db.query("managementRequests").collect(),
+    }));
+
+  await expect(
+    editor.mutation(api.checklists.save, args("test.fmd")),
+  ).resolves.toBe(record.uuid);
+  const saved = await stored();
+  expect(saved.checklists).toHaveLength(1);
+  expect(saved.commandRequests).toMatchObject([
+    { uuid: requestUuid, payload: args("test.fmd").payload },
+  ]);
+  // ADR-0003: a replay succeeds with no payload; the snapshot shows its effect.
+  await expect(
+    editor.mutation(api.checklists.save, args("test.fmd")),
+  ).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(
+    editor.mutation(api.checklists.save, args("other.fmd")),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+  expect(await stored()).toEqual(saved);
+});

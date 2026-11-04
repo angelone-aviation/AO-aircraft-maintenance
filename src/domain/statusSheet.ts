@@ -3,7 +3,7 @@
  *   totals, installed components, inspections, ADs, Form 337 copies and open
  *   discrepancies, as rows of text.
  * Layer: Domain. Pure functions; no I/O and no layout.
- * Dependencies: src/domain (model, maintenance, management, components,
+ * Dependencies: src/domain (model, dueItems, maintenance, components,
  *   componentCalendar, airworthiness, adRemaining, aircraftFiles, rejection).
  *
  * The content of the 14 CFR 91.417(a)(2) status records, kept apart from any
@@ -17,11 +17,16 @@ import {
   type Inspection,
   type Snapshot,
 } from "./model";
-import { inspectionDueDate, inspectionStatus } from "./maintenance";
-import { inspectionCounters } from "./management";
+import {
+  dueItems,
+  type AdDue,
+  type InspectionDue,
+  type MaintenanceDue,
+} from "./dueItems";
+import { inspectionDueDate } from "./maintenance";
 import { componentTotals, type Component } from "./components";
 import { daysPerServiceMonth } from "./componentCalendar";
-import { adAircraftUuid, adStatus, type AD } from "./airworthiness";
+import type { AD } from "./airworthiness";
 import { adRemaining } from "./adRemaining";
 import { isCurrentAircraftFile } from "./aircraftFiles";
 import { Rejection } from "./rejection";
@@ -57,17 +62,18 @@ export interface StatusSheet {
 }
 
 /**
- * Builds the status sheet content for one aircraft as recorded in `s`. A
- * Component whose times cannot be computed reads "Review" instead of failing
- * the sheet.
+ * Builds the status sheet content for one aircraft as recorded in `s`, with
+ * its inspections and ADs from {@link dueItems}. A Component whose times
+ * cannot be computed reads "Review" instead of failing the sheet.
  * @param s - Snapshot holding the aircraft and its records.
  * @param aircraftUuid - The aircraft to report on.
  * @param today - Local `YYYY-MM-DD` that due dates are counted from.
  * @returns The header and six sections: overview, installed components,
- *   inspections by reference, ADs by Component uuid then AD number (digit
- *   runs in references and AD numbers compare as numbers), current Form 337
- *   copies oldest first, and open discrepancies.
- * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft.
+ *   inspections by reference, every AD (closed ones too) by Component uuid
+ *   then AD number (digit runs in references and AD numbers compare as
+ *   numbers), current Form 337 copies oldest first, and open discrepancies.
+ * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft;
+ *   what an inspection's status threw, as {@link dueItems} keeps it.
  */
 export function statusSheet(
   s: Snapshot,
@@ -80,6 +86,7 @@ export function statusSheet(
     (c): c is Component =>
       c.kind === "component" && c.installed && c.aircraftUuid === a.uuid,
   );
+  const due = dueItems(s, a.uuid, today);
   return {
     header: {
       registration: a.registration,
@@ -89,8 +96,8 @@ export function statusSheet(
     sections: [
       overviewSection(s, a),
       componentsSection(components, a, today),
-      inspectionsSection(s, a, components, today),
-      airworthinessSection(s, a, components, today),
+      inspectionsSection(due, components),
+      airworthinessSection(s, due, components, today),
       form337Section(s, a),
       discrepanciesSection(s, a),
     ],
@@ -183,14 +190,18 @@ function componentRow(c: Component, a: Aircraft, today: string): string[] {
 }
 
 function inspectionsSection(
-  s: Snapshot,
-  a: Aircraft,
+  due: MaintenanceDue[],
   components: Component[],
-  today: string,
 ): StatusSection {
-  const inspections = s.inspections
-    .filter((i) => !i.archived && i.aircraftUuid === a.uuid)
-    .sort((x, z) => x.reference.localeCompare(z.reference, undefined, NUMERIC));
+  const items = due
+    .filter((d): d is InspectionDue => d.kind === "inspection")
+    .sort((x, z) =>
+      x.inspection.reference.localeCompare(
+        z.inspection.reference,
+        undefined,
+        NUMERIC,
+      ),
+    );
   const columns = [
     "Inspection / component",
     "Repeat interval",
@@ -207,29 +218,21 @@ function inspectionsSection(
     id: "inspections",
     title: "Inspection schedules",
     columns,
-    rows: inspections.length
-      ? inspections.map((i) => inspectionRow(i, s, components, a, today))
+    rows: items.length
+      ? items.map((d) => inspectionRow(d, components))
       : [["No active inspection schedules", ...empty]],
     notes: [
-      ...listExemptionNotes(inspections),
+      ...listExemptionNotes(items.map((d) => d.inspection)),
       "* Months remaining are approximate; the exact date due controls. Hours and cycles use each inspection's configured counter; landings use aircraft total landings.",
     ],
   };
 }
 
-function inspectionRow(
-  i: Inspection,
-  s: Snapshot,
-  components: Component[],
-  a: Aircraft,
-  today: string,
-): string[] {
-  const r = inspectionStatus(
-    i,
-    a,
-    today,
-    inspectionCounters(i, a, s.management),
-  );
+// T13 leaves what an uncomputable status means to each caller: here it fails
+// the whole sheet, so a printed status record never guesses at one.
+function inspectionRow(d: InspectionDue, components: Component[]): string[] {
+  if (!d.due) throw d.error;
+  const { inspection: i, due: r } = d;
   const component = components.find((c) => c.uuid === i.componentUuid);
   const asset = component
     ? `\n${component.installPosition || ""} S/N ${component.serial}`
@@ -251,7 +254,7 @@ function inspectionRow(
   ];
 }
 
-function listCountsRemaining(r: ReturnType<typeof inspectionStatus>) {
+function listCountsRemaining(r: NonNullable<InspectionDue["due"]>) {
   return [
     r.cyclesRemaining === undefined
       ? ""
@@ -303,16 +306,20 @@ function listExemptionNotes(inspections: Inspection[]): string[] {
 
 function airworthinessSection(
   s: Snapshot,
-  a: Aircraft,
+  due: MaintenanceDue[],
   components: Component[],
   today: string,
 ): StatusSection {
-  const ads = (s.airworthiness ?? [])
-    .filter((r) => adAircraftUuid(s, r) === a.uuid)
+  const ads = due
+    .filter((d): d is AdDue => d.kind === "ad")
     .sort(
       (x, z) =>
-        x.componentUuid.localeCompare(z.componentUuid) ||
-        x.source.number.localeCompare(z.source.number, undefined, NUMERIC),
+        x.ad.componentUuid.localeCompare(z.ad.componentUuid) ||
+        x.ad.source.number.localeCompare(
+          z.ad.source.number,
+          undefined,
+          NUMERIC,
+        ),
     );
   return {
     id: "airworthiness",
@@ -325,18 +332,21 @@ function airworthinessSection(
       "Status",
     ],
     rows: ads.length
-      ? ads.map((r) => adRow(r, s, components, today))
+      ? ads.map((d) => adRow(d, s, components, today))
       : [["No AD records", "-", "-", "-", "-"]],
     notes: [],
   };
 }
 
+// Only a Component installed on this aircraft is named. A removed one's AD
+// stays on the aircraft (adAircraftUuid) and is named by its section.
 function adRow(
-  r: AD,
+  d: AdDue,
   s: Snapshot,
   components: Component[],
   today: string,
 ): string[] {
+  const { ad: r } = d;
   const component = components.find((c) => c.uuid === r.componentUuid);
   const asset = component
     ? `${component.installPosition || ""} ${component.componentType}\nS/N ${component.serial}`
@@ -354,7 +364,7 @@ function adRow(
     asset,
     [r.source.subject, ...r.tasks.map((t) => t.description)].join("\n"),
     units.join("\n") || "-",
-    adStatus(s, r),
+    d.status,
   ];
 }
 

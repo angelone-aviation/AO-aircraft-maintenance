@@ -5,19 +5,20 @@
  *   backend or a copy kept on this device.
  * Dependencies: react, react-dom, @tanstack/react-router,
  *   @phosphor-icons/react, src/data/store.ts, src/data/deviceManuals.ts,
- *   src/domain (model, manuals), ./PdfReader, ./MaintenanceCsvImport,
- *   ./ManualDiscovery, ./KeepOnDevice, ./ui, ./design, ./ShopList.
+ *   src/data/manualPdf.ts (lazy), src/domain (model, manuals), ./PdfReader,
+ *   ./MaintenanceCsvImport, ./ManualDiscovery, ./KeepOnDevice, ./ui,
+ *   ./design, ./ShopList.
  */
 import { PdfReader } from "./PdfReader";
 import { MaintenanceCsvImportButton } from "./MaintenanceCsvImport";
 import { ManualDiscoveryButton } from "./ManualDiscovery";
 import { createPortal } from "react-dom";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
-import { can } from "../domain/model";
+import { can, type Aircraft, type Snapshot } from "../domain/model";
 import type { Manual, ManualReference } from "../domain/manuals";
-import { manualInputSchema } from "../domain/manuals";
+import { MAX_MANUAL_BYTES, manualInputSchema } from "../domain/manuals";
 import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import {
   EmptyState,
@@ -48,6 +49,38 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
+// The lengths manualInputSchema, manualReferenceSchema and
+// manualApplicabilitySchema allow.
+const MAX_LENGTH = {
+  title: 300,
+  documentNumber: 200,
+  revision: 300,
+  section: 200,
+  printedPage: 100,
+  manufacturer: 150,
+  model: 150,
+  partNumber: 100,
+};
+const BYTES_PER_MEGABYTE = 1024 * 1024;
+
+type ManualFile = ReturnType<typeof useManualFile>;
+type ReferenceProps = {
+  reference: ManualReference;
+  onChange: (reference: ManualReference) => void;
+};
+type RowProps = {
+  s: Snapshot;
+  manual: Manual;
+  keeping: boolean;
+  writable: boolean;
+  onEdit: (manual: Manual) => void;
+};
+
+/**
+ * A record's manual reference: title, revision, section, printed page and PDF
+ * page, opening the page in a window. Says so when the manual is not in this
+ * workspace; renders nothing without a reference.
+ */
 export function ManualLink({
   reference,
 }: {
@@ -57,7 +90,13 @@ export function ManualLink({
   const [preview, setPreview] = useState(false);
   if (!reference) return null;
   const m = manuals?.find((m) => m.uuid === reference.manualUuid);
-  return m ? (
+  if (!m)
+    return (
+      <span className="muted">
+        Referenced manual is unavailable in this workspace.
+      </span>
+    );
+  return (
     <>
       <Link
         to="/manuals/$manualUuid"
@@ -68,10 +107,7 @@ export function ManualLink({
           setPreview(true);
         }}
       >
-        {m.title} · {m.revision}
-        {reference.section && ` · § ${reference.section}`}
-        {reference.printedPage && ` · printed page ${reference.printedPage}`} ·
-        PDF page {reference.pdfPage}
+        {referenceLabel(m, reference)}
       </Link>
       {preview &&
         createPortal(
@@ -81,13 +117,18 @@ export function ManualLink({
           document.body,
         )}
     </>
-  ) : (
-    <span className="muted">
-      Referenced manual is unavailable in this workspace.
-    </span>
   );
 }
 
+/**
+ * Form fields linking a record to a page of a library manual. A reference
+ * stays shown when its manual is no longer available; choosing another manual
+ * starts at PDF page 1.
+ *
+ * @param props.onChange - Receives each edit, or null while no manual is
+ *   chosen. The fields also post their values for
+ *   {@link manualReferenceFromForm}.
+ */
 export function ManualReferenceFields({
   initial,
   onChange,
@@ -106,60 +147,27 @@ export function ManualReferenceFields({
   const selected = manuals.find((m) => m.uuid === ref.manualUuid);
   return (
     <div className="form-grid">
-      <Field label="Reference library manual">
-        <select
-          name="manualUuid"
-          value={ref.manualUuid}
-          onChange={(e) =>
-            update({ ...ref, manualUuid: e.target.value, pdfPage: 1 })
-          }
-        >
-          <option value="">No linked manual</option>
-          {ref.manualUuid && !selected && (
-            <option value={ref.manualUuid}>
-              Previously linked manual (unavailable)
-            </option>
-          )}
-          {manuals.map((m) => (
-            <option key={m.uuid} value={m.uuid}>
-              {m.title} · {m.revision}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Manual section">
-        <input
-          name="manualSection"
-          maxLength={200}
-          value={ref.section}
-          onChange={(e) => update({ ...ref, section: e.target.value })}
-          placeholder="5-12-02"
-        />
-      </Field>
-      <Field label="Printed page label">
-        <input
-          name="manualPrintedPage"
-          maxLength={100}
-          value={ref.printedPage}
-          onChange={(e) => update({ ...ref, printedPage: e.target.value })}
-          placeholder="1"
-        />
-      </Field>
-      <Field label="PDF page number">
-        <input
-          name="manualPdfPage"
-          type="number"
-          min={1}
-          max={selected?.pageCount}
-          required={!!ref.manualUuid}
-          value={ref.pdfPage || ""}
-          onChange={(e) => update({ ...ref, pdfPage: Number(e.target.value) })}
-        />
-      </Field>
+      <ManualChoice
+        manuals={manuals}
+        known={!!selected}
+        reference={ref}
+        onChange={update}
+      />
+      <PageFields
+        reference={ref}
+        pageCount={selected?.pageCount}
+        onChange={update}
+      />
       {ref.manualUuid && <ManualLink reference={ref} />}
     </div>
   );
 }
+
+/**
+ * Reads the reference {@link ManualReferenceFields} posted.
+ *
+ * @returns The trimmed reference, or null when no manual was chosen.
+ */
 export function manualReferenceFromForm(
   data: FormData,
 ): ManualReference | null {
@@ -174,6 +182,7 @@ export function manualReferenceFromForm(
     : null;
 }
 
+/** An aircraft's Manuals button, opening its {@link ReferenceLibrary}. */
 export function AircraftManuals({ aircraftUuid }: { aircraftUuid: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -192,37 +201,237 @@ export function AircraftManuals({ aircraftUuid }: { aircraftUuid: string }) {
     </>
   );
 }
+
+/**
+ * The reference library page, or with `aircraftUuid` one aircraft's manuals:
+ * search, open, keep on this device, and (connected, with maintenance
+ * access) upload a manual or edit its reference. Each upload is a separate
+ * manual, so references to earlier revisions keep working.
+ */
 export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
-  const { snapshot: s, backend, online, connected, demo } = useWorkspace();
+  const { snapshot: s, online, connected, demo } = useWorkspace();
   const [upload, setUpload] = useState(false);
   const [renaming, setRenaming] = useState<Manual | null>(null);
   const [search, setSearch] = useState("");
-  const [progress, setProgress] = useState("");
   useKeptManualsRefresh();
   const keeping = keptManualsSupported();
-  const aircraft = s!.aircraft.filter(
+  const writable = online && connected;
+  const aircraft = maintainedAircraft(s!, aircraftUuid);
+  const manuals = libraryManuals(s!, aircraftUuid, search);
+  const canUpload = writable && !!aircraft.length;
+  return (
+    <>
+      <LibraryHeader
+        aircraftUuid={aircraftUuid}
+        upload={{ disabled: !canUpload, onClick: () => setUpload(true) }}
+        search={search}
+        onSearch={setSearch}
+      />
+      <LibraryNotices demo={demo} kept={keeping && !!s!.manuals?.length} />
+      <ManualTable
+        rows={{ s: s!, keeping, writable, onEdit: setRenaming }}
+        manuals={manuals}
+      />
+      {renaming && (
+        <EditReference manual={renaming} onClose={() => setRenaming(null)} />
+      )}
+      {upload && (
+        <UploadManual
+          aircraftUuid={aircraftUuid}
+          aircraft={aircraft}
+          onDone={() => setUpload(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * A manual opened at a page, with links to open or download the PDF. A copy
+ * kept on this device opens first; if it fails to load, the online file
+ * opens instead.
+ */
+export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
+  const { snapshot } = useWorkspace();
+  const manual = snapshot?.manuals?.find((m) => m.uuid === uuid);
+  const file = useManualFile(uuid, manual);
+  if (!manual)
+    return (
+      <EmptyState title="Manual unavailable">
+        Manual is unavailable in the active Flight Program.
+      </EmptyState>
+    );
+  if (page > manual.pageCount)
+    return (
+      <EmptyState title="Page out of range">
+        This manual has {manual.pageCount} pages. The reference page is out of
+        range.
+      </EmptyState>
+    );
+  return (
+    <>
+      <ViewerHeader manual={manual} page={page} />
+      <KeepManualPanel manual={manual} fromDevice={file.fromDevice} />
+      {file.deviceFailed && <DeviceCopyNotice />}
+      {file.error && (
+        <NoticeBar tone="danger" icon={WarningCircle} role="alert">
+          {file.error}
+        </NoticeBar>
+      )}
+      {!file.url && !file.error && (
+        <p role="status" className="muted">
+          Opening manual…
+        </p>
+      )}
+      {file.url && <ManualPdf manual={manual} page={page} file={file} />}
+    </>
+  );
+}
+
+function referenceLabel(m: Manual, r: ManualReference) {
+  const section = r.section ? ` · § ${r.section}` : "";
+  const printed = r.printedPage ? ` · printed page ${r.printedPage}` : "";
+  return `${m.title} · ${m.revision}${section}${printed} · PDF page ${r.pdfPage}`;
+}
+
+// An unavailable manual stays listed so the stored reference is kept.
+function ManualChoice({
+  manuals,
+  known,
+  reference: ref,
+  onChange,
+}: ReferenceProps & { manuals: Manual[]; known: boolean }) {
+  return (
+    <Field label="Reference library manual">
+      <select
+        name="manualUuid"
+        value={ref.manualUuid}
+        onChange={(e) =>
+          onChange({ ...ref, manualUuid: e.target.value, pdfPage: 1 })
+        }
+      >
+        <option value="">No linked manual</option>
+        {ref.manualUuid && !known && (
+          <option value={ref.manualUuid}>
+            Previously linked manual (unavailable)
+          </option>
+        )}
+        {manuals.map((m) => (
+          <option key={m.uuid} value={m.uuid}>
+            {m.title} · {m.revision}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function PageFields({
+  reference: ref,
+  pageCount,
+  onChange,
+}: ReferenceProps & { pageCount?: number }) {
+  return (
+    <>
+      <Field label="Manual section">
+        <input
+          name="manualSection"
+          maxLength={MAX_LENGTH.section}
+          value={ref.section}
+          onChange={(e) => onChange({ ...ref, section: e.target.value })}
+          placeholder="5-12-02"
+        />
+      </Field>
+      <Field label="Printed page label">
+        <input
+          name="manualPrintedPage"
+          maxLength={MAX_LENGTH.printedPage}
+          value={ref.printedPage}
+          onChange={(e) => onChange({ ...ref, printedPage: e.target.value })}
+          placeholder="1"
+        />
+      </Field>
+      <PdfPageField reference={ref} pageCount={pageCount} onChange={onChange} />
+    </>
+  );
+}
+
+function PdfPageField({
+  reference: ref,
+  pageCount,
+  onChange,
+}: ReferenceProps & { pageCount?: number }) {
+  return (
+    <Field label="PDF page number">
+      <input
+        name="manualPdfPage"
+        type="number"
+        min={1}
+        max={pageCount}
+        required={!!ref.manualUuid}
+        value={ref.pdfPage || ""}
+        onChange={(e) => onChange({ ...ref, pdfPage: Number(e.target.value) })}
+      />
+    </Field>
+  );
+}
+
+function maintainedAircraft(s: Snapshot, aircraftUuid?: string) {
+  return s.aircraft.filter(
     (a) =>
-      can(s!, a.uuid, "maintenance") &&
+      can(s, a.uuid, "maintenance") &&
       (!aircraftUuid || a.uuid === aircraftUuid),
   );
-  const manuals = (s!.manuals ?? []).filter(
+}
+
+function libraryManuals(
+  s: Snapshot,
+  aircraftUuid: string | undefined,
+  search: string,
+) {
+  return (s.manuals ?? []).filter(
     (m) =>
       (!aircraftUuid || m.aircraftUuid === aircraftUuid) &&
       `${m.title} ${m.documentNumber} ${m.revision} ${m.filename}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  const uploadButton = (
+}
+
+function UploadButton({
+  disabled,
+  onClick,
+}: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
     <button
       type="button"
       className="button primary"
-      disabled={!online || !connected || !aircraft.length}
-      onClick={() => setUpload(true)}
+      disabled={disabled}
+      onClick={onClick}
     >
       <UploadSimple size={18} weight="bold" aria-hidden="true" />
       Upload manual
     </button>
   );
+}
+
+// The library page carries the upload button in its header; an aircraft's
+// window, in the toolbar.
+function LibraryHeader({
+  aircraftUuid,
+  upload,
+  search,
+  onSearch,
+}: {
+  aircraftUuid?: string;
+  upload: { disabled: boolean; onClick: () => void };
+  search: string;
+  onSearch: (search: string) => void;
+}) {
+  const uploadButton = <UploadButton {...upload} />;
   return (
     <>
       {!aircraftUuid && (
@@ -241,9 +450,16 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
           label="Search manuals"
           placeholder="Title, document number, revision"
           value={search}
-          onChange={setSearch}
+          onChange={onSearch}
         />
       </Toolbar>
+    </>
+  );
+}
+
+function LibraryNotices({ demo, kept }: { demo: boolean; kept: boolean }) {
+  return (
+    <>
       {demo && (
         <NoticeBar tone="neutral" icon={Info}>
           Demo manuals are saved in this browser, so they open offline without
@@ -251,310 +467,404 @@ export function ReferenceLibrary({ aircraftUuid }: { aircraftUuid?: string }) {
           reference library; Keep on this device works the same way here.
         </NoticeBar>
       )}
-      {keeping && !!s!.manuals?.length && <KeptManualsSummary />}
-      {manuals.length ? (
-        <ShopTableCard
-          label="Reference manuals"
-          className="shop-list-look shop-manuals"
-          stack
-        >
-          <table className="shop-table">
-            <thead>
-              <tr>
-                <th>Manual / revision</th>
-                <th>Aircraft / PDF</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {manuals.map((m) => (
-                <tr key={m.uuid}>
-                  <td className="shop-lead-cell shop-wide">
-                    <ShopLead
-                      icon={BookOpen}
-                      title={m.title}
-                      sub={[m.documentNumber, m.revision, m.revisionDate]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    />
-                  </td>
-                  <td className="shop-nowrap" data-label="Aircraft / PDF">
-                    <strong className="ds-list-meta">
-                      {
-                        s!.aircraft.find((a) => a.uuid === m.aircraftUuid)
-                          ?.registration
-                      }
-                    </strong>
-                    <small className="shop-icon-text">
-                      <FilePdf size={16} aria-hidden="true" />
-                      {`${m.pageCount.toLocaleString()} pages · ${(m.size / 1024 / 1024).toFixed(1)} MB`}
-                    </small>
-                    {keeping && <KeepManualStatus manual={m} />}
-                  </td>
-                  <td className="shop-actions-cell">
-                    <span className="shop-actions shop-manual-actions">
-                      <Link
-                        className="button small"
-                        to="/manuals/$manualUuid"
-                        params={{ manualUuid: m.uuid }}
-                        search={{ page: 1 }}
-                      >
-                        Open manual
-                      </Link>
-                      {keeping && <KeepManualButton manual={m} />}
-                      {can(s!, m.aircraftUuid, "maintenance") && (
-                        <button
-                          className="button small"
-                          disabled={!online || !connected}
-                          onClick={() => setRenaming(m)}
-                        >
-                          Edit reference
-                        </button>
-                      )}
-                      <ManualDiscoveryButton manual={m} />
-                      <MaintenanceCsvImportButton manual={m} />
-                    </span>
-                    {keeping && <KeepManualError manual={m} />}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </ShopTableCard>
-      ) : (
-        <EmptyState title="No manuals found">
-          Upload an aircraft manual to keep it available for maintenance
-          references.
-        </EmptyState>
-      )}
-      {renaming && (
-        <Modal title="Edit manual reference" onClose={() => setRenaming(null)}>
-          <AsyncForm
-            submitLabel="Save reference"
-            disabled={!online || !connected}
-            onSubmit={async (d) => {
-              await backend!.editManual(renaming.uuid, {
-                title: value(d, "title"),
-                documentNumber: value(d, "documentNumber"),
-                revision: value(d, "revision"),
-                revisionDate: value(d, "revisionDate"),
-                aircraftUuid: value(d, "aircraft"),
-                applicability: value(d, "kind")
-                  ? {
-                      kind: value(d, "kind") as "aircraft" | "component",
-                      manufacturer: value(d, "manufacturer"),
-                      model: value(d, "model"),
-                      partNumber: value(d, "partNumber"),
-                    }
-                  : undefined,
-              });
-              setRenaming(null);
-            }}
-          >
-            <Field label="Manual name">
-              <input
-                name="title"
-                defaultValue={renaming.title}
-                required
-                maxLength={300}
-                autoFocus
-              />
-            </Field>
-            <Field label="Document number">
-              <input
-                name="documentNumber"
-                defaultValue={renaming.documentNumber}
-                maxLength={200}
-              />
-            </Field>
-            <Field label="Revision / temporary revisions">
-              <input
-                name="revision"
-                defaultValue={renaming.revision}
-                required
-                maxLength={300}
-              />
-            </Field>
-            <Field label="Revision date">
-              <input
-                type="date"
-                name="revisionDate"
-                defaultValue={renaming.revisionDate}
-              />
-            </Field>
-            <Field label="Aircraft">
-              <select
-                name="aircraft"
-                defaultValue={renaming.aircraftUuid}
-                required
-              >
-                {s!.aircraft
-                  .filter(
-                    (a) =>
-                      can(s!, a.uuid, "maintenance") &&
-                      a.programUuid ===
-                        s!.aircraft.find(
-                          (a) => a.uuid === renaming.aircraftUuid,
-                        )?.programUuid,
-                  )
-                  .map((a) => (
-                    <option key={a.uuid} value={a.uuid}>
-                      {a.registration}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-            <Field label="Applicability type">
-              <select
-                name="kind"
-                defaultValue={renaming.applicability?.kind ?? ""}
-              >
-                <option value="">Not specified</option>
-                <option value="aircraft">Aircraft</option>
-                <option value="component">Component</option>
-              </select>
-            </Field>
-            <Field label="Manufacturer">
-              <input
-                name="manufacturer"
-                defaultValue={renaming.applicability?.manufacturer ?? ""}
-                maxLength={150}
-              />
-            </Field>
-            <Field label="Model">
-              <input
-                name="model"
-                defaultValue={renaming.applicability?.model ?? ""}
-                maxLength={150}
-              />
-            </Field>
-            <Field label="Part number">
-              <input
-                name="partNumber"
-                defaultValue={renaming.applicability?.partNumber ?? ""}
-                maxLength={100}
-              />
-            </Field>
-            <p className="muted">
-              PDF: {renaming.filename} · {renaming.pageCount.toLocaleString()}{" "}
-              pages. To replace the PDF, upload a new manual revision.
-            </p>
-          </AsyncForm>
-        </Modal>
-      )}
-      {upload && (
-        <Modal
-          title="Upload reference manual"
-          onClose={() => {
-            if (!progress) setUpload(false);
-          }}
-        >
-          <AsyncForm
-            submitLabel={progress || "Save manual"}
-            onSubmit={async (d) => {
-              const file = d.get("pdf");
-              if (!(file instanceof File) || !file.size)
-                throw new Error("Choose a PDF manual.");
-              try {
-                setProgress("Reading PDF…");
-                const { inspectManualPdf } = await import("../data/manualPdf");
-                const pageCount = await inspectManualPdf(file);
-                const owner = s!.aircraft.find(
-                  (a) => a.uuid === (aircraftUuid || value(d, "aircraft")),
-                );
-                const input = manualInputSchema.parse({
-                  applicability: owner?.model
-                    ? {
-                        kind: "aircraft",
-                        manufacturer: owner.make,
-                        model: owner.model,
-                        partNumber: "",
-                      }
-                    : undefined,
-                  aircraftUuid: aircraftUuid || value(d, "aircraft"),
-                  title: value(d, "title"),
-                  documentNumber: value(d, "documentNumber"),
-                  revision: value(d, "revision"),
-                  revisionDate: value(d, "revisionDate"),
-                  filename: file.name,
-                  size: file.size,
-                  pageCount,
-                });
-                setProgress("Uploading manual…");
-                await backend!.uploadManual(input, file);
-                setUpload(false);
-              } finally {
-                setProgress("");
-              }
-            }}
-          >
-            <p>
-              PDF up to 200 MB. Each upload is saved separately to preserve
-              references to earlier revisions.
-            </p>
-            {!aircraftUuid && (
-              <Field label="Aircraft">
-                <select name="aircraft" required>
-                  {aircraft.map((a) => (
-                    <option key={a.uuid} value={a.uuid}>
-                      {a.registration}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            <Field label="Manual title">
-              <input
-                name="title"
-                required
-                maxLength={300}
-                placeholder="Cessna 441 Maintenance Manual"
-              />
-            </Field>
-            <Field label="Document number">
-              <input
-                name="documentNumber"
-                maxLength={200}
-                placeholder="D2518-15-13"
-              />
-            </Field>
-            <Field label="Revision / temporary revisions">
-              <input
-                name="revision"
-                required
-                maxLength={300}
-                placeholder="Revision 15; TR 5-1 and 5-2"
-              />
-            </Field>
-            <Field label="Revision date">
-              <input type="date" name="revisionDate" />
-            </Field>
-            <Field label="PDF manual">
-              <input
-                type="file"
-                name="pdf"
-                accept="application/pdf,.pdf"
-                required
-              />
-            </Field>
-            {progress && <p role="status">{progress}</p>}
-          </AsyncForm>
-        </Modal>
-      )}
+      {kept && <KeptManualsSummary />}
     </>
   );
 }
-export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
+
+function ManualTable({
+  rows,
+  manuals,
+}: {
+  rows: Omit<RowProps, "manual">;
+  manuals: Manual[];
+}) {
+  if (!manuals.length)
+    return (
+      <EmptyState title="No manuals found">
+        Upload an aircraft manual to keep it available for maintenance
+        references.
+      </EmptyState>
+    );
+  return (
+    <ShopTableCard
+      label="Reference manuals"
+      className="shop-list-look shop-manuals"
+      stack
+    >
+      <table className="shop-table">
+        <thead>
+          <tr>
+            <th>Manual / revision</th>
+            <th>Aircraft / PDF</th>
+            <th>
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {manuals.map((m) => (
+            <ManualRow key={m.uuid} {...rows} manual={m} />
+          ))}
+        </tbody>
+      </table>
+    </ShopTableCard>
+  );
+}
+
+function ManualRow(props: RowProps) {
+  const { s, manual: m, keeping } = props;
+  const megabytes = (m.size / BYTES_PER_MEGABYTE).toFixed(1);
+  return (
+    <tr>
+      <td className="shop-lead-cell shop-wide">
+        <ShopLead
+          icon={BookOpen}
+          title={m.title}
+          sub={[m.documentNumber, m.revision, m.revisionDate]
+            .filter(Boolean)
+            .join(" · ")}
+        />
+      </td>
+      <td className="shop-nowrap" data-label="Aircraft / PDF">
+        <strong className="ds-list-meta">
+          {s.aircraft.find((a) => a.uuid === m.aircraftUuid)?.registration}
+        </strong>
+        <small className="shop-icon-text">
+          <FilePdf size={16} aria-hidden="true" />
+          {`${m.pageCount.toLocaleString()} pages · ${megabytes} MB`}
+        </small>
+        {keeping && <KeepManualStatus manual={m} />}
+      </td>
+      <td className="shop-actions-cell">
+        <ManualActions {...props} />
+        {keeping && <KeepManualError manual={m} />}
+      </td>
+    </tr>
+  );
+}
+
+function ManualActions({ s, manual: m, keeping, writable, onEdit }: RowProps) {
+  return (
+    <span className="shop-actions shop-manual-actions">
+      <Link
+        className="button small"
+        to="/manuals/$manualUuid"
+        params={{ manualUuid: m.uuid }}
+        search={{ page: 1 }}
+      >
+        Open manual
+      </Link>
+      {keeping && <KeepManualButton manual={m} />}
+      {can(s, m.aircraftUuid, "maintenance") && (
+        <button
+          className="button small"
+          disabled={!writable}
+          onClick={() => onEdit(m)}
+        >
+          Edit reference
+        </button>
+      )}
+      <ManualDiscoveryButton manual={m} />
+      <MaintenanceCsvImportButton manual={m} />
+    </span>
+  );
+}
+
+// The PDF stays; replacing it means uploading a new manual revision.
+function EditReference({
+  manual,
+  onClose,
+}: {
+  manual: Manual;
+  onClose: () => void;
+}) {
+  const { backend, online, connected } = useWorkspace();
+  return (
+    <Modal title="Edit manual reference" onClose={onClose}>
+      <AsyncForm
+        submitLabel="Save reference"
+        disabled={!online || !connected}
+        onSubmit={async (d) => {
+          await backend!.editManual(manual.uuid, editInput(d));
+          onClose();
+        }}
+      >
+        <EditDocumentFields manual={manual} />
+        <EditAircraftField manual={manual} />
+        <ApplicabilityFields manual={manual} />
+        <p className="muted">
+          PDF: {manual.filename} · {manual.pageCount.toLocaleString()} pages. To
+          replace the PDF, upload a new manual revision.
+        </p>
+      </AsyncForm>
+    </Modal>
+  );
+}
+
+// No applicability type clears the applicability.
+function editInput(d: FormData) {
+  const kind = value(d, "kind");
+  return {
+    title: value(d, "title"),
+    documentNumber: value(d, "documentNumber"),
+    revision: value(d, "revision"),
+    revisionDate: value(d, "revisionDate"),
+    aircraftUuid: value(d, "aircraft"),
+    applicability: kind
+      ? {
+          kind: kind as "aircraft" | "component",
+          manufacturer: value(d, "manufacturer"),
+          model: value(d, "model"),
+          partNumber: value(d, "partNumber"),
+        }
+      : undefined,
+  };
+}
+
+function EditDocumentFields({ manual }: { manual: Manual }) {
+  return (
+    <>
+      <Field label="Manual name">
+        <input
+          name="title"
+          defaultValue={manual.title}
+          required
+          maxLength={MAX_LENGTH.title}
+          autoFocus
+        />
+      </Field>
+      <Field label="Document number">
+        <input
+          name="documentNumber"
+          defaultValue={manual.documentNumber}
+          maxLength={MAX_LENGTH.documentNumber}
+        />
+      </Field>
+      <Field label="Revision / temporary revisions">
+        <input
+          name="revision"
+          defaultValue={manual.revision}
+          required
+          maxLength={MAX_LENGTH.revision}
+        />
+      </Field>
+      <Field label="Revision date">
+        <input
+          type="date"
+          name="revisionDate"
+          defaultValue={manual.revisionDate}
+        />
+      </Field>
+    </>
+  );
+}
+
+// A manual moves only between maintained aircraft of its own program.
+function EditAircraftField({ manual }: { manual: Manual }) {
+  const { snapshot: s } = useWorkspace();
+  const program = s!.aircraft.find(
+    (a) => a.uuid === manual.aircraftUuid,
+  )?.programUuid;
+  const choices = s!.aircraft.filter(
+    (a) => can(s!, a.uuid, "maintenance") && a.programUuid === program,
+  );
+  return (
+    <Field label="Aircraft">
+      <select name="aircraft" defaultValue={manual.aircraftUuid} required>
+        {choices.map((a) => (
+          <option key={a.uuid} value={a.uuid}>
+            {a.registration}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function ApplicabilityFields({ manual }: { manual: Manual }) {
+  const applicability = manual.applicability;
+  return (
+    <>
+      <Field label="Applicability type">
+        <select name="kind" defaultValue={applicability?.kind ?? ""}>
+          <option value="">Not specified</option>
+          <option value="aircraft">Aircraft</option>
+          <option value="component">Component</option>
+        </select>
+      </Field>
+      <Field label="Manufacturer">
+        <input
+          name="manufacturer"
+          defaultValue={applicability?.manufacturer ?? ""}
+          maxLength={MAX_LENGTH.manufacturer}
+        />
+      </Field>
+      <Field label="Model">
+        <input
+          name="model"
+          defaultValue={applicability?.model ?? ""}
+          maxLength={MAX_LENGTH.model}
+        />
+      </Field>
+      <Field label="Part number">
+        <input
+          name="partNumber"
+          defaultValue={applicability?.partNumber ?? ""}
+          maxLength={MAX_LENGTH.partNumber}
+        />
+      </Field>
+    </>
+  );
+}
+
+// The window cannot close while a file is being read or uploaded.
+function UploadManual({
+  aircraftUuid,
+  aircraft,
+  onDone,
+}: {
+  aircraftUuid?: string;
+  aircraft: Aircraft[];
+  onDone: () => void;
+}) {
+  const { snapshot: s, backend } = useWorkspace();
+  const [progress, setProgress] = useState("");
+  async function save(d: FormData) {
+    const file = d.get("pdf");
+    if (!(file instanceof File) || !file.size)
+      throw new Error("Choose a PDF manual.");
+    try {
+      setProgress("Reading PDF…");
+      const target = aircraftUuid || value(d, "aircraft");
+      const input = await readManualInput(s!, target, d, file);
+      setProgress("Uploading manual…");
+      await backend!.uploadManual(input, file);
+      onDone();
+    } finally {
+      setProgress("");
+    }
+  }
+  return (
+    <Modal
+      title="Upload reference manual"
+      onClose={() => {
+        if (!progress) onDone();
+      }}
+    >
+      <AsyncForm submitLabel={progress || "Save manual"} onSubmit={save}>
+        <UploadFields aircraftUuid={aircraftUuid} aircraft={aircraft} />
+        {progress && <p role="status">{progress}</p>}
+      </AsyncForm>
+    </Modal>
+  );
+}
+
+// The PDF is counted in the browser; a manual for an aircraft with a model
+// applies to that make and model.
+async function readManualInput(
+  s: Snapshot,
+  aircraftUuid: string,
+  d: FormData,
+  file: File,
+) {
+  const { inspectManualPdf } = await import("../data/manualPdf");
+  const pageCount = await inspectManualPdf(file);
+  const owner = s.aircraft.find((a) => a.uuid === aircraftUuid);
+  return manualInputSchema.parse({
+    applicability: owner?.model
+      ? {
+          kind: "aircraft",
+          manufacturer: owner.make,
+          model: owner.model,
+          partNumber: "",
+        }
+      : undefined,
+    aircraftUuid,
+    title: value(d, "title"),
+    documentNumber: value(d, "documentNumber"),
+    revision: value(d, "revision"),
+    revisionDate: value(d, "revisionDate"),
+    filename: file.name,
+    size: file.size,
+    pageCount,
+  });
+}
+
+function UploadFields({
+  aircraftUuid,
+  aircraft,
+}: {
+  aircraftUuid?: string;
+  aircraft: Aircraft[];
+}) {
+  return (
+    <>
+      <p>
+        PDF up to {MAX_MANUAL_BYTES / BYTES_PER_MEGABYTE} MB. Each upload is
+        saved separately to preserve references to earlier revisions.
+      </p>
+      {!aircraftUuid && (
+        <Field label="Aircraft">
+          <select name="aircraft" required>
+            {aircraft.map((a) => (
+              <option key={a.uuid} value={a.uuid}>
+                {a.registration}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <UploadDocumentFields />
+      <Field label="PDF manual">
+        <input type="file" name="pdf" accept="application/pdf,.pdf" required />
+      </Field>
+    </>
+  );
+}
+
+function UploadDocumentFields() {
+  return (
+    <>
+      <Field label="Manual title">
+        <input
+          name="title"
+          required
+          maxLength={MAX_LENGTH.title}
+          placeholder="Cessna 441 Maintenance Manual"
+        />
+      </Field>
+      <Field label="Document number">
+        <input
+          name="documentNumber"
+          maxLength={MAX_LENGTH.documentNumber}
+          placeholder="D2518-15-13"
+        />
+      </Field>
+      <Field label="Revision / temporary revisions">
+        <input
+          name="revision"
+          required
+          maxLength={MAX_LENGTH.revision}
+          placeholder="Revision 15; TR 5-1 and 5-2"
+        />
+      </Field>
+      <Field label="Revision date">
+        <input type="date" name="revisionDate" />
+      </Field>
+    </>
+  );
+}
+
+function useManualFile(uuid: string, manual?: Manual) {
   const { snapshot, backend, namespace } = useWorkspace();
-  const manual = snapshot?.manuals?.find((m) => m.uuid === uuid);
   const userId = snapshot?.user.id;
   const [url, setUrl] = useState("");
   const [fromDevice, setFromDevice] = useState(false);
   // Set when the kept copy fails to open: use the online file instead.
   const [failedCopy, setFailedCopy] = useState("");
-  const deviceFailed = failedCopy === `${namespace}\n${userId}\n${uuid}`;
+  const copyKey = `${namespace}\n${userId}\n${uuid}`;
+  const deviceFailed = failedCopy === copyKey;
   const [error, setError] = useState("");
   useEffect(() => {
     let canceled = false;
@@ -568,88 +878,76 @@ export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
       openManualFile(uuid, { useDevice: !deviceFailed })
         .then((file) => {
           objectUrl = file.url;
-          if (canceled) {
-            if (file.url.startsWith("blob:")) URL.revokeObjectURL(file.url);
-          } else {
-            setFromDevice(file.fromDevice);
-            setUrl(file.url);
-          }
+          if (canceled) return revokeBlob(file.url);
+          setFromDevice(file.fromDevice);
+          setUrl(file.url);
         })
         .catch((e) => {
           if (!canceled) setError(errorText(e, "Unable to open manual."));
         });
     return () => {
       canceled = true;
-      if (objectUrl.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
+      revokeBlob(objectUrl);
     };
   }, [uuid, backend, !!manual, namespace, userId, deviceFailed]);
-  if (!manual)
-    return (
-      <EmptyState title="Manual unavailable">
-        Manual is unavailable in the active Flight Program.
-      </EmptyState>
-    );
-  if (page > manual.pageCount)
-    return (
-      <EmptyState title="Page out of range">
-        This manual has {manual.pageCount} pages. The reference page is out of
-        range.
-      </EmptyState>
-    );
+  const onDeviceFailed = () => setFailedCopy(copyKey);
+  return { url, fromDevice, deviceFailed, error, onDeviceFailed };
+}
+
+// Only an object URL made for a kept copy is released; online links are not.
+function revokeBlob(url: string) {
+  if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+}
+
+function ViewerHeader({ manual, page }: { manual: Manual; page: number }) {
+  return (
+    <PageHeader
+      eyebrow="REFERENCE LIBRARY"
+      title={manual.title}
+      description={`${manual.documentNumber} · ${manual.revision} · PDF page ${page}`}
+      actions={
+        <>
+          <ManualDiscoveryButton manual={manual} />
+          <MaintenanceCsvImportButton manual={manual} />
+        </>
+      }
+    />
+  );
+}
+
+// Only a kept copy falls back when the reader cannot load it.
+function ManualPdf({
+  manual,
+  page,
+  file,
+}: {
+  manual: Manual;
+  page: number;
+  file: ManualFile;
+}) {
   return (
     <>
-      <PageHeader
-        eyebrow="REFERENCE LIBRARY"
+      <div className="shop-viewer-actions">
+        <a
+          className="button small"
+          href={`${file.url}#page=${page}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <ArrowSquareOut size={17} aria-hidden="true" />
+          Open PDF in browser
+        </a>
+        <a className="button small" href={file.url} download={manual.filename}>
+          <DownloadSimple size={17} aria-hidden="true" />
+          Download PDF
+        </a>
+      </div>
+      <PdfReader
+        url={file.url}
+        initialPage={page}
         title={manual.title}
-        description={`${manual.documentNumber} · ${manual.revision} · PDF page ${page}`}
-        actions={
-          <>
-            <ManualDiscoveryButton manual={manual} />
-            <MaintenanceCsvImportButton manual={manual} />
-          </>
-        }
+        onLoadError={file.fromDevice ? file.onDeviceFailed : undefined}
       />
-      <KeepManualPanel manual={manual} fromDevice={fromDevice} />
-      {deviceFailed && <DeviceCopyNotice />}
-      {error && (
-        <NoticeBar tone="danger" icon={WarningCircle} role="alert">
-          {error}
-        </NoticeBar>
-      )}
-      {!url && !error && (
-        <p role="status" className="muted">
-          Opening manual…
-        </p>
-      )}
-      {url && (
-        <>
-          <div className="shop-viewer-actions">
-            <a
-              className="button small"
-              href={`${url}#page=${page}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <ArrowSquareOut size={17} aria-hidden="true" />
-              Open PDF in browser
-            </a>
-            <a className="button small" href={url} download={manual.filename}>
-              <DownloadSimple size={17} aria-hidden="true" />
-              Download PDF
-            </a>
-          </div>
-          <PdfReader
-            url={url}
-            initialPage={page}
-            title={manual.title}
-            onLoadError={
-              fromDevice
-                ? () => setFailedCopy(`${namespace}\n${userId}\n${uuid}`)
-                : undefined
-            }
-          />
-        </>
-      )}
     </>
   );
 }
