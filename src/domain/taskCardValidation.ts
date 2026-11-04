@@ -1,3 +1,9 @@
+/**
+ * Responsibility: The warnings a job card form shows before saving and before
+ *   signing.
+ * Layer: Domain. Pure functions; no I/O, no React.
+ * Dependencies: zod; src/domain/model.ts, taskCards.ts.
+ */
 import { ZodError } from "zod";
 import { localDate, type Snapshot } from "./model";
 import {
@@ -7,7 +13,9 @@ import {
   type TaskCardFields,
 } from "./taskCards";
 
-const labels: Record<string, string> = {
+// Fields not listed are named from their key: "maintenanceReference" reads
+// "maintenance Reference".
+const FIELD_LABELS: Record<string, string> = {
   aircraftUuid: "Aircraft",
   title: "Title",
   cardNumber: "Card number",
@@ -21,26 +29,32 @@ const labels: Record<string, string> = {
   stockUuid: "Stock item",
   locationUuid: "Inventory location",
 };
+
+/**
+ * The messages a job card form shows for a refused save.
+ *
+ * @param error - What the parse or save threw.
+ * @returns For a ZodError, one message per issue naming the field, prefixed
+ *   "Step N: " or "Part N: " inside those lists ("<Field> is required." for
+ *   an empty text); for another Error, its message lines; else "Unable to
+ *   save the job card."
+ */
 export function taskCardValidationMessages(error: unknown): string[] {
-  if (error instanceof ZodError)
-    return error.issues.map((issue) => {
-      const path = issue.path;
-      const prefix =
-        path[0] === "steps"
-          ? `Step ${Number(path[1]) + 1}: `
-          : path[0] === "partsUsed"
-            ? `Part ${Number(path[1]) + 1}: `
-            : "";
-      const key = String(path.at(-1) ?? "field");
-      const field = labels[key] ?? key.replace(/([A-Z])/g, " $1");
-      if (issue.code === "too_small" && issue.origin === "string")
-        return `${prefix}${field} is required.`;
-      return `${prefix}${field}: ${issue.message}`;
-    });
+  if (error instanceof ZodError) return error.issues.map(describeIssue);
   return error instanceof Error
     ? error.message.split("\n")
     : ["Unable to save the job card."];
 }
+
+/**
+ * Previews a job card save with the real save rules, on a copy.
+ *
+ * @param s - The snapshot; never changed.
+ * @param uuid - The card's id.
+ * @param fields - The form's fields.
+ * @param initial - The stored card, whose version the save would replace.
+ * @returns The messages the save would refuse with; [] if it would succeed.
+ */
 export function taskCardSaveWarnings(
   s: Snapshot,
   uuid: string,
@@ -50,7 +64,6 @@ export function taskCardSaveWarnings(
   const parsed = taskCardFieldsSchema.safeParse(fields);
   if (!parsed.success) return taskCardValidationMessages(parsed.error);
   try {
-    // Use the real save rules on an isolated copy; no preview writes are committed.
     saveTaskCard(structuredClone(s), {
       action: "save",
       uuid,
@@ -59,9 +72,20 @@ export function taskCardSaveWarnings(
     });
     return [];
   } catch (error) {
+    // A refused save is the preview's answer, shown to the user as warnings.
     return taskCardValidationMessages(error);
   }
 }
+
+/**
+ * Why the form's job card cannot be signed yet.
+ *
+ * @param fields - The form's fields.
+ * @param dirty - Whether the form has unsaved changes.
+ * @param initial - The stored card; undefined before the first save.
+ * @returns In order: a future completion date, a draft status, then an
+ *   unsaved card or unsaved changes; [] when it can be signed.
+ */
 export function taskCardSigningWarnings(
   fields: TaskCardFields,
   dirty: boolean,
@@ -80,4 +104,19 @@ export function taskCardSigningWarnings(
       "Save your changes before signing. Changes clear existing signoffs.",
     );
   return warnings;
+}
+
+function describeIssue(issue: ZodError["issues"][number]) {
+  const key = String(issue.path.at(-1) ?? "field");
+  const field = FIELD_LABELS[key] ?? key.replace(/([A-Z])/g, " $1");
+  const prefix = listItemPrefix(issue.path);
+  if (issue.code === "too_small" && issue.origin === "string")
+    return `${prefix}${field} is required.`;
+  return `${prefix}${field}: ${issue.message}`;
+}
+
+function listItemPrefix([list, index]: PropertyKey[]) {
+  if (list === "steps") return `Step ${Number(index) + 1}: `;
+  if (list === "partsUsed") return `Part ${Number(index) + 1}: `;
+  return "";
 }
