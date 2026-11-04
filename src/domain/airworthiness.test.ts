@@ -779,6 +779,24 @@ it("leaves the counter unavailable when component totals cannot be read", () => 
   });
 });
 
+it("judges an AD's status and component counters on the date given", () => {
+  const { s, r } = setup();
+  const a = s.aircraft[0];
+  s.management = [
+    installedEngine(a, { trackCalendar: true, installedDate: "2099-01-01" }),
+  ];
+  const engineAD = { ...r, componentUuid: "engine-1" };
+  expect(adCounters(s, engineAD, "2098-12-30")).toBeNull();
+  expect(adCounters(s, engineAD, "2099-06-01")).not.toBeNull();
+  const dated: AD = {
+    ...r,
+    tasks: [{ ...r.tasks[0], dueHours: null, dueDate: "2099-06-01" }],
+  };
+  expect(adStatus(s, dated, "2099-06-02")).toBe("Overdue");
+  expect(adStatus(s, dated, "2099-05-15")).toBe("Due soon");
+  expect(adStatus(s, dated, "2099-01-01")).toBe("Scheduled");
+});
+
 // Characterizes current behaviour: the aircraft meter's own refusals
 // (src/domain/model.ts) are plain Errors, so a catch narrowed to Rejection
 // would not cover the same set.

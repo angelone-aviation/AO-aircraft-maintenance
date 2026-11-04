@@ -564,7 +564,7 @@ function adTaskItems(
   { ad: r, component: c, tasks }: AdDue,
   a: Aircraft,
 ) {
-  const counters = adCounters(s, r);
+  const counters = adCounters(s, r, today);
   const inventory = !!c && !c.installed;
   const use = inventory ? undefined : usageOf(a);
   return tasks.map(({ task: t, status }) => {

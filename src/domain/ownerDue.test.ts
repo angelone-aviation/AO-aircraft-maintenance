@@ -5,7 +5,7 @@
  * Dependencies: src/domain/ownerDue.ts, airworthiness.ts, model.ts,
  *   rejection.ts; src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask } from "./airworthiness";
@@ -14,16 +14,6 @@ import { ownerDueCounts, ownerDueItems } from "./ownerDue";
 import { Rejection } from "./rejection";
 
 const today = "2026-10-30";
-
-// adStatus judges AD due dates on the clock, not on `today`, so the clock is
-// held at `today` too; otherwise these pins break as the real date moves on.
-beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date(`${today}T12:00:00`));
-});
-afterEach(() => {
-  vi.useRealTimers();
-});
 
 function owned() {
   const s: Snapshot = {
@@ -154,8 +144,19 @@ it("lists an inspection whose component is missing for review", () => {
   });
 });
 
+it("judges ADs on its date, not the clock's", () => {
+  const { s, a } = owned();
+  const status = (on: string) =>
+    ownerDueItems(s, a, on).find((x) => x.uuid === "due")?.status;
+  expect(status("2026-09-01")).toBe("ok");
+  expect(status(today)).toBe("due-soon");
+  expect(status("2026-11-06")).toBe("overdue");
+});
+
 it("measures component inspections on its date, not the clock's", () => {
   const { s, a } = owned();
+  // On 2099-06-01 the fixture's ADs are overdue and would sort first.
+  s.airworthiness = [];
   const gear = Object.assign(structuredClone(s.management![0]), {
     uuid: "gear",
     usageMeter: undefined,
