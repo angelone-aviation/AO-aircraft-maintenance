@@ -1,9 +1,15 @@
-/* Flight screens (UI redesign v2): the Log a flight form, fuel and oil,
- * oil inventory, guided flight and Start / End flight.
- * Every class is prefixed `flight-`. Tokens come from src/styles/tokens.css.
+/*
+ * Responsibility: Styles for the flight screens: the Log a flight form, fuel
+ *   and oil, oil inventory, guided flight and Start / End flight.
+ * Layer: UI. Every selector is scoped by a `flight-` class, so nothing here
+ *   restyles another screen.
+ * Dependencies: src/styles/tokens.css (colours, radii, motion),
+ *   src/styles/design.css (ds-*), src/styles.css (.panel, .field, .button).
+ *
  * Layout follows the space the form actually has (container queries), so the
  * same markup works in the centred dialog, the phone bottom sheet and the
- * guided-flight panel on the Checklists page. */
+ * guided-flight panel on the Checklists page.
+ */
 
 .flight-sr-only {
   position: absolute;

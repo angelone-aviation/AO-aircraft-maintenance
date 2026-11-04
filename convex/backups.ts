@@ -1,37 +1,44 @@
-// Nightly off-site backup records (ADR-0008, "Freshness alarm"). The backup
-// job in GitHub Actions calls recordOffsiteCopy with its deploy key after
-// each successful upload to R2; system administrators see the newest copy in
-// Settings → System, and the daily alert digest warns them when it is stale
-// (src/domain/offsiteBackups.ts).
+/**
+ * Responsibility: Records each nightly off-site backup copy and reports the
+ *   newest one (ADR-0008, "Freshness alarm").
+ * Layer: Server. An internal mutation for the backup job's deploy key and a
+ *   query for system administrators.
+ * Dependencies: convex/access, src/domain/offsiteBackups (types).
+ *
+ * Writes no change-log rows: a copy changes no maintenance record, and a row
+ * every night would flood the "Unassigned records" history. The backupRuns
+ * table itself is the record of backups.
+ */
 import { internalMutation, query, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { admin } from "./access";
 import type { OffsiteCopy } from "../src/domain/offsiteBackups";
 
-const MAX_KEY_LENGTH = 1024; // R2 and S3 object key limit
+// R2's and S3's object key limit.
+const MAX_KEY_LENGTH = 1024;
+
+// The backup job's clock may run a little ahead of the server's.
 const FUTURE_LIMIT_MS = 10 * 60_000;
 
-function checkKey(key: string, name: string, prefix: string, suffix = "") {
-  if (
-    key.length > MAX_KEY_LENGTH ||
-    !key.startsWith(prefix) ||
-    !key.endsWith(suffix) ||
-    key.length <= prefix.length + suffix.length
-  )
-    throw new Error(
-      `${name} must start with "${prefix}"${suffix ? ` and end with "${suffix}"` : ""}.`,
-    );
-}
+type Copy = Omit<Doc<"backupRuns">, "_id" | "_creationTime" | "recordedAt">;
 
 /**
- * Records one successful off-site copy. Internal: only the backup job (or
- * anyone else holding a deploy key) can call it, as
- * `npx convex run backups:recordOffsiteCopy '{...}'`. Running it again with
- * the same copy records nothing new.
+ * Records one successful off-site copy, as the GitHub Actions job does after
+ * each upload to R2: `npx convex run backups:recordOffsiteCopy '{...}'`.
  *
- * No change-log (audit) row is written: this changes no maintenance record,
- * and a row every night would flood the "Unassigned records" history. The
- * table itself is the record of backups.
+ * @param completedAt - When the upload finished, in epoch milliseconds.
+ * @param objectKey - The copy's key, starting "daily/" and ending ".zip.age".
+ * @param bytes - The encrypted object's size.
+ * @param sha256 - Its SHA-256, in lowercase hexadecimal.
+ * @param monthlyKey - "monthly/…", on the night the copy also made the
+ *   monthly archive.
+ * @param envUploaded - Whether the environment variables were uploaded too.
+ * @returns The copy's id; the same id when the same copy is recorded again.
+ * @throws {Error} "objectKey must start with …", "monthlyKey must start
+ *   with …", "sha256 must be …", "bytes must be …" or "completedAt …" for input
+ *   off the job's contract; "This copy is already recorded with different
+ *   details."
  */
 export const recordOffsiteCopy = internalMutation({
   args: {
@@ -44,42 +51,34 @@ export const recordOffsiteCopy = internalMutation({
   },
   handler: async (ctx, args) => {
     const recordedAt = Date.now();
-    checkKey(args.objectKey, "objectKey", "daily/", ".zip.age");
-    if (args.monthlyKey !== undefined)
-      checkKey(args.monthlyKey, "monthlyKey", "monthly/");
-    if (!/^[0-9a-f]{64}$/.test(args.sha256))
-      throw new Error("sha256 must be 64 lowercase hexadecimal characters.");
-    if (!Number.isSafeInteger(args.bytes) || args.bytes <= 0)
-      throw new Error("bytes must be a positive whole number.");
-    if (!Number.isFinite(args.completedAt) || args.completedAt <= 0)
-      throw new Error("completedAt must be a time in epoch milliseconds.");
-    if (args.completedAt > recordedAt + FUTURE_LIMIT_MS)
-      throw new Error(
-        "completedAt is more than 10 minutes in the future. Check the clock and the units (milliseconds).",
-      );
+    assertCopyContract(args, recordedAt);
     const same = (
       await ctx.db
         .query("backupRuns")
         .withIndex("completedAt", (q) => q.eq("completedAt", args.completedAt))
         .collect()
     ).find((run) => run.objectKey === args.objectKey);
-    if (same) {
-      if (
-        same.bytes !== args.bytes ||
-        same.sha256 !== args.sha256 ||
-        same.monthlyKey !== args.monthlyKey ||
-        same.envUploaded !== args.envUploaded
-      )
-        throw new Error(
-          "This copy is already recorded with different details.",
-        );
-      return same._id;
-    }
-    return await ctx.db.insert("backupRuns", { ...args, recordedAt });
+    if (!same)
+      return await ctx.db.insert("backupRuns", { ...args, recordedAt });
+    if (
+      same.bytes !== args.bytes ||
+      same.sha256 !== args.sha256 ||
+      same.monthlyKey !== args.monthlyKey ||
+      same.envUploaded !== args.envUploaded
+    )
+      throw new Error("This copy is already recorded with different details.");
+    return same._id;
   },
 });
 
-/** The newest copy, and when the newest monthly archive was made. */
+/**
+ * Reads the newest copy by completion time, and when the newest monthly
+ * archive was made. Checks no access.
+ *
+ * @param ctx - Query context.
+ * @returns Null before any copy; no `monthlyCompletedAt` before any monthly
+ *   archive.
+ */
 export async function latestCopy(ctx: QueryCtx): Promise<OffsiteCopy | null> {
   let latest: OffsiteCopy | null = null;
   // Newest first; a monthly archive is made each month, so this normally
@@ -103,7 +102,12 @@ export async function latestCopy(ctx: QueryCtx): Promise<OffsiteCopy | null> {
   return latest;
 }
 
-/** Settings → System: the newest off-site copy, for system administrators. */
+/**
+ * Shows system administrators the newest off-site copy in Settings → System.
+ *
+ * @returns As {@link latestCopy}.
+ * @throws {Error} "Administrator permission required."
+ */
 export const latestOffsiteCopy = query({
   args: {},
   handler: async (ctx) => {
@@ -111,3 +115,31 @@ export const latestOffsiteCopy = query({
     return latestCopy(ctx);
   },
 });
+
+function assertCopyContract(copy: Copy, recordedAt: number): void {
+  checkKey(copy.objectKey, "objectKey", "daily/", ".zip.age");
+  if (copy.monthlyKey !== undefined)
+    checkKey(copy.monthlyKey, "monthlyKey", "monthly/");
+  if (!/^[0-9a-f]{64}$/.test(copy.sha256))
+    throw new Error("sha256 must be 64 lowercase hexadecimal characters.");
+  if (!Number.isSafeInteger(copy.bytes) || copy.bytes <= 0)
+    throw new Error("bytes must be a positive whole number.");
+  if (!Number.isFinite(copy.completedAt) || copy.completedAt <= 0)
+    throw new Error("completedAt must be a time in epoch milliseconds.");
+  if (copy.completedAt > recordedAt + FUTURE_LIMIT_MS)
+    throw new Error(
+      "completedAt is more than 10 minutes in the future. Check the clock and the units (milliseconds).",
+    );
+}
+
+function checkKey(key: string, name: string, prefix: string, suffix = "") {
+  if (
+    key.length > MAX_KEY_LENGTH ||
+    !key.startsWith(prefix) ||
+    !key.endsWith(suffix) ||
+    key.length <= prefix.length + suffix.length
+  )
+    throw new Error(
+      `${name} must start with "${prefix}"${suffix ? ` and end with "${suffix}"` : ""}.`,
+    );
+}

@@ -1,3 +1,9 @@
+/**
+ * Responsibility: A work order's labor, parts and other costs panel.
+ * Layer: UI. React components; cost rules live in src/domain/costs.ts.
+ * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
+ *   (model, programs, workOrders, costs), ./ui, ./costs.css.
+ */
 import { useState } from "react";
 import { Trash } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
@@ -16,7 +22,7 @@ import {
   workOrderCosts,
   type CostCommand,
 } from "../domain/costs";
-import { AsyncForm, Badge, Field, value } from "./ui";
+import { AsyncForm, Badge, Field, errorText, value } from "./ui";
 import "./costs.css";
 
 /** Labor, parts and other costs for one work order. */
@@ -37,7 +43,7 @@ export function WorkOrderCosts({ order }: { order: WorkOrder }) {
     try {
       await backend!.costs(command);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Cost change failed.");
+      setError(errorText(e, "Cost change failed."));
     }
   }
   return (
@@ -369,7 +375,7 @@ function UnitCostEditor({
             await onSave(parseCents(draft));
             setDraft("");
           } catch (e) {
-            setError(e instanceof Error ? e.message : "Invalid amount.");
+            setError(errorText(e, "Invalid amount."));
           }
         }}
       >

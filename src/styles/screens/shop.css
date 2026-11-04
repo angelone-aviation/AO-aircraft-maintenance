@@ -1,7 +1,11 @@
-/* Shop screens: work orders, parts & repair requests, purchase orders,
- * vendors, saved addresses, reference library and costs.
- * Every class is prefixed `shop-`; tokens come from src/styles/tokens.css and
- * the shared ds- building blocks from src/styles/design.css. */
+/*
+ * Responsibility: Styles the Shop screens built on src/components/ShopList.tsx:
+ *   work orders, parts and repair requests, purchase orders, vendors, saved
+ *   addresses, the reference library and costs.
+ * Layer: UI. Screen styles; every selector is scoped by a `shop-` class.
+ * Dependencies: src/styles/tokens.css (tokens and keyframes),
+ *   src/styles/design.css (`ds-*`).
+ */
 
 /* ---------- Table card (README "Flight log" table pattern) ---------- */
 .shop-table-card {

@@ -1,41 +1,55 @@
+/**
+ * Responsibility: The alerts screen, the shell's alert bell and its unread
+ *   count, with alerts marked read one at a time or all at once.
+ * Layer: UI. Computes alerts from the workspace snapshot; read marks go
+ *   through the alert-reads store.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/data/alerts.ts (useAlertReads),
+ *   src/domain/alerts.ts, src/domain/model.ts (localDate),
+ *   src/components/design.tsx, maintenance.css.
+ */
 import { useEffect, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell } from "@phosphor-icons/react";
+import { Bell, Check, Checks } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { useAlertReads } from "../data/alerts";
 import {
   computeAlerts,
   severityLabels,
+  type Alert,
   type AlertSeverity,
 } from "../domain/alerts";
 import { localDate } from "../domain/model";
 import { EmptyState, PageHeader } from "./design";
-import { Check, Checks } from "@phosphor-icons/react";
 import "../styles/screens/maintenance.css";
 
-const tones = {
+// Most urgent first: the order the screen lists the groups in.
+const SEVERITIES = ["danger", "warning", "info"] as const;
+const SEVERITY_TONES = {
   danger: "danger",
   warning: "warning",
   info: "neutral",
 } as const satisfies Record<AlertSeverity, string>;
+// Above this the badge reads "99+", keeping it to three characters.
+const BADGE_MAX = 99;
+const ACTION_ICON_SIZE = 18;
 
-function useAlerts() {
-  const s = useWorkspace((x) => x.snapshot)!;
-  const read = useAlertReads((x) => x.keys);
-  const alerts = useMemo(() => computeAlerts(s, localDate()), [s]);
-  const readSet = useMemo(() => new Set(read), [read]);
-  return {
-    alerts,
-    isRead: (key: string) => readSet.has(key),
-    unread: alerts.filter((a) => !readSet.has(a.key)).length,
-  };
-}
-
-/** Unread alert count for the shell's navigation badge. */
+/**
+ * The number of the user's current alerts not yet marked read, for the
+ * shell's navigation badge.
+ *
+ * @returns The unread count.
+ */
 export function useUnreadAlertCount() {
   return useAlerts().unread;
 }
 
+/**
+ * A link to the alerts screen whose badge shows the unread count. It reloads
+ * the read marks whenever the user, program, backend or connection changes.
+ *
+ * @returns The bell link.
+ */
 export function AlertBell() {
   const { backend, connected, snapshot } = useWorkspace();
   const load = useAlertReads((x) => x.load);
@@ -54,13 +68,20 @@ export function AlertBell() {
       <Bell size={22} aria-hidden="true" />
       {unread > 0 && (
         <span className="alert-count" aria-hidden="true">
-          {unread > 99 ? "99+" : unread}
+          {unread > BADGE_MAX ? `${BADGE_MAX}+` : unread}
         </span>
       )}
     </Link>
   );
 }
 
+/**
+ * The alerts screen: the user's current alerts grouped by severity, most
+ * urgent first, each with a link to its screen.
+ *
+ * @returns The screen. Marking read saves through the alert-reads store and
+ *   shows its error, if any, above the groups.
+ */
 export function AlertsPage() {
   const { alerts, isRead, unread } = useAlerts();
   const { markRead, error } = useAlertReads();
@@ -71,20 +92,10 @@ export function AlertsPage() {
         title="What needs attention."
         description="Inspections, ADs, component limits, certificates and FAA documents for aircraft you can access."
         actions={
-          <button
-            type="button"
-            className="button"
+          <MarkAllReadButton
+            keys={alerts.map((a) => a.key)}
             disabled={!unread}
-            onClick={() =>
-              void markRead(
-                alerts.map((a) => a.key),
-                true,
-              )
-            }
-          >
-            <Checks size={18} aria-hidden="true" />
-            Mark all read
-          </button>
+          />
         }
       />
       {error && (
@@ -97,62 +108,126 @@ export function AlertsPage() {
           Nothing is due or awaiting review.
         </EmptyState>
       )}
-      {(["danger", "warning", "info"] as const).map((severity) => {
-        const rows = alerts.filter((a) => a.severity === severity);
-        if (!rows.length) return null;
-        const headingId = `mx-alerts-${severity}`;
-        return (
-          <section
-            className={"mx-alert-group mx-tone-" + tones[severity]}
-            key={severity}
-            aria-labelledby={headingId}
+      {SEVERITIES.map((severity) => (
+        <AlertGroup
+          key={severity}
+          severity={severity}
+          rows={alerts.filter((a) => a.severity === severity)}
+          isRead={isRead}
+          onMarkRead={(key) => void markRead([key])}
+        />
+      ))}
+    </div>
+  );
+}
+
+function useAlerts() {
+  const s = useWorkspace((x) => x.snapshot)!;
+  const read = useAlertReads((x) => x.keys);
+  const alerts = useMemo(() => computeAlerts(s, localDate()), [s]);
+  const readSet = useMemo(() => new Set(read), [read]);
+  return {
+    alerts,
+    isRead: (key: string) => readSet.has(key),
+    unread: alerts.filter((a) => !readSet.has(a.key)).length,
+  };
+}
+
+// Marks every current alert read and forgets marks on alerts no longer
+// listed (convex/alerts.ts markRead).
+function MarkAllReadButton({
+  keys,
+  disabled,
+}: {
+  keys: string[];
+  disabled: boolean;
+}) {
+  const markRead = useAlertReads((x) => x.markRead);
+  return (
+    <button
+      type="button"
+      className="button"
+      disabled={disabled}
+      onClick={() => void markRead(keys, true)}
+    >
+      <Checks size={ACTION_ICON_SIZE} aria-hidden="true" />
+      Mark all read
+    </button>
+  );
+}
+
+function AlertGroup({
+  severity,
+  rows,
+  isRead,
+  onMarkRead,
+}: {
+  severity: AlertSeverity;
+  rows: Alert[];
+  isRead: (key: string) => boolean;
+  onMarkRead: (key: string) => void;
+}) {
+  if (!rows.length) return null;
+  const headingId = `mx-alerts-${severity}`;
+  return (
+    <section
+      className={"mx-alert-group mx-tone-" + SEVERITY_TONES[severity]}
+      aria-labelledby={headingId}
+    >
+      <header className="mx-alert-group-head">
+        <h2 id={headingId}>{severityLabels[severity]}</h2>
+        <span className="mx-alert-count">
+          {rows.length}
+          <span className="sr-only"> alerts</span>
+        </span>
+      </header>
+      {rows.map((a) => (
+        <AlertRow
+          key={a.key}
+          alert={a}
+          read={isRead(a.key)}
+          onMarkRead={() => onMarkRead(a.key)}
+        />
+      ))}
+    </section>
+  );
+}
+
+function AlertRow({
+  alert: a,
+  read,
+  onMarkRead,
+}: {
+  alert: Alert;
+  read: boolean;
+  onMarkRead: () => void;
+}) {
+  return (
+    <div className={"mx-alert-row" + (read ? " is-read" : "")}>
+      <span className="mx-alert-dot" aria-hidden="true" />
+      <div className="mx-alert-text">
+        <strong>
+          <span className="sr-only">{read ? "Read: " : "Unread: "}</span>
+          {a.title}
+        </strong>
+        <p>{a.detail}</p>
+      </div>
+      <div className="mx-alert-actions">
+        <Link to={a.link} className="button small">
+          Open
+        </Link>
+        {!read && (
+          <button
+            type="button"
+            className="mx-alert-mark"
+            aria-label={`Mark read: ${a.title}`}
+            title="Mark read"
+            onClick={onMarkRead}
           >
-            <header className="mx-alert-group-head">
-              <h2 id={headingId}>{severityLabels[severity]}</h2>
-              <span className="mx-alert-count">
-                {rows.length}
-                <span className="sr-only"> alerts</span>
-              </span>
-            </header>
-            {rows.map((a) => {
-              const read = isRead(a.key);
-              return (
-                <div
-                  className={"mx-alert-row" + (read ? " is-read" : "")}
-                  key={a.key}
-                >
-                  <span className="mx-alert-dot" aria-hidden="true" />
-                  <div className="mx-alert-text">
-                    <strong>
-                      <span className="sr-only">
-                        {read ? "Read: " : "Unread: "}
-                      </span>
-                      {a.title}
-                    </strong>
-                    <p>{a.detail}</p>
-                  </div>
-                  <div className="mx-alert-actions">
-                    <Link to={a.link} className="button small">
-                      Open
-                    </Link>
-                    {!read && (
-                      <button
-                        type="button"
-                        className="mx-alert-mark"
-                        aria-label={`Mark read: ${a.title}`}
-                        title="Mark read"
-                        onClick={() => void markRead([a.key])}
-                      >
-                        <Check size={18} aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </section>
-        );
-      })}
+            <Check size={ACTION_ICON_SIZE} aria-hidden="true" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

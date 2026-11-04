@@ -1,12 +1,24 @@
-// Settings changes how the app behaves; Administration (Admin.tsx) decides
-// who can do what. Every signed-in user except the owner view reaches this
-// page; each section below repeats the permission check of the screen its
-// panels came from, so moving a panel here never changes who can use it:
-//   My account, This device — everyone;
-//   Flight Program — Flight Program administrators (and system
-//     administrators, for whom programPermission(…, "admin") is true);
-//   System — system administrators only.
-// Sections are deep-linkable: /settings#account, #device, #program, #system.
+/**
+ * Responsibility: The Settings page: how the app behaves, in the My account,
+ *   This device, Flight Program and System sections.
+ * Layer: UI. React components; Administration (Admin.tsx) decides who can do
+ *   what.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/data/deviceManuals.ts, src/domain (alerts,
+ *   certifications, costs, csv, model, offsiteBackups, pilotView, programs),
+ *   ./AddressVerificationSettings, ./AircraftSpruce, ./DemoBackup,
+ *   ./FaaKeySettings, ./Fleet, ./ProgramUsers, ./SignInMethods,
+ *   ./UserProfile, ./design, ./ui, src/styles/screens/settings.css.
+ *
+ * Every signed-in user except the owner view reaches this page; each section
+ * repeats the permission check of the screen its panels came from, so moving
+ * a panel here never changes who can use it:
+ *   My account, This device — everyone;
+ *   Flight Program — Flight Program administrators (and system
+ *     administrators, for whom programPermission(…, "admin") is true);
+ *   System — system administrators only.
+ * Sections are deep-linkable: /settings#account, #device, #program, #system.
+ */
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -45,7 +57,7 @@ import {
   parseCents,
 } from "../domain/costs";
 import { toCsv } from "../domain/csv";
-import { AsyncForm, Field, download, safeHref, value } from "./ui";
+import { AsyncForm, Field, download, errorText, safeHref, value } from "./ui";
 import {
   IconTile,
   NoticeBar,
@@ -396,9 +408,7 @@ function AccountSection() {
               await backend!.setAlertEmails(next);
             } catch (e) {
               setPending(undefined);
-              setError(
-                e instanceof Error ? e.message : "Unable to save this setting.",
-              );
+              setError(errorText(e, "Unable to save this setting."));
             } finally {
               setSaving(false);
             }

@@ -1,3 +1,15 @@
+/**
+ * Responsibility: The work orders screen: listing, opening, editing and
+ *   closing work orders, and the Add to work order button.
+ * Layer: UI. React components; work order rules live in src/domain.
+ * Dependencies: react, react-dom, @phosphor-icons/react, src/data/store.ts,
+ *   src/domain (model, components, workOrders, workOrderCards,
+ *   workOrderComponentWork, workOrderTaskRemoval), ./PartsRequests,
+ *   ./RequestedComponentMovement, ./TaskCards, ./WorkOrderCosts,
+ *   ./WorkOrderComponentWork, ./WorkOrderRevisions, ./ReleaseStatements,
+ *   ./LogbookEntry, ./LogbookSample, ./LogbookWording,
+ *   ./ComponentCloseoutCorrection, ./ShopList, ./design, ./ui.
+ */
 import { RequestPartsButton } from "./PartsRequests";
 import { localDate } from "../domain/model";
 import { removedTaskCards } from "../domain/workOrderTaskRemoval";
@@ -46,7 +58,14 @@ import {
   type WorkSource,
   type WorkTask,
 } from "../domain/workOrders";
-import { AsyncForm, DeleteFileButton, Field, Modal, value } from "./ui";
+import {
+  AsyncForm,
+  DeleteFileButton,
+  Field,
+  Modal,
+  errorText,
+  value,
+} from "./ui";
 import {
   EmptyState,
   NoticeBar,
@@ -700,9 +719,7 @@ function WorkOrderForm({
       setRemoveTaskIds([]);
       setRemovingTasks(false);
     } catch (error) {
-      setRemoveTaskError(
-        error instanceof Error ? error.message : "Unable to remove tasks.",
-      );
+      setRemoveTaskError(errorText(error, "Unable to remove tasks."));
     }
   }
   const updateTask = (uuid: string, patch: Partial<WorkTask>) =>

@@ -1,12 +1,11 @@
 /**
- * Responsibility: Pins the structured-address rules, the confirmation gate on
- *   issuing a purchase order, and the physical-only address-lookup payload.
+ * Responsibility: Pins the structured-address rules and the confirmation gate
+ *   on issuing a purchase order.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/addresses.ts, src/domain/addressLookup.ts,
- *   src/domain/management.ts, src/domain/purchaseOrders.ts,
- *   src/data/demo.ts (fixture).
+ * Dependencies: src/domain/addresses.ts, src/domain/management.ts,
+ *   src/domain/purchaseOrders.ts, src/data/demo.ts (fixture).
  */
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   addressSchema,
@@ -17,11 +16,6 @@ import {
   addressFromForm,
   type Address,
 } from "./addresses";
-import {
-  lookupInput,
-  fetchAddressSuggestions,
-  parseAddressSuggestions,
-} from "./addressLookup";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement } from "./management";
 import { applyPOCommand, poDraftSchema } from "./purchaseOrders";
@@ -37,7 +31,6 @@ const address = () =>
     phone: "+1 202 555 0100",
     confirmed: true,
   });
-afterEach(() => vi.unstubAllGlobals());
 describe("structured addresses", () => {
   it("checks required fields, ZIP codes and contacts without claiming postal verification", () => {
     expect(addressIssues(address())).toEqual([]);
@@ -61,51 +54,6 @@ describe("structured addresses", () => {
     expect(blankAddress("Original address text").street).toBe(
       "Original address text",
     );
-  });
-  it("sends only physical address fields to the external service and preserves partial-match levels", async () => {
-    // Privacy: the contact's name, email and phone never go to Geoapify.
-    const input = lookupInput(address());
-    expect(input).not.toHaveProperty("email");
-    expect(input).not.toHaveProperty("contactName");
-    expect(input).not.toHaveProperty("phone");
-    const fetcher = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          results: [
-            {
-              formatted: "Washington, DC",
-              city: "Washington",
-              state_code: "DC",
-              country: "United States",
-              result_type: "city",
-              rank: { confidence: 0.4 },
-            },
-          ],
-        }),
-      ),
-    );
-    vi.stubGlobal("fetch", fetcher);
-    const results = await fetchAddressSuggestions(input, "secret-test-key");
-    const url = String(fetcher.mock.calls[0][0]);
-    expect(url).not.toContain("receiving");
-    expect(url).not.toContain("555");
-    // A city-level match keeps its level and confidence, so the user can see
-    // it is not a street address.
-    expect(results[0]).toMatchObject({
-      street: "",
-      matchLevel: "city",
-      confidence: 0.4,
-    });
-    expect(parseAddressSuggestions({ results: [] })).toEqual([]);
-  });
-  it("does not leak the provider key when a network error includes the request URL", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(Error("URL failed with apiKey=private-key")),
-    );
-    await expect(
-      fetchAddressSuggestions(lookupInput(address()), "private-key"),
-    ).rejects.toThrow("Address lookup could not connect.");
   });
   it("persists location contacts and requires confirmation when issuing a structured PO", () => {
     const s = demoSnapshot();

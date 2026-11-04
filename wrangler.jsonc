@@ -18,7 +18,7 @@
   // same account, so each deploy keeps the DNS record and certificate for it.
   // Do not create an "ops" DNS record by hand: a custom domain needs none.
   "routes": [{ "pattern": "ops.angeloneaviation.org", "custom_domain": true }],
-  // Kept on until the custom domain is confirmed working; then set to false so
-  // the site has a single public address.
-  "workers_dev": true,
+  // One public address only. The custom domain needs no workers.dev subdomain,
+  // so the account does not have to register one.
+  "workers_dev": false,
 }

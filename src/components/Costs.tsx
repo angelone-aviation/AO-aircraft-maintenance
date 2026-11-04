@@ -1,3 +1,11 @@
+/**
+ * Responsibility: The maintenance cost screens: the Costs page with its
+ *   period report, budgets and CSV export, and an aircraft's cost summary.
+ * Layer: UI. React components; cost rules live in src/domain/costs.ts.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/domain (model, programs, csv, costs), ./ui,
+ *   ./design, ./ShopList, ./costs.css.
+ */
 import { useState, type CSSProperties } from "react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -23,7 +31,7 @@ import {
   periodFor,
   type Period,
 } from "../domain/costs";
-import { AsyncForm, Field, download, value } from "./ui";
+import { AsyncForm, Field, download, errorText, value } from "./ui";
 import {
   EmptyState,
   NoticeBar,
@@ -61,7 +69,7 @@ export function CostsPage() {
   try {
     period = periodFor(kind, localDate(), custom);
   } catch (e) {
-    periodError = e instanceof Error ? e.message : "Choose a valid period.";
+    periodError = errorText(e, "Choose a valid period.");
   }
   const report =
     aircraft && period ? aircraftCostReport(s, aircraft.uuid, period) : null;

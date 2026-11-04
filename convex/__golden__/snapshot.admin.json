@@ -1,0 +1,730 @@
+{
+ "activeProgramUuid": "demo-program",
+ "aircraft": [
+  {
+   "_creationTime": 1793707200000.001,
+   "_id": "000000000000000000010001aircraft",
+   "adjustmentSeconds": 0,
+   "baselineCycles": 1894,
+   "baselineHobbs": 8428320,
+   "baselineLandings": 2194,
+   "baselineTach": 8140320,
+   "currentHobbs": 8428320,
+   "currentTach": 8140320,
+   "cycles": 1894,
+   "landings": 2194,
+   "make": "Cessna",
+   "meter": "hobbs",
+   "model": "206 Stationair",
+   "operationalStatus": "unknown",
+   "program": "Mission operations",
+   "programUuid": "demo-program",
+   "registration": "N206MA",
+   "serial": "DEMO-demo-206",
+   "uuid": "demo-206",
+   "version": 0
+  },
+  {
+   "_creationTime": 1793707200000.002,
+   "_id": "000000000000000000010002aircraft",
+   "adjustmentSeconds": 0,
+   "baselineCycles": 3201,
+   "baselineHobbs": 15186960,
+   "baselineLandings": 3501,
+   "baselineTach": 14898960,
+   "currentHobbs": 15186960,
+   "currentTach": 14898960,
+   "cycles": 3201,
+   "landings": 3501,
+   "make": "Cessna",
+   "meter": "hobbs",
+   "model": "208 Caravan",
+   "operationalStatus": "unknown",
+   "program": "Mission operations",
+   "programUuid": "demo-program",
+   "registration": "N208MA",
+   "serial": "DEMO-demo-208",
+   "uuid": "demo-208",
+   "version": 0
+  },
+  {
+   "_creationTime": 1793707200000.003,
+   "_id": "000000000000000000010003aircraft",
+   "adjustmentSeconds": 0,
+   "baselineCycles": 1142,
+   "baselineHobbs": 5941440,
+   "baselineLandings": 1442,
+   "baselineTach": 5653440,
+   "currentHobbs": 5941440,
+   "currentTach": 5653440,
+   "cycles": 1142,
+   "landings": 1442,
+   "make": "Cessna",
+   "meter": "hobbs",
+   "model": "182 Skylane",
+   "operationalStatus": "unknown",
+   "program": "Mission operations",
+   "programUuid": "demo-program",
+   "registration": "N182MA",
+   "serial": "DEMO-demo-182",
+   "uuid": "demo-182",
+   "version": 0
+  }
+ ],
+ "aircraftFiles": [],
+ "airworthiness": [
+  {
+   "aircraftUuid": "demo-206",
+   "applicability": "Needs review",
+   "componentUuid": "",
+   "history": [],
+   "programUuid": "demo-program",
+   "reason": "",
+   "reviewRequired": true,
+   "source": {
+    "amendment": "",
+    "effective": "",
+    "issued": "",
+    "make": "",
+    "model": "",
+    "number": "2020-01-01",
+    "recurring": "Unknown",
+    "section": "Airframe",
+    "source": "Manual entry",
+    "sourceNotes": "",
+    "subject": "Demo AD",
+    "supersededBy": "",
+    "url": ""
+   },
+   "sourceHistory": [],
+   "tasks": [],
+   "updatedAt": 1793707200000,
+   "uuid": "00000000-0000-4000-8000-000000000006",
+   "version": 1
+  }
+ ],
+ "archivedTaskCards": [
+  {
+   "actualLabor": null,
+   "actualWork": "",
+   "aircraftUuid": "demo-182",
+   "applicability": "",
+   "assignedTechnician": "",
+   "cardNumber": "JC-1",
+   "completionDate": "",
+   "componentUuid": "",
+   "createdAt": 1793707200000,
+   "createdBy": "000000000000000000000010010users",
+   "description": "Change oil and filter",
+   "discrepancyUuid": "",
+   "estimatedLabor": null,
+   "findings": "",
+   "functionalTestOutcome": "not-required",
+   "functionalTestRequired": false,
+   "functionalTestResults": "",
+   "includeInLogbook": false,
+   "inspectionSignoff": null,
+   "inspectionSignoffRequired": false,
+   "inspectionUuid": "",
+   "logbookPhrase": "Performed",
+   "maintenanceReference": "",
+   "measurements": "",
+   "partsUsed": [],
+   "prerequisiteUuids": [],
+   "prerequisites": "",
+   "referenceDate": "",
+   "referenceRevision": "",
+   "requiredParts": "",
+   "requiredTools": "",
+   "requirementUuid": "",
+   "status": "draft",
+   "stepSignoffs": {},
+   "steps": [],
+   "technicianSignoff": null,
+   "title": "Oil change",
+   "updatedAt": 1793707200000,
+   "uuid": "00000000-0000-4000-8000-000000000004",
+   "version": 1,
+   "workOrderUuid": ""
+  }
+ ],
+ "audit": [],
+ "authenticatedAt": 1793707200000.0107,
+ "checklists": [
+  {
+   "aircraftUuid": "demo-206",
+   "document": {
+    "payload": {
+     "groups": [
+      {
+       "groupType": "normal",
+       "items": [],
+       "objectId": "00000000000040008000111111111113"
+      },
+      {
+       "groupType": "abnormal",
+       "items": [],
+       "objectId": "00000000000040008000111111111114"
+      },
+      {
+       "groupType": "emergency",
+       "items": [],
+       "objectId": "00000000000040008000111111111115"
+      }
+     ],
+     "metadata": {
+      "detail": "",
+      "name": "New checklist",
+      "tailNumber": ""
+     },
+     "objectId": "00000000000040008000111111111112",
+     "schemaVersion": "1.0"
+    },
+    "type": "checklist"
+   },
+   "programUuid": "demo-program",
+   "sourceName": "Demo checklist",
+   "updatedAt": 1793707200000,
+   "updatedBy": "000000000000000000000010010users",
+   "uuid": "00000000-0000-4000-8000-000000000007",
+   "version": 1
+  }
+ ],
+ "componentSetups": [
+  {
+   "aircraftUuid": "demo-206",
+   "legacyNote": "kept",
+   "programUuid": "demo-program",
+   "row": {
+    "componentType": "Engine",
+    "manufacturer": "Lycoming",
+    "model": "IO-540",
+    "partNumber": "IO-540"
+   },
+   "templateName": "C206 engine",
+   "templateUuid": "00000000-0000-4000-8000-000000000001",
+   "uuid": "setup-1"
+  }
+ ],
+ "componentTemplates": [
+  {
+   "legacyNote": "kept",
+   "make": "Cessna",
+   "model": "206",
+   "name": "C206 engine",
+   "programUuid": "demo-program",
+   "rows": [
+    {
+     "componentType": "Engine",
+     "manufacturer": "Lycoming",
+     "model": "IO-540",
+     "partNumber": "IO-540"
+    }
+   ],
+   "uuid": "00000000-0000-4000-8000-000000000001",
+   "version": 1
+  }
+ ],
+ "costs": [
+  {
+   "aircraftUuid": "demo-206",
+   "amountCents": 2500000,
+   "kind": "budget",
+   "programUuid": "demo-program",
+   "uuid": "budget-206",
+   "version": 1,
+   "year": 2026
+  },
+  {
+   "kind": "settings",
+   "laborRateCents": 9500,
+   "programUuid": "demo-program",
+   "uuid": "cost-settings",
+   "version": 1
+  }
+ ],
+ "discrepancies": [
+  {
+   "_creationTime": 1793707200000.0078,
+   "_id": "0000000000000010008discrepancies",
+   "aircraftUuid": "demo-208",
+   "authorId": "demo-admin",
+   "createdAt": 1793620800000,
+   "description": "Left landing light is intermittent. Inspect the connector before next operation.",
+   "status": "open",
+   "uuid": "demo-report"
+  }
+ ],
+ "faaCredential": {
+  "configured": false,
+  "expiresOn": "",
+  "version": 0
+ },
+ "faaMonitors": [
+  {
+   "aircraftUuid": "demo-206",
+   "candidates": [],
+   "enabled": false,
+   "error": "",
+   "runId": "",
+   "terms": []
+  }
+ ],
+ "flightPlans": [
+  {
+   "aircraftType": "C206",
+   "aircraftUuid": "demo-206",
+   "alternate": "",
+   "createdAt": 1793707200000,
+   "cycles": 1,
+   "departureAt": "2026-01-02T12:00:00.000Z",
+   "destination": "KBBB",
+   "durationMinutes": 60,
+   "equipment": "",
+   "flightRules": "V",
+   "flightType": "G",
+   "landings": 1,
+   "level": "VFR",
+   "origin": "KAAA",
+   "otherInformation": "",
+   "pilotText": "Demo pilot",
+   "registration": "N206MA",
+   "route": "DCT",
+   "sourceHash": "0000000000000000000000000000000000000000000000000000000000000000",
+   "sourceName": "Demo plan",
+   "speed": "N0120",
+   "status": "proposed",
+   "uuid": "00000000-0000-4000-8000-000000000002",
+   "version": 1
+  }
+ ],
+ "flights": [],
+ "groups": [
+  {
+   "aircraftIds": [
+    "demo-206",
+    "demo-208"
+   ],
+   "id": "00000000000000000000010009groups",
+   "name": "Maintenance",
+   "permissions": [
+    "read",
+    "maintenance"
+   ],
+   "programUuid": "demo-program"
+  }
+ ],
+ "inspectionTemplates": [
+  {
+   "applicability": {
+    "kind": "aircraft",
+    "manufacturer": "Cessna",
+    "model": "206",
+    "partNumber": ""
+   },
+   "archived": false,
+   "calendarUnit": "MONTHS",
+   "conditions": "",
+   "cycleMode": "FROM_LAST_COMPLIED",
+   "description": "",
+   "group": "",
+   "hourMode": "FROM_LAST_COMPLIED",
+   "hours": 100,
+   "name": "100-hour",
+   "programUuid": "demo-program",
+   "requirementType": "Inspection Requirement",
+   "tasks": [],
+   "timeBasis": "TSN",
+   "uuid": "00000000-0000-4000-8000-111111111116",
+   "version": 1
+  }
+ ],
+ "inspections": [
+  {
+   "_creationTime": 1793707200000.004,
+   "_id": "000000000000000010004inspections",
+   "aircraftUuid": "demo-206",
+   "description": "Airframe and engine inspection",
+   "dueSeconds": 8460000,
+   "reference": "100-hour inspection",
+   "uuid": "demo-insp-1"
+  },
+  {
+   "_creationTime": 1793707200000.005,
+   "_id": "000000000000000010005inspections",
+   "aircraftUuid": "demo-206",
+   "description": "Calendar inspection",
+   "dueDate": "2027-01-26",
+   "reference": "Annual inspection",
+   "uuid": "demo-insp-2"
+  },
+  {
+   "_creationTime": 1793707200000.0059,
+   "_id": "000000000000000010006inspections",
+   "aircraftUuid": "demo-208",
+   "description": "Airframe and engine inspection",
+   "dueSeconds": 15300000,
+   "reference": "100-hour inspection",
+   "uuid": "demo-insp-3"
+  },
+  {
+   "_creationTime": 1793707200000.0068,
+   "_id": "000000000000000010007inspections",
+   "aircraftUuid": "demo-182",
+   "description": "Calendar inspection",
+   "dueDate": "2026-11-27",
+   "reference": "Annual inspection",
+   "uuid": "demo-insp-4"
+  }
+ ],
+ "inventoryAttachments": [],
+ "management": [
+  {
+   "address": "Demo airfield",
+   "contact": "stores@example.test",
+   "kind": "location",
+   "name": "Main stores",
+   "programUuid": "demo-program",
+   "uuid": "location-1",
+   "version": 1
+  },
+  {
+   "alternates": "",
+   "category": "part",
+   "condition": "new",
+   "cost": 35,
+   "description": "Oil filter",
+   "kind": "stock",
+   "locationUuid": "location-1",
+   "minimum": 4,
+   "partNumber": "FILTER-1",
+   "programUuid": "demo-program",
+   "quantity": 8,
+   "uuid": "stock-1",
+   "vendor": "Demo vendor",
+   "version": 1
+  },
+  {
+   "accountNumber": "",
+   "kind": "vendor",
+   "name": "Demo vendor",
+   "notes": "",
+   "paymentTerms": "",
+   "programUuid": "demo-program",
+   "uuid": "vendor-1",
+   "version": 1,
+   "website": ""
+  },
+  {
+   "aircraftUuid": "demo-206",
+   "componentType": "Engine",
+   "cyclesSinceNew": 400,
+   "installPosition": "MAIN",
+   "installed": true,
+   "installedCycles": 400,
+   "installedDate": "2025-01-01",
+   "installedSeconds": 3600000,
+   "kind": "component",
+   "manufacturer": "Lycoming",
+   "model": "IO-540",
+   "notes": "",
+   "partNumber": "IO-540",
+   "programUuid": "demo-program",
+   "serial": "SN-component-206",
+   "serviceDaysBase": 0,
+   "timeSinceNew": 1800000,
+   "timeSinceOverhaul": 360000,
+   "timeSinceRepair": null,
+   "trackCalendar": false,
+   "trackCycles": true,
+   "trackTime": true,
+   "uuid": "component-206",
+   "version": 1
+  },
+  {
+   "aircraftUuid": "demo-182",
+   "componentType": "Engine",
+   "cyclesSinceNew": 400,
+   "installPosition": "MAIN",
+   "installed": true,
+   "installedCycles": 400,
+   "installedDate": "2025-01-01",
+   "installedSeconds": 3600000,
+   "kind": "component",
+   "manufacturer": "Lycoming",
+   "model": "IO-540",
+   "notes": "",
+   "partNumber": "IO-540",
+   "programUuid": "demo-program",
+   "serial": "SN-component-182",
+   "serviceDaysBase": 0,
+   "timeSinceNew": 1800000,
+   "timeSinceOverhaul": 360000,
+   "timeSinceRepair": null,
+   "trackCalendar": false,
+   "trackCycles": true,
+   "trackTime": true,
+   "uuid": "component-182",
+   "version": 1
+  }
+ ],
+ "manuals": [],
+ "members": [
+  {
+   "active": true,
+   "activeProgramUuid": "demo-program",
+   "availableAsPilot": true,
+   "email": "admin@example.test",
+   "groupIds": [],
+   "id": "000000000000000000000010010users",
+   "isAdmin": true,
+   "name": "Administrator"
+  },
+  {
+   "active": true,
+   "activeProgramUuid": "demo-program",
+   "availableAsPilot": true,
+   "email": "mechanic@example.test",
+   "groupIds": [
+    "00000000000000000000010009groups"
+   ],
+   "id": "000000000000000000000010012users",
+   "isAdmin": false,
+   "name": "Mechanic"
+  }
+ ],
+ "partsInventory": {
+  "locations": [
+   {
+    "name": "Main stores",
+    "programUuid": "demo-program",
+    "uuid": "location-1"
+   }
+  ],
+  "stock": [
+   {
+    "condition": "new",
+    "description": "Oil filter",
+    "locationUuid": "location-1",
+    "partNumber": "FILTER-1",
+    "programUuid": "demo-program",
+    "quantity": 8,
+    "reservedQuantity": 0,
+    "uuid": "stock-1"
+   }
+  ]
+ },
+ "partsOnOrder": [],
+ "partsRequestPurchases": [],
+ "partsRequests": [
+  {
+   "aircraftModel": "206",
+   "aircraftRegistration": "N206MA",
+   "aircraftSerial": "1",
+   "aircraftUuid": "demo-206",
+   "aircraftYear": "",
+   "base": "",
+   "billTo": "",
+   "cancelled": false,
+   "createdAt": 1793707200000,
+   "currency": "USD",
+   "date": "2026-01-01",
+   "engineer": "Mechanic",
+   "history": [],
+   "issues": [],
+   "lines": [
+    {
+     "alternateNumber": "",
+     "componentUuid": "",
+     "defect": "",
+     "description": "Oil filter",
+     "ipcReference": "",
+     "partNumber": "FILTER-1",
+     "quantity": 2,
+     "quotedCents": 0,
+     "service": "repair",
+     "uuid": "request-line-1",
+     "workRequested": ""
+    }
+   ],
+   "mode": "parts",
+   "notes": "",
+   "number": "PR-1",
+   "priority": "P2 Routine",
+   "programUuid": "demo-program",
+   "requesterId": "000000000000000000000010010users",
+   "requiredBy": "",
+   "reservations": [],
+   "returnInstructions": "",
+   "shipFrom": "",
+   "shipTo": "",
+   "shippingInstructions": "",
+   "source": {
+    "kind": "stock",
+    "uuid": "",
+    "workOrderUuid": ""
+   },
+   "sourceLabel": "Stock",
+   "timeframe": "",
+   "updatedAt": 1793707200000,
+   "uuid": "request-1",
+   "vendor": "",
+   "vendorAddress": "",
+   "version": 1
+  }
+ ],
+ "programScopeVersion": 1,
+ "programs": [
+  {
+   "_creationTime": 1793707200000,
+   "_id": "000000000000000000010000programs",
+   "address": "Demo airfield",
+   "contactName": "Demo coordinator",
+   "email": "operations@example.test",
+   "name": "Mission operations",
+   "uuid": "demo-program",
+   "version": 1,
+   "website": "https://example.test"
+  }
+ ],
+ "purchaseOrderFiles": [],
+ "purchaseOrders": [
+  {
+   "createdAt": 1793707200000,
+   "currency": "USD",
+   "expectedDate": "",
+   "history": [
+    {
+     "action": "created",
+     "actorId": "000000000000000000000010010users",
+     "at": 1793707200000,
+     "detail": "",
+     "reason": "",
+     "requestUuid": "request-1"
+    }
+   ],
+   "lines": [
+    {
+     "aircraftUuid": "",
+     "cancelled": 0,
+     "componentType": "Appliance",
+     "description": "Oil filter",
+     "inspectionUuid": "",
+     "kind": "part",
+     "locationUuid": "location-1",
+     "manufacturer": "",
+     "model": "",
+     "partNumber": "FILTER-1",
+     "quantity": 4,
+     "stockUuid": "stock-1",
+     "unitCents": 3500,
+     "uuid": "po-line-1",
+     "workOrderUuid": ""
+    }
+   ],
+   "notes": "",
+   "number": "PO-1",
+   "phase": "draft",
+   "programUuid": "demo-program",
+   "receipts": [],
+   "revision": 0,
+   "shipTo": "Demo airfield",
+   "shipments": [],
+   "shippingCents": 0,
+   "updatedAt": 1793707200000,
+   "uuid": "po-1",
+   "vendor": "Demo vendor",
+   "vendorContact": "sales@example.test",
+   "version": 1
+  }
+ ],
+ "savedAddresses": [],
+ "syncedAt": 1793707200000,
+ "taskCards": [
+  {
+   "actualLabor": null,
+   "actualWork": "",
+   "aircraftUuid": "demo-206",
+   "applicability": "",
+   "assignedTechnician": "",
+   "cardNumber": "JC-1",
+   "completionDate": "",
+   "componentUuid": "",
+   "createdAt": 1793707200000,
+   "createdBy": "000000000000000000000010010users",
+   "description": "Change oil and filter",
+   "discrepancyUuid": "",
+   "estimatedLabor": null,
+   "findings": "",
+   "functionalTestOutcome": "not-required",
+   "functionalTestRequired": false,
+   "functionalTestResults": "",
+   "includeInLogbook": false,
+   "inspectionSignoff": null,
+   "inspectionSignoffRequired": false,
+   "inspectionUuid": "",
+   "logbookPhrase": "Performed",
+   "maintenanceReference": "",
+   "measurements": "",
+   "partsUsed": [],
+   "prerequisiteUuids": [],
+   "prerequisites": "",
+   "referenceDate": "",
+   "referenceRevision": "",
+   "requiredParts": "",
+   "requiredTools": "",
+   "requirementUuid": "",
+   "status": "draft",
+   "stepSignoffs": {},
+   "steps": [],
+   "technicianSignoff": null,
+   "title": "Oil change",
+   "updatedAt": 1793707200000,
+   "uuid": "00000000-0000-4000-8000-000000000003",
+   "version": 1,
+   "workOrderUuid": ""
+  }
+ ],
+ "taskEvidence": [],
+ "user": {
+  "active": true,
+  "activeProgramUuid": "demo-program",
+  "email": "admin@example.test",
+  "groupIds": [],
+  "id": "000000000000000000000010010users",
+  "isAdmin": true,
+  "name": "Administrator"
+ },
+ "workOrderAttachments": [],
+ "workOrders": [
+  {
+   "aircraft": {
+    "cycles": 0,
+    "hobbs": 0,
+    "make": "Cessna",
+    "meter": "hobbs",
+    "model": "206",
+    "registration": "N206MA",
+    "serial": "1",
+    "tach": 0,
+    "totalSeconds": 0
+   },
+   "aircraftUuid": "demo-206",
+   "completionDate": "",
+   "componentReadings": [],
+   "createdBy": "000000000000000000000010010users",
+   "dateOpened": "2026-01-01",
+   "finalReview": "",
+   "number": "WO-1",
+   "priority": "routine",
+   "recordedAt": 1793707200000,
+   "releaseOutcome": "",
+   "scope": "Annual inspection",
+   "status": "open",
+   "supervisor": "Chief inspector",
+   "tasks": [],
+   "uuid": "00000000-0000-4000-8000-000000000005",
+   "version": 1
+  }
+ ]
+}

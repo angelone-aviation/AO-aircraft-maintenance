@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Shows an aircraft's computed status (badge and reasons) and
+ *   the dispatch gate that stops a flight on a grounded aircraft.
+ * Layer: UI. React components; the status and the gate's rules come from the
+ *   domain.
+ * Dependencies: src/data/store.ts, src/domain/aircraftStatus.ts, ./ui.tsx,
+ *   ./design.tsx.
+ */
 import { useWorkspace } from "../data/store";
 import {
   aircraftStatus,
@@ -10,21 +18,36 @@ import { Field } from "./ui";
 import { StatusPill } from "./design";
 import "../styles/screens/dashboard.css";
 
-const tones = {
+// The same limit as dispatchGate's, which src/domain/aircraftStatus.ts does
+// not export.
+const OVERRIDE_REASON_MAX = 1000;
+
+const STATUS_TONE = {
   airworthy: "good",
   "due-soon": "warn",
   grounded: "danger",
 } as const;
-const labels = {
+const STATUS_LABEL = {
   airworthy: "Airworthy",
   "due-soon": "Due soon",
   grounded: "Grounded",
 };
+
+/** A pill naming the status level: Airworthy, Due soon or Grounded. */
 export function AircraftStatusBadge({ status }: { status: AircraftStatus }) {
   return (
-    <StatusPill tone={tones[status.level]}>{labels[status.level]}</StatusPill>
+    <StatusPill tone={STATUS_TONE[status.level]}>
+      {STATUS_LABEL[status.level]}
+    </StatusPill>
   );
 }
+
+/**
+ * The reasons behind a status, in the order the domain gives them.
+ *
+ * @param props.label - The list's accessible name.
+ * @returns Nothing for a status without reasons.
+ */
 export function AircraftStatusReasons({
   status,
   label,
@@ -41,7 +64,12 @@ export function AircraftStatusReasons({
     </ul>
   );
 }
-/** Badge plus reason list, for cards, tables and details. */
+
+/**
+ * Badge plus reason list, for cards, tables and details.
+ *
+ * @throws {Error} "Aircraft not found." for an aircraft not in the snapshot.
+ */
 export function AircraftStatusSummary({
   aircraftUuid,
   registration,
@@ -61,6 +89,15 @@ export function AircraftStatusSummary({
     </div>
   );
 }
+
+/**
+ * Tells a flight form whether the dispatch gate stops its submission.
+ *
+ * @param overrideReason - The administrator's reason; it counts after trimming.
+ * @returns True for a grounded aircraft unless the user may override and the
+ *   reason has at least {@link MIN_OVERRIDE_REASON} characters.
+ * @throws {Error} "Aircraft not found." for an aircraft not in the snapshot.
+ */
 export function dispatchBlocked(
   s: Snapshot,
   aircraftUuid: string,
@@ -72,7 +109,15 @@ export function dispatchBlocked(
       overrideReason.trim().length < MIN_OVERRIDE_REASON)
   );
 }
-/** Explains a grounded aircraft and collects an administrator override. */
+
+/**
+ * Explains why an aircraft is grounded and, for an administrator, collects
+ * the dispatch override reason; others are told to ask an administrator.
+ *
+ * @param props.reason - The override reason typed so far.
+ * @returns Nothing unless the aircraft is grounded.
+ * @throws {Error} "Aircraft not found." for an aircraft not in the snapshot.
+ */
 export function DispatchGate({
   aircraftUuid,
   reason,
@@ -99,19 +144,7 @@ export function DispatchGate({
         label={`${registration} grounding reasons`}
       />
       {canOverrideDispatch(s) ? (
-        <Field
-          label="Administrator dispatch override reason"
-          hint={`At least ${MIN_OVERRIDE_REASON} characters. Recorded on the flight and in the audit history.`}
-        >
-          <textarea
-            rows={2}
-            value={reason}
-            onChange={(e) => onReason(e.target.value)}
-            minLength={MIN_OVERRIDE_REASON}
-            maxLength={1000}
-            required
-          />
-        </Field>
+        <OverrideReasonField reason={reason} onReason={onReason} />
       ) : (
         <p>
           Ask a Flight Program administrator to resolve or defer these items, or
@@ -119,5 +152,29 @@ export function DispatchGate({
         </p>
       )}
     </div>
+  );
+}
+
+function OverrideReasonField({
+  reason,
+  onReason,
+}: {
+  reason: string;
+  onReason: (reason: string) => void;
+}) {
+  return (
+    <Field
+      label="Administrator dispatch override reason"
+      hint={`At least ${MIN_OVERRIDE_REASON} characters. Recorded on the flight and in the audit history.`}
+    >
+      <textarea
+        rows={2}
+        value={reason}
+        onChange={(e) => onReason(e.target.value)}
+        minLength={MIN_OVERRIDE_REASON}
+        maxLength={OVERRIDE_REASON_MAX}
+        required
+      />
+    </Field>
   );
 }

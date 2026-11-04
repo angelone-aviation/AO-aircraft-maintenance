@@ -1,3 +1,12 @@
+/**
+ * Responsibility: The checklists screen: browsing, reading, importing,
+ *   exporting and editing ForeFlight checklists.
+ * Layer: UI. React components; .fmd files are read and written in src/data.
+ * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
+ *   src/data/fmd.ts, src/domain/checklists.ts, src/domain/programs.ts,
+ *   ./GuidedFlight, ./ChecklistEditor, ./OpsList, ./design, ./ui,
+ *   ./checklists.css, src/styles/screens/operations.css.
+ */
 import { GuidedFlight } from "./GuidedFlight";
 import { useRef, useState, type ReactNode } from "react";
 import {
@@ -25,6 +34,7 @@ import { importFmd, exportFmd } from "../data/fmd";
 import { ChecklistEditor } from "./ChecklistEditor";
 import { EmptyState, IconTile, PageHeader, SearchField } from "./design";
 import { OpsSelect } from "./OpsList";
+import { errorText } from "./ui";
 import "./checklists.css";
 import "../styles/screens/operations.css";
 export type Progress = Record<string, "checked" | "skipped">;
@@ -180,7 +190,7 @@ export function ChecklistReader({
                 a.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
               } catch (e) {
-                setError(e instanceof Error ? e.message : "Export failed.");
+                setError(errorText(e, "Export failed."));
               } finally {
                 setBusy(false);
               }
@@ -574,7 +584,7 @@ export function Checklists() {
               document.payload.metadata.name = file.name.replace(/\.fmd$/i, "");
             setEditing(draft(document, file.name));
           } catch (err) {
-            setError(err instanceof Error ? err.message : "Import failed.");
+            setError(errorText(err, "Import failed."));
           } finally {
             setLoading(false);
           }

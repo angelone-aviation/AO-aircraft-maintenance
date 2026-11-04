@@ -1,29 +1,25 @@
 /**
- * Local building blocks for the operations screens (Aircraft, Flight
- * Programs, Flight plans, Checklists, Planning, Airworthiness directives,
- * Scan label). They mirror the shared ListRow / toolbar look from design.tsx
- * but add what those screens need and the contract lacks:
+ * Responsibility: Building blocks for the operations screens: a record list
+ *   and its rows, label/value meters and a filter select.
+ * Layer: UI. Presentational components; no state or data access.
+ * Dependencies: src/components/design.tsx (IconTile, tone and icon types),
+ *   src/styles/screens/operations.css.
  *
- * <OpsList label> a semantic <ul> of OpsRows (screen readers announce the
- *   count; specs can find a record with getByRole("listitem")).
- * <OpsRow icon? tone? title sub? meta? badge? actions? extra? children?>
- *   one <li>: 44px duotone icon tile, title + sub, meta + status pill,
- *   actions, an optional details block (children: meters, reasons, notes)
- *   under the text, and an optional row of secondary actions (extra).
- *   Grid: lead · status · actions (≥1100px), lead · status / details ·
- *   actions (760–1099px), stacked with the actions last (<760px).
- * <OpsMeters items> label/value pairs styled like the dashboard meters.
- * <OpsSelect label icon value onChange> 44px filter select with a leading
- *   icon; label is the select's accessible name (aria-label), so
- *   getByLabel(label) keeps working.
+ * They mirror the design's ListRow and toolbar look but add what these
+ * screens need and its contract lacks: a semantic list, a details block and
+ * a row of secondary actions.
  */
 import type { ReactNode } from "react";
 import { IconTile, type IconType, type Tone } from "./design";
 import "../styles/screens/operations.css";
 
-const cx = (...c: (string | false | null | undefined)[]) =>
-  c.filter(Boolean).join(" ");
-
+/**
+ * A semantic list of {@link OpsRow}s, so screen readers announce the count
+ * and specs can find a record with `getByRole("listitem")`.
+ *
+ * @param props.label - The list's accessible name.
+ * @returns A `ul.ops-list` wrapping `children`.
+ */
 export function OpsList({
   label,
   children,
@@ -34,12 +30,23 @@ export function OpsList({
   className?: string;
 }) {
   return (
-    <ul className={cx("ops-list", className)} aria-label={label}>
+    <ul className={joinClassNames("ops-list", className)} aria-label={label}>
       {children}
     </ul>
   );
 }
 
+/**
+ * One record row: an icon tile with the title and sub-line, then meta and a
+ * status badge, actions, a details block and a row of secondary actions.
+ *
+ * @param props.tone - Icon tile tone; blue when omitted.
+ * @param props.meta - Text before the badge; left out when undefined, null or
+ *   "" (0 still shows).
+ * @param props.children - Details under the text: meters, reasons, notes.
+ * @param props.extra - Secondary actions, last in the row.
+ * @returns An `li.ops-row` in which each part renders only when given.
+ */
 export function OpsRow({
   icon,
   tone,
@@ -65,7 +72,7 @@ export function OpsRow({
 }) {
   const hasMeta = meta !== undefined && meta !== null && meta !== "";
   return (
-    <li className={cx("ops-row", className)}>
+    <li className={joinClassNames("ops-row", className)}>
       <div className="ops-row-lead">
         {icon && <IconTile icon={icon} tone={tone ?? "blue"} />}
         <div className="ops-row-text">
@@ -86,6 +93,14 @@ export function OpsRow({
   );
 }
 
+/**
+ * Label/value pairs styled like the dashboard meters.
+ *
+ * @param props.items - `[label, value]` pairs in display order; labels are
+ *   the React keys, so they must be unique.
+ * @returns A `dl.ops-meters`. Each term ends in a visually hidden ": ", so
+ *   screen readers and text matching read "Label: value".
+ */
 export function OpsMeters({
   items,
   className,
@@ -94,11 +109,9 @@ export function OpsMeters({
   className?: string;
 }) {
   return (
-    <dl className={cx("ops-meters", className)}>
+    <dl className={joinClassNames("ops-meters", className)}>
       {items.map(([label, value]) => (
         <div key={label}>
-          {/* The hidden colon keeps "Label: value" for screen readers and
-              for text matching, without showing punctuation. */}
           <dt>
             {label}
             <span className="ops-sr-only">: </span>
@@ -110,6 +123,14 @@ export function OpsMeters({
   );
 }
 
+/**
+ * Filter select with an optional leading icon and a drawn caret.
+ *
+ * @param props.label - The select's accessible name (`aria-label`), so
+ *   `getByLabel(label)` finds it; no visible label is drawn.
+ * @param props.onChange - Called with the chosen option's value, as a string.
+ * @returns A `label.ops-select` wrapping the `<select>`.
+ */
 export function OpsSelect({
   label,
   icon: Icon,
@@ -128,7 +149,7 @@ export function OpsSelect({
   className?: string;
 }) {
   return (
-    <label className={cx("ops-select", className)}>
+    <label className={joinClassNames("ops-select", className)}>
       {Icon && <Icon size={18} aria-hidden="true" />}
       <select
         aria-label={label}
@@ -141,4 +162,10 @@ export function OpsSelect({
       <span className="ops-select-caret" aria-hidden="true" />
     </label>
   );
+}
+
+function joinClassNames(
+  ...names: (string | false | null | undefined)[]
+): string {
+  return names.filter(Boolean).join(" ");
 }

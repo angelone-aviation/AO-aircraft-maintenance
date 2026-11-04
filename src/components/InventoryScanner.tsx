@@ -1,4 +1,18 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+/**
+ * Responsibility: The inventory scanner: reads a QR code with the camera, or
+ *   a typed code, and opens the matching stock item or component.
+ * Layer: UI. React components; codes resolve through src/domain.
+ * Dependencies: react-dom, @tanstack/react-router, jsqr (loaded on demand),
+ *   src/data/store.ts, src/domain/inventoryScan.ts, ./ui.tsx, ./design.tsx.
+ */
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -10,187 +24,37 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { resolveInventoryCode } from "../domain/inventoryScan";
-import { Modal } from "./ui";
+import { Modal, errorText } from "./ui";
 import { PageHeader } from "./design";
 import "../styles/screens/operations.css";
+
 const SCAN_INTERVAL_MS = 200;
+// Frames are scaled down to this width before decoding, which bounds the work
+// done every SCAN_INTERVAL_MS.
 const MAX_FRAME_WIDTH = 640;
-function cameraError(error: unknown) {
-  const name = error instanceof DOMException ? error.name : "";
-  if (name === "NotAllowedError" || name === "SecurityError")
-    return "Camera access was denied. Allow camera access for this site in your browser settings, or enter the code manually.";
-  if (name === "NotFoundError" || name === "OverconstrainedError")
-    return "No camera was found on this device. Enter the code manually.";
-  return "The camera could not be started. Enter the code manually.";
-}
-/** Camera QR scanner with a typed-code fallback; opens the matching item. */
+
+type VideoRef = RefObject<HTMLVideoElement | null>;
+type QrDecoder = (typeof import("jsqr"))["default"];
+
+/**
+ * The camera QR scanner with a typed-code fallback. A recognized code opens
+ * its stock item or component; an unrecognized one shows why. The camera stops
+ * after the first scanned code that opens an item.
+ *
+ * @param props.onOpened - Called just before navigating to an opened item.
+ */
 export function InventoryScanner({ onOpened }: { onOpened?: () => void }) {
-  const s = useWorkspace((state) => state.snapshot);
-  const navigate = useNavigate();
-  const video = useRef<HTMLVideoElement>(null);
-  const [cameraIssue, setCameraIssue] = useState("");
-  const [issue, setIssue] = useState("");
-  const [code, setCode] = useState("");
-  const [scanning, setScanning] = useState(true);
-  // Presentation only: true once the camera feed is playing in the preview.
-  const [live, setLive] = useState(false);
-  const titleId = useId();
-  const hintId = useId();
-  const openCode = (raw: string) => {
-    try {
-      const target = resolveInventoryCode(s!, raw);
-      setIssue("");
-      onOpened?.();
-      void navigate(
-        target.kind === "stock"
-          ? { to: "/inventory", search: { item: target.uuid } }
-          : { to: "/components", search: { item: target.uuid } },
-      );
-      return true;
-    } catch (error) {
-      setIssue(
-        error instanceof Error
-          ? error.message
-          : "This code was not recognized.",
-      );
-      return false;
-    }
-  };
-  // The camera loop outlives renders; it reads the latest resolver via a ref.
-  const open = useRef(openCode);
-  useEffect(() => {
-    open.current = openCode;
-  });
-  useEffect(() => {
-    if (!scanning) return;
-    let stream: MediaStream | undefined;
-    let timer: number | undefined;
-    let stopped = false;
-    let lastCode = "";
-    const stop = () => {
-      stopped = true;
-      window.clearInterval(timer);
-      stream?.getTracks().forEach((track) => track.stop());
-      setLive(false);
-    };
-    (async () => {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraIssue(
-          "Camera scanning is not available in this browser. Enter the code manually.",
-        );
-        return;
-      }
-      try {
-        const [media, { default: jsQR }] = await Promise.all([
-          navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" },
-            audio: false,
-          }),
-          import("jsqr"),
-        ]);
-        stream = media;
-        if (stopped || !video.current) return stop();
-        video.current.srcObject = media;
-        await video.current.play();
-        if (!stopped) setLive(true);
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d", { willReadFrequently: true });
-        timer = window.setInterval(() => {
-          const v = video.current;
-          if (!v || !context || v.readyState < v.HAVE_ENOUGH_DATA) return;
-          const scale = Math.min(1, MAX_FRAME_WIDTH / v.videoWidth);
-          canvas.width = Math.round(v.videoWidth * scale);
-          canvas.height = Math.round(v.videoHeight * scale);
-          context.drawImage(v, 0, 0, canvas.width, canvas.height);
-          const frame = context.getImageData(0, 0, canvas.width, canvas.height);
-          const found = jsQR(frame.data, frame.width, frame.height, {
-            inversionAttempts: "dontInvert",
-          });
-          if (!found?.data || found.data === lastCode) return;
-          lastCode = found.data;
-          if (open.current(found.data)) {
-            stop();
-            setScanning(false);
-          }
-        }, SCAN_INTERVAL_MS);
-      } catch (error) {
-        if (!stopped) setCameraIssue(cameraError(error));
-        stop();
-      }
-    })();
-    return stop;
-  }, [scanning]);
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    openCode(code);
-  };
+  const { issue, openCode } = useCodeOpener(onOpened);
+  const camera = useCameraScan(openCode);
   return (
     <div className="inventory-scanner ops-scan">
-      <div
-        className="ops-camera"
-        data-state={cameraIssue ? "issue" : live ? "live" : "idle"}
-      >
-        <span className="ops-camera-grid" aria-hidden="true" />
-        {!cameraIssue && scanning && (
-          <video
-            ref={video}
-            className="ops-camera-video"
-            playsInline
-            muted
-            aria-label="Camera preview for scanning inventory labels"
-          />
-        )}
-        <span className="ops-viewfinder" aria-hidden="true" />
-        <div className="ops-camera-message">
-          {cameraIssue ? (
-            <>
-              <CameraSlash size={32} weight="duotone" aria-hidden="true" />
-              <strong>Camera unavailable</strong>
-              <p role="alert">{cameraIssue}</p>
-            </>
-          ) : scanning ? (
-            <>
-              <Camera size={32} weight="duotone" aria-hidden="true" />
-              <strong>Camera preview</strong>
-              <p>Point the camera at an inventory label’s QR code.</p>
-            </>
-          ) : (
-            <>
-              <Camera size={32} weight="duotone" aria-hidden="true" />
-              <strong>Camera stopped</strong>
-              <p>Enter the code to open another item.</p>
-            </>
-          )}
-        </div>
-      </div>
-      <form className="ops-manual" onSubmit={submit} aria-labelledby={titleId}>
-        <h2 id={titleId}>Enter a label manually</h2>
-        <p id={hintId}>Label link, serial number or part number.</p>
-        <label className="ops-code-field">
-          <Barcode size={20} aria-hidden="true" />
-          <input
-            aria-label="Enter code manually"
-            aria-describedby={hintId}
-            placeholder="Serial, part number or label link"
-            value={code}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(e) => setCode(e.target.value)}
-          />
-        </label>
-        {issue && (
-          <p role="alert" className="error">
-            {issue}
-          </p>
-        )}
-        <button type="submit" className="button primary">
-          <MagnifyingGlass size={18} weight="bold" aria-hidden="true" /> Open
-          item
-        </button>
-      </form>
+      <CameraPreview {...camera} />
+      <ManualCodeForm issue={issue} onCode={openCode} />
     </div>
   );
 }
+
+/** A Scan button that opens the scanner in a dialog, closed once an item opens. */
 export function ScanButton() {
   const [open, setOpen] = useState(false);
   return (
@@ -208,6 +72,8 @@ export function ScanButton() {
     </>
   );
 }
+
+/** The Scan label page: the scanner under its page header. */
 export function ScanPage() {
   return (
     <div className="ops-page">
@@ -218,5 +84,269 @@ export function ScanPage() {
       />
       <InventoryScanner />
     </div>
+  );
+}
+
+function useCodeOpener(onOpened?: () => void) {
+  const s = useWorkspace((state) => state.snapshot);
+  const navigate = useNavigate();
+  const [issue, setIssue] = useState("");
+  // True when the code opened an item, so the camera loop knows to stop.
+  const openCode = (raw: string) => {
+    try {
+      const target = resolveInventoryCode(s!, raw);
+      setIssue("");
+      onOpened?.();
+      void navigate(
+        target.kind === "stock"
+          ? { to: "/inventory", search: { item: target.uuid } }
+          : { to: "/components", search: { item: target.uuid } },
+      );
+      return true;
+    } catch (error) {
+      // resolveInventoryCode refuses a code that matches no item, or several.
+      setIssue(errorText(error, "This code was not recognized."));
+      return false;
+    }
+  };
+  return { issue, openCode };
+}
+
+function useCameraScan(openCode: (raw: string) => boolean) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [cameraIssue, setCameraIssue] = useState("");
+  const [scanning, setScanning] = useState(true);
+  // Presentation only: true once the camera feed is playing in the preview.
+  const [live, setLive] = useState(false);
+  // The camera loop outlives renders; it reads the latest resolver via a ref.
+  const open = useRef(openCode);
+  useEffect(() => {
+    open.current = openCode;
+  });
+  useEffect(() => {
+    if (!scanning) return;
+    const session: ScanSession = { stopped: false, lastCode: "" };
+    const stop = () => {
+      session.stopped = true;
+      window.clearInterval(session.timer);
+      session.stream?.getTracks().forEach((track) => track.stop());
+      setLive(false);
+    };
+    void startCamera(session, video, {
+      stop,
+      setLive,
+      setCameraIssue,
+      onCode: (code) => {
+        if (!open.current(code)) return;
+        stop();
+        setScanning(false);
+      },
+    });
+    return stop;
+  }, [scanning]);
+  return { video, cameraIssue, scanning, live };
+}
+
+// One camera start: the effect's cleanup or an opened code stops it.
+interface ScanSession {
+  stopped: boolean;
+  // A code is resolved again only after a different one was read.
+  lastCode: string;
+  stream?: MediaStream;
+  timer?: number;
+}
+
+interface CameraCallbacks {
+  stop: () => void;
+  setLive: (live: boolean) => void;
+  setCameraIssue: (issue: string) => void;
+  onCode: (code: string) => void;
+}
+
+async function startCamera(
+  session: ScanSession,
+  video: VideoRef,
+  on: CameraCallbacks,
+) {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    on.setCameraIssue(
+      "Camera scanning is not available in this browser. Enter the code manually.",
+    );
+    return;
+  }
+  try {
+    const [media, { default: jsQR }] = await Promise.all([
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      }),
+      import("jsqr"),
+    ]);
+    session.stream = media;
+    if (session.stopped || !video.current) return on.stop();
+    video.current.srcObject = media;
+    await video.current.play();
+    if (!session.stopped) on.setLive(true);
+    const readCode = createFrameReader(video, jsQR);
+    session.timer = window.setInterval(() => {
+      const code = readCode();
+      if (!code || code === session.lastCode) return;
+      session.lastCode = code;
+      on.onCode(code);
+    }, SCAN_INTERVAL_MS);
+  } catch (error) {
+    if (!session.stopped) on.setCameraIssue(describeCameraError(error));
+    on.stop();
+  }
+}
+
+// Decodes the QR code in the video's current frame, if the frame is ready.
+function createFrameReader(video: VideoRef, jsQR: QrDecoder) {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  return () => {
+    const v = video.current;
+    if (!v || !context || v.readyState < v.HAVE_ENOUGH_DATA) return undefined;
+    const scale = Math.min(1, MAX_FRAME_WIDTH / v.videoWidth);
+    canvas.width = Math.round(v.videoWidth * scale);
+    canvas.height = Math.round(v.videoHeight * scale);
+    context.drawImage(v, 0, 0, canvas.width, canvas.height);
+    const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+    return jsQR(frame.data, frame.width, frame.height, {
+      inversionAttempts: "dontInvert",
+    })?.data;
+  };
+}
+
+function describeCameraError(error: unknown) {
+  const name = error instanceof DOMException ? error.name : "";
+  if (name === "NotAllowedError" || name === "SecurityError")
+    return "Camera access was denied. Allow camera access for this site in your browser settings, or enter the code manually.";
+  if (name === "NotFoundError" || name === "OverconstrainedError")
+    return "No camera was found on this device. Enter the code manually.";
+  return "The camera could not be started. Enter the code manually.";
+}
+
+function CameraPreview({
+  video,
+  cameraIssue,
+  scanning,
+  live,
+}: {
+  video: VideoRef;
+  cameraIssue: string;
+  scanning: boolean;
+  live: boolean;
+}) {
+  return (
+    <div className="ops-camera" data-state={cameraState(cameraIssue, live)}>
+      <span className="ops-camera-grid" aria-hidden="true" />
+      {!cameraIssue && scanning && (
+        <video
+          ref={video}
+          className="ops-camera-video"
+          playsInline
+          muted
+          aria-label="Camera preview for scanning inventory labels"
+        />
+      )}
+      <span className="ops-viewfinder" aria-hidden="true" />
+      <div className="ops-camera-message">
+        <CameraMessage cameraIssue={cameraIssue} scanning={scanning} />
+      </div>
+    </div>
+  );
+}
+
+function cameraState(cameraIssue: string, live: boolean) {
+  if (cameraIssue) return "issue";
+  return live ? "live" : "idle";
+}
+
+function CameraMessage({
+  cameraIssue,
+  scanning,
+}: {
+  cameraIssue: string;
+  scanning: boolean;
+}) {
+  if (cameraIssue)
+    return (
+      <>
+        <CameraSlash size={32} weight="duotone" aria-hidden="true" />
+        <strong>Camera unavailable</strong>
+        <p role="alert">{cameraIssue}</p>
+      </>
+    );
+  if (!scanning)
+    return (
+      <>
+        <Camera size={32} weight="duotone" aria-hidden="true" />
+        <strong>Camera stopped</strong>
+        <p>Enter the code to open another item.</p>
+      </>
+    );
+  return (
+    <>
+      <Camera size={32} weight="duotone" aria-hidden="true" />
+      <strong>Camera preview</strong>
+      <p>Point the camera at an inventory label’s QR code.</p>
+    </>
+  );
+}
+
+function ManualCodeForm({
+  issue,
+  onCode,
+}: {
+  issue: string;
+  onCode: (code: string) => void;
+}) {
+  const [code, setCode] = useState("");
+  const titleId = useId();
+  const hintId = useId();
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    onCode(code);
+  };
+  return (
+    <form className="ops-manual" onSubmit={submit} aria-labelledby={titleId}>
+      <h2 id={titleId}>Enter a label manually</h2>
+      <p id={hintId}>Label link, serial number or part number.</p>
+      <CodeInput hintId={hintId} value={code} onChange={setCode} />
+      {issue && (
+        <p role="alert" className="error">
+          {issue}
+        </p>
+      )}
+      <button type="submit" className="button primary">
+        <MagnifyingGlass size={18} weight="bold" aria-hidden="true" /> Open item
+      </button>
+    </form>
+  );
+}
+
+function CodeInput({
+  hintId,
+  value,
+  onChange,
+}: {
+  hintId: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="ops-code-field">
+      <Barcode size={20} aria-hidden="true" />
+      <input
+        aria-label="Enter code manually"
+        aria-describedby={hintId}
+        placeholder="Serial, part number or label link"
+        value={value}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
   );
 }

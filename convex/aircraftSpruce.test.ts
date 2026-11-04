@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the Aircraft Spruce account per Flight Program: sealed
+ *   credentials, versioned writes, allowances, catalog and order snapshots,
+ *   and the download checks.
+ * Layer: Test. convex-test suite with a stubbed fetch; never shipped.
+ * Dependencies: convex/aircraftSpruce, convex/aircraftSpruceActions,
+ *   convex/spruceHttp, convex/secrets, src/domain/aircraftSpruce.
+ */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
@@ -37,7 +45,7 @@ async function sealedCredentials(programUuid: string, c = credentials) {
   };
 }
 it("accepts the longest valid credentials and stores only sealed values", async () => {
-  const { t, admin } = await setup();
+  const { admin } = await setup();
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
   const fetcher = vi.fn().mockImplementation(async (input: string | URL) =>
     String(input).includes("/api/download/")
@@ -487,4 +495,109 @@ it("accepts a cached export URL without status but still rejects explicit failur
     /rejected/,
   );
   expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it("deletes a catalog file once a refresh, relink or disconnect replaces it", async () => {
+  const { t, admin } = await setup();
+  const link = (version: number) =>
+    sealedCredentials("demo-program").then((credentials) =>
+      admin.mutation(internal.aircraftSpruce.commitAccount, {
+        programUuid: "demo-program",
+        version,
+        credentials,
+      }),
+    );
+  const catalog = async (version: number, at: number) => {
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["PN"])));
+    await admin.mutation(internal.aircraftSpruce.commitCatalog, {
+      programUuid: "demo-program",
+      version,
+      storageId,
+      count: 1,
+      at,
+    });
+    return storageId;
+  };
+  const stored = () =>
+    t.run(async (ctx) =>
+      (await ctx.db.system.query("_storage").collect()).map((f) => f._id),
+    );
+  await link(0);
+  await catalog(1, 100);
+  const second = await catalog(1, 200);
+  expect(await stored()).toEqual([second]);
+  await link(1);
+  expect(await stored()).toEqual([]);
+  await catalog(2, 300);
+  await admin.mutation(api.aircraftSpruce.disconnect, {
+    programUuid: "demo-program",
+    version: 2,
+  });
+  expect(await stored()).toEqual([]);
+});
+
+it("refuses another program's PO and hides orders synced under an earlier login", async () => {
+  const { t, admin } = await setup();
+  await expect(
+    admin.mutation(api.aircraftSpruce.disconnect, {
+      programUuid: "demo-program",
+      version: 0,
+    }),
+  ).rejects.toThrow("Account changed. Reload before disconnecting.");
+  await admin.mutation(internal.aircraftSpruce.commitAccount, {
+    programUuid: "demo-program",
+    version: 0,
+    credentials: await sealedCredentials("demo-program"),
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("purchaseOrders", {
+      uuid: "po",
+      programUuid: "demo-program",
+      payload: "unparsed",
+    });
+    await ctx.db.insert("purchaseOrders", {
+      uuid: "foreign-po",
+      programUuid: "second",
+      payload: "unparsed",
+    });
+  });
+  await expect(
+    admin.query(internal.aircraftSpruce.access, {
+      programUuid: "demo-program",
+      poUuid: "foreign-po",
+    }),
+  ).rejects.toThrow("PO not found in this Flight Program.");
+  const sync = {
+    programUuid: "demo-program",
+    version: 1,
+    fetchedAt: 100,
+    order: "",
+    rows: [{ ORN: "1" }],
+  };
+  await expect(
+    admin.mutation(internal.aircraftSpruce.commitOrders, {
+      ...sync,
+      poUuid: "foreign-po",
+    }),
+  ).rejects.toThrow("PO not found.");
+  await admin.mutation(internal.aircraftSpruce.commitOrders, {
+    ...sync,
+    poUuid: "po",
+  });
+  const orders = () =>
+    admin.query(api.aircraftSpruce.orders, {
+      programUuid: "demo-program",
+      poUuid: "po",
+    });
+  expect(await orders()).toEqual({
+    fetchedAt: 100,
+    order: "",
+    rows: [{ ORN: "1" }],
+  });
+  await admin.mutation(internal.aircraftSpruce.commitAccount, {
+    programUuid: "demo-program",
+    version: 1,
+    credentials: await sealedCredentials("demo-program"),
+  });
+  expect(await orders()).toBeNull();
 });

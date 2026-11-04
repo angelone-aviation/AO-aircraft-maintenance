@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Boots the app: chooses the live or demo backend, signs the
+ *   user in and mounts the workspace.
+ * Layer: UI. The browser entry point; the only module that creates the Convex
+ *   client.
+ * Dependencies: convex/react, @convex-dev/auth/react, src/data (store,
+ *   backend, deviceManuals, pdfOffline), src/domain/model.ts, src/App.tsx,
+ *   src/components.
+ */
 import { MissionSlogan } from "./components/MissionSlogan";
 import { useEffect, useId, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -16,7 +25,7 @@ import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
 import { convexBackend } from "./data/backend";
 import { offlineValid, OFFLINE_WINDOW } from "./domain/model";
-import { AsyncForm, Field, download, value } from "./components/ui";
+import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
 import "./styles/tokens.css";
 import "./styles.css";
@@ -31,6 +40,11 @@ const demoAllowed =
   import.meta.env.DEV ||
   import.meta.env.VITE_DEMO_MODE === "true" ||
   import.meta.env.VITE_ALLOW_DEMO === "true";
+// Convex Auth refuses a wrong email or password, and an account locked after
+// too many tries (convex/auth.ts), with a plain Error that production hides as
+// "Server Error". Those are by far the likeliest causes, so name them.
+const SIGN_IN_FAILED =
+  "Email or password is incorrect. After too many wrong tries, sign-in pauses for a while; your administrator can reset your password.";
 const client = configuredUrl ? new ConvexReactClient(configuredUrl) : null;
 const authPrefix = "angel-one-auth:" + configuredUrl + ":";
 const authStorage = {
@@ -229,11 +243,15 @@ function LiveRoot({
         submitLabel="Sign in"
         disabled={!online}
         onSubmit={async (data) => {
-          await signIn("password", {
-            email: value(data, "email"),
-            password: String(data.get("password") ?? ""),
-            flow: "signIn",
-          });
+          try {
+            await signIn("password", {
+              email: value(data, "email"),
+              password: String(data.get("password") ?? ""),
+              flow: "signIn",
+            });
+          } catch (error) {
+            throw new Error(errorText(error, SIGN_IN_FAILED));
+          }
         }}
       >
         <Field label="Email">

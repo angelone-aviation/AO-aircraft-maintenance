@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins Form 337 copies on the aircraft record: who uploads and
+ *   archives them, the audit entries, the 200-copy cap, and that a copy and
+ *   its stored file are never deleted.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/aircraftFiles, convex/operations (snapshot),
+ *   src/domain/aircraftFiles, src/data/demo.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -213,4 +221,48 @@ it("limits an aircraft to 200 current copies; archived copies do not count", asy
   await expect(tech.action(api.aircraftFiles.upload, upload)).rejects.toThrow(
     "maximum of 200 current documents",
   );
+});
+
+it("deletes the stored file of an upload the cap refuses", async () => {
+  const { t, tech } = await fixture();
+  const blobs = () =>
+    t.run(
+      async (ctx) => (await ctx.db.system.query("_storage").collect()).length,
+    );
+  await t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(new Blob(["337"]));
+    for (let i = 0; i < MAX_AIRCRAFT_FILES; i++)
+      await ctx.db.insert("aircraftFiles", {
+        aircraftUuid: upload.aircraftUuid,
+        category: "form-337",
+        storageId,
+        name: `337-${i}.pdf`,
+        type: "application/pdf",
+        size: 3,
+        uploadedAt: i,
+      });
+  });
+  await expect(tech.action(api.aircraftFiles.upload, upload)).rejects.toThrow(
+    "maximum of 200 current documents",
+  );
+  expect(await blobs()).toBe(1);
+});
+
+it("lists a copy whose stored file is missing with an empty URL", async () => {
+  const { t, reader } = await fixture();
+  await t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(new Blob(["337"]));
+    await ctx.storage.delete(storageId);
+    await ctx.db.insert("aircraftFiles", {
+      aircraftUuid: upload.aircraftUuid,
+      category: "form-337",
+      storageId,
+      name: "missing.pdf",
+      type: "application/pdf",
+      size: 3,
+      uploadedAt: 1,
+    });
+  });
+  const seen = (await reader.query(api.operations.snapshot, {}))!;
+  expect(seen.aircraftFiles).toMatchObject([{ name: "missing.pdf", url: "" }]);
 });

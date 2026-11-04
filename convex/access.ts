@@ -1,3 +1,16 @@
+/**
+ * Responsibility: Who the caller is and what they may touch: the signed-in
+ *   account, the administrator and per-aircraft checks, and the one writer of
+ *   change-log rows.
+ * Layer: Server. Convex helpers; the permission rules come from src/domain.
+ * Dependencies: @convex-dev/auth/server, convex/values, convex/server,
+ *   ./_generated, ./programContext, src/domain (model, certifications).
+ *
+ * Refusals are ConvexErrors so production shows their message. A missing or
+ * lapsed session stays a plain Error: the offline outbox holds a ConvexError
+ * as final, and a session that lapsed is not a final answer.
+ */
+import { ConvexError } from "convex/values";
 import { certificationsSchema } from "../src/domain/certifications";
 import { can, type Snapshot } from "../src/domain/model";
 import { context } from "./programContext";
@@ -6,6 +19,16 @@ import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { WithoutSystemFields } from "convex/server";
 import type { Permission, Member, Group } from "../src/domain/model";
+
+type Ctx = QueryCtx | MutationCtx;
+
+/**
+ * An account as the domain sees it.
+ *
+ * @returns The member; an unset name reads "Unnamed user", an unset email "",
+ *   and `active` and `isAdmin` are true only when stored as true.
+ * @throws {z.ZodError} When the stored certifications no longer parse.
+ */
 export function member(user: Doc<"users">): Member {
   return {
     certifications:
@@ -26,6 +49,8 @@ export function member(user: Doc<"users">): Member {
     groupIds: user.groupIds ?? [],
   };
 }
+
+/** A permission group as the domain sees it, keyed by its document id. */
 export function group(doc: Doc<"groups">): Group {
   return {
     programUuid: doc.programUuid,
@@ -37,7 +62,14 @@ export function group(doc: Doc<"groups">): Group {
     permissions: doc.permissions,
   };
 }
-export async function activeIdentity(ctx: QueryCtx | MutationCtx) {
+
+/**
+ * The signed-in account and its session, when both are current.
+ *
+ * @returns null unless the account is active and the session belongs to it
+ *   and has not expired.
+ */
+export async function activeIdentity(ctx: Ctx) {
   const id = await getAuthUserId(ctx);
   const sessionId = await getAuthSessionId(ctx);
   if (!id || !sessionId) return null;
@@ -54,46 +86,79 @@ export async function activeIdentity(ctx: QueryCtx | MutationCtx) {
     return null;
   return { user, session };
 }
-export async function currentUser(ctx: QueryCtx | MutationCtx) {
+
+/**
+ * The signed-in account, which must be active with a current session.
+ *
+ * @throws {Error} "An active account and session are required." A plain
+ *   Error, not a ConvexError (see the header).
+ */
+export async function currentUser(ctx: Ctx) {
   const identity = await activeIdentity(ctx);
   if (!identity) throw new Error("An active account and session are required.");
   return identity.user;
 }
-export async function admin(ctx: QueryCtx | MutationCtx) {
+
+/**
+ * The signed-in account, which must be a system administrator.
+ *
+ * @throws {Error} The session refusal of {@link currentUser}.
+ * @throws {ConvexError} "Administrator permission required."
+ */
+export async function admin(ctx: Ctx) {
   const user = await currentUser(ctx);
-  if (!user.isAdmin) throw new Error("Administrator permission required.");
+  if (!user.isAdmin)
+    throw new ConvexError("Administrator permission required.");
   return user;
 }
+
+/**
+ * The signed-in account, which must hold `permission` on the aircraft within
+ * its active Flight Program.
+ *
+ * @param state - The caller's program context, when already loaded.
+ * @throws {Error} The session refusal of {@link currentUser}.
+ * @throws {ConvexError} "You do not have permission for this aircraft."
+ */
 export async function authorized(
-  ctx: QueryCtx | MutationCtx,
+  ctx: Ctx,
   aircraftUuid: string,
   permission: Permission,
-  // Pass the already-loaded program context to avoid loading it twice.
   state?: Snapshot,
 ) {
   const user = await currentUser(ctx);
   if (can(state ?? (await context(ctx, user)), aircraftUuid, permission))
     return user;
-  throw new Error("You do not have permission for this aircraft.");
+  throw new ConvexError("You do not have permission for this aircraft.");
 }
-export async function aircraftByUuid(
-  ctx: QueryCtx | MutationCtx,
-  uuid: string,
-) {
+
+/**
+ * An aircraft by uuid, in any Flight Program; it checks no access.
+ *
+ * @throws {ConvexError} "Aircraft not found."
+ */
+export async function aircraftByUuid(ctx: Ctx, uuid: string) {
   const aircraft = await ctx.db
     .query("aircraft")
     .withIndex("uuid", (q) => q.eq("uuid", uuid))
     .unique();
-  if (!aircraft) throw new Error("Aircraft not found.");
+  if (!aircraft) throw new ConvexError("Aircraft not found.");
   return aircraft;
 }
-// Change-log rows are append-only (ADR-0005). writeAudit is the one insert
-// into the audit table: commands write through runCommand's log, everything
-// else through audit() below.
+
+/** A change-log row as stored. */
 export type AuditRow = WithoutSystemFields<Doc<"audit">>;
+
+/**
+ * Inserts one change-log row. Rows are append-only (ADR-0005), and this is
+ * the only insert into the audit table: commands write through runCommand's
+ * log, everything else through {@link audit}.
+ */
 export async function writeAudit(ctx: MutationCtx, row: AuditRow) {
   await ctx.db.insert("audit", row);
 }
+
+/** The optional fields of a change-log row. */
 export interface AuditFields {
   programUuid?: string;
   aircraftUuid?: string;
@@ -101,7 +166,12 @@ export interface AuditFields {
   before?: unknown;
   after?: unknown;
 }
-// A new row by `actorId`, now; before and after are stored as JSON.
+
+/**
+ * A new change-log row by `actorId`, stamped now with a fresh uuid.
+ *
+ * @returns The row, with `before` and `after` stored as JSON text.
+ */
 export function auditRow(
   actorId: string,
   action: string,
@@ -123,6 +193,8 @@ export function auditRow(
       options.after === undefined ? undefined : JSON.stringify(options.after),
   };
 }
+
+/** Writes one new change-log row by `actorId` (see {@link auditRow}). */
 export async function audit(
   ctx: MutationCtx,
   actorId: string,
