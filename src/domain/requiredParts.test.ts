@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins required-parts rules: list checks, availability
- *   against usable stock, and saving a discrepancy's parts.
+ *   against usable stock, and saving a discrepancy's parts with its
+ *   change-log entry.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/requiredParts.ts, ./management, ./programs,
  *   ./partsPlanning, ./rejection, tests/fixtures (parts and work orders).
@@ -116,6 +117,32 @@ describe("inventory parts planning", () => {
     expect(() => saveDiscrepancyParts(s, "parts-report", 1, [])).toThrow(
       "read-only",
     );
+  });
+  it("records one change-log entry for a saved list, with the report before and after", () => {
+    const s = partsFixture();
+    const before = structuredClone(s.discrepancies[0]);
+    const log = s.audit.length;
+    const saved = saveDiscrepancyParts(s, "parts-report", 0, [neededPart]);
+    expect(() => saveDiscrepancyParts(s, "parts-report", 0, [])).toThrow(
+      Rejection,
+    );
+    expect(s.audit).toHaveLength(log + 1);
+    expect(s.audit[0]).toEqual({
+      uuid: expect.any(String),
+      programUuid: "demo-program",
+      actorId: s.user.id,
+      at: expect.any(Number),
+      action: "discrepancy.parts",
+      entityUuid: "parts-report",
+      aircraftUuid: before.aircraftUuid,
+      reason: "Required parts updated",
+      before: JSON.stringify(before),
+      after: JSON.stringify(saved),
+    });
+    expect(saved).toMatchObject({
+      requiredParts: [neededPart],
+      partsVersion: 1,
+    });
   });
   it("shows readers current availability without exposing purchasing details or another program", () => {
     const s = partsFixture();

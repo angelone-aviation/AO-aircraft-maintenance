@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the parts a problem report or inspection needs: saved
- *   and audited on the server, with maintenance access to the aircraft only,
- *   and the stock snapshot without private vendor details.
+ *   and audited on the server (the change-log row as stored), with
+ *   maintenance access to the aircraft only, and the stock snapshot without
+ *   private vendor details.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex (operations, management, schema),
  *   tests/fixtures/requiredParts.ts.
@@ -68,7 +69,32 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
   await expect(
     reader.mutation(api.operations.saveDiscrepancyParts, input),
   ).rejects.toThrow("Permission");
+  const report = () =>
+    t.run((ctx) =>
+      ctx.db
+        .query("discrepancies")
+        .withIndex("uuid", (q) => q.eq("uuid", input.uuid))
+        .unique(),
+    );
+  const stored = await report();
   await tech.mutation(api.operations.saveDiscrepancyParts, input);
+  // The row has always held the document, system fields too, before and
+  // after, and no program.
+  const rows = await t.run(async (ctx) =>
+    (await ctx.db.query("audit").collect()).filter(
+      (r) => r.action === "discrepancy.parts",
+    ),
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    actorId: identities.tech.subject.split("|")[0],
+    entityUuid: input.uuid,
+    aircraftUuid: stored!.aircraftUuid,
+    reason: "Required parts updated",
+  });
+  expect(rows[0]).not.toHaveProperty("programUuid");
+  expect(JSON.parse(rows[0].before!)).toEqual(stored);
+  expect(JSON.parse(rows[0].after!)).toEqual(await report());
   await expect(
     tech.mutation(api.operations.saveDiscrepancyParts, input),
   ).rejects.toThrow("changed");

@@ -252,8 +252,9 @@ export const reviewFlight = mutation({
  *
  * @param version - The parts version the client edited.
  * @param payload - The required parts, as JSON.
- * @throws {Error} "Report not found.", or the domain's refusal.
- * @throws {ConvexError} The refusals of checkContext.
+ * @throws {Error} "Report not found."; a ZodError for a malformed list.
+ * @throws {ConvexError} The refusals of checkContext; the domain's refusals,
+ *   such as "Parts changed. Reopen the report and try again."
  */
 export const saveDiscrepancyParts = mutation({
   args: {
@@ -270,7 +271,7 @@ export const saveDiscrepancyParts = mutation({
         const d = await reportByUuid(ctx, uuid);
         const { snapshot } = await hydrate(ctx, state, ["management"]);
         snapshot.discrepancies = [d];
-        return { d, snapshot, before: structuredClone(d) };
+        return { d, snapshot };
       },
       apply: ({ snapshot }, payload) =>
         applyDiscrepancyParts(
@@ -285,13 +286,10 @@ export const saveDiscrepancyParts = mutation({
           partsVersion: result.partsVersion,
         });
       },
-      audit: (log, { d, before }, result) =>
-        log.entry("discrepancy.parts", uuid, {
-          aircraftUuid: d.aircraftUuid,
-          before,
-          after: result,
-          reason: "Required parts updated",
-        }),
+      // The applier works on the stored document, so its entry holds the
+      // system fields, as the row always has; the row names no program.
+      audit: (log, { snapshot }) =>
+        log.replay(oldestFirst(snapshot.audit), { programUuid: undefined }),
     }),
 });
 

@@ -2,7 +2,8 @@
  * Responsibility: Parts planned for maintenance work: the required-parts list,
  *   the inventory it draws on, and how much of each part is on hand.
  * Layer: Domain. Zod schema, rules and one applier; no I/O, no React.
- * Dependencies: zod, ./model, ./programs, ./shelfLife, ./rejection.
+ * Dependencies: zod, ./model, ./programs, ./shelfLife, ./changeLog,
+ *   ./rejection.
  *
  * Planning only: listing a part neither reserves nor issues stock.
  */
@@ -10,6 +11,7 @@ import { z } from "zod";
 import { can, type Snapshot } from "./model";
 import { ownsActive, recordProgram } from "./programs";
 import { expiredForUse, usableQuantity } from "./shelfLife";
+import { auditEntry } from "./changeLog";
 import { Rejection } from "./rejection";
 
 // A part listed by number counts only serviceable lots; a lot with no
@@ -156,8 +158,9 @@ export function partsAvailability(
 }
 
 /**
- * Replaces an open discrepancy's required parts, at the next parts version.
- * The caller writes the audit entry.
+ * Replaces an open discrepancy's required parts, at the next parts version,
+ * and adds a "discrepancy.parts" change-log entry with the report before and
+ * after.
  *
  * @param s - Working snapshot; the discrepancy changes in place.
  * @param uuid - The discrepancy.
@@ -183,8 +186,19 @@ export function saveDiscrepancyParts(
     throw new Rejection("Resolved reports are read-only.");
   if ((d.partsVersion ?? 0) !== version)
     throw new Rejection("Parts changed. Reopen the report and try again.");
+  const before = structuredClone(d);
   d.requiredParts = validateRequiredParts(s, parts, a.programUuid);
   d.partsVersion = version + 1;
+  s.audit.unshift(
+    auditEntry(s, {
+      action: "discrepancy.parts",
+      entityUuid: d.uuid,
+      aircraftUuid: d.aircraftUuid,
+      reason: "Required parts updated",
+      before,
+      after: d,
+    }),
+  );
   return d;
 }
 

@@ -1,9 +1,9 @@
 /**
- * Responsibility: Pins the demo adapter's discrepancy resolution and
- *   deferral, flight review, AD changes, attachments, manual edits, saved addresses, FAA
- *   monitor commands, program selection, membership and group saves, and
- *   recurring parts lists against the server's rules: the same refusals,
- *   stored records and change-log rows.
+ * Responsibility: Pins the demo adapter's discrepancy resolution, deferral
+ *   and parts, flight review, AD changes, attachments, manual edits, saved
+ *   addresses, FAA monitor commands, program selection, membership and group
+ *   saves, and recurring parts lists against the server's rules: the same
+ *   refusals, stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
@@ -16,11 +16,11 @@
  * flight review skipped the administrator, aircraft, crew, problem-report,
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
- * and crashed on a missing flight. Before Batch 296 its AD, deferral and
- * resolution rows named no Flight Program, and a resolution row held the
- * whole report after, where the server keeps the resolved fields. Before
- * Batch 273 it took any number of attachments. Before
- * Batch 285 it audited a manual edit's whole record, saved addresses without
+ * and crashed on a missing flight. Before Batch 296 its AD, deferral,
+ * resolution and parts rows named no Flight Program, and a resolution row
+ * held the whole report after, where the server keeps the resolved fields.
+ * Before Batch 273 it took any number of attachments. Before Batch 285 it
+ * audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
  * FAA monitor's run and error on configure, and ignored an unknown candidate.
  * Before Batch 292 it said "Select at least one group with read access." and
@@ -142,6 +142,27 @@ it("defers and audits it as the server does: the program, the placard, the defer
     reason: "LDG LT INOP",
     before: JSON.stringify(before),
     after: JSON.stringify(after.deferral),
+  });
+});
+
+it("saves a report's parts and audits it as the server does, with the program", async () => {
+  const { backend, stored } = await demo("demo-parts");
+  const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
+  await backend.saveDiscrepancyParts(REPORT, 0, []);
+  const s = await stored();
+  const after = s.discrepancies.find((d) => d.uuid === REPORT)!;
+  expect(after).toEqual({ ...before, requiredParts: [], partsVersion: 1 });
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    action: "discrepancy.parts",
+    entityUuid: REPORT,
+    aircraftUuid: after.aircraftUuid,
+    reason: "Required parts updated",
+    before: JSON.stringify(before),
+    after: JSON.stringify(after),
   });
 });
 

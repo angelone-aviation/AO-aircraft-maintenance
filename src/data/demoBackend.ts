@@ -861,19 +861,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     saveDiscrepancyParts: (uuid, version, parts) =>
       modify((s) => {
-        const before = structuredClone(
-          s.discrepancies.find((d) => d.uuid === uuid),
-        );
-        const d = saveDiscrepancyParts(s, uuid, version, parts);
-        audit(
-          s,
-          "discrepancy.parts",
-          uuid,
-          d.aircraftUuid,
-          "Required parts updated",
-          before,
-          d,
-        );
+        saveDiscrepancyParts(s, uuid, version, parts);
       }),
     deferDiscrepancy: (command) =>
       modify((s) => replaceReport(s, deferDiscrepancy(s, command))),
