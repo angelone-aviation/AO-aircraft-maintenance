@@ -5,7 +5,7 @@
  * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
  * Dependencies: zod, ./model, ./programs, ./components, ./adOwnership,
  *   ./componentInventory, ./inventoryAttachments, ./logbookWording,
- *   ./rejection, and the ./workOrder* modules.
+ *   ./rejection, ./taskCards (types) and the ./workOrder* modules.
  */
 import { removedTaskCards } from "./workOrderTaskRemoval";
 import { adAircraftUuid } from "./adOwnership";
@@ -23,8 +23,7 @@ import {
   closeoutSchema,
   completionReadingsSchema,
 } from "./workOrderCloseoutSchema";
-import { workPerformedText } from "./workOrderCloseout";
-import { completeWorkOrder } from "./workOrderCloseout";
+import { completeWorkOrder, workPerformedText } from "./workOrderCloseout";
 import {
   copyWorkOrderTemplates,
   taskCardMatchesWorkItem,
@@ -39,13 +38,36 @@ import {
   latestLocalDate,
   localDate,
   totalSeconds,
+  type Aircraft,
+  type AuditEntry,
   type Inspection,
   type Snapshot,
 } from "./model";
 import { componentTotals, type Component } from "./components";
+import type { TaskCard } from "./taskCards";
 import { Rejection } from "./rejection";
-const text = z.string().trim().max(10000);
-const id = z.string().min(1).max(200);
+
+const TEXT_MAX_LENGTH = 10_000;
+const ID_MAX_LENGTH = 200;
+const WORK_PERFORMED_MAX_LENGTH = 100_000;
+// Bounds each order's component entries, corrections and revisions.
+const ENTRY_LIST_MAX = 100;
+const TASK_LIST_MAX = 500;
+const FILE_NAME_MAX_LENGTH = 255;
+const ATTACHMENT_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+const ORDER_NUMBER_DIGITS = 4;
+const CLOSED_STATUSES: readonly string[] = ["completed", "cancelled"];
+// Job cards spell their closed status "canceled".
+const CLOSED_CARD_STATUSES: readonly string[] = ["completed", "canceled"];
+const WORKABLE_AD_APPLICABILITY: readonly string[] = [
+  "Applicable",
+  "Previously Complied With (PCW)",
+];
+
+const text = z.string().trim().max(TEXT_MAX_LENGTH);
+const id = z.string().min(1).max(ID_MAX_LENGTH);
+
+/** A work order's statuses; "completed" and "cancelled" close it. */
 export const workOrderStatuses = [
   "open",
   "in-progress",
@@ -54,6 +76,8 @@ export const workOrderStatuses = [
   "completed",
   "cancelled",
 ] as const;
+
+/** A work item's statuses on its order. */
 export const taskStatuses = [
   "requested",
   "in-progress",
@@ -61,6 +85,11 @@ export const taskStatuses = [
   "completed",
   "cancelled",
 ] as const;
+
+/**
+ * The record a work item comes from: an AD action, discrepancy, inspection or
+ * component requirement on the order's aircraft, or "manual" work.
+ */
 export const sourceSchema = z.object({
   kind: z.enum([
     "discrepancy",
@@ -71,7 +100,10 @@ export const sourceSchema = z.object({
   ]),
   uuid: id,
 });
+
+/** Where a work item comes from; see {@link sourceSchema}. */
 export type WorkSource = z.infer<typeof sourceSchema>;
+
 const taskSchema = z.object({
   ...logbookSelectionFields,
   maintenanceReference: text.optional(),
@@ -82,6 +114,13 @@ const taskSchema = z.object({
   notes: text,
   partsDelay: text,
 });
+
+/**
+ * The fields a user edits on a work order; `completionDate` stays "" until
+ * the order is completed.
+ *
+ * @throws {z.ZodError} From `parse()` on an invalid field.
+ */
 export const workOrderFieldsSchema = z.object({
   number: z.string().trim().max(100),
   aircraftUuid: id,
@@ -94,6 +133,7 @@ export const workOrderFieldsSchema = z.object({
   releaseOutcome: text,
   finalReview: text,
 });
+
 const componentReadingSchema = z.object({
   recordedAt: z.number(),
   componentUuid: id,
@@ -105,13 +145,23 @@ const componentReadingSchema = z.object({
   timeSinceRepair: z.number().nullable(),
   cyclesSinceNew: z.number(),
 });
+
+/** The fields a revision of a closed work order may correct. */
 export const workOrderRevisionFieldsSchema = z.object({
   supervisor: text,
   scope: text,
   releaseOutcome: text,
   finalReview: text,
-  workPerformed: z.string().trim().max(100000),
+  workPerformed: z.string().trim().max(WORK_PERFORMED_MAX_LENGTH),
 });
+
+/**
+ * A work order as stored: its fields and items, the aircraft's and chosen
+ * components' readings captured when it was opened, and what closing,
+ * revising and correcting it append.
+ *
+ * @throws {z.ZodError} From `parse()` on an invalid field.
+ */
 export const workOrderSchema = workOrderFieldsSchema.extend({
   archivedTasks: z
     .array(
@@ -134,8 +184,11 @@ export const workOrderSchema = workOrderFieldsSchema.extend({
       error: z.string().optional(),
     })
     .optional(),
-  componentCorrections: z.array(componentCorrectionSchema).max(100).optional(),
-  revisedWorkPerformed: z.string().max(100000).optional(),
+  componentCorrections: z
+    .array(componentCorrectionSchema)
+    .max(ENTRY_LIST_MAX)
+    .optional(),
+  revisedWorkPerformed: z.string().max(WORK_PERFORMED_MAX_LENGTH).optional(),
   revisions: z
     .array(
       z.object({
@@ -148,10 +201,13 @@ export const workOrderSchema = workOrderFieldsSchema.extend({
         previousRecord: z.string(),
       }),
     )
-    .max(100)
+    .max(ENTRY_LIST_MAX)
     .optional(),
   closeout: closeoutSchema.optional(),
-  componentWork: z.array(componentWorkDraftSchema).max(100).optional(),
+  componentWork: z
+    .array(componentWorkDraftSchema)
+    .max(ENTRY_LIST_MAX)
+    .optional(),
   uuid: z.string().uuid(),
   version: z.number().int().nonnegative(),
   recordedAt: z.number(),
@@ -170,12 +226,24 @@ export const workOrderSchema = workOrderFieldsSchema.extend({
     cycles: z.number(),
     landings: z.number().int().nonnegative().optional(),
   }),
-  componentReadings: z.array(componentReadingSchema).max(100),
-  tasks: z.array(taskSchema).max(500),
+  componentReadings: z.array(componentReadingSchema).max(ENTRY_LIST_MAX),
+  tasks: z.array(taskSchema).max(TASK_LIST_MAX),
 });
+
+/** A stored work order. */
 export type WorkOrder = z.infer<typeof workOrderSchema>;
+/** The fields a user edits on a work order. */
 export type WorkOrderFields = z.infer<typeof workOrderFieldsSchema>;
+/** One work item on an order. */
 export type WorkTask = WorkOrder["tasks"][number];
+
+/**
+ * A work-order command, naming the order and the version it was read at:
+ * correct a component's close-out, revise a closed order, copy job card
+ * templates, save the order, or add one work item.
+ *
+ * @throws {z.ZodError} From `parse()` on an invalid command.
+ */
 export const workOrderCommandSchema = z.discriminatedUnion("action", [
   componentCorrectionCommandSchema,
   z.object({
@@ -196,9 +264,12 @@ export const workOrderCommandSchema = z.discriminatedUnion("action", [
     version: z.number().int().nonnegative(),
     fields: workOrderFieldsSchema,
     completionReadings: completionReadingsSchema.optional(),
-    componentWork: z.array(componentWorkDraftSchema).max(100).optional(),
-    componentUuids: z.array(id).max(100),
-    tasks: z.array(taskSchema).max(500),
+    componentWork: z
+      .array(componentWorkDraftSchema)
+      .max(ENTRY_LIST_MAX)
+      .optional(),
+    componentUuids: z.array(id).max(ENTRY_LIST_MAX),
+    tasks: z.array(taskSchema).max(TASK_LIST_MAX),
   }),
   z.object({
     action: z.literal("add"),
@@ -207,62 +278,76 @@ export const workOrderCommandSchema = z.discriminatedUnion("action", [
     source: sourceSchema,
   }),
 ]);
+
+/** A work-order command; see {@link workOrderCommandSchema}. */
 export type WorkOrderCommand = z.infer<typeof workOrderCommandSchema>;
+
+type SaveCommand = Extract<WorkOrderCommand, { action: "save" }>;
+type OrderEdit = Extract<
+  WorkOrderCommand,
+  { action: "save" | "add" | "copyTemplates" }
+>;
+type ComponentWorkItem = NonNullable<WorkOrder["componentWork"]>[number];
+type OfferedWork = { source: WorkSource; description: string };
+type Draft = { next: WorkOrder; removedTasks: WorkTask[] };
+type Removal = {
+  existing: WorkOrder | undefined;
+  removedTasks: WorkTask[];
+  programUuid: string | undefined;
+  now: number;
+};
+
+/**
+ * Whether a work order still takes edits.
+ *
+ * @param w - The work order.
+ * @returns False once it is completed or cancelled.
+ */
 export const isOpenWorkOrder = (w: WorkOrder) =>
-  !["completed", "cancelled"].includes(w.status);
+  !CLOSED_STATUSES.includes(w.status);
+
+/**
+ * The components installed on an aircraft.
+ *
+ * @param s - The snapshot.
+ * @param aircraftUuid - The aircraft.
+ * @returns Its installed components, in record order.
+ */
 export function installedComponents(s: Snapshot, aircraftUuid: string) {
   return (s.management ?? []).filter(
     (r): r is Component =>
       r.kind === "component" && r.installed && r.aircraftUuid === aircraftUuid,
   );
 }
+
+/**
+ * The work items an aircraft offers for a work order.
+ *
+ * @param s - The snapshot.
+ * @param aircraftUuid - The aircraft.
+ * @returns Each item's source and description: the actions of reviewed ADs
+ *   that are applicable or PCW, open discrepancies, unarchived inspections,
+ *   then installed components' requirements, each kind in record order.
+ */
 export function workSources(
   s: Snapshot,
   aircraftUuid: string,
 ): { source: WorkSource; description: string }[] {
-  const components = installedComponents(s, aircraftUuid);
   return [
-    ...(s.airworthiness ?? [])
-      .filter(
-        (r) =>
-          adAircraftUuid(s, r) === aircraftUuid &&
-          ["Applicable", "Previously Complied With (PCW)"].includes(
-            r.applicability,
-          ) &&
-          !r.reviewRequired,
-      )
-      .flatMap((r) =>
-        r.tasks.map((t) => ({
-          source: { kind: "airworthiness" as const, uuid: t.uuid },
-          description: `AD ${r.source.number}: ${t.description}`,
-        })),
-      ),
-    ...s.discrepancies
-      .filter((d) => d.aircraftUuid === aircraftUuid && d.status === "open")
-      .map((d) => ({
-        source: { kind: "discrepancy" as const, uuid: d.uuid },
-        description: d.description,
-      })),
-    ...s.inspections
-      .filter((i) => i.aircraftUuid === aircraftUuid && !i.archived)
-      .map((i) => ({
-        source: { kind: "inspection" as const, uuid: i.uuid },
-        description: `${i.reference}: ${i.description}`,
-      })),
-    ...(s.management ?? []).flatMap((r) => {
-      if (r.kind !== "componentRequirement") return [];
-      const c = components.find((c) => c.uuid === r.componentUuid);
-      return c
-        ? [
-            {
-              source: { kind: "componentRequirement" as const, uuid: r.uuid },
-              description: `${c.componentType} (${c.serial}) / ${r.description}`,
-            },
-          ]
-        : [];
-    }),
+    ...adSources(s, aircraftUuid),
+    ...discrepancySources(s, aircraftUuid),
+    ...inspectionSources(s, aircraftUuid),
+    ...requirementSources(s, aircraftUuid),
   ];
 }
+
+/**
+ * A new requested work item, left out of the logbook entry until chosen.
+ *
+ * @param source - The record it comes from.
+ * @param description - What the item says.
+ * @returns The item, with a new uuid.
+ */
 export function newWorkTask(source: WorkSource, description: string): WorkTask {
   return {
     uuid: crypto.randomUUID(),
@@ -275,6 +360,7 @@ export function newWorkTask(source: WorkSource, description: string): WorkTask {
     partsDelay: "",
   };
 }
+
 /**
  * Adds an inspection to a work order as a new requested task, described by
  * the inspection's reference and description.
@@ -305,6 +391,16 @@ export function addInspectionTask(
   );
   return { ...order, tasks: [...order.tasks, task] };
 }
+
+/**
+ * Progress on a work order: its items, its job cards, the discrepancies it
+ * covers that are still open, and what waits for parts.
+ *
+ * @param s - The snapshot.
+ * @param w - The work order.
+ * @returns Counts; a discrepancy that an item and a job card both name
+ *   counts once.
+ */
 export function workOrderProgress(s: Snapshot, w: WorkOrder) {
   const cards = (s.taskCards ?? []).filter((t) => t.workOrderUuid === w.uuid);
   const discrepancyIds = new Set([
@@ -326,6 +422,28 @@ export function workOrderProgress(s: Snapshot, w: WorkOrder) {
       cards.filter((t) => t.status === "awaiting-parts").length,
   };
 }
+
+/**
+ * Applies one work-order command to a working snapshot; saving an order as
+ * completed closes it out through completeWorkOrder. A refused command leaves
+ * the snapshot unchanged.
+ *
+ * Writes `workOrders`, `taskCards`, `archivedTaskCards` and `audit` (one
+ * "taskCard.archived_with_task" entry per job card archived with a removed
+ * item); a completion also writes `inspections` and `management`, and a
+ * component correction writes `management` and `workOrders` only.
+ *
+ * @param s - The working snapshot.
+ * @param raw - The command.
+ * @param now - The clock for timestamps and today's date.
+ * @param options - `deferTemplateCopies` leaves copying job card templates
+ *   for the order's items to the caller.
+ * @returns The saved order, its version advanced.
+ * @throws {Rejection} A refused command, such as "Work order changed. Reopen
+ *   it before saving." or "This work order is closed."; and as
+ *   completeWorkOrder, previewComponentCorrection and componentTotals.
+ * @throws {z.ZodError} When the command or the saved order does not parse.
+ */
 export function saveWorkOrder(
   s: Snapshot,
   raw: WorkOrderCommand,
@@ -334,398 +452,39 @@ export function saveWorkOrder(
 ): WorkOrder {
   const command = workOrderCommandSchema.parse(raw);
   const existing = s.workOrders?.find((w) => w.uuid === command.uuid);
-  if (existing?.templateCopy && existing.templateCopy.status !== "completed")
-    throw new Error(
-      "Job cards are still being prepared. Finish or resume preparation before editing or closing this work order.",
-    );
-  const aircraftUuid =
-    command.action === "save"
-      ? command.fields.aircraftUuid
-      : existing?.aircraftUuid;
-  if (!aircraftUuid || !can(s, aircraftUuid, "maintenance"))
-    throw new Error("Work order maintenance access denied.");
-  if (existing && existing.aircraftUuid !== aircraftUuid)
-    throw new Error("A work order cannot change aircraft.");
-  if ((existing?.version ?? 0) !== command.version)
-    throw new Error("Work order changed. Reopen it before saving.");
-  if (command.action === "correctComponent") {
-    if (!existing) throw new Error("Work order not found.");
-    const result = previewComponentCorrection(s, existing, command, now);
-    const next = workOrderSchema.parse({
-      ...existing,
-      version: existing.version + 1,
-      componentCorrections: [
-        ...(existing.componentCorrections ?? []),
-        result.correction,
-      ],
-    });
-    s.management = result.management;
-    s.workOrders = s.workOrders!.map((w) => (w.uuid === next.uuid ? next : w));
-    return next;
-  }
-  if (command.action === "revise") {
-    if (!existing || isOpenWorkOrder(existing))
-      throw new Error(
-        "Only closed work orders can be revised. Edit open orders normally.",
-      );
-    if (existing.status === "completed" && !command.fields.releaseOutcome)
-      throw new Error("A completed work order requires a release statement.");
-    const priorFields = {
-      supervisor: existing.supervisor,
-      scope: existing.scope,
-      releaseOutcome: existing.releaseOutcome,
-      finalReview: existing.finalReview,
-      workPerformed:
-        existing.revisedWorkPerformed ??
-        existing.closeout?.workPerformed ??
-        workPerformedText(s, existing),
-    };
-    if (JSON.stringify(priorFields) === JSON.stringify(command.fields))
-      throw new Error("Change at least one field before saving a revision.");
-    const { revisions = [], ...previousRecord } = existing;
-    const { workPerformed, ...fields } = command.fields;
-    const next = workOrderSchema.parse({
-      ...existing,
-      ...fields,
-      revisedWorkPerformed: workPerformed,
-      version: existing.version + 1,
-      revisions: [
-        ...revisions,
-        {
-          number: revisions.length + 1,
-          recordedAt: now,
-          authorId: s.user.id,
-          authorName: s.user.name,
-          reason: command.reason,
-          previousRecord: JSON.stringify(previousRecord),
-        },
-      ],
-    });
-    // A documentary correction must never replay closeout tracking updates.
-    s.workOrders = s.workOrders!.map((w) => (w.uuid === next.uuid ? next : w));
-    return next;
-  }
+  const aircraftUuid = assertWritable(s, command, existing);
+  if (command.action === "correctComponent")
+    return correctComponent(s, requireOrder(existing), command, now);
+  if (command.action === "revise")
+    return reviseOrder(s, existing, command, now);
   if (existing && !isOpenWorkOrder(existing))
-    throw new Error("This work order is closed.");
-  if (command.action === "add" && !existing)
-    throw new Error("Work order not found.");
+    throw new Rejection("This work order is closed.");
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid)!;
-  const sources = workSources(s, aircraftUuid);
-  let next: WorkOrder;
-  let removedTasks: WorkTask[] = [];
-  if (command.action === "copyTemplates") {
-    if (!existing) throw new Error("Work order not found.");
-    next = { ...existing };
-  } else if (command.action === "add" && command.source.kind === "inspection") {
-    const { uuid } = command.source;
-    next = addInspectionTask(
-      existing!,
-      s.inspections.find((i) => i.uuid === uuid),
-    );
-  } else if (command.action === "add") {
-    const item = sources.find(
-      (x) =>
-        x.source.kind === command.source.kind &&
-        x.source.uuid === command.source.uuid,
-    );
-    if (!item) throw new Error("Work item is unavailable for this aircraft.");
-    next = {
-      ...existing!,
-      tasks: [...existing!.tasks, newWorkTask(item.source, item.description)],
-    };
-  } else {
-    const fields = command.fields;
-    const today = localDate(now),
-      latest = latestLocalDate(now);
-    if (fields.dateOpened > latest)
-      throw new Error("Date opened cannot be in the future.");
-    if (
-      fields.completionDate &&
-      (fields.completionDate < fields.dateOpened ||
-        fields.completionDate > latest)
-    )
-      throw new Error("Completion date must be between opening and today.");
-    if (!existing && fields.status !== "open")
-      throw new Error("New work orders must start open.");
-    if (
-      fields.status === "completed" &&
-      (!fields.completionDate ||
-        !fields.releaseOutcome ||
-        command.tasks.some(
-          (t) => !["completed", "cancelled"].includes(t.status),
-        ))
-    )
-      throw new Error(
-        "Complete or cancel every task and enter a completion date and release outcome before closing.",
-      );
-    if (
-      ["completed", "cancelled"].includes(fields.status) &&
-      (s.taskCards ?? []).some(
-        (t) =>
-          t.workOrderUuid === command.uuid &&
-          !["completed", "canceled"].includes(t.status),
-      )
-    )
-      throw new Error(
-        "Complete or cancel linked job cards before closing the work order.",
-      );
-    const scopedOrders = (s.workOrders ?? []).filter(
-      (w) =>
-        s.aircraft.find((a) => a.uuid === w.aircraftUuid)?.programUuid ===
-        a.programUuid,
-    );
-    let number = fields.number || existing?.number;
-    if (!number) {
-      let sequence = 1;
-      do {
-        number = `WO-${today.slice(0, 4)}-${String(sequence++).padStart(4, "0")}`;
-      } while (
-        scopedOrders.some(
-          (w) => w.number.toLowerCase() === number!.toLowerCase(),
-        )
-      );
-    }
-    if (
-      scopedOrders.some(
-        (w) =>
-          w.uuid !== command.uuid &&
-          w.number.toLowerCase() === number.toLowerCase(),
-      )
-    )
-      throw new Error("Work order number already exists in this program.");
-    const componentReadings = [...new Set(command.componentUuids)].map(
-      (uuid) => {
-        const prior = existing?.componentReadings.find(
-          (c) => c.componentUuid === uuid,
-        );
-        if (prior) return prior;
-        const c = installedComponents(s, aircraftUuid).find(
-          (c) => c.uuid === uuid,
-        );
-        if (!c)
-          throw new Error(
-            "Header components must be installed on this aircraft.",
-          );
-        const totals = componentTotals(c, a, today);
-        return {
-          recordedAt: now,
-          componentUuid: uuid,
-          label: `${c.componentType}${c.installPosition ? ` · ${c.installPosition}` : ""}`,
-          partNumber: c.partNumber,
-          serial: c.serial,
-          timeSinceNew: totals.timeSinceNew,
-          timeSinceOverhaul: totals.timeSinceOverhaul,
-          timeSinceRepair: totals.timeSinceRepair,
-          cyclesSinceNew: totals.cyclesSinceNew,
-        };
-      },
-    );
-    const tasks = command.tasks.map((t) => {
-      const prior = existing?.tasks.find((x) => x.uuid === t.uuid);
-      if (prior) {
-        if (
-          prior.source.kind !== t.source.kind ||
-          prior.source.uuid !== t.source.uuid
-        )
-          throw new Error("A task cannot change its source.");
-        return { ...t, description: prior.description };
-      }
-      if (t.source.kind === "manual") return t;
-      const source = sources.find(
-        (x) =>
-          x.source.kind === t.source.kind && x.source.uuid === t.source.uuid,
-      );
-      if (!source)
-        throw new Error("Work item is unavailable for this aircraft.");
-      return { ...t, description: source.description };
-    });
-    removedTasks =
-      existing?.tasks.filter(
-        (task) => !tasks.some((next) => next.uuid === task.uuid),
-      ) ?? [];
-    next = {
-      ...fields,
-      number,
-      uuid: command.uuid,
-      version: command.version,
-      recordedAt: existing?.recordedAt ?? now,
-      createdBy: existing?.createdBy ?? s.user.id,
-      aircraft: existing?.aircraft ?? {
-        registration: a.registration,
-        make: a.make,
-        model: a.model,
-        serial: a.serial,
-        totalSeconds: totalSeconds(a),
-        hobbs: a.currentHobbs,
-        tach: a.currentTach,
-        cyclicHobbs: a.currentCyclicHobbs,
-        flightTimeLog: a.currentFlightTimeLog,
-        meter: a.meter,
-        cycles: a.cycles,
-        landings: a.landings,
-      },
-      componentReadings,
-      componentWork: (command.componentWork ?? existing?.componentWork)?.filter(
-        (work) =>
-          !work.taskUuid ||
-          !removedTasks.some((task) => task.uuid === work.taskUuid),
-      ),
-      templateCopy: existing?.templateCopy,
-      archivedTasks: existing?.archivedTasks,
-      tasks,
-    };
-  }
-  const movements = (next.componentWork ?? []).filter(
-    (w) => w.action === "install" || w.action === "remove",
-  );
-  if (
-    new Set((next.componentWork ?? []).map((w) => w.componentUuid)).size !==
-    (next.componentWork ?? []).length
-  )
-    throw new Error("A component can only have one action per work order.");
-  for (const movement of movements) {
-    const task = next.tasks.find((t) => t.uuid === movement.taskUuid);
-    if (!task || task.source.kind !== "manual")
-      throw new Error("A component movement requires its own work order task.");
-    if (task.status === "cancelled" || next.status === "cancelled") continue;
-    const c = s.management?.find(
-      (r): r is Component =>
-        r.kind === "component" && r.uuid === movement.componentUuid,
-    );
-    if (
-      !c ||
-      recordProgram(s, c) !== a.programUuid ||
-      (c.aircraftUuid && !can(s, c.aircraftUuid, "maintenance"))
-    )
-      throw new Error("Component maintenance access denied.");
-    if (c.parentComponentUuid)
-      throw new Error(
-        "Move the parent component; its attached parts move with it.",
-      );
-    if (c.version !== movement.version)
-      throw new Error(
-        "Component tracking changed. Review the component readings before saving.",
-      );
-    if (
-      movement.action === "install"
-        ? c.installed
-        : !c.installed || c.aircraftUuid !== aircraftUuid
-    )
-      throw new Error("Component is unavailable for this aircraft movement.");
-    if (movement.action === "install" && !movement.installPosition)
-      throw new Error("Select an installation position.");
-    if (movement.action === "remove") {
-      if (!movement.locationUuid && !movement.partsLocation?.trim())
-        throw new Error("Select the removal inventory location.");
-      validateComponentLocation(s, {
-        ...c,
-        installed: false,
-        locationUuid: movement.locationUuid,
-        partsLocation: movement.partsLocation,
-      });
-    }
-  }
-  const componentIds = workOrderComponentIds(
-    s,
-    next,
-    next.status !== "completed",
-  );
-  if (next.componentWork)
-    next.componentWork = next.componentWork.filter((item) =>
-      componentIds.includes(item.componentUuid),
-    );
-  const keys = next.tasks.map((t) => `${t.source.kind}:${t.source.uuid}`);
-  if (
-    new Set(keys).size !== keys.length ||
-    new Set(next.tasks.map((t) => t.uuid)).size !== next.tasks.length
-  )
-    throw new Error("This item is already on the work order.");
-  next = workOrderSchema.parse({ ...next, version: command.version + 1 });
+  const draft = draftOrder(s, command, existing, a, now);
+  assertComponentWork(s, draft.next, a);
+  const saved = finishDraft(s, draft.next, command.version);
   const isolated = structuredClone(s);
-  if (removedTasks.length) {
-    const removedCards = removedTaskCards(
-      isolated,
-      next.uuid,
-      removedTasks,
-      next.tasks,
-    );
-    isolated.archivedTaskCards = [
-      ...(isolated.archivedTaskCards ?? []),
-      ...structuredClone(removedCards),
-    ];
-    next.archivedTasks = [
-      ...(next.archivedTasks ?? []),
-      ...removedTasks.map((task) => ({
-        task: structuredClone(task),
-        cardUuids: removedCards
-          .filter((card) => taskCardMatchesWorkItem(card, task))
-          .map((card) => card.uuid),
-        removedAt: now,
-        removedBy: s.user.id,
-        removedByName: s.user.name,
-        componentWork: existing?.componentWork?.filter(
-          (work) => work.taskUuid === task.uuid,
-        ),
-      })),
-    ];
-    const removedIds = new Set(removedCards.map((card) => card.uuid));
-    isolated.taskCards = isolated.taskCards?.filter(
-      (card) => !removedIds.has(card.uuid),
-    );
-    for (const card of removedCards)
-      isolated.audit.unshift({
-        uuid: crypto.randomUUID(),
-        programUuid: a.programUuid,
-        actorId: s.user.id,
-        at: now,
-        action: "taskCard.archived_with_task",
-        entityUuid: card.uuid,
-        aircraftUuid,
-        reason:
-          "Job card archived with its removed work-order task; signatures and evidence retained.",
-        before: JSON.stringify(card),
-      });
-  }
+  let next = archiveRemovedTasks(isolated, saved, {
+    existing,
+    removedTasks: draft.removedTasks,
+    programUuid: a.programUuid,
+    now,
+  });
   isolated.workOrders = [
     ...(s.workOrders ?? []).filter((w) => w.uuid !== next.uuid),
     next,
   ];
+  const previous = command.action === "copyTemplates" ? undefined : existing;
   if (!options.deferTemplateCopies)
-    copyWorkOrderTemplates(
-      isolated,
-      next,
-      command.action === "copyTemplates" ? undefined : existing,
-      now,
-    );
-  for (const task of itemsCompletedNow(existing, next)) {
-    const issue = workItemCompletionIssue(isolated, next.uuid, task);
-    if (issue) throw new Error(issue);
-  }
-  if (next.status === "completed") {
-    next = {
-      ...next,
-      closeout: completeWorkOrder(
-        isolated,
-        next,
-        command.action === "save" ? command.completionReadings : undefined,
-        now,
-        next.componentWork,
-      ),
-    };
-    isolated.workOrders = isolated.workOrders!.map((w) =>
-      w.uuid === next.uuid ? next : w,
-    );
-  }
-  if (next.status === "completed") {
-    s.inspections = isolated.inspections;
-    s.management = isolated.management;
-  }
-  s.workOrders = isolated.workOrders;
-  s.taskCards = isolated.taskCards;
-  s.archivedTaskCards = isolated.archivedTaskCards;
-  s.audit = isolated.audit;
+    copyWorkOrderTemplates(isolated, next, previous, now);
+  assertItemsCompletable(isolated, existing, next);
+  if (next.status === "completed")
+    next = closeOrder(isolated, next, command, now);
+  commitOrder(s, isolated, next.status === "completed");
   return next;
 }
+
+/** A file attached to a work order, as listed for it. */
 export interface WorkOrderAttachment {
   uuid: string;
   workOrderUuid: string;
@@ -734,6 +493,7 @@ export interface WorkOrderAttachment {
   uploadedAt: number;
   url: string;
 }
+
 /**
  * Refuses a work-order attachment or job-card evidence file unless it is a
  * PDF, JPEG or PNG of 1 byte to {@link MAX_ACTION_FILE_BYTES}, with a
@@ -748,12 +508,576 @@ export function validateWorkOrderFile(
 ) {
   if (
     !name.trim() ||
-    name.length > 255 ||
-    !["application/pdf", "image/jpeg", "image/png"].includes(type) ||
+    name.length > FILE_NAME_MAX_LENGTH ||
+    !ATTACHMENT_TYPES.includes(type) ||
     size <= 0 ||
     size > MAX_ACTION_FILE_BYTES
   )
     throw new Rejection("Choose a PDF, JPEG or PNG file up to 7 MB.");
+}
+
+function adSources(s: Snapshot, aircraftUuid: string): OfferedWork[] {
+  return (s.airworthiness ?? [])
+    .filter(
+      (r) =>
+        adAircraftUuid(s, r) === aircraftUuid &&
+        WORKABLE_AD_APPLICABILITY.includes(r.applicability) &&
+        !r.reviewRequired,
+    )
+    .flatMap((r) =>
+      r.tasks.map((t) => ({
+        source: { kind: "airworthiness" as const, uuid: t.uuid },
+        description: `AD ${r.source.number}: ${t.description}`,
+      })),
+    );
+}
+
+function discrepancySources(s: Snapshot, aircraftUuid: string): OfferedWork[] {
+  return s.discrepancies
+    .filter((d) => d.aircraftUuid === aircraftUuid && d.status === "open")
+    .map((d) => ({
+      source: { kind: "discrepancy" as const, uuid: d.uuid },
+      description: d.description,
+    }));
+}
+
+function inspectionSources(s: Snapshot, aircraftUuid: string): OfferedWork[] {
+  return s.inspections
+    .filter((i) => i.aircraftUuid === aircraftUuid && !i.archived)
+    .map((i) => ({
+      source: { kind: "inspection" as const, uuid: i.uuid },
+      description: `${i.reference}: ${i.description}`,
+    }));
+}
+
+// A component held in inventory offers none of its requirements.
+function requirementSources(s: Snapshot, aircraftUuid: string): OfferedWork[] {
+  const components = installedComponents(s, aircraftUuid);
+  return (s.management ?? []).flatMap((r) => {
+    if (r.kind !== "componentRequirement") return [];
+    const c = components.find((c) => c.uuid === r.componentUuid);
+    if (!c) return [];
+    const source = { kind: "componentRequirement" as const, uuid: r.uuid };
+    const description = `${c.componentType} (${c.serial}) / ${r.description}`;
+    return [{ source, description }];
+  });
+}
+
+// Every command passes these checks first, in this order.
+function assertWritable(
+  s: Snapshot,
+  command: WorkOrderCommand,
+  existing: WorkOrder | undefined,
+): string {
+  if (existing?.templateCopy && existing.templateCopy.status !== "completed")
+    throw new Rejection(
+      "Job cards are still being prepared. Finish or resume preparation before editing or closing this work order.",
+    );
+  const aircraftUuid =
+    command.action === "save"
+      ? command.fields.aircraftUuid
+      : existing?.aircraftUuid;
+  if (!aircraftUuid || !can(s, aircraftUuid, "maintenance"))
+    throw new Rejection("Work order maintenance access denied.");
+  if (existing && existing.aircraftUuid !== aircraftUuid)
+    throw new Rejection("A work order cannot change aircraft.");
+  if ((existing?.version ?? 0) !== command.version)
+    throw new Rejection("Work order changed. Reopen it before saving.");
+  return aircraftUuid;
+}
+
+// Unreachable: a command other than a save takes its aircraft from the order,
+// so assertWritable refuses one naming an order the snapshot lacks.
+function requireOrder(existing: WorkOrder | undefined): WorkOrder {
+  if (!existing) throw new Error("Work order not found.");
+  return existing;
+}
+
+function correctComponent(
+  s: Snapshot,
+  existing: WorkOrder,
+  command: Extract<WorkOrderCommand, { action: "correctComponent" }>,
+  now: number,
+): WorkOrder {
+  const result = previewComponentCorrection(s, existing, command, now);
+  const next = workOrderSchema.parse({
+    ...existing,
+    version: existing.version + 1,
+    componentCorrections: [
+      ...(existing.componentCorrections ?? []),
+      result.correction,
+    ],
+  });
+  s.management = result.management;
+  s.workOrders = s.workOrders!.map((w) => (w.uuid === next.uuid ? next : w));
+  return next;
+}
+
+// A documentary correction: it never replays close-out tracking updates.
+function reviseOrder(
+  s: Snapshot,
+  existing: WorkOrder | undefined,
+  command: Extract<WorkOrderCommand, { action: "revise" }>,
+  now: number,
+): WorkOrder {
+  const order = assertRevisable(s, existing, command);
+  const { revisions = [], ...previousRecord } = order;
+  const { workPerformed, ...fields } = command.fields;
+  const revision = {
+    number: revisions.length + 1,
+    recordedAt: now,
+    authorId: s.user.id,
+    authorName: s.user.name,
+    reason: command.reason,
+    previousRecord: JSON.stringify(previousRecord),
+  };
+  const next = workOrderSchema.parse({
+    ...order,
+    ...fields,
+    revisedWorkPerformed: workPerformed,
+    version: order.version + 1,
+    revisions: [...revisions, revision],
+  });
+  s.workOrders = s.workOrders!.map((w) => (w.uuid === next.uuid ? next : w));
+  return next;
+}
+
+// The fields compare as JSON, so the prior fields keep the revision schema's
+// key order.
+function assertRevisable(
+  s: Snapshot,
+  existing: WorkOrder | undefined,
+  command: Extract<WorkOrderCommand, { action: "revise" }>,
+): WorkOrder {
+  if (!existing || isOpenWorkOrder(existing))
+    throw new Rejection(
+      "Only closed work orders can be revised. Edit open orders normally.",
+    );
+  if (existing.status === "completed" && !command.fields.releaseOutcome)
+    throw new Rejection("A completed work order requires a release statement.");
+  const prior = {
+    supervisor: existing.supervisor,
+    scope: existing.scope,
+    releaseOutcome: existing.releaseOutcome,
+    finalReview: existing.finalReview,
+    workPerformed:
+      existing.revisedWorkPerformed ??
+      existing.closeout?.workPerformed ??
+      workPerformedText(s, existing),
+  };
+  if (JSON.stringify(prior) === JSON.stringify(command.fields))
+    throw new Rejection("Change at least one field before saving a revision.");
+  return existing;
+}
+
+function draftOrder(
+  s: Snapshot,
+  command: OrderEdit,
+  existing: WorkOrder | undefined,
+  a: Aircraft,
+  now: number,
+): Draft {
+  if (command.action === "save")
+    return draftSavedOrder(s, command, existing, a, now);
+  const order = requireOrder(existing);
+  if (command.action === "copyTemplates")
+    return { next: { ...order }, removedTasks: [] };
+  return { next: addWorkItem(s, order, command.source), removedTasks: [] };
+}
+
+// Any item but an inspection must be one the aircraft offers now.
+function addWorkItem(s: Snapshot, order: WorkOrder, source: WorkSource) {
+  if (source.kind === "inspection")
+    return addInspectionTask(
+      order,
+      s.inspections.find((i) => i.uuid === source.uuid),
+    );
+  const item = workSources(s, order.aircraftUuid).find(
+    (x) => x.source.kind === source.kind && x.source.uuid === source.uuid,
+  );
+  if (!item) throw new Rejection("Work item is unavailable for this aircraft.");
+  const task = newWorkTask(item.source, item.description);
+  return { ...order, tasks: [...order.tasks, task] };
+}
+
+// The aircraft's readings are captured once, when the order is opened. Work
+// for a component on an item the save removes goes with the item.
+function draftSavedOrder(
+  s: Snapshot,
+  command: SaveCommand,
+  existing: WorkOrder | undefined,
+  a: Aircraft,
+  now: number,
+): Draft {
+  assertSaveFields(s, command, existing, now);
+  const number = orderNumber(s, a, command, existing, localDate(now));
+  const componentReadings = readHeaderComponents(s, command, existing, a, now);
+  const tasks = resolveTasks(s, command, existing);
+  const removedTasks =
+    existing?.tasks.filter((t) => !tasks.some((x) => x.uuid === t.uuid)) ?? [];
+  const isRemoved = (taskUuid?: string) =>
+    removedTasks.some((task) => task.uuid === taskUuid);
+  const next: WorkOrder = {
+    ...command.fields,
+    number,
+    uuid: command.uuid,
+    version: command.version,
+    recordedAt: existing?.recordedAt ?? now,
+    createdBy: existing?.createdBy ?? s.user.id,
+    aircraft: existing?.aircraft ?? aircraftReading(a),
+    componentReadings,
+    componentWork: (command.componentWork ?? existing?.componentWork)?.filter(
+      (work) => !work.taskUuid || !isRemoved(work.taskUuid),
+    ),
+    templateCopy: existing?.templateCopy,
+    archivedTasks: existing?.archivedTasks,
+    tasks,
+  };
+  return { next, removedTasks };
+}
+
+function assertSaveFields(
+  s: Snapshot,
+  command: SaveCommand,
+  existing: WorkOrder | undefined,
+  now: number,
+) {
+  const { fields } = command;
+  const latest = latestLocalDate(now);
+  if (fields.dateOpened > latest)
+    throw new Rejection("Date opened cannot be in the future.");
+  if (
+    fields.completionDate &&
+    (fields.completionDate < fields.dateOpened ||
+      fields.completionDate > latest)
+  )
+    throw new Rejection("Completion date must be between opening and today.");
+  if (!existing && fields.status !== "open")
+    throw new Rejection("New work orders must start open.");
+  assertClosable(s, command);
+}
+
+function assertClosable(s: Snapshot, command: SaveCommand) {
+  const { fields } = command;
+  if (
+    fields.status === "completed" &&
+    (!fields.completionDate ||
+      !fields.releaseOutcome ||
+      command.tasks.some((t) => !CLOSED_STATUSES.includes(t.status)))
+  )
+    throw new Rejection(
+      "Complete or cancel every task and enter a completion date and release outcome before closing.",
+    );
+  const openCard = (t: TaskCard) =>
+    t.workOrderUuid === command.uuid &&
+    !CLOSED_CARD_STATUSES.includes(t.status);
+  if (
+    CLOSED_STATUSES.includes(fields.status) &&
+    (s.taskCards ?? []).some(openCard)
+  )
+    throw new Rejection(
+      "Complete or cancel linked job cards before closing the work order.",
+    );
+}
+
+// Numbers are unique within the Flight Program, ignoring case. A blank one
+// takes the first free WO-<year>-<nnnn> of the year of `today`.
+function orderNumber(
+  s: Snapshot,
+  a: Aircraft,
+  command: SaveCommand,
+  existing: WorkOrder | undefined,
+  today: string,
+): string {
+  const programOrders = (s.workOrders ?? []).filter(
+    (w) =>
+      s.aircraft.find((x) => x.uuid === w.aircraftUuid)?.programUuid ===
+      a.programUuid,
+  );
+  const number =
+    command.fields.number ||
+    existing?.number ||
+    firstFreeNumber(programOrders, today);
+  const taken = programOrders.some(
+    (w) => w.uuid !== command.uuid && isSameNumber(w.number, number),
+  );
+  if (taken)
+    throw new Rejection("Work order number already exists in this program.");
+  return number;
+}
+
+function firstFreeNumber(orders: WorkOrder[], today: string) {
+  const year = today.slice(0, 4);
+  let sequence = 1;
+  let number: string;
+  do {
+    const padded = String(sequence++).padStart(ORDER_NUMBER_DIGITS, "0");
+    number = `WO-${year}-${padded}`;
+  } while (orders.some((w) => isSameNumber(w.number, number)));
+  return number;
+}
+
+function isSameNumber(x: string, y: string) {
+  return x.toLowerCase() === y.toLowerCase();
+}
+
+// A component's readings are taken when it is first chosen, then kept.
+function readHeaderComponents(
+  s: Snapshot,
+  command: SaveCommand,
+  existing: WorkOrder | undefined,
+  a: Aircraft,
+  now: number,
+): WorkOrder["componentReadings"] {
+  const installed = installedComponents(s, command.fields.aircraftUuid);
+  const today = localDate(now);
+  return [...new Set(command.componentUuids)].map((uuid) => {
+    const prior = existing?.componentReadings.find(
+      (c) => c.componentUuid === uuid,
+    );
+    if (prior) return prior;
+    const c = installed.find((c) => c.uuid === uuid);
+    if (!c)
+      throw new Rejection(
+        "Header components must be installed on this aircraft.",
+      );
+    return readComponent(c, a, today, now);
+  });
+}
+
+function readComponent(c: Component, a: Aircraft, today: string, now: number) {
+  const totals = componentTotals(c, a, today);
+  return {
+    recordedAt: now,
+    componentUuid: c.uuid,
+    label: `${c.componentType}${c.installPosition ? ` · ${c.installPosition}` : ""}`,
+    partNumber: c.partNumber,
+    serial: c.serial,
+    timeSinceNew: totals.timeSinceNew,
+    timeSinceOverhaul: totals.timeSinceOverhaul,
+    timeSinceRepair: totals.timeSinceRepair,
+    cyclesSinceNew: totals.cyclesSinceNew,
+  };
+}
+
+function aircraftReading(a: Aircraft): WorkOrder["aircraft"] {
+  return {
+    registration: a.registration,
+    make: a.make,
+    model: a.model,
+    serial: a.serial,
+    totalSeconds: totalSeconds(a),
+    hobbs: a.currentHobbs,
+    tach: a.currentTach,
+    cyclicHobbs: a.currentCyclicHobbs,
+    flightTimeLog: a.currentFlightTimeLog,
+    meter: a.meter,
+    cycles: a.cycles,
+    landings: a.landings,
+  };
+}
+
+// An item keeps its source and the description it was added with; a new one
+// takes its description from the record it names.
+function resolveTasks(
+  s: Snapshot,
+  command: SaveCommand,
+  existing: WorkOrder | undefined,
+): WorkTask[] {
+  const sources = workSources(s, command.fields.aircraftUuid);
+  return command.tasks.map((t) => {
+    const prior = existing?.tasks.find((x) => x.uuid === t.uuid);
+    if (prior) return keepSource(t, prior);
+    if (t.source.kind === "manual") return t;
+    const source = sources.find(
+      (x) => x.source.kind === t.source.kind && x.source.uuid === t.source.uuid,
+    );
+    if (!source)
+      throw new Rejection("Work item is unavailable for this aircraft.");
+    return { ...t, description: source.description };
+  });
+}
+
+function keepSource(t: WorkTask, prior: WorkTask): WorkTask {
+  if (
+    prior.source.kind !== t.source.kind ||
+    prior.source.uuid !== t.source.uuid
+  )
+    throw new Rejection("A task cannot change its source.");
+  return { ...t, description: prior.description };
+}
+
+function assertComponentWork(s: Snapshot, next: WorkOrder, a: Aircraft) {
+  const work = next.componentWork ?? [];
+  if (new Set(work.map((w) => w.componentUuid)).size !== work.length)
+    throw new Rejection("A component can only have one action per work order.");
+  for (const movement of work)
+    if (movement.action === "install" || movement.action === "remove")
+      assertMovement(s, next, a, movement);
+}
+
+// A movement on a cancelled item or order records nothing, so only its task
+// is checked.
+function assertMovement(
+  s: Snapshot,
+  next: WorkOrder,
+  a: Aircraft,
+  movement: ComponentWorkItem,
+) {
+  const task = next.tasks.find((t) => t.uuid === movement.taskUuid);
+  if (!task || task.source.kind !== "manual")
+    throw new Rejection(
+      "A component movement requires its own work order task.",
+    );
+  if (task.status === "cancelled" || next.status === "cancelled") return;
+  const c = findMovableComponent(s, a, movement);
+  if (c.parentComponentUuid)
+    throw new Rejection(
+      "Move the parent component; its attached parts move with it.",
+    );
+  if (c.version !== movement.version)
+    throw new Rejection(
+      "Component tracking changed. Review the component readings before saving.",
+    );
+  const available =
+    movement.action === "install"
+      ? !c.installed
+      : c.installed && c.aircraftUuid === next.aircraftUuid;
+  if (!available)
+    throw new Rejection("Component is unavailable for this aircraft movement.");
+  if (movement.action === "install" && !movement.installPosition)
+    throw new Rejection("Select an installation position.");
+  if (movement.action === "remove") assertRemovalLocation(s, c, movement);
+}
+
+function findMovableComponent(
+  s: Snapshot,
+  a: Aircraft,
+  movement: ComponentWorkItem,
+): Component {
+  const c = s.management?.find(
+    (r): r is Component =>
+      r.kind === "component" && r.uuid === movement.componentUuid,
+  );
+  if (
+    !c ||
+    recordProgram(s, c) !== a.programUuid ||
+    (c.aircraftUuid && !can(s, c.aircraftUuid, "maintenance"))
+  )
+    throw new Rejection("Component maintenance access denied.");
+  return c;
+}
+
+function assertRemovalLocation(
+  s: Snapshot,
+  c: Component,
+  movement: ComponentWorkItem,
+) {
+  if (!movement.locationUuid && !movement.partsLocation?.trim())
+    throw new Rejection("Select the removal inventory location.");
+  validateComponentLocation(s, {
+    ...c,
+    installed: false,
+    locationUuid: movement.locationUuid,
+    partsLocation: movement.partsLocation,
+  });
+}
+
+// Component work is kept only for the components the order still covers.
+function finishDraft(s: Snapshot, draft: WorkOrder, version: number) {
+  const open = draft.status !== "completed";
+  const componentIds = workOrderComponentIds(s, draft, open);
+  if (draft.componentWork)
+    draft.componentWork = draft.componentWork.filter((item) =>
+      componentIds.includes(item.componentUuid),
+    );
+  const keys = draft.tasks.map((t) => `${t.source.kind}:${t.source.uuid}`);
+  if (
+    new Set(keys).size !== keys.length ||
+    new Set(draft.tasks.map((t) => t.uuid)).size !== draft.tasks.length
+  )
+    throw new Rejection("This item is already on the work order.");
+  return workOrderSchema.parse({ ...draft, version: version + 1 });
+}
+
+// A removed item's job cards are archived with it, signatures and evidence
+// kept, each with an audit entry.
+function archiveRemovedTasks(
+  isolated: Snapshot,
+  next: WorkOrder,
+  removal: Removal,
+): WorkOrder {
+  const { removedTasks } = removal;
+  if (!removedTasks.length) return next;
+  const cards = removedTaskCards(isolated, next.uuid, removedTasks, next.tasks);
+  isolated.archivedTaskCards = [
+    ...(isolated.archivedTaskCards ?? []),
+    ...structuredClone(cards),
+  ];
+  const archived = removedTasks.map((task) =>
+    archivedTask(isolated, task, cards, removal),
+  );
+  const removedIds = new Set(cards.map((card) => card.uuid));
+  isolated.taskCards = isolated.taskCards?.filter(
+    (card) => !removedIds.has(card.uuid),
+  );
+  for (const card of cards)
+    isolated.audit.unshift(archivedCardEntry(isolated, next, card, removal));
+  return {
+    ...next,
+    archivedTasks: [...(next.archivedTasks ?? []), ...archived],
+  };
+}
+
+function archivedTask(
+  s: Snapshot,
+  task: WorkTask,
+  cards: TaskCard[],
+  { existing, now }: Removal,
+) {
+  return {
+    task: structuredClone(task),
+    cardUuids: cards
+      .filter((card) => taskCardMatchesWorkItem(card, task))
+      .map((card) => card.uuid),
+    removedAt: now,
+    removedBy: s.user.id,
+    removedByName: s.user.name,
+    componentWork: existing?.componentWork?.filter(
+      (work) => work.taskUuid === task.uuid,
+    ),
+  };
+}
+
+function archivedCardEntry(
+  s: Snapshot,
+  next: WorkOrder,
+  card: TaskCard,
+  { programUuid, now }: Removal,
+): AuditEntry {
+  return {
+    uuid: crypto.randomUUID(),
+    programUuid,
+    actorId: s.user.id,
+    at: now,
+    action: "taskCard.archived_with_task",
+    entityUuid: card.uuid,
+    aircraftUuid: next.aircraftUuid,
+    reason:
+      "Job card archived with its removed work-order task; signatures and evidence retained.",
+    before: JSON.stringify(card),
+  };
+}
+
+function assertItemsCompletable(
+  isolated: Snapshot,
+  existing: WorkOrder | undefined,
+  next: WorkOrder,
+) {
+  for (const task of itemsCompletedNow(existing, next)) {
+    const issue = workItemCompletionIssue(isolated, next.uuid, task);
+    if (issue) throw new Rejection(issue);
+  }
 }
 
 // An item's job cards are checked on the save that completes it, not on every
@@ -766,4 +1090,40 @@ function itemsCompletedNow(existing: WorkOrder | undefined, next: WorkOrder) {
       existing?.tasks.find((prior) => prior.uuid === task.uuid)?.status !==
         "completed",
   );
+}
+
+function closeOrder(
+  isolated: Snapshot,
+  next: WorkOrder,
+  command: OrderEdit,
+  now: number,
+): WorkOrder {
+  const readings =
+    command.action === "save" ? command.completionReadings : undefined;
+  const closed = {
+    ...next,
+    closeout: completeWorkOrder(
+      isolated,
+      next,
+      readings,
+      now,
+      next.componentWork,
+    ),
+  };
+  isolated.workOrders = isolated.workOrders!.map((w) =>
+    w.uuid === closed.uuid ? closed : w,
+  );
+  return closed;
+}
+
+// Only a completion changes inspections and component records.
+function commitOrder(s: Snapshot, isolated: Snapshot, completed: boolean) {
+  if (completed) {
+    s.inspections = isolated.inspections;
+    s.management = isolated.management;
+  }
+  s.workOrders = isolated.workOrders;
+  s.taskCards = isolated.taskCards;
+  s.archivedTaskCards = isolated.archivedTaskCards;
+  s.audit = isolated.audit;
 }

@@ -1,9 +1,10 @@
 /**
  * Responsibility: Pins work orders in the domain: saving, adding work items,
- *   stale edits, closeout refusals, access and attachment rules.
+ *   access and attachment rules, and every refusal's message and class.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/workOrders.ts, ./model, ./programs, ./rejection,
- *   tests/fixtures/workOrders, src/data/demo.ts (seed).
+ *   ./taskCards, ./workOrderComponentWork (types), tests/fixtures (work
+ *   orders, task cards), src/data/demo.ts (seed).
  */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -14,12 +15,16 @@ import {
   workSources,
   workOrderProgress,
   validateWorkOrderFile,
+  type WorkOrderCommand,
 } from "./workOrders";
+import type { ComponentWork } from "./workOrderComponentWork";
+import { saveTaskCard } from "./taskCards";
+import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import {
   workOrderCommand,
   workOrderComponent,
 } from "../../tests/fixtures/workOrders";
-import { totalSeconds } from "./model";
+import { totalSeconds, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
 import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-01T12:00:00Z");
@@ -282,5 +287,278 @@ describe("work orders", () => {
       expect(refusal).toThrow(Rejection);
       expect(refusal).toThrow("Work item is unavailable for this aircraft.");
     }
+  });
+});
+
+describe("saveWorkOrder refusals", () => {
+  // Each refusal is a Rejection, so users see it, and leaves the snapshot as
+  // it was.
+  function refusal(s: Snapshot, command: WorkOrderCommand) {
+    const before = structuredClone(s);
+    try {
+      saveWorkOrder(s, command, now);
+    } catch (error) {
+      expect(s).toEqual(before);
+      expect(error).toBeInstanceOf(Rejection);
+      return error as Error;
+    }
+    throw new Error("Expected a refusal.");
+  }
+
+  // An open order on the first aircraft with one manual task, and the engine.
+  function opened() {
+    const s = demoSnapshot();
+    s.management = [workOrderComponent()];
+    const command = workOrderCommand();
+    const manual = newWorkTask({ kind: "manual", uuid: "manual" }, "Check");
+    command.tasks = [manual];
+    const order = saveWorkOrder(s, command, now);
+    return { s, command: { ...command, version: order.version }, manual };
+  }
+
+  function closed() {
+    const { s, command, manual } = opened();
+    const order = saveWorkOrder(
+      s,
+      {
+        ...command,
+        tasks: [{ ...manual, status: "completed" }],
+        fields: {
+          ...command.fields,
+          status: "completed",
+          completionDate: "2026-10-01",
+          releaseOutcome: "Released",
+        },
+      },
+      now,
+    );
+    const revision = {
+      action: "revise" as const,
+      uuid: order.uuid,
+      version: order.version,
+      reason: "Correct the record",
+      fields: {
+        supervisor: order.supervisor,
+        scope: order.scope,
+        releaseOutcome: order.releaseOutcome,
+        finalReview: order.finalReview,
+        workPerformed: order.closeout!.workPerformed,
+      },
+    };
+    return { s, command: { ...command, version: order.version }, revision };
+  }
+
+  function move(fields: Partial<ComponentWork>) {
+    const { s, command, manual } = opened();
+    const work: ComponentWork = {
+      componentUuid: "engine",
+      version: 0,
+      action: "remove",
+      taskUuid: manual.uuid,
+      partsLocation: "Shelf",
+      description: "Move",
+      reference: "",
+      ...fields,
+    };
+    return { s, command: { ...command, componentWork: [work] } };
+  }
+
+  it("refuses a new order the user cannot open", () => {
+    const fresh = () => ({ s: demoSnapshot(), command: workOrderCommand() });
+    const cases: [string, ReturnType<typeof fresh>][] = [];
+    const denied = fresh();
+    denied.s.user.isAdmin = false;
+    cases.push(["Work order maintenance access denied.", denied]);
+    const future = fresh();
+    future.command.fields.dateOpened = "2026-12-01";
+    cases.push(["Date opened cannot be in the future.", future]);
+    const early = fresh();
+    early.command.fields.completionDate = "2025-12-31";
+    cases.push(["Completion date must be between opening and today.", early]);
+    const started = fresh();
+    started.command.fields.status = "in-progress";
+    cases.push(["New work orders must start open.", started]);
+    const unlisted = fresh();
+    unlisted.command.componentUuids = ["unknown"];
+    cases.push([
+      "Header components must be installed on this aircraft.",
+      unlisted,
+    ]);
+    const foreign = fresh();
+    foreign.command.tasks = [
+      newWorkTask({ kind: "discrepancy", uuid: "unknown" }, "Leak"),
+    ];
+    cases.push(["Work item is unavailable for this aircraft.", foreign]);
+    const twice = fresh();
+    twice.command.tasks = [
+      newWorkTask({ kind: "manual", uuid: "same" }, "One"),
+      newWorkTask({ kind: "manual", uuid: "same" }, "Two"),
+    ];
+    cases.push(["This item is already on the work order.", twice]);
+    for (const [message, { s, command }] of cases)
+      expect(refusal(s, command).message).toBe(message);
+  });
+
+  it("refuses a stale, moved, duplicate or unfinished change to an order", () => {
+    const { s, command, manual } = opened();
+    const other = s.aircraft[1].uuid;
+    const refused = (change: WorkOrderCommand) => refusal(s, change).message;
+    expect(refused({ ...command, version: 0 })).toBe(
+      "Work order changed. Reopen it before saving.",
+    );
+    expect(
+      refused({
+        ...command,
+        fields: { ...command.fields, aircraftUuid: other },
+      }),
+    ).toBe("A work order cannot change aircraft.");
+    expect(
+      refused({
+        ...workOrderCommand(),
+        fields: { ...command.fields, number: "WO-2026-0001" },
+      }),
+    ).toBe("Work order number already exists in this program.");
+    expect(
+      refused({
+        ...command,
+        tasks: [{ ...manual, source: { kind: "manual", uuid: "other" } }],
+      }),
+    ).toBe("A task cannot change its source.");
+    expect(
+      refused({
+        ...command,
+        fields: { ...command.fields, status: "completed" },
+      }),
+    ).toBe(
+      "Complete or cancel every task and enter a completion date and release outcome before closing.",
+    );
+    expect(
+      refused({
+        action: "add",
+        uuid: command.uuid,
+        version: command.version,
+        source: { kind: "discrepancy", uuid: "unknown" },
+      }),
+    ).toBe("Work item is unavailable for this aircraft.");
+    expect(
+      refused({
+        action: "revise",
+        uuid: command.uuid,
+        version: command.version,
+        reason: "Correct",
+        fields: {
+          supervisor: "",
+          scope: "",
+          releaseOutcome: "",
+          finalReview: "",
+          workPerformed: "",
+        },
+      }),
+    ).toBe(
+      "Only closed work orders can be revised. Edit open orders normally.",
+    );
+    s.workOrders![0].templateCopy = {
+      jobId: "job",
+      status: "running",
+      completed: 0,
+      total: 1,
+    };
+    expect(refused(command)).toBe(
+      "Job cards are still being prepared. Finish or resume preparation before editing or closing this work order.",
+    );
+  });
+
+  // Characterizes current behaviour: a command other than a save takes its
+  // aircraft from the order, so one naming an order the snapshot lacks is
+  // refused for access before "Work order not found." could be reached.
+  it("refuses a command for an order it does not hold as access denied", () => {
+    const s = demoSnapshot();
+    const uuid = crypto.randomUUID();
+    for (const command of [
+      { action: "copyTemplates", uuid, version: 0 },
+      {
+        action: "add",
+        uuid,
+        version: 0,
+        source: { kind: "manual", uuid: "manual" },
+      },
+    ] as WorkOrderCommand[])
+      expect(refusal(s, command).message).toBe(
+        "Work order maintenance access denied.",
+      );
+  });
+
+  it("refuses closing over open job cards or completing an unsigned item", () => {
+    const s = demoSnapshot();
+    const card = taskCardCommand();
+    card.fields.inspectionUuid = s.inspections[0].uuid;
+    saveTaskCard(s, card, now);
+    const command = workOrderCommand();
+    const item = newWorkTask(
+      { kind: "inspection", uuid: s.inspections[0].uuid },
+      "Inspection",
+    );
+    command.tasks = [item];
+    const order = saveWorkOrder(s, command, now);
+    const saved = { ...command, version: order.version };
+    expect(
+      refusal(s, { ...saved, fields: { ...saved.fields, status: "cancelled" } })
+        .message,
+    ).toBe(
+      "Complete or cancel linked job cards before closing the work order.",
+    );
+    expect(
+      refusal(s, { ...saved, tasks: [{ ...item, status: "completed" }] })
+        .message,
+    ).toBe(
+      "Complete and sign off every job card for this item on this work order before marking it completed.",
+    );
+  });
+
+  it("refuses a change to a closed order and an empty revision", () => {
+    const { s, command, revision } = closed();
+    expect(refusal(s, command).message).toBe("This work order is closed.");
+    expect(refusal(s, revision).message).toBe(
+      "Change at least one field before saving a revision.",
+    );
+    expect(
+      refusal(s, {
+        ...revision,
+        fields: { ...revision.fields, releaseOutcome: "" },
+      }).message,
+    ).toBe("A completed work order requires a release statement.");
+  });
+
+  it("refuses a component movement it cannot record", () => {
+    const cases: [string, ReturnType<typeof move>][] = [
+      [
+        "A component movement requires its own work order task.",
+        move({ taskUuid: undefined }),
+      ],
+      ["Component maintenance access denied.", move({ componentUuid: "x" })],
+      [
+        "Component tracking changed. Review the component readings before saving.",
+        move({ version: 5 }),
+      ],
+      [
+        "Component is unavailable for this aircraft movement.",
+        move({ action: "install", installPosition: "LEFT" }),
+      ],
+      ["Select the removal inventory location.", move({ partsLocation: " " })],
+    ];
+    const twice = move({ action: "service" });
+    twice.command.componentWork!.push(twice.command.componentWork![0]);
+    cases.push(["A component can only have one action per work order.", twice]);
+    const attached = move({});
+    Object.assign(attached.s.management![0], { parentComponentUuid: "p" });
+    cases.push([
+      "Move the parent component; its attached parts move with it.",
+      attached,
+    ]);
+    const unplaced = move({ action: "install" });
+    Object.assign(unplaced.s.management![0], { installed: false });
+    cases.push(["Select an installation position.", unplaced]);
+    for (const [message, { s, command }] of cases)
+      expect(refusal(s, command).message).toBe(message);
   });
 });
