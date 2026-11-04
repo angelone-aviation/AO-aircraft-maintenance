@@ -94,9 +94,9 @@ export function decodeLenient<N extends PayloadCollection>(
  * Encodes a record into its stored row: the columns the table is indexed or
  * scoped by, lifted from the record, and the record as the JSON payload.
  *
- * A management row keeps an empty `aircraftUuid` as the record has it, as
- * most writers do; convex/management.ts and convex/programs.ts drop it. The
- * column is not indexed, so both read back the same.
+ * A management row keeps an empty `aircraftUuid` as the record has it. No
+ * index covers the column, and its one reader (inspectionDocs) treats empty
+ * and absent alike, so older rows without it read back the same.
  *
  * @returns The row's fields, ready to insert or replace.
  * @throws {Error} For a component template without a Flight Program, which

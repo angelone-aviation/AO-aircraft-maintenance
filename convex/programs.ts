@@ -178,7 +178,8 @@ async function loadCommitments(
   };
 }
 
-// Patches only what the transfer changed; other columns stay as stored.
+// Writes only what the transfer changed: aircraft and inspections are patched,
+// payload rows replaced with their encoded row.
 async function persistTransfer(
   ctx: MutationCtx,
   state: ProgramContext,
@@ -192,7 +193,13 @@ async function persistTransfer(
         program: a.program,
         version: a.version,
       });
-  await patchManagement(ctx, s.management ?? [], documents);
+  await writeChanged(
+    ctx,
+    "management",
+    documents,
+    s.management ?? [],
+    RECORD_TAKEN,
+  );
   for (const i of inspections)
     if (i.version !== working.versions.get(i._id))
       await ctx.db.patch(i._id, {
@@ -213,25 +220,6 @@ async function persistTransfer(
     moved(s.componentSetups ?? [], setups),
     RECORD_TAKEN,
   );
-}
-
-// Patched here, not by writeChanged: like convex/management.ts, the transfer
-// drops an empty aircraftUuid column, which the codec keeps.
-async function patchManagement(
-  ctx: MutationCtx,
-  records: NonNullable<Snapshot["management"]>,
-  documents: Doc<"management">[],
-) {
-  for (const r of records) {
-    const d = documents.find((d) => d.uuid === r.uuid)!;
-    if (JSON.stringify(r) === d.payload) continue;
-    await ctx.db.patch(d._id, {
-      programUuid: r.programUuid,
-      aircraftUuid:
-        "aircraftUuid" in r ? r.aircraftUuid || undefined : undefined,
-      payload: JSON.stringify(r),
-    });
-  }
 }
 
 // Checklists and component setups move with their aircraft by program alone;
