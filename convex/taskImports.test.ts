@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins task file imports on the server: into a template or as
+ *   draft job cards, access checks, and all-or-none refusals.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/taskImports, convex/schema,
+ *   src/domain/inspectionTemplates, src/data/demo (fixture).
+ */
 import { convexTest } from "convex-test";
 import { expect, it } from "vitest";
 import schema from "./schema";
@@ -71,9 +78,12 @@ it("atomically persists file tasks to templates and inspections with server acce
   await expect(
     t.withIdentity(ids.reader).mutation(api.taskImports.save, args(input)),
   ).rejects.toThrow("access");
-  await t.withIdentity(ids.tech).mutation(api.taskImports.save, args(input));
+  expect(
+    await t.withIdentity(ids.tech).mutation(api.taskImports.save, args(input)),
+  ).toBe(2);
   let state = await t.withIdentity(ids.reader).query(api.operations.snapshot);
   expect(state!.inspectionTemplates![0].tasks).toHaveLength(2);
+  expect(state!.inspectionTemplates![0].version).toBe(2);
   expect(state!.taskCards).toHaveLength(0);
   const inspection = {
     ...input,
@@ -81,9 +91,11 @@ it("atomically persists file tasks to templates and inspections with server acce
     targetUuid: "demo-insp-1",
     targetVersion: 0,
   };
-  await t
-    .withIdentity(ids.tech)
-    .mutation(api.taskImports.save, args(inspection));
+  expect(
+    await t
+      .withIdentity(ids.tech)
+      .mutation(api.taskImports.save, args(inspection)),
+  ).toBe(2);
   await expect(
     t.withIdentity(ids.tech).mutation(api.taskImports.save, args(inspection)),
   ).rejects.toThrow("already exists");

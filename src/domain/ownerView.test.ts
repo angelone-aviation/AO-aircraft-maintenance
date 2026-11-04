@@ -1,13 +1,22 @@
+/**
+ * Responsibility: Pins who gets the owner portal, the read-only rule for owner
+ *   groups, and what the owner snapshot keeps and clears.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/ownerView.ts, ./model, ./programs, ./components,
+ *   ./ownerDue, ./rejection, src/data/demo.ts (seed), tests/fixtures.
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot, withDemoUser } from "../data/demo";
 import { partsFixture } from "../../tests/fixtures/requiredParts";
 import { workOrderComponent } from "../../tests/fixtures/workOrders";
-import { can, type Snapshot } from "./model";
+import { can, type Group, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
 import type { WorkOrder } from "./workOrders";
 import type { ManagedRecord } from "./management";
+import { requirementSchema } from "./components";
 import { isOwnerView, validateOwnerGroup } from "./ownerView";
 import { ownerDueItems } from "./ownerDue";
+import { Rejection } from "./rejection";
 
 const owned = "demo-206";
 function workOrder(status: WorkOrder["status"], uuid: string): WorkOrder {
@@ -49,6 +58,29 @@ function workOrder(status: WorkOrder["status"], uuid: string): WorkOrder {
       },
     ],
   };
+}
+function engineRequirement(): ManagedRecord {
+  return requirementSchema.parse({
+    uuid: "engine-life",
+    kind: "componentRequirement",
+    version: 1,
+    componentUuid: "engine",
+    aircraftUuid: owned,
+    requirementType: "Life Limits",
+    description: "Life limit",
+    notes: "Internal requirement note",
+    calendarIntervalUnit: "MONTHS",
+    timeBasis: "TSN",
+    timeLimitMode: "ABSOLUTE",
+    cycleLimitMode: "ABSOLUTE",
+    dueSeconds: 3600,
+    warningCalendarMonths: 0,
+    warningSeconds: 0,
+    warningCycles: 0,
+    requiredParts: [
+      { locationUuid: "parts-location", stockUuid: "parts-stock", quantity: 1 },
+    ],
+  });
 }
 function ownerState(aircraftIds = [owned]): Snapshot {
   const s = partsFixture();
@@ -150,6 +182,28 @@ describe("owner view", () => {
     ).toBe(false);
   });
 
+  it("counts only groups with read access in the active program, and never an inactive user", () => {
+    const s = ownerState();
+    const group = (
+      id: string,
+      programUuid: string,
+      permissions: Group["permissions"],
+    ): Group => ({ id, name: id, programUuid, aircraftIds: [], permissions });
+    const elsewhere = {
+      ...s,
+      user: { ...s.user, groupIds: ["owners", "pilots-elsewhere", "no-read"] },
+      groups: [
+        ...s.groups,
+        group("pilots-elsewhere", "other-program", ["read", "flight"]),
+        group("no-read", "demo-program", []),
+      ],
+    };
+    expect(isOwnerView(elsewhere)).toBe(true);
+    expect(isOwnerView({ ...s, user: { ...s.user, active: false } })).toBe(
+      false,
+    );
+  });
+
   it("scopes the snapshot to owned aircraft and strips management data", () => {
     const o = scopedSnapshot(ownerState());
     expect(o.aircraft.map((a) => a.uuid)).toEqual([owned]);
@@ -181,6 +235,41 @@ describe("owner view", () => {
     expect(w.tasks).toEqual([]);
     expect(JSON.stringify(w)).not.toMatch(/Internal|Chief/);
     expect(JSON.stringify(o)).not.toMatch(/Internal|Private vendor/);
+  });
+
+  it("keeps what the owner's status needs: grounding, deferrals, requirements and unarchived inspections", () => {
+    const s = ownerState();
+    const deferral = {
+      type: "mel" as const,
+      melItem: "21-1",
+      category: "C" as const,
+      placard: "INOP",
+      deferredOn: "2026-01-01",
+      deferredAt: 0,
+      deferredBy: "demo-admin",
+      deferredByName: "Alex Morgan",
+    };
+    s.discrepancies = s.discrepancies.map((d) => ({
+      ...d,
+      grounding: true,
+      deferral,
+    }));
+    s.management = [...(s.management ?? []), engineRequirement()];
+    const inspection = { ...s.inspections[0], aircraftUuid: owned };
+    s.inspections = [
+      { ...inspection, uuid: "kept", materials: "Internal materials" },
+      { ...inspection, uuid: "archived", archived: true },
+    ];
+    const o = scopedSnapshot(s);
+    expect(o.discrepancies[0]).toEqual(
+      expect.objectContaining({ grounding: true, deferral }),
+    );
+    expect(o.management?.map((r) => r.kind)).toEqual([
+      "component",
+      "componentRequirement",
+    ]);
+    expect(o.inspections.map((i) => i.uuid)).toEqual(["kept"]);
+    expect(JSON.stringify(o)).not.toMatch(/Internal|parts-stock/);
   });
 
   it("shows the owner the current Form 337 copies of owned aircraft only", () => {
@@ -253,6 +342,12 @@ describe("owner view", () => {
         permissions: ["read"],
       }),
     ).toThrow("read-only");
+    const flight = () =>
+      validateOwnerGroup({ owner: true, permissions: ["read", "flight"] });
+    expect(flight).toThrow(Rejection);
+    expect(flight).toThrow(
+      /^Aircraft owner groups are read-only: remove administrator and write permissions\.$/,
+    );
     expect(() =>
       validateOwnerGroup({ permissions: ["read", "maintenance"] }),
     ).not.toThrow();

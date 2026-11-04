@@ -1,12 +1,22 @@
+/**
+ * Responsibility: Pins component storage labels and the inventory location
+ *   rule, alone and through removal, reinstall and transfer.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/componentInventory.ts, components.ts, programs.ts,
+ *   programTransfers.ts, rejection.ts, tests/fixtures (parts, work orders).
+ */
 import { applyThroughWorkOrder } from "../../tests/fixtures/componentMovement";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { partsFixture } from "../../tests/fixtures/requiredParts";
 import { workOrderComponent } from "../../tests/fixtures/workOrders";
-import { applyManagement } from "./management";
 import { componentTotals, type Component } from "./components";
-import { componentStorage } from "./componentInventory";
+import {
+  componentStorage,
+  validateComponentLocation,
+} from "./componentInventory";
 import { scopedSnapshot } from "./programs";
 import { transferProgram } from "./programTransfers";
+import { Rejection } from "./rejection";
 
 it("removes and reinstalls one tracked component without duplicating stock or losing totals and movement history", () => {
   const s = partsFixture();
@@ -127,4 +137,75 @@ it("retains component attachments for inventory admins only and protects locatio
     },
   ];
   expect(scopedSnapshot(s).inventoryAttachments).toHaveLength(0);
+});
+
+const stored = (): Component => ({
+  ...workOrderComponent(),
+  installed: false,
+  installPosition: undefined,
+  locationUuid: "parts-location",
+});
+
+describe("component storage", () => {
+  it("names the location from records or the parts summary, then the bin", () => {
+    const s = partsFixture();
+    expect(componentStorage(s, stored())).toBe("Main hangar");
+    expect(componentStorage(s, { ...stored(), locationUuid: "gone" })).toBe(
+      "Location unavailable",
+    );
+    s.management = [];
+    s.partsInventory = {
+      locations: [{ uuid: "parts-location", name: "Summary hangar" }],
+      stock: [],
+    };
+    expect(componentStorage(s, { ...stored(), partsLocation: "Bin C" })).toBe(
+      "Summary hangar · Bin C",
+    );
+  });
+});
+
+describe("component location rule", () => {
+  const expectRefusal = (run: () => void, message: string) => {
+    expect(run).toThrow(Rejection);
+    expect(run).toThrow(Error(message));
+  };
+  it("refuses repair before installation, then installation with a location", () => {
+    const s = partsFixture();
+    const outForRepair = { poUuid: "po", date: "2026-01-01" };
+    expectRefusal(
+      () =>
+        validateComponentLocation(s, {
+          ...stored(),
+          installed: true,
+          outForRepair,
+        }),
+      "A component out for repair cannot be installed.",
+    );
+    expectRefusal(
+      () => validateComponentLocation(s, { ...stored(), installed: true }),
+      "Installed components cannot have an inventory location.",
+    );
+    expect(() =>
+      validateComponentLocation(s, { ...stored(), locationUuid: undefined }),
+    ).not.toThrow();
+  });
+  it("needs a location in the component's own, aircraft's or active program", () => {
+    const s = partsFixture();
+    const wrongProgram =
+      "Select an inventory location in this component’s Flight Program.";
+    expectRefusal(
+      () => validateComponentLocation(s, { ...stored(), locationUuid: "gone" }),
+      wrongProgram,
+    );
+    s.aircraft[0].programUuid = "other";
+    expectRefusal(() => validateComponentLocation(s, stored()), wrongProgram);
+    const own = { ...stored(), programUuid: "demo-program" };
+    expect(() => validateComponentLocation(s, own)).not.toThrow();
+    expectRefusal(
+      () => validateComponentLocation(s, { ...own, programUuid: "other" }),
+      wrongProgram,
+    );
+    const unowned = { ...stored(), aircraftUuid: "" };
+    expect(() => validateComponentLocation(s, unowned)).not.toThrow();
+  });
 });

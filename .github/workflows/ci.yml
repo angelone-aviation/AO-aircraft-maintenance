@@ -1,11 +1,12 @@
-# Responsibility: Checks every pull request and every push to main: engineering standards on
-#   changed files, typecheck, lint, unit and server tests, build, backup-job tests and browser tests.
+# Responsibility: Checks every pull request and push to main: standards on
+#   changed files, typecheck, lint, unit and server tests, build, backup-job
+#   tests and browser tests.
 # Layer: Tooling (CI). Needs no secrets and never deploys.
-# Dependencies: npm, Playwright Chromium, age, .claude/hooks/check-standards.mjs,
-#   scripts/serve-dist.mjs (serves the build with the Cloudflare headers in public/_headers).
+# Dependencies: npm, Playwright Chromium, age,
+#   .claude/hooks/check-standards.mjs, scripts/serve-dist.mjs.
 #
-# The browser tests run the production build in demo mode and fail on any
-# Content-Security-Policy violation.
+# The browser tests serve the production build in demo mode with the
+# Cloudflare headers in public/_headers, and fail on any CSP violation.
 name: CI
 
 on:
@@ -31,7 +32,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history, so the standards check can diff against the push or pull-request base.
+          # Full history, so the standards check can diff against the push or
+          # pull-request base.
           fetch-depth: 0
 
       - name: Engineering standards on changed files (CONSTRAINTS.md)

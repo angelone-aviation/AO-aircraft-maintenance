@@ -151,7 +151,7 @@ it("holds an entry the server refuses, showing the refusal's message", async () 
   }
 });
 
-it("Characterizes current behaviour: holds an entry refused for a lapsed session, as Server Error", async () => {
+it("Characterizes current behaviour: holds an entry refused for a lapsed session, with the generic error text", async () => {
   const s = await server();
   const lapsed = await s.submit(undefined);
   expect(lapsed).toMatchObject({
@@ -159,8 +159,9 @@ it("Characterizes current behaviour: holds an entry refused for a lapsed session
   });
   // A plain Error, so a ConvexError-only rule in the outbox would retry it.
   expect(lapsed).not.toBeInstanceOf(ConvexError);
-  expect(await outboxError(asProductionClientSees(lapsed))).toContain(
-    "Server Error",
+  // Batch 418: the outbox stores errorText, never the "[CONVEX …]" wrapper.
+  expect(await outboxError(asProductionClientSees(lapsed))).toBe(
+    "Something went wrong. Try again, and tell an administrator if it keeps happening.",
   );
 });
 

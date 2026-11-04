@@ -2,12 +2,10 @@
  * Responsibility: Shared building blocks for forms and pages: the modal, the
  *   async form and delete button, labelled fields, badges, empty states, page
  *   titles, safe links, text downloads and the text shown for an error.
- * Layer: UI. Shared components; the one component module that reads
- *   ConvexError messages.
- * Dependencies: convex/values, react, @phosphor-icons/react, ./design.tsx,
- *   src/data/store.ts.
+ * Layer: UI. Shared components; no Convex imports.
+ * Dependencies: react, @phosphor-icons/react, ./design.tsx, src/data/store.ts,
+ *   src/data/errors.ts.
  */
-import { ConvexError } from "convex/values";
 import {
   useState,
   useId,
@@ -19,16 +17,14 @@ import {
 import { CircleNotch } from "@phosphor-icons/react";
 import { DialogFrame, PageHeader } from "./design";
 import { useWorkspace } from "../data/store";
+import { errorText } from "../data/errors";
+
+/** Re-exported so screens keep one import for their building blocks. */
+export { errorText };
 
 // Long enough for the browser to start the download; revoking the URL at once
 // can cancel it.
 const DOWNLOAD_URL_LIFETIME_MS = 1000;
-// The Convex client's wrapper around a failed function, for example
-// "[CONVEX M(workOrders:save)] [Request ID: 1a2b] Server Error". Production
-// deployments put only that generic text in it for a plain server Error.
-const CONVEX_FAILURE_PREFIX = "[CONVEX ";
-const DEFAULT_ERROR_TEXT =
-  "Something went wrong. Try again, and tell an administrator if it keeps happening.";
 
 /**
  * A dialog for forms: a centred modal from 760px, a bottom sheet below.
@@ -296,27 +292,6 @@ export function download(
   setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
 }
 
-/**
- * The text to show a user for a failed command or load: the server's refusal,
- * never the Convex client's "[CONVEX …]" wrapper around it.
- *
- * @param fallback - Shown when the error has no text a user should read.
- * @returns A ConvexError's `data` when it is a string, or `data.message` when
- *   that is; otherwise the fallback for a "[CONVEX …]" message or a value that
- *   is not an Error; otherwise the Error's own message.
- */
-export function errorText(
-  error: unknown,
-  fallback = DEFAULT_ERROR_TEXT,
-): string {
-  const refusal = refusalText(error);
-  if (refusal !== undefined) return refusal;
-  if (!(error instanceof Error)) return fallback;
-  return error.message.startsWith(CONVEX_FAILURE_PREFIX)
-    ? fallback
-    : error.message;
-}
-
 function FormFooter({
   busy,
   disabled,
@@ -408,13 +383,4 @@ function readSubmission(e: FormEvent<HTMLFormElement>): FormData {
   if (submitter instanceof HTMLButtonElement && submitter.name)
     data.set(submitter.name, submitter.value);
   return data;
-}
-
-function refusalText(error: unknown): string | undefined {
-  if (!(error instanceof ConvexError)) return undefined;
-  const data: unknown = error.data;
-  if (typeof data === "string") return data;
-  if (typeof data !== "object" || data === null || !("message" in data))
-    return undefined;
-  return typeof data.message === "string" ? data.message : undefined;
 }

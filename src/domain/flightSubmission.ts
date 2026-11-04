@@ -251,16 +251,23 @@ function assertActiveCrew(s: Snapshot, input: FlightInput) {
 }
 
 // Oil added from inventory. Expired, insufficient or non-oil stock refuses the
-// whole entry with a message the Sync center can show.
+// whole entry with a message the Sync center can show. Parser and runtime
+// errors (other Error subclasses) stay faults.
 function drawDownOil(s: Snapshot, input: FlightInput, now: number) {
   if (!input.oil?.some((o) => o.inventory)) return [];
   try {
     return oilInventoryDeductions(s, input, now);
   } catch (error) {
-    if (error instanceof Error && error.constructor === Error)
-      throw new FlightRejection(error.message);
+    if (isStockRefusal(error)) throw new FlightRejection(error.message);
     throw error;
   }
+}
+
+function isStockRefusal(error: unknown): error is Error {
+  return (
+    error instanceof Rejection ||
+    (error instanceof Error && error.constructor === Error)
+  );
 }
 
 function fileFlightReport(

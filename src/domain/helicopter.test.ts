@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins helicopters timed by the collective hourmeter: their
+ *   readings, refusals, component hours and frozen closeout readings.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/flights.ts, ./fleet, ./model, ./workOrders,
+ *   ./components, src/data/demo.ts, tests/fixtures/workOrders.ts.
+ */
 import { it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { applyFleet, aircraftInputSchema } from "./fleet";
@@ -14,7 +21,13 @@ import {
 } from "../../tests/fixtures/workOrders";
 import { saveWorkOrder, workOrderFieldsSchema } from "./workOrders";
 import { componentTotals } from "./components";
-const now = Date.parse("2026-10-02T12:00:00Z");
+const NOW = Date.parse("2026-10-02T12:00:00Z");
+const HOUR_SECONDS = 3600;
+
+/**
+ * A demo helicopter timed by its collective hourmeter at 100 h (500 h total
+ * with its 400 h adjustment), and a flight that brings it to 101 h.
+ */
 function setup() {
   const s = demoSnapshot();
   const input = {
@@ -24,8 +37,8 @@ function setup() {
     version: 0,
     helicopter: true,
     meter: "cyclic" as const,
-    currentCyclicHobbs: 100 * 3600,
-    adjustmentSeconds: 400 * 3600,
+    currentCyclicHobbs: 100 * HOUR_SECONDS,
+    adjustmentSeconds: 400 * HOUR_SECONDS,
   };
   const a = applyFleet(
     s,
@@ -35,13 +48,13 @@ function setup() {
       requestUuid: crypto.randomUUID(),
       reason: "Add helicopter",
     },
-    now,
+    NOW,
   ).aircraft!;
   const flight: FlightInput = {
     aircraftUuid: a.uuid,
     pilotId: s.user.id,
     startTime: "2026-10-02T13:00:00Z",
-    cyclicHobbsOn: 101 * 3600,
+    cyclicHobbsOn: 101 * HOUR_SECONDS,
     landings: 1,
     cycles: 1,
     origin: "AAA",
@@ -55,8 +68,8 @@ function setup() {
 }
 it("persists helicopter and independent cyclic readings; requires cyclic only when selected", () => {
   const { a, flight } = setup();
-  expect(totalSeconds(a)).toBe(500 * 3600);
-  expect(a.baselineCyclicHobbs).toBe(100 * 3600);
+  expect(totalSeconds(a)).toBe(500 * HOUR_SECONDS);
+  expect(a.baselineCyclicHobbs).toBe(100 * HOUR_SECONDS);
   expect(() => validateFlight(a, flight)).not.toThrow();
   expect(() =>
     validateFlight(a, {
@@ -66,10 +79,14 @@ it("persists helicopter and independent cyclic readings; requires cyclic only wh
     }),
   ).toThrow("Collective hourmeter");
   expect(
-    conflictReason(a, { ...flight, cyclicHobbsOn: 99 * 3600 }, a.version),
+    conflictReason(
+      a,
+      { ...flight, cyclicHobbsOn: 99 * HOUR_SECONDS },
+      a.version,
+    ),
   ).toContain("lower");
   const flown = applyFlight(a, flight);
-  expect(totalSeconds(flown)).toBe(501 * 3600);
+  expect(totalSeconds(flown)).toBe(501 * HOUR_SECONDS);
   expect(flown.currentHobbs).toBe(a.currentHobbs);
   expect(flown.currentTach).toBe(a.currentTach);
   const saved: Flight = {
@@ -77,11 +94,11 @@ it("persists helicopter and independent cyclic readings; requires cyclic only wh
     uuid: crypto.randomUUID(),
     authorId: "user",
     status: "accepted",
-    submittedAt: now,
+    submittedAt: NOW,
   };
   const rebuilt = rebuildFlights(flown, [saved]);
   expect(rebuilt.aircraft.currentCyclicHobbs).toBe(flown.currentCyclicHobbs);
-  expect(rebuilt.flights[0].cyclicHobbsOff).toBe(100 * 3600);
+  expect(rebuilt.flights[0].cyclicHobbsOff).toBe(100 * HOUR_SECONDS);
 });
 it("rejects cyclic source without Helicopter or a reading", () => {
   for (const overrides of [
@@ -103,7 +120,7 @@ it("rejects cyclic source without Helicopter or a reading", () => {
             ...overrides,
           },
         },
-        now,
+        NOW,
       ),
     ).toThrow("Collective hourmeter");
   }
@@ -120,10 +137,12 @@ it("uses cyclic hours for installed components and freezes cyclic work-order com
   const cmd = workOrderCommand();
   cmd.fields.aircraftUuid = a.uuid;
   cmd.componentUuids = [c.uuid];
-  const open = saveWorkOrder(s, cmd, now);
+  const open = saveWorkOrder(s, cmd, NOW);
   const flown = applyFlight(a, flight);
   s.aircraft = s.aircraft.map((old) => (old.uuid === a.uuid ? flown : old));
-  expect(componentTotals(c, flown).timeSinceNew).toBe(c.timeSinceNew + 3600);
+  expect(componentTotals(c, flown).timeSinceNew).toBe(
+    c.timeSinceNew + HOUR_SECONDS,
+  );
   const completion = {
     ...cmd,
     version: open.version,
@@ -144,10 +163,10 @@ it("uses cyclic hours for installed components and freezes cyclic work-order com
       },
     ],
   };
-  const closed = saveWorkOrder(s, completion, now);
-  expect(closed.closeout!.aircraft.cyclicHobbs).toBe(101 * 3600);
-  expect(closed.closeout!.aircraft.totalSeconds).toBe(501 * 3600);
+  const closed = saveWorkOrder(s, completion, NOW);
+  expect(closed.closeout!.aircraft.cyclicHobbs).toBe(101 * HOUR_SECONDS);
+  expect(closed.closeout!.aircraft.totalSeconds).toBe(501 * HOUR_SECONDS);
   expect(closed.closeout!.components[0].timeSinceNew).toBe(
-    c.timeSinceNew + 3600,
+    c.timeSinceNew + HOUR_SECONDS,
   );
 });

@@ -2,9 +2,11 @@
  * Responsibility: Pins the account helpers' answers: which logins hold an
  *   email, what signing out and unlocking report, and the uniform refusal.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/accountGuards, convex/schema, src/domain/accountRules.
+ * Dependencies: convex/accountGuards, convex/schema, convex/values,
+ *   src/domain/accountRules.
  */
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 import { expect, it } from "vitest";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
@@ -94,11 +96,17 @@ it("reports whether a sign-in lockout was cleared", async () => {
 
 it("answers an existing account with the one uniform refusal", () => {
   const exists = new Error("Account pilot@example.test already exists");
-  expect(uniformCreateError(exists)).toEqual(new Error(EMAIL_UNAVAILABLE));
+  expect(uniformCreateError(exists)).toEqual(
+    new ConvexError(EMAIL_UNAVAILABLE),
+  );
+  expect(uniformCreateError(exists)).toBeInstanceOf(ConvexError);
   const other = new Error("Network down");
   expect(uniformCreateError(other)).toBe(other);
   expect(() => assertCreatedHere({ _creationTime: 99 }, 100)).toThrow(
     EMAIL_UNAVAILABLE,
+  );
+  expect(() => assertCreatedHere({ _creationTime: 99 }, 100)).toThrow(
+    ConvexError,
   );
   expect(() => assertCreatedHere({ _creationTime: 100 }, 100)).not.toThrow();
 });

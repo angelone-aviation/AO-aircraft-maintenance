@@ -1,12 +1,22 @@
+/**
+ * Responsibility: Pins the per-aircraft flight fields: engine positions, start
+ *   readings and landing surface through validation, outbox and rebuilds.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/flights.ts, ./model, src/data/demo.ts (fixture).
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { flightInputSchema, operationSchema, type FlightInput } from "./model";
 import { flightEnginePositions, rebuildFlights } from "./flights";
+
+const HOUR_SECONDS = 3600;
+
+/** A one-hour flight, by Hobbs, on the first demo aircraft. */
 const input: FlightInput = {
   aircraftUuid: "demo-206",
   pilotId: "demo-admin",
   startTime: "2026-01-01T10:00:00Z",
-  hobbsOn: demoSnapshot().aircraft[0].currentHobbs + 3600,
+  hobbsOn: demoSnapshot().aircraft[0].currentHobbs + HOUR_SECONDS,
   landings: 1,
   cycles: 1,
   origin: "AAA",

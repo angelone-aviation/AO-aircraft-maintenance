@@ -3,10 +3,10 @@
  *   and removing it with its stored image.
  * Layer: Server. A public action and mutation over internal steps; every
  *   change needs maintenance permission on the aircraft and is audited.
- * Dependencies: convex/programContext, convex/access, src/domain/model,
- *   src/domain/aircraftPhotos.
+ * Dependencies: convex/programContext, convex/access, convex/userErrors,
+ *   src/domain/model, src/domain/aircraftPhotos.
  */
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   mutation,
@@ -20,6 +20,7 @@ import { checkContext } from "./programContext";
 import { can } from "../src/domain/model";
 import { validateAircraftPhoto } from "../src/domain/aircraftPhotos";
 import { audit } from "./access";
+import { exposeRejections } from "./userErrors";
 
 const target = {
   aircraftUuid: v.string(),
@@ -34,8 +35,8 @@ type Target = { aircraftUuid: string; programUuid?: string };
  *
  * @param aircraftUuid - The aircraft.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} As `checkContext`; "Aircraft maintenance permission
- *   required."
+ * @throws {ConvexError} "Aircraft maintenance permission required."
+ * @throws As `checkContext`, first.
  */
 export const check = internalQuery({
   args: target,
@@ -51,7 +52,7 @@ export const check = internalQuery({
  * @param aircraftUuid - The aircraft.
  * @param programUuid - The caller's active Flight Program.
  * @param storageId - The uploaded image.
- * @throws {Error} As {@link check}.
+ * @throws As {@link check}.
  */
 export const finish = internalMutation({
   args: { ...target, storageId: v.id("_storage") },
@@ -78,13 +79,15 @@ export const finish = internalMutation({
  * @param programUuid - The caller's active Flight Program.
  * @param type - The image's MIME type.
  * @param bytes - The image.
- * @throws {Error} As `validateAircraftPhoto`, before any permission check;
- *   as {@link check}.
+ * @throws As `validateAircraftPhoto`, a Rejection as a ConvexError, before any
+ *   permission check; as {@link check}.
  */
 export const upload = action({
   args: { ...target, type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
-    validateAircraftPhoto(args.type, args.bytes.byteLength);
+    exposeRejections(() =>
+      validateAircraftPhoto(args.type, args.bytes.byteLength),
+    );
     const scope = {
       aircraftUuid: args.aircraftUuid,
       programUuid: args.programUuid,
@@ -111,7 +114,7 @@ export const upload = action({
  *
  * @param aircraftUuid - The aircraft.
  * @param programUuid - The caller's active Flight Program.
- * @throws {Error} As {@link check}.
+ * @throws As {@link check}.
  */
 export const remove = mutation({
   args: target,
@@ -129,7 +132,7 @@ export const remove = mutation({
 async function requireMaintenance(ctx: QueryCtx | MutationCtx, args: Target) {
   const state = await checkContext(ctx, args.programUuid);
   if (!can(state, args.aircraftUuid, "maintenance"))
-    throw new Error("Aircraft maintenance permission required.");
+    throw new ConvexError("Aircraft maintenance permission required.");
   return state;
 }
 

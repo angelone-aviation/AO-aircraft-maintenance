@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins permission group deletion: the review a Flight Program
+ *   administrator confirms, removing memberships without touching accounts or
+ *   other programs, the stale-review refusal and the audit entry.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/groupDeletion, convex/memberships, src/data/demo.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -129,4 +136,41 @@ it("requires a new review when membership or permissions change", async () => {
     }),
   ).rejects.toThrow(/changed/);
   expect(await t.run((ctx) => ctx.db.get(ids.group))).not.toBeNull();
+});
+
+it("audits the deleted group and the memberships it removed", async () => {
+  const { t, ids, client } = await fixture();
+  const scope = { id: ids.group, programUuid: "demo-program" };
+  const preview = await client.query(api.groupDeletion.preview, scope);
+  expect(preview.name).toBe("Pilots");
+  await client.mutation(api.groupDeletion.remove, {
+    ...scope,
+    expected: preview.expected,
+  });
+  const [row] = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(row).toMatchObject({
+    action: "group.deleted",
+    actorId: ids.owner,
+    entityUuid: ids.group,
+    programUuid: "demo-program",
+  });
+  expect(JSON.parse(row.before!)).toMatchObject({
+    id: ids.group,
+    name: "Pilots",
+    permissions: ["read", "flight"],
+  });
+  expect(JSON.parse(row.after!)).toEqual({ removedMemberships: [ids.user] });
+});
+
+it("refuses a review that no longer matches with its exact message", async () => {
+  const { ids, client } = await fixture();
+  await expect(
+    client.mutation(api.groupDeletion.remove, {
+      id: ids.group,
+      programUuid: "demo-program",
+      expected: "",
+    }),
+  ).rejects.toThrow(
+    "This group or its members changed. Close this dialog and review deletion again.",
+  );
 });

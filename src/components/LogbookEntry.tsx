@@ -1,14 +1,15 @@
 /**
  * Responsibility: The Generate logbook entry button on a completed work
  *   order: composes the maintenance entry, saves it as a PDF or copies it.
- * Layer: UI. React component; entry wording lives in src/domain/logbook.ts.
+ * Layer: UI. Entry wording lives in src/domain/logbook.ts.
  * Dependencies: react, react-dom, src/data/store.ts, src/data/logbookPdf.ts
- *   (on demand), src/domain (certifications, logbook, workOrders), ./ui.
+ *   (loaded on demand), src/domain/certifications.ts, src/domain/logbook.ts,
+ *   src/domain/model.ts, src/domain/workOrders.ts, src/components/ui.tsx.
  */
-import { certificateOptions, memberLicense } from "../domain/certifications";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
+import { certificateOptions, memberLicense } from "../domain/certifications";
 import {
   licenseSchema,
   emptyInspectionEntry,
@@ -20,9 +21,33 @@ import {
   logbookText,
   type LogbookTemplate,
 } from "../domain/logbook";
+import type { Snapshot } from "../domain/model";
 import type { WorkOrder } from "../domain/workOrders";
 import { Field, Modal, errorText } from "./ui";
 
+const CREDENTIAL_FIELD_MAX_LENGTH = 100;
+// Must match the line logbookText writes (src/domain/logbook.ts).
+const CREDENTIAL_LINE = /^Certificate \/ license:.*$/m;
+
+type Drafts = Partial<Record<LogbookTemplate, string>>;
+type Entry = ReturnType<typeof useLogbookEntry>;
+type Signer = ReturnType<typeof useSigner>;
+type Status = ReturnType<typeof useActionStatus>;
+type ActionsProps = {
+  entry: Entry;
+  status: Status;
+  order: WorkOrder;
+  onClose: () => void;
+};
+
+/**
+ * Opens the logbook entry for a completed work order: the user picks a
+ * template, completes the certifying details, may edit the text, then saves
+ * it as a PDF or copies it. The entry stays unsigned (ADR-0004).
+ *
+ * @param props.order - The work order.
+ * @returns The button, or null until the order is completed.
+ */
 export function LogbookEntryButton({ order }: { order: WorkOrder }) {
   const [open, setOpen] = useState(false);
   if (order.status !== "completed") return null;
@@ -44,6 +69,7 @@ export function LogbookEntryButton({ order }: { order: WorkOrder }) {
     </>
   );
 }
+
 function LogbookEntry({
   order,
   onClose,
@@ -51,111 +77,159 @@ function LogbookEntry({
   order: WorkOrder;
   onClose: () => void;
 }) {
-  const { snapshot: s, backend, online, connected } = useWorkspace();
+  const { snapshot } = useWorkspace();
+  const user = snapshot!.user;
+  const entry = useLogbookEntry(order);
+  const status = useActionStatus();
+  return (
+    <>
+      <EntryIntro order={order} />
+      <SignerFields entry={entry} name={user.name} />
+      {entry.template === "inspection" && <InspectionFields entry={entry} />}
+      {entry.template === "component" && <ComponentOutcome entry={entry} />}
+      {user.certifications === undefined && (
+        <SaveLicenseButton entry={entry} status={status} />
+      )}
+      <Field label="Logbook entry text">
+        <textarea
+          rows={22}
+          value={entry.text}
+          onChange={(e) => entry.setBody(e.target.value)}
+        />
+      </Field>
+      <StatusMessages status={status} />
+      <EntryActions
+        entry={entry}
+        status={status}
+        order={order}
+        onClose={onClose}
+      />
+    </>
+  );
+}
+
+// Each template keeps its own edited text; with none, the text is generated
+// afresh from the fields on every render.
+function useLogbookEntry(order: WorkOrder) {
+  const { snapshot } = useWorkspace();
+  const s = snapshot!;
   const [template, setTemplate] = useState<LogbookTemplate>("maintenance");
-  const credentials = memberLicense(s!.user, order.completionDate || undefined);
-  const choices = certificateOptions(
-    s!.user,
-    order.completionDate || undefined,
-  );
-  const [licenseNumber, setLicense] = useState(credentials.licenseNumber);
-  const [certificateType, setCertificate] = useState(
-    credentials.certificateType,
-  );
   const [inspection, setInspection] =
     useState<InspectionEntry>(emptyInspectionEntry);
   const [component, setComponent] =
     useState<ComponentEntry>(emptyComponentEntry);
-  const [drafts, setDrafts] = useState<
-    Partial<Record<LogbookTemplate, string>>
-  >({});
-  const body = drafts[template] ?? null;
-  const setBody = (value: string) =>
-    setDrafts((old) => ({ ...old, [template]: value }));
-  const updateDraftCredentials = (number: string, type: string) => {
-    setDrafts((old) =>
-      Object.fromEntries(
-        Object.entries(old).map(([key, value]) => [
-          key,
-          value.replace(
-            /^Certificate \/ license:.*$/m,
-            () =>
-              `Certificate / license: ${type || "[enter certificate type]"} ${number || "[enter license number]"}`,
-          ),
-        ]),
-      ),
-    );
-  };
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const generated = logbookText(
-    s!,
-    order,
+  const drafts = useDrafts(template);
+  const completedOn = order.completionDate || undefined;
+  const signer = useSigner(s.user, completedOn, drafts.setCredentials);
+  const textFor = (i: InspectionEntry, c: ComponentEntry) =>
+    logbookText(s, order, template, signer.details, i, c);
+  const generated = textFor(inspection, component);
+  const text = drafts.body ?? generated;
+  function updateEntry(next: InspectionEntry, nextComponent: ComponentEntry) {
+    if (drafts.body !== null)
+      drafts.setBody(
+        carryEdits(drafts.body, generated, textFor(next, nextComponent)),
+      );
+    setInspection(next);
+    setComponent(nextComponent);
+  }
+  const exportable =
+    !certificationMissing(template, inspection, component) &&
+    signer.complete &&
+    !!text.trim();
+  return {
     template,
-    {
-      userId: s!.user.id,
-      name: s!.user.name,
+    setTemplate,
+    signer,
+    inspection,
+    component,
+    updateEntry,
+    text,
+    setBody: drafts.setBody,
+    exportable,
+  };
+}
+
+function useDrafts(template: LogbookTemplate) {
+  const [drafts, setDrafts] = useState<Drafts>({});
+  return {
+    body: drafts[template] ?? null,
+    setBody: (value: string) =>
+      setDrafts((old) => ({ ...old, [template]: value })),
+    setCredentials: (licenseNumber: string, certificateType: string) =>
+      setDrafts((old) => withCredentials(old, licenseNumber, certificateType)),
+  };
+}
+
+// Changing the credentials also rewrites them in every edited draft.
+function useSigner(
+  user: Snapshot["user"],
+  completedOn: string | undefined,
+  onChange: (licenseNumber: string, certificateType: string) => void,
+) {
+  const saved = memberLicense(user, completedOn);
+  const [licenseNumber, setLicense] = useState(saved.licenseNumber);
+  const [certificateType, setCertificate] = useState(saved.certificateType);
+  const choices = certificateOptions(user, completedOn);
+  const chosen = choices.find(
+    (c) =>
+      c.licenseNumber === licenseNumber &&
+      c.certificateType === certificateType,
+  );
+  return {
+    licenseNumber,
+    certificateType,
+    choices,
+    chosenKey: chosen?.key ?? "",
+    complete: !!licenseNumber.trim() && !!certificateType.trim(),
+    details: {
+      userId: user.id,
+      name: user.name,
       licenseNumber,
       certificateType,
     },
-    inspection,
-    component,
-  );
-  const text = body ?? generated;
-  const updateEntry = (
-    next: InspectionEntry,
-    nextComponent: ComponentEntry,
-  ) => {
-    if (body !== null) {
-      const updated = logbookText(
-        s!,
-        order,
-        template,
-        {
-          userId: s!.user.id,
-          name: s!.user.name,
-          licenseNumber,
-          certificateType,
-        },
-        next,
-        nextComponent,
-      ).split("\n");
-      const previous = generated.split("\n");
-      const replacements = new Map(
-        previous.flatMap((line, i) =>
-          line && line !== updated[i] ? [[line, updated[i]] as const] : [],
-        ),
-      );
-      setBody(
-        body
-          .split("\n")
-          .map((line) => replacements.get(line) ?? line)
-          .join("\n"),
-      );
-    }
-    setInspection(next);
-    setComponent(nextComponent);
+    set(number: string, type: string) {
+      setLicense(number);
+      setCertificate(type);
+      onChange(number, type);
+    },
+    validLicense: () => licenseSchema.parse({ licenseNumber, certificateType }),
   };
-  const updateInspection = (next: InspectionEntry) =>
-    updateEntry(next, component);
-  const missingCertification =
-    (template === "inspection" && !inspectionEntryReady(inspection)) ||
-    (template === "component" && !component.approvedForReturnToService);
-  const run = async (action: () => Promise<void>) => {
+}
+
+function useActionStatus() {
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function run(action: () => Promise<string>) {
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      await action();
+      setMessage(await action());
     } catch (e) {
       setError(errorText(e, "Unable to export entry."));
     } finally {
       setBusy(false);
     }
-  };
-  const validLicense = () =>
-    licenseSchema.parse({ licenseNumber, certificateType });
+  }
+  return { message, error, busy, run };
+}
+
+function StatusMessages({ status }: { status: Status }) {
+  return (
+    <>
+      {status.error && (
+        <p role="alert" className="error">
+          {status.error}
+        </p>
+      )}
+      {status.message && <p role="status">{status.message}</p>}
+    </>
+  );
+}
+
+function EntryIntro({ order }: { order: WorkOrder }) {
   return (
     <>
       <p>
@@ -178,248 +252,295 @@ function LogbookEntry({
           compliance has not been changed retrospectively.
         </p>
       )}
+    </>
+  );
+}
+
+function SignerFields({ entry, name }: { entry: Entry; name: string }) {
+  return (
+    <div className="form-grid">
+      <Field label="Logbook template">
+        <select
+          value={entry.template}
+          onChange={(e) => entry.setTemplate(e.target.value as LogbookTemplate)}
+        >
+          {Object.entries(logbookTemplates).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Certifying person">
+        <input value={name} readOnly />
+      </Field>
+      <CredentialFields signer={entry.signer} />
+    </div>
+  );
+}
+
+function CredentialFields({ signer }: { signer: Signer }) {
+  const { licenseNumber, certificateType } = signer;
+  return (
+    <>
+      {signer.choices.length > 0 && <SavedCertificationField signer={signer} />}
+      <Field label="License / certificate number">
+        <input
+          maxLength={CREDENTIAL_FIELD_MAX_LENGTH}
+          value={licenseNumber}
+          onChange={(e) => signer.set(e.target.value, certificateType)}
+        />
+      </Field>
+      <Field label="Certificate type">
+        <input
+          placeholder="e.g. A&P, IA, AME"
+          maxLength={CREDENTIAL_FIELD_MAX_LENGTH}
+          value={certificateType}
+          onChange={(e) => signer.set(licenseNumber, e.target.value)}
+        />
+      </Field>
+    </>
+  );
+}
+
+function SavedCertificationField({ signer }: { signer: Signer }) {
+  const { choices } = signer;
+  return (
+    <Field label="Use saved certification">
+      <select
+        value={signer.chosenKey}
+        onChange={(e) => {
+          const selected = choices.find((c) => c.key === e.target.value);
+          if (!selected) return;
+          signer.set(selected.licenseNumber, selected.certificateType);
+        }}
+      >
+        <option value="">Enter manually</option>
+        {choices.map((c) => (
+          <option key={c.key} value={c.key}>
+            {c.certificateType} · {c.licenseNumber}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function InspectionFields({ entry }: { entry: Entry }) {
+  const { inspection } = entry;
+  const update = (patch: Partial<InspectionEntry>) =>
+    entry.updateEntry({ ...inspection, ...patch }, entry.component);
+  return (
+    <>
       <div className="form-grid">
-        <Field label="Logbook template">
+        <Field label="Inspection type">
           <select
-            value={template}
-            onChange={(e) => {
-              const selected = e.target.value as LogbookTemplate;
-              setTemplate(selected);
-            }}
-          >
-            {Object.entries(logbookTemplates).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Certifying person">
-          <input value={s!.user.name} readOnly />
-        </Field>
-        {choices.length > 0 && (
-          <Field label="Use saved certification">
-            <select
-              value={
-                choices.find(
-                  (c) =>
-                    c.licenseNumber === licenseNumber &&
-                    c.certificateType === certificateType,
-                )?.key ?? ""
-              }
-              onChange={(e) => {
-                const selected = choices.find((c) => c.key === e.target.value);
-                if (!selected) return;
-                setLicense(selected.licenseNumber);
-                setCertificate(selected.certificateType);
-                updateDraftCredentials(
-                  selected.licenseNumber,
-                  selected.certificateType,
-                );
-              }}
-            >
-              <option value="">Enter manually</option>
-              {choices.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.certificateType} · {c.licenseNumber}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field label="License / certificate number">
-          <input
-            maxLength={100}
-            value={licenseNumber}
-            onChange={(e) => {
-              setLicense(e.target.value);
-              updateDraftCredentials(e.target.value, certificateType);
-            }}
-          />
-        </Field>
-        <Field label="Certificate type">
-          <input
-            placeholder="e.g. A&P, IA, AME"
-            maxLength={100}
-            value={certificateType}
-            onChange={(e) => {
-              setCertificate(e.target.value);
-              updateDraftCredentials(licenseNumber, e.target.value);
-            }}
-          />
-        </Field>
-      </div>
-      {template === "inspection" && (
-        <>
-          <div className="form-grid">
-            <Field label="Inspection type">
-              <select
-                value={inspection.type}
-                onChange={(e) =>
-                  updateInspection({
-                    ...inspection,
-                    type: e.target.value as InspectionEntry["type"],
-                  })
-                }
-              >
-                <option value="annual">Annual</option>
-                <option value="100-hour">100-Hour</option>
-              </select>
-            </Field>
-            <Field label="Manufacturer's inspection checklist">
-              <input
-                value={inspection.checklist}
-                placeholder="Manufacturer, checklist and revision"
-                onChange={(e) =>
-                  updateInspection({ ...inspection, checklist: e.target.value })
-                }
-              />
-            </Field>
-            <Field label="AD / SB checked through">
-              <input
-                value={inspection.reviewedThrough}
-                placeholder="Review date or bi-weekly issue"
-                onChange={(e) =>
-                  updateInspection({
-                    ...inspection,
-                    reviewedThrough: e.target.value,
-                  })
-                }
-              />
-            </Field>
-            <Field label="Inspection finding">
-              <select
-                value={inspection.airworthy ? "airworthy" : ""}
-                onChange={(e) =>
-                  updateInspection({
-                    ...inspection,
-                    airworthy: e.target.value === "airworthy",
-                  })
-                }
-              >
-                <option value="">Select finding</option>
-                <option value="airworthy">
-                  Airworthy — approved for return to service
-                </option>
-              </select>
-            </Field>
-          </div>
-          <p>
-            This template is for an airworthy finding. Enter the checklist and
-            AD/SB review cutoff before exporting. Include your actual
-            certificate type and authorization in the certificate field.
-          </p>
-        </>
-      )}
-      {template === "component" && (
-        <Field label="Return-to-service outcome">
-          <select
-            value={component.approvedForReturnToService ? "approved" : ""}
+            value={inspection.type}
             onChange={(e) =>
-              updateEntry(inspection, {
-                approvedForReturnToService: e.target.value === "approved",
-              })
+              update({ type: e.target.value as InspectionEntry["type"] })
             }
           >
-            <option value="">Select outcome</option>
-            <option value="approved">
-              Work satisfactory — approved only for the work performed
+            <option value="annual">Annual</option>
+            <option value="100-hour">100-Hour</option>
+          </select>
+        </Field>
+        <InspectionTextFields inspection={inspection} update={update} />
+        <Field label="Inspection finding">
+          <select
+            value={inspection.airworthy ? "airworthy" : ""}
+            onChange={(e) =>
+              update({ airworthy: e.target.value === "airworthy" })
+            }
+          >
+            <option value="">Select finding</option>
+            <option value="airworthy">
+              Airworthy — approved for return to service
             </option>
           </select>
         </Field>
-      )}
-      {template === "inspection" && inspection.type === "annual" && (
+      </div>
+      <InspectionNotes annual={inspection.type === "annual"} />
+    </>
+  );
+}
+
+function InspectionTextFields({
+  inspection,
+  update,
+}: {
+  inspection: InspectionEntry;
+  update: (patch: Partial<InspectionEntry>) => void;
+}) {
+  return (
+    <>
+      <Field label="Manufacturer's inspection checklist">
+        <input
+          value={inspection.checklist}
+          placeholder="Manufacturer, checklist and revision"
+          onChange={(e) => update({ checklist: e.target.value })}
+        />
+      </Field>
+      <Field label="AD / SB checked through">
+        <input
+          value={inspection.reviewedThrough}
+          placeholder="Review date or bi-weekly issue"
+          onChange={(e) => update({ reviewedThrough: e.target.value })}
+        />
+      </Field>
+    </>
+  );
+}
+
+function InspectionNotes({ annual }: { annual: boolean }) {
+  return (
+    <>
+      <p>
+        This template is for an airworthy finding. Enter the checklist and AD/SB
+        review cutoff before exporting. Include your actual certificate type and
+        authorization in the certificate field.
+      </p>
+      {annual && (
         <p>
           For an annual signed as an A&amp;P mechanic, include your IA
           authorization (for example, A&amp;P IA).
         </p>
       )}
-      {s!.user.certifications === undefined && (
-        <button
-          type="button"
-          className="button"
-          disabled={busy || !online || !connected}
-          onClick={() =>
-            void run(async () => {
-              const license = validLicense();
-              await backend!.saveLicense(
-                license.licenseNumber,
-                license.certificateType,
-              );
-              setMessage("License saved to your profile.");
-            })
-          }
-        >
-          Save license to my profile
-        </button>
-      )}
-      <Field label="Logbook entry text">
-        <textarea
-          rows={22}
-          value={text}
-          onChange={(e) => setBody(e.target.value)}
-        />
-      </Field>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {message && <p role="status">{message}</p>}
-      <div className="form-footer">
-        <button
-          type="button"
-          className="button primary"
-          disabled={
-            busy ||
-            missingCertification ||
-            !licenseNumber.trim() ||
-            !certificateType.trim() ||
-            !text.trim()
-          }
-          onClick={() =>
-            void run(async () => {
-              validLicense();
-              const { logbookPdf } = await import("../data/logbookPdf");
-              const pdf = await logbookPdf(text);
-              pdf.save(
-                `${order.number.replace(/[^a-zA-Z0-9_-]/g, "_")}-logbook.pdf`,
-              );
-              setMessage("PDF saved.");
-            })
-          }
-        >
-          Save as PDF
-        </button>
-        <button
-          type="button"
-          className="button"
-          disabled={
-            busy ||
-            missingCertification ||
-            !licenseNumber.trim() ||
-            !certificateType.trim() ||
-            !text.trim()
-          }
-          onClick={() =>
-            void run(async () => {
-              validLicense();
-              await navigator.clipboard.writeText(text);
-              setMessage("Logbook entry copied.");
-            })
-          }
-        >
-          Copy text
-        </button>
-        <button
-          type="button"
-          className="button"
-          disabled={busy}
-          onClick={onClose}
-        >
-          Close
-        </button>
-      </div>
     </>
   );
+}
+
+function ComponentOutcome({ entry }: { entry: Entry }) {
+  return (
+    <Field label="Return-to-service outcome">
+      <select
+        value={entry.component.approvedForReturnToService ? "approved" : ""}
+        onChange={(e) =>
+          entry.updateEntry(entry.inspection, {
+            approvedForReturnToService: e.target.value === "approved",
+          })
+        }
+      >
+        <option value="">Select outcome</option>
+        <option value="approved">
+          Work satisfactory — approved only for the work performed
+        </option>
+      </select>
+    </Field>
+  );
+}
+
+function SaveLicenseButton({
+  entry,
+  status,
+}: {
+  entry: Entry;
+  status: Status;
+}) {
+  const { backend, online, connected } = useWorkspace();
+  async function saveLicense() {
+    const license = entry.signer.validLicense();
+    await backend!.saveLicense(license.licenseNumber, license.certificateType);
+    return "License saved to your profile.";
+  }
+  return (
+    <button
+      type="button"
+      className="button"
+      disabled={status.busy || !online || !connected}
+      onClick={() => void status.run(saveLicense)}
+    >
+      Save license to my profile
+    </button>
+  );
+}
+
+function EntryActions({ entry, status, order, onClose }: ActionsProps) {
+  const disabled = status.busy || !entry.exportable;
+  const exportWith = (action: () => Promise<string>) => () =>
+    void status.run(async () => {
+      entry.signer.validLicense();
+      return action();
+    });
+  return (
+    <div className="form-footer">
+      <button
+        type="button"
+        className="button primary"
+        disabled={disabled}
+        onClick={exportWith(() => savePdf(entry.text, order.number))}
+      >
+        Save as PDF
+      </button>
+      <button
+        type="button"
+        className="button"
+        disabled={disabled}
+        onClick={exportWith(() => copyText(entry.text))}
+      >
+        Copy text
+      </button>
+      <button
+        type="button"
+        className="button"
+        disabled={status.busy}
+        onClick={onClose}
+      >
+        Close
+      </button>
+    </div>
+  );
+}
+
+function certificationMissing(
+  template: LogbookTemplate,
+  inspection: InspectionEntry,
+  component: ComponentEntry,
+): boolean {
+  if (template === "inspection") return !inspectionEntryReady(inspection);
+  if (template === "component") return !component.approvedForReturnToService;
+  return false;
+}
+
+// Keeps the user's edits when a field changes: each line the generated text
+// changed is replaced wherever it still appears unedited in the draft.
+function carryEdits(body: string, previous: string, updated: string): string {
+  const next = updated.split("\n");
+  const replacements = new Map(
+    previous
+      .split("\n")
+      .flatMap((line, i) =>
+        line && line !== next[i] ? [[line, next[i]] as const] : [],
+      ),
+  );
+  return body
+    .split("\n")
+    .map((line) => replacements.get(line) ?? line)
+    .join("\n");
+}
+
+function withCredentials(
+  drafts: Drafts,
+  licenseNumber: string,
+  certificateType: string,
+): Drafts {
+  const line = `Certificate / license: ${certificateType || "[enter certificate type]"} ${licenseNumber || "[enter license number]"}`;
+  return Object.fromEntries(
+    Object.entries(drafts).map(([key, text]) => [
+      key,
+      text.replace(CREDENTIAL_LINE, () => line),
+    ]),
+  );
+}
+
+// jsPDF loads on demand, keeping it out of the main bundle.
+async function savePdf(text: string, orderNumber: string): Promise<string> {
+  const { logbookPdf } = await import("../data/logbookPdf");
+  const pdf = await logbookPdf(text);
+  pdf.save(`${orderNumber.replace(/[^a-zA-Z0-9_-]/g, "_")}-logbook.pdf`);
+  return "PDF saved.";
+}
+
+async function copyText(text: string): Promise<string> {
+  await navigator.clipboard.writeText(text);
+  return "Logbook entry copied.";
 }

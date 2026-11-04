@@ -1,10 +1,11 @@
-# Responsibility: Weekly dependency update pull requests for npm and GitHub Actions.
-# Layer: Config (GitHub Dependabot).
+# Responsibility: Weekly dependency update pull requests for npm and GitHub
+#   Actions.
+# Layer: Config. Read by GitHub's Dependabot, which only opens pull requests.
 # Dependencies: package.json, package-lock.json and .github/workflows/*.yml.
 #
-# Minor and patch updates arrive as one grouped pull request per ecosystem; major
-# updates arrive one by one. New releases wait a week before they are proposed.
-# CI must pass before merging.
+# Minor and patch updates arrive as one grouped pull request per ecosystem;
+# major updates arrive one by one. New releases wait a week before they are
+# proposed. CI must pass before merging.
 version: 2
 updates:
   - package-ecosystem: npm

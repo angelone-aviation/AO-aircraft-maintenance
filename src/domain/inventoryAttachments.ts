@@ -8,12 +8,14 @@ import type { Snapshot } from "./model";
 import { ownsActive, programPermission, recordProgram } from "./programs";
 import { Rejection } from "./rejection";
 
-const ATTACHMENT_NAME_PATTERNS: Record<string, RegExp> = {
-  "application/pdf": /\.pdf$/i,
-  "image/jpeg": /\.jpe?g$/i,
-  "image/png": /\.png$/i,
-  "image/webp": /\.webp$/i,
-};
+// A Map, not an object literal: the type is user input, and "constructor"
+// would find an inherited property instead of no entry.
+const ATTACHMENT_NAME_PATTERNS = new Map<string, RegExp>([
+  ["application/pdf", /\.pdf$/i],
+  ["image/jpeg", /\.jpe?g$/i],
+  ["image/png", /\.png$/i],
+  ["image/webp", /\.webp$/i],
+]);
 
 /**
  * Attachment bytes travel as a Convex action argument (`v.bytes()`), not
@@ -53,7 +55,7 @@ export function validateInventoryFile(
   if (
     !name.trim() ||
     name.length > 255 ||
-    !ATTACHMENT_NAME_PATTERNS[type]?.test(name)
+    !ATTACHMENT_NAME_PATTERNS.get(type)?.test(name)
   )
     throw new Rejection("Choose a PDF, JPEG, PNG or WebP file.");
   if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_ACTION_FILE_BYTES)

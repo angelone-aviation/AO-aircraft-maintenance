@@ -4,7 +4,11 @@
  * Layer: Server. Public actions; aircraftSpruce.ts authorizes, charges the
  *   hourly allowances and stores every result.
  * Dependencies: convex/aircraftSpruce, convex/spruceHttp, convex/secrets,
- *   convex/secretsMigration, src/domain/aircraftSpruce, convex/values.
+ *   convex/secretsMigration, convex/userErrors, src/domain/aircraftSpruce,
+ *   convex/values.
+ *
+ * A Rejection from the domain's CSV, catalog and order checks reaches the
+ * user as a ConvexError.
  */
 "use node";
 import { action, type ActionCtx } from "./_generated/server";
@@ -24,6 +28,7 @@ import {
 import { downloadSpruce } from "./spruceHttp";
 import { sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
+import { exposeRejections } from "./userErrors";
 
 type SpruceCredentials = z.infer<typeof spruceCredentials>;
 // The same fields, each sealed by convex/secrets.
@@ -79,7 +84,7 @@ export const link = action({
     });
     // Fail closed before contacting the provider if encryption is unavailable.
     const sealed = await sealCredentials(args.programUuid, credentials);
-    await assertLoginWorks(credentials);
+    await exposeRejections(assertLoginWorks(credentials));
     await ctx.runMutation(internal.aircraftSpruce.commitAccount, {
       programUuid: args.programUuid,
       version: args.version,
@@ -121,7 +126,7 @@ export const refresh = action({
       "products",
       await openCredentials(ctx, args.programUuid, account.credentials),
     );
-    const count = countCatalogProducts(csv);
+    const count = exposeRejections(() => countCatalogProducts(csv));
     if (!count)
       throw new ConvexError("Catalog is empty. Previous catalog retained.");
     const storageId = await ctx.storage.store(
@@ -172,11 +177,10 @@ export const search = action({
       throw new ConvexError(
         "Refresh this program's Aircraft Spruce catalog under Vendors first.",
       );
-    const result = catalogSearch(
-      await readCatalog(ctx, account.catalogId),
-      args.search,
-      account.credentials.currency,
-      account.catalogAt!,
+    const catalog = await readCatalog(ctx, account.catalogId);
+    const { currency } = account.credentials;
+    const result = exposeRejections(() =>
+      catalogSearch(catalog, args.search, currency, account.catalogAt!),
     );
     const latest = await ctx.runQuery(internal.aircraftSpruce.access, {
       programUuid: args.programUuid,
@@ -222,7 +226,7 @@ export const sync = action({
       await openCredentials(ctx, args.programUuid, account.credentials),
       { fields: orderFields, ...(order ? { order } : { po: poNumber }) },
     );
-    const rows = parseOrders(csv, poNumber, order);
+    const rows = exposeRejections(() => parseOrders(csv, poNumber, order));
     assertOrderRowsStorable(rows);
     await ctx.runMutation(internal.aircraftSpruce.commitOrders, {
       programUuid: args.programUuid,

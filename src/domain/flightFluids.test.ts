@@ -1,8 +1,21 @@
+/**
+ * Responsibility: Pins fuel and oil reading checks, use and rate, and how a
+ *   guided flight and its checklist link carry the readings.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/flightFluids.ts, ./guidedFlight, ./checklists,
+ *   ./flightChecklistLink, ./model, src/data/demo.ts (seed).
+ */
 import { guidedDraftSchema, suggestedStartSection } from "./guidedFlight";
 import { oilUseSincePreviousStart } from "./flightFluids";
 import type { Flight } from "./model";
 import { describe, it, expect } from "vitest";
-import { fuelSchema, oilSchema, fluidUsed, fluidRate } from "./flightFluids";
+import {
+  fuelSchema,
+  oilSchema,
+  fluidUsed,
+  fluidRate,
+  oilLevelLabel,
+} from "./flightFluids";
 import { demoSnapshot } from "../data/demo";
 import { emptyChecklist } from "./checklists";
 import { guidedFlightLink, type GuidedDraft } from "./guidedFlight";
@@ -293,4 +306,87 @@ it("keeps optional engine start readings in guided drafts and suggests the actua
   expect(
     guidedDraftSchema.parse(JSON.parse(JSON.stringify(updated))).engineStarts,
   ).toEqual(updated.engineStarts);
+});
+
+describe("reading limits and labels", () => {
+  it("accepts levels up to 1,000,000 and allows float slack in the balance", () => {
+    expect(() => fuelSchema.parse({ unit: "L", start: 1000000 })).not.toThrow();
+    expect(() => fuelSchema.parse({ unit: "L", start: 1000001 })).toThrow();
+    expect(() =>
+      fuelSchema.parse({ unit: "L", start: 0.3, added: 0, end: 0.3000005 }),
+    ).not.toThrow();
+    expect(fluidUsed({ start: 0.3, added: 0, end: 0.3000005 })).toBe(0);
+    expect(fluidUsed({ start: 0.3, added: 0, end: 0.30001 })).toBeUndefined();
+    expect(fluidUsed({ start: 1, added: 0, end: 0.1234564 })).toBe(0.876544);
+    expect(
+      fluidRate({ start: 5, added: 0, end: 3 }, undefined),
+    ).toBeUndefined();
+  });
+
+  it("checks inventory oil and engines, but not the oil balance", () => {
+    const reading = { engine: "single" as const, unit: "L" as const };
+    const inventory = { locationUuid: "l", stockUuid: "s", quantity: 1 };
+    expect(() =>
+      oilSchema.parse([{ ...reading, inventory, added: 0 }]),
+    ).toThrow("Enter a positive amount of oil added before using inventory.");
+    expect(() =>
+      oilSchema.parse([{ ...reading, start: 1, added: 0, end: 5 }]),
+    ).not.toThrow();
+    for (const oil of [
+      [reading, reading],
+      [
+        { ...reading, engine: "left" },
+        { ...reading, engine: "left" },
+      ],
+    ])
+      expect(() => oilSchema.parse(oil)).toThrow(
+        "Use a single engine or separate left/right engines.",
+      );
+    const left = { ...reading, engine: "left" };
+    const right = { ...reading, engine: "right" };
+    expect(() => oilSchema.parse([left, right, right])).toThrow(
+      "expected array to have <=2 items",
+    );
+  });
+
+  it("labels oil levels by band or volume", () => {
+    const range = { engine: "single" as const, unit: "range" as const };
+    expect(oilLevelLabel(range, undefined)).toBe("not recorded");
+    expect(oilLevelLabel(range, 25)).toBe("25% above Add");
+    expect(oilLevelLabel(range, 30)).toBe("Unknown");
+    expect(oilLevelLabel({ ...range, unit: "L" }, 4.5)).toBe("4.5 L");
+  });
+
+  it("does not compare flights on different aircraft or out of start order", () => {
+    const previous: Flight = {
+      ...input,
+      uuid: "previous",
+      authorId: "pilot",
+      submittedAt: 0,
+      status: "accepted",
+      startTime: "2026-10-01T10:00:00Z",
+      oil: [{ engine: "single", unit: "US qt", start: 6, added: 1 }],
+    };
+    const current: Flight = {
+      ...previous,
+      uuid: "current",
+      startTime: "2026-10-02T10:00:00Z",
+      oil: [{ engine: "single", unit: "US qt", start: 6.5 }],
+    };
+    expect(oilUseSincePreviousStart(current, previous, "single")).toBe(0.5);
+    expect(
+      oilUseSincePreviousStart(
+        { ...current, aircraftUuid: "demo-208" },
+        previous,
+        "single",
+      ),
+    ).toBeUndefined();
+    expect(
+      oilUseSincePreviousStart(
+        { ...current, startTime: previous.startTime },
+        previous,
+        "single",
+      ),
+    ).toBeUndefined();
+  });
 });

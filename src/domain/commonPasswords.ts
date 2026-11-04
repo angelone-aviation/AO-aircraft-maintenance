@@ -1,13 +1,20 @@
-// Common passwords of at least 15 characters, lower-case, one per line, for
-// the check in passwordRules.ts (ADR-0009, NIST SP 800-63B). Shorter ones are
-// refused by the length rule before this list is read.
-//
-// Sources: the 15-or-more-character entries of the NCSC/Have I Been Pwned top
-// 100,000 passwords and of the frequency-ranked part (top 250,000) of the
-// xato-net 10 million passwords list (both as published in SecLists, MIT
-// licence), plus digit runs, keyboard walks, common short passwords with
-// digit runs appended, and words about this service. Offensive entries were
-// left out. Loaded only where a password is set, never on the sign-in path.
+/**
+ * Responsibility: The list of common passwords that passwordRules.ts refuses.
+ * Layer: Domain. Data only; no I/O, no React.
+ * Dependencies: none.
+ *
+ * ADR-0009, NIST SP 800-63B. Only entries of 15 or more characters: the length
+ * rule refuses shorter ones first. In the browser only the demo loads it.
+ */
+
+/**
+ * Common passwords, lower-case, one per line. Sources: the entries of 15 or
+ * more characters in the NCSC/Have I Been Pwned top 100,000 and in the
+ * frequency-ranked top 250,000 of the xato-net 10 million list (both as in
+ * SecLists, MIT licence), plus digit runs, keyboard walks, common short
+ * passwords with digit runs appended, and words about this service. Offensive
+ * entries were left out.
+ */
 export const COMMON_PASSWORDS = `
 yfdbufnjh10305070
 1q2w3e4r5t6y7u8i9o0p
