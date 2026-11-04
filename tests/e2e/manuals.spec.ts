@@ -1,6 +1,20 @@
+/**
+ * Responsibility: Pins a manual uploaded from an aircraft: listed and kept
+ *   through reloads, and an inspection's saved page reference opening that
+ *   PDF page in the viewer and at its own address.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path, node:fs.
+ */
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
+
+// The real C441 manual is not in the repository. With a local copy at the
+// root, the test also checks its page count and size, and links page 79.
+const ACTUAL_MANUAL = path.resolve(
+  "16802162-Cessna_441_Maintenance_Manual_D2518-15-13_Mm.pdf",
+);
+
 test("uploads a manual from an aircraft, persists it and opens a saved inspection page reference", async ({
   page,
 }) => {
@@ -29,15 +43,12 @@ test("uploads a manual from an aircraft, persists it and opens a saved inspectio
   await upload
     .getByLabel("Revision / temporary revisions", { exact: true })
     .fill("15; TR 5-1 and 5-2");
-  const actualManual = path.resolve(
-    "16802162-Cessna_441_Maintenance_Manual_D2518-15-13_Mm.pdf",
-  );
-  const usesActualManual = fs.existsSync(actualManual);
+  const usesActualManual = fs.existsSync(ACTUAL_MANUAL);
   await upload
     .getByLabel("PDF manual", { exact: true })
     .setInputFiles(
       usesActualManual
-        ? actualManual
+        ? ACTUAL_MANUAL
         : path.resolve("tests/fixtures/icao-flight-plan.pdf"),
     );
   await upload
@@ -71,6 +82,7 @@ test("uploads a manual from an aircraft, persists it and opens a saved inspectio
   await editor.getByLabel("Manual section", { exact: true }).fill("5-12-02");
   await editor.getByLabel("Printed page label", { exact: true }).fill("1");
   const pdfPage = usesActualManual ? 79 : 1;
+  const pageLabel = new RegExp(`PDF page ${pdfPage}$`);
   await editor
     .getByLabel("PDF page number", { exact: true })
     .fill(String(pdfPage));
@@ -97,16 +109,16 @@ test("uploads a manual from an aircraft, persists it and opens a saved inspectio
   ).toBeVisible();
   await expect(viewer.locator("canvas[role=img]")).toHaveAttribute(
     "aria-label",
-    new RegExp(`PDF page ${pdfPage}$`),
+    pageLabel,
   );
   await page.goto(href!);
   await expect(page.locator("canvas[role=img]")).toHaveAttribute(
     "aria-label",
-    new RegExp(`PDF page ${pdfPage}$`),
+    pageLabel,
   );
   await page.reload();
   await expect(page.locator("canvas[role=img]")).toHaveAttribute(
     "aria-label",
-    new RegExp(`PDF page ${pdfPage}$`),
+    pageLabel,
   );
 });
