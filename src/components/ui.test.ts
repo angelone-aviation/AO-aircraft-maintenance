@@ -98,6 +98,20 @@ describe("Field", () => {
     expect(html).toContain(`<small id="${id}-hint">As stamped</small>`);
   });
 
+  it("links a component child only through the props it forwards", () => {
+    type Linked = { id?: string; "aria-describedby"?: string };
+    const Forwarding = (props: Linked) => h("select", props);
+    const Dropping = () => h("select");
+    const field = (child: ReactElement) =>
+      render(h(Field, { label: "Unit", hint: "Pick one", children: child }));
+    const linked = field(h(Forwarding));
+    const id = /<label for="([^"]+)">Unit<\/label>/.exec(linked)?.[1];
+    expect(linked).toContain(
+      `<select id="${id}" aria-describedby="${id}-hint"></select>`,
+    );
+    expect(field(h(Dropping))).toContain("</label><select></select>");
+  });
+
   it("renders any other child as is", () => {
     expect(render(h(Field, { label: "Serial", children: "text" }))).toMatch(
       /<\/label>text<\/div>$/,
