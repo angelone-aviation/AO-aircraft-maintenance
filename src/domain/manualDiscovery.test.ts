@@ -1,10 +1,19 @@
-import { expect, it } from "vitest";
+/**
+ * Responsibility: Pins the suggestions read from manual pages (phases,
+ *   numbered entries, intervals and warnings) and manual applicability.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/manualDiscovery.ts, management.ts, components.ts
+ *   and manuals.ts (types), src/data/demo.ts (fixture).
+ */
+import { describe, expect, it } from "vitest";
 import {
   discoverPage,
+  manualApplicability,
   suggestedIntervals,
   matchesAircraft,
   matchesComponent,
 } from "./manualDiscovery";
+import type { Manual } from "./manuals";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement } from "./management";
 import type { Component } from "./components";
@@ -176,4 +185,94 @@ it("requires compliance, persists provenance, and rejects repeat imports for the
       lastDate: "2025-01-12",
     }),
   ).toThrow("already been added");
+});
+
+describe("manual applicability", () => {
+  it("prefers the manual's own, else the model of its aircraft", () => {
+    const a = demoSnapshot().aircraft[0];
+    const own = {
+      kind: "component" as const,
+      manufacturer: "",
+      model: "PT6A",
+      partNumber: "",
+    };
+    const manual = { applicability: own } as Manual;
+    expect(manualApplicability(manual, a)).toBe(own);
+    expect(manualApplicability({} as Manual, a)).toEqual({
+      kind: "aircraft",
+      model: a.model,
+      manufacturer: a.make,
+      partNumber: "",
+    });
+    expect(manualApplicability({} as Manual, { ...a, model: "" })).toBe(
+      undefined,
+    );
+    expect(
+      matchesAircraft(
+        { ...a, model: "206  Stationair" },
+        {
+          ...own,
+          kind: "aircraft",
+          model: "206 STATIONAIR",
+        },
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("suggested intervals", () => {
+  it("warns in order and prefills nothing that is day-based, repeated or zero", () => {
+    expect(suggestedIntervals("Inspect every 30 days or 2 years")).toEqual({
+      hours: undefined,
+      cycles: undefined,
+      months: 24,
+      warnings: ["Day-based rule: enter the appropriate schedule manually."],
+    });
+    expect(
+      suggestedIntervals(
+        "Refer to service bulletin: 100 hours or 200 hours, 1-2 years",
+      ).warnings,
+    ).toEqual([
+      "A range of limits was found; select the applicable value manually.",
+      "Includes a reference to another section or publication.",
+      "Multiple limits found for the same unit; intervals were not prefilled.",
+    ]);
+    expect(suggestedIntervals("Retire at 0 cycles").cycles).toBeUndefined();
+  });
+});
+
+describe("page discovery", () => {
+  it("skips contents entries, section headings and repeated names", () => {
+    const rows = discoverPage(
+      manualUuid,
+      9,
+      `(1) Inspect landing gear every 100 hours
+(2) Table of contents ........ 4
+(3) Inspection time limits
+(4) Inspect landing gear every 100 hours
+(5) Overhaul propeller every 2,000 hours`,
+    );
+    expect(rows.map((r) => [r.name, r.kind, r.hours])).toEqual([
+      ["Inspect landing gear every 100 hours", "inspection", 100],
+      ["Overhaul propeller every 2,000 hours", "component", 2000],
+    ]);
+  });
+  it("keys a suggestion by a hash of its normalized text", () => {
+    // Stored inspections hold this key; a different hash would offer items
+    // already imported again.
+    const [row] = discoverPage(
+      manualUuid,
+      9,
+      "- Lubricate  hinges every 50 HRS",
+    );
+    expect(row.sourceKey).toBe(`${manualUuid}:9:2d2503a2`);
+  });
+  it("names an entry by its first line, at most 200 characters", () => {
+    const [row] = discoverPage(
+      manualUuid,
+      9,
+      `(1) Inspect ${"x".repeat(300)}\n(2) Replace seals`,
+    );
+    expect(row.name).toHaveLength(200);
+  });
 });
