@@ -85,15 +85,14 @@ describe("dueItems", () => {
     expect(gearCheck()).toMatchObject({ level: "unknown" });
   });
 
-  it("judges an AD's own status on the clock's date", () => {
-    // Characterizes current behaviour: adStatus takes no date, so an action
-    // overdue by the clock leaves the AD overdue on an earlier `today`.
+  it("judges an AD's own status on the date given", () => {
     const { s, a } = dueFleet();
     const ad = s.airworthiness!.find((r) => r.uuid === "ad-overdue")!;
     ad.tasks[0].dueDate = daysAgo(1);
     const today = daysAgo(10);
     expect(byUuid(dueItems(s, a.uuid, today)).get("ad-overdue")).toMatchObject({
-      status: "Overdue",
+      status: "Due soon",
+      level: "due-soon",
       tasks: [{ status: "Due soon", level: "due-soon" }],
     });
   });

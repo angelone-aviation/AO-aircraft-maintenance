@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { FlightPlan } from "./flightPlans";
 import {
   flightInputSchema,
+  isAvailablePilot,
   type Aircraft,
   type FlightInput,
   type Member,
@@ -106,8 +107,7 @@ export function plannedFlightPrefill(
 ): Partial<FlightInput> {
   const matching = members.filter(
     (m) =>
-      m.active &&
-      m.availableAsPilot !== false &&
+      isAvailablePilot(m) &&
       m.name.trim().toLowerCase() === plan.pilotText.trim().toLowerCase(),
   );
   return {
@@ -119,9 +119,21 @@ export function plannedFlightPrefill(
     destination: plan.destination,
     landings: plan.landings,
     cycles: plan.cycles,
-    flightRules: IFR_DEPARTURE_RULES.includes(plan.flightRules) ? "IFR" : "VFR",
+    flightRules: plannedFlightRules(plan),
     remarks: plan.route ? `Planned route: ${plan.route}` : "",
   };
+}
+
+/**
+ * The flight rules a flight under a filed plan departs under.
+ *
+ * @param plan - The plan's ICAO flight rules.
+ * @returns "IFR" for I and Y, else "VFR".
+ */
+export function plannedFlightRules(
+  plan: Pick<FlightPlan, "flightRules">,
+): FlightInput["flightRules"] {
+  return IFR_DEPARTURE_RULES.includes(plan.flightRules) ? "IFR" : "VFR";
 }
 
 function assertPreflightFluids(aircraft: Aircraft, preflight: FlightInput) {

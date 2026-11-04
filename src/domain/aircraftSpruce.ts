@@ -2,9 +2,10 @@
  * Responsibility: Aircraft Spruce supplier data: the account and linked-part
  *   schemas, and parsing of the catalog and order CSV exports.
  * Layer: Domain. Pure zod schemas and functions; no I/O, no React.
- * Dependencies: zod. No internal imports.
+ * Dependencies: zod, ./rejection.
  */
 import { z } from "zod";
+import { Rejection } from "./rejection";
 
 const ISO_CURRENCY_CODE = /^[A-Z]{3}$/;
 const BYTE_ORDER_MARK = 0xfeff;
@@ -198,8 +199,9 @@ export function* csvRecords(text: string, required: string[]) {
  * @param currency - The account's catalog currency, copied onto each product.
  * @param catalogAt - When the catalog was fetched (epoch ms), copied likewise.
  * @returns The first 30 matches, in catalog order.
- * @throws {Error} "Enter at least two characters." for a shorter search; the
- *   {@link csvRecords} errors for rows read before the 30th match.
+ * @throws {Rejection} "Enter at least two characters." for a shorter search.
+ * @throws {Error} The {@link csvRecords} errors for rows read before the 30th
+ *   match.
  */
 export function catalogSearch(
   text: string,
@@ -209,7 +211,7 @@ export function catalogSearch(
 ): SpruceProduct[] {
   const query = search.trim().toLowerCase();
   if (query.length < SEARCH_MIN_LENGTH)
-    throw Error("Enter at least two characters.");
+    throw new Rejection("Enter at least two characters.");
   const products: SpruceProduct[] = [];
   for (const row of csvRecords(text, [
     "PN",
@@ -246,9 +248,9 @@ export function priceCents(value: string): number | undefined {
  * @param po - The purchase order's number.
  * @param order - A supplier order number, already trimmed, or "" to use `po`.
  * @returns The matching lines, in export order.
- * @throws {Error} "Too many order lines. Select an individual order." when the
- *   export has over 1,000 lines, matching or not; the {@link csvRecords}
- *   errors.
+ * @throws {Rejection} "Too many order lines. Select an individual order."
+ *   when the export has over 1,000 lines, matching or not.
+ * @throws {Error} The {@link csvRecords} errors.
  */
 export function parseOrders(
   text: string,
@@ -257,7 +259,7 @@ export function parseOrders(
 ): SpruceOrderRow[] {
   const rows = [...csvRecords(text, orderFields)];
   if (rows.length > MAX_ORDER_LINES)
-    throw Error("Too many order lines. Select an individual order.");
+    throw new Rejection("Too many order lines. Select an individual order.");
   // The provider's PO search matches partially ("%"), so its result is never
   // trusted as an authorization or an exact link.
   return rows.filter((row) =>

@@ -13,7 +13,7 @@ import { transferProgram } from "./programTransfers";
 import {
   CHOOSE_GROUP_AIRCRAFT,
   assertGroupAircraftChoice,
-  assertGroupProgramChange,
+  assertGroupProgramFixed,
   groupAircraftLabel,
   listsAllAircraft,
 } from "./groupAircraft";
@@ -83,10 +83,10 @@ describe("a group whose restricted aircraft left the program (#34)", () => {
     expect(
       groupAircraftLabel({ ...group, owner: true, aircraftIds: [] }, program),
     ).toBe("No aircraft assigned");
-    // An unscoped (legacy) group cannot be judged against a program's fleet.
+    // A group without a program is judged like any other: it covers none.
     expect(
       groupAircraftLabel({ ...group, programUuid: undefined }, program),
-    ).toBe("1 aircraft");
+    ).toBe("No aircraft in this program");
   });
 });
 
@@ -165,44 +165,17 @@ describe("assertGroupAircraftChoice (#34)", () => {
   });
 });
 
-describe("assertGroupProgramChange (#45)", () => {
-  const legacy: Pick<Group, "programUuid"> = {};
-  const scoped: Pick<Group, "programUuid"> = { programUuid: "demo-program" };
-  it("lets a system administrator give an unscoped group its first Flight Program", () => {
-    expect(
-      assertGroupProgramChange(legacy, { programUuid: "demo-program" }, true),
-    ).toBe(true);
+describe("assertGroupProgramFixed", () => {
+  it("keeps a stored group in its Flight Program, unscoped groups too", () => {
+    const moved = /cannot be moved/;
+    const scoped = { programUuid: "demo-program" };
     expect(() =>
-      assertGroupProgramChange(legacy, { programUuid: "demo-program" }, false),
-    ).toThrow(/system administrator/);
-  });
-  it("still refuses to move a group between Flight Programs", () => {
-    for (const systemAdmin of [true, false]) {
-      expect(() =>
-        assertGroupProgramChange(
-          scoped,
-          { programUuid: "second" },
-          systemAdmin,
-        ),
-      ).toThrow(/cannot be moved/);
-      expect(() => assertGroupProgramChange(scoped, {}, systemAdmin)).toThrow(
-        /cannot be moved/,
-      );
-      expect(
-        assertGroupProgramChange(
-          scoped,
-          { programUuid: "demo-program" },
-          systemAdmin,
-        ),
-      ).toBe(false);
-      expect(
-        assertGroupProgramChange(
-          undefined,
-          { programUuid: "demo-program" },
-          systemAdmin,
-        ),
-      ).toBe(false);
-    }
+      assertGroupProgramFixed(scoped, { programUuid: "second" }),
+    ).toThrow(moved);
+    expect(() => assertGroupProgramFixed(scoped, {})).toThrow(moved);
+    expect(() => assertGroupProgramFixed({}, scoped)).toThrow(moved);
+    expect(() => assertGroupProgramFixed(scoped, scoped)).not.toThrow();
+    expect(() => assertGroupProgramFixed(undefined, scoped)).not.toThrow();
   });
 });
 
@@ -232,16 +205,15 @@ describe("group rules", () => {
       ],
       [
         () =>
-          assertGroupProgramChange(
+          assertGroupProgramFixed(
             { programUuid: "demo-program" },
             { programUuid: "second" },
-            true,
           ),
         "A permission group cannot be moved to another Flight Program.",
       ],
       [
-        () => assertGroupProgramChange({}, { programUuid: "second" }, false),
-        "Only a system administrator can assign an unscoped permission group to a Flight Program.",
+        () => assertGroupProgramFixed({}, { programUuid: "second" }),
+        "A permission group cannot be moved to another Flight Program.",
       ],
     ];
     for (const [run, message] of refusals) {

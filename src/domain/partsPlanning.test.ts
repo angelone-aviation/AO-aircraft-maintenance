@@ -3,7 +3,7 @@
  *   and how parts requests total what is still needed.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/partsPlanning.ts, partsRequests.ts, workOrders.ts,
- *   rejection.ts, tests/fixtures (parts, work orders, the due fleet).
+ *   tests/fixtures (parts, work orders, the due fleet).
  */
 import { describe, expect, it } from "vitest";
 import { DUE_FLEET_PART, dueFleet } from "../../tests/fixtures/dueFleet";
@@ -15,7 +15,6 @@ import {
   requestDraftSchema,
   type RequestSource,
 } from "./partsRequests";
-import { Rejection } from "./rejection";
 import { newWorkTask, saveWorkOrder } from "./workOrders";
 
 const now = Date.parse("2026-10-02T12:00:00Z");
@@ -178,10 +177,8 @@ describe("on the due fleet", () => {
     ]);
   });
 
-  it("fails the whole list when work with parts has a status it cannot compute", () => {
-    // Characterizes current behaviour: unlike the alerts, the plans do not
-    // skip such an item.
-    const withParts = (uuid: string) => {
+  it("skips work with parts whose status it cannot compute, as the alerts do", () => {
+    const plannedWith = (uuid: string) => {
       const { s } = dueFleet();
       const records = [...s.inspections, ...(s.management ?? [])];
       Object.assign(
@@ -190,15 +187,11 @@ describe("on the due fleet", () => {
           requiredParts: [DUE_FLEET_PART],
         },
       );
-      return () => maintenancePartsPlans(s);
+      return maintenancePartsPlans(s).map((p) => p.uuid);
     };
-    expect(withParts("i-missing")).toThrow(
-      new Rejection("Inspection component not found."),
-    );
-    expect(withParts("r-early")).toThrow(
-      new Rejection(
-        "Aircraft readings or date precede the installation baseline.",
-      ),
-    );
+    const planned = maintenancePartsPlans(dueFleet().s).map((p) => p.uuid);
+    expect(plannedWith("i-missing")).toStrictEqual(planned);
+    expect(plannedWith("r-early")).toStrictEqual(planned);
+    expect(plannedWith("i-cycles")).toContain("i-cycles");
   });
 });

@@ -4,9 +4,6 @@
  * Layer: Test. Fixture for vitest suites; never shipped in the build.
  * Dependencies: src/data/demo.ts (seed), src/domain/airworthiness.ts,
  *   components.ts, model.ts and partsRequests.ts.
- *
- * AD dates sit far from any clock, because adStatus judges an AD's actions
- * on the clock's date, not on the `today` a caller passes.
  */
 import { demoSnapshot } from "../../src/data/demo";
 import {

@@ -3,7 +3,7 @@
  *   engine-data CSV into one record per flight, flags readings against the
  *   aircraft's limits, and applies import, remove and limit commands.
  * Layer: Domain. Pure parsing and rules; no I/O, no React.
- * Dependencies: zod, ./maintenanceCsv, ./model, ./rejection.
+ * Dependencies: zod, ./maintenanceCsv, ./model, ./rejection, ./commandRequest.
  *
  * Only the summary is kept, never the raw samples.
  */
@@ -11,6 +11,7 @@ import { z } from "zod";
 import { readCsvRows } from "./maintenanceCsv";
 import { latestLocalDate } from "./model";
 import { Rejection } from "./rejection";
+import { requestUuidField } from "./commandRequest";
 
 /** Largest engine-data file accepted, in megabytes. */
 export const ENGINE_FILE_MAX_MEGABYTES = 7;
@@ -113,7 +114,7 @@ export type EngineTrend = z.infer<typeof engineTrendSchema>;
 
 /**
  * A command on an aircraft's engine trends: import a summary, remove an
- * import, or set the limits.
+ * import, or set the limits; each may carry its request id.
  *
  * @throws {z.ZodError} From `parse()` on an unknown action or invalid field.
  */
@@ -122,9 +123,18 @@ export const engineTrendCommandSchema = z.discriminatedUnion("action", [
     action: z.literal("import"),
     uuid: z.string().uuid(),
     summary: engineSummarySchema,
+    ...requestUuidField,
   }),
-  z.object({ action: z.literal("remove"), uuid: z.string().uuid() }),
-  z.object({ action: z.literal("limits"), limits: engineLimitsSchema }),
+  z.object({
+    action: z.literal("remove"),
+    uuid: z.string().uuid(),
+    ...requestUuidField,
+  }),
+  z.object({
+    action: z.literal("limits"),
+    limits: engineLimitsSchema,
+    ...requestUuidField,
+  }),
 ]);
 
 /** A parsed engine trend command. */

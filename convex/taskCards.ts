@@ -2,10 +2,10 @@
  * Responsibility: Job-card saves, through the task-card domain applier, and
  *   job-card evidence: upload, its checks, and removal.
  * Layer: Server. Convex mutations, an action and internal functions; the
- *   rules live in src/domain/taskCards.
+ *   rules live in src/domain (taskCards, attachments).
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
  *   ./runCommand, ./collections, ./attachments, ./userErrors, src/domain
- *   (taskCards, workOrders).
+ *   (taskCards, workOrders, attachments).
  */
 import { v, ConvexError } from "convex/values";
 import {
@@ -41,6 +41,7 @@ import {
 } from "./attachments";
 import { exposeRejections } from "./userErrors";
 import { validateWorkOrderFile } from "../src/domain/workOrders";
+import { withNewEvidence } from "../src/domain/attachments";
 import {
   saveTaskCard,
   taskCardCommandSchema,
@@ -134,23 +135,19 @@ export const finishUpload = internalMutation({
         .withIndex("taskCard", (q) => q.eq("taskCardUuid", t.uuid))
         .take(MAX_ATTACHMENTS),
     );
-    const before = { ...t };
     const { programUuid: _program, ...fields } = args;
-    await ctx.db.insert("taskEvidence", { ...fields, uploadedAt: Date.now() });
-    t.technicianSignoff = null;
-    t.inspectionSignoff = null;
-    t.stepSignoffs = {};
-    t.version++;
-    t.updatedAt = Date.now();
+    const now = Date.now();
+    await ctx.db.insert("taskEvidence", { ...fields, uploadedAt: now });
+    const next = withNewEvidence(t, now);
     const doc = await ctx.db
       .query("taskCards")
       .withIndex("uuid", (q) => q.eq("uuid", t.uuid))
       .unique();
-    await ctx.db.patch(doc!._id, { payload: JSON.stringify(t) });
+    await ctx.db.patch(doc!._id, { payload: JSON.stringify(next) });
     await audit(ctx, s.user.id, "taskCard.evidence", t.uuid, {
       aircraftUuid: t.aircraftUuid,
-      before,
-      after: { ...t, evidenceName: args.name, category: args.category },
+      before: t,
+      after: { ...next, evidenceName: args.name, category: args.category },
     });
   },
 });

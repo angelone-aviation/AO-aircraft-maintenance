@@ -70,20 +70,11 @@ A Flight Program administrator can add a person who already has an active accoun
 
 ## Permission groups opened to all aircraft before the #34 fix
 
-Until the fix for #34, editing a permission group whose selected aircraft had all moved to another Flight Program silently saved it with no aircraft, which means every aircraft in the program. Its members could then see, and depending on the group's permissions fly or work on, aircraft they were never given. How the check decides is in [Flight Program access](../flight-program-access.md#groups-opened-to-all-aircraft-before-the-fix). Do this once per deployment, after the deploy that adds the check and after `memberships:backfill` (members are read from its index):
+Until the fix for #34, editing a permission group whose selected aircraft had all moved to another Flight Program silently saved it with no aircraft, which means every aircraft in the program. Its members could then see, and depending on the group's permissions fly or work on, aircraft they were never given. How the check decides is in [Flight Program access](../flight-program-access.md#groups-opened-to-all-aircraft-before-the-fix). System administrators see the groups it finds in **Administration → Permission groups**, above the group cards; it changes no group and writes no change-log entry. Members are read from the `memberships` index, so on a deployment with older data run `memberships:backfill` first.
 
-1. Run the read-only check. It changes no group and writes no change-log entry:
-
-   ```bash
-   npx convex run groupAudit:findWidenedGroups
-   ```
-
-   It reads 50 groups per run. While the result says `isDone: false`, run it again with the cursor it returned: `npx convex run groupAudit:findWidenedGroups '{"cursor": "<continueCursor>"}'`. Keep every result with the change record.
-
-2. For each entry under `widened`, read its `summary`. `aircraftBefore` lists the aircraft the group was limited to; `transferredAway: true` marks those no longer in the group's program (or no longer in Angel One). `savedBy` and `savedAt` say who saved it empty and when; `members` are its current members. Ask the program's Flight Program administrator which aircraft the group should cover. If it matters, check the flight log and History of the program's other aircraft for entries by those members since `savedAt`.
-3. For each entry under `review`, the change log cannot show whether all aircraft was intended. Ask the Flight Program administrator.
-4. In **Administration → Permission groups** the same groups are listed for system administrators. Use **Edit group** on each and choose **Only selected aircraft** (and the aircraft) or **All aircraft in this program**, then save. The form starts with neither chosen. Saving records the choice in the change log, and the group leaves the list and the command's result.
-5. Run the check again; it should return empty `widened` and `review` lists.
+1. For a group marked **Opened to all aircraft**, the list shows the aircraft it was limited to and the program each is in now, who saved it with no aircraft and when, and its current members. Ask the program's Flight Program administrator which aircraft the group should cover. If it matters, check the flight log and History of the program's other aircraft for entries by those members since that save.
+2. For a group marked **Review** ("Cannot determine: …"), the change log cannot show whether all aircraft was intended. Ask the Flight Program administrator.
+3. Use **Edit group** on each and choose **Only selected aircraft** (and the aircraft) or **All aircraft in this program**, then save. The form starts with neither chosen. Saving records the choice in the change log, and the group leaves the list.
 
 Groups confirmed after the #34 fix reached production but before this check was deployed are listed once more, because their saves did not record the choice; one more save clears them.
 

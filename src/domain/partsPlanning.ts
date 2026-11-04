@@ -57,9 +57,8 @@ export interface PartsPlan {
  * @param s - The snapshot.
  * @returns Unarchived inspections, open discrepancies, installed components'
  *   requirements, applicable AD tasks not complied with, then other parts
- *   requests (manual work items, job cards, movements) once per source.
- * @throws What the status functions throw (see {@link dueItems}) for an
- *   inspection or requirement with parts whose status cannot be computed.
+ *   requests (manual work items, job cards, movements) once per source. An
+ *   inspection or requirement whose status cannot be computed is left out.
  */
 export function maintenancePartsPlans(s: Snapshot): PartsPlan[] {
   const due = dueItems(s);
@@ -96,9 +95,12 @@ export function requestedParts(
     .filter((p) => p.quantity > 0);
 }
 
+// As in the alerts, an inspection or requirement whose status cannot be
+// computed is skipped: the plans have no place to show it for review, and
+// one such item must not hide the rest.
 function planInspections(s: Snapshot, due: MaintenanceDue[]): PartsPlan[] {
   return due.flatMap((item) => {
-    if (item.kind !== "inspection") return [];
+    if (item.kind !== "inspection" || !item.due) return [];
     const i = item.inspection;
     const parts =
       requestedParts(s, recordSource("inspection", i.uuid)) ?? i.requiredParts;
@@ -138,7 +140,8 @@ function planComponentRequirements(
   due: MaintenanceDue[],
 ): PartsPlan[] {
   return due.flatMap((item) => {
-    if (item.kind !== "componentRequirement" || !item.aircraft) return [];
+    if (item.kind !== "componentRequirement" || !item.aircraft || !item.due)
+      return [];
     const { requirement: r, component: c } = item;
     const parts =
       requestedParts(s, recordSource("componentRequirement", r.uuid)) ??
@@ -187,10 +190,7 @@ function isPlanned(ad: AD) {
   );
 }
 
-// Unlike the alerts, which skip it, an uncomputable status fails the whole
-// list (characterized in the tests; T13 decides which is right).
 function isUpcoming(item: InspectionDue | RequirementDue) {
-  if (!item.due) throw item.error;
   return item.level === "overdue" || item.level === "due-soon";
 }
 

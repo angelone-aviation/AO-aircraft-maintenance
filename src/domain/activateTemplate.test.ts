@@ -153,6 +153,26 @@ it("creates component requirements preserving day units and TSO limits", () => {
     componentUuid: c.uuid,
   });
 });
+it("refuses a component schedule once the template scheduled that aircraft (characterizes current behaviour)", () => {
+  const { s, t, input } = fixture();
+  activateTemplate(s, input);
+  const c = pump(t.programUuid, input.targetUuid);
+  s.management = [...(s.management ?? []), c];
+  s.inspectionTemplates = [
+    {
+      ...t,
+      applicability: {
+        kind: "component",
+        model: "P100",
+        manufacturer: "Acme",
+        partNumber: "P1",
+      },
+    },
+  ];
+  expect(() => activateTemplate(s, { ...input, targetUuid: c.uuid })).toThrow(
+    "This template schedule already exists for the selected target.",
+  );
+});
 it("gives template requirements a warning window and their limit modes", () => {
   const { s, t, input } = fixture();
   const c = pump(t.programUuid, input.targetUuid);

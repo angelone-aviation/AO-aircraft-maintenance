@@ -4,8 +4,9 @@
  * Layer: UI. React component; new flights queue in the offline outbox and
  *   reviews save online.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (model, flights, flightPlans, aircraftStatus), ./FlightFluids,
- *   ./FlightParts, ./AircraftStatus, ./design, ./ui.
+ *   (model, flights, flightPlans, flightReview, flightSession,
+ *   aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
+ *   ./design, ./ui.
  */
 import { useId, useState } from "react";
 import {
@@ -17,10 +18,24 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import type { FlightPlan } from "../domain/flightPlans";
-import { flightEnginePositions, meterAtFlight } from "../domain/flights";
+import {
+  flightEnginePositions,
+  flightOptionalEntries,
+  meterAtFlight,
+} from "../domain/flights";
+import {
+  REVIEW_REASON_MAX_LENGTH,
+  REVIEW_REASON_MIN_LENGTH,
+} from "../domain/flightReview";
+import { plannedFlightRules } from "../domain/flightSession";
 import {
   can,
+  FLIGHT_COUNT_MAX,
+  FLIGHT_PLACE_MAX_LENGTH,
   flightInputSchema,
+  isAvailablePilot,
+  logsEngineStartsAsCycles,
+  NOTE_MAX_LENGTH,
   parseHours,
   type Flight,
   type FlightInput,
@@ -40,18 +55,8 @@ import { AsyncForm, value } from "./ui";
 
 const MINUTE_MS = 60_000;
 const HOUR_SECONDS = 3600;
-// flightInputSchema's limits (src/domain/model.ts).
-const PLACE_MAX_LENGTH = 100;
-const NOTE_MAX_LENGTH = 5000;
-const FLIGHT_COUNT_MAX = 1000;
-/** The server refuses a shorter review explanation. */
-const REVIEW_REASON_MIN_LENGTH = 5;
 const OPERATIONS = flightInputSchema.shape.operation.options;
 const FLIGHT_RULES = flightInputSchema.shape.flightRules.options;
-/** ICAO flight-plan rules that depart IFR: I (IFR) and Y (IFR, then VFR). */
-const IFR_PLAN_RULES = ["I", "Y"];
-/** The model whose turbine cycles are logged as engine starts. */
-const ENGINE_START_CYCLES_MODEL = "R66";
 const METER_INPUTS = ["hobbs", "tach", "cyclic", "flightTimeLog"] as const;
 /** The FlightInput field each ending meter reading fills. */
 const METER_FIELDS = {
@@ -228,24 +233,18 @@ function flightView(props: FlightFormProps, s: Snapshot, d: Draft) {
   const gated = !initial && !!aircraft;
   const typed =
     d.typedEnds?.aircraftUuid === d.selected ? d.typedEnds.ends : undefined;
+  const shown = flightOptionalEntries(aircraft ?? {}, requiredMeter, defaults);
   return {
     aircraft,
     requiredMeter,
     starts: startingReadings(initial, opening),
     ends: typed ?? defaultEnds(defaults),
-    showCyclic:
-      aircraft?.helicopter ||
-      requiredMeter === "cyclic" ||
-      defaults?.cyclicHobbsOn !== undefined,
-    showFlightTimeLog:
-      aircraft?.flightTimeLog ||
-      requiredMeter === "flightTimeLog" ||
-      defaults?.flightTimeLogOn !== undefined,
+    showCyclic: shown.cyclic,
+    showFlightTimeLog: shown.flightTimeLog,
     readingsChanged:
       !initial && aircraft && opening && aircraft.version !== opening.version,
     engines: aircraft ? flightEnginePositions(aircraft, defaults) : [],
-    showLandingSurface:
-      !!aircraft?.amphibious || defaults?.landingSurface != null,
+    showLandingSurface: shown.landingSurface,
     gated,
     grounded: gated && aircraftStatus(s, aircraft.uuid).level === "grounded",
   };
@@ -511,7 +510,7 @@ function RouteSection({ m, rulesId }: { m: Model; rulesId: string }) {
             <input
               name={place}
               defaultValue={defaults?.[place] ?? props.plan?.[place]}
-              maxLength={PLACE_MAX_LENGTH}
+              maxLength={FLIGHT_PLACE_MAX_LENGTH}
               placeholder="Code or location; optional"
             />
           </FlightField>
@@ -678,7 +677,7 @@ function ReviewSection({ m }: { m: Model }) {
           <textarea
             name="reason"
             minLength={REVIEW_REASON_MIN_LENGTH}
-            maxLength={NOTE_MAX_LENGTH}
+            maxLength={REVIEW_REASON_MAX_LENGTH}
             required
             rows={3}
           />
@@ -879,7 +878,7 @@ function stripLabel(meter: MeterInput, helicopter: boolean | undefined) {
 
 function memberOptions(s: Snapshot, keep: string | undefined) {
   return s.members
-    .filter((m) => (m.active && m.availableAsPilot !== false) || m.id === keep)
+    .filter((m) => isAvailablePilot(m) || m.id === keep)
     .map((m) => (
       <option key={m.id} value={m.id}>
         {m.name}
@@ -889,14 +888,11 @@ function memberOptions(s: Snapshot, keep: string | undefined) {
 
 function rulesDefault(saved: string | undefined, plan: FlightPlan | undefined) {
   if (saved !== undefined) return saved;
-  if (!plan) return "VFR";
-  return IFR_PLAN_RULES.includes(plan.flightRules) ? "IFR" : "VFR";
+  return plan ? plannedFlightRules(plan) : "VFR";
 }
 
 function cyclesLabel(model: string) {
-  return model.trim().toUpperCase() === ENGINE_START_CYCLES_MODEL
-    ? "Engine start cycles"
-    : "Cycles";
+  return logsEngineStartsAsCycles(model) ? "Engine start cycles" : "Cycles";
 }
 
 function submitLabel(phase: "all" | "preflight" | "end", review: boolean) {
