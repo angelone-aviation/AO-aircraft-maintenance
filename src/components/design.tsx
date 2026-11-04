@@ -707,7 +707,6 @@ function DialogInner({
   // The scrim click is a pointer convenience; Escape (onCancel) and the
   // close button are the keyboard paths.
   return (
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
     <dialog
       ref={ref}
       className={cx("ds-dialog", size !== "default" && size, props.className)}
