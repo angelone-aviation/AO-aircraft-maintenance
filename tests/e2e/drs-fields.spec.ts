@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins the aircraft make and model fields: DRS suggestions,
+ *   custom values kept on the profile, and the FAA search model override that
+ *   prefills, and resets, the AD search.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 
 test("searches DRS suggestions, saves custom profile values and uses the FAA model override", async ({
@@ -38,23 +45,16 @@ test("searches DRS suggestions, saves custom profile values and uses the FAA mod
   await page.goto("/airworthiness");
   await page.getByLabel("Aircraft", { exact: true }).selectOption("demo-206");
   await page.getByRole("button", { name: "Search FAA ADs & Import" }).click();
-  await expect(dialog.getByLabel("N206MA model", { exact: true })).toHaveValue(
-    "441",
-  );
+  const searchModel = dialog.getByLabel("N206MA model", { exact: true });
+  await expect(searchModel).toHaveValue("441");
   await expect(
     dialog.getByLabel("N206MA manufacturer", { exact: true }),
   ).toHaveValue("Custom Air Works");
-  await dialog
-    .getByLabel("N206MA model", { exact: true })
-    .fill("Unlisted Model 123");
+  await searchModel.fill("Unlisted Model 123");
   await dialog
     .getByRole("option", { name: /Use “Unlisted Model 123”/ })
     .click();
-  await expect(dialog.getByLabel("N206MA model", { exact: true })).toHaveValue(
-    "Unlisted Model 123",
-  );
+  await expect(searchModel).toHaveValue("Unlisted Model 123");
   await dialog.getByRole("button", { name: "Reset from profiles" }).click();
-  await expect(dialog.getByLabel("N206MA model", { exact: true })).toHaveValue(
-    "441",
-  );
+  await expect(searchModel).toHaveValue("441");
 });

@@ -1,0 +1,904 @@
+/**
+ * Responsibility: Pins the Convex adapter: the server function each Backend
+ *   method calls, as a query, mutation or action, and the arguments it sends.
+ * Layer: Test. Vitest suite over a recording fake client; never shipped.
+ * Dependencies: src/data/backend.ts, src/data/store.ts, src/data/demo.ts,
+ *   convex/react, convex/server.
+ */
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ConvexReactClient } from "convex/react";
+import { getFunctionName, type FunctionReference } from "convex/server";
+import { convexBackend, type Backend } from "./backend";
+import { useWorkspace } from "./store";
+import { demoSnapshot } from "./demo";
+
+type CallKind = "query" | "mutation" | "action";
+
+interface RecordedCall {
+  kind: CallKind;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+interface Case {
+  method: keyof Backend;
+  call: (backend: Backend) => Promise<unknown>;
+  kind: CallKind;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+const ACTIVE_PROGRAM = "program-active";
+const OTHER_PROGRAM = "program-other";
+const REPLY = { from: "server" };
+const FILE_TEXT = "file-bytes";
+// SHA-256 of FILE_TEXT, base64 (`openssl dgst -sha256 -binary | base64`).
+const FILE_SHA256 = "EwFaPPAsBdr776s7MxNQ2zSOcOhvTkPnPzJUc5V/Clw=";
+const UPLOAD_URL = "https://upload.example/manual";
+
+// The adapter only serializes commands, so one opaque value stands in for
+// every command type.
+const COMMAND = { kind: "test-command" };
+const PAYLOAD = JSON.stringify(COMMAND);
+const opaque = <T>(): T => COMMAND as unknown as T;
+
+const file = () =>
+  new File([FILE_TEXT], "evidence.pdf", { type: "application/pdf" });
+const fileArgs = () => ({
+  name: "evidence.pdf",
+  type: "application/pdf",
+  bytes: FILE_TEXT,
+});
+const command = () => ({ payload: PAYLOAD, programUuid: ACTIVE_PROGRAM });
+
+const SPRUCE_LOGIN = {
+  programUuid: OTHER_PROGRAM,
+  version: 3,
+  userid: "user",
+  password: "secret",
+  apikey: "key",
+  currency: "USD",
+};
+const PAGE_REQUEST = { entityUuid: "record-1", cursor: null, numItems: 25 };
+const TRANSFER = {
+  kind: "aircraft" as const,
+  uuid: "aircraft-1",
+  destination: OTHER_PROGRAM,
+  reason: "Moved base",
+};
+
+beforeEach(() => {
+  useWorkspace.setState({
+    snapshot: { ...demoSnapshot(), activeProgramUuid: ACTIVE_PROGRAM },
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useWorkspace.setState({ snapshot: null });
+});
+
+const CASES: Case[] = [
+  {
+    method: "addressChoices",
+    call: (b) => b.addressChoices(OTHER_PROGRAM),
+    kind: "query",
+    name: "savedAddresses:list",
+    args: { programUuid: OTHER_PROGRAM },
+  },
+  {
+    method: "saveAddress",
+    call: (b) => b.saveAddress(OTHER_PROGRAM, opaque()),
+    kind: "mutation",
+    name: "savedAddresses:save",
+    args: { programUuid: OTHER_PROGRAM, payload: PAYLOAD },
+  },
+  {
+    method: "spruceStatus",
+    call: (b) => b.spruceStatus(OTHER_PROGRAM),
+    kind: "query",
+    name: "aircraftSpruce:status",
+    args: { programUuid: OTHER_PROGRAM },
+  },
+  {
+    method: "spruceLink",
+    call: (b) => b.spruceLink(SPRUCE_LOGIN),
+    kind: "action",
+    name: "aircraftSpruceActions:link",
+    args: SPRUCE_LOGIN,
+  },
+  {
+    method: "spruceDisconnect",
+    call: (b) => b.spruceDisconnect(OTHER_PROGRAM, 3),
+    kind: "mutation",
+    name: "aircraftSpruce:disconnect",
+    args: { programUuid: OTHER_PROGRAM, version: 3 },
+  },
+  {
+    method: "spruceRefresh",
+    call: (b) => b.spruceRefresh(OTHER_PROGRAM),
+    kind: "action",
+    name: "aircraftSpruceActions:refresh",
+    args: { programUuid: OTHER_PROGRAM },
+  },
+  {
+    method: "spruceSearch",
+    call: (b) => b.spruceSearch(OTHER_PROGRAM, "filter"),
+    kind: "action",
+    name: "aircraftSpruceActions:search",
+    args: { programUuid: OTHER_PROGRAM, search: "filter" },
+  },
+  {
+    method: "spruceOrders",
+    call: (b) => b.spruceOrders(OTHER_PROGRAM, "po-1"),
+    kind: "query",
+    name: "aircraftSpruce:orders",
+    args: { programUuid: OTHER_PROGRAM, poUuid: "po-1" },
+  },
+  {
+    method: "spruceSync",
+    call: (b) => b.spruceSync(OTHER_PROGRAM, "po-1", "order-7"),
+    kind: "action",
+    name: "aircraftSpruceActions:sync",
+    args: { programUuid: OTHER_PROGRAM, poUuid: "po-1", order: "order-7" },
+  },
+  {
+    method: "addressSettings",
+    call: (b) => b.addressSettings(),
+    kind: "query",
+    name: "addressVerification:status",
+    args: {},
+  },
+  {
+    method: "setAddressKey",
+    call: (b) => b.setAddressKey({ key: "key", version: 2 }),
+    kind: "action",
+    name: "addressVerification:setKey",
+    args: { key: "key", version: 2 },
+  },
+  {
+    method: "lookupAddress",
+    call: (b) => b.lookupAddress(opaque()),
+    kind: "action",
+    name: "addressVerification:lookup",
+    args: command(),
+  },
+  {
+    method: "latestOffsiteCopy",
+    call: (b) => b.latestOffsiteCopy(),
+    kind: "query",
+    name: "backups:latestOffsiteCopy",
+    args: {},
+  },
+  {
+    method: "partsRequest",
+    call: (b) => b.partsRequest(opaque()),
+    kind: "mutation",
+    name: "partsRequests:execute",
+    args: command(),
+  },
+  {
+    method: "purchaseOrder",
+    call: (b) => b.purchaseOrder(opaque()),
+    kind: "mutation",
+    name: "purchaseOrders:execute",
+    args: command(),
+  },
+  {
+    method: "costs",
+    call: (b) => b.costs(opaque()),
+    kind: "mutation",
+    name: "costs:execute",
+    args: command(),
+  },
+  {
+    method: "poFiles",
+    call: (b) => b.poFiles("po-1"),
+    kind: "query",
+    name: "purchaseOrders:files",
+    args: { poUuid: "po-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "attachPOFile",
+    call: (b) => b.attachPOFile("po-1", "receipt-1", file()),
+    kind: "action",
+    name: "poFiles:upload",
+    args: {
+      poUuid: "po-1",
+      receiptUuid: "receipt-1",
+      programUuid: ACTIVE_PROGRAM,
+      ...fileArgs(),
+    },
+  },
+  {
+    method: "removePOFile",
+    call: (b) => b.removePOFile("file-1"),
+    kind: "mutation",
+    name: "poFiles:remove",
+    args: { id: "file-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "attachInventoryFile",
+    call: (b) => b.attachInventoryFile("stock-1", file()),
+    kind: "action",
+    name: "inventoryFiles:upload",
+    args: { stockUuid: "stock-1", ...fileArgs(), programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "removeInventoryFile",
+    call: (b) => b.removeInventoryFile("file-1"),
+    kind: "mutation",
+    name: "inventoryFiles:remove",
+    args: { id: "file-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "searchFAA",
+    call: (b) => b.searchFAA(opaque()),
+    kind: "action",
+    name: "faaSearch:search",
+    args: command(),
+  },
+  {
+    method: "updateFaaKey",
+    call: (b) => b.updateFaaKey(opaque()),
+    kind: "action",
+    name: "faaCredentials:replace",
+    args: COMMAND,
+  },
+  {
+    method: "faaCommand",
+    call: (b) => b.faaCommand(opaque()),
+    kind: "mutation",
+    name: "faa:command",
+    args: command(),
+  },
+  {
+    method: "saveAD",
+    call: (b) => b.saveAD(opaque()),
+    kind: "mutation",
+    name: "airworthiness:save",
+    args: command(),
+  },
+  {
+    method: "saveChecklist",
+    call: (b) => b.saveChecklist(opaque()),
+    kind: "mutation",
+    name: "checklists:save",
+    args: command(),
+  },
+  {
+    method: "importTaskCsv",
+    call: (b) => b.importTaskCsv(opaque()),
+    kind: "mutation",
+    name: "taskImports:save",
+    args: command(),
+  },
+  {
+    method: "deleteInspectionTemplates",
+    call: (b) => b.deleteInspectionTemplates(opaque()),
+    kind: "mutation",
+    name: "inspectionTemplates:remove",
+    args: command(),
+  },
+  {
+    method: "activateTemplate",
+    call: (b) => b.activateTemplate(opaque()),
+    kind: "mutation",
+    name: "inspectionTemplates:activate",
+    args: command(),
+  },
+  {
+    method: "saveInspectionTemplates",
+    call: (b) => b.saveInspectionTemplates(opaque()),
+    kind: "mutation",
+    name: "inspectionTemplates:save",
+    args: command(),
+  },
+  {
+    method: "saveComponentTemplate",
+    call: (b) => b.saveComponentTemplate(opaque()),
+    kind: "mutation",
+    name: "componentTemplates:save",
+    args: command(),
+  },
+  {
+    method: "applyComponentTemplate",
+    call: (b) => b.applyComponentTemplate(opaque()),
+    kind: "mutation",
+    name: "componentTemplates:apply",
+    args: command(),
+  },
+  {
+    method: "editManual",
+    call: (b) => b.editManual("manual-1", opaque()),
+    kind: "mutation",
+    name: "manuals:edit",
+    args: { uuid: "manual-1", ...command() },
+  },
+  {
+    method: "renameManual",
+    call: (b) => b.renameManual("manual-1", "Pilot handbook"),
+    kind: "mutation",
+    name: "manuals:rename",
+    args: {
+      uuid: "manual-1",
+      title: "Pilot handbook",
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
+    method: "setManualApplicability",
+    call: (b) => b.setManualApplicability("manual-1", opaque()),
+    kind: "mutation",
+    name: "manuals:setApplicability",
+    args: { uuid: "manual-1", ...command() },
+  },
+  {
+    method: "openManual",
+    call: (b) => b.openManual("manual-1"),
+    kind: "query",
+    name: "manuals:open",
+    args: { uuid: "manual-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "taskCard",
+    call: (b) => b.taskCard(opaque()),
+    kind: "mutation",
+    name: "taskCards:save",
+    args: command(),
+  },
+  {
+    method: "attachTaskEvidence",
+    call: (b) => b.attachTaskEvidence("task-1", "photo", file()),
+    kind: "action",
+    name: "taskCards:upload",
+    args: {
+      taskCardUuid: "task-1",
+      category: "photo",
+      ...fileArgs(),
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
+    method: "removeTaskEvidence",
+    call: (b) => b.removeTaskEvidence("evidence-1"),
+    kind: "mutation",
+    name: "taskCards:removeEvidence",
+    args: { id: "evidence-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "workOrder",
+    call: (b) => b.workOrder(opaque()),
+    kind: "mutation",
+    name: "workOrders:save",
+    args: command(),
+  },
+  {
+    method: "resumeWorkOrderTemplates",
+    call: (b) => b.resumeWorkOrderTemplates("order-1"),
+    kind: "mutation",
+    name: "workOrderCopies:resume",
+    args: { workOrderUuid: "order-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "attachWorkOrderFile",
+    call: (b) => b.attachWorkOrderFile("order-1", file()),
+    kind: "action",
+    name: "workOrders:upload",
+    args: {
+      workOrderUuid: "order-1",
+      ...fileArgs(),
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
+    method: "removeWorkOrderFile",
+    call: (b) => b.removeWorkOrderFile("file-1"),
+    kind: "mutation",
+    name: "workOrders:removeFile",
+    args: { id: "file-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "submit",
+    call: (b) => b.submit(opaque()),
+    kind: "mutation",
+    name: "operations:submit",
+    args: { operation: COMMAND },
+  },
+  {
+    method: "resolve",
+    call: (b) => b.resolve("report-1", "Replaced the fuse."),
+    kind: "mutation",
+    name: "operations:resolveDiscrepancy",
+    args: {
+      uuid: "report-1",
+      resolution: "Replaced the fuse.",
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
+    method: "deferDiscrepancy",
+    call: (b) => b.deferDiscrepancy(opaque()),
+    kind: "mutation",
+    name: "operations:deferDiscrepancy",
+    args: command(),
+  },
+  {
+    method: "saveDiscrepancyParts",
+    call: (b) => b.saveDiscrepancyParts("report-1", 4, opaque()),
+    kind: "mutation",
+    name: "operations:saveDiscrepancyParts",
+    args: { uuid: "report-1", version: 4, ...command() },
+  },
+  {
+    method: "review",
+    call: (b) => b.review("flight-1", "accept", "Checked", opaque()),
+    kind: "mutation",
+    name: "operations:reviewFlight",
+    args: {
+      uuid: "flight-1",
+      programUuid: ACTIVE_PROGRAM,
+      decision: "accept",
+      reason: "Checked",
+      input: COMMAND,
+    },
+  },
+  {
+    method: "savePlan",
+    call: (b) => b.savePlan(opaque()),
+    kind: "mutation",
+    name: "flightPlans:save",
+    args: command(),
+  },
+  {
+    method: "engineTrends",
+    call: (b) => b.engineTrends("aircraft-1"),
+    kind: "query",
+    name: "engineTrends:list",
+    args: { aircraftUuid: "aircraft-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "engineTrend",
+    call: (b) => b.engineTrend("aircraft-1", opaque()),
+    kind: "mutation",
+    name: "engineTrends:execute",
+    args: { aircraftUuid: "aircraft-1", ...command() },
+  },
+  {
+    method: "fleet",
+    call: (b) => b.fleet(opaque()),
+    kind: "mutation",
+    name: "fleet:save",
+    args: command(),
+  },
+  {
+    method: "manage",
+    call: (b) => b.manage(opaque()),
+    kind: "mutation",
+    name: "management:execute",
+    args: command(),
+  },
+  {
+    method: "createAircraft",
+    call: (b) => b.createAircraft(opaque()),
+    kind: "mutation",
+    name: "admin:createAircraft",
+    args: { aircraft: COMMAND, programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "uploadAircraftPhoto",
+    call: (b) => b.uploadAircraftPhoto("aircraft-1", file()),
+    kind: "action",
+    name: "aircraftPhotos:upload",
+    args: {
+      aircraftUuid: "aircraft-1",
+      programUuid: ACTIVE_PROGRAM,
+      type: "application/pdf",
+      bytes: FILE_TEXT,
+    },
+  },
+  {
+    method: "removeAircraftPhoto",
+    call: (b) => b.removeAircraftPhoto("aircraft-1"),
+    kind: "mutation",
+    name: "aircraftPhotos:remove",
+    args: { aircraftUuid: "aircraft-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "uploadAircraftFile",
+    call: (b) => b.uploadAircraftFile("aircraft-1", "form-337", file()),
+    kind: "action",
+    name: "aircraftFiles:upload",
+    args: {
+      aircraftUuid: "aircraft-1",
+      category: "form-337",
+      ...fileArgs(),
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
+    method: "archiveAircraftFile",
+    call: (b) => b.archiveAircraftFile("file-1", "Superseded"),
+    kind: "mutation",
+    name: "aircraftFiles:archive",
+    args: { id: "file-1", reason: "Superseded", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "selectProgram",
+    call: (b) => b.selectProgram(OTHER_PROGRAM),
+    kind: "mutation",
+    name: "programs:select",
+    args: { programUuid: OTHER_PROGRAM },
+  },
+  {
+    method: "transferProgram",
+    call: (b) => b.transferProgram(TRANSFER),
+    kind: "mutation",
+    name: "programs:transfer",
+    args: { ...TRANSFER, programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "updateProgramAccess",
+    call: (b) =>
+      b.updateProgramAccess("user-1", OTHER_PROGRAM, ["group-1"], true),
+    kind: "mutation",
+    name: "programUsers:updateAccess",
+    args: {
+      userId: "user-1",
+      programUuid: OTHER_PROGRAM,
+      groupIds: ["group-1"],
+      remove: true,
+    },
+  },
+  {
+    method: "addExistingProgramUser",
+    call: (b) =>
+      b.addExistingProgramUser("a@example.com", OTHER_PROGRAM, ["group-1"]),
+    kind: "mutation",
+    name: "programUsers:addExisting",
+    args: {
+      email: "a@example.com",
+      programUuid: OTHER_PROGRAM,
+      groupIds: ["group-1"],
+    },
+  },
+  {
+    method: "createProgramUser",
+    call: (b) =>
+      b.createProgramUser("a@example.com", "Ann", "pw", OTHER_PROGRAM, []),
+    kind: "action",
+    name: "programUsers:create",
+    args: {
+      email: "a@example.com",
+      name: "Ann",
+      password: "pw",
+      programUuid: OTHER_PROGRAM,
+      groupIds: [],
+    },
+  },
+  {
+    method: "createUser",
+    call: (b) => b.createUser("a@example.com", "Ann", "pw"),
+    kind: "action",
+    name: "admin:createUser",
+    args: { email: "a@example.com", name: "Ann", password: "pw" },
+  },
+  {
+    method: "resetPassword",
+    call: (b) => b.resetPassword("user-1", "pw"),
+    kind: "action",
+    name: "admin:resetPassword",
+    args: { id: "user-1", password: "pw" },
+  },
+  {
+    method: "linkedIdentities",
+    call: (b) => b.linkedIdentities("user-1"),
+    kind: "query",
+    name: "identities:forUser",
+    args: { userId: "user-1" },
+  },
+  {
+    method: "linkedIdentities",
+    call: (b) => b.linkedIdentities(),
+    kind: "query",
+    name: "identities:mine",
+    args: {},
+  },
+  {
+    method: "linkedIdentities",
+    call: (b) => b.linkedIdentities(""),
+    kind: "query",
+    name: "identities:mine",
+    args: {},
+  },
+  {
+    method: "removeIdentity",
+    call: (b) => b.removeIdentity("user-1", "account-1"),
+    kind: "mutation",
+    name: "identities:remove",
+    args: { userId: "user-1", id: "account-1" },
+  },
+  {
+    method: "saveReleaseStatements",
+    call: (b) => b.saveReleaseStatements([{ label: "RTS", text: "Returned" }]),
+    kind: "mutation",
+    name: "admin:saveReleaseStatements",
+    args: { statements: [{ label: "RTS", text: "Returned" }] },
+  },
+  {
+    method: "saveLogbookPhrases",
+    call: (b) => b.saveLogbookPhrases(["Performed"]),
+    kind: "mutation",
+    name: "admin:saveLogbookPhrases",
+    args: { phrases: ["Performed"] },
+  },
+  {
+    method: "saveLicense",
+    call: (b) => b.saveLicense("1234567", "Mechanic"),
+    kind: "mutation",
+    name: "admin:saveLicense",
+    args: { licenseNumber: "1234567", certificateType: "Mechanic" },
+  },
+  {
+    method: "saveCertifications",
+    call: (b) => b.saveCertifications("user-1", opaque()),
+    kind: "mutation",
+    name: "certifications:save",
+    args: { userId: "user-1", payload: PAYLOAD },
+  },
+  {
+    method: "certificationFiles",
+    call: (b) => b.certificationFiles("user-1"),
+    kind: "query",
+    name: "certifications:list",
+    args: { userId: "user-1" },
+  },
+  {
+    method: "uploadCertification",
+    call: (b) => b.uploadCertification("user-1", "mechanic", file()),
+    kind: "action",
+    name: "certifications:upload",
+    args: { userId: "user-1", kind: "mechanic", ...fileArgs() },
+  },
+  {
+    method: "certificationFileUrl",
+    call: (b) => b.certificationFileUrl("copy-1"),
+    kind: "query",
+    name: "certifications:fileUrl",
+    args: { id: "copy-1" },
+  },
+  {
+    method: "deleteCertificationFile",
+    call: (b) => b.deleteCertificationFile("copy-1"),
+    kind: "mutation",
+    name: "certifications:remove",
+    args: { id: "copy-1" },
+  },
+  {
+    method: "updateUser",
+    call: (b) =>
+      b.updateUser({
+        id: "user-1",
+        name: "Ann",
+        email: "a@example.com",
+        active: false,
+        isAdmin: true,
+        groupIds: ["group-1"],
+      }),
+    kind: "mutation",
+    name: "admin:updateUser",
+    args: {
+      id: "user-1",
+      name: "Ann",
+      certificationsPayload: undefined,
+      active: false,
+      isAdmin: true,
+      groupIds: ["group-1"],
+    },
+  },
+  {
+    method: "updateUser",
+    call: (b) =>
+      b.updateUser({
+        id: "user-1",
+        name: "Ann",
+        email: "a@example.com",
+        active: true,
+        isAdmin: false,
+        groupIds: [],
+        certifications: [],
+      }),
+    kind: "mutation",
+    name: "admin:updateUser",
+    args: {
+      id: "user-1",
+      name: "Ann",
+      certificationsPayload: "[]",
+      active: true,
+      isAdmin: false,
+      groupIds: [],
+    },
+  },
+  {
+    method: "groupAccessReview",
+    call: (b) => b.groupAccessReview(),
+    kind: "query",
+    name: "groupAudit:groupsToReview",
+    args: {},
+  },
+  {
+    method: "previewGroupDeletion",
+    call: (b) => b.previewGroupDeletion("group-1"),
+    kind: "query",
+    name: "groupDeletion:preview",
+    args: { id: "group-1", programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "deleteGroup",
+    call: (b) => b.deleteGroup("group-1", "plan-1"),
+    kind: "mutation",
+    name: "groupDeletion:remove",
+    args: { id: "group-1", programUuid: ACTIVE_PROGRAM, expected: "plan-1" },
+  },
+  {
+    method: "saveGroup",
+    call: (b) =>
+      b.saveGroup({
+        id: "group-1",
+        name: "Pilots",
+        aircraftIds: [],
+        allAircraft: true,
+        permissions: ["read"],
+      }),
+    kind: "mutation",
+    name: "admin:saveGroup",
+    args: {
+      id: "group-1",
+      name: "Pilots",
+      aircraftIds: [],
+      allAircraft: true,
+      permissions: ["read"],
+    },
+  },
+  {
+    method: "saveGroup",
+    call: (b) =>
+      b.saveGroup({ name: "Pilots", aircraftIds: [], permissions: [] }),
+    kind: "mutation",
+    name: "admin:saveGroup",
+    args: { id: undefined, name: "Pilots", aircraftIds: [], permissions: [] },
+  },
+  {
+    method: "auditPage",
+    call: (b) => b.auditPage(PAGE_REQUEST),
+    kind: "query",
+    name: "auditHistory:page",
+    args: { ...PAGE_REQUEST, programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "alertReads",
+    call: (b) => b.alertReads(OTHER_PROGRAM),
+    kind: "query",
+    name: "alerts:readKeys",
+    args: { programUuid: OTHER_PROGRAM },
+  },
+  {
+    method: "markAlertsRead",
+    call: (b) => b.markAlertsRead(undefined, ["alert-1"], true),
+    kind: "mutation",
+    name: "alerts:markRead",
+    args: { programUuid: undefined, keys: ["alert-1"], all: true },
+  },
+  {
+    method: "setAlertEmails",
+    call: (b) => b.setAlertEmails(false),
+    kind: "mutation",
+    name: "alerts:setEmailPreference",
+    args: { enabled: false },
+  },
+];
+
+it.each(CASES)(
+  "$method calls the $kind $name with its arguments",
+  async ({ call, kind, name, args }) => {
+    const { backend, calls } = recordingBackend();
+    await expect(call(backend)).resolves.toBe(REPLY);
+    expect(calls).toEqual([{ kind, name, args }]);
+  },
+);
+
+it("covers every adapter method", () => {
+  const covered = new Set<string>(CASES.map((c) => c.method));
+  covered.add("uploadManual");
+  const methods = Object.keys(recordingBackend().backend).sort();
+  expect(methods).toEqual([...covered].sort());
+});
+
+it("reads the active Flight Program when each method is called", async () => {
+  const { backend, calls } = recordingBackend();
+  useWorkspace.setState({ snapshot: null });
+  await backend.workOrder(opaque());
+  useWorkspace.setState({
+    snapshot: { ...demoSnapshot(), activeProgramUuid: OTHER_PROGRAM },
+  });
+  await backend.workOrder(opaque());
+  expect(calls.map((c) => c.args.programUuid)).toEqual([
+    undefined,
+    OTHER_PROGRAM,
+  ]);
+});
+
+it("uploadManual posts the PDF and finishes where it began", async () => {
+  const pdf = file();
+  const fetchMock = vi.fn(async () => {
+    useWorkspace.setState({ snapshot: null });
+    return new Response(JSON.stringify({ storageId: "storage-1" }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const { backend, calls } = recordingBackend({
+    "manuals:beginUpload": { ticket: "ticket-1", url: UPLOAD_URL },
+  });
+  await expect(backend.uploadManual(opaque(), pdf)).resolves.toBe(REPLY);
+  expect(fetchMock).toHaveBeenCalledWith(UPLOAD_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/pdf" },
+    body: pdf,
+  });
+  expect(calls).toEqual([
+    {
+      kind: "mutation",
+      name: "manuals:beginUpload",
+      args: { ...command(), sha256: FILE_SHA256 },
+    },
+    {
+      kind: "action",
+      name: "manuals:finishUpload",
+      args: {
+        ticket: "ticket-1",
+        storageId: "storage-1",
+        programUuid: ACTIVE_PROGRAM,
+      },
+    },
+  ]);
+});
+
+it("uploadManual refuses a failed upload before finishing it", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("", { status: 500 })),
+  );
+  const { backend, calls } = recordingBackend({
+    "manuals:beginUpload": { ticket: "ticket-1", url: UPLOAD_URL },
+  });
+  await expect(backend.uploadManual(opaque(), file())).rejects.toThrow(
+    "Manual upload failed. Please try again.",
+  );
+  expect(calls.map((c) => c.name)).toEqual(["manuals:beginUpload"]);
+});
+
+function recordingBackend(replies: Record<string, unknown> = {}) {
+  const calls: RecordedCall[] = [];
+  const record =
+    (kind: CallKind) =>
+    (ref: FunctionReference<CallKind>, args: Record<string, unknown>) => {
+      const name = getFunctionName(ref);
+      calls.push({ kind, name, args: readBytesAsText(args) });
+      return Promise.resolve(name in replies ? replies[name] : REPLY);
+    };
+  const client = {
+    query: record("query"),
+    mutation: record("mutation"),
+    action: record("action"),
+  };
+  // The adapter calls only query, mutation and action on the client.
+  const backend = convexBackend(client as unknown as ConvexReactClient);
+  return { backend, calls };
+}
+
+// Any two ArrayBuffers are equal to toEqual, so uploaded bytes are compared
+// as text.
+function readBytesAsText(args: Record<string, unknown>) {
+  const { bytes } = args;
+  if (!(bytes instanceof ArrayBuffer)) return args;
+  return { ...args, bytes: new TextDecoder().decode(bytes) };
+}

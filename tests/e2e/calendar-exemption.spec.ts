@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins an inspection's calendar exemption: its required
+ *   reason, that it persists with the interval and last date unchanged, and
+ *   its removal.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 
 test("calendar exemption persists and can be removed without changing its interval", async ({
