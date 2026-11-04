@@ -55,15 +55,16 @@ export async function importFmd(
  * @param document - The checklist; validated before it is written.
  * @returns The file, typed application/octet-stream.
  * @throws {z.ZodError} When the checklist fails {@link fmdSchema}.
- * @throws {TypeError} Without Web Crypto (an insecure context): it reads
- *   `crypto.subtle` before the HTTPS check that {@link importFmd} reaches.
+ * @throws {Error} "FMD import/export requires HTTPS or localhost." without
+ *   Web Crypto (an insecure context).
  */
 export async function exportFmd(document: ChecklistDocument) {
   const validated = fmdSchema.parse(document);
+  const key = await importKey("encrypt");
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const data = await crypto.subtle.encrypt(
     { name: "AES-CBC", iv },
-    await importKey("encrypt"),
+    key,
     new TextEncoder().encode(JSON.stringify(validated)),
   );
   return new Blob([iv, data], { type: "application/octet-stream" });

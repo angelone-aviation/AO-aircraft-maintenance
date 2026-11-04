@@ -12,6 +12,7 @@ import { emptyChecklist } from "../domain/checklists";
 
 const SIZE_ERROR =
   "Invalid FMD file size. Choose a ForeFlight .fmd checklist under 2 MB.";
+const HTTPS_ERROR = "FMD import/export requires HTTPS or localhost.";
 const MAX_BYTES = 2 * 1024 * 1024;
 
 afterEach(() => vi.unstubAllGlobals());
@@ -62,9 +63,6 @@ it("asks for HTTPS when Web Crypto is unavailable", async () => {
   vi.stubGlobal("crypto", {
     getRandomValues: (a: Uint8Array) => a,
   });
-  await expect(importFmd(new ArrayBuffer(32))).rejects.toThrow(
-    "FMD import/export requires HTTPS or localhost.",
-  );
-  // Characterizes current behaviour: export reads crypto.subtle first.
-  await expect(exportFmd(checklist)).rejects.toThrow(TypeError);
+  await expect(importFmd(new ArrayBuffer(32))).rejects.toThrow(HTTPS_ERROR);
+  await expect(exportFmd(checklist)).rejects.toThrow(HTTPS_ERROR);
 });
