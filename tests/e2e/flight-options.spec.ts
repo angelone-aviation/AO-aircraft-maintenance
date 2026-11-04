@@ -1,36 +1,15 @@
-import { test, expect, type Page } from "@playwright/test";
+/**
+ * Responsibility: Pins the flight form's aircraft options: the start and
+ *   landing-surface fields each combination shows, their values through
+ *   offline sync and correction, and readings reset on switching aircraft.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, tests/fixtures/localDateTime.
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { localDateTime } from "../fixtures/localDateTime";
-async function configure(page: Page, options: string[]) {
-  await page.goto("/aircraft");
-  await page
-    .getByRole("button", { name: "Edit aircraft", exact: true })
-    .first()
-    .click();
-  const dialog = page.getByRole("dialog");
-  const registration = await dialog
-    .getByLabel("Registration", { exact: true })
-    .inputValue();
-  for (const option of ["Twin", "Turbine", "Amphibious"])
-    await dialog
-      .getByLabel(option, { exact: true })
-      .setChecked(options.includes(option));
-  await dialog
-    .getByRole("button", { name: "Save aircraft", exact: true })
-    .click();
-  await expect(dialog).not.toBeVisible();
-  return registration;
-}
-async function openFlight(page: Page, registration: string) {
-  await page.getByRole("link", { name: "Flight log", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Log a completed flight", exact: true })
-    .click();
-  const dialog = page.getByRole("dialog");
-  const select = dialog.getByLabel("Aircraft", { exact: true });
-  const option = select.locator("option").filter({ hasText: registration });
-  await select.selectOption((await option.getAttribute("value"))!);
-  return dialog;
-}
+
+const HOUR_MS = 60 * 60 * 1000;
+
 test("shows only the fields selected by each aircraft option combination", async ({
   page,
 }) => {
@@ -48,10 +27,10 @@ test("shows only the fields selected by each aircraft option combination", async
     const registration = await configure(page, options);
     const dialog = await openFlight(page, registration);
     await expect(dialog.getByLabel(/Start time \(seconds\)/)).toHaveCount(
-      options.includes("Turbine") ? (options.includes("Twin") ? 2 : 1) : 0,
+      turbineStarts(options),
     );
     await expect(dialog.getByLabel(/Start max EGT/)).toHaveCount(
-      options.includes("Turbine") ? (options.includes("Twin") ? 2 : 1) : 0,
+      turbineStarts(options),
     );
     await expect(
       dialog.getByLabel("Landing surface", { exact: true }),
@@ -72,7 +51,7 @@ test("preserves both turbine starts and sea/land landings through offline sync, 
   let dialog = await openFlight(page, registration);
   await dialog
     .getByLabel("Flight date & time")
-    .fill(localDateTime(Date.now() - 3600000));
+    .fill(localDateTime(Date.now() - HOUR_MS));
   const starting = Number(
     await dialog.getByLabel("Starting Hobbs (hours)").inputValue(),
   );
@@ -144,19 +123,13 @@ test("resets the ending readings typed for one aircraft when the pilot switches 
   const dialog = await openFlight(page, "N206MA");
   await dialog
     .getByLabel("Flight date & time")
-    .fill(localDateTime(Date.now() - 3600000));
+    .fill(localDateTime(Date.now() - HOUR_MS));
   await dialog.getByLabel("Ending Hobbs *", { exact: true }).fill("2342.2");
   await dialog.getByLabel("Ending tach", { exact: true }).fill("2262.0");
   await dialog.getByLabel("Origin", { exact: true }).fill("SWITCHED");
   const strip = dialog.locator(".flight-delta strong");
   await expect(strip).toHaveText("1.0 h");
-  const select = dialog.getByLabel("Aircraft", { exact: true });
-  await select.selectOption(
-    (await select
-      .locator("option")
-      .filter({ hasText: "N182MA" })
-      .getAttribute("value"))!,
-  );
+  await selectAircraft(dialog, "N182MA");
   await expect(dialog.getByLabel("Starting Hobbs (hours)")).toHaveValue(
     "1650.4",
   );
@@ -188,3 +161,48 @@ test("resets the ending readings typed for one aircraft when the pilot switches 
     page.getByRole("row").filter({ hasText: "SWITCHED" }),
   ).toContainText("1,651.4");
 });
+
+/** Sets the first aircraft's options; returns its registration. */
+async function configure(page: Page, options: string[]) {
+  await page.goto("/aircraft");
+  await page
+    .getByRole("button", { name: "Edit aircraft", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog");
+  const registration = await dialog
+    .getByLabel("Registration", { exact: true })
+    .inputValue();
+  for (const option of ["Twin", "Turbine", "Amphibious"])
+    await dialog
+      .getByLabel(option, { exact: true })
+      .setChecked(options.includes(option));
+  await dialog
+    .getByRole("button", { name: "Save aircraft", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  return registration;
+}
+
+/** Opens a new flight in the flight log for the aircraft. */
+async function openFlight(page: Page, registration: string) {
+  await page.getByRole("link", { name: "Flight log", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Log a completed flight", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await selectAircraft(dialog, registration);
+  return dialog;
+}
+
+async function selectAircraft(dialog: Locator, registration: string) {
+  const select = dialog.getByLabel("Aircraft", { exact: true });
+  const option = select.locator("option").filter({ hasText: registration });
+  await select.selectOption((await option.getAttribute("value"))!);
+}
+
+// Start readings are kept per turbine engine; a piston has none.
+function turbineStarts(options: string[]): number {
+  if (!options.includes("Turbine")) return 0;
+  return options.includes("Twin") ? 2 : 1;
+}
