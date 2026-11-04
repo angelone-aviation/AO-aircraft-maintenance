@@ -1,34 +1,31 @@
 /**
- * Local building blocks for the shop screens (work orders, parts requests,
- * purchase orders, vendors, saved addresses, reference library and costs).
+ * Responsibility: Building blocks for the shop screens: a table card, a list
+ *   lead, a filter select and a stat tile.
+ * Layer: UI. Presentational components; no state or data access.
+ * Dependencies: src/components/design.tsx (IconTile, tone and icon types),
+ *   @phosphor-icons/react, src/styles/screens/shop.css.
  *
- * These screens keep semantic <table>s (their rows and cells are what people
- * and the e2e specs navigate by), dressed as the redesign's list / table
- * cards. Candidates for promotion into src/components/design.tsx:
- *
- * <ShopTableCard label? title? actions? stack? className?> bordered card
- *   around a `<table className="shop-table">`, which scrolls sideways inside
- *   the card once narrower than its `--shop-table-min` (default 760px).
- *   `stack` turns rows into stacked cards below 760px (cells carry
- *   `data-label`, `.shop-wide` cells span the card); `title` / `actions`
- *   render a heading row. Add `shop-list-look` to drop the visible header
- *   row and dress the rows as ListCard rows (the header stays for screen
- *   readers).
- * <ShopLead icon tone? title sub?> the ListRow lead (44px duotone tile,
- *   16.5px title, 14px muted sub) for a table's first cell. Neutral rows get
- *   the blue tile, as the README's generic list rows do.
- * <ShopSelect label icon? value onChange> 44px filter select with a leading
- *   icon; `label` is the accessible name (aria-label).
- * <ShopStat label value foot?> a StatsStrip tile with an optional footnote.
+ * These screens keep semantic <table>s, because their rows and cells are what
+ * people and the e2e specs navigate by, dressed as the redesign's list and
+ * table cards. Candidates for promotion into src/components/design.tsx.
  */
 import type { ReactNode } from "react";
 import { CaretDown } from "@phosphor-icons/react";
 import { IconTile, type IconType, type Tone } from "./design";
 import "../styles/screens/shop.css";
 
-const cx = (...c: (string | false | null | undefined)[]) =>
-  c.filter(Boolean).join(" ");
-
+/**
+ * Bordered card around a `table.shop-table`, which scrolls sideways inside
+ * the card below its `--shop-table-min` width (760px unless set). Adding
+ * `shop-list-look` to `className` hides the header row visually (screen
+ * readers keep it) and dresses the rows as list rows.
+ *
+ * @param props.label - Accessible name of the card's `<section>`.
+ * @param props.title - Heading (h2) for a head row; `actions` also shows it.
+ * @param props.stack - Below 760px, lays rows out as cards: cells show their
+ *   `data-label`, and `.shop-wide` cells span the card.
+ * @returns The card section wrapping `children` in the scrolling container.
+ */
 export function ShopTableCard({
   label,
   title,
@@ -46,7 +43,11 @@ export function ShopTableCard({
 }) {
   return (
     <section
-      className={cx("shop-table-card", stack && "shop-stack", className)}
+      className={joinClassNames(
+        "shop-table-card",
+        stack && "shop-stack",
+        className,
+      )}
       aria-label={label}
     >
       {(title || actions) && (
@@ -60,6 +61,14 @@ export function ShopTableCard({
   );
 }
 
+/**
+ * The lead of a list-style row, for a table's first cell: a duotone icon
+ * tile, a title and an optional muted sub-line.
+ *
+ * @param props.tone - Tile tone; missing or `neutral` draws the blue tile, as
+ *   the design's generic list rows do.
+ * @returns A `span.shop-lead` laid out like the design's ListRow lead.
+ */
 export function ShopLead({
   icon,
   tone,
@@ -85,6 +94,14 @@ export function ShopLead({
   );
 }
 
+/**
+ * Filter select with an optional leading icon and a caret.
+ *
+ * @param props.label - The select's accessible name (`aria-label`); no
+ *   visible label is drawn.
+ * @param props.onChange - Called with the chosen option's value.
+ * @returns A `label.shop-select` wrapping the `<select>` and its icons.
+ */
 export function ShopSelect({
   label,
   icon: Icon,
@@ -101,7 +118,7 @@ export function ShopSelect({
   className?: string;
 }) {
   return (
-    <label className={cx("shop-select", className)}>
+    <label className={joinClassNames("shop-select", className)}>
       {Icon && <Icon size={17} aria-hidden="true" />}
       <select
         aria-label={label}
@@ -115,6 +132,12 @@ export function ShopSelect({
   );
 }
 
+/**
+ * A stats-strip tile with an optional footnote.
+ *
+ * @param props.tone - Colours the value as a warning, danger or good figure.
+ * @returns A `div.ds-stat-tile` holding the label, value and footnote.
+ */
 export function ShopStat({
   label,
   value,
@@ -129,10 +152,18 @@ export function ShopStat({
   return (
     <div className="ds-stat-tile">
       <span className="ds-stat-label">{label}</span>
-      <strong className={cx("ds-stat-value", tone && "shop-tone-" + tone)}>
+      <strong
+        className={joinClassNames("ds-stat-value", tone && "shop-tone-" + tone)}
+      >
         {value}
       </strong>
       {foot && <span className="shop-stat-foot">{foot}</span>}
     </div>
   );
+}
+
+function joinClassNames(
+  ...names: (string | false | null | undefined)[]
+): string {
+  return names.filter(Boolean).join(" ");
 }

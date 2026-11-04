@@ -1,12 +1,18 @@
-/* Settings (src/components/Settings.tsx). Every class is prefixed `set-`;
- * colours, radii, spacing and motion come from src/styles/tokens.css.
+/*
+ * Responsibility: Styles for the Settings screen.
+ * Layer: UI. Every selector is scoped by a `set-` class, so nothing here
+ *   restyles another screen.
+ * Dependencies: src/styles/tokens.css (colours, radii, spacing, motion),
+ *   src/styles/design.css (ds-*), src/styles.css (.panel, .button),
+ *   src/styles/screens/admin.css (.adm-card).
  *
  * Each section is one surface card (h2 header + blocks divided by
  * hairlines). Panels moved here from other screens (FAA key, address
  * verification, Aircraft Spruce, CSV exports, demo backup) keep their own
  * markup; inside `.set-embed` their card chrome is dropped so they read as
  * blocks of the section card. Breakpoints: ≥1100 desktop, 760–1099 tablet,
- * <760 phone. */
+ * <760 phone.
+ */
 
 .set-page {
   min-width: 0;
