@@ -422,6 +422,64 @@ describe("flight review on runCommand", () => {
     expect(await stored()).toEqual(before);
   });
 
+  it("answers another Flight Program's flight as missing, whatever the review says about its links", async () => {
+    const { t, pilot, op, a } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: held });
+    const ids = await t.run(async (ctx) => {
+      await ctx.db.insert("programs", {
+        ...demoSnapshot().programs![0],
+        uuid: "other-program",
+        name: "Other program",
+      });
+      await ctx.db.insert("aircraft", {
+        ...a,
+        uuid: "other-aircraft",
+        registration: "OTHER",
+        programUuid: "other-program",
+      });
+      const group = await ctx.db.insert("groups", {
+        programUuid: "other-program",
+        name: "Managers",
+        programAdmin: true,
+        aircraftIds: [],
+        permissions: ["read", "flight", "maintenance"],
+      });
+      const user = await ctx.db.insert("users", {
+        name: "Other manager",
+        active: true,
+        isAdmin: false,
+        groupIds: [group],
+        activeProgramUuid: "other-program",
+      });
+      const session = await ctx.db.insert("authSessions", {
+        userId: user,
+        expirationTime: Date.now() + 86400000,
+      });
+      return { user, session };
+    });
+    const manager = t.withIdentity({ subject: `${ids.user}|${ids.session}` });
+    const flights = () => t.run((ctx) => ctx.db.query("flights").collect());
+    const before = await flights();
+    // Before the fix the answer named the first link that differed from the
+    // stored flight, so it told an outsider what that flight links to.
+    for (const changes of [{}, { flightPlanUuid: crypto.randomUUID() }])
+      await expect(
+        manager.mutation(api.operations.reviewFlight, {
+          programUuid: "other-program",
+          uuid: held.uuid,
+          decision: "reject",
+          reason: "Checked",
+          input: { ...held.input, aircraftUuid: "other-aircraft", ...changes },
+        }),
+      ).rejects.toMatchObject({
+        name: "ConvexError",
+        data: "Flight not found.",
+      });
+    expect(await flights()).toEqual(before);
+  });
+
   it("characterizes current behaviour: a malformed correction stays a plain error", async () => {
     const { pilot, admin, op, a } = await fixture();
     const held = op();
