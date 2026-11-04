@@ -9,7 +9,12 @@ import { describe, expect, it } from "vitest";
 import { DUE_FLEET_PART, dueFleet } from "../../tests/fixtures/dueFleet";
 import { neededPart, partsFixture } from "../../tests/fixtures/requiredParts";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
-import { maintenancePartsPlans, requestedParts } from "./partsPlanning";
+import {
+  maintenancePartsPlans,
+  plannedNeedsFor,
+  requestedParts,
+  type PartsPlan,
+} from "./partsPlanning";
 import {
   applyRequestCommand,
   requestDraftSchema,
@@ -149,6 +154,33 @@ describe("requested parts", () => {
       },
     ];
     expect(requestedParts(s, manual)).toEqual([line(3, 2, 1)]);
+  });
+});
+
+describe("planned needs for a stock lot", () => {
+  const plan = (uuid: string, parts: PartsPlan["parts"]): PartsPlan => ({
+    uuid,
+    aircraftUuid: "aircraft",
+    label: uuid,
+    upcoming: true,
+    parts,
+  });
+
+  it("lists, in plan order, the plans naming the lot by id or part number, with the first such part's quantity", () => {
+    const filter = { ...line(4), partNumber: "FILTER-1" };
+    const plans = [
+      plan("by-number", [line(1), filter, neededPart]),
+      plan("elsewhere", [{ ...neededPart, stockUuid: "remote-stock" }]),
+      plan("by-id", [neededPart, filter]),
+    ];
+    const needs = plannedNeedsFor(plans, {
+      uuid: neededPart.stockUuid,
+      partNumber: "FILTER-1",
+    });
+    expect(needs.map((n) => [n.plan, n.quantity])).toStrictEqual([
+      [plans[0], 4],
+      [plans[2], 3],
+    ]);
   });
 });
 

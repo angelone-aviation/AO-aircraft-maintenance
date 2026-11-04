@@ -40,7 +40,10 @@ import {
   InventoryAttachments,
   InventoryFilePicker,
 } from "./InventoryAttachments";
-import { maintenancePartsPlans } from "../domain/partsPlanning";
+import {
+  maintenancePartsPlans,
+  plannedNeedsFor,
+} from "../domain/partsPlanning";
 import { PartsAvailability, requiredPartsFromForm } from "./RequiredParts";
 import { TaskCsvImportButton } from "./TaskCsvImport";
 import {
@@ -1755,18 +1758,13 @@ function StockQtyCell({
   );
 }
 
-// A planned part matches the stock item by its id or its part number.
 function PlannedNeeds({ item: r, plans }: { item: Stock; plans: Plans }) {
-  const matches = (part: Plans[number]["parts"][number]) =>
-    part.stockUuid === r.uuid || part.partNumber === r.partNumber;
-  return plans
-    .filter((p) => p.parts.some(matches))
-    .map((p) => (
-      <span className="mx-fact-note" key={p.uuid}>
-        {p.label}: needs {p.parts.find(matches)!.quantity}
-        {p.upcoming ? " · Due / open" : " · Scheduled"}
-      </span>
-    ));
+  return plannedNeedsFor(plans, r).map(({ plan: p, quantity }) => (
+    <span className="mx-fact-note" key={p.uuid}>
+      {p.label}: needs {quantity}
+      {p.upcoming ? " · Due / open" : " · Scheduled"}
+    </span>
+  ));
 }
 
 function ComponentRow(props: InventoryProps & { component: Component }) {
