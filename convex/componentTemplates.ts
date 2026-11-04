@@ -10,7 +10,7 @@
  */
 import { v, ConvexError } from "convex/values";
 import { mutation } from "./_generated/server";
-import { runCommand, hydrate, allErrors } from "./runCommand";
+import { runCommand, hydrate, allErrors, RECORD_TAKEN } from "./runCommand";
 import {
   saveComponentTemplate,
   applyComponentTemplate,
@@ -28,8 +28,8 @@ const args = { payload: v.string(), programUuid: v.optional(v.string()) };
  * @returns The template's uuid.
  * @throws {ConvexError} As `runCommand`; any error saveComponentTemplate or
  *   the JSON parser throws, with its message ("Template changed. Reopen
- *   it.", …); "Template belongs to another Flight Program." for a new uuid
- *   another program uses.
+ *   it.", …) or a zod refusal's issue text; "Record belongs to another
+ *   Flight Program." for a new uuid another program uses.
  */
 export const save = mutation({
   args,
@@ -56,7 +56,7 @@ export const save = mutation({
             .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
             .first()
         )
-          throw new ConvexError("Template belongs to another Flight Program.");
+          throw new ConvexError(RECORD_TAKEN);
         else await ctx.db.insert("componentTemplates", fields);
       },
       audit: (log, { docs }, next) => {
@@ -82,7 +82,8 @@ export const save = mutation({
  * @returns How many rows were added.
  * @throws {ConvexError} As `runCommand`; any error applyComponentTemplate or
  *   the JSON parser throws, with its message ("Template changed. Reopen the
- *   preview.", "Aircraft make and model must match the template.", …).
+ *   preview.", "Aircraft make and model must match the template.", …) or a
+ *   zod refusal's issue text.
  */
 export const apply = mutation({
   args,

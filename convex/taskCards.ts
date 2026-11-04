@@ -59,9 +59,9 @@ const NO_EVIDENCE = "Evidence not found.";
  *
  * @param payload - The job-card command, as JSON.
  * @returns The card's uuid.
- * @throws {ConvexError} "Archived job cards are read-only."; "Job card not
- *   found." for a card uuid outside the program; a domain Rejection;
- *   runCommand's program refusals.
+ * @throws {ConvexError} "Archived job cards are read-only."; "Record belongs
+ *   to another Flight Program." for a card uuid outside the program; a
+ *   domain Rejection; runCommand's program refusals.
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -72,7 +72,7 @@ export const save = mutation({
       load: ({ ctx, state }, command) => loadCard(ctx, state, command),
       apply: ({ snapshot }, command) => saveTaskCard(snapshot, command),
       persist: ({ ctx }, { docs }, next) =>
-        writeChanged(ctx, "taskCards", docs, [next], "Job card not found."),
+        writeChanged(ctx, "taskCards", docs, [next]),
       audit: (log, { before }, next, command) =>
         log.entry("taskCard." + command.action, next.uuid, {
           aircraftUuid: next.aircraftUuid,

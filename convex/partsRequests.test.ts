@@ -354,7 +354,7 @@ it("refuses a request uuid another Flight Program holds, and writes nothing", as
     }),
   ).rejects.toMatchObject({
     name: "ConvexError",
-    data: "Request identifier already used.",
+    data: "Record belongs to another Flight Program.",
   });
   expect(await stored()).toEqual(before);
 });

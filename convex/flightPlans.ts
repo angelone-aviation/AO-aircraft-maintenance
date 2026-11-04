@@ -43,7 +43,7 @@ export const save = mutation({
       load: ({ ctx, state }, command) => loadPlan(ctx, state, command),
       apply: ({ s }, command) => saveFlightPlan(s, command),
       persist: ({ ctx }, { plans }, next) =>
-        writeChanged(ctx, "flightPlans", plans, [next], PLAN_ID_USED),
+        writeChanged(ctx, "flightPlans", plans, [next]),
       audit: (log, { existing }, next) =>
         log.entry(
           next.status === "cancelled" ? "plan.cancelled" : "plan.saved",

@@ -313,7 +313,7 @@ it("refuses an AD uuid another Flight Program holds, and writes nothing", async 
       programUuid: "demo-program",
       payload: JSON.stringify({ kind: "save", record: r }),
     }),
-  ).rejects.toThrow("AD record belongs to another Flight Program.");
+  ).rejects.toThrow("Record belongs to another Flight Program.");
   expect(await stored()).toEqual(before);
 });
 

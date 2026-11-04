@@ -18,8 +18,6 @@ import {
 import type { Snapshot } from "../src/domain/model";
 import type { ManagedRecord } from "../src/domain/management";
 
-const REQUEST_TAKEN = "Request identifier already used.";
-
 /**
  * Applies one parts-request command in the active Flight Program, with the
  * stock it moves. Saving an active recurring list also writes the requests
@@ -28,8 +26,8 @@ const REQUEST_TAKEN = "Request identifier already used.";
  *
  * @param payload - The request command, as JSON.
  * @returns The uuid of the request the command changed.
- * @throws {ConvexError} A domain Rejection; "Request identifier already
- *   used." for a request uuid another Flight Program holds; runCommand's
+ * @throws {ConvexError} A domain Rejection; "Record belongs to another Flight
+ *   Program." for a request uuid another Flight Program holds; runCommand's
  *   program refusals.
  */
 export const execute = mutation({
@@ -56,7 +54,6 @@ export const execute = mutation({
           "partsRequests",
           docs.partsRequests,
           changedRequests(s, docs.partsRequests, r),
-          REQUEST_TAKEN,
         );
         await patchStock(ctx, docs.management, s.management ?? []);
       },

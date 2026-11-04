@@ -53,7 +53,6 @@ type LoadedWorkOrder = Awaited<ReturnType<typeof loadWorkOrder>>;
 
 // The tenant guard's message. Every row a save writes was loaded from the
 // program or has a fresh uuid, so data the app wrote never meets it.
-const RECORD_TAKEN = "Record belongs to another Flight Program.";
 const NOT_FOUND = "Work order not found.";
 
 const COPY_REFUSALS = new Set([
@@ -342,17 +341,16 @@ async function persistWorkOrder(
     "archivedTaskCards",
     [],
     working.archivedTaskCards ?? [],
-    RECORD_TAKEN,
   );
   await deleteRemovedCards(ctx, docs.taskCards, cards);
   const added = cards.filter((card) => !previousCards.has(card.uuid));
-  await writeChanged(ctx, "taskCards", docs.taskCards, added, RECORD_TAKEN);
+  await writeChanged(ctx, "taskCards", docs.taskCards, added);
   for (const inspection of working.inspections)
     if (inspection.version !== loaded.previousInspections.get(inspection.uuid))
       await writeInspection(ctx, docs.inspections, inspection);
   const records = changedRecords(loaded);
-  await writeChanged(ctx, "management", docs.management, records, RECORD_TAKEN);
-  await writeChanged(ctx, "workOrders", docs.workOrders, [next], RECORD_TAKEN);
+  await writeChanged(ctx, "management", docs.management, records);
+  await writeChanged(ctx, "workOrders", docs.workOrders, [next]);
 }
 
 async function deleteRemovedCards(

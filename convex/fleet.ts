@@ -56,7 +56,6 @@ export const save = mutation({
           "management",
           docs.management,
           result.components,
-          "Record belongs to another Flight Program.",
         );
       },
       audit: (log, { snapshot }, result) =>

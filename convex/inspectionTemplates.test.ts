@@ -147,7 +147,7 @@ it("persists program-scoped templates without compliance and enforces server aut
     }),
   ).rejects.toMatchObject({
     name: "ConvexError",
-    data: "Template belongs to another Flight Program.",
+    data: "Record belongs to another Flight Program.",
   });
 });
 

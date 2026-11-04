@@ -18,8 +18,6 @@ import { deleteBlobIfUnused } from "./attachments";
 import { saveInspectionTemplates } from "../src/domain/inspectionTemplates";
 
 const args = { payload: v.string(), programUuid: v.optional(v.string()) };
-const TEMPLATE_TAKEN = "Template belongs to another Flight Program.";
-const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 type TemplateDeletion = ReturnType<typeof deleteInspectionTemplates>;
 type DeletionDocs = Hydrated<"inspectionTemplates" | "taskCards">["docs"];
@@ -32,7 +30,7 @@ type DeletionDocs = Hydrated<"inspectionTemplates" | "taskCards">["docs"];
  * @param payload - JSON, as `saveInspectionTemplates` reads it.
  * @param programUuid - The caller's active Flight Program.
  * @throws {ConvexError} As `runCommand` and `saveInspectionTemplates`;
- *   "Template belongs to another Flight Program." for a new uuid another
+ *   "Record belongs to another Flight Program." for a new uuid another
  *   program uses.
  */
 export const save = mutation({
@@ -50,7 +48,6 @@ export const save = mutation({
           "inspectionTemplates",
           docs.inspectionTemplates,
           results.map((r) => r.next),
-          TEMPLATE_TAKEN,
         ),
       audit: (log, _, results) => {
         for (const { before, next } of results)
@@ -90,21 +87,9 @@ export const activate = mutation({
       apply: ({ snapshot }, command) => activateTemplate(snapshot, command),
       persist: async ({ ctx }, { docs }, { record, tasks }) => {
         if ("kind" in record)
-          await writeChanged(
-            ctx,
-            "management",
-            docs.management,
-            [record],
-            RECORD_TAKEN,
-          );
+          await writeChanged(ctx, "management", docs.management, [record]);
         else await writeInspection(ctx, docs.inspections, record);
-        await writeChanged(
-          ctx,
-          "taskCards",
-          docs.taskCards,
-          tasks,
-          RECORD_TAKEN,
-        );
+        await writeChanged(ctx, "taskCards", docs.taskCards, tasks);
       },
       audit: (log, { snapshot }, result) =>
         log.replay(snapshot.audit, {

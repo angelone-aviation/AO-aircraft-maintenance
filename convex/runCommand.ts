@@ -311,6 +311,12 @@ export async function hydrate<N extends Need>(
 export type UuidCollection = Exclude<PayloadCollection, "faaMonitors">;
 
 /**
+ * The refusal for a new record whose uuid is already stored outside the rows
+ * a command loaded: one message for every record type.
+ */
+export const RECORD_TAKEN = "Record belongs to another Flight Program.";
+
+/**
  * Writes a collection's records after `apply`, as the codec encodes them:
  * replaces each loaded row whose payload changed, skips one left as stored,
  * and inserts a record with no loaded row. Never deletes.
@@ -320,22 +326,20 @@ export type UuidCollection = Exclude<PayloadCollection, "faaMonitors">;
  *
  * @param loaded - The collection's rows `load` read for the command.
  * @param records - The records to write, in order.
- * @param refusal - The message for a uuid stored outside the loaded rows.
- * @throws {ConvexError} `refusal`, before that record is written.
+ * @throws {ConvexError} {@link RECORD_TAKEN}, before that record is written.
  */
 export async function writeChanged<N extends UuidCollection>(
   ctx: MutationCtx,
   collection: N,
   loaded: readonly Doc<N>[],
   records: readonly StoredRecord<N>[],
-  refusal: string,
 ): Promise<void> {
   for (const record of records) {
     const row = encode(collection, record);
     const prior = loaded.find((d) => d.uuid === record.uuid);
     if (prior?.payload === row.payload) continue;
     if (prior) await replaceRow(ctx, prior._id, row);
-    else await insertUnclaimed(ctx, collection, row, refusal);
+    else await insertUnclaimed(ctx, collection, row);
   }
 }
 
@@ -521,13 +525,12 @@ async function insertUnclaimed<N extends UuidCollection>(
   ctx: MutationCtx,
   collection: N,
   row: StoredRow<N>,
-  refusal: string,
 ) {
   const stored = await ctx.db
     .query(collection)
     .withIndex("uuid", (q) => q.eq("uuid", row.uuid))
     .first();
-  if (stored) throw new ConvexError(refusal);
+  if (stored) throw new ConvexError(RECORD_TAKEN);
   await ctx.db.insert(collection, row);
 }
 

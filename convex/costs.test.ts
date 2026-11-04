@@ -345,7 +345,7 @@ it("refuses a new cost record whose uuid another Flight Program holds, and write
     run(admin, { action: "settings.laborRate", laborRateCents: 9500 }),
   ).rejects.toMatchObject({
     name: "ConvexError",
-    data: "Cost record belongs to another Flight Program.",
+    data: "Record belongs to another Flight Program.",
   });
   expect(await stored()).toEqual(before);
 });

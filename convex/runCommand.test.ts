@@ -34,6 +34,7 @@ import {
   validationErrors,
   allErrors,
   requestOf,
+  RECORD_TAKEN,
   type Command,
 } from "./runCommand";
 const modules = import.meta.glob([
@@ -646,13 +647,7 @@ function writeCosts(
     },
     apply: ({ stored }) => records(stored),
     persist: ({ ctx }, { docs }, next) =>
-      writeChanged(
-        tracedWrites(ctx, writes),
-        "costs",
-        docs,
-        next,
-        "Cost record belongs to another Flight Program.",
-      ),
+      writeChanged(tracedWrites(ctx, writes), "costs", docs, next),
     audit: () => undefined,
   };
 }
@@ -699,7 +694,7 @@ it("writes changed records as the codec encodes them, skips unchanged ones and n
   );
 });
 
-it("refuses a uuid stored outside the loaded rows with the caller's message, and writes nothing", async () => {
+it("refuses a uuid stored outside the loaded rows with the one collision message, and writes nothing", async () => {
   const f = await fixture();
   const costs = costRecords(f.aircraft);
   await f.t.run((ctx) =>
@@ -715,9 +710,8 @@ it("refuses a uuid stored outside the loaded rows with the caller's message, and
     ),
   );
   expect(refused).toBeInstanceOf(ConvexError);
-  expect(refused).toMatchObject({
-    data: "Cost record belongs to another Flight Program.",
-  });
+  expect(refused).toMatchObject({ data: RECORD_TAKEN });
+  expect(RECORD_TAKEN).toBe("Record belongs to another Flight Program.");
   expect(writes).toEqual(["insert changed"]);
   const stored = await f.t.run((ctx) => ctx.db.query("costs").collect());
   expect(stored.map((d) => d.payload)).toEqual([

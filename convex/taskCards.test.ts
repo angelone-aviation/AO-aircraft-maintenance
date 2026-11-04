@@ -464,7 +464,7 @@ it("refuses a job card uuid stored outside the Flight Program, and an archived c
   const before = await stored();
   await expect(save(command)).rejects.toMatchObject({
     name: "ConvexError",
-    data: "Job card not found.",
+    data: "Record belongs to another Flight Program.",
   });
   await expect(save(archived)).rejects.toMatchObject({
     name: "ConvexError",

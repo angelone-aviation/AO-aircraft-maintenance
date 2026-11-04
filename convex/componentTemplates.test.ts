@@ -135,6 +135,6 @@ it("audits the stored and saved versions, and shows every refusal with its messa
     }),
   );
   await expect(save({ ...record, uuid: foreign })).rejects.toMatchObject(
-    shown("Template belongs to another Flight Program."),
+    shown("Record belongs to another Flight Program."),
   );
 });

@@ -18,9 +18,9 @@ import { adCommandSchema, applyADCommand } from "../src/domain/airworthiness";
  *
  * @param payload - The AD command, as JSON, with its request id.
  * @returns How many AD records the command changed; nothing for a replay.
- * @throws {ConvexError} A domain Rejection; "AD record belongs to another
- *   Flight Program." for an AD uuid another program holds; runCommand's
- *   program refusals.
+ * @throws {ConvexError} A domain Rejection; "Record belongs to another Flight
+ *   Program." for an AD uuid another program holds; runCommand's program
+ *   refusals.
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -33,13 +33,7 @@ export const save = mutation({
         hydrate(ctx, state, ["airworthiness", "management", "workOrders"]),
       apply: ({ snapshot }, command) => applyADCommand(snapshot, command),
       persist: ({ ctx }, { docs }, changed) =>
-        writeChanged(
-          ctx,
-          "airworthiness",
-          docs.airworthiness,
-          changed,
-          "AD record belongs to another Flight Program.",
-        ),
+        writeChanged(ctx, "airworthiness", docs.airworthiness, changed),
       // The applier lists its entries newest first, as the change log does;
       // rows are written in the order the ADs changed.
       audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),

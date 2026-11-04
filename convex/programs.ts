@@ -64,7 +64,6 @@ const transferArgs = {
   reason: v.string(),
 };
 type TransferArgs = ObjectType<typeof transferArgs>;
-const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 /**
  * A system administrator moves an aircraft, component or location from the
@@ -181,13 +180,7 @@ async function persistTransfer(
 ) {
   const { s, documents, inspections, checklists, setups } = working;
   await patchMovedAircraft(ctx, state.aircraft, working.originals);
-  await writeChanged(
-    ctx,
-    "management",
-    documents,
-    s.management ?? [],
-    RECORD_TAKEN,
-  );
+  await writeChanged(ctx, "management", documents, s.management ?? []);
   for (const i of inspections)
     if (i.version !== working.versions.get(i._id))
       await ctx.db.patch(i._id, {
@@ -199,14 +192,12 @@ async function persistTransfer(
     "checklists",
     checklists,
     moved(s.checklists ?? [], checklists),
-    RECORD_TAKEN,
   );
   await writeChanged(
     ctx,
     "componentSetups",
     setups,
     moved(s.componentSetups ?? [], setups),
-    RECORD_TAKEN,
   );
 }
 
