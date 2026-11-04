@@ -1,13 +1,14 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, deferral
- *   and parts, flight review, AD changes, attachments, manual edits, saved
- *   addresses, FAA monitor commands, program selection, membership and group
- *   saves, and recurring parts lists against the server's rules: the same
- *   refusals, stored records and change-log rows.
+ *   and parts, checklist saves, flight review, AD changes, attachments,
+ *   manual edits, saved addresses, FAA monitor commands, program selection,
+ *   membership and group saves, and recurring parts lists against the
+ *   server's rules: the same refusals, stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
- *   taskCards, workOrders, purchaseOrders, manuals, addresses, faa),
+ *   checklists, taskCards, workOrders, purchaseOrders, manuals, addresses,
+ *   faa),
  *   tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
@@ -17,8 +18,9 @@
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
  * and crashed on a missing flight. Before Batch 296 its AD, deferral,
- * resolution and parts rows named no Flight Program, and a resolution row
- * held the whole report after, where the server keeps the resolved fields.
+ * resolution, parts and checklist rows named no Flight Program, and a
+ * resolution row held the whole report after, where the server keeps the
+ * resolved fields.
  * Before Batch 273 it took any number of attachments. Before Batch 285 it
  * audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
@@ -44,6 +46,7 @@ import {
 import { Rejection } from "../domain/rejection";
 import { MAX_ATTACHMENTS } from "../domain/attachments";
 import { saveTaskCard } from "../domain/taskCards";
+import { emptyChecklist } from "../domain/checklists";
 import { newWorkTask, saveWorkOrder } from "../domain/workOrders";
 import { requestDraftSchema } from "../domain/partsRequests";
 import { poSchema } from "../domain/purchaseOrders";
@@ -163,6 +166,40 @@ it("saves a report's parts and audits it as the server does, with the program", 
     reason: "Required parts updated",
     before: JSON.stringify(before),
     after: JSON.stringify(after),
+  });
+});
+
+it("saves a checklist and audits it as the server does: the program, the counts", async () => {
+  const { backend, stored } = await demo("demo-checklist");
+  const aircraftUuid = (await stored()).aircraft[0].uuid;
+  const record = {
+    uuid: crypto.randomUUID(),
+    version: 0,
+    programUuid: "demo-program",
+    aircraftUuid,
+    sourceName: "demo.fmd",
+    updatedAt: 0,
+    updatedBy: "",
+    document: emptyChecklist(),
+  };
+  await backend.saveChecklist({ record, baseVersion: 0 });
+  const s = await stored();
+  const saved = s.checklists!.find((c) => c.uuid === record.uuid)!;
+  expect(s.audit[0]).toEqual({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: saved.updatedAt,
+    action: "checklist.saved",
+    entityUuid: record.uuid,
+    aircraftUuid,
+    after: JSON.stringify({
+      version: 1,
+      name: "New checklist",
+      lists: 0,
+      entries: 0,
+      checks: 0,
+    }),
   });
 });
 

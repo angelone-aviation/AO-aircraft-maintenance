@@ -12,14 +12,13 @@ import type { Snapshot } from "../src/domain/model";
 import {
   checklistCommandSchema,
   checklistRecordSchema,
-  checklistCounts,
   saveChecklist,
 } from "../src/domain/checklists";
 
 /**
- * Saves a checklist set as its next version, and audits `checklist.saved`
- * with its version, name and counts: the body is large and stays out of the
- * change log. A replayed request id changes nothing.
+ * Saves a checklist set as its next version, and writes the
+ * `checklist.saved` row saveChecklist records. A replayed request id changes
+ * nothing.
  *
  * @param payload - JSON, as `checklistCommandSchema`: the set, the version
  *   it was edited from, and the request id.
@@ -49,16 +48,7 @@ export const save = mutation({
         if (existing) await ctx.db.replace(existing._id, record);
         else await ctx.db.insert("checklists", record);
       },
-      audit: (log, _, next) =>
-        log.entry("checklist.saved", next.uuid, {
-          programUuid: next.programUuid,
-          aircraftUuid: next.aircraftUuid || undefined,
-          after: {
-            version: next.version,
-            name: next.document.payload.metadata.name,
-            ...checklistCounts(next.document),
-          },
-        }),
+      audit: (log, { s }) => log.replay(s.audit),
       returns: (next) => next.uuid,
     }),
 });

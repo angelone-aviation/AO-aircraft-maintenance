@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins the .fmd checklist schema against a real file, its
- *   limits, and who may read, edit and save a checklist set.
+ *   limits, who may read, edit and save a checklist set, and the change-log
+ *   entry a save records.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/checklists.ts, src/domain/programs.ts,
  *   src/domain/rejection.ts, src/data/fmd.ts, src/data/demo.ts (fixture),
@@ -284,4 +285,33 @@ it("refuses with a Rejection and replaces the saved set in place", () => {
     saveChecklist(memberOf(["discrepancy"]), { record: r, baseVersion: 0 });
   expect(denied).toThrow(Rejection);
   expect(denied).toThrow(Error("Checklist editing permission denied."));
+});
+
+it("records each save in the change log: counts, not the body, and the program", () => {
+  const s = demoSnapshot();
+  const now = 1_700_000_000_000;
+  const saved = saveChecklist(s, { record: record(), baseVersion: 0 }, now);
+  const library = saveChecklist(
+    s,
+    { record: { ...record(), aircraftUuid: "" }, baseVersion: 0 },
+    now,
+  );
+  const entry = (r: ChecklistRecord) => ({
+    uuid: expect.any(String),
+    programUuid: r.programUuid,
+    actorId: s.user.id,
+    at: now,
+    action: "checklist.saved",
+    entityUuid: r.uuid,
+    aircraftUuid: r.aircraftUuid || undefined,
+    after: JSON.stringify({
+      version: 1,
+      name: "New checklist",
+      lists: 0,
+      entries: 0,
+      checks: 0,
+    }),
+  });
+  expect(s.audit.slice(0, 2)).toEqual([entry(library), entry(saved)]);
+  expect(s.audit[0]).not.toHaveProperty("before");
 });

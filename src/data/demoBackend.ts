@@ -53,7 +53,7 @@ import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
 import { reviewFlight } from "../domain/flightReview";
-import { saveChecklist, checklistCounts } from "../domain/checklists";
+import { saveChecklist } from "../domain/checklists";
 import {
   inventoryAttachmentAccess,
   validateInventoryFile,
@@ -744,20 +744,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     saveChecklist: (command) =>
       modify((s) => {
-        const next = saveChecklist(s, command);
-        audit(
-          s,
-          "checklist.saved",
-          next.uuid,
-          next.aircraftUuid || undefined,
-          undefined,
-          undefined,
-          {
-            version: next.version,
-            name: next.document.payload.metadata.name,
-            ...checklistCounts(next.document),
-          },
-        );
+        saveChecklist(s, command);
       }),
     savePlan: (command) =>
       modify((s) => {
