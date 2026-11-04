@@ -2,11 +2,12 @@
  * Responsibility: Shelf life of stock lots: expired or expiring soon, how much
  *   of a lot is usable, and the guard that stops expired stock being used.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./model.
+ * Dependencies: ./model, ./rejection.
  *
  * A lot is usable through its expiration date.
  */
 import { latestLocalDate } from "./model";
+import { Rejection } from "./rejection";
 
 const DAY_MS = 86400000;
 
@@ -83,17 +84,15 @@ export function usableQuantity(
  *
  * @param stock - The lot.
  * @param now - The time to judge shelf life at.
- * @throws {Error} "<part number> expired on <date>. Expired stock cannot be
+ * @throws {Rejection} "<part number> expired on <date>. Expired stock cannot be
  *   issued or reserved."
  */
 export function assertNotExpired(
   stock: { partNumber: string; expirationDate?: string },
   now = Date.now(),
 ) {
-  // A plain Error, not a Rejection: flight submission turns only plain Errors
-  // from oil draw-down into a FlightRejection.
   if (expiredForUse(stock.expirationDate, now))
-    throw new Error(
+    throw new Rejection(
       `${stock.partNumber} expired on ${stock.expirationDate}. Expired stock cannot be issued or reserved.`,
     );
 }
