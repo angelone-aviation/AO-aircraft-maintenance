@@ -2,7 +2,8 @@
  * Responsibility: Building blocks of the flight forms: section labels, fields
  *   whose label may hold markup, meter readings and the live flight time.
  * Layer: UI. Presentational React components; no store or backend access.
- * Dependencies: react, @phosphor-icons/react, src/styles/screens/flight.css.
+ * Dependencies: react, @phosphor-icons/react, src/domain/readings.ts,
+ *   src/styles/screens/flight.css.
  *
  * FlightSection, MeterBox and FlightTimeStrip are candidates for promotion to
  * design.tsx.
@@ -15,9 +16,9 @@ import {
   type ReactNode,
 } from "react";
 import { ArrowRight, Info, Timer } from "@phosphor-icons/react";
+import { hoursToSeconds, readingText } from "../domain/readings";
 import "../styles/screens/flight.css";
 
-const SECONDS_PER_HOUR = 3600;
 const READOUT_MIN_CHARS = 3;
 
 const cx = (...c: (string | false | null | undefined)[]) =>
@@ -287,7 +288,7 @@ function readFlightTime(
   if (!typed) return { state: "neutral", text: `Enter ending ${entryName}` };
   if (startSeconds === undefined)
     return { state: "neutral", text: "Starting reading unknown" };
-  const delta = Math.round(Number(endHours) * SECONDS_PER_HOUR) - startSeconds;
+  const delta = hoursToSeconds(Number(endHours)) - startSeconds;
   if (delta < 0) return { state: "danger", text: "Ending is before start" };
-  return { state: "good", text: `${(delta / SECONDS_PER_HOUR).toFixed(1)} h` };
+  return { state: "good", text: `${readingText(delta)} h` };
 }
