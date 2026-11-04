@@ -94,7 +94,7 @@ npx convex run memberships:backfill
 unset CONVEX_DEPLOY_KEY
 ```
 
-Once, after the deploy that adds the permission-group check, also run the read-only `npx convex run groupAudit:findWidenedGroups` (repeat with `'{"cursor":"<continueCursor>"}'` until `isDone: true`) and follow the [accounts runbook](accounts.md#permission-groups-opened-to-all-aircraft-before-the-34-fix). Check the README for commands added since this list was written.
+Check the README for commands added since this list was written.
 
 Then check the live site:
 

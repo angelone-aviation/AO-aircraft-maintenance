@@ -1,9 +1,10 @@
 /**
- * Responsibility: Flight rules on an aircraft's counters: the reading a flight
- *   needs, when it is held for review, how it advances the counters, and the
- *   replay of the flight history after a correction.
+ * Responsibility: Flight rules on an aircraft's counters: the readings and
+ *   entries a flight needs, when it is held for review, how it advances the
+ *   counters, and the replay of the flight history after a correction.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/model.ts, src/domain/fleet.ts.
+ * Dependencies: src/domain/model.ts, src/domain/fleet.ts,
+ *   src/domain/rejection.ts.
  */
 import {
   flightInputSchema,
@@ -19,6 +20,7 @@ import {
   type AircraftCounterEvent,
   type CounterField,
 } from "./fleet";
+import { Rejection } from "./rejection";
 
 // Device clocks run a little fast; a start this far ahead is still accepted.
 const FUTURE_START_TOLERANCE_MS = 5 * 60_000;
@@ -94,6 +96,38 @@ export function flightEnginePositions(
 }
 
 /**
+ * The entries beyond Hobbs and tach that a flight records: the collective
+ * hourmeter on a helicopter, the flight time log on an aircraft that keeps
+ * one, and the landing surface on an amphibian. Each is also recorded when it
+ * is the meter the flight needs, or when the flight already holds it, so a
+ * correction keeps it.
+ *
+ * @param aircraft - The aircraft's profile.
+ * @param meter - The meter the flight's hours are read from, if known.
+ * @param flight - The flight being edited or prefilled, if any.
+ * @returns Whether each entry is recorded.
+ */
+export function flightOptionalEntries(
+  aircraft: Pick<Aircraft, "helicopter" | "flightTimeLog" | "amphibious">,
+  meter?: Aircraft["meter"],
+  flight?: Partial<
+    Pick<FlightInput, "cyclicHobbsOn" | "flightTimeLogOn" | "landingSurface">
+  >,
+): { cyclic: boolean; flightTimeLog: boolean; landingSurface: boolean } {
+  return {
+    cyclic:
+      !!aircraft.helicopter ||
+      meter === "cyclic" ||
+      flight?.cyclicHobbsOn !== undefined,
+    flightTimeLog:
+      !!aircraft.flightTimeLog ||
+      meter === "flightTimeLog" ||
+      flight?.flightTimeLogOn !== undefined,
+    landingSurface: !!aircraft.amphibious || flight?.landingSurface != null,
+  };
+}
+
+/**
  * The meter an aircraft's hours were read from at a time: that of the latest
  * counter change at or before it; before the first change, the baseline meter
  * if one is recorded; with no changes at all, the current meter.
@@ -127,6 +161,8 @@ export function meterAtFlight(aircraft: Aircraft, time: string) {
 export function validateFlight(aircraft: Aircraft, input: FlightInput): void {
   flightInputSchema.parse(input);
   const meter = meterAtFlight(aircraft, input.startTime);
+  // Plain Errors, not Rejections: on the outbox path a Rejection would turn a
+  // retried failure into a permanent one (CONTEXT.md §4).
   if (input[METER_INPUT_FIELD[meter]] === undefined)
     throw new Error(
       `The ${meter === "hobbs" || meter === "tach" ? meter : aircraftMeterLabels[meter]} reading is required for this aircraft.`,
@@ -216,9 +252,10 @@ export function applyFlight(aircraft: Aircraft, input: FlightInput): Aircraft {
  *   events, so save its `counterEvents` with the totals.
  * @returns The aircraft after the replay, one version on, and the accepted
  *   flights in time order with their starting readings.
- * @throws {Error} "Cannot accept this chronology: " and the reason, when a
- *   flight conflicts or the flights no longer lead to a counter change's
- *   readings; the {@link validateFlight} errors.
+ * @throws {Rejection} "Cannot accept this chronology: " and the reason, when
+ *   a flight conflicts or the flights no longer lead to a counter change's
+ *   readings.
+ * @throws As {@link validateFlight}.
  */
 export function rebuildFlights(
   aircraft: Aircraft,
@@ -236,7 +273,8 @@ export function rebuildFlights(
     const f = entry.flight;
     validateFlight(current, f);
     const conflict = conflictReason(current, f, current.version);
-    if (conflict) throw new Error(`Cannot accept this chronology: ${conflict}`);
+    if (conflict)
+      throw new Rejection(`Cannot accept this chronology: ${conflict}`);
     rebuilt.push({
       ...f,
       hobbsOff: current.currentHobbs,
@@ -392,7 +430,7 @@ function isExplicitEvent(event: AircraftCounterEvent): event is ExplicitEvent {
 function applyCounterEvent(aircraft: Aircraft, event: ExplicitEvent): Aircraft {
   for (const k of listDependentReadings(event))
     if (aircraft[k] !== readRecorded(event, k))
-      throw new Error(describeInconsistency(aircraft, event, k));
+      throw new Rejection(describeInconsistency(aircraft, event, k));
   return copyCounters(aircraft, event, event.changed);
 }
 

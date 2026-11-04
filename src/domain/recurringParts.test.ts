@@ -1,9 +1,10 @@
 /**
  * Responsibility: Pins recurring parts lists: one occurrence per open task
- *   and list, numbering, change log, and the lists' own rules.
+ *   and list, numbering, change log, the lists' own rules, the applier
+ *   serving open work orders, and which sources a server loads for them.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/recurringParts.ts, partsRequests.ts,
- *   airworthiness.ts, workOrders.ts, partsPlanning.ts, model.ts,
+ * Dependencies: src/domain/partsRequests.ts (the rules), airworthiness.ts,
+ *   workOrders.ts, partsPlanning.ts, model.ts,
  *   src/components/PartsRequests.tsx; src/data/demo.ts and
  *   tests/fixtures/workOrders.ts (fixtures).
  */
@@ -13,12 +14,14 @@ import { localDate } from "./model";
 import { blankAD, blankADTask } from "./airworthiness";
 import {
   applyRequestCommand,
+  generateRecurringRequests,
+  recurringPartsNeeds,
   requestDraftSchema,
   recurringRequestSource,
   requestStatus,
+  type PartsRequest,
   type RequestSource,
 } from "./partsRequests";
-import { generateRecurringRequests } from "./recurringParts";
 import { saveWorkOrder, newWorkTask } from "./workOrders";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
 import { requestedParts, maintenancePartsPlans } from "./partsPlanning";
@@ -311,8 +314,125 @@ it("numbers, labels and logs one occurrence per open task of a list on this airc
   });
 });
 
+it("serves the open work orders on its aircraft when a list is saved or resent, in one command", () => {
+  const { s, order, template, draft, command } = fixture();
+  const now = Date.parse("2026-11-03T12:00:00Z");
+  const occurrences = () =>
+    s.partsRequests!.filter((r) => r.templateUuid === template.uuid);
+  const edit = {
+    kind: "save" as const,
+    requestUuid: "edit",
+    draft: { ...draft, version: template.version },
+  };
+  applyRequestCommand(s, edit, now);
+  expect(occurrences()).toEqual([
+    expect.objectContaining({
+      createdAt: now,
+      source: {
+        kind: "workTask",
+        uuid: order.tasks[0].uuid,
+        workOrderUuid: order.uuid,
+      },
+    }),
+  ]);
+  expect(s.audit.slice(0, 2).map((e) => e.action)).toEqual([
+    "partsRequest.recurring",
+    "partsRequest.save",
+  ]);
+  const owed = () =>
+    saveWorkOrder(s, {
+      ...command,
+      uuid: crypto.randomUUID(),
+      tasks: [newWorkTask(command.tasks[0].source, "Next")],
+    });
+  owed();
+  applyRequestCommand(s, edit, now);
+  expect(occurrences()).toHaveLength(2);
+  applyRequestCommand(s, edit, now);
+  expect(occurrences()).toHaveLength(2);
+  owed();
+  applyRequestCommand(s, {
+    ...edit,
+    requestUuid: "once",
+    draft: { ...draft, uuid: "once", recurring: false },
+  });
+  const list = s.partsRequests!.find((r) => r.uuid === template.uuid)!;
+  s.partsRequests!.push({ ...list, uuid: "second", history: [] });
+  applyRequestCommand(s, {
+    kind: "cancel",
+    requestUuid: "cancel",
+    uuid: list.uuid,
+    version: list.version,
+    reason: "Retired",
+  });
+  expect(s.partsRequests!.filter((r) => r.templateUuid)).toHaveLength(2);
+});
+
 it("gives a completed or cancelled work order no occurrences", () => {
   const { s, order } = fixture();
   for (const status of ["completed", "cancelled"] as const)
     expect(generateRecurringRequests(s, { ...order, status })).toEqual([]);
+});
+
+it("names the sources an order's owed occurrences need, once each, in task order", () => {
+  const { s, order, template } = fixture();
+  const list = (kind: RequestSource["kind"], uuid: string): PartsRequest => ({
+    ...template,
+    uuid: `${kind}-list`,
+    source: { kind, uuid, workOrderUuid: "" },
+  });
+  const lists = [
+    template,
+    list("inspection", "inspection"),
+    list("componentRequirement", "requirement"),
+  ];
+  const task = (kind: "inspection" | "componentRequirement", uuid: string) => ({
+    ...order.tasks[0],
+    uuid: crypto.randomUUID(),
+    source: { kind, uuid },
+  });
+  const owing = {
+    ...order,
+    tasks: [
+      task("componentRequirement", "requirement"),
+      task("inspection", "inspection"),
+      ...order.tasks,
+      task("inspection", "inspection"),
+      task("inspection", "unlisted"),
+    ],
+  };
+  expect(recurringPartsNeeds(owing, lists)).toEqual({
+    inspections: ["inspection"],
+    requirements: ["requirement"],
+    airworthiness: true,
+  });
+  const none = { inspections: [], requirements: [], airworthiness: false };
+  for (const status of ["completed", "cancelled"] as const) {
+    expect(recurringPartsNeeds({ ...owing, status }, lists)).toEqual(none);
+    const finished = owing.tasks.map((t) => ({ ...t, status }));
+    expect(recurringPartsNeeds({ ...owing, tasks: finished }, lists)).toEqual(
+      none,
+    );
+  }
+  const elsewhere = { aircraftUuid: s.aircraft[1].uuid };
+  for (const change of [{ cancelled: true }, { recurring: false }, elsewhere])
+    expect(
+      recurringPartsNeeds(
+        owing,
+        lists.map((l) => ({ ...l, ...change })),
+      ),
+    ).toEqual(none);
+});
+
+it("needs nothing for a task its list has served, even if that was cancelled", () => {
+  const { s, order } = fixture();
+  expect(recurringPartsNeeds(order, s.partsRequests!).airworthiness).toBe(true);
+  const [occurrence] = generateRecurringRequests(s, order);
+  expect(recurringPartsNeeds(order, s.partsRequests!).airworthiness).toBe(
+    false,
+  );
+  occurrence.cancelled = true;
+  expect(recurringPartsNeeds(order, s.partsRequests!).airworthiness).toBe(
+    false,
+  );
 });

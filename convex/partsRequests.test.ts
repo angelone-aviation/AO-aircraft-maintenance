@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins parts requests: linked requests, inventory access,
  *   reservations and issues in stock history, what a recurring list owes the
- *   open work orders, and a request uuid another Flight Program holds.
+ *   open work orders, request-id replay, and a request uuid another Flight
+ *   Program holds.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/partsRequests, convex/purchaseOrders,
  *   convex/workOrders, src/data/demo, src/domain (airworthiness,
@@ -359,6 +360,209 @@ it("refuses a request uuid another Flight Program holds, and writes nothing", as
 });
 
 it("owes the open work orders on its aircraft when a recurring list is saved, once", async () => {
+  const { user, args, source, saveList, occurrences } =
+    await recurringListSetup();
+  const order = workOrderCommand();
+  order.tasks = [newWorkTask(source, "AD inspection")];
+  await user.mutation(api.workOrders.save, args(order));
+  await saveList(0);
+  expect(await occurrences()).toEqual([
+    expect.objectContaining({
+      source: expect.objectContaining({ workOrderUuid: order.uuid }),
+    }),
+  ]);
+  await saveList(1);
+  expect(await occurrences()).toHaveLength(1);
+});
+
+it("writes each occurrence a saved list owes with its change-log row, latest first", async () => {
+  const { t, user, args, source, saveList, occurrences } =
+    await recurringListSetup();
+  const orders = [];
+  for (let i = 0; i < 2; i++) {
+    const order = workOrderCommand();
+    order.tasks = [newWorkTask(source, "AD inspection")];
+    await user.mutation(api.workOrders.save, args(order));
+    orders.push(order);
+  }
+  const before = (await storedRows(t)).audit.length;
+  await saveList(0, "list-save");
+  const { requests, audit } = await storedRows(t);
+  const created = await occurrences();
+  expect(
+    created.map((r) => [r.number, r.source.workOrderUuid, r.sourceLabel]),
+  ).toEqual([
+    ["PR-00002", orders[0].uuid, "WO-2026-0001: AD 2026-01-01: AD inspection"],
+    ["PR-00003", orders[1].uuid, "WO-2026-0002: AD 2026-01-01: AD inspection"],
+  ]);
+  const rows = audit.slice(before);
+  expect(rows.map((r) => [r.action, r.entityUuid])).toEqual([
+    ["partsRequest.recurring", created[1].uuid],
+    ["partsRequest.recurring", created[0].uuid],
+    ["partsRequest.save", "list"],
+  ]);
+  for (const row of rows.slice(0, 2)) {
+    const stored = requests.find((d) => d.uuid === row.entityUuid)!;
+    expect(row).toMatchObject({
+      uuid: row.entityUuid,
+      programUuid: "demo-program",
+      aircraftUuid: orders[0].fields.aircraftUuid,
+      after: stored.payload,
+    });
+  }
+});
+
+// Characterizes current behaviour: resending a list's save is a replay, but
+// it still creates what the list owes an order that has no occurrence yet.
+it("creates what a list still owes when its save is resent, and nothing else", async () => {
+  const { t, user, args, source, saveList, occurrences } =
+    await recurringListSetup();
+  const order = workOrderCommand();
+  order.tasks = [newWorkTask(source, "AD inspection")];
+  await user.mutation(api.workOrders.save, args(order));
+  await saveList(0, "list-save");
+  // An open order no generation has served, written straight to its table.
+  const unserved = await t.run(async (ctx) => {
+    const doc = await ctx.db
+      .query("workOrders")
+      .withIndex("uuid", (q) => q.eq("uuid", order.uuid))
+      .unique();
+    const copy = JSON.parse(doc!.payload);
+    copy.uuid = crypto.randomUUID();
+    copy.tasks[0].uuid = crypto.randomUUID();
+    await ctx.db.insert("workOrders", {
+      uuid: copy.uuid,
+      aircraftUuid: copy.aircraftUuid,
+      payload: JSON.stringify(copy),
+    });
+    return copy;
+  });
+  const first = await storedRows(t);
+  const list = first.requests.find((d) => d.uuid === "list");
+  await saveList(0, "list-save");
+  const second = await storedRows(t);
+  expect(second.requests.find((d) => d.uuid === "list")).toEqual(list);
+  const [, added] = await occurrences();
+  expect(added).toMatchObject({
+    number: "PR-00003",
+    source: { uuid: unserved.tasks[0].uuid, workOrderUuid: unserved.uuid },
+  });
+  expect(second.requests).toHaveLength(first.requests.length + 1);
+  expect(
+    second.audit.slice(first.audit.length).map((r) => r.entityUuid),
+  ).toEqual([added.uuid]);
+});
+
+it("replays an identical repair-request resend, and refuses a different command with its request id", async () => {
+  const t = convexTest(schema, modules);
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", demoSnapshot().programs![0]);
+    const pump = {
+      uuid: "pump",
+      version: 1,
+      programUuid: "demo-program",
+      kind: "component",
+      aircraftUuid: "",
+      componentType: "Pump",
+      partNumber: "PUMP",
+      serial: "SN1",
+      manufacturer: "Maker",
+      notes: "",
+      trackTime: true,
+      trackCycles: true,
+      trackCalendar: false,
+      installed: false,
+      locationUuid: "store",
+      installedSeconds: 0,
+      installedCycles: 0,
+      timeSinceNew: 360000,
+      timeSinceOverhaul: 180000,
+      timeSinceRepair: null,
+      cyclesSinceNew: 0,
+      serviceDaysBase: 0,
+    } as const;
+    const store = {
+      uuid: "store",
+      version: 1,
+      programUuid: "demo-program",
+      kind: "location",
+      name: "Store",
+      address: "Hangar",
+      contact: "",
+    } as const;
+    for (const record of [store, pump])
+      await ctx.db.insert("management", {
+        uuid: record.uuid,
+        programUuid: record.programUuid,
+        kind: record.kind,
+        payload: JSON.stringify(record),
+      });
+    const userId = await ctx.db.insert("users", {
+      name: "Buyer",
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const sessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${userId}|${sessionId}`;
+  });
+  const draft = requestDraftSchema.parse({
+    uuid: "repair",
+    version: 0,
+    source: { kind: "stock" },
+    mode: "repair",
+    date: new Date().toISOString().slice(0, 10),
+    engineer: "Tech",
+    priority: "P2 Routine",
+    requiredBy: "",
+    currency: "USD",
+    lines: [
+      {
+        uuid: "l",
+        partNumber: "PUMP",
+        description: "Pump",
+        quantity: 1,
+        componentUuid: "pump",
+        defect: "Leak",
+        workRequested: "Repair leak",
+      },
+    ],
+  });
+  const run = (c: unknown) =>
+    t.withIdentity({ subject }).mutation(api.partsRequests.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const save = { kind: "save", requestUuid: "send", draft };
+  const stored = () =>
+    t.run(async (ctx) => ({
+      requests: await ctx.db.query("partsRequests").collect(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+  expect(await run(save)).toBe("repair");
+  const first = await stored();
+  expect(JSON.parse(first.requests[0].payload).lines[0]).toMatchObject({
+    componentSerial: "SN1",
+    componentTSN: 360000,
+    componentTSO: 180000,
+  });
+  expect(await run(save)).toBe("repair");
+  expect(await stored()).toEqual(first);
+  await expect(
+    run({ ...save, draft: { ...draft, engineer: "Other" } }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Request identifier already used.",
+  });
+  expect(await stored()).toEqual(first);
+});
+
+// An administrator of the demo program with one recurring 100-hour AD task on
+// the first aircraft; `saveList` saves a recurring list of two filters for it.
+async function recurringListSetup() {
   const t = convexTest(schema, modules),
     s = demoSnapshot();
   const ad = blankAD(s.aircraft[0].uuid);
@@ -399,10 +603,10 @@ it("owes the open work orders on its aircraft when a recurring list is saved, on
     payload: JSON.stringify(payload),
   });
   const source = { kind: "airworthiness" as const, uuid: ad.tasks[0].uuid };
-  const order = workOrderCommand();
-  order.tasks = [newWorkTask(source, "AD inspection")];
-  await user.mutation(api.workOrders.save, args(order));
-  const saveList = (version: number) => {
+  const saveList = (
+    version: number,
+    requestUuid: string = crypto.randomUUID(),
+  ) => {
     const draft = requestDraftSchema.parse({
       uuid: "list",
       version,
@@ -420,19 +624,20 @@ it("owes the open work orders on its aircraft when a recurring list is saved, on
     });
     return user.mutation(
       api.partsRequests.execute,
-      args({ kind: "save", requestUuid: crypto.randomUUID(), draft }),
+      args({ kind: "save", requestUuid, draft }),
     );
   };
   const occurrences = async () =>
-    (await t.run((ctx) => ctx.db.query("partsRequests").collect()))
+    (await storedRows(t)).requests
       .map((d) => JSON.parse(d.payload))
-      .filter((r) => r.templateUuid === "list");
-  await saveList(0);
-  expect(await occurrences()).toEqual([
-    expect.objectContaining({
-      source: expect.objectContaining({ workOrderUuid: order.uuid }),
-    }),
-  ]);
-  await saveList(1);
-  expect(await occurrences()).toHaveLength(1);
-});
+      .filter((r) => r.templateUuid === "list")
+      .sort((a, b) => a.number.localeCompare(b.number));
+  return { t, user, args, source, saveList, occurrences };
+}
+
+function storedRows(t: ReturnType<typeof convexTest>) {
+  return t.run(async (ctx) => ({
+    requests: await ctx.db.query("partsRequests").collect(),
+    audit: await ctx.db.query("audit").collect(),
+  }));
+}

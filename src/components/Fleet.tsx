@@ -1,3 +1,11 @@
+/**
+ * Responsibility: The fleet screens: the aircraft form and page, and the
+ *   Flight Programs page and dialog.
+ * Layer: UI. React components; aircraft and program rules live in src/domain.
+ * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
+ *   (aircraftStatus, addresses, programs, model, fleet, readings), ./Costs,
+ *   ./AircraftStatus, ./AircraftPhoto, ./Components, ./ui and others.
+ */
 import { AircraftCostSummary } from "./Costs";
 import { AircraftStatusReasons } from "./AircraftStatus";
 import { aircraftStatus, aircraftStatusLabels } from "../domain/aircraftStatus";
@@ -16,10 +24,10 @@ import {
   can,
   aircraftMeterLabels,
   hours,
-  parseHours,
   totalSeconds,
   type Aircraft,
 } from "../domain/model";
+import { hoursField, parseHours } from "../domain/readings";
 import {
   parseAdjustment,
   normalizeWebsite,
@@ -73,6 +81,13 @@ function useFleet() {
     },
   };
 }
+/**
+ * Adds an aircraft, or edits one, with its meters, counters and options; a
+ * meter switch keeps total time by moving the adjustment.
+ *
+ * @param initial - The aircraft to edit; none adds one.
+ * @param onDone - Called after the aircraft is saved.
+ */
 export function AircraftForm({
   initial,
   onDone,
@@ -88,12 +103,12 @@ export function AircraftForm({
     initial?.flightTimeLog ?? false,
   );
   const [flightTimeReading, setFlightTimeReading] = useState(
-    String((initial?.currentFlightTimeLog ?? 0) / 3600),
+    hoursField(initial?.currentFlightTimeLog ?? 0),
   );
   const [turbine, setTurbine] = useState(initial?.turbine ?? false);
   const [helicopter, setHelicopter] = useState(initial?.helicopter ?? false);
   const [cyclic, setCyclic] = useState(
-    String((initial?.currentCyclicHobbs ?? 0) / 3600),
+    hoursField(initial?.currentCyclicHobbs ?? 0),
   );
   const reading = (source: Aircraft["meter"]) =>
     source === "flightTimeLog"
@@ -103,25 +118,22 @@ export function AircraftForm({
         : source === "hobbs"
           ? hobbs
           : tach;
-  const [hobbs, setHobbs] = useState(
-      String((initial?.currentHobbs ?? 0) / 3600),
-    ),
-    [tach, setTach] = useState(String((initial?.currentTach ?? 0) / 3600)),
+  const [hobbs, setHobbs] = useState(hoursField(initial?.currentHobbs ?? 0)),
+    [tach, setTach] = useState(hoursField(initial?.currentTach ?? 0)),
     [adjustment, setAdjustment] = useState(
-      String((initial?.adjustmentSeconds ?? 0) / 3600),
+      hoursField(initial?.adjustmentSeconds ?? 0),
     );
   let total: number | undefined;
   try {
     total = (parseHours(reading(meter)) ?? 0) + parseAdjustment(adjustment);
   } catch {
+    // A reading or adjustment still being typed shows no total yet.
     total = undefined;
   }
   const switchMeter = (next: Aircraft["meter"]) => {
     if (total !== undefined) {
       try {
-        setAdjustment(
-          String((total - (parseHours(reading(next)) ?? 0)) / 3600),
-        );
+        setAdjustment(hoursField(total - (parseHours(reading(next)) ?? 0)));
       } catch {
         /* Validation displays on save. */
       }
@@ -434,6 +446,9 @@ export function AircraftForm({
     </AsyncForm>
   );
 }
+/** The Aircraft screen: the fleet list, each aircraft's record and the
+ * aircraft form; a program administrator adds aircraft, and changes need a
+ * connection. */
 export function AircraftPage() {
   const [componentAircraft, setComponentAircraft] = useState<Aircraft | null>(
     null,
@@ -659,6 +674,8 @@ function AircraftRow({
     </OpsRow>
   );
 }
+/** The Flight Programs screen: every program for a system administrator, the
+ * active one for anyone else. */
 export function ProgramsPage() {
   const { s, writable } = useFleet();
   const [selected, setSelected] = useState<Program | "new" | null>(null);

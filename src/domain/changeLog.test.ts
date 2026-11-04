@@ -85,6 +85,28 @@ describe("auditEntry", () => {
     ]);
   });
 
+  it("orders its keys: stamps, then the change's, then before and after", () => {
+    const s = demoSnapshot();
+    const change = {
+      programUuid: "named",
+      ...MOVE,
+      reason: "r",
+      before: 1,
+      after: 2,
+    };
+    expect(Object.keys(auditEntry(s, change, NOW))).toEqual([
+      "uuid",
+      "programUuid",
+      "actorId",
+      "at",
+      "action",
+      "entityUuid",
+      "reason",
+      "before",
+      "after",
+    ]);
+  });
+
   it("leaves the snapshot and its change log as they were", () => {
     const s = demoSnapshot();
     const before = structuredClone(s);

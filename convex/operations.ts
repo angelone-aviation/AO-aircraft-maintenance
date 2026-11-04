@@ -4,11 +4,10 @@
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./memberships, ./validators,
- *   src/domain (model, programs, flightSubmission, flights, management,
- *   ownerView, deferrals, requiredParts, flightPlans, flightChecklistLink,
- *   oilInventory, aircraftStatus).
+ *   src/domain (model, programs, flightSubmission, flightReview, ownerView,
+ *   deferrals, requiredParts, aircraftStatus).
  */
-import { v, type Infer } from "convex/values";
+import { v } from "convex/values";
 import {
   query,
   mutation,
@@ -20,7 +19,6 @@ import { runCommand, hydrate, errorsOf } from "./runCommand";
 import { decode } from "./collections";
 import {
   context,
-  checkContext,
   managementDocs,
   inspectionDocs,
   flightDocs,
@@ -40,13 +38,7 @@ import {
   costDocs,
   auditDocs,
 } from "./programContext";
-import {
-  authorized,
-  aircraftByUuid,
-  audit,
-  member,
-  activeIdentity,
-} from "./access";
+import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
 import { programUsers } from "./memberships";
 import { flightFields, operationValidator } from "./validators";
@@ -55,20 +47,21 @@ import {
   FlightRejection,
   type SubmissionChanges,
 } from "../src/domain/flightSubmission";
-import { preserveOilInventory } from "../src/domain/oilInventory";
-import { preserveChecklistLink } from "../src/domain/flightChecklistLink";
+import {
+  assertReviewer,
+  reviewFlight as applyReview,
+  type FlightReview,
+  type ReviewChanges,
+} from "../src/domain/flightReview";
 import {
   saveDiscrepancyParts as applyDiscrepancyParts,
   requiredPartsSchema,
 } from "../src/domain/requiredParts";
-import { validatePlanFlight } from "../src/domain/flightPlans";
 import {
   scopedSnapshot,
   activeProgram,
   programPermission,
-  programIds,
 } from "../src/domain/programs";
-import { validateMaintenanceTotals } from "../src/domain/management";
 import { isOwnerView, ownerSnapshot } from "../src/domain/ownerView";
 import { earliestLocalDate } from "../src/domain/aircraftStatus";
 import {
@@ -85,17 +78,8 @@ import {
   type Operation,
   type Snapshot,
 } from "../src/domain/model";
-import {
-  validateFlight,
-  rebuildFlights,
-  resequencedFlights,
-  resequenceReason,
-} from "../src/domain/flights";
 
 type Ctx = QueryCtx | MutationCtx;
-
-const MAX_EXPLANATION_LENGTH = 5000;
-const MIN_REVIEW_REASON_LENGTH = 5;
 
 /**
  * The caller's workspace: the active Flight Program's records, narrowed by
@@ -237,40 +221,33 @@ const reviewArgs = {
   reason: v.string(),
   input: v.object(flightFields),
 };
-type ReviewInput = Infer<typeof reviewArgs.input>;
 
 /**
- * A program administrator accepts or rejects a held or rejected flight, with
- * corrections. The aircraft's totals are rebuilt from its flights, and the
- * change log gets "flight.reviewed" plus "flight.resequenced" for each other
- * flight whose readings moved.
+ * A program administrator accepts or rejects a flight, with corrections, as
+ * the domain's reviewFlight allows. The aircraft's totals are rebuilt from its
+ * flights, and the change log gets "flight.reviewed" plus "flight.resequenced"
+ * for each other flight whose readings moved.
  *
- * @throws {Error} With the reason a review is refused, for example "Flight
- *   Program administrator required." or "Flight not found."
- * @throws {ConvexError} The refusals of checkContext, or "You do not have
- *   permission for this aircraft."
+ * @throws {ConvexError} The refusals of checkContext; "Flight Program
+ *   administrator required."; "You do not have permission for this
+ *   aircraft."; then reviewFlight's refusals, such as "Flight not found."
+ * @throws {Error} checkContext's session refusal.
  */
 export const reviewFlight = mutation({
   args: reviewArgs,
-  handler: async (ctx, { uuid, decision, reason, input, programUuid }) => {
-    const scope = await checkContext(ctx, programUuid);
-    const user = await authorizeReview(ctx, scope, input.aircraftUuid, reason);
-    const flight = await flightByUuid(ctx, uuid);
-    await assertLinksUnchanged(ctx, scope, flight, decision, input);
-    const aircraft = await aircraftByUuid(ctx, flight.aircraftUuid);
-    await assertCrew(ctx, scope, aircraft, flight, input);
-    validateFlight(aircraft, input);
-    const next: Flight = {
-      ...flight,
-      ...input,
-      status: decision === "accept" ? "accepted" : "rejected",
-      reviewReason: reason,
-    };
-    const { all, rebuilt } = await rebuildTotals(ctx, aircraft, uuid, next);
-    const review = { uuid, reason, input, flight, next, all, rebuilt };
-    const saved = await saveReview(ctx, aircraft, review);
-    await auditReview(ctx, user._id, review, saved);
-  },
+  handler: (ctx, { programUuid, ...review }) =>
+    runCommand(ctx, {
+      programUuid,
+      parse: () => review,
+      load: ({ ctx, state }) => loadReview(ctx, state, review),
+      apply: ({ snapshot }) => applyReview(snapshot, review),
+      persist: ({ ctx }, working, changes) =>
+        persistReview(ctx, working, review.uuid, changes),
+      audit: (log, _, { audit }) => {
+        for (const entry of audit)
+          log.entry(entry.action, entry.entityUuid, entry);
+      },
+    }),
 });
 
 /**
@@ -718,153 +695,93 @@ async function reportByUuid(ctx: MutationCtx, uuid: string) {
   return d;
 }
 
-async function authorizeReview(
-  ctx: MutationCtx,
-  scope: Snapshot,
-  aircraftUuid: string,
-  reason: string,
-) {
-  if (!programPermission(scope, "admin"))
-    throw new Error("Flight Program administrator required.");
-  const user = await authorized(ctx, aircraftUuid, "read", scope);
-  if (
-    reason.trim().length < MIN_REVIEW_REASON_LENGTH ||
-    reason.length > MAX_EXPLANATION_LENGTH
-  )
-    throw new Error("Provide a meaningful review explanation.");
-  return user;
+interface ReviewState {
+  snapshot: Snapshot;
+  aircraft: Doc<"aircraft">;
+  /** The stored flights the snapshot holds, for writing the replay. */
+  flights: Doc<"flights">[];
 }
 
-async function flightByUuid(ctx: MutationCtx, uuid: string) {
-  const flight = await ctx.db
-    .query("flights")
-    .withIndex("uuid", (q) => q.eq("uuid", uuid))
-    .unique();
-  if (!flight) throw new Error("Flight not found.");
-  return flight;
-}
-
-// A review corrects the flight's own entries; what it links to stays.
-async function assertLinksUnchanged(
+// Loads what a review reads (see reviewFlight): the reviewed flight, the
+// aircraft's flights, the flight's plan and that plan's flights, the crew, and
+// the maintenance records and inspections. The administrator is checked
+// first, then the aircraft, before any record is read.
+async function loadReview(
   ctx: MutationCtx,
-  scope: Snapshot,
-  flight: Doc<"flights">,
-  decision: "accept" | "reject",
-  input: ReviewInput,
-) {
-  preserveChecklistLink(flight, input);
-  preserveOilInventory(flight, input);
-  if (input.flightPlanUuid !== flight.flightPlanUuid)
-    throw new Error("A review cannot change the linked flight plan.");
-  const planUuid = input.flightPlanUuid;
-  if (decision === "accept" && flight.status === "rejected" && planUuid)
-    validatePlanFlight(
-      {
-        ...scope,
-        flightPlans: decode("flightPlans", await planRows(ctx, input)),
-        flights: await planFlights(ctx, planUuid),
-      },
-      input,
-    );
-  if (input.aircraftUuid !== flight.aircraftUuid)
-    throw new Error("A correction cannot change aircraft.");
-  // A report is never silently removed by correcting flight text.
-  if (input.discrepancy !== flight.discrepancy)
-    throw new Error("Use the discrepancy workflow to update problem reports.");
-}
-
-// Both crew must exist; anyone newly named must belong to the aircraft's
-// program unless they are a system administrator.
-async function assertCrew(
-  ctx: MutationCtx,
-  scope: Snapshot,
-  aircraft: Doc<"aircraft">,
-  flight: Doc<"flights">,
-  input: ReviewInput,
-) {
-  if (!(await existingUser(ctx, input.pilotId)))
-    throw new Error("Pilot not found.");
-  if (input.copilotId && !(await existingUser(ctx, input.copilotId)))
-    throw new Error("Copilot not found.");
-  const program = aircraft.programUuid ?? "";
-  for (const id of [input.pilotId, input.copilotId].filter(Boolean)) {
-    const unchanged =
-      (id === input.pilotId && id === flight.pilotId) ||
-      (id === input.copilotId && id === flight.copilotId);
-    if (unchanged) continue;
-    const pilot = await existingUser(ctx, id!);
-    if (
-      !pilot ||
-      (!pilot.isAdmin &&
-        !programIds(member(pilot), scope.groups).includes(program))
-    )
-      throw new Error("Pilot must belong to this Flight Program.");
-  }
-}
-
-// Replays the aircraft's flights with the reviewed one replaced; the
-// maintenance totals must still hold afterwards.
-async function rebuildTotals(
-  ctx: MutationCtx,
-  aircraft: Doc<"aircraft">,
-  uuid: string,
-  next: Flight,
-) {
-  const all = await ctx.db
-    .query("flights")
-    .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraft.uuid))
-    .collect();
-  const replaced = all.map((f) => (f.uuid === uuid ? next : f));
-  const rebuilt = rebuildFlights(aircraft, replaced, all);
-  validateMaintenanceTotals(
-    rebuilt.aircraft,
-    decode("management", await managementDocs(ctx, aircraft.programUuid)),
-    await ctx.db
+  state: Snapshot,
+  review: FlightReview,
+): Promise<ReviewState> {
+  const { input } = review;
+  assertReviewer(state);
+  await authorized(ctx, input.aircraftUuid, "read", state);
+  const aircraft = await aircraftByUuid(ctx, input.aircraftUuid);
+  const flights = uniqueRows([
+    ...(await aircraftFlights(ctx, aircraft.uuid)),
+    ...rowsOf(await flightRow(ctx, review.uuid)),
+    ...(await planFlights(ctx, input.flightPlanUuid)),
+  ]);
+  const management = await managementDocs(ctx, aircraft.programUuid);
+  const snapshot: Snapshot = {
+    ...state,
+    flights,
+    flightPlans: decode("flightPlans", await planRows(ctx, input)),
+    members: await crewMembers(ctx, input),
+    management: decode("management", management),
+    inspections: await ctx.db
       .query("inspections")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraft.uuid))
       .collect(),
-  );
-  return { all, rebuilt };
-}
-
-interface Review {
-  uuid: string;
-  reason: string;
-  input: ReviewInput;
-  flight: Doc<"flights">;
-  next: Flight;
-  all: Doc<"flights">[];
-  rebuilt: ReturnType<typeof rebuildFlights>;
-}
-
-// Writes the rebuilt readings, the aircraft's totals and the reviewed flight.
-async function saveReview(
-  ctx: MutationCtx,
-  aircraft: Doc<"aircraft">,
-  { uuid, reason, input, flight, next, all, rebuilt }: Review,
-) {
-  for (const accepted of rebuilt.flights) {
-    const original = all.find((f) => f.uuid === accepted.uuid)!;
-    await ctx.db.patch(original._id, {
-      hobbsOff: accepted.hobbsOff,
-      tachOff: accepted.tachOff,
-      cyclicHobbsOff: accepted.cyclicHobbsOff,
-      flightTimeLogOff: accepted.flightTimeLogOff,
-    });
-  }
-  await patchTotals(ctx, aircraft, rebuilt.aircraft);
-  const corrected = rebuilt.flights.find((f) => f.uuid === uuid);
-  const saved = {
-    ...input,
-    status: next.status,
-    reviewReason: reason,
-    hobbsOff: corrected?.hobbsOff ?? flight.hobbsOff,
-    tachOff: corrected?.tachOff ?? flight.tachOff,
-    cyclicHobbsOff: corrected?.cyclicHobbsOff ?? flight.cyclicHobbsOff,
-    flightTimeLogOff: corrected?.flightTimeLogOff ?? flight.flightTimeLogOff,
   };
-  await ctx.db.patch(flight._id, saved);
-  return saved;
+  return { snapshot, aircraft, flights };
+}
+
+function aircraftFlights(ctx: MutationCtx, aircraftUuid: string) {
+  return ctx.db
+    .query("flights")
+    .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
+    .collect();
+}
+
+function flightRow(ctx: MutationCtx, uuid: string) {
+  return ctx.db
+    .query("flights")
+    .withIndex("uuid", (q) => q.eq("uuid", uuid))
+    .unique();
+}
+
+async function crewMembers(ctx: MutationCtx, input: FlightInput) {
+  const crew = await Promise.all(
+    [input.pilotId, input.copilotId]
+      .filter(Boolean)
+      .map((id) => existingUser(ctx, id!)),
+  );
+  return crew.filter((u): u is Doc<"users"> => u !== null).map(member);
+}
+
+// Each stored row once, where it first appears.
+function uniqueRows<T extends { _id: string }>(rows: T[]) {
+  return [...new Map(rows.map((r) => [r._id, r])).values()];
+}
+
+// Writes the replayed starting readings, the aircraft's totals, then the
+// reviewed flight.
+async function persistReview(
+  ctx: MutationCtx,
+  { aircraft, flights }: ReviewState,
+  reviewed: string,
+  changes: ReviewChanges,
+) {
+  // reviewFlight returns only flights it was given.
+  const idOf = (uuid: string) => flights.find((f) => f.uuid === uuid)!._id;
+  for (const replayed of changes.flights)
+    await ctx.db.patch(idOf(replayed.uuid), {
+      hobbsOff: replayed.hobbsOff,
+      tachOff: replayed.tachOff,
+      cyclicHobbsOff: replayed.cyclicHobbsOff,
+      flightTimeLogOff: replayed.flightTimeLogOff,
+    });
+  await patchTotals(ctx, aircraft, changes.aircraft);
+  await ctx.db.patch(idOf(reviewed), changes.reviewed);
 }
 
 async function patchTotals(
@@ -884,27 +801,6 @@ async function patchTotals(
     // Records what older counter events changed (see rebuildFlights).
     counterEvents: a.counterEvents,
   });
-}
-
-async function auditReview(
-  ctx: MutationCtx,
-  actorId: Id<"users">,
-  { uuid, reason, flight, next, all, rebuilt }: Review,
-  saved: object,
-) {
-  await audit(ctx, actorId, "flight.reviewed", uuid, {
-    aircraftUuid: flight.aircraftUuid,
-    reason,
-    before: flight,
-    after: { ...next, ...saved },
-  });
-  for (const change of resequencedFlights(all, rebuilt.flights, uuid))
-    await audit(ctx, actorId, "flight.resequenced", change.flight.uuid, {
-      aircraftUuid: flight.aircraftUuid,
-      reason: resequenceReason(flight, next),
-      before: change.before,
-      after: change.after,
-    });
 }
 
 async function existingUser(ctx: Ctx, id: string) {

@@ -30,6 +30,7 @@ import {
   writeChanged,
   plainErrors,
   errorsOf,
+  requestOf,
   type Command,
 } from "./runCommand";
 const modules = import.meta.glob([
@@ -319,19 +320,64 @@ it("applies a request id once and refuses its reuse for another payload", async 
   expect(await f.requests()).toHaveLength(1);
 });
 
-it("hands delegated commands to their own transaction", async () => {
+it("records each request id in commandRequests too, as managementRequests holds it", async () => {
   const f = await fixture();
-  const load = vi.fn();
+  const command = planCommand(f.aircraft, {
+    request: () => ({ uuid: "request-1", payload: "first" }),
+  });
+  await f.mechanic.run(command);
+  expect(await f.mechanic.run(command)).toBeNull();
+  await f.mechanic.run(planCommand(f.aircraft));
+  const stored = [
+    { uuid: "request-1", actorId: f.mechanic.id, payload: "first" },
+  ];
+  const fields = <T extends { _id: unknown; _creationTime: number }>({
+    _id,
+    _creationTime,
+    ...row
+  }: T) => row;
+  const commandRequests = await f.t.run((ctx) =>
+    ctx.db.query("commandRequests").collect(),
+  );
+  expect(commandRequests.map(fields)).toEqual(stored);
+  expect((await f.requests()).map(fields)).toEqual(stored);
+});
+
+it("still replays a request id recorded only in managementRequests", async () => {
+  const f = await fixture();
+  await f.t.run((ctx) =>
+    ctx.db.insert("managementRequests", {
+      uuid: "request-1",
+      actorId: f.mechanic.id,
+      payload: "first",
+    }),
+  );
+  const command = planCommand(f.aircraft, {
+    request: () => ({ uuid: "request-1", payload: "first" }),
+  });
+  expect(await f.mechanic.run(command)).toBeNull();
+  expect(await f.flightPlans()).toEqual([]);
   expect(
-    await f.mechanic.run(
-      planCommand(f.aircraft, {
-        delegate: async () => "queued",
-        load,
-      }),
-    ),
-  ).toBe("queued");
-  expect(load).not.toHaveBeenCalled();
-  expect(await f.rows()).toEqual([]);
+    await f.t.run((ctx) => ctx.db.query("commandRequests").collect()),
+  ).toEqual([]);
+});
+
+it("runs a command sent without a request id every time, recording none", async () => {
+  const f = await fixture();
+  expect(requestOf("request-1", "first")).toEqual({
+    uuid: "request-1",
+    payload: "first",
+  });
+  const command = planCommand(f.aircraft, {
+    request: () => requestOf(undefined, "first"),
+  });
+  expect(await f.mechanic.run(command)).toBe("plan-1");
+  expect(await f.mechanic.run(command)).toBe("plan-1");
+  expect(await f.flightPlans()).toHaveLength(2);
+  expect(await f.requests()).toEqual([]);
+  expect(
+    await f.t.run((ctx) => ctx.db.query("commandRequests").collect()),
+  ).toEqual([]);
 });
 
 it("runs afterApply between apply and persist, and continues with what it returns", async () => {

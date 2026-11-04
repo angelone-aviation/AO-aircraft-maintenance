@@ -3,9 +3,10 @@
  *   and how parts requests total what is still needed.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/partsPlanning.ts, partsRequests.ts, workOrders.ts,
- *   tests/fixtures (parts, work orders).
+ *   tests/fixtures (parts, work orders, the due fleet).
  */
 import { describe, expect, it } from "vitest";
+import { DUE_FLEET_PART, dueFleet } from "../../tests/fixtures/dueFleet";
 import { neededPart, partsFixture } from "../../tests/fixtures/requiredParts";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
 import { maintenancePartsPlans, requestedParts } from "./partsPlanning";
@@ -147,5 +148,50 @@ describe("requested parts", () => {
       },
     ];
     expect(requestedParts(s, manual)).toEqual([line(3, 2, 1)]);
+  });
+});
+
+describe("on the due fleet", () => {
+  // Characterizes current behaviour, including an AD on a removed component
+  // and one on an aircraft the snapshot does not hold.
+  it("plans record work with parts in record order", () => {
+    const { s } = dueFleet();
+    expect(
+      maintenancePartsPlans(s).map((p) =>
+        [p.uuid, p.aircraftUuid, p.label, p.upcoming, p.parts.length].join(
+          " | ",
+        ),
+      ),
+    ).toStrictEqual([
+      "i-zero | demo-206 | i-zero | true | 1",
+      "i-other | demo-208 | i-other | true | 1",
+      "i-ok | demo-206 | i-ok | false | 1",
+      "r-now | demo-206 | Type pump: r-now limit | true | 1",
+      "r-tracked | demo-206 | Type pump: r-tracked limit | false | 1",
+      "ad-removed/hourly-300 | demo-206 | AD AD-REMOVED: Inspect | false | 1",
+      "ad-overdue/monthly-2020-01-01 | demo-206 | AD AD-OVERDUE: Inspect | true | 1",
+      "ad-unset/task | demo-206 | AD AD-UNSET: Inspect | true | 1",
+      "ad-counter/hourly-500 | demo-206 | AD AD-COUNTER: Inspect | true | 1",
+      "ad-b/monthly-2020-01-01 | demo-208 | AD AD-B: Inspect | true | 1",
+      "ad-gone/monthly-2020-01-01 | gone | AD AD-GONE: Inspect | true | 1",
+    ]);
+  });
+
+  it("skips work with parts whose status it cannot compute, as the alerts do", () => {
+    const plannedWith = (uuid: string) => {
+      const { s } = dueFleet();
+      const records = [...s.inspections, ...(s.management ?? [])];
+      Object.assign(
+        records.find((r) => r.uuid === uuid)!,
+        {
+          requiredParts: [DUE_FLEET_PART],
+        },
+      );
+      return maintenancePartsPlans(s).map((p) => p.uuid);
+    };
+    const planned = maintenancePartsPlans(dueFleet().s).map((p) => p.uuid);
+    expect(plannedWith("i-missing")).toStrictEqual(planned);
+    expect(plannedWith("r-early")).toStrictEqual(planned);
+    expect(plannedWith("i-cycles")).toContain("i-cycles");
   });
 });

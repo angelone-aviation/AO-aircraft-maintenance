@@ -5,7 +5,7 @@
  * Dependencies: src/data/store.ts, src/data/local.ts, src/data/demo.ts,
  *   src/domain/model.ts (types).
  *
- * The demo mirrors convex/admin.ts saveGroup (#34, #45).
+ * The demo mirrors convex/admin.ts saveGroup (#34; #45 retired by Batch 414).
  */
 import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
@@ -69,7 +69,8 @@ it("the demo keeps a group restricted after its aircraft leave the program and a
   const widened = await group("n206-crew");
   expect(widened).toMatchObject({ name: crew.name, aircraftIds: [] });
   expect(widened).not.toHaveProperty("allAircraft");
-  // An unscoped group gets its first program, audited; then it is fixed.
+  // Batch 414 retired the unscoped-group path: a group stored without a
+  // Flight Program cannot be given one, as on the server.
   const legacy = {
     id: "legacy",
     programUuid: "demo-program",
@@ -77,16 +78,7 @@ it("the demo keeps a group restricted after its aircraft leave the program and a
     aircraftIds: [],
     permissions: ["read", "maintenance"] as Permission[],
   };
-  await backend.saveGroup(legacy);
-  expect(await group("legacy")).toMatchObject({ programUuid: "demo-program" });
-  expect((await readSnapshot(namespace + ":all"))!.audit[0]).toMatchObject({
-    action: "group.program_assigned",
-    entityUuid: "legacy",
-    before: JSON.stringify({ programUuid: null }),
-    after: JSON.stringify({ programUuid: "demo-program" }),
-  });
-  await expect(
-    backend.saveGroup({ ...legacy, programUuid: "second" }),
-  ).rejects.toThrow(/cannot be moved/);
+  await expect(backend.saveGroup(legacy)).rejects.toThrow(/cannot be moved/);
+  expect(await group("legacy")).not.toHaveProperty("programUuid");
   vi.unstubAllGlobals();
 });

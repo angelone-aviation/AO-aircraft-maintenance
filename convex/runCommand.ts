@@ -62,13 +62,11 @@ export interface Command<C, W, R, Out = void> {
   actor?: Doc<"users">;
   /** Reads the command from the mutation's arguments. */
   parse(state: ProgramContext): C;
-  /** Idempotent commands: replaying `uuid` with the same payload is a no-op. */
-  request?(command: C): { uuid: string; payload: string };
   /**
-   * Hands the command to another transaction shape, such as the scheduled
-   * work-order template copies. Return undefined to run this one.
+   * Idempotent commands: replaying `uuid` with the same payload is a no-op.
+   * Undefined runs the command unrecorded (see {@link requestOf}).
    */
-  delegate?(state: ProgramContext, command: C): Promise<Out> | undefined;
+  request?(command: C): CommandRequest | undefined;
   /** Reads the working state and checks record-level access. */
   load(tx: Transaction, command: C): Promise<W>;
   /** The domain applier: pure apart from mutating the working state. */
@@ -92,6 +90,12 @@ export interface Command<C, W, R, Out = void> {
   returns?(result: R, working: W): Out;
 }
 
+/** A command's request id and the payload a replay of it must repeat. */
+export interface CommandRequest {
+  uuid: string;
+  payload: string;
+}
+
 /**
  * The caller's checked Flight Program context; its aircraft and programs are
  * the stored documents.
@@ -109,10 +113,9 @@ export interface Transaction {
 
 /**
  * Runs a command in the caller's mutation, in order: check the caller's Flight
- * Program context before the payload is read; parse; hand off (`delegate`);
- * return early for a replayed request id; load; apply; afterApply; persist;
- * write the change-log rows once through the audit writer; record the request
- * id. A Convex mutation is one transaction, so a throw at any step writes
+ * Program context before the payload is read; parse; return early for a
+ * replayed request id; load; apply; afterApply; persist; write the change-log
+ * rows once through the audit writer; record the request id. A Convex mutation is one transaction, so a throw at any step writes
  * nothing.
  *
  * @returns What `returns` gives; undefined for a replayed request.
@@ -136,8 +139,6 @@ export async function runCommand<C, W, R, Out = void>(
 ): Promise<Out | undefined> {
   const state = await checkContext(ctx, command.programUuid, command.actor);
   const parsed = command.parse(state);
-  const delegated = command.delegate?.(state, parsed);
-  if (delegated) return delegated;
   const request = command.request?.(parsed);
   if (request && (await isReplayed(ctx, state, request))) return undefined;
   const log = new CommandLog(state.user.id);
@@ -147,13 +148,23 @@ export async function runCommand<C, W, R, Out = void>(
   await persistCommand(tx, command, working, result, parsed);
   command.audit(log, working, result, parsed);
   for (const row of log.rows) await writeAudit(ctx, row);
-  if (request)
-    await ctx.db.insert("managementRequests", {
-      uuid: request.uuid,
-      actorId: state.user.id,
-      payload: request.payload,
-    });
+  if (request) await recordRequest(ctx, state, request);
   return command.returns?.(result, working);
+}
+
+/**
+ * The `request` of a command whose request id is optional (T18): a command
+ * the client sent without one runs every time.
+ *
+ * @param requestUuid - The command's request id, if it carries one.
+ * @param payload - The command's JSON, as the client sent it.
+ * @returns The request, or undefined when there is no id.
+ */
+export function requestOf(
+  requestUuid: string | undefined,
+  payload: string,
+): CommandRequest | undefined {
+  return requestUuid === undefined ? undefined : { uuid: requestUuid, payload };
 }
 
 /** A command's change-log rows by one caller, collected in order. */
@@ -406,7 +417,7 @@ const HYDRATORS: Record<Need, Hydrator> = {
 async function isReplayed(
   ctx: MutationCtx,
   state: ProgramContext,
-  request: { uuid: string; payload: string },
+  request: CommandRequest,
 ) {
   const prior = await ctx.db
     .query("managementRequests")
@@ -416,6 +427,23 @@ async function isReplayed(
   if (prior.actorId !== state.user.id || prior.payload !== request.payload)
     throw new ConvexError("Request identifier already used.");
   return true;
+}
+
+// The same row goes to both tables while commandRequests takes over from
+// managementRequests (ADR-0003, expand); replays still read the old one, which
+// alone holds the ids recorded before.
+async function recordRequest(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  request: CommandRequest,
+) {
+  const row = {
+    uuid: request.uuid,
+    actorId: state.user.id,
+    payload: request.payload,
+  };
+  await ctx.db.insert("managementRequests", row);
+  await ctx.db.insert("commandRequests", row);
 }
 
 async function loadAndApply<C, W, R, Out>(

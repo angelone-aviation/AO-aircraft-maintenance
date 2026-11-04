@@ -770,6 +770,29 @@ it("shows the work order's own refusals to the user as ConvexErrors", async () =
   });
 });
 
+it("checks the Flight Program before it looks up the order or the attachment", async () => {
+  const { t, tech, file, attachment } = await openOrderWithAttachment();
+  await t.run((ctx) => ctx.db.delete(attachment._id));
+  const elsewhere = { programUuid: "another-program" };
+  for (const run of [
+    () =>
+      tech.action(api.workOrders.upload, {
+        ...file,
+        ...elsewhere,
+        workOrderUuid: crypto.randomUUID(),
+      }),
+    () =>
+      tech.mutation(api.workOrders.removeFile, {
+        id: attachment._id,
+        ...elsewhere,
+      }),
+  ])
+    expect(await refusal(run())).toMatchObject({
+      name: "ConvexError",
+      data: "Flight Program changed. Reopen the form in the correct program.",
+    });
+});
+
 it("removes an attachment from an open work order with its unused file, audited", async () => {
   const { t, tech, reader, command, attachment } =
     await openOrderWithAttachment();

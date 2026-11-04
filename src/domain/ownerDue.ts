@@ -3,21 +3,23 @@
  *   inspections, component limits and ADs, each with a status and what remains.
  * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
  *   default reads the clock).
- * Dependencies: ./model, ./adOwnership, ./airworthiness, ./adRemaining,
- *   ./maintenance, ./management, ./components, ./rejection.
+ * Dependencies: ./model, ./dueItems, ./adRemaining, ./rejection.
  */
-import type { Aircraft, Inspection, Snapshot } from "./model";
+import type { Aircraft, Snapshot } from "./model";
 import { localDate } from "./model";
-import { adAircraftUuid } from "./adOwnership";
-import { adStatus, type AD } from "./airworthiness";
 import { adRemaining } from "./adRemaining";
-import { inspectionStatus } from "./maintenance";
-import { inspectionCounters, type ManagedRecord } from "./management";
-import { requirementStatus } from "./components";
+import {
+  dueItems,
+  type AdDue,
+  type DueLevel,
+  type InspectionDue,
+  type MaintenanceDue,
+  type RequirementDue,
+} from "./dueItems";
 import { Rejection } from "./rejection";
 
 /** How pressing a due item is; `unknown` when it cannot be worked out. */
-export type DueStatus = "overdue" | "due-soon" | "ok" | "unknown";
+export type DueStatus = DueLevel;
 
 /** One line of an owner's due list. */
 export interface DueItem {
@@ -38,18 +40,13 @@ const HOUR_SECONDS = 3600;
 const NEEDS_REVIEW = { status: "unknown", remaining: "Review" } as const;
 const MISSING_COMPONENT = "Inspection component not found.";
 const HIDDEN_AD_APPLICABILITY = ["Not applicable", "Superseded"];
-const AD_OK_STATUSES = [
-  "Scheduled",
-  "Complied",
-  "Previously Complied With (PCW)",
-];
 
 /**
  * The next-due items for one aircraft, worst first, from the same status
  * rules the maintenance screens use.
  *
  * @param s - The snapshot.
- * @param a - The aircraft.
+ * @param a - The aircraft, as the snapshot holds it.
  * @param today - A local date; today by default.
  * @returns Live inspections, installed components' limits and ADs neither
  *   not applicable nor superseded, ordered overdue, due soon, unknown, ok.
@@ -64,23 +61,10 @@ export function ownerDueItems(
   a: Aircraft,
   today = localDate(),
 ): DueItem[] {
-  const records = s.management ?? [];
-  const inspections = s.inspections
-    .filter((i) => !i.archived && i.aircraftUuid === a.uuid)
-    .map((i) => inspectionItem(s, a, i, today));
-  const limits = records.flatMap((r) =>
-    componentLimitItems(records, r, a, today),
-  );
-  const ads = (s.airworthiness ?? [])
-    .filter(
-      (r) =>
-        adAircraftUuid(s, r) === a.uuid &&
-        !HIDDEN_AD_APPLICABILITY.includes(r.applicability),
-    )
-    .map((r) => adItem(s, r, today));
-  return [...inspections, ...limits, ...ads].sort(
-    (x, y) => DUE_STATUS_RANK[x.status] - DUE_STATUS_RANK[y.status],
-  );
+  return dueItems(s, a.uuid, today)
+    .filter(isShownToOwner)
+    .map((item) => ownerRow(s, item, today))
+    .sort((x, y) => DUE_STATUS_RANK[x.status] - DUE_STATUS_RANK[y.status]);
 }
 
 /**
@@ -99,24 +83,31 @@ export function ownerDueCounts(items: DueItem[]) {
 const joinRemaining = (parts: (string | false | undefined)[]) =>
   parts.filter(Boolean).join(" · ") || "Not set";
 
-function inspectionItem(
-  s: Snapshot,
-  a: Aircraft,
-  i: Inspection,
-  today: string,
-): DueItem {
-  const item = {
+function isShownToOwner(item: MaintenanceDue) {
+  return (
+    item.kind !== "ad" ||
+    !HIDDEN_AD_APPLICABILITY.includes(item.ad.applicability)
+  );
+}
+
+function ownerRow(s: Snapshot, item: MaintenanceDue, today: string) {
+  if (item.kind === "inspection") return inspectionRow(item);
+  if (item.kind === "componentRequirement") return limitRow(item);
+  return adRow(s, item, today);
+}
+
+function inspectionRow(item: InspectionDue): DueItem {
+  const { inspection: i } = item;
+  const row = {
     uuid: i.uuid,
     kind: "Inspection" as const,
     label: i.reference || i.description,
   };
-  const counters = countersUnlessMissing(i, a, s.management);
-  if (!counters) return { ...item, ...NEEDS_REVIEW };
-  const r = inspectionStatus(i, a, today, counters);
+  if (!item.due) return { ...row, ...reviewIfMissing(item.error) };
+  const r = item.due;
   return {
-    ...item,
-    status:
-      r.status === "scheduled" ? "ok" : (r.status as Exclude<DueStatus, "ok">),
+    ...row,
+    status: item.level,
     remaining: joinRemaining([
       r.hoursRemaining !== undefined && `${r.hoursRemaining.toFixed(1)} h`,
       r.cyclesRemaining !== undefined && `${r.cyclesRemaining} cycles`,
@@ -126,64 +117,38 @@ function inspectionItem(
   };
 }
 
-function countersUnlessMissing(
-  i: Inspection,
-  a: Aircraft,
-  records?: ManagedRecord[],
-) {
-  try {
-    return inspectionCounters(i, a, records);
-  } catch (error) {
-    // An inspection whose component is no longer on this aircraft is listed
-    // for review, as a component limit is, rather than failing the whole list.
-    if (error instanceof Rejection && error.message === MISSING_COMPONENT)
-      return undefined;
-    throw error;
-  }
+// An inspection whose component is no longer on this aircraft is listed for
+// review, as a component limit is, rather than failing the whole list.
+function reviewIfMissing(error: unknown) {
+  if (error instanceof Rejection && error.message === MISSING_COMPONENT)
+    return NEEDS_REVIEW;
+  throw error;
 }
 
-function componentLimitItems(
-  records: ManagedRecord[],
-  r: ManagedRecord,
-  a: Aircraft,
-  today: string,
-): DueItem[] {
-  if (r.kind !== "componentRequirement") return [];
-  const c = records.find(
-    (x) =>
-      x.kind === "component" &&
-      x.uuid === r.componentUuid &&
-      x.aircraftUuid === a.uuid &&
-      x.installed,
-  );
-  if (c?.kind !== "component") return [];
-  const item = {
+function limitRow(item: RequirementDue): DueItem {
+  const { requirement: r, component: c } = item;
+  const row = {
     uuid: r.uuid,
     kind: "Component" as const,
     label: `${c.componentType} S/N ${c.serial} · ${r.description}`,
   };
-  try {
-    const q = requirementStatus(r, c, a, today);
-    const remaining = joinRemaining([
+  // Usage it cannot compute is listed for review, not hidden from the owner.
+  if (!item.due) return { ...row, ...NEEDS_REVIEW };
+  const q = item.due;
+  return {
+    ...row,
+    status: item.level,
+    remaining: joinRemaining([
       q.seconds !== undefined && `${(q.seconds / HOUR_SECONDS).toFixed(1)} h`,
       q.cycles !== undefined && `${q.cycles} cycles`,
       q.landings !== undefined && `${q.landings} landings`,
       q.days !== undefined && `${q.days} days`,
-    ]);
-    return [{ ...item, status: componentDueStatus(q.status), remaining }];
-  } catch {
-    // Usage it cannot compute is listed for review, not hidden from the owner.
-    return [{ ...item, ...NEEDS_REVIEW }];
-  }
+    ]),
+  };
 }
 
-function componentDueStatus(status: string): DueStatus {
-  if (status === "Past due" || status === "Due now") return "overdue";
-  if (status === "Due soon") return "due-soon";
-  return status === "Tracked" ? "ok" : "unknown";
-}
-
-function adItem(s: Snapshot, r: AD, today: string): DueItem {
+function adRow(s: Snapshot, item: AdDue, today: string): DueItem {
+  const r = item.ad;
   const remaining = r.tasks.flatMap((t) =>
     adRemaining(s, r, t, today).map((x) => `${x.label}: ${x.value}`),
   );
@@ -191,13 +156,7 @@ function adItem(s: Snapshot, r: AD, today: string): DueItem {
     uuid: r.uuid,
     kind: "AD",
     label: `AD ${r.source.number} · ${r.source.subject}`,
-    status: adDueStatus(adStatus(s, r)),
+    status: item.level,
     remaining: joinRemaining(remaining),
   };
-}
-
-function adDueStatus(status: string): DueStatus {
-  if (status === "Overdue") return "overdue";
-  if (status === "Due soon") return "due-soon";
-  return AD_OK_STATUSES.includes(status) ? "ok" : "unknown";
 }

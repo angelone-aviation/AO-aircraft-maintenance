@@ -1,17 +1,16 @@
 /**
  * Responsibility: Pins permission-group access on the server: all aircraft
- *   only by explicit choice (#34), an unscoped group's first Flight Program
- *   (#45), and the last active administrator kept (#52).
+ *   only by explicit choice (#34), a group's Flight Program fixed even when
+ *   it has none, and the last active administrator kept (#52).
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/admin.ts, convex/programs.ts, convex/memberships.ts,
- *   convex/schema.ts, src/data/demo.ts (fixture).
+ * Dependencies: convex/admin.ts, convex/programs.ts, convex/schema.ts,
+ *   src/data/demo.ts (fixture).
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { programUsers } from "./memberships";
 import type { Id } from "./_generated/dataModel";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -193,7 +192,9 @@ it("refuses to widen a group whose restricted aircraft left the program, unless 
   });
 });
 
-it("lets a system administrator assign an unscoped group to a Flight Program, validated and audited (#45)", async () => {
+// No group is stored without a program (T21), so the #45 first assignment
+// was retired: such a group is refused like a move, and nothing is written.
+it("refuses to give a group stored without a Flight Program one", async () => {
   const { t, ids, as } = await setup();
   const legacy = {
     id: ids.legacy,
@@ -204,46 +205,22 @@ it("lets a system administrator assign an unscoped group to a Flight Program, va
     aircraftIds: [] as string[],
     permissions: ["read" as const, "maintenance" as const],
   };
-  await expect(
-    as("programAdmin").mutation(api.admin.saveGroup, legacy),
-  ).rejects.toThrow(/system administrator/);
-  await expect(
-    as("system").mutation(api.admin.saveGroup, {
-      ...legacy,
-      aircraftIds: ["plane-B"],
-    }),
-  ).rejects.toThrow(/must belong/);
-  await as("system").mutation(api.admin.saveGroup, legacy);
-  expect(await t.run((ctx) => ctx.db.get(ids.legacy))).toMatchObject({
-    programUuid: "A",
-    aircraftIds: [],
-  });
-  // The membership index follows the group into its program.
-  const members = await t.run(async (ctx) =>
-    (await programUsers(ctx, "A", ids.legacy)).map((u) => u._id),
+  for (const name of ["programAdmin", "system"])
+    await expect(
+      as(name).mutation(api.admin.saveGroup, legacy),
+    ).rejects.toThrow(
+      "A permission group cannot be moved to another Flight Program.",
+    );
+  expect((await t.run((ctx) => ctx.db.get(ids.legacy)))?.programUuid).toBe(
+    undefined,
   );
-  expect(members).toEqual([ids.users.crew]);
   const entries = await t.run((ctx) =>
     ctx.db
       .query("audit")
       .withIndex("entity", (q) => q.eq("entityUuid", ids.legacy))
       .collect(),
   );
-  expect(
-    entries.find((e) => e.action === "group.program_assigned"),
-  ).toMatchObject({
-    actorId: ids.users.system,
-    programUuid: "A",
-    before: JSON.stringify({ programUuid: null }),
-    after: JSON.stringify({ programUuid: "A" }),
-  });
-  // Once assigned, its program is fixed like any other group's.
-  await expect(
-    as("system").mutation(api.admin.saveGroup, {
-      ...legacy,
-      programUuid: "B",
-    }),
-  ).rejects.toThrow(/cannot be moved/);
+  expect(entries).toEqual([]);
 });
 
 it("lets the only active administrator edit or demote a disabled administrator (#52)", async () => {

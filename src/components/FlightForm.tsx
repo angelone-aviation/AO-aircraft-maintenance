@@ -1,24 +1,14 @@
-import { FlightFluidFields, type Fluids } from "./FlightFluids";
-import type { FlightPlan } from "../domain/flightPlans";
-import { flightEnginePositions, meterAtFlight } from "../domain/flights";
+/**
+ * Responsibility: The flight log form: a new flight, the preflight or end of
+ *   a flight session, or an administrator's review of a held flight.
+ * Layer: UI. React component; new flights queue in the offline outbox and
+ *   reviews save online.
+ * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
+ *   (model, flights, flightPlans, flightReview, flightSession,
+ *   aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
+ *   ./design, ./ui.
+ */
 import { useId, useState } from "react";
-import { useWorkspace } from "../data/store";
-import {
-  can,
-  parseHours,
-  type Flight,
-  type FlightInput,
-} from "../domain/model";
-import { AsyncForm, value } from "./ui";
-import { aircraftStatus, canOverrideDispatch } from "../domain/aircraftStatus";
-import { DispatchGate } from "./AircraftStatus";
-import { NoticeBar } from "./design";
-import {
-  FlightField,
-  FlightSection,
-  FlightTimeStrip,
-  MeterBox,
-} from "./FlightParts";
 import {
   ArrowsClockwise,
   ClipboardText,
@@ -26,29 +16,74 @@ import {
   NotePencil,
   Warning,
 } from "@phosphor-icons/react";
-function localTime(iso: string) {
-  const date = new Date(iso);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
-}
-const meterInputs = ["hobbs", "tach", "cyclic", "flightTimeLog"] as const;
-type MeterInput = (typeof meterInputs)[number];
-const readout = (seconds: number | undefined) =>
-  seconds === undefined ? "Unknown" : (seconds / 3600).toFixed(1);
-export function FlightForm({
-  onDone,
-  onCancel,
-  initial,
-  aircraftUuid,
-  plan,
-  prefill,
-  openingOverride,
-  operationUuid,
-  phase = "all",
-  onSavePreflight,
-  dispatchOverrideReason,
-}: {
+import { useWorkspace } from "../data/store";
+import type { FlightPlan } from "../domain/flightPlans";
+import {
+  flightEnginePositions,
+  flightOptionalEntries,
+  meterAtFlight,
+} from "../domain/flights";
+import {
+  REVIEW_REASON_MAX_LENGTH,
+  REVIEW_REASON_MIN_LENGTH,
+} from "../domain/flightReview";
+import { plannedFlightRules } from "../domain/flightSession";
+import {
+  can,
+  FLIGHT_COUNT_MAX,
+  FLIGHT_PLACE_MAX_LENGTH,
+  flightInputSchema,
+  isAvailablePilot,
+  logsEngineStartsAsCycles,
+  NOTE_MAX_LENGTH,
+  parseHours,
+  type Flight,
+  type FlightInput,
+  type Snapshot,
+} from "../domain/model";
+import { aircraftStatus, canOverrideDispatch } from "../domain/aircraftStatus";
+import { DispatchGate } from "./AircraftStatus";
+import { FlightFluidFields, type Fluids } from "./FlightFluids";
+import {
+  FlightField,
+  FlightSection,
+  FlightTimeStrip,
+  MeterBox,
+} from "./FlightParts";
+import { NoticeBar } from "./design";
+import { AsyncForm, value } from "./ui";
+
+const MINUTE_MS = 60_000;
+const HOUR_SECONDS = 3600;
+const OPERATIONS = flightInputSchema.shape.operation.options;
+const FLIGHT_RULES = flightInputSchema.shape.flightRules.options;
+const METER_INPUTS = ["hobbs", "tach", "cyclic", "flightTimeLog"] as const;
+/** The FlightInput field each ending meter reading fills. */
+const METER_FIELDS = {
+  hobbs: "hobbsOn",
+  tach: "tachOn",
+  cyclic: "cyclicHobbsOn",
+  flightTimeLog: "flightTimeLogOn",
+} as const;
+const ENGINE_PREFIXES = { single: "", left: "Left ", right: "Right " };
+const COUNT_INPUT = {
+  type: "number",
+  min: "0",
+  max: String(FLIGHT_COUNT_MAX),
+  step: "1",
+  inputMode: "numeric",
+} as const;
+const FLUID_PHASES = {
+  all: "all",
+  preflight: "preflight",
+  end: "shutdown",
+} as const;
+
+type MeterInput = (typeof METER_INPUTS)[number];
+type TypedEnds = { aircraftUuid: string; ends: Record<MeterInput, string> };
+type Draft = ReturnType<typeof useFlightDraft>;
+type Model = ReturnType<typeof useFlightModel>;
+type FlightFormProps = {
   onDone: () => void;
   /** Closes without saving; adds a secondary footer button beside Save. */
   onCancel?: () => void;
@@ -68,101 +103,651 @@ export function FlightForm({
   onSavePreflight?: (input: FlightInput) => Promise<void>;
   /** An administrator override already entered, e.g. at guided flight start. */
   dispatchOverrideReason?: string;
-}) {
-  const { snapshot: s, enqueue, backend, online, connected } = useWorkspace();
-  const aircrafts = s!.aircraft.filter(
-    (a) => can(s!, a.uuid, "flight") || !!initial,
+};
+
+/**
+ * Logs a flight: crew, meter readings, engine starts, route, fluids, remarks
+ * and a discrepancy, or reviews a held flight (`initial`).
+ *
+ * @param props.initial - A held flight to review: its aircraft is fixed, its
+ *   starting readings are the flight's own, and saving accepts or rejects it
+ *   with a reason.
+ * @param props.plan - A flight plan that fills in the aircraft, route, rules
+ *   and counts, and is linked to the flight.
+ * @param props.openingOverride - Starting readings and version to use instead
+ *   of the aircraft's readings when the form opened.
+ * @param props.phase - "preflight" saves fluids through `onSavePreflight`
+ *   without closing readings; "end" collects them.
+ * @returns The form. A new flight queues in the outbox against the readings
+ *   it opened with; a grounded aircraft needs an administrator's override.
+ *   A review needs a connection. Preflight without `onSavePreflight` refuses
+ *   with "Preflight saving is unavailable.".
+ */
+export function FlightForm(props: FlightFormProps) {
+  const m = useFlightModel(props);
+  const meterHintId = useId();
+  const rulesId = useId();
+  return (
+    <div className="flight-form">
+      <AsyncForm
+        submitLabel={submitLabel(m.phase, !!props.initial)}
+        disabled={saveBlocked(m)}
+        onClose={props.onCancel}
+        onChange={(data) => m.setTypedEnds(typedEndsFrom(m.selected, data))}
+        onSubmit={(data) => submitFlight(m, data)}
+      >
+        <FlightNotices m={m} />
+        <CrewSection m={m} />
+        <MeterSection m={m} hintId={meterHintId} />
+        {m.phase !== "preflight" && !!m.engines.length && (
+          <EngineStartsSection
+            key={`${m.selected}:${m.engines.join(",")}`}
+            m={m}
+          />
+        )}
+        <RouteSection m={m} rulesId={rulesId} />
+        <FluidFields m={m} />
+        <RemarksSection m={m} />
+        {props.initial && <ReviewSection m={m} />}
+        {!m.online && m.phase !== "preflight" && <OfflineNotice />}
+      </AsyncForm>
+    </div>
   );
-  const [selected, setSelected] = useState(
-    initial?.aircraftUuid ??
-      plan?.aircraftUuid ??
-      aircraftUuid ??
-      aircrafts[0]?.uuid ??
-      "",
-  );
-  const aircraft = aircrafts.find((a) => a.uuid === selected);
-  // Freeze the readings together with their version so a live update cannot
-  // silently change what the pilot verified while this form was open.
-  const [openingReadings] = useState(() =>
-    Object.fromEntries(
-      aircrafts.map((a) => [
-        a.uuid,
-        {
-          version: a.version,
-          hobbs: a.currentHobbs,
-          tach: a.currentTach,
-          cyclic: a.currentCyclicHobbs,
-          flightTimeLog: a.currentFlightTimeLog,
-        },
-      ]),
-    ),
-  );
-  const opening = openingOverride ?? openingReadings[selected];
-  const defaults = initial ?? prefill;
+}
+
+function useFlightModel(props: FlightFormProps) {
+  const { snapshot, enqueue, backend, online, connected } = useWorkspace();
+  const s = snapshot!;
+  const draft = useFlightDraft(props, s);
+  return {
+    props,
+    phase: props.phase ?? "all",
+    s,
+    enqueue,
+    backend,
+    online,
+    connected,
+    ...draft,
+    ...flightView(props, s, draft),
+  };
+}
+
+function useFlightDraft(props: FlightFormProps, s: Snapshot) {
+  const choice = useAircraftChoice(props, s);
+  const defaults = props.initial ?? props.prefill;
   const [fluids, setFluids] = useState<Fluids>({
     fuel: defaults?.fuel,
     oil: defaults?.oil,
   });
+  const [decision, setDecision] = useState<"accept" | "reject">("accept");
+  const [override, setOverride] = useState(props.dispatchOverrideReason ?? "");
+  // Presentation only: the ending readings typed so far drive the live
+  // flight-time strip. The inputs stay uncontrolled form fields, keyed by the
+  // aircraft so that switching aircraft clears them; readings typed for
+  // another aircraft are ignored.
+  const [typedEnds, setTypedEnds] = useState<TypedEnds>();
+  return {
+    ...choice,
+    defaults,
+    fluids,
+    setFluids,
+    decision,
+    setDecision,
+    override,
+    setOverride,
+    typedEnds,
+    setTypedEnds,
+  };
+}
+
+function useAircraftChoice(props: FlightFormProps, s: Snapshot) {
+  const { initial, plan } = props;
+  const aircrafts = s.aircraft.filter(
+    (a) => can(s, a.uuid, "flight") || !!initial,
+  );
+  const [selected, setSelected] = useState(
+    initial?.aircraftUuid ??
+      plan?.aircraftUuid ??
+      props.aircraftUuid ??
+      aircrafts[0]?.uuid ??
+      "",
+  );
+  // Freeze the readings together with their version so a live update cannot
+  // silently change what the pilot verified while this form was open.
+  const [openingReadings] = useState(() => openingReadingsOf(aircrafts));
+  const opening = props.openingOverride ?? openingReadings[selected];
+  return { aircrafts, selected, setSelected, opening };
+}
+
+// What the form shows for the chosen aircraft. A review starts from the
+// flight's own closing readings, a new flight from the opening readings.
+function flightView(props: FlightFormProps, s: Snapshot, d: Draft) {
+  const { initial } = props;
+  const { defaults, opening } = d;
+  const aircraft = d.aircrafts.find((a) => a.uuid === d.selected);
   const requiredMeter =
     aircraft && initial
       ? meterAtFlight(aircraft, initial.startTime)
       : aircraft?.meter;
-  const startingHobbs = initial ? initial.hobbsOff : opening?.hobbs;
-  const startingCyclic = initial ? initial.cyclicHobbsOff : opening?.cyclic;
-  const showCyclic =
-    aircraft?.helicopter ||
-    requiredMeter === "cyclic" ||
-    defaults?.cyclicHobbsOn !== undefined;
-  const startingFlightTimeLog = initial
-    ? initial.flightTimeLogOff
-    : opening?.flightTimeLog;
-  const showFlightTimeLog =
-    aircraft?.flightTimeLog ||
-    requiredMeter === "flightTimeLog" ||
-    defaults?.flightTimeLogOn !== undefined;
-  const startingTach = initial ? initial.tachOff : opening?.tach;
-  const readingsChanged =
-    !initial && aircraft && opening && aircraft.version !== opening.version;
-  const engines = aircraft ? flightEnginePositions(aircraft, defaults) : [];
-  const showLandingSurface =
-    !!aircraft?.amphibious || defaults?.landingSurface != null;
-  const optionalNumber = (data: FormData, name: string) =>
-    value(data, name) === "" ? undefined : Number(value(data, name));
-  const [decision, setDecision] = useState<"accept" | "reject">("accept");
-  const [override, setOverride] = useState(dispatchOverrideReason ?? "");
   // Reviews correct existing records; only new flights pass the dispatch gate.
   const gated = !initial && !!aircraft;
-  const grounded =
-    gated && aircraftStatus(s!, aircraft.uuid).level === "grounded";
-  const inputFrom = (data: FormData): FlightInput => ({
+  const typed =
+    d.typedEnds?.aircraftUuid === d.selected ? d.typedEnds.ends : undefined;
+  const shown = flightOptionalEntries(aircraft ?? {}, requiredMeter, defaults);
+  return {
+    aircraft,
+    requiredMeter,
+    starts: startingReadings(initial, opening),
+    ends: typed ?? defaultEnds(defaults),
+    showCyclic: shown.cyclic,
+    showFlightTimeLog: shown.flightTimeLog,
+    readingsChanged:
+      !initial && aircraft && opening && aircraft.version !== opening.version,
+    engines: aircraft ? flightEnginePositions(aircraft, defaults) : [],
+    showLandingSurface: shown.landingSurface,
+    gated,
+    grounded: gated && aircraftStatus(s, aircraft.uuid).level === "grounded",
+  };
+}
+
+function FluidFields({ m }: { m: Model }) {
+  const { initial, prefill } = m.props;
+  return (
+    <FlightFluidFields
+      inventoryReadOnly={!!initial}
+      fluids={m.fluids}
+      onChange={m.setFluids}
+      twin={m.aircraft?.twin}
+      phase={FLUID_PHASES[m.phase]}
+      required={m.phase === "preflight" || !!prefill?.checklistRun}
+    />
+  );
+}
+
+function OfflineNotice() {
+  return (
+    <NoticeBar tone="neutral" icon={CloudSlash} className="flight-notice">
+      Offline · This entry will be saved on this device until it can sync.
+    </NoticeBar>
+  );
+}
+
+function FlightNotices({ m }: { m: Model }) {
+  const { initial, plan } = m.props;
+  return (
+    <>
+      {m.gated && (
+        <DispatchGate
+          aircraftUuid={m.aircraft!.uuid}
+          reason={m.override}
+          onReason={m.setOverride}
+        />
+      )}
+      {plan && (
+        <NoticeBar icon={ClipboardText} className="flight-notice">
+          {m.phase === "preflight"
+            ? "Flight plan details are filled in below. Confirm the actual departure date and pilot, then enter preflight fuel and oil. The saved preflight remains linked to this plan."
+            : "Verify the actual date, pilot, cycles, landings, and ending meter readings below. Saving links this entry to the plan; planned duration is never used as an actual meter reading."}
+        </NoticeBar>
+      )}
+      {initial && (
+        <NoticeBar
+          tone={initial.reviewReason ? "warn" : "blue"}
+          icon={initial.reviewReason ? Warning : NotePencil}
+          className="flight-notice"
+        >
+          {initial.reviewReason ??
+            "Corrections preserve original values in the audit history and recheck subsequent flights."}
+        </NoticeBar>
+      )}
+    </>
+  );
+}
+
+function CrewSection({ m }: { m: Model }) {
+  const { s, defaults, props } = m;
+  return (
+    <FlightSection title="Aircraft & crew">
+      <div className="flight-grid">
+        <FlightField label="Aircraft">
+          <select
+            value={m.selected}
+            disabled={
+              !!props.initial || !!props.plan || !!props.openingOverride
+            }
+            onChange={(e) => {
+              m.setSelected(e.target.value);
+              m.setFluids({});
+            }}
+          >
+            {m.aircrafts.map((a) => (
+              <option key={a.uuid} value={a.uuid}>
+                {a.registration} · {a.model}
+              </option>
+            ))}
+          </select>
+        </FlightField>
+        <FlightField label="Pilot">
+          <select
+            name="pilot"
+            defaultValue={defaults?.pilotId ?? s.user.id}
+            required
+          >
+            {memberOptions(s, defaults?.pilotId)}
+          </select>
+        </FlightField>
+        <CopilotField m={m} />
+        <FlightTimeField m={m} />
+      </div>
+    </FlightSection>
+  );
+}
+
+function CopilotField({ m }: { m: Model }) {
+  return (
+    <FlightField
+      label={
+        <>
+          Copilot <span className="flight-optional">(optional)</span>
+        </>
+      }
+    >
+      <select name="copilot" defaultValue={m.defaults?.copilotId ?? ""}>
+        <option value="">No copilot</option>
+        {memberOptions(m.s, m.defaults?.copilotId)}
+      </select>
+    </FlightField>
+  );
+}
+
+function FlightTimeField({ m }: { m: Model }) {
+  const start =
+    m.defaults?.startTime ??
+    m.props.plan?.departureAt ??
+    new Date().toISOString();
+  return (
+    <FlightField
+      label="Flight date & time"
+      hint={`Your timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}. Stored with a UTC timestamp.`}
+    >
+      <input
+        name="time"
+        type="datetime-local"
+        defaultValue={localTime(start)}
+        required
+      />
+    </FlightField>
+  );
+}
+
+function MeterSection({ m, hintId }: { m: Model; hintId: string }) {
+  const notes = meterNotes(m);
+  const required = m.requiredMeter;
+  return (
+    <FlightSection
+      title="Meter readings"
+      hint="Read-only starts · verify against the aircraft meters"
+      hintId={hintId}
+    >
+      {m.readingsChanged && (
+        <NoticeBar
+          tone="warn"
+          icon={ArrowsClockwise}
+          role="status"
+          className="flight-notice"
+        >
+          Aircraft readings changed while this form was open. Close and reopen
+          it to verify the latest readings, or save this entry for review.
+        </NoticeBar>
+      )}
+      <MeterBoxes key={m.selected} m={m} hintId={hintId} />
+      {m.phase !== "preflight" && required && (
+        <FlightTimeStrip
+          meterLabel={stripLabel(required, m.aircraft?.helicopter)}
+          entryName={meterName(required, m.aircraft?.helicopter)}
+          startSeconds={m.starts[required]}
+          endHours={m.ends[required]}
+        />
+      )}
+      {notes.length > 0 && <p className="flight-note">{notes.join(" ")}</p>}
+    </FlightSection>
+  );
+}
+
+function MeterBoxes({ m, hintId }: { m: Model; hintId: string }) {
+  const helicopter = m.aircraft?.helicopter;
+  const box = (meter: MeterInput) => ({
+    startLabel: `Starting ${meterName(meter, helicopter)}`,
+    startSrSuffix: " (hours)",
+    startValue: readout(m.starts[meter]),
+    describedBy: hintId,
+    endInput: m.phase !== "preflight" ? endInput(m, meter) : undefined,
+  });
+  const endLabel = (meter: MeterInput) =>
+    `Ending ${meterName(meter, helicopter)} ${m.requiredMeter === meter ? "*" : ""}`;
+  return (
+    <div className="flight-meters">
+      <MeterBox {...box("hobbs")} endLabel={endLabel("hobbs")} />
+      <MeterBox {...box("tach")} endLabel={endLabel("tach")} />
+      {m.showCyclic && (
+        <MeterBox
+          {...box("cyclic")}
+          endLabel="Ending Collective hourmeter"
+          endSrSuffix=" (hours)"
+        />
+      )}
+      {m.showFlightTimeLog && (
+        <MeterBox
+          {...box("flightTimeLog")}
+          endLabel="Ending Flight time log"
+          endSrSuffix=" (hours)"
+          hint={
+            m.phase !== "preflight"
+              ? "Enter the updated cumulative takeoff-to-touchdown hours from the flight-time log. Verify the start against the aircraft flight-time log."
+              : "Read-only · verify against the aircraft flight-time log"
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function EngineStartsSection({ m }: { m: Model }) {
+  return (
+    <FlightSection title="Engine starts">
+      <div className="flight-engines">
+        {m.engines.map((engine) => {
+          const reading = m.defaults?.engineStarts?.find(
+            (s) => s.engine === engine,
+          );
+          const prefix = ENGINE_PREFIXES[engine];
+          return (
+            <div className="flight-grid flight-engine" key={engine}>
+              <FlightField
+                label={`${prefix}Start time (seconds)`}
+                hint="Engine-start duration"
+              >
+                <input
+                  name={`${engine}-start-duration`}
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  defaultValue={reading?.durationSeconds ?? ""}
+                />
+              </FlightField>
+              <FlightField label={`${prefix}Start max EGT (°C)`}>
+                <input
+                  name={`${engine}-start-egt`}
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  defaultValue={reading?.maxEgtC ?? ""}
+                />
+              </FlightField>
+            </div>
+          );
+        })}
+      </div>
+    </FlightSection>
+  );
+}
+
+function RouteSection({ m, rulesId }: { m: Model; rulesId: string }) {
+  const { defaults, props } = m;
+  // In the two-column grid, the operation field would sit alone on its row
+  // after an even number of fields, so it spans the row instead.
+  const fieldsBefore =
+    4 + (m.showLandingSurface ? 1 : 0) + (m.aircraft?.turbine ? 1 : 0);
+  return (
+    <FlightSection title="Route & operation">
+      <div className="flight-grid">
+        {(["origin", "destination"] as const).map((place) => (
+          <FlightField
+            key={place}
+            label={place === "origin" ? "Origin" : "Destination"}
+          >
+            <input
+              name={place}
+              defaultValue={defaults?.[place] ?? props.plan?.[place]}
+              maxLength={FLIGHT_PLACE_MAX_LENGTH}
+              placeholder="Code or location; optional"
+            />
+          </FlightField>
+        ))}
+        <CountFields m={m} />
+        <RulesField m={m} rulesId={rulesId} />
+        <FlightField label="Type of operation" wide={fieldsBefore % 2 === 0}>
+          <select
+            name="operation"
+            defaultValue={defaults?.operation ?? "Mission"}
+          >
+            {OPERATIONS.map((o) => (
+              <option key={o}>{o}</option>
+            ))}
+          </select>
+        </FlightField>
+      </div>
+    </FlightSection>
+  );
+}
+
+function CountFields({ m }: { m: Model }) {
+  const { defaults, aircraft } = m;
+  const plan = m.props.plan;
+  return (
+    <>
+      <FlightField label="Landings">
+        <input
+          name="landings"
+          {...COUNT_INPUT}
+          defaultValue={defaults?.landings ?? plan?.landings ?? 1}
+          required
+        />
+      </FlightField>
+      {m.showLandingSurface && (
+        <FlightField label="Landing surface">
+          <select
+            key={m.selected}
+            name="landingSurface"
+            defaultValue={defaults?.landingSurface ?? ""}
+          >
+            <option value="">Select Sea or Land</option>
+            <option value="sea">Sea</option>
+            <option value="land">Land</option>
+          </select>
+        </FlightField>
+      )}
+      {aircraft?.turbine && (
+        <FlightField label={cyclesLabel(aircraft.model)}>
+          <input
+            key={m.selected}
+            name="cycles"
+            {...COUNT_INPUT}
+            defaultValue={defaults?.cycles ?? plan?.cycles ?? 1}
+            required
+          />
+        </FlightField>
+      )}
+    </>
+  );
+}
+
+function RulesField({ m, rulesId }: { m: Model; rulesId: string }) {
+  const chosen = rulesDefault(m.defaults?.flightRules, m.props.plan);
+  return (
+    <div
+      className="flight-field flight-rules"
+      role="radiogroup"
+      aria-labelledby={rulesId}
+    >
+      <span className="flight-field-label" id={rulesId}>
+        Flight rules
+      </span>
+      <div className="flight-segmented">
+        {FLIGHT_RULES.map((rule) => (
+          <label key={rule}>
+            <input
+              type="radio"
+              name="rules"
+              value={rule}
+              defaultChecked={chosen === rule}
+            />
+            <span>{rule}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RemarksSection({ m }: { m: Model }) {
+  const { initial, plan } = m.props;
+  const discrepancyShown = !initial && m.phase !== "preflight";
+  return (
+    <FlightSection
+      title={discrepancyShown ? "Remarks & discrepancy" : "Remarks"}
+    >
+      <div className="flight-stack">
+        <FlightField label="Remarks">
+          <textarea
+            name="remarks"
+            defaultValue={
+              m.defaults?.remarks ??
+              (plan ? `Planned route: ${plan.route}` : "")
+            }
+            maxLength={NOTE_MAX_LENGTH}
+            rows={2}
+            placeholder="Anything worth noting about this flight"
+          />
+        </FlightField>
+        {discrepancyShown && <DiscrepancyField />}
+      </div>
+    </FlightSection>
+  );
+}
+
+function DiscrepancyField() {
+  return (
+    <FlightField
+      className="flight-discrepancy"
+      label={
+        <>
+          <Warning
+            size={16}
+            weight="bold"
+            className="flight-discrepancy-icon"
+            aria-hidden="true"
+          />
+          Discrepancy
+        </>
+      }
+      hint="This creates a linked open report, even if the flight requires review."
+    >
+      <textarea
+        name="discrepancy"
+        maxLength={NOTE_MAX_LENGTH}
+        rows={2}
+        placeholder="Any problem observed during this flight?"
+      />
+    </FlightField>
+  );
+}
+
+function ReviewSection({ m }: { m: Model }) {
+  return (
+    <FlightSection title="Review decision">
+      <div className="flight-stack">
+        <FlightField label="Review decision">
+          <select
+            value={m.decision}
+            onChange={(e) =>
+              m.setDecision(e.target.value as "accept" | "reject")
+            }
+          >
+            <option value="accept">
+              Accept corrected entry and recalculate totals
+            </option>
+            <option value="reject">
+              Reject entry and exclude it from totals
+            </option>
+          </select>
+        </FlightField>
+        <FlightField label="Explanation">
+          <textarea
+            name="reason"
+            minLength={REVIEW_REASON_MIN_LENGTH}
+            maxLength={REVIEW_REASON_MAX_LENGTH}
+            required
+            rows={3}
+          />
+        </FlightField>
+      </div>
+    </FlightSection>
+  );
+}
+
+function saveBlocked(m: Model) {
+  return (
+    !m.aircraft ||
+    (!!m.props.initial && (!m.online || !m.connected)) ||
+    // Administrators stay enabled; their override field is required.
+    (m.grounded && !canOverrideDispatch(m.s))
+  );
+}
+
+async function submitFlight(m: Model, data: FormData) {
+  const { initial, onDone } = m.props;
+  const input = flightInput(m, data);
+  if (m.phase === "preflight") {
+    if (!m.props.onSavePreflight)
+      throw new Error("Preflight saving is unavailable.");
+    await m.props.onSavePreflight(input);
+    onDone();
+    return;
+  }
+  if (initial)
+    await m.backend!.review(
+      initial.uuid,
+      m.decision,
+      value(data, "reason"),
+      input,
+    );
+  else
+    await m.enqueue({
+      kind: "flight",
+      uuid: m.props.operationUuid ?? crypto.randomUUID(),
+      authorId: m.s.user.id,
+      baseVersion: m.opening.version,
+      input,
+      dispatchOverrideReason: m.grounded ? m.override.trim() : undefined,
+    });
+  onDone();
+}
+
+function flightInput(m: Model, data: FormData): FlightInput {
+  const { initial, plan } = m.props;
+  const { defaults, fluids } = m;
+  return {
     ...fluids,
+    // Legacy shutdown oil levels stay on the stored flight a review
+    // corrects; a new flight never records one.
     oil: initial
       ? fluids.oil
       : fluids.oil?.map(({ end: _legacyEnd, ...reading }) => reading),
     checklistRun: defaults?.checklistRun,
-    aircraftUuid: selected,
+    aircraftUuid: m.selected,
     flightPlanUuid: defaults?.flightPlanUuid ?? plan?.uuid,
     pilotId: value(data, "pilot"),
     copilotId: value(data, "copilot") || undefined,
     startTime: new Date(value(data, "time")).toISOString(),
-    hobbsOn: parseHours(value(data, "hobbs")),
-    tachOn: parseHours(value(data, "tach")),
-    cyclicHobbsOn: showCyclic ? parseHours(value(data, "cyclic")) : undefined,
-    flightTimeLogOn: showFlightTimeLog
-      ? parseHours(value(data, "flightTimeLog"))
-      : undefined,
-    engineStarts: engines.length
-      ? engines.map((engine) => ({
-          engine,
-          durationSeconds: optionalNumber(data, `${engine}-start-duration`),
-          maxEgtC: optionalNumber(data, `${engine}-start-egt`),
-        }))
-      : undefined,
-    landingSurface: showLandingSurface
+    ...meterReadings(m, data),
+    engineStarts: engineStarts(m.engines, data),
+    landingSurface: m.showLandingSurface
       ? (value(data, "landingSurface") as FlightInput["landingSurface"]) || null
       : undefined,
     landings: Number(value(data, "landings")),
-    cycles: aircraft?.turbine
+    cycles: m.aircraft?.turbine
       ? Number(value(data, "cycles"))
       : (initial?.cycles ?? 0),
     origin: value(data, "origin"),
@@ -171,575 +756,160 @@ export function FlightForm({
     flightRules: value(data, "rules") as FlightInput["flightRules"],
     remarks: value(data, "remarks"),
     discrepancy: initial?.discrepancy ?? value(data, "discrepancy"),
-  });
-
-  // Presentation only: the ending readings typed so far drive the live
-  // flight-time strip. The inputs stay uncontrolled form fields, keyed by the
-  // aircraft so that switching aircraft clears them; readings typed for
-  // another aircraft are ignored.
-  const defaultEnd = (seconds: number | undefined) =>
-    seconds === undefined ? "" : String(seconds / 3600);
-  const [typedEnds, setTypedEnds] = useState<{
-    aircraftUuid: string;
-    ends: Record<MeterInput, string>;
-  }>();
-  const typed =
-    typedEnds?.aircraftUuid === selected ? typedEnds.ends : undefined;
-  const ends: Record<MeterInput, string> = typed ?? {
-    hobbs: defaultEnd(defaults?.hobbsOn),
-    tach: defaultEnd(defaults?.tachOn),
-    cyclic: defaultEnd(defaults?.cyclicHobbsOn),
-    flightTimeLog: defaultEnd(defaults?.flightTimeLogOn),
   };
-  const meterName = (meter: MeterInput) =>
-    meter === "hobbs"
-      ? aircraft?.helicopter
-        ? "run-time hourmeter"
-        : "Hobbs"
-      : meter === "tach"
-        ? "tach"
-        : meter === "cyclic"
-          ? "Collective hourmeter"
-          : "Flight time log";
-  const startFor = (meter: MeterInput) =>
-    meter === "hobbs"
-      ? startingHobbs
-      : meter === "tach"
-        ? startingTach
-        : meter === "cyclic"
-          ? startingCyclic
-          : startingFlightTimeLog;
-  const meterHintId = useId();
-  const verifyHint =
-    phase === "preflight"
-      ? "Closing readings will be entered when you end the flight."
-      : undefined;
-  const meterNotes = [
-    !online &&
-      "Starting readings are from the last synchronized aircraft record.",
-    initial?.status === "review" &&
-      "Starting readings are provisional until the flight sequence is reviewed.",
-  ].filter(Boolean);
-  const endInput = (name: MeterInput, defaultSeconds: number | undefined) => (
+}
+
+function meterReadings(m: Model, data: FormData) {
+  const hours = (meter: MeterInput) => parseHours(value(data, meter));
+  return {
+    hobbsOn: hours("hobbs"),
+    tachOn: hours("tach"),
+    cyclicHobbsOn: m.showCyclic ? hours("cyclic") : undefined,
+    flightTimeLogOn: m.showFlightTimeLog ? hours("flightTimeLog") : undefined,
+  };
+}
+
+function engineStarts(engines: Model["engines"], data: FormData) {
+  if (!engines.length) return undefined;
+  return engines.map((engine) => ({
+    engine,
+    durationSeconds: optionalNumber(data, `${engine}-start-duration`),
+    maxEgtC: optionalNumber(data, `${engine}-start-egt`),
+  }));
+}
+
+function optionalNumber(data: FormData, name: string) {
+  return value(data, name) === "" ? undefined : Number(value(data, name));
+}
+
+// The aircraft select's own change also bubbles to the form while the
+// previous aircraft's readings are still in it, so they are tagged with it.
+function typedEndsFrom(aircraftUuid: string, data: FormData): TypedEnds {
+  return {
+    aircraftUuid,
+    ends: Object.fromEntries(
+      METER_INPUTS.map((name) => [name, value(data, name)]),
+    ) as Record<MeterInput, string>,
+  };
+}
+
+function openingReadingsOf(aircrafts: Snapshot["aircraft"]) {
+  return Object.fromEntries(
+    aircrafts.map((a) => [
+      a.uuid,
+      {
+        version: a.version,
+        hobbs: a.currentHobbs,
+        tach: a.currentTach,
+        cyclic: a.currentCyclicHobbs,
+        flightTimeLog: a.currentFlightTimeLog,
+      },
+    ]),
+  );
+}
+
+function startingReadings(
+  initial: Flight | undefined,
+  opening: Draft["opening"] | undefined,
+): Record<MeterInput, number | undefined> {
+  if (initial)
+    return {
+      hobbs: initial.hobbsOff,
+      tach: initial.tachOff,
+      cyclic: initial.cyclicHobbsOff,
+      flightTimeLog: initial.flightTimeLogOff,
+    };
+  return {
+    hobbs: opening?.hobbs,
+    tach: opening?.tach,
+    cyclic: opening?.cyclic,
+    flightTimeLog: opening?.flightTimeLog,
+  };
+}
+
+function defaultEnds(defaults: Draft["defaults"]) {
+  const hours = (seconds: number | undefined) =>
+    seconds === undefined ? "" : String(seconds / HOUR_SECONDS);
+  return Object.fromEntries(
+    METER_INPUTS.map((meter) => [
+      meter,
+      hours(defaults?.[METER_FIELDS[meter]]),
+    ]),
+  ) as Record<MeterInput, string>;
+}
+
+function endInput(m: Model, meter: MeterInput) {
+  const seconds = m.defaults?.[METER_FIELDS[meter]];
+  return (
     <input
-      name={name}
+      name={meter}
       type="number"
       min="0"
       step="0.1"
       placeholder="0.0"
       inputMode="decimal"
-      defaultValue={defaultSeconds === undefined ? "" : defaultSeconds / 3600}
-      required={requiredMeter === name}
+      defaultValue={seconds === undefined ? "" : seconds / HOUR_SECONDS}
+      required={m.requiredMeter === meter}
     />
   );
-  const routeCount =
-    4 + (showLandingSurface ? 1 : 0) + (aircraft?.turbine ? 1 : 0);
-  const rulesDefault =
-    defaults?.flightRules ??
-    (plan ? (["I", "Y"].includes(plan.flightRules) ? "IFR" : "VFR") : "VFR");
-  const rulesId = useId();
-  const discrepancyShown = !initial && phase !== "preflight";
-  return (
-    <div className="flight-form">
-      <AsyncForm
-        submitLabel={
-          phase === "preflight"
-            ? "Save preflight & start flight"
-            : phase === "end"
-              ? "End flight & save"
-              : initial
-                ? "Record review"
-                : "Save flight"
-        }
-        disabled={
-          !aircraft ||
-          (!!initial && (!online || !connected)) ||
-          // Administrators stay enabled; their override field is required.
-          (grounded && !canOverrideDispatch(s!))
-        }
-        onClose={onCancel}
-        onChange={(data) =>
-          // The aircraft select's own change also bubbles here, while the
-          // previous aircraft's readings are still in the form: tag them.
-          setTypedEnds({
-            aircraftUuid: selected,
-            ends: Object.fromEntries(
-              meterInputs.map((name) => [name, value(data, name)]),
-            ) as Record<MeterInput, string>,
-          })
-        }
-        onSubmit={async (data) => {
-          const input = inputFrom(data);
-          if (phase === "preflight") {
-            if (!onSavePreflight)
-              throw new Error("Preflight saving is unavailable.");
-            await onSavePreflight(input);
-            onDone();
-            return;
-          }
-          if (initial)
-            await backend!.review(
-              initial.uuid,
-              decision,
-              value(data, "reason"),
-              input,
-            );
-          else
-            await enqueue({
-              kind: "flight",
-              uuid: operationUuid ?? crypto.randomUUID(),
-              authorId: s!.user.id,
-              baseVersion: opening.version,
-              input,
-              dispatchOverrideReason: grounded ? override.trim() : undefined,
-            });
-          onDone();
-        }}
-      >
-        {gated && (
-          <DispatchGate
-            aircraftUuid={aircraft.uuid}
-            reason={override}
-            onReason={setOverride}
-          />
-        )}
-        {plan && (
-          <NoticeBar icon={ClipboardText} className="flight-notice">
-            {phase === "preflight"
-              ? "Flight plan details are filled in below. Confirm the actual departure date and pilot, then enter preflight fuel and oil. The saved preflight remains linked to this plan."
-              : "Verify the actual date, pilot, cycles, landings, and ending meter readings below. Saving links this entry to the plan; planned duration is never used as an actual meter reading."}
-          </NoticeBar>
-        )}
-        {initial && (
-          <NoticeBar
-            tone={initial.reviewReason ? "warn" : "blue"}
-            icon={initial.reviewReason ? Warning : NotePencil}
-            className="flight-notice"
-          >
-            {initial.reviewReason ??
-              "Corrections preserve original values in the audit history and recheck subsequent flights."}
-          </NoticeBar>
-        )}
-        <FlightSection title="Aircraft & crew">
-          <div className="flight-grid">
-            <FlightField label="Aircraft">
-              <select
-                value={selected}
-                disabled={!!initial || !!plan || !!openingOverride}
-                onChange={(e) => {
-                  setSelected(e.target.value);
-                  setFluids({});
-                }}
-              >
-                {aircrafts.map((a) => (
-                  <option key={a.uuid} value={a.uuid}>
-                    {a.registration} · {a.model}
-                  </option>
-                ))}
-              </select>
-            </FlightField>
-            <FlightField label="Pilot">
-              <select
-                name="pilot"
-                defaultValue={defaults?.pilotId ?? s!.user.id}
-                required
-              >
-                {s!.members
-                  .filter(
-                    (m) =>
-                      (m.active && m.availableAsPilot !== false) ||
-                      m.id === defaults?.pilotId,
-                  )
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-              </select>
-            </FlightField>
-            <FlightField
-              label={
-                <>
-                  Copilot <span className="flight-optional">(optional)</span>
-                </>
-              }
-            >
-              <select name="copilot" defaultValue={defaults?.copilotId ?? ""}>
-                <option value="">No copilot</option>
-                {s!.members
-                  .filter(
-                    (m) =>
-                      (m.active && m.availableAsPilot !== false) ||
-                      m.id === defaults?.copilotId,
-                  )
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-              </select>
-            </FlightField>
-            <FlightField
-              label="Flight date & time"
-              hint={`Your timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}. Stored with a UTC timestamp.`}
-            >
-              <input
-                name="time"
-                type="datetime-local"
-                defaultValue={localTime(
-                  defaults?.startTime ??
-                    plan?.departureAt ??
-                    new Date().toISOString(),
-                )}
-                required
-              />
-            </FlightField>
-          </div>
-        </FlightSection>
-        <FlightSection
-          title="Meter readings"
-          hint="Read-only starts · verify against the aircraft meters"
-          hintId={meterHintId}
-        >
-          {readingsChanged && (
-            <NoticeBar
-              tone="warn"
-              icon={ArrowsClockwise}
-              role="status"
-              className="flight-notice"
-            >
-              Aircraft readings changed while this form was open. Close and
-              reopen it to verify the latest readings, or save this entry for
-              review.
-            </NoticeBar>
-          )}
-          <div className="flight-meters" key={selected}>
-            <MeterBox
-              startLabel={
-                aircraft?.helicopter
-                  ? "Starting run-time hourmeter"
-                  : "Starting Hobbs"
-              }
-              startSrSuffix=" (hours)"
-              startValue={readout(startingHobbs)}
-              describedBy={meterHintId}
-              endLabel={`Ending ${aircraft?.helicopter ? "run-time hourmeter" : "Hobbs"} ${requiredMeter === "hobbs" ? "*" : ""}`}
-              endInput={
-                phase !== "preflight"
-                  ? endInput("hobbs", defaults?.hobbsOn)
-                  : undefined
-              }
-            />
-            <MeterBox
-              startLabel="Starting tach"
-              startSrSuffix=" (hours)"
-              startValue={readout(startingTach)}
-              describedBy={meterHintId}
-              endLabel={`Ending tach ${requiredMeter === "tach" ? "*" : ""}`}
-              endInput={
-                phase !== "preflight"
-                  ? endInput("tach", defaults?.tachOn)
-                  : undefined
-              }
-            />
-            {showCyclic && (
-              <MeterBox
-                startLabel="Starting Collective hourmeter"
-                startSrSuffix=" (hours)"
-                startValue={readout(startingCyclic)}
-                describedBy={meterHintId}
-                endLabel="Ending Collective hourmeter"
-                endSrSuffix=" (hours)"
-                endInput={
-                  phase !== "preflight"
-                    ? endInput("cyclic", defaults?.cyclicHobbsOn)
-                    : undefined
-                }
-              />
-            )}
-            {showFlightTimeLog && (
-              <MeterBox
-                startLabel="Starting Flight time log"
-                startSrSuffix=" (hours)"
-                startValue={readout(startingFlightTimeLog)}
-                describedBy={meterHintId}
-                endLabel="Ending Flight time log"
-                endSrSuffix=" (hours)"
-                endInput={
-                  phase !== "preflight"
-                    ? endInput("flightTimeLog", defaults?.flightTimeLogOn)
-                    : undefined
-                }
-                hint={
-                  phase !== "preflight"
-                    ? "Enter the updated cumulative takeoff-to-touchdown hours from the flight-time log. Verify the start against the aircraft flight-time log."
-                    : "Read-only · verify against the aircraft flight-time log"
-                }
-              />
-            )}
-          </div>
-          {phase !== "preflight" && requiredMeter && (
-            <FlightTimeStrip
-              meterLabel={
-                requiredMeter === "hobbs" && aircraft?.helicopter
-                  ? "Run-time hourmeter"
-                  : requiredMeter === "tach"
-                    ? "Tach"
-                    : meterName(requiredMeter)
-              }
-              entryName={meterName(requiredMeter)}
-              startSeconds={startFor(requiredMeter)}
-              endHours={ends[requiredMeter]}
-            />
-          )}
-          {(verifyHint || meterNotes.length > 0) && (
-            <p className="flight-note">
-              {[verifyHint, ...meterNotes].filter(Boolean).join(" ")}
-            </p>
-          )}
-        </FlightSection>
-        {phase !== "preflight" && !!engines.length && (
-          <FlightSection
-            key={`${selected}:${engines.join(",")}`}
-            title="Engine starts"
-          >
-            <div className="flight-engines">
-              {engines.map((engine) => {
-                const reading = defaults?.engineStarts?.find(
-                  (s) => s.engine === engine,
-                );
-                const prefix =
-                  engine === "single"
-                    ? ""
-                    : engine === "left"
-                      ? "Left "
-                      : "Right ";
-                return (
-                  <div className="flight-grid flight-engine" key={engine}>
-                    <FlightField
-                      label={`${prefix}Start time (seconds)`}
-                      hint="Engine-start duration"
-                    >
-                      <input
-                        name={`${engine}-start-duration`}
-                        type="number"
-                        min="0"
-                        step="any"
-                        inputMode="decimal"
-                        defaultValue={reading?.durationSeconds ?? ""}
-                      />
-                    </FlightField>
-                    <FlightField label={`${prefix}Start max EGT (°C)`}>
-                      <input
-                        name={`${engine}-start-egt`}
-                        type="number"
-                        step="any"
-                        inputMode="decimal"
-                        defaultValue={reading?.maxEgtC ?? ""}
-                      />
-                    </FlightField>
-                  </div>
-                );
-              })}
-            </div>
-          </FlightSection>
-        )}
-        <FlightSection title="Route & operation">
-          <div className="flight-grid">
-            <FlightField label="Origin">
-              <input
-                name="origin"
-                defaultValue={defaults?.origin ?? plan?.origin}
-                maxLength={100}
-                placeholder="Code or location; optional"
-              />
-            </FlightField>
-            <FlightField label="Destination">
-              <input
-                name="destination"
-                defaultValue={defaults?.destination ?? plan?.destination}
-                maxLength={100}
-                placeholder="Code or location; optional"
-              />
-            </FlightField>
-            <FlightField label="Landings">
-              <input
-                name="landings"
-                type="number"
-                min="0"
-                max="1000"
-                step="1"
-                inputMode="numeric"
-                defaultValue={defaults?.landings ?? plan?.landings ?? 1}
-                required
-              />
-            </FlightField>
-            {showLandingSurface && (
-              <FlightField label="Landing surface">
-                <select
-                  key={selected}
-                  name="landingSurface"
-                  defaultValue={defaults?.landingSurface ?? ""}
-                >
-                  <option value="">Select Sea or Land</option>
-                  <option value="sea">Sea</option>
-                  <option value="land">Land</option>
-                </select>
-              </FlightField>
-            )}
-            {aircraft?.turbine && (
-              <FlightField
-                label={
-                  aircraft?.model.trim().toUpperCase() === "R66"
-                    ? "Engine start cycles"
-                    : "Cycles"
-                }
-              >
-                <input
-                  key={selected}
-                  name="cycles"
-                  type="number"
-                  min="0"
-                  max="1000"
-                  step="1"
-                  inputMode="numeric"
-                  defaultValue={defaults?.cycles ?? plan?.cycles ?? 1}
-                  required
-                />
-              </FlightField>
-            )}
-            <div
-              className="flight-field flight-rules"
-              role="radiogroup"
-              aria-labelledby={rulesId}
-            >
-              <span className="flight-field-label" id={rulesId}>
-                Flight rules
-              </span>
-              <div className="flight-segmented">
-                {(["VFR", "IFR"] as const).map((rule) => (
-                  <label key={rule}>
-                    <input
-                      type="radio"
-                      name="rules"
-                      value={rule}
-                      defaultChecked={rulesDefault === rule}
-                    />
-                    <span>{rule}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <FlightField label="Type of operation" wide={routeCount % 2 === 0}>
-              <select
-                name="operation"
-                defaultValue={defaults?.operation ?? "Mission"}
-              >
-                {[
-                  "Gov medical",
-                  "Mission medical",
-                  "Mission",
-                  "Commercial",
-                  "Private",
-                ].map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
-            </FlightField>
-          </div>
-        </FlightSection>
-        <FlightFluidFields
-          inventoryReadOnly={!!initial}
-          fluids={fluids}
-          onChange={setFluids}
-          twin={aircraft?.twin}
-          phase={
-            phase === "preflight"
-              ? "preflight"
-              : phase === "end"
-                ? "shutdown"
-                : "all"
-          }
-          required={phase === "preflight" || !!prefill?.checklistRun}
-        />
-        <FlightSection
-          title={discrepancyShown ? "Remarks & discrepancy" : "Remarks"}
-        >
-          <div className="flight-stack">
-            <FlightField label="Remarks">
-              <textarea
-                name="remarks"
-                defaultValue={
-                  defaults?.remarks ??
-                  (plan ? `Planned route: ${plan.route}` : "")
-                }
-                maxLength={5000}
-                rows={2}
-                placeholder="Anything worth noting about this flight"
-              />
-            </FlightField>
-            {discrepancyShown && (
-              <FlightField
-                className="flight-discrepancy"
-                label={
-                  <>
-                    <Warning
-                      size={16}
-                      weight="bold"
-                      className="flight-discrepancy-icon"
-                      aria-hidden="true"
-                    />
-                    Discrepancy
-                  </>
-                }
-                hint="This creates a linked open report, even if the flight requires review."
-              >
-                <textarea
-                  name="discrepancy"
-                  maxLength={5000}
-                  rows={2}
-                  placeholder="Any problem observed during this flight?"
-                />
-              </FlightField>
-            )}
-          </div>
-        </FlightSection>
-        {initial && (
-          <FlightSection title="Review decision">
-            <div className="flight-stack">
-              <FlightField label="Review decision">
-                <select
-                  value={decision}
-                  onChange={(e) =>
-                    setDecision(e.target.value as "accept" | "reject")
-                  }
-                >
-                  <option value="accept">
-                    Accept corrected entry and recalculate totals
-                  </option>
-                  <option value="reject">
-                    Reject entry and exclude it from totals
-                  </option>
-                </select>
-              </FlightField>
-              <FlightField label="Explanation">
-                <textarea
-                  name="reason"
-                  minLength={5}
-                  maxLength={5000}
-                  required
-                  rows={3}
-                />
-              </FlightField>
-            </div>
-          </FlightSection>
-        )}
-        {!online && phase !== "preflight" && (
-          <NoticeBar tone="neutral" icon={CloudSlash} className="flight-notice">
-            Offline · This entry will be saved on this device until it can sync.
-          </NoticeBar>
-        )}
-      </AsyncForm>
-    </div>
-  );
+}
+
+function meterNotes(m: Model) {
+  return [
+    m.phase === "preflight" &&
+      "Closing readings will be entered when you end the flight.",
+    !m.online &&
+      "Starting readings are from the last synchronized aircraft record.",
+    m.props.initial?.status === "review" &&
+      "Starting readings are provisional until the flight sequence is reviewed.",
+  ].filter(Boolean);
+}
+
+function meterName(meter: MeterInput, helicopter: boolean | undefined) {
+  if (meter === "hobbs") return helicopter ? "run-time hourmeter" : "Hobbs";
+  if (meter === "tach") return "tach";
+  return meter === "cyclic" ? "Collective hourmeter" : "Flight time log";
+}
+
+function stripLabel(meter: MeterInput, helicopter: boolean | undefined) {
+  if (meter === "hobbs" && helicopter) return "Run-time hourmeter";
+  return meter === "tach" ? "Tach" : meterName(meter, helicopter);
+}
+
+function memberOptions(s: Snapshot, keep: string | undefined) {
+  return s.members
+    .filter((m) => isAvailablePilot(m) || m.id === keep)
+    .map((m) => (
+      <option key={m.id} value={m.id}>
+        {m.name}
+      </option>
+    ));
+}
+
+function rulesDefault(saved: string | undefined, plan: FlightPlan | undefined) {
+  if (saved !== undefined) return saved;
+  return plan ? plannedFlightRules(plan) : "VFR";
+}
+
+function cyclesLabel(model: string) {
+  return logsEngineStartsAsCycles(model) ? "Engine start cycles" : "Cycles";
+}
+
+function submitLabel(phase: "all" | "preflight" | "end", review: boolean) {
+  if (phase === "preflight") return "Save preflight & start flight";
+  if (phase === "end") return "End flight & save";
+  return review ? "Record review" : "Save flight";
+}
+
+function localTime(iso: string) {
+  const date = new Date(iso);
+  return new Date(date.getTime() - date.getTimezoneOffset() * MINUTE_MS)
+    .toISOString()
+    .slice(0, 16);
+}
+
+function readout(seconds: number | undefined) {
+  return seconds === undefined
+    ? "Unknown"
+    : (seconds / HOUR_SECONDS).toFixed(1);
 }

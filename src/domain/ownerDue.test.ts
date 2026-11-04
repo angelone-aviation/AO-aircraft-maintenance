@@ -2,14 +2,16 @@
  * Responsibility: Pins the owner's due list: what it includes, its order, the
  *   remaining text and the counts.
  * Layer: Test. Vitest over pure domain functions.
- * Dependencies: src/domain/ownerDue.ts, airworthiness.ts, model.ts;
- *   src/data/demo.ts (seed).
+ * Dependencies: src/domain/ownerDue.ts, airworthiness.ts, model.ts,
+ *   rejection.ts; src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  */
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask } from "./airworthiness";
 import { totalSeconds, type Snapshot } from "./model";
 import { ownerDueCounts, ownerDueItems } from "./ownerDue";
+import { Rejection } from "./rejection";
 
 const today = "2026-10-30";
 
@@ -141,6 +143,107 @@ it("lists an inspection whose component is missing for review", () => {
     remaining: "Review",
   });
 });
+
+it("judges ADs on its date, not the clock's", () => {
+  const { s, a } = owned();
+  const status = (on: string) =>
+    ownerDueItems(s, a, on).find((x) => x.uuid === "due")?.status;
+  expect(status("2026-09-01")).toBe("ok");
+  expect(status(today)).toBe("due-soon");
+  expect(status("2026-11-06")).toBe("overdue");
+});
+
+it("measures component inspections on its date, not the clock's", () => {
+  const { s, a } = owned();
+  // On 2099-06-01 the fixture's ADs are overdue and would sort first.
+  s.airworthiness = [];
+  const gear = Object.assign(structuredClone(s.management![0]), {
+    uuid: "gear",
+    usageMeter: undefined,
+    installedDate: "2099-01-01",
+  });
+  s.management!.push(gear);
+  s.inspections = [
+    {
+      uuid: "gear-check",
+      aircraftUuid: a.uuid,
+      reference: "gear-check",
+      description: "",
+      componentUuid: "gear",
+      dueSeconds: 360000 + 36000,
+    },
+  ];
+  expect(ownerDueItems(s, a, "2099-06-01")[0]).toMatchObject({
+    uuid: "gear-check",
+    remaining: "10.0 h",
+  });
+});
+
+describe("on the due fleet", () => {
+  // Characterizes current behaviour: the rows, text, order and states the
+  // owner portal shows, including an AD on a removed component, which the
+  // Dispatch gate leaves out.
+  it("lists every row of each aircraft, worst first, in record order", () => {
+    const { s, a, b } = dueFleet();
+    const rows = (x: typeof a) =>
+      ownerDueItems(s, x, DUE_FLEET_TODAY).map((i) =>
+        Object.values(i).join(" | "),
+      );
+    expect(rows(a)).toStrictEqual(N206_ROWS);
+    expect(rows(b)).toStrictEqual([
+      "i-other | Inspection | i-other | overdue | -302 days",
+      "r-b | Component | Type b-pump S/N SN-b-pump · r-b limit | overdue | 0.0 h",
+      "ad-b | AD | AD AD-B · Subject | overdue | Months remaining (approx.): 81.9 overdue",
+    ]);
+  });
+
+  it("returns rows with exactly the five owner fields", () => {
+    const { s, a } = dueFleet();
+    for (const row of ownerDueItems(s, a, DUE_FLEET_TODAY))
+      expect(Object.keys(row)).toStrictEqual([
+        "uuid",
+        "kind",
+        "label",
+        "status",
+        "remaining",
+      ]);
+  });
+
+  it("throws for the aircraft whose inspection needs a collective meter", () => {
+    const { s, c } = dueFleet();
+    expect(() => ownerDueItems(s, c, DUE_FLEET_TODAY)).toThrow(
+      new Rejection(
+        "Collective component tracking requires a helicopter collective hourmeter reading.",
+      ),
+    );
+  });
+});
+
+const N206_ROWS = [
+  "i-late | Inspection | i-late | overdue | -29 days",
+  "i-zero | Inspection | i-zero | overdue | 0.0 h",
+  "r-now | Component | Type pump S/N SN-pump · r-now limit | overdue | 0.0 h",
+  "ad-overdue | AD | AD AD-OVERDUE · Subject | overdue | Months remaining (approx.): 81.9 overdue",
+  "i-today | Inspection | i-today | due-soon | 0 days",
+  "i-cycles | Inspection | i-cycles | due-soon | 5 cycles",
+  "r-today | Component | Type pump S/N SN-pump · r-today limit | due-soon | 0 days",
+  "ad-soon | AD | AD AD-SOON · Subject | due-soon | Hours remaining: 10.0",
+  "i-none | Inspection | No limit set | unknown | Not set",
+  "i-missing | Inspection | i-missing | unknown | Review",
+  "r-early | Component | Type early S/N SN-early · r-early limit | unknown | Review",
+  "r-landing | Component | Type pump S/N SN-pump · r-landing limit | unknown | Not set",
+  "r-gear-tso | Component | Type gear S/N SN-gear · r-gear-tso limit | unknown | Not set",
+  "ad-review | AD | AD AD-REVIEW · Subject | unknown | Months remaining (approx.): 38.1",
+  "ad-removed | AD | AD AD-REMOVED · Subject | unknown | Hours remaining: 200.0",
+  "ad-unset | AD | AD AD-UNSET · Subject | unknown | Not set",
+  "ad-counter | AD | AD AD-COUNTER · Subject | unknown | Hours remaining: Counter unavailable",
+  "i-ok | Inspection | i-ok | ok | 214 days",
+  "i-exempt | Inspection | i-exempt | ok | Not set",
+  "i-gear | Inspection | i-gear | ok | 110.0 h",
+  "r-tracked | Component | Type pump S/N SN-pump · r-tracked limit | ok | 500 cycles",
+  "ad-complied | AD | AD AD-COMPLIED · Subject | ok | Not set",
+  "ad-pcw | AD | AD AD-PCW · Subject | ok | Not set",
+];
 
 it("still throws when a component inspection's usage cannot be computed", () => {
   // Characterizes current behaviour: only a missing component is listed for

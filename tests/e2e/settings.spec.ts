@@ -1,106 +1,35 @@
+/**
+ * Responsibility: Pins Settings: the sections each role sees, the panels moved
+ *   out of Administration, Costs and Vendors working from Settings, deep
+ *   links, the theme and alert digest, and reaching it on a phone.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ *
+ * Settings changes how the app behaves; Administration decides who can do
+ * what.
+ */
 import { test, expect, type Page } from "@playwright/test";
 
-// Settings changes how the app behaves; Administration decides who can do
-// what. These tests pin which sections each role sees and that the panels
-// moved out of Administration, Costs and Vendors still work from Settings.
-
-const sections = ["My account", "This device", "Flight Program", "System"];
-
-async function openDemo(page: Page, path = "/settings") {
-  await page.addInitScript(() =>
-    sessionStorage.setItem("angel-one-demo", "true"),
-  );
-  await page.goto(path);
-}
-
-async function expectSettings(page: Page) {
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Settings", exact: true }),
-  ).toBeVisible();
-}
-
-/** Replaces the demo user's access with one permission group in the demo
- * program (stored snapshot, like the pilot-view and admin-layout specs). */
-async function becomeMember(
-  page: Page,
-  group: {
-    id: string;
-    name: string;
-    permissions: string[];
-    programAdmin?: boolean;
-  },
-) {
-  // Edit the stored snapshot only once the app has started, or its own
-  // startup save can land after this edit and undo it.
-  await expect(page.getByRole("main")).toBeVisible();
-  await page.evaluate(
-    (g) =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("angel-one-v1");
-        request.onsuccess = () => {
-          const db = request.result,
-            tx = db.transaction("snapshots", "readwrite"),
-            cursor = tx.objectStore("snapshots").openCursor();
-          cursor.onsuccess = () => {
-            const entry = cursor.result;
-            if (!entry) return;
-            const s = entry.value;
-            s.groups.push({
-              ...g,
-              programUuid: "demo-program",
-              aircraftIds: [],
-            });
-            s.user = {
-              ...s.user,
-              isAdmin: false,
-              groupIds: [g.id],
-              activeProgramUuid: "demo-program",
-            };
-            s.members = s.members.map((m: { id: string }) =>
-              m.id === s.user.id ? s.user : m,
-            );
-            entry.update(s);
-            entry.continue();
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      }),
-    group,
-  );
-  await page.reload();
-}
-
-const programAdmin = {
+const SECTIONS = ["My account", "This device", "Flight Program", "System"];
+const PHONE = { width: 390, height: 844 };
+const PROGRAM_ADMIN: MemberGroup = {
   id: "program-admin",
   name: "Program administrators",
   permissions: ["read"],
   programAdmin: true,
 };
-const pilot = {
+const PILOT: MemberGroup = {
   id: "pilot-only",
   name: "Pilots",
   permissions: ["read", "flight", "discrepancy"],
 };
-
-async function expectSections(page: Page, visible: string[]) {
-  const jump = page.getByRole("navigation", { name: "Settings sections" });
-  await expect(jump.getByRole("link")).toHaveText(visible);
-  for (const name of sections)
-    await expect(
-      page.getByRole("heading", { level: 2, name, exact: true }),
-    ).toHaveCount(visible.includes(name) ? 1 : 0);
-}
 
 test("system administrators see all four sections with the moved panels", async ({
   page,
 }) => {
   await openDemo(page);
   await expectSettings(page);
-  await expectSections(page, sections);
+  await expectSections(page, SECTIONS);
   for (const heading of [
     "Certifications",
     "Alert email",
@@ -171,7 +100,7 @@ test("program administrators get Flight Program settings but not System", async 
 }) => {
   await openDemo(page);
   await expectSettings(page);
-  await becomeMember(page, programAdmin);
+  await becomeMember(page, PROGRAM_ADMIN);
   await expectSettings(page);
   await expectSections(page, ["My account", "This device", "Flight Program"]);
   for (const heading of [
@@ -217,7 +146,7 @@ test("program administrators get Flight Program settings but not System", async 
 test("pilots see only My account and This device", async ({ page }) => {
   await openDemo(page);
   await expectSettings(page);
-  await becomeMember(page, pilot);
+  await becomeMember(page, PILOT);
   await expectSettings(page);
   await expectSections(page, ["My account", "This device"]);
   for (const heading of ["Default labor rate", "Aircraft Spruce account"])
@@ -416,7 +345,7 @@ test("moved-panel notices and deep links open the right Settings section", async
 
   // Program administrators reach the same section from their Administration.
   await page.goto("/admin");
-  await becomeMember(page, programAdmin);
+  await becomeMember(page, PROGRAM_ADMIN);
   await expect(
     page.getByText(
       "Program details, labor rate and exports are in Settings → Flight Program.",
@@ -438,7 +367,7 @@ test("moved-panel notices and deep links open the right Settings section", async
 test("phones reach Settings from the More sheet, not the tab bar", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize(PHONE);
   await openDemo(page, "/");
   await expect(
     page.getByRole("navigation", { name: "Primary" }).getByRole("link", {
@@ -453,11 +382,83 @@ test("phones reach Settings from the More sheet, not the tab bar", async ({
   await expectSettings(page);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390);
+  ).toBeLessThanOrEqual(PHONE.width);
   const box = await page
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("link", { name: "System", exact: true })
     .boundingBox();
   expect(box).not.toBeNull();
-  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(PHONE.width);
 });
+
+interface MemberGroup {
+  id: string;
+  name: string;
+  permissions: string[];
+  programAdmin?: boolean;
+}
+
+async function openDemo(page: Page, path = "/settings") {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto(path);
+}
+
+async function expectSettings(page: Page) {
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Settings", exact: true }),
+  ).toBeVisible();
+}
+
+/** Asserts the section list and level-2 headings show exactly `visible`. */
+async function expectSections(page: Page, visible: string[]) {
+  const jump = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(jump.getByRole("link")).toHaveText(visible);
+  for (const name of SECTIONS)
+    await expect(
+      page.getByRole("heading", { level: 2, name, exact: true }),
+    ).toHaveCount(visible.includes(name) ? 1 : 0);
+}
+
+/**
+ * Replaces the demo user's access with one permission group in the demo
+ * program, in every stored snapshot, then reloads.
+ */
+async function becomeMember(page: Page, group: MemberGroup) {
+  // Edit the stored snapshot only once the app has started, or its own
+  // startup save can land after this edit and undo it.
+  await expect(page.getByRole("main")).toBeVisible();
+  await page.evaluate(async (g) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value;
+      s.groups.push({ ...g, programUuid: "demo-program", aircraftIds: [] });
+      s.user = {
+        ...s.user,
+        isAdmin: false,
+        groupIds: [g.id],
+        activeProgramUuid: "demo-program",
+      };
+      s.members = s.members.map((m: { id: string }) =>
+        m.id === s.user.id ? s.user : m,
+      );
+      entry.update(s);
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, group);
+  await page.reload();
+}

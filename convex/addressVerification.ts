@@ -1,11 +1,12 @@
 /**
  * Responsibility: Geoapify address lookups: who may run them, their daily
- *   allowances, and the system administrator's saved API key.
+ *   allowances, the request itself, and the system administrator's saved API
+ *   key.
  * Layer: Server. A public query and actions over internal steps; the key is
  *   stored sealed and never returned.
  * Dependencies: convex/access, convex/programContext, convex/secrets,
- *   convex/secretsMigration, convex/rateLimits, convex/userErrors,
- *   src/domain/model, src/domain/programs, src/domain/addressLookup, zod.
+ *   convex/secretsMigration, convex/rateLimits, src/domain/model,
+ *   src/domain/programs, src/domain/addressLookup, zod.
  */
 import {
   action,
@@ -22,17 +23,20 @@ import { checkContext } from "./programContext";
 import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
 import { consume, DAY } from "./rateLimits";
-import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import { programPermission } from "../src/domain/programs";
 import {
+  ADDRESS_SUGGESTION_LIMIT,
   addressLookupSchema,
-  fetchAddressSuggestions,
+  parseAddressSuggestions,
+  type AddressLookupInput,
   type AddressSuggestion,
 } from "../src/domain/addressLookup";
 import { z } from "zod";
 
 const SECOND = 1000;
+const GEOAPIFY_SEARCH_URL = "https://api.geoapify.com/v1/geocode/search";
+const LOOKUP_TIMEOUT_MS = 15 * SECOND;
 
 // Geoapify's free plan gives a key 3,000 credits a day; the rest is headroom
 // for setKey's checks (docs/address-verification.md).
@@ -142,10 +146,15 @@ export const reserve = internalMutation({
  *
  * @param payload - JSON of the address, as `addressLookupSchema`.
  * @param programUuid - The caller's active Flight Program.
- * @returns Suggestions, as `fetchAddressSuggestions`.
+ * @returns Suggestions, as `parseAddressSuggestions` reads Geoapify's reply.
  * @throws {z.ZodError} For an invalid address.
- * @throws As {@link reserve}, `openStoredSecret` and
- *   `fetchAddressSuggestions` (its Rejections as ConvexError).
+ * @throws {ConvexError} As {@link reserve}; "Address lookup could not
+ *   connect. …" on a network failure or after 15 seconds; "The Geoapify key
+ *   was not accepted. …" on HTTP 401 or 403; "Address lookup quota reached.
+ *   …" on 429; "The address service is unavailable. …" on any other HTTP
+ *   error; "The address service returned an unexpected response. …". None
+ *   quotes the key.
+ * @throws As `openStoredSecret`.
  */
 export const lookup = action({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -158,7 +167,7 @@ export const lookup = action({
     const key = stored
       ? await openStoredSecret(ctx, stored, GEOAPIFY_SECRET)
       : process.env.GEOAPIFY_API_KEY || "";
-    return exposeRejections(fetchAddressSuggestions(input, key));
+    return fetchAddressSuggestions(input, key);
   },
 });
 
@@ -210,8 +219,8 @@ export const commit = internalMutation({
  * @param version - The settings version from {@link status}.
  * @throws {ConvexError} "Administrator permission required.", before the key
  *   is read.
- * @throws As `sealSecret`, `fetchAddressSuggestions` (its Rejections as
- *   ConvexError) and {@link commit}.
+ * @throws {ConvexError} The lookup failures of {@link lookup}.
+ * @throws As `sealSecret` and {@link commit}.
  * @throws {z.ZodError} For a malformed key.
  */
 export const setKey = action({
@@ -220,7 +229,7 @@ export const setKey = action({
     await ctx.runQuery(internal.addressVerification.authorizeAdmin, {});
     const key = keySchema.parse(args.key);
     const sealed = await sealSecret(key, GEOAPIFY_SECRET);
-    await exposeRejections(fetchAddressSuggestions(KEY_CHECK_ADDRESS, key));
+    await fetchAddressSuggestions(KEY_CHECK_ADDRESS, key);
     await ctx.runMutation(internal.addressVerification.commit, {
       key: sealed,
       version: args.version,
@@ -228,6 +237,68 @@ export const setKey = action({
     return null;
   },
 });
+
+// The one request to Geoapify, made on the server so the browser never holds
+// the key.
+async function fetchAddressSuggestions(
+  input: AddressLookupInput,
+  key: string,
+): Promise<AddressSuggestion[]> {
+  const url = buildSearchUrl(addressLookupSchema.parse(input), key);
+  const response = await requestSuggestions(url);
+  if (!response.ok) throw new ConvexError(describeHttpFailure(response.status));
+  try {
+    return parseAddressSuggestions(await response.json());
+  } catch {
+    // A reply that is not JSON, or not shaped like Geoapify's, is the
+    // service's failure, not the address's.
+    throw new ConvexError(
+      "The address service returned an unexpected response. Your address has not been changed.",
+    );
+  }
+}
+
+function buildSearchUrl(input: AddressLookupInput, key: string): URL {
+  const url = new URL(GEOAPIFY_SEARCH_URL);
+  url.search = new URLSearchParams({
+    text: [
+      input.street,
+      input.city,
+      input.region,
+      input.postalCode,
+      input.country,
+    ]
+      .filter(Boolean)
+      .join(", "),
+    format: "json",
+    limit: String(ADDRESS_SUGGESTION_LIMIT),
+    lang: "en",
+    bias: "countrycode:none",
+    apiKey: key,
+  }).toString();
+  return url;
+}
+
+async function requestSuggestions(url: URL): Promise<Response> {
+  try {
+    return await fetch(url, {
+      signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+      redirect: "error",
+    });
+  } catch {
+    // The network error can quote the request URL, and with it the key.
+    throw new ConvexError(
+      "Address lookup could not connect. Your address has not been changed.",
+    );
+  }
+}
+
+function describeHttpFailure(status: number): string {
+  if (status === 401 || status === 403)
+    return "The Geoapify key was not accepted. Ask a system administrator to check Address verification in Settings → System.";
+  if (status === 429) return "Address lookup quota reached. Try again later.";
+  return "The address service is unavailable. Your address has not been changed.";
+}
 
 function assertMayLookUp(s: Snapshot): void {
   if (s.user.isAdmin || programPermission(s, "admin")) return;

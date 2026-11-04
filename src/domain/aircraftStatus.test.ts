@@ -3,9 +3,11 @@
  *   the dispatch gate's refusals and overrides.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/aircraftStatus.ts, ./airworthiness, ./components,
- *   ./deferrals, ./model, ./rejection, src/data/demo.ts (seed).
+ *   ./deferrals, ./model, ./rejection, src/data/demo.ts (seed),
+ *   tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
+import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import {
   aircraftStatus,
@@ -456,5 +458,78 @@ describe("dispatch gate", () => {
   it("computes a lenient server date no later than any local date", () => {
     const now = Date.parse("2026-10-30T06:00:00Z");
     expect(earliestLocalDate(now)).toBe("2026-10-29");
+  });
+});
+
+describe("aircraft status on the due fleet", () => {
+  const reasons = (
+    s: Snapshot,
+    aircraftUuid: string,
+    today = DUE_FLEET_TODAY,
+  ) => {
+    const status = aircraftStatus(s, aircraftUuid, today);
+    return [
+      status.level,
+      ...status.reasons.map((r) => `${r.kind} ${r.entityUuid}: ${r.label}`),
+    ];
+  };
+  const without = (s: Snapshot, uuids: string[]) => {
+    const kept = <T extends { uuid: string }>(xs: T[] = []) =>
+      xs.filter((x) => !uuids.includes(x.uuid));
+    s.inspections = kept(s.inspections);
+    s.management = kept(s.management);
+    s.airworthiness = kept(s.airworthiness);
+  };
+
+  // Characterizes current behaviour: ADs on a removed component and ADs that
+  // no longer apply (even awaiting review) add no reason; components list in
+  // component order, so r-early follows the pump's limits.
+  it("gives the grounding reasons of each aircraft in order", () => {
+    const { s, a, b, c } = dueFleet();
+    const early = s.management!.find((r) => r.uuid === "early")!;
+    Object.assign(early, { installedSeconds: totalSeconds(a) });
+    const limit = s.management!.find((r) => r.uuid === "r-early")!;
+    Object.assign(limit, { dueSeconds: 100 * 3600 });
+    expect(reasons(s, a.uuid)).toStrictEqual([
+      "grounded",
+      "inspection i-late: i-late overdue",
+      "inspection i-zero: i-zero overdue",
+      "component r-now: Type pump S/N SN-pump: r-now limit due now",
+      "component r-early: Type early S/N SN-early: r-early limit due now",
+      "ad ad-overdue: AD AD-OVERDUE overdue",
+    ]);
+    expect(reasons(s, b.uuid)).toStrictEqual([
+      "grounded",
+      "inspection i-other: i-other overdue",
+      "component r-b: Type b-pump S/N SN-b-pump: r-b limit due now",
+      "ad ad-b: AD AD-B overdue",
+    ]);
+    expect(reasons(s, c.uuid)).toStrictEqual(["airworthy"]);
+  });
+
+  it("gives the due-soon reasons once nothing grounds", () => {
+    const { s, a } = dueFleet();
+    without(s, ["i-late", "i-zero", "r-now", "ad-overdue"]);
+    expect(reasons(s, a.uuid)).toStrictEqual([
+      "due-soon",
+      "inspection i-today: i-today due soon",
+      "inspection i-cycles: i-cycles due soon",
+      "component r-today: Type pump S/N SN-pump: r-today limit due soon",
+      "ad ad-soon: AD AD-SOON due soon",
+    ]);
+  });
+
+  it("measures a component inspection's counters on the status date", () => {
+    const { s, a } = dueFleet();
+    s.inspections = s.inspections.filter((i) => i.uuid === "i-gear");
+    s.inspections[0].dueSeconds = 100 * 3600;
+    s.management = s.management!.filter((r) => r.kind === "component");
+    s.airworthiness = [];
+    const gear = s.management.find((r) => r.uuid === "gear")!;
+    Object.assign(gear, { installedDate: "2099-01-01" });
+    expect(reasons(s, a.uuid, "2099-06-01")).toStrictEqual([
+      "grounded",
+      "inspection i-gear: i-gear overdue",
+    ]);
   });
 });

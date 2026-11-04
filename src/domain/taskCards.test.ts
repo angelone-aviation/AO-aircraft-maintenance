@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins job cards: steps, links, parts, signoffs and the
+ *   43.7 inspector certificate, every refusal in order, and numbering.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/taskCards.ts, ./workOrders, ./programs,
+ *   ./rejection; tests/fixtures (task cards, work orders); src/data/demo.ts.
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
@@ -10,10 +17,13 @@ import {
   applyTaskLink,
   taskCardFieldsSchema,
   type TaskCard,
+  type TaskCardCommand,
   type TaskCardFields,
+  type TaskLink,
 } from "./taskCards";
 import { saveWorkOrder, workOrderProgress } from "./workOrders";
 import { scopedSnapshot } from "./programs";
+import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-01T12:00:00Z");
 const edit = (t: TaskCard, patch: Partial<TaskCardFields> = {}) => ({
   action: "save" as const,
@@ -737,4 +747,357 @@ describe("inspection signoff certificate (the 43.7 signer)", () => {
     };
     expect(inspect(s, t).inspectionSignoff?.userId).toBe("inspector");
   });
+});
+
+const create = (patch: Partial<TaskCardFields> = {}) => {
+  const c = taskCardCommand();
+  return { ...c, fields: { ...c.fields, ...patch } };
+};
+const sign = (
+  t: TaskCard,
+  kind: "technician" | "inspection" | "step",
+  stepUuid?: string,
+): TaskCardCommand => ({
+  action: "sign",
+  uuid: t.uuid,
+  version: t.version,
+  kind,
+  stepUuid,
+});
+const link = (
+  t: TaskCard,
+  action: "link" | "unlink",
+  kind: TaskLink["kind"],
+  uuid: string,
+): TaskCardCommand => ({
+  action,
+  uuid: t.uuid,
+  version: t.version,
+  link: { kind, uuid },
+});
+const stockPart = (patch: object = {}) => ({
+  uuid: crypto.randomUUID(),
+  source: "stock" as const,
+  stockUuid: "seal",
+  locationUuid: "shelf",
+  partNumber: "SEAL-1",
+  description: "Seal",
+  quantity: 1,
+  serialLot: "",
+  removedComponent: "",
+  installedComponent: "",
+  ...patch,
+});
+
+/**
+ * A shelf with a seal lot and an expired lot, an open work order, and job
+ * cards: a draft, a ready card, an inspection template and one on the order.
+ */
+function cardWorld() {
+  const s = demoSnapshot();
+  const a = s.aircraft[0];
+  const stock = (uuid: string, expirationDate?: string) => ({
+    kind: "stock" as const,
+    uuid,
+    version: 1,
+    programUuid: a.programUuid,
+    partNumber: "SEAL-1",
+    description: "Seal",
+    alternates: "",
+    category: "part" as const,
+    condition: "new" as const,
+    locationUuid: "shelf",
+    quantity: 5,
+    minimum: 1,
+    expirationDate,
+  });
+  s.management = [
+    {
+      kind: "location",
+      uuid: "shelf",
+      version: 1,
+      programUuid: a.programUuid,
+      name: "Shelf",
+      address: "",
+      contact: "",
+    },
+    stock("seal"),
+    stock("expired", "2026-01-01"),
+  ];
+  const order = saveWorkOrder(s, workOrderCommand(), now);
+  const card = saveTaskCard(s, create({ sourceKey: "csv:1" }), now);
+  const ready = saveTaskCard(
+    s,
+    edit(saveTaskCard(s, create(), now), { status: "ready" }),
+    now,
+  );
+  const template = saveTaskCard(
+    s,
+    create({ inspectionUuid: s.inspections[0].uuid }),
+    now,
+  );
+  const onOrder = saveTaskCard(s, create({ workOrderUuid: order.uuid }), now);
+  const stored = (t: TaskCard) => s.taskCards!.find((x) => x.uuid === t.uuid)!;
+  return { s, a, order, card, ready, template, onOrder, stored };
+}
+type CardWorld = ReturnType<typeof cardWorld>;
+
+// Each refusal, triggered alone; saveTaskCard checks them in this order.
+const cardRefusals: [string, (w: CardWorld) => TaskCardCommand][] = [
+  [
+    "Archived job cards are read-only.",
+    (w) => {
+      w.s.archivedTaskCards = [w.card];
+      return edit(w.card);
+    },
+  ],
+  [
+    "Job card maintenance access denied.",
+    () => create({ aircraftUuid: "nowhere" }),
+  ],
+  [
+    "A job card cannot change aircraft.",
+    (w) => edit(w.card, { aircraftUuid: w.s.aircraft[1].uuid }),
+  ],
+  [
+    "Job card changed. Reopen it before saving.",
+    (w) => ({ ...edit(w.card), version: 9 }),
+  ],
+  [
+    "This job card or its work order is closed.",
+    (w) => {
+      w.stored(w.card).status = "canceled";
+      return edit(w.card);
+    },
+  ],
+  [
+    "Sign the work-order job card, not the reusable template.",
+    (w) => sign(w.template, "technician"),
+  ],
+  ["Make the task ready before signing.", (w) => sign(w.card, "technician")],
+  [
+    "Select a required step signoff point.",
+    (w) => sign(w.ready, "step", crypto.randomUUID()),
+  ],
+  [
+    "Record a result for every step.",
+    (w) => sign(w.ready, "step", w.ready.steps[0].uuid),
+  ],
+  [
+    "Record required step measurements and units.",
+    (w) => {
+      w.stored(w.ready).steps[0].result = "Done";
+      return sign(w.ready, "step", w.ready.steps[0].uuid);
+    },
+  ],
+  [
+    "A step measurement is outside its limits.",
+    (w) => {
+      Object.assign(w.stored(w.ready).steps[0], {
+        result: "Done",
+        measurement: 25,
+      });
+      return sign(w.ready, "step", w.ready.steps[0].uuid);
+    },
+  ],
+  [
+    "Enter a completion date (today or earlier) before signing or completing this job card.",
+    (w) => sign(w.ready, "technician"),
+  ],
+  [
+    "Technician signoff is required before inspection signoff.",
+    (w) => {
+      w.stored(w.ready).completionDate = "2026-10-01";
+      return sign(w.ready, "inspection");
+    },
+  ],
+  [
+    "Inspection signoff must be by a different person than the technician.",
+    (w) => {
+      Object.assign(w.stored(w.ready), {
+        completionDate: "2026-10-01",
+        technicianSignoff: { userId: w.s.user.id, name: "Me", at: now },
+      });
+      return sign(w.ready, "inspection");
+    },
+  ],
+  [
+    "Add your certificate type and number under My certifications to sign as inspector.",
+    (w) => {
+      Object.assign(w.stored(w.ready), {
+        completionDate: "2026-10-01",
+        technicianSignoff: { userId: "technician", name: "Tech", at: now },
+      });
+      return sign(w.ready, "inspection");
+    },
+  ],
+  [
+    "Only unsigned job cards without recorded work or a work-order link can be removed from this item.",
+    (w) => link(w.card, "unlink", "inspection", "missing"),
+  ],
+  [
+    "This job card is already linked to another record of this type.",
+    (w) => link(w.template, "link", "inspection", w.s.inspections[1].uuid),
+  ],
+  [
+    "Reusable templates contain instructions only. Record work results and completion on a work-order job card.",
+    (w) => create({ inspectionUuid: w.s.inspections[0].uuid, status: "ready" }),
+  ],
+  [
+    "Keep the reusable job card template attached to its source. Add the source to a work order to create an independent job card.",
+    (w) => edit(w.template, { workOrderUuid: w.order.uuid }),
+  ],
+  [
+    "A work-order copy must keep its source links.",
+    (w) => {
+      w.stored(w.onOrder).sourceTaskCardUuid = w.template.uuid;
+      return edit(w.onOrder, { componentUuid: "engine" });
+    },
+  ],
+  [
+    "A saved work order link cannot be changed.",
+    (w) => edit(w.onOrder, { workOrderUuid: "" }),
+  ],
+  [
+    "Select an open work order for this aircraft.",
+    () => create({ workOrderUuid: "missing" }),
+  ],
+  [
+    "Inspection is unavailable for this aircraft.",
+    () => create({ inspectionUuid: "missing" }),
+  ],
+  [
+    "Discrepancy is unavailable for this aircraft.",
+    () => create({ discrepancyUuid: "missing" }),
+  ],
+  [
+    "Component must be installed on this aircraft.",
+    () => create({ componentUuid: "missing" }),
+  ],
+  [
+    "Service requirement must belong to the linked component.",
+    () => create({ requirementUuid: "missing" }),
+  ],
+  [
+    "Non-stock parts cannot link to inventory.",
+    () => create({ partsUsed: [stockPart({ source: "non-stock" })] }),
+  ],
+  [
+    "Select a stock item and its inventory location in this aircraft’s Flight Program.",
+    () => create({ partsUsed: [stockPart({ locationUuid: "missing" })] }),
+  ],
+  [
+    "The part number must match the selected stock item.",
+    () => create({ partsUsed: [stockPart({ partNumber: "OTHER" })] }),
+  ],
+  [
+    "SEAL-1 expired on 2026-01-01. Expired stock cannot be linked as a part used; choose another lot or record a non-stock item.",
+    () => create({ partsUsed: [stockPart({ stockUuid: "expired" })] }),
+  ],
+  [
+    "This CSV task has already been imported for this parent record.",
+    () => create({ sourceKey: "csv:1" }),
+  ],
+  ["New job cards must start as draft.", () => create({ status: "ready" })],
+  [
+    "Completion date cannot be in the future.",
+    (w) => edit(w.card, { completionDate: "2026-12-01" }),
+  ],
+  [
+    "Step and parts identifiers must be unique.",
+    (w) => edit(w.card, { steps: [w.card.steps[0], w.card.steps[0]] }),
+  ],
+  [
+    "A step lower limit cannot exceed its upper limit.",
+    (w) => edit(w.card, { steps: [{ ...w.card.steps[0], lowerLimit: 30 }] }),
+  ],
+  [
+    "Prerequisites must be unique.",
+    (w) => edit(w.card, { prerequisiteUuids: [w.ready.uuid, w.ready.uuid] }),
+  ],
+  [
+    "Prerequisites must be templates for a template, or job cards on the same work order.",
+    (w) => edit(w.onOrder, { prerequisiteUuids: [w.ready.uuid] }),
+  ],
+  [
+    "Prerequisites must be other job cards for this aircraft.",
+    (w) => edit(w.card, { prerequisiteUuids: [w.card.uuid] }),
+  ],
+  [
+    "Task prerequisites cannot form a cycle.",
+    (w) => {
+      w.stored(w.ready).prerequisiteUuids = [w.card.uuid];
+      return edit(w.card, { prerequisiteUuids: [w.ready.uuid] });
+    },
+  ],
+  [
+    "Card number already exists in this program.",
+    (w) => create({ cardNumber: w.card.cardNumber.toUpperCase() }),
+  ],
+  [
+    "Enter a completion date (today or earlier) before signing or completing this job card.\nSave the work, then record technician signoff before completing.",
+    (w) => edit(w.ready, { status: "completed" }),
+  ],
+  [
+    "Save the work, then record technician signoff before completing.\nRecord the required inspection signoff before completing.",
+    (w) =>
+      edit(w.ready, {
+        status: "completed",
+        completionDate: "2026-10-01",
+        inspectionSignoffRequired: true,
+      }),
+  ],
+];
+
+describe("job card refusals", () => {
+  it.each(cardRefusals)("refuses: %s", (message, build) => {
+    const w = cardWorld();
+    const command = build(w);
+    const before = JSON.stringify(w.s);
+    let error: unknown;
+    try {
+      saveTaskCard(w.s, command, now);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Rejection);
+    expect((error as Error).message).toBe(message);
+    expect(JSON.stringify(w.s)).toBe(before);
+  });
+});
+
+describe("job card results", () => {
+  it("numbers new cards in turn, and a step signoff clears the card's signoffs", () => {
+    const w = cardWorld();
+    expect(
+      [w.card, w.ready, w.template, w.onOrder].map((t) => t.cardNumber),
+    ).toEqual(["TC-2026-0001", "TC-2026-0002", "TC-2026-0003", "TC-2026-0004"]);
+    const step = w.ready.steps[0];
+    Object.assign(w.stored(w.ready), {
+      steps: [{ ...step, result: "Done", measurement: 15 }],
+      technicianSignoff: { userId: "technician", name: "Tech", at: 1 },
+    });
+    const signed = saveTaskCard(w.s, sign(w.ready, "step", step.uuid), now);
+    expect(signed).toMatchObject({
+      version: w.ready.version + 1,
+      updatedAt: now,
+      technicianSignoff: null,
+      inspectionSignoff: null,
+      stepSignoffs: {
+        [step.uuid]: { userId: w.s.user.id, name: w.s.user.name, at: now },
+      },
+    });
+  });
+});
+
+it("accepts a completion date that is today anywhere, and refuses the day after", () => {
+  const w = cardWorld();
+  // At noon UTC on 1 October it is already 2 October in UTC+14.
+  w.stored(w.ready).completionDate = "2026-10-02";
+  expect(
+    saveTaskCard(w.s, sign(w.ready, "technician"), now).technicianSignoff,
+  ).not.toBeNull();
+  expect(() =>
+    saveTaskCard(w.s, edit(w.card, { completionDate: "2026-10-03" }), now),
+  ).toThrow("Completion date cannot be in the future.");
 });

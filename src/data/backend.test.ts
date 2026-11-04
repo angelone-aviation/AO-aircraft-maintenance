@@ -1,14 +1,16 @@
 /**
  * Responsibility: Pins the Convex adapter: the server function each Backend
- *   method calls, as a query, mutation or action, and the arguments it sends.
+ *   method calls, as a query, mutation or action, and the arguments it sends,
+ *   request ids included.
  * Layer: Test. Vitest suite over a recording fake client; never shipped.
  * Dependencies: src/data/backend.ts, src/data/store.ts, src/data/demo.ts,
- *   convex/react, convex/server.
+ *   src/domain/checklists.ts (types), convex/react, convex/server.
  */
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConvexReactClient } from "convex/react";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { convexBackend, type Backend } from "./backend";
+import type { ChecklistCommand } from "../domain/checklists";
 import { useWorkspace } from "./store";
 import { demoSnapshot } from "./demo";
 
@@ -41,6 +43,9 @@ const UPLOAD_URL = "https://upload.example/manual";
 const COMMAND = { kind: "test-command" };
 const PAYLOAD = JSON.stringify(COMMAND);
 const opaque = <T>(): T => COMMAND as unknown as T;
+const CHOSEN_REQUEST_UUID = "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b";
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const file = () =>
   new File([FILE_TEXT], "evidence.pdf", { type: "application/pdf" });
@@ -50,6 +55,12 @@ const fileArgs = () => ({
   bytes: FILE_TEXT,
 });
 const command = () => ({ payload: PAYLOAD, programUuid: ACTIVE_PROGRAM });
+// The id crypto.randomUUID gives in these tests, for commands that carry one.
+const REQUEST_UUID = "8d7c6b5a-4e3f-4a1b-9c8d-7e6f5a4b3c2d";
+const requested = () => ({
+  payload: JSON.stringify({ ...COMMAND, requestUuid: REQUEST_UUID }),
+  programUuid: ACTIVE_PROGRAM,
+});
 
 const SPRUCE_LOGIN = {
   programUuid: OTHER_PROGRAM,
@@ -71,10 +82,12 @@ beforeEach(() => {
   useWorkspace.setState({
     snapshot: { ...demoSnapshot(), activeProgramUuid: ACTIVE_PROGRAM },
   });
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(REQUEST_UUID);
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   useWorkspace.setState({ snapshot: null });
 });
 
@@ -257,14 +270,14 @@ const CASES: Case[] = [
     call: (b) => b.saveAD(opaque()),
     kind: "mutation",
     name: "airworthiness:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "saveChecklist",
     call: (b) => b.saveChecklist(opaque()),
     kind: "mutation",
     name: "checklists:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "importTaskCsv",
@@ -462,7 +475,7 @@ const CASES: Case[] = [
     call: (b) => b.engineTrend("aircraft-1", opaque()),
     kind: "mutation",
     name: "engineTrends:execute",
-    args: { aircraftUuid: "aircraft-1", ...command() },
+    args: { aircraftUuid: "aircraft-1", ...requested() },
   },
   {
     method: "fleet",
@@ -477,13 +490,6 @@ const CASES: Case[] = [
     kind: "mutation",
     name: "management:execute",
     args: command(),
-  },
-  {
-    method: "createAircraft",
-    call: (b) => b.createAircraft(opaque()),
-    kind: "mutation",
-    name: "admin:createAircraft",
-    args: { aircraft: COMMAND, programUuid: ACTIVE_PROGRAM },
   },
   {
     method: "uploadAircraftPhoto",
@@ -826,6 +832,27 @@ it("reads the active Flight Program when each method is called", async () => {
     undefined,
     OTHER_PROGRAM,
   ]);
+});
+
+it("sends a new request id with each AD, checklist and engine-trend command", async () => {
+  vi.restoreAllMocks();
+  const { backend, calls } = recordingBackend();
+  await backend.saveAD(opaque());
+  await backend.saveAD(opaque());
+  await backend.saveChecklist(opaque());
+  await backend.engineTrend("aircraft-1", opaque());
+  const ids = calls.map(
+    (c) => JSON.parse(c.args.payload as string).requestUuid,
+  );
+  expect(new Set(ids).size).toBe(4);
+  for (const id of ids) expect(id).toMatch(UUID);
+});
+
+it("keeps a request id the caller chose for its intent", async () => {
+  const chosen = { ...COMMAND, requestUuid: CHOSEN_REQUEST_UUID };
+  const { backend, calls } = recordingBackend();
+  await backend.saveChecklist(chosen as unknown as ChecklistCommand);
+  expect(calls[0].args.payload).toBe(JSON.stringify(chosen));
 });
 
 it("uploadManual posts the PDF and finishes where it began", async () => {

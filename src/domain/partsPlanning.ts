@@ -2,8 +2,8 @@
  * Responsibility: Parts demand for maintenance planning: which open work
  *   needs parts, and how many of each are still to get.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/partsRequests.ts, airworthiness.ts, management.ts,
- *   maintenance.ts, components.ts; model.ts and requiredParts.ts (types).
+ * Dependencies: src/domain/partsRequests.ts, dueItems.ts; model.ts,
+ *   airworthiness.ts and requiredParts.ts (types).
  *
  * Once any parts request names a record, the requests replace the parts
  * recorded on the record itself.
@@ -16,27 +16,20 @@ import {
   type RequestLine,
   type RequestSource,
 } from "./partsRequests";
-import { adTaskStatus, adAircraftUuid } from "./airworthiness";
+import type { AD } from "./airworthiness";
+import {
+  dueItems,
+  type AdDue,
+  type InspectionDue,
+  type MaintenanceDue,
+  type RequirementDue,
+} from "./dueItems";
 import type { Snapshot } from "./model";
 import type { RequiredPart } from "./requiredParts";
-import { inspectionCounters } from "./management";
-import { inspectionStatus } from "./maintenance";
-import { requirementStatus } from "./components";
 
-const DUE_REQUIREMENT_STATUSES: readonly string[] = [
-  "Past due",
-  "Due now",
-  "Due soon",
-];
 const PLANNED_AD_APPLICABILITY: readonly string[] = [
   "Applicable",
   "Previously Complied With (PCW)",
-];
-const UPCOMING_AD_TASK_STATUSES: readonly string[] = [
-  "Overdue",
-  "Due soon",
-  "Due not set",
-  "Counter unavailable",
 ];
 // Kinds planned from their own record, so a request for one adds nothing.
 const RECORD_SOURCE_KINDS: readonly string[] = [
@@ -64,14 +57,16 @@ export interface PartsPlan {
  * @param s - The snapshot.
  * @returns Unarchived inspections, open discrepancies, installed components'
  *   requirements, applicable AD tasks not complied with, then other parts
- *   requests (manual work items, job cards, movements) once per source.
+ *   requests (manual work items, job cards, movements) once per source. An
+ *   inspection or requirement whose status cannot be computed is left out.
  */
 export function maintenancePartsPlans(s: Snapshot): PartsPlan[] {
+  const due = dueItems(s);
   return planOtherRequests(s, [
-    ...planInspections(s),
+    ...planInspections(s, due),
     ...planDiscrepancies(s),
-    ...planComponentRequirements(s),
-    ...planAirworthiness(s),
+    ...planComponentRequirements(s, due),
+    ...planAirworthiness(s, due),
   ]);
 }
 
@@ -100,25 +95,22 @@ export function requestedParts(
     .filter((p) => p.quantity > 0);
 }
 
-function planInspections(s: Snapshot): PartsPlan[] {
-  return s.inspections.flatMap((i) => {
-    const a = s.aircraft.find((a) => a.uuid === i.aircraftUuid);
+// As in the alerts, an inspection or requirement whose status cannot be
+// computed is skipped: the plans have no place to show it for review, and
+// one such item must not hide the rest.
+function planInspections(s: Snapshot, due: MaintenanceDue[]): PartsPlan[] {
+  return due.flatMap((item) => {
+    if (item.kind !== "inspection" || !item.due) return [];
+    const i = item.inspection;
     const parts =
       requestedParts(s, recordSource("inspection", i.uuid)) ?? i.requiredParts;
-    if (!a || i.archived || !parts?.length) return [];
-    const { status } = inspectionStatus(
-      i,
-      a,
-      undefined,
-      inspectionCounters(i, a, s.management),
-    );
-    const upcoming = status === "overdue" || status === "due-soon";
+    if (!parts?.length) return [];
     return [
       {
         uuid: i.uuid,
-        aircraftUuid: a.uuid,
+        aircraftUuid: item.aircraft.uuid,
         label: i.reference,
-        upcoming,
+        upcoming: isUpcoming(item),
         parts,
       },
     ];
@@ -142,26 +134,25 @@ function planDiscrepancies(s: Snapshot): PartsPlan[] {
   });
 }
 
-function planComponentRequirements(s: Snapshot): PartsPlan[] {
-  return (s.management ?? []).flatMap((r) => {
-    if (r.kind !== "componentRequirement") return [];
+// Components held in inventory are not planned.
+function planComponentRequirements(
+  s: Snapshot,
+  due: MaintenanceDue[],
+): PartsPlan[] {
+  return due.flatMap((item) => {
+    if (item.kind !== "componentRequirement" || !item.aircraft || !item.due)
+      return [];
+    const { requirement: r, component: c } = item;
     const parts =
       requestedParts(s, recordSource("componentRequirement", r.uuid)) ??
       r.requiredParts;
     if (!parts?.length) return [];
-    const c = s.management?.find(
-      (c) => c.kind === "component" && c.uuid === r.componentUuid,
-    );
-    if (!c || c.kind !== "component" || !c.installed) return [];
-    const a = s.aircraft.find((a) => a.uuid === c.aircraftUuid);
-    if (!a) return [];
-    const { status } = requirementStatus(r, c, a);
     return [
       {
         uuid: r.uuid,
-        aircraftUuid: a.uuid,
+        aircraftUuid: item.aircraft.uuid,
         label: `${c.componentType}: ${r.description}`,
-        upcoming: DUE_REQUIREMENT_STATUSES.includes(status),
+        upcoming: isUpcoming(item),
         parts,
       },
     ];
@@ -169,28 +160,38 @@ function planComponentRequirements(s: Snapshot): PartsPlan[] {
 }
 
 // AD tasks have no parts of their own; only parts requests plan them.
-function planAirworthiness(s: Snapshot): PartsPlan[] {
-  return (s.airworthiness ?? []).flatMap((ad) => {
-    if (
-      ad.reviewRequired ||
-      !PLANNED_AD_APPLICABILITY.includes(ad.applicability)
-    )
-      return [];
-    return ad.tasks.flatMap((task) => {
-      const parts = requestedParts(s, recordSource("airworthiness", task.uuid));
-      const status = adTaskStatus(s, ad, task);
-      if (!parts?.length || status === "Complied") return [];
-      return [
-        {
-          uuid: task.uuid,
-          aircraftUuid: adAircraftUuid(s, ad),
-          label: `AD ${ad.source.number}: ${task.description}`,
-          upcoming: UPCOMING_AD_TASK_STATUSES.includes(status),
-          parts,
-        },
-      ];
-    });
+function planAirworthiness(s: Snapshot, due: MaintenanceDue[]): PartsPlan[] {
+  return due.flatMap((item) =>
+    item.kind === "ad" && isPlanned(item.ad) ? planADTasks(s, item) : [],
+  );
+}
+
+// An action with no due point or no readable counter needs attention now,
+// as one coming due does.
+function planADTasks(s: Snapshot, item: AdDue): PartsPlan[] {
+  return item.tasks.flatMap(({ task, status, level }) => {
+    const parts = requestedParts(s, recordSource("airworthiness", task.uuid));
+    if (!parts?.length || status === "Complied") return [];
+    return [
+      {
+        uuid: task.uuid,
+        aircraftUuid: item.aircraftUuid,
+        label: `AD ${item.ad.source.number}: ${task.description}`,
+        upcoming: level !== "ok",
+        parts,
+      },
+    ];
   });
+}
+
+function isPlanned(ad: AD) {
+  return (
+    !ad.reviewRequired && PLANNED_AD_APPLICABILITY.includes(ad.applicability)
+  );
+}
+
+function isUpcoming(item: InspectionDue | RequirementDue) {
+  return item.level === "overdue" || item.level === "due-soon";
 }
 
 // Other work (manual work items, job cards, component movements) adds demand

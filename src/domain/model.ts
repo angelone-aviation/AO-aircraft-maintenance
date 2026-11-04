@@ -1,28 +1,36 @@
 /**
  * Responsibility: The core records (aircraft, flights, discrepancies,
  *   inspections, audit entries), the Snapshot read model, the offline outbox
- *   entry, and the shared permission, meter, hours and local-date rules.
+ *   entry, and the shared permission, pilot, counter, hours and local-date
+ *   rules.
  * Layer: Domain. Pure types, zod schemas and functions; no I/O, no React.
- * Dependencies: zod; src/domain/flightFluids.ts, flightChecklistSchema.ts and
- *   programs.ts; types from the feature modules.
+ * Dependencies: zod; src/domain/flightFluids.ts, flightChecklistSchema.ts,
+ *   programs.ts, readings.ts and rejection.ts; types from the feature modules.
  */
 import { fuelSchema, oilSchema } from "./flightFluids";
 import { checklistFlightSchema } from "./flightChecklistSchema";
 import { ownsActive, activeProgram, groupCoversAircraft } from "./programs";
+import { meterReadingSchema } from "./readings";
+import { Rejection } from "./rejection";
 import { z } from "zod";
+
+/** Typed hours as stored seconds; see ./readings, kept here for importers. */
+export { parseHours } from "./readings";
 
 const HOUR_SECONDS = 3600;
 const HOUR_MS = HOUR_SECONDS * 1000;
-
-// Meters read in tenths of an hour; readings are stored in seconds.
-const TENTH_HOUR_SECONDS = 360;
 
 // The world's time zones run from UTC-12 to UTC+14.
 const FURTHEST_BEHIND_UTC_MS = 12 * HOUR_MS;
 const FURTHEST_AHEAD_OF_UTC_MS = 14 * HOUR_MS;
 
-const NOTE_MAX_LENGTH = 5000;
-const FLIGHT_COUNT_MAX = 1000;
+/** The longest flight remark, flight discrepancy or problem report. */
+export const NOTE_MAX_LENGTH = 5000;
+/** The most landings, or cycles, that one flight may log. */
+export const FLIGHT_COUNT_MAX = 1000;
+/** The longest origin or destination a flight may name. */
+export const FLIGHT_PLACE_MAX_LENGTH = 100;
+const ENGINE_START_CYCLES_MODEL = "R66";
 
 /**
  * The permissions a group grants over its aircraft (GLOSSARY "Permission
@@ -115,15 +123,6 @@ export interface Aircraft {
   latestFlightAt?: string;
   operationalStatus: "unknown" | "airworthy" | "maintenance" | "grounded";
 }
-const meterSchema = z
-  .number()
-  .int()
-  .nonnegative()
-  .refine(
-    (n) => n % TENTH_HOUR_SECONDS === 0,
-    "Meter readings must use tenths of an hour",
-  );
-
 /** One engine start logged with a flight: the engine, duration and peak EGT. */
 export const engineStartSchema = z.object({
   engine: z.enum(["single", "left", "right"]),
@@ -161,14 +160,14 @@ export const flightInputSchema = z.object({
   pilotId: z.string().min(1),
   copilotId: z.string().optional(),
   startTime: z.iso.datetime({ offset: true }),
-  hobbsOn: meterSchema.optional(),
-  tachOn: meterSchema.optional(),
-  cyclicHobbsOn: meterSchema.optional(),
-  flightTimeLogOn: meterSchema.optional(),
+  hobbsOn: meterReadingSchema.optional(),
+  tachOn: meterReadingSchema.optional(),
+  cyclicHobbsOn: meterReadingSchema.optional(),
+  flightTimeLogOn: meterReadingSchema.optional(),
   landings: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
   cycles: z.number().int().nonnegative().max(FLIGHT_COUNT_MAX),
-  origin: z.string().max(100),
-  destination: z.string().max(100),
+  origin: z.string().max(FLIGHT_PLACE_MAX_LENGTH),
+  destination: z.string().max(FLIGHT_PLACE_MAX_LENGTH),
   operation: z.enum([
     "Gov medical",
     "Mission medical",
@@ -410,6 +409,19 @@ export function can(
 }
 
 /**
+ * Whether a member may be chosen as a flight's pilot or copilot: active, and
+ * not marked unavailable for the active Flight Program.
+ *
+ * @param m - The member.
+ * @returns True when available.
+ */
+export function isAvailablePilot(
+  m: Pick<Member, "active" | "availableAsPilot">,
+): boolean {
+  return m.active && m.availableAsPilot !== false;
+}
+
+/**
  * Whether a cached snapshot may open: an active user, signed in no later than
  * `now` and less than {@link OFFLINE_WINDOW} before it.
  *
@@ -434,11 +446,21 @@ export const aircraftMeterLabels = {
 };
 
 /**
+ * Whether an aircraft model's cycles are its engine starts, as on the R66.
+ *
+ * @param model - The aircraft model, matched trimmed and ignoring case.
+ * @returns True for the R66.
+ */
+export function logsEngineStartsAsCycles(model: string): boolean {
+  return model.trim().toUpperCase() === ENGINE_START_CYCLES_MODEL;
+}
+
+/**
  * The aircraft's current reading on its own meter.
  *
  * @param aircraft - The aircraft's meter and current readings.
  * @returns The reading in seconds.
- * @throws {Error} "Flight time log reading is required." or "Collective
+ * @throws {Rejection} "Flight time log reading is required." or "Collective
  *   hourmeter reading is required." when that meter has no reading.
  */
 export function aircraftMeterReading(
@@ -453,12 +475,12 @@ export function aircraftMeterReading(
 ): number {
   if (aircraft.meter === "flightTimeLog") {
     if (aircraft.currentFlightTimeLog === undefined)
-      throw new Error("Flight time log reading is required.");
+      throw new Rejection("Flight time log reading is required.");
     return aircraft.currentFlightTimeLog;
   }
   if (aircraft.meter === "cyclic") {
     if (aircraft.currentCyclicHobbs === undefined)
-      throw new Error("Collective hourmeter reading is required.");
+      throw new Rejection("Collective hourmeter reading is required.");
     return aircraft.currentCyclicHobbs;
   }
   return aircraft.meter === "hobbs"
@@ -509,7 +531,7 @@ export function isLocalToday(d: string, now = Date.now()): boolean {
  *
  * @param aircraft - The aircraft.
  * @returns Its meter reading plus its adjustment, in seconds.
- * @throws {Error} The {@link aircraftMeterReading} errors.
+ * @throws {Rejection} As {@link aircraftMeterReading}.
  */
 export function totalSeconds(aircraft: Aircraft): number {
   return aircraftMeterReading(aircraft) + aircraft.adjustmentSeconds;
@@ -527,25 +549,6 @@ export function hours(seconds: number): string {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
-}
-
-/**
- * Reads hours as typed, with at most one decimal, as whole seconds.
- *
- * @param value - The typed hours, such as "1234.5".
- * @returns The seconds, or undefined when the value is blank.
- * @throws {Error} "Use positive hours with at most one decimal place." for any
- *   other text (spaces around a number included); "Meter reading is too
- *   large." past the largest safe integer.
- */
-export function parseHours(value: string): number | undefined {
-  if (!value.trim()) return undefined;
-  if (!/^\d+(\.\d)?$/.test(value))
-    throw new Error("Use positive hours with at most one decimal place.");
-  const result = Math.round(Number(value) * HOUR_SECONDS);
-  if (!Number.isSafeInteger(result))
-    throw new Error("Meter reading is too large.");
-  return result;
 }
 
 function formatUtcDate(ms: number): string {

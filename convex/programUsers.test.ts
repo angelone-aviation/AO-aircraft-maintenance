@@ -3,8 +3,9 @@
  *   creating, adding and changing access within the program only, its
  *   refusals and their classes, and the provisioning cleanup.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/programUsers.ts, convex/admin.ts, convex/schema.ts,
- *   src/domain/accountRules, src/data/demo.ts (fixture).
+ * Dependencies: convex/programUsers.ts, convex/admin.ts, convex/fleet.ts,
+ *   convex/schema.ts, src/domain/accountRules, src/domain/model (type),
+ *   src/data/demo.ts (fixture).
  */
 import { convexTest } from "convex-test";
 import { ConvexError } from "convex/values";
@@ -15,6 +16,7 @@ vi.setConfig({ testTimeout: 30_000 });
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
+import type { Aircraft } from "../src/domain/model";
 import {
   ADD_EXISTING_RESULT,
   EMAIL_UNAVAILABLE,
@@ -25,6 +27,7 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+type Caller = ReturnType<ReturnType<typeof convexTest>["withIdentity"]>;
 async function fixture() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -234,10 +237,7 @@ it("program administrators create aircraft only in their active program", async 
     registration: "N123NEW",
     programUuid: "home",
   };
-  await admin.mutation(api.admin.createAircraft, {
-    aircraft,
-    programUuid: "home",
-  });
+  await saveAircraft(admin, aircraft);
   expect(
     await t.run((ctx) =>
       ctx.db
@@ -247,17 +247,15 @@ it("program administrators create aircraft only in their active program", async 
     ),
   ).toMatchObject({ programUuid: "home" });
   await expect(
-    admin.mutation(api.admin.createAircraft, {
-      aircraft: { ...aircraft, uuid: "foreign-aircraft", programUuid: "other" },
-      programUuid: "home",
+    saveAircraft(admin, {
+      ...aircraft,
+      uuid: "foreign-aircraft",
+      programUuid: "other",
     }),
-  ).rejects.toThrow(/active Flight Program/);
+  ).rejects.toThrow("Use an explicit Flight Program transfer.");
   await expect(
-    member.mutation(api.admin.createAircraft, {
-      aircraft: { ...aircraft, uuid: "member-aircraft" },
-      programUuid: "home",
-    }),
-  ).rejects.toThrow(/[Aa]dministrator/);
+    saveAircraft(member, { ...aircraft, uuid: "member-aircraft" }),
+  ).rejects.toThrow("Aircraft management permission required.");
 });
 it("program administrators create and edit groups without moving or changing foreign groups", async () => {
   const { t, ids, admin, member } = await fixture();
@@ -436,16 +434,30 @@ it("validates new aircraft fields and hides which program holds a registration",
     registration: "n999ot",
     programUuid: "home",
   };
+  await expect(saveAircraft(admin, aircraft)).rejects.toThrow(
+    "This registration cannot be used.",
+  );
   await expect(
-    admin.mutation(api.admin.createAircraft, { aircraft, programUuid: "home" }),
-  ).rejects.toThrow("This registration cannot be used.");
-  await expect(
-    admin.mutation(api.admin.createAircraft, {
-      aircraft: { ...aircraft, registration: "N1NEW", make: "x".repeat(151) },
-      programUuid: "home",
+    saveAircraft(admin, {
+      ...aircraft,
+      registration: "N1NEW",
+      make: "x".repeat(151),
     }),
   ).rejects.toThrow();
 });
+
+// The one aircraft-creation path: a new aircraft is saved at version 0.
+function saveAircraft(caller: Caller, aircraft: Aircraft) {
+  return caller.mutation(api.fleet.save, {
+    programUuid: "home",
+    payload: JSON.stringify({
+      action: "aircraft.save",
+      requestUuid: crypto.randomUUID(),
+      reason: "New aircraft",
+      aircraft: { ...aircraft, version: 0 },
+    }),
+  });
+}
 
 // The error a run rejects with.
 const refusal = (run: Promise<unknown>) =>
@@ -503,11 +515,20 @@ it("shows the administrator's refusals as ConvexErrors, the uniform email refusa
         }),
     ],
     [
-      "Select at least one group with read access.",
+      "Select a group with read access.",
       () =>
         admin.mutation(api.programUsers.addExisting, {
           programUuid: "home",
           groupIds: [],
+          email: "someone@example.test",
+        }),
+    ],
+    [
+      "Select a group with read access.",
+      () =>
+        admin.mutation(api.programUsers.addExisting, {
+          programUuid: "home",
+          groupIds: [noRead],
           email: "someone@example.test",
         }),
     ],

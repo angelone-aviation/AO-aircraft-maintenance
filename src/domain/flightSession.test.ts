@@ -16,6 +16,7 @@ import { conflictReason, validateFlight } from "./flights";
 import {
   flightSessionSchema,
   plannedFlightPrefill,
+  plannedFlightRules,
   startFlightSession,
 } from "./flightSession";
 import { Rejection } from "./rejection";
@@ -218,4 +219,12 @@ it("departs IFR on I or Y plans and picks the pilot only on one active match", (
     [{ ...pilot, availableAsPilot: false }],
   ])
     expect(prefill({}, members).pilotId).toBe("me");
+});
+
+it("departs IFR under ICAO rules I (IFR) and Y (IFR, then VFR) only", () => {
+  expect(
+    (["I", "Y", "V", "Z"] as const).map((flightRules) =>
+      plannedFlightRules({ flightRules }),
+    ),
+  ).toEqual(["IFR", "IFR", "VFR", "VFR"]);
 });

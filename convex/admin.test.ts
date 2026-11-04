@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins administration's refusals, their messages and class,
- *   and the new-aircraft checks the aircraft schema makes first.
+ *   and account emails, account names and group names trimmed as stored.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/admin.ts, convex/schema.ts, src/data/demo.ts (fixture).
  */
@@ -105,14 +105,6 @@ async function fixture() {
   };
 }
 
-const newAircraft = {
-  ...demoSnapshot().aircraft[0],
-  uuid: "new-aircraft",
-  registration: "N123NEW",
-  programUuid: "home",
-  program: "home",
-};
-
 // The error a run rejects with.
 const refusal = (run: Promise<unknown>) =>
   run.then(
@@ -132,11 +124,6 @@ it("shows every administration refusal to the user as a ConvexError", async () =
     allAircraft: true,
     permissions: ["read" as const],
   };
-  const aircraft = (changes: Partial<typeof newAircraft>) =>
-    manager.mutation(api.admin.createAircraft, {
-      aircraft: { ...newAircraft, ...changes },
-      programUuid: "home",
-    });
   const shown: [string, () => Promise<unknown>][] = [
     [
       "A valid email and name are required.",
@@ -272,34 +259,6 @@ it("shows every administration refusal to the user as a ConvexError", async () =
         }),
     ],
     [
-      "Aircraft must belong to the active Flight Program.",
-      () => aircraft({ programUuid: "other" }),
-    ],
-    [
-      "Flight Program administrator required.",
-      () =>
-        member.mutation(api.admin.createAircraft, {
-          aircraft: newAircraft,
-          programUuid: "home",
-        }),
-    ],
-    [
-      "Registration, make and serial number are required.",
-      () => aircraft({ serial: " " }),
-    ],
-    [
-      "Cyclic Hobbs Meter requires Helicopter.",
-      () => aircraft({ meter: "cyclic", baselineCyclicHobbs: 0 }),
-    ],
-    [
-      "Enable Flight time log first.",
-      () => aircraft({ meter: "flightTimeLog", baselineFlightTimeLog: 0 }),
-    ],
-    [
-      "Adjusted total time cannot be negative.",
-      () => aircraft({ baselineHobbs: 0, adjustmentSeconds: -3600 }),
-    ],
-    [
       "Bootstrap is only available on an empty user database.",
       () =>
         t.action(internal.admin.bootstrap, {
@@ -315,6 +274,113 @@ it("shows every administration refusal to the user as a ConvexError", async () =
     });
 });
 
+it("counts an account name after trimming, as it is stored", async () => {
+  const { t, ids, system } = await fixture();
+  const password = "Tarmac-sunrise gauge 4417";
+  const padded = (length: number) => ` ${"x".repeat(length)} `;
+  const created = await system.action(api.admin.createUser, {
+    email: "new@example.test",
+    name: padded(150),
+    password,
+  });
+  const member = { id: ids.member.id, active: true, isAdmin: false };
+  await system.mutation(api.admin.updateUser, {
+    ...member,
+    groupIds: [ids.crew],
+    name: padded(150),
+  });
+  const names = await t.run(async (ctx) => [
+    (await ctx.db.get(created as Id<"users">))?.name,
+    (await ctx.db.get(ids.member.id))?.name,
+  ]);
+  expect(names).toEqual(["x".repeat(150), "x".repeat(150)]);
+  const tooLong = [
+    system.action(api.admin.createUser, {
+      email: "long@example.test",
+      name: padded(151),
+      password,
+    }),
+    system.mutation(api.admin.updateUser, {
+      ...member,
+      groupIds: [ids.crew],
+      name: padded(151),
+    }),
+  ];
+  expect(await Promise.all(tooLong.map(refusal))).toMatchObject([
+    { data: "A valid email and name are required." },
+    { data: "Enter a name of up to 150 characters." },
+  ]);
+});
+
+it("trims an account email typed with spaces around it, as sign-in does", async () => {
+  const password = "Tarmac-sunrise gauge 4417";
+  vi.stubEnv("BOOTSTRAP_ADMIN_PASSWORD", password);
+  const first = convexTest(schema, modules);
+  await first.action(internal.admin.bootstrap, {
+    email: " First@Example.test ",
+    name: "First",
+  });
+  const { t, system } = await fixture();
+  await system.action(api.admin.createUser, {
+    email: "  Spaced@Example.test ",
+    name: "Spaced",
+    password,
+  });
+  const logins = async (run: typeof t) =>
+    (await run.run((ctx) => ctx.db.query("authAccounts").collect())).map(
+      (a) => a.providerAccountId,
+    );
+  expect(await logins(first)).toEqual(["first@example.test"]);
+  expect(await logins(t)).toEqual(["spaced@example.test"]);
+});
+
+it("resets the password of a login stored with spaces around its email", async () => {
+  const { t, system } = await fixture();
+  const email = " legacy@example.test ";
+  const id = await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {
+      name: "Legacy",
+      email,
+      active: true,
+      isAdmin: false,
+      groupIds: [],
+    });
+    await ctx.db.insert("authAccounts", {
+      userId,
+      provider: "password",
+      providerAccountId: email,
+      secret: "old hash",
+    });
+    return userId;
+  });
+  await system.action(api.admin.resetPassword, {
+    id,
+    password: "Tarmac-sunrise gauge 4417",
+  });
+  const login = await t.run((ctx) => ctx.db.query("authAccounts").unique());
+  expect(login).toMatchObject({ providerAccountId: email });
+  expect(login?.secret).not.toBe("old hash");
+});
+
+it("counts a group name after trimming, as it is stored", async () => {
+  const { t, system } = await fixture();
+  const save = (name: string) =>
+    system.mutation(api.admin.saveGroup, {
+      programUuid: "home",
+      name,
+      aircraftIds: [],
+      allAircraft: true,
+      permissions: ["read"],
+    });
+  const padded = (length: number) => ` ${"x".repeat(length)} `;
+  const id = await save(padded(100));
+  expect((await t.run((ctx) => ctx.db.get(id)))?.name).toBe("x".repeat(100));
+  expect(await refusal(save(padded(101)))).toMatchObject({
+    name: "ConvexError",
+    data: "Group name is required.",
+  });
+});
+
 it("refuses the first administrator without the password variable, as a ConvexError", async () => {
   vi.stubEnv("BOOTSTRAP_ADMIN_PASSWORD", "");
   const t = convexTest(schema, modules);
@@ -327,73 +393,4 @@ it("refuses the first administrator without the password variable, as a ConvexEr
       }),
     ),
   ).toMatchObject({ name: "ConvexError", data: message });
-});
-
-it("refuses baselines and adjustments the aircraft schema refuses, storing nothing", async () => {
-  const { t, manager } = await fixture();
-  for (const changes of [
-    { baselineHobbs: -360 },
-    { baselineTach: 100 },
-    { baselineCyclicHobbs: 1.5, helicopter: true },
-    { baselineFlightTimeLog: Number.MAX_SAFE_INTEGER + 1 },
-    { baselineCycles: -1 },
-    { baselineLandings: 0.5 },
-    { adjustmentSeconds: 90 },
-    { adjustmentSeconds: Number.NaN },
-  ])
-    await expect(
-      manager.mutation(api.admin.createAircraft, {
-        aircraft: { ...newAircraft, ...changes },
-        programUuid: "home",
-      }),
-      JSON.stringify(changes),
-    ).rejects.toThrow();
-  const stored = await t.run((ctx) =>
-    ctx.db
-      .query("aircraft")
-      .withIndex("uuid", (q) => q.eq("uuid", newAircraft.uuid))
-      .unique(),
-  );
-  expect(stored).toBeNull();
-});
-
-it("creates an aircraft at its baselines, in the active program, audited", async () => {
-  const { t, ids, manager } = await fixture();
-  await manager.mutation(api.admin.createAircraft, {
-    aircraft: {
-      ...newAircraft,
-      registration: " n123new ",
-      make: " Cessna ",
-      program: "stale",
-      programUuid: undefined,
-      currentHobbs: 1,
-      version: 7,
-    },
-    programUuid: "home",
-  });
-  const stored = await t.run((ctx) =>
-    ctx.db
-      .query("aircraft")
-      .withIndex("uuid", (q) => q.eq("uuid", newAircraft.uuid))
-      .unique(),
-  );
-  expect(stored).toMatchObject({
-    registration: "N123NEW",
-    make: "Cessna",
-    programUuid: "home",
-    program: "home",
-    baselineMeter: "hobbs",
-    baselineAdjustmentSeconds: 0,
-    currentHobbs: newAircraft.baselineHobbs,
-    currentTach: newAircraft.baselineTach,
-    cycles: newAircraft.baselineCycles,
-    landings: newAircraft.baselineLandings,
-    version: 0,
-    operationalStatus: "unknown",
-  });
-  const audit = await t.run((ctx) => ctx.db.query("audit").collect());
-  expect(audit.find((a) => a.action === "aircraft.created")).toMatchObject({
-    actorId: ids.manager.id,
-    entityUuid: newAircraft.uuid,
-  });
 });

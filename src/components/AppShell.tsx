@@ -7,12 +7,6 @@
  *   src/data/store.ts, src/domain (pilotView, ownerView, programs, model),
  *   ./Alerts, ./UserProfile, ./ComponentIcon, ./InspectionIcon,
  *   ./WorkOrderIcon, ./FlightForm, ./ui, ./design.
- *
- * Navigation visibility follows the same rules as before the redesign: pilot
- * view shows pilotNavigation only, the owner view shows the overview only, and
- * program administrators additionally get Administration and Costs. Settings
- * is the last Manage link for everyone except the owner view (owners keep
- * their portal).
  */
 import { useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
@@ -74,12 +68,14 @@ type NavItem = {
   icon: IconType;
   group: GroupKey;
 };
-const groups: { key: GroupKey; label: string }[] = [
+type WorkspaceLink = NavItem & { adminOnly?: boolean };
+
+const NAV_GROUPS: { key: GroupKey; label: string }[] = [
   { key: "fly", label: "Fly" },
   { key: "maintain", label: "Maintain" },
   { key: "manage", label: "Manage" },
 ];
-const railPaths = [
+const RAIL_PATHS = [
   "/",
   "/flights",
   "/discrepancies",
@@ -89,193 +85,250 @@ const railPaths = [
   "/admin",
 ];
 // Screens reached from inside other screens, for the top-bar title.
-const extraTitles: [RegExp, string][] = [
+const EXTRA_TITLES: [RegExp, string][] = [
   [/^\/manuals\//, "Reference library"],
   [/^\/inspection-templates/, "Inspection templates"],
   [/^\/task-cards/, "Job cards"],
   [/^\/components\//, "Components"],
 ];
+// Workspace links in group order; the owner and pilot views filter them.
+const WORKSPACE_LINKS: WorkspaceLink[] = [
+  { path: "/", label: "Overview", icon: SquaresFour, group: "fly" },
+  {
+    path: "/flight-plans",
+    label: "Flight plans",
+    icon: AirplaneTakeoff,
+    group: "fly",
+  },
+  { path: "/checklists", label: "Checklists", icon: ListChecks, group: "fly" },
+  { path: "/flights", label: "Flight log", icon: BookOpen, group: "fly" },
+  {
+    path: "/discrepancies",
+    label: "Discrepancies",
+    icon: Warning,
+    group: "fly",
+  },
+  {
+    path: "/inspections",
+    label: "Inspections",
+    icon: InspectionIcon,
+    group: "maintain",
+  },
+  {
+    path: "/planning",
+    label: "Planning",
+    icon: CalendarDots,
+    group: "maintain",
+  },
+  {
+    path: "/airworthiness",
+    label: "Airworthiness directives",
+    icon: ShieldCheck,
+    group: "maintain",
+  },
+  {
+    path: "/work-orders",
+    label: "Work orders",
+    icon: WorkOrderIcon,
+    group: "maintain",
+  },
+  // Readable by every workspace member, like Work orders; creating,
+  // editing and signing check maintenance access on the aircraft.
+  { path: "/task-cards", label: "Job cards", icon: Cards, group: "maintain" },
+  {
+    path: "/parts-requests",
+    label: "Parts & repair requests",
+    icon: Package,
+    group: "maintain",
+  },
+  {
+    path: "/components",
+    label: "Components",
+    icon: ComponentIcon,
+    group: "maintain",
+  },
+  { path: "/scan", label: "Scan label", icon: Scan, group: "maintain" },
+  {
+    path: "/inventory",
+    label: "Inventory",
+    icon: Stack,
+    group: "maintain",
+    adminOnly: true,
+  },
+  {
+    path: "/programs",
+    label: "Flight Programs",
+    icon: Buildings,
+    group: "manage",
+  },
+  { path: "/aircraft", label: "Aircraft", icon: Airplane, group: "manage" },
+  {
+    path: "/purchase-orders",
+    label: "Purchase orders",
+    icon: Receipt,
+    group: "manage",
+    adminOnly: true,
+  },
+  {
+    path: "/vendors",
+    label: "Vendors",
+    icon: Storefront,
+    group: "manage",
+    adminOnly: true,
+  },
+  {
+    path: "/saved-addresses",
+    label: "Saved addresses",
+    icon: MapPin,
+    group: "manage",
+  },
+  {
+    path: "/manuals",
+    label: "Reference library",
+    icon: Books,
+    group: "manage",
+  },
+  {
+    path: "/sync",
+    label: "Sync center",
+    icon: ArrowsClockwise,
+    group: "manage",
+  },
+  {
+    path: "/history",
+    label: "Change history",
+    icon: ClockCounterClockwise,
+    group: "manage",
+  },
+  // Alerts were reachable only from the bell; the bell stays, and the link
+  // follows the same owner / pilot filters as every workspace link.
+  { path: "/alerts", label: "Alerts", icon: Bell, group: "manage" },
+];
+// Management links keep their own rule: shown to program administrators.
+const ADMIN_LINKS: NavItem[] = [
+  { path: "/admin", label: "Administration", icon: Users, group: "manage" },
+  {
+    path: "/costs",
+    label: "Costs",
+    icon: CurrencyCircleDollar,
+    group: "manage",
+  },
+];
+// Settings (account, device, program and system settings) is for every
+// signed-in user; each section inside checks its own permission.
+const SETTINGS_LINK: NavItem = {
+  path: "/settings",
+  label: "Settings",
+  icon: GearSix,
+  group: "manage",
+};
+const CLOSED_GROUPS_KEY = "angelone-nav-closed";
+/** Sidebar counts above this show as "99+". */
+const MAX_NAV_COUNT = 99;
+const FOOTER_YEAR = new Date().getFullYear();
 
 function useNavigation() {
   const s = useWorkspace((x) => x.snapshot)!;
   const pilotView = isPilotView(s);
   const ownerView = isOwnerView(s);
   const admin = programPermission(s, "admin");
-  // Workspace links, in the redesign's group order. The visibility rules are
-  // unchanged: admin-only entries, then the owner / pilot filters.
-  const workspace: (NavItem | false)[] = [
-    { path: "/", label: "Overview", icon: SquaresFour, group: "fly" },
-    {
-      path: "/flight-plans",
-      label: "Flight plans",
-      icon: AirplaneTakeoff,
-      group: "fly",
-    },
-    {
-      path: "/checklists",
-      label: "Checklists",
-      icon: ListChecks,
-      group: "fly",
-    },
-    { path: "/flights", label: "Flight log", icon: BookOpen, group: "fly" },
-    {
-      path: "/discrepancies",
-      label: "Discrepancies",
-      icon: Warning,
-      group: "fly",
-    },
-    {
-      path: "/inspections",
-      label: "Inspections",
-      icon: InspectionIcon,
-      group: "maintain",
-    },
-    {
-      path: "/planning",
-      label: "Planning",
-      icon: CalendarDots,
-      group: "maintain",
-    },
-    {
-      path: "/airworthiness",
-      label: "Airworthiness directives",
-      icon: ShieldCheck,
-      group: "maintain",
-    },
-    {
-      path: "/work-orders",
-      label: "Work orders",
-      icon: WorkOrderIcon,
-      group: "maintain",
-    },
-    // Readable by every workspace member, like Work orders; creating,
-    // editing and signing check maintenance access on the aircraft.
-    { path: "/task-cards", label: "Job cards", icon: Cards, group: "maintain" },
-    {
-      path: "/parts-requests",
-      label: "Parts & repair requests",
-      icon: Package,
-      group: "maintain",
-    },
-    {
-      path: "/components",
-      label: "Components",
-      icon: ComponentIcon,
-      group: "maintain",
-    },
-    { path: "/scan", label: "Scan label", icon: Scan, group: "maintain" },
-    admin && {
-      path: "/inventory",
-      label: "Inventory",
-      icon: Stack,
-      group: "maintain",
-    },
-    {
-      path: "/programs",
-      label: "Flight Programs",
-      icon: Buildings,
-      group: "manage",
-    },
-    { path: "/aircraft", label: "Aircraft", icon: Airplane, group: "manage" },
-    admin && {
-      path: "/purchase-orders",
-      label: "Purchase orders",
-      icon: Receipt,
-      group: "manage",
-    },
-    admin && {
-      path: "/vendors",
-      label: "Vendors",
-      icon: Storefront,
-      group: "manage",
-    },
-    {
-      path: "/saved-addresses",
-      label: "Saved addresses",
-      icon: MapPin,
-      group: "manage",
-    },
-    {
-      path: "/manuals",
-      label: "Reference library",
-      icon: Books,
-      group: "manage",
-    },
-    {
-      path: "/sync",
-      label: "Sync center",
-      icon: ArrowsClockwise,
-      group: "manage",
-    },
-    {
-      path: "/history",
-      label: "Change history",
-      icon: ClockCounterClockwise,
-      group: "manage",
-    },
-    // Alerts were reachable only from the bell; the bell stays, and the link
-    // follows the same owner / pilot filters as every workspace link.
-    { path: "/alerts", label: "Alerts", icon: Bell, group: "manage" },
-  ];
-  const visible = workspace
-    .filter((item): item is NavItem => !!item)
-    .filter((item) =>
-      ownerView
-        ? item.path === "/"
-        : !pilotView || pilotNavigation.has(item.path),
-    );
-  // Management links keep their own rule: shown to program administrators.
-  if (admin)
-    visible.push(
-      { path: "/admin", label: "Administration", icon: Users, group: "manage" },
-      {
-        path: "/costs",
-        label: "Costs",
-        icon: CurrencyCircleDollar,
-        group: "manage",
-      },
-    );
-  // Settings (account, device, program and system settings) is for every
-  // signed-in user; each section inside checks its own permission.
-  if (!ownerView)
-    visible.push({
-      path: "/settings",
-      label: "Settings",
-      icon: GearSix,
-      group: "manage",
-    });
+  const visible: NavItem[] = WORKSPACE_LINKS.filter(
+    (link) => admin || !link.adminOnly,
+  ).filter((item) =>
+    ownerView
+      ? item.path === "/"
+      : !pilotView || pilotNavigation.has(item.path),
+  );
+  if (admin) visible.push(...ADMIN_LINKS);
+  if (!ownerView) visible.push(SETTINGS_LINK);
   return visible;
 }
 
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((n) => n[0])
-    .slice(0, 2)
-    .join("");
+/**
+ * The sun or moon button that switches between the light and dark themes.
+ *
+ * @param props.className - Defaults to "icon-button".
+ * @returns The button, named for the theme it switches to.
+ */
+function ThemeToggle({ className = "icon-button" }: { className?: string }) {
+  const { theme, toggle } = useTheme();
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-label={
+        theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+      }
+      onClick={toggle}
+    >
+      {theme === "dark" ? (
+        <Sun size={22} aria-hidden="true" />
+      ) : (
+        <Moon size={22} aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+export { ThemeToggle };
+
+/**
+ * The shell around the routed screens, laid out by breakpoint: the grouped
+ * sidebar on desktops, an icon rail on tablets, and a tab bar on phones, with
+ * the "All sections" sheet below desktop width.
+ *
+ * @param props.exit - Signs out, from the profile footer.
+ * @param props.children - The current screen.
+ * @returns The layout. Pilots see only pilot navigation and owners only the
+ *   overview; program administrators also get inventory and purchasing,
+ *   Administration and Costs; Settings ends the list for everyone but owners,
+ *   who keep their portal. Phones offer Log flight to anyone who may log one.
+ */
+export function AppShell({
+  exit,
+  children,
+}: {
+  exit: () => void;
+  children: ReactNode;
+}) {
+  const s = useWorkspace((x) => x.snapshot)!;
+  const items = useNavigation();
+  const breakpoint = useBreakpoint();
+  const [more, setMore] = useMoreSheet(breakpoint);
+  const [logging, setLogging] = useState(false);
+  const canLog = canLogFlight(s);
+  return (
+    <div className={"app-layout " + breakpoint}>
+      {breakpoint === "desktop" && <Sidebar items={items} exit={exit} />}
+      {breakpoint === "tablet" && (
+        <Rail items={items} onMore={() => setMore(true)} />
+      )}
+      <div className="main-area">
+        <TopBar items={items} phone={breakpoint === "phone"} />
+        {children}
+        <AppFooter />
+      </div>
+      {breakpoint === "phone" && (
+        <TabBar
+          items={items}
+          onMore={() => setMore(true)}
+          onLog={canLog ? () => setLogging(true) : undefined}
+        />
+      )}
+      {more && breakpoint !== "desktop" && (
+        <MoreSheet items={items} onClose={() => setMore(false)} exit={exit} />
+      )}
+      {logging && <LogFlightModal onClose={() => setLogging(false)} />}
+    </div>
+  );
 }
 
-function roleLabel(s: Snapshot) {
-  return s.user.isAdmin
-    ? "Administrator"
-    : isOwnerView(s)
-      ? "Aircraft owner"
-      : isPilotView(s)
-        ? "Pilot"
-        : "Team member";
-}
-
-const year = new Date().getFullYear();
-const closedKey = "angelone-nav-closed";
-function readClosed(): GroupKey[] {
-  try {
-    const saved = JSON.parse(localStorage.getItem(closedKey) ?? "[]");
-    return Array.isArray(saved)
-      ? saved.filter((k): k is GroupKey => groups.some((g) => g.key === k))
-      : [];
-  } catch {
-    return [];
-  }
+// The sheet only exists below the desktop breakpoint. Close it when the
+// window grows past it (e.g. a tablet rotating), rather than only hiding it,
+// so it does not reopen by itself when the window narrows again.
+function useMoreSheet(breakpoint: string) {
+  const [more, setMore] = useState(false);
+  if (more && breakpoint === "desktop") setMore(false);
+  return [more, setMore] as const;
 }
 
 function useCounts() {
@@ -289,8 +342,24 @@ function useCounts() {
     path === "/sync" ? pending : path === "/alerts" ? unread : 0;
 }
 
-/** The active Flight Program selector (same behaviour as before: disabled
- * while offline, switches through the backend). */
+// Closed sidebar groups stay closed on this device.
+function useClosedGroups() {
+  const [closed, setClosed] = useState(readClosed);
+  const toggle = (key: GroupKey) =>
+    setClosed((current) => {
+      const next = current.includes(key)
+        ? current.filter((k) => k !== key)
+        : [...current, key];
+      try {
+        localStorage.setItem(CLOSED_GROUPS_KEY, JSON.stringify(next));
+      } catch {
+        // Collapsed groups are a convenience; ignore blocked storage.
+      }
+      return next;
+    });
+  return { closed, toggle };
+}
+
 function ProgramSwitcher({ tone }: { tone: "navy" | "surface" }) {
   const s = useWorkspace((x) => x.snapshot)!;
   const online = useWorkspace((x) => x.online);
@@ -306,31 +375,29 @@ function ProgramSwitcher({ tone }: { tone: "navy" | "surface" }) {
           aria-label="Active Flight Program"
           value={s.activeProgramUuid ?? ""}
           disabled={!online || !connected}
-          onChange={async (e) => {
-            try {
-              await useWorkspace
-                .getState()
-                .backend!.selectProgram(e.target.value);
-            } catch (error) {
-              useWorkspace.setState({
-                error: errorText(error, "Unable to switch Flight Program."),
-              });
-            }
-          }}
+          onChange={(e) => switchProgram(e.target.value)}
         >
-          {s.user.isAdmin && <option value="">Unassigned records</option>}
-          {!s.user.isAdmin && !s.programs?.length && (
-            <option value="">No Flight Program assigned</option>
-          )}
-          {s.programs?.map((p) => (
-            <option key={p.uuid} value={p.uuid}>
-              {p.name}
-            </option>
-          ))}
+          <ProgramOptions s={s} />
         </select>
       </span>
       <CaretDown size={14} aria-hidden="true" className="program-caret" />
     </label>
+  );
+}
+
+function ProgramOptions({ s }: { s: Snapshot }) {
+  return (
+    <>
+      {s.user.isAdmin && <option value="">Unassigned records</option>}
+      {!s.user.isAdmin && !s.programs?.length && (
+        <option value="">No Flight Program assigned</option>
+      )}
+      {s.programs?.map((p) => (
+        <option key={p.uuid} value={p.uuid}>
+          {p.name}
+        </option>
+      ))}
+    </>
   );
 }
 
@@ -345,7 +412,7 @@ function NavLink({
   onNavigate?: () => void;
   variant: "sidebar" | "rail" | "tile";
 }) {
-  const Icon = item.icon;
+  // Administration and Costs stay highlighted on their sub-pages.
   const exact = item.path !== "/admin" && item.path !== "/costs";
   return (
     <Link
@@ -357,21 +424,41 @@ function NavLink({
       title={variant === "rail" ? item.label : undefined}
     >
       {({ isActive }) => (
-        <>
-          <span className="nav-icon">
-            <Icon
-              size={variant === "rail" ? 22 : 19}
-              weight={isActive && variant !== "tile" ? "duotone" : "regular"}
-              aria-hidden="true"
-            />
-          </span>
-          {variant !== "rail" && <span className="nav-text">{item.label}</span>}
-          {variant === "sidebar" && !!count && (
-            <span className="nav-count">{count > 99 ? "99+" : count}</span>
-          )}
-        </>
+        <NavLinkBody
+          item={item}
+          count={count}
+          variant={variant}
+          isActive={isActive}
+        />
       )}
     </Link>
+  );
+}
+
+function NavLinkBody(props: {
+  item: NavItem;
+  count?: number;
+  variant: "sidebar" | "rail" | "tile";
+  isActive: boolean;
+}) {
+  const { item, count, variant } = props;
+  const Icon = item.icon;
+  return (
+    <>
+      <span className="nav-icon">
+        <Icon
+          size={variant === "rail" ? 22 : 19}
+          weight={props.isActive && variant !== "tile" ? "duotone" : "regular"}
+          aria-hidden="true"
+        />
+      </span>
+      {variant !== "rail" && <span className="nav-text">{item.label}</span>}
+      {variant === "sidebar" && !!count && (
+        <span className="nav-count">
+          {count > MAX_NAV_COUNT ? `${MAX_NAV_COUNT}+` : count}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -394,15 +481,7 @@ function ProfileFooter({
         <small>{roleLabel(s)}</small>
         {!ownerView && variant === "sheet" && <MyCertifications />}
       </div>
-      {variant === "sidebar" ? (
-        <button className="icon-button" aria-label="Sign out" onClick={exit}>
-          <SignOut size={20} aria-hidden="true" />
-        </button>
-      ) : (
-        <button className="button small" onClick={exit}>
-          <SignOut size={16} aria-hidden="true" /> Sign out
-        </button>
-      )}
+      <SignOutButton exit={exit} variant={variant} />
       {/* The sheet lists Settings as the last Manage tile, right above. */}
       {!ownerView && variant === "sidebar" && (
         <div className="profile-links">
@@ -417,21 +496,30 @@ function ProfileFooter({
   );
 }
 
+function SignOutButton(props: {
+  exit: () => void;
+  variant: "sidebar" | "sheet";
+}) {
+  if (props.variant === "sidebar")
+    return (
+      <button
+        className="icon-button"
+        aria-label="Sign out"
+        onClick={props.exit}
+      >
+        <SignOut size={20} aria-hidden="true" />
+      </button>
+    );
+  return (
+    <button className="button small" onClick={props.exit}>
+      <SignOut size={16} aria-hidden="true" /> Sign out
+    </button>
+  );
+}
+
 function Sidebar({ items, exit }: { items: NavItem[]; exit: () => void }) {
-  const [closed, setClosed] = useState(readClosed);
+  const { closed, toggle } = useClosedGroups();
   const count = useCounts();
-  const toggle = (key: GroupKey) =>
-    setClosed((current) => {
-      const next = current.includes(key)
-        ? current.filter((k) => k !== key)
-        : [...current, key];
-      try {
-        localStorage.setItem(closedKey, JSON.stringify(next));
-      } catch {
-        // Collapsed groups are a convenience; ignore blocked storage.
-      }
-      return next;
-    });
   return (
     <aside className="sidebar">
       <Link to="/" className="brand" aria-label="Angel One overview">
@@ -440,48 +528,64 @@ function Sidebar({ items, exit }: { items: NavItem[]; exit: () => void }) {
       </Link>
       <ProgramSwitcher tone="navy" />
       <nav aria-label="Main">
-        {groups.map((g) => {
-          const groupItems = items.filter((i) => i.group === g.key);
-          if (!groupItems.length) return null;
-          const open = !closed.includes(g.key);
-          const id = "nav-group-" + g.key;
-          return (
-            <div className={"nav-group" + (open ? "" : " closed")} key={g.key}>
-              <button
-                type="button"
-                className="nav-group-toggle"
-                aria-expanded={open}
-                aria-controls={id}
-                onClick={() => toggle(g.key)}
-              >
-                <span>{g.label}</span>
-                <CaretDown size={13} weight="bold" aria-hidden="true" />
-              </button>
-              <div className="nav-group-items" id={id} inert={!open}>
-                <div>
-                  {groupItems.map((item) => (
-                    <NavLink
-                      key={item.path}
-                      item={item}
-                      count={count(item.path)}
-                      variant="sidebar"
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {NAV_GROUPS.map((g) => (
+          <SidebarGroup
+            key={g.key}
+            group={g}
+            items={items.filter((i) => i.group === g.key)}
+            open={!closed.includes(g.key)}
+            count={count}
+            onToggle={() => toggle(g.key)}
+          />
+        ))}
       </nav>
       <ProfileFooter exit={exit} variant="sidebar" />
     </aside>
   );
 }
 
+function SidebarGroup(props: {
+  group: (typeof NAV_GROUPS)[number];
+  items: NavItem[];
+  open: boolean;
+  count: (path: string) => number;
+  onToggle: () => void;
+}) {
+  const { group: g, open } = props;
+  if (!props.items.length) return null;
+  const id = "nav-group-" + g.key;
+  return (
+    <div className={"nav-group" + (open ? "" : " closed")}>
+      <button
+        type="button"
+        className="nav-group-toggle"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={props.onToggle}
+      >
+        <span>{g.label}</span>
+        <CaretDown size={13} weight="bold" aria-hidden="true" />
+      </button>
+      <div className="nav-group-items" id={id} inert={!open}>
+        <div>
+          {props.items.map((item) => (
+            <NavLink
+              key={item.path}
+              item={item}
+              count={props.count(item.path)}
+              variant="sidebar"
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Rail({ items, onMore }: { items: NavItem[]; onMore: () => void }) {
-  const railItems = railPaths
-    .map((p) => items.find((i) => i.path === p))
-    .filter((i): i is NavItem => !!i);
+  const railItems = RAIL_PATHS.map((p) =>
+    items.find((i) => i.path === p),
+  ).filter((i): i is NavItem => !!i);
   return (
     <aside className="rail">
       <Link to="/" className="rail-brand" aria-label="Angel One overview">
@@ -515,35 +619,10 @@ function TabBar({
   onLog?: () => void;
 }) {
   const tab = (path: string) => items.find((i) => i.path === path);
-  const link = (item: NavItem | undefined) =>
-    item && (
-      <Link
-        key={item.path}
-        to={item.path}
-        activeOptions={{ exact: true }}
-        activeProps={{ className: "active" }}
-      >
-        {({ isActive }) => {
-          const Icon = item.icon;
-          return (
-            <>
-              <span className="tab-icon">
-                <Icon
-                  size={22}
-                  weight={isActive ? "duotone" : "regular"}
-                  aria-hidden="true"
-                />
-              </span>
-              <span>{item.label}</span>
-            </>
-          );
-        }}
-      </Link>
-    );
   return (
     <nav className="tabbar" aria-label="Primary">
-      {link(tab("/"))}
-      {link(tab("/flights"))}
+      <TabLink item={tab("/")} />
+      <TabLink item={tab("/flights")} />
       {onLog && (
         <button type="button" className="tab-log" onClick={onLog}>
           <span className="tab-icon">
@@ -552,7 +631,7 @@ function TabBar({
           <span>Log flight</span>
         </button>
       )}
-      {link(tab("/inspections"))}
+      <TabLink item={tab("/inspections")} />
       <button
         type="button"
         aria-haspopup="dialog"
@@ -565,6 +644,31 @@ function TabBar({
         <span>More</span>
       </button>
     </nav>
+  );
+}
+
+function TabLink({ item }: { item: NavItem | undefined }) {
+  if (!item) return null;
+  const Icon = item.icon;
+  return (
+    <Link
+      to={item.path}
+      activeOptions={{ exact: true }}
+      activeProps={{ className: "active" }}
+    >
+      {({ isActive }) => (
+        <>
+          <span className="tab-icon">
+            <Icon
+              size={22}
+              weight={isActive ? "duotone" : "regular"}
+              aria-hidden="true"
+            />
+          </span>
+          <span>{item.label}</span>
+        </>
+      )}
+    </Link>
   );
 }
 
@@ -586,65 +690,51 @@ function MoreSheet({
       closeLabel="Close"
     >
       <ProgramSwitcher tone="surface" />
-      {groups.map((g) => {
-        const groupItems = items.filter((i) => i.group === g.key);
-        if (!groupItems.length) return null;
-        return (
-          <section className="sheet-group" key={g.key}>
-            <h3>{g.label}</h3>
-            <nav aria-label={g.label}>
-              {groupItems.map((item) => (
-                <NavLink
-                  key={item.path}
-                  item={item}
-                  count={count(item.path)}
-                  variant="tile"
-                  onNavigate={onClose}
-                />
-              ))}
-            </nav>
-          </section>
-        );
-      })}
+      {NAV_GROUPS.map((g) => (
+        <SheetGroup
+          key={g.key}
+          group={g}
+          items={items.filter((i) => i.group === g.key)}
+          count={count}
+          onNavigate={onClose}
+        />
+      ))}
       <ProfileFooter exit={exit} variant="sheet" />
     </Dialog>
   );
 }
 
-function ThemeToggle({ className = "icon-button" }: { className?: string }) {
-  const { theme, toggle } = useTheme();
+function SheetGroup(props: {
+  group: (typeof NAV_GROUPS)[number];
+  items: NavItem[];
+  count: (path: string) => number;
+  onNavigate: () => void;
+}) {
+  if (!props.items.length) return null;
+  const { label } = props.group;
   return (
-    <button
-      type="button"
-      className={className}
-      aria-label={
-        theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
-      }
-      onClick={toggle}
-    >
-      {theme === "dark" ? (
-        <Sun size={22} aria-hidden="true" />
-      ) : (
-        <Moon size={22} aria-hidden="true" />
-      )}
-    </button>
+    <section className="sheet-group">
+      <h3>{label}</h3>
+      <nav aria-label={label}>
+        {props.items.map((item) => (
+          <NavLink
+            key={item.path}
+            item={item}
+            count={props.count(item.path)}
+            variant="tile"
+            onNavigate={props.onNavigate}
+          />
+        ))}
+      </nav>
+    </section>
   );
 }
-export { ThemeToggle };
 
 function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
   const s = useWorkspace((x) => x.snapshot)!;
-  const { queue, online, connected, demo } = useWorkspace();
+  const { demo } = useWorkspace();
   const ownerView = isOwnerView(s);
   const pathname = useRouterState({ select: (r) => r.location.pathname });
-  const pending = queue.filter(
-    (q) => q.operation.authorId === s.user.id,
-  ).length;
-  const live = online && connected;
-  const title =
-    items.find((i) => i.path === pathname)?.label ??
-    extraTitles.find(([re]) => re.test(pathname))?.[1] ??
-    (pathname === "/alerts" ? "Alerts" : "Overview");
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -653,32 +743,13 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
             <Wordmark height={24} />
           </Link>
         ) : (
-          <span>{title}</span>
+          <span>{topBarTitle(items, pathname)}</span>
         )}
       </div>
       <div className="topbar-status">
         {demo && <Badge>LOCAL DEMO</Badge>}
-        {demo && !ownerView && (
-          <button
-            className="button small owner-preview-button"
-            onClick={() =>
-              previewDemoOwner(true).catch((e) =>
-                useWorkspace.setState({
-                  error: errorText(e, "Unable to preview the owner portal."),
-                }),
-              )
-            }
-          >
-            Preview owner portal
-          </button>
-        )}
-        <span className={"connection " + (live ? "" : "offline")}>
-          <span className="connection-dot" aria-hidden="true" />
-          <span className="connection-label">
-            {live ? "Connected" : "Offline"}
-            {pending > 0 && ` · ${pending} pending`}
-          </span>
-        </span>
+        {demo && !ownerView && <OwnerPreviewButton />}
+        <ConnectionStatus s={s} />
         {!ownerView && <AlertBell />}
         <ThemeToggle />
       </div>
@@ -686,61 +757,107 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
   );
 }
 
-export function AppShell({
-  exit,
-  children,
-}: {
-  exit: () => void;
-  children: ReactNode;
-}) {
-  const s = useWorkspace((x) => x.snapshot)!;
-  const items = useNavigation();
-  const breakpoint = useBreakpoint();
-  const [more, setMore] = useState(false);
-  // The sheet only exists below the desktop breakpoint. Close it when the
-  // window grows past it (e.g. a tablet rotating), rather than only hiding
-  // it, so it does not reopen by itself when the window narrows again.
-  if (more && breakpoint === "desktop") setMore(false);
-  const [logging, setLogging] = useState(false);
-  // The bottom tab bar's "Log flight" opens the same flight form as the
-  // overview's "Log a flight" button, under the same permission.
-  const canLog =
-    !isOwnerView(s) && s.aircraft.some((a) => can(s, a.uuid, "flight"));
+function OwnerPreviewButton() {
   return (
-    <div className={"app-layout " + breakpoint}>
-      {breakpoint === "desktop" && <Sidebar items={items} exit={exit} />}
-      {breakpoint === "tablet" && (
-        <Rail items={items} onMore={() => setMore(true)} />
-      )}
-      <div className="main-area">
-        <TopBar items={items} phone={breakpoint === "phone"} />
-        {children}
-        <footer className="app-footer">
-          <span>
-            ANGEL ONE <span className="footer-dot">·</span>{" "}
-            <em>To every nation, kindred, tongue and people.</em>
-          </span>
-          <span>{year} · Aircraft operations</span>
-        </footer>
-      </div>
-      {breakpoint === "phone" && (
-        <TabBar
-          items={items}
-          onMore={() => setMore(true)}
-          onLog={canLog ? () => setLogging(true) : undefined}
-        />
-      )}
-      {more && breakpoint !== "desktop" && (
-        <MoreSheet items={items} onClose={() => setMore(false)} exit={exit} />
-      )}
-      {logging && (
-        <Modal title="Log a flight" onClose={() => setLogging(false)}>
-          <FlightForm
-            onDone={() => setLogging(false)}
-            onCancel={() => setLogging(false)}
-          />
-        </Modal>
-      )}
-    </div>
+    <button
+      className="button small owner-preview-button"
+      onClick={() =>
+        previewDemoOwner(true).catch((e) =>
+          useWorkspace.setState({
+            error: errorText(e, "Unable to preview the owner portal."),
+          }),
+        )
+      }
+    >
+      Preview owner portal
+    </button>
   );
+}
+
+function ConnectionStatus({ s }: { s: Snapshot }) {
+  const { queue, online, connected } = useWorkspace();
+  const pending = queue.filter(
+    (q) => q.operation.authorId === s.user.id,
+  ).length;
+  const live = online && connected;
+  return (
+    <span className={"connection " + (live ? "" : "offline")}>
+      <span className="connection-dot" aria-hidden="true" />
+      <span className="connection-label">
+        {live ? "Connected" : "Offline"}
+        {pending > 0 && ` · ${pending} pending`}
+      </span>
+    </span>
+  );
+}
+
+function AppFooter() {
+  return (
+    <footer className="app-footer">
+      <span>
+        ANGEL ONE <span className="footer-dot">·</span>{" "}
+        <em>To every nation, kindred, tongue and people.</em>
+      </span>
+      <span>{FOOTER_YEAR} · Aircraft operations</span>
+    </footer>
+  );
+}
+
+function LogFlightModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="Log a flight" onClose={onClose}>
+      <FlightForm onDone={onClose} onCancel={onClose} />
+    </Modal>
+  );
+}
+
+// The bottom tab bar's "Log flight" opens the same flight form as the
+// overview's "Log a flight" button, under the same permission.
+function canLogFlight(s: Snapshot) {
+  return !isOwnerView(s) && s.aircraft.some((a) => can(s, a.uuid, "flight"));
+}
+
+function topBarTitle(items: NavItem[], pathname: string) {
+  return (
+    items.find((i) => i.path === pathname)?.label ??
+    EXTRA_TITLES.find(([re]) => re.test(pathname))?.[1] ??
+    (pathname === "/alerts" ? "Alerts" : "Overview")
+  );
+}
+
+async function switchProgram(programUuid: string) {
+  try {
+    await useWorkspace.getState().backend!.selectProgram(programUuid);
+  } catch (error) {
+    // Shown in the app's error banner; the selector keeps the active program.
+    useWorkspace.setState({
+      error: errorText(error, "Unable to switch Flight Program."),
+    });
+  }
+}
+
+function readClosed(): GroupKey[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CLOSED_GROUPS_KEY) ?? "[]");
+    return Array.isArray(saved)
+      ? saved.filter((k): k is GroupKey => NAV_GROUPS.some((g) => g.key === k))
+      : [];
+  } catch {
+    // Blocked storage or an unreadable value: every group starts open.
+    return [];
+  }
+}
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("");
+}
+
+function roleLabel(s: Snapshot) {
+  if (s.user.isAdmin) return "Administrator";
+  if (isOwnerView(s)) return "Aircraft owner";
+  return isPilotView(s) ? "Pilot" : "Team member";
 }

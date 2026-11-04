@@ -1,16 +1,25 @@
 /**
- * Responsibility: Pins the guided flight refusals and the start section
- *   choice; the checklist-run record is pinned in flightFluids.test.ts.
+ * Responsibility: Pins the guided flight refusals, the start section choice
+ *   and the draft's shutdown readings; the checklist-run record is pinned in
+ *   flightFluids.test.ts.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/guidedFlight.ts, ./rejection.
  */
 import { expect, it } from "vitest";
 import {
+  guidedDraftSchema,
   guidedFlightLink,
   suggestedStartSection,
   type GuidedDraft,
 } from "./guidedFlight";
 import { Rejection } from "./rejection";
+
+const SHUTDOWN_READINGS = [
+  "hobbsOn",
+  "tachOn",
+  "cyclicHobbsOn",
+  "flightTimeLogOn",
+] as const;
 
 it("refuses unverified meters, then incomplete fluids", () => {
   const draft = {
@@ -41,3 +50,17 @@ it("starts engines from the first plain start section", () => {
   expect(suggestedStartSection(sections("Before start", "Taxi"))).toBe("");
   expect(suggestedStartSection([{ objectId: "untitled" }])).toBe("");
 });
+
+// Finding 4: the guided flight stored 2342.25 h as typed, and only the final
+// review met the tenths-of-an-hour rule.
+it.each(SHUTDOWN_READINGS)(
+  "keeps the %s shutdown reading in whole tenths of an hour",
+  (key) => {
+    const reading = guidedDraftSchema.shape[key];
+    expect(reading.parse(undefined)).toBeUndefined();
+    expect(reading.parse(8431920)).toBe(8431920);
+    expect(reading.safeParse(8432100).error?.issues[0].message).toBe(
+      "Meter readings must use tenths of an hour",
+    );
+  },
+);

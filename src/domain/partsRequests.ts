@@ -1,24 +1,33 @@
 /**
  * Responsibility: Parts requests: parts asked for against a maintenance item
- *   or for stock, and reserving, issuing and cancelling stock for them.
+ *   or for stock, reserving, issuing and cancelling stock for them, and the
+ *   occurrences recurring lists owe open work-order tasks.
  * Layer: Domain. Zod schemas and an applier over a working snapshot; no I/O,
  *   no React.
  * Dependencies: zod; ./model, ./programs, ./addresses, ./aircraftSpruce,
- *   ./adOwnership, ./adCompliance, ./shelfLife, ./rejection; types from
- *   ./purchaseOrders, ./management, ./components.
+ *   ./adOwnership, ./adCompliance, ./shelfLife, ./changeLog, ./rejection;
+ *   types from ./purchaseOrders, ./management, ./components, ./workOrders.
  */
 import { adAircraftUuid } from "./adOwnership";
 import { lastCompliance } from "./adCompliance";
 import { sprucePartSchema } from "./aircraftSpruce";
 import { addressSchema, formatAddress } from "./addresses";
 import { z } from "zod";
-import { can, latestLocalDate, type Inspection, type Snapshot } from "./model";
+import {
+  can,
+  latestLocalDate,
+  localDate,
+  type Inspection,
+  type Snapshot,
+} from "./model";
 import { activeProgram, programPermission, recordProgram } from "./programs";
 import { assertNotExpired } from "./shelfLife";
+import { auditEntry, type AuditChange } from "./changeLog";
 import { Rejection } from "./rejection";
 import type { PurchaseOrder } from "./purchaseOrders";
 import type { Stock } from "./management";
 import type { Component, ComponentRequirement } from "./components";
+import type { WorkOrder, WorkTask } from "./workOrders";
 
 const TEXT_MAX_LENGTH = 4000;
 const MAX_QUANTITY = 1_000_000;
@@ -27,6 +36,7 @@ const MAX_REQUEST_LINES = 100;
 const REQUEST_NUMBER_PREFIX = "PR-";
 const REQUEST_NUMBER_DIGITS = 5;
 const SERVICEABLE_CONDITIONS: readonly string[] = ["new", "overhauled"];
+const CLOSED_WORK_STATUSES: readonly string[] = ["completed", "cancelled"];
 const TRACKED_APPLICABILITY: readonly string[] = [
   "Applicable",
   "Previously Complied With (PCW)",
@@ -388,16 +398,17 @@ export function auditStockChange(
   reason: string,
   now: number,
 ) {
-  s.audit.unshift({
-    uuid: crypto.randomUUID(),
-    at: now,
-    actorId: s.user.id,
-    action: `stock.${action}`,
-    entityUuid: stock.uuid,
-    reason,
-    before,
-    after: JSON.stringify(stock),
-  });
+  recordPartsChange(
+    s,
+    {
+      action: `stock.${action}`,
+      entityUuid: stock.uuid,
+      reason,
+      before: JSON.parse(before),
+      after: stock,
+    },
+    now,
+  );
 }
 
 /**
@@ -413,6 +424,9 @@ export function auditStockChange(
  *
  * Side effects: on success, replaces `original`'s partsRequests, management
  * and audit, adding a `partsRequest.<kind>` entry and any `stock.*` entries.
+ * When the result is an active recurring list, saved or replayed, the open
+ * work orders on its aircraft also gain what its lists owe them
+ * ({@link generateRecurringRequests}), dated `now`.
  */
 export function applyRequestCommand(
   original: Snapshot,
@@ -429,7 +443,10 @@ export function applyRequestCommand(
     (r) => r.uuid === (c.kind === "save" ? c.draft.uuid : c.uuid),
   );
   const replay = findReplay(requests, c.requestUuid);
-  if (replay) return replayed(replay, c, program, s.user.id);
+  if (replay) {
+    const stored = replayed(replay, c, program, s.user.id);
+    return finishCommand(original, s, stored, now);
+  }
   assertCurrent(previous, c, program);
   const source =
     c.kind === "save" ? resolveRequestSource(s, c.draft.source) : null;
@@ -440,7 +457,7 @@ export function applyRequestCommand(
     c.kind === "save"
       ? buildRequest(ctx, c.draft, source!, aircraftUuid)
       : changeRequest(ctx, c);
-  return commitRequest(original, ctx, c, r);
+  return finishCommand(original, s, commitRequest(original, ctx, c, r), now);
 }
 
 /**
@@ -493,6 +510,82 @@ export function requestMatchesSource(
   return task?.source.kind === source.kind && task.source.uuid === source.uuid;
 }
 
+/**
+ * Creates the parts requests a work order's open tasks need from the
+ * recurring lists of its aircraft: one occurrence per list and task, copied
+ * from the list as it is now. An occurrence is created once, even if later
+ * cancelled, so cancelling never silently reorders parts.
+ *
+ * @param s - The working snapshot; gains the requests, each with one
+ *   "partsRequest.recurring" change-log row.
+ * @param order - The saved work order; a completed or cancelled one gets none.
+ * @param now - The creation time.
+ * @returns The new requests, numbered on from the program's highest PR number.
+ * @throws {z.ZodError} When a copied request fails partsRequestSchema.
+ */
+export function generateRecurringRequests(
+  s: Snapshot,
+  order: WorkOrder,
+  now = Date.now(),
+) {
+  if (isClosed(order)) return [];
+  const requests = (s.partsRequests ??= []);
+  const program = s.aircraft.find(
+    (a) => a.uuid === order.aircraftUuid,
+  )?.programUuid;
+  const templates = requests.filter(
+    (r) =>
+      r.recurring &&
+      !r.cancelled &&
+      r.programUuid === program &&
+      r.aircraftUuid === order.aircraftUuid,
+  );
+  const run: OccurrenceRun = { s, requests, order, program, now };
+  const created: PartsRequest[] = [];
+  for (const template of templates) {
+    const source = recurringRequestSource(s, template.source);
+    if (!source) continue;
+    const tasks = order.tasks.filter(
+      (t) =>
+        !isClosed(t) &&
+        t.source.kind === source.kind &&
+        t.source.uuid === source.uuid,
+    );
+    created.push(...addOccurrences(run, template, tasks));
+  }
+  return created;
+}
+
+/**
+ * What must be loaded before {@link generateRecurringRequests} can serve a
+ * work order: the sources of its open tasks that an active recurring list on
+ * its aircraft covers and has not served yet.
+ *
+ * @param order - The work order as it will be saved.
+ * @param requests - The Flight Program's parts requests, lists included.
+ * @returns The inspection and component-requirement uuids those tasks
+ *   perform, each once, in task order, and whether any performs an AD task;
+ *   none for a completed or cancelled work order.
+ */
+export function recurringPartsNeeds(
+  order: WorkOrder,
+  requests: PartsRequest[],
+) {
+  const owed = isClosed(order)
+    ? []
+    : order.tasks.filter((task) => isOwed(requests, order, task));
+  const sources = (kind: WorkTask["source"]["kind"]) => [
+    ...new Set(
+      owed.filter((t) => t.source.kind === kind).map((t) => t.source.uuid),
+    ),
+  ];
+  return {
+    inspections: sources("inspection"),
+    requirements: sources("componentRequirement"),
+    airworthiness: owed.some((t) => t.source.kind === "airworthiness"),
+  };
+}
+
 type StockCommand = Extract<
   RequestCommand,
   { kind: "reserve" | "release" | "issue" }
@@ -516,6 +609,14 @@ interface StockTarget {
   line: RequestLine;
   stock: Stock;
   reservation: PartsRequest["reservations"][number] | undefined;
+}
+// One generation pass over a work order.
+interface OccurrenceRun {
+  s: Snapshot;
+  requests: PartsRequest[];
+  order: WorkOrder;
+  program: string | undefined;
+  now: number;
 }
 
 function linkedSource(s: Snapshot, source: RequestSource): LinkedSource {
@@ -685,10 +786,11 @@ function buildRequest(
 ): PartsRequest {
   const { s, program, requests, previous, now } = ctx;
   assertDraft(ctx, d);
-  for (const line of d.lines) prepareLine(ctx, d, line, aircraftUuid);
+  const lines = d.lines.map((l) => prepareLine(ctx, d, l, aircraftUuid));
   const { aircraft } = source;
   return {
     ...d,
+    lines,
     templateUuid: previous?.templateUuid,
     programUuid: program,
     aircraftUuid,
@@ -745,27 +847,33 @@ function changesPurchasing(previous: PartsRequest, d: RequestDraft) {
   );
 }
 
+// The serial, TSN and TSO go on a copy of the line, never the command: the
+// command is the request id's record (findReplay), so stamping it would
+// refuse an identical resend.
 function prepareLine(
   ctx: RequestContext,
   d: RequestDraft,
   line: RequestLine,
   aircraftUuid: string,
-) {
+): RequestLine {
   if (d.mode !== "repair") {
     if (line.componentUuid)
       throw new Rejection(
         "Use a repair request for an existing serialized component.",
       );
-    return;
+    return line;
   }
   const component = findRepairable(ctx, line, aircraftUuid);
   if (hasOpenRepair(ctx, d.uuid, component.uuid))
     throw new Rejection("This component already has an open repair request.");
-  line.componentSerial = component.serial;
-  line.componentTSN = component.timeSinceNew;
-  line.componentTSO = component.timeSinceOverhaul;
   if (!line.defect || !line.workRequested)
     throw new Rejection("Enter the defect and work requested for repair.");
+  return {
+    ...line,
+    componentSerial: component.serial,
+    componentTSN: component.timeSinceNew,
+    componentTSO: component.timeSinceOverhaul,
+  };
 }
 
 // A repair ships one serialized component of the program, held loose in
@@ -969,24 +1077,43 @@ function commitRequest(
   });
   const saved = partsRequestSchema.parse(r);
   s.partsRequests = [...requests.filter((x) => x.uuid !== saved.uuid), saved];
-  s.audit.unshift({
-    uuid: c.requestUuid,
-    at: now,
-    actorId: s.user.id,
-    action: `partsRequest.${c.kind}`,
-    entityUuid: saved.uuid,
-    aircraftUuid: saved.aircraftUuid || undefined,
-    before: previous
-      ? JSON.stringify(
-          original.partsRequests?.find((x) => x.uuid === saved.uuid),
-        )
-      : undefined,
-    after: JSON.stringify(saved),
-  });
+  recordPartsChange(
+    s,
+    {
+      uuid: c.requestUuid,
+      action: `partsRequest.${c.kind}`,
+      entityUuid: saved.uuid,
+      aircraftUuid: saved.aircraftUuid || undefined,
+      before: previous
+        ? original.partsRequests?.find((x) => x.uuid === saved.uuid)
+        : undefined,
+      after: saved,
+    },
+    now,
+  );
+  return saved;
+}
+
+// Parts rows name no program of their own: the server stamps the command's
+// program as it writes them, and the demo keeps them without.
+function recordPartsChange(s: Snapshot, change: AuditChange, now: number) {
+  s.audit.unshift(auditEntry(s, { programUuid: undefined, ...change }, now));
+}
+
+// Saving a list serves the open work orders on its aircraft at once, so none
+// waits for its own next save. A resend does too, creating only what is still
+// owed.
+function finishCommand(
+  original: Snapshot,
+  s: Snapshot,
+  r: PartsRequest,
+  now: number,
+) {
+  if (r.recurring && !r.cancelled) serveOpenOrders(s, r, now);
   original.partsRequests = s.partsRequests;
   original.management = s.management;
   original.audit = s.audit;
-  return saved;
+  return r;
 }
 
 function recurringTaskSource(s: Snapshot, source: RequestSource) {
@@ -1075,4 +1202,114 @@ function isRecurringADTask(s: Snapshot, uuid: string) {
       t.intervalLandings
     )
   );
+}
+
+function serveOpenOrders(s: Snapshot, list: PartsRequest, now: number) {
+  for (const order of s.workOrders ?? [])
+    if (order.aircraftUuid === list.aircraftUuid)
+      generateRecurringRequests(s, order, now);
+}
+
+function addOccurrences(
+  run: OccurrenceRun,
+  template: PartsRequest,
+  tasks: WorkTask[],
+): PartsRequest[] {
+  const { s, requests, order, program, now } = run;
+  const created: PartsRequest[] = [];
+  for (const task of tasks) {
+    if (hasOccurrence(requests, template, order, task)) continue;
+    const r = copyTemplate(run, template, task);
+    requests.push(r);
+    created.push(r);
+    s.audit.unshift(
+      auditEntry(
+        s,
+        {
+          uuid: r.uuid,
+          programUuid: program,
+          action: "partsRequest.recurring",
+          entityUuid: r.uuid,
+          aircraftUuid: order.aircraftUuid,
+          after: r,
+        },
+        now,
+      ),
+    );
+  }
+  return created;
+}
+
+// Numbered from the requests as they stand, so each copy follows the last.
+function copyTemplate(
+  { s, requests, order, now }: OccurrenceRun,
+  template: PartsRequest,
+  task: WorkTask,
+): PartsRequest {
+  const uuid = crypto.randomUUID();
+  return partsRequestSchema.parse({
+    ...structuredClone(template),
+    uuid,
+    version: 1,
+    recurring: false,
+    templateUuid: template.uuid,
+    source: { kind: "workTask", uuid: task.uuid, workOrderUuid: order.uuid },
+    sourceLabel: `${order.number}: ${task.description}`.slice(
+      0,
+      TEXT_MAX_LENGTH,
+    ),
+    number: nextRequestNumber(requests, template.programUuid),
+    date: localDate(now),
+    requiredBy: "",
+    requesterId: s.user.id,
+    createdAt: now,
+    updatedAt: now,
+    reservations: [],
+    issues: [],
+    cancelled: false,
+    history: [
+      {
+        requestUuid: uuid,
+        at: now,
+        actorId: s.user.id,
+        action: "recurring occurrence",
+        detail: `Created from ${template.number} for ${order.number}`,
+      },
+    ],
+  });
+}
+
+// A list's stored source is the recurring item itself (normalizeDraft), so it
+// is matched here without loading that item.
+function isOwed(requests: PartsRequest[], order: WorkOrder, task: WorkTask) {
+  if (isClosed(task)) return false;
+  return requests.some(
+    (r) =>
+      r.recurring &&
+      !r.cancelled &&
+      r.aircraftUuid === order.aircraftUuid &&
+      r.source.kind === task.source.kind &&
+      r.source.uuid === task.source.uuid &&
+      !hasOccurrence(requests, r, order, task),
+  );
+}
+
+// Cancelled occurrences count too: cancellation must never silently reorder
+// parts.
+function hasOccurrence(
+  requests: PartsRequest[],
+  template: PartsRequest,
+  order: WorkOrder,
+  task: WorkTask,
+) {
+  return requests.some(
+    (r) =>
+      r.templateUuid === template.uuid &&
+      r.source.uuid === task.uuid &&
+      r.source.workOrderUuid === order.uuid,
+  );
+}
+
+function isClosed({ status }: { status: string }) {
+  return CLOSED_WORK_STATUSES.includes(status);
 }
