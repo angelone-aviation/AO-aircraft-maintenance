@@ -27,7 +27,9 @@ import {
   adCounters,
   adStatus,
   adTaskStatus,
+  CLOSED_APPLICABILITY,
   effectiveCompliance,
+  type ADTask,
 } from "../../src/domain/airworthiness";
 import { auditActionLabel } from "../../src/domain/auditHistory";
 import {
@@ -39,6 +41,14 @@ import {
 } from "../../src/domain/components";
 import { flightSeconds, workOrderCosts } from "../../src/domain/costs";
 import {
+  dueItems,
+  type AdDue,
+  type DueLevel,
+  type InspectionDue,
+  type MaintenanceDue,
+  type RequirementDue,
+} from "../../src/domain/dueItems";
+import {
   deferralDaysRemaining,
   deferralLabel,
   type Deferral,
@@ -48,10 +58,9 @@ import { listsAllAircraft } from "../../src/domain/groupAircraft";
 import {
   inspectionDueDate,
   inspectionDueLimit,
-  inspectionStatus,
   inspectionStatusLabels,
 } from "../../src/domain/maintenance";
-import { inspectionCounters, type Stock } from "../../src/domain/management";
+import type { Stock } from "../../src/domain/management";
 import {
   hours,
   totalSeconds,
@@ -175,21 +184,27 @@ type Clock = ReturnType<typeof zoneClock>;
 
 // ------------------------------------------------------------ the records --
 
-type Level = "overdue" | "due-soon" | "unknown" | "ok";
-const levelTone: Record<Level, Tone | undefined> = {
+const MS_PER_DAY = 86_400_000;
+const levelTone: Record<DueLevel, Tone | undefined> = {
   overdue: "bad",
   "due-soon": "warn",
   unknown: undefined,
   ok: "good",
 };
-const levelRank: Record<Level, number> = {
+const levelRank: Record<DueLevel, number> = {
   overdue: 0,
   "due-soon": 1,
   unknown: 2,
   ok: 3,
 };
-interface DueItem {
-  level: Level;
+interface Remaining {
+  daysLeft?: number;
+  hoursLeft?: number;
+  cyclesLeft?: number;
+  landingsLeft?: number;
+}
+interface DueItem extends Remaining {
+  level: DueLevel;
   status: string;
   aircraft: Aircraft;
   kind: "Inspection" | "Component" | "AD";
@@ -197,10 +212,6 @@ interface DueItem {
   detail: string;
   dueDate?: string;
   dueAt: string;
-  daysLeft?: number;
-  hoursLeft?: number;
-  cyclesLeft?: number;
-  landingsLeft?: number;
   urgency: number;
 }
 
@@ -356,169 +367,127 @@ type Namer = ReturnType<typeof namer>;
 
 // ------------------------------------------------------------- the sheets --
 
-function dueItems(s: Snapshot, today: string, names: Namer): DueItem[] {
-  const items: DueItem[] = [];
-  const urgency = (r: {
-    daysLeft?: number;
-    hoursLeft?: number;
-    cyclesLeft?: number;
-    landingsLeft?: number;
-  }) =>
-    inspectionDueLimit({
-      daysRemaining: r.daysLeft,
-      hoursRemaining: r.hoursLeft,
-      cyclesRemaining: r.cyclesLeft,
-      landingsRemaining: r.landingsLeft,
-    })?.urgency ?? Number.POSITIVE_INFINITY;
-  const dueAt = (
-    h: number | null | undefined,
-    basis: string,
-    cycles?: number | null,
-    landings?: number | null,
-  ) =>
-    [
-      h !== null && h !== undefined && `${hours(h * 3600)} h${basis}`,
-      cycles !== null && cycles !== undefined && `${cycles} cycles`,
-      landings !== null && landings !== undefined && `${landings} landings`,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-  const aircraft = new Map(s.aircraft.map((a) => [a.uuid, a]));
-  for (const i of s.inspections) {
-    const a = aircraft.get(i.aircraftUuid);
-    if (i.archived || !a) continue;
-    const c = names.component(i.componentUuid);
-    const base = {
-      aircraft: a,
-      kind: "Inspection" as const,
-      item: i.reference || i.description,
-      detail: lines(
-        i.reference && i.description,
-        c && `On ${names.componentName(c)}`,
-      ),
-      dueDate: inspectionDueDate(i),
-      dueAt: dueAt(
-        secondsToHours(i.dueSeconds),
-        c ? " (component time)" : "",
-        i.dueCycles,
-        i.dueLandings,
-      ),
-    };
-    try {
-      const st = inspectionStatus(
-        i,
-        a,
-        today,
-        inspectionCounters(i, a, s.management),
-      );
-      const left = {
-        daysLeft: st.daysRemaining,
-        hoursLeft: st.hoursRemaining,
-        cyclesLeft: st.cyclesRemaining,
-        landingsLeft: st.landingsRemaining,
-      };
-      items.push({
-        ...base,
-        ...left,
-        level:
-          st.status === "overdue"
-            ? "overdue"
-            : st.status === "due-soon"
-              ? "due-soon"
-              : st.status === "scheduled"
-                ? "ok"
-                : "unknown",
-        status: inspectionStatusLabels[st.status],
-        urgency: urgency(left),
-      });
-    } catch (e) {
-      items.push({
-        ...base,
-        detail: lines(base.detail, e instanceof Error && e.message),
-        level: "unknown",
-        status: inspectionStatusLabels.unknown,
-        urgency: Number.POSITIVE_INFINITY,
-      });
-    }
-  }
-  for (const r of s.management ?? []) {
-    if (r.kind !== "componentRequirement") continue;
-    const c = names.component(r.componentUuid);
-    const a = c?.installed ? aircraft.get(c.aircraftUuid) : undefined;
-    if (!c || !a) continue;
-    const base = {
-      aircraft: a,
-      kind: "Component" as const,
-      item: names.componentName(c),
-      detail: `${r.requirementType}: ${r.description}`,
-      dueDate: requirementDueDate(r),
-      dueAt: dueAt(
-        secondsToHours(r.dueSeconds),
-        ` ${r.timeBasis}`,
-        r.dueCycles,
-        r.dueLandings,
-      ),
-    };
-    try {
-      const q = requirementStatus(r, c, a, today);
-      const left = {
-        daysLeft: q.days,
-        hoursLeft: secondsToHours(q.seconds),
-        cyclesLeft: q.cycles,
-        landingsLeft: q.landings,
-      };
-      items.push({
-        ...base,
-        ...left,
-        level:
-          q.status === "Past due" || q.status === "Due now"
-            ? "overdue"
-            : q.status === "Due soon"
-              ? "due-soon"
-              : q.status === "Tracked"
-                ? "ok"
-                : "unknown",
-        status: q.status,
-        urgency: urgency(left),
-      });
-    } catch (e) {
-      items.push({
-        ...base,
-        detail: lines(base.detail, e instanceof Error && e.message),
-        level: "unknown",
-        status: "Unknown",
-        urgency: Number.POSITIVE_INFINITY,
-      });
-    }
-  }
-  for (const r of s.airworthiness ?? []) {
-    if (["Not applicable", "Superseded"].includes(r.applicability)) continue;
-    const a = aircraft.get(adAircraftUuid(s, r));
-    const c = names.component(r.componentUuid);
-    if (!a || (c && !c.installed)) continue;
-    const counters = adCounters(s, r);
-    for (const task of r.tasks) {
-      const status = adTaskStatus(s, r, task, today);
-      if (status === "Complied") continue;
-      const hoursOk = counters && task.dueHours !== null && (!c || c.trackTime);
-      const cyclesOk =
-        counters && task.dueCycles !== null && (!c || c.trackCycles);
-      const left = {
-        daysLeft: task.dueDate
-          ? Math.round((Date.parse(task.dueDate) - Date.parse(today)) / 864e5)
-          : undefined,
-        hoursLeft: hoursOk
-          ? Math.round((task.dueHours! - counters.hours) * 3600) / 3600
-          : undefined,
-        cyclesLeft: cyclesOk ? task.dueCycles! - counters.cycles : undefined,
-        landingsLeft:
-          counters && task.dueLandings != null
-            ? task.dueLandings - counters.landings
-            : undefined,
-      };
-      items.push({
-        aircraft: a,
-        kind: "AD",
+// The fleet's due list, most urgent first. ADs that no longer apply are
+// dropped before the domain judges their actions: judging one on an aircraft
+// without a meter reading throws, which would stop the copy.
+function dueList(s: Snapshot, today: string, names: Namer): DueItem[] {
+  const tracked = (s.airworthiness ?? []).filter(
+    (r) => !CLOSED_APPLICABILITY.includes(r.applicability),
+  );
+  return dueItems({ ...s, airworthiness: tracked }, undefined, today)
+    .flatMap((d) => dueRows(s, d, today, names))
+    .sort(compareDue);
+}
+
+// Component limits in inventory, and AD actions on an aircraft the export
+// does not hold or on a removed component, are not on the due list.
+function dueRows(
+  s: Snapshot,
+  d: MaintenanceDue,
+  today: string,
+  names: Namer,
+): DueItem[] {
+  if (d.kind === "inspection") return [inspectionRow(d, names)];
+  if (d.kind === "componentRequirement")
+    return d.aircraft ? [requirementRow(d, d.aircraft, names)] : [];
+  if (!d.aircraft || d.component?.installed === false) return [];
+  return adRows(s, d, d.aircraft, today, names);
+}
+
+function inspectionRow(d: InspectionDue, names: Namer): DueItem {
+  const { inspection: i, due } = d;
+  const c = names.component(i.componentUuid);
+  const base = {
+    aircraft: d.aircraft,
+    kind: "Inspection" as const,
+    item: i.reference || i.description,
+    detail: lines(
+      i.reference && i.description,
+      c && `On ${names.componentName(c)}`,
+    ),
+    dueDate: inspectionDueDate(i),
+    dueAt: dueAt(
+      secondsToHours(i.dueSeconds),
+      c ? " (component time)" : "",
+      i.dueCycles,
+      i.dueLandings,
+    ),
+  };
+  if (!due) return unknownRow(base, d.error, inspectionStatusLabels.unknown);
+  const left = {
+    daysLeft: due.daysRemaining,
+    hoursLeft: due.hoursRemaining,
+    cyclesLeft: due.cyclesRemaining,
+    landingsLeft: due.landingsRemaining,
+  };
+  const status = inspectionStatusLabels[due.status];
+  return { ...base, ...left, level: d.level, status, urgency: urgency(left) };
+}
+
+function requirementRow(
+  d: RequirementDue,
+  aircraft: Aircraft,
+  names: Namer,
+): DueItem {
+  const { requirement: r, due } = d;
+  const base = {
+    aircraft,
+    kind: "Component" as const,
+    item: names.componentName(d.component),
+    detail: `${r.requirementType}: ${r.description}`,
+    dueDate: requirementDueDate(r),
+    dueAt: dueAt(
+      secondsToHours(r.dueSeconds),
+      ` ${r.timeBasis}`,
+      r.dueCycles,
+      r.dueLandings,
+    ),
+  };
+  if (!due) return unknownRow(base, d.error, "Unknown");
+  const left = {
+    daysLeft: due.days,
+    hoursLeft: secondsToHours(due.seconds),
+    cyclesLeft: due.cycles,
+    landingsLeft: due.landings,
+  };
+  const { status } = due;
+  return { ...base, ...left, level: d.level, status, urgency: urgency(left) };
+}
+
+// A status that could not be worked out is listed with what went wrong, so
+// one damaged record never hides the rest of the list.
+function unknownRow(
+  base: Omit<DueItem, "level" | "status" | "urgency">,
+  error: unknown,
+  status: string,
+): DueItem {
+  const message = error instanceof Error && error.message;
+  return {
+    ...base,
+    detail: lines(base.detail, message),
+    level: "unknown",
+    status,
+    urgency: Number.POSITIVE_INFINITY,
+  };
+}
+
+// One row per action not yet complied with.
+function adRows(
+  s: Snapshot,
+  d: AdDue,
+  aircraft: Aircraft,
+  today: string,
+  names: Namer,
+): DueItem[] {
+  const { ad: r, component: c } = d;
+  const counters = adCounters(s, r);
+  return d.tasks
+    .filter(({ status }) => status !== "Complied")
+    .map(({ task, status, level }) => {
+      const left = adTaskRemaining(task, counters, c, today);
+      return {
+        aircraft,
+        kind: "AD" as const,
         item: `AD ${r.source.number}`,
         detail: lines(task.description, c && `On ${names.componentName(c)}`),
         dueDate: task.dueDate || undefined,
@@ -529,26 +498,71 @@ function dueItems(s: Snapshot, today: string, names: Namer): DueItem[] {
           task.dueLandings,
         ),
         ...left,
-        level:
-          status === "Overdue"
-            ? "overdue"
-            : status === "Due soon"
-              ? "due-soon"
-              : status === "Scheduled"
-                ? "ok"
-                : "unknown",
+        level,
         status,
         urgency: urgency(left),
-      });
-    }
-  }
-  return items.sort(
-    (x, y) =>
-      levelRank[x.level] - levelRank[y.level] ||
-      x.urgency - y.urgency ||
-      (x.dueDate ?? "9999").localeCompare(y.dueDate ?? "9999") ||
-      x.aircraft.registration.localeCompare(y.aircraft.registration) ||
-      x.item.localeCompare(y.item),
+      };
+    });
+}
+
+// Hours and cycles count only on a dimension the component tracks.
+function adTaskRemaining(
+  task: ADTask,
+  counters: ReturnType<typeof adCounters>,
+  c: Component | undefined,
+  today: string,
+): Remaining {
+  const hoursOk = counters && task.dueHours !== null && (!c || c.trackTime);
+  const cyclesOk = counters && task.dueCycles !== null && (!c || c.trackCycles);
+  return {
+    daysLeft: task.dueDate
+      ? Math.round((Date.parse(task.dueDate) - Date.parse(today)) / MS_PER_DAY)
+      : undefined,
+    hoursLeft: hoursOk
+      ? Math.round((task.dueHours! - counters.hours) * 3600) / 3600
+      : undefined,
+    cyclesLeft: cyclesOk ? task.dueCycles! - counters.cycles : undefined,
+    landingsLeft:
+      counters && task.dueLandings != null
+        ? task.dueLandings - counters.landings
+        : undefined,
+  };
+}
+
+// The nearest limit, by the inspections' rule; none sorts last.
+function urgency(left: Remaining) {
+  return (
+    inspectionDueLimit({
+      daysRemaining: left.daysLeft,
+      hoursRemaining: left.hoursLeft,
+      cyclesRemaining: left.cyclesLeft,
+      landingsRemaining: left.landingsLeft,
+    })?.urgency ?? Number.POSITIVE_INFINITY
+  );
+}
+
+function dueAt(
+  h: number | null | undefined,
+  basis: string,
+  cycles?: number | null,
+  landings?: number | null,
+) {
+  return [
+    h !== null && h !== undefined && `${hours(h * 3600)} h${basis}`,
+    cycles !== null && cycles !== undefined && `${cycles} cycles`,
+    landings !== null && landings !== undefined && `${landings} landings`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function compareDue(x: DueItem, y: DueItem) {
+  return (
+    levelRank[x.level] - levelRank[y.level] ||
+    x.urgency - y.urgency ||
+    (x.dueDate ?? "9999").localeCompare(y.dueDate ?? "9999") ||
+    x.aircraft.registration.localeCompare(y.aircraft.registration) ||
+    x.item.localeCompare(y.item)
   );
 }
 
@@ -1101,7 +1115,7 @@ function componentSheet({ s, names, clock, today }: Context): SheetSpec {
       } catch {
         q = undefined;
       }
-      const level: Level = !q
+      const level: DueLevel = !q
         ? "unknown"
         : q.status === "Past due" || q.status === "Due now"
           ? "overdue"
@@ -1728,7 +1742,7 @@ export async function buildRecordsWorkbook(
     names,
     clock,
     today,
-    due: dueItems(s, today, names),
+    due: dueList(s, today, names),
     audit,
     transferred,
   };
