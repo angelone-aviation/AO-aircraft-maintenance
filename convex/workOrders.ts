@@ -32,6 +32,7 @@ import {
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
+  storeThenFinish,
   MAX_ATTACHMENTS,
 } from "./attachments";
 import { inspectionSchema } from "../src/domain/management";
@@ -161,8 +162,8 @@ export const finishUpload = internalMutation({
  * @param name - The file name shown on the order.
  * @param type - The file's MIME type.
  * @param bytes - The file.
- * @throws As `validateWorkOrderFile`, a Rejection as a ConvexError, before any
- *   permission check; as {@link finishUpload}.
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", before
+ *   any permission check; as {@link finishUpload}.
  */
 export const upload = action({
   args: { ...fileArgs, name: v.string(), type: v.string(), bytes: v.bytes() },
@@ -170,26 +171,19 @@ export const upload = action({
     exposeRejections(() =>
       validateWorkOrderFile(args.name, args.type, args.bytes.byteLength),
     );
-    await ctx.runQuery(internal.workOrders.checkUpload, {
+    const order = {
       workOrderUuid: args.workOrderUuid,
       programUuid: args.programUuid,
-    });
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      await ctx.runMutation(internal.workOrders.finishUpload, {
-        workOrderUuid: args.workOrderUuid,
-        programUuid: args.programUuid,
+    };
+    await ctx.runQuery(internal.workOrders.checkUpload, order);
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.workOrders.finishUpload, {
+        ...order,
         storageId,
         name: args.name,
         size: args.bytes.byteLength,
-      });
-    } catch (e) {
-      // A file that was not filed must not stay in storage.
-      await ctx.storage.delete(storageId);
-      throw e;
-    }
+      }),
+    );
   },
 });
 
