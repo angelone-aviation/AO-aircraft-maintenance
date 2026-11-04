@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins close-out component corrections: the replay at
+ *   completion, later usage kept, and every refusal with its message.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrderComponentCorrections.ts, ./workOrders,
+ *   ./components, ./logbook, ./rejection, src/data/demo.ts (seed),
+ *   tests/fixtures/workOrders.
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -20,6 +28,7 @@ import {
 } from "./workOrderComponentCorrections";
 import type { Snapshot } from "./model";
 import { logbookText } from "./logbook";
+import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-02T12:00:00Z");
 function setup(
   action: "overhaul" | "repair" | "service" | "both" = "overhaul",
@@ -204,4 +213,58 @@ it.each([
   const before = structuredClone(s);
   expect(() => saveWorkOrder(s, cmd, now + 2000)).toThrow();
   expect(s).toEqual(before);
+});
+it.each([
+  [
+    "open order",
+    "A completed work order with saved closeout readings is required.",
+  ],
+  ["staleOrder", "Work order changed. Reopen the correction preview."],
+  ["otherComponent", "This component was not recorded at closeout."],
+  ["movement", "Record component movement changes through a new work order."],
+  [
+    "legacy",
+    "Manual review required: this older closeout does not contain the pre-service component and requirement records needed for a safe tracking correction.",
+  ],
+  [
+    "unchanged",
+    "Change the component work performed before previewing a correction.",
+  ],
+  [
+    "staleComponent",
+    "Aircraft or component readings changed. Reopen the correction preview.",
+  ],
+  [
+    "requirement",
+    "Manual review required: component tracking or service requirements changed after this closeout. Later records will not be overwritten.",
+  ],
+  [
+    "laterOrder",
+    "Manual review required: later component maintenance or movement exists. Review those events before correcting this closeout.",
+  ],
+] as const)("refuses a %s correction with its message", (mode, message) => {
+  const { s, closed } = setup();
+  let order = closed;
+  const cmd = command(s, closed);
+  if (mode === "open order") order = { ...closed, status: "open" };
+  if (mode === "staleOrder") cmd.version--;
+  if (mode === "otherComponent") cmd.choice.componentUuid = "other";
+  if (mode === "movement") cmd.choice.action = "remove";
+  if (mode === "legacy")
+    delete closed.closeout!.componentWork![0].trackingBaseline;
+  if (mode === "unchanged")
+    cmd.choice = {
+      ...cmd.choice,
+      action: "overhaul",
+      description: "Bench work",
+    };
+  if (mode === "staleComponent") cmd.choice.version++;
+  if (mode === "requirement") s.management![1].version++;
+  if (mode === "laterOrder")
+    s.workOrders!.push({ ...closed, uuid: crypto.randomUUID() });
+  const preview = () => previewComponentCorrection(s, order, cmd, now + 1000);
+  expect(preview).toThrow(Rejection);
+  expect(preview).toThrow(
+    new RegExp(`^${message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+  );
 });

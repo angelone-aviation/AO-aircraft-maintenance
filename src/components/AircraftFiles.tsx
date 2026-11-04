@@ -4,7 +4,7 @@
  * Layer: UI. React components; writes through the workspace backend.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
  *   src/data/backend.ts (types), src/domain/model.ts, src/domain/aircraftFiles.ts, ./design.tsx,
- *   src/styles/screens/dashboard.css.
+ *   ./ui.tsx, src/styles/screens/dashboard.css.
  *
  * Copies are never deleted (ADR-0004): archiving hides one from the current
  * list and keeps its stored file.
@@ -20,6 +20,7 @@ import {
   type AircraftFile,
 } from "../domain/aircraftFiles";
 import { Switch } from "./design";
+import { errorText } from "./ui";
 import "../styles/screens/dashboard.css";
 
 const BYTES_PER_KB = 1024;
@@ -92,7 +93,7 @@ function useForm337Actions(aircraft: Aircraft, backend: Backend | null) {
       await backend!.uploadAircraftFile(aircraft.uuid, "form-337", file);
       setMessage(`${file.name} uploaded.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to upload the file.");
+      setError(errorText(e, "Unable to upload the file."));
     } finally {
       setBusy(false);
     }
@@ -312,7 +313,7 @@ function useArchive(onArchive: Archiver, reason: string) {
     try {
       await onArchive(reason);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to archive.");
+      setError(errorText(err, "Unable to archive."));
       // Only a failure ends the busy state: on success the copy leaves the
       // current list, which unmounts this form.
       setBusy(false);

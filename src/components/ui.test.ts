@@ -1,13 +1,14 @@
 /**
- * Responsibility: Pins the markup, labelling and link and form-value rules of
- *   the shared UI building blocks.
+ * Responsibility: Pins the markup, labelling, link and form-value rules of the
+ *   shared UI building blocks, and that they show errors as src/data does.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/components/ui.tsx, react-dom/server.
+ * Dependencies: src/components/ui.tsx, react-dom/server, src/data/errors.ts.
  */
 // @vitest-environment node
 import { createElement as h, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { errorText as dataErrorText } from "../data/errors";
 import {
   AsyncForm,
   Badge,
@@ -16,6 +17,7 @@ import {
   Field,
   Modal,
   PageTitle,
+  errorText,
   safeHref,
   value,
 } from "./ui";
@@ -168,5 +170,11 @@ describe("value", () => {
     data.set("serial", "  SN-1 ");
     expect(value(data, "serial")).toBe("SN-1");
     expect(value(data, "missing")).toBe("");
+  });
+});
+
+describe("errorText", () => {
+  it("is the data layer's helper, so screens and the Sync center agree", () => {
+    expect(errorText).toBe(dataErrorText);
   });
 });

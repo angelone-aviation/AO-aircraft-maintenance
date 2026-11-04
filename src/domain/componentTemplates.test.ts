@@ -1,11 +1,22 @@
+/**
+ * Responsibility: Pins template CSV parsing, row checks, saving, duplicate
+ *   detection and applying a template to an aircraft as setups.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/componentTemplates.ts, ./programs, ./rejection,
+ *   src/data/demo.ts (seed).
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
   parseComponentTemplateCsv,
   saveComponentTemplate,
   applyComponentTemplate,
+  componentDuplicate,
+  matchesComponentTemplate,
+  validateRows,
 } from "./componentTemplates";
 import { scopedSnapshot } from "./programs";
+import { Rejection } from "./rejection";
 const csv =
   'Component type,ATA chapter,Part number,Component Name,Manufacturer,Position,ID,Parent ID\nEngine,72,ENGINE,Engine,Maker,MAIN,engine,\nAppliance,72,BLADE,"Blade, assembly",Maker,,blade,engine';
 function fixture() {
@@ -89,4 +100,119 @@ it("scopes templates and setup recommendations to the active program and aircraf
   const scoped = scopedSnapshot(s);
   expect(scoped.componentTemplates).toHaveLength(1);
   expect(scoped.componentSetups).toHaveLength(2);
+});
+it("reads columns in any order and case, numbers rows without an ID, and names the failing row", () => {
+  const rows = parseComponentTemplateCsv(
+    '\uFEFF"component  NAME",Part Number,COMPONENT TYPE,ata chapter\nPump,P-1,Appliance,\nFan,F-1,Appliance,',
+  );
+  expect(rows.map((r) => [r.id, r.model, r.partNumber])).toEqual([
+    ["1", "Pump", "P-1"],
+    ["2", "Fan", "F-1"],
+  ]);
+  const refused = () =>
+    parseComponentTemplateCsv(csv.replace("Appliance,72", "Gizmo,72"));
+  expect(refused).toThrow(Rejection);
+  expect(refused).toThrow(/^CSV row 3: /);
+  expect(() => parseComponentTemplateCsv(csv + ",extra")).toThrow(
+    "CSV row 3: Column count does not match header.",
+  );
+  expect(() => parseComponentTemplateCsv(csv.split("\n")[0])).toThrow(
+    "Use 1–500 component rows.",
+  );
+  expect(() =>
+    parseComponentTemplateCsv(csv.replace("Position", "Model")),
+  ).toThrow(/^Use columns: Component type, .*The first four are required\.$/);
+  expect(() =>
+    parseComponentTemplateCsv(
+      "Component type,ATA chapter,Part number\nEngine,72,E",
+    ),
+  ).toThrow("The first four are required.");
+  expect(() =>
+    parseComponentTemplateCsv(csv + "x".repeat(2 * 1024 * 1024)),
+  ).toThrow("CSV must be under 2 MB.");
+});
+it("refuses duplicate row IDs and unknown parents", () => {
+  const [engine, blade] = parseComponentTemplateCsv(csv);
+  expect(() => validateRows([engine, { ...blade, id: "engine" }])).toThrow(
+    new Rejection("Each row ID must be unique."),
+  );
+  expect(() => validateRows([engine, { ...blade, parentId: "hub" }])).toThrow(
+    "Unknown parent ID: hub",
+  );
+  expect(() => validateRows([engine, { ...blade, parentId: "hub" }])).toThrow(
+    Rejection,
+  );
+});
+it("saves a template with a new version and refuses a stale one", () => {
+  const { s, t } = fixture();
+  expect(t.version).toBe(1);
+  expect(t.programUuid).toBe("demo-program");
+  const saved = saveComponentTemplate(s, { ...t, name: "Renamed" });
+  expect(saved.version).toBe(2);
+  expect(s.componentTemplates).toEqual([saved]);
+  const stale = () => saveComponentTemplate(s, t);
+  expect(stale).toThrow(Rejection);
+  expect(stale).toThrow("Template changed. Reopen it.");
+});
+it("matches make, model and duplicates ignoring case and spaces, but not position", () => {
+  const { s, a, t } = fixture();
+  expect(
+    matchesComponentTemplate(t, {
+      make: ` ${a.make.toUpperCase()} `,
+      model: a.model.replace(/^/, " "),
+    }),
+  ).toBe(true);
+  const [engine] = t.rows;
+  s.management = [
+    {
+      kind: "component",
+      uuid: "installed",
+      version: 1,
+      aircraftUuid: a.uuid,
+      componentType: "engine",
+      partNumber: " engine ",
+      model: "ENGINE",
+      installPosition: "MAIN",
+      serial: "1",
+      manufacturer: "",
+      notes: "",
+      installed: true,
+      installedDate: "2026-01-01",
+      installedSeconds: 0,
+      installedCycles: 0,
+      timeSinceNew: 0,
+      timeSinceOverhaul: null,
+      timeSinceRepair: null,
+      cyclesSinceNew: 0,
+      serviceDaysBase: 0,
+      trackTime: true,
+      trackCycles: true,
+      trackCalendar: true,
+    },
+  ];
+  expect(componentDuplicate(s, a.uuid, engine)).toBe(true);
+  expect(
+    componentDuplicate(s, a.uuid, { ...engine, installPosition: undefined }),
+  ).toBe(false);
+});
+it("refuses an unknown row and a rotor on an airplane, adding nothing", () => {
+  const { s, a, t, input } = fixture();
+  expect(() =>
+    applyComponentTemplate(s, { ...input, rowIds: ["engine", "hub"] }),
+  ).toThrow(new Rejection("Unknown template row."));
+  t.rows[0] = { ...t.rows[0], componentType: "Main Rotor" };
+  a.helicopter = false;
+  const rotor = () => applyComponentTemplate(s, input);
+  expect(rotor).toThrow(Rejection);
+  expect(rotor).toThrow(
+    "Component type does not match this aircraft category.",
+  );
+  expect(s.componentSetups).toBeUndefined();
+});
+it("links to the first setup when a row was applied twice (characterizes current behaviour)", () => {
+  const { s, input } = fixture();
+  const [first] = applyComponentTemplate(s, { ...input, rowIds: ["engine"] });
+  s.componentSetups!.push({ ...first, uuid: crypto.randomUUID() });
+  const [blade] = applyComponentTemplate(s, { ...input, rowIds: ["blade"] });
+  expect(blade.parentComponentUuid).toBe(first.uuid);
 });

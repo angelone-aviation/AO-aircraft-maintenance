@@ -3,12 +3,13 @@
  *   status sheet as a PDF.
  * Layer: UI. Reads the snapshot it is given; the PDF is built in src/data.
  * Dependencies: src/domain/model.ts (localDate, Snapshot type),
- *   src/data/aircraftStatusReport.ts (loaded on first export).
+ *   src/data/aircraftStatusReport.ts (loaded on first export), ./ui.tsx.
  *
  * The report module pulls in jsPDF, so it loads only when someone exports.
  */
 import { useState } from "react";
 import { localDate, type Snapshot } from "../domain/model";
+import { errorText } from "./ui";
 
 /**
  * Button that builds the aircraft's status sheet and saves it as
@@ -33,9 +34,7 @@ export function ExportAircraftStatus({
     try {
       await saveStatusSheet(state, aircraftUuid);
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Unable to export status sheet.",
-      );
+      setError(errorText(e, "Unable to export status sheet."));
     } finally {
       setBusy(false);
     }

@@ -1,13 +1,11 @@
 /**
  * Responsibility: Shared building blocks for forms and pages: the modal, the
  *   async form and delete button, labelled fields, badges, empty states, page
- *   titles, safe links and text downloads.
- * Layer: UI. Shared components; the one component module that reads
- *   ConvexError messages.
- * Dependencies: convex/values, react, @phosphor-icons/react, ./design.tsx,
- *   src/data/store.ts.
+ *   titles, safe links, text downloads and the text shown for an error.
+ * Layer: UI. Shared components; no Convex imports.
+ * Dependencies: react, @phosphor-icons/react, ./design.tsx, src/data/store.ts,
+ *   src/data/errors.ts.
  */
-import { ConvexError } from "convex/values";
 import {
   useState,
   useId,
@@ -19,6 +17,10 @@ import {
 import { CircleNotch } from "@phosphor-icons/react";
 import { DialogFrame, PageHeader } from "./design";
 import { useWorkspace } from "../data/store";
+import { errorText } from "../data/errors";
+
+/** Re-exported so screens keep one import for their building blocks. */
+export { errorText };
 
 // Long enough for the browser to start the download; revoking the URL at once
 // can cancel it.
@@ -381,10 +383,4 @@ function readSubmission(e: FormEvent<HTMLFormElement>): FormData {
   if (submitter instanceof HTMLButtonElement && submitter.name)
     data.set(submitter.name, submitter.value);
   return data;
-}
-
-function errorText(e: unknown): string {
-  if (e instanceof ConvexError && typeof e.data === "string") return e.data;
-  if (e instanceof Error) return e.message;
-  return "Something went wrong. Please try again.";
 }

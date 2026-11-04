@@ -1,11 +1,20 @@
+/**
+ * Responsibility: Pins activating an inspection template as an inspection or
+ *   component requirement with task cards, and every refusal.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/activateTemplate.ts, ./inspectionTemplates,
+ *   ./components, ./rejection, src/data/demo.ts (seed).
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { emptyTemplate } from "./inspectionTemplates";
 import {
   activateTemplate,
+  templateActivationIssue,
   type ActivateTemplateInput,
 } from "./activateTemplate";
 import type { Component } from "./components";
+import { Rejection } from "./rejection";
 function fixture() {
   const s = demoSnapshot(),
     a = s.aircraft[0];
@@ -82,14 +91,13 @@ it("keeps initial thresholds separate from recurring intervals", () => {
   const recurring = activateTemplate(s, input);
   expect(recurring.record).toMatchObject({ intervalSeconds: 360000 });
 });
-it("creates component requirements preserving day units and TSO limits", () => {
-  const { s, t, input } = fixture();
+function pump(programUuid: string | undefined, aircraftUuid: string) {
   const c: Component = {
     kind: "component",
     uuid: "pump",
     version: 0,
-    programUuid: t.programUuid,
-    aircraftUuid: input.targetUuid,
+    programUuid,
+    aircraftUuid,
     componentType: "Pump",
     model: "P100",
     manufacturer: "Acme",
@@ -108,6 +116,11 @@ it("creates component requirements preserving day units and TSO limits", () => {
     cyclesSinceNew: 100,
     serviceDaysBase: 0,
   };
+  return c;
+}
+it("creates component requirements preserving day units and TSO limits", () => {
+  const { s, t, input } = fixture();
+  const c = pump(t.programUuid, input.targetUuid);
   s.management = [c];
   s.inspectionTemplates = [
     {
@@ -139,4 +152,98 @@ it("creates component requirements preserving day units and TSO limits", () => {
     requirementUuid: result.record.uuid,
     componentUuid: c.uuid,
   });
+});
+it("gives template requirements a warning window and their limit modes", () => {
+  const { s, t, input } = fixture();
+  const c = pump(t.programUuid, input.targetUuid);
+  s.management = [c];
+  s.inspectionTemplates = [
+    {
+      ...t,
+      applicability: {
+        kind: "component",
+        model: "P100",
+        manufacturer: "Acme",
+        partNumber: "P1",
+      },
+      hourMode: "ABSOLUTE",
+    },
+  ];
+  const { record } = activateTemplate(s, { ...input, targetUuid: c.uuid });
+  expect(record).toMatchObject({
+    intervalSeconds: 100 * 3600,
+    timeLimitMode: "ABSOLUTE",
+    cycleLimitMode: "FROM_LAST_COMPLIED",
+    warningCalendarMonths: 1,
+    warningSeconds: 10 * 3600,
+    warningCycles: 10,
+  });
+});
+it("schedules a yearly template in months", () => {
+  const { s, t, input } = fixture();
+  t.calendarUnit = "YEARS";
+  t.calendarValue = 2;
+  expect(activateTemplate(s, input).record).toMatchObject({
+    intervalMonths: 24,
+  });
+});
+it("explains which aircraft templates cannot be scheduled yet", () => {
+  const { t } = fixture();
+  expect(templateActivationIssue(t)).toBe("");
+  expect(
+    templateActivationIssue({ ...t, calendarUnit: "DAYS", calendarValue: 30 }),
+  ).toMatch(/^Aircraft inspection schedules currently support months/);
+  expect(templateActivationIssue({ ...t, timeBasis: "TSO" })).toBe(
+    "Aircraft inspections use aircraft total time. Use a component-model template for TSO or TSR limits.",
+  );
+});
+it.each([
+  ["otherProgram", "Template is unavailable in this Flight Program."],
+  [
+    "archived",
+    "Template changed or was archived. Reopen it before creating a schedule.",
+  ],
+  [
+    "days",
+    "Aircraft inspection schedules currently support months or years, not recurring days. Keep this template until a day-based schedule is available.",
+  ],
+  [
+    "noLimits",
+    "This schedule has no numeric limits. Add verified intervals to the template first.",
+  ],
+  [
+    "duplicate",
+    "This template schedule already exists for the selected target. Open the existing record to edit it.",
+  ],
+  ["removedComponent", "Choose an installed component of the template model."],
+] as const)("refuses a %s activation, changing nothing", (mode, message) => {
+  const { s, t, input } = fixture();
+  let target = input;
+  if (mode === "otherProgram") t.programUuid = "other";
+  if (mode === "archived") t.archived = true;
+  if (mode === "days") Object.assign(t, { calendarUnit: "DAYS" });
+  if (mode === "noLimits")
+    Object.assign(t, { hours: undefined, calendarValue: undefined });
+  if (mode === "duplicate") activateTemplate(s, input);
+  if (mode === "removedComponent") {
+    const c = { ...pump(t.programUuid, input.targetUuid), installed: false };
+    s.management = [c];
+    s.inspectionTemplates = [
+      {
+        ...t,
+        applicability: {
+          kind: "component",
+          model: "P100",
+          manufacturer: "Acme",
+          partNumber: "P1",
+        },
+      },
+    ];
+    target = { ...input, targetUuid: c.uuid };
+  }
+  const before = structuredClone(s);
+  const activate = () => activateTemplate(s, target);
+  expect(activate).toThrow(Rejection);
+  expect(activate).toThrow(message);
+  expect(s).toEqual(before);
 });

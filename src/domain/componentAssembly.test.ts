@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins assemblies of attached parts: they move only with their
+ *   parent, keep their own life limits, and freeze at a removal's readings.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/components.ts, ./management, ./workOrders, ./model,
+ *   src/data/demo.ts, tests/fixtures/workOrders.ts,
+ *   tests/fixtures/componentMovement.ts.
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { workOrderComponent } from "../../tests/fixtures/workOrders";
@@ -7,15 +15,22 @@ import {
 } from "../../tests/fixtures/componentMovement";
 import { saveWorkOrder } from "./workOrders";
 import { totalSeconds } from "./model";
-import { applyManagement } from "./management";
+import { applyManagement, type ManagedRecord } from "./management";
 import {
   componentTotals,
   validateComponent,
   type Component,
   type ComponentRequirement,
 } from "./components";
-const now = Date.parse("2026-10-16T12:00:00Z"),
-  date = "2026-10-16";
+const NOW = Date.parse("2026-10-16T12:00:00Z");
+const TODAY = "2026-10-16";
+const HOUR_SECONDS = 3600;
+const STORE_UUID = "store";
+
+/**
+ * An installed engine (MAIN) with an attached disk that holds a hub; the disk
+ * has a 1,000-hour TSN life limit, and a "store" location takes removals.
+ */
 function fixture() {
   const s = demoSnapshot();
   const parent = {
@@ -30,7 +45,7 @@ function fixture() {
     model: "Compressor disk",
     partNumber: "DISK",
     serial: "D1",
-    timeSinceNew: 50 * 3600,
+    timeSinceNew: 50 * HOUR_SECONDS,
     timeSinceOverhaul: null,
   };
   const grandchild: Component = {
@@ -40,13 +55,22 @@ function fixture() {
     partNumber: "HUB",
     serial: "H1",
   };
-  const requirement: ComponentRequirement = {
+  const requirement = diskLifeLimit(parent.aircraftUuid, child.uuid);
+  s.management = [parent, child, grandchild, requirement, storeLocation()];
+  return { s, parent, child, grandchild, requirement };
+}
+
+function diskLifeLimit(
+  aircraftUuid: string,
+  componentUuid: string,
+): ComponentRequirement {
+  return {
     kind: "componentRequirement",
     uuid: "disk-life",
     version: 1,
     programUuid: "demo-program",
-    aircraftUuid: parent.aircraftUuid,
-    componentUuid: child.uuid,
+    aircraftUuid,
+    componentUuid,
     requirementType: "Life Limits",
     description: "Disk life limit",
     notes: "",
@@ -54,32 +78,28 @@ function fixture() {
     timeBasis: "TSN",
     timeLimitMode: "ABSOLUTE",
     cycleLimitMode: "ABSOLUTE",
-    intervalSeconds: 1000 * 3600,
-    dueSeconds: 1000 * 3600,
+    intervalSeconds: 1000 * HOUR_SECONDS,
+    dueSeconds: 1000 * HOUR_SECONDS,
     warningCalendarMonths: 1,
-    warningSeconds: 100 * 3600,
+    warningSeconds: 100 * HOUR_SECONDS,
     warningCycles: 100,
   };
-  s.management = [
-    parent,
-    child,
-    grandchild,
-    requirement,
-    {
-      kind: "location",
-      uuid: "store",
-      version: 1,
-      programUuid: "demo-program",
-      name: "Store",
-      address: "",
-      contact: "",
-    },
-  ];
-  return { s, parent, child, grandchild, requirement };
+}
+
+function storeLocation(): ManagedRecord {
+  return {
+    kind: "location",
+    uuid: STORE_UUID,
+    version: 1,
+    programUuid: "demo-program",
+    name: "Store",
+    address: "",
+    contact: "",
+  };
 }
 it("moves nested attached parts through removal and installation work orders, preserving independent life limits", () => {
   const { s, parent, child, grandchild } = fixture();
-  const before = componentTotals(child, s.aircraft[0], date);
+  const before = componentTotals(child, s.aircraft[0], TODAY);
   const move = (
     uuid: string,
     operation: "install" | "remove",
@@ -95,19 +115,19 @@ it("moves nested attached parts through removal and installation work orders, pr
         uuid,
         version: c.version,
         operation,
-        date,
+        date: TODAY,
         aircraftUuid,
-        locationUuid: operation === "remove" ? "store" : undefined,
+        locationUuid: operation === "remove" ? STORE_UUID : undefined,
         installPosition: operation === "install" ? "MAIN" : undefined,
       },
-      now,
+      NOW,
     );
   };
   move(parent.uuid, "remove");
   for (const id of [child.uuid, grandchild.uuid]) {
     const c = s.management!.find((r) => r.uuid === id) as Component;
-    expect(c).toMatchObject({ installed: false, locationUuid: "store" });
-    expect(componentTotals(c, s.aircraft[0], date).timeSinceNew).toBe(
+    expect(c).toMatchObject({ installed: false, locationUuid: STORE_UUID });
+    expect(componentTotals(c, s.aircraft[0], TODAY).timeSinceNew).toBe(
       before.timeSinceNew,
     );
   }
@@ -121,17 +141,17 @@ it("moves nested attached parts through removal and installation work orders, pr
     aircraftUuid: second.uuid,
     parentComponentUuid: parent.uuid,
   });
-  expect(componentTotals(installed, second, date).timeSinceNew).toBe(
+  expect(componentTotals(installed, second, TODAY).timeSinceNew).toBe(
     before.timeSinceNew,
   );
   expect(s.management!.find((r) => r.uuid === "disk-life")).toMatchObject({
     aircraftUuid: second.uuid,
-    dueSeconds: 1000 * 3600,
+    dueSeconds: 1000 * HOUR_SECONDS,
   });
-  second.currentHobbs += 3600;
+  second.currentHobbs += HOUR_SECONDS;
   second.cycles += 1;
-  expect(componentTotals(installed, second, date).timeSinceNew).toBe(
-    before.timeSinceNew! + 3600,
+  expect(componentTotals(installed, second, TODAY).timeSinceNew).toBe(
+    before.timeSinceNew! + HOUR_SECONDS,
   );
   expect(
     s
@@ -148,11 +168,16 @@ it("rejects independent movements, reparenting, cross-program parents, and locat
       s,
       { ...child, parentComponentUuid: undefined },
       child,
-      now,
+      NOW,
     ),
   ).toThrow(/parent/);
   expect(() =>
-    validateComponent(s, { ...child, locationUuid: "store" }, undefined, now),
+    validateComponent(
+      s,
+      { ...child, locationUuid: STORE_UUID },
+      undefined,
+      NOW,
+    ),
   ).toThrow();
   const other = { ...parent, uuid: "other", programUuid: "another-program" };
   s.management!.push(other);
@@ -161,7 +186,7 @@ it("rejects independent movements, reparenting, cross-program parents, and locat
       s,
       { ...child, parentComponentUuid: "other" },
       undefined,
-      now,
+      NOW,
     ),
   ).toThrow(/same Flight Program/);
   expect(() =>
@@ -174,10 +199,10 @@ it("rejects independent movements, reparenting, cross-program parents, and locat
         uuid: child.uuid,
         version: child.version,
         operation: "remove",
-        date,
-        locationUuid: "store",
+        date: TODAY,
+        locationUuid: STORE_UUID,
       },
-      now,
+      NOW,
     ),
   ).toThrow(/parent/);
 });
@@ -192,10 +217,10 @@ it("parent overhaul does not reset child TSN or life requirements", () => {
       uuid: parent.uuid,
       version: parent.version,
       operation: "remove",
-      date,
-      locationUuid: "store",
+      date: TODAY,
+      locationUuid: STORE_UUID,
     },
-    now,
+    NOW,
   );
   const before = structuredClone(
     s.management!.find((r) => r.uuid === child.uuid),
@@ -213,9 +238,9 @@ it("parent overhaul does not reset child TSN or life requirements", () => {
       uuid: p.uuid,
       version: p.version,
       operation: "overhaul",
-      date,
+      date: TODAY,
     },
-    now,
+    NOW,
   );
   expect(s.management!.find((r) => r.uuid === child.uuid)).toEqual(before);
   expect(s.management!.find((r) => r.uuid === "disk-life")).toEqual(
@@ -240,7 +265,7 @@ it("freezes attached parts at the completion readings of a backdated removal", (
     version: parent.version,
     operation: "remove",
     date: "2026-10-15",
-    locationUuid: "store",
+    locationUuid: STORE_UUID,
   });
   const open = saveWorkOrder(
     s,
@@ -248,18 +273,18 @@ it("freezes attached parts at the completion readings of a backdated removal", (
       ...close,
       fields: { ...close.fields, status: "open", completionDate: "" },
     },
-    now,
+    NOW,
   );
   // Flights after the backdated removal must not accrue to the attached part.
-  a.currentHobbs += 7200;
+  a.currentHobbs += 2 * HOUR_SECONDS;
   a.cycles += 2;
   saveWorkOrder(
     s,
     { ...close, version: open.version, completionReadings },
-    now,
+    NOW,
   );
   const removed = s.management!.find((r) => r.uuid === child.uuid) as Component;
-  expect(componentTotals(removed, a, date)).toMatchObject({
+  expect(componentTotals(removed, a, TODAY)).toMatchObject({
     timeSinceNew: before.timeSinceNew,
     cyclesSinceNew: before.cyclesSinceNew,
   });

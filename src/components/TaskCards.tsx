@@ -1,3 +1,14 @@
+/**
+ * Responsibility: Job cards: the job cards screen, the cards on work items and
+ *   work orders, and editing, signing and evidence files for one card.
+ * Layer: UI. React components; job card rules live in src/domain.
+ * Dependencies: react, react-dom, zod (ZodError), src/data/store.ts,
+ *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
+ *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders),
+ *   ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording, ./TaskCsvImport,
+ *   ./Manuals, ./ui.
+ */
+import { ZodError } from "zod";
 import { RequestPartsButton } from "./PartsRequests";
 import { localDate } from "../domain/model";
 import { WorkOrderRevisions } from "./WorkOrderRevisions";
@@ -48,6 +59,7 @@ import {
   Field,
   Modal,
   PageTitle,
+  errorText,
   value,
 } from "./ui";
 const label = (s: string) => s.replaceAll("-", " ");
@@ -146,7 +158,7 @@ function JobCardStatus({ card }: { card: TaskCard }) {
               fields: { ...taskCardFieldsSchema.parse(card), status },
             });
           } catch (error) {
-            setError(taskCardValidationMessages(error).join("\n"));
+            setError(cardErrorText(error));
           } finally {
             setBusy(false);
           }
@@ -191,7 +203,7 @@ function JobCardSignoffs({ card }: { card: TaskCard }) {
     try {
       await signTaskCard(card, kind, (command) => backend.taskCard(command));
     } catch (error) {
-      setError(taskCardValidationMessages(error).join("\n"));
+      setError(cardErrorText(error));
     } finally {
       setBusy(undefined);
     }
@@ -543,7 +555,7 @@ export function LinkedTaskCards({
       }
       setRemoving(false);
     } catch (error) {
-      setRemoveError(taskCardValidationMessages(error).join("\n"));
+      setRemoveError(cardErrorText(error));
     } finally {
       setRemoveBusy(false);
     }
@@ -990,7 +1002,7 @@ function TaskCardEditor({
         stepUuid,
       );
     } catch (e) {
-      setError(taskCardValidationMessages(e).join("\n"));
+      setError(cardErrorText(e));
     } finally {
       setBusy(false);
     }
@@ -1661,4 +1673,12 @@ function Evidence({ card, writable }: { card: TaskCard; writable: boolean }) {
       )}
     </section>
   );
+}
+
+// A card that failed its schema here reads field by field; anything else,
+// including a server refusal, reads as errorText shows it.
+function cardErrorText(error: unknown) {
+  return error instanceof ZodError
+    ? taskCardValidationMessages(error).join("\n")
+    : errorText(error, "Unable to save the job card.");
 }

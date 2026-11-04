@@ -1,8 +1,10 @@
 /**
  * Responsibility: Pins the command transaction: context check, rollback,
- *   change-log rows, request ids, hand-off, and which errors reach the user.
+ *   change-log rows, request ids, hand-off, which errors reach the user, and
+ *   the changed-row writer.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/runCommand.ts, convex/schema.ts, src/domain/model.ts,
+ * Dependencies: convex/runCommand.ts, convex/collections.ts,
+ *   convex/schema.ts, src/domain/model.ts, src/domain/costs.ts,
  *   src/domain/rejection.ts, src/domain/flightSubmission.ts,
  *   src/domain/components.ts, src/data/demo.ts (fixture).
  *
@@ -18,9 +20,14 @@ import type { AuditEntry } from "../src/domain/model";
 import { Rejection } from "../src/domain/rejection";
 import { FlightRejection } from "../src/domain/flightSubmission";
 import { ComponentUsageError } from "../src/domain/components";
+import type { CostRecord } from "../src/domain/costs";
+import { encode } from "./collections";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import {
   runCommand,
   hydrate,
+  writeChanged,
   plainErrors,
   errorsOf,
   type Command,
@@ -447,4 +454,117 @@ it("shows a Rejection even when the command's expose names another class", async
   );
   expect(refused).toBeInstanceOf(ConvexError);
   expect(refused).toMatchObject({ data: "Flight dispatch rejected." });
+});
+
+// Cost records: one the command changes, one it leaves as stored, one it
+// does not pass, and one stored in another Flight Program.
+function costRecords(aircraftUuid: string) {
+  const budget = (uuid: string, programUuid = PROGRAM): CostRecord => ({
+    uuid,
+    version: 1,
+    programUuid,
+    kind: "budget",
+    aircraftUuid: programUuid === PROGRAM ? aircraftUuid : "other-aircraft",
+    year: 2026,
+    amountCents: 100,
+  });
+  return {
+    changed: budget("changed"),
+    unchanged: budget("unchanged"),
+    unpassed: budget("unpassed"),
+    elsewhere: budget("elsewhere", "other"),
+  };
+}
+
+// Runs writeChanged on the costs `records` gives, recording each write.
+function writeCosts(
+  records: (stored: CostRecord[]) => CostRecord[],
+  writes: string[],
+): Command<null, { stored: CostRecord[]; docs: Doc<"costs">[] }, CostRecord[]> {
+  return {
+    programUuid: PROGRAM,
+    parse: () => null,
+    load: async ({ ctx, state }) => {
+      const { snapshot, docs } = await hydrate(ctx, state, ["costs"]);
+      return { stored: snapshot.costs!, docs: docs.costs };
+    },
+    apply: ({ stored }) => records(stored),
+    persist: ({ ctx }, { docs }, next) =>
+      writeChanged(
+        tracedWrites(ctx, writes),
+        "costs",
+        docs,
+        next,
+        "Cost record belongs to another Flight Program.",
+      ),
+    audit: () => undefined,
+  };
+}
+
+// The mutation context with each insert and replace recorded by uuid.
+function tracedWrites(ctx: MutationCtx, writes: string[]): MutationCtx {
+  const db = new Proxy(ctx.db, {
+    get(target, key) {
+      const value = Reflect.get(target, key);
+      if (key !== "insert" && key !== "replace")
+        return typeof value === "function" ? value.bind(target) : value;
+      return (...args: [unknown, { uuid: string }]) => {
+        writes.push(`${key} ${args[1].uuid}`);
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+  return { ...ctx, db };
+}
+
+it("writes changed records as the codec encodes them, skips unchanged ones and never deletes", async () => {
+  const f = await fixture();
+  const costs = costRecords(f.aircraft);
+  await f.t.run(async (ctx) => {
+    for (const r of [costs.changed, costs.unchanged, costs.unpassed])
+      await ctx.db.insert("costs", encode("costs", r));
+  });
+  const added = { ...costs.changed, uuid: "added" };
+  const changed = { ...costs.changed, version: 2, amountCents: 200 };
+  const writes: string[] = [];
+  await f.mechanic.run(
+    writeCosts(() => [changed, costs.unchanged, added], writes),
+  );
+  expect(writes).toEqual(["replace changed", "insert added"]);
+  const stored = await f.t.run(async (ctx) =>
+    (await ctx.db.query("costs").collect()).map(
+      ({ _id, _creationTime, ...row }) => row,
+    ),
+  );
+  expect(stored).toEqual(
+    [changed, costs.unchanged, costs.unpassed, added].map((r) =>
+      encode("costs", r),
+    ),
+  );
+});
+
+it("refuses a uuid stored outside the loaded rows with the caller's message, and writes nothing", async () => {
+  const f = await fixture();
+  const costs = costRecords(f.aircraft);
+  await f.t.run((ctx) =>
+    ctx.db.insert("costs", encode("costs", costs.elsewhere)),
+  );
+  const writes: string[] = [];
+  const refused = await refusal(
+    f.mechanic.run(
+      writeCosts(
+        () => [costs.changed, { ...costs.elsewhere, amountCents: 1 }],
+        writes,
+      ),
+    ),
+  );
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({
+    data: "Cost record belongs to another Flight Program.",
+  });
+  expect(writes).toEqual(["insert changed"]);
+  const stored = await f.t.run((ctx) => ctx.db.query("costs").collect());
+  expect(stored.map((d) => d.payload)).toEqual([
+    encode("costs", costs.elsewhere).payload,
+  ]);
 });

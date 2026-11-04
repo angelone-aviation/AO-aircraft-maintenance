@@ -1,10 +1,19 @@
-// Application shell: grouped sidebar (≥1100px), icon rail (760–1099px),
-// phone top bar + bottom tab bar (<760px), the "All sections" sheet, the top
-// bar and the footer. Navigation visibility follows the same rules as before
-// the redesign: pilot view shows pilotNavigation only, the owner view shows
-// the overview only, and program administrators additionally get
-// Administration and Costs. Settings is the last Manage link for everyone
-// except the owner view (owners keep their portal).
+/**
+ * Responsibility: The application shell: grouped sidebar (≥1100px), icon rail
+ *   (760–1099px), phone top bar and bottom tab bar (<760px), the "All
+ *   sections" sheet, the top bar and the footer.
+ * Layer: UI. React components around the routed screens.
+ * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
+ *   src/data/store.ts, src/domain (pilotView, ownerView, programs, model),
+ *   ./Alerts, ./UserProfile, ./ComponentIcon, ./InspectionIcon,
+ *   ./WorkOrderIcon, ./FlightForm, ./ui, ./design.
+ *
+ * Navigation visibility follows the same rules as before the redesign: pilot
+ * view shows pilotNavigation only, the owner view shows the overview only, and
+ * program administrators additionally get Administration and Costs. Settings
+ * is the last Manage link for everyone except the owner view (owners keep
+ * their portal).
+ */
 import { useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
@@ -49,7 +58,7 @@ import { ComponentIcon } from "./ComponentIcon";
 import { InspectionIcon } from "./InspectionIcon";
 import { WorkOrderIcon } from "./WorkOrderIcon";
 import { FlightForm } from "./FlightForm";
-import { Badge, Modal } from "./ui";
+import { Badge, Modal, errorText } from "./ui";
 import {
   Dialog,
   Wordmark,
@@ -304,10 +313,7 @@ function ProgramSwitcher({ tone }: { tone: "navy" | "surface" }) {
                 .backend!.selectProgram(e.target.value);
             } catch (error) {
               useWorkspace.setState({
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Unable to switch Flight Program.",
+                error: errorText(error, "Unable to switch Flight Program."),
               });
             }
           }}
@@ -658,10 +664,7 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
             onClick={() =>
               previewDemoOwner(true).catch((e) =>
                 useWorkspace.setState({
-                  error:
-                    e instanceof Error
-                      ? e.message
-                      : "Unable to preview the owner portal.",
+                  error: errorText(e, "Unable to preview the owner portal."),
                 }),
               )
             }

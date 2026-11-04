@@ -1,11 +1,22 @@
+/**
+ * Responsibility: Pins Flight Program transfers: what moves with each record,
+ *   the refusals users see, and the change log left untouched.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/programTransfers.ts, programs.ts, auditHistory.ts,
+ *   partsRequests.ts, purchaseOrders.ts, checklists.ts, rejection.ts;
+ *   src/data/demo.ts and tests/fixtures/workOrders.ts (fixtures).
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
-import { transferProgram } from "./programTransfers";
+import { workOrderComponent } from "../../tests/fixtures/workOrders";
+import { transferProgram, type ProgramTransfer } from "./programTransfers";
 import { auditVisible } from "./programs";
 import { canPageAuditFilter } from "./auditHistory";
 import type { AuditEntry } from "./model";
 import { partsRequestSchema, requestDraftSchema } from "./partsRequests";
 import { poDraftSchema, poSchema } from "./purchaseOrders";
+import { emptyChecklist } from "./checklists";
+import { Rejection } from "./rejection";
 
 // The demo backend mirrors the server: transfers append, never re-tag.
 it("transfers leave change-log entries untouched and History follows the aircraft's current owner", () => {
@@ -208,6 +219,7 @@ it("refuses to transfer a storage location while its stock is reserved or an ope
     });
     return copy;
   };
+  expect(move).toThrow(Rejection);
   expect(move).toThrow(
     "Release reserved stock (FILTER-1 for PR-00001) and receive or cancel open purchase order lines (FILTER-1 on PO-00001) before transferring this location.",
   );
@@ -240,4 +252,145 @@ it("refuses to transfer a storage location while its stock is reserved or an ope
   expect(move).toThrow(
     "Release reserved stock (FILTER-1 for PR-00001) before transferring this location.",
   );
+});
+
+const toOther = (kind: ProgramTransfer["kind"], uuid: string) => ({
+  kind,
+  uuid,
+  destination: "other",
+  reason: "Base move",
+});
+
+it("refuses a transfer the user may not make", () => {
+  const { s } = locationWithCommitments();
+  const attempt =
+    (change: Partial<ProgramTransfer>, user = s.user) =>
+    () =>
+      transferProgram(
+        { ...structuredClone(s), user },
+        { ...toOther("location", "L1"), ...change },
+      );
+  const cases: [() => unknown, string][] = [
+    [
+      attempt({}, { ...s.user, isAdmin: false }),
+      "System administrator required for Flight Program transfers.",
+    ],
+    [attempt({ reason: " " }), "A transfer reason is required."],
+    [attempt({ destination: "gone" }), "Destination Flight Program not found."],
+    [
+      attempt({ destination: "demo-program" }),
+      "Select a different Flight Program.",
+    ],
+    [
+      attempt({ kind: "aircraft", uuid: "gone" }),
+      "Aircraft not found in active Flight Program.",
+    ],
+    [attempt({ uuid: "gone" }), "Record not found in active Flight Program."],
+  ];
+  for (const [move, message] of cases) {
+    expect(move).toThrow(Rejection);
+    expect(move).toThrow(Error(message));
+  }
+});
+
+// convex/programs.test.ts pins the component setups that go with it.
+it("moves an aircraft with its components, inspections and checklists once its parts requests are closed", () => {
+  const { s, request } = locationWithCommitments();
+  const plane = s.aircraft[0];
+  const engine = { ...workOrderComponent(), programUuid: "demo-program" };
+  s.management!.push(engine);
+  s.partsRequests = [{ ...request, aircraftUuid: plane.uuid }];
+  s.checklists = [
+    {
+      uuid: "list",
+      version: 1,
+      programUuid: "demo-program",
+      aircraftUuid: plane.uuid,
+      sourceName: "",
+      updatedAt: 1,
+      updatedBy: "",
+      document: emptyChecklist(),
+    },
+  ];
+  const move = () => transferProgram(s, toOther("aircraft", plane.uuid));
+  expect(move).toThrow(Rejection);
+  expect(move).toThrow(
+    "Cancel or fulfill this aircraft's open parts requests before transferring it.",
+  );
+  s.partsRequests = [{ ...request, aircraftUuid: plane.uuid, cancelled: true }];
+  const inspections = s.inspections.filter(
+    (i) => i.aircraftUuid === plane.uuid,
+  );
+  const versions = inspections.map((i) => (i.version ?? 0) + 1);
+  const planeVersion = plane.version;
+  expect(move()).toEqual(new Set([plane.uuid, "list", "engine"]));
+  expect(s.checklists[0]).toMatchObject({ programUuid: "other", version: 2 });
+  expect(plane).toMatchObject({
+    programUuid: "other",
+    program: "Other",
+    version: planeVersion + 1,
+  });
+  expect(inspections.map((i) => [i.programUuid, i.version])).toEqual(
+    versions.map((v) => ["other", v]),
+  );
+  expect(engine).toMatchObject({
+    programUuid: "other",
+    version: 1,
+    aircraftUuid: plane.uuid,
+  });
+});
+
+// A tracked engine stored in Main hangar, last fitted to the first aircraft.
+// convex/programs.test.ts pins the requirements that go with it.
+function storedEngine(partsLocation = "") {
+  const { s } = locationWithCommitments();
+  const engine = {
+    ...workOrderComponent(),
+    programUuid: "demo-program",
+    installed: false,
+    locationUuid: "L1",
+    partsLocation,
+  };
+  s.management!.push(engine);
+  return { s, engine };
+}
+
+it("moves a stored component off its aircraft and out of its location, but not one in use there", () => {
+  const { s, engine } = storedEngine();
+  const input = toOther("component", "engine");
+  expect(transferProgram(s, input)).toEqual(new Set(["engine"]));
+  expect(engine).toMatchObject({
+    programUuid: "other",
+    version: 1,
+    aircraftUuid: "",
+    partsLocation: "Main hangar",
+  });
+  expect(engine.locationUuid).toBeUndefined();
+  const named = storedEngine("Bin A");
+  transferProgram(named.s, input);
+  expect(named.engine.partsLocation).toBe("Bin A");
+  const installed = storedEngine();
+  installed.engine.installed = true;
+  const scheduled = storedEngine();
+  scheduled.s.inspections[0].componentUuid = "engine";
+  for (const [s, move, message] of [
+    [
+      installed.s,
+      input,
+      "Remove the component before transferring it, or transfer its aircraft.",
+    ],
+    [
+      scheduled.s,
+      input,
+      "Transfer the associated aircraft while this component has linked inspection schedules.",
+    ],
+    [
+      storedEngine().s,
+      toOther("location", "L1"),
+      "Move tracked components to another inventory location before transferring this location.",
+    ],
+  ] as const) {
+    expect(() => transferProgram(s, move)).toThrow(Rejection);
+    expect(() => transferProgram(s, move)).toThrow(Error(message));
+  }
 });

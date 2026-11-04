@@ -3,12 +3,13 @@
  *   JSON file, for moving a demo program to the cloud.
  * Layer: UI. React component; shown in demo mode only.
  * Dependencies: react, src/domain/model.ts, src/data/store.ts,
- *   src/data/demoBackup.ts.
+ *   src/data/demoBackup.ts, ./ui.tsx.
  */
 import { useState } from "react";
 import { localDate, type Snapshot } from "../domain/model";
 import { useWorkspace } from "../data/store";
 import { createDemoBackup } from "../data/demoBackup";
+import { errorText } from "./ui";
 
 // A full backup can be large; the browser keeps reading the URL after the
 // click returns.
@@ -60,9 +61,7 @@ function useBackupDownload() {
       saveBackup(backup);
       setMessage(summarizeBackup(backup));
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not export the demo data.",
-      );
+      setError(errorText(e, "Could not export the demo data."));
     } finally {
       setBusy(false);
     }

@@ -1,5 +1,17 @@
+/**
+ * Responsibility: The ATA chapter picker that record forms share.
+ * Layer: UI. React component; the chapter list comes from the domain.
+ * Dependencies: src/domain/ata.ts, ./ui.tsx.
+ */
 import { ATA_GROUPS, type AtaChapter } from "../domain/ata";
 import { Field } from "./ui";
+
+/**
+ * An uncontrolled select, grouped as ATA_GROUPS is, that submits as
+ * `ataChapter`: a chapter code, or "" for Unassigned.
+ *
+ * @param props.initial - The chapter selected at first; Unassigned without one.
+ */
 export function AtaChapterField({ initial }: { initial?: AtaChapter }) {
   return (
     <Field label="ATA Chapter">
