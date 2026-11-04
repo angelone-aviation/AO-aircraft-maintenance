@@ -62,8 +62,11 @@ export interface Command<C, W, R, Out = void> {
   actor?: Doc<"users">;
   /** Reads the command from the mutation's arguments. */
   parse(state: ProgramContext): C;
-  /** Idempotent commands: replaying `uuid` with the same payload is a no-op. */
-  request?(command: C): { uuid: string; payload: string };
+  /**
+   * Idempotent commands: replaying `uuid` with the same payload is a no-op.
+   * Undefined runs the command unrecorded (see {@link requestOf}).
+   */
+  request?(command: C): CommandRequest | undefined;
   /**
    * Hands the command to another transaction shape, such as the scheduled
    * work-order template copies. Return undefined to run this one.
@@ -90,6 +93,12 @@ export interface Command<C, W, R, Out = void> {
   audit(log: CommandLog, working: W, result: R, command: C): void;
   /** What the mutation returns. */
   returns?(result: R, working: W): Out;
+}
+
+/** A command's request id and the payload a replay of it must repeat. */
+export interface CommandRequest {
+  uuid: string;
+  payload: string;
 }
 
 /**
@@ -149,6 +158,21 @@ export async function runCommand<C, W, R, Out = void>(
   for (const row of log.rows) await writeAudit(ctx, row);
   if (request) await recordRequest(ctx, state, request);
   return command.returns?.(result, working);
+}
+
+/**
+ * The `request` of a command whose request id is optional (T18): a command
+ * the client sent without one runs every time.
+ *
+ * @param requestUuid - The command's request id, if it carries one.
+ * @param payload - The command's JSON, as the client sent it.
+ * @returns The request, or undefined when there is no id.
+ */
+export function requestOf(
+  requestUuid: string | undefined,
+  payload: string,
+): CommandRequest | undefined {
+  return requestUuid === undefined ? undefined : { uuid: requestUuid, payload };
 }
 
 /** A command's change-log rows by one caller, collected in order. */
@@ -401,7 +425,7 @@ const HYDRATORS: Record<Need, Hydrator> = {
 async function isReplayed(
   ctx: MutationCtx,
   state: ProgramContext,
-  request: { uuid: string; payload: string },
+  request: CommandRequest,
 ) {
   const prior = await ctx.db
     .query("managementRequests")
@@ -419,7 +443,7 @@ async function isReplayed(
 async function recordRequest(
   ctx: MutationCtx,
   state: ProgramContext,
-  request: { uuid: string; payload: string },
+  request: CommandRequest,
 ) {
   const row = {
     uuid: request.uuid,

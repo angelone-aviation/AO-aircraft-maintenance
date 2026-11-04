@@ -4,7 +4,7 @@
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   or `today` left to its default reads the clock).
  * Dependencies: zod; ./adOwnership, ./adCompliance, ./model, ./programs,
- *   ./components, ./rejection, ./changeLog.
+ *   ./components, ./rejection, ./changeLog, ./commandRequest.
  */
 import { z } from "zod";
 import { adAircraftUuid } from "./adOwnership";
@@ -21,6 +21,7 @@ import { activeProgram, programPermission } from "./programs";
 import { componentTotals, type Component } from "./components";
 import { Rejection } from "./rejection";
 import { auditEntry } from "./changeLog";
+import { requestUuidField } from "./commandRequest";
 export { adAircraftUuid } from "./adOwnership";
 export { effectiveCompliance, lastCompliance } from "./adCompliance";
 
@@ -194,6 +195,7 @@ const AD_STATUS_PRIORITY: readonly string[] = [
  * A change to ADs: save one record, import FAA entries for an aircraft,
  * record compliance, or correct a compliance entry (Flight Program
  * administrators only). Saved and imported sources must link over http(s).
+ * Each may carry its request id.
  */
 export const adCommandSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -201,6 +203,7 @@ export const adCommandSchema = z.discriminatedUnion("kind", [
     record: adSchema.extend({ source: writableSourceSchema }),
     // Required when the save corrects a decided AD (adSaveIsCorrection).
     reason: z.string().trim().max(REASON_MAX_LENGTH).optional(),
+    ...requestUuidField,
   }),
   z.object({
     kind: z.literal("import"),
@@ -211,12 +214,14 @@ export const adCommandSchema = z.discriminatedUnion("kind", [
       )
       .min(1)
       .max(500),
+    ...requestUuidField,
   }),
   z.object({
     kind: z.literal("comply"),
     uuid: z.string(),
     version: z.number(),
     entry: complianceInputSchema,
+    ...requestUuidField,
   }),
   z.object({
     kind: z.literal("correct"),
@@ -225,6 +230,7 @@ export const adCommandSchema = z.discriminatedUnion("kind", [
     corrects: z.string().uuid(),
     reason: correctionReason,
     entry: complianceInputSchema,
+    ...requestUuidField,
   }),
 ]);
 

@@ -8,16 +8,16 @@
  */
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { runCommand, hydrate, writeChanged } from "./runCommand";
+import { runCommand, hydrate, requestOf, writeChanged } from "./runCommand";
 import { adCommandSchema, applyADCommand } from "../src/domain/airworthiness";
 
 /**
  * Applies one AD command in the active Flight Program and writes an
  * "ad.<kind>" change-log row for each AD record it changed, with the record
- * before and after.
+ * before and after. A replayed request id changes nothing.
  *
- * @param payload - The AD command, as JSON.
- * @returns How many AD records the command changed.
+ * @param payload - The AD command, as JSON, with its request id.
+ * @returns How many AD records the command changed; nothing for a replay.
  * @throws {ConvexError} A domain Rejection; "AD record belongs to another
  *   Flight Program." for an AD uuid another program holds; runCommand's
  *   program refusals.
@@ -28,6 +28,7 @@ export const save = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => adCommandSchema.parse(JSON.parse(args.payload)),
+      request: (command) => requestOf(command.requestUuid, args.payload),
       load: ({ ctx, state }) =>
         hydrate(ctx, state, ["airworthiness", "management", "workOrders"]),
       apply: ({ snapshot }, command) => applyADCommand(snapshot, command),

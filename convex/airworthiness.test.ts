@@ -321,22 +321,7 @@ it("writes one ad.import row per changed AD, in the order of the entries", async
   const t = convexTest(schema, modules),
     s = demoSnapshot();
   const aircraftUuid = s.aircraft[0].uuid;
-  const subject = await t.run(async (ctx) => {
-    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
-    await ctx.db.insert("programs", s.programs![0]);
-    const id = await ctx.db.insert("users", {
-      active: true,
-      isAdmin: true,
-      name: "Administrator",
-      groupIds: [],
-      activeProgramUuid: "demo-program",
-    });
-    const session = await ctx.db.insert("authSessions", {
-      userId: id,
-      expirationTime: Date.now() + 86400000,
-    });
-    return `${id}|${session}`;
-  });
+  const subject = await administrator(t, s);
   const source = (number: string, subject = "Inspect") => ({
     ...blankAD(aircraftUuid).source,
     number,
@@ -396,3 +381,71 @@ it("writes one ad.import row per changed AD, in the order of the entries", async
     row(byNumber(second.ads, "2026-01-01"), earlier),
   ]);
 });
+
+it("applies an AD command once per request id: a replay returns nothing and writes nothing", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const editor = t.withIdentity({ subject: await administrator(t, s) });
+  const r = blankAD(s.aircraft[0].uuid);
+  r.source.number = "2026-01-01";
+  r.source.subject = "Inspect";
+  const requestUuid = crypto.randomUUID();
+  const args = (subject: string) => ({
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      kind: "save",
+      record: { ...r, source: { ...r.source, subject } },
+      requestUuid,
+    }),
+  });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      ads: await ctx.db.query("airworthiness").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+      managementRequests: await ctx.db.query("managementRequests").collect(),
+    }));
+
+  await expect(
+    editor.mutation(api.airworthiness.save, args("Inspect")),
+  ).resolves.toBe(1);
+  const saved = await stored();
+  expect(saved.ads).toHaveLength(1);
+  expect(saved.commandRequests).toMatchObject([
+    { uuid: requestUuid, payload: args("Inspect").payload },
+  ]);
+  // Without the id this retry would be refused as stale ("AD changed.").
+  // ADR-0003: a replay succeeds with no payload.
+  await expect(
+    editor.mutation(api.airworthiness.save, args("Inspect")),
+  ).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(
+    editor.mutation(api.airworthiness.save, args("Inspect again")),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+  expect(await stored()).toEqual(saved);
+});
+
+// Stores the demo aircraft and program, and signs in a system administrator
+// working in that program.
+async function administrator(
+  t: ReturnType<typeof convexTest>,
+  s: ReturnType<typeof demoSnapshot>,
+) {
+  return t.run(async (ctx) => {
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("programs", s.programs![0]);
+    const id = await ctx.db.insert("users", {
+      active: true,
+      isAdmin: true,
+      name: "Administrator",
+      groupIds: [],
+      activeProgramUuid: "demo-program",
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: id,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${id}|${session}`;
+  });
+}
