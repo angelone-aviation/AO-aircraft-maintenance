@@ -202,27 +202,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     deleteInspectionTemplates: (input) =>
       modify((s) => {
-        const result = deleteInspectionTemplates(s, input);
-        for (const task of result.taskCards)
-          audit(
-            s,
-            "taskCard.deletedWithTemplate",
-            task.uuid,
-            task.aircraftUuid,
-            "Deleted with its inspection template.",
-            task,
-            undefined,
-          );
-        for (const template of result.templates)
-          audit(
-            s,
-            "inspectionTemplate.deleted",
-            template.uuid,
-            undefined,
-            "Deleted template and associated reusable job cards.",
-            template,
-            undefined,
-          );
+        deleteInspectionTemplates(s, input);
       }),
     activateTemplate: (input) =>
       modify((s) => {

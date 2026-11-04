@@ -155,6 +155,45 @@ it("audits the stored and saved versions, and shows every refusal with its messa
   );
 });
 
+it("writes the save with the program, then a setupImported row per setup in row order", async () => {
+  const { t, a, client, record, save } = await setup();
+  const child = {
+    ...record.rows[0],
+    id: "2",
+    parentId: "1",
+    componentType: "Propeller",
+    partNumber: "P2",
+    model: "Propeller",
+  };
+  await save({ ...record, rows: [...record.rows, child] });
+  await client.mutation(api.componentTemplates.apply, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      templateUuid: record.uuid,
+      version: 1,
+      aircraftUuid: a.uuid,
+      rowIds: ["1", "2"],
+    }),
+  });
+  const { audit, setups } = await t.run(async (ctx) => ({
+    audit: await ctx.db.query("audit").collect(),
+    setups: await ctx.db.query("componentSetups").collect(),
+  }));
+  expect(audit.map((r) => [r.action, r.programUuid, r.aircraftUuid])).toEqual([
+    ["componentTemplate.save", "demo-program", undefined],
+    ["component.setupImported", "demo-program", a.uuid],
+    ["component.setupImported", "demo-program", a.uuid],
+  ]);
+  expect(audit.slice(1).map((r) => JSON.parse(r.after!))).toEqual(
+    setups.map((d) => JSON.parse(d.payload)),
+  );
+  expect(audit.slice(1).map((r) => JSON.parse(r.after!).row.id)).toEqual([
+    "1",
+    "2",
+  ]);
+  expect(audit.slice(1).every((r) => r.before === undefined)).toBe(true);
+});
+
 it("saves and applies once per request id: a replay returns nothing and writes nothing", async () => {
   const { t, a, client, record } = await setup();
   const requestUuid = crypto.randomUUID();

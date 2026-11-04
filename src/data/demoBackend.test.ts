@@ -1,15 +1,15 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, deferral
- *   and parts, checklist, job-card and flight-plan saves, flight review, AD
- *   changes, attachments, manual edits, saved addresses, FAA monitor
- *   commands, program selection, membership and group saves, and recurring
- *   parts lists against the server's rules: the same refusals, stored records
- *   and change-log rows.
+ *   and parts, checklist, job-card and flight-plan saves, template deletion,
+ *   component templates, flight review, AD changes, attachments, manual
+ *   edits, saved addresses, FAA monitor commands, program selection,
+ *   membership and group saves, and recurring parts lists against the
+ *   server's rules: the same refusals, stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
- *   checklists, taskCards, flightPlans, workOrders, purchaseOrders, manuals,
- *   addresses, faa), tests/fixtures.
+ *   checklists, taskCards, flightPlans, deleteInspectionTemplates,
+ *   workOrders, purchaseOrders, manuals, addresses, faa), tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -18,9 +18,10 @@
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
  * and crashed on a missing flight. Before Batch 296 its AD, deferral,
- * resolution, parts, checklist, job-card and flight-plan rows named no Flight
- * Program, and a resolution row held the whole report after, where the
- * server keeps the resolved fields.
+ * resolution, parts, checklist, job-card, flight-plan and template-deletion
+ * rows named no Flight Program, a resolution row held the whole report after,
+ * where the server keeps the resolved fields, and it logged no component
+ * template save or setup.
  * Before Batch 273 it took any number of attachments. Before Batch 285 it
  * audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
@@ -48,6 +49,7 @@ import { MAX_ATTACHMENTS } from "../domain/attachments";
 import { saveTaskCard } from "../domain/taskCards";
 import { emptyChecklist } from "../domain/checklists";
 import type { FlightPlan } from "../domain/flightPlans";
+import { templateDeletionPreview } from "../domain/deleteInspectionTemplates";
 import { newWorkTask, saveWorkOrder } from "../domain/workOrders";
 import { requestDraftSchema } from "../domain/partsRequests";
 import { poSchema } from "../domain/purchaseOrders";
@@ -57,6 +59,7 @@ import { addressSchema } from "../domain/addresses";
 import type { FaaMonitor } from "../domain/faa";
 import type { Backend } from "./backend";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
+import { templateDeletionFixture } from "../../tests/fixtures/templateDeletion";
 import {
   workOrderCommand,
   workOrderComponent,
@@ -251,6 +254,85 @@ it("saves and cancels a flight plan, auditing each as the server does, with the 
   expect(s.audit.slice(0, 2)).toEqual([
     entry("plan.cancelled", saved, cancelled),
     entry("plan.saved", undefined, saved),
+  ]);
+});
+
+it("deletes templates, auditing each card, then each template, as the server does, with the program", async () => {
+  const f = templateDeletionFixture();
+  const { backend, stored } = await demo("demo-template-deletion", (seed) =>
+    Object.assign(seed, f.s),
+  );
+  await backend.deleteInspectionTemplates(
+    templateDeletionPreview(f.s, [f.template.uuid]),
+  );
+  const s = await stored();
+  const entry = (record: { uuid: string }, fields: object) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    entityUuid: record.uuid,
+    ...fields,
+    before: JSON.stringify(record),
+  });
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry(f.template, {
+      action: "inspectionTemplate.deleted",
+      reason: "Deleted template and associated reusable job cards.",
+    }),
+    entry(f.task, {
+      action: "taskCard.deletedWithTemplate",
+      aircraftUuid: f.task.aircraftUuid,
+      reason: "Deleted with its inspection template.",
+    }),
+  ]);
+});
+
+it("audits a component template save and each setup it adds, as the server does", async () => {
+  const { backend, stored } = await demo("demo-component-template");
+  const a = demoSnapshot().aircraft[0];
+  const row = {
+    id: "1",
+    parentId: "",
+    componentType: "Engine" as const,
+    partNumber: "P1",
+    model: "Engine",
+    manufacturer: "",
+  };
+  const template = { uuid: crypto.randomUUID(), version: 0, name: "Kit" };
+  await backend.saveComponentTemplate({
+    ...template,
+    make: a.make,
+    model: a.model,
+    rows: [row],
+  });
+  await backend.applyComponentTemplate({
+    templateUuid: template.uuid,
+    version: 1,
+    aircraftUuid: a.uuid,
+    rowIds: ["1"],
+  });
+  const s = await stored();
+  const [setup] = s.componentSetups!;
+  const entry = (fields: object) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    ...fields,
+  });
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry({
+      action: "component.setupImported",
+      entityUuid: setup.uuid,
+      aircraftUuid: a.uuid,
+      after: JSON.stringify(setup),
+    }),
+    entry({
+      action: "componentTemplate.save",
+      entityUuid: template.uuid,
+      after: JSON.stringify(s.componentTemplates![0]),
+    }),
   ]);
 });
 

@@ -29,8 +29,8 @@ const args = { payload: v.string(), programUuid: v.optional(v.string()) };
 
 /**
  * Saves a component template as its next version in the caller's Flight
- * Program, and audits `componentTemplate.save` with the stored and saved
- * versions. A replayed request id changes nothing.
+ * Program, and writes the `componentTemplate.save` row saveComponentTemplate
+ * records. A replayed request id changes nothing.
  *
  * @param payload - JSON, as `saveComponentTemplate` reads it, with its
  *   request id.
@@ -56,22 +56,16 @@ export const save = mutation({
         writeChanged(ctx, "componentTemplates", docs.componentTemplates, [
           next,
         ]),
-      audit: (log, { docs }, next) => {
-        const old = docs.componentTemplates.find((d) => d.uuid === next.uuid);
-        log.entry("componentTemplate.save", next.uuid, {
-          programUuid: next.programUuid,
-          before: old ? JSON.parse(old.payload) : undefined,
-          after: next,
-        });
-      },
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (next) => next.uuid,
     }),
 });
 
 /**
  * Adds the chosen rows of a component template to an aircraft's component
- * setup list, and audits `component.setupImported` for each. A row already
- * added is skipped; no component is installed. A replayed request id changes
+ * setup list, and writes the `component.setupImported` row
+ * applyComponentTemplate records for each, in row order. A row already added
+ * is skipped; no component is installed. A replayed request id changes
  * nothing.
  *
  * @param payload - JSON: `templateUuid`, the template `version` previewed,
@@ -101,14 +95,7 @@ export const apply = mutation({
       expose: allErrors,
       persist: ({ ctx }, { docs }, added) =>
         writeChanged(ctx, "componentSetups", docs.componentSetups, added),
-      audit: (log, _, added) => {
-        for (const d of added)
-          log.entry("component.setupImported", d.uuid, {
-            programUuid: d.programUuid,
-            aircraftUuid: d.aircraftUuid,
-            after: d,
-          });
-      },
+      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
       returns: (added) => added.length,
     }),
 });

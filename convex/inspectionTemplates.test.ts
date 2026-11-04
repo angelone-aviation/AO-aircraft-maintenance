@@ -237,6 +237,25 @@ it("atomically deletes selected templates, associated cards and stored evidence 
   expect(
     remaining.audit.some((a) => a.action === "taskCard.deletedWithTemplate"),
   ).toBe(true);
+  const deletions = remaining.audit.filter((a) => a.action.includes("deleted"));
+  expect(
+    deletions.map((a) => [a.action, a.programUuid, a.aircraftUuid, a.reason]),
+  ).toEqual([
+    [
+      "taskCard.deletedWithTemplate",
+      "demo-program",
+      task.aircraftUuid,
+      "Deleted with its inspection template.",
+    ],
+    [
+      "inspectionTemplate.deleted",
+      "demo-program",
+      undefined,
+      "Deleted template and associated reusable job cards.",
+    ],
+  ]);
+  expect(deletions.map((a) => JSON.parse(a.before!))).toEqual([task, template]);
+  expect(deletions.every((a) => a.after === undefined)).toBe(true);
 });
 
 // Stored elsewhere: the uuid every generated id is fixed to.
@@ -372,6 +391,30 @@ it.each([
     expect(await count()).toEqual(before);
   },
 );
+
+it("writes one inspectionTemplate.save row per template, in save order, with the program", async () => {
+  const { t, admin, programUuid } = await activationFixture(false);
+  const [stored] = await t.run((ctx) =>
+    ctx.db.query("inspectionTemplates").collect(),
+  );
+  const edited = { ...JSON.parse(stored.payload), hours: 200 };
+  const added = { ...edited, uuid: crypto.randomUUID(), version: 0, name: "B" };
+  await admin.mutation(api.inspectionTemplates.save, {
+    programUuid,
+    payload: JSON.stringify([edited, added]),
+  });
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(rows.map((r) => [r.action, r.entityUuid, r.programUuid])).toEqual([
+    ["inspectionTemplate.save", edited.uuid, programUuid],
+    ["inspectionTemplate.save", added.uuid, programUuid],
+  ]);
+  expect(rows.map((r) => r.before && JSON.parse(r.before).version)).toEqual([
+    1,
+    undefined,
+  ]);
+  expect(rows.map((r) => JSON.parse(r.after!).version)).toEqual([2, 1]);
+  expect(rows.every((r) => r.aircraftUuid === undefined)).toBe(true);
+});
 
 it("activates, saves and deletes once per request id: a replay writes nothing", async () => {
   const { templateDeletionPreview } =

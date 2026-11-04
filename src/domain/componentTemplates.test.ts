@@ -154,6 +154,36 @@ it("saves a template with a new version and refuses a stale one", () => {
   expect(stale).toThrow(Rejection);
   expect(stale).toThrow("Template changed. Reopen it.");
 });
+it("records a save with the template before and after, and each setup added", () => {
+  const { s, a, t, input } = fixture();
+  const logged = s.audit.length;
+  const saved = saveComponentTemplate(s, { ...t, name: "Renamed" });
+  const added = applyComponentTemplate(s, { ...input, version: 2 });
+  const entry = (fields: object) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    ...fields,
+  });
+  expect(s.audit).toHaveLength(logged + 3);
+  expect(s.audit.slice(0, 3)).toEqual([
+    ...[...added].reverse().map((d) =>
+      entry({
+        action: "component.setupImported",
+        entityUuid: d.uuid,
+        aircraftUuid: a.uuid,
+        after: JSON.stringify(d),
+      }),
+    ),
+    entry({
+      action: "componentTemplate.save",
+      entityUuid: t.uuid,
+      before: JSON.stringify(t),
+      after: JSON.stringify(saved),
+    }),
+  ]);
+});
 it("matches make, model and duplicates ignoring case and spaces, but not position", () => {
   const { s, a, t } = fixture();
   expect(

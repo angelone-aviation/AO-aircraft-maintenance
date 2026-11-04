@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins deleting inspection templates with their job-card
- *   templates: what goes, what stays, and each refusal.
+ *   templates: what goes, what stays, each refusal, and the change-log
+ *   entries.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/deleteInspectionTemplates.ts, rejection.ts,
  *   tests/fixtures/templateDeletion.ts.
@@ -37,6 +38,32 @@ it("deletes templates and reusable cards together but preserves schedules and in
   expect(s.taskCards).toEqual([job]);
   expect(s.taskEvidence).toEqual([]);
   expect(s.inspections.some((i) => i.uuid === task.inspectionUuid)).toBe(true);
+});
+it("records each card, then each template, deleted with the record before", () => {
+  const { s, template, task } = templateDeletionFixture();
+  const logged = s.audit.length;
+  deleteInspectionTemplates(s, templateDeletionPreview(s, [template.uuid]));
+  const entry = (record: { uuid: string }, fields: object) => ({
+    uuid: expect.any(String),
+    programUuid: "demo-program",
+    actorId: s.user.id,
+    at: expect.any(Number),
+    entityUuid: record.uuid,
+    ...fields,
+    before: JSON.stringify(record),
+  });
+  expect(s.audit).toHaveLength(logged + 2);
+  expect(s.audit.slice(0, 2)).toEqual([
+    entry(template, {
+      action: "inspectionTemplate.deleted",
+      reason: "Deleted template and associated reusable job cards.",
+    }),
+    entry(task, {
+      action: "taskCard.deletedWithTemplate",
+      aircraftUuid: task.aircraftUuid,
+      reason: "Deleted with its inspection template.",
+    }),
+  ]);
 });
 it("blocks stale previews, missing permissions, foreign templates and surviving prerequisites without partial deletion", () => {
   const f = templateDeletionFixture(),

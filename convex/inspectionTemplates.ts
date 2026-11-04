@@ -36,8 +36,8 @@ type DeletionDocs = Hydrated<"inspectionTemplates" | "taskCards">["docs"];
 
 /**
  * Saves templates into the caller's Flight Program library, all or none, and
- * audits `inspectionTemplate.save` for each with its stored and saved
- * versions. A replayed request id changes nothing.
+ * writes the `inspectionTemplate.save` row saveInspectionTemplates records for
+ * each, in save order. A replayed request id changes nothing.
  *
  * @param payload - JSON, as `saveInspectionTemplates` reads it.
  * @param programUuid - The caller's active Flight Program.
@@ -63,14 +63,7 @@ export const save = mutation({
           docs.inspectionTemplates,
           results.map((r) => r.next),
         ),
-      audit: (log, _, results) => {
-        for (const { before, next } of results)
-          log.entry("inspectionTemplate.save", next.uuid, {
-            programUuid: next.programUuid,
-            before,
-            after: next,
-          });
-      },
+      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
     }),
 });
 
@@ -120,9 +113,10 @@ export const activate = mutation({
 
 /**
  * Deletes templates with the reusable job cards made from them and those
- * cards' evidence files, all or none, and audits
- * `taskCard.deletedWithTemplate` and `inspectionTemplate.deleted` for each.
- * Inspections already activated stay. A replayed request id changes nothing.
+ * cards' evidence files, all or none, and writes the
+ * `taskCard.deletedWithTemplate` and `inspectionTemplate.deleted` rows
+ * deleteInspectionTemplates records, in that order. Inspections already
+ * activated stay. A replayed request id changes nothing.
  *
  * @param payload - JSON, as `deleteTemplatesSchema`: the templates and cards
  *   the preview showed, at the versions it showed.
@@ -149,21 +143,7 @@ export const remove = mutation({
         deleteInspectionTemplates(snapshot, command),
       persist: ({ ctx }, { docs }, result) =>
         deleteTemplates(ctx, docs, result),
-      audit: (log, _, result) => {
-        for (const task of result.taskCards)
-          log.entry("taskCard.deletedWithTemplate", task.uuid, {
-            programUuid,
-            aircraftUuid: task.aircraftUuid,
-            before: task,
-            reason: "Deleted with its inspection template.",
-          });
-        for (const template of result.templates)
-          log.entry("inspectionTemplate.deleted", template.uuid, {
-            programUuid,
-            before: template,
-            reason: `Deleted template and associated reusable job cards.`,
-          });
-      },
+      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
       returns: (result) => ({
         templates: result.templates.length,
         taskCards: result.taskCards.length,
