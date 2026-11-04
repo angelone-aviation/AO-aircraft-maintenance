@@ -2,7 +2,7 @@
 
 Brings the whole codebase up to [CONSTRAINTS.md](CONSTRAINTS.md) in small, safe, dependency-ordered batches. Read [CONTEXT.md](CONTEXT.md) and [CLAUDE.md](CLAUDE.md) first. The audit behind this plan (2026-11-03) is in [docs/architecture/metrics-2026-11-03.md](docs/architecture/metrics-2026-11-03.md) (size, churn, dependency graph, function metrics, duplication) and [docs/architecture/tier2-candidates.md](docs/architecture/tier2-candidates.md) (the deep-module review).
 
-**Progress:** 395 of 426 batches done, 28 deferred (cosmetic Tier 3 splits, Batches 259, 311 and 312; see each line), 3 to go. Tier 1: 251 · Tier 2: 90 · Tier 3: 85. Batches 410–426 (T21, T22, and follow-ups to T10, T20 and T8) are numbered after Tier 3, so batches 1–409 keep their numbers.
+**Progress:** complete. 398 of 426 batches done; 28 deferred on purpose (cosmetic Tier 3 splits, and Batches 259, 311 and 312; see each line); 0 to go. Tier 1: 251 · Tier 2: 90 · Tier 3: 85. Batches 410–426 (T21, T22, and follow-ups to T10, T20 and T8) are numbered after Tier 3, so batches 1–409 keep their numbers. Owner decisions are collected in findings 33, 34, 44, 52, 60, 62 and 67.
 
 ## How to run a batch
 
@@ -220,6 +220,27 @@ Raised by the audit; not batches. Update as batches find more.
     - **Idempotency:** whether parts requests and purchase orders should join `commandRequests`.
 63. **Robustness in damaged data only** (the aircraft form refuses this state): an aircraft meter with no reading still breaks the flight-plan queue, the Aircraft page, the Inspections page, the owner portal, the Dashboard with a time-limited component, and the status sheet. They read the total directly. A `model.ts` helper returning \"total time, or undefined without a reading\" would serve them all. 26 damaged exports still stop the workbook with TypeErrors, unchanged.
 64. **Small duplicates left after the final round:**
+65. **Final round (after checkpoint 7):**
+    - **Shared definitions:** the serviceable conditions, the currency-code pattern (`src/domain/currencyCode.ts`), `MAX_CORE_DUE_DAYS`, `CSV_MAX_BYTES`, `SECONDS_PER_HOUR` in five screens, and `TASK_TEXT_MAX_LENGTH` each have one definition.
+    - **Downloads:** they go through `download()` and `downloadBlankCsv()`.
+    - **Records workbook:** its unreachable AD workaround is gone (byte-identical output).
+    - **Change log:** flight submission, flight review, work-order summary and management transfer rows carry `programUuid`, built by `auditEntry`. There is one oldest-first replay helper.
+    - **Damaged data:** an aircraft meter without a reading no longer breaks flight plans, the owner portal, the status sheet (an aircraft with no inspections) or the Inspections page. It shows \"Not recorded\" or Unknown, and completing an inspection on it is still refused.
+66. **Safety note (damaged data only):** `inspectionCounters` reads the aircraft total even for a calendar-only inspection. On an aircraft meter without a reading, an inspection overdue by date shows as Unknown and doesn't ground the aircraft. Fix: measure only the limits an inspection sets.
+67. **Owner decisions, from this checkpoint:**
+    - `activateTemplate` gives new requirements warnings of 10 h, 10 cycles and 1 month; the Components form starts at 25 h, 10 cycles, 10 landings and 1 month (`REQUIREMENT_WARNING_DEFAULTS`).
+    - The transfer reason's 2,000-character limit is enforced only in the form; `TRANSFER_REASON_MAX_LENGTH` is exported, and the server accepts longer reasons.
+68. **Leftovers for a later pass:**
+    - `SECONDS_PER_HOUR` copies in about 20 more modules, including a second export in `costs/units.ts`;
+    - screens re-implementing `readings.ts` helpers;
+    - total-time reads still direct in `Fleet.tsx`, `FlightSession.tsx`, `Components.tsx`, `LogbookSample.tsx`, `WorkOrders.tsx` and `adReport.ts`;
+    - change-log rows written through `access.audit()` (accounts, attachments, manuals, FAA) carry no program, and `inspection.*` rows' `before` still holds Convex system fields;
+    - the work-order summary row is composed twice (mutation and demo);
+    - `COMPONENT_TYPES` is listed twice;
+    - the inspection description and materials limits aren't exported;
+    - the manual-candidate and template duplicate-schedule checks are near twins;
+    - `adLevel` no longer needs exporting;
+    - `InventoryAttachments` `saveCopy` could use `download()`.
     - the low-stock rule in `Dashboard.tsx`, to use `needsReorder`;
     - `assertWritable` and `workItemCompletionIssue` restating `isPreparingJobCards`;
     - `PlannedNeeds` matching in `Management.tsx`;
@@ -735,16 +756,16 @@ Each file is decomposed behind a backward-compatible barrel: the original path k
 - [x] Batch 381 (ui-b): `src/components/WorkOrders.tsx` (1720 lines), part 2 of 3: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 382 (ui-b): `src/components/WorkOrders.tsx` (1720 lines), part 3 of 3: split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel. **Deferred (scope, 2026-11-04):** a cosmetic split with no rule to move; pick it up only if wanted.
 - [x] Batch 383 (ui-a): `src/components/Components.tsx` (1966 lines), part 1 of 3: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 384 (ui-a): `src/components/Components.tsx` (1966 lines), part 2 of 3 (after T13 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [x] Batch 384 (ui-a): `src/components/Components.tsx` (1966 lines), part 2 of 3 (after T13 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 385 (ui-a): `src/components/Components.tsx` (1966 lines), part 3 of 3 (after T13 b3): split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel. **Deferred (scope, 2026-11-04):** a cosmetic split with no rule to move; pick it up only if wanted.
 - [x] Batch 386 (ui-b): `src/components/InspectionTemplates.tsx` (847 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [x] Batch 387 (ui-b): `src/components/InspectionTemplates.tsx` (847 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [x] Batch 388 (ui-a): `src/components/ManualDiscovery.tsx` (930 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 389 (ui-a): `src/components/ManualDiscovery.tsx` (930 lines), part 2 of 2 (after T7 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [x] Batch 389 (ui-a): `src/components/ManualDiscovery.tsx` (930 lines), part 2 of 2 (after T7 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [x] Batch 390 (ui-b): `src/components/MaintenanceCsvImport.tsx` (738 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [x] Batch 391 (ui-b): `src/components/MaintenanceCsvImport.tsx` (738 lines), part 2 of 2: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [x] Batch 392 (ui-a): `src/components/Fleet.tsx` (918 lines), part 1 of 2: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
-- [ ] Batch 393 (ui-a): `src/components/Fleet.tsx` (918 lines), part 2 of 2 (after T7 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
+- [x] Batch 393 (ui-a): `src/components/Fleet.tsx` (918 lines), part 2 of 2 (after T7 b3): extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [x] Batch 394 (ui-b): `src/components/Management.tsx` (1838 lines), part 1 of 3: standards pass: header, TSDoc on every export, WHY comments, named constants, guard clauses. Write characterization tests first where coverage is thin.
 - [x] Batch 395 (ui-b): `src/components/Management.tsx` (1838 lines), part 2 of 3: extract pure logic (data shaping, formatting, validation, rules) into sibling modules; the original file re-exports them.
 - [ ] Batch 396 (ui-b): `src/components/Management.tsx` (1838 lines), part 3 of 3: split the remaining sections or sub-components into sibling modules; the original file becomes the entry point plus a barrel. **Deferred (scope, 2026-11-04):** a cosmetic split with no rule to move; pick it up only if wanted.
