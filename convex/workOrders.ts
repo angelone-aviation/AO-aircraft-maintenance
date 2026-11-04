@@ -55,12 +55,6 @@ type LoadedWorkOrder = Awaited<ReturnType<typeof loadWorkOrder>>;
 // program or has a fresh uuid, so data the app wrote never meets it.
 const NOT_FOUND = "Work order not found.";
 
-const COPY_REFUSALS = new Set([
-  "Work order changed. Reopen it before saving.",
-  "This work order is closed.",
-  "This item is already on the work order.",
-]);
-
 /**
  * Runs one work order command (save, revise, add work, copy templates or
  * correct a component) through `saveWorkOrder`, and persists what it changed:
@@ -70,12 +64,9 @@ const COPY_REFUSALS = new Set([
  * @param payload - JSON, as `workOrderCommandSchema`.
  * @param programUuid - The caller's active Flight Program.
  * @returns The work order's uuid.
- * @throws {ConvexError} As `runCommand`, `saveWorkOrder` and
- *   `queueTemplateCopies`; "Work order maintenance access denied."; "Job cards
- *   are still being prepared. …"; "Work order not found."; for adding an
- *   inspection or copying templates, also "Work order changed. Reopen it
- *   before saving.", "This work order is closed." and "This item is already
- *   on the work order."
+ * @throws {ConvexError} As `runCommand`, and the refusals of `saveWorkOrder`
+ *   and `queueTemplateCopies`; "Work order maintenance access denied."; "Job
+ *   cards are still being prepared. …"; "Work order not found."
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
@@ -85,11 +76,9 @@ export const save = mutation({
       parse: () => workOrderCommandSchema.parse(JSON.parse(args.payload)),
       load: loadWorkOrder,
       apply: ({ working }, command) => ({
-        next: showCopyRefusals(command, () =>
-          saveWorkOrder(working, command, Date.now(), {
-            deferTemplateCopies: true,
-          }),
-        ),
+        next: saveWorkOrder(working, command, Date.now(), {
+          deferTemplateCopies: true,
+        }),
       }),
       afterApply: scheduleJobs,
       persist: persistWorkOrder,
@@ -285,30 +274,6 @@ function assertEditable(state: ProgramContext, previous: WorkOrder) {
       "Job cards are still being prepared. Finish or resume preparation before editing or closing this work order.",
     );
 }
-
-// Production hides a plain Error's message. Adding an inspection and copying
-// templates showed these refusals as ConvexError before saveWorkOrder ran
-// them, and saveWorkOrder still throws them as plain Error.
-function showCopyRefusals(
-  command: WorkOrderCommand,
-  save: () => WorkOrder,
-): WorkOrder {
-  try {
-    return save();
-  } catch (error) {
-    if (!isCopyCommand(command) || !isCopyRefusal(error)) throw error;
-    throw new ConvexError(error.message);
-  }
-}
-
-const isCopyCommand = (command: WorkOrderCommand) =>
-  command.action === "copyTemplates" ||
-  (command.action === "add" && command.source.kind === "inspection");
-
-const isCopyRefusal = (error: unknown): error is Error =>
-  error instanceof Error &&
-  error.constructor === Error &&
-  COPY_REFUSALS.has(error.message);
 
 // Starts the jobs a save owes: recurring parts requests, then template copies.
 // They need the applied order, and the order records its copy job, so they
