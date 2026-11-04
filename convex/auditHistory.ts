@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Pages the change log for History: a Flight Program's,
+ *   an aircraft's or a record's entries, newest first.
+ * Layer: Server. One public query; it returns only entries the snapshot's
+ *   visibility rules let the caller see.
+ * Dependencies: convex/programContext, src/domain (programs, auditHistory,
+ *   model, and the management, partsRequests, purchaseOrders, checklists and
+ *   inspectionTemplates schemas).
+ */
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -22,9 +31,62 @@ import {
   canPageAuditFilter,
   clampAuditPageSize,
   HISTORY_NOT_FOUND,
+  type AuditFilter,
   type AuditPage,
 } from "../src/domain/auditHistory";
-import type { AuditEntry } from "../src/domain/model";
+import type { AuditEntry, Snapshot } from "../src/domain/model";
+
+// Entries read per request before a page is returned short; only reached when
+// a long run of the caller's own program index is hidden from them.
+const SCAN_BUDGET = 4000;
+
+type CanSee = (entry: AuditEntry) => boolean;
+type Source = (below: number | undefined) => Promise<Doc<"audit">[]>;
+type Scan = {
+  visible: Doc<"audit">[];
+  exhausted: boolean;
+  floor: number | undefined;
+};
+
+/**
+ * Pages the change log newest first: one record's entries, one aircraft's, or
+ * the whole program's (its own index, each visible aircraft's, and the rows
+ * transfers brought in). Hidden entries never fill a page or decide `isDone`
+ * (S12); only a page cut short by the scan budget takes its cursor from one.
+ *
+ * @param programUuid - The caller's active Flight Program.
+ * @param entityUuid - Only this record's entries.
+ * @param aircraftUuid - Only this aircraft's entries; with `entityUuid`, the
+ *   record's entries on this aircraft.
+ * @param cursor - The previous page's `continueCursor`, or null.
+ * @param numItems - Page size, as `clampAuditPageSize`.
+ * @returns Entries without Convex fields; `isDone` once no visible entry is
+ *   left. The page is short and not done after 4,000 entries are scanned.
+ * @throws {Error} As `checkContext`; "Invalid history cursor."; "History not
+ *   found." before paging, for a record or aircraft the caller cannot see or
+ *   that does not exist.
+ */
+export const page = query({
+  args: {
+    programUuid: v.optional(v.string()),
+    entityUuid: v.optional(v.string()),
+    aircraftUuid: v.optional(v.string()),
+    cursor: v.union(v.string(), v.null()),
+    numItems: v.number(),
+  },
+  handler: async (ctx, args): Promise<AuditPage> => {
+    const { state, canSee } = await visibility(ctx, args.programUuid);
+    const n = clampAuditPageSize(args.numItems);
+    const before = parseCursor(args.cursor);
+    await assertFilterVisible(ctx, canSee, args);
+    const sources = selectSources(ctx, state, canSee, args, n);
+    const shown = (d: Doc<"audit">) =>
+      canSee(d) && (!args.aircraftUuid || d.aircraftUuid === args.aircraftUuid);
+    const scan = await scanVisible(sources, shown, n, before);
+    return buildPage(scan, n, before);
+  },
+});
+
 // The same records the snapshot loads to decide which history entries a
 // caller may read.
 async function visibility(ctx: QueryCtx, programUuid?: string) {
@@ -61,108 +123,134 @@ async function visibility(ctx: QueryCtx, programUuid?: string) {
     }),
   };
 }
-// Entries read per request before a page is returned short; only reached when
-// a long run of the caller's own program index is hidden from them.
-const SCAN_BUDGET = 4000;
-// Pages newest-first through the audit log. Program-wide history merges the
-// program index, each visible aircraft's index (most aircraft entries carry no
-// program column) and the rows transfers listed for the program, so
-// `.paginate()` cannot express it; instead each index is read as a range below
-// the cursor's _creationTime.
-//
-// Nothing about entries the caller cannot see may leak (S12): a filter naming
-// a record or aircraft outside the caller's scope is refused before paging
-// (at most the record's newest entry is read, to check it is visible), with
-// the same answer as an unknown id, and the page, isDone and
-// continueCursor are built only from entries the caller can see.
-export const page = query({
-  args: {
-    programUuid: v.optional(v.string()),
-    entityUuid: v.optional(v.string()),
-    aircraftUuid: v.optional(v.string()),
-    cursor: v.union(v.string(), v.null()),
-    numItems: v.number(),
-  },
-  handler: async (ctx, args): Promise<AuditPage> => {
-    const { state, canSee } = await visibility(ctx, args.programUuid);
-    const n = clampAuditPageSize(args.numItems);
-    const before = args.cursor === null ? undefined : Number(args.cursor);
-    if (before !== undefined && !Number.isFinite(before))
-      throw new Error("Invalid history cursor.");
-    const newest = args.entityUuid
-      ? await ctx.db
-          .query("audit")
-          .withIndex("entity", (q) => q.eq("entityUuid", args.entityUuid!))
-          .order("desc")
-          .first()
-      : null;
-    if (!canPageAuditFilter(canSee, args, newest))
-      throw new Error(HISTORY_NOT_FOUND);
-    type Source = (below: number | undefined) => Promise<Doc<"audit">[]>;
-    const read =
-      (
-        index: "program" | "aircraft" | "entity",
-        field: "programUuid" | "aircraftUuid" | "entityUuid",
-        value: string | undefined,
-      ): Source =>
-      (below) =>
-        ctx.db
-          .query("audit")
-          .withIndex(index, (q) => {
-            const eq = q.eq(field, value);
-            return below === undefined ? eq : eq.lt("_creationTime", below);
-          })
-          .order("desc")
-          .take(n);
-    const program = activeProgram(state);
-    const sources: Source[] = args.entityUuid
-      ? [read("entity", "entityUuid", args.entityUuid)]
-      : args.aircraftUuid
-        ? [read("aircraft", "aircraftUuid", args.aircraftUuid)]
-        : [
-            read("program", "programUuid", program),
-            ...state.aircraft
-              .filter((a) =>
-                canPageAuditFilter(canSee, { aircraftUuid: a.uuid }),
-              )
-              .map((a) => read("aircraft", "aircraftUuid", a.uuid)),
-            (below) => transferredAuditDocs(ctx, program, n, below),
-          ];
-    const shown = (d: Doc<"audit">) =>
-      canSee(d) && (!args.aircraftUuid || d.aircraftUuid === args.aircraftUuid);
-    // Read rounds below `floor` until one entry more than a page is visible
-    // (so isDone is exact) or every source is exhausted. Within a round, rows
-    // at or above the newest "last row" of any full source are complete.
-    const visible: Doc<"audit">[] = [];
-    let floor = before,
-      exhausted = false,
-      scanned = 0;
-    while (!exhausted && visible.length <= n && scanned < SCAN_BUDGET) {
-      const batches = await Promise.all(sources.map((s) => s(floor)));
-      scanned += batches.reduce((sum, b) => sum + b.length, 0);
-      const full = batches.filter((b) => b.length === n);
-      const edge = full.length
-        ? Math.max(...full.map((b) => b.at(-1)!._creationTime))
-        : undefined;
-      exhausted = edge === undefined;
-      const rows = [...new Map(batches.flat().map((d) => [d._id, d])).values()]
-        .filter((d) => edge === undefined || d._creationTime >= edge)
-        .sort((a, b) => b._creationTime - a._creationTime);
-      visible.push(...rows.filter(shown));
-      floor = edge;
-    }
-    const batch = visible.slice(0, n);
-    const isDone = exhausted && visible.length <= n;
-    return {
-      page: batch.map(({ _id, _creationTime, ...entry }): AuditEntry => entry),
-      isDone,
-      // A short page that is not done stopped on the scan budget inside the
-      // caller's own indexes; continue from where the scan stopped.
-      continueCursor: String(
-        !isDone && batch.length < n
-          ? floor
-          : (batch.at(-1)?._creationTime ?? before ?? 0),
-      ),
-    };
-  },
-});
+
+function parseCursor(cursor: string | null): number | undefined {
+  const before = cursor === null ? undefined : Number(cursor);
+  if (before !== undefined && !Number.isFinite(before))
+    throw new Error("Invalid history cursor.");
+  return before;
+}
+
+// Refused with the same answer as an unknown id; at most the record's newest
+// entry is read, to check that it is visible.
+async function assertFilterVisible(
+  ctx: QueryCtx,
+  canSee: CanSee,
+  filter: AuditFilter,
+): Promise<void> {
+  const entityUuid = filter.entityUuid;
+  const newest = entityUuid
+    ? await ctx.db
+        .query("audit")
+        .withIndex("entity", (q) => q.eq("entityUuid", entityUuid))
+        .order("desc")
+        .first()
+    : null;
+  if (!canPageAuditFilter(canSee, filter, newest))
+    throw new Error(HISTORY_NOT_FOUND);
+}
+
+// Most aircraft entries carry no program column, so program-wide history
+// merges several indexes, which `.paginate()` cannot express; each is read as
+// a range below the cursor's _creationTime instead.
+function selectSources(
+  ctx: QueryCtx,
+  state: Snapshot,
+  canSee: CanSee,
+  filter: AuditFilter,
+  n: number,
+): Source[] {
+  if (filter.entityUuid)
+    return [readIndex(ctx, n, "entity", "entityUuid", filter.entityUuid)];
+  if (filter.aircraftUuid)
+    return [readIndex(ctx, n, "aircraft", "aircraftUuid", filter.aircraftUuid)];
+  const program = activeProgram(state);
+  return [
+    readIndex(ctx, n, "program", "programUuid", program),
+    ...state.aircraft
+      .filter((a) => canPageAuditFilter(canSee, { aircraftUuid: a.uuid }))
+      .map((a) => readIndex(ctx, n, "aircraft", "aircraftUuid", a.uuid)),
+    (below) => transferredAuditDocs(ctx, program, n, below),
+  ];
+}
+
+function readIndex(
+  ctx: QueryCtx,
+  n: number,
+  index: "program" | "aircraft" | "entity",
+  field: "programUuid" | "aircraftUuid" | "entityUuid",
+  value: string | undefined,
+): Source {
+  return (below) =>
+    ctx.db
+      .query("audit")
+      .withIndex(index, (q) => {
+        const eq = q.eq(field, value);
+        return below === undefined ? eq : eq.lt("_creationTime", below);
+      })
+      .order("desc")
+      .take(n);
+}
+
+// Reads rounds below `floor` until one entry more than a page is visible (so
+// isDone is exact), every source is exhausted, or the budget is spent.
+async function scanVisible(
+  sources: Source[],
+  shown: (d: Doc<"audit">) => boolean,
+  n: number,
+  before: number | undefined,
+): Promise<Scan> {
+  const visible: Doc<"audit">[] = [];
+  let floor = before,
+    exhausted = false,
+    scanned = 0;
+  while (!exhausted && visible.length <= n && scanned < SCAN_BUDGET) {
+    const batches = await Promise.all(sources.map((s) => s(floor)));
+    scanned += batches.reduce((sum, b) => sum + b.length, 0);
+    const edge = findCompleteEdge(batches, n);
+    exhausted = edge === undefined;
+    visible.push(...mergeCompleteRows(batches, edge).filter(shown));
+    floor = edge;
+  }
+  return { visible, exhausted, floor };
+}
+
+// Rows at or above the newest last row of any full batch are complete: no
+// source can still hold an unread row there. Undefined when none was full.
+function findCompleteEdge(
+  batches: Doc<"audit">[][],
+  n: number,
+): number | undefined {
+  const full = batches.filter((b) => b.length === n);
+  return full.length
+    ? Math.max(...full.map((b) => b.at(-1)!._creationTime))
+    : undefined;
+}
+
+function mergeCompleteRows(
+  batches: Doc<"audit">[][],
+  edge: number | undefined,
+): Doc<"audit">[] {
+  return [...new Map(batches.flat().map((d) => [d._id, d])).values()]
+    .filter((d) => edge === undefined || d._creationTime >= edge)
+    .sort((a, b) => b._creationTime - a._creationTime);
+}
+
+function buildPage(
+  scan: Scan,
+  n: number,
+  before: number | undefined,
+): AuditPage {
+  const batch = scan.visible.slice(0, n);
+  const isDone = scan.exhausted && scan.visible.length <= n;
+  return {
+    page: batch.map(({ _id, _creationTime, ...entry }): AuditEntry => entry),
+    isDone,
+    // Short and not done means the scan budget ran out: resume there.
+    continueCursor: String(
+      !isDone && batch.length < n
+        ? scan.floor
+        : (batch.at(-1)?._creationTime ?? before ?? 0),
+    ),
+  };
+}
