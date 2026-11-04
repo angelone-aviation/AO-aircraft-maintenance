@@ -1,3 +1,14 @@
+/**
+ * Responsibility: The one-off migration that strips retired authorization
+ *   fields from saved work orders.
+ * Layer: Server. An internal mutation run by hand; the field list is the
+ *   domain's.
+ * Dependencies: convex/access, src/domain/workOrderCleanup.
+ *
+ * Change-log rows are never edited (ADR-0005); each changed order gets one
+ * appended entry instead. Before 2026-11-02 this migration also rewrote
+ * before/after on existing rows; see the note in ADR-0005.
+ */
 import { internalMutation } from "./_generated/server";
 import { audit } from "./access";
 import {
@@ -5,10 +16,13 @@ import {
   retiredWorkOrderFields,
 } from "../src/domain/workOrderCleanup";
 
-// Removes retired authorization fields from saved work orders. Change-log rows
-// are never edited (ADR-0005): each changed order gets one appended entry
-// recording the values removed. Before 2026-11-02 this migration also rewrote
-// before/after on existing rows; see the note in ADR-0005.
+/**
+ * Removes the retired fields from every saved work order, and audits each
+ * changed order as `workOrder.retiredFieldsRemoved` by `system:migration`,
+ * with the removed values as `before`. Running it again changes nothing.
+ *
+ * @returns How many orders were checked and how many changed.
+ */
 export const removeAuthorization = internalMutation({
   args: {},
   handler: async (ctx) => {
