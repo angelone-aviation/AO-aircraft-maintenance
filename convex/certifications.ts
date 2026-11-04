@@ -3,7 +3,8 @@
  *   them: saving, listing, opening, uploading and deleting.
  * Layer: Server. Public functions for the member themself or a system
  *   administrator; every change is audited against the member.
- * Dependencies: convex/access, convex/userErrors, src/domain/certifications.
+ * Dependencies: convex/access, convex/attachments, convex/userErrors,
+ *   src/domain/certifications.
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -18,6 +19,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { currentUser, audit } from "./access";
+import { storeThenFinish } from "./attachments";
 import { exposeRejections } from "./userErrors";
 import {
   certificationsSchema,
@@ -174,24 +176,18 @@ export const upload = action({
       userId: args.userId,
       kind: args.kind,
     });
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      return await ctx.runMutation(internal.certifications.finishUpload, {
+    // The certification can be unselected between the check and filing; the
+    // stored copy would then belong to nothing.
+    return storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.certifications.finishUpload, {
         userId: args.userId,
         kind: args.kind,
         storageId,
         name: args.name,
         type: args.type,
         size: args.bytes.byteLength,
-      });
-    } catch (error) {
-      // The certification can be unselected between the check and filing;
-      // the stored copy would then belong to nothing.
-      await ctx.storage.delete(storageId);
-      throw error;
-    }
+      }),
+    );
   },
 });
 

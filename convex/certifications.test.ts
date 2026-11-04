@@ -7,7 +7,7 @@
  *   (snapshot), src/data/demo.
  */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -290,4 +290,46 @@ it("opens a copy whose file is gone as null, and checks a file before access", a
   ).rejects.toThrow(
     "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
   );
+});
+
+it("deletes the stored copy when its certification is unselected during the upload, keeping earlier copies", async () => {
+  const { t, users, owner } = await fixture();
+  const userId = users.owner.id;
+  await owner.mutation(api.certifications.save, {
+    userId,
+    payload: JSON.stringify(mechanic),
+  });
+  const earlier = (await owner.action(api.certifications.upload, {
+    userId,
+    ...pdf,
+  })) as Id<"certificationFiles">;
+  // Unselects the certification as the upload builds its blob: after the
+  // check, before filing.
+  let unselected: Promise<unknown> | undefined;
+  vi.stubGlobal(
+    "Blob",
+    class extends Blob {
+      constructor(...args: ConstructorParameters<typeof Blob>) {
+        super(...args);
+        unselected ??= owner.mutation(api.certifications.save, {
+          userId,
+          payload: "[]",
+        });
+      }
+    },
+  );
+  try {
+    await expect(
+      owner.action(api.certifications.upload, { userId, ...pdf }),
+    ).rejects.toMatchObject({ data: "Certification is no longer selected." });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  await unselected;
+  const { storageId } = (await t.run((ctx) => ctx.db.get(earlier)))!;
+  expect(
+    (await t.run((ctx) => ctx.db.system.query("_storage").collect())).map(
+      (blob) => blob._id,
+    ),
+  ).toEqual([storageId]);
 });
