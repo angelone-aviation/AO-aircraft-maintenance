@@ -1,3 +1,9 @@
+/**
+ * Responsibility: Pins the alerts screen: alerts grouped by severity, marking
+ *   one or all read so it lasts across a reload, and opening an alert's screen.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 
 test("alerts group by severity, mark read one at a time or all at once, and open their screen", async ({
