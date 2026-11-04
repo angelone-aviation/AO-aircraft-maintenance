@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Pins stock shelf life on the server (expired stock cannot be
+ *   issued, linked to a job card or reserved) and the exchange core returns a
+ *   purchase-order receipt creates.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex (management, taskCards, partsRequests, purchaseOrders,
+ *   schema), src/domain (purchaseOrders, partsRequests), src/data/demo.ts,
+ *   tests/fixtures/taskCards.ts.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -12,7 +21,14 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
 const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Seeds the demo program and another, a store holding sealant that expired on
+ * 2020-01-01, and signs in a system administrator (the buyer) and a
+ * technician.
+ */
 async function setup() {
   const t = convexTest(schema, modules);
   const demo = demoSnapshot();
@@ -38,7 +54,7 @@ async function setup() {
       });
       const sessionId = await ctx.db.insert("authSessions", {
         userId,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { subject: `${userId}|${sessionId}` };
     };
@@ -245,7 +261,7 @@ it("creates core returns on exchange receipts and limits updates to program admi
     expect.objectContaining({
       partNumber: "STARTER",
       status: "pending",
-      dueDate: new Date(Date.parse(today()) + 15 * 86400000)
+      dueDate: new Date(Date.parse(today()) + 15 * DAY_MS)
         .toISOString()
         .slice(0, 10),
     }),
