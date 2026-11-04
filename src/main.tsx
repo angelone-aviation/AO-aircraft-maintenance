@@ -7,7 +7,6 @@
  *   backend, deviceManuals, pdfOffline, pendingEntries), src/domain/model.ts,
  *   src/App.tsx, src/components.
  */
-import { MissionSlogan } from "./components/MissionSlogan";
 import { useEffect, useId, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -434,7 +433,6 @@ function Welcome({ children }: { children: React.ReactNode }) {
         <Wordmark width={176} />
         {children}
       </main>
-      <MissionSlogan />
       <p className="welcome-bottom">
         TO EVERY NATION, KINDRED, TONGUE AND PEOPLE
       </p>
