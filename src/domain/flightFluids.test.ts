@@ -1,12 +1,13 @@
 /**
- * Responsibility: Pins fuel and oil reading checks, use and rate, and how a
- *   guided flight and its checklist link carry the readings.
+ * Responsibility: Pins fuel and oil reading checks, use and rate, the flight
+ *   oil use is measured from, and how a guided flight and its checklist link
+ *   carry the readings.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/flightFluids.ts, ./guidedFlight, ./checklists,
  *   ./flightChecklistLink, ./model, ./validationText, src/data/demo.ts (seed).
  */
 import { guidedDraftSchema, suggestedStartSection } from "./guidedFlight";
-import { oilUseSincePreviousStart } from "./flightFluids";
+import { oilUseSincePreviousStart, previousFlights } from "./flightFluids";
 import type { Flight } from "./model";
 import { describe, it, expect } from "vitest";
 import {
@@ -389,5 +390,42 @@ describe("reading limits and labels", () => {
         "single",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("the flight oil use is measured from", () => {
+  const flight = (
+    uuid: string,
+    startTime: string,
+    over: Partial<Flight> = {},
+  ): Flight => ({
+    ...input,
+    uuid,
+    authorId: "pilot",
+    submittedAt: 0,
+    status: "accepted",
+    startTime,
+    ...over,
+  });
+
+  it("is the latest earlier accepted or held flight on the same aircraft", () => {
+    const flights = [
+      flight("third", "2026-10-03T10:00:00Z"),
+      flight("held", "2026-10-02T10:00:00Z", { status: "review" }),
+      flight("rejected", "2026-10-02T12:00:00Z", { status: "rejected" }),
+      flight("first", "2026-10-01T10:00:00Z"),
+      flight("other", "2026-10-02T11:00:00Z", { aircraftUuid: "demo-208" }),
+    ];
+    const previous = previousFlights(flights);
+    expect(
+      Object.fromEntries([...previous].map(([k, v]) => [k, v.uuid])),
+    ).toEqual({ held: "first", third: "held" });
+  });
+
+  it("keeps the given order for equal start times", () => {
+    const at = "2026-10-01T10:00:00Z";
+    const previous = previousFlights([flight("a", at), flight("b", at)]);
+    expect(previous.get("b")?.uuid).toBe("a");
+    expect(previous.has("a")).toBe(false);
   });
 });

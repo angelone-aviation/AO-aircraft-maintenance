@@ -162,6 +162,29 @@ export function fluidRate(
 }
 
 /**
+ * Finds the flight each one's oil use is measured from: the latest accepted
+ * or held flight on its aircraft that starts before it. A held flight stays
+ * in the chain, so {@link oilUseSincePreviousStart} does not bridge it.
+ *
+ * @param flights - The flights, in any order.
+ * @returns The previous flight by flight uuid; none for an aircraft's first
+ *   flight or a rejected one. Equal start times keep the given order.
+ */
+export function previousFlights(flights: Flight[]): Map<string, Flight> {
+  const byStart = flights
+    .filter((f) => f.status !== "rejected")
+    .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
+  const previous = new Map<string, Flight>();
+  const latestByAircraft = new Map<string, Flight>();
+  for (const flight of byStart) {
+    const before = latestByAircraft.get(flight.aircraftUuid);
+    if (before) previous.set(flight.uuid, before);
+    latestByAircraft.set(flight.aircraftUuid, flight);
+  }
+  return previous;
+}
+
+/**
  * Works out one engine's oil use between two flights: the earlier flight's
  * start plus what was added with it, less the later flight's start.
  *

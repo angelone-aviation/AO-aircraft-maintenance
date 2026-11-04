@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins deferral expiry by MEL category, days remaining, labels,
- *   and the refusals when deferring or resolving a discrepancy.
+ * Responsibility: Pins which reports ground their aircraft, deferral expiry by
+ *   MEL category, days remaining, labels, and the refusals when deferring or
+ *   resolving a discrepancy.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/deferrals.ts, ./model, ./rejection,
  *   src/data/demo.ts (seed).
@@ -13,6 +14,7 @@ import {
   deferralExpired,
   deferralExpiry,
   deferralLabel,
+  isGroundingReport,
   resolveDiscrepancy,
 } from "./deferrals";
 import { localDate } from "./model";
@@ -25,6 +27,18 @@ const mel = (category: "A" | "B" | "C" | "D", days?: number) => ({
   days,
   placard: "INOP",
 });
+it("grounds the aircraft only for an open, undeferred grounding report", () => {
+  const deferral = { type: "91.213d", placard: "INOP", notHazard: true };
+  const open = { status: "open", grounding: true } as const;
+  expect(isGroundingReport(open)).toBe(true);
+  expect(isGroundingReport({ ...open, grounding: false })).toBe(false);
+  expect(isGroundingReport({ ...open, grounding: undefined })).toBe(false);
+  expect(isGroundingReport({ ...open, status: "resolved" })).toBe(false);
+  expect(isGroundingReport({ ...open, deferral: deferral as never })).toBe(
+    false,
+  );
+});
+
 describe("deferral expiry", () => {
   it("adds the category interval to the deferral date", () => {
     expect(deferralExpiry(mel("B"), "2026-12-30")).toBe("2027-01-02");
