@@ -31,11 +31,7 @@ import {
 } from "../domain/purchaseOrders";
 import { applyCostCommand } from "../domain/costs";
 import { emptyMonitor, faaCommandSchema } from "../domain/faa";
-import {
-  adAuditRecord,
-  adCommandReason,
-  applyADCommand,
-} from "../domain/airworthiness";
+import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
 import { reviewFlight } from "../domain/flightReview";
@@ -577,19 +573,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     saveAD: (command) =>
       modify((s) => {
-        const prior = s.airworthiness ?? [];
-        for (const r of applyADCommand(s, command)) {
-          const old = prior.find((x) => x.uuid === r.uuid);
-          audit(
-            s,
-            "ad." + command.kind,
-            r.uuid,
-            r.aircraftUuid,
-            adCommandReason(command),
-            old && adAuditRecord(old),
-            adAuditRecord(r),
-          );
-        }
+        applyADCommand(s, command);
       }),
     partsRequest: (command) =>
       modify((s) => {

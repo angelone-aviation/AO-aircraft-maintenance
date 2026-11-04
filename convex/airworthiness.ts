@@ -3,19 +3,13 @@
  *   through the airworthiness domain applier.
  * Layer: Server. Convex mutation over runCommand; the rules live in
  *   src/domain/airworthiness.
- * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
+ * Dependencies: convex/values, ./_generated, ./runCommand,
  *   src/domain/airworthiness.
  */
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { runCommand, hydrate, writeChanged } from "./runCommand";
-import { decode } from "./collections";
-import {
-  adAuditRecord,
-  adCommandReason,
-  adCommandSchema,
-  applyADCommand,
-} from "../src/domain/airworthiness";
+import { adCommandSchema, applyADCommand } from "../src/domain/airworthiness";
 
 /**
  * Applies one AD command in the active Flight Program and writes an
@@ -45,20 +39,9 @@ export const save = mutation({
           changed,
           "AD record belongs to another Flight Program.",
         ),
-      audit: (log, { docs }, changed, command) => {
-        for (const r of changed) {
-          const old = docs.airworthiness.find((d) => d.uuid === r.uuid);
-          log.entry("ad." + command.kind, r.uuid, {
-            aircraftUuid: r.aircraftUuid,
-            programUuid: r.programUuid,
-            reason: adCommandReason(command),
-            before: old
-              ? adAuditRecord(decode("airworthiness", [old])[0])
-              : undefined,
-            after: adAuditRecord(r),
-          });
-        }
-      },
+      // The applier lists its entries newest first, as the change log does;
+      // rows are written in the order the ADs changed.
+      audit: (log, { snapshot }) => log.replay([...snapshot.audit].reverse()),
       returns: (changed) => changed.length,
     }),
 });

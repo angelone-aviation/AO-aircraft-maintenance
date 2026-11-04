@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins AD records: atomic saves, maintenance access, version
- *   checks, compliance and its correction, and an AD uuid another Flight
- *   Program holds.
+ *   checks, compliance and its correction, an AD uuid another Flight Program
+ *   holds, and the change-log rows an import writes.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/airworthiness, convex/operations, src/data/demo,
  *   src/domain/airworthiness.
@@ -11,7 +11,13 @@ import { it, expect } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { adSchema, blankAD, blankADTask } from "../src/domain/airworthiness";
+import {
+  adAuditRecord,
+  adSchema,
+  blankAD,
+  blankADTask,
+  type AD,
+} from "../src/domain/airworthiness";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -309,4 +315,84 @@ it("refuses an AD uuid another Flight Program holds, and writes nothing", async 
     }),
   ).rejects.toThrow("AD record belongs to another Flight Program.");
   expect(await stored()).toEqual(before);
+});
+
+it("writes one ad.import row per changed AD, in the order of the entries", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const aircraftUuid = s.aircraft[0].uuid;
+  const subject = await t.run(async (ctx) => {
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("programs", s.programs![0]);
+    const id = await ctx.db.insert("users", {
+      active: true,
+      isAdmin: true,
+      name: "Administrator",
+      groupIds: [],
+      activeProgramUuid: "demo-program",
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: id,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${id}|${session}`;
+  });
+  const source = (number: string, subject = "Inspect") => ({
+    ...blankAD(aircraftUuid).source,
+    number,
+    subject,
+  });
+  const importADs = (...sources: ReturnType<typeof source>[]) =>
+    t.withIdentity({ subject }).mutation(api.airworthiness.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({
+        kind: "import",
+        aircraftUuid,
+        entries: sources.map((s) => ({ source: s, componentUuid: "" })),
+      }),
+    });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      ads: (await ctx.db.query("airworthiness").collect()).map((d) =>
+        adSchema.parse(JSON.parse(d.payload)),
+      ),
+      rows: (await ctx.db.query("audit").collect()).map((a) => ({
+        action: a.action,
+        entityUuid: a.entityUuid,
+        programUuid: a.programUuid,
+        aircraftUuid: a.aircraftUuid,
+        reason: a.reason,
+        before: a.before && JSON.parse(a.before),
+        after: a.after && JSON.parse(a.after),
+      })),
+    }));
+  const row = (after: AD, before?: AD) => ({
+    action: "ad.import",
+    entityUuid: after.uuid,
+    programUuid: "demo-program",
+    aircraftUuid,
+    reason: undefined,
+    before: before && adAuditRecord(before),
+    after: adAuditRecord(after),
+  });
+  const byNumber = (ads: AD[], number: string) =>
+    ads.find((r) => r.source.number === number)!;
+
+  await expect(
+    importADs(source("2026-02-02"), source("2026-01-01")),
+  ).resolves.toBe(2);
+  const first = await stored();
+  const [later, earlier] = ["2026-02-02", "2026-01-01"].map((n) =>
+    byNumber(first.ads, n),
+  );
+  expect(first.rows).toEqual([row(later), row(earlier)]);
+
+  await expect(
+    importADs(source("2026-02-02"), source("2026-01-01", "Inspect again")),
+  ).resolves.toBe(1);
+  const second = await stored();
+  expect(second.rows).toEqual([
+    ...first.rows,
+    row(byNumber(second.ads, "2026-01-01"), earlier),
+  ]);
 });

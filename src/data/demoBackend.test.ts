@@ -1,10 +1,10 @@
 /**
- * Responsibility: Pins the demo adapter's discrepancy resolution and flight
- *   review against the server's rules: the same refusals, stored records and
- *   change-log rows.
+ * Responsibility: Pins the demo adapter's discrepancy resolution, flight
+ *   review and AD changes against the server's rules: the same refusals,
+ *   stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
- *   (seed), src/domain (model, flights, rejection).
+ *   (seed), src/domain (model, flights, airworthiness, rejection).
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -12,7 +12,8 @@
  * flight review skipped the administrator, aircraft, crew, problem-report,
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
- * and crashed on a missing flight.
+ * and crashed on a missing flight. Before Batch 296 its AD rows named no
+ * Flight Program.
  */
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
@@ -20,6 +21,7 @@ import { readSnapshot, saveSnapshot } from "./local";
 import { demoSnapshot } from "./demo";
 import type { Flight, FlightInput, Snapshot } from "../domain/model";
 import { applyFlight } from "../domain/flights";
+import { adAuditRecord, blankAD, type AD } from "../domain/airworthiness";
 import { Rejection } from "../domain/rejection";
 
 const REPORT = "demo-report";
@@ -292,3 +294,43 @@ it.each([
     expect(await stored()).toEqual(before);
   },
 );
+
+it("audits AD changes as the server does: with the program, newest first", async () => {
+  const { backend, stored } = await demo("demo-ad");
+  const before = await stored();
+  const aircraftUuid = before.aircraft[0].uuid;
+  const source = (number: string) => ({
+    ...blankAD(aircraftUuid).source,
+    number,
+    subject: "Inspect",
+  });
+  await backend.saveAD({
+    kind: "import",
+    aircraftUuid,
+    entries: [source("2099-02-02"), source("2099-01-01")].map((s) => ({
+      source: s,
+      componentUuid: "",
+    })),
+  });
+  const s = await stored();
+  const saved = (number: string) =>
+    s.airworthiness!.find((r) => r.source.number === number)!;
+  const row = (r: AD) => ({
+    uuid: expect.any(String),
+    programUuid: r.programUuid,
+    actorId: s.user.id,
+    at: expect.any(Number),
+    action: "ad.import",
+    entityUuid: r.uuid,
+    aircraftUuid,
+    reason: undefined,
+    before: undefined,
+    after: JSON.stringify(adAuditRecord(r)),
+  });
+  expect(saved("2099-01-01").programUuid).toBe("demo-program");
+  expect(s.audit).toEqual([
+    row(saved("2099-01-01")),
+    row(saved("2099-02-02")),
+    ...before.audit,
+  ]);
+});
