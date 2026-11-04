@@ -1,20 +1,35 @@
+/**
+ * Responsibility: Pins AD records end to end: report import, review, saves,
+ *   compliance, refusals that change nothing, and due status.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/airworthiness.ts, ./faa, ./aircraftStatus,
+ *   ./components, ./model, ./programs, ./rejection, ./workOrders,
+ *   src/data/adImport.ts, src/data/demo.ts,
+ *   tests/fixtures/ad-report-tables.json.
+ */
 import { describe, it, expect, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { parseADTables } from "../data/adImport";
 import tables from "../../tests/fixtures/ad-report-tables.json";
 import {
   adAuditRecord,
+  adCounters,
   adSchema,
   adStatus,
   adTaskStatus,
   applyADCommand,
   blankAD,
   blankADTask,
+  CLOSED_APPLICABILITY,
+  type AD,
   type ADCompliance,
+  type ADTask,
 } from "./airworthiness";
+import { componentSchema } from "./components";
+import { Rejection } from "./rejection";
 import { fetchDrsCandidates, mergeCandidates } from "./faa";
 import { aircraftStatus } from "./aircraftStatus";
-import { localDate } from "./model";
+import { localDate, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
 import { workSources } from "./workOrders";
 function setup() {
@@ -543,4 +558,322 @@ it("ranks an overdue action above an unavailable counter on the AD", () => {
   expect(adTaskStatus(s, r, r.tasks[0])).toBe("Counter unavailable");
   expect(adTaskStatus(s, r, r.tasks[1])).toBe("Overdue");
   expect(adStatus(s, r)).toBe("Overdue");
+});
+
+const REASON = "Corrected from the AD paragraph";
+const stored = (s: Snapshot, r: AD) =>
+  s.airworthiness!.find((x) => x.uuid === r.uuid)!;
+const saveAD = (s: Snapshot, record: AD) => () =>
+  applyADCommand(s, { kind: "save", record, reason: REASON });
+const complyAD =
+  (s: Snapshot, r: AD, patch: Partial<ADCompliance> = {}) =>
+  () =>
+    applyADCommand(s, {
+      kind: "comply",
+      uuid: r.uuid,
+      version: stored(s, r).version,
+      entry: { ...entry(r.tasks[0].uuid), ...patch },
+    });
+const correctAD =
+  (s: Snapshot, r: AD, target: ADCompliance, patch: Partial<ADCompliance>) =>
+  () =>
+    applyADCommand(s, {
+      kind: "correct",
+      uuid: r.uuid,
+      version: stored(s, r).version,
+      corrects: target.uuid,
+      reason: REASON,
+      entry: { ...target, uuid: crypto.randomUUID(), ...patch },
+    });
+const newAD = (s: Snapshot, section: AD["source"]["section"] = "Airframe") => {
+  const r = blankAD(s.aircraft[0].uuid, section);
+  r.source.number = "2026-09-09";
+  return r;
+};
+const withTwoEntries = (s: Snapshot, r: AD) => {
+  const first = entry(r.tasks[0].uuid);
+  complyAD(s, r, first)();
+  complyAD(s, r, { date: "2026-01-05", hours: 2341 })();
+  return first;
+};
+
+const refusals: [string, (s: Snapshot, r: AD) => () => unknown][] = [
+  [
+    "Aircraft maintenance permission required.",
+    (s, r) => {
+      s.user.isAdmin = false;
+      s.user.groupIds = [];
+      return () =>
+        applyADCommand(s, {
+          kind: "import",
+          aircraftUuid: r.aircraftUuid,
+          entries: [{ source: r.source, componentUuid: "" }],
+        });
+    },
+  ],
+  [
+    "Duplicate AD and component in import.",
+    (s, r) => () =>
+      applyADCommand(s, {
+        kind: "import",
+        aircraftUuid: r.aircraftUuid,
+        entries: [
+          { source: r.source, componentUuid: "" },
+          { source: { ...r.source, number: "2026-01-01 " }, componentUuid: "" },
+        ],
+      }),
+  ],
+  [
+    "AD not found.",
+    (s, r) => () =>
+      applyADCommand(s, {
+        kind: "comply",
+        uuid: crypto.randomUUID(),
+        version: r.version,
+        entry: entry(r.tasks[0].uuid),
+      }),
+  ],
+  [
+    "An existing AD cannot be reassigned to another asset.",
+    (s, r) => saveAD(s, { ...r, aircraftUuid: s.aircraft[1].uuid }),
+  ],
+  [
+    "Record the reason for changing this AD.",
+    (s, r) => () => applyADCommand(s, { kind: "save", record: r }),
+  ],
+  [
+    "Enter the superseding AD in Superseded by.",
+    (s, r) => saveAD(s, { ...r, applicability: "Superseded" }),
+  ],
+  [
+    "Record the reason this AD is not applicable.",
+    (s, r) => saveAD(s, { ...r, applicability: "Not applicable" }),
+  ],
+  [
+    "Record a previous compliance date that is not in the future.",
+    (s, r) =>
+      saveAD(s, {
+        ...r,
+        applicability: "Previously Complied With (PCW)",
+        priorCompliance: {
+          date: "2999-01-01",
+          aircraftHours: 1,
+          componentHours: null,
+        },
+      }),
+  ],
+  [
+    "Record aircraft total time or, for a component AD, component total time.",
+    (s, r) =>
+      saveAD(s, {
+        ...r,
+        applicability: "Previously Complied With (PCW)",
+        priorCompliance: {
+          date: "2025-01-01",
+          aircraftHours: null,
+          componentHours: null,
+        },
+      }),
+  ],
+  [
+    "Component total time is only available for component ADs.",
+    (s, r) =>
+      saveAD(s, {
+        ...r,
+        applicability: "Previously Complied With (PCW)",
+        priorCompliance: {
+          date: "2025-01-01",
+          aircraftHours: 1,
+          componentHours: 2,
+        },
+      }),
+  ],
+  [
+    "Add at least one required action.",
+    (s, r) => saveAD(s, { ...r, tasks: [] }),
+  ],
+  [
+    "Duplicate action identifiers.",
+    (s, r) => saveAD(s, { ...r, tasks: [r.tasks[0], r.tasks[0]] }),
+  ],
+  [
+    "Actions with compliance history cannot be removed.",
+    (s, r) => {
+      complyAD(s, r)();
+      const replacement = { ...blankADTask(), description: "Replacement" };
+      return saveAD(s, { ...stored(s, r), tasks: [replacement] });
+    },
+  ],
+  [
+    "Select an appropriate work order for this aircraft.",
+    (s, r) =>
+      saveAD(s, { ...r, tasks: [{ ...r.tasks[0], workOrderUuid: "missing" }] }),
+  ],
+  [
+    "One-time actions cannot have repeating intervals.",
+    (s, r) =>
+      saveAD(s, { ...r, tasks: [{ ...r.tasks[0], recurrence: "One-time" }] }),
+  ],
+  [
+    "This AD already exists for the selected asset.",
+    (s, r) => {
+      const twin = newAD(s);
+      twin.source.number = r.source.number;
+      return saveAD(s, twin);
+    },
+  ],
+  [
+    "Select a component belonging to this aircraft.",
+    (s) => saveAD(s, { ...newAD(s, "Engine"), componentUuid: "missing" }),
+  ],
+  [
+    "Select the specific component for this AD.",
+    (s) => saveAD(s, newAD(s, "Engine")),
+  ],
+  [
+    "Review applicability before recording compliance.",
+    (s) => {
+      const fresh = newAD(s);
+      saveAD(s, fresh)();
+      return () =>
+        applyADCommand(s, {
+          kind: "comply",
+          uuid: fresh.uuid,
+          version: 1,
+          entry: entry(crypto.randomUUID()),
+        });
+    },
+  ],
+  [
+    "Required action not found.",
+    (s, r) => () =>
+      applyADCommand(s, {
+        kind: "comply",
+        uuid: r.uuid,
+        version: r.version,
+        entry: entry(crypto.randomUUID()),
+      }),
+  ],
+  [
+    "Compliance entry already recorded.",
+    (s, r) => {
+      const first = entry(r.tasks[0].uuid);
+      complyAD(s, r, first)();
+      return complyAD(s, r, first);
+    },
+  ],
+  [
+    "Completion date cannot be in the future.",
+    (s, r) => complyAD(s, r, { date: "2999-01-01" }),
+  ],
+  [
+    "Completion date precedes the last compliance entry.",
+    (s, r) => {
+      complyAD(s, r)();
+      return complyAD(s, r, { date: "2025-12-01" });
+    },
+  ],
+  [
+    "Completion counters precede the last compliance entry.",
+    (s, r) => {
+      complyAD(s, r)();
+      return complyAD(s, r, { date: "2026-01-02", hours: 2300 });
+    },
+  ],
+  [
+    "Record the counter needed to calculate the next due.",
+    (s, r) => complyAD(s, r, { hours: null }),
+  ],
+  [
+    "Completion landings must be between last compliance and the aircraft total.",
+    (s, r) => complyAD(s, r, { landings: 10_000_000 }),
+  ],
+  [
+    "Completion hours and cycles cannot exceed the current totals.",
+    (s, r) => complyAD(s, r, { cycles: 1895 }),
+  ],
+  [
+    "Completion date is after the next compliance entry.",
+    (s, r) => correctAD(s, r, withTwoEntries(s, r), { date: "2026-01-06" }),
+  ],
+  [
+    "Completion counters are after the next compliance entry.",
+    (s, r) => correctAD(s, r, withTwoEntries(s, r), { hours: 2341.1 }),
+  ],
+];
+
+it.each(refusals)("refuses with %j and changes nothing", (message, refuse) => {
+  const { s, r } = setup();
+  const act = refuse(s, r);
+  const before = structuredClone(s.airworthiness);
+  expect(act).toThrow(new Error(message));
+  expect(act).toThrow(Rejection);
+  expect(s.airworthiness).toEqual(before);
+});
+
+it("shows an action due soon within 30 days, hours or cycles of its limit", () => {
+  const { s, r } = setup();
+  const { hours, cycles } = adCounters(s, r)!;
+  const task = (patch: Partial<ADTask>) => ({ ...r.tasks[0], ...patch });
+  const today = "2026-06-01";
+  expect(adTaskStatus(s, r, task({ dueHours: hours + 30 }), today)).toBe(
+    "Due soon",
+  );
+  expect(adTaskStatus(s, r, task({ dueHours: hours + 30.1 }), today)).toBe(
+    "Scheduled",
+  );
+  const counted = task({ dueHours: null, dueCycles: cycles + 30 });
+  expect(adTaskStatus(s, r, counted, today)).toBe("Due soon");
+  expect(
+    adTaskStatus(s, r, { ...counted, dueCycles: cycles + 31 }, today),
+  ).toBe("Scheduled");
+  const dated = task({ dueHours: null, dueDate: "2026-07-01" });
+  expect(adTaskStatus(s, r, dated, today)).toBe("Due soon");
+  expect(adTaskStatus(s, r, { ...dated, dueDate: "2026-07-02" }, today)).toBe(
+    "Scheduled",
+  );
+});
+
+it("leaves the counter unavailable when component totals cannot be read", () => {
+  const { s } = setup();
+  const a = s.aircraft[0];
+  s.management = [
+    componentSchema.parse({
+      kind: "component",
+      uuid: "engine-1",
+      version: 0,
+      aircraftUuid: a.uuid,
+      componentType: "Engine",
+      manufacturer: "",
+      model: "",
+      partNumber: "PN",
+      serial: "SN",
+      notes: "",
+      installed: true,
+      trackTime: true,
+      trackCycles: true,
+      trackCalendar: false,
+      installedSeconds: a.currentHobbs + 3600,
+      installedCycles: a.cycles,
+      timeSinceNew: 0,
+      timeSinceOverhaul: null,
+      timeSinceRepair: null,
+      cyclesSinceNew: 0,
+      serviceDaysBase: 0,
+    }),
+  ];
+  const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
+  expect(adCounters(s, r)).toBeNull();
+  expect(adCounters(s, { ...r, componentUuid: "" })).toEqual({
+    hours: 2341.2,
+    cycles: 1894,
+    landings: a.landings,
+  });
+});
+
+it("reports not applicable and superseded ADs by their applicability", () => {
+  const { s, r } = setup();
+  expect(CLOSED_APPLICABILITY).toEqual(["Not applicable", "Superseded"]);
+  for (const applicability of CLOSED_APPLICABILITY)
+    expect(adStatus(s, { ...r, applicability })).toBe(applicability);
 });
