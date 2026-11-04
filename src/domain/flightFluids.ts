@@ -16,6 +16,9 @@ const HOUR_SECONDS = 3600;
 // Floating-point slack, so readings that balance in decimal are neither
 // refused nor reported as negative use.
 const BALANCE_TOLERANCE = 0.000001;
+// Both oil checks say this: a third reading always repeats an engine or
+// joins "single" to another, and zod checks the cap first.
+const ENGINE_LAYOUT = "Use a single engine or separate left/right engines.";
 
 const quantity = z.number().finite().nonnegative().max(READING_MAX);
 const readings = {
@@ -94,17 +97,17 @@ export const oilReadingSchema = oilReadingFields.superRefine((reading, ctx) => {
  * The oil readings of a flight: none, one for a single engine, or one each
  * for the left and right engines.
  *
- * @throws {z.ZodError} From `parse()` on more than two readings, or "Use a
- *   single engine or separate left/right engines."
+ * @throws {z.ZodError} From `parse()`: "Use a single engine or separate
+ *   left/right engines." for more than two readings or a repeated engine.
  */
 export const oilSchema = z
   .array(oilReadingSchema)
-  .max(2)
+  .max(2, ENGINE_LAYOUT)
   .refine(
     (oil) =>
       new Set(oil.map((o) => o.engine)).size === oil.length &&
       !(oil.length > 1 && oil.some((o) => o.engine === "single")),
-    "Use a single engine or separate left/right engines.",
+    ENGINE_LAYOUT,
   );
 
 /** A fuel reading as stored on a flight. */
