@@ -19,7 +19,7 @@ import type { Doc } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import { admin, audit } from "./access";
 import { checkContext } from "./programContext";
-import { sealSecret, type SecretContext } from "./secrets";
+import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
 import { consume, DAY } from "./rateLimits";
 import { exposeRejections } from "./userErrors";
@@ -49,6 +49,11 @@ const keySchema = z
   .min(16)
   .max(256)
   .regex(/^[A-Za-z0-9_-]+$/);
+
+// keySchema caps the key at 256 ASCII characters, at most 405 sealed under the
+// longest key id.
+const MAX_SEALED_KEY_LENGTH = 405;
+const sealedKey = z.string().max(MAX_SEALED_KEY_LENGTH).regex(SEALED_V2);
 
 const GEOAPIFY_SECRET: SecretContext = {
   table: "addressVerificationSettings",
@@ -165,6 +170,8 @@ export const lookup = action({
  * @param version - The settings version the administrator last read.
  * @throws {ConvexError} "Administrator permission required."; "Address
  *   settings changed. Reload before saving." when `version` is stale.
+ * @throws {z.ZodError} After the version check, for a key that is not sealed
+ *   (v2) or too long.
  */
 export const commit = internalMutation({
   args: { key: v.string(), version: v.number() },
@@ -173,11 +180,12 @@ export const commit = internalMutation({
     const saved = await ctx.db.query("addressVerificationSettings").unique();
     if ((saved?.version ?? 0) !== args.version)
       throw new ConvexError("Address settings changed. Reload before saving.");
+    const key = sealedKey.parse(args.key);
     const version = args.version + 1;
-    if (saved) await ctx.db.patch(saved._id, { key: args.key, version });
+    if (saved) await ctx.db.patch(saved._id, { key, version });
     else
       await ctx.db.insert("addressVerificationSettings", {
-        key: args.key,
+        key,
         version,
         day: "",
         used: 0,

@@ -126,7 +126,7 @@ it("paces lookups per user so one user cannot block the others", async () => {
     return [await make(), await make()];
   });
   await t.withIdentity(first).mutation(internal.addressVerification.commit, {
-    key: "test-key-that-is-long-enough",
+    key: SEALED_KEY,
     version: 0,
   });
   // Anchor the fake clock after the setup commits: convex-test never lets a
@@ -167,7 +167,7 @@ it("gives each user a daily lookup share under the global cap", async () => {
   });
   const admin = t.withIdentity(identity);
   await admin.mutation(internal.addressVerification.commit, {
-    key: "test-key-that-is-long-enough",
+    key: SEALED_KEY,
     version: 0,
   });
   const now = Date.now();
@@ -187,6 +187,8 @@ it("gives each user a daily lookup share under the global cap", async () => {
 
 const CREDENTIALS_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const KEY = "test-key-that-is-long-enough";
+// Shaped as commit requires; these tests never open it.
+const SEALED_KEY = "enc:v2:k1:AAAAAAAAAAAAAAAA:AAAA";
 const today = () => new Date().toISOString().slice(0, 10);
 const settings = (fields: { day?: string; used?: number } = {}) => ({
   key: KEY,
@@ -336,9 +338,10 @@ it("refuses a stale settings version and audits a saved key without it", async (
   const { t, user } = await fixture();
   const admin = await user();
   await admin.mutation(internal.addressVerification.commit, {
-    key: KEY,
+    key: SEALED_KEY,
     version: 0,
   });
+  // A stale version is refused before the key is checked.
   await expect(
     admin.mutation(internal.addressVerification.commit, {
       key: KEY,

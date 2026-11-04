@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins credential sealing: the v2 format and its binding to
- *   table, program and field, the refusal of plaintext and v1 values, key
- *   rotation and the re-seal after it, and configuration errors.
+ *   table, program and field, the refusal of plaintext and v1 values (stored,
+ *   or offered to a commit step), key rotation and the re-seal after it, and
+ *   configuration errors.
  * Layer: Test. Vitest and convex-test suite; never shipped in the build.
  * Dependencies: convex/secrets.ts, convex/schema.ts, convex/_generated,
  *   src/data/demo.ts (fixture).
@@ -10,6 +11,7 @@ import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import {
   activeKeyId,
@@ -267,6 +269,68 @@ it("re-seals every credential under the new key after a rotation, then refuses p
   ).rejects.toThrow(/not encrypted/);
   expect(fetcher).not.toHaveBeenCalled();
 });
+
+it("saves only sealed FAA and Geoapify keys, never echoing a refused one", async () => {
+  // The longest key id, so the longest keys seal to the longest values.
+  const longestId = "k".repeat(16);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `${longestId}=${K2}`);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", longestId);
+  const t = convexTest(schema, modules);
+  const admin = t.withIdentity(await t.run(addAdmin));
+  const address = { ...faa, table: "addressVerificationSettings" as const };
+  const keys = {
+    faa: {
+      longest: await sealSecret("k".repeat(512), faa),
+      commit: (key: string) =>
+        admin.mutation(internal.faaCredentials.commit, {
+          key,
+          expiresOn: "2099-10-14",
+          version: 0,
+        }),
+      stored: () => t.run((ctx) => ctx.db.query("faaCredentials").unique()),
+    },
+    address: {
+      longest: await sealSecret("k".repeat(256), address),
+      commit: (key: string) =>
+        admin.mutation(internal.addressVerification.commit, {
+          key,
+          version: 0,
+        }),
+      stored: () =>
+        t.run((ctx) => ctx.db.query("addressVerificationSettings").unique()),
+    },
+  };
+  expect(keys.faa.longest).toHaveLength(745);
+  expect(keys.address.longest).toHaveLength(405);
+  for (const { longest, commit, stored } of Object.values(keys)) {
+    const tooLong = `enc:v2:k1:${"A".repeat(16)}:${"A".repeat(longest.length - 26)}`;
+    expect(tooLong).toMatch(SEALED_V2);
+    for (const refused of ["plaintext-key-0001", tooLong]) {
+      const error = await commit(refused).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(String(error)).not.toContain("plaintext-key");
+      expect(await stored()).toBeNull();
+    }
+    await commit(longest);
+    expect(await stored()).toMatchObject({ key: longest, version: 1 });
+  }
+});
+
+async function addAdmin(ctx: MutationCtx) {
+  const userId = await ctx.db.insert("users", {
+    active: true,
+    isAdmin: true,
+    groupIds: [],
+  });
+  const session = await ctx.db.insert("authSessions", {
+    userId,
+    expirationTime: Date.now() + 86400000,
+  });
+  return { subject: `${userId}|${session}` };
+}
 
 it("stops the re-seal at a plaintext or v1 value, keeping what it replaced", async () => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
