@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins logbook CSV parsing, import planning (matching,
+ *   validation, duplicates) and submission order.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/flightLogImport.ts, ./model, ./rejection,
+ *   src/data/demo.ts (seed), tests/fixtures logbook CSVs.
+ */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -7,6 +14,7 @@ import {
   planLogbookImport,
   sequenceImport,
 } from "./flightLogImport";
+import { Rejection } from "./rejection";
 const fixture = (name: string) =>
   readFileSync(`tests/fixtures/${name}`, "utf8");
 const h = (hours: number) => Math.round(hours * 3600);
@@ -86,6 +94,15 @@ describe("logbook parsing", () => {
     expect(() => parseLogbook("Name,Value\nA,1")).toThrow(
       /ForeFlight or Garmin Pilot/,
     );
+    expect(() => parseLogbook("Name,Value\nA,1")).toThrow(Rejection);
+  });
+  it("accepts at most 20,000 flights", () => {
+    const file = (records: number) =>
+      "Date,Aircraft ID\n" + "2026-09-14,N206MA\n".repeat(records);
+    expect(parseLogbook(file(20_000)).rows).toHaveLength(20_000);
+    expect(() => parseLogbook(file(20_001))).toThrow(
+      "Use at most 20,000 records per CSV file.",
+    );
   });
 });
 
@@ -135,6 +152,22 @@ describe("logbook import planning", () => {
     ]);
     expect(pending.rows[0].duplicate).toBe(true);
   });
+  it("matches registrations loosely and duplicates within a tenth of an hour", () => {
+    const s = demoSnapshot();
+    const [row] = parseLogbook(fixture("garmin-pilot-logbook.csv")).rows;
+    const later = (seconds: number) => ({
+      ...row,
+      row: 9,
+      registration: "n-206ma",
+      totalSeconds: row.totalSeconds! + seconds,
+    });
+    const plan = (seconds: number) =>
+      planLogbookImport(s, [row, later(seconds)], options).rows.map(
+        (r) => r.duplicate,
+      );
+    expect(plan(360)).toEqual([false, true]);
+    expect(plan(361)).toEqual([false, false]);
+  });
   it("requires engine cycles for turbine aircraft", () => {
     const s = demoSnapshot();
     const turbine = {
@@ -173,5 +206,7 @@ describe("logbook import planning", () => {
     expect(stale.map((e) => e.baseVersion)).toEqual([0, 0, 1]);
     expect(stale[0].reviewReason).toMatch(/Hobbs reading is lower/);
     expect(stale[2].reviewReason).toBeUndefined();
+    const refused = { ...plan.rows[0], error: "Refused." };
+    expect(sequenceImport(s, [refused, plan.rows[1]])).toHaveLength(1);
   });
 });
