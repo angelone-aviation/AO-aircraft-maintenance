@@ -2,7 +2,7 @@
 
 Brings the whole codebase up to [CONSTRAINTS.md](CONSTRAINTS.md) in small, safe, dependency-ordered batches. Read [CONTEXT.md](CONTEXT.md) and [CLAUDE.md](CLAUDE.md) first. The audit behind this plan (2026-11-03) is in [docs/architecture/metrics-2026-11-03.md](docs/architecture/metrics-2026-11-03.md) (size, churn, dependency graph, function metrics, duplication) and [docs/architecture/tier2-candidates.md](docs/architecture/tier2-candidates.md) (the deep-module review).
 
-**Progress:** 97 of 416 batches done. Tier 1: 251 · Tier 2: 80 · Tier 3: 85. Batches 410–416 (T21 and the server half of T10) are numbered after Tier 3, so batches 1–409 keep their numbers.
+**Progress:** 191 of 421 batches done. Tier 1: 251 · Tier 2: 85 · Tier 3: 85. Batches 410–421 (T21, and follow-ups to T10, T20 and T8) are numbered after Tier 3, so batches 1–409 keep their numbers.
 
 ## How to run a batch
 
@@ -80,14 +80,43 @@ Raised by the audit; not batches. Update as batches find more.
 21. **Duplicated values:** the $1 billion price cap in four files; the tenth-of-an-hour rule in `flightChecklistSchema.ts` and `model.ts` with different messages (T7); on-order arithmetic in `programs.ts` and `purchaseOrders.ts`; the default "Performed" phrase in `LogbookWording.tsx`.
 22. **Dead or legacy code:** `assertPassword` has no caller; `resolveExplicitEvents` in `flights.ts` handles counter events from before the fresh start (T21); unused CSS (`.ad-register-toolbar`, `.po-history`, `.flight-fluid-fields p`) and orphaned comments in `src/styles.css`.
 23. **Test gaps** where docs now promise behaviour no test pins: `model.ts` (date limits, offline window, `can`), `flights.ts` (`version + 1`, chronology boundaries), `rateLimits.consume`, `sampleDocuments.upload` clean-up, `secretsMigration` partial re-seal, and `dropboxUpload.test.ts` (retries, upload-session resume, refusals).
-24. **Screens showed Convex's wrapper text** (`[CONVEX M(…)] … Server Error`) instead of the message. Batch 324 fixed 39 screens with one `errorText` helper. Still to adopt it: `Components.tsx:465` and `Management.tsx:1119` (UI lanes), and the Sync center, whose text comes from `src/data/store.ts:317` (move `errorText` into `src/data` so both share it).
-25. **Bug: an unusual file type crashed the file checks** (`"constructor"` looked up in a plain object), showing "Server Error". Fix in progress (domain-a).
+24. **Screens showed Convex's wrapper text** (`[CONVEX M(…)] … Server Error`) instead of the message. Batch 324 fixed 39 screens with one `errorText` helper. Still to adopt it: `Components.tsx:465` and `Management.tsx:1119` (UI lanes), The Sync center is fixed by Batch 418.
+25. **Bug: an unusual file type crashed the file checks** (`"constructor"` looked up in a plain object), showing "Server Error". Fixed in `2f8e917` (the MIME tables are `Map`s).
 26. **Escape never closes a dialog from the aircraft make or model field** (`DrsComboBox` swallows it even when its list is closed). Confirmed on the old code.
 27. **History paging can return a cursor taken from a row the caller cannot see** (`convex/auditHistory.ts`): only a timestamp, but it contradicts the S12 rule. Decide: fix, or relax S12. Pinned by a test.
 28. **Unconfirmed drift:** copying a flight plan whose source is on another aircraft is likely refused by the server and accepted by the demo. Needs a convex-test.
 29. **Logic in the wrong layer:** `KeepOnDevice.tsx` holds a store and the download logic (belongs in `src/data`); photo resize rules (1024 px, quality 0.85) sit in `AircraftPhoto.tsx` (belong in `src/domain/aircraftPhotos.ts`).
 30. **Messages say MB where the limit is MiB:** manuals 200, attachments 7, licence copies 5, flight-plan PDFs 10, template batches 2 (see also 20).
 31. **More duplicates:** `strokeWidthFor` in three icon components, a class-name join helper in four files, three near-identical icon select components, `addDays` in four domain modules, the same enums in `inspectionTemplates`, `maintenanceCsv` and `components`.
+32. **Still "Server Error" after Batch 417:** `convex/fleet.ts` `assertAvailableAircraft` ("Aircraft belongs to another Flight Program.", "This registration cannot be used.") reaches `admin.createAircraft` as a plain `Error`: convert in Batch 161, after T9 b3. Batch 416 wraps `validateAircraftPhoto`, `fetchAddressSuggestions` and the Spruce parsers, which show once their domain modules throw `Rejection`.
+33. **Owner decision: PO uploads write no change-log row** (`convex/poFiles.ts` `finish`), nor do the copies it files on received items. Inventory and aircraft uploads are audited, and so are PO file removals.
+34. **Owner decision: a blank close-out wording prints as an empty line** in the logbook entry, not the placeholder (`""` is not nullish). Changing it changes signed text. Pinned in `src/domain/logbook.test.ts`.
+35. **Wording:** the FAA key notice says "(1 days remaining)"; more than two oil readings show zod's "Too big: expected array to have <=2 items"; the domain says "Template belongs to another program." where the server says "…another Flight Program." (see also 20).
+36. **Bug: validation errors show zod's JSON** ("Look up address" with a blank street; `logbookPhrasesSchema` in LogbookWording; `licenseSchema` in LogbookEntry). `errorText` passes a ZodError's message through. Batch 419.
+37. **Possible crash:** `flightLogImport` `loggedFlights` assumes every logged flight's aircraft is in the snapshot (`find(...)!`). Under review in domain-b.
+38. **Duplicates found in Batches 65–261:**
+    - the job-card reset in `convex/workOrderCopies.ts` and `src/domain/workOrderCards.ts`, which also choose templates differently (the server matches `workTaskUuid` too);
+    - the "AD no longer applies" list in `adRemaining`, `forecast` and `airworthiness`;
+    - each meter's start and end readings in `forecast`, `costs`, `flightLogImport` and `FlightFluids.tsx`;
+    - the 400-document limit in `faaSearch`, `faaMonitoringSearch` and `faa` (see 21);
+    - "Job cards are still being prepared…" in `convex/workOrders.ts` and `convex/workOrderCopies.ts`;
+    - the "Certificate / license:" line and the "Performed" default copied into `LogbookEntry.tsx`;
+    - the 2 MB CSV limit in `TaskCsvImport.tsx` and `parseTaskCsv`, and a second BOM strip and byte check in `componentTemplates`;
+    - the PO and parts-request PDF text flow (T17 b2);
+    - the demo's `":all"` snapshot suffix in three files;
+    - `runCommand`'s private `exposed()` beside `convex/userErrors.ts`;
+    - `deletePermissionGroup` repeating `groupDeletion.remove`'s "changed" check.
+39. **Kept long, for later batches:** `src/data/store.ts` (the store literal is 211 lines, `initialize` 58, `enqueue` 62, and `flushPass` nests 3 deep); `scripts/backup/recordsWorkbook.ts` (Batch 420); `scripts/backup/exportFixture.ts` (Batch 421).
+40. **Smaller notes:**
+    - `local.readFavorites` and `saveFavorites` are general string-list settings that `alerts.ts` also uses;
+    - `importADDocx` would list a nested table's rows twice;
+    - the "correction would change lifetime tracking" refusal can't be reached with today's fixtures;
+    - `InventoryAttachments.tsx` has an old `set-state-in-effect` lint warning;
+    - `.github/workflows/first-time-setup.yml` has no batch (it already passes the header check);
+    - `validateComponent`'s TSDoc still says `@throws {Error}`.
+41. **Tooling (owner only):** `check-standards.mjs --changed-since` diffs against the ref's tip, so locally a branch that is behind main reports main's files. It should diff from the merge base. CI is unaffected.
+42. **Flaky only when lanes saturate the CPUs:** `convex/manuals.test.ts`, and the records-workbook command-line test (5 s timeout).
+43. **Over the ~50% size guide, from splitting long functions or documenting bare exports:** Batches 73, 80, 82 and 165; `faaSearch`, `poFiles`, `inventoryFiles`, `inventoryPrintDocument`, `local`, `poPdf` and `partsRequestPdf`.
 
 ## Tier 1: foundation and leaf modules
 
@@ -157,94 +186,94 @@ Dependency order: modules with no internal imports first, most-imported first. E
 - [x] Batch 62 (domain-a): `src/domain/workOrderComponentWork.ts`, `src/domain/workOrderComponentWork.test.ts`
 - [x] Batch 63 (domain-b): `src/domain/engineTrends.ts`, `src/domain/engineTrends.test.ts`
 - [x] Batch 64 (domain-a): `src/domain/manualDiscovery.ts`, `src/domain/manualDiscovery.test.ts`
-- [ ] Batch 65 (domain-b): `src/domain/ownerView.ts`, `src/domain/ownerView.test.ts`
-- [ ] Batch 66 (domain-a): `src/domain/componentInventory.ts`, `src/domain/componentInventory.test.ts`
-- [ ] Batch 67 (domain-b): `src/domain/flightFluids.ts`, `src/domain/flightFluids.test.ts`
-- [ ] Batch 68 (domain-a): `src/domain/workOrderCards.ts`, `src/domain/workOrderCards.test.ts`
-- [ ] Batch 69 (domain-b): `src/domain/componentTemplates.ts`, `src/domain/componentTemplates.test.ts`
+- [x] Batch 65 (domain-b): `src/domain/ownerView.ts`, `src/domain/ownerView.test.ts`
+- [x] Batch 66 (domain-a): `src/domain/componentInventory.ts`, `src/domain/componentInventory.test.ts`
+- [x] Batch 67 (domain-b): `src/domain/flightFluids.ts`, `src/domain/flightFluids.test.ts`
+- [x] Batch 68 (domain-a): `src/domain/workOrderCards.ts`, `src/domain/workOrderCards.test.ts`
+- [x] Batch 69 (domain-b): `src/domain/componentTemplates.ts`, `src/domain/componentTemplates.test.ts`
 - [x] Batch 70 (ui-a): `src/components/WorkOrderIcon.tsx`, `src/components/ShopList.tsx`, `src/components/OpsList.tsx`
-- [ ] Batch 71 (domain-a): `src/domain/faaCredential.ts`, `src/domain/faaCredential.test.ts`
+- [x] Batch 71 (domain-a): `src/domain/faaCredential.ts`, `src/domain/faaCredential.test.ts`
 - [x] Batch 72 (server): `convex/ssoProviders.ts`, `convex/spruceHttp.ts`, `convex/accountGuards.ts`
-- [ ] Batch 73 (domain-b): `src/domain/workOrderComponentCorrections.ts`, `src/domain/workOrderComponentCorrections.test.ts`
+- [x] Batch 73 (domain-b): `src/domain/workOrderComponentCorrections.ts`, `src/domain/workOrderComponentCorrections.test.ts`
 - [x] Batch 74 (platform): `src/data/flightPlanPdf.ts`, `src/data/flightPlanPdf.test.ts`
-- [ ] Batch 75 (domain-a): `src/domain/workOrderTaskRemoval.ts`, `src/domain/workOrderTaskRemoval.test.ts`
+- [x] Batch 75 (domain-a): `src/domain/workOrderTaskRemoval.ts`, `src/domain/workOrderTaskRemoval.test.ts`
 - [x] Batch 76 (ui-b): `src/components/PdfReader.tsx`
 - [x] Batch 77 (server): `convex/aircraftSpruceActions.ts`
 - [x] Batch 78 (platform): `src/data/demo.ts`
 - [x] Batch 79 (server): `convex/programContext.ts` (done with Batch 415)
-- [ ] Batch 80 (domain-b): `src/domain/auditHistory.ts`, `src/domain/auditHistory.test.ts`
-- [ ] Batch 81 (domain-a): `src/domain/logbook.ts`
-- [ ] Batch 82 (domain-b): `src/domain/activateTemplate.ts`, `src/domain/activateTemplate.test.ts`
-- [ ] Batch 83 (domain-a): `src/domain/groupAircraft.ts`, `src/domain/groupAircraft.test.ts`
+- [x] Batch 80 (domain-b): `src/domain/auditHistory.ts`, `src/domain/auditHistory.test.ts`
+- [x] Batch 81 (domain-a): `src/domain/logbook.ts`
+- [x] Batch 82 (domain-b): `src/domain/activateTemplate.ts`, `src/domain/activateTemplate.test.ts`
+- [x] Batch 83 (domain-a): `src/domain/groupAircraft.ts`, `src/domain/groupAircraft.test.ts`
 - [x] Batch 84 (platform): `src/data/deviceManuals.ts`, `src/data/deviceManuals.test.ts`
-- [ ] Batch 85 (domain-b): `src/domain/faaSearch.ts`, `src/domain/faaSearch.test.ts`
-- [ ] Batch 86 (domain-a): `src/domain/deleteInspectionTemplates.ts`, `src/domain/deleteInspectionTemplates.test.ts`
-- [ ] Batch 87 (domain-b): `src/domain/inventoryPrinting.ts`, `src/domain/inventoryPrinting.test.ts`
-- [ ] Batch 88 (domain-a): `src/domain/partsPlanning.ts`
-- [ ] Batch 89 (domain-b): `src/domain/pilotView.ts`, `src/domain/pilotView.test.ts`
-- [ ] Batch 90 (domain-a): `src/domain/programTransfers.ts`, `src/domain/programTransfers.test.ts`
-- [ ] Batch 91 (domain-b): `src/domain/adRemaining.ts`, `src/domain/adRemaining.test.ts`
-- [ ] Batch 92 (domain-a): `src/domain/adOwnership.ts`, `src/domain/adCompliance.ts`, `src/domain/flightChecklistLink.ts`
-- [ ] Batch 93 (domain-b): `src/domain/forecast.ts`, `src/domain/forecast.test.ts`
-- [ ] Batch 94 (domain-a): `src/domain/taskCsv.ts`, `src/domain/taskCsv.test.ts`
-- [ ] Batch 95 (domain-b): `src/domain/oilInventory.ts`, `src/domain/oilInventory.test.ts`
-- [ ] Batch 96 (domain-a): `src/domain/recurringParts.ts`, `src/domain/recurringParts.test.ts`
-- [ ] Batch 97 (domain-b): `src/domain/vendors.ts`, `src/domain/vendors.test.ts`
+- [x] Batch 85 (domain-b): `src/domain/faaSearch.ts`, `src/domain/faaSearch.test.ts`
+- [x] Batch 86 (domain-a): `src/domain/deleteInspectionTemplates.ts`, `src/domain/deleteInspectionTemplates.test.ts`
+- [x] Batch 87 (domain-b): `src/domain/inventoryPrinting.ts`, `src/domain/inventoryPrinting.test.ts`
+- [x] Batch 88 (domain-a): `src/domain/partsPlanning.ts`
+- [x] Batch 89 (domain-b): `src/domain/pilotView.ts`, `src/domain/pilotView.test.ts`
+- [x] Batch 90 (domain-a): `src/domain/programTransfers.ts`, `src/domain/programTransfers.test.ts`
+- [x] Batch 91 (domain-b): `src/domain/adRemaining.ts`, `src/domain/adRemaining.test.ts`
+- [x] Batch 92 (domain-a): `src/domain/adOwnership.ts`, `src/domain/adCompliance.ts`, `src/domain/flightChecklistLink.ts`
+- [x] Batch 93 (domain-b): `src/domain/forecast.ts`, `src/domain/forecast.test.ts`
+- [x] Batch 94 (domain-a): `src/domain/taskCsv.ts`, `src/domain/taskCsv.test.ts`
+- [x] Batch 95 (domain-b): `src/domain/oilInventory.ts`, `src/domain/oilInventory.test.ts`
+- [x] Batch 96 (domain-a): `src/domain/recurringParts.ts`, `src/domain/recurringParts.test.ts`
+- [x] Batch 97 (domain-b): `src/domain/vendors.ts`, `src/domain/vendors.test.ts`
 - [x] Batch 98 (platform): `src/data/adReport.ts`, `src/data/adReport.test.ts`
-- [ ] Batch 99 (platform): `src/data/pdfRuntime.ts`, `src/data/pdfOffline.ts`, `src/data/fmd.ts`
-- [ ] Batch 100 (domain-a): `src/domain/workOrderCleanup.ts`, `src/domain/workOrderCleanup.test.ts`
+- [x] Batch 99 (platform): `src/data/pdfRuntime.ts`, `src/data/pdfOffline.ts`, `src/data/fmd.ts`
+- [x] Batch 100 (domain-a): `src/domain/workOrderCleanup.ts`, `src/domain/workOrderCleanup.test.ts`
 - [x] Batch 101 (ui-a): `src/components/PreflightMaintenance.tsx`, `src/components/PreflightMaintenance.test.ts`
-- [ ] Batch 102 (platform): `src/data/manualPdf.ts`, `src/data/adImport.ts`, `src/data/partsRequestPdf.ts`
-- [ ] Batch 103 (domain-b): `src/domain/flightLogImport.ts`, `src/domain/flightLogImport.test.ts`
-- [ ] Batch 104 (domain-a): `src/domain/flightSession.ts`, `src/domain/flightSession.test.ts`
-- [ ] Batch 105 (domain-b): `src/domain/defaultPermissionGroups.ts`, `src/domain/groupDeletion.ts`, `src/domain/guidedFlight.ts`
+- [x] Batch 102 (platform): `src/data/manualPdf.ts`, `src/data/adImport.ts`, `src/data/partsRequestPdf.ts`
+- [x] Batch 103 (domain-b): `src/domain/flightLogImport.ts`, `src/domain/flightLogImport.test.ts`
+- [x] Batch 104 (domain-a): `src/domain/flightSession.ts`, `src/domain/flightSession.test.ts`
+- [x] Batch 105 (domain-b): `src/domain/defaultPermissionGroups.ts`, `src/domain/groupDeletion.ts`, `src/domain/guidedFlight.ts`
 - [ ] Batch 106 (domain-a): `src/domain/inventoryScan.ts`, `src/domain/inventoryScan.test.ts`
-- [ ] Batch 107 (domain-b): `src/domain/signTaskCard.ts`, `src/domain/signTaskCard.test.ts`
+- [x] Batch 107 (domain-b): `src/domain/signTaskCard.ts`, `src/domain/signTaskCard.test.ts`
 - [ ] Batch 108 (domain-a): `src/domain/taskCardValidation.ts`, `src/domain/taskCardValidation.test.ts`
-- [ ] Batch 109 (domain-b): `src/domain/taskCardZone.ts`, `src/domain/taskCardZone.test.ts`
-- [ ] Batch 110 (platform): `src/data/local.ts`, `src/data/local.test.ts`
+- [x] Batch 109 (domain-b): `src/domain/taskCardZone.ts`, `src/domain/taskCardZone.test.ts`
+- [x] Batch 110 (platform): `src/data/local.ts`, `src/data/local.test.ts`
 - [ ] Batch 111 (domain-a): `src/domain/groupAccessReview.ts`, `src/domain/groupAccessReview.test.ts`
 - [x] Batch 112 (server): `convex/faaCredentials.ts`, `convex/faaCredentials.test.ts`
-- [ ] Batch 113 (domain-b): `src/domain/faaCandidateReview.ts`, `src/domain/faaCandidateReview.test.ts`
+- [x] Batch 113 (domain-b): `src/domain/faaCandidateReview.ts`, `src/domain/faaCandidateReview.test.ts`
 - [ ] Batch 114 (domain-a): `src/domain/faaMonitoringSearch.ts`, `src/domain/faaMonitoringSearch.test.ts`
 - [x] Batch 115 (domain-b): `src/domain/flightSubmission.ts`, `src/domain/flightSubmission.test.ts` (done with Batch 252)
 - [x] Batch 116 (server): `convex/identities.ts`
 - [x] Batch 117 (server): `convex/recurringParts.ts`, `convex/recurringParts.test.ts`
-- [ ] Batch 118 (platform): `src/data/demoAircraftFiles.ts`, `src/data/poPdf.ts`, `src/data/inventoryPrintDocument.ts`
+- [x] Batch 118 (platform): `src/data/demoAircraftFiles.ts`, `src/data/poPdf.ts`, `src/data/inventoryPrintDocument.ts`
 - [x] Batch 119 (server): `convex/aircraftFiles.ts`, `convex/aircraftFiles.test.ts`
 - [x] Batch 120 (server): `convex/aircraftSpruce.ts`, `convex/aircraftSpruce.test.ts`
 - [x] Batch 121 (server): `convex/manuals.ts`, `convex/manuals.test.ts`
-- [ ] Batch 122 (platform): `src/data/aircraftStatusReport.ts`
+- [x] Batch 122 (platform): `src/data/aircraftStatusReport.ts`
 - [x] Batch 123 (server): `convex/addressVerification.ts`, `convex/addressVerification.test.ts`
 - [x] Batch 124 (server): `convex/aircraftPhotos.ts`, `convex/aircraftPhotos.test.ts`
-- [ ] Batch 125 (server): `convex/audit.ts`, `convex/audit.test.ts`
-- [ ] Batch 126 (server): `convex/auditHistory.ts`, `convex/auditHistory.test.ts`
-- [ ] Batch 127 (server): `convex/backups.ts`, `convex/backups.test.ts`
-- [ ] Batch 128 (server): `convex/certifications.ts`, `convex/certifications.test.ts`
-- [ ] Batch 129 (server): `convex/counterEvents.ts`, `convex/counterEvents.test.ts`
-- [ ] Batch 130 (server): `convex/groupDeletion.ts`, `convex/groupDeletion.test.ts`
-- [ ] Batch 131 (server): `convex/inventoryFiles.ts`, `convex/inventoryFiles.test.ts`
-- [ ] Batch 132 (server): `convex/programUsers.ts`, `convex/programUsers.test.ts`
-- [ ] Batch 133 (server): `convex/savedAddresses.ts`, `convex/savedAddresses.test.ts`
-- [ ] Batch 134 (server): `convex/workOrderCleanup.ts`, `convex/workOrderCleanup.test.ts`
-- [ ] Batch 135 (platform): `src/data/store.ts`, `src/data/store.test.ts`
+- [x] Batch 125 (server): `convex/audit.ts`, `convex/audit.test.ts`
+- [x] Batch 126 (server): `convex/auditHistory.ts`, `convex/auditHistory.test.ts`
+- [x] Batch 127 (server): `convex/backups.ts`, `convex/backups.test.ts`
+- [x] Batch 128 (server): `convex/certifications.ts`, `convex/certifications.test.ts`
+- [x] Batch 129 (server): `convex/counterEvents.ts`, `convex/counterEvents.test.ts`
+- [x] Batch 130 (server): `convex/groupDeletion.ts`, `convex/groupDeletion.test.ts`
+- [x] Batch 131 (server): `convex/inventoryFiles.ts`, `convex/inventoryFiles.test.ts`
+- [x] Batch 132 (server): `convex/programUsers.ts`, `convex/programUsers.test.ts`
+- [x] Batch 133 (server): `convex/savedAddresses.ts`, `convex/savedAddresses.test.ts`
+- [x] Batch 134 (server): `convex/workOrderCleanup.ts`, `convex/workOrderCleanup.test.ts`
+- [x] Batch 135 (platform): `src/data/store.ts`, `src/data/store.test.ts`
 - [ ] Batch 136 (domain-a): `src/domain/alerts.ts`, `src/domain/alerts.test.ts`
-- [ ] Batch 137 (server): `convex/defaultGroups.ts`, `convex/defaultGroups.test.ts`
-- [ ] Batch 138 (server): `convex/access.ts`, `convex/poFiles.ts`, `convex/auth.ts`
-- [ ] Batch 139 (server): `convex/faaSearch.ts`, `convex/faaSearch.test.ts`
-- [ ] Batch 140 (server): `convex/management.ts`, `convex/management.test.ts`
-- [ ] Batch 141 (server): `convex/workOrderCopies.ts`, `convex/workOrderCopies.test.ts`
+- [x] Batch 137 (server): `convex/defaultGroups.ts`, `convex/defaultGroups.test.ts`
+- [x] Batch 138 (server): `convex/access.ts`, `convex/poFiles.ts`, `convex/auth.ts`
+- [x] Batch 139 (server): `convex/faaSearch.ts`, `convex/faaSearch.test.ts`
+- [x] Batch 140 (server): `convex/management.ts`, `convex/management.test.ts`
+- [x] Batch 141 (server): `convex/workOrderCopies.ts`, `convex/workOrderCopies.test.ts`
 - [ ] Batch 142 (server): `convex/airworthiness.ts`, `convex/airworthiness.test.ts`
-- [ ] Batch 143 (server): `convex/checklists.ts`, `convex/checklists.test.ts`
-- [ ] Batch 144 (server): `convex/componentTemplates.ts`, `convex/componentTemplates.test.ts`
+- [x] Batch 143 (server): `convex/checklists.ts`, `convex/checklists.test.ts`
+- [x] Batch 144 (server): `convex/componentTemplates.ts`, `convex/componentTemplates.test.ts`
 - [ ] Batch 145 (server): `convex/costs.ts`, `convex/costs.test.ts`
-- [ ] Batch 146 (server): `convex/engineTrends.ts`, `convex/engineTrends.test.ts`
-- [ ] Batch 147 (server): `convex/groupAudit.ts`, `convex/groupAudit.test.ts`
-- [ ] Batch 148 (server): `convex/inspectionTemplates.ts`, `convex/inspectionTemplates.test.ts`
+- [x] Batch 146 (server): `convex/engineTrends.ts`, `convex/engineTrends.test.ts`
+- [x] Batch 147 (server): `convex/groupAudit.ts`, `convex/groupAudit.test.ts`
+- [x] Batch 148 (server): `convex/inspectionTemplates.ts`, `convex/inspectionTemplates.test.ts`
 - [ ] Batch 149 (server): `convex/partsRequests.ts`, `convex/partsRequests.test.ts`
 - [ ] Batch 150 (server): `convex/programs.ts`, `convex/programs.test.ts`
 - [ ] Batch 151 (server): `convex/taskCards.ts`, `convex/taskCards.test.ts`
-- [ ] Batch 152 (server): `convex/taskImports.ts`, `convex/taskImports.test.ts`
+- [x] Batch 152 (server): `convex/taskImports.ts`, `convex/taskImports.test.ts`
 - [x] Batch 153 (ui-b): `src/components/ui.tsx`
 - [x] Batch 154 (ui-a): `src/components/DrsComboBox.tsx`
 - [x] Batch 155 (ui-b): `src/components/AircraftFiles.tsx`
@@ -252,26 +281,26 @@ Dependency order: modules with no internal imports first, most-imported first. E
 - [x] Batch 157 (ui-b): `src/components/KeepOnDevice.tsx`
 - [ ] Batch 158 (server): `convex/faa.ts`
 - [x] Batch 159 (ui-a): `src/components/OilInventoryFields.tsx`
-- [ ] Batch 160 (platform): `src/data/demoBackup.ts`, `src/data/auditHistory.ts`, `src/data/alerts.ts`
+- [x] Batch 160 (platform): `src/data/demoBackup.ts`, `src/data/auditHistory.ts`, `src/data/alerts.ts`
 - [ ] Batch 161 (server): `convex/flightPlans.ts`, `convex/fleet.ts`, `convex/http.ts`
 - [ ] Batch 162 (server): `convex/purchaseOrders.ts`, `convex/purchaseOrders.test.ts`
 - [ ] Batch 163 (server): `convex/workOrders.ts`, `convex/workOrders.test.ts`
 - [x] Batch 164 (ui-b): `src/components/AircraftPhoto.tsx`, `src/components/DemoBackup.tsx`, `src/components/ManagementShared.tsx`
-- [ ] Batch 165 (ui-a): `src/components/AddressFields.tsx`
-- [ ] Batch 166 (ui-b): `src/components/SignInMethods.tsx`, `src/components/SignInMethods.test.ts`
-- [ ] Batch 167 (ui-a): `src/components/TaskCsvImport.tsx`
-- [ ] Batch 168 (ui-b): `src/components/AircraftStatus.tsx`, `src/components/AtaChapterField.tsx`, `src/components/FaaKeySettings.tsx`
-- [ ] Batch 169 (ui-a): `src/components/FlightFluids.tsx`
-- [ ] Batch 170 (ui-b): `src/components/InventoryScanner.tsx`
-- [ ] Batch 171 (ui-a): `src/components/LogbookWording.tsx`, `src/components/LogbookWording.test.ts`
-- [ ] Batch 172 (ui-b): `src/components/UserProfile.tsx`
-- [ ] Batch 173 (ui-a): `src/components/Alerts.tsx`
+- [x] Batch 165 (ui-a): `src/components/AddressFields.tsx`
+- [x] Batch 166 (ui-b): `src/components/SignInMethods.tsx`, `src/components/SignInMethods.test.ts`
+- [x] Batch 167 (ui-a): `src/components/TaskCsvImport.tsx`
+- [x] Batch 168 (ui-b): `src/components/AircraftStatus.tsx`, `src/components/AtaChapterField.tsx`, `src/components/FaaKeySettings.tsx`
+- [x] Batch 169 (ui-a): `src/components/FlightFluids.tsx`
+- [x] Batch 170 (ui-b): `src/components/InventoryScanner.tsx`
+- [x] Batch 171 (ui-a): `src/components/LogbookWording.tsx`, `src/components/LogbookWording.test.ts`
+- [x] Batch 172 (ui-b): `src/components/UserProfile.tsx`
+- [x] Batch 173 (ui-a): `src/components/Alerts.tsx`
 - [ ] Batch 174 (ui-b): `src/components/Costs.tsx`
-- [ ] Batch 175 (ui-a): `src/components/InventoryAttachments.tsx`
+- [x] Batch 175 (ui-a): `src/components/InventoryAttachments.tsx`
 - [ ] Batch 176 (ui-b): `src/components/InventoryPrinting.tsx`
-- [ ] Batch 177 (ui-a): `src/components/LogbookEntry.tsx`
+- [x] Batch 177 (ui-a): `src/components/LogbookEntry.tsx`
 - [ ] Batch 178 (ui-b): `src/components/PermissionGroupForm.tsx`
-- [ ] Batch 179 (ui-a): `src/components/DeleteGroupButton.tsx`, `src/components/AddressVerificationSettings.tsx`, `src/components/ADTrackingFields.tsx`
+- [x] Batch 179 (ui-a): `src/components/DeleteGroupButton.tsx`, `src/components/AddressVerificationSettings.tsx`, `src/components/ADTrackingFields.tsx`
 - [ ] Batch 180 (ui-b): `src/components/ComponentCloseoutCorrection.tsx`
 - [ ] Batch 181 (ui-a): `src/components/CoreReturns.tsx`
 - [ ] Batch 182 (ui-b): `src/components/AircraftInspectionSchedules.tsx`, `src/components/CalendarExemptionFields.tsx`, `src/components/Deferrals.tsx`
@@ -294,22 +323,22 @@ Dependency order: modules with no internal imports first, most-imported first. E
 - [ ] Batch 199 (ui-b): `src/components/ComponentTemplates.tsx`
 - [ ] Batch 200 (ui-a): `src/components/ADRegister.tsx`
 - [ ] Batch 201 (ui-b): `src/components/Admin.tsx`
-- [ ] Batch 202 (platform): `src/App.tsx`
+- [x] Batch 202 (platform): `src/App.tsx`
 - [ ] Batch 203 (platform): `src/main.tsx`
-- [ ] Batch 204 (platform): `.github/workflows/backup.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`
-- [ ] Batch 205 (platform): `compose.yaml`, `index.html`, `playwright.config.ts`
-- [ ] Batch 206 (platform): `vite.config.ts`
-- [ ] Batch 207 (domain-b): `src/domain/pdf/icao.ts`
+- [x] Batch 204 (platform): `.github/workflows/backup.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`
+- [x] Batch 205 (platform): `compose.yaml`, `index.html`, `playwright.config.ts`
+- [x] Batch 206 (platform): `vite.config.ts`
+- [x] Batch 207 (domain-b): `src/domain/pdf/icao.ts`
 - [ ] Batch 208 (ui-a): `src/styles/screens/signin.css`
-- [ ] Batch 209 (platform): `scripts/backup/decrypt.sh`, `scripts/backup/records-workbook.mjs`
-- [ ] Batch 210 (platform): `scripts/icons.mjs`
-- [ ] Batch 211 (platform): `src/cspSafeZod.ts`, `src/vite-env.d.ts`
+- [x] Batch 209 (platform): `scripts/backup/decrypt.sh`, `scripts/backup/records-workbook.mjs`
+- [x] Batch 210 (platform): `scripts/icons.mjs`
+- [x] Batch 211 (platform): `src/cspSafeZod.ts`, `src/vite-env.d.ts`
 - [ ] Batch 212 (domain-a): `src/domain/ownerDue.ts`, `src/domain/alertDigest.ts`
 - [ ] Batch 213 (ui-b): `src/components/RequiredParts.tsx`, `src/components/ADWorkOrderButton.tsx`
-- [ ] Batch 214 (platform): `.github/dependabot.yml`
-- [ ] Batch 215 (platform): `public/theme-init.js`
-- [ ] Batch 216 (platform): `vitest.config.ts`
-- [ ] Batch 217 (domain-b): `src/domain/commonPasswords.ts` (data list: header and docstring only)
+- [x] Batch 214 (platform): `.github/dependabot.yml`
+- [x] Batch 215 (platform): `public/theme-init.js`
+- [x] Batch 216 (platform): `vitest.config.ts`
+- [x] Batch 217 (domain-b): `src/domain/commonPasswords.ts` (data list: header and docstring only)
 
 ### Tier 1, continued: test files without a module of their own
 
@@ -322,11 +351,11 @@ Header, a docstring on shared helpers, WHY comments, named constants for magic v
 - [ ] Batch 222 (platform): `scripts/backup/dropboxUpload.test.ts`
 - [ ] Batch 223 (platform): `src/data/demoGroupAccess.test.ts`, `src/data/demoGroups.test.ts`, `src/data/workOrderCache.test.ts`
 - [ ] Batch 224 (domain-a): `src/domain/adCorrections.test.ts`, `src/domain/adDueBoundaries.test.ts`, `src/domain/c441Import.test.ts`
-- [ ] Batch 225 (domain-b): `src/domain/calendarExemption.test.ts`, `src/domain/componentAssembly.test.ts`, `src/domain/componentMovements.test.ts`
+- [x] Batch 225 (domain-b): `src/domain/calendarExemption.test.ts`, `src/domain/componentAssembly.test.ts`, `src/domain/componentMovements.test.ts`
 - [ ] Batch 226 (domain-a): `src/domain/domain.test.ts`, `src/domain/dueBoundaries.test.ts`, `src/domain/flightChronology.test.ts`
-- [ ] Batch 227 (domain-b): `src/domain/flightOptions.test.ts`, `src/domain/flightTimeLog.test.ts`, `src/domain/helicopter.test.ts`
+- [x] Batch 227 (domain-b): `src/domain/flightOptions.test.ts`, `src/domain/flightTimeLog.test.ts`, `src/domain/helicopter.test.ts`
 - [ ] Batch 228 (domain-a): `src/domain/landingSchedules.test.ts`, `src/domain/logbookPerformers.test.ts`, `src/domain/unlinkTaskCard.test.ts`
-- [ ] Batch 229 (domain-b): `src/domain/workOrderRevisions.test.ts`
+- [x] Batch 229 (domain-b): `src/domain/workOrderRevisions.test.ts`
 - [ ] Batch 230 (platform): `tests/csp-report.ts`
 - [ ] Batch 231 (platform): `tests/e2e/ad-work-order.spec.ts`, `tests/e2e/addresses.spec.ts`, `tests/e2e/admin-layout.spec.ts`
 - [ ] Batch 232 (platform): `tests/e2e/aircraft-photos.spec.ts`, `tests/e2e/aircraft-spruce.spec.ts`, `tests/e2e/aircraft-status-export.spec.ts`
@@ -363,20 +392,21 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 
 - [x] Batch 415 (T10 b-server): `convex/programContext.ts`, `convex/access.ts`, `convex/runCommand.ts`: expected refusals raised by the server itself reach users as `ConvexError` (stale Flight Program, read-only owner access, permission denied, no active session, record not found, request-id reuse, and the collision messages thrown in `persist`). Bugs stay hidden. Found by Batch 253's survey; the server lane leaves these files to this batch.
 
-- [ ] Batch 416 (T10 b-functions): `convex/userErrors.ts` (new), `convex/certifications.ts`, `convex/aircraftFiles.ts`, `convex/inventoryFiles.ts`, `convex/poFiles.ts`, `convex/manuals.ts`, `convex/faaSearch.ts`: server functions that call domain checks without `runCommand` show a `Rejection` as `ConvexError`; their own expected refusals too. Never the session error, never `convex/operations.ts`. Runs in the server lane.
+- [x] Batch 416 (T10 b-functions): `convex/userErrors.ts` (new), `convex/certifications.ts`, `convex/aircraftFiles.ts`, `convex/inventoryFiles.ts`, `convex/poFiles.ts`, `convex/manuals.ts`, `convex/faaSearch.ts`: server functions that call domain checks without `runCommand` show a `Rejection` as `ConvexError`; their own expected refusals too. Never the session error, never `convex/operations.ts`. Runs in the server lane.
+- [x] Batch 417 (T10 b-follow-up): `convex/admin.ts` (wraps its domain checks; header only), `convex/programUsers.ts`, `convex/accountGuards.ts`, `convex/faaCredentials.ts`, `convex/identities.ts`, `convex/auditHistory.ts`: the remaining expected refusals reach users as `ConvexError`. `EMAIL_UNAVAILABLE` is one class and message on every path, and `HISTORY_NOT_FOUND` stays uniform (S12).
 
 ### T1. Collection codec: a stored row ⇄ a Snapshot collection, once
 
 - [x] Batch 255 (T1 b1): `convex/collections.ts` (new), `convex/runCommand.ts` (`hydrate` decodes through the codec)
 - [x] Batch 256 (T1 b2): `convex/operations.ts` (`snapshot` decodes through the codec)
-- [ ] Batch 257 (T1 b3): `convex/costs.ts`, `convex/programs.ts`, `convex/recurringParts.ts` (ad-hoc decoders go through the codec)
-- [ ] Batch 258 (T1 b4): `scripts/backup/recordsWorkbook.ts`, `scripts/backup/exportFixture.ts` (decode and encode through the codec; the scripts already bundle `src/` with esbuild)
+- [x] Batch 257 (T1 b3): `convex/costs.ts`, `convex/programs.ts`, `convex/recurringParts.ts` (ad-hoc decoders go through the codec)
+- [x] Batch 258 (T1 b4): `scripts/backup/recordsWorkbook.ts`, `scripts/backup/exportFixture.ts` (decode and encode through the codec; the scripts already bundle `src/` with esbuild)
 - [ ] Batch 259 (T1 b5): `convex/runCommand.ts`, `src/domain/model.ts` (`undefined` for collections that are not loaded, and `Pick<Snapshot, …>` as the applier parameter (G). This changes behaviour, so it needs its own ADR status note.) Needs its own ADR status note; behaviour changes.
 
 ### T9. Changed-row writer: `runCommand` owns persist
 
-- [ ] Batch 260 (T9 b1): `convex/runCommand.ts`: `writeChanged` plus its tests in `convex/runCommand.test.ts` (after T1 b1)
-- [ ] Batch 261 (T9 b2): `convex/partsRequests.ts`, `convex/purchaseOrders.ts`, `convex/costs.ts`
+- [x] Batch 260 (T9 b1): `convex/runCommand.ts`: `writeChanged` plus its tests in `convex/runCommand.test.ts` (after T1 b1)
+- [x] Batch 261 (T9 b2): `convex/partsRequests.ts`, `convex/purchaseOrders.ts`, `convex/costs.ts`
 - [ ] Batch 262 (T9 b3): `convex/airworthiness.ts`, `convex/taskCards.ts`, `convex/fleet.ts`
 - [ ] Batch 263 (T9 b4): `convex/management.ts`, `convex/inspectionTemplates.ts`; adds the missing guard, a behaviour change recorded in a test
 - [ ] Batch 264 (T9 b5): `convex/workOrders.ts` (after T15)
@@ -457,6 +487,8 @@ From the deep-module review in [docs/architecture/tier2-candidates.md](docs/arch
 - [ ] Batch 306 (T8 b1): `scripts/backup/xlsxWriter.ts` (new), `scripts/backup/recordsWorkbook.ts` (moves the writer out)
 - [ ] Batch 307 (T8 b2): `scripts/backup/exportSnapshot.ts` (new), `scripts/backup/recordsWorkbook.ts` (moves decoding out)
 - [ ] Batch 308 (T8 b3): `scripts/backup/recordsWorkbook.ts` (`dueItems` replaced by the domain module)
+- [ ] Batch 420 (T8 b4, after T8 b1–b3 and T17 b4): `scripts/backup/recordsWorkbook.ts`: the standards pass on what remains (23 functions over 40 lines before T8; `dueItems` is 195 lines with 3 levels of nesting).
+- [ ] Batch 421 (T8 b5): `scripts/backup/exportFixture.ts`: split `fixtureExport` (1,676 lines) into per-collection builders in a sibling folder; the fixture ZIP stays byte-identical.
 
 ### T17. Status-record documents: content separate from PDF layout
 
@@ -495,6 +527,8 @@ Found by the boundary check in CONTEXT.md §5: five functions in `src/domain` ca
 The same `ConvexError` message extraction is written five times in components: `ui.tsx`, `EngineTrends.tsx`, `SavedAddresses.tsx` and `SignInMethods.tsx`, each with its own fallback text, and a variant in `AircraftSpruce.tsx`. Export one helper from `ui.tsx` that takes the fallback text as a parameter, so each screen keeps its current message, and import it everywhere. `src/data/store.ts:317` keeps its own copy, because the data layer may not import `src/components`.
 
 - [x] Batch 324 (T20 b1): `src/components/ui.tsx`, `src/components/EngineTrends.tsx`, `src/components/SavedAddresses.tsx`, `src/components/SignInMethods.tsx` (and `src/components/AircraftSpruce.tsx` in the same commit if it is still separate)
+- [x] Batch 418 (T20 b2): `src/data/errors.ts` (new), `src/components/ui.tsx` (re-exports it), `src/data/store.ts`: `errorText` moves to the data layer and the outbox stores its text, so the Sync center shows refusals, not Convex wrapper text.
+- [ ] Batch 419 (T20 b3): `src/data/errors.ts`, `src/data/alerts.ts`: zod validation errors show their issue messages, not zod's JSON (finding 36); the Alerts page uses `errorText`.
 
 ### T21. Fresh start: remove migration-only code
 
