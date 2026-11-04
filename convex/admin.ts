@@ -35,7 +35,7 @@ import {
   invalidateSessions,
 } from "@convex-dev/auth/server";
 import { admin, audit } from "./access";
-import { programUsers, syncMemberships } from "./memberships";
+import { syncMemberships } from "./memberships";
 import { permission } from "./validators";
 import {
   ACCOUNT_NAME_MAX_LENGTH,
@@ -339,17 +339,16 @@ export const updateUser = mutation({
 /**
  * Creates or updates a permission group. A system administrator manages any
  * group; a Flight Program administrator, those of their active program.
- * Audits "group.saved", and "group.program_assigned" when an unscoped group
- * gets its first program.
+ * Audits "group.saved".
  *
  * @returns The group's id.
  * @throws {ConvexError} "Administrator permission required for this Flight
  *   Program."; "Flight Program changed. Reopen the form in the correct
  *   program."; "Group not found."; then `normalizeGroup`'s refusals, among
- *   them "Group name is required.", "Write permissions also require read
- *   access." and "Select a Flight Program for this group." (also for a
- *   program that does not exist); "Group aircraft must belong to its Flight
- *   Program."
+ *   them "A permission group cannot be moved to another Flight Program.",
+ *   "Group name is required.", "Write permissions also require read access."
+ *   and "Select a Flight Program for this group." (also for a program that
+ *   does not exist); "Group aircraft must belong to its Flight Program."
  */
 export const saveGroup = mutation({
   args: groupArgs,
@@ -360,8 +359,8 @@ export const saveGroup = mutation({
     const existing = args.id ? await ctx.db.get(args.id) : undefined;
     if (args.id && !existing) throw new ConvexError("Group not found.");
     const before = existing ?? undefined;
-    const { fields, assigned } = exposeRejections(() =>
-      normalizeGroup(args, before && group(before), actor.isAdmin === true),
+    const fields = exposeRejections(() =>
+      normalizeGroup(args, before && group(before)),
     );
     await assertGroupScope(ctx, fields.programUuid, fields.aircraftIds);
     const id = args.id ?? (await ctx.db.insert("groups", fields));
@@ -377,8 +376,6 @@ export const saveGroup = mutation({
           ? fields
           : { ...fields, allAircraft: args.allAircraft },
     });
-    if (assigned)
-      await recordProgramAssigned(ctx, actor._id, id, args.programUuid);
     return id;
   },
 });
@@ -571,20 +568,4 @@ async function assertGroupScope(
         "Group aircraft must belong to its Flight Program.",
       );
   }
-}
-
-// The membership index carries each group's program.
-async function recordProgramAssigned(
-  ctx: MutationCtx,
-  actorId: string,
-  id: Id<"groups">,
-  programUuid: string | undefined,
-) {
-  for (const user of await programUsers(ctx, undefined, id))
-    await syncMemberships(ctx, user._id);
-  await audit(ctx, actorId, "group.program_assigned", id, {
-    programUuid,
-    before: { programUuid: null },
-    after: { programUuid },
-  });
 }

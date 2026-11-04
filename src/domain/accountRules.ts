@@ -10,7 +10,7 @@
 import type { Group, Permission } from "./model";
 import {
   assertGroupAircraftChoice,
-  assertGroupProgramChange,
+  assertGroupProgramFixed,
 } from "./groupAircraft";
 import { validateOwnerGroup } from "./ownerView";
 import { Rejection } from "./rejection";
@@ -145,11 +145,9 @@ export function observersGroup(
  * Checks a permission group before it is saved and gives its stored fields.
  *
  * @param existing - The stored group; undefined for a new one.
- * @param systemAdmin - Whether the user is a system administrator.
- * @returns The fields (name trimmed, ids without repeats, flags false unless
- *   set), and `assigned`: true when this save gives an unscoped group its
- *   first Flight Program.
- * @throws {Rejection} In order: as `assertGroupProgramChange`; "Group name is
+ * @returns The fields: name trimmed, ids without repeats, flags false unless
+ *   set.
+ * @throws {Rejection} In order: as `assertGroupProgramFixed`; "Group name is
  *   required." (blank, or over 100 characters after trimming); "Write
  *   permissions also require read access."; as `validateOwnerGroup` and
  *   `assertGroupAircraftChoice`; "Select a Flight Program for this group."
@@ -157,9 +155,8 @@ export function observersGroup(
 export function normalizeGroup(
   input: GroupInput,
   existing: Group | undefined,
-  systemAdmin: boolean,
-): { fields: GroupFields; assigned: boolean } {
-  const assigned = assertGroupProgramChange(existing, input, systemAdmin);
+): GroupFields {
+  assertGroupProgramFixed(existing, input);
   const name = input.name.trim();
   if (!name || name.length > GROUP_NAME_MAX_LENGTH)
     throw new Rejection("Group name is required.");
@@ -169,7 +166,7 @@ export function normalizeGroup(
   assertGroupAircraftChoice(existing, input);
   if (!input.programUuid)
     throw new Rejection("Select a Flight Program for this group.");
-  const fields = {
+  return {
     programUuid: input.programUuid,
     programAdmin: input.programAdmin ?? false,
     owner: input.owner ?? false,
@@ -177,7 +174,6 @@ export function normalizeGroup(
     aircraftIds: [...new Set(input.aircraftIds)],
     permissions: [...new Set(input.permissions)],
   };
-  return { fields, assigned };
 }
 
 /**
