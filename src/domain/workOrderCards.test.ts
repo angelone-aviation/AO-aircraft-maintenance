@@ -1,4 +1,11 @@
-import { expect, it } from "vitest";
+/**
+ * Responsibility: Pins copying task-card templates into job cards and the
+ *   job-card checks on completing a work item.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrderCards.ts, taskCards.ts, workOrders.ts,
+ *   src/data/demo.ts and tests/fixtures (task cards, work orders).
+ */
+import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import {
@@ -12,7 +19,11 @@ import {
   type TaskCard,
 } from "./taskCards";
 import { saveWorkOrder, newWorkTask } from "./workOrders";
-import { workItemCompletionIssue } from "./workOrderCards";
+import {
+  copyWorkOrderTemplates,
+  taskCardMatchesWorkItem,
+  workItemCompletionIssue,
+} from "./workOrderCards";
 const now = Date.parse("2026-10-02T12:00:00Z");
 function setup() {
   const s = demoSnapshot(),
@@ -362,4 +373,100 @@ it("copies legacy template steps as readable details, not signoff points", () =>
   expect(s.taskCards!.find((t) => t.uuid === template.uuid)!.steps).toEqual(
     template.steps,
   );
+});
+
+describe("job cards for one work order", () => {
+  const inspectionItem = (inspectionUuid?: string) =>
+    newWorkTask({ kind: "inspection", uuid: inspectionUuid! }, "Inspection");
+
+  it("copies a template once per order, for new uncancelled items, auditing each copy", () => {
+    const { s, template } = setup();
+    const w = saveWorkOrder(s, workOrderCommand(), now);
+    const item = inspectionItem(template.inspectionUuid);
+    const order = { ...w, tasks: [item] };
+    const cancelled = { ...item, status: "cancelled" as const };
+    expect(
+      copyWorkOrderTemplates(s, { ...w, tasks: [cancelled] }, undefined, now),
+    ).toBe(0);
+    expect(copyWorkOrderTemplates(s, order, order, now)).toBe(0);
+    expect(copyWorkOrderTemplates(s, order, undefined, now)).toBe(1);
+    expect(copyWorkOrderTemplates(s, order, undefined, now)).toBe(0);
+    const copy = s.taskCards!.find((t) => t.workOrderUuid === w.uuid)!;
+    expect(copy.workTaskUuid).toBe(item.uuid);
+    expect(s.audit[0]).toMatchObject({
+      action: "taskCard.created_from_template",
+      entityUuid: copy.uuid,
+      aircraftUuid: w.aircraftUuid,
+      reason: `Copied ${template.cardNumber} version ${template.version} to ${w.number}.`,
+    });
+    expect(JSON.parse(s.audit[0].after!)).toEqual(copy);
+  });
+
+  it("explains in order why an item cannot be completed yet", () => {
+    const { s, template } = setup();
+    const w = saveWorkOrder(s, workOrderCommand(), now);
+    const item = inspectionItem(template.inspectionUuid);
+    expect(workItemCompletionIssue(s, w.uuid, item)).toBe(
+      "Add the associated job card templates to this work order before completing this item.",
+    );
+    const preparing = { jobId: "job", status: "running" as const };
+    s.workOrders = s.workOrders!.map((o) => ({
+      ...o,
+      templateCopy: { ...preparing, completed: 0, total: 1 },
+    }));
+    expect(workItemCompletionIssue(s, w.uuid, item)).toBe(
+      "Finish preparing the job cards before completing this item.",
+    );
+    s.workOrders = s.workOrders!.map((o) => ({
+      ...o,
+      templateCopy: undefined,
+    }));
+    copyWorkOrderTemplates(s, { ...w, tasks: [item] }, undefined, now);
+    const signOff =
+      "Complete and sign off every job card for this item on this work order before marking it completed.";
+    expect(workItemCompletionIssue(s, w.uuid, item)).toBe(signOff);
+    const signature = { userId: s.user.id, name: s.user.name, at: now };
+    const finish = (fields: Partial<TaskCard>) => {
+      s.taskCards = s.taskCards!.map((t) =>
+        t.workOrderUuid === w.uuid
+          ? { ...t, status: "completed" as const, ...fields }
+          : t,
+      );
+      return workItemCompletionIssue(s, w.uuid, item);
+    };
+    expect(finish({ technicianSignoff: null })).toBe(signOff);
+    expect(
+      finish({
+        technicianSignoff: signature,
+        inspectionSignoffRequired: true,
+        inspectionSignoff: null,
+      }),
+    ).toBe(signOff);
+    expect(finish({ inspectionSignoff: signature })).toBe("");
+    expect(workItemCompletionIssue(s, w.uuid, inspectionItem("none"))).toBe("");
+  });
+
+  it("matches a card to an item it was copied for or that names its source", () => {
+    const { template } = setup();
+    const discrepancy = newWorkTask({ kind: "discrepancy", uuid: "d" }, "Fix");
+    const requirement = newWorkTask(
+      { kind: "componentRequirement", uuid: "r" },
+      "Service",
+    );
+    const card = { ...template, discrepancyUuid: "d", requirementUuid: "r" };
+    expect(taskCardMatchesWorkItem(card, discrepancy)).toBe(true);
+    expect(taskCardMatchesWorkItem(card, requirement)).toBe(true);
+    expect(taskCardMatchesWorkItem(template, discrepancy)).toBe(false);
+    expect(
+      taskCardMatchesWorkItem(
+        { ...template, workTaskUuid: discrepancy.uuid },
+        discrepancy,
+      ),
+    ).toBe(true);
+    const airworthiness = newWorkTask(
+      { kind: "airworthiness", uuid: template.inspectionUuid! },
+      "AD",
+    );
+    expect(taskCardMatchesWorkItem(template, airworthiness)).toBe(false);
+  });
 });
