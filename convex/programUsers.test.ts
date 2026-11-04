@@ -1,4 +1,13 @@
+/**
+ * Responsibility: Pins a Flight Program administrator's account management:
+ *   creating, adding and changing access within the program only, its
+ *   refusals and their classes, and the provisioning cleanup.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/programUsers.ts, convex/admin.ts, convex/schema.ts,
+ *   src/domain/accountRules, src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
+import { ConvexError } from "convex/values";
 import { it, vi, expect } from "vitest";
 // These tests hash real passwords (scrypt) several times each; under a busy
 // machine the 5 s default timeout is too tight, so allow 30 s.
@@ -6,7 +15,10 @@ vi.setConfig({ testTimeout: 30_000 });
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { ADD_EXISTING_RESULT } from "../src/domain/accountRules";
+import {
+  ADD_EXISTING_RESULT,
+  EMAIL_UNAVAILABLE,
+} from "../src/domain/accountRules";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -433,4 +445,170 @@ it("validates new aircraft fields and hides which program holds a registration",
       programUuid: "home",
     }),
   ).rejects.toThrow();
+});
+
+// The error a run rejects with.
+const refusal = (run: Promise<unknown>) =>
+  run.then(
+    () => {
+      throw new Error("Expected a refusal.");
+    },
+    (error: unknown) => error,
+  );
+
+it("shows the administrator's refusals as ConvexErrors, but keeps the uniform email refusal and a misdirected activation plain", async () => {
+  const { t, ids, admin } = await fixture();
+  const { stranger, noRead } = await t.run(async (ctx) => ({
+    stranger: await ctx.db.insert("users", {
+      name: "Stranger",
+      active: true,
+      isAdmin: false,
+      groupIds: [ids.foreign],
+    }),
+    noRead: await ctx.db.insert("groups", {
+      programUuid: "home",
+      name: "Flight only",
+      programAdmin: false,
+      aircraftIds: [],
+      permissions: ["flight"],
+    }),
+  }));
+  const access = { programUuid: "home", remove: false };
+  const shown: [string, () => Promise<unknown>][] = [
+    [
+      "User is not a member of this Flight Program.",
+      () =>
+        admin.mutation(api.programUsers.updateAccess, {
+          ...access,
+          userId: stranger,
+          groupIds: [ids.own],
+        }),
+    ],
+    [
+      "Select at least one permission group or remove program access.",
+      () =>
+        admin.mutation(api.programUsers.updateAccess, {
+          ...access,
+          userId: ids.member.user,
+          groupIds: [],
+        }),
+    ],
+    [
+      "Select a group with read access.",
+      () =>
+        admin.mutation(api.programUsers.updateAccess, {
+          ...access,
+          userId: ids.member.user,
+          groupIds: [noRead],
+        }),
+    ],
+    [
+      "Select at least one group with read access.",
+      () =>
+        admin.mutation(api.programUsers.addExisting, {
+          programUuid: "home",
+          groupIds: [],
+          email: "someone@example.test",
+        }),
+    ],
+    [
+      "A valid email and name are required.",
+      () =>
+        admin.action(api.programUsers.create, {
+          ...details,
+          email: "not-an-email",
+          groupIds: [ids.own],
+        }),
+    ],
+  ];
+  for (const [message, run] of shown)
+    expect(await refusal(run()), message).toMatchObject({
+      name: "ConvexError",
+      data: message,
+    });
+  const taken = await refusal(
+    admin.action(api.programUsers.create, {
+      ...details,
+      email: `${ids.manager}@example.test`,
+      groupIds: [ids.own],
+    }),
+  );
+  const misdirected = await refusal(
+    admin.mutation(internal.programUsers.finish, {
+      programUuid: "home",
+      groupIds: [ids.own],
+      userId: ids.member.user,
+      email: `${ids.own}@example.test`,
+      createdAfter: 0,
+    }),
+  );
+  expect(taken).toMatchObject({ message: EMAIL_UNAVAILABLE });
+  expect(misdirected).toMatchObject({
+    message: "Only a newly provisioned account can be activated here.",
+  });
+  for (const error of [taken, misdirected])
+    expect(error).not.toBeInstanceOf(ConvexError);
+});
+
+it("adds the Observers group when no chosen group grants read access, and refuses without one", async () => {
+  const { t, admin } = await fixture();
+  const { pending, noRead, observers } = await t.run(async (ctx) => ({
+    pending: await ctx.db.insert("users", {
+      name: "Pending",
+      email: "pending@example.test",
+      active: false,
+      isAdmin: false,
+      groupIds: [],
+      activeProgramUuid: "home",
+    }),
+    noRead: await ctx.db.insert("groups", {
+      programUuid: "home",
+      name: "Flight only",
+      programAdmin: false,
+      aircraftIds: [],
+      permissions: ["flight"],
+    }),
+    observers: (await ctx.db
+      .query("groups")
+      .filter((q) => q.eq(q.field("name"), "Observers"))
+      .unique())!._id,
+  }));
+  const activation = {
+    programUuid: "home",
+    userId: pending,
+    email: "pending@example.test",
+    createdAfter: 0,
+  };
+  await admin.mutation(internal.programUsers.finish, {
+    ...activation,
+    groupIds: [noRead, noRead],
+  });
+  expect(await t.run((ctx) => ctx.db.get(pending))).toMatchObject({
+    active: true,
+    groupIds: [noRead, observers],
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.delete(observers);
+    await ctx.db.patch(pending, { active: false, groupIds: [] });
+  });
+  const unavailable = {
+    name: "ConvexError",
+    data: "Select a permission group; Observers read-only access is unavailable.",
+  };
+  expect(
+    await refusal(
+      admin.query(internal.programUsers.check, {
+        programUuid: "home",
+        groupIds: [],
+      }),
+    ),
+  ).toMatchObject(unavailable);
+  expect(
+    await refusal(
+      admin.mutation(internal.programUsers.finish, {
+        ...activation,
+        groupIds: [noRead],
+      }),
+    ),
+  ).toMatchObject(unavailable);
 });
