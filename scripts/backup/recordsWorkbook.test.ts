@@ -202,16 +202,16 @@ const text = (v: ExcelJS.CellValue): string => {
     return v.richText.map((r) => r.text).join("");
   return String(v);
 };
-const sheet = (name: string) => {
-  const ws = wb.getWorksheet(name);
+const sheet = (name: string, book = wb) => {
+  const ws = book.getWorksheet(name);
   if (!ws) throw new Error(`Missing sheet ${name}`);
   return ws;
 };
 const header = (ws: ExcelJS.Worksheet) =>
   (ws.getRow(2).values as ExcelJS.CellValue[]).slice(1).map(text);
 // Data rows as objects keyed by header.
-function rows(name: string) {
-  const ws = sheet(name);
+function rows(name: string, book = wb) {
+  const ws = sheet(name, book);
   const keys = header(ws);
   const out: { cells: Record<string, ExcelJS.Cell>; row: ExcelJS.Row }[] = [];
   ws.eachRow((row, n) => {
@@ -725,40 +725,79 @@ describe("records workbook", () => {
     );
   });
 
-  // Characterizes current behaviour: the due list reads an AD's counters
-  // unguarded, so an aircraft without a meter reading stops the build unless
-  // its AD no longer applies.
-  it("stops on an aircraft without a meter reading unless its AD no longer applies", async () => {
-    const withoutReading = (tail: string) => {
+  it("builds for an aircraft without a meter reading: its AD actions are Unknown with the reason, a passed due date still overdue", async () => {
+    const withoutReading = () => {
       const files = unzipSync(fixture.zip);
-      let uuid = "";
       editFirst(
         files,
         "aircraft",
-        (d) => {
-          d.meter = "flightTimeLog";
-          uuid = String(d.uuid);
-        },
-        (d) => d.registration === tail,
+        (d) => (d.meter = "flightTimeLog"),
+        (d) => d.registration === "N206MA",
       );
-      return { files, uuid };
+      return files;
     };
-    await expect(
-      buildFrom(withoutReading("N206MA").files, "no-reading"),
-    ).rejects.toThrow("Flight time log reading is required.");
+    type AdPayload = {
+      applicability: string;
+      source: { number: string };
+      tasks: { dueDate: string }[];
+      history: { terminatedBy: string }[];
+    };
+    const editAd = (
+      files: Record<string, Uint8Array>,
+      number: string,
+      change: (ad: AdPayload) => AdPayload,
+    ) =>
+      editFirst(
+        files,
+        "airworthiness",
+        (d) =>
+          (d.payload = JSON.stringify(change(JSON.parse(String(d.payload))))),
+        (d) => JSON.parse(String(d.payload)).source.number === number,
+      );
+    const today = zoneClock(TZ).today(now);
+    const threeDaysAgo = new Date(Date.parse(today) - 3 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
 
-    const { files, uuid } = withoutReading("N182MA");
-    editFirst(
-      files,
-      "airworthiness",
-      (d) => {
-        const ad = JSON.parse(String(d.payload));
-        d.payload = JSON.stringify({ ...ad, applicability: "Not applicable" });
-      },
-      (d) => JSON.parse(String(d.payload)).aircraftUuid === uuid,
+    const unread = withoutReading();
+    editAd(unread, "2025-DEMO-12", (ad) => ({
+      ...ad,
+      tasks: [{ ...ad.tasks[0], dueDate: threeDaysAgo }],
+    }));
+    const { read } = await buildFrom(unread, "no-reading");
+    const due = rows("Due list", read);
+    expect(due.length).toBe(rows("Due list").length);
+    const adRow = (number: string) =>
+      due.find(
+        (r) =>
+          text(r.cells.Aircraft.value) === "N206MA" &&
+          text(r.cells.Item.value) === `AD ${number}`,
+      )!;
+    const unknown = adRow("2024-DEMO-03");
+    expect(text(unknown.cells.Status.value)).toBe("Unknown");
+    expect(text(unknown.cells.Detail.value)).toBe(
+      "Inspect attach brackets for cracks; repeat every 100 h.\nFlight time log reading is required.",
     );
-    const { summary } = await buildFrom(files, "spared");
-    const due = summary.sheets.find((x) => x.name === "Due list");
-    expect(due?.rows).toBe(rows("Due list").length - 1);
+    expect(text(unknown.cells["Due at"].value)).toBe("2,400.0 h");
+    expect(unknown.cells["Hours left"].value).toBeNull();
+    expect(fill(unknown.cells.Status)).toBeUndefined();
+    const passed = adRow("2025-DEMO-12");
+    expect(text(passed.cells.Status.value)).toBe("Overdue");
+    expect(fill(passed.cells.Status)).toBe(RED);
+    expect(passed.cells["Days left"].value).toBe(-3);
+
+    // Neither an AD that no longer applies nor a terminated action is listed.
+    const closed = withoutReading();
+    editAd(closed, "2024-DEMO-03", (ad) => ({
+      ...ad,
+      history: [{ ...ad.history[0], terminatedBy: "AD 2026-DEMO-01" }],
+    }));
+    editAd(closed, "2025-DEMO-12", (ad) => ({
+      ...ad,
+      applicability: "Not applicable",
+    }));
+    const { summary } = await buildFrom(closed, "closed");
+    const listed = summary.sheets.find((x) => x.name === "Due list");
+    expect(listed?.rows).toBe(rows("Due list").length - 2);
   });
 });

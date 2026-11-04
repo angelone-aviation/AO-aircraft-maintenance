@@ -48,6 +48,7 @@ import {
   type CostRecord,
 } from "../../src/domain/costs";
 import {
+  adLevel,
   dueItems,
   type AdDue,
   type DueLevel,
@@ -80,6 +81,7 @@ import {
   type Snapshot,
 } from "../../src/domain/model";
 import { groupCoversAircraft, recordProgram } from "../../src/domain/programs";
+import { Rejection } from "../../src/domain/rejection";
 import {
   outstanding,
   poStatus,
@@ -272,6 +274,17 @@ function valueOr<T, F>(compute: () => T, fallback: F): T | F {
   }
 }
 
+// The domain's answer, or the Rejection it gave instead (an aircraft without
+// a meter reading). Any other error is a defect and still stops the copy.
+function answerOrRejection<T>(compute: () => T): T | Rejection {
+  try {
+    return compute();
+  } catch (error) {
+    if (error instanceof Rejection) return error;
+    throw error;
+  }
+}
+
 // Names people recognise in place of IDs.
 function namer(
   s: Snapshot,
@@ -430,15 +443,24 @@ function costName(c: CostRecord, entities: Map<string, string>, n: Lookups) {
 // ------------------------------------------------------------- the sheets --
 
 // The fleet's due list, most urgent first. ADs that no longer apply are
-// dropped before the domain judges their actions: an action judged on an
-// aircraft without a meter reading throws, and would stop the copy.
+// dropped before they are judged. The domain throws on an AD whose counters
+// it cannot read (an aircraft without a meter reading), which would stop the
+// copy, so the workbook judges that AD's actions itself.
 function dueList(s: Snapshot, today: string, names: Namer): DueItem[] {
   const tracked = (s.airworthiness ?? []).filter(
     (r) => !CLOSED_APPLICABILITY.includes(r.applicability),
   );
-  return dueItems({ ...s, airworthiness: tracked }, undefined, today)
-    .flatMap((d) => dueRows(s, d, today, names))
-    .sort(compareDue);
+  const unread = tracked.filter(
+    (r) =>
+      answerOrRejection(() => adCounters(s, r, today)) instanceof Rejection,
+  );
+  const judged = tracked.filter((r) => !unread.includes(r));
+  return [
+    ...dueItems({ ...s, airworthiness: judged }, undefined, today).flatMap(
+      (d) => dueRows(s, d, today, names),
+    ),
+    ...unread.flatMap((r) => unreadAdRows(s, r, today, names)),
+  ].sort(compareDue);
 }
 
 // Component limits in inventory, and AD actions on an aircraft the export
@@ -541,30 +563,58 @@ function adRows(
   today: string,
   names: Namer,
 ): DueItem[] {
-  const { ad: r, component: c } = d;
-  const counters = adCounters(s, r);
+  const counters = adCounters(s, d.ad);
   return d.tasks
     .filter(({ status }) => status !== "Complied")
     .map(({ task, status, level }) => {
-      const left = adTaskRemaining(task, counters, c, today);
-      return {
-        aircraft,
-        kind: "AD" as const,
-        item: `AD ${r.source.number}`,
-        detail: lines(task.description, c && `On ${names.componentName(c)}`),
-        dueDate: task.dueDate || undefined,
-        dueAt: dueAt(
-          task.dueHours,
-          c ? " (component time)" : "",
-          task.dueCycles,
-          task.dueLandings,
-        ),
-        ...left,
-        level,
-        status,
-        urgency: urgency(left),
-      };
+      const left = adTaskRemaining(task, counters, d.component, today);
+      const base = adTaskBase(d, task, aircraft, names);
+      return { ...base, ...left, level, status, urgency: urgency(left) };
     });
+}
+
+// An AD whose counters cannot be read: each action not yet complied with
+// keeps a status worked out without a counter (a passed due date is
+// overdue), and is otherwise Unknown, with the reason.
+function unreadAdRows(
+  s: Snapshot,
+  r: AD,
+  today: string,
+  names: Namer,
+): DueItem[] {
+  const aircraft = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
+  const d = { ad: r, component: names.component(r.componentUuid) };
+  if (!aircraft || d.component?.installed === false) return [];
+  return r.tasks.flatMap((task) => {
+    const status = answerOrRejection(() => adTaskStatus(s, r, task, today));
+    if (status === "Complied") return [];
+    const base = adTaskBase(d, task, aircraft, names);
+    if (status instanceof Rejection) return unknownRow(base, status, "Unknown");
+    const left = adTaskRemaining(task, null, d.component, today);
+    const level = adLevel(status);
+    return { ...base, ...left, level, status, urgency: urgency(left) };
+  });
+}
+
+function adTaskBase(
+  { ad: r, component: c }: Pick<AdDue, "ad" | "component">,
+  task: ADTask,
+  aircraft: Aircraft,
+  names: Namer,
+) {
+  return {
+    aircraft,
+    kind: "AD" as const,
+    item: `AD ${r.source.number}`,
+    detail: lines(task.description, c && `On ${names.componentName(c)}`),
+    dueDate: task.dueDate || undefined,
+    dueAt: dueAt(
+      task.dueHours,
+      c ? " (component time)" : "",
+      task.dueCycles,
+      task.dueLandings,
+    ),
+  };
 }
 
 // Hours and cycles count only on a dimension the component tracks.
@@ -1955,9 +2005,6 @@ const TABLES_FACT: [string, string] = [
  * @returns Rows per sheet, and the notes shown on Read me.
  * @throws {RangeError} For a time zone Intl does not know.
  * @throws {Error} From ./convexExport, when the ZIP is not a readable export.
- * @throws {Rejection} "Flight time log reading is required." or "Collective
- *   hourmeter reading is required." when an aircraft without that reading
- *   has an aircraft AD that is not closed (characterizes current behaviour).
  */
 export async function buildRecordsWorkbook(
   zipPath: string,
