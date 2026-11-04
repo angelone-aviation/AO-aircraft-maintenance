@@ -4,7 +4,7 @@
  *   editor and interval summary other screens reuse.
  * Layer: UI. React components; template rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
- *   (deleteInspectionTemplates, programs, inspectionTemplates, csv, manuals,
+ *   (deleteInspectionTemplates, programs, inspectionTemplates, manuals,
  *   model), ./TaskCsvImport, ./ActivateTemplate, ./ScheduleTracking,
  *   ./ManagementShared, ./Manuals, ./ui.
  */
@@ -35,18 +35,23 @@ import {
   type InspectionTemplate,
 } from "../domain/inspectionTemplates";
 import type { Snapshot } from "../domain/model";
-import { AsyncForm, Field, Modal, PageTitle, errorText, value } from "./ui";
+import {
+  AsyncForm,
+  Field,
+  Modal,
+  PageTitle,
+  downloadBlankCsv,
+  errorText,
+  value,
+} from "./ui";
 import { NumberField, num } from "./ManagementShared";
 import { ManualLink } from "./Manuals";
-import { toCsv } from "../domain/csv";
 import {
   APPLICABILITY_NAME_MAX_LENGTH,
   APPLICABILITY_PART_NUMBER_MAX_LENGTH,
   type ManualApplicability,
 } from "../domain/manuals";
 
-// Long enough for the browser to start the download before the URL goes.
-const DOWNLOAD_URL_LIFETIME_MS = 1000;
 const TEMPLATE_FIELDS = inspectionTemplateSchema.shape;
 
 /**
@@ -1017,18 +1022,11 @@ function ImportGuidance() {
   );
 }
 
-// An empty CSV holding only the header row the importer reads.
 function downloadTemplateCsv() {
-  const headers = [...templateCsvHeaders, ...templateLandingCsvHeaders];
-  const header =
-    toCsv([Object.fromEntries(headers.map((h) => [h, ""]))]).split("\r\n")[0] +
-    "\r\n";
-  const url = URL.createObjectURL(new Blob([header], { type: "text/csv" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "inspection-templates.csv";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
+  downloadBlankCsv("inspection-templates.csv", [
+    ...templateCsvHeaders,
+    ...templateLandingCsvHeaders,
+  ]);
 }
 
 async function readTemplateCsv(d: FormData) {

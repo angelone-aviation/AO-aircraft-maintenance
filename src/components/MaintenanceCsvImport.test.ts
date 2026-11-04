@@ -309,10 +309,12 @@ describe("maintenance CSV import", () => {
     expect(csv[1]).toBe("tasks.csv");
     expect(csv[2].type).toBe("text/csv;charset=utf-8");
     // Characterizes current behaviour: toCsv quotes every header.
-    expect(await csv[2].text()).toBe(
-      `${TASKS.split(",")
-        .map((header) => `"${header}"`)
-        .join(",")}\r\n`,
+    const row = `${TASKS.split(",")
+      .map((header) => `"${header}"`)
+      .join(",")}\r\n`;
+    expect(await csv[2].text()).toBe(row);
+    expect(new Uint8Array(await csv[2].arrayBuffer())).toEqual(
+      new TextEncoder().encode(`\uFEFF${row}`),
     );
     expect(text[1]).toBe("maintenance-csv-ai-instructions.txt");
     expect(text[2].type).toBe("text/plain;charset=utf-8");

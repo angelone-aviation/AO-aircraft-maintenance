@@ -60,12 +60,10 @@ import {
 } from "@phosphor-icons/react";
 import { aircraftStatus } from "../domain/aircraftStatus";
 import { DispatchGate, dispatchBlocked } from "./AircraftStatus";
-import { errorText } from "./ui";
+import { download, errorText } from "./ui";
 
 // src/data/store.ts clears localStorage keys with this prefix on sign-out.
 const DRAFT_KEY_PREFIX = "angel-one-guided";
-// Long enough for the browser to start the download before the URL goes.
-const DOWNLOAD_URL_LIFETIME_MS = 1000;
 const START_SECTION = {
   label: "Engine start section (optional)",
   none: "Do not include engine start fields",
@@ -1085,15 +1083,7 @@ function exportDraft(d: Drafts) {
   const raw = d.draft
     ? JSON.stringify(d.draft, null, 2)
     : localStorage.getItem(d.key);
-  if (!raw) return;
-  const url = URL.createObjectURL(
-    new Blob([raw], { type: "application/json" }),
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "guided-flight-draft.json";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
+  if (raw) download("guided-flight-draft.json", raw);
 }
 
 function startDraft(s: Snapshot, setup: Setup, d: Drafts) {

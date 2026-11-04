@@ -1,8 +1,8 @@
 /**
- * Responsibility: Pins where the guided flight keeps its draft, how a new
- *   flight picks its sections and follows the open checklist, and how a
- *   plan's flight rules reach the flight log. Pausing, readings and saving
- *   need a browser: tests/e2e/guided-flight.spec.ts covers them.
+ * Responsibility: Pins where the guided flight keeps and exports its draft,
+ *   how a new flight picks its sections and follows the open checklist, and
+ *   how a plan's flight rules reach the flight log. Pausing, readings and
+ *   saving need a browser: tests/e2e/guided-flight.spec.ts covers them.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/GuidedFlight.tsx, src/data/demo.ts
  *   (demoSnapshot), react-dom/server.
@@ -213,6 +213,38 @@ it.each([
   render({ enabled: true, draft: draft(rules) }, {});
   hooks.clicks.get("Review flight log")!();
   expect(hooks.validated?.flightRules).toBe(logged);
+});
+
+it("exports the open draft, else the stored one, as guided-flight-draft.json", async () => {
+  const link = { href: "", download: "", click: vi.fn() };
+  vi.stubGlobal("document", { createElement: () => link });
+  const blobs: Blob[] = [];
+  vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    blobs.push(blob as Blob);
+    return "blob:draft";
+  });
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  render({ enabled: true, draft: draft("I") }, {});
+  hooks.clicks.get("Export draft")!();
+  const error = "Could not resume the saved flight. Its draft has been kept.";
+  render({ enabled: true, error }, {});
+  hooks.clicks.get("Export saved draft")!();
+  stored = { [KEY]: "{not json" };
+  render({ enabled: true, error }, {});
+  hooks.clicks.get("Export saved draft")!();
+  vi.restoreAllMocks();
+  vi.stubGlobal("document", undefined);
+  expect(link.click).toHaveBeenCalledTimes(2);
+  expect(link).toMatchObject({
+    href: "blob:draft",
+    download: "guided-flight-draft.json",
+  });
+  expect(blobs.map((b) => b.type)).toEqual([
+    "application/json",
+    "application/json",
+  ]);
+  expect(await blobs[0].text()).toBe(JSON.stringify(draft("I"), null, 2));
+  expect(await blobs[1].text()).toBe("{not json");
 });
 
 function textOf(node: ReactNode): string {

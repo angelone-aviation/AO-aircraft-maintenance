@@ -402,8 +402,12 @@ describe("CSV import", () => {
     act("Import template CSV");
     ui.clicks.get("Download template CSV")![0]();
     const headers = [...templateCsvHeaders, ...templateLandingCsvHeaders];
-    expect(await (parts[0] as Blob).text()).toBe(
-      headers.map((name) => `"${name}"`).join(",") + "\r\n",
+    const row = headers.map((name) => `"${name}"`).join(",") + "\r\n";
+    const blob = parts[0] as Blob;
+    expect(await blob.text()).toBe(row);
+    expect(blob.type).toBe("text/csv");
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(
+      new TextEncoder().encode(`\uFEFF${row}`),
     );
     expect(link).toMatchObject({ download: "inspection-templates.csv" });
     expect(link.click).toHaveBeenCalledOnce();
