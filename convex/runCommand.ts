@@ -1,9 +1,11 @@
 /**
  * Responsibility: The one transaction every applier-backed mutation runs
- *   (ADR-0003), and the hydration of the records a command reads.
+ *   (ADR-0003): hydrating the records a command reads, and writing the ones
+ *   it changed.
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
- * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./collections, src/domain (model, programs, rejection).
+ * Dependencies: convex/values, convex/server (types), ./_generated,
+ *   ./programContext, ./access, ./collections, src/domain (model, programs,
+ *   rejection).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -12,11 +14,18 @@
  */
 import { ConvexError } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { WithOptionalSystemFields } from "convex/server";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 import { activeProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
-import { decode } from "./collections";
+import {
+  decode,
+  encode,
+  type PayloadCollection,
+  type StoredRecord,
+  type StoredRow,
+} from "./collections";
 import {
   checkContext,
   managementDocs,
@@ -265,6 +274,38 @@ export async function hydrate<N extends Need>(
   return { snapshot: into.snapshot, docs: into.docs as Pick<LoadedDocs, N> };
 }
 
+/** A payload collection whose records carry their own uuid. */
+export type UuidCollection = Exclude<PayloadCollection, "faaMonitors">;
+
+/**
+ * Writes a collection's records after `apply`, as the codec encodes them:
+ * replaces each loaded row whose payload changed, skips one left as stored,
+ * and inserts a record with no loaded row. Never deletes.
+ *
+ * A uuid outside the active Flight Program is never overwritten: a record
+ * whose uuid is stored but was not loaded is refused.
+ *
+ * @param loaded - The collection's rows `load` read for the command.
+ * @param records - The records to write, in order.
+ * @param refusal - The message for a uuid stored outside the loaded rows.
+ * @throws {ConvexError} `refusal`, before that record is written.
+ */
+export async function writeChanged<N extends UuidCollection>(
+  ctx: MutationCtx,
+  collection: N,
+  loaded: readonly Doc<N>[],
+  records: readonly StoredRecord<N>[],
+  refusal: string,
+): Promise<void> {
+  for (const record of records) {
+    const row = encode(collection, record);
+    const prior = loaded.find((d) => d.uuid === record.uuid);
+    if (prior?.payload === row.payload) continue;
+    if (prior) await replaceRow(ctx, prior._id, row);
+    else await insertUnclaimed(ctx, collection, row, refusal);
+  }
+}
+
 interface Hydrating {
   snapshot: Snapshot;
   docs: Partial<LoadedDocs>;
@@ -399,6 +440,30 @@ async function persistCommand<C, W, R, Out>(
   } catch (error) {
     throw exposed(error);
   }
+}
+
+// A row without system fields is a valid replacement; Convex's types cannot
+// show that for a table chosen at run time.
+function replaceRow<N extends UuidCollection>(
+  ctx: MutationCtx,
+  id: Id<N>,
+  row: StoredRow<N>,
+) {
+  return ctx.db.replace(id, row as WithOptionalSystemFields<Doc<N>>);
+}
+
+async function insertUnclaimed<N extends UuidCollection>(
+  ctx: MutationCtx,
+  collection: N,
+  row: StoredRow<N>,
+  refusal: string,
+) {
+  const stored = await ctx.db
+    .query(collection)
+    .withIndex("uuid", (q) => q.eq("uuid", row.uuid))
+    .first();
+  if (stored) throw new ConvexError(refusal);
+  await ctx.db.insert(collection, row);
 }
 
 // A Rejection, or an error the command's own policy names, becomes a
