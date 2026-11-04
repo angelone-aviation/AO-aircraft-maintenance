@@ -4,14 +4,13 @@
  * Layer: Server. One public mutation over internal steps; the command,
  *   search and merge rules are the domain's, and each run is charged to the
  *   FAA allowance.
- * Dependencies: convex (access, faaSearch, faaCredentials, programContext,
- *   userErrors), src/domain (faa, faaMonitoringSearch, model, airworthiness,
- *   management), zod.
+ * Dependencies: convex (access, faaSearch, faaCredentials, faaDrs,
+ *   programContext, userErrors), src/domain (faa, faaMonitoringSearch, model,
+ *   airworthiness, management), zod.
  */
 import {
   monitoringQueries,
   monitoringScope,
-  fetchMonitoringCandidates,
 } from "../src/domain/faaMonitoringSearch";
 import {
   mutation,
@@ -28,6 +27,7 @@ import { ConvexError, v } from "convex/values";
 import { audit } from "./access";
 import { chargeFaaAllowance } from "./faaSearch";
 import { faaSecret } from "./faaCredentials";
+import { fetchMonitoringCandidates } from "./faaDrs";
 import { exposeRejections } from "./userErrors";
 import {
   checkContext,
