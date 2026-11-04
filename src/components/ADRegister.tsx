@@ -2,8 +2,8 @@
  * Responsibility: The AD register: an aircraft's airworthiness directives
  *   grouped into the airframe and each component, one table row per AD.
  * Layer: UI. React component; actions are handed to the parent screen.
- * Dependencies: src/domain/airworthiness.ts, src/domain/model.ts (types),
- *   ./adRegister.css, ./ADWorkOrderButton, ./ui.
+ * Dependencies: src/domain/airworthiness.ts, src/domain/adWorkOrders.ts,
+ *   src/domain/model.ts (types), ./adRegister.css, ./ADWorkOrderButton, ./ui.
  */
 import type { AD, StaleInitialLimit } from "../domain/airworthiness";
 import {
@@ -11,17 +11,11 @@ import {
   staleInitialLimitNotice,
   staleInitialLimits,
 } from "../domain/airworthiness";
+import { OPEN_AD_STATUSES } from "../domain/adWorkOrders";
 import type { Snapshot } from "../domain/model";
 import "./adRegister.css";
 import { ADWorkOrderButton } from "./ADWorkOrderButton";
 import { safeHref } from "./ui";
-
-/** Statuses with a due action that a work order can take on. */
-const WORK_ORDER_STATUSES: readonly string[] = [
-  "Scheduled",
-  "Due soon",
-  "Overdue",
-];
 
 type RegisterProps = {
   records: AD[];
@@ -231,7 +225,7 @@ function ADActions(
           Clear initial limit
         </button>
       ))}
-      {WORK_ORDER_STATUSES.includes(props.status) && (
+      {OPEN_AD_STATUSES.includes(props.status) && (
         <ADWorkOrderButton state={props.state} record={r} />
       )}
     </td>
