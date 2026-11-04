@@ -81,7 +81,7 @@ Evidence:
 - Production does not need it. Every write to `groupIds` resyncs the index in the same transaction: `admin.updateUser` (`convex/admin.ts:340`), `programUsers` at its three patches (`:121`, `:237`, `:278`), group deletion (`removeGroupMemberships`), and a group's first program assignment (`recordProgramAssigned`). New accounts start with `groupIds: []`.
 - **Tests use it as a fixture.** Three suites seed users directly and call it to build the index: `convex/alerts.test.ts:81` and `:283`, `convex/groupDeletion.test.ts:64`, and `convex/ownerPortal.test.ts:143`. None of them is in Batch 413's files.
 
-Decision: **keep it for now.** Remove it once those three suites seed the index through `syncMemberships` (a follow-up batch). The README step can go now, because no deployment needs it run.
+Decision: **keep it for now.** Remove it, with its README and release-runbook step, once those three suites seed the index through `syncMemberships` (a follow-up batch).
 
 ### `counterEvents:recordChanges`
 
