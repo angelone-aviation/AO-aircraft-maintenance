@@ -442,6 +442,46 @@ describe("flight review on runCommand", () => {
     expect(JSON.parse(log!.after!)).toEqual(reviewed);
   });
 
+  it("reviews once per request id: a replay returns nothing and writes nothing", async () => {
+    const { t, pilot, admin, op } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: held });
+    const requestUuid = crypto.randomUUID();
+    const review = (reason: string) =>
+      admin.mutation(api.operations.reviewFlight, {
+        programUuid: "demo-program",
+        requestUuid,
+        uuid: held.uuid,
+        decision: "accept",
+        reason,
+        input: held.input,
+      });
+    const stored = () =>
+      t.run(async (ctx) => ({
+        flights: await ctx.db.query("flights").collect(),
+        aircraft: await ctx.db.query("aircraft").collect(),
+        audit: await ctx.db.query("audit").collect(),
+        commandRequests: await ctx.db.query("commandRequests").collect(),
+      }));
+    await review("Checked");
+    const saved = await stored();
+    expect(saved.commandRequests).toMatchObject([{ uuid: requestUuid }]);
+    expect(JSON.parse(saved.commandRequests[0].payload)).toEqual({
+      uuid: held.uuid,
+      decision: "accept",
+      reason: "Checked",
+      input: held.input,
+    });
+    // ADR-0003: a replay succeeds with no payload.
+    await expect(review("Checked")).resolves.toBeNull();
+    expect(await stored()).toEqual(saved);
+    await expect(review("Checked again")).rejects.toMatchObject({
+      data: "Request identifier already used.",
+    });
+    expect(await stored()).toEqual(saved);
+  });
+
   it("clears the copilot and a reading the review leaves blank, as the demo does", async () => {
     const { t, pilot, admin, op, ids, a } = await fixture();
     const held = op();
@@ -657,6 +697,53 @@ describe("discrepancy resolution", () => {
         }),
       },
     ]);
+  });
+  it("resolves once per request id: a replay returns nothing and writes nothing", async () => {
+    const { t, pilot, admin, ids, a } = await fixture();
+    const uuid = crypto.randomUUID();
+    await pilot.mutation(api.operations.submit, {
+      operation: {
+        programUuid: "demo-program",
+        kind: "discrepancy",
+        uuid,
+        authorId: ids.user,
+        aircraftUuid: a.uuid,
+        description: "Alternator inoperative",
+      },
+    });
+    const requestUuid = crypto.randomUUID();
+    const resolve = (resolution: string) =>
+      admin.mutation(api.operations.resolveDiscrepancy, {
+        programUuid: "demo-program",
+        uuid,
+        resolution,
+        requestUuid,
+      });
+    const stored = () =>
+      t.run(async (ctx) => ({
+        discrepancies: await ctx.db.query("discrepancies").collect(),
+        audit: await ctx.db.query("audit").collect(),
+        commandRequests: await ctx.db.query("commandRequests").collect(),
+      }));
+    await resolve("Replaced the alternator");
+    const saved = await stored();
+    expect(saved.commandRequests).toMatchObject([
+      {
+        uuid: requestUuid,
+        payload: JSON.stringify({
+          uuid,
+          resolution: "Replaced the alternator",
+        }),
+      },
+    ]);
+    // ADR-0003: a replay succeeds with no payload, where a second resolution
+    // is refused.
+    await expect(resolve("Replaced the alternator")).resolves.toBeNull();
+    expect(await stored()).toEqual(saved);
+    await expect(resolve("Reseated the plug")).rejects.toMatchObject({
+      data: "Request identifier already used.",
+    });
+    expect(await stored()).toEqual(saved);
   });
   it("defers once per request id: a replay returns nothing and writes nothing", async () => {
     const { t, pilot, admin, ids, a } = await fixture();

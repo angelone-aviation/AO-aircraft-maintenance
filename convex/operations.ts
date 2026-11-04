@@ -152,7 +152,9 @@ export const submit = mutation({
 /**
  * Resolves an open problem report with a description of the repair, as the
  * deferrals domain allows, and writes a "discrepancy.resolved" change-log row.
+ * A replayed request id changes nothing.
  *
+ * @param requestUuid - The request id, when the client sends one.
  * @throws {Error} "Report not found."
  * @throws {ConvexError} The refusals of checkContext; "You do not have
  *   permission for this aircraft." without the resolve permission; the
@@ -164,11 +166,14 @@ export const resolveDiscrepancy = mutation({
     uuid: v.string(),
     resolution: v.string(),
     programUuid: v.optional(v.string()),
+    requestUuid: v.optional(v.string()),
   },
-  handler: (ctx, { uuid, resolution, programUuid }) =>
+  handler: (ctx, { uuid, resolution, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => uuid,
+      request: () =>
+        requestOf(requestUuid, JSON.stringify({ uuid, resolution })),
       load: ({ ctx, state }) => loadReport(ctx, state, uuid),
       apply: ({ s }) => applyResolution(s, uuid, resolution),
       persist: async ({ ctx }, { d }, next) => {
@@ -211,6 +216,7 @@ export const deferDiscrepancy = mutation({
 const reviewArgs = {
   uuid: v.string(),
   programUuid: v.optional(v.string()),
+  requestUuid: v.optional(v.string()),
   decision: v.union(v.literal("accept"), v.literal("reject")),
   reason: v.string(),
   input: v.object(flightFields),
@@ -220,8 +226,10 @@ const reviewArgs = {
  * A program administrator accepts or rejects a flight, with corrections, as
  * the domain's reviewFlight allows. The aircraft's totals are rebuilt from its
  * flights, and the change log gets "flight.reviewed" plus "flight.resequenced"
- * for each other flight whose readings moved.
+ * for each other flight whose readings moved. A replayed request id changes
+ * nothing.
  *
+ * @param requestUuid - The request id, when the client sends one.
  * @throws {ConvexError} The refusals of checkContext; "Flight Program
  *   administrator required."; "You do not have permission for this
  *   aircraft."; then reviewFlight's refusals, such as "Flight not found."
@@ -229,10 +237,11 @@ const reviewArgs = {
  */
 export const reviewFlight = mutation({
   args: reviewArgs,
-  handler: (ctx, { programUuid, ...review }) =>
+  handler: (ctx, { programUuid, requestUuid, ...review }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => review,
+      request: () => requestOf(requestUuid, JSON.stringify(review)),
       load: ({ ctx, state }) => loadReview(ctx, state, review),
       apply: ({ snapshot }) => applyReview(snapshot, review),
       persist: ({ ctx }, working, changes) =>
@@ -247,10 +256,11 @@ export const reviewFlight = mutation({
 /**
  * Saves the parts a problem report needs, and writes a "discrepancy.parts"
  * change-log row. The domain checks maintenance permission and the parts
- * version.
+ * version. A replayed request id changes nothing.
  *
  * @param version - The parts version the client edited.
  * @param payload - The required parts, as JSON.
+ * @param requestUuid - The request id, when the client sends one.
  * @throws {Error} "Report not found."; a ZodError for a malformed list.
  * @throws {ConvexError} The refusals of checkContext; the domain's refusals,
  *   such as "Parts changed. Reopen the report and try again."
@@ -261,11 +271,14 @@ export const saveDiscrepancyParts = mutation({
     version: v.number(),
     payload: v.string(),
     programUuid: v.optional(v.string()),
+    requestUuid: v.optional(v.string()),
   },
-  handler: (ctx, { uuid, version, payload, programUuid }) =>
+  handler: (ctx, { uuid, version, payload, programUuid, requestUuid }) =>
     runCommand(ctx, {
       programUuid,
       parse: () => payload,
+      request: () =>
+        requestOf(requestUuid, JSON.stringify({ uuid, version, payload })),
       load: async ({ ctx, state }) => {
         const d = await reportByUuid(ctx, uuid);
         const { snapshot } = await hydrate(ctx, state, ["management"]);

@@ -383,7 +383,10 @@ export interface Backend {
    *   "accepted"; a resent entry gets the status stored for it.
    */
   submit(operation: Operation): Promise<{ status: string }>;
-  /** Resolves an open problem report, describing the repair done. */
+  /**
+   * Resolves an open problem report, describing the repair done; a replayed
+   * request id changes nothing.
+   */
   resolve(uuid: string, resolution: string): Promise<unknown>;
   /**
    * Records a deferral on a problem report, as the deferral rules allow; a
@@ -391,7 +394,8 @@ export interface Backend {
    */
   deferDiscrepancy(command: DeferCommand): Promise<unknown>;
   /**
-   * Saves the parts a problem report needs.
+   * Saves the parts a problem report needs; a replayed request id changes
+   * nothing.
    *
    * @param version - The parts version edited; a stale one is refused.
    * @param parts - The required parts.
@@ -403,8 +407,8 @@ export interface Backend {
   ): Promise<unknown>;
   /**
    * Accepts or rejects a held or rejected flight with corrections, then
-   * rebuilds the aircraft's totals from its flights. Program administrators
-   * only.
+   * rebuilds the aircraft's totals from its flights; a replayed request id
+   * changes nothing. Program administrators only.
    *
    * @param decision - Whether the flight counts.
    * @param reason - Why, for the change log.
@@ -824,7 +828,7 @@ function bindFlightCalls(client: ConvexReactClient) {
     resolve: (uuid, resolution) =>
       client.mutation(
         api.operations.resolveDiscrepancy,
-        inProgram({ uuid, resolution }),
+        inProgram(requested({ uuid, resolution })),
       ),
     deferDiscrepancy: (command) =>
       client.mutation(
@@ -836,11 +840,12 @@ function bindFlightCalls(client: ConvexReactClient) {
         uuid,
         version,
         ...programCommand(parts),
+        requestUuid: crypto.randomUUID(),
       }),
     review: (uuid, decision, reason, input) =>
       client.mutation(
         api.operations.reviewFlight,
-        inProgram({ uuid, decision, reason, input }),
+        inProgram(requested({ uuid, decision, reason, input })),
       ),
     savePlan: (command) =>
       client.mutation(api.flightPlans.save, programCommand(command)),
@@ -1067,9 +1072,12 @@ function programCommand(command: unknown) {
 
 // One request id per call, which the Convex client resends unchanged if it
 // retries the mutation; an id the caller chose for its intent is kept.
+function requested<T extends object>(fields: T & { requestUuid?: string }) {
+  return { ...fields, requestUuid: fields.requestUuid ?? crypto.randomUUID() };
+}
+
 function requestedCommand(command: { requestUuid?: string }) {
-  const requestUuid = command.requestUuid ?? crypto.randomUUID();
-  return programCommand({ ...command, requestUuid });
+  return programCommand(requested(command));
 }
 
 async function readFileFields(file: File) {

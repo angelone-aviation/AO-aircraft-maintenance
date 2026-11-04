@@ -426,6 +426,7 @@ const CASES: Case[] = [
     args: {
       uuid: "report-1",
       resolution: "Replaced the fuse.",
+      requestUuid: REQUEST_UUID,
       programUuid: ACTIVE_PROGRAM,
     },
   },
@@ -441,7 +442,12 @@ const CASES: Case[] = [
     call: (b) => b.saveDiscrepancyParts("report-1", 4, opaque()),
     kind: "mutation",
     name: "operations:saveDiscrepancyParts",
-    args: { uuid: "report-1", version: 4, ...command() },
+    args: {
+      uuid: "report-1",
+      version: 4,
+      ...command(),
+      requestUuid: REQUEST_UUID,
+    },
   },
   {
     method: "review",
@@ -454,6 +460,7 @@ const CASES: Case[] = [
       decision: "accept",
       reason: "Checked",
       input: COMMAND,
+      requestUuid: REQUEST_UUID,
     },
   },
   {
@@ -848,6 +855,18 @@ it("sends a new request id with each AD, checklist, engine-trend, cost, job-card
     (c) => JSON.parse(c.args.payload as string).requestUuid,
   );
   expect(new Set(ids).size).toBe(7);
+  for (const id of ids) expect(id).toMatch(UUID);
+});
+
+it("sends a new request id beside the arguments of a resolution, a parts list and a flight review", async () => {
+  vi.restoreAllMocks();
+  const { backend, calls } = recordingBackend();
+  await backend.resolve("report-1", "Fixed");
+  await backend.resolve("report-1", "Fixed");
+  await backend.saveDiscrepancyParts("report-1", 4, opaque());
+  await backend.review("flight-1", "accept", "Checked", opaque());
+  const ids = calls.map((c) => c.args.requestUuid);
+  expect(new Set(ids).size).toBe(4);
   for (const id of ids) expect(id).toMatch(UUID);
 });
 
