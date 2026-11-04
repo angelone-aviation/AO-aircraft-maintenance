@@ -968,11 +968,13 @@ function addDays(isoDate: string, days: number) {
 
 // Totals that cannot be computed (readings before the installation baseline,
 // a missing meter reading) leave the counter unavailable, not the AD failing.
+// Those are Rejections; any other error is a fault and propagates.
 function readComponentTotals(c: Component, a: Aircraft, today: string) {
   try {
     return componentTotals(c, a, today);
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof Rejection) return null;
+    throw error;
   }
 }
 

@@ -5,7 +5,8 @@
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   left to its default reads the clock).
  * Dependencies: zod; ./aircraftSpruce, ./addresses, ./partsRequests, ./model,
- *   ./programs, ./management, ./components, ./shelfLife, ./rejection.
+ *   ./programs, ./management, ./components, ./shelfLife, ./changeLog,
+ *   ./rejection.
  */
 import { sprucePartSchema } from "./aircraftSpruce";
 import {
@@ -31,6 +32,7 @@ import {
   type Component,
 } from "./components";
 import { addDays, assertNotExpired } from "./shelfLife";
+import { auditEntry } from "./changeLog";
 import { Rejection } from "./rejection";
 
 const text = z.string().trim().max(2000);
@@ -1198,15 +1200,22 @@ function auditChanges(
   changes: PurchaseOrder[],
   now: number,
 ) {
+  // PO rows name no program of their own: the server stamps the command's
+  // program as it writes them, and the demo keeps them without.
   for (const p of changes)
-    s.audit.unshift({
-      uuid: `${c.requestUuid}-${p.uuid}`,
-      at: now,
-      actorId: s.user.id,
-      action: `po.${c.kind}`,
-      entityUuid: p.uuid,
-      after: JSON.stringify(p),
-    });
+    s.audit.unshift(
+      auditEntry(
+        s,
+        {
+          uuid: `${c.requestUuid}-${p.uuid}`,
+          programUuid: undefined,
+          action: `po.${c.kind}`,
+          entityUuid: p.uuid,
+          after: p,
+        },
+        now,
+      ),
+    );
 }
 
 function checkOrderLine(

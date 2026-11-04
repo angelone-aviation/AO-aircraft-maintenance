@@ -2,7 +2,8 @@
  * Responsibility: Decides whether a password an administrator sets on create
  *   or reset is acceptable, and says why not.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/accountRules.ts, src/domain/commonPasswords.ts.
+ * Dependencies: src/domain/accountRules.ts, src/domain/commonPasswords.ts,
+ *   src/domain/rejection.ts.
  *
  * ADR-0009, following NIST SP 800-63B for a single-factor password: a length
  * rule, no composition rules, and nothing easily guessed. Sign-in never applies
@@ -11,6 +12,7 @@
  */
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "./accountRules";
 import { COMMON_PASSWORDS } from "./commonPasswords";
+import { Rejection } from "./rejection";
 
 // One shorter phrase repeated, such as "aaaaaaaaaaaaaaa" or a 9-character
 // password typed twice to reach the length.
@@ -50,11 +52,11 @@ export function passwordProblem(
  *
  * @param password - The new password, as typed.
  * @param email - The account's email, if known.
- * @throws {Error} With the {@link passwordProblem} message.
+ * @throws {Rejection} With the {@link passwordProblem} message.
  */
 export function assertPassword(password: string, email?: string): void {
   const problem = passwordProblem(password, email);
-  if (problem) throw new Error(problem);
+  if (problem) throw new Rejection(problem);
 }
 
 function isGuessable(password: string, email?: string): boolean {

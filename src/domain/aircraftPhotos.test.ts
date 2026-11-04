@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins the file types and size accepted for an aircraft photo.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/aircraftPhotos.ts.
+ * Dependencies: src/domain/aircraftPhotos.ts, ./rejection.
  */
 import { expect, it } from "vitest";
 import { validateAircraftPhoto } from "./aircraftPhotos";
+import { Rejection } from "./rejection";
 
 const FIVE_MIB = 5 * 1024 * 1024;
 const TOO_LARGE = Error("Aircraft photos must be no larger than 5 MB.");
@@ -18,6 +19,11 @@ it("refuses other types before checking the size", () => {
     expect(() => validateAircraftPhoto(type, 0)).toThrow(
       Error("Choose a JPEG, PNG or WebP aircraft photo."),
     );
+});
+
+it("refuses as a Rejection, which the server shows to the user", () => {
+  expect(() => validateAircraftPhoto("image/gif", 1)).toThrow(Rejection);
+  expect(() => validateAircraftPhoto("image/png", 0)).toThrow(Rejection);
 });
 
 it("accepts 1 byte to 5 MiB, in whole bytes", () => {

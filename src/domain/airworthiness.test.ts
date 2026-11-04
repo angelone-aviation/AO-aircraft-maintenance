@@ -797,10 +797,7 @@ it("judges an AD's status and component counters on the date given", () => {
   expect(adStatus(s, dated, "2099-01-01")).toBe("Scheduled");
 });
 
-// Characterizes current behaviour: the aircraft meter's own refusals
-// (src/domain/model.ts) are plain Errors, so a catch narrowed to Rejection
-// would not cover the same set.
-it("leaves the counter unavailable for the aircraft meter's plain errors too", () => {
+it("leaves the counter unavailable for the aircraft meter's refusals too", () => {
   const { s } = setup();
   const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
   const unread: Partial<Aircraft>[] = [
@@ -812,9 +809,22 @@ it("leaves the counter unavailable for the aircraft meter's plain errors too", (
     s.aircraft[0] = a;
     s.management = [installedEngine(a, {})];
     expect(adCounters(s, r)).toBeNull();
-    expect(() => totalSeconds(a)).toThrow(Error);
-    expect(() => totalSeconds(a)).not.toThrow(Rejection);
+    expect(() => totalSeconds(a)).toThrow(Rejection);
   }
+});
+
+it("lets a fault in the component's totals through, not as an unavailable counter", () => {
+  const { s } = setup();
+  const r = { ...newAD(s, "Engine"), componentUuid: "engine-1" };
+  const engine = installedEngine(s.aircraft[0], {});
+  const fault = new TypeError("Broken component record.");
+  Object.defineProperty(engine, "trackTime", {
+    get() {
+      throw fault;
+    },
+  });
+  s.management = [engine];
+  expect(() => adCounters(s, r)).toThrow(fault);
 });
 
 it("reports not applicable and superseded ADs by their applicability", () => {
