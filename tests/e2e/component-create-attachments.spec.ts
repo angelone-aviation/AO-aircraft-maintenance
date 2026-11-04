@@ -1,4 +1,11 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins attaching a certificate while creating a component,
+ *   from Components and from Inventory: the file-type refusal, the calendar
+ *   fields, and retrying an upload that fails after the component is saved.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:path.
+ */
+import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 
 for (const scenario of ["/components", "/inventory", "retry"]) {
@@ -9,18 +16,7 @@ for (const scenario of ["/components", "/inventory", "retry"]) {
     await page.addInitScript(() =>
       sessionStorage.setItem("angel-one-demo", "true"),
     );
-    await page.goto("/inventory");
-    await page
-      .getByRole("button", { name: "New location", exact: true })
-      .click();
-    await page
-      .getByLabel("Location name", { exact: true })
-      .fill("Certificate store");
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Save", exact: true })
-      .click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await createLocation(page, "Certificate store");
     await page.goto(route);
     await page
       .getByRole("button", {
@@ -77,18 +73,11 @@ for (const scenario of ["/components", "/inventory", "retry"]) {
     await picker.setInputFiles(
       path.resolve("tests/fixtures/icao-flight-plan.pdf"),
     );
+    // Retry: the PNG's upload fails once after the component is saved, so
+    // the dialog offers to upload that attachment again, not to save twice.
     if (scenario === "retry") {
       await picker.setInputFiles(path.resolve("public/icon-192.png"));
-      await page.evaluate(() => {
-        const original = File.prototype.arrayBuffer;
-        File.prototype.arrayBuffer = function () {
-          if (this.name === "icon-192.png") {
-            File.prototype.arrayBuffer = original;
-            return Promise.reject(new Error("Simulated upload interruption"));
-          }
-          return original.call(this);
-        };
-      });
+      await failFirstRead(page, "icon-192.png");
     }
     await dialog
       .getByRole("button", { name: "Save component", exact: true })
@@ -143,4 +132,27 @@ for (const scenario of ["/components", "/inventory", "retry"]) {
       }),
     ).toBeVisible();
   });
+}
+
+async function createLocation(page: Page, name: string) {
+  await page.goto("/inventory");
+  await page.getByRole("button", { name: "New location", exact: true }).click();
+  await page.getByLabel("Location name", { exact: true }).fill(name);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Save", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+}
+
+/** Makes the browser's first read of the named file fail, as a lost upload. */
+async function failFirstRead(page: Page, fileName: string) {
+  await page.evaluate((name) => {
+    const original = File.prototype.arrayBuffer;
+    File.prototype.arrayBuffer = function () {
+      if (this.name !== name) return original.call(this);
+      File.prototype.arrayBuffer = original;
+      return Promise.reject(new Error("Simulated upload interruption"));
+    };
+  }, fileName);
 }

@@ -2,11 +2,20 @@
  * Responsibility: Pins which text a user sees for a failed command, load or
  *   sync, and that the Convex client's wrapper never reaches the screen.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/data/errors.ts, convex/values.
+ * Dependencies: src/data/errors.ts, convex/values, zod,
+ *   src/domain/addressLookup.ts, src/domain/addresses.ts,
+ *   src/domain/logbookWording.ts.
  */
 import { ConvexError, type Value } from "convex/values";
+import { ZodError } from "zod";
 import { describe, expect, it } from "vitest";
+import { lookupInput } from "../domain/addressLookup";
+import { blankAddress } from "../domain/addresses";
+import { logbookPhrasesSchema } from "../domain/logbookWording";
 import { errorText } from "./errors";
+
+// The logbook phrase limit in src/domain/logbookWording.ts.
+const PHRASE_MAX_LENGTH = 200;
 
 describe("errorText", () => {
   const refusal = "Work order changed. Reload it and try again.";
@@ -72,4 +81,45 @@ describe("errorText", () => {
       expect(errorText(thrown, "Fallback.")).toBe("Fallback.");
     },
   );
+});
+
+describe("errorText for validation errors", () => {
+  const thrown = (run: () => unknown) => {
+    try {
+      run();
+    } catch (error) {
+      return error;
+    }
+    throw new Error("Expected the schema to refuse the input.");
+  };
+
+  it("shows each issue message once, never zod's JSON", () => {
+    const error = thrown(() =>
+      lookupInput({ ...blankAddress(), street: " ", country: "" }),
+    );
+    expect((error as ZodError).issues).toHaveLength(2);
+    expect(errorText(error, "Fallback.")).toBe(
+      "Too small: expected string to have >=1 characters",
+    );
+  });
+
+  it("shows a schema's own message", () => {
+    const error = thrown(() =>
+      logbookPhrasesSchema.parse(["Repaired", " repaired"]),
+    );
+    expect(errorText(error)).toBe("Remove duplicate phrases.");
+  });
+
+  it("puts different messages on their own lines, in issue order", () => {
+    const error = thrown(() =>
+      logbookPhrasesSchema.parse([" ", "x".repeat(PHRASE_MAX_LENGTH + 1)]),
+    );
+    expect(errorText(error)).toBe(
+      "Too small: expected string to have >=1 characters\nToo big: expected string to have <=200 characters",
+    );
+  });
+
+  it("falls back for a validation error without issues", () => {
+    expect(errorText(new ZodError([]), "Fallback.")).toBe("Fallback.");
+  });
 });

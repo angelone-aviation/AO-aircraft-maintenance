@@ -17,6 +17,7 @@ import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
   MAX_ATTACHMENTS,
+  storeThenFinish,
 } from "./attachments";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -110,22 +111,15 @@ export const upload = action({
     );
     const target = { stockUuid: args.stockUuid, programUuid: args.programUuid };
     await ctx.runQuery(internal.inventoryFiles.checkUpload, target);
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      await ctx.runMutation(internal.inventoryFiles.finishUpload, {
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.inventoryFiles.finishUpload, {
         ...target,
         storageId,
         name: args.name,
         type: args.type,
         size: args.bytes.byteLength,
-      });
-    } catch (error) {
-      // File storage is outside the mutation's transaction.
-      await ctx.storage.delete(storageId);
-      throw error;
-    }
+      }),
+    );
   },
 });
 

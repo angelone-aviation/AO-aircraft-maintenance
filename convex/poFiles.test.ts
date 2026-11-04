@@ -219,3 +219,14 @@ it("removes an attachment but keeps the blob its received items still use, and a
     before: JSON.stringify({ name: "invoice.pdf", size: PDF.byteLength }),
   });
 });
+
+it("deletes the stored file with the last record that uses it", async () => {
+  const { t, admin, upload } = await fixture();
+  await admin.action(api.poFiles.upload, upload);
+  const file = (await t.run((ctx) => ctx.db.query("poFiles").unique()))!;
+  await admin.mutation(api.poFiles.remove, {
+    id: file._id,
+    programUuid: PROGRAM,
+  });
+  expect(await t.run((ctx) => ctx.db.system.get(file.storageId))).toBeNull();
+});

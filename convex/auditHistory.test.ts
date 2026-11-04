@@ -363,4 +363,6 @@ it("returns a short page after scanning 4,000 entries, then carries on", async (
     cursor: first.continueCursor,
   });
   expect(next.page).toHaveLength(7);
-});
+  // Inserting 2,100 rows and scanning 4,000 takes seconds in convex-test, past
+  // vitest's 5 s default on a busy machine.
+}, 30_000);

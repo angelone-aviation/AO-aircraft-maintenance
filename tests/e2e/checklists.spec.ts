@@ -1,8 +1,20 @@
-import { test, expect } from "@playwright/test";
+/**
+ * Responsibility: Pins the checklists screen: FMD import and lossless export,
+ *   offline checks and skips, editing, the searchable library, and the guided
+ *   flight's checklist and aircraft choice.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, node:fs, node:path, src/data/fmd,
+ *   src/domain/checklists.
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { importFmd } from "../../src/data/fmd";
 import { checklistCounts } from "../../src/domain/checklists";
+
+const N377YB_FMD = path.resolve(
+  "tests/fixtures/N377YB complete Check List.fmd",
+);
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() =>
@@ -17,19 +29,12 @@ test("imports N377YB, checks and skips offline, edits, exports and retains all o
   page,
   context,
 }, testInfo) => {
-  await page
-    .getByLabel("Import FMD checklist file")
-    .setInputFiles(
-      path.resolve("tests/fixtures/N377YB complete Check List.fmd"),
-    );
+  await importN377YB(page);
   let dialog = page.getByRole("dialog");
   await expect(dialog).toContainText(
     "12 checklists · 598 entries · 401 checkable items",
   );
-  await dialog
-    .getByRole("button", { name: "Save checklist", exact: true })
-    .click();
-  await expect(dialog).not.toBeVisible();
+  await saveChecklist(dialog);
   await expect(
     page.getByRole("heading", { name: "N377YB", exact: true }),
   ).toBeVisible();
@@ -95,10 +100,7 @@ test("imports N377YB, checks and skips offline, edits, exports and retains all o
   await added
     .getByLabel(/response \/ detail/)
     .fill("A retained note\nWith a second line");
-  await dialog
-    .getByRole("button", { name: "Save checklist", exact: true })
-    .click();
-  await expect(dialog).not.toBeVisible();
+  await saveChecklist(dialog);
   await page.reload();
   await expect(first).toContainText("Landing gear handle — edited in test");
   await expect(
@@ -113,10 +115,9 @@ test("imports N377YB, checks and skips offline, edits, exports and retains all o
     new Uint8Array(await readFile(target)).buffer,
   );
   const original = await importFmd(
-    new Uint8Array(
-      await readFile("tests/fixtures/N377YB complete Check List.fmd"),
-    ).buffer,
+    new Uint8Array(await readFile(N377YB_FMD)).buffer,
   );
+  // The added heading is the one new entry; it is not checkable.
   expect(checklistCounts(exported)).toEqual({
     lists: 12,
     entries: 599,
@@ -172,10 +173,7 @@ test("creates editable groups and items and rejects damaged imports without losi
   await dialog
     .getByLabel("Entry 1 response / detail", { exact: true })
     .fill("Checked");
-  await dialog
-    .getByRole("button", { name: "Save checklist", exact: true })
-    .click();
-  await expect(dialog).not.toBeVisible();
+  await saveChecklist(dialog);
   await page.getByLabel("Import FMD checklist file").setInputFiles({
     name: "bad.fmd",
     mimeType: "application/octet-stream",
@@ -191,17 +189,10 @@ test("switches through the searchable checklist library without losing checks", 
   page,
 }) => {
   for (const name of ["Alpha procedures", "Bravo procedures"]) {
-    await page
-      .getByLabel("Import FMD checklist file")
-      .setInputFiles(
-        path.resolve("tests/fixtures/N377YB complete Check List.fmd"),
-      );
+    await importN377YB(page);
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Checklist name", { exact: true }).fill(name);
-    await dialog
-      .getByRole("button", { name: "Save checklist", exact: true })
-      .click();
-    await expect(dialog).not.toBeVisible();
+    await saveChecklist(dialog);
   }
   const reader = page.getByRole("region", { name: "Interactive checklist" });
   const first = reader.getByRole("checkbox").first();
@@ -232,11 +223,7 @@ test("guided setup follows the checklist and linked aircraft selected in the lib
   page,
 }) => {
   for (const name of ["Alpha guided", "Bravo guided"]) {
-    await page
-      .getByLabel("Import FMD checklist file")
-      .setInputFiles(
-        path.resolve("tests/fixtures/N377YB complete Check List.fmd"),
-      );
+    await importN377YB(page);
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Checklist name", { exact: true }).fill(name);
     // Use actual aircraft options rather than relying on fixture identifiers.
@@ -246,10 +233,7 @@ test("guided setup follows the checklist and linked aircraft selected in the lib
     const aircraftId = await dialog
       .getByLabel("Checklist aircraft", { exact: true })
       .inputValue();
-    await dialog
-      .getByRole("button", { name: "Save checklist", exact: true })
-      .click();
-    await expect(dialog).not.toBeVisible();
+    await saveChecklist(dialog);
     await page.getByLabel("Enable guided flight trial").check();
     await expect(
       page.getByLabel("Guided aircraft", { exact: true }),
@@ -277,20 +261,13 @@ test("keeps a selected shared piston checklist when choosing another aircraft", 
   page,
 }) => {
   for (const name of ["Twin procedures", "Mooney piston procedures"]) {
-    await page
-      .getByLabel("Import FMD checklist file")
-      .setInputFiles(
-        path.resolve("tests/fixtures/N377YB complete Check List.fmd"),
-      );
+    await importN377YB(page);
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Checklist name", { exact: true }).fill(name);
     await dialog
       .getByLabel("Checklist aircraft", { exact: true })
       .selectOption("");
-    await dialog
-      .getByRole("button", { name: "Save checklist", exact: true })
-      .click();
-    await expect(dialog).not.toBeVisible();
+    await saveChecklist(dialog);
   }
   await page.getByLabel("Enable guided flight trial").check();
   await page
@@ -302,3 +279,15 @@ test("keeps a selected shared piston checklist when choosing another aircraft", 
       .locator("option:checked"),
   ).toHaveText("Mooney piston procedures");
 });
+
+/** Chooses the N377YB FMD file, which opens the import preview. */
+async function importN377YB(page: Page) {
+  await page.getByLabel("Import FMD checklist file").setInputFiles(N377YB_FMD);
+}
+
+async function saveChecklist(dialog: Locator) {
+  await dialog
+    .getByRole("button", { name: "Save checklist", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+}

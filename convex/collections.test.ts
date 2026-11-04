@@ -4,8 +4,9 @@
  *   collection exactly as before it.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/collections.ts, convex/runCommand.ts,
- *   convex/operations.ts, convex/schema.ts, zod,
- *   tests/fixtures/storedCollections.ts, src/domain stored-record schemas.
+ *   convex/programContext.ts, convex/schema.ts, zod,
+ *   tests/fixtures/storedCollections.ts, src/data/demo.ts, src/domain
+ *   stored-record schemas.
  *
  * The snapshot golden files were recorded from the query before it decoded
  * through the codec; LEGACY_DECODERS is the decoding hydrate used before it.
@@ -16,7 +17,7 @@ import { afterEach, beforeEach, it, expect, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { hydrate, type Need } from "./runCommand";
-import { checkContext } from "./programContext";
+import { checkContext, inspectionDocs, managementDocs } from "./programContext";
 import {
   decode,
   decodeLenient,
@@ -28,6 +29,7 @@ import {
   seedStoredCollections,
 } from "../tests/fixtures/storedCollections";
 import type { Snapshot } from "../src/domain/model";
+import { demoSnapshot } from "../src/data/demo";
 import { recordSchema } from "../src/domain/management";
 import { taskCardSchema } from "../src/domain/taskCards";
 import { workOrderSchema } from "../src/domain/workOrders";
@@ -243,32 +245,50 @@ it("refuses to encode a component template without a Flight Program", () => {
   );
 });
 
-// Characterizes current behaviour: the management mutation drops an empty
-// aircraftUuid column that encode keeps, as the records read back the same.
-it("keeps a management row's empty aircraftUuid, which the management mutation drops", async () => {
+const SPARE_PROP = {
+  kind: "component",
+  uuid: "spare-prop",
+  version: 0,
+  aircraftUuid: "",
+  componentType: "Propeller",
+  partNumber: "P-1",
+  serial: "S-1",
+  manufacturer: "",
+  notes: "",
+  trackTime: true,
+  trackCycles: false,
+  trackCalendar: false,
+  installed: false,
+  partsLocation: "Shelf",
+  installedSeconds: 0,
+  installedCycles: 0,
+  timeSinceNew: 0,
+  timeSinceOverhaul: null,
+  timeSinceRepair: null,
+  cyclesSinceNew: 0,
+  serviceDaysBase: 0,
+};
+
+// One stored form for every writer: the management mutation and the transfer
+// used to drop the empty column.
+it("stores a spare's management row as encode does, through a save and a transfer", async () => {
   const { t, admin } = await fixture();
-  const component = {
-    kind: "component",
-    uuid: "spare-prop",
-    version: 0,
-    aircraftUuid: "",
-    componentType: "Propeller",
-    partNumber: "P-1",
-    serial: "S-1",
-    manufacturer: "",
-    notes: "",
-    trackTime: true,
-    trackCycles: false,
-    trackCalendar: false,
-    installed: false,
-    partsLocation: "Shelf",
-    installedSeconds: 0,
-    installedCycles: 0,
-    timeSinceNew: 0,
-    timeSinceOverhaul: null,
-    timeSinceRepair: null,
-    cyclesSinceNew: 0,
-    serviceDaysBase: 0,
+  await t.run((ctx) =>
+    ctx.db.insert("programs", {
+      ...demoSnapshot().programs![0],
+      uuid: "other-program",
+      name: "Other",
+    }),
+  );
+  const stored = async () => {
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("management")
+        .withIndex("uuid", (q) => q.eq("uuid", SPARE_PROP.uuid))
+        .unique(),
+    );
+    const { _id, _creationTime, ...fields } = row!;
+    return fields;
   };
   await admin.mutation(api.management.execute, {
     programUuid: PROGRAM,
@@ -276,16 +296,56 @@ it("keeps a management row's empty aircraftUuid, which the management mutation d
       requestUuid: crypto.randomUUID(),
       reason: "Spare received",
       action: "record.save",
-      record: component,
+      record: SPARE_PROP,
     }),
   });
-  const stored = await t.run((ctx) =>
-    ctx.db
-      .query("management")
-      .withIndex("uuid", (q) => q.eq("uuid", component.uuid))
-      .unique(),
-  );
-  expect(stored).not.toHaveProperty("aircraftUuid");
-  const [record] = decode("management", [stored!]);
-  expect(encode("management", record)).toHaveProperty("aircraftUuid", "");
+  const saved = await stored();
+  expect(saved).toHaveProperty("aircraftUuid", "");
+  expect(encode("management", JSON.parse(saved.payload))).toEqual(saved);
+  await admin.mutation(api.programs.transfer, {
+    programUuid: PROGRAM,
+    kind: "component",
+    uuid: SPARE_PROP.uuid,
+    destination: "other-program",
+    reason: "New base",
+  });
+  const moved = await stored();
+  expect(moved).toMatchObject({
+    programUuid: "other-program",
+    aircraftUuid: "",
+  });
+  expect(encode("management", JSON.parse(moved.payload))).toEqual(moved);
+});
+
+// Why the form is free to choose: no index covers the column, and its one
+// reader finds a removed component's inspections either way.
+it("loads a removed component's inspections whether its aircraftUuid is empty or absent", async () => {
+  const { t } = await fixture();
+  const [inspection] = demoSnapshot().inspections;
+  const found = await t.run(async (ctx) => {
+    for (const [uuid, aircraftUuid] of [
+      ["empty-column", ""],
+      ["no-column", undefined],
+    ]) {
+      await ctx.db.insert("management", {
+        uuid: uuid!,
+        programUuid: PROGRAM,
+        kind: "component",
+        aircraftUuid,
+        payload: "{}",
+      });
+      await ctx.db.insert("inspections", {
+        ...inspection,
+        uuid: `${uuid}-inspection`,
+        aircraftUuid: "",
+        componentUuid: uuid,
+      });
+    }
+    const management = await managementDocs(ctx, PROGRAM);
+    return (await inspectionDocs(ctx, [], management)).map((d) => d.uuid);
+  });
+  expect(found.sort()).toEqual([
+    "empty-column-inspection",
+    "no-column-inspection",
+  ]);
 });

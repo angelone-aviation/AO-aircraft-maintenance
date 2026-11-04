@@ -74,10 +74,12 @@ import { earliestLocalDate } from "../src/domain/aircraftStatus";
 import {
   deferCommandSchema,
   deferDiscrepancy as applyDeferral,
+  resolveDiscrepancy as applyResolution,
 } from "../src/domain/deferrals";
 import {
   operationSchema,
   type Aircraft,
+  type Discrepancy,
   type Flight,
   type FlightInput,
   type Operation,
@@ -163,13 +165,14 @@ export const submit = mutation({
 });
 
 /**
- * Resolves an open problem report with a description of the repair, and
- * writes a "discrepancy.resolved" change-log row.
+ * Resolves an open problem report with a description of the repair, as the
+ * deferrals domain allows, and writes a "discrepancy.resolved" change-log row.
  *
- * @throws {Error} "Report not found.", "Describe the repair in 1–5000
- *   characters." or "This report is already resolved."
- * @throws {ConvexError} The refusals of checkContext, or "You do not have
- *   permission for this aircraft." without the resolve permission.
+ * @throws {Error} "Report not found."
+ * @throws {ConvexError} The refusals of checkContext; "You do not have
+ *   permission for this aircraft." without the resolve permission; the
+ *   domain's "Describe the repair in 1–5000 characters." and "This report is
+ *   already resolved."
  */
 export const resolveDiscrepancy = mutation({
   args: {
@@ -177,28 +180,23 @@ export const resolveDiscrepancy = mutation({
     resolution: v.string(),
     programUuid: v.optional(v.string()),
   },
-  handler: async (ctx, { uuid, resolution, programUuid }) => {
-    const state = await checkContext(ctx, programUuid);
-    const d = await reportByUuid(ctx, uuid);
-    const user = await authorized(ctx, d.aircraftUuid, "resolve", state);
-    if (!resolution.trim() || resolution.length > MAX_EXPLANATION_LENGTH)
-      throw new Error("Describe the repair in 1–5000 characters.");
-    if (d.status === "resolved")
-      throw new Error("This report is already resolved.");
-    const update = {
-      status: "resolved" as const,
-      resolution: resolution.trim(),
-      resolvedBy: user._id,
-      resolvedAt: Date.now(),
-    };
-    await ctx.db.patch(d._id, update);
-    await audit(ctx, user._id, "discrepancy.resolved", uuid, {
-      aircraftUuid: d.aircraftUuid,
-      before: d,
-      after: update,
-      reason: resolution,
-    });
-  },
+  handler: (ctx, { uuid, resolution, programUuid }) =>
+    runCommand(ctx, {
+      programUuid,
+      parse: () => uuid,
+      load: ({ ctx, state }) => loadReport(ctx, state, uuid),
+      apply: ({ s }) => applyResolution(s, uuid, resolution),
+      persist: async ({ ctx }, { d }, next) => {
+        await ctx.db.patch(d._id, resolvedFields(next));
+      },
+      audit: (log, { d }, next) =>
+        log.entry("discrepancy.resolved", uuid, {
+          aircraftUuid: d.aircraftUuid,
+          before: d,
+          after: resolvedFields(next),
+          reason: resolution,
+        }),
+    }),
 });
 
 /**
@@ -216,13 +214,7 @@ export const deferDiscrepancy = mutation({
     runCommand(ctx, {
       programUuid,
       parse: () => deferCommandSchema.parse(JSON.parse(payload)),
-      load: async ({ ctx, state }, command) => {
-        const d = await reportByUuid(ctx, command.uuid);
-        // Scopes the report to the caller's active program before any change.
-        await authorized(ctx, d.aircraftUuid, "resolve", state);
-        const { _id, _creationTime, ...report } = d;
-        return { d, s: { ...state, discrepancies: [report] } };
-      },
+      load: ({ ctx, state }, command) => loadReport(ctx, state, command.uuid),
       apply: ({ s }, command) => applyDeferral(s, command),
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, { deferral: next.deferral });
@@ -699,6 +691,22 @@ async function persistSubmission(
   }
   if (changes.discrepancy)
     await ctx.db.insert("discrepancies", changes.discrepancy);
+}
+
+// The stored report, scoped to the caller's active program before any change,
+// and the domain's view of it.
+async function loadReport(ctx: MutationCtx, state: Snapshot, uuid: string) {
+  const d = await reportByUuid(ctx, uuid);
+  await authorized(ctx, d.aircraftUuid, "resolve", state);
+  const { _id, _creationTime, ...report } = d;
+  return { d, s: { ...state, discrepancies: [report] } };
+}
+
+// The fields resolving sets, in the order the change log has always stored
+// them.
+function resolvedFields(d: Discrepancy) {
+  const { status, resolution, resolvedBy, resolvedAt } = d;
+  return { status, resolution, resolvedBy, resolvedAt };
 }
 
 async function reportByUuid(ctx: MutationCtx, uuid: string) {

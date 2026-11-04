@@ -1,3 +1,9 @@
+/**
+ * Responsibility: Pins the Aircraft Spruce account panel in demo mode: it
+ *   explains the live connection and offers no way to save credentials.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 
 test("program vendor settings explain the live connection and prevent saving credentials in demo mode", async ({

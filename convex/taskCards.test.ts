@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins job cards: saving and access, signer identity and
+ *   signoff rules, template unlinking, evidence, archived cards, and a card
+ *   uuid outside the Flight Program.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/taskCards, convex/operations, src/data/demo,
+ *   src/domain/taskCards, tests/fixtures/taskCards.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -378,4 +386,35 @@ it("deletes evidence only from open unsigned cards with maintenance access, keep
       programUuid: "demo-program",
     }),
   ).rejects.toThrow("unsigned");
+});
+
+it("refuses a job card uuid stored outside the Flight Program, and an archived card", async () => {
+  const { t, tech } = await fixture();
+  const command = taskCardCommand();
+  const outside = { uuid: command.uuid, aircraftUuid: "other-aircraft" };
+  const archived = taskCardCommand();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("taskCards", { ...outside, payload: "{}" });
+    await ctx.db.insert("archivedTaskCards", {
+      uuid: archived.uuid,
+      aircraftUuid: archived.fields.aircraftUuid,
+      payload: "{}",
+    });
+  });
+  const save = (c: unknown) =>
+    tech.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const stored = () => t.run((ctx) => ctx.db.query("taskCards").collect());
+  const before = await stored();
+  await expect(save(command)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Job card not found.",
+  });
+  await expect(save(archived)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Archived job cards are read-only.",
+  });
+  expect(await stored()).toEqual(before);
 });

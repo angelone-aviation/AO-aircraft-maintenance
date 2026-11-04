@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins adding an already installed component from its
+ *   aircraft without a work order, then a trackable part under it with a life
+ *   limit.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 
 test("adds an already installed component from its aircraft without a work order", async ({
