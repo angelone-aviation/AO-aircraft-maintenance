@@ -325,7 +325,7 @@ it("applies a request id once and refuses its reuse for another payload", async 
   expect(await f.requests()).toHaveLength(1);
 });
 
-it("records each request id once, in commandRequests", async () => {
+it("records each request id once, in commandRequests and not managementRequests", async () => {
   const f = await fixture();
   const command = planCommand(f.aircraft, {
     request: () => ({ uuid: "request-1", payload: "first" }),
@@ -342,6 +342,9 @@ it("records each request id once, in commandRequests", async () => {
     ...row
   }: T) => row;
   expect((await f.requests()).map(fields)).toEqual(stored);
+  expect(
+    await f.t.run((ctx) => ctx.db.query("managementRequests").collect()),
+  ).toEqual([]);
 });
 
 it("replays a request id commandRequests already holds, writing nothing", async () => {
