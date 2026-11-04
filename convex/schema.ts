@@ -1,3 +1,15 @@
+/**
+ * Responsibility: The database schema: each table's document validator and
+ *   indexes.
+ * Layer: Server. Declarations Convex checks every write against; no logic.
+ * Dependencies: convex/server, convex/values, @convex-dev/auth/server,
+ *   ./validators, src/domain/ata.
+ *
+ * Most records are one JSON `payload` per row, checked by the domain's zod
+ * schemas (convex/collections.ts), so a new record field changes this file
+ * only when it needs an index. Each table that holds a file has a "storage"
+ * index for the blob clean-up (convex/storageReferences.ts).
+ */
 import { ATA_CHAPTERS } from "../src/domain/ata";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
@@ -9,6 +21,12 @@ import {
   flightFields,
   permission,
 } from "./validators";
+
+/**
+ * The deployment's tables: Convex Auth's, then the app's. Convex refuses a
+ * deploy whose schema the stored documents do not match, so a new column
+ * starts optional.
+ */
 export default defineSchema({
   ...authTables,
   aircraftPhotos: defineTable({
@@ -497,6 +515,13 @@ export default defineSchema({
     .index("aircraft", ["aircraftUuid"])
     .index("program", ["programUuid", "aircraftUuid"]),
   managementRequests: defineTable({
+    uuid: v.string(),
+    actorId: v.string(),
+    payload: v.string(),
+  }).index("uuid", ["uuid"]),
+  // managementRequests under its ADR-0003 name, written alongside it until
+  // replays read from here (T18). The fields match, so rows copy over as is.
+  commandRequests: defineTable({
     uuid: v.string(),
     actorId: v.string(),
     payload: v.string(),

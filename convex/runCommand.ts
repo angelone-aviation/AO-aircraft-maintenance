@@ -147,12 +147,7 @@ export async function runCommand<C, W, R, Out = void>(
   await persistCommand(tx, command, working, result, parsed);
   command.audit(log, working, result, parsed);
   for (const row of log.rows) await writeAudit(ctx, row);
-  if (request)
-    await ctx.db.insert("managementRequests", {
-      uuid: request.uuid,
-      actorId: state.user.id,
-      payload: request.payload,
-    });
+  if (request) await recordRequest(ctx, state, request);
   return command.returns?.(result, working);
 }
 
@@ -416,6 +411,23 @@ async function isReplayed(
   if (prior.actorId !== state.user.id || prior.payload !== request.payload)
     throw new ConvexError("Request identifier already used.");
   return true;
+}
+
+// The same row goes to both tables while commandRequests takes over from
+// managementRequests (ADR-0003, expand); replays still read the old one, which
+// alone holds the ids recorded before.
+async function recordRequest(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  request: { uuid: string; payload: string },
+) {
+  const row = {
+    uuid: request.uuid,
+    actorId: state.user.id,
+    payload: request.payload,
+  };
+  await ctx.db.insert("managementRequests", row);
+  await ctx.db.insert("commandRequests", row);
 }
 
 async function loadAndApply<C, W, R, Out>(
