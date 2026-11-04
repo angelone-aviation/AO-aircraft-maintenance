@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins aircraft status levels, reasons and their order, and
+ *   the dispatch gate's refusals and overrides.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/aircraftStatus.ts, ./airworthiness, ./components,
+ *   ./deferrals, ./model, ./rejection, src/data/demo.ts (seed).
+ */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -9,6 +16,7 @@ import { blankAD, blankADTask } from "./airworthiness";
 import { componentSchema, requirementSchema } from "./components";
 import { deferDiscrepancy } from "./deferrals";
 import { localDate, totalSeconds, type Snapshot } from "./model";
+import { Rejection } from "./rejection";
 
 const today = localDate();
 const N206 = "demo-206";
@@ -257,6 +265,98 @@ describe("aircraft status", () => {
     expect(() => aircraftStatus(setup(), "nope", today)).toThrow(
       "Aircraft not found",
     );
+    expect(() => aircraftStatus(setup(), "nope", today)).not.toThrow(Rejection);
+  });
+  it("lists grounding reasons as profile, inspections, components, ADs, then discrepancies", () => {
+    const s = setup();
+    component(s, 99 * 3600);
+    const r = ad(s, addDays(-1));
+    s.discrepancies.push({
+      uuid: "d1",
+      aircraftUuid: N206,
+      description: `Alternator ${"x".repeat(80)}`,
+      status: "open",
+      grounding: true,
+      authorId: s.user.id,
+      createdAt: 0,
+    });
+    s.inspections.push({
+      uuid: "late",
+      aircraftUuid: N206,
+      reference: "Annual",
+      description: "",
+      dueDate: addDays(-1),
+    });
+    s.aircraft[0] = { ...s.aircraft[0], operationalStatus: "grounded" };
+    const { reasons } = aircraftStatus(s, N206, today);
+    expect(reasons.map((reason) => reason.entityUuid)).toEqual([
+      N206,
+      "late",
+      "pump-life",
+      r.uuid,
+      "d1",
+    ]);
+    expect(reasons[4].label).toBe(
+      `Open discrepancy: Alternator ${"x".repeat(66)}…`,
+    );
+  });
+  it("adds no reason for an uncomputable schedule, a removed component's AD or a superseded AD", () => {
+    const s = setup();
+    s.inspections.push({
+      uuid: "bad-date",
+      aircraftUuid: N206,
+      reference: "Annual",
+      description: "",
+      lastDate: "2026-02-30",
+      intervalMonths: 12,
+    });
+    component(s, 99 * 3600);
+    s.management = s.management!.map((r) =>
+      r.kind === "component" ? { ...r, installed: false } : r,
+    );
+    const onPump = { ...ad(s, addDays(-1)), componentUuid: "pump" };
+    const superseded = {
+      ...ad(s, addDays(-1)),
+      applicability: "Superseded" as const,
+    };
+    s.airworthiness = [onPump, superseded];
+    expect(aircraftStatus(s, N206, today)).toEqual({
+      level: "airworthy",
+      reasons: [],
+    });
+  });
+  it("flags a deferral as due soon from 3 days before it expires", () => {
+    const s = setup();
+    s.discrepancies.push({
+      uuid: "d1",
+      aircraftUuid: N206,
+      description: "Light inoperative",
+      status: "open",
+      authorId: s.user.id,
+      createdAt: 0,
+      deferral: {
+        type: "mel",
+        melItem: "33-1",
+        category: "C",
+        placard: "INOP",
+        deferredOn: today,
+        deferredAt: 0,
+        deferredBy: s.user.id,
+        deferredByName: s.user.name,
+        expiresOn: addDays(10),
+      },
+    });
+    expect(aircraftStatus(s, N206, addDays(6)).level).toBe("airworthy");
+    expect(aircraftStatus(s, N206, addDays(7))).toEqual({
+      level: "due-soon",
+      reasons: [
+        {
+          kind: "deferral",
+          label: `MEL 33-1 (Category C) deferral expires ${addDays(10)}`,
+          entityUuid: "d1",
+        },
+      ],
+    });
   });
 });
 
@@ -325,6 +425,33 @@ describe("dispatch gate", () => {
     expect(dispatchGate(s, N206, "Ferry flight approved", today)?.by).toBe(
       "demo-pilot",
     );
+  });
+  it("refuses as a Rejection and bounds the reason at 10–1000 characters", () => {
+    const refusal = (attempt: () => unknown) => {
+      try {
+        attempt();
+      } catch (error) {
+        return error;
+      }
+    };
+    for (const attempt of [
+      () => dispatchGate(grounded(), N206, undefined, today),
+      () => dispatchGate(grounded(), N206, "x".repeat(1001), today),
+      () => dispatchGate(pilot(setup()), N206, "Ferry flight approved", today),
+    ])
+      expect(refusal(attempt)).toBeInstanceOf(Rejection);
+    expect(
+      refusal(() => dispatchGate(grounded(), N206, "x".repeat(1001), today)),
+    ).toEqual(
+      new Rejection("Explain the dispatch override in 10–1000 characters."),
+    );
+    for (const reason of ["x".repeat(10), "x".repeat(1000)])
+      expect(dispatchGate(grounded(), N206, reason, today)?.reason).toBe(
+        reason,
+      );
+    expect(
+      refusal(() => dispatchGate(grounded(), N206, "x".repeat(9), today)),
+    ).toBeInstanceOf(Rejection);
   });
   it("computes a lenient server date no later than any local date", () => {
     const now = Date.parse("2026-10-30T06:00:00Z");

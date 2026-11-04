@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins shelf-life flags, usable quantity, and the refusal to
+ *   issue or reserve expired stock on every path that moves it.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/shelfLife.ts, ./management, ./partsRequests,
+ *   ./purchaseOrders, src/data/demo.ts (seed).
+ */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { applyManagement, type Stock } from "./management";
@@ -7,6 +14,7 @@ import {
   addDays,
   assertNotExpired,
   expiredForUse,
+  shelfLifeLabels,
   shelfLifeStatus,
   usableQuantity,
 } from "./shelfLife";
@@ -56,6 +64,14 @@ describe("shelf life", () => {
   it("adds calendar days across month and year ends", () => {
     expect(addDays("2026-12-15", 30)).toBe("2027-01-14");
     expect(addDays("2028-02-28", 1)).toBe("2028-02-29");
+    expect(addDays("2027-01-01", -1)).toBe("2026-12-31");
+  });
+  it("labels each flag and counts a lot without reservations in full", () => {
+    expect(shelfLifeLabels).toEqual({
+      expired: "Expired",
+      soon: "Expires soon",
+    });
+    expect(usableQuantity({ quantity: 4 }, now)).toBe(4);
   });
   it("blocks issuing expired stock but still allows receipts and counts", () => {
     const s = fixture("2026-10-01");

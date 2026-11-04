@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins the CSV reader and the manual schedule import: header
+ *   and row checks, error labels, limits and the candidates produced.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/maintenanceCsv.ts, ./csv, ./taskCards,
+ *   ./rejection, src/data/demo.ts (seed), tests/fixtures/taskCards.ts.
+ */
 import { expect, it } from "vitest";
 import {
   csvSourceKey,
@@ -7,6 +14,7 @@ import {
   readCsvRows,
   type ImportKind,
 } from "./maintenanceCsv";
+import { Rejection } from "./rejection";
 import { toCsv } from "./csv";
 import { demoSnapshot } from "../data/demo";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
@@ -210,4 +218,133 @@ it("reports spreadsheet rows, counting blank rows the reader skips", () => {
       manual,
     ).errors[0],
   ).toContain("inspections, row 4:");
+});
+
+it("refuses unreadable files as a Rejection", () => {
+  for (const [text, message] of [
+    ["x".repeat(1024 * 1024 + 1), "CSV files must be at most 1 MB."],
+    ["id\na\nb\nc", "Use at most 2 records per CSV file."],
+    ['id\nx"y', "Unexpected quote in CSV."],
+    ['id\n"x"y', "Unexpected text after a closing quote."],
+    ['id\n"x', "CSV contains an unclosed quoted field."],
+  ]) {
+    const read = () => readCsvRows(text, { maxMegabytes: 1, maxRecords: 2 });
+    expect(read).toThrow(Rejection);
+    expect(read).toThrow(message);
+  }
+  expect(readCsvRows("id\na\nb", { maxRecords: 2 })).toHaveLength(3);
+});
+
+it("labels file and row errors and keeps reading the other files", () => {
+  const row = { id: "p2", name: "Phase 2", description: "Test", pdf_page: 1 };
+  const batch = parseMaintenanceCsv(
+    {
+      inspections: importHeaders.inspections.join(","),
+      components: "id\nx",
+      tasks: csv("tasks", [
+        {
+          id: "t1",
+          parent_type: "inspection",
+          parent_id: "p2",
+          instruction: "",
+        },
+        {
+          id: "t1",
+          parent_type: "inspection",
+          parent_id: "p2",
+          instruction: "Do",
+          pdf_page: 2,
+        },
+      ]),
+    },
+    manual,
+  );
+  expect(batch.errors).toEqual([
+    "inspections: The file contains headers but no records.",
+    `components: Headers must be exactly: ${importHeaders.components.join(",")}`,
+    expect.stringMatching(/^tasks, row 2: /),
+    "tasks, row 3: Duplicate ID: t1",
+  ]);
+  expect(batch.tasks).toEqual([]);
+  expect(
+    parseMaintenanceCsv({ inspections: csv("inspections", [row]) }, manual),
+  ).toMatchObject({
+    inspections: [{ importId: "p2" }],
+    components: [],
+    tasks: [],
+    errors: [],
+  });
+});
+
+it("maps component limits, calendar units and conditions", () => {
+  const component = (row: Record<string, unknown>) =>
+    parseMaintenanceCsv(
+      {
+        components: csv("components", [
+          {
+            id: "pump",
+            name: "Pump",
+            requirement_type: "life_limit",
+            calendar_unit: "MONTHS",
+            time_basis: "TSN",
+            hour_mode: "ABSOLUTE",
+            cycle_mode: "ABSOLUTE",
+            pdf_page: 1,
+            ...row,
+          },
+        ]),
+      },
+      manual,
+    );
+  expect(
+    ["YEARS", "MONTHS", "DAYS"].map(
+      (calendar_unit) =>
+        component({ calendar_value: 2, calendar_unit }).components[0].months,
+    ),
+  ).toEqual([24, 2, undefined]);
+  expect(
+    ["life_limit", "overhaul", "inspection"].map(
+      (requirement_type) =>
+        component({ requirement_type }).components[0].requirementDefaults
+          ?.requirementType,
+    ),
+  ).toEqual(["Life Limits", "Overhaul Requirement", "Inspection Requirement"]);
+  expect(
+    component({ description: "Replace", conditions: "If leaking" })
+      .components[0],
+  ).toMatchObject({
+    text: "Replace\n\nConditions: If leaking",
+    scheduleText: "If leaking",
+    warnings: ["If leaking"],
+  });
+  expect(
+    component({ description: "d".repeat(9990), conditions: "c" }).errors,
+  ).toEqual([
+    "components, row 2: Description plus conditions must fit within 10,000 characters.",
+  ]);
+  expect(component({ cycle_limit: "5.5" }).errors[0]).toContain(
+    "Use a positive whole number, at most 1,000,000.",
+  );
+});
+
+it("caps an inspection's description plus conditions at 2,000 characters", () => {
+  const inspection = (conditions: string) =>
+    parseMaintenanceCsv(
+      {
+        inspections: csv("inspections", [
+          {
+            id: "p",
+            name: "P",
+            description: "d".repeat(1800),
+            conditions,
+            pdf_page: 1,
+          },
+        ]),
+      },
+      manual,
+    ).errors;
+  expect(inspection("c".repeat(186))).toEqual([]);
+  expect(inspection("c".repeat(187))).toEqual([
+    "inspections, row 2: Description plus conditions must fit within 2,000 characters.",
+  ]);
 });
