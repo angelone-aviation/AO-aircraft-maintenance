@@ -26,7 +26,8 @@ export { adAircraftUuid } from "./adOwnership";
 export { effectiveCompliance, lastCompliance } from "./adCompliance";
 
 const TEXT_MAX_LENGTH = 20_000;
-const REASON_MAX_LENGTH = 1500;
+/** Longest reason for changing an AD or correcting its compliance. */
+export const REASON_MAX_LENGTH = 1500;
 const URL_MAX_LENGTH = 2000;
 // About 1,000 years: a sanity bound on stored day counts, not a service rule.
 const MAX_INTERVAL_DAYS = 365_000;
@@ -100,6 +101,13 @@ export const adComplianceSchema = z.object({
   corrects: z.string().uuid().optional(),
   correctionReason: z.string().max(REASON_MAX_LENGTH).optional(),
 });
+
+/** The fields a compliance entry cannot leave blank. */
+export const REQUIRED_COMPLIANCE_FIELDS: readonly (keyof ADCompliance)[] = [
+  "date",
+  "method",
+  "mechanic",
+];
 
 // What a command may send for an entry: the correction link is set only by
 // the correction command, so a forged one on new compliance is dropped.
@@ -184,6 +192,12 @@ export const TRACKED_APPLICABILITY: readonly AD["applicability"][] = [
   "Previously Complied With (PCW)",
 ];
 
+// Choosing one of these settles the applicability review.
+const SETTLING_APPLICABILITY: readonly AD["applicability"][] = [
+  ...CLOSED_APPLICABILITY,
+  "Previously Complied With (PCW)",
+];
+
 // An overdue action makes the AD overdue even if another cannot be computed.
 const AD_STATUS_PRIORITY: readonly string[] = [
   "Overdue",
@@ -260,6 +274,55 @@ type TaskStatus =
  * @returns The matching key.
  */
 export const adNumber = (s: string) => s.toUpperCase().replace(/\s+/g, "");
+
+/**
+ * Whether two of an aircraft's AD records track the same AD: on the same
+ * component (or both on the airframe), with the same {@link adNumber}.
+ */
+export function tracksSameAD(
+  a: Pick<AD, "componentUuid" | "source">,
+  b: Pick<AD, "componentUuid" | "source">,
+) {
+  return (
+    a.componentUuid === b.componentUuid &&
+    adNumber(a.source.number) === adNumber(b.source.number)
+  );
+}
+
+/**
+ * Whether an AD's actions are tracked: its applicability is reviewed, and it
+ * applies or was complied with before. Only then is compliance recorded.
+ */
+export function isTrackedAD(r: Pick<AD, "applicability" | "reviewRequired">) {
+  return !r.reviewRequired && TRACKED_APPLICABILITY.includes(r.applicability);
+}
+
+/**
+ * Records an applicability decision on an AD being edited. Not applicable,
+ * superseded and PCW settle the review; "Needs review" reopens it; Applicable
+ * leaves it as it was.
+ *
+ * @returns A copy of the AD with the decision.
+ */
+export function withApplicability(
+  r: AD,
+  applicability: AD["applicability"],
+): AD {
+  const reviewRequired = SETTLING_APPLICABILITY.includes(applicability)
+    ? false
+    : applicability === "Needs review" || r.reviewRequired;
+  return { ...r, applicability, reviewRequired };
+}
+
+/** Whether saving this decision needs its reason: an AD not applicable. */
+export function needsApplicabilityReason(applicability: AD["applicability"]) {
+  return applicability === "Not applicable";
+}
+
+/** Whether saving this decision needs the AD that superseded this one. */
+export function needsSupersedingAD(applicability: AD["applicability"]) {
+  return applicability === "Superseded";
+}
 
 /**
  * A manually entered AD awaiting review, with no actions or history.
@@ -713,17 +776,16 @@ function saveAD(
     (x) =>
       x.uuid !== r.uuid &&
       adAircraftUuid(s, x) === adAircraftUuid(s, r) &&
-      x.componentUuid === r.componentUuid &&
-      adNumber(x.source.number) === adNumber(r.source.number),
+      tracksSameAD(x, r),
   );
   if (duplicate)
     throw new Rejection("This AD already exists for the selected asset.");
 }
 
 function assertApplicabilityDecision(r: AD, now: number) {
-  if (r.applicability === "Superseded" && !r.source.supersededBy)
+  if (needsSupersedingAD(r.applicability) && !r.source.supersededBy)
     throw new Rejection("Enter the superseding AD in Superseded by.");
-  if (r.applicability === "Not applicable" && !r.reason)
+  if (needsApplicabilityReason(r.applicability) && !r.reason)
     throw new Rejection("Record the reason this AD is not applicable.");
   if (r.applicability === "Previously Complied With (PCW)")
     assertPriorCompliance(r, now);
@@ -763,7 +825,7 @@ function assertActions(s: Snapshot, old: AD | undefined, r: AD) {
 }
 
 function recordCompliance(s: Snapshot, cmd: ComplyCommand, r: AD, now: number) {
-  if (!TRACKED_APPLICABILITY.includes(r.applicability) || r.reviewRequired)
+  if (!isTrackedAD(r))
     throw new Rejection("Review applicability before recording compliance.");
   const t = r.tasks.find((t) => t.uuid === cmd.entry.taskUuid);
   if (!t) throw new Rejection("Required action not found.");

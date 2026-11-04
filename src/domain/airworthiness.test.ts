@@ -14,6 +14,8 @@ import { parseADTables } from "../data/adImport";
 import tables from "../../tests/fixtures/ad-report-tables.json";
 import {
   adAuditRecord,
+  adCommandSchema,
+  adComplianceSchema,
   adCounters,
   adSchema,
   adStatus,
@@ -22,7 +24,14 @@ import {
   blankAD,
   blankADTask,
   CLOSED_APPLICABILITY,
+  isTrackedAD,
+  needsApplicabilityReason,
+  needsSupersedingAD,
+  REASON_MAX_LENGTH,
+  REQUIRED_COMPLIANCE_FIELDS,
   TRACKED_APPLICABILITY,
+  tracksSameAD,
+  withApplicability,
   type AD,
   type ADCompliance,
   type ADTask,
@@ -977,5 +986,108 @@ describe("AD change log", () => {
       applyADCommand(s, { kind: "save", record: { ...r, version: 0 } }, NOW),
     ).toThrow(Rejection);
     expect(s.audit).toEqual(audit);
+  });
+});
+
+describe("AD decisions the AD form shares", () => {
+  const options = adSchema.shape.applicability.options;
+  const PCW = "Previously Complied With (PCW)";
+
+  it("settles review on not applicable, superseded or PCW, and reopens it on Needs review", () => {
+    const { r } = setup();
+    const reviewAfter = (
+      applicability: AD["applicability"],
+      reviewRequired: boolean,
+    ) => withApplicability({ ...r, reviewRequired }, applicability);
+    expect(
+      options.map((a) => [
+        a,
+        reviewAfter(a, false).reviewRequired,
+        reviewAfter(a, true).reviewRequired,
+      ]),
+    ).toEqual([
+      ["Needs review", true, true],
+      ["Applicable", false, true],
+      ["Not applicable", false, false],
+      ["Superseded", false, false],
+      [PCW, false, false],
+    ]);
+    expect(reviewAfter("Superseded", true)).toEqual({
+      ...r,
+      applicability: "Superseded",
+      reviewRequired: false,
+    });
+  });
+
+  it("tracks an AD only once reviewed as applicable or PCW", () => {
+    const tracked = (reviewRequired: boolean) =>
+      options.filter((applicability) =>
+        isTrackedAD({ applicability, reviewRequired }),
+      );
+    expect(tracked(false)).toEqual(["Applicable", PCW]);
+    expect(tracked(true)).toEqual([]);
+  });
+
+  it("needs a reason when not applicable and the superseding AD when superseded", () => {
+    expect(options.filter(needsApplicabilityReason)).toEqual([
+      "Not applicable",
+    ]);
+    expect(options.filter(needsSupersedingAD)).toEqual(["Superseded"]);
+  });
+
+  it("matches records on component and AD number, ignoring case and spaces", () => {
+    const { r } = setup();
+    const at = (componentUuid: string, number: string) => ({
+      componentUuid,
+      source: { ...r.source, number },
+    });
+    expect(tracksSameAD(at("", "2026-01-01"), at("", " 2026 -01-01"))).toBe(
+      true,
+    );
+    expect(tracksSameAD(at("c1", "ad-1a"), at("c1", "AD-1A"))).toBe(true);
+    expect(tracksSameAD(at("c1", "AD-1A"), at("", "AD-1A"))).toBe(false);
+    expect(tracksSameAD(at("", "AD-1A"), at("", "AD-1B"))).toBe(false);
+  });
+
+  it("accepts a change or correction reason of up to 1,500 characters", () => {
+    const { r } = setup();
+    const correction = (reason: string) => ({
+      kind: "correct",
+      uuid: r.uuid,
+      version: r.version,
+      corrects: crypto.randomUUID(),
+      reason,
+      entry: entry(r.tasks[0].uuid),
+    });
+    const save = (reason: string) => ({ kind: "save", record: r, reason });
+    for (const command of [save, correction]) {
+      const parses = (length: number) =>
+        adCommandSchema.safeParse(command("x".repeat(length))).success;
+      expect(parses(REASON_MAX_LENGTH)).toBe(true);
+      expect(parses(REASON_MAX_LENGTH + 1)).toBe(false);
+    }
+    expect(REASON_MAX_LENGTH).toBe(1500);
+  });
+
+  it("requires a compliance entry's date, method and mechanic", () => {
+    const { r } = setup();
+    const blankRefused = (field: keyof ADCompliance) =>
+      !adComplianceSchema.safeParse({ ...entry(r.tasks[0].uuid), [field]: "" })
+        .success;
+    const textFields: (keyof ADCompliance)[] = [
+      "date",
+      "method",
+      "serviceBulletin",
+      "terminatedBy",
+      "mechanic",
+      "certificate",
+      "evidence",
+    ];
+    expect(textFields.filter(blankRefused)).toEqual([
+      "date",
+      "method",
+      "mechanic",
+    ]);
+    expect(REQUIRED_COMPLIANCE_FIELDS).toEqual(textFields.filter(blankRefused));
   });
 });
