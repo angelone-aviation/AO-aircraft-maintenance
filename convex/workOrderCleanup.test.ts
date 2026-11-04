@@ -1,3 +1,9 @@
+/**
+ * Responsibility: Pins the retired-field migration: what it strips, the one
+ *   entry it appends per changed order, untouched history, and idempotence.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/workOrderCleanup.ts, convex/schema.ts.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import { makeFunctionReference } from "convex/server";
@@ -81,6 +87,7 @@ it("purges retired authorization fields from saved orders, appends one entry per
       additionalWorkApproval: "Remove",
     });
     expect(added.reason).toMatch(/retired/i);
+    expect(added.actorId).toBe("system:migration");
   });
   expect(await t.mutation(migration, {})).toEqual({
     ordersChecked: 2,

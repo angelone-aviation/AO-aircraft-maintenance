@@ -113,13 +113,14 @@ export async function reserveNewAccount(
  *
  * @param user - The user createAccount() returned.
  * @param checkedAt - When {@link reserveNewAccount} found the email free.
- * @throws {Error} {@link EMAIL_UNAVAILABLE} when the user predates the check.
+ * @throws {ConvexError} {@link EMAIL_UNAVAILABLE} when the user predates the
+ *   check.
  */
 export function assertCreatedHere(
   user: { _creationTime: number },
   checkedAt: number,
 ): void {
-  if (user._creationTime < checkedAt) throw new Error(EMAIL_UNAVAILABLE);
+  if (user._creationTime < checkedAt) throw new ConvexError(EMAIL_UNAVAILABLE);
 }
 
 /**
@@ -127,12 +128,12 @@ export function assertCreatedHere(
  * so the answer never tells whether the account exists.
  *
  * @param error - What createAccount() threw.
- * @returns A new Error with {@link EMAIL_UNAVAILABLE} for an Error whose
+ * @returns A ConvexError with {@link EMAIL_UNAVAILABLE} for an Error whose
  *   message contains "already exists"; anything else unchanged.
  */
 export function uniformCreateError(error: unknown): unknown {
   return error instanceof Error && /already exists/.test(error.message)
-    ? new Error(EMAIL_UNAVAILABLE)
+    ? new ConvexError(EMAIL_UNAVAILABLE)
     : error;
 }
 

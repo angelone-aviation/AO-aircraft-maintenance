@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins inventory and inspection commands end to end: stock
+ *   moves, components and their requirements, inspections, permissions,
+ *   idempotency, and the refusals users see.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/management.ts, convex/schema.ts, src/domain/management,
+ *   tests/fixtures/componentMovement, src/data/demo.ts (fixture).
+ */
 import { movementOrderCommand } from "../tests/fixtures/componentMovement";
 import type { ManagementCommand } from "../src/domain/management";
 import { convexTest } from "convex-test";
@@ -639,4 +647,51 @@ it("saves and completes recurring inspections while retaining source identity an
       sourceKey: "template:runtime:recurring",
     });
   });
+});
+
+it("refuses a new record or inspection whose uuid another program uses, as a ConvexError", async () => {
+  const { t, admin, ids } = await fixture();
+  const execute = (command: unknown) =>
+    admin.mutation(api.management.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ ...common(), ...(command as object) }),
+    });
+  const location = {
+    action: "record.save",
+    record: {
+      kind: "location",
+      uuid: "taken-location",
+      version: 0,
+      name: "Store",
+      address: "",
+      contact: "",
+    },
+  };
+  const inspection = {
+    action: "inspection.save",
+    record: {
+      uuid: "taken-inspection",
+      version: 0,
+      aircraftUuid: ids.a.uuid,
+      reference: "Annual",
+      description: "Annual inspection",
+      materials: "",
+      archived: false,
+      intervalMonths: 12,
+      lastDate: "2025-01-01",
+    },
+  };
+  await execute(location);
+  await execute(inspection);
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db.query("management").collect())
+      await ctx.db.patch(row._id, { programUuid: "other-program" });
+    for (const row of await ctx.db.query("inspections").collect())
+      await ctx.db.patch(row._id, { aircraftUuid: "other-aircraft" });
+  });
+  for (const command of [location, inspection])
+    await expect(execute(command)).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "Record belongs to another Flight Program.",
+    });
 });

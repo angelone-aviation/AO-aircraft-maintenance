@@ -18,7 +18,7 @@ import {
 } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { checkContext } from "./programContext";
 import { programPermission } from "../src/domain/programs";
 import { poSchema } from "../src/domain/purchaseOrders";
@@ -55,8 +55,9 @@ export const SPRUCE_RATE_LIMITS = {
  * @param programUuid - The active Flight Program.
  * @returns Whether a login is linked, the version (0 before the first link),
  *   and the currency and catalog details when set.
- * @throws {Error} As `checkContext`; "Flight Program inventory administrator
- *   access required."
+ * @throws {ConvexError} "Flight Program inventory administrator access
+ *   required."
+ * @throws As `checkContext`, first.
  */
 export const status = query({
   args: { programUuid: v.string() },
@@ -80,8 +81,8 @@ export const status = query({
  * @param poUuid - A purchase order of that program, when syncing its orders.
  * @returns The stored account (sealed credentials included) or null, and the
  *   PO's number when `poUuid` is given.
- * @throws {Error} The {@link status} refusals; "PO not found in this Flight
- *   Program."
+ * @throws {ConvexError} The {@link status} refusals; "PO not found in this
+ *   Flight Program."
  */
 export const access = internalQuery({
   args: { programUuid: v.string(), poUuid: v.optional(v.string()) },
@@ -89,7 +90,7 @@ export const access = internalQuery({
     const a = await account(ctx, args.programUuid);
     if (!args.poUuid) return { account: a, poNumber: undefined };
     const doc = await findProgramPo(ctx, args.programUuid, args.poUuid);
-    if (!doc) throw new Error("PO not found in this Flight Program.");
+    if (!doc) throw new ConvexError("PO not found in this Flight Program.");
     const po = poSchema.parse(JSON.parse(doc.payload));
     return { account: a, poNumber: po.number };
   },
@@ -102,9 +103,8 @@ export const access = internalQuery({
  * @param programUuid - The active Flight Program.
  * @param kind - Which allowance, from {@link SPRUCE_RATE_LIMITS}.
  * @returns null.
- * @throws {Error} The {@link status} refusals.
- * @throws {ConvexError} "Too many Aircraft Spruce <label> for this Flight
- *   Program. Try again within the hour."
+ * @throws {ConvexError} The {@link status} refusals; "Too many Aircraft
+ *   Spruce <label> for this Flight Program. Try again within the hour."
  */
 export const reserve = internalMutation({
   args: {
@@ -132,8 +132,9 @@ export const reserve = internalMutation({
  * @param programUuid - The active Flight Program.
  * @param version - The version the change was prepared against.
  * @param credentials - The login, each field sealed; omit to disconnect.
- * @throws {Error} The {@link status} refusals; "Account changed. Reload before
- *   saving."; a ZodError for a value that is not sealed (v2) or too long.
+ * @throws {ConvexError} The {@link status} refusals; "Account changed. Reload
+ *   before saving."
+ * @throws A ZodError for a value that is not sealed (v2) or too long.
  */
 export const commitAccount = internalMutation({
   args: {
@@ -151,7 +152,7 @@ export const commitAccount = internalMutation({
   handler: async (ctx, args) => {
     const a = await account(ctx, args.programUuid);
     if ((a?.version ?? 0) !== args.version)
-      throw new Error("Account changed. Reload before saving.");
+      throw new ConvexError("Account changed. Reload before saving.");
     const credentials = args.credentials
       ? sealedSpruceCredentials.parse(args.credentials)
       : undefined;
@@ -181,15 +182,15 @@ export const commitAccount = internalMutation({
  *
  * @param programUuid - The active Flight Program.
  * @param version - The version settings showed.
- * @throws {Error} The {@link status} refusals; "Account changed. Reload before
- *   disconnecting." when there is no account or the version moved on.
+ * @throws {ConvexError} The {@link status} refusals; "Account changed. Reload
+ *   before disconnecting." when there is no account or the version moved on.
  */
 export const disconnect = mutation({
   args: { programUuid: v.string(), version: v.number() },
   handler: async (ctx, args) => {
     const a = await account(ctx, args.programUuid);
     if (!a || a.version !== args.version)
-      throw new Error("Account changed. Reload before disconnecting.");
+      throw new ConvexError("Account changed. Reload before disconnecting.");
     await deleteCatalog(ctx, a);
     await ctx.db.replace(a._id, {
       programUuid: args.programUuid,
@@ -208,8 +209,8 @@ export const disconnect = mutation({
  * @param storageId - The stored catalog file.
  * @param count - How many products it holds.
  * @param at - When the download started (epoch ms).
- * @throws {Error} The {@link status} refusals; "Account changed. Refresh
- *   again."; "A newer catalog is already available."
+ * @throws {ConvexError} The {@link status} refusals; "Account changed.
+ *   Refresh again."; "A newer catalog is already available."
  */
 export const commitCatalog = internalMutation({
   args: {
@@ -222,9 +223,9 @@ export const commitCatalog = internalMutation({
   handler: async (ctx, args) => {
     const a = await account(ctx, args.programUuid);
     if (!a?.credentials || a.version !== args.version)
-      throw new Error("Account changed. Refresh again.");
+      throw new ConvexError("Account changed. Refresh again.");
     if (a.catalogAt && a.catalogAt > args.at)
-      throw new Error("A newer catalog is already available.");
+      throw new ConvexError("A newer catalog is already available.");
     await deleteCatalog(ctx, a);
     await ctx.db.patch(a._id, {
       catalogId: args.storageId,
@@ -241,7 +242,7 @@ export const commitCatalog = internalMutation({
  * @param poUuid - The purchase order.
  * @returns When they were fetched, the order number asked for and the lines;
  *   null when none were synced under the current linked account.
- * @throws {Error} The {@link status} refusals.
+ * @throws The {@link status} refusals.
  */
 export const orders = query({
   args: { programUuid: v.string(), poUuid: v.string() },
@@ -264,8 +265,8 @@ export const orders = query({
  * @param fetchedAt - When the fetch started (epoch ms).
  * @param order - The order number asked for, or "" for the PO number.
  * @param rows - The order lines.
- * @throws {Error} The {@link status} refusals; "Account changed. Sync again.";
- *   "PO not found."; "A newer sync is already available."
+ * @throws {ConvexError} The {@link status} refusals; "Account changed. Sync
+ *   again."; "PO not found."; "A newer sync is already available."
  */
 export const commitOrders = internalMutation({
   args: {
@@ -279,12 +280,12 @@ export const commitOrders = internalMutation({
   handler: async (ctx, args) => {
     const a = await account(ctx, args.programUuid);
     if (!a?.credentials || a.version !== args.version)
-      throw new Error("Account changed. Sync again.");
+      throw new ConvexError("Account changed. Sync again.");
     if (!(await findProgramPo(ctx, args.programUuid, args.poUuid)))
-      throw new Error("PO not found.");
+      throw new ConvexError("PO not found.");
     const old = await findSavedOrders(ctx, args.programUuid, args.poUuid);
     if (old && old.fetchedAt > args.fetchedAt)
-      throw new Error("A newer sync is already available.");
+      throw new ConvexError("A newer sync is already available.");
     const { version, ...rest } = args;
     const data = { ...rest, accountVersion: version };
     if (old) await ctx.db.replace(old._id, data);
@@ -295,7 +296,9 @@ export const commitOrders = internalMutation({
 async function authorize(ctx: QueryCtx | MutationCtx, programUuid: string) {
   const s = await checkContext(ctx, programUuid);
   if (!programUuid || !programPermission(s, "admin"))
-    throw new Error("Flight Program inventory administrator access required.");
+    throw new ConvexError(
+      "Flight Program inventory administrator access required.",
+    );
   return s;
 }
 

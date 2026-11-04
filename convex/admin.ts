@@ -1,3 +1,13 @@
+/**
+ * Responsibility: Administration: accounts, permission groups and new
+ *   aircraft, and each user's own license and logbook wording.
+ * Layer: Server. Public actions and mutations over internal steps; every
+ *   change is audited.
+ * Dependencies: @convex-dev/auth/server, convex (access, programContext,
+ *   memberships, accountGuards, fleet, validators, userErrors), src/domain
+ *   (ownerView, certifications, model, releaseStatements, logbookWording,
+ *   logbook, programs, groupAircraft, fleet, accountRules).
+ */
 import { validateOwnerGroup } from "../src/domain/ownerView";
 import {
   certificationsSchema,
@@ -18,7 +28,7 @@ import {
   internalMutation,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   createAccount,
   modifyAccountCredentials,
@@ -43,6 +53,7 @@ import {
   reserveNewAccount,
   uniformCreateError,
 } from "./accountGuards";
+import { exposeRejections } from "./userErrors";
 const accountArgs = {
   email: v.string(),
   name: v.string(),
@@ -94,7 +105,7 @@ export const createUser = action({
       internal.admin.reserveCreate,
       { email },
     );
-    if (!available) throw new Error(EMAIL_UNAVAILABLE);
+    if (!available) throw new ConvexError(EMAIL_UNAVAILABLE);
     const { user } = await createAccount(ctx, {
       provider: "password",
       account: { id: email, secret: password },
@@ -321,17 +332,21 @@ export const saveGroup = mutation({
     }
     const existing = args.id ? await ctx.db.get(args.id) : undefined;
     if (args.id && !existing) throw Error("Group not found.");
-    const assigned = assertGroupProgramChange(
-      existing ?? undefined,
-      args,
-      actor.isAdmin === true,
+    const assigned = exposeRejections(() =>
+      assertGroupProgramChange(
+        existing ?? undefined,
+        args,
+        actor.isAdmin === true,
+      ),
     );
     if (!args.name.trim() || args.name.length > 100)
       throw new Error("Group name is required.");
     if (!args.permissions.includes("read") && args.permissions.length)
       throw new Error("Write permissions also require read access.");
-    validateOwnerGroup(args);
-    assertGroupAircraftChoice(existing ?? undefined, args);
+    exposeRejections(() => {
+      validateOwnerGroup(args);
+      assertGroupAircraftChoice(existing ?? undefined, args);
+    });
     if (
       !args.programUuid ||
       !(await ctx.db

@@ -166,6 +166,34 @@ it("keeps the previous key when the FAA answers without results", async () => {
   ).toEqual([]);
 });
 
+it("shows the FAA's refusal of a new key to the administrator", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
+  const { admin } = await setupAdmin();
+  const replace = () =>
+    admin.action(api.faaCredentials.replace, {
+      key: "synthetic-test-key-000001",
+      expiresOn: "2099-10-14",
+      version: 0,
+    });
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn<typeof fetch>()
+      .mockImplementation(
+        async () => new Response("Rejected", { status: 403 }),
+      ),
+  );
+  await expect(replace()).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "FAA could not verify the new key (403). The previous key is unchanged.",
+  });
+  stubFaa("null");
+  await expect(replace()).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "FAA returned an unexpected response. The previous key is unchanged.",
+  });
+});
+
 it("uses the deployment key until an administrator saves one", async () => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
   vi.stubEnv("FAA_DRS_API_KEY", "deployment-key");

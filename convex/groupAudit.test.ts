@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins the #34 follow-up review: which groups are flagged
+ *   widened or for review, paging and its page sizes, and who may list them.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/groupAudit, convex/defaultGroups, convex/schema,
+ *   src/data/demo (fixture).
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -331,6 +338,30 @@ it("pages through groups with a cursor", async () => {
     expect(pages).toBeLessThan(5);
   }
   expect(found.sort()).toEqual(["One", "Three", "Two"]);
+});
+
+it("reads 50 groups per page by default, and 1 to 200 when asked", async () => {
+  const { t } = await setup();
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 200; i++)
+      await ctx.db.insert("groups", {
+        programUuid: "A",
+        name: `Group ${i}`,
+        aircraftIds: ["plane-A1"],
+        permissions: ["read"],
+      });
+  });
+  const scanned = async (numItems?: number) =>
+    (
+      await t.query(
+        internal.groupAudit.findWidenedGroups,
+        numItems === undefined ? {} : { numItems },
+      )
+    ).groupsScanned;
+  expect(await scanned()).toBe(50);
+  expect(await scanned(1000)).toBe(200);
+  expect(await scanned(0)).toBe(1);
+  expect(await scanned(2.9)).toBe(2);
 });
 
 it("refuses the Administration query to anyone but a system administrator", async () => {
