@@ -2,8 +2,9 @@
  * Responsibility: Conflict review: an administrator accepts or rejects a
  *   flight, with corrections, and the aircraft's totals are rebuilt from its
  *   flights.
- * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./model, ./programs, ./flights, ./flightSubmission,
+ * Layer: Domain. Pure functions; no I/O, no React (the change-log stamp
+ *   reads the clock).
+ * Dependencies: ./model, ./programs, ./flights, ./changeLog,
  *   ./flightChecklistLink, ./oilInventory, ./flightPlans, ./management,
  *   ./rejection.
  *
@@ -14,6 +15,7 @@ import {
   can,
   flightInputSchema,
   type Aircraft,
+  type AuditEntry,
   type Flight,
   type FlightInput,
   type Snapshot,
@@ -25,7 +27,7 @@ import {
   resequencedFlights,
   validateFlight,
 } from "./flights";
-import type { SubmissionAudit } from "./flightSubmission";
+import { auditEntry, type AuditChange } from "./changeLog";
 import { Rejection } from "./rejection";
 import { preserveChecklistLink } from "./flightChecklistLink";
 import { preserveOilInventory } from "./oilInventory";
@@ -72,8 +74,9 @@ export interface ReviewChanges {
   flights: Flight[];
   /** The aircraft's totals and counter changes after the replay. */
   aircraft: Aircraft;
-  /** "flight.reviewed", then "flight.resequenced" per other flight moved. */
-  audit: SubmissionAudit[];
+  /** "flight.reviewed", then "flight.resequenced" per other flight moved,
+   * stamped by auditEntry (so each names the aircraft's program). */
+  audit: AuditEntry[];
 }
 
 /**
@@ -127,7 +130,9 @@ export function reviewFlight(s: Snapshot, review: FlightReview): ReviewChanges {
     reviewed,
     flights: rebuilt.flights,
     aircraft: rebuilt.aircraft,
-    audit: listReviewAudit(review, flight, { ...next, ...reviewed }, moved),
+    audit: listReviewAudit(review, flight, { ...next, ...reviewed }, moved).map(
+      (change) => auditEntry(s, change),
+    ),
   };
 }
 
@@ -277,7 +282,7 @@ function listReviewAudit(
   before: Flight,
   after: Flight,
   moved: ReturnType<typeof resequencedFlights>,
-): SubmissionAudit[] {
+): AuditChange[] {
   return [
     {
       action: "flight.reviewed",

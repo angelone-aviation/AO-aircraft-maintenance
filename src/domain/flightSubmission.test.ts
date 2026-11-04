@@ -100,6 +100,14 @@ const oilAdded = (stockUuid = "oil-part") => ({
     },
   ],
 });
+// A change-log entry as auditEntry stamps it for the demo administrator.
+const stamped = (s: Snapshot, change: object) => ({
+  uuid: expect.any(String),
+  programUuid: "demo-program",
+  actorId: s.user.id,
+  at: now,
+  ...change,
+});
 const rejection = (fn: () => unknown) => {
   try {
     fn();
@@ -127,12 +135,12 @@ describe("submitting a flight", () => {
     expect(changes!.stock).toEqual([]);
     expect(changes!.discrepancy).toBeUndefined();
     expect(changes!.audit).toEqual([
-      {
+      stamped(s, {
         action: "flight.created",
         entityUuid: op.uuid,
         aircraftUuid: s.aircraft[0].uuid,
-        after: changes!.flight,
-      },
+        after: JSON.stringify(changes!.flight),
+      }),
     ]);
   });
   it("holds a stale or out-of-sequence flight for review without changing totals", () => {
@@ -185,15 +193,16 @@ describe("submitting a flight", () => {
     const { changes } = submitOperation(s, op, options);
     expect(changes!.stock).toHaveLength(1);
     expect(changes!.stock[0].after).toMatchObject({ quantity: 4, version: 1 });
-    expect(changes!.audit[0]).toEqual({
-      action: "stock.oil_used",
-      entityUuid: "oil-part",
-      programUuid: "demo-program",
-      aircraftUuid: s.aircraft[0].uuid,
-      reason: `Oil added for flight ${op.uuid}`,
-      before: { stockUuid: "oil-part", quantity: 5 },
-      after: { stockUuid: "oil-part", quantity: 4 },
-    });
+    expect(changes!.audit[0]).toEqual(
+      stamped(s, {
+        action: "stock.oil_used",
+        entityUuid: "oil-part",
+        aircraftUuid: s.aircraft[0].uuid,
+        reason: `Oil added for flight ${op.uuid}`,
+        before: JSON.stringify({ stockUuid: "oil-part", quantity: 5 }),
+        after: JSON.stringify({ stockUuid: "oil-part", quantity: 4 }),
+      }),
+    );
     expect(changes!.audit[1].action).toBe("flight.created");
   });
   it("refuses stock that is not oil, or an expired lot, with a message the Sync center shows", () => {
@@ -242,14 +251,15 @@ describe("submitting a flight", () => {
     const { changes } = submitOperation(s, op, options);
     const override = { by: s.user.id, name: s.user.name, reason, at: now };
     expect(changes!.flight!.dispatchOverride).toEqual(override);
-    expect(changes!.audit.at(-1)).toEqual({
-      action: "flight.dispatch_override",
-      entityUuid: op.uuid,
-      programUuid: "demo-program",
-      aircraftUuid: s.aircraft[0].uuid,
-      reason,
-      after: override,
-    });
+    expect(changes!.audit.at(-1)).toEqual(
+      stamped(s, {
+        action: "flight.dispatch_override",
+        entityUuid: op.uuid,
+        aircraftUuid: s.aircraft[0].uuid,
+        reason,
+        after: JSON.stringify(changes!.flight!.dispatchOverride),
+      }),
+    );
   });
   it("requires an active pilot and copilot from the aircraft's Flight Program", () => {
     const s = world();
@@ -399,12 +409,12 @@ describe("submitting a problem report", () => {
       stock: [],
       discrepancy: filed,
       audit: [
-        {
+        stamped(s, {
           action: "discrepancy.created",
           entityUuid: op.uuid,
           aircraftUuid: op.aircraftUuid,
-          after: filed,
-        },
+          after: JSON.stringify(filed),
+        }),
       ],
     });
     s.discrepancies.push(changes!.discrepancy!);

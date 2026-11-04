@@ -73,7 +73,6 @@ import {
 import {
   operationSchema,
   type Aircraft,
-  type AuditEntry,
   type Flight,
   type FlightInput,
   type Operation,
@@ -140,10 +139,7 @@ export const submit = mutation({
       expose: errorsOf(FlightRejection),
       persist: ({ ctx }, { aircraft, management }, { changes }) =>
         persistSubmission(ctx, aircraft, management, changes),
-      audit: (log, _, { changes }) => {
-        for (const entry of changes?.audit ?? [])
-          log.entry(entry.action, entry.entityUuid, entry);
-      },
+      audit: (log, _, { changes }) => log.replay(changes?.audit ?? []),
       returns: ({ status }) => ({ status }),
     });
   },
@@ -179,7 +175,7 @@ export const resolveDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, resolvedFields(next));
       },
-      audit: (log, { s }) => log.replay(oldestFirst(s.audit)),
+      audit: (log, { s }) => log.replayOldestFirst(s.audit),
     }),
 });
 
@@ -206,7 +202,7 @@ export const deferDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, { deferral: next.deferral });
       },
-      audit: (log, { s }) => log.replay(oldestFirst(s.audit)),
+      audit: (log, { s }) => log.replayOldestFirst(s.audit),
     }),
 });
 
@@ -243,10 +239,7 @@ export const reviewFlight = mutation({
       apply: ({ snapshot }) => applyReview(snapshot, review),
       persist: ({ ctx }, working, changes) =>
         persistReview(ctx, working, review.uuid, changes),
-      audit: (log, _, { audit }) => {
-        for (const entry of audit)
-          log.entry(entry.action, entry.entityUuid, entry);
-      },
+      audit: (log, _, { audit }) => log.replay(audit),
     }),
 });
 
@@ -295,7 +288,7 @@ export const saveDiscrepancyParts = mutation({
           partsVersion: result.partsVersion,
         });
       },
-      audit: (log, { snapshot }) => log.replay(oldestFirst(snapshot.audit)),
+      audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),
     }),
 });
 
@@ -682,10 +675,6 @@ async function loadReport(ctx: MutationCtx, state: Snapshot, uuid: string) {
 function reportOf({ _id, _creationTime, ...report }: Doc<"discrepancies">) {
   return report;
 }
-
-// Appliers list their entries newest first, as the change log does; rows are
-// written in the order the changes happened.
-const oldestFirst = (entries: AuditEntry[]) => [...entries].reverse();
 
 async function reportByUuid(ctx: MutationCtx, uuid: string) {
   const d = await ctx.db

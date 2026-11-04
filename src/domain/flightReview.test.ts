@@ -18,6 +18,7 @@ import {
   REVIEW_REASON_MIN_LENGTH,
   reviewFlight,
   type FlightReview,
+  type ReviewChanges,
 } from "./flightReview";
 
 const h = (hours: number) => Math.round(hours * 3600);
@@ -323,26 +324,33 @@ describe("reviewFlight changes", () => {
       latestFlightAt: later.startTime,
       version: 2,
     });
+    const stamp = {
+      uuid: expect.any(String),
+      programUuid: opening.programUuid,
+      actorId: s.user.id,
+      at: expect.any(Number),
+    };
     expect(changes.audit).toEqual([
       {
+        ...stamp,
         action: "flight.reviewed",
         entityUuid: held.uuid,
         aircraftUuid: opening.uuid,
         reason: REASON,
-        before: held,
-        after: reviewed,
+        before: JSON.stringify(held),
+        after: JSON.stringify(reviewed),
       },
       {
+        ...stamp,
         action: "flight.resequenced",
         entityUuid: later.uuid,
         aircraftUuid: opening.uuid,
         reason:
           "Starting readings recalculated after the flight of 2026-10-03 09:00 UTC was accepted.",
-        before: { hobbsOff: opening.currentHobbs },
-        after: { hobbsOff: held.hobbsOn },
+        before: JSON.stringify({ hobbsOff: opening.currentHobbs }),
+        after: JSON.stringify({ hobbsOff: held.hobbsOn }),
       },
     ]);
-    expect(changes.audit[0].before).toBe(held);
   });
 
   it("rejects an accepted flight: the replay leaves it out and it keeps its starts", () => {
@@ -366,11 +374,14 @@ describe("reviewFlight changes", () => {
       currentHobbs: later.hobbsOn,
       landings: opening.landings + 1,
     });
-    expect(changes.audit[1]).toMatchObject({
+    const moved = changes.audit[1];
+    expect(moved).toMatchObject({
       entityUuid: later.uuid,
       reason: expect.stringMatching(/was rejected\.$/),
-      before: { hobbsOff: held.hobbsOn },
-      after: { hobbsOff: opening.currentHobbs },
+    });
+    expect(JSON.parse(moved.before!)).toMatchObject({ hobbsOff: held.hobbsOn });
+    expect(JSON.parse(moved.after!)).toMatchObject({
+      hobbsOff: opening.currentHobbs,
     });
   });
 
@@ -396,12 +407,22 @@ describe("reviewFlight changes", () => {
         });
       // The server receives the form's cleared field absent.
       const absent = review(input);
-      expect(absent).toStrictEqual(review({ ...input, [key]: undefined }));
+      expect(unstamped(absent)).toStrictEqual(
+        unstamped(review({ ...input, [key]: undefined })),
+      );
       expect(Object.keys(absent.reviewed)).toContain(key);
-      expect(absent.audit[0].after).toMatchObject({ [key]: undefined });
+      expect(JSON.parse(absent.audit[0].after!)).not.toHaveProperty(key);
     },
   );
 });
+
+// Changes with each entry's random id and time blanked, for comparing reviews.
+function unstamped(changes: ReviewChanges) {
+  return {
+    ...changes,
+    audit: changes.audit.map((e) => ({ ...e, uuid: "", at: 0 })),
+  };
+}
 
 function checklistRun() {
   return {

@@ -21,7 +21,8 @@
  * resolution, parts, checklist, job-card, flight-plan and template-deletion
  * rows named no Flight Program, a resolution row held the whole report after,
  * where the server keeps the resolved fields, and it logged no component
- * template save or setup.
+ * template save or setup. Before T12's final round its flight submission,
+ * flight review and work-order rows named none either.
  * Before Batch 273 it took any number of attachments. Before Batch 285 it
  * audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
@@ -477,6 +478,7 @@ it("reviews a held flight: replays the aircraft and audits the review and each m
   expect(review).toMatchObject({
     action: "flight.reviewed",
     entityUuid: held.uuid,
+    programUuid: "demo-program",
     aircraftUuid: held.aircraftUuid,
     actorId: s.user.id,
     reason: REASON,
@@ -486,11 +488,52 @@ it("reviews a held flight: replays the aircraft and audits the review and each m
   expect(moved).toMatchObject({
     action: "flight.resequenced",
     entityUuid: later.uuid,
+    programUuid: "demo-program",
     reason:
       "Starting readings recalculated after the flight of 2026-10-03 09:00 UTC was accepted.",
     before: JSON.stringify({ hobbsOff: later.hobbsOff }),
     after: JSON.stringify({ hobbsOff: input.hobbsOn }),
   });
+});
+
+it("logs a submitted flight and problem report under the aircraft's program, as the server does", async () => {
+  const { backend, stored } = await demo("demo-submit");
+  const { user, aircraft } = await stored();
+  const a = aircraft[0];
+  const entry = () => ({
+    programUuid: "demo-program",
+    uuid: crypto.randomUUID(),
+    authorId: user.id,
+  });
+  await backend.submit({
+    ...entry(),
+    kind: "flight",
+    baseVersion: a.version,
+    input: {
+      aircraftUuid: a.uuid,
+      pilotId: user.id,
+      startTime: new Date(Date.now() - 3600000).toISOString(),
+      hobbsOn: a.currentHobbs + 3600,
+      landings: 1,
+      cycles: 0,
+      origin: "AAA",
+      destination: "BBB",
+      operation: "Mission",
+      flightRules: "VFR",
+      remarks: "",
+      discrepancy: "",
+    },
+  });
+  await backend.submit({
+    ...entry(),
+    kind: "discrepancy",
+    aircraftUuid: a.uuid,
+    description: "Landing light out",
+  });
+  const [report, flight] = (await stored()).audit;
+  const logged = { programUuid: "demo-program", aircraftUuid: a.uuid };
+  expect(flight).toMatchObject({ ...logged, action: "flight.created" });
+  expect(report).toMatchObject({ ...logged, action: "discrepancy.created" });
 });
 
 // The server receives FlightForm's cleared fields absent; the demo, undefined.
@@ -1139,6 +1182,19 @@ it.each<[string, Partial<typeof GROUP> & { allAircraft?: boolean }, string]>([
     expect(await stored()).toEqual(before);
   },
 );
+
+it("logs a work-order save under the aircraft's program, as the server does", async () => {
+  const { backend, stored } = await demo("demo-work-order");
+  const command = workOrderCommand();
+  await backend.workOrder(command);
+  const [row] = (await stored()).audit;
+  expect(row).toMatchObject({
+    action: "workOrder.save",
+    entityUuid: command.uuid,
+    programUuid: "demo-program",
+    aircraftUuid: command.fields.aircraftUuid,
+  });
+});
 
 it("serves each open work order once when a recurring parts list is saved", async () => {
   let order = "";

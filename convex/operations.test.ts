@@ -285,6 +285,45 @@ describe("flight submissions and reviews", () => {
       ),
     ).toBe(true);
   });
+  it("logs every submission and review row under the aircraft's program", async () => {
+    const { t, pilot, admin, op, a, ids } = await fixture();
+    const later = op();
+    later.input = {
+      ...later.input,
+      startTime: "2026-01-03T00:00:00Z",
+      hobbsOn: a.currentHobbs + 7200,
+    };
+    await pilot.mutation(api.operations.submit, { operation: later });
+    const earlier = op();
+    earlier.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: earlier });
+    await pilot.mutation(api.operations.submit, {
+      operation: {
+        programUuid: "demo-program",
+        kind: "discrepancy",
+        uuid: crypto.randomUUID(),
+        authorId: ids.user,
+        aircraftUuid: a.uuid,
+        description: "Landing light out",
+      },
+    });
+    await admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: earlier.uuid,
+      decision: "accept",
+      reason: "Verified the paper log",
+      input: earlier.input,
+    });
+    const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+    // None of these rows named a program before T12's final round.
+    expect(rows.map((r) => [r.action, r.programUuid])).toEqual([
+      ["flight.created", "demo-program"],
+      ["flight.held", "demo-program"],
+      ["discrepancy.created", "demo-program"],
+      ["flight.reviewed", "demo-program"],
+      ["flight.resequenced", "demo-program"],
+    ]);
+  });
   it("rejects a correction that would invalidate a later flight atomically", async () => {
     const { pilot, admin, op, a } = await fixture();
     const first = op();
@@ -436,8 +475,12 @@ describe("flight review on runCommand", () => {
         (r) => r.action === "flight.reviewed",
       ),
     );
-    expect(log).toMatchObject({ actorId: ids.admin, reason: "Checked" });
-    expect(log).not.toHaveProperty("programUuid");
+    // The row names the aircraft's program (none before T12's final round).
+    expect(log).toMatchObject({
+      actorId: ids.admin,
+      reason: "Checked",
+      programUuid: "demo-program",
+    });
     expect(JSON.parse(log!.before!)).toEqual(original);
     expect(JSON.parse(log!.after!)).toEqual(reviewed);
   });

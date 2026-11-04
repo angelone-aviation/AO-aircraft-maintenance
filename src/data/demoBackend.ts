@@ -52,6 +52,7 @@ import { applyFaaCommand, emptyMonitor, faaCommandSchema } from "../domain/faa";
 import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
+import { auditEntry } from "../domain/changeLog";
 import { reviewFlight } from "../domain/flightReview";
 import { saveChecklist } from "../domain/checklists";
 import {
@@ -413,16 +414,19 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         const before = s.workOrders?.find((w) => w.uuid === command.uuid);
         const after = saveWorkOrder(s, command);
         generateRecurringRequests(s, after);
-        audit(
-          s,
-          "workOrder." + command.action,
-          after.uuid,
-          after.aircraftUuid,
-          command.action === "revise" || command.action === "correctComponent"
-            ? command.reason
-            : undefined,
-          before,
-          after,
+        s.audit.unshift(
+          auditEntry(s, {
+            action: "workOrder." + command.action,
+            entityUuid: after.uuid,
+            aircraftUuid: after.aircraftUuid,
+            reason:
+              command.action === "revise" ||
+              command.action === "correctComponent"
+                ? command.reason
+                : undefined,
+            before,
+            after,
+          }),
         );
       }),
     attachInventoryFile: async (stockUuid, file) => {
@@ -792,16 +796,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
               a.uuid === aircraft.uuid ? aircraft : a,
             );
           if (discrepancy) s.discrepancies.push(discrepancy);
-          for (const e of result.changes.audit)
-            audit(
-              s,
-              e.action,
-              e.entityUuid,
-              e.aircraftUuid,
-              e.reason,
-              e.before,
-              e.after,
-            );
+          for (const e of result.changes.audit) s.audit.unshift(e);
         }),
       );
       return { status };
@@ -825,16 +820,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             ? { ...f, ...changes.reviewed }
             : (changes.flights.find((r) => r.uuid === f.uuid) ?? f),
         );
-        for (const e of changes.audit)
-          audit(
-            s,
-            e.action,
-            e.entityUuid,
-            e.aircraftUuid,
-            e.reason,
-            e.before,
-            e.after,
-          );
+        for (const e of changes.audit) s.audit.unshift(e);
       }),
     updateProgramAccess: (userId, programUuid, groupIds, remove) =>
       modify((s) => {
