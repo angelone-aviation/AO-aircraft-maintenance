@@ -208,8 +208,7 @@ export const deferDiscrepancy = mutation({
       persist: async ({ ctx }, { d }, next) => {
         await ctx.db.patch(d._id, { deferral: next.deferral });
       },
-      // The row has always named the program the client named.
-      audit: (log, { s }) => log.replay(oldestFirst(s.audit), { programUuid }),
+      audit: (log, { s }) => log.replay(oldestFirst(s.audit)),
     }),
 });
 

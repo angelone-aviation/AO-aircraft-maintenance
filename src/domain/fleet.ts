@@ -274,6 +274,7 @@ function saveProgram(s: Snapshot, c: ProgramSave, now: number): FleetChange {
     s,
     {
       uuid: c.requestUuid,
+      programUuid: program.uuid,
       action: before ? "program.updated" : "program.created",
       entityUuid: program.uuid,
       reason: c.reason,
@@ -511,10 +512,8 @@ function auditAircraftSave(
     );
 }
 
-// Fleet rows name no program of their own: the server stamps the saved or
-// active one as it writes them, and the demo keeps them without.
 function recordFleetChange(s: Snapshot, change: AuditChange, now: number) {
-  s.audit.unshift(auditEntry(s, { programUuid: undefined, ...change }, now));
+  s.audit.unshift(auditEntry(s, change, now));
 }
 
 function isWholeTenths(n: number) {

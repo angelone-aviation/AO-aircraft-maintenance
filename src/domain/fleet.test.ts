@@ -73,7 +73,7 @@ describe("aircraft and programs", () => {
       applyFleet(s, { ...common(), action: "program.save", program }),
     ).toThrow("changed");
   });
-  it("writes program and aircraft rows without a program of their own", () => {
+  it("writes a program row under the saved program and aircraft rows under the aircraft's", () => {
     const s = demoSnapshot();
     const now = Date.parse("2026-06-15T12:00:00Z");
     const save = common();
@@ -92,6 +92,7 @@ describe("aircraft and programs", () => {
       Object.keys(JSON.parse(JSON.stringify(row)));
     expect(storedKeys(programRow)).toEqual([
       "uuid",
+      "programUuid",
       "actorId",
       "at",
       "action",
@@ -101,6 +102,7 @@ describe("aircraft and programs", () => {
     ]);
     expect(programRow).toMatchObject({
       uuid: save.requestUuid,
+      programUuid: program.uuid,
       actorId: s.user.id,
       at: now,
       action: "program.created",
@@ -109,6 +111,7 @@ describe("aircraft and programs", () => {
     });
     expect(storedKeys(aircraftRow)).toEqual([
       "uuid",
+      "programUuid",
       "actorId",
       "at",
       "action",
@@ -118,7 +121,7 @@ describe("aircraft and programs", () => {
       "before",
       "after",
     ]);
-    expect(aircraftRow.programUuid).toBeUndefined();
+    expect(aircraftRow.programUuid).toBe(s.aircraft[0].programUuid);
   });
   it("preserves installed component usage when total-time/cycle baselines are corrected", () => {
     const s = demoSnapshot(),
@@ -169,7 +172,7 @@ describe("aircraft and programs", () => {
       action: "component.aircraft_baseline_adjusted",
       entityUuid: c.uuid,
       aircraftUuid: a.uuid,
-      programUuid: undefined,
+      programUuid: a.programUuid,
     });
     expect(change.components[0].version).toBe(2);
   });

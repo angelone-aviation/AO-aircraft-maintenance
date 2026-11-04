@@ -57,7 +57,7 @@ export const save = mutation({
             payload: JSON.stringify(task),
           });
       },
-      audit: (log, { snapshot }) => log.replay(snapshot.audit, { programUuid }),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (result) => result.count,
     }),
 });

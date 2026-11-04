@@ -57,8 +57,7 @@ export const execute = mutation({
         );
         await patchStock(ctx, docs.management, s.management ?? []);
       },
-      audit: (log, { snapshot }) =>
-        log.record(snapshot.audit, { programUuid: args.programUuid }),
+      audit: (log, { snapshot }) => log.record(snapshot.audit),
       returns: (r) => r.uuid,
     }),
 });

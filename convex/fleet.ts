@@ -24,7 +24,6 @@ import {
   type Program,
 } from "../src/domain/fleet";
 import type { Aircraft } from "../src/domain/model";
-import { activeProgram } from "../src/domain/programs";
 
 /**
  * Saves an aircraft or a Flight Program once per request id. A new program
@@ -61,10 +60,7 @@ export const save = mutation({
           result.components,
         );
       },
-      audit: (log, { snapshot }, result) =>
-        log.replay(snapshot.audit, {
-          programUuid: result.program?.uuid ?? activeProgram(snapshot),
-        }),
+      audit: (log, { snapshot }) => log.replay(snapshot.audit),
     }),
 });
 
