@@ -4,7 +4,7 @@
  * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
  *   default reads the clock).
  * Dependencies: ./model, ./adOwnership, ./airworthiness, ./adRemaining,
- *   ./maintenance, ./management, ./components.
+ *   ./maintenance, ./management, ./components, ./rejection.
  */
 import type { Aircraft, Inspection, Snapshot } from "./model";
 import { localDate } from "./model";
@@ -14,6 +14,7 @@ import { adRemaining } from "./adRemaining";
 import { inspectionStatus } from "./maintenance";
 import { inspectionCounters, type ManagedRecord } from "./management";
 import { requirementStatus } from "./components";
+import { Rejection } from "./rejection";
 
 /** How pressing a due item is; `unknown` when it cannot be worked out. */
 export type DueStatus = "overdue" | "due-soon" | "ok" | "unknown";
@@ -34,6 +35,8 @@ const DUE_STATUS_RANK: Record<DueStatus, number> = {
   ok: 3,
 };
 const HOUR_SECONDS = 3600;
+const NEEDS_REVIEW = { status: "unknown", remaining: "Review" } as const;
+const MISSING_COMPONENT = "Inspection component not found.";
 const HIDDEN_AD_APPLICABILITY = ["Not applicable", "Superseded"];
 const AD_OK_STATUSES = [
   "Scheduled",
@@ -51,8 +54,10 @@ const AD_OK_STATUSES = [
  * @returns Live inspections, installed components' limits and ADs neither
  *   not applicable nor superseded, ordered overdue, due soon, unknown, ok.
  *   `remaining` lists what is left, "Not set" when nothing limits it, or
- *   "Review" for a component limit it cannot compute.
- * @throws As {@link inspectionCounters} and {@link inspectionStatus}.
+ *   "Review" for a component limit it cannot compute or an inspection whose
+ *   component is missing.
+ * @throws As {@link inspectionCounters} and {@link inspectionStatus}, except
+ *   "Inspection component not found.".
  */
 export function ownerDueItems(
   s: Snapshot,
@@ -100,16 +105,16 @@ function inspectionItem(
   i: Inspection,
   today: string,
 ): DueItem {
-  const r = inspectionStatus(
-    i,
-    a,
-    today,
-    inspectionCounters(i, a, s.management),
-  );
-  return {
+  const item = {
     uuid: i.uuid,
-    kind: "Inspection",
+    kind: "Inspection" as const,
     label: i.reference || i.description,
+  };
+  const counters = countersUnlessMissing(i, a, s.management);
+  if (!counters) return { ...item, ...NEEDS_REVIEW };
+  const r = inspectionStatus(i, a, today, counters);
+  return {
+    ...item,
     status:
       r.status === "scheduled" ? "ok" : (r.status as Exclude<DueStatus, "ok">),
     remaining: joinRemaining([
@@ -119,6 +124,22 @@ function inspectionItem(
       r.daysRemaining !== undefined && `${r.daysRemaining} days`,
     ]),
   };
+}
+
+function countersUnlessMissing(
+  i: Inspection,
+  a: Aircraft,
+  records?: ManagedRecord[],
+) {
+  try {
+    return inspectionCounters(i, a, records);
+  } catch (error) {
+    // An inspection whose component is no longer on this aircraft is listed
+    // for review, as a component limit is, rather than failing the whole list.
+    if (error instanceof Rejection && error.message === MISSING_COMPONENT)
+      return undefined;
+    throw error;
+  }
 }
 
 function componentLimitItems(
@@ -152,7 +173,7 @@ function componentLimitItems(
     return [{ ...item, status: componentDueStatus(q.status), remaining }];
   } catch {
     // Usage it cannot compute is listed for review, not hidden from the owner.
-    return [{ ...item, status: "unknown", remaining: "Review" }];
+    return [{ ...item, ...NEEDS_REVIEW }];
   }
 }
 

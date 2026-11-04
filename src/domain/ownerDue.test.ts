@@ -130,12 +130,24 @@ it("counts overdue and due-soon items", () => {
   });
 });
 
-it("throws for an inspection whose component is missing", () => {
-  // Characterizes current behaviour: unlike a component limit, it is not
-  // listed for review.
+it("lists an inspection whose component is missing for review", () => {
   const { s, a } = owned();
   s.inspections[0].componentUuid = "missing";
+  expect(ownerDueItems(s, a, today).find((i) => i.uuid === "ok")).toEqual({
+    uuid: "ok",
+    kind: "Inspection",
+    label: "ok",
+    status: "unknown",
+    remaining: "Review",
+  });
+});
+
+it("still throws when a component inspection's usage cannot be computed", () => {
+  // Characterizes current behaviour: only a missing component is listed for
+  // review; the component rules' other refusals still reach the caller.
+  const { s, a } = owned();
+  s.inspections[0].componentUuid = "pump";
   expect(() => ownerDueItems(s, a, today)).toThrow(
-    "Inspection component not found.",
+    "Collective component tracking requires a helicopter collective hourmeter reading.",
   );
 });
