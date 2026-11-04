@@ -1,7 +1,7 @@
 /**
- * Responsibility: Closing out an open discrepancy: deferring it under an MEL
- *   item or 14 CFR 91.213(d), when a deferral expires, and resolving it with
- *   the repair.
+ * Responsibility: Closing out an open discrepancy: whether it still grounds
+ *   its aircraft, deferring it under an MEL item or 14 CFR 91.213(d), when a
+ *   deferral expires, and resolving it with the repair.
  * Layer: Domain. Zod schemas, rules and one applier; no I/O, no React.
  * Dependencies: zod, ./model, ./rejection.
  */
@@ -10,7 +10,9 @@ import { can, isLocalToday, type Discrepancy, type Snapshot } from "./model";
 import { Rejection } from "./rejection";
 
 const DAY_MS = 86400000;
-const MAX_RESOLUTION_LENGTH = 5000;
+
+/** The longest repair description a resolution may record. */
+export const MAX_RESOLUTION_LENGTH = 5000;
 
 /**
  * MEL repair intervals by category, in calendar days excluding the day of
@@ -97,6 +99,21 @@ export const deferCommandSchema = z.strictObject({
 
 /** A parsed defer command. */
 export type DeferCommand = z.infer<typeof deferCommandSchema>;
+
+/**
+ * Whether a report grounds its aircraft by itself: open, marked not
+ * airworthy, and not deferred. A deferral lets the aircraft fly with the item
+ * open; once it expires, the Dispatch gate grounds the aircraft for the
+ * deferral instead.
+ *
+ * @param d - The report.
+ * @returns True for an open, undeferred grounding report.
+ */
+export function isGroundingReport(
+  d: Pick<Discrepancy, "grounding" | "status" | "deferral">,
+): boolean {
+  return !!d.grounding && d.status === "open" && !d.deferral;
+}
 
 /**
  * Works out when a deferral expires.

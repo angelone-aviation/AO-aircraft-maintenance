@@ -136,6 +136,34 @@ export function dueItems(
   ];
 }
 
+/**
+ * The level of a component requirement's status.
+ *
+ * @param status - A {@link requirementStatus} status.
+ * @returns Overdue for Past due and Due now; due soon for Due soon; ok for
+ *   Tracked; else unknown, as "Set landing baseline" and "Set time baseline"
+ *   cannot be judged yet.
+ */
+export function requirementLevel(status: string): DueLevel {
+  if (OVERDUE_REQUIREMENT_STATUSES.includes(status)) return "overdue";
+  if (status === "Due soon") return "due-soon";
+  return status === "Tracked" ? "ok" : "unknown";
+}
+
+/**
+ * The level of an AD's status or one of its actions'.
+ *
+ * @param status - An {@link adStatus} or {@link adTaskStatus}.
+ * @returns Overdue and Due soon as such; ok for Scheduled, Complied, PCW and
+ *   a closed applicability; else unknown, as "Due not set", "Counter
+ *   unavailable", "Needs review" and "Removed component" cannot be judged.
+ */
+export function adLevel(status: string): DueLevel {
+  if (status === "Overdue") return "overdue";
+  if (status === "Due soon") return "due-soon";
+  return OK_AD_STATUSES.includes(status) ? "ok" : "unknown";
+}
+
 type Listed = (aircraftUuid: string | undefined) => boolean;
 
 function listInspections(
@@ -231,19 +259,4 @@ function findComponent(s: Snapshot, uuid: string) {
   return s.management?.find(
     (x): x is Component => x.kind === "component" && x.uuid === uuid,
   );
-}
-
-// "Set landing baseline" and "Set time baseline" cannot be judged yet.
-function requirementLevel(status: string): DueLevel {
-  if (OVERDUE_REQUIREMENT_STATUSES.includes(status)) return "overdue";
-  if (status === "Due soon") return "due-soon";
-  return status === "Tracked" ? "ok" : "unknown";
-}
-
-// For an AD or one of its actions: "Due not set", "Counter unavailable",
-// "Needs review" and "Removed component" cannot be judged.
-function adLevel(status: string): DueLevel {
-  if (status === "Overdue") return "overdue";
-  if (status === "Due soon") return "due-soon";
-  return OK_AD_STATUSES.includes(status) ? "ok" : "unknown";
 }

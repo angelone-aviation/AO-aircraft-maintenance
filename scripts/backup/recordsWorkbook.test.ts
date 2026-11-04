@@ -16,7 +16,7 @@ import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditActionLabel } from "../../src/domain/auditHistory";
 import { fixtureExport } from "./exportFixture";
-import { buildRecordsWorkbook, zoneClock } from "./recordsWorkbook";
+import { buildRecordsWorkbook, main, zoneClock } from "./recordsWorkbook";
 
 const TZ = "America/New_York";
 process.env.TZ = TZ;
@@ -202,16 +202,16 @@ const text = (v: ExcelJS.CellValue): string => {
     return v.richText.map((r) => r.text).join("");
   return String(v);
 };
-const sheet = (name: string) => {
-  const ws = wb.getWorksheet(name);
+const sheet = (name: string, book = wb) => {
+  const ws = book.getWorksheet(name);
   if (!ws) throw new Error(`Missing sheet ${name}`);
   return ws;
 };
 const header = (ws: ExcelJS.Worksheet) =>
   (ws.getRow(2).values as ExcelJS.CellValue[]).slice(1).map(text);
 // Data rows as objects keyed by header.
-function rows(name: string) {
-  const ws = sheet(name);
+function rows(name: string, book = wb) {
+  const ws = sheet(name, book);
   const keys = header(ws);
   const out: { cells: Record<string, ExcelJS.Cell>; row: ExcelJS.Row }[] = [];
   ws.eachRow((row, n) => {
@@ -241,7 +241,11 @@ function editFirst(
   change(docs.find(pick)!);
   files[name] = strToU8(docs.map((d) => JSON.stringify(d)).join("\n") + "\n");
 }
-async function buildFrom(files: Record<string, Uint8Array>, name: string) {
+async function buildFrom(
+  files: Record<string, Uint8Array>,
+  name: string,
+  at = now,
+) {
   const zip = path.join(dir, `${name}.zip`);
   const out = path.join(dir, `${name}.xlsx`);
   await writeFile(zip, zipSync(files));
@@ -249,7 +253,7 @@ async function buildFrom(files: Record<string, Uint8Array>, name: string) {
     out,
     timeZone: TZ,
     deployment: "fixture",
-    now,
+    now: at,
   });
   const read = new ExcelJS.Workbook();
   await read.xlsx.readFile(out);
@@ -453,6 +457,16 @@ describe("records workbook", () => {
     expect(text(hundred.cells.Status.value)).toBe("Due soon");
     expect(fill(hundred.cells.Detail)).toBe(AMBER);
     expect(hundred.cells["Hours left"].value).toBeCloseTo(8.8, 5);
+
+    // A component limit has the colour its status has on the Due list.
+    const limit = (part: string) =>
+      rows("Components").find(
+        (r) => text(r.cells["Part number"].value) === part,
+      )!.cells.Status;
+    expect(text(limit("452-0133").value)).toBe("Past due");
+    expect(fill(limit("452-0133"))).toBe(RED);
+    expect(text(limit("655410").value)).toBe("Tracked");
+    expect(fill(limit("655410"))).toBe(GREEN);
 
     const stock = rows("Inventory");
     const sealant = stock.find(
@@ -704,4 +718,113 @@ describe("records workbook", () => {
     // Spawns node and bundles the workbook with esbuild: seconds of work that
     // pass vitest's 5 s default only on an idle machine.
   }, 30_000);
+
+  it("refuses a time zone Intl does not know, and a command line without its files", async () => {
+    const out = path.join(dir, "refused.xlsx");
+    await expect(
+      buildRecordsWorkbook(zipPath, {
+        out,
+        timeZone: "Mars/Olympus",
+        deployment: "fixture",
+        now,
+      }),
+    ).rejects.toThrow(RangeError);
+    await expect(main(["--zip", zipPath])).rejects.toThrow(
+      /^Usage: node scripts\/backup\/records-workbook\.mjs --zip /,
+    );
+    await expect(
+      main(["--zip", zipPath, "--out", out, "--tz", "Mars/Olympus"]),
+    ).rejects.toThrow(
+      'Unknown time zone "Mars/Olympus". Use an IANA name such as America/New_York.',
+    );
+  });
+
+  it("judges ADs on the copy's date, not the machine's", async () => {
+    const monthLater = now + 30 * 86_400_000;
+    const { read } = await buildFrom(
+      unzipSync(fixture.zip),
+      "later",
+      monthLater,
+    );
+    const seatRail = rows("Airworthiness directives", read).find(
+      (r) => text(r.cells["AD number"].value) === "AD 2025-DEMO-12",
+    )!;
+    expect(text(seatRail.cells.Status.value)).toBe("Overdue");
+  });
+
+  it("builds for an aircraft without a meter reading: its AD actions are Unknown with the reason, a passed due date still overdue", async () => {
+    const withoutReading = () => {
+      const files = unzipSync(fixture.zip);
+      editFirst(
+        files,
+        "aircraft",
+        (d) => (d.meter = "flightTimeLog"),
+        (d) => d.registration === "N206MA",
+      );
+      return files;
+    };
+    type AdPayload = {
+      applicability: string;
+      source: { number: string };
+      tasks: { dueDate: string }[];
+      history: { terminatedBy: string }[];
+    };
+    const editAd = (
+      files: Record<string, Uint8Array>,
+      number: string,
+      change: (ad: AdPayload) => AdPayload,
+    ) =>
+      editFirst(
+        files,
+        "airworthiness",
+        (d) =>
+          (d.payload = JSON.stringify(change(JSON.parse(String(d.payload))))),
+        (d) => JSON.parse(String(d.payload)).source.number === number,
+      );
+    const today = zoneClock(TZ).today(now);
+    const threeDaysAgo = new Date(Date.parse(today) - 3 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    const unread = withoutReading();
+    editAd(unread, "2025-DEMO-12", (ad) => ({
+      ...ad,
+      tasks: [{ ...ad.tasks[0], dueDate: threeDaysAgo }],
+    }));
+    const { read } = await buildFrom(unread, "no-reading");
+    const due = rows("Due list", read);
+    expect(due.length).toBe(rows("Due list").length);
+    const adRow = (number: string) =>
+      due.find(
+        (r) =>
+          text(r.cells.Aircraft.value) === "N206MA" &&
+          text(r.cells.Item.value) === `AD ${number}`,
+      )!;
+    const unknown = adRow("2024-DEMO-03");
+    expect(text(unknown.cells.Status.value)).toBe("Unknown");
+    expect(text(unknown.cells.Detail.value)).toBe(
+      "Inspect attach brackets for cracks; repeat every 100 h.\nFlight time log reading is required.",
+    );
+    expect(text(unknown.cells["Due at"].value)).toBe("2,400.0 h");
+    expect(unknown.cells["Hours left"].value).toBeNull();
+    expect(fill(unknown.cells.Status)).toBeUndefined();
+    const passed = adRow("2025-DEMO-12");
+    expect(text(passed.cells.Status.value)).toBe("Overdue");
+    expect(fill(passed.cells.Status)).toBe(RED);
+    expect(passed.cells["Days left"].value).toBe(-3);
+
+    // Neither an AD that no longer applies nor a terminated action is listed.
+    const closed = withoutReading();
+    editAd(closed, "2024-DEMO-03", (ad) => ({
+      ...ad,
+      history: [{ ...ad.history[0], terminatedBy: "AD 2026-DEMO-01" }],
+    }));
+    editAd(closed, "2025-DEMO-12", (ad) => ({
+      ...ad,
+      applicability: "Not applicable",
+    }));
+    const { summary } = await buildFrom(closed, "closed");
+    const listed = summary.sheets.find((x) => x.name === "Due list");
+    expect(listed?.rows).toBe(rows("Due list").length - 2);
+  });
 });

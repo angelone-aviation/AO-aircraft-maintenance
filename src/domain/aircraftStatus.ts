@@ -12,6 +12,7 @@ import { CLOSED_APPLICABILITY } from "./airworthiness";
 import {
   deferralDaysRemaining,
   deferralLabel,
+  isGroundingReport,
   type Deferral,
 } from "./deferrals";
 import { dueItems, type MaintenanceDue, type RequirementDue } from "./dueItems";
@@ -239,11 +240,13 @@ function listAdFindings(due: MaintenanceDue[]) {
 
 function listDiscrepancyFindings(s: Snapshot, a: Aircraft, today: string) {
   return s.discrepancies.flatMap((d): Finding[] => {
-    if (d.aircraftUuid !== a.uuid || d.status !== "open") return [];
-    if (d.deferral) return listDeferralFindings(d.uuid, d.deferral, today);
-    if (!d.grounding) return [];
-    const label = `Open discrepancy: ${shortenDescription(d.description)}`;
-    return flagGrounded("discrepancy", d.uuid, label);
+    if (d.aircraftUuid !== a.uuid) return [];
+    if (isGroundingReport(d)) {
+      const label = `Open discrepancy: ${shortenDescription(d.description)}`;
+      return flagGrounded("discrepancy", d.uuid, label);
+    }
+    if (d.status !== "open" || !d.deferral) return [];
+    return listDeferralFindings(d.uuid, d.deferral, today);
   });
 }
 

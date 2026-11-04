@@ -4,8 +4,8 @@
  * Layer: UI. The browser entry point; the only module that creates the Convex
  *   client.
  * Dependencies: convex/react, @convex-dev/auth/react, src/data (store,
- *   backend, deviceManuals, pdfOffline), src/domain/model.ts, src/App.tsx,
- *   src/components.
+ *   backend, deviceManuals, pdfOffline, pendingEntries), src/domain/model.ts,
+ *   src/App.tsx, src/components.
  */
 import { MissionSlogan } from "./components/MissionSlogan";
 import { useEffect, useId, useState } from "react";
@@ -23,6 +23,7 @@ import { api } from "../convex/_generated/api";
 import { renewDemoAccess, useWorkspace, type Workspace } from "./data/store";
 import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
+import { pendingEntriesFile } from "./data/pendingEntries";
 import { convexBackend } from "./data/backend";
 import { offlineValid, OFFLINE_WINDOW, type Snapshot } from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
@@ -392,14 +393,8 @@ function AccessExpired({ onExit }: { onExit: () => void }) {
   );
 }
 function exportPendingEntries(queue: Workspace["queue"], userId: string) {
-  download(
-    "angel-one-pending-entries.json",
-    JSON.stringify(
-      queue.filter((q) => q.operation.authorId === userId),
-      null,
-      2,
-    ),
-  );
+  const file = pendingEntriesFile(queue, userId);
+  download(file.name, file.text);
 }
 // Accounts are managed by administrators and there is no self-service reset
 // (ADR-0002): "Forgot?" only explains whom to ask; it makes no request.

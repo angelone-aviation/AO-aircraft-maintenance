@@ -2,9 +2,10 @@
  * Responsibility: The flight log, discrepancy reports, Sync center and change
  *   history screens.
  * Layer: UI. Screens over the workspace snapshot; holds no business rules.
- * Dependencies: src/data (store, auditHistory), src/domain (model, programs,
- *   pilotView, flights, auditHistory), ./design, ./ui and the flight,
- *   deferral, parts, task card and work order components.
+ * Dependencies: src/data (store, auditHistory, pendingEntries), src/domain
+ *   (model, programs, pilotView, flights, flightFluids, deferrals,
+ *   auditHistory), ./design, ./ui and the flight, deferral, parts, task card
+ *   and work order components.
  */
 import "../styles/screens/records.css";
 import { isPilotView } from "../domain/pilotView";
@@ -45,12 +46,16 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace, type Workspace } from "../data/store";
 import { useAuditHistory } from "../data/auditHistory";
+import { ownEntries, pendingEntriesFile } from "../data/pendingEntries";
+import { isGroundingReport, MAX_RESOLUTION_LENGTH } from "../domain/deferrals";
+import { previousFlights } from "../domain/flightFluids";
 import { auditActionLabel } from "../domain/auditHistory";
 import { flightStatusLabels } from "../domain/flights";
 import { HistoryPager } from "./ManagementShared";
 import {
   can,
   hours,
+  NOTE_MAX_LENGTH,
   type Aircraft,
   type AuditEntry,
   type Discrepancy,
@@ -85,8 +90,6 @@ import { FlightLogImportButton } from "./FlightLogImport";
 // Cards and rows enter one after another; the cap lets long lists settle
 // quickly.
 const STAGGER_CAP = 8;
-// The schema's limit on a report's description and on its resolution.
-const REPORT_TEXT_MAX_LENGTH = 5000;
 const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   hour: "2-digit",
   minute: "2-digit",
@@ -230,24 +233,9 @@ function flightLog(
   };
 }
 
-function previousFlights(flights: Flight[]) {
-  const byStart = flights
-    .filter((f) => f.status !== "rejected")
-    .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
-  const previous = new Map<string, Flight>();
-  const latestByAircraft = new Map<string, Flight>();
-  for (const flight of byStart) {
-    const before = latestByAircraft.get(flight.aircraftUuid);
-    if (before) previous.set(flight.uuid, before);
-    latestByAircraft.set(flight.aircraftUuid, flight);
-  }
-  return previous;
-}
-
 function pendingFlightCount(s: Snapshot, queue: QueuedEntry[]) {
-  return queue.filter(
+  return ownEntries(queue, s.user.id).filter(
     (q) =>
-      q.operation.authorId === s.user.id &&
       q.operation.programUuid === s.activeProgramUuid &&
       q.operation.kind === "flight",
   ).length;
@@ -727,11 +715,6 @@ export function Discrepancies() {
   );
 }
 
-// A deferral (MEL / 91.213) lets the aircraft fly with the item open, so a
-// deferred report no longer grounds it.
-const groundsAircraft = (d: Discrepancy) =>
-  !!d.grounding && d.status === "open" && !d.deferral;
-
 function DiscrepancyHeader({
   canReport,
   onReport,
@@ -767,7 +750,7 @@ function DiscrepancyToolbar({
 }) {
   const open = s.discrepancies.filter((d) => d.status === "open");
   const deferred = open.filter((d) => d.deferral).length;
-  const grounding = open.filter(groundsAircraft).length;
+  const grounding = open.filter(isGroundingReport).length;
   return (
     <Toolbar
       className="rise"
@@ -862,7 +845,7 @@ function ReportCard({
 
 function ReportHead({ s, report: d }: ReportProps) {
   const isOpen = d.status === "open";
-  const grounds = groundsAircraft(d);
+  const grounds = isGroundingReport(d);
   return (
     <div className="rec-disc-head">
       <div className="rec-disc-id">
@@ -1020,7 +1003,7 @@ function ReportFields({ aircraft }: { aircraft: Aircraft[] }) {
         <textarea
           name="description"
           rows={5}
-          maxLength={REPORT_TEXT_MAX_LENGTH}
+          maxLength={NOTE_MAX_LENGTH}
           required
           placeholder="Describe the problem and where you noticed it."
         />
@@ -1074,7 +1057,7 @@ function ResolveDialog({
           <textarea
             name="resolution"
             rows={5}
-            maxLength={REPORT_TEXT_MAX_LENGTH}
+            maxLength={MAX_RESOLUTION_LENGTH}
             required
           />
         </Field>
@@ -1097,7 +1080,7 @@ function ResolveDialog({
  */
 export function SyncCenter() {
   const { snapshot: s, queue, online, connected } = useWorkspace();
-  const own = queue.filter((q) => q.operation.authorId === s!.user.id);
+  const own = ownEntries(queue, s!.user.id);
   const live = online && connected;
   return (
     <>
@@ -1124,19 +1107,17 @@ export function SyncCenter() {
 }
 
 function SyncActions({ own, live }: { own: QueuedEntry[]; live: boolean }) {
-  const { syncing, flush } = useWorkspace();
+  const { snapshot: s, queue, syncing, flush } = useWorkspace();
   return (
     <>
       {!!own.length && (
         <button
           type="button"
           className="button"
-          onClick={() =>
-            download(
-              "angel-one-pending-entries.json",
-              JSON.stringify(own, null, 2),
-            )
-          }
+          onClick={() => {
+            const file = pendingEntriesFile(queue, s!.user.id);
+            download(file.name, file.text);
+          }}
         >
           <DownloadSimple size={18} aria-hidden="true" /> Export pending entries
         </button>

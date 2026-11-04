@@ -156,6 +156,8 @@ export function AsyncForm({
 /**
  * A labelled field. Clones a single element child with the label's id and
  * points its aria-describedby at the hint; any other child renders as is.
+ * A component child gets them as its `id` and `aria-describedby` props: it
+ * must pass both to its control, or the label and hint are silently unlinked.
  *
  * @returns The `.field` wrapper with its label, control and hint.
  */
