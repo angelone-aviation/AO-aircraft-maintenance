@@ -10,12 +10,17 @@ import { describe, expect, it } from "vitest";
 import { DUE_FLEET_TODAY, dueFleet } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import {
+  ALERTS_SKIPPED_AD_STATUSES,
   computeAlerts as allAlerts,
   wantsAlertEmails,
   type Alert,
 } from "./alerts";
 import { digestEmail, DIGEST_LIMIT } from "./alertDigest";
-import { blankAD, blankADTask } from "./airworthiness";
+import {
+  blankAD,
+  blankADTask,
+  DASHBOARD_SETTLED_AD_STATUSES,
+} from "./airworthiness";
 import type { Component, ComponentRequirement } from "./components";
 import type { FaaCandidate } from "./faa";
 import { totalSeconds, type Snapshot } from "./model";
@@ -119,6 +124,22 @@ describe("AD alerts", () => {
     const { s, r } = withTask({ dueDate: plus(-3) });
     r.applicability = "Not applicable";
     expect(computeAlerts(s, today)).toEqual([]);
+  });
+  it("alerts on an action of an AD under review (Characterizes current behaviour)", () => {
+    const { s, r } = withTask({ dueDate: plus(-3) });
+    r.reviewRequired = true;
+    expect(kinds(computeAlerts(s, today))).toEqual(["ad-overdue"]);
+  });
+  it("skips fewer statuses than the dashboard's AD panel (Characterizes current behaviour; T13)", () => {
+    expect(ALERTS_SKIPPED_AD_STATUSES).toEqual([
+      "Not applicable",
+      "Superseded",
+      "Removed component",
+      "Previously Complied With (PCW)",
+    ]);
+    expect([...DASHBOARD_SETTLED_AD_STATUSES].sort()).toEqual(
+      [...ALERTS_SKIPPED_AD_STATUSES, "Complied", "Scheduled"].sort(),
+    );
   });
 });
 

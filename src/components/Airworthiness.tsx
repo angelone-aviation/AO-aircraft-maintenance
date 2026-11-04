@@ -32,6 +32,7 @@ import { useWorkspace, type Workspace } from "../data/store";
 import { can } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import {
+  DASHBOARD_SETTLED_AD_STATUSES,
   REASON_MAX_LENGTH,
   REQUIRED_COMPLIANCE_FIELDS,
   adAircraftUuid,
@@ -86,16 +87,6 @@ import {
 } from "./design";
 import { OpsSelect } from "./OpsList";
 
-// AD statuses the dashboard does not alert on: complied, not applicable,
-// removed, or due later than the due-soon window ("Scheduled").
-const SETTLED_STATUSES = [
-  "Complied",
-  "Previously Complied With (PCW)",
-  "Not applicable",
-  "Superseded",
-  "Scheduled",
-  "Removed component",
-];
 const PCW = "Previously Complied With (PCW)";
 // Marks an import group the user chose not to import yet.
 const SKIP = "__skip__";
@@ -178,7 +169,7 @@ export function ADAlerts({ aircraftUuid }: { aircraftUuid?: string }) {
   const rows = (s.airworthiness ?? []).filter(
     (r) =>
       (!aircraftUuid || adAircraftUuid(s, r) === aircraftUuid) &&
-      !SETTLED_STATUSES.includes(adStatus(s, r)),
+      !DASHBOARD_SETTLED_AD_STATUSES.includes(adStatus(s, r)),
   );
   const pending = pendingFaaReviews(s, aircraftUuid);
   return (

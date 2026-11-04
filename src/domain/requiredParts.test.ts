@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins required-parts rules: list checks, availability
- *   against usable stock, and saving a discrepancy's parts.
+ *   against usable stock, when parts need attention, and saving a
+ *   discrepancy's parts.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/requiredParts.ts, ./management, ./programs,
  *   ./partsPlanning, ./rejection, tests/fixtures (parts and work orders).
@@ -11,6 +12,7 @@ import { partsFixture, neededPart } from "../../tests/fixtures/requiredParts";
 import {
   partsAvailability,
   partsInventory,
+  partsNeedAttention,
   validateRequiredParts,
   saveDiscrepancyParts,
 } from "./requiredParts";
@@ -292,6 +294,15 @@ it("adds up the need for one lot and labels missing stock", () => {
     partNumber: "FILTER-1",
     location: "Main hangar",
   });
+});
+
+it("needs attention when a listed lot is gone or stock falls short", () => {
+  const s = partsFixture();
+  const gone = { ...neededPart, stockUuid: "missing", locationUuid: "nowhere" };
+  expect(partsNeedAttention(s, [])).toBe(false);
+  expect(partsNeedAttention(s, [{ ...neededPart, quantity: 2 }])).toBe(false);
+  expect(partsNeedAttention(s, [{ ...neededPart, quantity: 3 }])).toBe(true);
+  expect(partsNeedAttention(s, [gone])).toBe(true);
 });
 
 it("counts serviceable lots of a part number, at its location if given", () => {

@@ -192,6 +192,20 @@ export const TRACKED_APPLICABILITY: readonly AD["applicability"][] = [
   "Previously Complied With (PCW)",
 ];
 
+/**
+ * The {@link adStatus} values the dashboard's AD alerts panel leaves out:
+ * complied, closed, removed with its component, or not due soon yet. It
+ * still lists "Needs review", "Due not set" and "Counter unavailable".
+ */
+export const DASHBOARD_SETTLED_AD_STATUSES: readonly string[] = [
+  "Complied",
+  "Previously Complied With (PCW)",
+  "Not applicable",
+  "Superseded",
+  "Scheduled",
+  "Removed component",
+];
+
 // Choosing one of these settles the applicability review.
 const SETTLING_APPLICABILITY: readonly AD["applicability"][] = [
   ...CLOSED_APPLICABILITY,

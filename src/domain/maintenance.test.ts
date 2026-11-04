@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins inspection due dates, statuses and the limit that
- *   drives an inspection's status.
+ * Responsibility: Pins inspection due dates, statuses, the due-soon window,
+ *   the limit that drives an inspection's status and the urgency order.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/maintenance.ts, rejection.ts, model.ts (types),
  *   src/data/demo.ts (fixture).
@@ -8,7 +8,9 @@
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
+  compareInspectionUrgency,
   endOfDueMonth,
+  INSPECTION_DUE_SOON_WITHIN,
   inspectionDueDate,
   inspectionDueLimit,
   inspectionStatus,
@@ -106,5 +108,42 @@ describe("the limit that drives the status", () => {
     expect(
       inspectionDueLimit({ daysRemaining: 15, hoursRemaining: 5 })?.dimension,
     ).toBe("hours");
+  });
+  it("is due soon within 10 hours, cycles or landings, or 30 days", () => {
+    expect(INSPECTION_DUE_SOON_WITHIN).toEqual({
+      hours: 10,
+      days: 30,
+      cycles: 10,
+      landings: 10,
+    });
+  });
+});
+
+describe("urgency order", () => {
+  it("ranks by status, then by the driving limit, with none last", () => {
+    const at = (
+      status: "overdue" | "due-soon" | "scheduled" | "unknown",
+      hoursRemaining?: number,
+    ) => ({
+      name: `${status} ${hoursRemaining}`,
+      status,
+      limit: inspectionDueLimit({ hoursRemaining }),
+    });
+    const order = [
+      at("unknown"),
+      at("scheduled", 50),
+      at("due-soon"),
+      at("due-soon", 8),
+      at("due-soon", 2),
+      at("overdue", -1),
+    ].sort(compareInspectionUrgency);
+    expect(order.map((x) => x.name)).toEqual([
+      "overdue -1",
+      "due-soon 2",
+      "due-soon 8",
+      "due-soon undefined",
+      "scheduled 50",
+      "unknown undefined",
+    ]);
   });
 });

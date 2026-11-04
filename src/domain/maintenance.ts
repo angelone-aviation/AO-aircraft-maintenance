@@ -1,6 +1,7 @@
 /**
  * Responsibility: When an aircraft inspection falls due: its calendar due
- *   date, what remains on each limit, its status, and the limit that drives it.
+ *   date, what remains on each limit, its status, the limit that drives it,
+ *   and which inspection is most urgent.
  * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
  *   default reads the clock).
  * Dependencies: src/domain/components.ts, model.ts, rejection.ts.
@@ -12,8 +13,23 @@ import { Rejection } from "./rejection";
 const HOUR_SECONDS = 3600;
 const DAY_MS = 86_400_000;
 
-/** How near each tracked limit an inspection becomes due soon. */
-const DUE_SOON_WITHIN = { hours: 10, days: 30, cycles: 10, landings: 10 };
+/**
+ * How near each tracked limit an inspection becomes due soon: 10 hours,
+ * cycles or landings, or 30 days.
+ */
+export const INSPECTION_DUE_SOON_WITHIN = {
+  hours: 10,
+  days: 30,
+  cycles: 10,
+  landings: 10,
+} as const;
+
+const STATUS_URGENCY: Record<InspectionState, number> = {
+  overdue: 0,
+  "due-soon": 1,
+  scheduled: 2,
+  unknown: 3,
+};
 
 /**
  * The calendar due date of a recurring inspection. Calendar months run to the
@@ -131,11 +147,13 @@ export const inspectionStatusLabels: Record<
 };
 
 /** A limit an inspection can be due by: hours, days, cycles or landings. */
-export type InspectionDimension = keyof typeof DUE_SOON_WITHIN;
+export type InspectionDimension = keyof typeof INSPECTION_DUE_SOON_WITHIN;
 
+type InspectionState = ReturnType<typeof inspectionStatus>["status"];
 type Remaining = {
   [D in InspectionDimension as `${D}Remaining`]?: number;
 };
+type Urgency = { status: InspectionState; limit?: InspectionLimit };
 
 /** One limit of an inspection, as {@link inspectionDueLimit} weighs it. */
 export type InspectionLimit = ReturnType<typeof inspectionLimits>[number];
@@ -161,25 +179,43 @@ export function inspectionDueLimit(
   );
 }
 
-function inspectionLimits(remaining: Remaining) {
-  return (Object.keys(DUE_SOON_WITHIN) as InspectionDimension[]).flatMap(
-    (dimension) => {
-      const value = remaining[`${dimension}Remaining`];
-      if (value === undefined) return [];
-      return [
-        {
-          dimension,
-          remaining: value,
-          // A calendar limit is still met on its due day; a counter at its
-          // limit is not.
-          overdue: dimension === "days" ? value < 0 : value <= 0,
-          dueSoon: value <= DUE_SOON_WITHIN[dimension],
-          /** Remaining share of the due-soon allowance; lower is more urgent. */
-          urgency: value / DUE_SOON_WITHIN[dimension],
-        },
-      ];
-    },
+/**
+ * Orders inspections most urgent first: overdue, due soon, scheduled, then
+ * unknown; within a status, by the urgency of the limit that drives it
+ * ({@link inspectionDueLimit}), with no driving limit last.
+ *
+ * @param x - An inspection's status and driving limit.
+ * @param y - Another inspection's.
+ * @returns Negative when `x` is more urgent, for `Array.prototype.sort`.
+ */
+export function compareInspectionUrgency(x: Urgency, y: Urgency): number {
+  return (
+    STATUS_URGENCY[x.status] - STATUS_URGENCY[y.status] ||
+    limitUrgency(x) - limitUrgency(y)
   );
+}
+
+const limitUrgency = (x: Urgency) => x.limit?.urgency ?? Number.MAX_VALUE;
+
+function inspectionLimits(remaining: Remaining) {
+  return (
+    Object.keys(INSPECTION_DUE_SOON_WITHIN) as InspectionDimension[]
+  ).flatMap((dimension) => {
+    const value = remaining[`${dimension}Remaining`];
+    if (value === undefined) return [];
+    return [
+      {
+        dimension,
+        remaining: value,
+        // A calendar limit is still met on its due day; a counter at its
+        // limit is not.
+        overdue: dimension === "days" ? value < 0 : value <= 0,
+        dueSoon: value <= INSPECTION_DUE_SOON_WITHIN[dimension],
+        /** Remaining share of the due-soon allowance; lower is more urgent. */
+        urgency: value / INSPECTION_DUE_SOON_WITHIN[dimension],
+      },
+    ];
+  });
 }
 
 function daysBetween(from: string, to: string) {

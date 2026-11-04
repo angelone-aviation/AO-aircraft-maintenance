@@ -124,6 +124,27 @@ describe("ADAlerts", () => {
     );
   });
 
+  it("lists ADs needing review or a due limit, not complied or closed ones (Characterizes current behaviour)", () => {
+    const [task] = applicable().tasks;
+    const ad = (number: string, patch: Partial<AD>) => ({
+      ...applicable(number),
+      ...patch,
+    });
+    setWorkspace(
+      withADs([
+        ad("2023-01-01", { reviewRequired: true }),
+        ad("2023-02-02", { tasks: [], history: [] }),
+        ad("2023-03-03", { applicability: "Superseded" }),
+        ad("2023-04-04", { tasks: [{ ...task, recurrence: "One-time" }] }),
+      ]),
+    );
+    const html = render(ADAlerts, {});
+    expect(html).toContain("<strong>Needs review</strong>");
+    expect(html).toContain("<strong>Due not set</strong>");
+    expect(html).not.toContain("AD 2023-03-03");
+    expect(html).not.toContain("AD 2023-04-04");
+  });
+
   it("gives pilot view no links", () => {
     setWorkspace(asPilot(withADs([applicable()])));
     const html = render(ADAlerts, {});
