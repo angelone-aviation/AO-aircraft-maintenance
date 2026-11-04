@@ -9,7 +9,16 @@ import {
   groupDeletionPlan,
   deletePermissionGroup,
 } from "../domain/groupDeletion";
-import { ADD_EXISTING_RESULT, EMAIL_UNAVAILABLE } from "../domain/accountRules";
+import {
+  ADD_EXISTING_RESULT,
+  EMAIL_UNAVAILABLE,
+  assertAccessGroups,
+  assertGrantsRead,
+  assertProgramGroups,
+  normalizeAccount,
+  normalizeGroup,
+  programGroupIds,
+} from "../domain/accountRules";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
 import { assertAttachmentRoom, withNewEvidence } from "../domain/attachments";
 import { demoAircraftFiles } from "./demoAircraftFiles";
@@ -99,11 +108,6 @@ import type { AuditEntry, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
 import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import * as local from "./local";
-import { validateOwnerGroup } from "../domain/ownerView";
-import {
-  assertGroupAircraftChoice,
-  assertGroupProgramChange,
-} from "../domain/groupAircraft";
 import { groupAccessReports } from "../domain/groupAccessReview";
 import type { Backend } from "./backend";
 import type { Workspace } from "./store";
@@ -937,30 +941,17 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           !programPermission(s, "admin", programUuid)
         )
           throw Error("Flight Program administrator required.");
-        if (
-          groupIds.some(
-            (id) =>
-              !s.groups.some(
-                (g) => g.id === id && g.programUuid === programUuid,
-              ),
-          )
-        )
-          throw Error("Select groups within this Flight Program.");
+        assertProgramGroups(s.groups, programUuid, groupIds);
         const user = s.members.find((m) => m.id === userId);
         const local = (id: string) =>
           s.groups.some((g) => g.id === id && g.programUuid === programUuid);
         if (!user || !user.groupIds.some(local))
           throw Error("User is not a member of this Flight Program.");
-        if (
-          !remove &&
-          !s.groups.some(
-            (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
-          )
-        )
-          throw Error("Select at least one group with read access.");
+        const chosen = remove ? [] : [...new Set(groupIds)];
+        if (!remove) assertAccessGroups(s.groups, chosen);
         user.groupIds = [
           ...user.groupIds.filter((id) => !local(id)),
-          ...(remove ? [] : [...new Set(groupIds)]),
+          ...chosen,
         ];
         if (user.id === s.user.id)
           s.user = { ...s.user, groupIds: user.groupIds };
@@ -973,21 +964,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           !programPermission(s, "admin", programUuid)
         )
           throw Error("Flight Program administrator required.");
-        if (
-          groupIds.some(
-            (id) =>
-              !s.groups.some(
-                (g) => g.id === id && g.programUuid === programUuid,
-              ),
-          )
-        )
-          throw Error("Select groups within this Flight Program.");
-        if (
-          !s.groups.some(
-            (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
-          )
-        )
-          throw Error("Select at least one group with read access.");
+        assertProgramGroups(s.groups, programUuid, groupIds);
+        assertGrantsRead(s.groups, groupIds);
         const user = s.members.find(
           (m) =>
             m.active && m.email.toLowerCase() === email.trim().toLowerCase(),
@@ -1016,54 +994,20 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           !programPermission(s, "admin", programUuid)
         )
           throw Error("Flight Program administrator permission required.");
-        if (
-          requestedGroups.some(
-            (id) =>
-              !s.groups.some(
-                (g) => g.id === id && g.programUuid === programUuid,
-              ),
-          )
-        )
-          throw Error(
-            "Users can only be assigned groups in this Flight Program.",
-          );
-        email = email.trim().toLowerCase();
-        name = name.trim();
-        if (
-          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-          !name ||
-          name.length > 150
-        )
-          throw Error("A valid email and name are required.");
-        const problem = passwordProblem(password, email);
+        assertProgramGroups(s.groups, programUuid, requestedGroups);
+        const account = normalizeAccount(email, name);
+        const problem = passwordProblem(password, account.email);
         if (problem) throw Error(problem);
-        if (s.members.some((m) => m.email.toLowerCase() === email))
+        if (s.members.some((m) => m.email.toLowerCase() === account.email))
           throw Error(EMAIL_UNAVAILABLE);
-        const groupIds = [...new Set(requestedGroups)];
-        if (
-          !s.groups.some(
-            (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
-          )
-        ) {
-          const read = s.groups.find(
-            (g) =>
-              g.programUuid === programUuid &&
-              g.name === "Observers" &&
-              !g.programAdmin &&
-              !g.aircraftIds.length &&
-              g.permissions.length === 1 &&
-              g.permissions[0] === "read",
-          );
-          if (!read)
-            throw Error(
-              "Select a permission group; Observers read-only access is unavailable.",
-            );
-          groupIds.push(read.id);
-        }
+        const groupIds = programGroupIds(
+          s.groups,
+          programUuid,
+          requestedGroups,
+        );
         s.members.push({
           id,
-          email,
-          name,
+          ...account,
           active: true,
           isAdmin: false,
           activeProgramUuid: programUuid,
@@ -1287,24 +1231,21 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         )
           throw Error("Flight Program administrator required.");
         const before = s.groups.find((g) => g.id === group.id);
-        const assigned = assertGroupProgramChange(
+        const { fields, assigned } = normalizeGroup(
+          { ...group, allAircraft },
           before,
-          group,
           s.user.isAdmin,
         );
         if (
-          group.aircraftIds.some(
+          fields.aircraftIds.some(
             (id) =>
               !s.aircraft.some(
-                (a) => a.uuid === id && a.programUuid === group.programUuid,
+                (a) => a.uuid === id && a.programUuid === fields.programUuid,
               ),
           )
         )
           throw Error("Group aircraft must belong to its Flight Program.");
-        if (!group.name.trim()) throw new Error("Group name is required.");
-        validateOwnerGroup(group);
-        assertGroupAircraftChoice(before, { ...group, allAircraft });
-        const next = { ...group, id: group.id ?? crypto.randomUUID() };
+        const next = { ...fields, id: group.id ?? crypto.randomUUID() };
         s.groups = s.groups.some((g) => g.id === next.id)
           ? s.groups.map((g) => (g.id === next.id ? next : g))
           : [...s.groups, next];

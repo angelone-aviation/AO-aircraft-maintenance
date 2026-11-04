@@ -1,8 +1,8 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, flight
  *   review, AD changes, attachments, manual edits, saved addresses, FAA
- *   monitor commands and program selection against the server's rules: the
- *   same refusals, stored records and change-log rows.
+ *   monitor commands, program selection, membership and group saves against
+ *   the server's rules: the same refusals, stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
@@ -20,6 +20,10 @@
  * Batch 285 it audited a manual edit's whole record, saved addresses without
  * the administrator check or the 200 cap and with its own messages, kept an
  * FAA monitor's run and error on configure, and ignored an unknown candidate.
+ * Before Batch 292 it said "Select at least one group with read access." and
+ * "Select groups within this Flight Program.", and saved a group with a name
+ * over 100 characters, write permissions without read, or no Flight Program,
+ * untrimmed and with repeats.
  */
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
@@ -34,6 +38,7 @@ import { saveTaskCard } from "../domain/taskCards";
 import { saveWorkOrder } from "../domain/workOrders";
 import { poSchema } from "../domain/purchaseOrders";
 import type { Manual } from "../domain/manuals";
+import type { Group } from "../domain/model";
 import { addressSchema } from "../domain/addresses";
 import type { FaaMonitor } from "../domain/faa";
 import type { Backend } from "./backend";
@@ -709,6 +714,150 @@ it.each<[string, (backend: Backend) => Promise<unknown>]>([
     });
     const before = await stored();
     const error = await run(backend).catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+// The seed plus a write-only group in the program and a group elsewhere.
+function withGroups(s: Snapshot) {
+  const group = (id: string, fields: Partial<Group>): Group => ({
+    id,
+    name: id,
+    programUuid: PROGRAM,
+    aircraftIds: [],
+    permissions: ["read"],
+    ...fields,
+  });
+  s.groups.push(
+    group("writers", { permissions: ["flight"] }),
+    group("elsewhere", { programUuid: "second" }),
+  );
+}
+
+const PILOT = "demo-pilot";
+it.each<[string, (backend: Backend) => Promise<unknown>, string]>([
+  [
+    "a group of another program",
+    (backend) =>
+      backend.updateProgramAccess(PILOT, PROGRAM, ["elsewhere"], false),
+    "Users can only be assigned groups in this Flight Program.",
+  ],
+  [
+    "no group",
+    (backend) => backend.updateProgramAccess(PILOT, PROGRAM, [], false),
+    "Select at least one permission group or remove program access.",
+  ],
+  [
+    "groups without read access",
+    (backend) =>
+      backend.updateProgramAccess(PILOT, PROGRAM, ["writers"], false),
+    "Select a group with read access.",
+  ],
+  [
+    "groups without read access, adding someone",
+    (backend) =>
+      backend.addExistingProgramUser("jordan@example.test", PROGRAM, [
+        "writers",
+      ]),
+    "Select a group with read access.",
+  ],
+  [
+    "a group of another program, adding someone",
+    (backend) =>
+      backend.addExistingProgramUser("jordan@example.test", PROGRAM, [
+        "demo-pilots",
+        "elsewhere",
+      ]),
+    "Users can only be assigned groups in this Flight Program.",
+  ],
+])(
+  "refuses a member's access with %s, with the server's message",
+  async (label, run, message) => {
+    const { backend, stored } = await demo(`demo-access-${label}`, withGroups);
+    const before = await stored();
+    const error = await run(backend).catch((e) => e);
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+it("creates a program user with the email and name normalized and the groups once each", async () => {
+  const { backend, stored } = await demo("demo-create-user");
+  const id = await backend.createProgramUser(
+    " Sam@Example.TEST ",
+    " Sam Rivera ",
+    "correct horse battery staple 42",
+    PROGRAM,
+    ["demo-pilots", "demo-pilots"],
+  );
+  expect((await stored()).members.at(-1)).toEqual({
+    id,
+    email: "sam@example.test",
+    name: "Sam Rivera",
+    active: true,
+    isAdmin: false,
+    activeProgramUuid: PROGRAM,
+    groupIds: ["demo-pilots"],
+  });
+});
+
+const GROUP = {
+  name: "Mechanics",
+  programUuid: PROGRAM,
+  aircraftIds: ["demo-206"],
+  permissions: ["read", "maintenance"] as Group["permissions"],
+};
+
+it("saves a group as the server stores it: name trimmed, no repeats, flags false", async () => {
+  const { backend, stored } = await demo("demo-group-save");
+  await backend.saveGroup({
+    ...GROUP,
+    name: "  Mechanics ",
+    aircraftIds: ["demo-206", "demo-206"],
+    permissions: ["read", "maintenance", "read"],
+  });
+  const s = await stored();
+  const saved = s.groups.at(-1)!;
+  expect(saved).toEqual({
+    ...GROUP,
+    programAdmin: false,
+    owner: false,
+    id: expect.any(String),
+  });
+  expect(s.audit[0]).toMatchObject({
+    action: "group.saved",
+    entityUuid: saved.id,
+    after: JSON.stringify(saved),
+  });
+});
+
+it.each<[string, Partial<typeof GROUP> & { allAircraft?: boolean }, string]>([
+  [
+    "a name over 100 characters",
+    { name: "x".repeat(101) },
+    "Group name is required.",
+  ],
+  [
+    "write permissions without read",
+    { permissions: ["flight"] },
+    "Write permissions also require read access.",
+  ],
+  [
+    "no Flight Program",
+    { programUuid: undefined, aircraftIds: [], allAircraft: true },
+    "Select a Flight Program for this group.",
+  ],
+])(
+  "refuses a group with %s, as the server does",
+  async (_, fields, message) => {
+    const { backend, stored } = await demo(`demo-group-${message}`);
+    const before = await stored();
+    const error = await backend
+      .saveGroup({ ...GROUP, ...fields })
+      .catch((e) => e);
     expect(error).toBeInstanceOf(Rejection);
     expect(error).toMatchObject({ message });
     expect(await stored()).toEqual(before);

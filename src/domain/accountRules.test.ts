@@ -1,11 +1,15 @@
 /**
  * Responsibility: Pins the account-administration rules: the groups a new
- *   member gets, the Observers fallback, group saves and account details.
+ *   member gets, the Observers fallback, the groups that replace a member's
+ *   access, group saves and account details.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/accountRules.ts, ./model (types), ./rejection.
  */
 import { describe, expect, it } from "vitest";
 import {
+  assertAccessGroups,
+  assertGrantsRead,
+  assertProgramGroups,
   grantsRead,
   normalizeAccount,
   normalizeGroup,
@@ -101,6 +105,42 @@ describe("grantsRead", () => {
     expect(grantsRead(GROUPS, ["writers", "mechanics"])).toBe(true);
     expect(grantsRead(GROUPS, ["writers"])).toBe(false);
     expect(grantsRead(GROUPS, [])).toBe(false);
+  });
+});
+
+describe("member access refusals", () => {
+  it("refuses a group of another program, or an unknown one", () => {
+    expect(() =>
+      assertProgramGroups(GROUPS, PROGRAM, ["mechanics", "observers"]),
+    ).not.toThrow();
+    for (const id of ["elsewhere", "missing"])
+      expectRejection(
+        () => assertProgramGroups(GROUPS, PROGRAM, ["mechanics", id]),
+        "Users can only be assigned groups in this Flight Program.",
+      );
+  });
+
+  it("refuses groups without read access, none included, when adding", () => {
+    expect(() =>
+      assertGrantsRead(GROUPS, ["writers", "mechanics"]),
+    ).not.toThrow();
+    for (const ids of [["writers"], []])
+      expectRejection(
+        () => assertGrantsRead(GROUPS, ids),
+        "Select a group with read access.",
+      );
+  });
+
+  it("asks for a group, or removal, before read access when changing", () => {
+    expect(() => assertAccessGroups(GROUPS, ["mechanics"])).not.toThrow();
+    expectRejection(
+      () => assertAccessGroups(GROUPS, []),
+      "Select at least one permission group or remove program access.",
+    );
+    expectRejection(
+      () => assertAccessGroups(GROUPS, ["writers"]),
+      "Select a group with read access.",
+    );
   });
 });
 
