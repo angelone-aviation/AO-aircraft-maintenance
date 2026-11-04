@@ -97,10 +97,7 @@ export function programGroupIds(
   programUuid: string,
   requested: string[],
 ): string[] {
-  if (requested.some((id) => !isProgramGroup(groups, id, programUuid)))
-    throw new Rejection(
-      "Users can only be assigned groups in this Flight Program.",
-    );
+  assertProgramGroups(groups, programUuid, requested);
   const groupIds = [...new Set(requested)];
   if (grantsRead(groups, groupIds)) return groupIds;
   const observers = observersGroup(groups, programUuid);
@@ -112,12 +109,56 @@ export function programGroupIds(
 }
 
 /**
+ * Refuses a group a member cannot be given in a Flight Program: one of another
+ * program, or an id no group has.
+ *
+ * @throws {Rejection} "Users can only be assigned groups in this Flight
+ *   Program."
+ */
+export function assertProgramGroups(
+  groups: Group[],
+  programUuid: string,
+  groupIds: string[],
+): void {
+  if (groupIds.some((id) => !isProgramGroup(groups, id, programUuid)))
+    throw new Rejection(
+      "Users can only be assigned groups in this Flight Program.",
+    );
+}
+
+/**
  * Whether any of the groups grants read access.
  */
 export function grantsRead(groups: Group[], groupIds: string[]): boolean {
   return groups.some(
     (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
   );
+}
+
+/**
+ * Refuses a member's groups in a Flight Program when none grants read access,
+ * without which the member cannot open the program.
+ *
+ * @throws {Rejection} "Select a group with read access."
+ */
+export function assertGrantsRead(groups: Group[], groupIds: string[]): void {
+  if (!grantsRead(groups, groupIds))
+    throw new Rejection("Select a group with read access.");
+}
+
+/**
+ * Checks the groups that replace a member's access to a Flight Program. To
+ * leave none, the member's access is removed instead.
+ *
+ * @throws {Rejection} "Select at least one permission group or remove program
+ *   access." for none; then as {@link assertGrantsRead}.
+ */
+export function assertAccessGroups(groups: Group[], groupIds: string[]): void {
+  if (!groupIds.length)
+    throw new Rejection(
+      "Select at least one permission group or remove program access.",
+    );
+  assertGrantsRead(groups, groupIds);
 }
 
 /**

@@ -9,8 +9,18 @@ import {
   groupDeletionPlan,
   deletePermissionGroup,
 } from "../domain/groupDeletion";
-import { ADD_EXISTING_RESULT, EMAIL_UNAVAILABLE } from "../domain/accountRules";
+import {
+  ADD_EXISTING_RESULT,
+  EMAIL_UNAVAILABLE,
+  assertAccessGroups,
+  assertGrantsRead,
+  assertProgramGroups,
+  normalizeAccount,
+  normalizeGroup,
+  programGroupIds,
+} from "../domain/accountRules";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
+import { assertAttachmentRoom, withNewEvidence } from "../domain/attachments";
 import { demoAircraftFiles } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
 import {
@@ -18,9 +28,17 @@ import {
   memberLicense,
   validateCertificationFile,
 } from "../domain/certifications";
-import { generateRecurringRequests } from "../domain/recurringParts";
-import { prepareSavedAddress } from "../domain/savedAddresses";
-import { applyRequestCommand } from "../domain/partsRequests";
+import {
+  parseAddressSave,
+  saveAddress,
+  savedAddressNameKey,
+  type SavedAddress,
+  type StoredAddresses,
+} from "../domain/savedAddresses";
+import {
+  applyRequestCommand,
+  generateRecurringRequests,
+} from "../domain/partsRequests";
 import {
   saveComponentTemplate,
   applyComponentTemplate,
@@ -30,12 +48,8 @@ import {
   poAttachmentRemovable,
 } from "../domain/purchaseOrders";
 import { applyCostCommand } from "../domain/costs";
-import { emptyMonitor, faaCommandSchema } from "../domain/faa";
-import {
-  adAuditRecord,
-  adCommandReason,
-  applyADCommand,
-} from "../domain/airworthiness";
+import { applyFaaCommand, emptyMonitor, faaCommandSchema } from "../domain/faa";
+import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
 import { reviewFlight } from "../domain/flightReview";
@@ -52,10 +66,14 @@ import { importTaskCsv } from "../domain/taskCsv";
 import { activateTemplate } from "../domain/activateTemplate";
 import { saveInspectionTemplates } from "../domain/inspectionTemplates";
 import {
+  assertManualMaintainer,
+  editManual,
   manualInputSchema,
-  manualEditSchema,
-  manualApplicabilitySchema,
+  renameManual,
+  setManualApplicability,
   validateManualFile,
+  type Manual,
+  type ManualChange,
 } from "../domain/manuals";
 import {
   saveTaskCard,
@@ -71,9 +89,9 @@ import { saveFlightPlan } from "../domain/flightPlans";
 import { transferProgram } from "../domain/programTransfers";
 import {
   activeProgram,
+  assertProgramSelectable,
   scopedSnapshot,
   auditVisible,
-  programIds,
   programPermission,
 } from "../domain/programs";
 import { applyFleet } from "../domain/fleet";
@@ -92,11 +110,6 @@ import type { AuditEntry, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
 import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import * as local from "./local";
-import { validateOwnerGroup } from "../domain/ownerView";
-import {
-  assertGroupAircraftChoice,
-  assertGroupProgramChange,
-} from "../domain/groupAircraft";
 import { groupAccessReports } from "../domain/groupAccessReview";
 import type { Backend } from "./backend";
 import type { Workspace } from "./store";
@@ -164,6 +177,24 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     };
     s.audit.unshift(entry);
   }
+  // Writes a checked manual change and its change-log row, as the server does.
+  function saveManualChange<T>(
+    s: Snapshot,
+    action: string,
+    manual: Manual,
+    change: ManualChange<T>,
+  ) {
+    audit(
+      s,
+      action,
+      manual.uuid,
+      manual.aircraftUuid,
+      undefined,
+      change.before,
+      change.after,
+    );
+    Object.assign(manual, change.patch);
+  }
   return {
     importTaskCsv: (input) =>
       modify((s) => {
@@ -203,31 +234,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     editManual: (uuid, raw) =>
       modify((s) => {
-        const m = s.manuals?.find((m) => m.uuid === uuid);
-        if (!m || !can(s, m.aircraftUuid, "maintenance"))
-          throw new Error("Maintenance access is required.");
-        const input = manualEditSchema.parse(raw);
-        const source = s.aircraft.find((a) => a.uuid === m.aircraftUuid);
-        const target = s.aircraft.find((a) => a.uuid === input.aircraftUuid);
-        if (
-          !target ||
-          !source ||
-          source.programUuid !== target.programUuid ||
-          !can(s, target.uuid, "maintenance")
-        )
-          throw new Error(
-            "Choose an aircraft in the same Flight Program with maintenance access.",
-          );
-        audit(
-          s,
-          "manual.edit",
-          uuid,
-          m.aircraftUuid,
-          undefined,
-          { ...m },
-          input,
-        );
-        Object.assign(m, input, { applicability: input.applicability });
+        const m = maintainedManual(s, uuid);
+        saveManualChange(s, "manual.edit", m, editManual(s, m, raw));
       }),
     saveComponentTemplate: (input) =>
       modify((s) => {
@@ -239,37 +247,14 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     renameManual: (uuid, raw) =>
       modify((s) => {
-        const m = s.manuals?.find((m) => m.uuid === uuid);
-        if (!m || !can(s, m.aircraftUuid, "maintenance"))
-          throw new Error("Maintenance access is required.");
-        const title = manualInputSchema.shape.title.parse(raw);
-        audit(
-          s,
-          "manual.rename",
-          uuid,
-          m.aircraftUuid,
-          undefined,
-          { title: m.title },
-          { title },
-        );
-        m.title = title;
+        const m = maintainedManual(s, uuid);
+        saveManualChange(s, "manual.rename", m, renameManual(s, m, raw));
       }),
     setManualApplicability: (uuid, raw) =>
       modify((s) => {
-        const m = s.manuals?.find((m) => m.uuid === uuid);
-        if (!m || !can(s, m.aircraftUuid, "maintenance"))
-          throw new Error("Maintenance access is required.");
-        const applicability = manualApplicabilitySchema.parse(raw);
-        audit(
-          s,
-          "manual.applicability",
-          uuid,
-          m.aircraftUuid,
-          undefined,
-          m.applicability,
-          applicability,
-        );
-        m.applicability = applicability;
+        const m = maintainedManual(s, uuid);
+        const change = setManualApplicability(s, m, raw);
+        saveManualChange(s, "manual.applicability", m, change);
       }),
     uploadManual: async (raw, file) => {
       const input = manualInputSchema.parse(raw);
@@ -340,6 +325,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           throw new Error(
             "An open job card and maintenance access are required.",
           );
+        assertRoomAmong(s.taskEvidence, (f) => f.taskCardUuid === t.uuid);
+        const now = Date.now();
         s.taskEvidence = [
           ...(s.taskEvidence ?? []),
           {
@@ -348,16 +335,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             category,
             name: file.name,
             size: file.size,
-            uploadedAt: Date.now(),
+            uploadedAt: now,
             url,
           },
         ];
-        // New evidence is part of the record being signed.
-        t.technicianSignoff = null;
-        t.inspectionSignoff = null;
-        t.stepSignoffs = {};
-        t.version++;
-        t.updatedAt = Date.now();
+        s.taskCards = s.taskCards!.map((card) =>
+          card === t ? withNewEvidence(t, now) : card,
+        );
         audit(
           s,
           "taskCard.evidence",
@@ -479,6 +463,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const url = `data:${file.type};base64,${btoa(binary)}`;
       await modify((s) => {
         inventoryAttachmentAccess(s, stockUuid);
+        assertRoomAmong(
+          s.inventoryAttachments,
+          (f) => f.stockUuid === stockUuid,
+        );
         s.inventoryAttachments = [
           ...(s.inventoryAttachments ?? []),
           {
@@ -514,6 +502,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           throw new Error(
             "An open work order and maintenance access are required.",
           );
+        assertRoomAmong(
+          s.workOrderAttachments,
+          (f) => f.workOrderUuid === w.uuid,
+        );
         s.workOrderAttachments = [
           ...(s.workOrderAttachments ?? []),
           {
@@ -551,54 +543,27 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         const cmd = faaCommandSchema.parse(command);
         if (!can(s, cmd.aircraftUuid, "maintenance"))
           throw Error("Permission denied.");
-        const m =
-          s.faaMonitors?.find((x) => x.aircraftUuid === cmd.aircraftUuid) ??
-          emptyMonitor(cmd.aircraftUuid);
         if (cmd.kind === "check")
           throw Error(
             "Live FAA checks require a connected backend; demo mode cannot check the FAA.",
           );
-        if (cmd.kind === "configure") {
-          m.enabled = cmd.enabled;
-          m.terms = cmd.terms;
-        } else {
-          const c = m.candidates.find((c) => c.id === cmd.id);
-          if (c) {
-            c.reviewReason = cmd.reason;
-            c.reviewedAt = Date.now();
-          }
-        }
+        const m =
+          s.faaMonitors?.find((x) => x.aircraftUuid === cmd.aircraftUuid) ??
+          emptyMonitor(cmd.aircraftUuid);
         s.faaMonitors = [
           ...(s.faaMonitors ?? []).filter(
             (x) => x.aircraftUuid !== m.aircraftUuid,
           ),
-          m,
+          applyFaaCommand(m, cmd, Date.now()),
         ];
       }),
     saveAD: (command) =>
       modify((s) => {
-        const prior = s.airworthiness ?? [];
-        for (const r of applyADCommand(s, command)) {
-          const old = prior.find((x) => x.uuid === r.uuid);
-          audit(
-            s,
-            "ad." + command.kind,
-            r.uuid,
-            r.aircraftUuid,
-            adCommandReason(command),
-            old && adAuditRecord(old),
-            adAuditRecord(r),
-          );
-        }
+        applyADCommand(s, command);
       }),
     partsRequest: (command) =>
       modify((s) => {
-        const r = applyRequestCommand(s, command);
-        if (r.recurring && !r.cancelled)
-          for (const order of s.workOrders ?? []) {
-            if (order.aircraftUuid === r.aircraftUuid)
-              generateRecurringRequests(s, order);
-          }
+        applyRequestCommand(s, command);
       }),
     engineTrends: async (aircraftUuid) => {
       const s = workspace.getState().snapshot!;
@@ -684,28 +649,16 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       };
     },
     saveAddress: async (programUuid, input) => {
-      const parsed = prepareSavedAddress(input);
-      const saved = { ...parsed, version: parsed.version + 1, programUuid };
+      let saved!: SavedAddress;
       await modify((s) => {
         if (
           s.user.activeProgramUuid !== programUuid &&
           s.activeProgramUuid !== programUuid
         )
           throw Error("Flight Program changed.");
-        const old = s.savedAddresses?.find((a) => a.uuid === input.uuid);
-        if (old && old.programUuid !== programUuid)
-          throw Error("Address not found.");
-        if ((old?.version ?? 0) !== input.version)
-          throw Error("Address changed.");
-        if (
-          s.savedAddresses?.some(
-            (a) =>
-              a.uuid !== input.uuid &&
-              a.programUuid === programUuid &&
-              a.name.toLowerCase() === saved.name.toLowerCase(),
-          )
-        )
-          throw Error("Address name already exists.");
+        const parsed = parseAddressSave(s, programUuid, input);
+        const stored = storedAddresses(s, programUuid, parsed);
+        saved = saveAddress(programUuid, parsed, stored);
         s.savedAddresses = [
           ...(s.savedAddresses ?? []).filter((a) => a.uuid !== saved.uuid),
           saved,
@@ -760,6 +713,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           throw Error("PO access denied.");
         const receipt = po.receipts.find((r) => r.uuid === receiptUuid);
         if (receiptUuid && !receipt) throw Error("Receipt not found.");
+        assertRoomAmong(s.purchaseOrderFiles, (f) => f.poUuid === po.uuid);
         const f = {
           uuid: crypto.randomUUID(),
           poUuid,
@@ -822,14 +776,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     transferProgram: (input) => modify((s) => transferProgram(s, input)),
     selectProgram: (programUuid) =>
       modify((s) => {
-        if (
-          programUuid
-            ? !s.programs?.some((p) => p.uuid === programUuid) ||
-              (!s.user.isAdmin &&
-                !programIds(s.user, s.groups).includes(programUuid))
-            : !s.user.isAdmin
-        )
-          throw new Error("Flight Program access denied.");
+        assertProgramSelectable(s, programUuid);
         s.user.activeProgramUuid = programUuid;
       }),
     fleet: (command) =>
@@ -991,30 +938,17 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           !programPermission(s, "admin", programUuid)
         )
           throw Error("Flight Program administrator required.");
-        if (
-          groupIds.some(
-            (id) =>
-              !s.groups.some(
-                (g) => g.id === id && g.programUuid === programUuid,
-              ),
-          )
-        )
-          throw Error("Select groups within this Flight Program.");
+        assertProgramGroups(s.groups, programUuid, groupIds);
         const user = s.members.find((m) => m.id === userId);
         const local = (id: string) =>
           s.groups.some((g) => g.id === id && g.programUuid === programUuid);
         if (!user || !user.groupIds.some(local))
           throw Error("User is not a member of this Flight Program.");
-        if (
-          !remove &&
-          !s.groups.some(
-            (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
-          )
-        )
-          throw Error("Select at least one group with read access.");
+        const chosen = remove ? [] : [...new Set(groupIds)];
+        if (!remove) assertAccessGroups(s.groups, chosen);
         user.groupIds = [
           ...user.groupIds.filter((id) => !local(id)),
-          ...(remove ? [] : [...new Set(groupIds)]),
+          ...chosen,
         ];
         if (user.id === s.user.id)
           s.user = { ...s.user, groupIds: user.groupIds };
@@ -1027,21 +961,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           !programPermission(s, "admin", programUuid)
         )
           throw Error("Flight Program administrator required.");
-        if (
-          groupIds.some(
-            (id) =>
-              !s.groups.some(
-                (g) => g.id === id && g.programUuid === programUuid,
-              ),
-          )
-        )
-          throw Error("Select groups within this Flight Program.");
-        if (
-          !s.groups.some(
-            (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
-          )
-        )
-          throw Error("Select at least one group with read access.");
+        assertProgramGroups(s.groups, programUuid, groupIds);
+        assertGrantsRead(s.groups, groupIds);
         const user = s.members.find(
           (m) =>
             m.active && m.email.toLowerCase() === email.trim().toLowerCase(),
@@ -1070,54 +991,20 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           !programPermission(s, "admin", programUuid)
         )
           throw Error("Flight Program administrator permission required.");
-        if (
-          requestedGroups.some(
-            (id) =>
-              !s.groups.some(
-                (g) => g.id === id && g.programUuid === programUuid,
-              ),
-          )
-        )
-          throw Error(
-            "Users can only be assigned groups in this Flight Program.",
-          );
-        email = email.trim().toLowerCase();
-        name = name.trim();
-        if (
-          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-          !name ||
-          name.length > 150
-        )
-          throw Error("A valid email and name are required.");
-        const problem = passwordProblem(password, email);
+        assertProgramGroups(s.groups, programUuid, requestedGroups);
+        const account = normalizeAccount(email, name);
+        const problem = passwordProblem(password, account.email);
         if (problem) throw Error(problem);
-        if (s.members.some((m) => m.email.toLowerCase() === email))
+        if (s.members.some((m) => m.email.toLowerCase() === account.email))
           throw Error(EMAIL_UNAVAILABLE);
-        const groupIds = [...new Set(requestedGroups)];
-        if (
-          !s.groups.some(
-            (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
-          )
-        ) {
-          const read = s.groups.find(
-            (g) =>
-              g.programUuid === programUuid &&
-              g.name === "Observers" &&
-              !g.programAdmin &&
-              !g.aircraftIds.length &&
-              g.permissions.length === 1 &&
-              g.permissions[0] === "read",
-          );
-          if (!read)
-            throw Error(
-              "Select a permission group; Observers read-only access is unavailable.",
-            );
-          groupIds.push(read.id);
-        }
+        const groupIds = programGroupIds(
+          s.groups,
+          programUuid,
+          requestedGroups,
+        );
         s.members.push({
           id,
-          email,
-          name,
+          ...account,
           active: true,
           isAdmin: false,
           activeProgramUuid: programUuid,
@@ -1341,24 +1228,21 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         )
           throw Error("Flight Program administrator required.");
         const before = s.groups.find((g) => g.id === group.id);
-        const assigned = assertGroupProgramChange(
+        const { fields, assigned } = normalizeGroup(
+          { ...group, allAircraft },
           before,
-          group,
           s.user.isAdmin,
         );
         if (
-          group.aircraftIds.some(
+          fields.aircraftIds.some(
             (id) =>
               !s.aircraft.some(
-                (a) => a.uuid === id && a.programUuid === group.programUuid,
+                (a) => a.uuid === id && a.programUuid === fields.programUuid,
               ),
           )
         )
           throw Error("Group aircraft must belong to its Flight Program.");
-        if (!group.name.trim()) throw new Error("Group name is required.");
-        validateOwnerGroup(group);
-        assertGroupAircraftChoice(before, { ...group, allAircraft });
-        const next = { ...group, id: group.id ?? crypto.randomUUID() };
+        const next = { ...fields, id: group.id ?? crypto.randomUUID() };
         s.groups = s.groups.some((g) => g.id === next.id)
           ? s.groups.map((g) => (g.id === next.id ? next : g))
           : [...s.groups, next];
@@ -1417,4 +1301,37 @@ function demoAlertReadsKey(
 ) {
   const { namespace, snapshot } = workspace.getState();
   return `${namespace}:demo-alert-reads:${snapshot?.user.id}:${programUuid ?? ""}`;
+}
+
+// The server's attachment cap, over the demo's copy of one record's files.
+function assertRoomAmong<T>(
+  files: readonly T[] | undefined,
+  onRecord: (file: T) => boolean,
+) {
+  assertAttachmentRoom((files ?? []).filter(onRecord).length);
+}
+
+// The manual the user may maintain, as the server loads it before a change.
+function maintainedManual(s: Snapshot, uuid: string) {
+  const manual = s.manuals?.find((m) => m.uuid === uuid);
+  assertManualMaintainer(s, manual);
+  return manual;
+}
+
+// What a saved-address save is checked against, from the demo's snapshot of
+// every program, as the server reads it by index.
+function storedAddresses(
+  s: Snapshot,
+  programUuid: string,
+  input: { uuid: string; name: string },
+): StoredAddresses {
+  const kept = (s.savedAddresses ?? []).filter(
+    (a) => a.programUuid === programUuid,
+  );
+  const nameKey = savedAddressNameKey(input.name);
+  return {
+    previous: s.savedAddresses?.find((a) => a.uuid === input.uuid) ?? null,
+    sameName: kept.find((a) => savedAddressNameKey(a.name) === nameKey) ?? null,
+    count: kept.length,
+  };
 }

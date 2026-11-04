@@ -3,8 +3,8 @@
  *   and list, numbering, change log, the lists' own rules, the applier
  *   serving open work orders, and which sources a server loads for them.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/recurringParts.ts, partsRequests.ts,
- *   airworthiness.ts, workOrders.ts, partsPlanning.ts, model.ts,
+ * Dependencies: src/domain/partsRequests.ts (the rules), airworthiness.ts,
+ *   workOrders.ts, partsPlanning.ts, model.ts,
  *   src/components/PartsRequests.tsx; src/data/demo.ts and
  *   tests/fixtures/workOrders.ts (fixtures).
  */
@@ -14,16 +14,14 @@ import { localDate } from "./model";
 import { blankAD, blankADTask } from "./airworthiness";
 import {
   applyRequestCommand,
+  generateRecurringRequests,
+  recurringPartsNeeds,
   requestDraftSchema,
   recurringRequestSource,
   requestStatus,
   type PartsRequest,
   type RequestSource,
 } from "./partsRequests";
-import {
-  generateRecurringRequests,
-  recurringPartsNeeds,
-} from "./recurringParts";
 import { saveWorkOrder, newWorkTask } from "./workOrders";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
 import { requestedParts, maintenancePartsPlans } from "./partsPlanning";

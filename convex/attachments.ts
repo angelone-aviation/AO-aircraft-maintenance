@@ -1,21 +1,23 @@
 /**
- * Responsibility: The per-record attachment cap, storing an upload until its
- *   record is filed, and deleting a shared upload once no record refers to it.
+ * Responsibility: Applies the domain's attachment cap to stored rows, stores
+ *   an upload until its record is filed, and deletes a shared upload once no
+ *   record refers to it.
  * Layer: Server. Action and mutation helpers; callers check access and write
  *   the audit.
- * Dependencies: convex/values (ConvexError), convex/_generated (server,
- *   dataModel), convex/storageReferences.ts (which tables refer to a blob).
+ * Dependencies: convex/_generated (server, dataModel), ./storageReferences,
+ *   ./userErrors, src/domain/attachments.
  */
-import { ConvexError } from "convex/values";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { storageReferenced } from "./storageReferences";
+import { exposeRejections } from "./userErrors";
+import {
+  assertAttachmentRoom as assertRoomFor,
+  MAX_ATTACHMENTS,
+} from "../src/domain/attachments";
 
-/**
- * Most attachments one record may hold. Callers read at most this many rows by
- * index, so the check stays cheap.
- */
-export const MAX_ATTACHMENTS = 25;
+// The domain's cap, for callers that read a record's rows with `.take()`.
+export { MAX_ATTACHMENTS };
 
 /**
  * Refuses another attachment on a record that already holds the maximum.
@@ -26,10 +28,7 @@ export const MAX_ATTACHMENTS = 25;
  *   attachments."
  */
 export function assertAttachmentRoom(existing: unknown[]): void {
-  if (existing.length >= MAX_ATTACHMENTS)
-    throw new ConvexError(
-      `This record already has the maximum of ${MAX_ATTACHMENTS} attachments.`,
-    );
+  exposeRejections(() => assertRoomFor(existing.length));
 }
 
 /**

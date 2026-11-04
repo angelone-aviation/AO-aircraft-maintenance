@@ -4,7 +4,7 @@
  * Layer: Domain. Zod schemas, rules and an applier on a working snapshot; no
  *   I/O, no React.
  * Dependencies: zod, src/domain/model.ts, src/domain/programs.ts,
- *   src/domain/rejection.ts.
+ *   src/domain/rejection.ts, src/domain/commandRequest.ts.
  *
  * The format nests category → group → list → item; the schemas are loose so
  * fields this app does not read survive import, edit and export unchanged.
@@ -13,6 +13,7 @@ import { z } from "zod";
 import { can, type Snapshot } from "./model";
 import { activeProgram, ownsActive, programPermission } from "./programs";
 import { Rejection } from "./rejection";
+import { requestUuidField } from "./commandRequest";
 
 // Limits from docs/checklists.md. Convex keeps each record in one document of
 // at most 1 MiB, so the encoded document must leave room for the record.
@@ -115,10 +116,14 @@ export const checklistRecordSchema = z.object({
 /** A parsed {@link checklistRecordSchema} record. */
 export type ChecklistRecord = z.infer<typeof checklistRecordSchema>;
 
-/** A request to save a checklist set over the version the editor opened. */
+/**
+ * A request to save a checklist set over the version the editor opened, with
+ * its request id when the client sends one.
+ */
 export const checklistCommandSchema = z.object({
   record: checklistRecordSchema,
   baseVersion: z.number().int().nonnegative(),
+  ...requestUuidField,
 });
 
 /** A parsed {@link checklistCommandSchema} command. */

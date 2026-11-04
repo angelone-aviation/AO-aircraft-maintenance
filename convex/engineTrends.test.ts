@@ -210,3 +210,59 @@ it("lists at most MAX_ENGINE_TRENDS imports, and shows only the schema's refusal
     (await client.query(api.engineTrends.list, scope)).trends,
   ).toHaveLength(MAX_ENGINE_TRENDS);
 });
+
+it("applies a command once per request id: a replay returns the same and writes nothing", async () => {
+  const { t, ids, client, scope } = await setup();
+  await t.run((ctx) =>
+    ctx.db.patch(ids.group, { permissions: ["read", "maintenance"] }),
+  );
+  const requestUuid = crypto.randomUUID();
+  const command = { action: "import", uuid: crypto.randomUUID(), summary };
+  const payload = JSON.stringify({ ...command, requestUuid });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      trends: await ctx.db.query("engineTrends").collect(),
+      limits: await ctx.db.query("engineTrendLimits").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+      managementRequests: await ctx.db.query("managementRequests").collect(),
+    }));
+
+  await expect(
+    client.mutation(api.engineTrends.execute, { ...scope, payload }),
+  ).resolves.toBeNull();
+  const imported = await stored();
+  expect(imported.trends).toHaveLength(2);
+  expect(imported.commandRequests).toMatchObject([
+    {
+      uuid: requestUuid,
+      payload: JSON.stringify({ aircraftUuid: scope.aircraftUuid, payload }),
+    },
+  ]);
+  // Without the id this retry would be refused as "already imported".
+  await expect(
+    client.mutation(api.engineTrends.execute, { ...scope, payload }),
+  ).resolves.toBeNull();
+  expect(await stored()).toEqual(imported);
+  for (const reuse of [
+    { ...scope, aircraftUuid: "foreign-aircraft", payload },
+    {
+      ...scope,
+      payload: JSON.stringify({
+        ...command,
+        summary: { ...summary, samples: 5 },
+        requestUuid,
+      }),
+    },
+  ])
+    await expect(
+      client.mutation(api.engineTrends.execute, reuse),
+    ).rejects.toMatchObject({ data: "Request identifier already used." });
+  await expect(
+    client.mutation(api.engineTrends.execute, {
+      ...scope,
+      payload: JSON.stringify({ ...command, requestUuid: "not-a-uuid" }),
+    }),
+  ).rejects.toMatchObject({ data: "Engine trend data is invalid." });
+  expect(await stored()).toEqual(imported);
+});

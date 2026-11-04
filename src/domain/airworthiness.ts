@@ -4,7 +4,7 @@
  * Layer: Domain. Pure functions and zod schemas; no I/O, no React (a `now`
  *   or `today` left to its default reads the clock).
  * Dependencies: zod; ./adOwnership, ./adCompliance, ./model, ./programs,
- *   ./components, ./rejection.
+ *   ./components, ./rejection, ./changeLog, ./commandRequest.
  */
 import { z } from "zod";
 import { adAircraftUuid } from "./adOwnership";
@@ -20,6 +20,8 @@ import {
 import { activeProgram, programPermission } from "./programs";
 import { componentTotals, type Component } from "./components";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
+import { requestUuidField } from "./commandRequest";
 export { adAircraftUuid } from "./adOwnership";
 export { effectiveCompliance, lastCompliance } from "./adCompliance";
 
@@ -193,6 +195,7 @@ const AD_STATUS_PRIORITY: readonly string[] = [
  * A change to ADs: save one record, import FAA entries for an aircraft,
  * record compliance, or correct a compliance entry (Flight Program
  * administrators only). Saved and imported sources must link over http(s).
+ * Each may carry its request id.
  */
 export const adCommandSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -200,6 +203,7 @@ export const adCommandSchema = z.discriminatedUnion("kind", [
     record: adSchema.extend({ source: writableSourceSchema }),
     // Required when the save corrects a decided AD (adSaveIsCorrection).
     reason: z.string().trim().max(REASON_MAX_LENGTH).optional(),
+    ...requestUuidField,
   }),
   z.object({
     kind: z.literal("import"),
@@ -210,12 +214,14 @@ export const adCommandSchema = z.discriminatedUnion("kind", [
       )
       .min(1)
       .max(500),
+    ...requestUuidField,
   }),
   z.object({
     kind: z.literal("comply"),
     uuid: z.string(),
     version: z.number(),
     entry: complianceInputSchema,
+    ...requestUuidField,
   }),
   z.object({
     kind: z.literal("correct"),
@@ -224,6 +230,7 @@ export const adCommandSchema = z.discriminatedUnion("kind", [
     corrects: z.string().uuid(),
     reason: correctionReason,
     entry: complianceInputSchema,
+    ...requestUuidField,
   }),
 ]);
 
@@ -325,7 +332,10 @@ export function adSaveIsCorrection(old: AD | undefined) {
  * Applies one AD command as the snapshot's user. An import reopens review on
  * each new or changed source; a correction appends an entry.
  *
- * @param s - The working snapshot; its `airworthiness` is replaced on success.
+ * @param s - The working snapshot. On success its `airworthiness` is replaced
+ *   and `audit` gains an "ad.<kind>" entry per changed record, newest first,
+ *   with {@link adCommandReason} and the record before and after as
+ *   {@link adAuditRecord} shows it.
  * @param raw - The command, parsed with {@link adCommandSchema}.
  * @param now - The clock for timestamps and future-date checks.
  * @returns The changed records, versions advanced; [] for an unchanged import.
@@ -339,12 +349,14 @@ export function applyADCommand(
   now = Date.now(),
 ): AD[] {
   const cmd = adCommandSchema.parse(raw);
-  const all = [...(s.airworthiness ?? [])];
+  const prior = s.airworthiness ?? [];
+  const all = [...prior];
   const changed =
     cmd.kind === "import"
       ? importADs(s, all, cmd, now)
       : [changeAD(s, all, cmd, now)];
   s.airworthiness = all;
+  for (const r of changed) recordADChange(s, cmd, prior, r, now);
   return changed;
 }
 
@@ -567,6 +579,28 @@ export function staleInitialLimitNotice(r: AD, stale: StaleInitialLimit) {
 export function initialLimitClearReason(r: AD, stale: StaleInitialLimit) {
   const { description, limits } = describeStaleLimits(r, stale);
   return `One-time initial limit (${limits}) on "${description}" cleared: satisfied by the compliance recorded on ${stale.complianceDate}, which did not clear it when it was recorded.`;
+}
+
+// Logs the record's own program, as the server always has, not the one
+// auditEntry would derive from its aircraft.
+function recordADChange(
+  s: Snapshot,
+  cmd: ADCommand,
+  prior: AD[],
+  r: AD,
+  now: number,
+) {
+  const old = prior.find((x) => x.uuid === r.uuid);
+  const change = {
+    action: "ad." + cmd.kind,
+    entityUuid: r.uuid,
+    aircraftUuid: r.aircraftUuid,
+    programUuid: r.programUuid,
+    reason: adCommandReason(cmd),
+    before: old && adAuditRecord(old),
+    after: adAuditRecord(r),
+  };
+  s.audit.unshift(auditEntry(s, change, now));
 }
 
 function putAD(all: AD[], r: AD) {
