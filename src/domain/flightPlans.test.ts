@@ -1,13 +1,26 @@
+/**
+ * Responsibility: Pins ICAO plan import, saving and copying plans, each
+ *   aircraft's queue, and the queue's projection onto due items.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/flightPlans.ts, pdf/icao.ts, model.ts,
+ *   components.ts, programs.ts, rejection.ts, src/data/demo.ts and
+ *   tests/fixtures/icao-text.json (fixtures).
+ */
 import { describe, it, expect } from "vitest";
 import items from "../../tests/fixtures/icao-text.json";
 import { parseIcao } from "./pdf/icao";
 import { demoSnapshot } from "../data/demo";
 import {
+  durationLabel,
   flightPlanSchema,
   projectQueue,
+  queuedPlans,
   saveFlightPlan,
   validatePlanFlight,
+  type FlightPlan,
+  type PlanCommand,
 } from "./flightPlans";
+import { Rejection } from "./rejection";
 import { totalSeconds } from "./model";
 import { componentSchema, requirementSchema } from "./components";
 import { scopedSnapshot } from "./programs";
@@ -342,4 +355,154 @@ it("projects cumulative planned landings into landing-based inspection alerts", 
   expect(projected[0].flags.some((f) => f.startsWith("Phase 34:"))).toBe(false);
   expect(projected[1].flags).toContain("Phase 34: due by flight end");
   expect(a.landings).toBe(s.aircraft[0].landings);
+});
+
+function refusal(s: ReturnType<typeof demoSnapshot>, command: PlanCommand) {
+  try {
+    saveFlightPlan(s, command);
+  } catch (error) {
+    return [error instanceof Rejection, (error as Error).message];
+  }
+  return [false, "saved"];
+}
+
+describe("plan refusals and queue order", () => {
+  it("refuses a save in check order, each as a Rejection", () => {
+    const s = demoSnapshot();
+    const [a, b] = s.aircraft;
+    const original = saveFlightPlan(s, { plan: draft(), baseVersion: 0 });
+    const copy: FlightPlan = {
+      ...original,
+      uuid: crypto.randomUUID(),
+      version: 0,
+      copiedFromUuid: crypto.randomUUID(),
+      sourceHash: "c".repeat(64),
+    };
+    s.aircraft[0] = { ...a, programUuid: "other" };
+    expect(refusal(s, { plan: copy, baseVersion: 1 })).toEqual([
+      true,
+      "Flight Program access denied.",
+    ]);
+    s.aircraft[0] = a;
+    expect(
+      refusal(s, {
+        plan: { ...original, aircraftUuid: b.uuid },
+        baseVersion: 1,
+      }),
+    ).toEqual([true, "An existing plan cannot change aircraft."]);
+    expect(refusal(s, { plan: copy, baseVersion: 1 })).toEqual([
+      true,
+      "Plan changed. Reopen it before saving.",
+    ]);
+    expect(
+      refusal(s, {
+        plan: { ...original, copiedFromUuid: copy.copiedFromUuid },
+        baseVersion: 1,
+      }),
+    ).toEqual([true, "A plan's copy source cannot change."]);
+    expect(refusal(s, { plan: copy, baseVersion: 0 })).toEqual([
+      true,
+      "The original flight plan is unavailable.",
+    ]);
+    copy.copiedFromUuid = original.uuid;
+    expect(refusal(s, { plan: copy, baseVersion: 0 })).toEqual([
+      true,
+      "The copied plan must retain its source document.",
+    ]);
+    s.flights = [{ ...s.flights[0], flightPlanUuid: original.uuid }];
+    expect(refusal(s, { plan: original, baseVersion: 1 })).toEqual([
+      true,
+      "This plan already has a logged flight or a flight awaiting review.",
+    ]);
+    const reimport = { ...original, uuid: crypto.randomUUID(), version: 0 };
+    expect(refusal(s, { plan: reimport, baseVersion: 0 })).toEqual([
+      true,
+      "This PDF has already been imported for this aircraft.",
+    ]);
+    s.flights = [];
+    saveFlightPlan(s, {
+      plan: { ...original, status: "cancelled" },
+      baseVersion: 1,
+    });
+    expect(refusal(s, { plan: reimport, baseVersion: 0 })).toEqual([
+      false,
+      "saved",
+    ]);
+  });
+  it("refuses a flight on a cancelled plan or another aircraft's plan", () => {
+    const s = demoSnapshot();
+    const plan = draft();
+    s.flightPlans = [{ ...plan, status: "cancelled" }];
+    const unavailable = () =>
+      validatePlanFlight(s, {
+        flightPlanUuid: plan.uuid,
+        aircraftUuid: plan.aircraftUuid,
+      });
+    expect(unavailable).toThrow(Rejection);
+    expect(unavailable).toThrow(
+      Error("Flight plan is unavailable for this aircraft."),
+    );
+    s.flightPlans = [plan];
+    expect(() =>
+      validatePlanFlight(s, {
+        flightPlanUuid: plan.uuid,
+        aircraftUuid: s.aircraft[1].uuid,
+      }),
+    ).toThrow("unavailable");
+  });
+  it("orders the queue by departure, then creation, then uuid", () => {
+    const s = demoSnapshot();
+    const plan = draft();
+    const at = (uuid: string, departureAt: string, createdAt: number) => ({
+      ...plan,
+      uuid,
+      departureAt,
+      createdAt,
+    });
+    s.flightPlans = [
+      at("c0000000-0000-4000-8000-000000000000", "2026-10-02T00:00:00Z", 0),
+      at("b0000000-0000-4000-8000-000000000000", "2026-10-01T00:00:00Z", 1),
+      at("a0000000-0000-4000-8000-000000000000", "2026-10-01T00:00:00Z", 1),
+      at("d0000000-0000-4000-8000-000000000000", "2026-10-01T00:00:00Z", 0),
+    ];
+    expect(queuedPlans(s, plan.aircraftUuid).map((p) => p.uuid[0])).toEqual([
+      "d",
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+  it("flags a held flight, status and open discrepancies first, and runs every meter", () => {
+    const s = demoSnapshot();
+    const a = s.aircraft[0];
+    a.operationalStatus = "grounded";
+    s.inspections = [];
+    s.management = [];
+    const plan = draft();
+    s.flightPlans = [plan];
+    s.flights = [
+      {
+        ...s.flights[0],
+        flightPlanUuid: plan.uuid,
+        aircraftUuid: a.uuid,
+        status: "review",
+      },
+    ];
+    s.discrepancies = [
+      { ...s.discrepancies[0], aircraftUuid: a.uuid, description: "Light" },
+    ];
+    expect(projectQueue(s, a.uuid)[0].flags).toEqual([
+      "Logged flight awaiting review; estimate remains in projection until accepted.",
+      "Aircraft status: grounded",
+      "Open discrepancy: Light",
+    ]);
+    a.meter = "flightTimeLog";
+    a.flightTimeLog = true;
+    a.currentFlightTimeLog = 3600;
+    expect(projectQueue(s, a.uuid)[0].totalSeconds).toBe(
+      totalSeconds(a) + plan.durationMinutes * 60,
+    );
+    expect(durationLabel(293)).toBe("4h 53m");
+    expect(durationLabel(5)).toBe("0h 05m");
+  });
 });
