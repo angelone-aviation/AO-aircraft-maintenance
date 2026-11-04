@@ -1,6 +1,7 @@
 /**
  * Responsibility: Job cards on a work order: copying task-card templates for
- *   new work items, and whether an item's job cards let it be completed.
+ *   new work items, whether the order is still preparing them, and whether an
+ *   item's job cards let it be completed.
  * Layer: Domain. Mutates a working snapshot; no I/O, no React.
  * Dependencies: src/domain/model.ts and workOrders.ts (types), taskCards.ts.
  *
@@ -76,6 +77,17 @@ export function copyWorkOrderTemplates(
 }
 
 /**
+ * Whether a work order's job cards are still being copied from templates;
+ * until they finish, the order takes no edits.
+ *
+ * @param w - The work order.
+ * @returns True while a template copy is running or has failed.
+ */
+export function isPreparingJobCards(w: WorkOrder): boolean {
+  return !!w.templateCopy && w.templateCopy.status !== "completed";
+}
+
+/**
  * Explains why a work item cannot be marked completed yet, or "" when it can.
  *
  * @param s - The snapshot.
@@ -91,10 +103,8 @@ export function workItemCompletionIssue(
   orderUuid: string,
   item: WorkItem,
 ) {
-  const preparation = s.workOrders?.find(
-    (w) => w.uuid === orderUuid,
-  )?.templateCopy;
-  if (preparation && preparation.status !== "completed")
+  const order = s.workOrders?.find((w) => w.uuid === orderUuid);
+  if (order && isPreparingJobCards(order))
     return "Finish preparing the job cards before completing this item.";
   const cards = (s.taskCards ?? []).filter(
     (t) => t.workOrderUuid === orderUuid && taskCardMatchesWorkItem(t, item),
