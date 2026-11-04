@@ -45,6 +45,9 @@ const MAX_ORDER_CENTS = 10_000_000_000_000;
 const HOUR_SECONDS = 3600;
 const STALE_ORDER = "Purchase order changed. Reopen it before saving.";
 
+/** The most days an exchange line may allow for its core return. */
+export const MAX_CORE_DUE_DAYS = 365;
+
 /**
  * One line of an order: a part, supply or component delivered to a location
  * at `unitCents` each, optionally allocated to parts requests or returning a
@@ -78,7 +81,7 @@ export const poLineSchema = z.object({
   workOrderUuid: z.string().default(""),
   cancelled: z.number().int().nonnegative().default(0),
   exchange: z.boolean().optional(),
-  coreDueDays: z.number().int().min(1).max(365).optional(),
+  coreDueDays: z.number().int().min(1).max(MAX_CORE_DUE_DAYS).optional(),
 });
 
 /** Days to return an exchange core when the line does not set its own. */

@@ -125,6 +125,7 @@ describe("purchase order limits", () => {
     const core = (days: number) =>
       poLineSchema.safeParse(line({ exchange: true, coreDueDays: days }))
         .success;
+    expect(MAX_CORE_DUE_DAYS).toBe(365);
     expect(core(MAX_CORE_DUE_DAYS)).toBe(true);
     expect(core(MAX_CORE_DUE_DAYS + 1)).toBe(false);
     const pattern = new RegExp(`^${CURRENCY_CODE_PATTERN}$`);
