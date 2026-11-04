@@ -2,7 +2,8 @@
  * Responsibility: Maintenance costs on work orders (labor, parts, other),
  *   annual budgets, the labor rate, and the aircraft cost report.
  * Layer: Domain. Zod schemas, an applier and pure reports; no I/O, no React.
- * Dependencies: zod; ./model, ./programs, ./workOrders, ./flights, ./rejection.
+ * Dependencies: zod; ./model, ./programs, ./workOrders, ./flights,
+ *   ./changeLog, ./rejection.
  *
  * Money is integer cents. Labor time is integer seconds, exact for hours
  * entered to the hundredth (36 s); entries saved before that carry only whole
@@ -20,6 +21,7 @@ import {
 import { activeProgram, programPermission } from "./programs";
 import { isOpenWorkOrder, type WorkOrder } from "./workOrders";
 import { meterAtFlight } from "./flights";
+import { auditEntry } from "./changeLog";
 import { Rejection } from "./rejection";
 
 const SECONDS_PER_MINUTE = 60;
@@ -834,21 +836,20 @@ function saveCostRecord(
 ) {
   const before = s.costs?.find((r) => r.uuid === next.uuid);
   s.costs = [...(s.costs ?? []).filter((r) => r.uuid !== next.uuid), next];
-  s.audit = [
+  const entry = auditEntry(
+    s,
     {
-      uuid: crypto.randomUUID(),
       programUuid: program,
-      actorId: s.user.id,
-      at: now,
-      action: "cost." + action,
+      action: `cost.${action}`,
       entityUuid: next.uuid,
       reason: aircraftUuid
         ? s.aircraft.find((a) => a.uuid === aircraftUuid)?.registration
         : undefined,
-      before: before ? JSON.stringify(before) : undefined,
-      after: JSON.stringify(next),
+      before,
+      after: next,
     },
-    ...s.audit,
-  ];
+    now,
+  );
+  s.audit = [entry, ...s.audit];
   return next;
 }
