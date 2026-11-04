@@ -36,10 +36,33 @@ jobs:
           # pull-request base.
           fetch-depth: 0
 
+      # After a force push `before` is no longer in the history, and it is all
+      # zeros when main is first pushed. Diff from the last commit the old and
+      # new tips share instead (GitHub's compare keeps the old tip): that still
+      # covers every file the push changed. With no such commit, check every
+      # tracked file rather than only the latest commit.
       - name: Engineering standards on changed files (CONSTRAINTS.md)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node .claude/hooks/check-standards.mjs --changed-since "$BASE_SHA"
+          BASE_REF: ${{ github.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          has_commit() { [ -n "$1" ] && git cat-file -e "$1^{commit}" 2>/dev/null; }
+          base=$BASE_SHA
+          if ! has_commit "$base" && [ -n "$BASE_REF" ]; then
+            base=$(git merge-base HEAD "refs/remotes/origin/$BASE_REF" || true)
+          elif ! has_commit "$base"; then
+            base=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE_SHA...$GITHUB_SHA" \
+              --jq .merge_base_commit.sha || true)
+          fi
+          if ! has_commit "$base"; then
+            echo "::warning::No base commit for ${BASE_SHA:-this run}; checking every tracked file."
+            mapfile -d '' tracked < <(git ls-files -z)
+            exec node .claude/hooks/check-standards.mjs "${tracked[@]}"
+          fi
+          [ "$base" = "$BASE_SHA" ] ||
+            echo "::warning::Base ${BASE_SHA:-none} is not in the history (force push?); checking files changed since $base."
+          node .claude/hooks/check-standards.mjs --changed-since "$base"
 
       - name: Set up Node.js 22
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
