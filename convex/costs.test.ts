@@ -470,7 +470,6 @@ it("applies a cost command once per request id: a replay returns nothing and wri
       costs: await ctx.db.query("costs").collect(),
       audit: await ctx.db.query("audit").collect(),
       commandRequests: await ctx.db.query("commandRequests").collect(),
-      managementRequests: await ctx.db.query("managementRequests").collect(),
     }));
   const uuid = await run(admin, rate(9500));
   const saved = await stored();

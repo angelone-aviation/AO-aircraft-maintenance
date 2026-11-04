@@ -86,7 +86,7 @@ async function fixture() {
         .run(async (ctx) => (await runCommand(ctx, command)) ?? null);
   const rows = () => t.run((ctx) => ctx.db.query("audit").collect());
   const requests = () =>
-    t.run((ctx) => ctx.db.query("managementRequests").collect());
+    t.run((ctx) => ctx.db.query("commandRequests").collect());
   const flightPlans = () =>
     t.run((ctx) => ctx.db.query("flightPlans").collect());
   return {
@@ -325,7 +325,7 @@ it("applies a request id once and refuses its reuse for another payload", async 
   expect(await f.requests()).toHaveLength(1);
 });
 
-it("records each request id in commandRequests too, as managementRequests holds it", async () => {
+it("records each request id once, in commandRequests", async () => {
   const f = await fixture();
   const command = planCommand(f.aircraft, {
     request: () => ({ uuid: "request-1", payload: "first" }),
@@ -341,17 +341,13 @@ it("records each request id in commandRequests too, as managementRequests holds 
     _creationTime,
     ...row
   }: T) => row;
-  const commandRequests = await f.t.run((ctx) =>
-    ctx.db.query("commandRequests").collect(),
-  );
-  expect(commandRequests.map(fields)).toEqual(stored);
   expect((await f.requests()).map(fields)).toEqual(stored);
 });
 
-it("still replays a request id recorded only in managementRequests", async () => {
+it("replays a request id commandRequests already holds, writing nothing", async () => {
   const f = await fixture();
   await f.t.run((ctx) =>
-    ctx.db.insert("managementRequests", {
+    ctx.db.insert("commandRequests", {
       uuid: "request-1",
       actorId: f.mechanic.id,
       payload: "first",
@@ -362,9 +358,8 @@ it("still replays a request id recorded only in managementRequests", async () =>
   });
   expect(await f.mechanic.run(command)).toBeNull();
   expect(await f.flightPlans()).toEqual([]);
-  expect(
-    await f.t.run((ctx) => ctx.db.query("commandRequests").collect()),
-  ).toEqual([]);
+  expect(await f.rows()).toEqual([]);
+  expect(await f.requests()).toHaveLength(1);
 });
 
 it("runs a command sent without a request id every time, recording none", async () => {

@@ -460,7 +460,7 @@ async function isReplayed(
   request: CommandRequest,
 ) {
   const prior = await ctx.db
-    .query("managementRequests")
+    .query("commandRequests")
     .withIndex("uuid", (q) => q.eq("uuid", request.uuid))
     .unique();
   if (!prior) return false;
@@ -469,21 +469,16 @@ async function isReplayed(
   return true;
 }
 
-// The same row goes to both tables while commandRequests takes over from
-// managementRequests (ADR-0003, expand); replays still read the old one, which
-// alone holds the ids recorded before.
 async function recordRequest(
   ctx: MutationCtx,
   state: ProgramContext,
   request: CommandRequest,
 ) {
-  const row = {
+  await ctx.db.insert("commandRequests", {
     uuid: request.uuid,
     actorId: state.user.id,
     payload: request.payload,
-  };
-  await ctx.db.insert("managementRequests", row);
-  await ctx.db.insert("commandRequests", row);
+  });
 }
 
 function parseCommand<C, W, R, Out>(

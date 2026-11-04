@@ -775,7 +775,6 @@ describe("discrepancy resolution", () => {
         discrepancies: await ctx.db.query("discrepancies").collect(),
         audit: await ctx.db.query("audit").collect(),
         commandRequests: await ctx.db.query("commandRequests").collect(),
-        managementRequests: await ctx.db.query("managementRequests").collect(),
       }));
     await defer("ALT INOP");
     const saved = await stored();

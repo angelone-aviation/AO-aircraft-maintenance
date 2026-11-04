@@ -160,7 +160,6 @@ it("saves once per request id: a replay returns nothing and writes nothing", asy
       checklists: await ctx.db.query("checklists").collect(),
       audit: await ctx.db.query("audit").collect(),
       commandRequests: await ctx.db.query("commandRequests").collect(),
-      managementRequests: await ctx.db.query("managementRequests").collect(),
     }));
 
   await expect(

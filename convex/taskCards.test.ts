@@ -500,7 +500,6 @@ it("saves a job card once per request id: a replay returns nothing and writes no
       taskCards: await ctx.db.query("taskCards").collect(),
       audit: await ctx.db.query("audit").collect(),
       commandRequests: await ctx.db.query("commandRequests").collect(),
-      managementRequests: await ctx.db.query("managementRequests").collect(),
     }));
   await expect(save(command)).resolves.toBe(command.uuid);
   const saved = await stored();
