@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the review of held flights after aircraft counter
+ *   changes: corrections applied, legacy counter events completed,
+ *   inconsistent chronologies refused, and resequenced flights logged.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/operations.ts (submit, reviewFlight), convex/fleet.ts,
+ *   convex/schema.ts, src/domain (fleet, model), src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { describe, it, expect } from "vitest";
 import { api } from "./_generated/api";
@@ -11,7 +19,13 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
-const h = (hours: number) => Math.round(hours * 3600);
+const DAY_MS = 86_400_000;
+const HOUR_SECONDS = 3600;
+const h = (hours: number) => Math.round(hours * HOUR_SECONDS);
+/**
+ * Seeds the demo program and aircraft with a system administrator, and helpers
+ * to log a flight, save the aircraft's counters and review a flight.
+ */
 async function fixture() {
   const t = convexTest(schema, modules);
   const a = demoSnapshot().aircraft[0];
@@ -26,7 +40,7 @@ async function fixture() {
     });
     const session = await ctx.db.insert("authSessions", {
       userId: admin,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     await ctx.db.insert("aircraft", a);
     return { admin, session };
