@@ -1523,16 +1523,9 @@ input[type="radio"] {
   position: relative;
   min-height: 100vh;
   overflow: hidden;
-  /* Solid navy remains if the photo fails to load. */
-  background-color: #0b1434;
-  background-image:
-    linear-gradient(
-      180deg,
-      rgba(11, 20, 52, 0.1) 0%,
-      rgba(11, 20, 52, 0.18) 50%,
-      rgba(11, 20, 52, 0.32) 100%
-    ),
-    url("/welcome-sky.jpg");
+  /* Pale fallback if the photo fails to load; sky stays nearly unwashed. */
+  background-color: #d8e8f8;
+  background-image: url("/welcome-sky.jpg");
   background-size: cover;
   background-position: center top;
   background-repeat: no-repeat;
@@ -1680,24 +1673,24 @@ input[type="radio"] {
 }
 .mission-slogan p {
   margin: 0 0 6px;
-  /* Near-white + shadow keeps the verse readable on the brighter sky. */
-  color: #ffffff;
+  /* Navy on the bright sky; white text would wash out without a dark overlay. */
+  color: #0b1434;
   font-size: clamp(13px, 2.6vw, 17px);
-  font-weight: 500;
+  font-weight: 550;
   font-style: italic;
   line-height: 1.45;
   white-space: nowrap;
-  text-shadow: 0 1px 3px rgba(11, 20, 52, 0.55);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
 }
 .mission-slogan cite {
   display: block;
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
-  color: #f0f4ff;
+  color: #1a2744;
   letter-spacing: 0.8px;
   text-transform: uppercase;
-  text-shadow: 0 1px 3px rgba(11, 20, 52, 0.5);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
 }
 .welcome-bottom {
   position: absolute;
@@ -1709,9 +1702,9 @@ input[type="radio"] {
   font-size: 12px;
   letter-spacing: 2px;
   font-weight: 600;
-  color: #ffffff;
+  color: #1a2744;
   text-align: center;
-  text-shadow: 0 1px 3px rgba(11, 20, 52, 0.5);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
 }
 @media (max-width: 759px) {
   .welcome {
