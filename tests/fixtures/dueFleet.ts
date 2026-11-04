@@ -3,7 +3,7 @@
  *   every case the due-list consumers decide differently (T13).
  * Layer: Test. Fixture for vitest suites; never shipped in the build.
  * Dependencies: src/data/demo.ts (seed), src/domain/airworthiness.ts,
- *   components.ts and model.ts.
+ *   components.ts, model.ts and partsRequests.ts.
  *
  * AD dates sit far from any clock, because adStatus judges an AD's actions
  * on the clock's date, not on the `today` a caller passes.
@@ -27,6 +27,10 @@ import {
   type Inspection,
   type Snapshot,
 } from "../../src/domain/model";
+import {
+  partsRequestSchema,
+  type PartsRequest,
+} from "../../src/domain/partsRequests";
 
 /** The date the fleet is judged on. */
 export const DUE_FLEET_TODAY = "2026-10-30";
@@ -53,6 +57,7 @@ export function dueFleet() {
   s.inspections = fleetInspections(a, b, c);
   s.management = fleetRecords(a, b);
   s.airworthiness = fleetADs(a, b);
+  s.partsRequests = fleetRequests(s);
   return { s, a, b, c };
 }
 
@@ -213,10 +218,48 @@ function ad(
     uuid,
     applicability: "Applicable",
     reviewRequired: false,
-    tasks,
+    tasks: tasks.map((t) => ({ ...t, uuid: `${uuid}/${t.uuid}` })),
     source: { ...r.source, number: uuid.toUpperCase(), subject: "Subject" },
     ...fields,
   };
+}
+
+// AD actions have no parts of their own: only a parts request plans them.
+// ad-soon has none, so planning leaves it out.
+function fleetRequests(s: Snapshot): PartsRequest[] {
+  const planned = (s.airworthiness ?? []).filter((r) => r.uuid !== "ad-soon");
+  return planned.flatMap((r) =>
+    r.tasks.map((t) =>
+      partsRequestSchema.parse({
+        uuid: `request-${t.uuid}`,
+        version: 1,
+        source: { kind: "airworthiness", uuid: t.uuid },
+        mode: "parts",
+        date: "2026-10-01",
+        engineer: "Engineer",
+        priority: "P2 Routine",
+        requiredBy: "",
+        currency: "USD",
+        lines: [
+          { uuid: "line", partNumber: "PN", description: "Part", quantity: 1 },
+        ],
+        programUuid: "demo-program",
+        aircraftUuid: r.aircraftUuid,
+        sourceLabel: r.uuid,
+        aircraftRegistration: "",
+        aircraftSerial: "",
+        aircraftModel: "",
+        number: `PR-${t.uuid}`,
+        requesterId: "demo-admin",
+        createdAt: 0,
+        updatedAt: 0,
+        cancelled: false,
+        reservations: [],
+        issues: [],
+        history: [],
+      }),
+    ),
+  );
 }
 
 function task(fields: Partial<ADTask>): ADTask {
@@ -242,7 +285,7 @@ function oneTime() {
 function complied(): Partial<AD> {
   const entry = {
     uuid: "compliance",
-    taskUuid: "one-time",
+    taskUuid: "ad-complied/one-time",
     date: "2020-01-01",
     hours: null,
     cycles: null,

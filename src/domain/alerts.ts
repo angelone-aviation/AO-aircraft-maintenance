@@ -2,27 +2,26 @@
  * Responsibility: The maintenance alerts a user sees for their Flight
  *   Program, and whether they want them emailed.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./model, ./aircraftStatus, ./airworthiness, ./certifications,
- *   ./components, ./faaCandidateReview, ./maintenance, ./management.
+ * Dependencies: ./model, ./aircraftStatus, ./certifications, ./components,
+ *   ./dueItems, ./faaCandidateReview, ./maintenance; ./airworthiness (types).
  */
 import { aircraftStatus } from "./aircraftStatus";
-import {
-  adAircraftUuid,
-  adStatus,
-  adTaskStatus,
-  type AD,
-  type ADTask,
-} from "./airworthiness";
+import type { AD, ADTask } from "./airworthiness";
 import { certificationLabels, normalizeCertifications } from "./certifications";
 import {
   requirementDueDate,
-  requirementStatus,
   type Component,
   type ComponentRequirement,
 } from "./components";
+import {
+  dueItems,
+  type AdDue,
+  type DueLevel,
+  type InspectionDue,
+  type MaintenanceDue,
+} from "./dueItems";
 import { monitoringReviewCandidates } from "./faaCandidateReview";
-import { inspectionDueDate, inspectionStatus } from "./maintenance";
-import { inspectionCounters } from "./management";
+import { inspectionDueDate } from "./maintenance";
 import {
   can,
   type Aircraft,
@@ -88,7 +87,6 @@ const SKIPPED_AD_STATUSES = [
   "Removed component",
   "Previously Complied With (PCW)",
 ];
-const PAST_DUE_STATUSES = ["Past due", "Due now"];
 const DAY_MS = 86_400_000;
 
 // Sorts after every YYYY-MM-DD date, so undated alerts come last.
@@ -112,10 +110,11 @@ const FNV_PRIME = 0x01000193;
  */
 export function computeAlerts(s: Snapshot, today: string): Alert[] {
   if (!s.user.active) return [];
+  const due = dueItems(s, undefined, today);
   return [
-    ...inspectionAlerts(s, today),
-    ...adAlerts(s, today),
-    ...componentAlerts(s, today),
+    ...inspectionAlerts(s, due),
+    ...adAlerts(s, due),
+    ...componentAlerts(s, due),
     ...certificateAlerts(s, today),
     ...faaReviewAlerts(s),
     ...groundedAlerts(s, today),
@@ -175,30 +174,19 @@ const listFirst = (items: string[], shown: number, separator: string) =>
   items.slice(0, shown).join(separator) +
   (items.length > shown ? ` and ${items.length - shown} more` : "");
 
-function inspectionAlerts(s: Snapshot, today: string): Alert[] {
-  return s.inspections.flatMap((i): Alert[] => {
-    const a = s.aircraft.find((a) => a.uuid === i.aircraftUuid);
-    if (i.archived || !a || !can(s, a.uuid, "read")) return [];
-    let status;
-    try {
-      status = inspectionStatus(
-        i,
-        a,
-        today,
-        inspectionCounters(i, a, s.management, today),
-      );
-    } catch {
-      return []; // Missing component or counters: the schedule page shows it.
-    }
-    if (status.status !== "overdue" && status.status !== "due-soon") return [];
-    return [inspectionAlert(i, a, status)];
+function inspectionAlerts(s: Snapshot, due: MaintenanceDue[]): Alert[] {
+  return due.flatMap((item): Alert[] => {
+    if (item.kind !== "inspection" || !item.due) return [];
+    if (!isComingDue(item.level) || !can(s, item.aircraft.uuid, "read"))
+      return [];
+    return [inspectionAlert(item.inspection, item.aircraft, item.due)];
   });
 }
 
 function inspectionAlert(
   i: Inspection,
   a: Aircraft,
-  status: ReturnType<typeof inspectionStatus>,
+  status: NonNullable<InspectionDue["due"]>,
 ): Alert {
   const overdue = status.status === "overdue";
   const kind = overdue ? "inspection-overdue" : "inspection-due-soon";
@@ -231,18 +219,21 @@ function inspectionAlert(
   };
 }
 
-function adAlerts(s: Snapshot, today: string): Alert[] {
-  return (s.airworthiness ?? []).flatMap((r): Alert[] => {
-    const aircraftUuid = adAircraftUuid(s, r);
-    const a = s.aircraft.find((a) => a.uuid === aircraftUuid);
-    if (!a || !can(s, a.uuid, "read")) return [];
-    if (SKIPPED_AD_STATUSES.includes(adStatus(s, r))) return [];
-    return r.tasks.flatMap((t): Alert[] => {
-      const status = adTaskStatus(s, r, t, today);
-      if (status !== "Overdue" && status !== "Due soon") return [];
-      return [adTaskAlert(r, t, a, status)];
-    });
+function adAlerts(s: Snapshot, due: MaintenanceDue[]): Alert[] {
+  return due.flatMap((item): Alert[] => {
+    if (item.kind !== "ad" || !item.aircraft) return [];
+    if (!can(s, item.aircraft.uuid, "read")) return [];
+    if (SKIPPED_AD_STATUSES.includes(item.status)) return [];
+    return adTaskAlerts(item, item.aircraft);
   });
+}
+
+function adTaskAlerts(item: AdDue, a: Aircraft): Alert[] {
+  return item.tasks.flatMap(({ task, status }): Alert[] =>
+    status === "Overdue" || status === "Due soon"
+      ? [adTaskAlert(item.ad, task, a, status)]
+      : [],
+  );
 }
 
 function adTaskAlert(
@@ -280,27 +271,24 @@ function adTaskAlert(
   };
 }
 
-function componentAlerts(s: Snapshot, today: string): Alert[] {
-  const records = s.management ?? [];
-  return records.flatMap((r): Alert[] => {
-    if (r.kind !== "componentRequirement") return [];
-    const c = records.find(
-      (c) => c.kind === "component" && c.uuid === r.componentUuid,
-    );
-    if (c?.kind !== "component" || !c.installed) return [];
-    const a = s.aircraft.find((a) => a.uuid === c.aircraftUuid);
-    if (!a || !can(s, a.uuid, "read")) return [];
-    let status;
-    try {
-      status = requirementStatus(r, c, a, today).status;
-    } catch {
-      // Usage it cannot compute (readings before the installation baseline,
-      // no collective meter) shows on the component page instead.
-      return [];
-    }
-    if (!PAST_DUE_STATUSES.includes(status) && status !== "Due soon") return [];
-    return [componentAlert(r, c, a, status)];
+// Components held in inventory do not alert.
+function componentAlerts(s: Snapshot, due: MaintenanceDue[]): Alert[] {
+  return due.flatMap((item): Alert[] => {
+    if (item.kind !== "componentRequirement") return [];
+    if (!item.aircraft || !item.due || !isComingDue(item.level)) return [];
+    if (!can(s, item.aircraft.uuid, "read")) return [];
+    const { requirement, component, aircraft, due, level } = item;
+    return [
+      componentAlert(requirement, component, aircraft, due.status, level),
+    ];
   });
+}
+
+// An item whose status cannot be computed (a missing component, readings
+// before the installation baseline, no collective meter) shows on its
+// schedule or component page instead.
+function isComingDue(level: DueLevel) {
+  return level === "overdue" || level === "due-soon";
 }
 
 function componentAlert(
@@ -308,8 +296,9 @@ function componentAlert(
   c: Component,
   a: Aircraft,
   status: string,
+  level: DueLevel,
 ): Alert {
-  const pastDue = PAST_DUE_STATUSES.includes(status);
+  const pastDue = level === "overdue";
   const kind = pastDue ? "component-past-due" : "component-due-soon";
   const dueDate = requirementDueDate(r);
   return {
