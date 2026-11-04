@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins the demo adapter's discrepancy resolution, flight
- *   review and AD changes against the server's rules: the same refusals,
- *   stored records and change-log rows.
+ *   review, AD changes and attachments against the server's rules: the same
+ *   refusals, stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
- *   (seed), src/domain (model, flights, airworthiness, rejection).
+ *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
+ *   taskCards, workOrders, purchaseOrders), tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -13,7 +14,7 @@
  * reason-length and (on a rejection) reading checks, said "Provide a
  * meaningful explanation.", moved a flight to the aircraft a correction named,
  * and crashed on a missing flight. Before Batch 296 its AD rows named no
- * Flight Program.
+ * Flight Program. Before Batch 273 it took any number of attachments.
  */
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
@@ -23,6 +24,16 @@ import type { Flight, FlightInput, Snapshot } from "../domain/model";
 import { applyFlight } from "../domain/flights";
 import { adAuditRecord, blankAD, type AD } from "../domain/airworthiness";
 import { Rejection } from "../domain/rejection";
+import { MAX_ATTACHMENTS } from "../domain/attachments";
+import { saveTaskCard } from "../domain/taskCards";
+import { saveWorkOrder } from "../domain/workOrders";
+import { poSchema } from "../domain/purchaseOrders";
+import type { Backend } from "./backend";
+import { taskCardCommand } from "../../tests/fixtures/taskCards";
+import {
+  workOrderCommand,
+  workOrderComponent,
+} from "../../tests/fixtures/workOrders";
 
 const REPORT = "demo-report";
 const LENGTH = "Describe the repair in 1–5000 characters.";
@@ -334,3 +345,167 @@ it("audits AD changes as the server does: with the program, newest first", async
     ...before.audit,
   ]);
 });
+
+const FULL = "This record already has the maximum of 25 attachments.";
+const SIGNED = { userId: "demo-admin", name: "Alex Morgan", at: 1 };
+const STORED = { name: "old.pdf", size: 1, uploadedAt: 0, url: "" };
+const pdf = () =>
+  new File(["%PDF-1.4"], "scan.pdf", { type: "application/pdf" });
+const full = <T>(file: (i: number) => T) =>
+  Array.from({ length: MAX_ATTACHMENTS }, (_, i) => file(i));
+
+// The seed plus an open job card signed on its step, by its technician and by
+// its inspector; an open work order; a component; and a draft purchase order.
+function withRecords(s: Snapshot) {
+  s.taskCards = [];
+  s.workOrders = [];
+  s.management = [workOrderComponent()];
+  const card = saveTaskCard(s, taskCardCommand());
+  s.taskCards = [
+    {
+      ...card,
+      technicianSignoff: SIGNED,
+      inspectionSignoff: SIGNED,
+      stepSignoffs: { [card.steps[0].uuid]: SIGNED },
+    },
+  ];
+  saveWorkOrder(s, workOrderCommand());
+  s.purchaseOrders = [
+    poSchema.parse({
+      uuid: "po",
+      version: 0,
+      vendor: "Vendor",
+      vendorContact: "",
+      shipTo: "Hangar",
+      expectedDate: "",
+      currency: "USD",
+      shippingCents: 0,
+      notes: "",
+      lines: [
+        {
+          uuid: "line",
+          stockUuid: "",
+          locationUuid: "store",
+          partNumber: "TIRE",
+          description: "Tire",
+          quantity: 1,
+          unitCents: 0,
+          kind: "part",
+        },
+      ],
+      programUuid: "demo-program",
+      number: "PO-1",
+      phase: "draft",
+      revision: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      shipments: [],
+      receipts: [],
+      history: [],
+    }),
+  ];
+}
+
+it("files evidence on a signed job card: every signoff cleared, at a new version", async () => {
+  const { backend, stored } = await demo("demo-evidence", (seed) => {
+    withRecords(seed);
+    // Another card's full set of files does not limit this one.
+    seed.taskEvidence = full((i) => ({
+      ...STORED,
+      uuid: `file-${i}`,
+      taskCardUuid: "another-card",
+      category: "photo" as const,
+    }));
+  });
+  const card = (await stored()).taskCards![0];
+  await backend.attachTaskEvidence(card.uuid, "parts-traceability", pdf());
+  const s = await stored();
+  const evidence = s.taskEvidence!.at(-1)!;
+  expect(evidence).toMatchObject({
+    taskCardUuid: card.uuid,
+    category: "parts-traceability",
+    name: "scan.pdf",
+    url: expect.stringMatching(/^data:application\/pdf;base64,/),
+  });
+  expect(s.taskCards).toEqual([
+    {
+      ...card,
+      technicianSignoff: null,
+      inspectionSignoff: null,
+      stepSignoffs: {},
+      version: card.version + 1,
+      updatedAt: evidence.uploadedAt,
+    },
+  ]);
+  expect(s.audit[0]).toMatchObject({
+    action: "taskCard.evidence",
+    entityUuid: card.uuid,
+    aircraftUuid: card.aircraftUuid,
+    before: undefined,
+    after: JSON.stringify({ name: "scan.pdf", category: "parts-traceability" }),
+  });
+});
+
+it.each<
+  [string, (s: Snapshot) => void, (backend: Backend, s: Snapshot) => unknown]
+>([
+  [
+    "a job card",
+    (s) =>
+      (s.taskEvidence = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        taskCardUuid: s.taskCards![0].uuid,
+        category: "photo",
+      }))),
+    (backend, s) =>
+      backend.attachTaskEvidence(s.taskCards![0].uuid, "photo", pdf()),
+  ],
+  [
+    "a work order",
+    (s) =>
+      (s.workOrderAttachments = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        workOrderUuid: s.workOrders![0].uuid,
+      }))),
+    (backend, s) => backend.attachWorkOrderFile(s.workOrders![0].uuid, pdf()),
+  ],
+  [
+    "an inventory item",
+    (s) =>
+      (s.inventoryAttachments = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        stockUuid: "engine",
+        type: "application/pdf",
+      }))),
+    (backend) => backend.attachInventoryFile("engine", pdf()),
+  ],
+  [
+    "a purchase order",
+    (s) =>
+      (s.purchaseOrderFiles = full((i) => ({
+        ...STORED,
+        uuid: `file-${i}`,
+        poUuid: "po",
+        type: "application/pdf",
+      }))),
+    (backend) => backend.attachPOFile("po", undefined, pdf()),
+  ],
+])(
+  "refuses another attachment on %s that holds the maximum, as the server does",
+  async (record, fill, attach) => {
+    const { backend, stored } = await demo(`demo-full-${record}`, (seed) => {
+      withRecords(seed);
+      fill(seed);
+    });
+    const before = await stored();
+    const error = await Promise.resolve(attach(backend, before)).catch(
+      (e) => e,
+    );
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({ message: FULL });
+    expect(await stored()).toEqual(before);
+  },
+);

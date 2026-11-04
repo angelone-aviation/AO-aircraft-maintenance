@@ -11,6 +11,7 @@ import {
 } from "../domain/groupDeletion";
 import { ADD_EXISTING_RESULT, EMAIL_UNAVAILABLE } from "../domain/accountRules";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
+import { assertAttachmentRoom, withNewEvidence } from "../domain/attachments";
 import { demoAircraftFiles } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
 import {
@@ -336,6 +337,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           throw new Error(
             "An open job card and maintenance access are required.",
           );
+        assertRoomAmong(s.taskEvidence, (f) => f.taskCardUuid === t.uuid);
+        const now = Date.now();
         s.taskEvidence = [
           ...(s.taskEvidence ?? []),
           {
@@ -344,16 +347,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             category,
             name: file.name,
             size: file.size,
-            uploadedAt: Date.now(),
+            uploadedAt: now,
             url,
           },
         ];
-        // New evidence is part of the record being signed.
-        t.technicianSignoff = null;
-        t.inspectionSignoff = null;
-        t.stepSignoffs = {};
-        t.version++;
-        t.updatedAt = Date.now();
+        s.taskCards = s.taskCards!.map((card) =>
+          card === t ? withNewEvidence(t, now) : card,
+        );
         audit(
           s,
           "taskCard.evidence",
@@ -475,6 +475,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const url = `data:${file.type};base64,${btoa(binary)}`;
       await modify((s) => {
         inventoryAttachmentAccess(s, stockUuid);
+        assertRoomAmong(
+          s.inventoryAttachments,
+          (f) => f.stockUuid === stockUuid,
+        );
         s.inventoryAttachments = [
           ...(s.inventoryAttachments ?? []),
           {
@@ -510,6 +514,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           throw new Error(
             "An open work order and maintenance access are required.",
           );
+        assertRoomAmong(
+          s.workOrderAttachments,
+          (f) => f.workOrderUuid === w.uuid,
+        );
         s.workOrderAttachments = [
           ...(s.workOrderAttachments ?? []),
           {
@@ -744,6 +752,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           throw Error("PO access denied.");
         const receipt = po.receipts.find((r) => r.uuid === receiptUuid);
         if (receiptUuid && !receipt) throw Error("Receipt not found.");
+        assertRoomAmong(s.purchaseOrderFiles, (f) => f.poUuid === po.uuid);
         const f = {
           uuid: crypto.randomUUID(),
           poUuid,
@@ -1401,4 +1410,12 @@ function demoAlertReadsKey(
 ) {
   const { namespace, snapshot } = workspace.getState();
   return `${namespace}:demo-alert-reads:${snapshot?.user.id}:${programUuid ?? ""}`;
+}
+
+// The server's attachment cap, over the demo's copy of one record's files.
+function assertRoomAmong<T>(
+  files: readonly T[] | undefined,
+  onRecord: (file: T) => boolean,
+) {
+  assertAttachmentRoom((files ?? []).filter(onRecord).length);
 }
