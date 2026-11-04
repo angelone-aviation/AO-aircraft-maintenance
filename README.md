@@ -135,13 +135,7 @@ Production is also copied off-site every night by the **Nightly backup** workflo
 npx convex run memberships:backfill
 ```
 
-**Once, after the deploy that adds the permission-group check, run this read-only CHECK** (it changes nothing; run it after `memberships:backfill`):
-
-```bash
-npx convex run groupAudit:findWidenedGroups   # READ-ONLY; repeat with '{"cursor":"<continueCursor>"}' until isDone: true
-```
-
-Each is explained below.
+It is explained below.
 
 After deploying a version that adds the `memberships` table, populate it once from existing accounts (safe to rerun; it batches itself until every user is processed):
 
@@ -150,8 +144,6 @@ npx convex run memberships:backfill
 ```
 
 Until it runs, Flight Program member lists (pilot pickers, group-deletion reviews) show only accounts changed after the deploy. Permissions are unaffected: they still come from each user's group list.
-
-`groupAudit:findWidenedGroups` is a read-only check, not a migration. Until the fix for #34, editing a permission group whose selected aircraft had all moved to another Flight Program saved it with no aircraft, which opens it to every aircraft in the program. The check reads each group's `group.saved` change-log entries and lists, under `widened`, groups an edit emptied that way and, under `review`, groups covering all aircraft whose log cannot show that this was chosen. It never changes a group: a system administrator reviews each in Administration → Permission groups, where the same groups are listed, and saves an explicit aircraft choice. Follow the [accounts runbook](docs/runbooks/accounts.md#permission-groups-opened-to-all-aircraft-before-the-34-fix).
 
 The Docker and dev-container workflow is described below. Compose publishes Vite port 5173 and local Convex ports 3210/3211 on the host loopback interface. Cloud Convex development also works.
 

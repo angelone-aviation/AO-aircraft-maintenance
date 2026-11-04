@@ -2,7 +2,8 @@
  * Responsibility: Pins the rules for a password an administrator sets: length,
  *   no composition rules, and the common, repeated and email checks.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/passwordRules.ts, src/domain/commonPasswords.ts.
+ * Dependencies: src/domain/passwordRules.ts, src/domain/commonPasswords.ts,
+ *   src/domain/rejection.ts.
  */
 import { expect, it } from "vitest";
 import {
@@ -12,6 +13,7 @@ import {
   passwordProblem,
 } from "./passwordRules";
 import { COMMON_PASSWORDS } from "./commonPasswords";
+import { Rejection } from "./rejection";
 
 it("accepts any password of 15 to 128 characters with no composition rules", () => {
   for (const password of [
@@ -86,10 +88,11 @@ it("checks the length before anything else", () => {
   expect(passwordProblem("a".repeat(14))).toBe(PASSWORD_LENGTH_MESSAGE);
 });
 
-it("throws the refusal as an Error from assertPassword", () => {
+it("throws the refusal as a Rejection from assertPassword", () => {
   expect(() => assertPassword("fourteen chars")).toThrow(
     Error(PASSWORD_LENGTH_MESSAGE),
   );
+  expect(() => assertPassword("fourteen chars")).toThrow(Rejection);
   expect(() =>
     assertPassword("pat@example.test-2026", "pat@example.test"),
   ).toThrow(Error(PASSWORD_COMMON_MESSAGE));

@@ -1,13 +1,18 @@
 /**
- * Responsibility: Pins the per-aircraft flight fields: engine positions, start
- *   readings and landing surface through validation, outbox and rebuilds.
+ * Responsibility: Pins the per-aircraft flight fields: engine positions, the
+ *   optional meters, start readings and landing surface through validation,
+ *   outbox and rebuilds.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/flights.ts, ./model, src/data/demo.ts (fixture).
  */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { flightInputSchema, operationSchema, type FlightInput } from "./model";
-import { flightEnginePositions, rebuildFlights } from "./flights";
+import {
+  flightEnginePositions,
+  flightOptionalEntries,
+  rebuildFlights,
+} from "./flights";
 
 const HOUR_SECONDS = 3600;
 
@@ -48,6 +53,39 @@ describe("aircraft-specific flight fields", () => {
         { engineStarts: [{ engine: "single" }] },
       ),
     ).toEqual(["single"]);
+  });
+  it("records the collective, flight time log and landing surface where the aircraft keeps them", () => {
+    expect(flightOptionalEntries({})).toEqual({
+      cyclic: false,
+      flightTimeLog: false,
+      landingSurface: false,
+    });
+    expect(
+      flightOptionalEntries({
+        helicopter: true,
+        flightTimeLog: true,
+        amphibious: true,
+      }),
+    ).toEqual({ cyclic: true, flightTimeLog: true, landingSurface: true });
+  });
+  it("records the meter a flight needs and entries a flight already holds", () => {
+    expect(flightOptionalEntries({}, "cyclic")).toMatchObject({
+      cyclic: true,
+      flightTimeLog: false,
+    });
+    expect(flightOptionalEntries({}, "flightTimeLog")).toMatchObject({
+      cyclic: false,
+      flightTimeLog: true,
+    });
+    const held = { cyclicHobbsOn: 0, flightTimeLogOn: 0, landingSurface: null };
+    expect(flightOptionalEntries({}, "hobbs", held)).toEqual({
+      cyclic: true,
+      flightTimeLog: true,
+      landingSurface: false,
+    });
+    expect(
+      flightOptionalEntries({}, "tach", { landingSurface: "land" }),
+    ).toMatchObject({ landingSurface: true });
   });
   it("preserves turbine and landing information through offline payload validation and flight rebuilds", () => {
     const engineStarts = [

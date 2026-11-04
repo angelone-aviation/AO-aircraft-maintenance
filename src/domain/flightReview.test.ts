@@ -14,6 +14,8 @@ import type { Flight, FlightInput, Member, Snapshot } from "./model";
 import { Rejection } from "./rejection";
 import {
   assertReviewer,
+  REVIEW_REASON_MAX_LENGTH,
+  REVIEW_REASON_MIN_LENGTH,
   reviewFlight,
   type FlightReview,
 } from "./flightReview";
@@ -188,6 +190,20 @@ describe("reviewFlight refusals", () => {
     );
     expect(review(" abcde ")).not.toThrow();
     expect(review("x".repeat(5000))).not.toThrow();
+  });
+
+  it("exports the reason limits it enforces", () => {
+    const { s, held, input } = fixture();
+    const review = (reason: string) => () =>
+      reviewFlight(s, { uuid: held.uuid, decision: "accept", reason, input });
+    const short = "x".repeat(REVIEW_REASON_MIN_LENGTH - 1);
+    expect(review(short)).toThrow("Provide a meaningful review explanation.");
+    expect(review(`${short}x`)).not.toThrow();
+    const long = "x".repeat(REVIEW_REASON_MAX_LENGTH);
+    expect(review(`${long}x`)).toThrow(
+      "Provide a meaningful review explanation.",
+    );
+    expect(review(long)).not.toThrow();
   });
 
   it("refuses an aircraft outside the active Flight Program", () => {

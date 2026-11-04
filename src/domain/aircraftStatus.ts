@@ -2,29 +2,19 @@
  * Responsibility: Aircraft status (airworthy, due soon or grounded, with
  *   reasons) and the dispatch gate that blocks flights on a grounded aircraft.
  * Layer: Domain. Pure rules shared by the browser and Convex; no I/O, no React.
- * Dependencies: ./airworthiness, ./components, ./deferrals, ./maintenance,
- *   ./management, ./model, ./programs, ./rejection.
+ * Dependencies: ./airworthiness, ./deferrals, ./dueItems, ./model,
+ *   ./programs, ./rejection.
  *
  * Status is derived from recorded data only. A missing or uncomputable
  * schedule adds no reason here; it never implies readiness elsewhere.
  */
-import {
-  adAircraftUuid,
-  adTaskStatus,
-  CLOSED_APPLICABILITY,
-} from "./airworthiness";
-import {
-  requirementStatus,
-  type Component,
-  type ComponentRequirement,
-} from "./components";
+import { CLOSED_APPLICABILITY } from "./airworthiness";
 import {
   deferralDaysRemaining,
   deferralLabel,
   type Deferral,
 } from "./deferrals";
-import { inspectionStatus } from "./maintenance";
-import { inspectionCounters } from "./management";
+import { dueItems, type MaintenanceDue, type RequirementDue } from "./dueItems";
 import { localDate, type Aircraft, type Snapshot } from "./model";
 import { programPermission } from "./programs";
 import { Rejection } from "./rejection";
@@ -80,11 +70,12 @@ export function aircraftStatus(
 ): AircraftStatus {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid);
   if (!a) throw new Error("Aircraft not found.");
+  const due = dueItems(s, a.uuid, today);
   const findings = [
     ...listProfileFindings(a),
-    ...listInspectionFindings(s, a, today),
-    ...listComponentFindings(s, a, today),
-    ...listAdFindings(s, a, today),
+    ...listInspectionFindings(due),
+    ...listComponentFindings(s, due),
+    ...listAdFindings(due),
     ...listDiscrepancyFindings(s, a, today),
   ];
   const grounded = reasonsAt(findings, "grounded");
@@ -196,67 +187,53 @@ function listProfileFindings(a: Aircraft): Finding[] {
   return flagGrounded("profile", a.uuid, label);
 }
 
-function listInspectionFindings(s: Snapshot, a: Aircraft, today: string) {
-  return s.inspections.flatMap((i): Finding[] => {
-    if (i.archived || i.aircraftUuid !== a.uuid) return [];
-    const counters = () => inspectionCounters(i, a, s.management);
-    const status = computeOrSkip(
-      () => inspectionStatus(i, a, today, counters()).status,
-    );
-    if (status === "overdue")
-      return flagGrounded("inspection", i.uuid, `${i.reference} overdue`);
-    if (status !== "due-soon") return [];
-    return flagDueSoon("inspection", i.uuid, `${i.reference} due soon`);
+function listInspectionFindings(due: MaintenanceDue[]) {
+  return due.flatMap((item): Finding[] => {
+    if (item.kind !== "inspection") return [];
+    const { uuid, reference } = item.inspection;
+    if (item.level === "overdue")
+      return flagGrounded("inspection", uuid, `${reference} overdue`);
+    if (item.level !== "due-soon") return [];
+    return flagDueSoon("inspection", uuid, `${reference} due soon`);
   });
 }
 
-function listComponentFindings(s: Snapshot, a: Aircraft, today: string) {
+// Reasons follow component order, then each component's requirements.
+function listComponentFindings(s: Snapshot, due: MaintenanceDue[]) {
   const records = s.management ?? [];
-  return records.flatMap((c) => {
-    if (c.kind !== "component" || !c.installed || c.aircraftUuid !== a.uuid)
-      return [];
-    return records.flatMap((r) =>
-      r.kind === "componentRequirement" && r.componentUuid === c.uuid
-        ? listRequirementFindings(r, c, a, today)
-        : [],
-    );
-  });
+  return due
+    .filter((item) => item.kind === "componentRequirement")
+    .sort((x, y) => records.indexOf(x.component) - records.indexOf(y.component))
+    .flatMap(listRequirementFindings);
 }
 
-function listRequirementFindings(
-  r: ComponentRequirement,
-  c: Component,
-  a: Aircraft,
-  today: string,
-): Finding[] {
-  const status = computeOrSkip(() => requirementStatus(r, c, a, today).status);
+// The label keeps the component's own word: "past due" or "due now".
+function listRequirementFindings(item: RequirementDue): Finding[] {
+  const { requirement: r, component: c, due, level } = item;
+  if (!due) return [];
   const name = `${c.componentType}${c.serial ? ` S/N ${c.serial}` : ""}: ${r.description}`;
-  // "Due now" is a usage limit with nothing left: it grounds, as an
-  // inspection at 0 h does. A calendar limit due today is "Due soon".
-  if (status === "Past due" || status === "Due now")
-    return flagGrounded("component", r.uuid, `${name} ${status.toLowerCase()}`);
-  if (status !== "Due soon") return [];
+  if (level === "overdue")
+    return flagGrounded(
+      "component",
+      r.uuid,
+      `${name} ${due.status.toLowerCase()}`,
+    );
+  if (level !== "due-soon") return [];
   return flagDueSoon("component", r.uuid, `${name} due soon`);
 }
 
-function listAdFindings(s: Snapshot, a: Aircraft, today: string) {
-  const records = s.management ?? [];
-  return (s.airworthiness ?? []).flatMap((r): Finding[] => {
-    if (
-      adAircraftUuid(s, r) !== a.uuid ||
-      CLOSED_APPLICABILITY.includes(r.applicability)
-    )
+// An AD on a removed component does not ground the aircraft it came off.
+function listAdFindings(due: MaintenanceDue[]) {
+  return due.flatMap((item): Finding[] => {
+    if (item.kind !== "ad" || (item.component && !item.component.installed))
       return [];
-    const component = records.find(
-      (c) => c.kind === "component" && c.uuid === r.componentUuid,
-    );
-    // An AD on a removed component does not ground the aircraft it came off.
-    if (component?.kind === "component" && !component.installed) return [];
-    const statuses = r.tasks.map((t) => adTaskStatus(s, r, t, today));
-    if (statuses.includes("Overdue"))
-      return flagGrounded("ad", r.uuid, `AD ${r.source.number} overdue`);
-    if (!statuses.includes("Due soon")) return [];
-    return flagDueSoon("ad", r.uuid, `AD ${r.source.number} due soon`);
+    const { uuid, applicability, source } = item.ad;
+    if (CLOSED_APPLICABILITY.includes(applicability)) return [];
+    const levels = item.tasks.map((t) => t.level);
+    if (levels.includes("overdue"))
+      return flagGrounded("ad", uuid, `AD ${source.number} overdue`);
+    if (!levels.includes("due-soon")) return [];
+    return flagDueSoon("ad", uuid, `AD ${source.number} due soon`);
   });
 }
 
@@ -283,16 +260,6 @@ function listDeferralFindings(
   return expired
     ? flagGrounded("deferral", uuid, label)
     : flagDueSoon("deferral", uuid, label);
-}
-
-// A schedule that cannot be computed stays unverified, as on the Dashboard,
-// instead of failing the whole status.
-function computeOrSkip<T>(compute: () => T): T | undefined {
-  try {
-    return compute();
-  } catch {
-    return undefined;
-  }
 }
 
 function shortenDescription(text: string) {

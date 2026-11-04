@@ -2,32 +2,25 @@
  * Responsibility: The maintenance forecast: each aircraft's recent daily usage,
  *   and when every inspection, component requirement and AD task falls due.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./airworthiness, ./adOwnership, ./components, ./flights,
- *   ./management, ./maintenance, ./model.
+ * Dependencies: ./airworthiness, ./components, ./dueItems, ./flights,
+ *   ./maintenance, ./model.
  */
+import { adCounters, CLOSED_APPLICABILITY, type ADTask } from "./airworthiness";
+import { requirementDueDate, type Component } from "./components";
 import {
-  adCounters,
-  adTaskStatus,
-  CLOSED_APPLICABILITY,
-  type AD,
-  type ADTask,
-} from "./airworthiness";
-import { adAircraftUuid } from "./adOwnership";
-import {
-  requirementDueDate,
-  requirementStatus,
-  type Component,
-  type ComponentRequirement,
-} from "./components";
+  dueItems,
+  type AdDue,
+  type InspectionDue,
+  type MaintenanceDue,
+  type RequirementDue,
+} from "./dueItems";
 import { meterAtFlight } from "./flights";
-import { inspectionCounters } from "./management";
-import { inspectionDueDate, inspectionStatus } from "./maintenance";
+import { inspectionDueDate } from "./maintenance";
 import {
   hours,
   localDate,
   type Aircraft,
   type Flight,
-  type Inspection,
   type Snapshot,
 } from "./model";
 
@@ -240,7 +233,7 @@ export function remainingText(r: Remaining) {
  * read still lists, with the reason as its note and no projection.
  *
  * @param s - The snapshot.
- * @param today - The day projections count from.
+ * @param today - The day projections count from and totals are read on.
  * @param windowDays - The usage window for each aircraft's rates.
  * @returns Items by projected date, then title; unprojected items last.
  */
@@ -250,10 +243,11 @@ export function forecast(
   windowDays = DEFAULT_WINDOW_DAYS,
 ): ForecastItem[] {
   const context = { s, today, usageOf: cacheUtilization(s, today, windowDays) };
+  const due = dueItems(s, undefined, today);
   return [
-    ...inspectionItems(context),
-    ...requirementItems(context),
-    ...adItems(context),
+    ...inspectionItems(context, due),
+    ...requirementItems(context, due),
+    ...adItems(context, due),
   ]
     .filter((x): x is ForecastItem => !!x)
     .sort(
@@ -463,8 +457,8 @@ function projectionNote(
     : `${use.note} No usage recorded on this item's limits.`;
 }
 
-// inspectionStatus and requirementStatus throw when current totals cannot be
-// read; the item still lists, with the reason, so the planner does not lose it.
+// The item still lists, with the reason, so the planner does not lose it:
+// its totals cannot be read (what dueItems kept), or `today` is not a date.
 function failedItem(base: ItemBase, e: unknown): ForecastItem {
   return {
     ...base,
@@ -473,20 +467,17 @@ function failedItem(base: ItemBase, e: unknown): ForecastItem {
   };
 }
 
-function inspectionItems(context: ForecastContext) {
-  const { s } = context;
-  return s.inspections.map((i) => {
-    if (i.archived) return undefined;
-    const a = s.aircraft.find((a) => a.uuid === i.aircraftUuid);
-    return a && inspectionItem(context, i, a);
-  });
+function inspectionItems(context: ForecastContext, due: MaintenanceDue[]) {
+  return due.flatMap((item) =>
+    item.kind === "inspection" ? [inspectionItem(context, item)] : [],
+  );
 }
 
 function inspectionItem(
   { s, today, usageOf }: ForecastContext,
-  i: Inspection,
-  a: Aircraft,
+  item: InspectionDue,
 ) {
+  const { inspection: i, aircraft: a } = item;
   const base: ItemBase = {
     key: i.uuid,
     kind: "inspection",
@@ -495,9 +486,9 @@ function inspectionItem(
     detail: i.description,
     status: "unknown",
   };
+  if (!item.due) return failedItem(base, item.error);
+  const st = item.due;
   try {
-    const counters = inspectionCounters(i, a, s.management);
-    const st = inspectionStatus(i, a, today, counters);
     const component = findComponent(s, i.componentUuid);
     const use = usageOf(a);
     const remaining = {
@@ -511,35 +502,28 @@ function inspectionItem(
     };
     const meter = component?.usageMeter ?? i.usageMeter;
     const rates = ratesFor(use, meter, component);
-    const item = { ...base, status: st.status };
-    return projectItem(item, remaining, use, rates, today);
+    const projected = { ...base, status: st.status };
+    return projectItem(projected, remaining, use, rates, today);
   } catch (e) {
     return failedItem(base, e);
   }
 }
 
-function requirementItems(context: ForecastContext) {
-  const { s } = context;
-  return (s.management ?? []).map((r) => {
-    if (r.kind !== "componentRequirement") return undefined;
-    const c = findComponent(s, r.componentUuid);
-    if (!c) return undefined;
-    const a = c.installed
-      ? s.aircraft.find((a) => a.uuid === c.aircraftUuid)
-      : undefined;
-    if (c.installed && !a) return undefined;
-    return requirementItem(context, r, c, a);
-  });
+function requirementItems(context: ForecastContext, due: MaintenanceDue[]) {
+  return due.flatMap((item) =>
+    item.kind === "componentRequirement"
+      ? [requirementItem(context, item)]
+      : [],
+  );
 }
 
-// `a` is undefined for a component held in inventory: its usage limits do not
+// No aircraft for a component held in inventory: its usage limits do not
 // advance, so only its calendar limit projects.
 function requirementItem(
   { today, usageOf }: ForecastContext,
-  r: ComponentRequirement,
-  c: Component,
-  a: Aircraft | undefined,
+  item: RequirementDue,
 ) {
+  const { requirement: r, component: c, aircraft: a } = item;
   const base: ItemBase = {
     key: r.uuid,
     kind: "component",
@@ -548,8 +532,9 @@ function requirementItem(
     detail: `${r.requirementType}: ${r.description}`,
     status: "unknown",
   };
+  if (!item.due) return failedItem(base, item.error);
+  const st = item.due;
   try {
-    const st = requirementStatus(r, c, a, today);
     const use = a && usageOf(a);
     const remaining = {
       seconds: st.seconds,
@@ -558,34 +543,31 @@ function requirementItem(
       dueDate: requirementDueDate(r),
     };
     const rates = ratesFor(use, c.usageMeter, c);
-    const item = { ...base, status: st.status };
-    return projectItem(item, remaining, use, rates, today);
+    const projected = { ...base, status: st.status };
+    return projectItem(projected, remaining, use, rates, today);
   } catch (e) {
     return failedItem(base, e);
   }
 }
 
-function adItems(context: ForecastContext) {
-  const { s } = context;
-  return (s.airworthiness ?? []).flatMap((r) => {
-    if (CLOSED_APPLICABILITY.includes(r.applicability)) return [];
-    const a = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
-    return a ? adTaskItems(context, r, a) : [];
+function adItems(context: ForecastContext, due: MaintenanceDue[]) {
+  return due.flatMap((item) => {
+    if (item.kind !== "ad" || !item.aircraft) return [];
+    if (CLOSED_APPLICABILITY.includes(item.ad.applicability)) return [];
+    return adTaskItems(context, item, item.aircraft);
   });
 }
 
 // Complied tasks and tasks without a due value have nothing to project.
 function adTaskItems(
   { s, today, usageOf }: ForecastContext,
-  r: AD,
+  { ad: r, component: c, tasks }: AdDue,
   a: Aircraft,
 ) {
-  const c = findComponent(s, r.componentUuid);
-  const counters = adCounters(s, r);
+  const counters = adCounters(s, r, today);
   const inventory = !!c && !c.installed;
   const use = inventory ? undefined : usageOf(a);
-  return r.tasks.map((t) => {
-    const status = adTaskStatus(s, r, t, today);
+  return tasks.map(({ task: t, status }) => {
     if (status === "Complied" || status === "Due not set") return undefined;
     const base: ItemBase = {
       key: `${r.uuid}:${t.uuid}`,

@@ -4,9 +4,10 @@
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/flightPlans.ts, pdf/icao.ts, model.ts,
  *   components.ts, programs.ts, rejection.ts, src/data/demo.ts and
- *   tests/fixtures/icao-text.json (fixtures).
+ *   tests/fixtures (icao-text.json, the due fleet).
  */
 import { describe, it, expect } from "vitest";
+import { dueFleet } from "../../tests/fixtures/dueFleet";
 import items from "../../tests/fixtures/icao-text.json";
 import { parseIcao } from "./pdf/icao";
 import { demoSnapshot } from "../data/demo";
@@ -504,5 +505,62 @@ describe("plan refusals and queue order", () => {
     );
     expect(durationLabel(293)).toBe("4h 53m");
     expect(durationLabel(5)).toBe("0h 05m");
+  });
+});
+
+describe("queue flags on the due fleet", () => {
+  // Component flags follow component order, so r-early's flag comes after
+  // the pump's.
+  it("flags inspections, then each component's requirements", () => {
+    const { s, a } = dueFleet();
+    const early = s.management!.find((r) => r.uuid === "r-early")!;
+    Object.assign(early, { dueSeconds: 100 * 3600 });
+    s.flightPlans = [
+      { ...draft(), departureAt: "2026-10-31T12:00:00Z", durationMinutes: 60 },
+    ];
+    expect(projectQueue(s, a.uuid)[0].flags).toStrictEqual([
+      "Aircraft status: unknown",
+      "i-late: Due before further Flight",
+      "i-today: Due before further Flight",
+      "i-zero: Due before further Flight",
+      "i-cycles: due-soon",
+      ": unknown",
+      "i-missing: Inspection component not found.",
+      "Type pump / r-now limit: Past due",
+      "Type pump / r-today limit: Past due",
+      "Type pump / r-landing limit: Set landing baseline",
+      "Type early / r-early limit: Due now",
+      "Type gear / r-gear-tso limit: Set time baseline",
+    ]);
+  });
+
+  it("measures a component inspection on the component's hours", () => {
+    const { s, a } = dueFleet();
+    const gearCheck = s.inspections.find((i) => i.uuid === "i-gear")!;
+    s.flightPlans = [{ ...draft(), durationMinutes: 60 }];
+    const flagged = () =>
+      projectQueue(s, a.uuid)[0].flags.filter((f) => f.startsWith("i-gear"));
+    expect(totalSeconds(a)).toBeGreaterThan(210 * 3600);
+    expect(flagged()).toEqual([]);
+    gearCheck.dueSeconds = 100.5 * 3600;
+    expect(flagged()).toEqual(["i-gear: Due before further Flight"]);
+  });
+
+  it("flags an inspection it cannot project instead of failing the queue", () => {
+    const { s, c } = dueFleet();
+    s.flightPlans = [{ ...draft(), aircraftUuid: c.uuid, durationMinutes: 60 }];
+    expect(projectQueue(s, c.uuid)[0].flags).toContain(
+      "i-collective: Collective component tracking requires a helicopter collective hourmeter reading.",
+    );
+  });
+
+  it("flags a requirement it cannot project instead of failing the queue", () => {
+    const { s, a } = dueFleet();
+    const early = s.management!.find((r) => r.uuid === "early")!;
+    Object.assign(early, { installedSeconds: totalSeconds(a) + 7200 });
+    s.flightPlans = [{ ...draft(), durationMinutes: 60 }];
+    expect(projectQueue(s, a.uuid)[0].flags).toContain(
+      "Type early: verify installation baseline for planned date",
+    );
   });
 });

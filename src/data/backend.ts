@@ -261,11 +261,15 @@ export interface Backend {
    * starts a check, at most once a minute.
    */
   faaCommand(command: FaaCommand): Promise<unknown>;
-  /** Applies an airworthiness directive command to the AD register. */
+  /**
+   * Applies an airworthiness directive command to the AD register; a
+   * replayed request id changes nothing.
+   */
   saveAD(command: ADCommand): Promise<unknown>;
 
   /**
-   * Saves a checklist set as its next version.
+   * Saves a checklist set as its next version; a replayed request id changes
+   * nothing.
    *
    * @param command - The set and the version it was edited from; a set
    *   changed since is refused.
@@ -407,7 +411,10 @@ export interface Backend {
   savePlan(command: PlanCommand): Promise<unknown>;
   /** Lists an aircraft's engine-trend imports and limits (or the defaults). */
   engineTrends(aircraftUuid: string): Promise<EngineTrendData>;
-  /** Imports an engine-data summary, removes an import, or sets the limits. */
+  /**
+   * Imports an engine-data summary, removes an import, or sets the limits; a
+   * replayed request id changes nothing.
+   */
   engineTrend(
     aircraftUuid: string,
     command: EngineTrendCommand,
@@ -731,14 +738,14 @@ function bindAirworthinessCalls(client: ConvexReactClient) {
     faaCommand: (command) =>
       client.mutation(api.faa.command, programCommand(command)),
     saveAD: (command) =>
-      client.mutation(api.airworthiness.save, programCommand(command)),
+      client.mutation(api.airworthiness.save, requestedCommand(command)),
   } satisfies Partial<Backend>;
 }
 
 function bindTemplateCalls(client: ConvexReactClient) {
   return {
     saveChecklist: (command) =>
-      client.mutation(api.checklists.save, programCommand(command)),
+      client.mutation(api.checklists.save, requestedCommand(command)),
     importTaskCsv: (input) =>
       client.mutation(api.taskImports.save, programCommand(input)),
     saveInspectionTemplates: (records) =>
@@ -830,7 +837,7 @@ function bindFlightCalls(client: ConvexReactClient) {
     engineTrend: (aircraftUuid, command) =>
       client.mutation(api.engineTrends.execute, {
         aircraftUuid,
-        ...programCommand(command),
+        ...requestedCommand(command),
       }),
   } satisfies Partial<Backend>;
 }
@@ -1044,6 +1051,13 @@ function inProgram<T extends object>(fields: T) {
 
 function programCommand(command: unknown) {
   return inProgram({ payload: JSON.stringify(command) });
+}
+
+// One request id per call, which the Convex client resends unchanged if it
+// retries the mutation; an id the caller chose for its intent is kept.
+function requestedCommand(command: { requestUuid?: string }) {
+  const requestUuid = command.requestUuid ?? crypto.randomUUID();
+  return programCommand({ ...command, requestUuid });
 }
 
 async function readFileFields(file: File) {

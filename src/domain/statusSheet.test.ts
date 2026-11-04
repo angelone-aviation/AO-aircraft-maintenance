@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the status sheet content: header, section order,
  *   placeholder rows, sort orders, which records are listed, component
- *   fallbacks and the notes under each table.
+ *   fallbacks, the failure on an uncomputable inspection, and the notes
+ *   under each table.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/statusSheet.ts, airworthiness.ts, components.ts,
  *   model.ts, rejection.ts, src/data/demo.ts (fixture).
@@ -169,6 +170,18 @@ it("orders active inspections by reference, digits as numbers", () => {
   expect(rows[0].slice(1, 5)).toEqual(["One-time", "-", "-", "-"]);
 });
 
+it("fails when an inspection's status cannot be computed", () => {
+  const s = demoSnapshot();
+  const a = s.aircraft[0];
+  s.management = [
+    component(s, "bad", { installedSeconds: totalSeconds(a) + HOUR_SECONDS }),
+  ];
+  s.inspections = [inspection(s, { reference: "BAD", componentUuid: "bad" })];
+  expect(() => sheet(s)).toThrow(
+    "Aircraft readings or date precede the installation baseline.",
+  );
+});
+
 it("notes each calendar exemption reason once, after the table", () => {
   const s = demoSnapshot();
   const exempt = { intervalMonths: 12, calendarExempt: true };
@@ -220,6 +233,30 @@ it("orders ADs by Component uuid, then AD number with digits as numbers", () => 
     "2019-01-01",
   ]);
   expect(rows[2][1]).toBe(" Engine\nS/N SN-eng");
+});
+
+it("lists closed ADs and a removed Component's AD under its section", () => {
+  const s = demoSnapshot();
+  const ad = (number: string, over: object) => {
+    const r = { ...blankAD(s.aircraft[0].uuid), ...over };
+    r.source = { ...r.source, number, section: "Appliance" as const };
+    return r;
+  };
+  s.management = [component(s, "off", { installed: false })];
+  s.airworthiness = [
+    ad("2020-01-01", {
+      applicability: "Not applicable",
+      reviewRequired: false,
+    }),
+    ad("2020-02-01", { applicability: "Superseded", reviewRequired: false }),
+    ad("2020-03-01", { componentUuid: "off" }),
+  ];
+  const rows = section(s, "airworthiness").rows;
+  expect(rows.map((r) => [r[0], r[1], r[4]])).toEqual([
+    ["2020-01-01", "Appliance", "Not applicable"],
+    ["2020-02-01", "Appliance", "Superseded"],
+    ["2020-03-01", "Appliance", "Removed component"],
+  ]);
 });
 
 it("notes the flight time log only when kept and read, and the collective hourmeter when read", () => {

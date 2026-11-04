@@ -2,7 +2,7 @@
  * Responsibility: Pins the Aircraft Spruce CSV parsing, catalog search, price
  *   conversion, order-line matching and account schemas.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/aircraftSpruce.ts.
+ * Dependencies: src/domain/aircraftSpruce.ts, ./rejection.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -19,6 +19,7 @@ import {
   spruceCredentials,
   sprucePartSchema,
 } from "./aircraftSpruce";
+import { Rejection } from "./rejection";
 
 describe("Aircraft Spruce imports", () => {
   it("parses quoted commas, escaped quotes, embedded newlines, BOM and empty fields", () => {
@@ -119,6 +120,7 @@ describe("catalogSearch", () => {
     expect(() => catalogSearch(catalog(), " a ", "USD", 1)).toThrow(
       Error("Enter at least two characters."),
     );
+    expect(() => catalogSearch(catalog(), " a ", "USD", 1)).toThrow(Rejection);
   });
   it("matches the part number and description joined by a space, ignoring case", () => {
     const text = catalog("ABC,Bolt,1,EA", "XYZ,Nut,1,EA");
@@ -230,6 +232,9 @@ describe("parseOrders", () => {
     );
     expect(() => parseOrders(lines(MAX_ORDER_LINES + 1), "", "2")).toThrow(
       Error("Too many order lines. Select an individual order."),
+    );
+    expect(() => parseOrders(lines(MAX_ORDER_LINES + 1), "", "2")).toThrow(
+      Rejection,
     );
   });
 });

@@ -10,13 +10,12 @@
 import type { Group, Permission } from "./model";
 import {
   assertGroupAircraftChoice,
-  assertGroupProgramChange,
+  assertGroupProgramFixed,
 } from "./groupAircraft";
 import { validateOwnerGroup } from "./ownerView";
 import { Rejection } from "./rejection";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ACCOUNT_NAME_MAX_LENGTH = 150;
 const GROUP_NAME_MAX_LENGTH = 100;
 
 // The default read-only group (src/domain/defaultPermissionGroups.ts), matched
@@ -59,6 +58,9 @@ export const PASSWORD_MIN_LENGTH = 15;
 /** Longest password an administrator may set. */
 export const PASSWORD_MAX_LENGTH = 128;
 
+/** Longest account name, counted after trimming, as it is stored. */
+export const ACCOUNT_NAME_MAX_LENGTH = 150;
+
 /** A permission group as its save form submits it. */
 export interface GroupInput {
   programUuid?: string;
@@ -95,10 +97,7 @@ export function programGroupIds(
   programUuid: string,
   requested: string[],
 ): string[] {
-  if (requested.some((id) => !isProgramGroup(groups, id, programUuid)))
-    throw new Rejection(
-      "Users can only be assigned groups in this Flight Program.",
-    );
+  assertProgramGroups(groups, programUuid, requested);
   const groupIds = [...new Set(requested)];
   if (grantsRead(groups, groupIds)) return groupIds;
   const observers = observersGroup(groups, programUuid);
@@ -110,12 +109,56 @@ export function programGroupIds(
 }
 
 /**
+ * Refuses a group a member cannot be given in a Flight Program: one of another
+ * program, or an id no group has.
+ *
+ * @throws {Rejection} "Users can only be assigned groups in this Flight
+ *   Program."
+ */
+export function assertProgramGroups(
+  groups: Group[],
+  programUuid: string,
+  groupIds: string[],
+): void {
+  if (groupIds.some((id) => !isProgramGroup(groups, id, programUuid)))
+    throw new Rejection(
+      "Users can only be assigned groups in this Flight Program.",
+    );
+}
+
+/**
  * Whether any of the groups grants read access.
  */
 export function grantsRead(groups: Group[], groupIds: string[]): boolean {
   return groups.some(
     (g) => groupIds.includes(g.id) && g.permissions.includes("read"),
   );
+}
+
+/**
+ * Refuses a member's groups in a Flight Program when none grants read access,
+ * without which the member cannot open the program.
+ *
+ * @throws {Rejection} "Select a group with read access."
+ */
+export function assertGrantsRead(groups: Group[], groupIds: string[]): void {
+  if (!grantsRead(groups, groupIds))
+    throw new Rejection("Select a group with read access.");
+}
+
+/**
+ * Checks the groups that replace a member's access to a Flight Program. To
+ * leave none, the member's access is removed instead.
+ *
+ * @throws {Rejection} "Select at least one permission group or remove program
+ *   access." for none; then as {@link assertGrantsRead}.
+ */
+export function assertAccessGroups(groups: Group[], groupIds: string[]): void {
+  if (!groupIds.length)
+    throw new Rejection(
+      "Select at least one permission group or remove program access.",
+    );
+  assertGrantsRead(groups, groupIds);
 }
 
 /**
@@ -143,22 +186,20 @@ export function observersGroup(
  * Checks a permission group before it is saved and gives its stored fields.
  *
  * @param existing - The stored group; undefined for a new one.
- * @param systemAdmin - Whether the user is a system administrator.
- * @returns The fields (name trimmed, ids without repeats, flags false unless
- *   set), and `assigned`: true when this save gives an unscoped group its
- *   first Flight Program.
- * @throws {Rejection} In order: as `assertGroupProgramChange`; "Group name is
- *   required." (blank, or over 100 characters before trimming); "Write
+ * @returns The fields: name trimmed, ids without repeats, flags false unless
+ *   set.
+ * @throws {Rejection} In order: as `assertGroupProgramFixed`; "Group name is
+ *   required." (blank, or over 100 characters after trimming); "Write
  *   permissions also require read access."; as `validateOwnerGroup` and
  *   `assertGroupAircraftChoice`; "Select a Flight Program for this group."
  */
 export function normalizeGroup(
   input: GroupInput,
   existing: Group | undefined,
-  systemAdmin: boolean,
-): { fields: GroupFields; assigned: boolean } {
-  const assigned = assertGroupProgramChange(existing, input, systemAdmin);
-  if (!input.name.trim() || input.name.length > GROUP_NAME_MAX_LENGTH)
+): GroupFields {
+  assertGroupProgramFixed(existing, input);
+  const name = input.name.trim();
+  if (!name || name.length > GROUP_NAME_MAX_LENGTH)
     throw new Rejection("Group name is required.");
   if (!input.permissions.includes("read") && input.permissions.length)
     throw new Rejection("Write permissions also require read access.");
@@ -166,15 +207,14 @@ export function normalizeGroup(
   assertGroupAircraftChoice(existing, input);
   if (!input.programUuid)
     throw new Rejection("Select a Flight Program for this group.");
-  const fields = {
+  return {
     programUuid: input.programUuid,
     programAdmin: input.programAdmin ?? false,
     owner: input.owner ?? false,
-    name: input.name.trim(),
+    name,
     aircraftIds: [...new Set(input.aircraftIds)],
     permissions: [...new Set(input.permissions)],
   };
-  return { fields, assigned };
 }
 
 /**

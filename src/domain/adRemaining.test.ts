@@ -112,6 +112,45 @@ describe("AD recurrence remaining", () => {
     component.trackTime = false;
     expect(adRemaining(s, r, t)[0].value).toBe("Counter unavailable");
   });
+  it("reads a component's counters on the date given", () => {
+    const s = demoSnapshot();
+    s.management = [
+      {
+        uuid: "future-engine",
+        version: 1,
+        kind: "component",
+        aircraftUuid: s.aircraft[0].uuid,
+        componentType: "Engine",
+        partNumber: "TEST",
+        serial: "TEST",
+        manufacturer: "Test",
+        notes: "",
+        installed: true,
+        installedDate: "2099-01-01",
+        installedSeconds: 0,
+        installedCycles: 0,
+        trackTime: true,
+        trackCycles: false,
+        trackCalendar: true,
+        timeSinceNew: 100 * 3600,
+        timeSinceOverhaul: null,
+        timeSinceRepair: null,
+        cyclesSinceNew: 0,
+        serviceDaysBase: 0,
+      },
+    ];
+    const r = {
+      ...blankAD(s.aircraft[0].uuid),
+      componentUuid: "future-engine",
+    };
+    const t = { ...blankADTask(), intervalHours: 100, dueHours: 1e6 };
+    expect(adRemaining(s, r, t, "2098-12-30")[0].value).toBe(
+      "Counter unavailable",
+    );
+    expect(adRemaining(s, r, t, "2099-06-01")[0].value).not.toBe(
+      "Counter unavailable",
+    );
+  });
   it("lists hours, months, cycles and landings in order, and a calendar 0 is not due now", () => {
     const s = demoSnapshot();
     const r = blankAD(s.aircraft[0].uuid);
