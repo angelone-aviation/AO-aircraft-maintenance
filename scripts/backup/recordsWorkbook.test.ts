@@ -701,5 +701,7 @@ describe("records workbook", () => {
     );
     expect(failed.status).toBe(1);
     expect(failed.stderr).toContain("The export is not a ZIP file.");
-  });
+    // Spawns node and bundles the workbook with esbuild: seconds of work that
+    // pass vitest's 5 s default only on an idle machine.
+  }, 30_000);
 });
