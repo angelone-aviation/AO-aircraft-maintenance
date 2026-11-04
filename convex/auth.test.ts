@@ -157,3 +157,17 @@ it("closes every password flow but sign-in, and sign-out ends the session on the
     "An active account and session are required.",
   );
 });
+
+it("stores nothing for a code exchange naming an email or phone, which no sign-in method uses", async () => {
+  const t = convexTest(schema, modules);
+  const noise = "x".repeat(10_000);
+  for (const extra of [{ email: noise }, { phone: noise }])
+    expect(
+      await t.action(api.auth.signIn, {
+        params: { code: "12345678", ...extra },
+      }),
+    ).toEqual({ tokens: null });
+  expect(
+    await t.run((ctx) => ctx.db.query("authRateLimits").collect()),
+  ).toEqual([]);
+});
