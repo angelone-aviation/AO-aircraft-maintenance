@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Closes a work order: checks its completion readings, records
+ *   inspection and component compliance, applies component work, and writes
+ *   the logbook entry's work-performed text.
+ * Layer: Domain. Functions on a working snapshot; no I/O, no React.
+ * Dependencies: ./certifications, ./workOrderComponentWork, ./logbookWording,
+ *   ./workOrderCloseoutSchema, ./workOrders (type), ./model, ./management,
+ *   ./components, ./workOrderCards, ./rejection.
+ */
 import { memberLicense } from "./certifications";
 import {
   applyWorkOrderComponentWork,
@@ -22,6 +31,7 @@ import {
 import { applyManagement, inspectionCounters } from "./management";
 import { componentTotals, type Component } from "./components";
 import { taskCardMatchesWorkItem } from "./workOrderCards";
+import { Rejection } from "./rejection";
 
 type Card = NonNullable<Snapshot["taskCards"]>[number];
 const signoffs = (card: Card) => [
@@ -73,6 +83,13 @@ export function logbookPerformers(
       });
   return [...performers.values()];
 }
+/**
+ * The logbook entry's work-performed text: each work item's line and its job
+ * cards' text, then any job card linked to no item, as blocks separated by a
+ * blank line.
+ *
+ * @param preview - Also include work not yet completed, unless cancelled.
+ */
 export function workPerformedText(
   s: Snapshot,
   order: WorkOrder,
@@ -168,7 +185,22 @@ export function workPerformedText(
     .join("\n\n");
 }
 
-// Runs inside the isolated work-order transaction. It does not reset aircraft or component lifetime counters.
+/**
+ * Closes a work order on its completion date: records compliance for its
+ * completed inspections and component requirements and applies its component
+ * work to `s`, inside the isolated work-order transaction. Aircraft and
+ * component lifetime counters are never reset.
+ *
+ * @param supplied - Completion readings; required when backdated, else the
+ *   aircraft's current readings.
+ * @returns The close-out record.
+ * @throws {Rejection} For missing or out-of-range completion readings, a
+ *   completion date before a completed job card, a serviced component moved or
+ *   changed after that date, an inspection or requirement not on this
+ *   aircraft, or compliance that would precede existing compliance.
+ * @throws As `applyManagement` and `applyWorkOrderComponentWork`; a ZodError
+ *   for readings `completionReadingsSchema` refuses.
+ */
 export function completeWorkOrder(
   s: Snapshot,
   order: WorkOrder,
@@ -178,7 +210,7 @@ export function completeWorkOrder(
 ): WorkOrderCloseout {
   const a = s.aircraft.find((a) => a.uuid === order.aircraftUuid)!;
   if (!isLocalToday(order.completionDate, now) && !supplied)
-    throw new Error(
+    throw new Rejection(
       "Enter aircraft readings at completion for a backdated work order.",
     );
   const readings = completionReadingsSchema.parse(
@@ -200,29 +232,31 @@ export function completeWorkOrder(
   };
   for (const key of ["totalSeconds", "hobbs", "tach", "cycles"] as const)
     if (readings[key] < order.aircraft[key] || readings[key] > current[key])
-      throw new Error(
+      throw new Rejection(
         "Completion readings must be between the work-order opening readings and current aircraft readings.",
       );
   if (a.meter === "cyclic" && readings.cyclicHobbs === undefined)
-    throw new Error("Enter the Collective hourmeter reading at completion.");
+    throw new Rejection(
+      "Enter the Collective hourmeter reading at completion.",
+    );
   if (
     readings.cyclicHobbs !== undefined &&
     (readings.cyclicHobbs < (order.aircraft.cyclicHobbs ?? 0) ||
       a.currentCyclicHobbs === undefined ||
       readings.cyclicHobbs > a.currentCyclicHobbs)
   )
-    throw new Error(
+    throw new Rejection(
       "Completion Collective hourmeter must be between opening and current readings.",
     );
   if (a.meter === "flightTimeLog" && readings.flightTimeLog === undefined)
-    throw new Error("Enter the Flight time log reading at completion.");
+    throw new Rejection("Enter the Flight time log reading at completion.");
   if (
     readings.flightTimeLog !== undefined &&
     (readings.flightTimeLog < (order.aircraft.flightTimeLog ?? 0) ||
       a.currentFlightTimeLog === undefined ||
       readings.flightTimeLog > a.currentFlightTimeLog)
   )
-    throw new Error(
+    throw new Rejection(
       "Completion Flight time log must be between opening and current readings.",
     );
   const hasLandingWork = order.tasks.some((task) => {
@@ -236,13 +270,13 @@ export function completeWorkOrder(
     return r && "dueLandings" in r && r.dueLandings !== undefined;
   });
   if (hasLandingWork && readings.landings === undefined)
-    throw new Error("Enter aircraft total landings at completion.");
+    throw new Rejection("Enter aircraft total landings at completion.");
   if (
     readings.landings !== undefined &&
     (readings.landings < (order.aircraft.landings ?? 0) ||
       readings.landings > a.landings)
   )
-    throw new Error(
+    throw new Rejection(
       "Completion landings must be between opening and current aircraft totals.",
     );
   const finalAircraft = {
@@ -269,7 +303,7 @@ export function completeWorkOrder(
     (t) => t.workOrderUuid === order.uuid && t.status === "completed",
   );
   if (cards.some((card) => card.completionDate > order.completionDate))
-    throw new Error(
+    throw new Rejection(
       "The work-order completion date cannot precede its completed job cards.",
     );
   cards.forEach((card) => {
@@ -304,7 +338,7 @@ export function completeWorkOrder(
           r.date > order.completionDate,
       )
     )
-      throw new Error(
+      throw new Rejection(
         "A serviced component has moved or has tracking changes after the completion date. Review its tracking before closing this order.",
       );
     const totals = componentTotals(c, finalAircraft, order.completionDate);
@@ -334,7 +368,9 @@ export function completeWorkOrder(
     if (task.source.kind === "inspection") {
       const i = s.inspections.find((i) => i.uuid === task.source.uuid);
       if (!i || i.aircraftUuid !== a.uuid)
-        throw new Error("The inspection is unavailable for this work order.");
+        throw new Rejection(
+          "The inspection is unavailable for this work order.",
+        );
       const counters = inspectionCounters(i, finalAircraft, s.management);
       const result = applyManagement(
         s,
@@ -368,7 +404,9 @@ export function completeWorkOrder(
         (r) => r.uuid === task.source.uuid && r.kind === "componentRequirement",
       );
       if (!r || r.kind !== "componentRequirement" || r.aircraftUuid !== a.uuid)
-        throw new Error("The component service requirement is unavailable.");
+        throw new Rejection(
+          "The component service requirement is unavailable.",
+        );
       // Routine inspection compliance is recorded here; component actions below handle overhaul and repair.
       if (r.requirementType !== "Inspection Requirement") continue;
       const totals = components.find(
@@ -389,7 +427,7 @@ export function completeWorkOrder(
         (totals.cyclesSinceNew !== null &&
           totals.cyclesSinceNew < (r.lastCycles ?? 0))
       )
-        throw new Error(
+        throw new Rejection(
           "Component compliance would precede existing compliance or lacks a verified time baseline.",
         );
       const result = applyManagement(

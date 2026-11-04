@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins work-order close-out through saveWorkOrder: completion
+ *   readings, compliance updates, component work and the logbook text.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/workOrders.ts, ./model, ./logbook, ./components,
+ *   ./rejection, src/data/demo.ts, tests/fixtures/workOrders.ts.
+ */
 import { it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
@@ -18,6 +25,7 @@ import {
   emptyInspectionEntry,
 } from "./logbook";
 import { componentTotals, type ComponentRequirement } from "./components";
+import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-02T12:00:00Z");
 function setup() {
   const s = demoSnapshot();
@@ -222,17 +230,14 @@ it("requires explicit readings for backdated closeout and rejects invalid readin
   command.fields.completionDate = "2026-10-01";
   const snapshot = structuredClone(s);
   expect(() => saveWorkOrder(s, command, now)).toThrow("backdated");
+  expect(() => saveWorkOrder(s, command, now)).toThrow(Rejection);
   expect(s).toEqual(snapshot);
-  expect(() =>
-    saveWorkOrder(
-      s,
-      {
-        ...command,
-        completionReadings: { totalSeconds: 0, hobbs: 0, tach: 0, cycles: 0 },
-      },
-      now,
-    ),
-  ).toThrow("Completion readings");
+  const outside = {
+    ...command,
+    completionReadings: { totalSeconds: 0, hobbs: 0, tach: 0, cycles: 0 },
+  };
+  expect(() => saveWorkOrder(s, outside, now)).toThrow("Completion readings");
+  expect(() => saveWorkOrder(s, outside, now)).toThrow(Rejection);
   expect(s).toEqual(snapshot);
   const final = saveWorkOrder(
     s,
