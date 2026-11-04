@@ -1,6 +1,12 @@
+/**
+ * Responsibility: An aircraft's engine trends window: importing JPI and Garmin
+ *   engine logs, and the trend chart and table with their limit flags.
+ * Layer: UI. React components; parsing and limits live in src/domain.
+ * Dependencies: react, src/data/store.ts, src/domain/model.ts,
+ *   src/domain/engineTrends.ts, ./ui.tsx, ./engineTrends.css.
+ */
 import "./engineTrends.css";
 import { useCallback, useEffect, useId, useState } from "react";
-import { ConvexError } from "convex/values";
 import { useWorkspace } from "../data/store";
 import { can } from "../domain/model";
 import {
@@ -15,18 +21,13 @@ import {
   type EngineTrend,
   type EngineTrendData,
 } from "../domain/engineTrends";
-import { AsyncForm, Badge, Empty, Field, Modal, value } from "./ui";
+import { AsyncForm, Badge, Empty, Field, Modal, errorText, value } from "./ui";
 
 const sourceLabels: Record<EngineSummary["source"], string> = {
   jpi: "JPI EDM",
   garmin: "Garmin G1000/G3X",
 };
-const errorText = (e: unknown) =>
-  e instanceof ConvexError && typeof e.data === "string"
-    ? e.data
-    : e instanceof Error
-      ? e.message
-      : "Engine trends could not be loaded.";
+const TRENDS_FAILED = "Engine trends could not be loaded.";
 const duration = (seconds?: number) =>
   seconds === undefined ? "—" : `${(seconds / 3600).toFixed(1)} h`;
 const chronological = (a: EngineTrend, b: EngineTrend) =>
@@ -72,7 +73,7 @@ function EngineTrendsPanel({ aircraftUuid }: { aircraftUuid: string }) {
       setData(await backend!.engineTrends(aircraftUuid));
       setLoadError("");
     } catch (e) {
-      setLoadError(errorText(e));
+      setLoadError(errorText(e, TRENDS_FAILED));
     }
   }, [backend, aircraftUuid]);
   useEffect(() => {
@@ -356,7 +357,9 @@ function TrendTable({
                     type="button"
                     className="button"
                     onClick={() =>
-                      onRemove(t.uuid!).catch((e) => setError(errorText(e)))
+                      onRemove(t.uuid!).catch((e) =>
+                        setError(errorText(e, TRENDS_FAILED)),
+                      )
                     }
                   >
                     Remove

@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Structured address fields with a lookup button that
+ *   suggests matching addresses.
+ * Layer: UI. React component; the lookup runs through the workspace backend.
+ * Dependencies: react, src/data/store.ts, src/domain/addressLookup.ts,
+ *   src/domain/addresses.ts, ./ui.tsx.
+ */
 import { useWorkspace } from "../data/store";
 import { lookupInput, type AddressSuggestion } from "../domain/addressLookup";
 import { useState } from "react";
@@ -7,7 +14,7 @@ import {
   formatAddress,
   type Address,
 } from "../domain/addresses";
-import { Field } from "./ui";
+import { Field, errorText } from "./ui";
 export function AddressFields({
   label,
   value,
@@ -118,9 +125,7 @@ export function AddressFields({
                 : "No matching address found. Check the details or confirm manually.",
             );
           } catch (error) {
-            setLookupNotice(
-              error instanceof Error ? error.message : "Address lookup failed.",
-            );
+            setLookupNotice(errorText(error, "Address lookup failed."));
           } finally {
             setBusy(false);
           }

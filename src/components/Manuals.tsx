@@ -1,3 +1,13 @@
+/**
+ * Responsibility: Reference manuals: links and reference fields on records,
+ *   an aircraft's manuals, the reference library and the manual viewer.
+ * Layer: UI. React components; manual files come through the workspace
+ *   backend or a copy kept on this device.
+ * Dependencies: react, react-dom, @tanstack/react-router,
+ *   @phosphor-icons/react, src/data/store.ts, src/data/deviceManuals.ts,
+ *   src/domain (model, manuals), ./PdfReader, ./MaintenanceCsvImport,
+ *   ./ManualDiscovery, ./KeepOnDevice, ./ui, ./design, ./ShopList.
+ */
 import { PdfReader } from "./PdfReader";
 import { MaintenanceCsvImportButton } from "./MaintenanceCsvImport";
 import { ManualDiscoveryButton } from "./ManualDiscovery";
@@ -8,7 +18,7 @@ import { useWorkspace } from "../data/store";
 import { can } from "../domain/model";
 import type { Manual, ManualReference } from "../domain/manuals";
 import { manualInputSchema } from "../domain/manuals";
-import { AsyncForm, Field, Modal, value } from "./ui";
+import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import {
   EmptyState,
   NoticeBar,
@@ -566,8 +576,7 @@ export function ManualViewer({ uuid, page }: { uuid: string; page: number }) {
           }
         })
         .catch((e) => {
-          if (!canceled)
-            setError(e instanceof Error ? e.message : "Unable to open manual.");
+          if (!canceled) setError(errorText(e, "Unable to open manual."));
         });
     return () => {
       canceled = true;

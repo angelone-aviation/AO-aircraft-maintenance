@@ -1,3 +1,11 @@
+/**
+ * Responsibility: The inventory scanner: reads a QR code with the camera, or
+ *   a typed code, and opens the matching stock item or component.
+ * Layer: UI. React component; codes resolve through src/domain.
+ * Dependencies: react, react-dom, @tanstack/react-router,
+ *   @phosphor-icons/react, src/data/store.ts, src/domain/inventoryScan.ts,
+ *   ./ui, ./design, src/styles/screens/operations.css.
+ */
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
@@ -10,7 +18,7 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { resolveInventoryCode } from "../domain/inventoryScan";
-import { Modal } from "./ui";
+import { Modal, errorText } from "./ui";
 import { PageHeader } from "./design";
 import "../styles/screens/operations.css";
 const SCAN_INTERVAL_MS = 200;
@@ -48,11 +56,7 @@ export function InventoryScanner({ onOpened }: { onOpened?: () => void }) {
       );
       return true;
     } catch (error) {
-      setIssue(
-        error instanceof Error
-          ? error.message
-          : "This code was not recognized.",
-      );
+      setIssue(errorText(error, "This code was not recognized."));
       return false;
     }
   };

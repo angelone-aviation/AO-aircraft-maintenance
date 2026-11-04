@@ -1,8 +1,15 @@
+/**
+ * Responsibility: The Delete group button: previews what deleting a permission
+ *   group changes, then deletes it on confirmation.
+ * Layer: UI. React component; the server plans and performs the deletion.
+ * Dependencies: react, src/data/store.ts, src/domain/model.ts (types),
+ *   src/domain/groupDeletion.ts (types), ./ui.tsx.
+ */
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
 import type { Group } from "../domain/model";
 import type { GroupDeletionPlan } from "../domain/groupDeletion";
-import { AsyncForm, Modal } from "./ui";
+import { AsyncForm, Modal, errorText } from "./ui";
 export function DeleteGroupButton({ group }: { group: Group }) {
   const { backend, online, connected } = useWorkspace();
   const [open, setOpen] = useState(false),
@@ -21,7 +28,7 @@ export function DeleteGroupButton({ group }: { group: Group }) {
           try {
             setPlan(await backend!.previewGroupDeletion(group.id));
           } catch (e) {
-            setError(e instanceof Error ? e.message : "Unable to load group.");
+            setError(errorText(e, "Unable to load group."));
           }
         }}
       >

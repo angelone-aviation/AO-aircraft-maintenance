@@ -5,7 +5,8 @@
  * Layer: UI. Reads the workspace, asks through the Backend; changes nothing.
  * Dependencies: src/data/store.ts (useWorkspace),
  *   src/domain/groupAccessReview.ts (report type, summary),
- *   src/components/design.tsx (NoticeBar, StatusPill), @phosphor-icons/react.
+ *   src/components/design.tsx (NoticeBar, StatusPill),
+ *   src/components/ui.tsx (errorText), @phosphor-icons/react.
  */
 import { useEffect, useState } from "react";
 import { Warning } from "@phosphor-icons/react";
@@ -15,6 +16,7 @@ import {
   type GroupAccessReport,
 } from "../domain/groupAccessReview";
 import { NoticeBar, StatusPill } from "./design";
+import { errorText } from "./ui";
 
 const MEMBERS_SHOWN = 5;
 
@@ -56,8 +58,7 @@ export function useGroupAccessReview(active: boolean, refresh: number) {
         current &&
         setResult({
           reports: [],
-          error:
-            error instanceof Error ? error.message : "The check did not run.",
+          error: errorText(error, "The check did not run."),
         }),
     );
     return () => {

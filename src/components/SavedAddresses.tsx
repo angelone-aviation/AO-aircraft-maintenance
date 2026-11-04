@@ -1,6 +1,13 @@
+/**
+ * Responsibility: A Flight Program's saved addresses: the picker that fills an
+ *   address field from them, and the Purchasing directory that edits them.
+ * Layer: UI. React components; reads and writes through the workspace backend.
+ * Dependencies: react, react-dom, @phosphor-icons/react, src/data/store.ts,
+ *   src/domain/addresses.ts, src/domain/savedAddresses.ts (types),
+ *   ./AddressFields.tsx, ./ShopList.tsx, ./design.tsx, ./ui.tsx.
+ */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ConvexError } from "convex/values";
 import { useWorkspace } from "../data/store";
 import {
   addressIssues,
@@ -14,7 +21,7 @@ import type {
   SavedAddressInput,
 } from "../domain/savedAddresses";
 import { AddressFields } from "./AddressFields";
-import { AsyncForm, Field, Modal } from "./ui";
+import { AsyncForm, Field, Modal, errorText } from "./ui";
 import {
   EmptyState,
   NoticeBar,
@@ -36,12 +43,7 @@ function useAddressRevision() {
   return revision;
 }
 const emptyChoices: AddressChoices = { entries: [], locations: [] };
-const errorText = (e: unknown) =>
-  e instanceof ConvexError && typeof e.data === "string"
-    ? e.data
-    : e instanceof Error
-      ? e.message
-      : "Could not load saved addresses.";
+const LOAD_FAILED = "Could not load saved addresses.";
 function fresh(name = "", address = blankAddress()): SavedAddressInput {
   return { uuid: crypto.randomUUID(), version: 0, name, address };
 }
@@ -156,7 +158,7 @@ function AddressPicker({
           }
         })
         .catch((e) => {
-          if (active) setError(errorText(e));
+          if (active) setError(errorText(e, LOAD_FAILED));
         });
     return () => {
       active = false;
@@ -330,7 +332,7 @@ function Directory({ programUuid }: { programUuid: string }) {
           if (active) setEntries(c.entries);
         })
         .catch((e) => {
-          if (active) setError(errorText(e));
+          if (active) setError(errorText(e, LOAD_FAILED));
         });
     return () => {
       active = false;

@@ -3,12 +3,13 @@
  *   the dashboard, resizing it in the browser first.
  * Layer: UI. React component; writes through the workspace backend.
  * Dependencies: react, src/data/store.ts, src/data/backend.ts (types),
- *   src/domain/aircraftPhotos.ts.
+ *   src/domain/aircraftPhotos.ts, ./ui.tsx.
  */
 import { useState } from "react";
 import type { Backend } from "../data/backend";
 import { useWorkspace } from "../data/store";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
+import { errorText } from "./ui";
 
 // Longest edge, in pixels, of the stored JPEG.
 const PHOTO_MAX_EDGE = 1024;
@@ -69,7 +70,7 @@ function usePhotoActions(aircraftUuid: string, backend: Backend | null) {
     try {
       await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : fallback);
+      setError(errorText(e, fallback));
     } finally {
       setBusy(false);
     }

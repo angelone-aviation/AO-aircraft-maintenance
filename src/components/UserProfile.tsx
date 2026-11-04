@@ -1,3 +1,10 @@
+/**
+ * Responsibility: A user's profile and certifications form, with their
+ *   license copies, and the signed-in user's own certifications button.
+ * Layer: UI. React components; files go through the workspace backend.
+ * Dependencies: react, react-dom, src/data/store.ts, src/domain
+ *   (certifications, model, alerts, accountRules), ./ui.
+ */
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
 import { useWorkspace } from "../data/store";
@@ -16,7 +23,7 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../domain/accountRules";
-import { AsyncForm, Field, Modal } from "./ui";
+import { AsyncForm, Field, Modal, errorText } from "./ui";
 
 type PendingCopy = { id: string; kind: CertificationKind; file: File };
 export function UserProfileForm({
@@ -53,7 +60,7 @@ export function UserProfileForm({
           if (current) setFiles(result);
         })
         .catch((error) => {
-          if (current) setFileError(String(error));
+          if (current) setFileError(errorText(error));
         });
     return () => {
       current = false;
@@ -200,7 +207,7 @@ export function UserProfileForm({
                     );
                     setPending((old) => [...old, ...copies]);
                   } catch (error) {
-                    setFileError(String(error));
+                    setFileError(errorText(error));
                   }
                   e.target.value = "";
                 }}
@@ -248,7 +255,7 @@ export function UserProfileForm({
                           );
                       } catch (error) {
                         win?.close();
-                        setFileError(String(error));
+                        setFileError(errorText(error));
                       }
                     }}
                   >
@@ -263,7 +270,7 @@ export function UserProfileForm({
                         await backend!.deleteCertificationFile(f.id);
                         await reloadFiles();
                       } catch (error) {
-                        setFileError(String(error));
+                        setFileError(errorText(error));
                       }
                     }}
                   >

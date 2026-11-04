@@ -1,3 +1,10 @@
+/**
+ * Responsibility: The release statement picker on a work order, and the
+ *   editor for the signed-in user's saved statements.
+ * Layer: UI. React component; saves through the workspace backend.
+ * Dependencies: react, src/data/store.ts, src/domain/releaseStatements.ts,
+ *   ./ui.tsx.
+ */
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
 import {
@@ -5,7 +12,7 @@ import {
   releaseStatementsSchema,
   type ReleaseStatement,
 } from "../domain/releaseStatements";
-import { Field } from "./ui";
+import { Field, errorText } from "./ui";
 // Draft rows carry a client-only id for stable React keys; the schema parse
 // on save strips it, so the persisted shape is unchanged.
 type DraftStatement = ReleaseStatement & { id: string };
@@ -133,11 +140,7 @@ export function ReleaseStatements({
                     );
                     setDraft(null);
                   } catch (error) {
-                    setError(
-                      error instanceof Error
-                        ? error.message
-                        : "Could not save statements.",
-                    );
+                    setError(errorText(error, "Could not save statements."));
                   } finally {
                     setBusy(false);
                   }

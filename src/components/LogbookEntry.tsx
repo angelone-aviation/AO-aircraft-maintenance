@@ -1,3 +1,10 @@
+/**
+ * Responsibility: The Generate logbook entry button on a completed work
+ *   order: composes the maintenance entry, saves it as a PDF or copies it.
+ * Layer: UI. React component; entry wording lives in src/domain/logbook.ts.
+ * Dependencies: react, react-dom, src/data/store.ts, src/data/logbookPdf.ts
+ *   (on demand), src/domain (certifications, logbook, workOrders), ./ui.
+ */
 import { certificateOptions, memberLicense } from "../domain/certifications";
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,7 +21,7 @@ import {
   type LogbookTemplate,
 } from "../domain/logbook";
 import type { WorkOrder } from "../domain/workOrders";
-import { Field, Modal } from "./ui";
+import { Field, Modal, errorText } from "./ui";
 
 export function LogbookEntryButton({ order }: { order: WorkOrder }) {
   const [open, setOpen] = useState(false);
@@ -142,7 +149,7 @@ function LogbookEntry({
     try {
       await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to export entry.");
+      setError(errorText(e, "Unable to export entry."));
     } finally {
       setBusy(false);
     }

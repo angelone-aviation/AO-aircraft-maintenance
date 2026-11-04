@@ -3,7 +3,7 @@
  *   navigation, zoom and the page's text.
  * Layer: UI. React component; loads PDF.js on demand through src/data.
  * Dependencies: react, pdfjs-dist (types, version), src/data/pdfRuntime.ts,
- *   ./pdfReader.css.
+ *   ./ui.tsx, ./pdfReader.css.
  *
  * Pages are rendered here because native iPad PDF embeds ignore #page.
  */
@@ -15,6 +15,7 @@ import type {
   RenderTask,
 } from "pdfjs-dist";
 import { version as pdfVersion } from "pdfjs-dist/package.json";
+import { errorText } from "./ui";
 import "./pdfReader.css";
 
 const MIN_PAGE_WIDTH = 200;
@@ -195,7 +196,7 @@ function openDocument(
     })
     .catch((e) => {
       if (attempt.canceled) return;
-      view.setError(e instanceof Error ? e.message : "Unable to load PDF.");
+      view.setError(errorText(e, "Unable to load PDF."));
       view.setLoading(false);
       // Only the document itself failing, not the viewer runtime.
       if (attempt.task && !attempt.passworded) onDocumentError();
@@ -239,9 +240,7 @@ function showPage(
   const job: PageJob = { canceled: false };
   void drawPage(pdf, host, request, job, view).catch((e) => {
     if (job.canceled) return;
-    view.setError(
-      e instanceof Error ? e.message : "Unable to display this page.",
-    );
+    view.setError(errorText(e, "Unable to display this page."));
     view.setLoading(false);
   });
   return () => {

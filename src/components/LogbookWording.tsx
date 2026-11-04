@@ -1,10 +1,17 @@
+/**
+ * Responsibility: The logbook wording of a task or job card: whether it goes
+ *   in the logbook entry, its phrase, and the user's saved phrases editor.
+ * Layer: UI. React component; saves phrases through the workspace backend.
+ * Dependencies: react, src/data/store.ts, src/domain/logbookWording.ts,
+ *   ./ui.tsx.
+ */
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
 import {
   defaultLogbookPhrases,
   logbookPhrasesSchema,
 } from "../domain/logbookWording";
-import { Field } from "./ui";
+import { Field, errorText } from "./ui";
 
 export function LogbookWording({
   included,
@@ -106,11 +113,7 @@ export function LogbookWording({
                     );
                     setEditing(false);
                   } catch (error) {
-                    setMessage(
-                      error instanceof Error
-                        ? error.message
-                        : "Could not save phrases.",
-                    );
+                    setMessage(errorText(error, "Could not save phrases."));
                   } finally {
                     setSaving(false);
                   }

@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Component templates: the template library panel with its
+ *   editor and CSV import, and the Imported components page.
+ * Layer: UI. React components; template rules live in src/domain.
+ * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
+ *   (model, programs, components, componentTemplates, csv), ./Components,
+ *   ./ui.
+ */
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
@@ -14,7 +22,15 @@ import {
 import { toCsv } from "../domain/csv";
 import { type Component } from "../domain/components";
 import { ComponentForm } from "./Components";
-import { Modal, Field, AsyncForm, PageTitle, value, download } from "./ui";
+import {
+  Modal,
+  Field,
+  AsyncForm,
+  PageTitle,
+  value,
+  download,
+  errorText,
+} from "./ui";
 const csvFor = (t?: ComponentTemplate) =>
   t
     ? toCsv(
@@ -298,7 +314,7 @@ export function ComponentTemplatesPanel() {
                     setCsv(text);
                     setError("");
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
+                    setError(errorText(e));
                   }
                 }}
               />

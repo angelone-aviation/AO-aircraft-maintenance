@@ -5,7 +5,8 @@
  *   src/data/deviceManuals.ts.
  * Dependencies: react, zustand, @phosphor-icons/react, src/data/store.ts,
  *   src/data/backend.ts (types), src/data/deviceManuals.ts,
- *   src/data/pdfOffline.ts, src/domain/manuals.ts (types), ./design.tsx.
+ *   src/data/pdfOffline.ts, src/domain/manuals.ts (types), ./design.tsx,
+ *   ./ui.tsx.
  *
  * The library, the viewer and any open reference share the state, so a
  * download started in one place shows its progress everywhere and keeps
@@ -37,6 +38,7 @@ import {
 } from "../data/deviceManuals";
 import { warmPdfViewer } from "../data/pdfOffline";
 import { ListRow, NoticeBar, ProgressTrack, StatusPill } from "./design";
+import { errorText } from "./ui";
 
 // Progress re-renders every open view, so it is published at most this often
 // (the final chunk always is).
@@ -193,7 +195,7 @@ export async function removeFromDevice(manual: Manual) {
     patch(
       "errors",
       manual.uuid,
-      error instanceof Error ? error.message : "The manual was not removed.",
+      errorText(error, "The manual was not removed."),
     );
   }
 }
@@ -430,9 +432,7 @@ function recordKeepError(uuid: string, error: unknown) {
   patch(
     "errors",
     uuid,
-    error instanceof Error
-      ? error.message
-      : "The manual could not be kept on this device.",
+    errorText(error, "The manual could not be kept on this device."),
   );
 }
 

@@ -1,3 +1,11 @@
+/**
+ * Responsibility: The FAA airworthiness directive search and import window
+ *   for one aircraft.
+ * Layer: UI. React component; searches and imports through the workspace
+ *   backend.
+ * Dependencies: react, src/data/store.ts, src/domain (model, airworthiness,
+ *   faaSearch), ./DrsComboBox, ./ui, ./faaSearch.css.
+ */
 import { DrsComboBox } from "./DrsComboBox";
 import "./faaSearch.css";
 import { useState } from "react";
@@ -12,7 +20,7 @@ import {
   type FaaSearchInput,
   type FaaSearchResult,
 } from "../domain/faaSearch";
-import { Field, Modal, safeHref } from "./ui";
+import { Field, Modal, errorText, safeHref } from "./ui";
 export function FaaSearchImport({ aircraftUuid }: { aircraftUuid: string }) {
   const { snapshot: s, backend, online, connected, demo } = useWorkspace();
   const state = s!;
@@ -108,7 +116,7 @@ export function FaaSearchImport({ aircraftUuid }: { aircraftUuid: string }) {
                   );
                 setResults(await backend!.searchFAA(input));
               } catch (e) {
-                setError(e instanceof Error ? e.message : String(e));
+                setError(errorText(e));
               } finally {
                 setBusy(false);
               }
@@ -445,7 +453,7 @@ export function FaaSearchImport({ aircraftUuid }: { aircraftUuid: string }) {
                     );
                     setOpen(false);
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
+                    setError(errorText(e));
                   } finally {
                     setBusy(false);
                   }

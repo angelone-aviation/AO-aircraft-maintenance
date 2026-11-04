@@ -1,10 +1,19 @@
-// Sign-in methods (ADR-0009): the Google and Microsoft buttons on the sign-in
-// screen, the notice it shows when such a sign-in signed nobody in, and the
-// list of a user's sign-in methods in Settings → My account and
-// Administration. Accounts stay administrator-provisioned: a Google or
-// Microsoft account is only ever linked to an existing user.
+/**
+ * Responsibility: Sign-in methods (ADR-0009): the Google and Microsoft buttons
+ *   on the sign-in screen, the notice shown when such a sign-in signed nobody
+ *   in, and a user's sign-in methods in Settings → My account and
+ *   Administration.
+ * Layer: UI. React components; the sign-in screen runs before the workspace
+ *   exists, so it calls Convex and Convex Auth directly.
+ * Dependencies: react, convex/react, @convex-dev/auth/react,
+ *   @phosphor-icons/react, convex/_generated/api, src/data/store.ts,
+ *   src/domain/signInMethods.ts, src/domain/model.ts (types), ./design.tsx,
+ *   ./ui.tsx, src/styles/screens/signin.css.
+ *
+ * Accounts stay administrator-provisioned: a Google or Microsoft account is
+ * only ever linked to an existing user.
+ */
 import { useEffect, useState } from "react";
-import { ConvexError } from "convex/values";
 import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Password, WarningCircle, WifiSlash } from "@phosphor-icons/react";
@@ -22,15 +31,10 @@ import {
 } from "../domain/signInMethods";
 import type { Member } from "../domain/model";
 import { IconTile, NoticeBar } from "./design";
-import { AsyncForm } from "./ui";
+import { AsyncForm, errorText } from "./ui";
 import "../styles/screens/signin.css";
 
-const message = (e: unknown) =>
-  e instanceof ConvexError && typeof e.data === "string"
-    ? e.data
-    : e instanceof Error
-      ? e.message
-      : "Something went wrong. Please try again.";
+const TRY_AGAIN = "Something went wrong. Please try again.";
 
 /** The providers' own marks, as their sign-in button guidelines require. */
 function ProviderMark({ provider }: { provider: string }) {
@@ -120,7 +124,7 @@ export function SsoSignIn({ disabled }: { disabled: boolean }) {
             await signIn(provider);
           } catch (e) {
             setBusy(undefined);
-            setError(message(e));
+            setError(errorText(e, TRY_AGAIN));
           }
         }}
       />
@@ -197,7 +201,7 @@ export function SignInMethodList({ member }: { member?: Member }) {
         if (current) setIdentities(result);
       })
       .catch((e) => {
-        if (current) setError(message(e));
+        if (current) setError(errorText(e, TRY_AGAIN));
       });
     return () => {
       current = false;
