@@ -1,4 +1,16 @@
+/**
+ * Responsibility: The permission groups a Flight Program starts with, and
+ *   which of them a program still lacks.
+ * Layer: Domain. Pure data and functions; no I/O, no React.
+ * Dependencies: ./model (types).
+ */
 import type { Group } from "./model";
+
+/**
+ * The starter groups: observers, pilots, maintenance technicians, program
+ * managers (program administrators) and aircraft owners. All but owners cover
+ * every aircraft; an owner group covers none until its aircraft are assigned.
+ */
 export const defaultPermissionGroups: Omit<Group, "id" | "programUuid">[] = [
   {
     name: "Observers",
@@ -33,6 +45,14 @@ export const defaultPermissionGroups: Omit<Group, "id" | "programUuid">[] = [
     permissions: ["read"],
   },
 ];
+
+/**
+ * Lists the starter groups a program lacks, matching by name, ignoring case
+ * and surrounding spaces.
+ *
+ * @param existing - The program's groups.
+ * @returns The missing starter groups, in starter order.
+ */
 export function missingDefaultGroups(existing: { name: string }[]) {
   const names = new Set(existing.map((g) => g.name.trim().toLowerCase()));
   return defaultPermissionGroups.filter(
