@@ -456,7 +456,7 @@ const refusal = (run: Promise<unknown>) =>
     (error: unknown) => error,
   );
 
-it("shows the administrator's refusals as ConvexErrors, but keeps the uniform email refusal and a misdirected activation plain", async () => {
+it("shows the administrator's refusals as ConvexErrors, the uniform email refusal too, but keeps a misdirected activation plain", async () => {
   const { t, ids, admin } = await fixture();
   const { stranger, noRead } = await t.run(async (ctx) => ({
     stranger: await ctx.db.insert("users", {
@@ -542,12 +542,15 @@ it("shows the administrator's refusals as ConvexErrors, but keeps the uniform em
       createdAfter: 0,
     }),
   );
-  expect(taken).toMatchObject({ message: EMAIL_UNAVAILABLE });
+  expect(taken).toMatchObject({
+    name: "ConvexError",
+    data: EMAIL_UNAVAILABLE,
+    message: EMAIL_UNAVAILABLE,
+  });
   expect(misdirected).toMatchObject({
     message: "Only a newly provisioned account can be activated here.",
   });
-  for (const error of [taken, misdirected])
-    expect(error).not.toBeInstanceOf(ConvexError);
+  expect(misdirected).not.toBeInstanceOf(ConvexError);
 });
 
 it("adds the Observers group when no chosen group grants read access, and refuses without one", async () => {

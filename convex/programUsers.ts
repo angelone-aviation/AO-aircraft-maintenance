@@ -137,9 +137,9 @@ export const finish = internalMutation({
  * @returns The new user's id.
  * @throws {ConvexError} The {@link check} refusals; "A valid email and name
  *   are required."; the password's and the allowance's refusals; the
- *   {@link finish} refusals, after which the new account is discarded.
- * @throws {Error} {@link EMAIL_UNAVAILABLE} for any email that cannot be
- *   used, whichever check refused it (issue #29).
+ *   {@link finish} refusals, after which the new account is discarded;
+ *   {@link EMAIL_UNAVAILABLE} for any email that cannot be used, whichever
+ *   check refused it (issue #29).
  */
 export const create = action({
   args: {
@@ -157,9 +157,9 @@ export const create = action({
       internal.programUsers.reserve,
       { ...scope, email },
     );
-    // A plain Error, as accountGuards throws it: the class must not tell
-    // which check refused the email.
-    if (!available) throw new Error(EMAIL_UNAVAILABLE);
+    // The same class as accountGuards throws, so neither the class nor the
+    // message tells which check refused the email.
+    if (!available) throw new ConvexError(EMAIL_UNAVAILABLE);
     const user = await createInactiveAccount(ctx, args, { email, name });
     assertCreatedHere(user, checkedAt);
     await activateOrDiscard(ctx, {

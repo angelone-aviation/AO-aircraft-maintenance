@@ -66,7 +66,7 @@ export const mine = query({
  *
  * @param userId - The user.
  * @returns As {@link mine}.
- * @throws {Error} "Administrator permission required."
+ * @throws {ConvexError} "Administrator permission required."
  */
 export const forUser = query({
   args: { userId: v.id("users") },
@@ -84,8 +84,8 @@ export const forUser = query({
  *
  * @param userId - The user the identity belongs to.
  * @param id - The identity, from {@link forUser}.
- * @throws {Error} "Administrator permission required."; "Linked identity not
- *   found." for another user's identity or a password login.
+ * @throws {ConvexError} "Administrator permission required."; "Linked
+ *   identity not found." for another user's identity or a password login.
  */
 export const remove = mutation({
   args: { userId: v.id("users"), id: v.id("authAccounts") },
@@ -97,7 +97,7 @@ export const remove = mutation({
       account.userId !== userId ||
       !isSsoProvider(account.provider)
     )
-      throw new Error("Linked identity not found.");
+      throw new ConvexError("Linked identity not found.");
     // A one-time code from a sign-in still in progress dies with it.
     const codes = await ctx.db
       .query("authVerificationCodes")

@@ -155,11 +155,20 @@ async function server() {
 }
 
 it("shows refusals from functions outside runCommand to the client", async () => {
-  const { ids, as } = await server();
+  const { t, ids, as } = await server();
   const maintainer = as(ids.maintainer);
   const reader = as(ids.reader);
   const manager = as(ids.manager);
+  const systemAdmin = as(ids.systemAdmin);
   const target = { aircraftUuid: AIRCRAFT.uuid, programUuid: PROGRAM };
+  const passwordLogin = await t.run((ctx) =>
+    ctx.db.insert("authAccounts", {
+      userId: ids.maintainer.id,
+      provider: "password",
+      providerAccountId: "member@example.test",
+    }),
+  );
+  const faaKey = { key: "synthetic-test-key-000001", version: 0 };
   const pdf = { name: "a.pdf", type: "application/pdf", bytes: PDF };
   const manual = {
     aircraftUuid: AIRCRAFT.uuid,
@@ -278,9 +287,44 @@ it("shows refusals from functions outside runCommand to the client", async () =>
     [
       "Address settings changed. Reload before saving.",
       () =>
-        as(ids.systemAdmin).mutation(internal.addressVerification.commit, {
+        systemAdmin.mutation(internal.addressVerification.commit, {
           key: "sealed",
           version: 1,
+        }),
+    ],
+    [
+      "The renewal date must be in the future.",
+      () =>
+        systemAdmin.action(api.faaCredentials.replace, {
+          ...faaKey,
+          expiresOn: "2000-01-01",
+        }),
+    ],
+    [
+      "FAA key settings changed. Reload before saving.",
+      () =>
+        systemAdmin.mutation(internal.faaCredentials.commit, {
+          key: "sealed",
+          expiresOn: "2099-10-14",
+          version: 1,
+        }),
+    ],
+    [
+      "Linked identity not found.",
+      () =>
+        systemAdmin.mutation(api.identities.remove, {
+          userId: ids.maintainer.id,
+          id: passwordLogin,
+        }),
+    ],
+    [
+      "History not found.",
+      () =>
+        reader.query(api.auditHistory.page, {
+          programUuid: PROGRAM,
+          entityUuid: "missing",
+          cursor: null,
+          numItems: 5,
         }),
     ],
   ];

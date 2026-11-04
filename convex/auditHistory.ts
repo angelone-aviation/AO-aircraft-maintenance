@@ -7,7 +7,7 @@
  *   model, and the management, partsRequests, purchaseOrders, checklists and
  *   inspectionTemplates schemas).
  */
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import {
@@ -62,9 +62,10 @@ type Scan = {
  * @param numItems - Page size, as `clampAuditPageSize`.
  * @returns Entries without Convex fields; `isDone` once no visible entry is
  *   left. The page is short and not done after 4,000 entries are scanned.
- * @throws {Error} As `checkContext`; "Invalid history cursor."; "History not
- *   found." before paging, for a record or aircraft the caller cannot see or
- *   that does not exist.
+ * @throws {ConvexError} "History not found." before paging, the same for a
+ *   record or aircraft the caller cannot see as for one that does not exist.
+ * @throws {Error} "Invalid history cursor."
+ * @throws As `checkContext`, first.
  */
 export const page = query({
   args: {
@@ -147,7 +148,7 @@ async function assertFilterVisible(
         .first()
     : null;
   if (!canPageAuditFilter(canSee, filter, newest))
-    throw new Error(HISTORY_NOT_FOUND);
+    throw new ConvexError(HISTORY_NOT_FOUND);
 }
 
 // Most aircraft entries carry no program column, so program-wide history

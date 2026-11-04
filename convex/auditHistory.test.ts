@@ -12,7 +12,11 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { AUDIT_LIMIT } from "./programContext";
-import type { AuditFilter, AuditPage } from "../src/domain/auditHistory";
+import {
+  HISTORY_NOT_FOUND,
+  type AuditFilter,
+  type AuditPage,
+} from "../src/domain/auditHistory";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -229,13 +233,14 @@ it("refuses another program's record or aircraft with the same answer as an unkn
       cursor: null,
       numItems: 5,
     });
-  const refusals = [];
-  for (const filter of [
+  const filters = [
     { entityUuid: "wo-a" },
     { aircraftUuid: a.uuid },
     { entityUuid: "no-such-record" },
     { aircraftUuid: "no-such-aircraft" },
-  ])
+  ];
+  const refusals = [];
+  for (const filter of filters)
     refusals.push(
       await page(filter).then(
         () => "answered",
@@ -244,6 +249,11 @@ it("refuses another program's record or aircraft with the same answer as an unkn
     );
   expect(new Set(refusals)).toEqual(new Set([refusals[0]]));
   expect(refusals[0]).toMatch(/History not found\./);
+  for (const filter of filters)
+    await expect(page(filter)).rejects.toMatchObject({
+      name: "ConvexError",
+      data: HISTORY_NOT_FOUND,
+    });
   // The caller's own record still pages.
   expect((await page({ entityUuid: "foreign-wo" })).page).toHaveLength(5);
 });
