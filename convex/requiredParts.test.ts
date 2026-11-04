@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the parts a problem report or inspection needs: saved
+ *   and audited on the server, with maintenance access to the aircraft only,
+ *   and the stock snapshot without private vendor details.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex (operations, management, schema),
+ *   tests/fixtures/requiredParts.ts.
+ */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
@@ -9,6 +17,7 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
 it("persists linked parts and audits changes while enforcing aircraft and stock permissions", async () => {
   const t = convexTest(schema, modules);
   const identities = await t.run(async (ctx) => {
@@ -39,7 +48,7 @@ it("persists linked parts and audits changes while enforcing aircraft and stock 
       });
       const session = await ctx.db.insert("authSessions", {
         userId: user,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { subject: `${user}|${session}` };
     };

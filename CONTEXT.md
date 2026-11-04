@@ -121,7 +121,7 @@ sequenceDiagram
 ```
 
 - A Convex mutation is one transaction: any throw writes nothing. Expected domain rejections become `ConvexError` (the `expose` option) so users see the message in production.
-- 21 mutations use `runCommand`. Administration, upload and a few others check access themselves and write the change log through `audit()`, or `writeAudit()` directly. The list, and what ADR-0003 still asks for (request ids on every command, uniform stale-version rejection), is in the architecture report's "Done since this report".
+- 22 mutations use `runCommand`. Administration, upload and a few others check access themselves and write the change log through `audit()`, or `writeAudit()` directly. The list, and what ADR-0003 still asks for (request ids on every command, uniform stale-version rejection), is in the architecture report's "Done since this report".
 - Demo: `demoBackend.modify()` clones the full snapshot, runs the same applier, saves it, and calls `receive(scopedSnapshot(s))`. Demo writes need `online`.
 
 **Offline outbox** (`src/data/store.ts`, `src/domain/flightSubmission.ts`, `convex/operations.ts` `submit`):
@@ -140,10 +140,10 @@ Allowed import directions (anything else is a violation):
 ```text
 src/main.tsx, src/App.tsx, src/components ──► src/data ──► src/domain
 src/components ───────────────────────────────────────────► src/domain
-convex ──► src/domain            scripts/backup ──► src/domain
+convex ──► src/domain            scripts/backup ──► src/domain, convex/collections.ts (the codec)
 src/main.tsx, src/data/backend.ts ──► convex/_generated (api; dataModel types), convex/react
 src/main.tsx ──► @convex-dev/auth/react (sign-in, before the workspace exists)
-src/data, src/components/ui.tsx ──► convex/values (ConvexError only; ui.tsx for the one shared message helper)
+src/data ──► convex/values (ConvexError only; src/data/errors.ts holds the one message helper, which ui.tsx re-exports)
 tests, *.test.ts and test fixtures (scripts/backup/exportFixture.ts) may also import src/data/demo.ts (demoSnapshot)
 ```
 
@@ -168,8 +168,8 @@ Invariants:
 Current violations and exceptions (2026-11-03). Record fixes in `REFACTOR_ROADMAP.md`:
 
 - Domain modules that do network I/O (invariant: no I/O in `src/domain`). Called from Convex: `src/domain/addressLookup.ts:68` (`fetchAddressSuggestions`, global `fetch` at :86; `convex/addressVerification.ts`), `src/domain/faaSearch.ts:166` (`searchFAA`, :169; `convex/faaSearch.ts`) and `src/domain/faaMonitoringSearch.ts:87` (`fetchMonitoringCandidates`, :90; `convex/faa.ts`). Called only from the domain: `src/domain/faa.ts:146` (`fetchDrsFiltered`, default `fetch` at :150), used by `searchFAA`, `fetchMonitoringCandidates` and `fetchDrsCandidates`. Test-only: `src/domain/faa.ts:207` (`fetchDrsCandidates`, :210) has no production caller; only `src/domain/airworthiness.test.ts` uses it.
-- Rules written twice, once per adapter (invariants 1 and 4), and drifted: flight review `src/data/demoBackend.ts:965` vs `convex/operations.ts:509` (the demo skips the program-administrator check, the aircraft and problem-report change refusals, pilot membership and `validateFlight`); discrepancy resolve `src/data/demoBackend.ts:943` vs `convex/operations.ts:445` (the demo skips the `resolve` permission, the 5,000-character limit and trimming); FAA monitor command `src/data/demoBackend.ts:544` vs `convex/faa.ts:72`.
-- UI importing Convex directly: `src/components/SignInMethods.tsx:17-20` (`useQuery(api.identities.providers)` at :108, `useAuthActions` at :109; a pre-workspace sign-in screen like `main.tsx`). `ConvexError` message extraction is written twice: `errorText` in `src/components/ui.tsx`, which every screen uses except `Components.tsx:465` and `Management.tsx:1119` (still `error.message`), and the outbox's stored sync error in `src/data/store.ts:317`, because the data layer may not import components. The outbox copy still stores a plain server error's `[CONVEX …] Server Error` wrapper, which the Sync center shows.
+- Rules written twice, once per adapter (invariants 1 and 4), and drifted: flight review (`review` in `src/data/demoBackend.ts` vs `reviewFlight` in `convex/operations.ts`; T11 moves it into the domain) (the demo skips the program-administrator check, the aircraft and problem-report change refusals, pilot membership and `validateFlight`); FAA monitor command (`faaCommand` in `src/data/demoBackend.ts` vs `command` in `convex/faa.ts`).
+- UI importing Convex directly: `src/components/SignInMethods.tsx:14-17` (`useQuery(api.identities.providers)` at :89, `useAuthActions` at :90; a pre-workspace sign-in screen like `main.tsx`). Screens and the outbox share one message helper, `errorText` in `src/data/errors.ts` (Batches 324, 418, 419); `Components.tsx:465` and `Management.tsx:1119` still show `error.message`.
 - Form-to-command shaping stays in components, for example the close-out readings in `WorkOrders.tsx`; ADR-0006 moves only those readings into the domain, after launch.
 - Minor: `src/data/auditHistory.ts:1` is a React hook in the data layer; `src/data/store.ts:64-68` hard-codes draft-key prefixes owned by `GuidedFlight.tsx:55`, `FlightSession.tsx:49` and `Checklists.tsx:77`.
 

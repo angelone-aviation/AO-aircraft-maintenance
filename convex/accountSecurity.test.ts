@@ -48,6 +48,7 @@ beforeAll(async () => {
   process.env.CONVEX_SITE_URL = "https://test.convex.site";
 });
 const PASSWORD = "correct-horse-battery-1";
+const DAY_MS = 86_400_000;
 async function fixture() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -87,7 +88,7 @@ async function fixture() {
       });
       const session = await ctx.db.insert("authSessions", {
         userId: user,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { user, identity: { subject: `${user}|${session}` } };
     };

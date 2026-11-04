@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the snapshot query and the problem-report, flight
+ *   submission and review mutations: authorization, idempotent retries, held
+ *   flights, resolution, flight plans, profiles, checklists and oil.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/operations.ts, convex/schema.ts, src/domain (model,
+ *   management), src/data/demo.ts (fixture).
+ */
 import type { ManagedRecord } from "../src/domain/management";
 import { convexTest } from "convex-test";
 import { describe, it, expect } from "vitest";
@@ -340,6 +348,77 @@ describe("discrepancy resolution", () => {
       resolvedBy: ids.admin,
       resolution: "Replaced damaged seal",
     });
+  });
+  it("shows the domain's refusals as ConvexError, and stores the report and its change-log row as before", async () => {
+    const { t, pilot, admin, ids, a } = await fixture();
+    const uuid = crypto.randomUUID();
+    await pilot.mutation(api.operations.submit, {
+      operation: {
+        programUuid: "demo-program",
+        kind: "discrepancy",
+        uuid,
+        authorId: ids.user,
+        aircraftUuid: a.uuid,
+        description: "Oil leak",
+      },
+    });
+    const resolve = (resolution: string, report: string = uuid) =>
+      admin.mutation(api.operations.resolveDiscrepancy, {
+        programUuid: "demo-program",
+        uuid: report,
+        resolution,
+      });
+    // Batch 268: these were plain errors, which production shows as "Server
+    // Error"; through runCommand the domain's Rejection reaches the user.
+    const length = "Describe the repair in 1–5000 characters.";
+    for (const text of [" ", "x".repeat(5001)])
+      await expect(resolve(text)).rejects.toMatchObject({
+        name: "ConvexError",
+        data: length,
+      });
+    const stored = await t.run(async (ctx) =>
+      ctx.db
+        .query("discrepancies")
+        .withIndex("uuid", (q) => q.eq("uuid", uuid))
+        .unique(),
+    );
+    await resolve("  Replaced damaged seal ");
+    await expect(resolve("Again")).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "This report is already resolved.",
+    });
+    // Characterizes current behaviour: a missing report stays a plain Error.
+    const missing = await resolve("Fixed", "nope").catch((e: Error) => e);
+    expect(missing).toMatchObject({ message: "Report not found." });
+    expect(missing).not.toMatchObject({ name: "ConvexError" });
+    const [report, row] = await t.run(async (ctx) => [
+      await ctx.db.get(stored!._id),
+      (await ctx.db.query("audit").collect()).find(
+        (r) => r.action === "discrepancy.resolved",
+      )!,
+    ]);
+    expect(report).toMatchObject({
+      status: "resolved",
+      resolution: "Replaced damaged seal",
+      resolvedBy: ids.admin,
+    });
+    expect(row).toMatchObject({
+      actorId: ids.admin,
+      entityUuid: uuid,
+      aircraftUuid: a.uuid,
+      reason: "  Replaced damaged seal ",
+    });
+    // Characterizes current behaviour: the row carries no programUuid.
+    expect(row).not.toHaveProperty("programUuid");
+    expect(JSON.parse(row.before!)).toEqual(stored);
+    expect(row.after).toBe(
+      JSON.stringify({
+        status: "resolved",
+        resolution: "Replaced damaged seal",
+        resolvedBy: ids.admin,
+        resolvedAt: (report as { resolvedAt: number }).resolvedAt,
+      }),
+    );
   });
 });
 

@@ -1,9 +1,22 @@
+/**
+ * Responsibility: Pins the Dropbox records copy: token exchange, the daily and
+ *   monthly copies, 90-day pruning, retries, upload sessions and refusals.
+ * Layer: Test. Vitest suite that runs the script as a child process.
+ * Dependencies: scripts/backup/dropbox-upload.mjs, node:http,
+ *   node:child_process.
+ *
+ * The script talks to a local fake of the Dropbox HTTP API through
+ * DROPBOX_TEST_BASE_URL, which it honours only for loopback addresses.
+ */
 // @vitest-environment node
-// Runs scripts/backup/dropbox-upload.mjs against a local fake of the Dropbox
-// HTTP API (DROPBOX_TEST_BASE_URL, honoured only for loopback addresses).
 import { spawn } from "node:child_process";
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -13,142 +26,41 @@ const KEY = "fixture-app-key";
 const SECRET = "fixture-app-secret-0123";
 const REFRESH = "fixture-refresh-token-abcdef";
 const ACCESS = "sl.fixture-access-token-987654";
+// More entries than any test stores, so one page unless a test lowers it.
+const DEFAULT_PAGE_SIZE = 100;
 
+/** One request as the fake Dropbox received it. */
 interface Call {
   path: string;
   arg?: Record<string, unknown>;
   body: Buffer;
   auth?: string;
 }
+/** A JSON answer from the fake Dropbox. */
+interface Reply {
+  status: number;
+  value: unknown;
+}
+type Endpoint = (arg: Record<string, unknown>, body: Buffer) => Reply;
+type SessionCursor = { session_id: string; offset: number };
+
 let server: Server;
 let base: string;
 let dir: string;
 let file: string;
 const files = new Map<string, Buffer>();
 let calls: Call[] = [];
+// Makes the next `times` requests to `path` answer `status`, as when Dropbox
+// is busy.
 let busy: { path: string; times: number; status: number } | undefined;
-let pageSize = 100;
+let pageSize = DEFAULT_PAGE_SIZE;
 const sessions = new Map<string, Buffer>();
-
-function readBody(req: IncomingMessage) {
-  return new Promise<Buffer>((resolve) => {
-    const parts: Buffer[] = [];
-    req.on("data", (c: Buffer) => parts.push(c));
-    req.on("end", () => resolve(Buffer.concat(parts)));
-  });
-}
-const metadata = (p: string) => ({
-  ".tag": "file",
-  name: p.split("/").pop(),
-  path_lower: p.toLowerCase(),
-  path_display: p,
-});
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "dropbox-upload-"));
   file = path.join(dir, "records.xlsx");
   await writeFile(file, Buffer.from("PK fixture workbook bytes, thirty+ long"));
-  server = createServer(async (req, res) => {
-    const body = await readBody(req);
-    const url = req.url ?? "";
-    const header = req.headers["dropbox-api-arg"];
-    const arg =
-      typeof header === "string"
-        ? JSON.parse(header)
-        : body.length && req.headers["content-type"] === "application/json"
-          ? JSON.parse(body.toString())
-          : undefined;
-    calls.push({ path: url, arg, body, auth: req.headers.authorization });
-    const json = (status: number, value: unknown) => {
-      res.writeHead(status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(value));
-    };
-    if (busy && busy.path === url && busy.times > 0) {
-      busy.times--;
-      res.writeHead(busy.status, { "Retry-After": "1" });
-      return res.end("busy");
-    }
-    if (url === "/oauth2/token") {
-      const form = new URLSearchParams(body.toString());
-      const basic = Buffer.from(`${KEY}:${SECRET}`).toString("base64");
-      if (
-        req.headers.authorization !== `Basic ${basic}` ||
-        form.get("grant_type") !== "refresh_token" ||
-        form.get("refresh_token") !== REFRESH
-      )
-        return json(400, {
-          error: "invalid_grant",
-          error_description: `refresh token ${form.get("refresh_token")} is invalid`,
-        });
-      return json(200, {
-        access_token: ACCESS,
-        token_type: "bearer",
-        expires_in: 14400,
-      });
-    }
-    if (req.headers.authorization !== `Bearer ${ACCESS}`)
-      return json(401, { error_summary: "invalid_access_token/" });
-    const commit = (p: string, bytes: Buffer) => {
-      if (files.has(p))
-        return json(409, { error_summary: "path/conflict/file/.." });
-      files.set(p, bytes);
-      return json(200, metadata(p));
-    };
-    switch (url) {
-      case "/2/files/upload":
-        return commit(String(arg!.path), body);
-      case "/2/files/upload_session/start": {
-        const id = `session-${sessions.size + 1}`;
-        sessions.set(id, body);
-        return json(200, { session_id: id });
-      }
-      case "/2/files/upload_session/append_v2": {
-        const cursor = arg!.cursor as { session_id: string; offset: number };
-        const had = sessions.get(cursor.session_id)!;
-        if (cursor.offset !== had.length)
-          return json(409, {
-            error_summary: "incorrect_offset/..",
-            error: { ".tag": "incorrect_offset", correct_offset: had.length },
-          });
-        sessions.set(cursor.session_id, Buffer.concat([had, body]));
-        return json(200, null);
-      }
-      case "/2/files/upload_session/finish": {
-        const cursor = arg!.cursor as { session_id: string; offset: number };
-        const done = Buffer.concat([sessions.get(cursor.session_id)!, body]);
-        const target = arg!.commit as { path: string };
-        return commit(target.path, done);
-      }
-      case "/2/files/get_metadata":
-        return files.has(String(arg!.path))
-          ? json(200, metadata(String(arg!.path)))
-          : json(409, { error_summary: "path/not_found/.." });
-      case "/2/files/list_folder":
-      case "/2/files/list_folder/continue": {
-        const start = arg!.cursor ? Number(arg!.cursor) : 0;
-        const prefix = `${String(arg!.path ?? "/Daily")}/`;
-        const all = [...files.keys()].filter((p) => p.startsWith(prefix));
-        if (!all.length && !arg!.cursor)
-          return json(409, { error_summary: "path/not_found/.." });
-        const page = all.slice(start, start + pageSize);
-        return json(200, {
-          entries: page.map(metadata),
-          cursor: String(start + pageSize),
-          has_more: start + pageSize < all.length,
-        });
-      }
-      case "/2/files/delete_v2": {
-        const target = [...files.keys()].find(
-          (p) => p.toLowerCase() === arg!.path,
-        );
-        if (!target)
-          return json(409, { error_summary: "path_lookup/not_found/.." });
-        files.delete(target);
-        return json(200, { metadata: metadata(target) });
-      }
-    }
-    json(400, { error_summary: `unknown endpoint ${url}` });
-  });
+  server = createServer(answer);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("no port");
@@ -163,9 +75,15 @@ beforeEach(() => {
   sessions.clear();
   calls = [];
   busy = undefined;
-  pageSize = 100;
+  pageSize = DEFAULT_PAGE_SIZE;
 });
 
+/**
+ * Runs the upload script against the fake Dropbox with fixture credentials.
+ *
+ * @param env - Overrides the fixture environment; undefined unsets a name.
+ * @returns The exit status, standard output and error, and the run time.
+ */
 function upload(
   args: string[],
   env: Record<string, string | undefined> = {},
@@ -192,6 +110,7 @@ function upload(
     );
   });
 }
+/** Fails the test if the output holds the app secret or either token. */
 const noSecrets = (text: string) => {
   for (const s of [SECRET, REFRESH, ACCESS]) expect(text).not.toContain(s);
 };
@@ -311,7 +230,6 @@ describe("dropbox-upload", () => {
     expect(paths).toContain("/2/files/upload_session/append_v2");
     expect(paths).toContain("/2/files/upload_session/finish");
     expect(paths).not.toContain("/2/files/upload");
-    const { readFile } = await import("node:fs/promises");
     expect(files.get("/Daily/Angel One records 2026-11-04.xlsx")).toEqual(
       await readFile(file),
     );
@@ -358,3 +276,167 @@ describe("dropbox-upload", () => {
     expect(noFile.err).toContain("Cannot read");
   });
 });
+
+const ENDPOINTS = new Map<string, Endpoint>([
+  ["/2/files/upload", (arg, body) => commit(String(arg.path), body)],
+  ["/2/files/upload_session/start", (_arg, body) => startSession(body)],
+  ["/2/files/upload_session/append_v2", appendToSession],
+  ["/2/files/upload_session/finish", finishSession],
+  ["/2/files/get_metadata", readMetadata],
+  ["/2/files/list_folder", listFolder],
+  ["/2/files/list_folder/continue", listFolder],
+  ["/2/files/delete_v2", deleteFile],
+]);
+const PATH_NOT_FOUND: Reply = {
+  status: 409,
+  value: { error_summary: "path/not_found/.." },
+};
+
+async function answer(req: IncomingMessage, res: ServerResponse) {
+  const body = await readBody(req);
+  const url = req.url ?? "";
+  const arg = readArg(req, body);
+  calls.push({ path: url, arg, body, auth: req.headers.authorization });
+  if (busy && busy.path === url && busy.times > 0) {
+    busy.times--;
+    // Seconds: the busy test checks the script waited this long.
+    res.writeHead(busy.status, { "Retry-After": "1" });
+    return res.end("busy");
+  }
+  const { status, value } =
+    url === "/oauth2/token"
+      ? exchangeToken(req, body)
+      : callApi(req, url, arg, body);
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(value));
+}
+
+function readBody(req: IncomingMessage) {
+  return new Promise<Buffer>((resolve) => {
+    const parts: Buffer[] = [];
+    req.on("data", (c: Buffer) => parts.push(c));
+    req.on("end", () => resolve(Buffer.concat(parts)));
+  });
+}
+
+// Content endpoints carry the argument in a Dropbox-API-Arg header, the rest
+// in a JSON body.
+function readArg(
+  req: IncomingMessage,
+  body: Buffer,
+): Record<string, unknown> | undefined {
+  const header = req.headers["dropbox-api-arg"];
+  if (typeof header === "string") return JSON.parse(header);
+  if (body.length && req.headers["content-type"] === "application/json")
+    return JSON.parse(body.toString());
+  return undefined;
+}
+
+function exchangeToken(req: IncomingMessage, body: Buffer): Reply {
+  const form = new URLSearchParams(body.toString());
+  const basic = Buffer.from(`${KEY}:${SECRET}`).toString("base64");
+  if (
+    req.headers.authorization !== `Basic ${basic}` ||
+    form.get("grant_type") !== "refresh_token" ||
+    form.get("refresh_token") !== REFRESH
+  )
+    return reply(400, {
+      error: "invalid_grant",
+      error_description: `refresh token ${form.get("refresh_token")} is invalid`,
+    });
+  return reply(200, {
+    access_token: ACCESS,
+    token_type: "bearer",
+    expires_in: 14400,
+  });
+}
+
+function callApi(
+  req: IncomingMessage,
+  url: string,
+  arg: Record<string, unknown> | undefined,
+  body: Buffer,
+): Reply {
+  if (req.headers.authorization !== `Bearer ${ACCESS}`)
+    return reply(401, { error_summary: "invalid_access_token/" });
+  const endpoint = ENDPOINTS.get(url);
+  if (!endpoint)
+    return reply(400, { error_summary: `unknown endpoint ${url}` });
+  return endpoint(arg!, body);
+}
+
+// Every upload uses mode "add", so an existing path is a conflict, never a
+// replacement.
+function commit(p: string, bytes: Buffer): Reply {
+  if (files.has(p))
+    return reply(409, { error_summary: "path/conflict/file/.." });
+  files.set(p, bytes);
+  return reply(200, metadata(p));
+}
+
+function startSession(body: Buffer): Reply {
+  const id = `session-${sessions.size + 1}`;
+  sessions.set(id, body);
+  return reply(200, { session_id: id });
+}
+
+function appendToSession(arg: Record<string, unknown>, body: Buffer): Reply {
+  const cursor = arg.cursor as SessionCursor;
+  const had = sessions.get(cursor.session_id)!;
+  if (cursor.offset !== had.length)
+    return reply(409, {
+      error_summary: "incorrect_offset/..",
+      error: { ".tag": "incorrect_offset", correct_offset: had.length },
+    });
+  sessions.set(cursor.session_id, Buffer.concat([had, body]));
+  return reply(200, null);
+}
+
+function finishSession(arg: Record<string, unknown>, body: Buffer): Reply {
+  const cursor = arg.cursor as SessionCursor;
+  const done = Buffer.concat([sessions.get(cursor.session_id)!, body]);
+  const target = arg.commit as { path: string };
+  return commit(target.path, done);
+}
+
+function readMetadata(arg: Record<string, unknown>): Reply {
+  return files.has(String(arg.path))
+    ? reply(200, metadata(String(arg.path)))
+    : PATH_NOT_FOUND;
+}
+
+// The cursor is the index of the next entry; a folder that does not exist yet
+// is not found, as on Dropbox.
+function listFolder(arg: Record<string, unknown>): Reply {
+  const start = arg.cursor ? Number(arg.cursor) : 0;
+  const prefix = `${String(arg.path ?? "/Daily")}/`;
+  const all = [...files.keys()].filter((p) => p.startsWith(prefix));
+  if (!all.length && !arg.cursor) return PATH_NOT_FOUND;
+  const page = all.slice(start, start + pageSize);
+  return reply(200, {
+    entries: page.map(metadata),
+    cursor: String(start + pageSize),
+    has_more: start + pageSize < all.length,
+  });
+}
+
+// The script deletes by path_lower, so the lookup ignores case.
+function deleteFile(arg: Record<string, unknown>): Reply {
+  const target = [...files.keys()].find((p) => p.toLowerCase() === arg.path);
+  if (!target) return reply(409, { error_summary: "path_lookup/not_found/.." });
+  files.delete(target);
+  return reply(200, { metadata: metadata(target) });
+}
+
+function metadata(p: string) {
+  return {
+    ".tag": "file",
+    name: p.split("/").pop(),
+    path_lower: p.toLowerCase(),
+    path_display: p,
+  };
+}
+
+function reply(status: number, value: unknown): Reply {
+  return { status, value };
+}

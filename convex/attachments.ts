@@ -1,13 +1,15 @@
 /**
- * Responsibility: The per-record attachment cap, and deleting a shared upload
- *   once no record refers to it.
- * Layer: Server. Mutation helpers; callers check access and write the audit.
+ * Responsibility: The per-record attachment cap, storing an upload until its
+ *   record is filed, and deleting a shared upload once no record refers to it.
+ * Layer: Server. Action and mutation helpers; callers check access and write
+ *   the audit.
  * Dependencies: convex/values (ConvexError), convex/_generated (server,
- *   dataModel).
+ *   dataModel), convex/storageReferences.ts (which tables refer to a blob).
  */
 import { ConvexError } from "convex/values";
-import type { MutationCtx } from "./_generated/server";
+import type { ActionCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { storageReferenced } from "./storageReferences";
 
 /**
  * Most attachments one record may hold. Callers read at most this many rows by
@@ -31,9 +33,9 @@ export function assertAttachmentRoom(existing: unknown[]): void {
 }
 
 /**
- * Deletes an uploaded file once no inventory, PO, task-evidence, work-order or
- * manual record refers to it. Sample and receipt uploads share one blob across
- * records, so call this after deleting the referencing row.
+ * Deletes an uploaded file once no record refers to it, by the schema-checked
+ * list behind {@link storageReferenced}. Sample and receipt uploads share one
+ * blob across records, so call this after deleting the referencing row.
  *
  * @param ctx - Mutation context; may delete the blob from file storage.
  * @param storageId - The blob the deleted row pointed at.
@@ -42,27 +44,33 @@ export async function deleteBlobIfUnused(
   ctx: MutationCtx,
   storageId: Id<"_storage">,
 ): Promise<void> {
-  const used = await Promise.all([
-    ctx.db
-      .query("inventoryFiles")
-      .withIndex("storage", (q) => q.eq("storageId", storageId))
-      .first(),
-    ctx.db
-      .query("poFiles")
-      .withIndex("storage", (q) => q.eq("storageId", storageId))
-      .first(),
-    ctx.db
-      .query("taskEvidence")
-      .withIndex("storage", (q) => q.eq("storageId", storageId))
-      .first(),
-    ctx.db
-      .query("workOrderFiles")
-      .withIndex("storage", (q) => q.eq("storageId", storageId))
-      .first(),
-    ctx.db
-      .query("manuals")
-      .withIndex("storage", (q) => q.eq("storageId", storageId))
-      .first(),
-  ]);
-  if (!used.some(Boolean)) await ctx.storage.delete(storageId);
+  if (!(await storageReferenced(ctx, storageId)))
+    await ctx.storage.delete(storageId);
+}
+
+/**
+ * Stores an upload's bytes, then files them with `finish`. File storage is
+ * outside the mutation's transaction, so a refused filing deletes the blob
+ * again and rethrows the same error.
+ *
+ * @param ctx - Action context; writes to file storage.
+ * @param file - The bytes and their MIME type, stored as the blob's type.
+ * @param finish - Files the stored blob, usually a `runMutation`.
+ * @returns What `finish` returns.
+ * @throws Whatever `finish` throws, unchanged, after the blob is deleted.
+ */
+export async function storeThenFinish<T>(
+  ctx: Pick<ActionCtx, "storage">,
+  file: { bytes: ArrayBuffer; type: string },
+  finish: (storageId: Id<"_storage">) => Promise<T>,
+): Promise<T> {
+  const storageId = await ctx.storage.store(
+    new Blob([file.bytes], { type: file.type }),
+  );
+  try {
+    return await finish(storageId);
+  } catch (error) {
+    await ctx.storage.delete(storageId);
+    throw error;
+  }
 }

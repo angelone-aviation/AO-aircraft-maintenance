@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the logbook entry's "Performed by" line: who it names,
+ *   where it sits, and that close-out freezes it.
+ * Layer: Test. Vitest suite; never shipped in the build.
+ * Dependencies: src/domain/logbook.ts, ./taskCards, ./workOrders,
+ *   src/data/demo.ts, tests/fixtures/taskCards.ts,
+ *   tests/fixtures/workOrders.ts.
+ */
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
@@ -43,6 +51,7 @@ function orderWithCards(
   });
   return { s, order };
 }
+/** Closes the order as completed and approved for return to service. */
 function close(s: ReturnType<typeof demoSnapshot>, order: WorkOrder) {
   return saveWorkOrder(
     s,

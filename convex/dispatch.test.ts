@@ -1,3 +1,11 @@
+/**
+ * Responsibility: Pins the dispatch gate on submitted flights (a grounded
+ *   aircraft refused, an administrator's override recorded) and discrepancy
+ *   grounding flags and deferrals.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex/operations.ts (submit, deferDiscrepancy),
+ *   convex/schema.ts, src/domain/model.ts, src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { ConvexError } from "convex/values";
 import { describe, expect, it } from "vitest";
@@ -13,7 +21,14 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
-const day = 86400000;
+const DAY_MS = 86_400_000;
+const HOUR_SECONDS = 3600;
+
+/**
+ * Seeds the demo program and a second one, an aircraft in each, a pilot and a
+ * program administrator, with builders for a one-hour flight and a grounding
+ * report.
+ */
 async function fixture() {
   const t = convexTest(schema, modules);
   const a = demoSnapshot().aircraft[0];
@@ -62,7 +77,7 @@ async function fixture() {
     const session = (userId: typeof pilot) =>
       ctx.db.insert("authSessions", {
         userId,
-        expirationTime: Date.now() + day,
+        expirationTime: Date.now() + DAY_MS,
       });
     return {
       pilot,
@@ -81,7 +96,7 @@ async function fixture() {
     aircraftUuid: a.uuid,
     pilotId,
     startTime: "2026-01-01T10:00:00Z",
-    hobbsOn: a.currentHobbs + 3600,
+    hobbsOn: a.currentHobbs + HOUR_SECONDS,
     landings: 1,
     cycles: 1,
     origin: "AAA",
@@ -133,7 +148,7 @@ describe("dispatch gate at submission", () => {
         aircraftUuid: a.uuid,
         reference: "Annual inspection",
         description: "",
-        dueDate: localDate(Date.now() - 3 * day),
+        dueDate: localDate(Date.now() - 3 * DAY_MS),
       }),
     );
     await expect(

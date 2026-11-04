@@ -2,7 +2,8 @@
  * Responsibility: Pins read-alert tracking: the device copy, merging the
  *   server's reads, marking all read, and the error messages.
  * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
- * Dependencies: src/data/alerts.ts, src/data/store.ts, src/data/local.ts.
+ * Dependencies: src/data/alerts.ts, src/data/store.ts, src/data/local.ts,
+ *   convex/values.
  */
 import "fake-indexeddb/auto";
 import { afterEach, expect, it, vi } from "vitest";
@@ -53,4 +54,22 @@ it("reports failures with the backend's message or a fallback", async () => {
   expect(reads.getState().error).toBe("Unable to load read alerts.");
   await reads.getState().markRead(["x"]);
   expect(reads.getState().error).toBe("Session ended.");
+});
+
+it("shows the server's refusal, never the Convex client's wrapper", async () => {
+  const { ConvexError } = await import("convex/values");
+  const wrapper = "[CONVEX M(alerts:markRead)] [Request ID: x] Server Error";
+  // Shaped as the Convex client throws it: the wrapper is the message and the
+  // server's refusal is the data.
+  const refusal = new ConvexError<string>(wrapper);
+  refusal.data = "Choose an active Flight Program.";
+  const backend = {
+    alertReads: () => Promise.reject(new Error(wrapper)),
+    markAlertsRead: () => Promise.reject(refusal),
+  };
+  const { reads } = await setup("alerts-convex-errors", backend);
+  await reads.getState().load();
+  expect(reads.getState().error).toBe("Unable to load read alerts.");
+  await reads.getState().markRead(["x"]);
+  expect(reads.getState().error).toBe("Choose an active Flight Program.");
 });

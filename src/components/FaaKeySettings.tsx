@@ -11,7 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
 import { faaRenewal } from "../domain/faaCredential";
 import { localDate } from "../domain/model";
-import { Field, Modal } from "./ui";
+import { Field, Modal, errorText } from "./ui";
 
 const DAY_MS = 86_400_000;
 
@@ -224,11 +224,14 @@ function useKeyReplacement(onSaved: () => void) {
     try {
       await backend!.updateFaaKey(input);
       onSaved();
-    } catch {
-      // The server refuses with plain errors, which production hides, so one
-      // message names every likely cause.
+    } catch (error) {
+      // A refusal shows the server's reason; a fault that production hides
+      // gets advice naming every likely cause.
       setError(
-        "Unable to confirm the update. Check the key, future expiration date, connection, and administrator access. Refresh to check the saved expiration date before retrying.",
+        errorText(
+          error,
+          "Unable to confirm the update. Check the key, future expiration date, connection, and administrator access. Refresh to check the saved expiration date before retrying.",
+        ),
       );
     } finally {
       setBusy(false);

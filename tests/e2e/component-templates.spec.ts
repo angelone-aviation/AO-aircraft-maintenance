@@ -1,3 +1,10 @@
+/**
+ * Responsibility: Pins component templates: a CSV template applied to an
+ *   aircraft as incomplete setups, a child row waiting for its parent, and
+ *   completing an entry into the aircraft's components.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test.
+ */
 import { test, expect } from "@playwright/test";
 test("imports recommended components as incomplete setups and completes a verified entry", async ({
   page,
@@ -61,6 +68,8 @@ test("imports recommended components as incomplete setups and completes a verifi
       exact: true,
     }),
   ).toBeVisible();
+  // "Attached part" names the engine as its parent, so it waits for the
+  // engine's setup.
   await expect(
     page
       .getByRole("row")
@@ -101,7 +110,9 @@ test("imports recommended components as incomplete setups and completes a verifi
   await form
     .getByLabel("Component cycles at install", { exact: true })
     .fill("50");
-  await form.getByLabel("Calendar time since new (months)", { exact: true }).fill("0");
+  await form
+    .getByLabel("Calendar time since new (months)", { exact: true })
+    .fill("0");
   await form
     .getByRole("checkbox", { name: /This component is already installed/ })
     .check();

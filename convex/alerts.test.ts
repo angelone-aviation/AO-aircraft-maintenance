@@ -1,8 +1,19 @@
+/**
+ * Responsibility: Pins alert read state per user and program, and the daily
+ *   digest: who is emailed what, no resends, failures, and the off-site
+ *   backup warning that only system administrators get.
+ * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
+ * Dependencies: convex/alerts.ts, convex/backups.ts, convex/memberships.ts,
+ *   convex/schema.ts, src/domain/model.ts, src/data/demo.ts (fixture).
+ */
 import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
+import { localDate } from "../src/domain/model";
+const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -56,7 +67,7 @@ async function setup() {
       });
       const session = await ctx.db.insert("authSessions", {
         userId,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { userId, identity: { subject: `${userId}|${session}` } };
     }
@@ -107,6 +118,28 @@ it("keeps alert read state per user and per program", async () => {
     "k2",
     "k3",
   ]);
+});
+
+it("refuses an invalid set of alert keys as a ConvexError", async () => {
+  const { a } = await setup();
+  const refused = {
+    name: "ConvexError",
+    data: "Too many or invalid alerts to update. Reload and retry.",
+  };
+  for (const keys of [
+    Array.from({ length: 501 }, (_, i) => `k${i}`),
+    [""],
+    ["x".repeat(301)],
+  ])
+    await expect(
+      a.mutation(api.alerts.markRead, { ...demo, keys }),
+      `${keys.length} keys`,
+    ).rejects.toMatchObject(refused);
+  await a.mutation(api.alerts.markRead, {
+    ...demo,
+    keys: [...Array.from({ length: 499 }, (_, i) => `k${i}`), "x".repeat(300)],
+  });
+  expect(await a.query(api.alerts.readKeys, demo)).toHaveLength(500);
 });
 
 function stubResend(status = 200) {
@@ -184,7 +217,7 @@ it("honours opting out", async () => {
 });
 
 it("skips email without configuration and records nothing on provider failure", async () => {
-  const { t } = await setup();
+  const { t, ids } = await setup();
   const request = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", request);
   vi.stubEnv("RESEND_API_KEY", "");
@@ -204,12 +237,17 @@ it("skips email without configuration and records nothing on provider failure", 
   });
   expect(failing).toHaveBeenCalledTimes(2);
   expect(await deliveries(t)).toEqual([]);
+  expect(error).toHaveBeenCalledWith(
+    "Alert digest not sent",
+    ids.a.userId,
+    "Email provider rejected the request (503).",
+  );
+  expect(JSON.stringify(error.mock.calls)).not.toContain("@example.test");
   error.mockRestore();
 });
 
 // The off-site backup warning (ADR-0008) goes only to system administrators
 // whose alert email is on; program members and program admins never get it.
-const hour = 3_600_000;
 async function systemAdmins(t: Awaited<ReturnType<typeof setup>>["t"]) {
   const ids = await t.run(async (ctx) => {
     const groupId = await ctx.db.insert("groups", {
@@ -309,7 +347,7 @@ it("warns system administrators when no off-site backup is recorded, and nobody 
 it("warns system administrators every day while the newest copy is stale", async () => {
   const { t } = await setup();
   await systemAdmins(t);
-  await recordCopy(t, Date.now() - 37 * hour);
+  await recordCopy(t, Date.now() - 37 * HOUR_MS);
   const request = stubResend();
   expect(await t.action(internal.alerts.sendDigests, {})).toMatchObject({
     sent: 4,
@@ -342,7 +380,7 @@ it("warns system administrators every day while the newest copy is stale", async
 it("sends no backup warning while the newest copy is fresh", async () => {
   const { t } = await setup();
   await systemAdmins(t);
-  await recordCopy(t, Date.now() - 2 * hour);
+  await recordCopy(t, Date.now() - 2 * HOUR_MS);
   const request = stubResend();
   expect(await t.action(internal.alerts.sendDigests, {})).toMatchObject({
     sent: 3,
@@ -358,4 +396,31 @@ it("sends no backup warning while the newest copy is fresh", async () => {
     expect(email.html).not.toContain("Off-site");
     expect(email.text).not.toContain("Off-site");
   }
+});
+
+it("forgets deliveries of cleared alerts, so an alert that returns is emailed again", async () => {
+  const { t, ids } = await setup();
+  stubResend();
+  await t.action(internal.alerts.sendDigests, {});
+  const pending = async () =>
+    (
+      await t.query(internal.alerts.digestRecipients, {
+        ...demo,
+        today: localDate(),
+      })
+    ).find((r) => r.userId === ids.a.userId);
+  expect(await pending()).toBeUndefined();
+  const [kept] = (await deliveries(t)).filter((d) => d.userId === ids.a.userId);
+  await t.mutation(internal.alerts.recordDeliveries, {
+    userId: ids.a.userId,
+    ...demo,
+    keys: [],
+    active: [kept.key],
+  });
+  expect(
+    (await deliveries(t))
+      .filter((d) => d.userId === ids.a.userId)
+      .map((d) => d.key),
+  ).toEqual([kept.key]);
+  expect((await pending())?.alerts).toHaveLength(1);
 });

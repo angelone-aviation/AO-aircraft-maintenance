@@ -1,7 +1,16 @@
+/**
+ * Responsibility: Pins the aircraft status sheet PDF and the Form 337 copies
+ *   it lists: upload, owner view, archiving with a reason, and the audit.
+ * Layer: Test. Playwright spec against the demo in a production build.
+ * Dependencies: @playwright/test, pdfjs-dist (legacy Node build), node:fs,
+ *   node:path.
+ */
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+
+type PdfDocument = Awaited<ReturnType<typeof getDocument>["promise"]>;
 
 test("aircraft details exports a readable PDF status sheet", async ({
   page,
@@ -25,15 +34,8 @@ test("aircraft details exports a readable PDF status sheet", async ({
   const path = await download.path();
   expect(path).toBeTruthy();
   await download.saveAs("/tmp/aircraft-status-preview.pdf");
-  const doc = await getDocument({
-    data: new Uint8Array(await readFile(path!)),
-    useSystemFonts: true,
-  }).promise;
-  let text = "";
-  for (let i = 1; i <= doc.numPages; i++)
-    text += (await (await doc.getPage(i)).getTextContent()).items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ");
+  const doc = await openPdf(path!);
+  const text = await pdfText(doc);
   for (const phrase of [
     "AIRCRAFT STATUS SHEET",
     "Recorded aircraft status:",
@@ -53,16 +55,23 @@ test("aircraft details exports a readable PDF status sheet", async ({
   expect(viewport.width).toBeGreaterThan(viewport.height);
 });
 
+/** Exports the open aircraft's status sheet and returns the PDF's text. */
 async function statusSheetText(page: Page) {
   const downloading = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "Export status sheet", exact: true })
     .click();
   const path = await (await downloading).path();
-  const doc = await getDocument({
-    data: new Uint8Array(await readFile(path!)),
-    useSystemFonts: true,
-  }).promise;
+  return pdfText(await openPdf(path!));
+}
+
+async function openPdf(file: string): Promise<PdfDocument> {
+  const data = new Uint8Array(await readFile(file));
+  return getDocument({ data, useSystemFonts: true }).promise;
+}
+
+// Each page's text items are joined with spaces; the pages run together.
+async function pdfText(doc: PdfDocument): Promise<string> {
   let text = "";
   for (let i = 1; i <= doc.numPages; i++)
     text += (await (await doc.getPage(i)).getTextContent()).items

@@ -1,3 +1,12 @@
+/**
+ * Responsibility: Pins the owner portal's isolation: an owner's snapshot holds
+ *   only the owned aircraft and owner-safe fields, owner writes are refused,
+ *   and owner groups save only as read-only.
+ * Layer: Test. convex-test suite; never shipped in the build.
+ * Dependencies: convex (operations, workOrders, admin, savedAddresses,
+ *   memberships, schema), src/domain/workOrders.ts, tests/fixtures
+ *   (requiredParts, workOrders).
+ */
 import { convexTest } from "convex-test";
 import { describe, it, expect } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -14,7 +23,8 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
-const owned = "demo-206";
+const DAY_MS = 86_400_000;
+const OWNED = "demo-206";
 function completedOrder(): WorkOrder {
   const command = workOrderCommand();
   return {
@@ -43,6 +53,12 @@ function completedOrder(): WorkOrder {
     tasks: [],
   };
 }
+/**
+ * Seeds the parts fixture's program, fleet and records (plus a component with
+ * an internal note), problem reports on two aircraft, and a completed work
+ * order and a flight change-log row on {@link OWNED}; signs in an owner of
+ * that aircraft and a pilot.
+ */
 async function fixture() {
   const t = convexTest(schema, modules);
   const s = partsFixture();
@@ -62,8 +78,8 @@ async function fixture() {
         payload: JSON.stringify({ ...r, programUuid: "demo-program" }),
       });
     for (const [uuid, aircraftUuid, status] of [
-      ["open-206", owned, "open"],
-      ["resolved-206", owned, "resolved"],
+      ["open-206", OWNED, "open"],
+      ["resolved-206", OWNED, "resolved"],
       ["open-208", "demo-208", "open"],
     ] as const)
       await ctx.db.insert("discrepancies", {
@@ -78,13 +94,13 @@ async function fixture() {
     const order = completedOrder();
     await ctx.db.insert("workOrders", {
       uuid: order.uuid,
-      aircraftUuid: owned,
+      aircraftUuid: OWNED,
       payload: JSON.stringify(order),
     });
     await ctx.db.insert("audit", {
       uuid: crypto.randomUUID(),
       programUuid: "demo-program",
-      aircraftUuid: owned,
+      aircraftUuid: OWNED,
       actorId: "someone",
       at: 1,
       action: "flight.created",
@@ -94,7 +110,7 @@ async function fixture() {
       programUuid: "demo-program",
       name: "Aircraft owners",
       owner: true,
-      aircraftIds: [owned],
+      aircraftIds: [OWNED],
       permissions: ["read"],
     });
     const pilots = await ctx.db.insert("groups", {
@@ -113,7 +129,7 @@ async function fixture() {
       });
       const session = await ctx.db.insert("authSessions", {
         userId: id,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { id, subject: `${id}|${session}` };
     };
@@ -137,7 +153,7 @@ describe("owner portal isolation", () => {
   it("limits an owner snapshot to owned aircraft and owner-safe fields", async () => {
     const { owner, ids } = await fixture();
     const s = (await owner.query(api.operations.snapshot, {}))!;
-    expect(s.aircraft.map((a) => a.uuid)).toEqual([owned]);
+    expect(s.aircraft.map((a) => a.uuid)).toEqual([OWNED]);
     expect(s.discrepancies.map((d) => d.uuid)).toEqual(["open-206"]);
     expect(s.discrepancies[0].authorId).toBe("");
     expect(s.management?.map((r) => r.kind)).toEqual(["component"]);
@@ -187,7 +203,7 @@ describe("owner portal isolation", () => {
           kind: "discrepancy",
           uuid: crypto.randomUUID(),
           authorId: ids.owner.id,
-          aircraftUuid: owned,
+          aircraftUuid: OWNED,
           description: "Owner report",
         },
       }),
@@ -239,7 +255,7 @@ describe("owner portal isolation", () => {
       });
       const session = await ctx.db.insert("authSessions", {
         userId: id,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return `${id}|${session}`;
     });
@@ -249,7 +265,7 @@ describe("owner portal isolation", () => {
       programUuid: "demo-program",
       owner: true,
       name: "Aircraft owners",
-      aircraftIds: [owned],
+      aircraftIds: [OWNED],
     };
     await expect(
       admin.mutation(api.admin.saveGroup, {

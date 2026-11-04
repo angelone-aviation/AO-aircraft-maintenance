@@ -1,10 +1,12 @@
 /**
  * Responsibility: Pins parts requests: linked requests, inventory access,
- *   reservations and issues in stock history, request-id replay, and a
- *   request uuid another Flight Program holds.
+ *   reservations and issues in stock history, what a recurring list owes the
+ *   open work orders, request-id replay, and a request uuid another Flight
+ *   Program holds.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/partsRequests, convex/purchaseOrders, src/data/demo,
- *   src/domain (partsRequests, purchaseOrders).
+ * Dependencies: convex/partsRequests, convex/purchaseOrders,
+ *   convex/workOrders, src/data/demo, src/domain (airworthiness,
+ *   partsRequests, purchaseOrders, workOrders), tests/fixtures/workOrders.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -13,12 +15,17 @@ import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { requestDraftSchema } from "../src/domain/partsRequests";
 import { poDraftSchema } from "../src/domain/purchaseOrders";
+import { blankAD, blankADTask } from "../src/domain/airworthiness";
+import { newWorkTask } from "../src/domain/workOrders";
+import { workOrderCommand } from "../tests/fixtures/workOrders";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
+
 it("persists linked requests, authorizes inventory actions, and reserves PO receipts atomically", async () => {
   const t = convexTest(schema, modules),
     demo = demoSnapshot();
@@ -41,7 +48,7 @@ it("persists linked requests, authorizes inventory actions, and reserves PO rece
       });
       const sessionId = await ctx.db.insert("authSessions", {
         userId,
-        expirationTime: Date.now() + 86400000,
+        expirationTime: Date.now() + DAY_MS,
       });
       return { subject: `${userId}|${sessionId}` };
     };
@@ -225,7 +232,7 @@ it("records request reservations and issues in the stock item's own history (#49
     });
     const sessionId = await ctx.db.insert("authSessions", {
       userId,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     return { subject: `${userId}|${sessionId}` };
   });
@@ -318,7 +325,7 @@ it("refuses a request uuid another Flight Program holds, and writes nothing", as
     });
     const sessionId = await ctx.db.insert("authSessions", {
       userId,
-      expirationTime: Date.now() + 86400000,
+      expirationTime: Date.now() + DAY_MS,
     });
     return `${userId}|${sessionId}`;
   });
@@ -350,6 +357,85 @@ it("refuses a request uuid another Flight Program holds, and writes nothing", as
     data: "Request identifier already used.",
   });
   expect(await stored()).toEqual(before);
+});
+
+it("owes the open work orders on its aircraft when a recurring list is saved, once", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const ad = blankAD(s.aircraft[0].uuid);
+  ad.source.number = "2026-01-01";
+  ad.applicability = "Applicable";
+  ad.reviewRequired = false;
+  ad.tasks = [
+    {
+      ...blankADTask(),
+      description: "AD inspection",
+      recurrence: "Recurring",
+      intervalHours: 100,
+    },
+  ];
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", s.programs![0]);
+    for (const a of s.aircraft) await ctx.db.insert("aircraft", a);
+    await ctx.db.insert("airworthiness", {
+      uuid: ad.uuid,
+      aircraftUuid: ad.aircraftUuid,
+      payload: JSON.stringify(ad),
+    });
+    const userId = await ctx.db.insert("users", {
+      name: "Tech",
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const sessionId = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + DAY_MS,
+    });
+    return `${userId}|${sessionId}`;
+  });
+  const user = t.withIdentity({ subject });
+  const args = (payload: unknown) => ({
+    programUuid: "demo-program",
+    payload: JSON.stringify(payload),
+  });
+  const source = { kind: "airworthiness" as const, uuid: ad.tasks[0].uuid };
+  const order = workOrderCommand();
+  order.tasks = [newWorkTask(source, "AD inspection")];
+  await user.mutation(api.workOrders.save, args(order));
+  const saveList = (version: number) => {
+    const draft = requestDraftSchema.parse({
+      uuid: "list",
+      version,
+      source,
+      recurring: true,
+      mode: "parts",
+      date: "2026-10-20",
+      engineer: "Tech",
+      priority: "P2 Routine",
+      requiredBy: "",
+      currency: "USD",
+      lines: [
+        { uuid: "filter", partNumber: "F", description: "Filter", quantity: 2 },
+      ],
+    });
+    return user.mutation(
+      api.partsRequests.execute,
+      args({ kind: "save", requestUuid: crypto.randomUUID(), draft }),
+    );
+  };
+  const occurrences = async () =>
+    (await t.run((ctx) => ctx.db.query("partsRequests").collect()))
+      .map((d) => JSON.parse(d.payload))
+      .filter((r) => r.templateUuid === "list");
+  await saveList(0);
+  expect(await occurrences()).toEqual([
+    expect.objectContaining({
+      source: expect.objectContaining({ workOrderUuid: order.uuid }),
+    }),
+  ]);
+  await saveList(1);
+  expect(await occurrences()).toHaveLength(1);
 });
 
 it("replays an identical repair-request resend, and refuses a different command with its request id", async () => {

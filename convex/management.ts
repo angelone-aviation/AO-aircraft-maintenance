@@ -12,18 +12,24 @@ import { mutation, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { currentUser, audit } from "./access";
-import { runCommand, hydrate, type LoadedDocs } from "./runCommand";
+import {
+  runCommand,
+  hydrate,
+  writeChanged,
+  type LoadedDocs,
+} from "./runCommand";
 import type { MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import type { Inspection } from "../src/domain/model";
 import {
   applyManagement,
   managementCommandSchema,
   recordSchema,
   inspectionSchema,
-  type ManagedRecord,
 } from "../src/domain/management";
 
 const OIL_BACKFILL_BATCH = 500;
+const RECORD_TAKEN = "Record belongs to another Flight Program.";
 
 type ManagementResult = ReturnType<typeof applyManagement>;
 type ManagementDocs = Pick<LoadedDocs, "management" | "inspections">;
@@ -52,7 +58,7 @@ export const execute = mutation({
       apply: ({ snapshot }, command) => applyManagement(snapshot, command),
       persist: async ({ ctx }, { docs }, result) => {
         if ("kind" in result.next) await persistRecords(ctx, docs, result);
-        else await persistInspection(ctx, docs, result.next);
+        else await writeInspection(ctx, docs.inspections, result.next);
       },
       audit: (log, { snapshot, docs }, result, command) => {
         if ("kind" in result.next)
@@ -87,7 +93,39 @@ export async function assertNewManagementUuid(ctx: MutationCtx, uuid: string) {
       .withIndex("uuid", (q) => q.eq("uuid", uuid))
       .first()
   )
-    throw new ConvexError("Record belongs to another Flight Program.");
+    throw new ConvexError(RECORD_TAKEN);
+}
+
+/**
+ * Writes an inspection a command saved: replaces its loaded row, or inserts
+ * it when no Flight Program stores its uuid. The system fields a completion
+ * inherits from the loaded row are stripped.
+ *
+ * @param loaded - The inspections the command loaded.
+ * @param inspection - The inspection as the applier left it.
+ * @throws {ConvexError} "Record belongs to another Flight Program." for a new
+ *   inspection whose uuid is already stored.
+ */
+export async function writeInspection(
+  ctx: MutationCtx,
+  loaded: readonly Doc<"inspections">[],
+  inspection: Inspection,
+) {
+  const doc = loaded.find((d) => d.uuid === inspection.uuid);
+  const fields = inspectionSchema.parse({
+    ...inspection,
+    materials: inspection.materials ?? "",
+    archived: inspection.archived ?? false,
+  });
+  if (doc) return ctx.db.replace(doc._id, fields);
+  if (
+    await ctx.db
+      .query("inspections")
+      .withIndex("uuid", (q) => q.eq("uuid", fields.uuid))
+      .first()
+  )
+    throw new ConvexError(RECORD_TAKEN);
+  await ctx.db.insert("inspections", fields);
 }
 
 /**
@@ -128,7 +166,13 @@ async function persistRecords(
   docs: ManagementDocs,
   result: Pick<ManagementResult, "records" | "updatedInspections">,
 ) {
-  for (const record of result.records) await saveRecord(ctx, docs, record);
+  await writeChanged(
+    ctx,
+    "management",
+    docs.management,
+    result.records,
+    RECORD_TAKEN,
+  );
   for (const inspection of result.updatedInspections) {
     const doc = docs.inspections.find((i) => i.uuid === inspection.uuid)!;
     await ctx.db.patch(doc._id, {
@@ -136,48 +180,6 @@ async function persistRecords(
       version: inspection.version,
     });
   }
-}
-
-async function saveRecord(
-  ctx: MutationCtx,
-  docs: ManagementDocs,
-  record: ManagedRecord,
-) {
-  const doc = docs.management.find((d) => d.uuid === record.uuid);
-  const fields = {
-    programUuid: record.programUuid,
-    uuid: record.uuid,
-    kind: record.kind,
-    aircraftUuid:
-      "aircraftUuid" in record ? record.aircraftUuid || undefined : undefined,
-    payload: JSON.stringify(record),
-  };
-  if (doc) return ctx.db.replace(doc._id, fields);
-  await assertNewManagementUuid(ctx, record.uuid);
-  await ctx.db.insert("management", fields);
-}
-
-async function persistInspection(
-  ctx: MutationCtx,
-  docs: ManagementDocs,
-  next: Inspection,
-) {
-  const doc = docs.inspections.find((d) => d.uuid === next.uuid);
-  // Strip database metadata inherited by a completion.
-  const fields = inspectionSchema.parse({
-    ...next,
-    materials: next.materials ?? "",
-    archived: next.archived ?? false,
-  });
-  if (doc) return ctx.db.replace(doc._id, fields);
-  if (
-    await ctx.db
-      .query("inspections")
-      .withIndex("uuid", (q) => q.eq("uuid", fields.uuid))
-      .first()
-  )
-    throw new ConvexError("Record belongs to another Flight Program.");
-  await ctx.db.insert("inspections", fields);
 }
 
 async function markOilStock(

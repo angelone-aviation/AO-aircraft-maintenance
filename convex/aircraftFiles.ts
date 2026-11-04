@@ -3,8 +3,9 @@
  *   for the snapshot, uploading and archiving them.
  * Layer: Server. A public action and mutation, internal steps, and the
  *   snapshot loader; maintenance permission writes.
- * Dependencies: convex/programContext, convex/access, convex/userErrors,
- *   src/domain/aircraftFiles, src/domain/model, convex/values.
+ * Dependencies: convex/programContext, convex/access, convex/attachments,
+ *   convex/userErrors, src/domain/aircraftFiles, src/domain/model,
+ *   convex/values.
  *
  * Form 337 copies are permanent status records (14 CFR 91.417(a)(2)(vi);
  * ADR-0004), so there is no delete path: archiving hides a copy from the
@@ -23,6 +24,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { checkContext } from "./programContext";
 import { audit } from "./access";
+import { storeThenFinish } from "./attachments";
 import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import {
@@ -156,23 +158,16 @@ export const upload = action({
       programUuid: args.programUuid,
     };
     await ctx.runQuery(internal.aircraftFiles.checkUpload, scope);
-    const storageId = await ctx.storage.store(
-      new Blob([args.bytes], { type: args.type }),
-    );
-    try {
-      await ctx.runMutation(internal.aircraftFiles.finishUpload, {
+    await storeThenFinish(ctx, args, (storageId) =>
+      ctx.runMutation(internal.aircraftFiles.finishUpload, {
         ...scope,
         category: args.category,
         storageId,
         name: args.name,
         type: args.type,
         size: args.bytes.byteLength,
-      });
-    } catch (error) {
-      // File storage is outside the mutation's transaction.
-      await ctx.storage.delete(storageId);
-      throw error;
-    }
+      }),
+    );
   },
 });
 
