@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins cost records: who may see and set money, how labor
  *   is stored, program isolation, closed work orders, part unit costs, a
- *   replayed labor entry, and a record uuid another Flight Program holds.
+ *   replayed labor entry or request id, and a record uuid another Flight
+ *   Program holds.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/costs, convex/workOrders, convex/operations,
  *   src/data/demo, src/domain/costs, tests/fixtures/workOrders.
@@ -455,3 +456,33 @@ function issuedRequest(uuid: string, source: object, stockUuid: string) {
     history: [],
   };
 }
+
+it("applies a cost command once per request id: a replay returns nothing and writes nothing", async () => {
+  const { t, admin } = await fixture();
+  const requestUuid = crypto.randomUUID();
+  const rate = (laborRateCents: number) => ({
+    action: "settings.laborRate",
+    laborRateCents,
+    requestUuid,
+  });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      costs: await ctx.db.query("costs").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+      managementRequests: await ctx.db.query("managementRequests").collect(),
+    }));
+  const uuid = await run(admin, rate(9500));
+  const saved = await stored();
+  expect(saved.costs.map((c) => c.uuid)).toEqual([uuid]);
+  expect(saved.commandRequests).toMatchObject([
+    { uuid: requestUuid, payload: JSON.stringify(rate(9500)) },
+  ]);
+  // ADR-0003: a replay succeeds with no payload.
+  await expect(run(admin, rate(9500))).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(run(admin, rate(9600))).rejects.toMatchObject({
+    data: "Request identifier already used.",
+  });
+  expect(await stored()).toEqual(saved);
+});

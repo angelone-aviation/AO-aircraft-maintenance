@@ -204,7 +204,10 @@ export interface Backend {
    * the stock, components and parts requests it changes.
    */
   purchaseOrder(command: POCommand): Promise<unknown>;
-  /** Applies a cost command; an unchanged record is not saved or logged. */
+  /**
+   * Applies a cost command; an unchanged record is not saved or logged, and
+   * a replayed request id changes nothing.
+   */
   costs(command: CostCommand): Promise<unknown>;
   /**
    * Applies an inventory or inspection command; a replayed request id
@@ -351,7 +354,10 @@ export interface Backend {
   attachWorkOrderFile(workOrderUuid: string, file: File): Promise<unknown>;
   /** Removes an open work order's attachment. */
   removeWorkOrderFile(id: string): Promise<unknown>;
-  /** Applies a job-card command; archived job cards are read-only. */
+  /**
+   * Applies a job-card command; archived job cards are read-only, and a
+   * replayed request id changes nothing.
+   */
   taskCard(command: TaskCardCommand): Promise<unknown>;
   /**
    * Attaches evidence to an open job card, which clears its technician,
@@ -379,7 +385,10 @@ export interface Backend {
   submit(operation: Operation): Promise<{ status: string }>;
   /** Resolves an open problem report, describing the repair done. */
   resolve(uuid: string, resolution: string): Promise<unknown>;
-  /** Records a deferral on a problem report, as the deferral rules allow. */
+  /**
+   * Records a deferral on a problem report, as the deferral rules allow; a
+   * replayed request id changes nothing.
+   */
   deferDiscrepancy(command: DeferCommand): Promise<unknown>;
   /**
    * Saves the parts a problem report needs.
@@ -702,7 +711,7 @@ function bindInventoryCalls(client: ConvexReactClient) {
     purchaseOrder: (command) =>
       client.mutation(api.purchaseOrders.execute, programCommand(command)),
     costs: (command) =>
-      client.mutation(api.costs.execute, programCommand(command)),
+      client.mutation(api.costs.execute, requestedCommand(command)),
     manage: (command) =>
       client.mutation(api.management.execute, programCommand(command)),
     poFiles: (poUuid) =>
@@ -794,7 +803,7 @@ function bindWorkCalls(client: ConvexReactClient) {
         inProgram({ id: id as Id<"workOrderFiles"> }),
       ),
     taskCard: (command) =>
-      client.mutation(api.taskCards.save, programCommand(command)),
+      client.mutation(api.taskCards.save, requestedCommand(command)),
     attachTaskEvidence: async (taskCardUuid, category, file) =>
       client.action(
         api.taskCards.upload,
@@ -818,7 +827,10 @@ function bindFlightCalls(client: ConvexReactClient) {
         inProgram({ uuid, resolution }),
       ),
     deferDiscrepancy: (command) =>
-      client.mutation(api.operations.deferDiscrepancy, programCommand(command)),
+      client.mutation(
+        api.operations.deferDiscrepancy,
+        requestedCommand(command),
+      ),
     saveDiscrepancyParts: (uuid, version, parts) =>
       client.mutation(api.operations.saveDiscrepancyParts, {
         uuid,

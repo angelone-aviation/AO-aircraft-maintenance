@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins the snapshot query and the problem-report, flight
  *   submission and review mutations: authorization, idempotent retries, held
- *   flights, resolution, flight plans, profiles, checklists and oil.
+ *   flights, resolution and deferral with their change-log rows, flight
+ *   plans, profiles, checklists and oil.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/operations.ts, convex/schema.ts, src/domain (model,
- *   management), src/data/demo.ts (fixture).
+ * Dependencies: convex/operations.ts, convex/schema.ts, convex/values, zod,
+ *   src/domain (model, management), src/data/demo.ts (fixture).
  */
 import type { ManagedRecord } from "../src/domain/management";
 import { convexTest } from "convex-test";
@@ -655,6 +656,60 @@ describe("discrepancy resolution", () => {
         }),
       },
     ]);
+  });
+  it("defers once per request id: a replay returns nothing and writes nothing", async () => {
+    const { t, pilot, admin, ids, a } = await fixture();
+    const uuid = crypto.randomUUID();
+    await pilot.mutation(api.operations.submit, {
+      operation: {
+        programUuid: "demo-program",
+        kind: "discrepancy",
+        uuid,
+        authorId: ids.user,
+        aircraftUuid: a.uuid,
+        description: "Alternator inoperative",
+      },
+    });
+    const requestUuid = crypto.randomUUID();
+    const command = (placard: string) => ({
+      uuid,
+      deferredOn: localDate(),
+      deferral: { type: "91.213d", placard, notHazard: true },
+      requestUuid,
+    });
+    const defer = (placard: string) =>
+      admin.mutation(api.operations.deferDiscrepancy, {
+        programUuid: "demo-program",
+        payload: JSON.stringify(command(placard)),
+      });
+    const stored = () =>
+      t.run(async (ctx) => ({
+        discrepancies: await ctx.db.query("discrepancies").collect(),
+        audit: await ctx.db.query("audit").collect(),
+        commandRequests: await ctx.db.query("commandRequests").collect(),
+        managementRequests: await ctx.db.query("managementRequests").collect(),
+      }));
+    await defer("ALT INOP");
+    const saved = await stored();
+    expect(saved.commandRequests).toMatchObject([
+      { uuid: requestUuid, payload: JSON.stringify(command("ALT INOP")) },
+    ]);
+    // ADR-0003: a replay succeeds with no payload.
+    await expect(defer("ALT INOP")).resolves.toBeNull();
+    expect(await stored()).toEqual(saved);
+    await expect(
+      admin.mutation(api.operations.deferDiscrepancy, {
+        programUuid: "demo-program",
+        payload: JSON.stringify({
+          ...command("ALT INOP"),
+          requestUuid: undefined,
+        }),
+      }),
+    ).rejects.toMatchObject({ data: "This discrepancy is already deferred." });
+    await expect(defer("GEN INOP")).rejects.toMatchObject({
+      data: "Request identifier already used.",
+    });
+    expect(await stored()).toEqual(saved);
   });
 });
 

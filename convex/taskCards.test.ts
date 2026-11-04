@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins job cards: saving and access, signer identity and
- *   signoff rules, template unlinking, evidence, archived cards, and a card
- *   uuid outside the Flight Program.
+ *   signoff rules, template unlinking, evidence, archived cards, a card uuid
+ *   outside the Flight Program, and replayed request ids.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/taskCards, convex/operations, convex/attachments,
  *   src/data/demo, src/domain/taskCards, tests/fixtures/taskCards.
@@ -471,4 +471,40 @@ it("refuses a job card uuid stored outside the Flight Program, and an archived c
     data: "Archived job cards are read-only.",
   });
   expect(await stored()).toEqual(before);
+});
+
+it("saves a job card once per request id: a replay returns nothing and writes nothing", async () => {
+  const { t, tech } = await fixture();
+  const requestUuid = crypto.randomUUID();
+  const command = { ...taskCardCommand(), requestUuid };
+  const save = (c: unknown) =>
+    tech.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(c),
+    });
+  const stored = () =>
+    t.run(async (ctx) => ({
+      taskCards: await ctx.db.query("taskCards").collect(),
+      audit: await ctx.db.query("audit").collect(),
+      commandRequests: await ctx.db.query("commandRequests").collect(),
+      managementRequests: await ctx.db.query("managementRequests").collect(),
+    }));
+  await expect(save(command)).resolves.toBe(command.uuid);
+  const saved = await stored();
+  expect(saved.taskCards).toHaveLength(1);
+  expect(saved.commandRequests).toMatchObject([
+    { uuid: requestUuid, payload: JSON.stringify(command) },
+  ]);
+  // ADR-0003: a replay succeeds with no payload.
+  await expect(save(command)).resolves.toBeNull();
+  expect(await stored()).toEqual(saved);
+  await expect(
+    save({ ...command, requestUuid: undefined }),
+  ).rejects.toMatchObject({
+    data: "Job card changed. Reopen it before saving.",
+  });
+  await expect(
+    save({ ...command, fields: { ...command.fields, title: "Other" } }),
+  ).rejects.toMatchObject({ data: "Request identifier already used." });
+  expect(await stored()).toEqual(saved);
 });

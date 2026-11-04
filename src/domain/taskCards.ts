@@ -5,7 +5,7 @@
  *   left to its default reads the clock).
  * Dependencies: zod; ./logbookWording, ./programs, ./manuals, ./model,
  *   ./certifications, ./ata, ./workOrders, ./shelfLife, ./management (types),
- *   ./rejection.
+ *   ./commandRequest, ./rejection.
  */
 import { logbookSelectionFields } from "./logbookWording";
 import { recordProgram } from "./programs";
@@ -17,6 +17,7 @@ import { ataChapterSchema } from "./ata";
 import { isOpenWorkOrder } from "./workOrders";
 import { expiredForUse } from "./shelfLife";
 import type { Stock } from "./management";
+import { requestUuidField } from "./commandRequest";
 import { Rejection } from "./rejection";
 
 const text = z.string().trim().max(10000);
@@ -181,7 +182,8 @@ export type TaskPart = TaskCardFields["partsUsed"][number];
 
 /**
  * The commands {@link saveTaskCard} runs, by `action`: save the fields, link
- * or unlink a record, or sign as technician, inspector or for a step.
+ * or unlink a record, or sign as technician, inspector or for a step; each
+ * may carry its request id.
  *
  * @throws {z.ZodError} From `parse()` on an unknown action or invalid field.
  */
@@ -190,24 +192,28 @@ export const taskCardCommandSchema = z.discriminatedUnion("action", [
     action: z.literal("save"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     fields: taskCardFieldsSchema,
   }),
   z.object({
     action: z.literal("link"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     link: taskLinkSchema,
   }),
   z.object({
     action: z.literal("unlink"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     link: taskLinkSchema,
   }),
   z.object({
     action: z.literal("sign"),
     uuid: z.string().uuid(),
     version: z.number().int().nonnegative(),
+    ...requestUuidField,
     kind: z.enum(["technician", "inspection", "step"]),
     stepUuid: z.string().uuid().optional(),
   }),

@@ -15,7 +15,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { runCommand, hydrate, errorsOf } from "./runCommand";
+import { runCommand, hydrate, errorsOf, requestOf } from "./runCommand";
 import { decode } from "./collections";
 import {
   context,
@@ -183,9 +183,10 @@ export const resolveDiscrepancy = mutation({
 
 /**
  * Records a deferral on a problem report, as the deferrals domain allows,
- * and writes a "discrepancy.deferred" change-log row.
+ * and writes a "discrepancy.deferred" change-log row. A replayed request id
+ * changes nothing.
  *
- * @param payload - The deferral command, as JSON.
+ * @param payload - The deferral command, as JSON, with its request id.
  * @throws {Error} "Report not found."; a ZodError for a malformed command.
  * @throws {ConvexError} The refusals of checkContext; "You do not have
  *   permission for this aircraft." without the resolve permission; the
@@ -197,6 +198,7 @@ export const deferDiscrepancy = mutation({
     runCommand(ctx, {
       programUuid,
       parse: () => deferCommandSchema.parse(JSON.parse(payload)),
+      request: (command) => requestOf(command.requestUuid, payload),
       load: ({ ctx, state }, command) => loadReport(ctx, state, command.uuid),
       apply: ({ s }, command) => applyDeferral(s, command),
       persist: async ({ ctx }, { d }, next) => {

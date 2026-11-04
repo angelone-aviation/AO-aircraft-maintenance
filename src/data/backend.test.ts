@@ -202,7 +202,7 @@ const CASES: Case[] = [
     call: (b) => b.costs(opaque()),
     kind: "mutation",
     name: "costs:execute",
-    args: command(),
+    args: requested(),
   },
   {
     method: "poFiles",
@@ -358,7 +358,7 @@ const CASES: Case[] = [
     call: (b) => b.taskCard(opaque()),
     kind: "mutation",
     name: "taskCards:save",
-    args: command(),
+    args: requested(),
   },
   {
     method: "attachTaskEvidence",
@@ -434,7 +434,7 @@ const CASES: Case[] = [
     call: (b) => b.deferDiscrepancy(opaque()),
     kind: "mutation",
     name: "operations:deferDiscrepancy",
-    args: command(),
+    args: requested(),
   },
   {
     method: "saveDiscrepancyParts",
@@ -834,17 +834,20 @@ it("reads the active Flight Program when each method is called", async () => {
   ]);
 });
 
-it("sends a new request id with each AD, checklist and engine-trend command", async () => {
+it("sends a new request id with each AD, checklist, engine-trend, cost, job-card and deferral command", async () => {
   vi.restoreAllMocks();
   const { backend, calls } = recordingBackend();
   await backend.saveAD(opaque());
   await backend.saveAD(opaque());
   await backend.saveChecklist(opaque());
   await backend.engineTrend("aircraft-1", opaque());
+  await backend.costs(opaque());
+  await backend.taskCard(opaque());
+  await backend.deferDiscrepancy(opaque());
   const ids = calls.map(
     (c) => JSON.parse(c.args.payload as string).requestUuid,
   );
-  expect(new Set(ids).size).toBe(4);
+  expect(new Set(ids).size).toBe(7);
   for (const id of ids) expect(id).toMatch(UUID);
 });
 

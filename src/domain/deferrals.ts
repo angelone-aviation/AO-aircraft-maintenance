@@ -3,11 +3,12 @@
  *   item or 14 CFR 91.213(d), when a deferral expires, and resolving it with
  *   the repair.
  * Layer: Domain. Zod schemas, rules and two appliers; no I/O, no React.
- * Dependencies: zod, ./model, ./changeLog, ./rejection.
+ * Dependencies: zod, ./model, ./changeLog, ./commandRequest, ./rejection.
  */
 import { z } from "zod";
 import { can, isLocalToday, type Discrepancy, type Snapshot } from "./model";
 import { auditEntry } from "./changeLog";
+import { requestUuidField } from "./commandRequest";
 import { Rejection } from "./rejection";
 
 const DAY_MS = 86400000;
@@ -86,7 +87,8 @@ export type Deferral = DeferralInput & {
 };
 
 /**
- * A request to defer one discrepancy, dated the day it is made.
+ * A request to defer one discrepancy, dated the day it is made, with its
+ * request id when the client sends one.
  *
  * @throws {z.ZodError} From `parse()` on an invalid field or deferral.
  */
@@ -94,6 +96,7 @@ export const deferCommandSchema = z.strictObject({
   uuid: z.string().min(1),
   deferredOn: z.iso.date(),
   deferral: deferralInputSchema,
+  ...requestUuidField,
 });
 
 /** A parsed defer command. */

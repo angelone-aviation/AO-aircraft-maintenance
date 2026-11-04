@@ -2,7 +2,7 @@
  * Responsibility: Pins the request id field: optional, and a UUID when sent.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/commandRequest.ts, ./checklists, ./engineTrends,
- *   ./airworthiness, zod.
+ *   ./airworthiness, ./costs, ./taskCards, ./deferrals, zod.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -10,6 +10,9 @@ import { requestUuidField } from "./commandRequest";
 import { checklistCommandSchema, emptyChecklist } from "./checklists";
 import { engineTrendCommandSchema } from "./engineTrends";
 import { adCommandSchema, blankAD } from "./airworthiness";
+import { costCommandSchema } from "./costs";
+import { taskCardCommandSchema } from "./taskCards";
+import { deferCommandSchema } from "./deferrals";
 
 const REQUEST_UUID = "6b0a9d1e-2c3f-4a5b-8c7d-9e0f1a2b3c4d";
 const schema = z.object(requestUuidField);
@@ -64,5 +67,29 @@ describe("requestUuidField", () => {
       REQUEST_UUID,
     );
     expect(adCommandSchema.parse(ad).requestUuid).toBe(REQUEST_UUID);
+  });
+
+  it("is part of the cost, job-card and deferral commands", () => {
+    const cost = {
+      action: "settings.laborRate",
+      laborRateCents: 9500,
+      requestUuid: REQUEST_UUID,
+    };
+    const card = {
+      action: "sign",
+      uuid: crypto.randomUUID(),
+      version: 0,
+      kind: "technician",
+      requestUuid: REQUEST_UUID,
+    };
+    const deferral = {
+      uuid: "report-1",
+      deferredOn: "2026-01-01",
+      deferral: { type: "91.213d", placard: "INOP", notHazard: true },
+      requestUuid: REQUEST_UUID,
+    };
+    expect(costCommandSchema.parse(cost).requestUuid).toBe(REQUEST_UUID);
+    expect(taskCardCommandSchema.parse(card).requestUuid).toBe(REQUEST_UUID);
+    expect(deferCommandSchema.parse(deferral).requestUuid).toBe(REQUEST_UUID);
   });
 });
