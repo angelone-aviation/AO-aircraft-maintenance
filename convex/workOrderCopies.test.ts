@@ -16,7 +16,11 @@ import {
 } from "../tests/fixtures/workOrders";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { saveTaskCard } from "../src/domain/taskCards";
-import { newWorkTask, workOrderSchema } from "../src/domain/workOrders";
+import {
+  newWorkTask,
+  workOrderSchema,
+  type WorkTask,
+} from "../src/domain/workOrders";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -95,6 +99,36 @@ async function setup(count = 25) {
     }));
   return { t, user, original, command, add, start, read };
 }
+// Saves the order's inspection item, completed or not, before a template for
+// that inspection joins the library.
+async function addTemplateAfterItem(completed: boolean) {
+  const context = await setup(0);
+  const { t, user, command, original, start, read } = context;
+  const save = (payload: object) =>
+    user.mutation(api.workOrders.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(payload),
+    });
+  await start();
+  let { order } = await read();
+  if (completed) {
+    const tasks = order.tasks.map(completeTask);
+    await save({ ...command, version: order.version, tasks });
+    ({ order } = await read());
+  }
+  await t.run((ctx) =>
+    ctx.db.insert("taskCards", {
+      uuid: original.uuid,
+      aircraftUuid: original.aircraftUuid,
+      payload: JSON.stringify(original),
+    }),
+  );
+  return { ...context, save, order };
+}
+const completeTask = (task: WorkTask) => ({
+  ...task,
+  status: "completed" as const,
+});
 it("queues 450 templates, uses bounded batches, and ignores duplicate deliveries", async () => {
   const { t, start, read } = await setup(450);
   await start();
@@ -431,43 +465,47 @@ it("checks a stale version, then a component movement, then a duplicate", async 
   );
 });
 
-// Characterizes current behaviour: copying is refused, not offered, when a
-// completed item lacks a template added after it was completed.
-it("refuses to add work while a completed item lacks its template's job card", async () => {
-  const { t, user, command, add, original, start, read } = await setup(0);
-  const save = (payload: object) =>
-    user.mutation(api.workOrders.save, {
-      programUuid: "demo-program",
-      payload: JSON.stringify(payload),
-    });
-  await start();
-  const { order } = await read();
+it("copies a template added after its item was completed onto that item", async () => {
+  const { t, save, command, order, read } = await addTemplateAfterItem(true);
   await save({
-    ...command,
+    action: "copyTemplates",
+    uuid: command.uuid,
     version: order.version,
-    tasks: order.tasks.map((task) => ({ ...task, status: "completed" })),
   });
-  await t.run((ctx) =>
-    ctx.db.insert("taskCards", {
-      uuid: original.uuid,
-      aircraftUuid: original.aircraftUuid,
-      payload: JSON.stringify(original),
-    }),
-  );
-  const missing =
-    "Add the associated job card templates to this work order before completing this item.";
-  const version = order.version + 1;
+  await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+  const after = await read();
+  const copies = after.cards.filter((c) => c.workOrderUuid);
+  expect(copies.map((c) => c.workTaskUuid)).toEqual([order.tasks[0].uuid]);
+  expect(after.order.tasks[0].status).toBe("completed");
+});
+
+it("adds an inspection beside a completed item that lacks a later template", async () => {
+  const { save, add, order, read } = await addTemplateAfterItem(true);
+  await save({
+    ...add,
+    version: order.version,
+    source: { kind: "inspection", uuid: "demo-insp-2" },
+  });
+  const after = await read();
+  expect(after.order.tasks.map((task) => task.source.uuid)).toEqual([
+    add.source.uuid,
+    "demo-insp-2",
+  ]);
+  expect(after.jobs).toHaveLength(0);
+  expect(after.cards.filter((c) => c.workOrderUuid)).toHaveLength(0);
+});
+
+it("still refuses to complete an item without its templates' job cards", async () => {
+  const { save, command, order } = await addTemplateAfterItem(false);
   await expect(
     save({
-      ...add,
-      version,
-      source: { kind: "inspection", uuid: "demo-insp-2" },
+      ...command,
+      version: order.version,
+      tasks: order.tasks.map(completeTask),
     }),
-  ).rejects.toThrow(missing);
-  await expect(
-    save({ action: "copyTemplates", uuid: command.uuid, version }),
-  ).rejects.toThrow(missing);
-  expect((await read()).jobs).toHaveLength(0);
+  ).rejects.toThrow(
+    "Add the associated job card templates to this work order before completing this item.",
+  );
 });
 
 it("refuses to close a work order that adds items with templates to copy", async () => {
