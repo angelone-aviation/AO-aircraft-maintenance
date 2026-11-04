@@ -127,6 +127,18 @@ export function assertProgramGroups(
 }
 
 /**
+ * Whether a member belongs to a Flight Program: any of their groups is one of
+ * the program's, whatever its permissions.
+ */
+export function isProgramMember(
+  groups: Group[],
+  groupIds: string[],
+  programUuid: string,
+): boolean {
+  return groupIds.some((id) => isProgramGroup(groups, id, programUuid));
+}
+
+/**
  * Whether any of the groups grants read access.
  */
 export function grantsRead(groups: Group[], groupIds: string[]): boolean {
