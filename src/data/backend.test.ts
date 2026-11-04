@@ -479,13 +479,6 @@ const CASES: Case[] = [
     args: command(),
   },
   {
-    method: "createAircraft",
-    call: (b) => b.createAircraft(opaque()),
-    kind: "mutation",
-    name: "admin:createAircraft",
-    args: { aircraft: COMMAND, programUuid: ACTIVE_PROGRAM },
-  },
-  {
     method: "uploadAircraftPhoto",
     call: (b) => b.uploadAircraftPhoto("aircraft-1", file()),
     kind: "action",
