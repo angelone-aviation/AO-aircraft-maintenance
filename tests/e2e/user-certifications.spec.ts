@@ -228,7 +228,10 @@ function licenseCopyButton(dialog: Locator, action: "View" | "Delete") {
   });
 }
 
-/** Ratings sit under the mechanic certificate and carry no number of their own. */
+/**
+ * Ratings sit under the mechanic certificate and carry no number of their
+ * own.
+ */
 async function checkMechanicRatings(profile: Locator) {
   const ratings = profile.getByRole("group", {
     name: "Mechanic ratings and authorization",

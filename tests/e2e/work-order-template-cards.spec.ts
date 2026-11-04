@@ -151,7 +151,7 @@ test("copies job card templates into an order, permits execution only on copies 
   ).toHaveValue("Inspect seal condition");
 });
 
-/** Makes demo-insp-1 a 100-hour, 12-month inspection in every stored snapshot. */
+/** Makes demo-insp-1 a 100-hour, 12-month inspection in every snapshot. */
 async function storeInspectionInterval(page: Page) {
   const interval = { seconds: 100 * HOUR_SECONDS, months: 12 };
   await page.evaluate(async ({ seconds, months }) => {
@@ -229,7 +229,7 @@ async function openOrderForInspection(page: Page) {
   await expect(order).not.toBeVisible();
 }
 
-/** Records the work on the order's copy, signs it as technician and completes it. */
+/** Records work on the order's copy, signs it as technician, completes it. */
 async function signOffCopiedCard(editor: Locator) {
   await expect(editor.getByText(/Work-order copy of template/)).toBeVisible();
   await editor
@@ -260,7 +260,7 @@ async function signOffCopiedCard(editor: Locator) {
   await closeDialog(editor);
 }
 
-/** Dismissing the permanence warning keeps the order open; accepting closes it. */
+/** Dismissing the closing warning keeps the order open; accepting closes it. */
 async function closeOrderAfterConfirming(page: Page, details: Locator) {
   await details.getByLabel("Work order status").selectOption("completed");
   await details
@@ -370,7 +370,7 @@ async function expectComponentTemplate(logbook: Locator, text: Locator) {
   await expect(text).toHaveValue(/Replacement filter P\/N F-12/);
 }
 
-/** Returns the page count and the text of every page, items joined by spaces. */
+/** Returns the page count and every page's text, items joined by spaces. */
 async function readPdf(download: Download) {
   const task = getDocument({
     data: new Uint8Array(await readFile((await download.path())!)),
