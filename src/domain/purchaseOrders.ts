@@ -349,8 +349,8 @@ export function poTotal(po: PODraft) {
  *   entry and a `po.<kind>` change-log entry; on a replay, the orders as the
  *   request left them.
  * @throws {Rejection} Every refusal of the command, checked in a fixed order;
- *   as {@link validateRequestAllocations} and the stock rules it applies.
- * @throws {Error} From {@link assertConfirmedAddress} when issuing.
+ *   as {@link validateRequestAllocations} and the stock rules it applies, and
+ *   as {@link assertConfirmedAddress} when issuing.
  * @throws {z.ZodError} On an invalid command.
  */
 export function applyPOCommand(
