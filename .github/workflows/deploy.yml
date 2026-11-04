@@ -35,13 +35,15 @@ jobs:
   deploy:
     name: Deploy to production
     # Manual: main only, after the backup box is ticked.
-    # Auto: green CI that was itself a push to main (not a pull-request CI run).
+    # Auto: green CI that was itself a push to main in this repository (not a
+    # pull-request or fork CI run).
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main')
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
@@ -60,8 +62,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # For auto-deploy, build the commit CI already verified.
+          # For auto-deploy, build the commit CI already verified. Full history,
+          # so the next step can check it against main.
           ref: ${{ env.DEPLOY_SHA }}
+          fetch-depth: 0
+
+      # head_branch holds the tag name when a tag push started CI, so a tag
+      # called "main" on any commit passes the job condition. This check runs
+      # before npm ci, the first step that executes code from the checkout.
+      - name: Require a commit on main
+        run: |
+          git merge-base --is-ancestor "$DEPLOY_SHA" refs/remotes/origin/main || {
+            echo "::error::Commit ${DEPLOY_SHA::12} is not on main; Deploy only releases commits on main."
+            exit 1
+          }
 
       - name: Set up Node.js 22
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

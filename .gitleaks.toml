@@ -1,0 +1,24 @@
+# Responsibility: Secret-scanning rules: gitleaks' defaults plus a narrow
+#   allowlist of synthetic keys in the server tests.
+# Layer: Config. Read by gitleaks in CI (.github/workflows/ci.yml) and locally.
+# Dependencies: the default rules built into gitleaks 8.30.1.
+#
+# Each entry needs the exact value AND the test path, so a real key in those
+# files, or the same value elsewhere, is still reported.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "AES-256 test key: the bytes 0x00 to 0x1f in base64, not a real key"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^convex/[A-Za-z]+\.test\.ts$''']
+regexes = ['''^AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=$''']
+
+[[allowlists]]
+description = "Made-up FAA API key that a test saves and reads back"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^convex/faaCredentials\.test\.ts$''']
+regexes = ['''^synthetic-saved-key-0001$''']
