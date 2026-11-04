@@ -1676,7 +1676,7 @@ input[type="radio"] {
   /* Navy on the bright sky; white text would wash out without a dark overlay. */
   color: #0b1434;
   font-size: clamp(13px, 2.6vw, 17px);
-  font-weight: 550;
+  font-weight: 500;
   font-style: italic;
   line-height: 1.45;
   white-space: nowrap;

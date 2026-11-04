@@ -4,7 +4,6 @@ Used unchanged for the app's login and navigation branding at the user's request
 
 angelone.png and angelone-white.png: wordmarks supplied by the client in the UI redesign handoff (2026-11-02).
 
-cessna-oblique.svg: temporary placeholder drawn for the redesign. The intended artwork is the public-domain
-"Cessna 172 line drawing oblique" by Werneuchen on Wikimedia Commons:
-https://commons.wikimedia.org/wiki/File:Cessna_172_line_drawing_oblique.svg
-Download it and save it over cessna-oblique.svg (Wikimedia rate-limited the build environment).
+cessna-oblique.svg: public-domain "Cessna 172 line drawing oblique" by Werneuchen on Wikimedia Commons
+(https://commons.wikimedia.org/wiki/File:Cessna_172_line_drawing_oblique.svg), downloaded
+2026-11-04 and used unchanged for the dashboard callout art.
