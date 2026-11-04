@@ -2,22 +2,16 @@
  * Responsibility: Builds the readable records copy (ADR-0011), one formatted
  *   Excel workbook, from the nightly Convex export.
  * Layer: Script. Node only: reads the export ZIP, writes one .xlsx file.
- * Dependencies: ./convexExport, ./xlsxWriter, convex/collections (decoding),
- *   src/domain (statuses, labels and rules).
+ * Dependencies: ./exportSnapshot, ./xlsxWriter, src/domain (statuses,
+ *   labels and rules).
  *
  * It is a convenience copy for administrators, inspectors and board members;
  * the aircraft logbooks and the encrypted R2 backup (ADR-0008) are the
  * records. Every status and label comes from src/domain, so the workbook says
- * what the app says. Only allow-listed tables are read: sign-in data,
- * credentials, stored files and request bookkeeping never reach the workbook.
+ * what the app says.
  */
 import { parseArgs } from "node:util";
-import { exportContents, readDocuments } from "./convexExport";
-import {
-  decodeLenient,
-  type PayloadCollection,
-  type StoredRecord,
-} from "../../convex/collections";
+import { readExportSnapshot } from "./exportSnapshot";
 import {
   aircraftStatus,
   aircraftStatusLabels,
@@ -58,11 +52,7 @@ import {
   totalSeconds,
   type Aircraft,
   type AuditEntry,
-  type Discrepancy,
-  type Flight,
   type Group,
-  type Inspection,
-  type Member,
   type Snapshot,
 } from "../../src/domain/model";
 import { groupCoversAircraft, recordProgram } from "../../src/domain/programs";
@@ -103,80 +93,6 @@ export interface WorkbookOptions {
 export interface WorkbookSummary {
   sheets: { name: string; rows: number }[];
   warnings: string[];
-}
-
-// ---------------------------------------------------------------- reading --
-
-type Doc = Record<string, unknown>;
-const str = (v: unknown) => (typeof v === "string" ? v : undefined);
-const payloadOf = (d: Doc) => JSON.parse(String(d.payload)) as unknown;
-// Tables read from the export, with the fields kept from each document.
-// Anything not listed here (sign-in tables, credentials, stored-file tables,
-// upload staging, request and job bookkeeping) is never decompressed.
-const TABLES: Record<string, (d: Doc) => Doc> = {
-  programs: (d) => ({ uuid: d.uuid, name: d.name }),
-  users: (d) => ({
-    _id: d._id,
-    name: d.name,
-    email: d.email,
-    active: d.active,
-    isAdmin: d.isAdmin,
-    groupIds: d.groupIds,
-  }),
-  groups: (d) => d,
-  aircraft: (d) => d,
-  flights: (d) => d,
-  discrepancies: (d) => d,
-  inspections: (d) => d,
-  management: (d) => ({ payload: d.payload }),
-  airworthiness: (d) => ({ payload: d.payload }),
-  workOrders: (d) => ({ payload: d.payload }),
-  taskCards: (d) => ({ payload: d.payload }),
-  costs: (d) => ({ payload: d.payload }),
-  purchaseOrders: (d) => ({ payload: d.payload }),
-  partsRequests: (d) => ({ payload: d.payload }),
-  audit: (d) => d,
-  transferredAudit: (d) => ({ programUuid: d.programUuid, auditId: d.auditId }),
-  // Names only, for the Record column of Change history.
-  manuals: (d) => ({ uuid: d.uuid, label: `Manual: ${str(d.title) ?? ""}` }),
-  checklists: (d) => {
-    const p = payloadOf(d) as {
-      document?: { payload?: { metadata?: { name?: string } } };
-    };
-    return {
-      uuid: d.uuid,
-      label: `Checklist: ${p.document?.payload?.metadata?.name ?? ""}`,
-    };
-  },
-  inspectionTemplates: (d) => ({
-    uuid: d.uuid,
-    label: `Inspection template: ${(payloadOf(d) as { name?: string }).name ?? ""}`,
-  }),
-  flightPlans: (d) => {
-    const p = payloadOf(d) as { origin?: string; destination?: string };
-    return {
-      uuid: d.uuid,
-      label: `Flight plan ${p.origin ?? ""} → ${p.destination ?? ""}`,
-    };
-  },
-};
-
-async function loadExport(zipPath: string) {
-  const contents = await exportContents(zipPath);
-  const tables = new Map<string, Doc[]>();
-  for (const [table, pick] of Object.entries(TABLES)) {
-    const rows: Doc[] = [];
-    const entry = contents.tables.get(table);
-    if (entry) await readDocuments(zipPath, entry, (d) => rows.push(pick(d)));
-    tables.set(table, rows);
-  }
-  // Storage IDs only, to scrub any that appear in change-log values.
-  const storageIds = new Set<string>();
-  if (contents.storageIndex)
-    await readDocuments(zipPath, contents.storageIndex, (d) => {
-      if (typeof d._id === "string") storageIds.add(d._id);
-    });
-  return { tables, storageIds, storageFiles: contents.storageFiles };
 }
 
 // ------------------------------------------------------------------ time --
@@ -300,148 +216,6 @@ const permissionLabels: Record<string, string> = {
   resolve: "resolve discrepancies",
   maintenance: "manage maintenance",
 };
-
-// A system administrator's view of every program, aircraft and record. Payload
-// rows decode through the app's codec; one that no longer matches its schema
-// is shown as stored, with a note on Read me.
-function decode(tables: Map<string, Doc[]>, now: number) {
-  const warnings: string[] = [];
-  const t = (name: string) => tables.get(name) ?? [];
-  const programs = new Map(
-    t("programs").map((p) => [String(p.uuid), String(p.name ?? "")]),
-  );
-  const snapshot: Snapshot = {
-    ...recordsCopyView(programs, now),
-    groups: t("groups").map(decodeGroup),
-    members: t("users").map(decodeMember),
-    aircraft: t("aircraft").map((a) => decodeAircraft(a, programs)),
-    flights: t("flights") as unknown as Flight[],
-    discrepancies: t("discrepancies") as unknown as Discrepancy[],
-    inspections: t("inspections") as unknown as Inspection[],
-    audit: [],
-    ...decodeRecords(t, warnings),
-  };
-  const audit = t("audit") as unknown as (AuditEntry & { _id?: string })[];
-  const transferred = new Map<string, string[]>();
-  for (const x of t("transferredAudit")) {
-    const id = String(x.auditId);
-    transferred.set(id, [
-      ...(transferred.get(id) ?? []),
-      String(x.programUuid),
-    ]);
-  }
-  const labels = ["manuals", "checklists", "inspectionTemplates", "flightPlans"]
-    .flatMap((name) => t(name))
-    .map((d) => [String(d.uuid), String(d.label)] as const);
-  return { snapshot, programs, audit, transferred, labels, warnings };
-}
-
-function recordsCopyView(programs: Map<string, string>, now: number) {
-  return {
-    user: {
-      id: "records-copy",
-      name: "Records copy",
-      email: "",
-      active: true,
-      isAdmin: true,
-      groupIds: [],
-    },
-    authenticatedAt: now,
-    syncedAt: now,
-    programs: [...programs].map(([uuid, name]) => ({
-      uuid,
-      name,
-      version: 0,
-      address: "",
-      email: "",
-      contactName: "",
-      website: "",
-    })),
-  };
-}
-
-function decodeMember(u: Doc): Member {
-  return {
-    id: String(u._id),
-    name: str(u.name)?.trim() || "Unnamed user",
-    email: str(u.email) ?? "",
-    active: u.active === true,
-    isAdmin: u.isAdmin === true,
-    groupIds: (u.groupIds as string[] | undefined) ?? [],
-  };
-}
-
-function decodeGroup(g: Doc): Group {
-  return {
-    id: String(g._id),
-    programUuid: str(g.programUuid),
-    programAdmin: g.programAdmin as boolean | undefined,
-    owner: g.owner as boolean | undefined,
-    name: String(g.name ?? ""),
-    aircraftIds: (g.aircraftIds as string[] | undefined) ?? [],
-    permissions: (g.permissions as Group["permissions"] | undefined) ?? [],
-  };
-}
-
-// The program's current name, which the aircraft's stored copy may predate.
-function decodeAircraft(a: Doc, programs: Map<string, string>): Aircraft {
-  const programUuid = str(a.programUuid);
-  return {
-    ...(a as unknown as Aircraft),
-    program:
-      (programUuid && programs.get(programUuid)) || String(a.program ?? ""),
-  };
-}
-
-// Warnings come in this order on Read me.
-function decodeRecords(t: (name: string) => Doc[], warnings: string[]) {
-  return {
-    management: parsed(
-      "management",
-      t("management"),
-      "inventory and component",
-      warnings,
-    ),
-    airworthiness: parsed("airworthiness", t("airworthiness"), "AD", warnings),
-    workOrders: parsed("workOrders", t("workOrders"), "work order", warnings),
-    taskCards: parsed("taskCards", t("taskCards"), "job card", warnings),
-    archivedTaskCards: [],
-    costs: parsed("costs", t("costs"), "cost", warnings),
-    purchaseOrders: parsed(
-      "purchaseOrders",
-      t("purchaseOrders"),
-      "purchase order",
-      warnings,
-    ),
-    partsRequests: parsed(
-      "partsRequests",
-      t("partsRequests"),
-      "parts request",
-      warnings,
-    ),
-  };
-}
-
-function parsed<N extends PayloadCollection>(
-  collection: N,
-  docs: Doc[],
-  label: string,
-  warnings: string[],
-): StoredRecord<N>[] {
-  let failed = 0;
-  const out = docs.map((d) => {
-    const value = d.payload === undefined ? d : payloadOf(d);
-    const result = decodeLenient(collection, value);
-    if (result.valid) return result.record;
-    failed++;
-    return result.stored as StoredRecord<N>;
-  });
-  if (failed)
-    warnings.push(
-      `${failed} ${label} record${failed === 1 ? "" : "s"} did not match the app's current format; shown as stored, and their status may be missing.`,
-    );
-  return out;
-}
 
 // Names people recognise in place of IDs.
 function namer(
@@ -1874,9 +1648,9 @@ export async function buildRecordsWorkbook(
   const now = options.now ?? Date.now();
   const clock = zoneClock(options.timeZone);
   const today = clock.today(now);
-  const { tables, storageIds, storageFiles } = await loadExport(zipPath);
-  const decoded = decode(tables, now);
+  const decoded = await readExportSnapshot(zipPath, now);
   const { snapshot: s, programs, transferred, warnings } = decoded;
+  const { storageIds, storageFiles } = decoded;
   const names = namer(s, programs, decoded.labels, clock);
   // Newest first; the export order is by document ID, not by time.
   const audit = decoded.audit.sort((a, b) => b.at - a.at);
