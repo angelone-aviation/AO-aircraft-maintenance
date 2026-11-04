@@ -2,8 +2,10 @@
  * Responsibility: The Components screen: tracked components, their service
  *   and requirement forms, inventory, attachments and movements.
  * Layer: UI. Renders and collects input; rules live in src/domain.
- * Dependencies: src/domain (components, inventory, required parts), src/data
- *   (store), sibling screens (PartsRequests, InventoryScanner, DrsComboBox).
+ * Dependencies: src/domain (components, componentCalendar, requiredParts,
+ *   programs, model, ata), src/data (store, errors), ./ui, ./design,
+ *   ./ManagementShared and the parts, inventory, manual, job-card and
+ *   work-order components.
  *
  * Record lists keep real <table> markup restyled as CSS-grid cards, so the
  * explicit table, row and cell roles are deliberate (see .oxlintrc.json).
@@ -21,8 +23,10 @@ import {
 } from "./InventoryAttachments";
 import { validateInventoryFile } from "../domain/inventoryAttachments";
 import { useWorkspace } from "../data/store";
+import type { Backend } from "../data/backend";
+import { errorText } from "../data/errors";
 import { componentStorage } from "../domain/componentInventory";
-import { partsInventory } from "../domain/requiredParts";
+import { partsInventory, type PartsInventory } from "../domain/requiredParts";
 import {
   serviceMonthsFromDays,
   serviceDaysFromMonths,
@@ -47,6 +51,7 @@ import {
   hours,
   totalSeconds,
   parseHours,
+  type Aircraft,
   type Snapshot,
 } from "../domain/model";
 import { ataChapterSchema, ataLabel } from "../domain/ata";
@@ -61,6 +66,7 @@ import {
   type ComponentRequirement,
   type ComponentMovement,
 } from "../domain/components";
+import type { ManagementCommand } from "../domain/management";
 import { AtaChapterField } from "./AtaChapterField";
 import { AsyncForm, Field, Modal, value } from "./ui";
 import {
@@ -73,6 +79,7 @@ import {
   StatusPill,
   Toolbar,
   type IconType,
+  type Tone,
 } from "./design";
 import {
   AirplaneTilt,
@@ -100,16 +107,349 @@ import {
   useManagement,
   Reason,
 } from "./ManagementShared";
+
+const SECONDS_PER_HOUR = 3600;
+// Input limits mirror componentSchema and requirementSchema
+// (src/domain/components/records.ts), which refuse longer values on save.
+const NOTES_MAX_LENGTH = 10_000;
+const PART_ID_MAX_LENGTH = 100;
+const PARTS_LOCATION_MAX_LENGTH = 150;
+const TAG_FIELD_MAX_LENGTH = 2000;
+const DESCRIPTION_MAX_LENGTH = 255;
+// What a new requirement's due-soon warnings start at.
+const DEFAULT_WARNING_SECONDS = 25 * SECONDS_PER_HOUR;
+const DEFAULT_WARNING_CYCLES = 10;
+const DEFAULT_WARNING_LANDINGS = 10;
+const DEFAULT_WARNING_MONTHS = 1;
+const COMPONENT_TYPES = [
+  "Appliance",
+  "Engine",
+  "Propeller",
+  "Main Rotor",
+  "Tail Rotor",
+];
+const PREVIEW_PROMPT =
+  "Enter the limits and verified compliance history to preview due values.";
+
+type Tracking = ReturnType<typeof tracking>;
+type Dimension = keyof Tracking | "landings";
+type Track<K extends string> = Record<K, boolean>;
+type Mode =
+  "details" | "edit" | "baseline" | "service" | "requirement" | "child";
+type ServiceOperation = "install" | "remove" | "overhaul" | "repair";
+type Remaining = ReturnType<typeof requirementStatus>;
+type Totals = ReturnType<typeof componentTotals>;
+type RequirementInput = Partial<ComponentRequirement>;
+type BaselineCommand = Extract<
+  ManagementCommand,
+  { action: "component.baseline" }
+>;
+
+interface TrackChoice<K extends string> {
+  key: K;
+  label: string;
+}
+
+const COMPONENT_TRACKING: TrackChoice<keyof Tracking>[] = [
+  { key: "calendar", label: "Calendar" },
+  { key: "time", label: "Time" },
+  { key: "cycles", label: "Cycles" },
+];
+const REQUIREMENT_TRACKING: TrackChoice<Dimension>[] = [
+  { key: "time", label: "Hours" },
+  { key: "calendar", label: "Calendar" },
+  { key: "cycles", label: "Cycles" },
+  { key: "landings", label: "Landings" },
+];
+const DETAIL_MODES: [Mode, string][] = [
+  ["edit", "Edit component"],
+  ["baseline", "Set baseline"],
+  ["service", "Move / service"],
+];
+const DIALOG_TITLES: Record<Exclude<Mode, "details">, string> = {
+  child: "Add trackable parts",
+  edit: "Edit component",
+  baseline: "Set installation baseline",
+  service: "Component service",
+  requirement: "Component service requirement",
+};
+
+/** What {@link ComponentForm} creates or edits, and what it reports. */
+interface ComponentFormProps {
+  /** Records a component already installed here, during aircraft setup. */
+  initialAircraftUuid?: string;
+  /** The assembly a new trackable part belongs to; it takes its position. */
+  parentComponent?: Component;
+  /** Requires the part and serial numbers. */
+  inventoryOnly?: boolean;
+  /** The component to edit; absent for a new one. */
+  record?: Component;
+  /** Values a new component starts with; its readings start blank. */
+  defaults?: Partial<Component>;
+  /** Limits the aircraft offered to these. */
+  aircraftUuids?: string[];
+  /** Shown above the fields. */
+  review?: ReactNode;
+  /** Receives the saved component, its version advanced, once all files
+   * have uploaded. */
+  onDone: (uuid: string, component: Component) => void | Promise<void>;
+}
+
+/** What {@link RequirementForm} creates or edits, and what it reports. */
+interface RequirementFormProps {
+  /** The component the requirement limits. */
+  c: Component;
+  /** The requirement to edit; absent for a new one. */
+  record?: ComponentRequirement;
+  /** Values a new requirement starts with; given these, the form previews
+   * when it falls due. */
+  defaults?: RequirementInput;
+  /** Shown above the fields. */
+  review?: ReactNode;
+  /** Called once the requirement is saved. */
+  onDone: () => void;
+}
+
+/**
+ * Creates a component, in inventory or (during aircraft setup) installed, or
+ * edits one's details. Readings change only through a baseline or a
+ * movement, so an edit keeps them as stored.
+ *
+ * Attachments upload after the save, so the form refuses them offline
+ * ("Reconnect before saving a component with attachments."); if one fails,
+ * the saved component offers it and the rest for retry.
+ */
+export function ComponentForm(props: ComponentFormProps) {
+  const form = useComponentForm(props);
+  if (form.saved)
+    return (
+      <UploadRetry
+        component={form.saved}
+        files={form.files}
+        error={form.uploadError}
+        onDone={props.onDone}
+      />
+    );
+  return (
+    <AsyncForm
+      disabled={!form.writable}
+      submitLabel={props.record ? "Save component details" : "Save component"}
+      onSubmit={form.submit}
+    >
+      {props.review}
+      <ComponentFields form={form} props={props} />
+    </AsyncForm>
+  );
+}
+
+/**
+ * Plans a component's installation or removal onto a work order, or records
+ * a workshop overhaul or repair of a stored one with today's date.
+ *
+ * @param props.c - The component.
+ * @param props.onDone - Called once the plan or service event is saved.
+ */
+export function ServiceForm({
+  c,
+  onDone,
+}: {
+  c: Component;
+  onDone: () => void;
+}) {
+  const { writable, execute } = useManagement();
+  const [operation, setOperation] = useState<ServiceOperation>(
+    c.installed ? "remove" : "install",
+  );
+  if (operation === "install" || operation === "remove")
+    return (
+      <PlannedMovement c={c} operation={operation} onChange={setOperation}>
+        <PlanComponentMovement c={c} onDone={onDone} />
+      </PlannedMovement>
+    );
+  return (
+    <AsyncForm
+      disabled={!writable}
+      submitLabel="Save service event"
+      onSubmit={async (d) => {
+        await execute(serviceCommand(c, operation, value(d, "reason")));
+        onDone();
+      }}
+    >
+      <p>
+        Record workshop service for this stored component. Installation and
+        removal must be recorded through a work order.
+      </p>
+      <ServiceActionField c={c} operation={operation} onChange={setOperation} />
+      <Field label="Movement / service date">
+        <input type="date" value={today()} readOnly />
+      </Field>
+      <Reason />
+    </AsyncForm>
+  );
+}
+
+/**
+ * Adds or edits a component's service requirement: its limits on each
+ * dimension the component tracks, the due-soon warnings, the last
+ * compliance and the parts it needs. Landings need the component installed.
+ */
+export function RequirementForm({
+  c,
+  record: existing,
+  defaults,
+  review,
+  onDone,
+}: RequirementFormProps) {
+  const record = existing ?? defaults;
+  const { s, writable, execute } = useManagement(),
+    available = { ...tracking(c), landings: c.installed };
+  const [track, setTrack] = useState(() => initialTrack(available, record));
+  const [preview, setPreview] = useState(PREVIEW_PROMPT);
+  const build = (d: FormData) => requirementFromForm(d, c, record, track);
+  return (
+    <AsyncForm
+      disabled={!writable}
+      submitLabel="Calculate and save"
+      onChange={(d) => setPreview(previewDue(s, () => build(d)))}
+      onSubmit={async (d) => {
+        await execute(requirementSaveCommand(build(d), !!existing));
+        onDone();
+      }}
+    >
+      {review}
+      <RequirementBasics record={record} />
+      <RequirementLimits
+        available={available}
+        track={track}
+        onTrack={setTrack}
+        record={record}
+      />
+      <NotesField label="Service notes" initial={record?.notes} />
+      {defaults && <p role="status">{preview}</p>}
+      {existing && <History uuid={existing.uuid} />}
+    </AsyncForm>
+  );
+}
+
+/**
+ * The Components screen: components grouped under their aircraft or
+ * Inventory, searchable and filterable by location, with a dialog for
+ * details, edits, baselines, service and requirements. A `?item=` link opens
+ * that component's details.
+ *
+ * @throws {Error} What componentTotals and requirementStatus throw for a
+ *   listed component, such as "Aircraft readings or date precede the
+ *   installation baseline."; the page fails.
+ */
+export function Components() {
+  const screen = useComponentsScreen();
+  const { s, writable, items } = screen;
+  const filtered = filterComponents(s, items, screen.search, screen.location);
+  return (
+    <>
+      <ComponentsHeader
+        canAdd={writable && canAddComponents(s)}
+        onNew={() => screen.open("new", "edit")}
+      />
+      {screen.linkMissing && (
+        <NoticeBar tone="warn" icon={Warning} role="status">
+          This component is not available in the active Flight Program. Select
+          its Flight Program or check your access.
+        </NoticeBar>
+      )}
+      <ComponentFilters screen={screen} />
+      {!writable && (
+        <NoticeBar tone="neutral" icon={WifiSlash}>
+          Cached components are available. Reconnect to make changes.
+        </NoticeBar>
+      )}
+      {groupComponents(s, filtered).map(([key, group]) => (
+        <ComponentGroup key={key} id={key} group={group} screen={screen} />
+      ))}
+      {!filtered.length && <NoComponents hasComponents={items.length > 0} />}
+      {screen.selected && (
+        <ComponentDialog screen={screen} selected={screen.selected} />
+      )}
+    </>
+  );
+}
+
 const displayHours = (n: number | null | undefined) =>
   n == null ? "Unknown" : hours(n) + " h";
-const componentIcon = (type: string): IconType =>
-  type === "Engine"
-    ? Engine
-    : /propeller|rotor/i.test(type)
-      ? Fan
-      : type === "Appliance"
-        ? GearSix
-        : Cube;
+
+function toHours(seconds: number | null | undefined) {
+  return seconds == null ? undefined : seconds / SECONDS_PER_HOUR;
+}
+
+function formatMonths(days: number) {
+  return (days / daysPerServiceMonth).toFixed(1);
+}
+
+// "Due now" is a reached usage limit and grounds the aircraft, like "Past due".
+function isPastDue(status: string) {
+  return status === "Past due" || status === "Due now";
+}
+
+function componentIcon(type: string): IconType {
+  if (type === "Engine") return Engine;
+  if (/propeller|rotor/i.test(type)) return Fan;
+  return type === "Appliance" ? GearSix : Cube;
+}
+
+function registrationOf(s: Snapshot, aircraftUuid: string | undefined) {
+  return s.aircraft.find((a) => a.uuid === aircraftUuid)?.registration;
+}
+
+// A component on an aircraft needs maintenance there; one held for the
+// Flight Program needs it program-wide.
+function canMaintain(s: Snapshot, c: Component) {
+  return c.aircraftUuid
+    ? can(s, c.aircraftUuid, "maintenance")
+    : programPermission(s, "maintenance");
+}
+
+function canAddComponents(s: Snapshot) {
+  return (
+    programPermission(s, "maintenance") ||
+    s.aircraft.some((a) => can(s, a.uuid, "maintenance"))
+  );
+}
+
+function requirementSource(uuid: string) {
+  return { kind: "componentRequirement" as const, uuid, workOrderUuid: "" };
+}
+
+function TrackChoices<K extends string>({
+  choices,
+  track,
+  available,
+  onChange,
+}: {
+  choices: TrackChoice<K>[];
+  track: Track<K>;
+  available?: Track<K>;
+  onChange: (track: Track<K>) => void;
+}) {
+  return (
+    <>
+      <h3>Track by</h3>
+      <div className="management-actions">
+        {choices.map(({ key, label }) => (
+          <label className="checkbox" key={key}>
+            <input
+              type="checkbox"
+              checked={track[key]}
+              disabled={available && !available[key]}
+              onChange={(e) => onChange({ ...track, [key]: e.target.checked })}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function Position({ initial }: { initial?: Component["installPosition"] }) {
   return (
     <Field label="Installed position">
@@ -121,16 +461,8 @@ function Position({ initial }: { initial?: Component["installPosition"] }) {
     </Field>
   );
 }
-function BaselineFields({
-  c,
-  time,
-  cycles,
-  calendar,
-  installed,
-  aircraftSeconds,
-  aircraftCycles,
-  verifiedEntry = false,
-}: {
+
+interface BaselineProps {
   c?: Component;
   time: boolean;
   cycles: boolean;
@@ -139,7 +471,13 @@ function BaselineFields({
   aircraftSeconds?: number;
   aircraftCycles?: number;
   verifiedEntry?: boolean;
-}) {
+}
+
+// A verified entry (a new component from `defaults`) starts its readings
+// blank, so they are entered rather than assumed to be zero.
+function BaselineFields(props: BaselineProps) {
+  const { c, time, cycles, calendar, installed } = props;
+  const start = props.verifiedEntry ? undefined : 0;
   return (
     <>
       <p className="muted">
@@ -147,150 +485,130 @@ function BaselineFields({
         inventory component. Blank TSO and TSR mean unknown / not applicable.
       </p>
       <div className="form-grid">
-        {installed && (
-          <Field label="Installation date">
-            <input
-              type="date"
-              name="installedDate"
-              defaultValue={c?.installedDate ?? (verifiedEntry ? "" : today())}
-              max={today()}
-              required
-            />
-          </Field>
-        )}
-        {installed && time && (
-          <NumberField
-            name="installedSeconds"
-            label="Aircraft total time at install (hours)"
-            decimal
-            initial={
-              c
-                ? c.installedSeconds / 3600
-                : aircraftSeconds === undefined
-                  ? undefined
-                  : aircraftSeconds / 3600
-            }
-            required
-          />
-        )}
-        {installed && cycles && (
-          <NumberField
-            name="installedCycles"
-            label="Aircraft cycles at install"
-            initial={c?.installedCycles ?? aircraftCycles}
-            required
-          />
-        )}
-        {time && (
-          <>
-            <NumberField
-              name="timeSinceNew"
-              label="Time Since New (TSN) at install (hours)"
-              decimal
-              initial={
-                c ? c.timeSinceNew / 3600 : verifiedEntry ? undefined : 0
-              }
-              required
-            />
-            <NumberField
-              name="timeSinceOverhaul"
-              label="Time Since Overhaul (TSO) at install (hours)"
-              decimal
-              initial={
-                c?.timeSinceOverhaul == null
-                  ? undefined
-                  : c.timeSinceOverhaul / 3600
-              }
-            />
-            <NumberField
-              name="timeSinceRepair"
-              label="Time Since Repair (TSR) at install (hours)"
-              decimal
-              initial={
-                c?.timeSinceRepair == null
-                  ? undefined
-                  : c.timeSinceRepair / 3600
-              }
-            />
-          </>
-        )}
+        {installed && <InstallReadingFields {...props} />}
+        {time && <TimeBaselineFields c={c} start={start} />}
         {cycles && (
           <NumberField
             name="cyclesSinceNew"
             label="Component cycles at install"
-            initial={c?.cyclesSinceNew ?? (verifiedEntry ? undefined : 0)}
+            initial={c?.cyclesSinceNew ?? start}
             required
           />
         )}
-        {calendar && (
-          <>
-            <Field
-              label="Calendar time since new (months)"
-              hint="Service age uses average months (365.25 ÷ 12); calendar due dates use the actual calendar."
-            >
-              <input
-                name="serviceMonthsBase"
-                type="number"
-                min="0"
-                step="any"
-                defaultValue={
-                  c && !c.calendarSinceNewUnknown
-                    ? serviceMonthsFromDays(c.serviceDaysBase)
-                    : undefined
-                }
-              />
-            </Field>
-            <Field
-              label="Calendar time since overhaul (months)"
-              hint="Optional; leave blank if unknown or not applicable."
-            >
-              <input
-                name="calendarOverhaulMonths"
-                type="number"
-                min="0"
-                step="any"
-                defaultValue={
-                  c?.calendarOverhaulDaysBase == null
-                    ? undefined
-                    : serviceMonthsFromDays(c.calendarOverhaulDaysBase)
-                }
-              />
-            </Field>
-          </>
-        )}
+        {calendar && <CalendarBaselineFields c={c} />}
       </div>
     </>
   );
 }
+
+function InstallReadingFields(props: BaselineProps) {
+  const { c, verifiedEntry } = props;
+  return (
+    <>
+      <Field label="Installation date">
+        <input
+          type="date"
+          name="installedDate"
+          defaultValue={c?.installedDate ?? (verifiedEntry ? "" : today())}
+          max={today()}
+          required
+        />
+      </Field>
+      {props.time && (
+        <NumberField
+          name="installedSeconds"
+          label="Aircraft total time at install (hours)"
+          decimal
+          initial={toHours(c ? c.installedSeconds : props.aircraftSeconds)}
+          required
+        />
+      )}
+      {props.cycles && (
+        <NumberField
+          name="installedCycles"
+          label="Aircraft cycles at install"
+          initial={c?.installedCycles ?? props.aircraftCycles}
+          required
+        />
+      )}
+    </>
+  );
+}
+
+function TimeBaselineFields({ c, start }: { c?: Component; start?: number }) {
+  return (
+    <>
+      <NumberField
+        name="timeSinceNew"
+        label="Time Since New (TSN) at install (hours)"
+        decimal
+        initial={c ? toHours(c.timeSinceNew) : start}
+        required
+      />
+      <NumberField
+        name="timeSinceOverhaul"
+        label="Time Since Overhaul (TSO) at install (hours)"
+        decimal
+        initial={toHours(c?.timeSinceOverhaul)}
+      />
+      <NumberField
+        name="timeSinceRepair"
+        label="Time Since Repair (TSR) at install (hours)"
+        decimal
+        initial={toHours(c?.timeSinceRepair)}
+      />
+    </>
+  );
+}
+
+function CalendarBaselineFields({ c }: { c?: Component }) {
+  return (
+    <>
+      <Field
+        label="Calendar time since new (months)"
+        hint="Service age uses average months (365.25 ÷ 12); calendar due dates use the actual calendar."
+      >
+        <input
+          name="serviceMonthsBase"
+          type="number"
+          min="0"
+          step="any"
+          defaultValue={
+            c && !c.calendarSinceNewUnknown
+              ? serviceMonthsFromDays(c.serviceDaysBase)
+              : undefined
+          }
+        />
+      </Field>
+      <Field
+        label="Calendar time since overhaul (months)"
+        hint="Optional; leave blank if unknown or not applicable."
+      >
+        <input
+          name="calendarOverhaulMonths"
+          type="number"
+          min="0"
+          step="any"
+          defaultValue={
+            c?.calendarOverhaulDaysBase == null
+              ? undefined
+              : serviceMonthsFromDays(c.calendarOverhaulDaysBase)
+          }
+        />
+      </Field>
+    </>
+  );
+}
+
 function ComponentStorageFields({ initial }: { initial?: Component }) {
   const { s } = useManagement();
   const locations = partsInventory(s).locations;
   return (
     <>
-      <Field label="Inventory location">
-        <select
-          name="locationUuid"
-          defaultValue={initial?.locationUuid ?? ""}
-          required={locations.length > 0}
-        >
-          <option value="">
-            {locations.length
-              ? "Select inventory location"
-              : "No locations configured"}
-          </option>
-          {initial?.locationUuid &&
-            !locations.some((l) => l.uuid === initial.locationUuid) && (
-              <option value={initial.locationUuid}>
-                Previous location unavailable
-              </option>
-            )}
-          {locations.map((l) => (
-            <option key={l.uuid} value={l.uuid}>
-              {l.name}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <InventoryLocationField
+        initial={initial?.locationUuid}
+        locations={locations}
+      />
       <Field
         label="Parts location"
         hint="Optional shelf, bin or room within the inventory location."
@@ -298,7 +616,7 @@ function ComponentStorageFields({ initial }: { initial?: Component }) {
         <input
           name="partsLocation"
           defaultValue={initial?.partsLocation}
-          maxLength={150}
+          maxLength={PARTS_LOCATION_MAX_LENGTH}
           placeholder="Shelf / bin / room"
           required={!locations.length}
         />
@@ -306,30 +624,80 @@ function ComponentStorageFields({ initial }: { initial?: Component }) {
     </>
   );
 }
-export function ComponentForm({
-  initialAircraftUuid,
-  parentComponent,
-  record,
-  defaults,
-  aircraftUuids,
-  review,
-  inventoryOnly = false,
-  onDone,
+
+// A stored location this user can no longer see stays selected, labelled.
+function InventoryLocationField({
+  initial,
+  locations,
 }: {
-  initialAircraftUuid?: string;
-  parentComponent?: Component;
-  inventoryOnly?: boolean;
-  record?: Component;
-  defaults?: Partial<Component>;
-  aircraftUuids?: string[];
-  review?: ReactNode;
-  onDone: (uuid: string, component: Component) => void | Promise<void>;
+  initial?: string;
+  locations: PartsInventory["locations"];
 }) {
+  const unavailable = initial && !locations.some((l) => l.uuid === initial);
+  return (
+    <Field label="Inventory location">
+      <select
+        name="locationUuid"
+        defaultValue={initial ?? ""}
+        required={locations.length > 0}
+      >
+        <option value="">
+          {locations.length
+            ? "Select inventory location"
+            : "No locations configured"}
+        </option>
+        {unavailable && (
+          <option value={initial}>Previous location unavailable</option>
+        )}
+        {locations.map((l) => (
+          <option key={l.uuid} value={l.uuid}>
+            {l.name}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+type ComponentFormState = ReturnType<typeof useComponentForm>;
+
+function useComponentForm(props: ComponentFormProps) {
   const { s, writable, execute } = useManagement();
   const { backend, online, connected } = useWorkspace();
   const [files, setFiles] = useState<File[]>([]);
-  const [savedComponent, setSavedComponent] = useState<Component>();
+  const [saved, setSaved] = useState<Component>();
   const [uploadError, setUploadError] = useState("");
+  const choices = useComponentChoices(s, props);
+  const submit = async (d: FormData) => {
+    assertAttachable(files, !!backend && online && connected);
+    const { record } = props;
+    const installed = record?.installed ?? choices.location === "aircraft";
+    const r = componentFromForm(d, { ...props, ...choices, installed, s });
+    await execute(componentSaveCommand(r, props));
+    const next = { ...r, version: r.version + 1 };
+    const failed = await uploadAttachments(backend!, r.uuid, files);
+    if (failed) {
+      setFiles(failed.remaining);
+      setUploadError(failed.error);
+      setSaved(next);
+      return;
+    }
+    await props.onDone(r.uuid, next);
+  };
+  return {
+    s,
+    writable,
+    files,
+    setFiles,
+    saved,
+    uploadError,
+    submit,
+    ...choices,
+  };
+}
+
+function useComponentChoices(s: Snapshot, props: ComponentFormProps) {
+  const { record, initialAircraftUuid, aircraftUuids } = props;
   const editable = s.aircraft.filter(
     (a) =>
       can(s, a.uuid, "maintenance") &&
@@ -343,279 +711,404 @@ export function ComponentForm({
   const [track, setTrack] = useState(
     record ? tracking(record) : { time: true, cycles: true, calendar: true },
   );
-  const a = s.aircraft.find((a) => a.uuid === aircraftId);
-  if (savedComponent)
-    return (
-      <>
-        <p role="alert">
-          The component was saved, but some attachments could not be uploaded.
-          Retry the remaining files below. {uploadError}
-        </p>
-        <InventoryAttachments
-          stockUuid={savedComponent.uuid}
-          initialFiles={files}
-          onUploaded={() => {
-            void onDone(savedComponent.uuid, savedComponent);
-          }}
+  const aircraft = s.aircraft.find((a) => a.uuid === aircraftId);
+  return {
+    editable,
+    location,
+    aircraftId,
+    setAircraftId,
+    aircraft,
+    track,
+    setTrack,
+  };
+}
+
+// Attachments upload after the save, so a save that could not upload them
+// is refused before anything is written.
+function assertAttachable(files: File[], connected: boolean) {
+  for (const file of files)
+    validateInventoryFile(file.name, file.type, file.size);
+  if (files.length && !connected)
+    throw new Error("Reconnect before saving a component with attachments.");
+}
+
+// Uploads in order and stops at the first failure: the component is already
+// saved, so that file and the rest are offered for retry instead.
+async function uploadAttachments(
+  backend: Backend,
+  uuid: string,
+  files: File[],
+) {
+  for (const [index, file] of files.entries()) {
+    try {
+      await backend.attachInventoryFile(uuid, file);
+    } catch (error) {
+      const message = errorText(error, "Upload failed.");
+      return { remaining: files.slice(index), error: message };
+    }
+  }
+  return undefined;
+}
+
+function componentSaveCommand(
+  r: Component,
+  { record, initialAircraftUuid }: ComponentFormProps,
+): ManagementCommand {
+  return {
+    action: "record.save",
+    record: r,
+    requestUuid: crypto.randomUUID(),
+    initialAircraftSetup: !record && !!initialAircraftUuid,
+    reason: componentSaveReason(record, initialAircraftUuid),
+  };
+}
+
+function componentSaveReason(record?: Component, initialAircraftUuid?: string) {
+  if (record) return "Component details updated.";
+  return initialAircraftUuid
+    ? "Initial aircraft setup: existing installed component recorded."
+    : "Component created.";
+}
+
+interface ComponentDraft {
+  record?: Component;
+  defaults?: Partial<Component>;
+  parentComponent?: Component;
+  installed: boolean;
+  aircraftId: string;
+  track: Tracking;
+  s: Snapshot;
+}
+
+// The form's fields over the stored record. Editing keeps the stored
+// readings: they change only through a baseline or a movement.
+function componentFromForm(d: FormData, draft: ComponentDraft): Component {
+  return {
+    ...draft.record,
+    ...identityFromForm(d, draft),
+    ...placementFromForm(d, draft),
+    ...readingsFromForm(d, draft),
+  };
+}
+
+function identityFromForm(d: FormData, draft: ComponentDraft) {
+  const { record, defaults } = draft;
+  return {
+    model: value(d, "model"),
+    faaSearchModel: value(d, "faaSearchModel"),
+    manualReference: record?.manualReference ?? defaults?.manualReference,
+    uuid: record?.uuid ?? defaults?.uuid ?? crypto.randomUUID(),
+    parentComponentUuid:
+      record?.parentComponentUuid ?? draft.parentComponent?.uuid,
+    version: record?.version ?? 0,
+    kind: "component" as const,
+    aircraftUuid: record?.aircraftUuid ?? ownerAircraft(draft),
+    componentType: value(d, "componentType"),
+    ataChapter: ataChapterSchema
+      .optional()
+      .parse(value(d, "ataChapter") || undefined),
+    partNumber: value(d, "partNumber"),
+    serial: value(d, "serial"),
+    expirationDate: value(d, "expirationDate") || undefined,
+    manufacturer: value(d, "manufacturer"),
+    incomingTag: incomingTagFromForm(d),
+    notes: value(d, "notes"),
+  };
+}
+
+// Inventory belongs to the Flight Program for a program-wide maintainer;
+// anyone else keeps it in an aircraft's access group.
+function ownerAircraft({ installed, aircraftId, s }: ComponentDraft) {
+  return !installed && programPermission(s, "maintenance") ? "" : aircraftId;
+}
+
+function incomingTagFromForm(d: FormData) {
+  return Object.fromEntries(
+    Object.keys(tagFieldLabels).map((k) => [k, value(d, `incomingTag_${k}`)]),
+  );
+}
+
+function placementFromForm(d: FormData, draft: ComponentDraft) {
+  const { installed, track } = draft;
+  return {
+    trackTime: track.time,
+    trackCycles: track.cycles,
+    trackCalendar: track.calendar,
+    installed,
+    installPosition: installed
+      ? (draft.parentComponent?.installPosition ??
+        (value(d, "installPosition") as Component["installPosition"]))
+      : undefined,
+    partsLocation: installed ? undefined : value(d, "partsLocation"),
+    locationUuid: installed ? undefined : value(d, "locationUuid") || undefined,
+  };
+}
+
+function readingsFromForm(d: FormData, draft: ComponentDraft) {
+  const { record, installed, track } = draft;
+  const days = (name: string) =>
+    track.calendar ? daysFromMonths(d, name) : undefined;
+  return {
+    installedDate:
+      record?.installedDate ??
+      (installed ? value(d, "installedDate") : undefined),
+    installedSeconds:
+      record?.installedSeconds ??
+      (installed && track.time ? secs(d, "installedSeconds")! : 0),
+    installedCycles:
+      record?.installedCycles ??
+      (installed && track.cycles ? num(d, "installedCycles")! : 0),
+    timeSinceNew: record?.timeSinceNew ?? secs(d, "timeSinceNew") ?? 0,
+    timeSinceOverhaul: record
+      ? record.timeSinceOverhaul
+      : (secs(d, "timeSinceOverhaul") ?? null),
+    timeSinceRepair: record
+      ? record.timeSinceRepair
+      : (secs(d, "timeSinceRepair") ?? null),
+    cyclesSinceNew: record?.cyclesSinceNew ?? num(d, "cyclesSinceNew") ?? 0,
+    serviceDaysBase: record
+      ? record.serviceDaysBase
+      : (days("serviceMonthsBase") ?? 0),
+    calendarSinceNewUnknown: record
+      ? record.calendarSinceNewUnknown
+      : !value(d, "serviceMonthsBase"),
+    calendarOverhaulDaysBase: record
+      ? record.calendarOverhaulDaysBase
+      : (days("calendarOverhaulMonths") ?? null),
+    calendarOverhaulDate: record?.calendarOverhaulDate,
+  };
+}
+
+function daysFromMonths(d: FormData, name: string) {
+  const months = value(d, name);
+  return months ? serviceDaysFromMonths(months) : undefined;
+}
+
+function ComponentFields({
+  form,
+  props,
+}: {
+  form: ComponentFormState;
+  props: ComponentFormProps;
+}) {
+  const { record, defaults } = props;
+  return (
+    <>
+      <ComponentIdentityFields
+        record={record}
+        defaults={defaults}
+        inventoryOnly={props.inventoryOnly}
+      />
+      <TrackChoices
+        choices={COMPONENT_TRACKING}
+        track={form.track}
+        onChange={form.setTrack}
+      />
+      {!record && <NewComponentNotice setup={!!props.initialAircraftUuid} />}
+      <PlacementFields form={form} props={props} />
+      {record ? (
+        <MovementHint />
+      ) : (
+        <OpeningBaseline form={form} verified={!!defaults} />
+      )}
+      {!record && programPermission(form.s, "admin") && (
+        <AttachmentSection files={form.files} onChange={form.setFiles} />
+      )}
+      <IncomingTagFields record={record} />
+      <NotesField label="Notes" initial={record?.notes ?? defaults?.notes} />
+    </>
+  );
+}
+
+function NotesField({ label, initial }: { label: string; initial?: string }) {
+  return (
+    <Field label={label}>
+      <textarea
+        name="notes"
+        defaultValue={initial}
+        maxLength={NOTES_MAX_LENGTH}
+      />
+    </Field>
+  );
+}
+
+function UploadRetry({
+  component,
+  files,
+  error,
+  onDone,
+}: {
+  component: Component;
+  files: File[];
+  error: string;
+  onDone: ComponentFormProps["onDone"];
+}) {
+  return (
+    <>
+      <p role="alert">
+        The component was saved, but some attachments could not be uploaded.
+        Retry the remaining files below. {error}
+      </p>
+      <InventoryAttachments
+        stockUuid={component.uuid}
+        initialFiles={files}
+        onUploaded={() => {
+          void onDone(component.uuid, component);
+        }}
+      />
+    </>
+  );
+}
+
+type ComponentSource = {
+  record?: Component;
+  defaults?: Partial<Component>;
+};
+
+function ComponentIdentityFields({
+  record,
+  defaults,
+  inventoryOnly,
+}: ComponentSource & { inventoryOnly?: boolean }) {
+  return (
+    <div className="form-grid">
+      <ComponentTypeField
+        initial={record?.componentType ?? defaults?.componentType}
+      />
+      <AtaChapterField initial={record?.ataChapter ?? defaults?.ataChapter} />
+      <Field label="Part number">
+        <input
+          name="partNumber"
+          defaultValue={record?.partNumber ?? defaults?.partNumber}
+          required={inventoryOnly}
+          maxLength={PART_ID_MAX_LENGTH}
         />
-      </>
+      </Field>
+      <ModelFields record={record} defaults={defaults} />
+      <SerialFields
+        record={record}
+        defaults={defaults}
+        inventoryOnly={inventoryOnly}
+      />
+    </div>
+  );
+}
+
+// A stored type outside the list stays selectable, marked as existing.
+function ComponentTypeField({ initial }: { initial?: string }) {
+  return (
+    <Field label="Component type">
+      <select name="componentType" defaultValue={initial ?? ""} required>
+        <option value="">Select component type</option>
+        {COMPONENT_TYPES.map((type) => (
+          <option key={type}>{type}</option>
+        ))}
+        {initial && !COMPONENT_TYPES.includes(initial) && (
+          <option value={initial}>{initial} (existing type)</option>
+        )}
+      </select>
+    </Field>
+  );
+}
+
+function ModelFields({ record, defaults }: ComponentSource) {
+  return (
+    <>
+      <Field label="Component Name">
+        <DrsComboBox
+          name="model"
+          kind="models"
+          defaultValue={record?.model ?? defaults?.model}
+        />
+      </Field>
+      <Field
+        label="FAA search model (optional)"
+        hint="Leave blank to use the component model for AD searches."
+      >
+        <DrsComboBox
+          name="faaSearchModel"
+          kind="models"
+          defaultValue={record?.faaSearchModel ?? defaults?.faaSearchModel}
+        />
+      </Field>
+    </>
+  );
+}
+
+function SerialFields({
+  record,
+  defaults,
+  inventoryOnly,
+}: ComponentSource & { inventoryOnly?: boolean }) {
+  return (
+    <>
+      <Field
+        label="Expiration date"
+        hint="Optional; leave blank if not applicable."
+      >
+        <input
+          type="date"
+          name="expirationDate"
+          defaultValue={record?.expirationDate}
+        />
+      </Field>
+      <Field label="Serial number">
+        <input
+          name="serial"
+          defaultValue={record?.serial}
+          maxLength={PART_ID_MAX_LENGTH}
+          required={inventoryOnly}
+        />
+      </Field>
+      <Field label="Manufacturer">
+        <DrsComboBox
+          name="manufacturer"
+          kind="makes"
+          defaultValue={record?.manufacturer ?? defaults?.manufacturer}
+        />
+      </Field>
+    </>
+  );
+}
+
+function NewComponentNotice({ setup }: { setup: boolean }) {
+  if (setup)
+    return (
+      <label>
+        <input type="checkbox" required /> This component is already installed
+        on this aircraft. I am recording its verified opening baseline for
+        initial setup.
+      </label>
     );
   return (
-    <AsyncForm
-      disabled={!writable}
-      submitLabel={record ? "Save component details" : "Save component"}
-      onSubmit={async (d) => {
-        for (const file of files)
-          validateInventoryFile(file.name, file.type, file.size);
-        if (files.length && (!backend || !online || !connected))
-          throw new Error(
-            "Reconnect before saving a component with attachments.",
-          );
-        const installed = record?.installed ?? location === "aircraft";
-        const componentType = value(d, "componentType");
-        const r: Component = {
-          ...record,
-          model: value(d, "model"),
-          faaSearchModel: value(d, "faaSearchModel"),
-          manualReference: record?.manualReference ?? defaults?.manualReference,
-          uuid: record?.uuid ?? defaults?.uuid ?? crypto.randomUUID(),
-          parentComponentUuid:
-            record?.parentComponentUuid ?? parentComponent?.uuid,
-          version: record?.version ?? 0,
-          kind: "component",
-          aircraftUuid:
-            record?.aircraftUuid ??
-            (installed
-              ? aircraftId
-              : programPermission(s, "maintenance")
-                ? ""
-                : aircraftId),
-          componentType,
-          ataChapter: ataChapterSchema
-            .optional()
-            .parse(value(d, "ataChapter") || undefined),
-          partNumber: value(d, "partNumber"),
-          serial: value(d, "serial"),
-          expirationDate: value(d, "expirationDate") || undefined,
-          manufacturer: value(d, "manufacturer"),
-          incomingTag: Object.fromEntries(
-            Object.keys(tagFieldLabels).map((k) => [
-              k,
-              value(d, `incomingTag_${k}`),
-            ]),
-          ),
-          notes: value(d, "notes"),
-          trackTime: track.time,
-          trackCycles: track.cycles,
-          trackCalendar: track.calendar,
-          installed,
-          installPosition: installed
-            ? (parentComponent?.installPosition ??
-              (value(d, "installPosition") as Component["installPosition"]))
-            : undefined,
-          partsLocation: installed ? undefined : value(d, "partsLocation"),
-          locationUuid: installed
-            ? undefined
-            : value(d, "locationUuid") || undefined,
-          installedDate:
-            record?.installedDate ??
-            (installed ? value(d, "installedDate") : undefined),
-          installedSeconds:
-            record?.installedSeconds ??
-            (installed && track.time ? secs(d, "installedSeconds")! : 0),
-          installedCycles:
-            record?.installedCycles ??
-            (installed && track.cycles ? num(d, "installedCycles")! : 0),
-          timeSinceNew: record?.timeSinceNew ?? secs(d, "timeSinceNew") ?? 0,
-          timeSinceOverhaul: record
-            ? record.timeSinceOverhaul
-            : (secs(d, "timeSinceOverhaul") ?? null),
-          timeSinceRepair: record
-            ? record.timeSinceRepair
-            : (secs(d, "timeSinceRepair") ?? null),
-          cyclesSinceNew:
-            record?.cyclesSinceNew ?? num(d, "cyclesSinceNew") ?? 0,
-          serviceDaysBase: record
-            ? record.serviceDaysBase
-            : track.calendar && value(d, "serviceMonthsBase")
-              ? serviceDaysFromMonths(value(d, "serviceMonthsBase"))
-              : 0,
-          calendarSinceNewUnknown: record
-            ? record.calendarSinceNewUnknown
-            : !value(d, "serviceMonthsBase"),
-          calendarOverhaulDaysBase: record
-            ? record.calendarOverhaulDaysBase
-            : track.calendar && value(d, "calendarOverhaulMonths")
-              ? serviceDaysFromMonths(value(d, "calendarOverhaulMonths"))
-              : null,
-          calendarOverhaulDate: record?.calendarOverhaulDate,
-        };
-        await execute({
-          action: "record.save",
-          record: r,
-          requestUuid: crypto.randomUUID(),
-          initialAircraftSetup: !record && !!initialAircraftUuid,
-          reason: record
-            ? "Component details updated."
-            : initialAircraftUuid
-              ? "Initial aircraft setup: existing installed component recorded."
-              : "Component created.",
-        });
-        const saved = { ...r, version: r.version + 1 };
-        for (let index = 0; index < files.length; index++) {
-          try {
-            await backend!.attachInventoryFile(r.uuid, files[index]);
-          } catch (error) {
-            setFiles(files.slice(index));
-            setUploadError(
-              error instanceof Error ? error.message : "Upload failed.",
-            );
-            setSavedComponent(saved);
-            return;
-          }
-        }
-        await onDone(r.uuid, saved);
-      }}
-    >
-      {review}
-      <div className="form-grid">
-        <Field label="Component type">
-          <select
-            name="componentType"
-            defaultValue={
-              record?.componentType ?? defaults?.componentType ?? ""
-            }
-            required
-          >
-            <option value="">Select component type</option>
-            {[
-              "Appliance",
-              "Engine",
-              "Propeller",
-              "Main Rotor",
-              "Tail Rotor",
-            ].map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-            {(record?.componentType ?? defaults?.componentType) &&
-              ![
-                "Appliance",
-                "Engine",
-                "Propeller",
-                "Main Rotor",
-                "Tail Rotor",
-              ].includes(
-                record?.componentType ?? defaults?.componentType ?? "",
-              ) && (
-                <option
-                  value={record?.componentType ?? defaults?.componentType}
-                >
-                  {record?.componentType ?? defaults?.componentType} (existing
-                  type)
-                </option>
-              )}
-          </select>
-        </Field>
-        <AtaChapterField initial={record?.ataChapter ?? defaults?.ataChapter} />
-        <Field label="Part number">
-          <input
-            name="partNumber"
-            defaultValue={record?.partNumber ?? defaults?.partNumber}
-            required={inventoryOnly}
-            maxLength={100}
-          />
-        </Field>
-        <Field label="Component Name">
-          <DrsComboBox
-            name="model"
-            kind="models"
-            defaultValue={record?.model ?? defaults?.model}
-          />
-        </Field>
-        <Field
-          label="FAA search model (optional)"
-          hint="Leave blank to use the component model for AD searches."
-        >
-          <DrsComboBox
-            name="faaSearchModel"
-            kind="models"
-            defaultValue={record?.faaSearchModel ?? defaults?.faaSearchModel}
-          />
-        </Field>
-        <Field
-          label="Expiration date"
-          hint="Optional; leave blank if not applicable."
-        >
-          <input
-            type="date"
-            name="expirationDate"
-            defaultValue={record?.expirationDate}
-          />
-        </Field>
-        <Field label="Serial number">
-          <input
-            name="serial"
-            defaultValue={record?.serial}
-            maxLength={100}
-            required={inventoryOnly}
-          />
-        </Field>
-        <Field label="Manufacturer">
-          <DrsComboBox
-            name="manufacturer"
-            kind="makes"
-            defaultValue={record?.manufacturer ?? defaults?.manufacturer}
-          />
-        </Field>
-      </div>
-      <h3>Track by</h3>
-      <div className="management-actions">
-        {(["calendar", "time", "cycles"] as const).map((k) => (
-          <label className="checkbox" key={k}>
-            <input
-              type="checkbox"
-              checked={track[k]}
-              onChange={(e) => setTrack({ ...track, [k]: e.target.checked })}
-            />
-            {k === "calendar" ? "Calendar" : k === "time" ? "Time" : "Cycles"}
-          </label>
-        ))}
-      </div>
-      {!record && initialAircraftUuid && (
-        <label>
-          <input type="checkbox" required /> This component is already installed
-          on this aircraft. I am recording its verified opening baseline for
-          initial setup.
-        </label>
+    <p>
+      New components are received into inventory. Use Install / service to add
+      an installation to a work order.
+    </p>
+  );
+}
+
+function PlacementFields({
+  form,
+  props,
+}: {
+  form: ComponentFormState;
+  props: ComponentFormProps;
+}) {
+  const { record, parentComponent, defaults } = props;
+  const onAircraft = form.location === "aircraft";
+  const choose =
+    !record && (onAircraft || !programPermission(form.s, "maintenance"));
+  return (
+    <>
+      {choose && (
+        <AircraftField
+          label={onAircraft ? "Aircraft" : "Aircraft access group"}
+          form={form}
+          locked={!!props.initialAircraftUuid}
+        />
       )}
-      {!record && !initialAircraftUuid && (
-        <p>
-          New components are received into inventory. Use Install / service to
-          add an installation to a work order.
-        </p>
-      )}
-      {!record &&
-        (location === "aircraft" || !programPermission(s, "maintenance")) && (
-          <Field
-            label={
-              location === "aircraft" ? "Aircraft" : "Aircraft access group"
-            }
-          >
-            <select
-              value={aircraftId}
-              disabled={!!initialAircraftUuid}
-              onChange={(e) => setAircraftId(e.target.value)}
-              required
-            >
-              {editable.map((a) => (
-                <option key={a.uuid} value={a.uuid}>
-                  {a.registration}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-      {location === "aircraft" ? (
+      {onAircraft ? (
         <Position
           initial={
             record?.installPosition ??
@@ -626,72 +1119,124 @@ export function ComponentForm({
       ) : (
         <ComponentStorageFields initial={record} />
       )}
-      {!record && (
-        <>
-          <h3>Installation / opening baseline</h3>
-          <BaselineFields
-            key={aircraftId}
-            time={track.time}
-            cycles={track.cycles}
-            calendar={track.calendar}
-            installed={location === "aircraft"}
-            verifiedEntry={!!defaults}
-            aircraftSeconds={!defaults && a ? totalSeconds(a) : undefined}
-            aircraftCycles={!defaults ? a?.cycles : undefined}
-          />
-        </>
-      )}
-      {record && (
-        <p className="muted">
-          Use Move for aircraft/inventory changes and Set baseline for verified
-          installation readings.
-        </p>
-      )}
-      {!record && programPermission(s, "admin") && (
-        <section aria-label="8130 / supporting attachments">
-          <h3>8130 / supporting attachments</h3>
-          <p>
-            Choose an 8130 certificate or supporting documents to upload when
-            you save the component. PDF, JPEG, PNG or WebP, up to 7 MB per file.
-          </p>
-          <InventoryFilePicker files={files} onChange={setFiles} />
-        </section>
-      )}
-      <details>
-        <summary>Incoming component tag / 8130 details</summary>
-        <p>
-          For components received into inventory, enter the known source
-          aircraft and removal details. The 8130 document can be attached when
-          creating the component or added to its attachments later. Document
-          contents are not copied automatically.
-        </p>
-        {Object.entries(tagFieldLabels).map(([key, label]) => (
-          <Field
-            key={key}
-            label={
-              key === "manufacturer" || key === "description"
-                ? `Tag ${label.toLowerCase()}`
-                : label
-            }
-          >
-            <input
-              name={`incomingTag_${key}`}
-              defaultValue={record?.incomingTag?.[key] ?? ""}
-              maxLength={2000}
-            />
-          </Field>
-        ))}
-      </details>
-      <Field label="Notes">
-        <textarea
-          name="notes"
-          defaultValue={record?.notes ?? defaults?.notes}
-          maxLength={10000}
-        />
-      </Field>
-    </AsyncForm>
+    </>
   );
 }
+
+function AircraftField({
+  label,
+  form,
+  locked,
+}: {
+  label: string;
+  form: ComponentFormState;
+  locked: boolean;
+}) {
+  return (
+    <Field label={label}>
+      <select
+        value={form.aircraftId}
+        disabled={locked}
+        onChange={(e) => form.setAircraftId(e.target.value)}
+        required
+      >
+        {form.editable.map((a) => (
+          <option key={a.uuid} value={a.uuid}>
+            {a.registration}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function MovementHint() {
+  return (
+    <p className="muted">
+      Use Move for aircraft/inventory changes and Set baseline for verified
+      installation readings.
+    </p>
+  );
+}
+
+function OpeningBaseline({
+  form,
+  verified,
+}: {
+  form: ComponentFormState;
+  verified: boolean;
+}) {
+  const { track, aircraft } = form;
+  return (
+    <>
+      <h3>Installation / opening baseline</h3>
+      <BaselineFields
+        key={form.aircraftId}
+        time={track.time}
+        cycles={track.cycles}
+        calendar={track.calendar}
+        installed={form.location === "aircraft"}
+        verifiedEntry={verified}
+        aircraftSeconds={
+          !verified && aircraft ? totalSeconds(aircraft) : undefined
+        }
+        aircraftCycles={!verified ? aircraft?.cycles : undefined}
+      />
+    </>
+  );
+}
+
+function AttachmentSection({
+  files,
+  onChange,
+}: {
+  files: File[];
+  onChange: (files: File[]) => void;
+}) {
+  return (
+    <section aria-label="8130 / supporting attachments">
+      <h3>8130 / supporting attachments</h3>
+      <p>
+        Choose an 8130 certificate or supporting documents to upload when you
+        save the component. PDF, JPEG, PNG or WebP, up to 7 MB per file.
+      </p>
+      <InventoryFilePicker files={files} onChange={onChange} />
+    </section>
+  );
+}
+
+// The tag's manufacturer and description are labelled as the tag's, apart
+// from the component's own.
+function IncomingTagFields({ record }: { record?: Component }) {
+  return (
+    <details>
+      <summary>Incoming component tag / 8130 details</summary>
+      <p>
+        For components received into inventory, enter the known source aircraft
+        and removal details. The 8130 document can be attached when creating the
+        component or added to its attachments later. Document contents are not
+        copied automatically.
+      </p>
+      {Object.entries(tagFieldLabels).map(([key, label]) => (
+        <Field
+          key={key}
+          label={
+            key === "manufacturer" || key === "description"
+              ? `Tag ${label.toLowerCase()}`
+              : label
+          }
+        >
+          <input
+            name={`incomingTag_${key}`}
+            defaultValue={record?.incomingTag?.[key] ?? ""}
+            maxLength={TAG_FIELD_MAX_LENGTH}
+          />
+        </Field>
+      ))}
+    </details>
+  );
+}
+
 function BaselineForm({ c, onDone }: { c: Component; onDone: () => void }) {
   const { writable, execute } = useManagement();
   const track = tracking(c);
@@ -700,47 +1245,7 @@ function BaselineForm({ c, onDone }: { c: Component; onDone: () => void }) {
       disabled={!writable}
       submitLabel="Save verified baseline"
       onSubmit={async (d) => {
-        await execute({
-          action: "component.baseline",
-          uuid: c.uuid,
-          version: c.version,
-          requestUuid: crypto.randomUUID(),
-          reason: "Component baseline updated.",
-          installedDate: c.installed
-            ? value(d, "installedDate")
-            : c.installedDate,
-          installedSeconds:
-            c.installed && track.time
-              ? secs(d, "installedSeconds")!
-              : c.installedSeconds,
-          installedCycles:
-            c.installed && track.cycles
-              ? num(d, "installedCycles")!
-              : c.installedCycles,
-          timeSinceNew: track.time ? secs(d, "timeSinceNew")! : c.timeSinceNew,
-          timeSinceOverhaul: track.time
-            ? (secs(d, "timeSinceOverhaul") ?? null)
-            : c.timeSinceOverhaul,
-          timeSinceRepair: track.time
-            ? (secs(d, "timeSinceRepair") ?? null)
-            : c.timeSinceRepair,
-          cyclesSinceNew: track.cycles
-            ? num(d, "cyclesSinceNew")!
-            : c.cyclesSinceNew,
-          serviceDaysBase: track.calendar
-            ? value(d, "serviceMonthsBase")
-              ? serviceDaysFromMonths(value(d, "serviceMonthsBase"))
-              : 0
-            : c.serviceDaysBase,
-          calendarSinceNewUnknown: track.calendar
-            ? !value(d, "serviceMonthsBase")
-            : c.calendarSinceNewUnknown,
-          calendarOverhaulDaysBase: track.calendar
-            ? value(d, "calendarOverhaulMonths")
-              ? serviceDaysFromMonths(value(d, "calendarOverhaulMonths"))
-              : null
-            : c.calendarOverhaulDaysBase,
-        });
+        await execute(baselineCommand(d, c, track));
         onDone();
       }}
     >
@@ -748,106 +1253,195 @@ function BaselineForm({ c, onDone }: { c: Component; onDone: () => void }) {
     </AsyncForm>
   );
 }
-export function ServiceForm({
+
+// Only the dimensions the component tracks (and, in inventory, not the
+// installation readings) are read from the form; the rest stay as stored.
+function baselineCommand(
+  d: FormData,
+  c: Component,
+  track: Tracking,
+): BaselineCommand {
+  return {
+    action: "component.baseline",
+    uuid: c.uuid,
+    version: c.version,
+    requestUuid: crypto.randomUUID(),
+    reason: "Component baseline updated.",
+    ...installReadings(d, c, track),
+    ...usageReadings(d, c, track),
+  };
+}
+
+function installReadings(d: FormData, c: Component, track: Tracking) {
+  return {
+    installedDate: c.installed ? value(d, "installedDate") : c.installedDate,
+    installedSeconds:
+      c.installed && track.time
+        ? secs(d, "installedSeconds")!
+        : c.installedSeconds,
+    installedCycles:
+      c.installed && track.cycles
+        ? num(d, "installedCycles")!
+        : c.installedCycles,
+  };
+}
+
+function usageReadings(d: FormData, c: Component, track: Tracking) {
+  const { time, cycles, calendar } = track;
+  return {
+    timeSinceNew: time ? secs(d, "timeSinceNew")! : c.timeSinceNew,
+    timeSinceOverhaul: time
+      ? (secs(d, "timeSinceOverhaul") ?? null)
+      : c.timeSinceOverhaul,
+    timeSinceRepair: time
+      ? (secs(d, "timeSinceRepair") ?? null)
+      : c.timeSinceRepair,
+    cyclesSinceNew: cycles ? num(d, "cyclesSinceNew")! : c.cyclesSinceNew,
+    serviceDaysBase: calendar
+      ? (daysFromMonths(d, "serviceMonthsBase") ?? 0)
+      : c.serviceDaysBase,
+    calendarSinceNewUnknown: calendar
+      ? !value(d, "serviceMonthsBase")
+      : c.calendarSinceNewUnknown,
+    calendarOverhaulDaysBase: calendar
+      ? (daysFromMonths(d, "calendarOverhaulMonths") ?? null)
+      : c.calendarOverhaulDaysBase,
+  };
+}
+
+function PlannedMovement({
   c,
-  onDone,
+  operation,
+  onChange,
+  children,
 }: {
   c: Component;
-  onDone: () => void;
+  operation: ServiceOperation;
+  onChange: (operation: ServiceOperation) => void;
+  children: ReactNode;
 }) {
-  const { s, writable, execute } = useManagement();
-  const [operation, setOperation] = useState<
-    "install" | "remove" | "overhaul" | "repair"
-  >(c.installed ? "remove" : "install");
-  if (operation === "install" || operation === "remove")
-    return (
-      <>
-        {!c.installed && (
-          <Field label="Service action">
-            <select
-              value={operation}
-              onChange={(e) => setOperation(e.target.value as typeof operation)}
-            >
-              <option value="install">Install through work order</option>
-              <option value="overhaul">Record overhaul</option>
-              <option value="repair">Record repair</option>
-            </select>
-          </Field>
-        )}
-        <PlanComponentMovement c={c} onDone={onDone} />
-      </>
-    );
   return (
-    <AsyncForm
-      disabled={!writable}
-      submitLabel="Save service event"
-      onSubmit={async (d) => {
-        await execute({
-          action: "component.service",
-          uuid: c.uuid,
-          version: c.version,
-          requestUuid: crypto.randomUUID(),
-          reason: value(d, "reason"),
-          operation,
-          date: today(),
-        });
-        onDone();
-      }}
-    >
-      <p>
-        Record workshop service for this stored component. Installation and
-        removal must be recorded through a work order.
-      </p>
-      <Field label="Service action">
-        <select
-          value={operation}
-          onChange={(e) => setOperation(e.target.value as typeof operation)}
-        >
-          {c.installed ? (
-            <option value="remove">Move to inventory</option>
-          ) : (
-            <>
-              <option value="install">Install on aircraft</option>
-              <option value="overhaul">Record overhaul</option>
-              <option value="repair">Record repair</option>
-            </>
-          )}
-        </select>
-      </Field>
-      <Field label="Movement / service date">
-        <input type="date" value={today()} readOnly />
-      </Field>
-      <Reason />
-    </AsyncForm>
+    <>
+      {!c.installed && (
+        <Field label="Service action">
+          <select
+            value={operation}
+            onChange={(e) => onChange(e.target.value as ServiceOperation)}
+          >
+            <option value="install">Install through work order</option>
+            <option value="overhaul">Record overhaul</option>
+            <option value="repair">Record repair</option>
+          </select>
+        </Field>
+      )}
+      {children}
+    </>
   );
 }
-export function RequirementForm({
+
+function ServiceActionField({
   c,
-  record: existing,
-  defaults,
-  review,
-  onDone,
+  operation,
+  onChange,
 }: {
   c: Component;
-  record?: ComponentRequirement;
-  defaults?: Partial<ComponentRequirement>;
-  review?: ReactNode;
-  onDone: () => void;
+  operation: ServiceOperation;
+  onChange: (operation: ServiceOperation) => void;
 }) {
-  const record = existing ?? defaults;
-  const { s, writable, execute } = useManagement(),
-    available = { ...tracking(c), landings: c.installed };
-  const [track, setTrack] = useState(() => ({
-    time: available.time && (record ? !!record.intervalSeconds : true),
-    calendar:
-      available.calendar && (record ? !!record.calendarIntervalValue : true),
-    cycles: available.cycles && (record ? !!record.intervalCycles : true),
-    landings: !!record?.intervalLandings,
-  }));
-  const [preview, setPreview] = useState(
-    "Enter the limits and verified compliance history to preview due values.",
+  return (
+    <Field label="Service action">
+      <select
+        value={operation}
+        onChange={(e) => onChange(e.target.value as ServiceOperation)}
+      >
+        {c.installed ? (
+          <option value="remove">Move to inventory</option>
+        ) : (
+          <>
+            <option value="install">Install on aircraft</option>
+            <option value="overhaul">Record overhaul</option>
+            <option value="repair">Record repair</option>
+          </>
+        )}
+      </select>
+    </Field>
   );
-  const buildRecord = (d: FormData): ComponentRequirement => ({
+}
+
+function serviceCommand(
+  c: Component,
+  operation: ServiceOperation,
+  reason: string,
+): ManagementCommand {
+  return {
+    action: "component.service",
+    uuid: c.uuid,
+    version: c.version,
+    requestUuid: crypto.randomUUID(),
+    reason,
+    operation,
+    date: today(),
+  };
+}
+
+// A new requirement opens on every dimension the component tracks except
+// landings; one being edited (or pre-filled) on the dimensions it limits.
+function initialTrack(
+  available: Track<Dimension>,
+  record?: RequirementInput,
+): Track<Dimension> {
+  const limits = (interval: number | undefined) => (record ? !!interval : true);
+  return {
+    time: available.time && limits(record?.intervalSeconds),
+    calendar: available.calendar && limits(record?.calendarIntervalValue),
+    cycles: available.cycles && limits(record?.intervalCycles),
+    landings: !!record?.intervalLandings,
+  };
+}
+
+// The preview runs on every keystroke, so a form that cannot be computed yet
+// shows a prompt; saving reports the actual error.
+function previewDue(s: Snapshot, build: () => ComponentRequirement) {
+  try {
+    return dueSummary(saveRequirement(s, build(), Date.now()));
+  } catch {
+    return "Complete the limits and verified compliance history to calculate due values.";
+  }
+}
+
+function dueSummary(r: ComponentRequirement) {
+  const limits = [
+    r.dueSeconds === undefined
+      ? ""
+      : `${r.dueSeconds / SECONDS_PER_HOUR} ${r.timeBasis} hours`,
+    r.dueCycles === undefined ? "" : `${r.dueCycles} cycles`,
+    r.dueLandings === undefined ? "" : `${r.dueLandings} aircraft landings`,
+    r.dueDate ?? "",
+  ];
+  return `Next due: ${limits.filter(Boolean).join(" or ")} (first reached).`;
+}
+
+function requirementSaveCommand(
+  r: ComponentRequirement,
+  editing: boolean,
+): ManagementCommand {
+  return {
+    action: "record.save",
+    record: r,
+    requestUuid: crypto.randomUUID(),
+    reason: editing
+      ? "Service requirement updated."
+      : "Service requirement added.",
+  };
+}
+
+function requirementFromForm(
+  d: FormData,
+  c: Component,
+  record: RequirementInput | undefined,
+  track: Track<Dimension>,
+): ComponentRequirement {
+  return {
     kind: "componentRequirement",
     requiredParts: requiredPartsFromForm(d),
     sourceKey: record?.sourceKey,
@@ -862,10 +1456,20 @@ export function RequirementForm({
     ) as ComponentRequirement["requirementType"],
     description: value(d, "description"),
     notes: value(d, "notes"),
+    ...complianceFromForm(d, c, record, track),
+    ...intervalsFromForm(d),
+  };
+}
+
+function complianceFromForm(
+  d: FormData,
+  c: Component,
+  record: RequirementInput | undefined,
+  track: Track<Dimension>,
+) {
+  return {
     lastDate: value(d, "lastDate") || undefined,
-    lastSeconds: value(d, "lastSeconds").startsWith("-")
-      ? -parseHours(value(d, "lastSeconds").slice(1))!
-      : secs(d, "lastSeconds"),
+    lastSeconds: signedSeconds(d, "lastSeconds"),
     timeResetSeconds: track.time ? record?.timeResetSeconds : undefined,
     lastCycles: num(d, "lastCycles"),
     lastLandings: num(d, "lastLandings"),
@@ -873,7 +1477,19 @@ export function RequirementForm({
     landingLimitMode: (value(d, "landingLimitMode") ||
       "FROM_LAST_COMPLIED") as ComponentRequirement["landingLimitMode"],
     landingReferenceAircraftUuid: track.landings ? c.aircraftUuid : undefined,
-    warningLandings: num(d, "warningLandings") ?? 10,
+    warningLandings: num(d, "warningLandings") ?? DEFAULT_WARNING_LANDINGS,
+  };
+}
+
+// Compliance before a repair or overhaul reset is kept rebased: negative
+// hours on the new counter. parseHours takes positive hours only.
+function signedSeconds(d: FormData, name: string) {
+  const hours = value(d, name);
+  return hours.startsWith("-") ? -parseHours(hours.slice(1))! : secs(d, name);
+}
+
+function intervalsFromForm(d: FormData) {
+  return {
     calendarIntervalValue: num(d, "calendarIntervalValue"),
     calendarIntervalUnit: (value(d, "calendarIntervalUnit") ||
       "MONTHS") as ComponentRequirement["calendarIntervalUnit"],
@@ -888,59 +1504,15 @@ export function RequirementForm({
     warningCalendarMonths: num(d, "warningCalendarMonths") ?? 0,
     warningSeconds: secs(d, "warningSeconds") ?? 0,
     warningCycles: num(d, "warningCycles") ?? 0,
-  });
+  };
+}
+
+function RequirementBasics({ record }: { record?: RequirementInput }) {
   return (
-    <AsyncForm
-      disabled={!writable}
-      submitLabel="Calculate and save"
-      onChange={(d) => {
-        try {
-          const r = saveRequirement(s, buildRecord(d), Date.now());
-          setPreview(
-            `Next due: ${[
-              r.dueSeconds === undefined
-                ? ""
-                : `${r.dueSeconds / 3600} ${r.timeBasis} hours`,
-              r.dueCycles === undefined ? "" : `${r.dueCycles} cycles`,
-              r.dueLandings === undefined
-                ? ""
-                : `${r.dueLandings} aircraft landings`,
-              r.dueDate ?? "",
-            ]
-              .filter(Boolean)
-              .join(" or ")} (first reached).`,
-          );
-        } catch {
-          setPreview(
-            "Complete the limits and verified compliance history to calculate due values.",
-          );
-        }
-      }}
-      onSubmit={async (d) => {
-        const r = buildRecord(d);
-        await execute({
-          action: "record.save",
-          record: r,
-          requestUuid: crypto.randomUUID(),
-          reason: existing
-            ? "Service requirement updated."
-            : "Service requirement added.",
-        });
-        onDone();
-      }}
-    >
-      {review}
+    <>
       <RequiredPartsFields
         initial={record?.requiredParts}
-        source={
-          record?.uuid
-            ? {
-                kind: "componentRequirement",
-                uuid: record.uuid,
-                workOrderUuid: "",
-              }
-            : undefined
-        }
+        source={record?.uuid ? requirementSource(record.uuid) : undefined}
       />
       <Field label="Requirement type">
         <select
@@ -960,219 +1532,272 @@ export function RequirementForm({
         <input
           name="description"
           defaultValue={record?.description}
-          maxLength={255}
+          maxLength={DESCRIPTION_MAX_LENGTH}
           required
         />
       </Field>
       <ManualReferenceFields initial={record?.manualReference} />
-      <h3>Track by</h3>
-      <div className="management-actions">
-        {(["time", "calendar", "cycles", "landings"] as const).map((key) => (
-          <label className="checkbox" key={key}>
-            <input
-              type="checkbox"
-              checked={track[key]}
-              disabled={!available[key]}
-              onChange={(event) =>
-                setTrack({ ...track, [key]: event.target.checked })
-              }
-            />
-            {key === "time"
-              ? "Hours"
-              : key === "landings"
-                ? "Landings"
-                : key === "calendar"
-                  ? "Calendar"
-                  : "Cycles"}
-          </label>
-        ))}
-      </div>
+    </>
+  );
+}
+
+interface LimitProps {
+  tracked: boolean;
+  record?: RequirementInput;
+}
+
+function RequirementLimits({
+  available,
+  track,
+  onTrack,
+  record,
+}: {
+  available: Track<Dimension>;
+  track: Track<Dimension>;
+  onTrack: (track: Track<Dimension>) => void;
+  record?: RequirementInput;
+}) {
+  return (
+    <>
+      <TrackChoices
+        choices={REQUIREMENT_TRACKING}
+        track={track}
+        available={available}
+        onChange={onTrack}
+      />
       {Object.values(available).some((enabled) => !enabled) && (
         <p className="muted">
           Enable tracking on the component to use a disabled option.
         </p>
       )}
-      {available.time && (
-        <fieldset disabled={!track.time} hidden={!track.time}>
-          <h3>Component time</h3>
-          <div className="form-grid">
-            <Field label="Time basis">
-              <select
-                name="timeBasis"
-                defaultValue={record?.timeBasis ?? "TSN"}
-              >
-                {["TSN", "TSO", "TSR"].map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Hour limit basis">
-              <select
-                name="timeLimitMode"
-                defaultValue={record?.timeLimitMode ?? "ABSOLUTE"}
-              >
-                <option value="ABSOLUTE">Absolute component hours</option>
-                <option value="FROM_LAST_COMPLIED">
-                  Hours after last compliance
-                </option>
-              </select>
-            </Field>
-            <NumberField
-              name="intervalSeconds"
-              label="Hour limit / interval"
-              decimal
-              initial={
-                record?.intervalSeconds === undefined
-                  ? undefined
-                  : record.intervalSeconds / 3600
-              }
-            />
-            <Field
-              label="Last complied component hours"
-              hint={
-                record?.lastSeconds !== undefined && record.lastSeconds < 0
-                  ? "Previous compliance predates the repair/overhaul counter reset; its rebased reading preserves the remaining interval."
-                  : undefined
-              }
-            >
-              <input
-                name="lastSeconds"
-                type="number"
-                step="0.1"
-                defaultValue={
-                  record?.lastSeconds === undefined
-                    ? ""
-                    : record.lastSeconds / 3600
-                }
-              />
-            </Field>
-            <NumberField
-              name="warningSeconds"
-              label="Due soon: component hours"
-              decimal
-              initial={(record?.warningSeconds ?? 90000) / 3600}
-              required
-            />
-          </div>
-        </fieldset>
-      )}
+      {available.time && <TimeLimits tracked={track.time} record={record} />}
       {available.cycles && (
-        <fieldset disabled={!track.cycles} hidden={!track.cycles}>
-          <h3>Component cycles</h3>
-          <div className="form-grid">
-            <Field label="Cycle limit basis">
-              <select
-                name="cycleLimitMode"
-                defaultValue={record?.cycleLimitMode ?? "ABSOLUTE"}
-              >
-                <option value="ABSOLUTE">Absolute component cycles</option>
-                <option value="FROM_LAST_COMPLIED">
-                  Cycles after last compliance
-                </option>
-              </select>
-            </Field>
-            <NumberField
-              name="intervalCycles"
-              label="Cycle limit / interval"
-              initial={record?.intervalCycles}
-            />
-            <NumberField
-              name="lastCycles"
-              label="Last complied component cycles"
-              initial={record?.lastCycles}
-            />
-            <NumberField
-              name="warningCycles"
-              label="Due soon: component cycles"
-              initial={record?.warningCycles ?? 10}
-              required
-            />
-          </div>
-        </fieldset>
+        <CycleLimits tracked={track.cycles} record={record} />
       )}
-      <fieldset disabled={!track.landings} hidden={!track.landings}>
-        <legend>Aircraft landings</legend>
-        <p>
-          Uses the installed aircraft’s total landing count. Review this
-          baseline when moving the component to another aircraft.
-        </p>
-        <div className="form-grid">
-          <Field label="Landing limit basis">
-            <select
-              name="landingLimitMode"
-              defaultValue={record?.landingLimitMode ?? "FROM_LAST_COMPLIED"}
-            >
-              <option value="FROM_LAST_COMPLIED">
-                Landings after last compliance
-              </option>
-              <option value="ABSOLUTE">Absolute aircraft landings</option>
-            </select>
-          </Field>
-          <NumberField
-            name="intervalLandings"
-            label="Landing limit / interval"
-            initial={record?.intervalLandings}
-          />
-          <NumberField
-            name="lastLandings"
-            label="Last complied at (aircraft total landings)"
-            initial={record?.lastLandings}
-          />
-          <NumberField
-            name="warningLandings"
-            label="Due soon: landings"
-            initial={record?.warningLandings ?? 10}
-          />
-        </div>
-      </fieldset>
+      <LandingLimits tracked={track.landings} record={record} />
       {available.calendar && (
-        <fieldset disabled={!track.calendar} hidden={!track.calendar}>
-          <h3>Calendar</h3>
-          <div className="form-grid">
-            <Field label="Last complied date">
-              <input
-                name="lastDate"
-                type="date"
-                defaultValue={record?.lastDate}
-                max={today()}
-              />
-            </Field>
-            <NumberField
-              name="calendarIntervalValue"
-              label="Calendar interval"
-              initial={record?.calendarIntervalValue}
-            />
-            <Field label="Calendar unit">
-              <select
-                name="calendarIntervalUnit"
-                defaultValue={record?.calendarIntervalUnit ?? "MONTHS"}
-              >
-                {["DAYS", "MONTHS", "YEARS"].map((u) => (
-                  <option key={u}>{u}</option>
-                ))}
-              </select>
-            </Field>
-            <NumberField
-              name="warningCalendarMonths"
-              label="Due soon: calendar months"
-              initial={record?.warningCalendarMonths ?? 1}
-              required
-            />
-          </div>
-          <p className="muted">
-            Month and year intervals fall due on the last day of the target
-            month. Day intervals use exact dates.
-          </p>
-        </fieldset>
+        <CalendarLimits tracked={track.calendar} record={record} />
       )}
-      <Field label="Service notes">
-        <textarea name="notes" defaultValue={record?.notes} maxLength={10000} />
-      </Field>
-      {defaults && <p role="status">{preview}</p>}
-      {existing && <History uuid={existing.uuid} />}
-    </AsyncForm>
+    </>
   );
 }
+
+// An untracked dimension's fieldset is disabled, so its fields read as
+// blank, and hidden; it stays mounted, so entries survive toggling it back.
+function TrackedFieldset({
+  tracked,
+  children,
+}: {
+  tracked: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <fieldset disabled={!tracked} hidden={!tracked}>
+      {children}
+    </fieldset>
+  );
+}
+
+function TimeLimits({ tracked, record }: LimitProps) {
+  return (
+    <TrackedFieldset tracked={tracked}>
+      <h3>Component time</h3>
+      <div className="form-grid">
+        <TimeBasisFields record={record} />
+        <NumberField
+          name="intervalSeconds"
+          label="Hour limit / interval"
+          decimal
+          initial={toHours(record?.intervalSeconds)}
+        />
+        <LastCompliedHours lastSeconds={record?.lastSeconds} />
+        <NumberField
+          name="warningSeconds"
+          label="Due soon: component hours"
+          decimal
+          initial={
+            (record?.warningSeconds ?? DEFAULT_WARNING_SECONDS) /
+            SECONDS_PER_HOUR
+          }
+          required
+        />
+      </div>
+    </TrackedFieldset>
+  );
+}
+
+function TimeBasisFields({ record }: { record?: RequirementInput }) {
+  return (
+    <>
+      <Field label="Time basis">
+        <select name="timeBasis" defaultValue={record?.timeBasis ?? "TSN"}>
+          {["TSN", "TSO", "TSR"].map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Hour limit basis">
+        <select
+          name="timeLimitMode"
+          defaultValue={record?.timeLimitMode ?? "ABSOLUTE"}
+        >
+          <option value="ABSOLUTE">Absolute component hours</option>
+          <option value="FROM_LAST_COMPLIED">
+            Hours after last compliance
+          </option>
+        </select>
+      </Field>
+    </>
+  );
+}
+
+function LastCompliedHours({ lastSeconds }: { lastSeconds?: number }) {
+  return (
+    <Field
+      label="Last complied component hours"
+      hint={
+        lastSeconds !== undefined && lastSeconds < 0
+          ? "Previous compliance predates the repair/overhaul counter reset; its rebased reading preserves the remaining interval."
+          : undefined
+      }
+    >
+      <input
+        name="lastSeconds"
+        type="number"
+        step="0.1"
+        defaultValue={
+          lastSeconds === undefined ? "" : lastSeconds / SECONDS_PER_HOUR
+        }
+      />
+    </Field>
+  );
+}
+
+function CycleLimits({ tracked, record }: LimitProps) {
+  return (
+    <TrackedFieldset tracked={tracked}>
+      <h3>Component cycles</h3>
+      <div className="form-grid">
+        <Field label="Cycle limit basis">
+          <select
+            name="cycleLimitMode"
+            defaultValue={record?.cycleLimitMode ?? "ABSOLUTE"}
+          >
+            <option value="ABSOLUTE">Absolute component cycles</option>
+            <option value="FROM_LAST_COMPLIED">
+              Cycles after last compliance
+            </option>
+          </select>
+        </Field>
+        <NumberField
+          name="intervalCycles"
+          label="Cycle limit / interval"
+          initial={record?.intervalCycles}
+        />
+        <NumberField
+          name="lastCycles"
+          label="Last complied component cycles"
+          initial={record?.lastCycles}
+        />
+        <NumberField
+          name="warningCycles"
+          label="Due soon: component cycles"
+          initial={record?.warningCycles ?? DEFAULT_WARNING_CYCLES}
+          required
+        />
+      </div>
+    </TrackedFieldset>
+  );
+}
+
+function LandingLimits({ tracked, record }: LimitProps) {
+  return (
+    <TrackedFieldset tracked={tracked}>
+      <legend>Aircraft landings</legend>
+      <p>
+        Uses the installed aircraft’s total landing count. Review this baseline
+        when moving the component to another aircraft.
+      </p>
+      <div className="form-grid">
+        <Field label="Landing limit basis">
+          <select
+            name="landingLimitMode"
+            defaultValue={record?.landingLimitMode ?? "FROM_LAST_COMPLIED"}
+          >
+            <option value="FROM_LAST_COMPLIED">
+              Landings after last compliance
+            </option>
+            <option value="ABSOLUTE">Absolute aircraft landings</option>
+          </select>
+        </Field>
+        <NumberField
+          name="intervalLandings"
+          label="Landing limit / interval"
+          initial={record?.intervalLandings}
+        />
+        <NumberField
+          name="lastLandings"
+          label="Last complied at (aircraft total landings)"
+          initial={record?.lastLandings}
+        />
+        <NumberField
+          name="warningLandings"
+          label="Due soon: landings"
+          initial={record?.warningLandings ?? DEFAULT_WARNING_LANDINGS}
+        />
+      </div>
+    </TrackedFieldset>
+  );
+}
+
+function CalendarLimits({ tracked, record }: LimitProps) {
+  return (
+    <TrackedFieldset tracked={tracked}>
+      <h3>Calendar</h3>
+      <div className="form-grid">
+        <Field label="Last complied date">
+          <input
+            name="lastDate"
+            type="date"
+            defaultValue={record?.lastDate}
+            max={today()}
+          />
+        </Field>
+        <NumberField
+          name="calendarIntervalValue"
+          label="Calendar interval"
+          initial={record?.calendarIntervalValue}
+        />
+        <CalendarUnitField unit={record?.calendarIntervalUnit} />
+        <NumberField
+          name="warningCalendarMonths"
+          label="Due soon: calendar months"
+          initial={record?.warningCalendarMonths ?? DEFAULT_WARNING_MONTHS}
+          required
+        />
+      </div>
+      <p className="muted">
+        Month and year intervals fall due on the last day of the target month.
+        Day intervals use exact dates.
+      </p>
+    </TrackedFieldset>
+  );
+}
+
+function CalendarUnitField({ unit }: { unit?: string }) {
+  return (
+    <Field label="Calendar unit">
+      <select name="calendarIntervalUnit" defaultValue={unit ?? "MONTHS"}>
+        {["DAYS", "MONTHS", "YEARS"].map((u) => (
+          <option key={u}>{u}</option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+type EditRequirement = (r: ComponentRequirement) => void;
+
 function Requirements({
   s,
   c,
@@ -1180,150 +1805,20 @@ function Requirements({
 }: {
   s: Snapshot;
   c: Component;
-  edit?: (r: ComponentRequirement) => void;
+  edit?: EditRequirement;
 }) {
-  const rows = (s.management ?? []).filter(
-    (r): r is ComponentRequirement =>
-      r.kind === "componentRequirement" && r.componentUuid === c.uuid,
-  );
   const a = s.aircraft.find((a) => a.uuid === c.aircraftUuid);
+  const rows = (s.management ?? [])
+    .filter(
+      (r): r is ComponentRequirement =>
+        r.kind === "componentRequirement" && r.componentUuid === c.uuid,
+    )
+    .map((r) => ({ r, remaining: requirementStatus(r, c, a) }));
   return (
     <section className="mx-dialog-section">
       <h3>Service requirements</h3>
       {rows.length ? (
-        <div className="table-wrap mx-table-card">
-          <table className="mx-table">
-            <thead>
-              <tr>
-                <th>Requirement</th>
-                <th>Due date</th>
-                <th>Due hours / basis</th>
-                <th>Due cycles / landings</th>
-                <th>Remaining</th>
-                <th>Status</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const remaining = requirementStatus(r, c, a);
-                return (
-                  <tr key={r.uuid}>
-                    <td>
-                      <span className="mx-table-kicker">
-                        {r.requirementType}
-                      </span>
-                      <strong className="mx-table-title">
-                        {r.description}
-                      </strong>
-                      <span className="mx-table-note">
-                        <ManualLink reference={r.manualReference} />
-                      </span>
-                      <PartsAvailability
-                        parts={r.requiredParts}
-                        source={{
-                          kind: "componentRequirement",
-                          uuid: r.uuid,
-                          workOrderUuid: "",
-                        }}
-                      />
-                    </td>
-                    <td className="mx-num">{requirementDueDate(r) ?? "—"}</td>
-                    <td className="mx-num">
-                      {r.dueSeconds === undefined
-                        ? "—"
-                        : `${hours(r.dueSeconds)} ${r.timeBasis}`}
-                    </td>
-                    <td className="mx-num">
-                      {r.dueCycles !== undefined && (
-                        <div>{r.dueCycles} cycles</div>
-                      )}
-                      {r.dueLandings !== undefined && (
-                        <div>{r.dueLandings} landings</div>
-                      )}
-                      {r.dueCycles === undefined &&
-                        r.dueLandings === undefined &&
-                        "—"}
-                    </td>
-                    <td className="mx-num">
-                      {remaining.seconds !== undefined && (
-                        <div>{hours(remaining.seconds)} h</div>
-                      )}
-                      {remaining.cycles !== undefined && (
-                        <div>{remaining.cycles} cycles</div>
-                      )}
-                      {remaining.landings !== undefined && (
-                        <div>{remaining.landings} landings</div>
-                      )}
-                      {remaining.days !== undefined && (
-                        <div>
-                          ≈ {(remaining.days / daysPerServiceMonth).toFixed(1)}{" "}
-                          months
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <StatusPill
-                        tone={
-                          // "Due now" is a reached usage limit and grounds
-                          // the aircraft, like "Past due".
-                          remaining.status === "Past due" ||
-                          remaining.status === "Due now"
-                            ? "danger"
-                            : remaining.status === "Tracked"
-                              ? "good"
-                              : "warn"
-                        }
-                      >
-                        {remaining.status}
-                      </StatusPill>
-                    </td>
-                    <td>
-                      <span className="mx-table-actions">
-                        <RequestPartsButton
-                          source={{
-                            kind: "componentRequirement",
-                            uuid: r.uuid,
-                            workOrderUuid: "",
-                          }}
-                        />
-                        {c.installed && (
-                          <LinkedTaskCards
-                            aircraftUuid={c.aircraftUuid}
-                            link={{
-                              kind: "componentRequirement",
-                              uuid: r.uuid,
-                            }}
-                          />
-                        )}
-                        {c.installed && (
-                          <AddToWorkOrder
-                            aircraftUuid={c.aircraftUuid}
-                            source={{
-                              kind: "componentRequirement",
-                              uuid: r.uuid,
-                            }}
-                          />
-                        )}
-                        {edit && (
-                          <button
-                            className="button small"
-                            onClick={() => edit(r)}
-                          >
-                            <PencilSimple size={16} aria-hidden="true" />
-                            Edit requirement
-                          </button>
-                        )}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <RequirementsTable rows={rows} c={c} edit={edit} />
       ) : (
         <p className="mx-dialog-empty">
           No separate service requirements recorded.
@@ -1332,6 +1827,164 @@ function Requirements({
     </section>
   );
 }
+
+function RequirementsTable({
+  rows,
+  c,
+  edit,
+}: {
+  rows: { r: ComponentRequirement; remaining: Remaining }[];
+  c: Component;
+  edit?: EditRequirement;
+}) {
+  return (
+    <div className="table-wrap mx-table-card">
+      <table className="mx-table">
+        <RequirementsHead />
+        <tbody>
+          {rows.map(({ r, remaining }) => (
+            <RequirementRow
+              key={r.uuid}
+              r={r}
+              c={c}
+              remaining={remaining}
+              edit={edit}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RequirementsHead() {
+  return (
+    <thead>
+      <tr>
+        <th>Requirement</th>
+        <th>Due date</th>
+        <th>Due hours / basis</th>
+        <th>Due cycles / landings</th>
+        <th>Remaining</th>
+        <th>Status</th>
+        <th>
+          <span className="sr-only">Actions</span>
+        </th>
+      </tr>
+    </thead>
+  );
+}
+
+function RequirementRow({
+  r,
+  c,
+  remaining,
+  edit,
+}: {
+  r: ComponentRequirement;
+  c: Component;
+  remaining: Remaining;
+  edit?: EditRequirement;
+}) {
+  return (
+    <tr>
+      <RequirementCell r={r} />
+      <td className="mx-num">{requirementDueDate(r) ?? "—"}</td>
+      <td className="mx-num">
+        {r.dueSeconds === undefined
+          ? "—"
+          : `${hours(r.dueSeconds)} ${r.timeBasis}`}
+      </td>
+      <td className="mx-num">
+        <DueCounts r={r} />
+      </td>
+      <td className="mx-num">
+        <RemainingLimits remaining={remaining} />
+      </td>
+      <td>
+        <StatusPill tone={requirementTone(remaining.status)}>
+          {remaining.status}
+        </StatusPill>
+      </td>
+      <td>
+        <RequirementActions r={r} c={c} edit={edit} />
+      </td>
+    </tr>
+  );
+}
+
+function requirementTone(status: string): Tone {
+  if (isPastDue(status)) return "danger";
+  return status === "Tracked" ? "good" : "warn";
+}
+
+function RequirementCell({ r }: { r: ComponentRequirement }) {
+  return (
+    <td>
+      <span className="mx-table-kicker">{r.requirementType}</span>
+      <strong className="mx-table-title">{r.description}</strong>
+      <span className="mx-table-note">
+        <ManualLink reference={r.manualReference} />
+      </span>
+      <PartsAvailability
+        parts={r.requiredParts}
+        source={requirementSource(r.uuid)}
+      />
+    </td>
+  );
+}
+
+function DueCounts({ r }: { r: ComponentRequirement }) {
+  return (
+    <>
+      {r.dueCycles !== undefined && <div>{r.dueCycles} cycles</div>}
+      {r.dueLandings !== undefined && <div>{r.dueLandings} landings</div>}
+      {r.dueCycles === undefined && r.dueLandings === undefined && "—"}
+    </>
+  );
+}
+
+function RemainingLimits({ remaining }: { remaining: Remaining }) {
+  const { seconds, cycles, landings, days } = remaining;
+  return (
+    <>
+      {seconds !== undefined && <div>{hours(seconds)} h</div>}
+      {cycles !== undefined && <div>{cycles} cycles</div>}
+      {landings !== undefined && <div>{landings} landings</div>}
+      {days !== undefined && <div>≈ {formatMonths(days)} months</div>}
+    </>
+  );
+}
+
+function RequirementActions({
+  r,
+  c,
+  edit,
+}: {
+  r: ComponentRequirement;
+  c: Component;
+  edit?: EditRequirement;
+}) {
+  const link = { kind: "componentRequirement" as const, uuid: r.uuid };
+  return (
+    <span className="mx-table-actions">
+      <RequestPartsButton source={requirementSource(r.uuid)} />
+      {c.installed && (
+        <LinkedTaskCards aircraftUuid={c.aircraftUuid} link={link} />
+      )}
+      {c.installed && (
+        <AddToWorkOrder aircraftUuid={c.aircraftUuid} source={link} />
+      )}
+      {edit && (
+        <button className="button small" onClick={() => edit(r)}>
+          <PencilSimple size={16} aria-hidden="true" />
+          Edit requirement
+        </button>
+      )}
+    </span>
+  );
+}
+
 function Movements({ s, c }: { s: Snapshot; c: Component }) {
   const rows = (s.management ?? [])
     .filter(
@@ -1356,57 +2009,7 @@ function Movements({ s, c }: { s: Snapshot; c: Component }) {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.uuid}>
-                  <td>
-                    <span className="mx-table-kicker mx-num">{r.date}</span>
-                    <strong className="mx-table-title">{r.action}</strong>
-                    {r.supersededByCorrection && (
-                      <StatusPill tone="warn">
-                        Superseded by correction
-                      </StatusPill>
-                    )}
-                    {r.correctionUuid && !r.supersededByCorrection && (
-                      <span className="mx-table-note">
-                        Work-order correction
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {s.aircraft.find((a) => a.uuid === r.aircraftUuid)
-                      ?.registration ?? "Inventory"}
-                    <span className="mx-table-note">
-                      {r.partsLocation ?? r.installPosition}
-                    </span>
-                  </td>
-                  <td className="mx-num">
-                    {displayHours(r.timeSinceNew)} /{" "}
-                    {displayHours(r.timeSinceOverhaul)} /{" "}
-                    {displayHours(r.timeSinceRepair)}
-                  </td>
-                  <td className="mx-num">
-                    {r.cycles} cycles
-                    <span className="mx-table-note">
-                      Calendar time since new:{" "}
-                      {r.calendarSinceNewUnknown
-                        ? "Unknown"
-                        : `≈ ${(r.serviceDays / daysPerServiceMonth).toFixed(1)} months`}
-                    </span>
-                    {r.calendarOverhaulDays != null && (
-                      <span className="mx-table-note">
-                        Calendar time since overhaul: ≈{" "}
-                        {(r.calendarOverhaulDays / daysPerServiceMonth).toFixed(
-                          1,
-                        )}{" "}
-                        months
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {s.members.find((m) => m.id === r.actorId)?.name ??
-                      "Recorded user"}
-                    <span className="mx-table-note">{r.note}</span>
-                  </td>
-                </tr>
+                <MovementRow key={r.uuid} s={s} r={r} />
               ))}
             </tbody>
           </table>
@@ -1419,20 +2022,100 @@ function Movements({ s, c }: { s: Snapshot; c: Component }) {
     </section>
   );
 }
-export function Components() {
+
+function MovementRow({ s, r }: { s: Snapshot; r: ComponentMovement }) {
+  return (
+    <tr>
+      <MovementActionCell r={r} />
+      <td>
+        {registrationOf(s, r.aircraftUuid) ?? "Inventory"}
+        <span className="mx-table-note">
+          {r.partsLocation ?? r.installPosition}
+        </span>
+      </td>
+      <td className="mx-num">
+        {displayHours(r.timeSinceNew)} / {displayHours(r.timeSinceOverhaul)} /{" "}
+        {displayHours(r.timeSinceRepair)}
+      </td>
+      <MovementAgeCell r={r} />
+      <td>
+        {s.members.find((m) => m.id === r.actorId)?.name ?? "Recorded user"}
+        <span className="mx-table-note">{r.note}</span>
+      </td>
+    </tr>
+  );
+}
+
+function MovementActionCell({ r }: { r: ComponentMovement }) {
+  return (
+    <td>
+      <span className="mx-table-kicker mx-num">{r.date}</span>
+      <strong className="mx-table-title">{r.action}</strong>
+      {r.supersededByCorrection && (
+        <StatusPill tone="warn">Superseded by correction</StatusPill>
+      )}
+      {r.correctionUuid && !r.supersededByCorrection && (
+        <span className="mx-table-note">Work-order correction</span>
+      )}
+    </td>
+  );
+}
+
+function MovementAgeCell({ r }: { r: ComponentMovement }) {
+  return (
+    <td className="mx-num">
+      {r.cycles} cycles
+      <span className="mx-table-note">
+        Calendar time since new:{" "}
+        {r.calendarSinceNewUnknown
+          ? "Unknown"
+          : `≈ ${formatMonths(r.serviceDays)} months`}
+      </span>
+      {r.calendarOverhaulDays != null && (
+        <span className="mx-table-note">
+          Calendar time since overhaul: ≈ {formatMonths(r.calendarOverhaulDays)}{" "}
+          months
+        </span>
+      )}
+    </td>
+  );
+}
+
+type ComponentsScreen = ReturnType<typeof useComponentsScreen>;
+
+function useComponentsScreen() {
   const { s, writable } = useManagement();
-  const [selected, setSelected] = useState<Component | "new" | null>(null),
-    [mode, setMode] = useState<
-      "details" | "edit" | "baseline" | "service" | "requirement" | "child"
-    >("details"),
-    [requirement, setRequirement] = useState<
-      ComponentRequirement | undefined
-    >(),
-    [search, setSearch] = useState(""),
-    [location, setLocation] = useState("all");
   const items = (s.management ?? []).filter(
     (r): r is Component => r.kind === "component",
   );
+  const selection = useSelection(items);
+  const [requirement, setRequirement] = useState<ComponentRequirement>(),
+    [search, setSearch] = useState(""),
+    [location, setLocation] = useState("all");
+  const editRequirement = (r?: ComponentRequirement) => {
+    setRequirement(r);
+    selection.setMode("requirement");
+  };
+  return {
+    ...selection,
+    s,
+    writable,
+    items,
+    requirement,
+    editRequirement,
+    search,
+    setSearch,
+    location,
+    setLocation,
+  };
+}
+
+// Which component the dialog shows, and how. A ?item= link opens its details
+// once, so a snapshot update cannot reset an open dialog to details; closing
+// the dialog clears the link.
+function useSelection(items: Component[]) {
+  const [selected, setSelected] = useState<Component | "new" | null>(null),
+    [mode, setMode] = useState<Mode>("details");
   const linked = useSearch({ from: "/components" });
   const navigate = useNavigate({ from: "/components" });
   const openedLink = useRef("");
@@ -1447,526 +2130,593 @@ export function Components() {
     setSelected(linkedComponent);
     setMode("details");
   }, [linked.item, linkedComponent]);
-  const c = selected && selected !== "new" ? selected : undefined;
-  const editable = c
-    ? c.aircraftUuid
-      ? can(s, c.aircraftUuid, "maintenance")
-      : programPermission(s, "maintenance")
-    : programPermission(s, "maintenance") ||
-      s.aircraft.some((a) => can(s, a.uuid, "maintenance"));
-  const filtered = items.filter(
-    (c) =>
-      (location === "all" || (location === "aircraft") === c.installed) &&
-      `${c.componentType} ${c.model ?? ""} ${c.manufacturer} ${c.partNumber} ${c.serial} ${ataLabel(c.ataChapter)} ${s.aircraft.find((a) => a.uuid === c.aircraftUuid)?.registration ?? ""}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
-  const groups = new Map<string, { label: string; items: Component[] }>();
-  for (const item of filtered) {
-    const aircraft = item.installed
-      ? s.aircraft.find((a) => a.uuid === item.aircraftUuid)
-      : undefined;
-    const key = item.installed ? `aircraft:${item.aircraftUuid}` : "inventory";
-    const group = groups.get(key) ?? {
-      label: item.installed
-        ? (aircraft?.registration ?? "Unknown aircraft")
-        : "Inventory",
-      items: [],
-    };
-    group.items.push(item);
-    groups.set(key, group);
-  }
+  const open = (next: Component | "new", nextMode: Mode) => {
+    setSelected(next);
+    setMode(nextMode);
+  };
   const done = () => {
     setSelected(null);
     if (linked.item)
       void navigate({ to: "/components", search: {}, replace: true });
   };
+  const linkMissing = !!linked.item && !linkedComponent;
+  return { selected, setSelected, mode, setMode, open, done, linkMissing };
+}
+
+function filterComponents(
+  s: Snapshot,
+  items: Component[],
+  search: string,
+  location: string,
+) {
+  const query = search.toLowerCase();
+  return items.filter(
+    (c) =>
+      (location === "all" || (location === "aircraft") === c.installed) &&
+      searchText(s, c).includes(query),
+  );
+}
+
+function searchText(s: Snapshot, c: Component) {
+  const registration = registrationOf(s, c.aircraftUuid) ?? "";
+  return `${c.componentType} ${c.model ?? ""} ${c.manufacturer} ${c.partNumber} ${c.serial} ${ataLabel(c.ataChapter)} ${registration}`.toLowerCase();
+}
+
+interface ComponentGroupItems {
+  label: string;
+  items: Component[];
+}
+
+// Installed components group under their aircraft, the rest under
+// Inventory; groups sort by label.
+function groupComponents(s: Snapshot, components: Component[]) {
+  const groups = new Map<string, ComponentGroupItems>();
+  for (const item of components) {
+    const key = item.installed ? `aircraft:${item.aircraftUuid}` : "inventory";
+    const group = groups.get(key) ?? { label: groupLabel(s, item), items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+  return [...groups].sort(([, a], [, b]) => a.label.localeCompare(b.label));
+}
+
+function groupLabel(s: Snapshot, item: Component) {
+  if (!item.installed) return "Inventory";
+  return registrationOf(s, item.aircraftUuid) ?? "Unknown aircraft";
+}
+
+function NoComponents({ hasComponents }: { hasComponents: boolean }) {
+  return (
+    <EmptyState
+      title={hasComponents ? "No matching components" : "No tracked components"}
+    >
+      {hasComponents
+        ? "Try another search or location."
+        : "Add components in inventory or enter a verified aircraft installation."}
+    </EmptyState>
+  );
+}
+
+function ComponentsHeader({
+  canAdd,
+  onNew,
+}: {
+  canAdd: boolean;
+  onNew: () => void;
+}) {
+  return (
+    <PageHeader
+      eyebrow="MAINTENANCE"
+      title="Components"
+      description="Component identity, installation baselines, service requirements, and movement history."
+      actions={
+        <>
+          <Link className="button" to="/components/imported">
+            <Copy size={18} aria-hidden="true" />
+            Imported components
+          </Link>
+          <ScanButton />
+          <button className="button primary" disabled={!canAdd} onClick={onNew}>
+            <Plus size={18} weight="bold" aria-hidden="true" />
+            New component
+          </button>
+        </>
+      }
+    />
+  );
+}
+
+function ComponentFilters({ screen }: { screen: ComponentsScreen }) {
+  const { items } = screen;
+  const installed = items.filter((c) => c.installed).length;
+  return (
+    <Toolbar
+      className="mx-filters"
+      end={
+        <Segmented
+          label="Component location"
+          value={screen.location}
+          onChange={screen.setLocation}
+          options={[
+            { value: "all", label: "All locations", count: items.length },
+            { value: "aircraft", label: "Installed", count: installed },
+            {
+              value: "inventory",
+              label: "In inventory",
+              count: items.filter((c) => !c.installed).length,
+            },
+          ]}
+        />
+      }
+    >
+      <SearchField
+        className="mx-search"
+        label="Search components"
+        placeholder="Type, manufacturer, part, serial, or ATA"
+        value={screen.search}
+        onChange={screen.setSearch}
+      />
+    </Toolbar>
+  );
+}
+
+function ComponentGroup({
+  id,
+  group,
+  screen,
+}: {
+  id: string;
+  group: ComponentGroupItems;
+  screen: ComponentsScreen;
+}) {
+  const count = group.items.length;
+  return (
+    <details className="component-group mx-comp-group" open>
+      <summary className="mx-group-summary">
+        <IconTile
+          icon={id === "inventory" ? Warehouse : AirplaneTilt}
+          tone="blue"
+          size="md"
+        />
+        <span className="mx-group-title">{group.label}</span>
+        <span className="mx-group-count">
+          {count} component{count === 1 ? "" : "s"}
+        </span>
+        <CaretDown className="mx-group-caret" size={18} aria-hidden="true" />
+      </summary>
+      <table
+        className="mx-records mx-comp-table"
+        role="table"
+        aria-label={`${group.label} components`}
+      >
+        <ComponentsHead />
+        <tbody role="rowgroup">
+          {group.items.map((c) => (
+            <ComponentRow key={c.uuid} c={c} screen={screen} />
+          ))}
+        </tbody>
+      </table>
+    </details>
+  );
+}
+
+function ComponentsHead() {
+  return (
+    <thead className="sr-only" role="rowgroup">
+      <tr role="row">
+        {[
+          "Component / part / serial",
+          "Position / location",
+          "Readings",
+          "Nearest service remaining",
+          "Actions",
+        ].map((h) => (
+          <th role="columnheader" scope="col" key={h}>
+            {h}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+function ComponentRow({
+  c,
+  screen,
+}: {
+  c: Component;
+  screen: ComponentsScreen;
+}) {
+  const { s } = screen;
+  const a = s.aircraft.find((a) => a.uuid === c.aircraftUuid);
+  const t = componentTotals(c, a);
+  const parent = screen.items.find((p) => p.uuid === c.parentComponentUuid);
+  const statuses = (s.management ?? [])
+    .filter(
+      (r): r is ComponentRequirement =>
+        r.kind === "componentRequirement" && r.componentUuid === c.uuid,
+    )
+    .map((r) => requirementStatus(r, c, a));
+  const pastDue = statuses.some((r) => isPastDue(r.status));
+  return (
+    <tr role="row" className="mx-comp-row">
+      <ComponentMainCell c={c} parent={parent} pastDue={pastDue} />
+      <PlacementCell s={s} c={c} a={a} />
+      <ReadingsCell c={c} t={t} />
+      <RemainingCell statuses={statuses} pastDue={pastDue} />
+      <ComponentActionsCell c={c} screen={screen} />
+    </tr>
+  );
+}
+
+function ComponentMainCell({
+  c,
+  parent,
+  pastDue,
+}: {
+  c: Component;
+  parent?: Component;
+  pastDue: boolean;
+}) {
+  return (
+    <td role="cell" className="mx-cell-main">
+      <IconTile
+        icon={componentIcon(c.componentType)}
+        tone={componentTone(c, pastDue)}
+      />
+      <span className="mx-main-text">
+        <strong className="mx-main-title">{c.model || c.componentType}</strong>
+        <span className="mx-main-sub">
+          {c.componentType} · {c.manufacturer || "—"} · {ataLabel(c.ataChapter)}
+        </span>
+        <span className="mx-main-note mx-num">
+          P/N {c.partNumber || "—"} · S/N {c.serial || "—"}
+        </span>
+        {parent && (
+          <span className="mx-main-note">
+            Part of {parent.model || parent.componentType}
+          </span>
+        )}
+      </span>
+    </td>
+  );
+}
+
+function componentTone(c: Component, pastDue: boolean): Tone {
+  if (pastDue) return "danger";
+  if (c.installed) return "good";
+  return c.outForRepair ? "warn" : "blue";
+}
+
+function PlacementCell({
+  s,
+  c,
+  a,
+}: {
+  s: Snapshot;
+  c: Component;
+  a?: Aircraft;
+}) {
+  const pill = placementPill(c);
+  return (
+    <td role="cell" className="mx-fact">
+      <FactLabel>Position / location</FactLabel>
+      {c.installed && (
+        <span className="mx-fact-value">
+          {a?.registration ?? "Unknown aircraft"}
+        </span>
+      )}
+      <span className={c.installed ? "mx-fact-note" : "mx-fact-value"}>
+        {c.installed
+          ? (c.installPosition ?? "Not recorded")
+          : componentStorage(s, c)}
+      </span>
+      <StatusPill className="mx-fact-pill" dot={false} tone={pill.tone}>
+        {pill.label}
+      </StatusPill>
+    </td>
+  );
+}
+
+function placementPill(c: Component): { tone: Tone; label: string } {
+  if (c.installed) return { tone: "good", label: "Installed" };
+  return c.outForRepair
+    ? { tone: "warn", label: "Out for repair" }
+    : { tone: "neutral", label: "In storage" };
+}
+
+function ReadingsCell({ c, t }: { c: Component; t: Totals }) {
+  const track = tracking(c);
+  return (
+    <td role="cell" className="mx-fact">
+      <FactLabel>Readings</FactLabel>
+      {track.time && (
+        <>
+          <span className="mx-fact-value mx-num">
+            TSN {displayHours(t.timeSinceNew)}
+          </span>
+          <span className="mx-fact-note mx-num">
+            TSO {displayHours(t.timeSinceOverhaul)} · TSR{" "}
+            {displayHours(t.timeSinceRepair)}
+          </span>
+        </>
+      )}
+      {(track.cycles || track.calendar) && (
+        <span className="mx-fact-note">{usageSummary(c, t, track)}</span>
+      )}
+      {track.calendar && (
+        <span className="mx-fact-note">
+          Calendar time since overhaul:{" "}
+          {t.calendarOverhaulDays == null
+            ? "Unknown"
+            : `${formatMonths(t.calendarOverhaulDays)} months`}
+        </span>
+      )}
+      {!track.time && !track.cycles && !track.calendar && (
+        <span className="mx-fact-value">—</span>
+      )}
+    </td>
+  );
+}
+
+function usageSummary(c: Component, t: Totals, track: Tracking) {
+  const age = c.calendarSinceNewUnknown
+    ? "Unknown"
+    : `${formatMonths(t.serviceDays)} months`;
+  return [
+    track.cycles ? `${t.cyclesSinceNew} cycles` : "",
+    track.calendar ? `Calendar time since new: ${age}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function RemainingCell({
+  statuses,
+  pastDue,
+}: {
+  statuses: Remaining[];
+  pastDue: boolean;
+}) {
+  return (
+    <td role="cell" className="mx-fact mx-comp-remaining">
+      <FactLabel>Nearest service remaining</FactLabel>
+      {statuses.length ? (
+        <NearestRemaining statuses={statuses} pastDue={pastDue} />
+      ) : (
+        <span className="mx-fact-note">No service requirements</span>
+      )}
+    </td>
+  );
+}
+
+function NearestRemaining({
+  statuses,
+  pastDue,
+}: {
+  statuses: Remaining[];
+  pastDue: boolean;
+}) {
+  const seconds = nearest(statuses, "seconds"),
+    days = nearest(statuses, "days"),
+    cycles = nearest(statuses, "cycles");
   return (
     <>
-      <PageHeader
-        eyebrow="MAINTENANCE"
-        title="Components"
-        description="Component identity, installation baselines, service requirements, and movement history."
-        actions={
-          <>
-            <Link className="button" to="/components/imported">
-              <Copy size={18} aria-hidden="true" />
-              Imported components
-            </Link>
-            <ScanButton />
-            <button
-              className="button primary"
-              disabled={
-                !writable ||
-                !(
-                  programPermission(s, "maintenance") ||
-                  s.aircraft.some((a) => can(s, a.uuid, "maintenance"))
-                )
-              }
-              onClick={() => {
-                setSelected("new");
-                setMode("edit");
-              }}
-            >
-              <Plus size={18} weight="bold" aria-hidden="true" />
-              New component
-            </button>
-          </>
-        }
-      />
-      {linked.item && !linkedComponent && (
-        <NoticeBar tone="warn" icon={Warning} role="status">
-          This component is not available in the active Flight Program. Select
-          its Flight Program or check your access.
-        </NoticeBar>
+      {seconds !== undefined && (
+        <div className="mx-fact-value mx-num">{hours(seconds)} h</div>
       )}
-      <Toolbar
-        className="mx-filters"
-        end={
-          <Segmented
-            label="Component location"
-            value={location}
-            onChange={setLocation}
-            options={[
-              { value: "all", label: "All locations", count: items.length },
-              {
-                value: "aircraft",
-                label: "Installed",
-                count: items.filter((c) => c.installed).length,
-              },
-              {
-                value: "inventory",
-                label: "In inventory",
-                count: items.filter((c) => !c.installed).length,
-              },
-            ]}
-          />
-        }
-      >
-        <SearchField
-          className="mx-search"
-          label="Search components"
-          placeholder="Type, manufacturer, part, serial, or ATA"
-          value={search}
-          onChange={setSearch}
-        />
-      </Toolbar>
-      {!writable && (
-        <NoticeBar tone="neutral" icon={WifiSlash}>
-          Cached components are available. Reconnect to make changes.
-        </NoticeBar>
+      {days !== undefined && (
+        <div className="mx-fact-value mx-num">
+          ≈ {formatMonths(days)} months
+        </div>
       )}
-      {[...groups]
-        .sort(([, a], [, b]) => a.label.localeCompare(b.label))
-        .map(([key, group]) => (
-          <details className="component-group mx-comp-group" key={key} open>
-            <summary className="mx-group-summary">
-              <IconTile
-                icon={key === "inventory" ? Warehouse : AirplaneTilt}
-                tone="blue"
-                size="md"
-              />
-              <span className="mx-group-title">{group.label}</span>
-              <span className="mx-group-count">
-                {group.items.length} component
-                {group.items.length === 1 ? "" : "s"}
-              </span>
-              <CaretDown
-                className="mx-group-caret"
-                size={18}
-                aria-hidden="true"
-              />
-            </summary>
-            <table
-              className="mx-records mx-comp-table"
-              role="table"
-              aria-label={`${group.label} components`}
-            >
-              <thead className="sr-only" role="rowgroup">
-                <tr role="row">
-                  {[
-                    "Component / part / serial",
-                    "Position / location",
-                    "Readings",
-                    "Nearest service remaining",
-                    "Actions",
-                  ].map((h) => (
-                    <th role="columnheader" scope="col" key={h}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody role="rowgroup">
-                {group.items.map((c) => {
-                  const a = s.aircraft.find((a) => a.uuid === c.aircraftUuid);
-                  const t = componentTotals(c, a),
-                    track = tracking(c);
-                  const parent = items.find(
-                    (p) => p.uuid === c.parentComponentUuid,
-                  );
-                  const statuses = (s.management ?? [])
-                    .filter(
-                      (r): r is ComponentRequirement =>
-                        r.kind === "componentRequirement" &&
-                        r.componentUuid === c.uuid,
-                    )
-                    .map((r) => requirementStatus(r, c, a));
-                  const nearest = (key: "seconds" | "days" | "cycles") => {
-                    const values = statuses
-                      .map((r) => r[key])
-                      .filter((n): n is number => n !== undefined);
-                    return values.length ? Math.min(...values) : undefined;
-                  };
-                  const seconds = nearest("seconds"),
-                    days = nearest("days"),
-                    cycles = nearest("cycles");
-                  const pastDue = statuses.some(
-                    (r) => r.status === "Past due" || r.status === "Due now",
-                  );
-                  return (
-                    <tr role="row" className="mx-comp-row" key={c.uuid}>
-                      <td role="cell" className="mx-cell-main">
-                        <IconTile
-                          icon={componentIcon(c.componentType)}
-                          tone={
-                            pastDue
-                              ? "danger"
-                              : c.installed
-                                ? "good"
-                                : c.outForRepair
-                                  ? "warn"
-                                  : "blue"
-                          }
-                        />
-                        <span className="mx-main-text">
-                          <strong className="mx-main-title">
-                            {c.model || c.componentType}
-                          </strong>
-                          <span className="mx-main-sub">
-                            {c.componentType} · {c.manufacturer || "—"} ·{" "}
-                            {ataLabel(c.ataChapter)}
-                          </span>
-                          <span className="mx-main-note mx-num">
-                            P/N {c.partNumber || "—"} · S/N {c.serial || "—"}
-                          </span>
-                          {parent && (
-                            <span className="mx-main-note">
-                              Part of {parent.model || parent.componentType}
-                            </span>
-                          )}
-                        </span>
-                      </td>
-                      <td role="cell" className="mx-fact">
-                        <FactLabel>Position / location</FactLabel>
-                        {c.installed && (
-                          <span className="mx-fact-value">
-                            {a?.registration ?? "Unknown aircraft"}
-                          </span>
-                        )}
-                        <span
-                          className={
-                            c.installed ? "mx-fact-note" : "mx-fact-value"
-                          }
-                        >
-                          {c.installed
-                            ? (c.installPosition ?? "Not recorded")
-                            : componentStorage(s, c)}
-                        </span>
-                        <StatusPill
-                          className="mx-fact-pill"
-                          dot={false}
-                          tone={
-                            c.installed
-                              ? "good"
-                              : c.outForRepair
-                                ? "warn"
-                                : "neutral"
-                          }
-                        >
-                          {c.installed
-                            ? "Installed"
-                            : c.outForRepair
-                              ? "Out for repair"
-                              : "In storage"}
-                        </StatusPill>
-                      </td>
-                      <td role="cell" className="mx-fact">
-                        <FactLabel>Readings</FactLabel>
-                        {track.time && (
-                          <>
-                            <span className="mx-fact-value mx-num">
-                              TSN {displayHours(t.timeSinceNew)}
-                            </span>
-                            <span className="mx-fact-note mx-num">
-                              TSO {displayHours(t.timeSinceOverhaul)} · TSR{" "}
-                              {displayHours(t.timeSinceRepair)}
-                            </span>
-                          </>
-                        )}
-                        {(track.cycles || track.calendar) && (
-                          <span className="mx-fact-note">
-                            {[
-                              track.cycles ? `${t.cyclesSinceNew} cycles` : "",
-                              track.calendar
-                                ? `Calendar time since new: ${c.calendarSinceNewUnknown ? "Unknown" : `${(t.serviceDays / daysPerServiceMonth).toFixed(1)} months`}`
-                                : "",
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        )}
-                        {track.calendar && (
-                          <span className="mx-fact-note">
-                            Calendar time since overhaul:{" "}
-                            {t.calendarOverhaulDays == null
-                              ? "Unknown"
-                              : `${(t.calendarOverhaulDays / daysPerServiceMonth).toFixed(1)} months`}
-                          </span>
-                        )}
-                        {!track.time && !track.cycles && !track.calendar && (
-                          <span className="mx-fact-value">—</span>
-                        )}
-                      </td>
-                      <td role="cell" className="mx-fact mx-comp-remaining">
-                        <FactLabel>Nearest service remaining</FactLabel>
-                        {statuses.length ? (
-                          <>
-                            {seconds !== undefined && (
-                              <div className="mx-fact-value mx-num">
-                                {hours(seconds)} h
-                              </div>
-                            )}
-                            {days !== undefined && (
-                              <div className="mx-fact-value mx-num">
-                                ≈ {(days / daysPerServiceMonth).toFixed(1)}{" "}
-                                months
-                              </div>
-                            )}
-                            {cycles !== undefined && (
-                              <div className="mx-fact-value mx-num">
-                                {cycles} cycles
-                              </div>
-                            )}
-                            {pastDue && (
-                              <StatusPill
-                                className="mx-fact-pill"
-                                tone="danger"
-                                dot={false}
-                              >
-                                Past due
-                              </StatusPill>
-                            )}
-                            {seconds === undefined &&
-                              days === undefined &&
-                              cycles === undefined && (
-                                <span className="mx-fact-value">—</span>
-                              )}
-                          </>
-                        ) : (
-                          <span className="mx-fact-note">
-                            No service requirements
-                          </span>
-                        )}
-                      </td>
-                      <td role="cell" className="mx-cell-actions">
-                        <button
-                          className="button small"
-                          onClick={() => {
-                            setSelected(c);
-                            setMode("details");
-                          }}
-                        >
-                          Details
-                        </button>
-                        {(c.aircraftUuid
-                          ? can(s, c.aircraftUuid, "maintenance")
-                          : programPermission(s, "maintenance")) && (
-                          <button
-                            className="button soft small"
-                            disabled={!writable}
-                            onClick={() => {
-                              setSelected(c);
-                              setMode("service");
-                            }}
-                          >
-                            <Wrench
-                              size={16}
-                              weight="bold"
-                              aria-hidden="true"
-                            />
-                            Add Service/Inspections
-                          </button>
-                        )}
-                        <RequestPartsButton
-                          source={{
-                            kind: "component",
-                            uuid: c.uuid,
-                            workOrderUuid: "",
-                          }}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </details>
-        ))}
-      {!filtered.length && (
-        <EmptyState
-          title={
-            items.length ? "No matching components" : "No tracked components"
-          }
-        >
-          {items.length
-            ? "Try another search or location."
-            : "Add components in inventory or enter a verified aircraft installation."}
-        </EmptyState>
+      {cycles !== undefined && (
+        <div className="mx-fact-value mx-num">{cycles} cycles</div>
       )}
-      {selected && (
-        <Modal
-          key={mode}
-          title={
-            selected === "new"
-              ? "New component"
-              : mode === "child"
-                ? "Add trackable parts"
-                : mode === "edit"
-                  ? "Edit component"
-                  : mode === "baseline"
-                    ? "Set installation baseline"
-                    : mode === "service"
-                      ? "Component service"
-                      : mode === "requirement"
-                        ? "Component service requirement"
-                        : c!.componentType
-          }
-          onClose={done}
-        >
-          {mode === "child" && c ? (
-            <ComponentForm
-              parentComponent={c}
-              initialAircraftUuid={c.installed ? c.aircraftUuid : undefined}
-              onDone={(_uuid, child) => {
-                setSelected(child);
-                setRequirement(undefined);
-                setMode("requirement");
-              }}
-            />
-          ) : mode === "edit" ? (
-            <ComponentForm record={c} onDone={done} />
-          ) : mode === "baseline" && c ? (
-            <BaselineForm c={c} onDone={done} />
-          ) : mode === "service" && c ? (
-            <ServiceForm c={c} onDone={done} />
-          ) : mode === "requirement" && c ? (
-            <RequirementForm c={c} record={requirement} onDone={done} />
-          ) : (
-            c && (
-              <>
-                <dl className="mx-detail-list">
-                  <dt>ATA Chapter</dt>
-                  <dd>{ataLabel(c.ataChapter)}</dd>
-                  <dt>Model</dt>
-                  <dd>{c.model || "Not recorded"}</dd>
-                  <dt>Manual</dt>
-                  <dd>
-                    <ManualLink reference={c.manualReference} />
-                  </dd>
-                  <dt>Manufacturer</dt>
-                  <dd>{c.manufacturer || "Not recorded"}</dd>
-                  <dt>Part / serial</dt>
-                  <dd>
-                    {c.partNumber || "—"} / {c.serial || "—"}
-                  </dd>
-                  <dt>Location</dt>
-                  <dd>
-                    {c.installed
-                      ? s.aircraft.find((a) => a.uuid === c.aircraftUuid)
-                          ?.registration
-                      : "Inventory"}{" "}
-                    · {c.installed ? c.installPosition : componentStorage(s, c)}
-                  </dd>
-                  <dt>Installed / removed</dt>
-                  <dd>
-                    {c.installedDate ?? "—"} / {c.removedDate ?? "—"}
-                  </dd>
-                  <dt>Notes</dt>
-                  <dd>{c.notes || "—"}</dd>
-                </dl>
-                {editable && (
-                  <div className="mx-dialog-actions">
-                    {c.installed && (
-                      <button
-                        className="button"
-                        disabled={!writable}
-                        onClick={() => setMode("child")}
-                      >
-                        Add trackable parts
-                      </button>
-                    )}
-                    <button
-                      className="button"
-                      disabled={!writable}
-                      onClick={() => setMode("edit")}
-                    >
-                      Edit component
-                    </button>
-                    <button
-                      className="button"
-                      disabled={!writable}
-                      onClick={() => setMode("baseline")}
-                    >
-                      Set baseline
-                    </button>
-                    <button
-                      className="button"
-                      disabled={!writable}
-                      onClick={() => setMode("service")}
-                    >
-                      Move / service
-                    </button>
-                    <button
-                      className="button primary"
-                      disabled={!writable}
-                      onClick={() => {
-                        setRequirement(undefined);
-                        setMode("requirement");
-                      }}
-                    >
-                      <Plus size={18} weight="bold" aria-hidden="true" />
-                      Add service requirement
-                    </button>
-                  </div>
-                )}
-                {programPermission(s, "admin") && (
-                  <section className="mx-dialog-section">
-                    <div className="mx-dialog-actions">
-                      <InventoryPrintButtons item={c} />
-                    </div>
-                    <InventoryAttachments stockUuid={c.uuid} />
-                  </section>
-                )}
-                <Requirements
-                  s={s}
-                  c={c}
-                  edit={
-                    editable && writable
-                      ? (r) => {
-                          setRequirement(r);
-                          setMode("requirement");
-                        }
-                      : undefined
-                  }
-                />
-                <Movements s={s} c={c} />
-                <History uuid={c.uuid} />
-              </>
-            )
-          )}
-        </Modal>
+      {pastDue && (
+        <StatusPill className="mx-fact-pill" tone="danger" dot={false}>
+          Past due
+        </StatusPill>
+      )}
+      {seconds === undefined && days === undefined && cycles === undefined && (
+        <span className="mx-fact-value">—</span>
       )}
     </>
+  );
+}
+
+function nearest(statuses: Remaining[], key: "seconds" | "days" | "cycles") {
+  const values = statuses
+    .map((r) => r[key])
+    .filter((n): n is number => n !== undefined);
+  return values.length ? Math.min(...values) : undefined;
+}
+
+function ComponentActionsCell({
+  c,
+  screen,
+}: {
+  c: Component;
+  screen: ComponentsScreen;
+}) {
+  return (
+    <td role="cell" className="mx-cell-actions">
+      <button
+        className="button small"
+        onClick={() => screen.open(c, "details")}
+      >
+        Details
+      </button>
+      {canMaintain(screen.s, c) && (
+        <button
+          className="button soft small"
+          disabled={!screen.writable}
+          onClick={() => screen.open(c, "service")}
+        >
+          <Wrench size={16} weight="bold" aria-hidden="true" />
+          Add Service/Inspections
+        </button>
+      )}
+      <RequestPartsButton
+        source={{ kind: "component", uuid: c.uuid, workOrderUuid: "" }}
+      />
+    </td>
+  );
+}
+
+function ComponentDialog({
+  screen,
+  selected,
+}: {
+  screen: ComponentsScreen;
+  selected: Component | "new";
+}) {
+  const c = selected === "new" ? undefined : selected;
+  return (
+    <Modal
+      key={screen.mode}
+      title={dialogTitle(selected, screen.mode)}
+      onClose={screen.done}
+    >
+      <DialogBody screen={screen} c={c} />
+    </Modal>
+  );
+}
+
+function dialogTitle(selected: Component | "new", mode: Mode) {
+  if (selected === "new") return "New component";
+  return mode === "details" ? selected.componentType : DIALOG_TITLES[mode];
+}
+
+function DialogBody({
+  screen,
+  c,
+}: {
+  screen: ComponentsScreen;
+  c?: Component;
+}) {
+  const { mode, done } = screen;
+  if (mode === "edit") return <ComponentForm record={c} onDone={done} />;
+  if (!c) return null;
+  if (mode === "child")
+    return (
+      <ComponentForm
+        parentComponent={c}
+        initialAircraftUuid={c.installed ? c.aircraftUuid : undefined}
+        onDone={(_uuid, child) => {
+          screen.setSelected(child);
+          screen.editRequirement(undefined);
+        }}
+      />
+    );
+  if (mode === "baseline") return <BaselineForm c={c} onDone={done} />;
+  if (mode === "service") return <ServiceForm c={c} onDone={done} />;
+  if (mode === "requirement")
+    return <RequirementForm c={c} record={screen.requirement} onDone={done} />;
+  return <ComponentDetails screen={screen} c={c} />;
+}
+
+function ComponentDetails({
+  screen,
+  c,
+}: {
+  screen: ComponentsScreen;
+  c: Component;
+}) {
+  const { s, writable } = screen;
+  const editable = canMaintain(s, c);
+  return (
+    <>
+      <ComponentFacts s={s} c={c} />
+      {editable && <DetailActions c={c} screen={screen} />}
+      {programPermission(s, "admin") && (
+        <section className="mx-dialog-section">
+          <div className="mx-dialog-actions">
+            <InventoryPrintButtons item={c} />
+          </div>
+          <InventoryAttachments stockUuid={c.uuid} />
+        </section>
+      )}
+      <Requirements
+        s={s}
+        c={c}
+        edit={editable && writable ? screen.editRequirement : undefined}
+      />
+      <Movements s={s} c={c} />
+      <History uuid={c.uuid} />
+    </>
+  );
+}
+
+function ComponentFacts({ s, c }: { s: Snapshot; c: Component }) {
+  return (
+    <dl className="mx-detail-list">
+      <dt>ATA Chapter</dt>
+      <dd>{ataLabel(c.ataChapter)}</dd>
+      <dt>Model</dt>
+      <dd>{c.model || "Not recorded"}</dd>
+      <dt>Manual</dt>
+      <dd>
+        <ManualLink reference={c.manualReference} />
+      </dd>
+      <dt>Manufacturer</dt>
+      <dd>{c.manufacturer || "Not recorded"}</dd>
+      <dt>Part / serial</dt>
+      <dd>
+        {c.partNumber || "—"} / {c.serial || "—"}
+      </dd>
+      <dt>Location</dt>
+      <dd>
+        {c.installed ? registrationOf(s, c.aircraftUuid) : "Inventory"} ·{" "}
+        {c.installed ? c.installPosition : componentStorage(s, c)}
+      </dd>
+      <dt>Installed / removed</dt>
+      <dd>
+        {c.installedDate ?? "—"} / {c.removedDate ?? "—"}
+      </dd>
+      <dt>Notes</dt>
+      <dd>{c.notes || "—"}</dd>
+    </dl>
+  );
+}
+
+function DetailActions({
+  c,
+  screen,
+}: {
+  c: Component;
+  screen: ComponentsScreen;
+}) {
+  const disabled = !screen.writable;
+  return (
+    <div className="mx-dialog-actions">
+      {c.installed && (
+        <button
+          className="button"
+          disabled={disabled}
+          onClick={() => screen.setMode("child")}
+        >
+          Add trackable parts
+        </button>
+      )}
+      {DETAIL_MODES.map(([mode, label]) => (
+        <button
+          key={mode}
+          className="button"
+          disabled={disabled}
+          onClick={() => screen.setMode(mode)}
+        >
+          {label}
+        </button>
+      ))}
+      <button
+        className="button primary"
+        disabled={disabled}
+        onClick={() => screen.editRequirement(undefined)}
+      >
+        <Plus size={18} weight="bold" aria-hidden="true" />
+        Add service requirement
+      </button>
+    </div>
   );
 }
