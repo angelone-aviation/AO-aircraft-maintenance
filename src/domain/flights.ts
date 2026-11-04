@@ -3,7 +3,8 @@
  *   needs, when it is held for review, how it advances the counters, and the
  *   replay of the flight history after a correction.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/model.ts, src/domain/fleet.ts.
+ * Dependencies: src/domain/model.ts, src/domain/fleet.ts,
+ *   src/domain/rejection.ts.
  */
 import {
   flightInputSchema,
@@ -19,6 +20,7 @@ import {
   type AircraftCounterEvent,
   type CounterField,
 } from "./fleet";
+import { Rejection } from "./rejection";
 
 // Device clocks run a little fast; a start this far ahead is still accepted.
 const FUTURE_START_TOLERANCE_MS = 5 * 60_000;
@@ -127,6 +129,8 @@ export function meterAtFlight(aircraft: Aircraft, time: string) {
 export function validateFlight(aircraft: Aircraft, input: FlightInput): void {
   flightInputSchema.parse(input);
   const meter = meterAtFlight(aircraft, input.startTime);
+  // Plain Errors, not Rejections: on the outbox path a Rejection would turn a
+  // retried failure into a permanent one (CONTEXT.md §4).
   if (input[METER_INPUT_FIELD[meter]] === undefined)
     throw new Error(
       `The ${meter === "hobbs" || meter === "tach" ? meter : aircraftMeterLabels[meter]} reading is required for this aircraft.`,
@@ -216,9 +220,10 @@ export function applyFlight(aircraft: Aircraft, input: FlightInput): Aircraft {
  *   events, so save its `counterEvents` with the totals.
  * @returns The aircraft after the replay, one version on, and the accepted
  *   flights in time order with their starting readings.
- * @throws {Error} "Cannot accept this chronology: " and the reason, when a
- *   flight conflicts or the flights no longer lead to a counter change's
- *   readings; the {@link validateFlight} errors.
+ * @throws {Rejection} "Cannot accept this chronology: " and the reason, when
+ *   a flight conflicts or the flights no longer lead to a counter change's
+ *   readings.
+ * @throws As {@link validateFlight}.
  */
 export function rebuildFlights(
   aircraft: Aircraft,
@@ -236,7 +241,8 @@ export function rebuildFlights(
     const f = entry.flight;
     validateFlight(current, f);
     const conflict = conflictReason(current, f, current.version);
-    if (conflict) throw new Error(`Cannot accept this chronology: ${conflict}`);
+    if (conflict)
+      throw new Rejection(`Cannot accept this chronology: ${conflict}`);
     rebuilt.push({
       ...f,
       hobbsOff: current.currentHobbs,
@@ -392,7 +398,7 @@ function isExplicitEvent(event: AircraftCounterEvent): event is ExplicitEvent {
 function applyCounterEvent(aircraft: Aircraft, event: ExplicitEvent): Aircraft {
   for (const k of listDependentReadings(event))
     if (aircraft[k] !== readRecorded(event, k))
-      throw new Error(describeInconsistency(aircraft, event, k));
+      throw new Rejection(describeInconsistency(aircraft, event, k));
   return copyCounters(aircraft, event, event.changed);
 }
 
