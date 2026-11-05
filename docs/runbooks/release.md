@@ -21,7 +21,7 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 
 1. runs `npm run check`;
 2. checks `CONVEX_DEPLOY_KEY` is a production key;
-3. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It stops before the push if the build fails or the Convex URL is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`);
+3. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It stops before the push if the build fails, if the Convex URL or the Sentry DSN's host is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`), or if the build left a source map in `dist/` ([monitoring](monitoring.md));
 4. checks the build points at that Convex URL;
 5. publishes `dist/` with `npx wrangler@4.151.3 deploy`, tagging the Cloudflare version with the commit;
 6. if `PRODUCTION_URL` is set, confirms that Cloudflare version tag is active, then checks the live site headers when the runner is not blocked by Cloudflare bot/WAF (a public HTTP 403 from GitHub Actions is treated as a warning once the tag is live).
@@ -73,6 +73,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
    - **Required reviewers**: the technical owner. (On GitHub Free this rule is only available for public repositories; then keep write access to the repository limited.)
    - **Environment secrets**: `CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Do not add them as repository secrets.
    - **Environment variable** `PRODUCTION_URL` = `https://ops.angeloneaviation.org` (turns on the smoke check).
+   - Optional error reporting: the `VITE_SENTRY_DSN` variable and the Sentry secrets in the [monitoring runbook](monitoring.md).
 2. Protect `main`: require a pull request and the **Check and browser tests**, **Dependency audit (production)** and **Secret scan (gitleaks)** status checks. A private repository needs GitHub Pro or higher for this.
 3. Settings → Code security: turn on Dependabot alerts and security updates. Version updates come from `.github/dependabot.yml`.
 

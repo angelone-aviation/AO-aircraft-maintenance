@@ -1,12 +1,15 @@
 # Responsibility: Nightly off-site backup (ADR-0008): exports production with
 #   its files, encrypts it with age, uploads it to Cloudflare R2, records the
-#   copy in the app, and adds the readable Excel copy to Dropbox (ADR-0011).
+#   copy in the app, adds the readable Excel copy to Dropbox (ADR-0011) and
+#   pings the Better Stack heartbeat.
 # Layer: Tooling (scheduled workflow). Runs from main only, nightly or by hand.
 # Dependencies: scripts/backup/nightly.sh, the Convex CLI, the AWS CLI, age,
-#   and the "backups" environment. Runbook: docs/runbooks/backup-restore.md.
+#   curl and the "backups" environment. Runbooks in docs/runbooks:
+#   backup-restore.md, monitoring.md.
 #
 # A failed run emails the person who last changed the schedule below (see the
-# runbook). The app also warns when the newest copy is older than 36 hours.
+# runbook), and Better Stack alerts when the heartbeat is missed. The app also
+# warns when the newest copy is older than 36 hours.
 name: Nightly backup
 
 on:
@@ -78,3 +81,17 @@ jobs:
             echo "Read the error above, then follow \"When a nightly run fails\" in docs/runbooks/backup-restore.md."
             echo "The job never deletes or overwrites a backup, so running it again is safe."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # A failed ping must not mark the backup failed: Better Stack already
+      # alerts on the missing ping, which also covers a run that never started.
+      - name: Report the backup to the heartbeat monitor
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          BACKUP_HEARTBEAT_URL: ${{ secrets.BACKUP_HEARTBEAT_URL }}
+        run: |
+          if [ -z "$BACKUP_HEARTBEAT_URL" ]; then
+            echo "::notice::BACKUP_HEARTBEAT_URL is not set; skipping the heartbeat (docs/runbooks/monitoring.md)."
+            exit 0
+          fi
+          curl -fsS --retry 3 --max-time 20 -o /dev/null "$BACKUP_HEARTBEAT_URL"
