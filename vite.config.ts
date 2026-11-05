@@ -1,23 +1,29 @@
 /**
  * Responsibility: Builds and serves the app: the eval-free zod alias, the
- *   PDF.js files published beside the bundle, and the offline PWA.
+ *   PDF.js files published beside the bundle, the offline PWA, and Sentry
+ *   source maps when the release build has an upload token.
  * Layer: Config. Build tooling only; nothing here ships in the bundle.
- * Dependencies: vite, @vitejs/plugin-react, vite-plugin-pwa, pdfjs-dist,
- *   src/cspSafeZod.ts, src/data/pdfCompatibility.js.
+ * Dependencies: vite, @vitejs/plugin-react, vite-plugin-pwa,
+ *   @sentry/vite-plugin, pdfjs-dist, src/cspSafeZod.ts,
+ *   src/data/pdfCompatibility.js.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { version as pdfVersion } from "pdfjs-dist/package.json";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type Plugin, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 const PDF_ROOT = dirname(
   createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
 );
 const PDF_VIEWER_FILES = collectPdfViewerFiles();
+// Only the production deploy has it (docs/runbooks/monitoring.md); without it
+// the build makes no source maps at all.
+const SENTRY_AUTH_TOKEN = process.env.SENTRY_AUTH_TOKEN;
 
 /** The app's build, dev server and offline service worker. */
 export default defineConfig({
@@ -47,6 +53,11 @@ export default defineConfig({
     strictPort: true,
     // Container-mounted edits do not always produce filesystem notifications.
     watch: { usePolling: true, interval: 500 },
+  },
+  build: {
+    // Hidden: no bundle names its map, and the Sentry plugin deletes the maps
+    // after uploading them, so none is published.
+    sourcemap: SENTRY_AUTH_TOKEN ? "hidden" : false,
   },
   plugins: [
     publishPdfViewerFiles(),
@@ -118,10 +129,29 @@ export default defineConfig({
         // themselves even in an installed app, not as the app shell.
         navigateFallbackDenylist: [/^\/\.well-known\//],
         cleanupOutdatedCaches: true,
+        // Otherwise it follows build.sourcemap and publishes sw.js with a
+        // visible map; the worker runs no Sentry code, so it needs none.
+        sourcemap: false,
       },
     }),
+    uploadSourceMapsToSentry(),
   ],
 });
+
+// Last plugin, so it sees the finished bundle. A failed upload is only logged,
+// so a Sentry outage never blocks a release (its stack traces stay minified),
+// and the maps are deleted either way.
+function uploadSourceMapsToSentry(): PluginOption {
+  if (!SENTRY_AUTH_TOKEN) return false;
+  return sentryVitePlugin({
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    authToken: SENTRY_AUTH_TOKEN,
+    release: { name: process.env.VITE_SENTRY_RELEASE },
+    sourcemaps: { filesToDeleteAfterUpload: ["./dist/**/*.map"] },
+    telemetry: false,
+  });
+}
 
 // PDF.js image decoders and its worker, keyed by the path the app fetches.
 function collectPdfViewerFiles(): Map<string, Buffer> {

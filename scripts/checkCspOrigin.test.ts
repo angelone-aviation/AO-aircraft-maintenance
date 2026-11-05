@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins check-csp-origin.mjs's rules: https only, the three
- *   required sources, exact and `*.` hosts, and the refusal message.
+ *   Convex sources, the Sentry DSN's one, exact and `*.` hosts, and the
+ *   refusal messages.
  * Layer: Test. Runs a copy of the script beside a temporary public/_headers.
  * Dependencies: vitest, scripts/check-csp-origin.mjs, public/_headers.
  *
@@ -23,6 +24,8 @@ const DEPLOYMENT = "https://happy-otter-123.convex.cloud";
 const CONVEX_POLICY =
   "default-src 'self'; img-src 'self' https://*.convex.cloud; " +
   "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud";
+const SENTRY_DSN = "https://publickey@o1.ingest.us.sentry.io/1";
+const SENTRY_HOST = "https://o1.ingest.us.sentry.io";
 
 let dir: string;
 
@@ -95,6 +98,13 @@ describe("check-csp-origin.mjs", () => {
     );
   });
 
+  it("refuses a value that is not a URL", () => {
+    const run = check("not a url", CONVEX_POLICY);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toBe("The Convex URL is not a valid URL.\n");
+  });
+
   it("passes a Convex cloud deployment against the shipped policy", () => {
     const run = spawnSync(process.execPath, [SCRIPT, DEPLOYMENT], {
       encoding: "utf8",
@@ -104,11 +114,67 @@ describe("check-csp-origin.mjs", () => {
   });
 });
 
+describe("check-csp-origin.mjs --sentry-dsn", () => {
+  it("needs only connect-src https for the DSN's ingest host", () => {
+    const run = checkDsn(
+      SENTRY_DSN,
+      "connect-src 'self' https://*.ingest.us.sentry.io",
+    );
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe(
+      `Sentry ingest host ${SENTRY_HOST} is allowed by the ` +
+        "Content-Security-Policy.\n",
+    );
+  });
+
+  it("refuses a DSN whose host the policy does not allow, without its key", () => {
+    const run = checkDsn(SENTRY_DSN, CONVEX_POLICY);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toBe(
+      `Sentry ingest host ${SENTRY_HOST} is not allowed by public/_headers: ` +
+        `connect-src ${SENTRY_HOST}. ` +
+        "Add it to the Content-Security-Policy before deploying.\n",
+    );
+  });
+
+  it("passes an empty DSN, because error reporting is then off", () => {
+    const run = checkDsn("", CONVEX_POLICY);
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe("No Sentry DSN: error reporting stays off.\n");
+  });
+
+  it("refuses a DSN that is missing, not a URL or not https", () => {
+    const missing = run(["--sentry-dsn"], CONVEX_POLICY);
+    const invalid = checkDsn("publickey", CONVEX_POLICY);
+    const http = checkDsn(SENTRY_DSN.replace("https:", "http:"), CONVEX_POLICY);
+
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toBe(
+      "Usage: check-csp-origin.mjs --sentry-dsn <dsn>\n",
+    );
+    expect(invalid.stderr).toBe("The Sentry DSN is not a valid URL.\n");
+    expect(http.stderr).toBe(
+      "Sentry ingest host http://o1.ingest.us.sentry.io must use https.\n",
+    );
+  });
+});
+
 function check(url: string, policy: string) {
+  return run([url], policy);
+}
+
+function checkDsn(dsn: string, policy: string) {
+  return run(["--sentry-dsn", dsn], policy);
+}
+
+function run(args: string[], policy: string) {
   writeFileSync(
     path.join(dir, "public", "_headers"),
     `/*\n  Content-Security-Policy: ${policy}\n`,
   );
   const script = path.join(dir, "scripts", "check-csp-origin.mjs");
-  return spawnSync(process.execPath, [script, url], { encoding: "utf8" });
+  return spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
 }

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the live session's rules: which screen a cached
  *   snapshot opens, when a sign-out clears the device, the sign-in failure
- *   message and signing out offline.
+ *   message, signing out offline and where error reporting is wired in.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/main.tsx, react-dom/server, convex/server.
  *
@@ -20,6 +20,10 @@ const SIGNED_IN = { isLoading: false, isAuthenticated: true };
 const SIGNED_OUT = { isLoading: false, isAuthenticated: false };
 const SIGNED_IN_AT = Date.now();
 
+const ROOT_HOOKS = vi.hoisted(() => ({
+  onUncaughtError() {},
+  onCaughtError() {},
+}));
 const live = vi.hoisted(() => ({
   root: null as ReactElement | null,
   auth: { isLoading: false, isAuthenticated: false },
@@ -31,12 +35,25 @@ const live = vi.hoisted(() => ({
   onSubmit: undefined as ((data: FormData) => Promise<void>) | undefined,
   onExit: undefined as (() => void) | undefined,
   workspace: {} as Record<string, unknown>,
+  rootOptions: undefined as unknown,
+  workerOptions: undefined as unknown,
+  reporting: {
+    initErrorReporting: vi.fn(async () => {}),
+    reactErrorHandlers: () => ROOT_HOOKS,
+    captureError: vi.fn(),
+  },
 }));
 
-vi.mock("virtual:pwa-register", () => ({ registerSW: () => {} }));
-vi.mock("react-dom/client", () => ({
-  createRoot: () => ({ render: (root: ReactElement) => (live.root = root) }),
+vi.mock("virtual:pwa-register", () => ({
+  registerSW: (options: unknown) => (live.workerOptions = options),
 }));
+vi.mock("react-dom/client", () => ({
+  createRoot: (_element: unknown, options: unknown) => {
+    live.rootOptions = options;
+    return { render: (root: ReactElement) => (live.root = root) };
+  },
+}));
+vi.mock("./data/errorReporting", () => live.reporting);
 vi.mock("convex/react", () => ({
   ConvexReactClient: class {},
   useConvexAuth: () => live.auth,
@@ -189,6 +206,16 @@ describe("signing in and out", () => {
     live.onExit!();
     await vi.waitFor(() => expect(location.reload).toHaveBeenCalled());
     expect(live.signOut).toHaveBeenCalled();
+  });
+});
+
+describe("error reporting", () => {
+  it("starts once and hands its hooks to the React root and the service worker", () => {
+    expect(live.reporting.initErrorReporting).toHaveBeenCalledOnce();
+    expect(live.rootOptions).toBe(ROOT_HOOKS);
+    expect(live.workerOptions).toMatchObject({
+      onRegisterError: live.reporting.captureError,
+    });
   });
 });
 

@@ -1,11 +1,11 @@
 /**
- * Responsibility: Boots the app: chooses the live or demo backend, signs the
- *   user in and mounts the workspace.
+ * Responsibility: Boots the app: starts error reporting, chooses the live or
+ *   demo backend, signs the user in and mounts the workspace.
  * Layer: UI. The browser entry point; the only module that creates the Convex
  *   client.
  * Dependencies: convex/react, @convex-dev/auth/react, src/data (store,
- *   backend, deviceManuals, pdfOffline, pendingEntries), src/domain/model.ts,
- *   src/App.tsx, src/components.
+ *   backend, deviceManuals, pdfOffline, pendingEntries, errorReporting),
+ *   src/domain/model.ts, src/App.tsx, src/components.
  */
 import { useEffect, useId, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -24,6 +24,11 @@ import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
 import { pendingEntriesFile } from "./data/pendingEntries";
 import { convexBackend } from "./data/backend";
+import {
+  captureError,
+  initErrorReporting,
+  reactErrorHandlers,
+} from "./data/errorReporting";
 import { offlineValid, OFFLINE_WINDOW, type Snapshot } from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
@@ -31,6 +36,7 @@ import "./styles/tokens.css";
 import "./styles.css";
 import { Wordmark, initTheme } from "./components/design";
 import { SignInNotice, SsoSignIn } from "./components/SignInMethods";
+void initErrorReporting();
 initTheme();
 const configuredUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
 // Production builds offer the local demo only when built with VITE_DEMO_MODE
@@ -468,5 +474,8 @@ registerSW({
         "An app update is available. Save your current form, then close all app tabs and reopen to update.",
     });
   },
+  onRegisterError: captureError,
 });
-createRoot(document.getElementById("root")!).render(<Root />);
+createRoot(document.getElementById("root")!, reactErrorHandlers()).render(
+  <Root />,
+);

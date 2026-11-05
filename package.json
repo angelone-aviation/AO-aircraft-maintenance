@@ -31,6 +31,7 @@
     "@oslojs/crypto": "^1.0.1",
     "@oslojs/encoding": "^1.1.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@sentry/react": "^11.10.0",
     "@tanstack/react-router": "^1.170.46",
     "convex": "^1.49.0",
     "fflate": "^0.8.3",
@@ -48,6 +49,7 @@
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
     "@playwright/test": "^1.64.1",
+    "@sentry/vite-plugin": "^11.10.0",
     "@types/node": "^26.6.6",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
@@ -69,6 +71,9 @@
     "node": ">=22.12.0"
   },
   "overrides": {
+    "@sentry/bundler-plugins": {
+      "glob": "^14.0.3"
+    },
     "exceljs": {
       "uuid": "11.1.1"
     },

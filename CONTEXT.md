@@ -54,7 +54,7 @@ flowchart LR
   Nightly --> Dropbox
 ```
 
-The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and `*.convex.cloud`/`*.convex.site`. Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
+The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and `*.convex.cloud`/`*.convex.site`. The one planned exception is Sentry error reporting, off until a DSN and its ingest host are added ([monitoring runbook](docs/runbooks/monitoring.md)). Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
 
 ## 3. Code layers and directory ownership
 
@@ -162,7 +162,7 @@ Invariants:
 2. **The server enforces every permission.** Every public query, mutation and action reaches `checkContext`, `authorized`, `admin`, `currentUser` or `activeIdentity` (directly, through `runCommand`, or through a file-local helper such as `access()` or `authorize()`); actions first call an internal function that checks. Apart from the Convex Auth library's sign-in endpoints, the one public function without a check is `identities.providers`, which lists the enabled sign-in buttons. Client checks (`can()` in `enqueue`, hidden navigation) are convenience only. `checkContext` also rejects a stale `programUuid` and every call from an owner view (owners read only the snapshot).
 3. **The change log is append-only.** `writeAudit` (`convex/access.ts`) is the only insert into `audit`, and no code patches or deletes a row. A transfer adds `transferredAudit` links instead of re-tagging rows. Corrections append a new entry with a reason. Protection beyond the code: [ADR-0005](docs/adr/0005-audit-log-protection-by-access-and-backups.md), [ADR-0010](docs/adr/0010-one-convex-administrator.md).
 4. **The demo adapter goes through the same domain rules.** `demoBackend` calls the same appliers and `submitOperation`; a rejected demo outbox entry is rethrown as `ConvexError` so the Sync center treats it like a server rejection.
-5. **No secrets reach the browser.** The bundle reads only `VITE_CONVEX_URL`, `VITE_DEMO_MODE` and `VITE_ALLOW_DEMO`. Integration keys live in Convex environment variables or in rows sealed with AES-GCM (`convex/secrets.ts`, `CREDENTIALS_ENCRYPTION_KEY`), are decrypted only inside server actions, and status queries say whether a key is configured, never what it is.
+5. **No secrets reach the browser.** The bundle reads only `VITE_CONVEX_URL`, `VITE_DEMO_MODE`, `VITE_ALLOW_DEMO`, and the public Sentry DSN and release (`VITE_SENTRY_DSN`, `VITE_SENTRY_RELEASE`). Integration keys live in Convex environment variables or in rows sealed with AES-GCM (`convex/secrets.ts`, `CREDENTIALS_ENCRYPTION_KEY`), are decrypted only inside server actions, and status queries say whether a key is configured, never what it is.
 6. **Every program-scoped call carries the active `programUuid`**, and the server's row loaders (`convex/programContext.ts`) read by that program or its aircraft.
 
 Current violations and exceptions (2026-11-03). Record fixes in `REFACTOR_ROADMAP.md`:
