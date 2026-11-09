@@ -4,8 +4,8 @@
  * Layer: UI. Screens over the workspace snapshot; holds no business rules.
  * Dependencies: src/data (store, auditHistory, pendingEntries), src/domain
  *   (model, programs, pilotView, flights, flightFluids, deferrals,
- *   auditHistory), ./design, ./ui and the flight, deferral, parts, task card
- *   and work order components.
+ *   auditHistory), ./design, ./ui, ./ExportRecordsPackage and the flight,
+ *   deferral, parts, task card and work order components.
  */
 import "../styles/screens/records.css";
 import { isPilotView } from "../domain/pilotView";
@@ -52,6 +52,7 @@ import { previousFlights } from "../domain/flightFluids";
 import { auditActionLabel } from "../domain/auditHistory";
 import { flightStatusLabels } from "../domain/flights";
 import { HistoryPager } from "./ManagementShared";
+import { ExportRecordsPackage } from "./ExportRecordsPackage";
 import {
   can,
   hours,
@@ -1336,6 +1337,7 @@ export function History() {
   );
 }
 
+// A chosen aircraft offers its records package (maintenance permission only).
 function AircraftFilter({
   s,
   id,
@@ -1348,7 +1350,14 @@ function AircraftFilter({
   onChange: (aircraftUuid: string) => void;
 }) {
   return (
-    <Toolbar className="rise">
+    <Toolbar
+      className="rise"
+      end={
+        aircraftUuid && (
+          <ExportRecordsPackage state={s} aircraftUuid={aircraftUuid} />
+        )
+      }
+    >
       <div className="rec-select">
         <Airplane size={18} aria-hidden="true" />
         <label htmlFor={id}>Aircraft</label>

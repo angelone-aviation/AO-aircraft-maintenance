@@ -98,6 +98,10 @@ An FAA-mandated action tracked per aircraft or component: applicability review, 
 One of the six permanent records 14 CFR 91.417(a)(2) requires an operator to keep and transfer with the aircraft: total time in service, life-limited part status, time since overhaul, inspection status, AD compliance status, and Form 337 copies. Angel One is the system of record for them.
 _Avoid_: permanent record, aircraft history
 
+**Records package**:
+The on-demand ZIP of everything Angel One holds for one aircraft: the status sheet, flights, discrepancies, work orders with their frozen logbook entries, AD compliance history, components, Form 337 copies and the change log, as a printable PDF, one CSV per table and the stored files. For an FAA inspector (14 CFR 91.417(c)), a buyer (91.419) or an insurer; the signed logbooks remain the maintenance record.
+_Avoid_: export bundle, dump, records dump
+
 **Compliance record**:
 An append-only entry that an AD action was performed: method, date and counters, mechanic and certificate, evidence reference. Never overwritten by editing the AD; a Flight Program administrator corrects one by appending a correction that keeps the original.
 

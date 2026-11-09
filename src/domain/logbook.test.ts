@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the generated logbook entry text for each template,
- *   for closed, historical and previewed orders, its refusal, and the
- *   signer's license fields.
+ *   for closed, historical and previewed orders, the unsigned records copy,
+ *   its refusal, and the signer's license fields.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/logbook.ts, workOrders.ts, rejection.ts,
  *   validationText.ts, src/data/demo.ts and tests/fixtures/workOrders.ts.
@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { workOrderCommand } from "../../tests/fixtures/workOrders";
-import { licenseSchema, logbookText } from "./logbook";
+import { licenseSchema, logbookRecordText, logbookText } from "./logbook";
 import { Rejection } from "./rejection";
 import { validationText } from "./validationText";
 import {
@@ -209,6 +209,33 @@ describe("logbook entry", () => {
     );
     expect(inspection).toContain(
       "\nI certify that this aircraft has been inspected in accordance with a 100-hour inspection and was determined to be in airworthy condition.\n\n",
+    );
+  });
+
+  it("writes the records copy without certification or signature lines", () => {
+    const { s, final } = closedOrder();
+    Object.assign(final.closeout!, {
+      workPerformed: "Replaced the left magneto.",
+      performers: [
+        { userId: "jamie", name: "Jamie Lee" },
+        { userId: "alex", name: "Alex Morgan" },
+      ],
+    });
+    const text = logbookRecordText(s, final);
+    expect(text).toMatch(
+      /^Maintenance \/ inspection logbook entry\nDate completed: 2026-10-02\n/,
+    );
+    expect(text).toContain("\nWork performed:\nReplaced the left magneto.\n");
+    expect(text).toMatch(
+      /\nApproved for return to service\.\n\nPerformed by: Jamie Lee, Alex Morgan$/,
+    );
+    expect(text).not.toContain("Certifying person");
+    expect(text).not.toContain("Signature");
+    const open = { ...final, status: "open" as const };
+    expect(() => logbookRecordText(s, open)).toThrow(
+      new Rejection(
+        "Complete the work order before generating a logbook entry.",
+      ),
     );
   });
 

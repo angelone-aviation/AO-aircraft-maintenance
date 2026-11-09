@@ -17,7 +17,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [ ] Ownership and runbooks: technical owner, plus onboarding, release and incident-response runbooks.
   - [ ] Fill in the names and places left blank in [incident response](runbooks/incident-response.md) (including who reads accounts@angeloneonline.org, the [`SECURITY.md`](../SECURITY.md) contact) and [break-glass administrator access](runbooks/break-glass-admin.md), and set up the break-glass account.
 - [ ] Data on shared or lost devices: offline copy, sign-out, device unlock.
-- [ ] Per-aircraft records export (FAA inspection access and aircraft sale).
+- [x] Per-aircraft records export (FAA inspection access and aircraft sale): [records package](records-export.md).
 - [x] FAA scope changes: inspection sign-off certificate, "Performed by" line, Form 337 attachments.
 - [x] Architecture cleanups: one command transaction on the server, one flight-submission module.
 - [ ] Google and Microsoft sign-in (built): create the Google Cloud sign-in client and the Microsoft Entra app registration, set their environment variables on production and test each with a real account ([accounts runbook](runbooks/accounts.md#google-and-microsoft-sign-in)).

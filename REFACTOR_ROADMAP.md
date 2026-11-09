@@ -2,7 +2,7 @@
 
 Brings the whole codebase up to [CONSTRAINTS.md](CONSTRAINTS.md) in small, safe, dependency-ordered batches. Read [CONTEXT.md](CONTEXT.md) and [CLAUDE.md](CLAUDE.md) first. The audit behind this plan (2026-11-03) is in [docs/architecture/metrics-2026-11-03.md](docs/architecture/metrics-2026-11-03.md) (size, churn, dependency graph, function metrics, duplication) and [docs/architecture/tier2-candidates.md](docs/architecture/tier2-candidates.md) (the deep-module review).
 
-**Progress:** complete. 398 of 426 batches done; 28 deferred on purpose (cosmetic Tier 3 splits, and Batches 259, 311 and 312; see each line); 0 to go. Tier 1: 251 · Tier 2: 90 · Tier 3: 85. Batches 410–426 (T21, T22, and follow-ups to T10, T20 and T8) are numbered after Tier 3, so batches 1–409 keep their numbers. Owner decisions are collected in findings 33, 34, 44, 52, 60, 62 and 67.
+**Progress:** 398 of 427 batches done; 28 deferred on purpose (cosmetic Tier 3 splits, and Batches 259, 311 and 312; see each line); 1 to go (Batch 427). Tier 1: 251 · Tier 2: 90 · Tier 3: 85. Batches 410–426 (T21, T22, and follow-ups to T10, T20 and T8) are numbered after Tier 3, so batches 1–409 keep their numbers. Owner decisions are collected in findings 33, 34, 44, 52, 60, 62 and 67.
 
 ## How to run a batch
 
@@ -683,6 +683,7 @@ The same `ConvexError` message extraction is written five times in components: `
 - [x] Batch 425 (T22 b4): `src/domain/taskCsv.ts`, `src/domain/addressLookup.ts`, `src/domain/certifications.ts`, `src/domain/flightFluids.ts`: task CSV row errors use the shared issue text; the address-lookup, licence and oil-readings schemas get their own messages instead of zod's defaults.
 - [x] Batch 426 (T22 b5): `src/domain/activateTemplate.ts`, `src/domain/componentTemplates.ts`, `src/domain/adWorkOrders.ts` (new), with the screens `ActivateTemplate.tsx`, `ComponentTemplates.tsx`, `ADRegister.tsx` and `ADWorkOrderButton.tsx`: rules that lived only in screens move into the domain.
 - [ ] Batch 427 (T22 b6): `src/components/ui.tsx`, `src/components/ComponentTemplates.tsx` (`CsvFileField`, `importCsv`), `src/components/AircraftSetupHistory.tsx` (`readCsvFile`), `src/components/MaintenanceCsvImport.tsx`, `src/components/TaskCsvImport.tsx`: one CSV file field (size check against `CSV_MAX_BYTES`, read as text, error beside the field) shared by every CSV import; today each screen reads the file its own way. Found while adding the aircraft setup wizard (2026-11-09).
+- [ ] Batch 428 (T22 b7): `src/components/InventoryAttachments.tsx` (`saveCopy`, `dataUrlBlob`), `src/data/recordsPackage.ts` (`fileBytes`, `dataUrlBytes`), `src/components/ui.tsx` (`download`): a stored file's bytes are read in two places (demo `data:` URLs decoded by hand because the Content-Security-Policy keeps `fetch()` from reading them; storage URLs fetched) and a Blob is saved in two places. One data-layer module should own both, used by attachment downloads and the records package. Found while adding the records package (2026-11-09).
 
 ### T21. Fresh start: remove migration-only code
 

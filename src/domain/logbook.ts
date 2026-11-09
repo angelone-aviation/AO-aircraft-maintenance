@@ -154,9 +154,38 @@ export function logbookSampleText(
   });
 }
 
+/**
+ * The frozen entry of a completed work order for a records copy: the
+ * maintenance entry as {@link logbookText} writes it, naming everyone who
+ * performed the work, without the certification and signature lines. The
+ * signed page in the aircraft logbook is the record (ADR-0004); this is the
+ * text generated for it.
+ *
+ * @param s - The snapshot.
+ * @param order - The work order.
+ * @returns The entry's lines, joined by "\n".
+ * @throws {Rejection} "Complete the work order before generating a logbook
+ *   entry." for an order that is not completed.
+ */
+export function logbookRecordText(s: Snapshot, order: WorkOrder) {
+  if (order.status !== "completed")
+    throw new Rejection(
+      "Complete the work order before generating a logbook entry.",
+    );
+  return entryText(s, order, {
+    template: "maintenance",
+    signer: null,
+    inspection: emptyInspectionEntry,
+    component: emptyComponentEntry,
+    preview: false,
+    closing: null,
+  });
+}
+
 type Entry = {
   template: LogbookTemplate;
-  signer: Signer;
+  /** Who certifies the entry; null for an unsigned records copy. */
+  signer: Signer | null;
   inspection: InspectionEntry;
   component: ComponentEntry;
   preview: boolean;
@@ -165,6 +194,12 @@ type Entry = {
 
 function entryText(s: Snapshot, order: WorkOrder, entry: Entry) {
   const { template, signer, inspection, component, preview, closing } = entry;
+  const closingLines = signer
+    ? [
+        ...certify(template, inspection, component),
+        ...sign(s, order, template, signer, preview),
+      ]
+    : performedBy(performerNames(s, order, preview));
   return [
     ...describeHeading(order, template, preview),
     ...(template === "inspection" ? [describeInspection(inspection), ""] : []),
@@ -178,8 +213,7 @@ function entryText(s: Snapshot, order: WorkOrder, entry: Entry) {
     ...describeCorrections(order),
     order.releaseOutcome,
     "",
-    ...certify(template, inspection, component),
-    ...sign(s, order, template, signer, preview),
+    ...closingLines,
   ].join("\n");
 }
 
@@ -339,24 +373,36 @@ function sign(
   preview: boolean,
 ) {
   const approver = signer.name.trim().toLowerCase();
-  const performers = (
-    preview
-      ? logbookPerformers(s, order, true)
-      : (order.closeout?.performers ?? [])
-  )
-    .filter((p) =>
-      signer.userId
-        ? p.userId !== signer.userId
-        : p.name.trim().toLowerCase() !== approver,
-    )
-    .map((p) => p.name);
+  const performers = performerNames(s, order, preview, (p) =>
+    signer.userId
+      ? p.userId !== signer.userId
+      : p.name.trim().toLowerCase() !== approver,
+  );
   return [
-    ...(performers.length ? [`Performed by: ${performers.join(", ")}`] : []),
+    ...performedBy(performers),
     `${template === "component" ? "Name" : "Certifying person"}: ${signer.name}`,
     `Certificate / license: ${signer.certificateType || "[enter certificate type]"} ${signer.licenseNumber || "[enter license number]"}`,
     "Signature: ______________________________",
     "",
   ];
+}
+
+type Performer = { userId?: string; name: string };
+
+function performerNames(
+  s: Snapshot,
+  order: WorkOrder,
+  preview: boolean,
+  keep: (p: Performer) => boolean = () => true,
+): string[] {
+  const performers: Performer[] = preview
+    ? logbookPerformers(s, order, true)
+    : (order.closeout?.performers ?? []);
+  return performers.filter(keep).map((p) => p.name);
+}
+
+function performedBy(performers: string[]): string[] {
+  return performers.length ? [`Performed by: ${performers.join(", ")}`] : [];
 }
 
 function toUsDate(isoDate: string) {

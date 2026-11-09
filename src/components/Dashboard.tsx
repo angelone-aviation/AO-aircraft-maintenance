@@ -69,6 +69,7 @@ import {
 } from "../domain/model";
 import { FaaRenewalAlert } from "./FaaKeySettings";
 import { ExportAircraftStatus } from "./ExportAircraftStatus";
+import { ExportRecordsPackage } from "./ExportRecordsPackage";
 import { AircraftForm337 } from "./AircraftFiles";
 import { AircraftInspectionSchedules } from "./AircraftInspectionSchedules";
 import { PartsAvailability } from "./RequiredParts";
@@ -1169,6 +1170,7 @@ function DetailActions({ aircraft: a, s, onLog }: DetailProps) {
     <div className="dash-detail-actions">
       <div className="dash-detail-export">
         <ExportAircraftStatus aircraftUuid={a.uuid} state={s} />
+        <ExportRecordsPackage aircraftUuid={a.uuid} state={s} />
       </div>
       <Link to="/flights" className="button">
         <BookOpen size={18} aria-hidden="true" /> Flight history
