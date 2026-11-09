@@ -234,19 +234,35 @@ describe("aircraft cards", () => {
 });
 
 describe("an aircraft without a meter reading", () => {
-  it("shows its total as not recorded and judges what it can read", () => {
-    withoutMeterReading(snapshot, snapshot.aircraft[1]);
+  const card = () => {
     const html = page();
-    const card = html
+    return html
       .slice(html.indexOf(">N208MA</h3>"))
       .split("</article>")[0]
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ");
-    expect(card).toContain("Total Not recorded");
-    expect(card).toContain("AD AD-UNREAD-LATE overdue");
-    expect(card).toContain(
+  };
+
+  it("shows its total as not recorded and judges what it can read", () => {
+    withoutMeterReading(snapshot, snapshot.aircraft[1]);
+    // The card lists the most urgent items; the fixture's overdue calendar
+    // inspection would push the hours inspection off it, so it is left out.
+    snapshot.inspections = snapshot.inspections.filter(
+      (i) => i.uuid !== "i-calendar-unread",
+    );
+    const text = card();
+    expect(text).toContain("Total Not recorded");
+    expect(text).toContain("AD AD-UNREAD-LATE overdue");
+    expect(text).toContain(
       "100-hour inspection Maintenance information needed",
     );
+  });
+
+  it("shows a calendar-only inspection overdue although the meter is unread (RM-66)", () => {
+    withoutMeterReading(snapshot, snapshot.aircraft[1]);
+    const text = card();
+    expect(text).toContain("i-calendar-unread overdue");
+    expect(text).toContain("days overdue Due 1 Jan 2020");
   });
 });
 
