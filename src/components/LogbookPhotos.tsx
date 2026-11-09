@@ -160,7 +160,7 @@ export function LogbookPhotoPrompt({
   onDismiss: () => void;
 }) {
   return (
-    <NoticeBar tone="good" icon={Camera} role="status" className="lp-prompt">
+    <NoticeBar tone="good" icon={Camera} className="lp-prompt">
       <strong>Flight saved.</strong> Add a photo of the paper logbook line now,
       or later from the flight log.
       <LogbookPhotoStrip

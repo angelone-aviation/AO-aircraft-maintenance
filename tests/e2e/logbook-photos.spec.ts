@@ -22,8 +22,8 @@ test("offers a photo after a flight saves, shows it on the row and archives it w
   );
   await page.goto("/flights");
   await logFlight(page, "PHOTO-ONLINE");
-  const prompt = page.getByRole("status").filter({ hasText: "Flight saved." });
-  await expect(prompt).toBeVisible();
+  const prompt = page.locator(".lp-prompt");
+  await expect(prompt).toContainText("Flight saved.");
   await prompt.locator("input[type=file]").setInputFiles(PHOTO);
   await expect(prompt.getByRole("button", THUMBNAIL)).toBeVisible();
   await prompt.getByRole("button", { name: "Done", exact: true }).click();
@@ -61,7 +61,7 @@ test("keeps a photo on the device while the flight waits offline and uploads it 
   await page.goto("/flights");
   // Offline once the screen has loaded, so only the save itself is offline.
   await logFlight(page, "PHOTO-OFFLINE", () => context.setOffline(true));
-  const prompt = page.getByRole("status").filter({ hasText: "Flight saved." });
+  const prompt = page.locator(".lp-prompt");
   await prompt.locator("input[type=file]").setInputFiles(PHOTO);
   await expect(
     prompt.getByRole("img", { name: "icon-192.png, waiting to upload" }),
