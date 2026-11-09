@@ -1,14 +1,18 @@
 /**
  * Responsibility: The workspace store: the scoped snapshot every screen reads,
- *   the device outbox of offline flights and problem reports, and its sync.
+ *   the device outbox of offline flights and problem reports, the queue of
+ *   logbook page photos waiting on them, and their sync.
  * Layer: Data. Zustand store over IndexedDB and the Backend; no UI.
  * Dependencies: zustand, convex/values, src/data (local, backend, demo,
- *   demoBackend, deviceManuals, errors), src/domain (model, programs, flights,
- *   flightChecklistLink, flightPlans, aircraftStatus).
+ *   demoBackend, deviceManuals, errors, logbookPhotos), src/domain (model,
+ *   programs, flights, flightChecklistLink, flightPlans, aircraftStatus,
+ *   aircraftFiles, rejection).
  *
  * Only flights and problem reports queue offline; every other write needs a
- * connection. The client checks in enqueue() are a convenience: the server
- * checks each entry again when it syncs.
+ * connection. A logbook page photo is the one exception: it waits on the
+ * device until its flight has synced, then uploads. The client checks in
+ * enqueue() and attachLogbookPhoto() are a convenience: the server checks
+ * each entry again when it syncs.
  */
 import { validateChecklistFlight } from "../domain/flightChecklistLink";
 import { validatePlanFlight } from "../domain/flightPlans";
@@ -19,7 +23,20 @@ import type { Operation, QueuedOperation, Snapshot } from "../domain/model";
 import { can, localDate, offlineValid } from "../domain/model";
 import { dispatchGate } from "../domain/aircraftStatus";
 import { validateFlight } from "../domain/flights";
+import {
+  assertAircraftFileWriter,
+  hasAircraftFileTarget,
+  validateLogbookPhoto,
+  type AircraftFileLink,
+} from "../domain/aircraftFiles";
+import { Rejection } from "../domain/rejection";
 import * as local from "./local";
+import {
+  pendingPhotoFile,
+  pendingPhotoKey,
+  pendingPhotoReady,
+  type PendingLogbookPhoto,
+} from "./logbookPhotos";
 import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
 import { demoSnapshot, withDemoUser } from "./demo";
 import type { Backend } from "./backend";
@@ -41,6 +58,8 @@ export interface Workspace {
   snapshot: Snapshot | null;
   /** This namespace's outbox, oldest first. */
   queue: QueuedOperation[];
+  /** Logbook page photos waiting to upload, oldest first. */
+  pendingPhotos: PendingLogbookPhoto[];
   /** The device-cache namespace: "demo", or "live:" and the deployment URL. */
   namespace: string;
   demo: boolean;
@@ -97,13 +116,31 @@ export interface Workspace {
    */
   enqueue(operation: Operation): Promise<void>;
   /**
-   * Sends the signed-in author's entries for the active program, one at a
-   * time, while connected and within the offline window. A server rejection
-   * is kept on the entry for the Sync center, as errorText words it; other
-   * failures are retried on the next flush. A flush requested while one runs
-   * adds one more pass.
+   * Attaches a photo of the paper logbook line or signed page to a flight or
+   * work order on the aircraft. Connected, with the record already synced,
+   * the photo uploads at once; otherwise it is kept on this device and
+   * uploads on a later flush, once the record is in the snapshot.
    *
-   * @param retry - Also resend entries holding a server rejection.
+   * @param target - The aircraft and the flight or work order.
+   * @param file - The photo.
+   * @throws {Error} "Your offline access expired. Reconnect and sign in;
+   *   pending entries are preserved."; as validateLogbookPhoto and
+   *   assertAircraftFileWriter; and, when uploading at once, as
+   *   `backend.uploadAircraftFile`.
+   */
+  attachLogbookPhoto(
+    target: { aircraftUuid: string } & AircraftFileLink,
+    file: File,
+  ): Promise<void>;
+  /**
+   * Sends the signed-in author's entries for the active program, one at a
+   * time, while connected and within the offline window, then the author's
+   * queued photos whose flight or work order is in the snapshot. A server
+   * rejection is kept on the entry or photo for the Sync center, as errorText
+   * words it; other failures are retried on the next flush. A flush requested
+   * while one runs adds one more pass.
+   *
+   * @param retry - Also resend entries and photos holding a rejection.
    */
   flush(retry?: boolean): Promise<void>;
   /**
@@ -113,6 +150,12 @@ export interface Workspace {
    */
   discard(uuid: string): Promise<void>;
   /**
+   * Deletes a queued photo from the device without uploading it.
+   *
+   * @param key - The photo's key.
+   */
+  discardPhoto(key: string): Promise<void>;
+  /**
    * Adds or removes a favorite aircraft, kept per user on this device; does
    * nothing without a snapshot.
    *
@@ -121,8 +164,8 @@ export interface Workspace {
   toggleFavorite(uuid: string): Promise<void>;
   /**
    * Signs out on this device: removes the cached snapshot, unsent form
-   * drafts and kept manuals, and blocks the workspace. The outbox stays, to
-   * sync when the same user signs in again.
+   * drafts and kept manuals, and blocks the workspace. The outbox and the
+   * queued photos stay, to sync when the same user signs in again.
    */
   signOutLocal(): Promise<void>;
 }
@@ -187,6 +230,7 @@ export const useWorkspace = create<Workspace>((set, get) => ({
   ready: false,
   snapshot: null,
   queue: [],
+  pendingPhotos: [],
   namespace: "",
   demo: false,
   online: navigator.onLine,
@@ -202,6 +246,7 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       ready: false,
       snapshot: null,
       queue: [],
+      pendingPhotos: [],
       namespace,
       demo,
       blocked: false,
@@ -209,9 +254,10 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       notice: "",
     });
     try {
-      const [cached, queue] = await Promise.all([
+      const [cached, queue, pendingPhotos] = await Promise.all([
         local.readSnapshot(namespace),
         local.readQueue(namespace),
+        local.readPendingPhotos(namespace),
       ]);
       const full = demo
         ? ((await local.readSnapshot(namespace + DEMO_FULL_SUFFIX)) ??
@@ -241,6 +287,7 @@ export const useWorkspace = create<Workspace>((set, get) => ({
         demo,
         snapshot,
         queue,
+        pendingPhotos,
         favorites,
         ready: true,
         connected: demo && navigator.onLine,
@@ -346,6 +393,43 @@ export const useWorkspace = create<Workspace>((set, get) => ({
     });
     void get().flush();
   },
+  async attachLogbookPhoto(target, file) {
+    const state = get();
+    const { snapshot, namespace } = state;
+    if (!snapshot || state.blocked || !offlineValid(snapshot))
+      throw new Error(
+        "Your offline access expired. Reconnect and sign in; pending entries are preserved.",
+      );
+    validateLogbookPhoto(file.name, file.type, file.size);
+    assertAircraftFileWriter(snapshot, target.aircraftUuid, target.linkedKind);
+    const link = {
+      linkedKind: target.linkedKind,
+      linkedUuid: target.linkedUuid,
+    };
+    if (
+      canFlush(state) &&
+      hasAircraftFileTarget(snapshot, target.aircraftUuid, link)
+    ) {
+      await state.backend!.uploadAircraftFile(
+        target.aircraftUuid,
+        "logbook-page",
+        file,
+        link,
+      );
+      set({ notice: "Photo attached." });
+      return;
+    }
+    await local.savePendingPhoto(
+      namespace,
+      buildPendingPhoto(snapshot, target, file),
+    );
+    set({
+      pendingPhotos: await local.readPendingPhotos(namespace),
+      notice:
+        "Photo saved on this device. It will upload once the record has synced.",
+    });
+    void get().flush();
+  },
   async flush(retry = false) {
     const state = get();
     if (state.syncing) {
@@ -362,10 +446,14 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       do {
         flushRequested = false;
         await flushPass(state.namespace, state.backend!, retry);
+        await flushPhotos(state.namespace, state.backend!, retry);
         retry = retryRequested;
         retryRequested = false;
       } while (flushRequested && canFlush(get()));
-      set({ queue: await local.readQueue(state.namespace) });
+      set({
+        queue: await local.readQueue(state.namespace),
+        pendingPhotos: await local.readPendingPhotos(state.namespace),
+      });
     } finally {
       set({ syncing: false });
     }
@@ -374,6 +462,11 @@ export const useWorkspace = create<Workspace>((set, get) => ({
     const { namespace } = get();
     await local.removeOperation(namespace, uuid);
     set({ queue: await local.readQueue(namespace) });
+  },
+  async discardPhoto(key) {
+    const { namespace } = get();
+    await local.removePendingPhoto(namespace, key);
+    set({ pendingPhotos: await local.readPendingPhotos(namespace) });
   },
   async toggleFavorite(uuid) {
     const { snapshot, namespace, favorites } = get();
@@ -387,8 +480,9 @@ export const useWorkspace = create<Workspace>((set, get) => ({
   async signOutLocal() {
     const { namespace } = get();
     await local.clearSnapshot(namespace);
-    // The outbox stays (entries are tied to their author and sync after the
-    // same user signs in again); unsent form drafts and kept manuals do not.
+    // The outbox and queued photos stay (both are tied to their author and
+    // sync after the same user signs in again); unsent form drafts and kept
+    // manuals do not.
     clearDeviceDrafts(namespace);
     await removeAllKeptManuals(namespace);
     set({ snapshot: null, blocked: true, favorites: [] });
@@ -418,6 +512,57 @@ async function flushPass(namespace: string, backend: Backend, retry: boolean) {
       if (!permanentSyncError(error)) continue;
       await local.persistOperation(namespace, {
         ...entry,
+        error: errorText(error),
+      });
+    }
+  }
+}
+function buildPendingPhoto(
+  snapshot: Snapshot,
+  target: { aircraftUuid: string } & AircraftFileLink,
+  file: File,
+): PendingLogbookPhoto {
+  const link = { linkedKind: target.linkedKind, linkedUuid: target.linkedUuid };
+  return {
+    key: pendingPhotoKey(link, file.name),
+    aircraftUuid: target.aircraftUuid,
+    ...link,
+    authorId: snapshot.user.id,
+    programUuid: snapshot.activeProgramUuid,
+    name: file.name,
+    type: file.type,
+    size: file.size,
+    queuedAt: Date.now(),
+    blob: file,
+  };
+}
+// A photo waits until its flight or work order is in the snapshot: the
+// server can file it only against a record it holds. A domain Rejection
+// counts as permanent like a ConvexError: the demo adapter throws it as is.
+async function flushPhotos(
+  namespace: string,
+  backend: Backend,
+  retry: boolean,
+) {
+  const { getState: get, setState: set } = useWorkspace;
+  for (const photo of await local.readPendingPhotos(namespace)) {
+    const snapshot = get().snapshot;
+    if (!get().online || !get().connected || !snapshot) continue;
+    if (!pendingPhotoReady(photo, snapshot)) continue;
+    if (photo.error && !retry) continue;
+    try {
+      await backend.uploadAircraftFile(
+        photo.aircraftUuid,
+        "logbook-page",
+        pendingPhotoFile(photo),
+        { linkedKind: photo.linkedKind, linkedUuid: photo.linkedUuid },
+      );
+      await local.removePendingPhoto(namespace, photo.key);
+      set({ notice: "Logbook page photo uploaded." });
+    } catch (error) {
+      if (!permanentSyncError(error) && !(error instanceof Rejection)) continue;
+      await local.savePendingPhoto(namespace, {
+        ...photo,
         error: errorText(error),
       });
     }

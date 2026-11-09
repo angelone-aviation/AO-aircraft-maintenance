@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins the device cache: its database, store and key names,
- *   queue order, and connection release on another tab's upgrade.
+ *   queue order, the queued photo store, and connection release on another
+ *   tab's upgrade.
  * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
  * Dependencies: src/data/local.ts, src/data/demo.ts, fake-indexeddb, idb.
  */
@@ -18,6 +19,9 @@ import {
   readFavorites,
   saveManualBlob,
   readManualBlob,
+  readPendingPhotos,
+  savePendingPhoto,
+  removePendingPhoto,
 } from "./local";
 import { demoSnapshot } from "./demo";
 
@@ -133,4 +137,48 @@ it("releases the manual files connection when another tab upgrades it", async ()
   await expect(readManualBlob("upgrade-test", "manual")).rejects.toMatchObject({
     name: "VersionError",
   });
+});
+
+it("queues logbook page photos per namespace, replacing a photo saved again under its key", async () => {
+  const photo = (key: string, queuedAt: number, error?: string) => ({
+    key,
+    aircraftUuid: "aircraft",
+    linkedKind: "flight" as const,
+    linkedUuid: "flight-1",
+    authorId: "user-a",
+    programUuid: "program",
+    name: key,
+    type: "image/jpeg",
+    size: 3,
+    queuedAt,
+    error,
+    blob: new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }),
+  });
+  await savePendingPhoto("live:a", photo("late.jpg", 5));
+  await savePendingPhoto("live:a", photo("early.jpg", 1));
+  await savePendingPhoto("live:a", photo("early.jpg", 1, "Refused"));
+  await savePendingPhoto("demo", photo("demo.jpg", 2));
+  const queued = await readPendingPhotos("live:a");
+  expect(queued.map((p) => [p.key, p.error])).toEqual([
+    ["early.jpg", "Refused"],
+    ["late.jpg", undefined],
+  ]);
+  expect(await queued[0].blob.arrayBuffer()).toEqual(
+    new Uint8Array([1, 2, 3]).buffer,
+  );
+  await removePendingPhoto("live:a", "early.jpg");
+  await removePendingPhoto("live:a", "missing.jpg");
+  expect((await readPendingPhotos("live:a")).map((p) => p.key)).toEqual([
+    "late.jpg",
+  ]);
+  expect((await readPendingPhotos("demo")).map((p) => p.key)).toEqual([
+    "demo.jpg",
+  ]);
+  const db = await openDB("angel-one-logbook-photos-v1", 1);
+  expect([...db.objectStoreNames]).toEqual(["photos"]);
+  expect(await db.getAllKeys("photos")).toEqual([
+    "demo:demo.jpg",
+    "live:a:late.jpg",
+  ]);
+  db.close();
 });
