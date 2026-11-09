@@ -316,6 +316,7 @@ describe("planAircraftSetup", () => {
     const rows: InspectionSetupRow[] = [
       { row: 2, name: "No interval", notes: "" },
       { row: 3, name: "No last done", intervalSeconds: 360, notes: "" },
+      { row: 8, name: "No last date", intervalMonths: 12, notes: "" },
       {
         row: 4,
         name: "Future",
@@ -378,6 +379,7 @@ describe("planAircraftSetup", () => {
     expect(plan.errors).toEqual([
       "Row 2 (No interval): enter at least one interval.",
       "Row 3 (No last done): each interval needs its last-done hours, count or date.",
+      "Row 8 (No last date): each interval needs its last-done hours, count or date.",
       "Row 4 (Future): the last-done date is in the future.",
       "Row 5 (Too many hours): last-done values are above the aircraft's current totals.",
       "Row 6 (Too many cycles): last-done values are above the aircraft's current totals.",
@@ -457,6 +459,24 @@ describe("planAircraftSetup", () => {
     expect(runOut.warnings).toEqual([
       "Row 2 (Oil change): its hours interval has already run out.",
     ]);
+    // 0 remaining is overdue (GLOSSARY "Overdue"): due exactly at the current
+    // 2341.2 h total still warns; one tenth later does not.
+    rows[0].lastSeconds = 2241.2 * HOUR_SECONDS;
+    const atZero = planAircraftSetup(
+      demoSnapshot(),
+      AIRCRAFT,
+      { inspections: rows, ads: [] },
+      { now: NOW },
+    );
+    expect(atZero.warnings).toHaveLength(1);
+    rows[0].lastSeconds = Math.round(2241.3 * HOUR_SECONDS);
+    const ahead = planAircraftSetup(
+      demoSnapshot(),
+      AIRCRAFT,
+      { inspections: rows, ads: [] },
+      { now: NOW },
+    );
+    expect(ahead.warnings).toEqual([]);
   });
   it("reports an unknown aircraft instead of planning", () => {
     const plan = planAircraftSetup(demoSnapshot(), "missing", parsed());
