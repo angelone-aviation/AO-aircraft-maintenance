@@ -1,6 +1,7 @@
 /**
- * Responsibility: The daily alert digest email and the off-site backup
- *   warning email, as subject, plain text and HTML.
+ * Responsibility: The messages alerts go out as: the daily digest email, the
+ *   urgent alert email and push message, and the off-site backup warning
+ *   email, as subject, plain text and HTML.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./alerts.
  *
@@ -11,6 +12,15 @@ import { severityLabels, type Alert } from "./alerts";
 
 /** The most alerts one digest lists; the rest are counted, not listed. */
 export const DIGEST_LIMIT = 50;
+
+/** The most alerts one urgent email or push message lists. */
+export const URGENT_LIMIT = 10;
+
+/** Where an urgent push message opens the app. */
+export const URGENT_ALERTS_PATH = "/alerts";
+
+// Push services cap a payload around 4 KB; the body stays well under it.
+const PUSH_BODY_MAX_LENGTH = 400;
 
 type DigestAlert = Pick<
   Alert,
@@ -34,6 +44,8 @@ const HTML_ENTITIES: Record<string, string> = {
   "'": "&#39;",
 };
 const FOOTER = "Turn these emails off under My certifications in the app.";
+const URGENT_FOOTER =
+  "Turn these emails off under Settings → My account in the app.";
 
 /**
  * One plain digest of a program's alerts, grouped by severity.
@@ -85,6 +97,73 @@ export function backupWarningEmail(
   };
 }
 
+/**
+ * One urgent alert email: the alerts that need action now, sent as soon as
+ * they arise rather than in the next digest.
+ *
+ * @param alerts - The new urgent alerts, in the order to list them.
+ * @param options - The program's name; the site URL to link to, used only
+ *   when it is http(s).
+ * @returns The subject ("<program>: N urgent alerts"), HTML and text, listing
+ *   the first {@link URGENT_LIMIT} and counting the rest.
+ */
+export function urgentEmail<T extends DigestAlert>(
+  alerts: T[],
+  options: { programName: string; siteUrl?: string },
+) {
+  const shown = alerts.slice(0, URGENT_LIMIT);
+  const more = alerts.length - shown.length;
+  const program = oneLine(options.programName);
+  const base = siteBase(options.siteUrl);
+  const heading = `${program}: ${countOf(alerts.length, "urgent alert")}`;
+  const moreText = more > 0 ? `and ${more} more in the app.` : "";
+  const text = [
+    heading,
+    "",
+    ...shown.map(
+      (a) =>
+        `- ${oneLine(a.title)}\n  ${oneLine(a.detail)}${base ? `\n  ${base}${a.link}` : ""}`,
+    ),
+    ...(moreText ? ["", moreText] : []),
+    "",
+    URGENT_FOOTER,
+  ].join("\n");
+  const html = [
+    `<p><strong>${escapeHtml(heading)}</strong></p>`,
+    `<ul>${shown.map((a) => alertItemHtml(a, base)).join("")}</ul>`,
+    ...(moreText ? [`<p>${escapeHtml(moreText)}</p>`] : []),
+    `<p>${URGENT_FOOTER}</p>`,
+  ].join("");
+  return { subject: heading, html, text, shown };
+}
+
+/**
+ * The push message for new urgent alerts, shown by the device even while the
+ * app is closed.
+ *
+ * @param alerts - The new urgent alerts, in the order to list them.
+ * @param programName - The program's name, for the title.
+ * @returns The title ("<program>: N urgent alerts"), a one-line-per-alert
+ *   body of at most {@link URGENT_LIMIT} titles cut to 400 characters, and
+ *   the app path to open.
+ */
+export function urgentPushPayload<T extends Pick<DigestAlert, "title">>(
+  alerts: T[],
+  programName: string,
+): { title: string; body: string; url: string } {
+  const shown = alerts.slice(0, URGENT_LIMIT);
+  const more = alerts.length - shown.length;
+  const lines = shown.map((a) => oneLine(a.title));
+  if (more > 0) lines.push(`and ${more} more`);
+  return {
+    title: `${oneLine(programName)}: ${countOf(alerts.length, "urgent alert")}`,
+    body: lines.join("\n").slice(0, PUSH_BODY_MAX_LENGTH),
+    url: URGENT_ALERTS_PATH,
+  };
+}
+
+const countOf = (n: number, noun: string) =>
+  `${n} ${noun}${n === 1 ? "" : "s"}`;
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (c) => HTML_ENTITIES[c]);
 const oneLine = (text: string) => text.replace(/[\r\n]+/g, " ").trim();
@@ -126,20 +205,23 @@ function digestText({ program, base, backup, groups, moreText }: DigestParts) {
   ].join("\n");
 }
 
+function alertItemHtml(a: DigestAlert, base: string) {
+  const title = escapeHtml(a.title);
+  const linked = base
+    ? `<a href="${escapeHtml(base + a.link)}">${title}</a>`
+    : title;
+  return `<li>${linked}<br>${escapeHtml(a.detail)}</li>`;
+}
+
 function digestHtml({ program, base, backup, groups, moreText }: DigestParts) {
-  const item = (a: DigestAlert) => {
-    const title = escapeHtml(a.title);
-    const linked = base
-      ? `<a href="${escapeHtml(base + a.link)}">${title}</a>`
-      : title;
-    return `<li>${linked}<br>${escapeHtml(a.detail)}</li>`;
-  };
   return [
     ...backup.html,
     `<p>${escapeHtml(program)} maintenance alerts</p>`,
     ...groups.map(
       (g) =>
-        `<h3>${escapeHtml(g.label)}</h3><ul>${g.rows.map(item).join("")}</ul>`,
+        `<h3>${escapeHtml(g.label)}</h3><ul>${g.rows
+          .map((a) => alertItemHtml(a, base))
+          .join("")}</ul>`,
     ),
     ...(moreText ? [`<p>${escapeHtml(moreText)}</p>`] : []),
     `<p>${FOOTER}</p>`,

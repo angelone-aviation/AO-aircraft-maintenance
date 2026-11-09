@@ -55,6 +55,11 @@ const fileArgs = () => ({
   bytes: FILE_TEXT,
 });
 const command = () => ({ payload: PAYLOAD, programUuid: ACTIVE_PROGRAM });
+const PUSH_SUBSCRIPTION = {
+  endpoint: "https://push.example/sub/1",
+  keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
+  userAgent: "Test browser",
+};
 // The id crypto.randomUUID gives in these tests, for commands that carry one.
 const REQUEST_UUID = "8d7c6b5a-4e3f-4a1b-9c8d-7e6f5a4b3c2d";
 const requested = () => ({
@@ -812,6 +817,41 @@ const CASES: Case[] = [
     kind: "mutation",
     name: "alerts:setEmailPreference",
     args: { enabled: false },
+  },
+  {
+    method: "setUrgentAlertEmails",
+    call: (b) => b.setUrgentAlertEmails(true),
+    kind: "mutation",
+    name: "urgentAlerts:setUrgentEmailPreference",
+    args: { enabled: true },
+  },
+  {
+    method: "expiringDate",
+    call: (b) => b.expiringDate(opaque()),
+    kind: "mutation",
+    name: "expiringItems:save",
+    args: requested(),
+  },
+  {
+    method: "pushPublicKey",
+    call: (b) => b.pushPublicKey(),
+    kind: "query",
+    name: "pushSubscriptions:publicKey",
+    args: {},
+  },
+  {
+    method: "subscribePush",
+    call: (b) => b.subscribePush(PUSH_SUBSCRIPTION),
+    kind: "mutation",
+    name: "pushSubscriptions:subscribe",
+    args: { ...PUSH_SUBSCRIPTION, programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "unsubscribePush",
+    call: (b) => b.unsubscribePush(PUSH_SUBSCRIPTION.endpoint),
+    kind: "mutation",
+    name: "pushSubscriptions:unsubscribe",
+    args: { endpoint: PUSH_SUBSCRIPTION.endpoint, programUuid: ACTIVE_PROGRAM },
   },
 ];
 

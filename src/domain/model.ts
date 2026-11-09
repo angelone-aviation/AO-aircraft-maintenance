@@ -73,6 +73,9 @@ export interface Member {
   availableAsPilot?: boolean;
   /** Unset: program administrators receive alert digests, others do not. */
   emailAlerts?: boolean;
+  /** Unset: program administrators and maintenance members get urgent alerts
+   * by email at once, others do not. */
+  urgentAlertEmails?: boolean;
   activeProgramUuid?: string;
   id: string;
   name: string;
@@ -282,6 +285,7 @@ export interface Snapshot {
     url: string;
   })[];
   faaCredential?: import("./faaCredential").FaaCredentialStatus;
+  expiringItems?: import("./expiringItems").ExpiringItem[];
   faaMonitors?: import("./faa").FaaMonitor[];
   airworthiness?: import("./airworthiness").AD[];
   purchaseOrderFiles?: {

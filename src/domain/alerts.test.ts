@@ -16,9 +16,13 @@ import { demoSnapshot } from "../data/demo";
 import {
   ALERTS_SKIPPED_AD_STATUSES,
   computeAlerts as allAlerts,
+  URGENT_ALERT_KINDS,
+  urgentAlerts,
   wantsAlertEmails,
+  wantsUrgentAlertEmails,
   type Alert,
 } from "./alerts";
+import type { ExpiringItem } from "./expiringItems";
 import { digestEmail, DIGEST_LIMIT } from "./alertDigest";
 import {
   blankAD,
@@ -453,6 +457,129 @@ describe("email preference", () => {
   it("does not default on for an administrator group without read access", () => {
     const noRead = [{ ...groups[0], permissions: [] }];
     expect(wantsAlertEmails({ groupIds: ["admins"] }, noRead, "p")).toBe(false);
+  });
+  it("sends urgent alerts to administrators and maintenance members by default", () => {
+    const maintenance = {
+      id: "mx",
+      name: "Maintenance",
+      programUuid: "p",
+      aircraftIds: [],
+      permissions: ["read", "maintenance"] as const,
+    };
+    const all = [
+      ...groups,
+      { ...maintenance, permissions: [...maintenance.permissions] },
+    ];
+    expect(wantsUrgentAlertEmails({ groupIds: ["admins"] }, all, "p")).toBe(
+      true,
+    );
+    expect(wantsUrgentAlertEmails({ groupIds: ["mx"] }, all, "p")).toBe(true);
+    expect(wantsUrgentAlertEmails({ groupIds: ["pilots"] }, all, "p")).toBe(
+      false,
+    );
+    expect(wantsUrgentAlertEmails({ groupIds: ["mx"] }, all, "q")).toBe(false);
+    expect(
+      wantsUrgentAlertEmails(
+        { groupIds: ["mx"], urgentAlertEmails: false },
+        all,
+        "p",
+      ),
+    ).toBe(false);
+    expect(
+      wantsUrgentAlertEmails(
+        { groupIds: ["pilots"], urgentAlertEmails: true },
+        all,
+        "p",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("expiring-date alerts", () => {
+  const date = (patch: Partial<ExpiringItem> = {}): ExpiringItem => ({
+    uuid: "11111111-1111-4111-8111-111111111111",
+    programUuid: "demo-program",
+    kind: "insurance",
+    label: "Hull policy",
+    expiresOn: plus(10),
+    warnDays: 60,
+    version: 1,
+    ...patch,
+  });
+  const alertsFor = (s: Snapshot, items: ExpiringItem[]) =>
+    allAlerts({ ...s, expiringItems: items }, today).filter(
+      (a) => a.kind === "date-expiring" || a.kind === "date-expired",
+    );
+  it("warns from warnDays before, marks the day after as expired, and keys on the date", () => {
+    const [soon] = alertsFor(fleet(), [date({ aircraftUuid: "demo-206" })]);
+    expect(soon).toMatchObject({
+      kind: "date-expiring",
+      severity: "warning",
+      title: `Hull policy expires on ${plus(10)}`,
+      detail: "Insurance · N206MA · 10 days remaining.",
+      aircraftUuid: "demo-206",
+      dueDate: plus(10),
+      link: "/settings",
+      key: `date-expiring|11111111-1111-4111-8111-111111111111|${plus(10)}`,
+    });
+    expect(alertsFor(fleet(), [date({ expiresOn: plus(61) })])).toEqual([]);
+    expect(alertsFor(fleet(), [date({ expiresOn: plus(60) })])).toHaveLength(1);
+    const [expired] = alertsFor(fleet(), [date({ expiresOn: plus(-1) })]);
+    expect(expired).toMatchObject({
+      kind: "date-expired",
+      severity: "danger",
+      title: `Hull policy expired on ${plus(-1)}`,
+      detail:
+        "Insurance · Renew it, then record the new date under Expiring dates in Settings.",
+    });
+    expect(
+      alertsFor(fleet(), [date({ archived: true, expiresOn: plus(-1) })]),
+    ).toEqual([]);
+  });
+  it("shows system-wide dates and the FAA key only to system administrators", () => {
+    const system = date({
+      programUuid: undefined,
+      kind: "secret",
+      label: "Entra secret",
+    });
+    const s = {
+      ...fleet(),
+      faaCredential: { configured: true, expiresOn: plus(5), version: 1 },
+    };
+    expect(alertsFor(s, [system]).map((a) => a.title)).toEqual(
+      [
+        `FAA DRS API key expires on ${plus(5)}`,
+        `Entra secret expires on ${plus(10)}`,
+      ],
+    );
+    const member = {
+      ...s,
+      user: { ...s.user, isAdmin: false, groupIds: ["demo-pilots"] },
+    };
+    expect(alertsFor(member, [system, date()])).toEqual([]);
+  });
+});
+
+describe("urgent alerts", () => {
+  it("are the grounded, overdue, past-due and expired kinds", () => {
+    expect([...URGENT_ALERT_KINDS].sort()).toEqual([
+      "ad-overdue",
+      "aircraft-grounded",
+      "component-past-due",
+      "date-expired",
+      "inspection-overdue",
+    ]);
+    const { s } = dueFleet();
+    const all = allAlerts(s, DUE_FLEET_TODAY);
+    const urgent = urgentAlerts(all);
+    expect(urgent.length).toBeGreaterThan(0);
+    expect(urgent.every((a) => a.severity === "danger")).toBe(true);
+    expect(urgent.map((a) => a.key)).toEqual(
+      all.filter((a) => URGENT_ALERT_KINDS.includes(a.kind)).map((a) => a.key),
+    );
+    expect(urgentAlerts(all.filter((a) => a.severity !== "danger"))).toEqual(
+      [],
+    );
   });
 });
 

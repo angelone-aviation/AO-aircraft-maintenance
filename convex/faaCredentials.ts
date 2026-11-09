@@ -5,19 +5,27 @@
  *   sealed and never returned.
  * Dependencies: convex/secrets, convex/secretsMigration, convex/access,
  *   src/domain/faaCredential, convex/values, zod.
+ *
+ * faaCredentialStatus is the one reader of the row for snapshots and alerts,
+ * so what leaves the server about the key is decided here.
  */
 import {
   action,
   internalMutation,
   internalQuery,
   type ActionCtx,
+  type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { admin, audit } from "./access";
-import { faaCredentialInput } from "../src/domain/faaCredential";
+import {
+  faaCredentialInput,
+  type FaaCredentialStatus,
+} from "../src/domain/faaCredential";
 import { z } from "zod";
 
 const VERIFY_TIMEOUT_MS = 30_000;
@@ -58,6 +66,24 @@ export const secret = internalQuery({
     return { stored: saved?.key || "", expiresOn: saved?.expiresOn || "" };
   },
 });
+
+/**
+ * What the snapshot says about the stored key; never the key itself.
+ *
+ * @returns `configured` when a key is saved or FAA_DRS_API_KEY is set, the
+ *   recorded renewal date ("" for none) and the settings version (0 for
+ *   none).
+ */
+export async function faaCredentialStatus(
+  ctx: QueryCtx | MutationCtx,
+): Promise<FaaCredentialStatus> {
+  const credential = await ctx.db.query("faaCredentials").unique();
+  return {
+    configured: !!(credential?.key || process.env.FAA_DRS_API_KEY),
+    expiresOn: credential?.expiresOn || "",
+    version: credential?.version ?? 0,
+  };
+}
 
 /** Where the FAA key is sealed: the one faaCredentials row, for no program. */
 export const FAA_SECRET: SecretContext = {

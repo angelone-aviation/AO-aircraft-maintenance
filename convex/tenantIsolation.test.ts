@@ -149,6 +149,15 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
   "admin:saveLogbookPhrases": "Writes the caller's own logbook phrases.",
   "admin:saveReleaseStatements": "Writes the caller's own release statements.",
   "alerts:setEmailPreference": "Writes the caller's own alert-email choice.",
+  "urgentAlerts:setUrgentEmailPreference":
+    "Writes the caller's own urgent-alert email choice.",
+  "pushSubscriptions:publicKey":
+    "Returns the deployment's public push key, the same for everyone.",
+};
+const EXPIRING_UUID = "22222222-2222-4222-8222-222222222222";
+const PUSH_SUBSCRIPTION = {
+  endpoint: "https://push.example.test/b-device",
+  keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
 };
 
 const CASES: Case[] = [
@@ -462,6 +471,41 @@ const CASES: Case[] = [
   ),
   callMutation(api.alerts.markRead, "program A", () =>
     stampA({ keys: ["inspection-due"] }),
+  ).refuses(STALE_PROGRAM),
+  callMutation(api.expiringItems.save, "A's expiring date", (a) =>
+    sendInB({
+      action: "archive",
+      uuid: a.row.expiringItems.uuid,
+      version: readVersion(a.row.expiringItems).version,
+    }),
+  ).refuses("Expiring date not found."),
+  callMutation(api.expiringItems.save, "A's expiring date uuid, as B's", (a) =>
+    sendInB({
+      action: "save",
+      item: {
+        ...parsePayload(a.row.expiringItems),
+        programUuid: PROGRAM_B,
+        version: 0,
+      },
+    }),
+  ).refuses(RECORD_TAKEN),
+  callMutation(api.expiringItems.save, "a system-wide expiring date", () =>
+    sendInB({
+      action: "save",
+      item: {
+        uuid: crypto.randomUUID(),
+        kind: "secret",
+        label: "Deployment secret",
+        expiresOn: "2030-01-01",
+        version: 0,
+      },
+    }),
+  ).refuses(ADMIN),
+  callMutation(api.pushSubscriptions.subscribe, "program A", () =>
+    stampA(PUSH_SUBSCRIPTION),
+  ).refuses(STALE_PROGRAM),
+  callMutation(api.pushSubscriptions.unsubscribe, "program A", () =>
+    stampA({ endpoint: PUSH_SUBSCRIPTION.endpoint }),
   ).refuses(STALE_PROGRAM),
   callQuery(api.savedAddresses.list, "program A", () => IN_A).refuses(
     STALE_PROGRAM,
@@ -958,6 +1002,20 @@ async function addRecordsOfA(t: Convex, alice: Client) {
   );
   const manual = sendInA(describeManual(aircraft.uuid));
   await alice.mutation(api.manuals.beginUpload, { ...manual, sha256: SHA256 });
+  await alice.mutation(
+    api.expiringItems.save,
+    sendInA({
+      action: "save",
+      item: {
+        uuid: EXPIRING_UUID,
+        programUuid: PROGRAM_A,
+        kind: "insurance",
+        label: "Hull policy",
+        expiresOn: "2030-01-01",
+        version: 0,
+      },
+    }),
+  );
 }
 
 function draftPartsRequest(inspectionUuid: string) {

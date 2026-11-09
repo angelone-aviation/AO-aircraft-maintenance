@@ -8,9 +8,11 @@
 import { z } from "zod";
 import { localDate } from "./model";
 
-// docs/airworthiness.md "Renewal reminders": the overview warns from 60 days
-// before expiry, and keeps warning after it.
-const RENEWAL_WARNING_DAYS = 60;
+/**
+ * The key warns from this many days before expiry, and keeps warning after
+ * it (docs/airworthiness.md "Renewal reminders").
+ */
+export const RENEWAL_WARNING_DAYS = 60;
 const MS_PER_DAY = 86_400_000;
 
 /**

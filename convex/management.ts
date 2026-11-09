@@ -18,6 +18,7 @@ import {
   type LoadedDocs,
 } from "./runCommand";
 import type { MutationCtx } from "./_generated/server";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 import type { Doc } from "./_generated/dataModel";
 import type { Inspection } from "../src/domain/model";
 import {
@@ -33,7 +34,8 @@ type ManagementDocs = Pick<LoadedDocs, "management" | "inspections">;
  * Applies one inventory or inspection command in the caller's Flight Program;
  * a replayed request id changes nothing. Logs an
  * `inspection.component_transferred` row for each inspection that moved with
- * its component, then the applier's entry for the command.
+ * its component, then the applier's entry for the command. Afterwards the
+ * program's urgent alerts are checked (convex/urgentAlerts.ts).
  *
  * @param payload - JSON, as `managementCommandSchema`.
  * @param programUuid - The caller's active Flight Program.
@@ -42,8 +44,8 @@ type ManagementDocs = Pick<LoadedDocs, "management" | "inspections">;
  */
 export const execute = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
-  handler: async (ctx, { payload, programUuid }) =>
-    runCommand(ctx, {
+  handler: async (ctx, { payload, programUuid }) => {
+    await runCommand(ctx, {
       programUuid,
       actor: await currentUser(ctx),
       parse: () => managementCommandSchema.parse(JSON.parse(payload)),
@@ -70,7 +72,9 @@ export const execute = mutation({
         );
         log.replay(snapshot.audit);
       },
-    }),
+    });
+    await scheduleUrgentAlerts(ctx, programUuid);
+  },
 });
 
 /**

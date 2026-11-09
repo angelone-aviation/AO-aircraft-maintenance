@@ -300,6 +300,33 @@ export async function costDocs(
   return [...rows, ...settings];
 }
 
+/**
+ * The program's expiring dates, plus the deployment's own (rows without a
+ * program) for a system administrator.
+ *
+ * @param programUuid - The program; undefined reads only the system rows.
+ * @param systemWide - Whether the caller may read the deployment's own rows.
+ */
+export async function expiringItemDocs(
+  ctx: Ctx,
+  programUuid: string | undefined,
+  systemWide: boolean,
+) {
+  const own = programUuid
+    ? await ctx.db
+        .query("expiringItems")
+        .withIndex("program", (q) => q.eq("programUuid", programUuid))
+        .collect()
+    : [];
+  const system = systemWide
+    ? await ctx.db
+        .query("expiringItems")
+        .withIndex("program", (q) => q.eq("programUuid", undefined))
+        .collect()
+    : [];
+  return [...own, ...system];
+}
+
 /** The program's inspection templates; without one, the unassigned ones. */
 export const inspectionTemplateDocs = (ctx: Ctx, programUuid?: string) =>
   ctx.db

@@ -51,6 +51,7 @@ import {
   type WorkOrderCommand,
 } from "../src/domain/workOrders";
 import { exposeRejections } from "./userErrors";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 
 type LoadedWorkOrder = Awaited<ReturnType<typeof loadWorkOrder>>;
 
@@ -75,8 +76,8 @@ const NOT_FOUND = "Work order not found.";
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
-  handler: (ctx, args) =>
-    runCommand(ctx, {
+  handler: async (ctx, args) => {
+    const uuid = await runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => workOrderCommandSchema.parse(JSON.parse(args.payload)),
       request: () => requestOf(requestUuidIn(args.payload), args.payload),
@@ -105,7 +106,12 @@ export const save = mutation({
           }),
         ]),
       returns: ({ next }) => next.uuid,
-    }),
+    });
+    // A close-out moves components and freezes readings, which can pass a
+    // limit.
+    await scheduleUrgentAlerts(ctx, args.programUuid);
+    return uuid;
+  },
 });
 
 const fileArgs = {

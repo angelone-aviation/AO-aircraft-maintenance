@@ -10,6 +10,7 @@ import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { currentUser } from "./access";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 import {
   runCommand,
   hydrate,
@@ -38,8 +39,8 @@ import type { Aircraft } from "../src/domain/model";
  */
 export const save = mutation({
   args: { payload: v.string(), programUuid: v.optional(v.string()) },
-  handler: async (ctx, { payload, programUuid }) =>
-    runCommand(ctx, {
+  handler: async (ctx, { payload, programUuid }) => {
+    const result = await runCommand(ctx, {
       programUuid,
       actor: await currentUser(ctx),
       parse: () => fleetCommandSchema.parse(JSON.parse(payload)),
@@ -61,7 +62,10 @@ export const save = mutation({
         );
       },
       audit: (log, { snapshot }) => log.replay(snapshot.audit),
-    }),
+    });
+    await scheduleUrgentAlerts(ctx, programUuid);
+    return result;
+  },
 });
 
 /**

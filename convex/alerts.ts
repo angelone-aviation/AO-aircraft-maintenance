@@ -1,12 +1,13 @@
 /**
  * Responsibility: Each member's maintenance alerts: which they have read,
- *   their email choice, and the daily digest and off-site backup warning.
+ *   their email choice, the daily digest and off-site backup warning, and
+ *   the alert sources and delivery rows the urgent sender shares.
  * Layer: Server. Public functions for the signed-in member; the digest runs
- *   from the daily cron and sends through Resend. The alert rules are the
- *   domain's.
- * Dependencies: convex (access, memberships, programContext), src/domain
- *   (alerts, alertDigest, offsiteBackups, airworthiness, faa, management,
- *   programs, model).
+ *   from the daily cron and sends through the mailer. The alert rules are
+ *   the domain's.
+ * Dependencies: convex (access, faaCredentials, mailer, memberships,
+ *   programContext), src/domain (alerts, alertDigest, offsiteBackups,
+ *   airworthiness, expiringItems, faa, management, programs, model).
  */
 import {
   query,
@@ -21,6 +22,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import { currentUser, group, member } from "./access";
+import { faaCredentialStatus } from "./faaCredentials";
+import { createMailer, mailerSettings, type Mailer } from "./mailer";
 import { programUsers } from "./memberships";
 import {
   checkContext,
@@ -28,11 +31,13 @@ import {
   inspectionDocs,
   airworthinessDocs,
   faaMonitorDocs,
+  expiringItemDocs,
 } from "./programContext";
 import { computeAlerts, wantsAlertEmails } from "../src/domain/alerts";
 import { backupWarningEmail, digestEmail } from "../src/domain/alertDigest";
 import { offsiteFreshness } from "../src/domain/offsiteBackups";
 import { adSchema } from "../src/domain/airworthiness";
+import { expiringItemSchema } from "../src/domain/expiringItems";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { recordSchema } from "../src/domain/management";
 import { activeProgram, scopedSnapshot } from "../src/domain/programs";
@@ -40,17 +45,18 @@ import { localDate, type Group, type Snapshot } from "../src/domain/model";
 
 const MAX_KEYS = 500;
 const MAX_KEY_LENGTH = 300;
-const EMAIL_TIMEOUT_MS = 15000;
-const RESEND_URL = "https://api.resend.com/emails";
 
-type AlertSources = Omit<Snapshot, "user">;
+/**
+ * One program's records every member's alerts are computed from, before
+ * scopedSnapshot narrows them to a member. System-wide expiring dates are
+ * loaded too; the scope hides them from anyone but a system administrator.
+ */
+export type AlertSources = Omit<Snapshot, "user"> & { programUuid: string };
+
+/** Where an alert was sent: the daily digest, at once by email, or pushed. */
+export type DeliveryChannel = "digest" | "immediate" | "push";
+
 type DigestRecipient = NonNullable<Awaited<ReturnType<typeof pendingDigest>>>;
-type Mailer = ReturnType<typeof createMailer>;
-interface Email {
-  subject: string;
-  html: string;
-  text: string;
-}
 
 /**
  * The caller's read alert keys in a Flight Program.
@@ -67,7 +73,6 @@ export const readKeys = query({
       ctx,
       state.user.id as Id<"users">,
       programUuid ?? "",
-      "alertReads",
     );
     return rows.map((r) => r.key);
   },
@@ -95,7 +100,7 @@ export const markRead = mutation({
     const wanted = validKeys(keys);
     const userId = state.user.id as Id<"users">;
     const program = programUuid ?? "";
-    const rows = await readRows(ctx, userId, program, "alertReads");
+    const rows = await readRows(ctx, userId, program);
     const known = new Set(rows.map((r) => r.key));
     const forgotten = all ? rows.filter((r) => !wanted.includes(r.key)) : [];
     for (const row of forgotten) await ctx.db.delete(row._id);
@@ -204,8 +209,9 @@ export const digestBackupWarning = internalQuery({
 });
 
 /**
- * Records which alerts were emailed and forgets deliveries for alerts that
- * cleared, so a cleared alert that returns is emailed again.
+ * Records which alerts a digest emailed and forgets digest deliveries for
+ * alerts that cleared, so a cleared alert that returns is emailed again.
+ * Rows of the immediate and push channels are left alone.
  *
  * @param keys - The alerts the email showed.
  * @param active - Every current alert key for the member.
@@ -218,7 +224,7 @@ export const recordDeliveries = internalMutation({
     active: v.array(v.string()),
   },
   handler: async (ctx, { userId, programUuid, keys, active }) => {
-    const rows = await readRows(ctx, userId, programUuid, "alertDeliveries");
+    const rows = await deliveryRows(ctx, userId, programUuid, "digest");
     const live = new Set(active);
     const known = new Set(rows.map((r) => r.key));
     for (const row of rows)
@@ -231,6 +237,7 @@ export const recordDeliveries = internalMutation({
           programUuid,
           key,
           sentAt,
+          channel: "digest",
         });
   },
 });
@@ -246,12 +253,11 @@ export const recordDeliveries = internalMutation({
 export const sendDigests = internalAction({
   args: {},
   handler: async (ctx) => {
-    const apiKey = process.env.RESEND_API_KEY;
-    const from = process.env.RESEND_FROM;
+    const settings = mailerSettings();
     // In-app alerts work without email; skip quietly until both are set.
-    if (!apiKey || !from) return { sent: 0, failed: 0, skipped: true };
+    if (!settings) return { sent: 0, failed: 0, skipped: true };
     const today = localDate();
-    const mail = createMailer(apiKey, from);
+    const mail = createMailer(settings);
     const backup = await ctx.runQuery(internal.alerts.digestBackupWarning, {});
     const freshness = offsiteFreshness(backup.latest, Date.now());
     const backupWarning =
@@ -290,19 +296,51 @@ function validKeys(keys: string[]) {
   return [...new Set(keys)];
 }
 
-function readRows(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-  programUuid: string,
-  table: "alertReads" | "alertDeliveries",
-) {
+function readRows(ctx: QueryCtx, userId: Id<"users">, programUuid: string) {
   return ctx.db
-    .query(table)
+    .query("alertReads")
     .withIndex("user_program", (q) =>
       q.eq("userId", userId).eq("programUuid", programUuid),
     )
     .collect();
 }
+
+/**
+ * A member's delivery rows in a program.
+ *
+ * @param channel - Only that channel's rows; every row without one.
+ * @returns The rows, in no particular order; a row stored before channels
+ *   existed counts as "digest".
+ */
+export async function deliveryRows(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  programUuid: string,
+  channel?: DeliveryChannel,
+) {
+  const rows = await ctx.db
+    .query("alertDeliveries")
+    .withIndex("user_program", (q) =>
+      q.eq("userId", userId).eq("programUuid", programUuid),
+    )
+    .collect();
+  return channel ? rows.filter((r) => channelOf(r) === channel) : rows;
+}
+
+/**
+ * The alert keys among delivery rows that were sent on one channel.
+ *
+ * @returns Each key, in row order.
+ */
+export function deliveredKeys(
+  rows: Doc<"alertDeliveries">[],
+  channel: DeliveryChannel,
+): string[] {
+  return rows.filter((r) => channelOf(r) === channel).map((r) => r.key);
+}
+
+const channelOf = (row: Doc<"alertDeliveries">): DeliveryChannel =>
+  row.channel ?? "digest";
 
 // Members via the memberships index; groupIds stays authoritative.
 async function emailMembers(
@@ -320,7 +358,16 @@ async function emailMembers(
   );
 }
 
-async function loadAlertSources(
+/**
+ * Loads one program's alert sources: its aircraft, maintenance records,
+ * inspections, ADs, FAA monitors, expiring dates (with the deployment's) and
+ * the FAA key status.
+ *
+ * @param groups - The program's permission groups, already loaded.
+ * @returns The sources; members, flights, discrepancies and the change log
+ *   stay empty, since no alert reads them.
+ */
+export async function loadAlertSources(
   ctx: QueryCtx,
   programUuid: string,
   groups: Group[],
@@ -332,9 +379,14 @@ async function loadAlertSources(
     .collect();
   const management = await managementDocs(ctx, programUuid);
   return {
+    programUuid,
     programs,
     groups,
     aircraft,
+    faaCredential: await faaCredentialStatus(ctx),
+    expiringItems: (await expiringItemDocs(ctx, programUuid, true)).map((d) =>
+      expiringItemSchema.parse(JSON.parse(d.payload)),
+    ),
     management: management.map((d) =>
       recordSchema.parse(JSON.parse(d.payload)),
     ),
@@ -354,6 +406,27 @@ async function loadAlertSources(
   };
 }
 
+/**
+ * One member's alerts in the program, from what their groups let them see.
+ *
+ * @param today - The local date the alerts are computed for.
+ * @returns The alerts, as computeAlerts orders them; undefined when the
+ *   member cannot work in the program.
+ */
+export function memberAlerts(
+  sources: AlertSources,
+  u: Doc<"users">,
+  today: string,
+) {
+  const { programUuid, ...records } = sources;
+  const state = scopedSnapshot({
+    ...records,
+    user: { ...member(u), activeProgramUuid: programUuid },
+  });
+  if (activeProgram(state) !== programUuid) return undefined;
+  return computeAlerts(state, today);
+}
+
 async function pendingDigest(
   ctx: QueryCtx,
   sources: AlertSources,
@@ -361,16 +434,10 @@ async function pendingDigest(
   programUuid: string,
   today: string,
 ) {
-  const state = scopedSnapshot({
-    ...sources,
-    user: { ...member(u), activeProgramUuid: programUuid },
-  });
-  if (activeProgram(state) !== programUuid) return undefined;
-  const alerts = computeAlerts(state, today);
+  const alerts = memberAlerts(sources, u, today);
+  if (!alerts) return undefined;
   const sent = new Set(
-    (await readRows(ctx, u._id, programUuid, "alertDeliveries")).map(
-      (r) => r.key,
-    ),
+    deliveredKeys(await deliveryRows(ctx, u._id, programUuid), "digest"),
   );
   const pending = alerts.filter((a) => !sent.has(a.key));
   if (!pending.length) return undefined;
@@ -433,60 +500,5 @@ async function sendBackupWarnings(
       email,
       "Off-site backup warning not sent",
       a.userId,
-    );
-}
-
-function createMailer(apiKey: string, from: string) {
-  const counts = { sent: 0, failed: 0 };
-  const send = async (
-    to: string,
-    email: Email,
-    failure: string,
-    userId: string,
-  ) => {
-    try {
-      await sendEmail(apiKey, from, to, email);
-      counts.sent++;
-      return true;
-    } catch (error) {
-      // One failed email must not stop the rest; the log names the user id,
-      // never the address or the content.
-      counts.failed++;
-      console.error(
-        failure,
-        userId,
-        error instanceof Error ? error.message : "unknown error",
-      );
-      return false;
-    }
-  };
-  return { counts, send, siteUrl: process.env.SITE_URL };
-}
-
-async function sendEmail(
-  apiKey: string,
-  from: string,
-  to: string,
-  email: Email,
-) {
-  const response = await fetch(RESEND_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [to],
-      subject: email.subject,
-      html: email.html,
-      text: email.text,
-    }),
-    redirect: "error",
-    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
-  });
-  if (!response.ok)
-    throw new Error(
-      `Email provider rejected the request (${response.status}).`,
     );
 }
