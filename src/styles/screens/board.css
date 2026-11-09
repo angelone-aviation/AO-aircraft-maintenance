@@ -1,0 +1,21 @@
+/*
+ * Responsibility: Styles the board view (route "/board"): the status tiles
+ *   and the aircraft and due lists.
+ * Layer: UI. Screen styles; every selector is scoped by a `board-` class.
+ * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`).
+ */
+
+.board {
+  min-width: 0;
+}
+.board-kpis {
+  margin-bottom: 20px;
+}
+.board-aircraft,
+.board-due {
+  margin-bottom: 20px;
+}
+/* Spend lines are long; keep them on one line where there is room. */
+.board-aircraft .ds-list-meta {
+  font-variant-numeric: tabular-nums;
+}

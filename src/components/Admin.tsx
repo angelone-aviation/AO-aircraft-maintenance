@@ -429,6 +429,8 @@ function groupScope(group: Group, aircraft: Aircraft[]) {
   if (group.programAdmin) return "Flight Program administrator";
   if (group.owner && !group.aircraftIds.length)
     return "Aircraft owner · No aircraft assigned";
+  if (group.board)
+    return `Board (read-only) · ${groupAircraftLabel(group, aircraft)}`;
   return groupAircraftLabel(group, aircraft);
 }
 

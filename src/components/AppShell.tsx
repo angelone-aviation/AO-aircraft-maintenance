@@ -5,7 +5,7 @@
  * Layer: UI. React components around the routed screens.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, pendingEntries), src/domain (pilotView, ownerView,
- *   programs, model), ./Alerts, ./UserProfile, ./ComponentIcon,
+ *   boardView, programs, model), ./Alerts, ./UserProfile, ./ComponentIcon,
  *   ./InspectionIcon, ./WorkOrderIcon, ./FlightForm, ./ui, ./design.
  */
 import { useState, type ReactNode } from "react";
@@ -30,6 +30,7 @@ import {
   Moon,
   Package,
   Plus,
+  Presentation,
   Receipt,
   Scan,
   ShieldCheck,
@@ -42,9 +43,14 @@ import {
   Warning,
 } from "@phosphor-icons/react";
 import { ownEntries } from "../data/pendingEntries";
-import { useWorkspace, previewDemoOwner } from "../data/store";
+import {
+  useWorkspace,
+  previewDemoBoard,
+  previewDemoOwner,
+} from "../data/store";
 import { isPilotView, pilotNavigation } from "../domain/pilotView";
 import { isOwnerView } from "../domain/ownerView";
+import { isBoardView } from "../domain/boardView";
 import { programPermission } from "../domain/programs";
 import { can, type Snapshot } from "../domain/model";
 import { AlertBell, useUnreadAlertCount } from "./Alerts";
@@ -205,6 +211,13 @@ const WORKSPACE_LINKS: WorkspaceLink[] = [
   // follows the same owner / pilot filters as every workspace link.
   { path: "/alerts", label: "Alerts", icon: Bell, group: "manage" },
 ];
+// The board view: a board member's only link; administrators get it too.
+const BOARD_LINK: NavItem = {
+  path: "/board",
+  label: "Board view",
+  icon: Presentation,
+  group: "manage",
+};
 // Management links keep their own rule: shown to program administrators.
 const ADMIN_LINKS: NavItem[] = [
   { path: "/admin", label: "Administration", icon: Users, group: "manage" },
@@ -214,6 +227,7 @@ const ADMIN_LINKS: NavItem[] = [
     icon: CurrencyCircleDollar,
     group: "manage",
   },
+  BOARD_LINK,
 ];
 // Settings (account, device, program and system settings) is for every
 // signed-in user; each section inside checks its own permission.
@@ -233,6 +247,7 @@ function useNavigation() {
   const pilotView = isPilotView(s);
   const ownerView = isOwnerView(s);
   const admin = programPermission(s, "admin");
+  if (isBoardView(s)) return [BOARD_LINK];
   const visible: NavItem[] = WORKSPACE_LINKS.filter(
     (link) => admin || !link.adminOnly,
   ).filter((item) =>
@@ -279,10 +294,12 @@ export { ThemeToggle };
  *
  * @param props.exit - Signs out, from the profile footer.
  * @param props.children - The current screen.
- * @returns The layout. Pilots see only pilot navigation and owners only the
- *   overview; program administrators also get inventory and purchasing,
- *   Administration and Costs; Settings ends the list for everyone but owners,
- *   who keep their portal. Phones offer Log flight to anyone who may log one.
+ * @returns The layout. Pilots see only pilot navigation, owners only the
+ *   overview and board members only the board view; program administrators
+ *   also get inventory and purchasing, Administration, Costs and the board
+ *   view; Settings ends the list for everyone but owners and board members,
+ *   who keep their one view. Phones offer Log flight to anyone who may log
+ *   one.
  */
 export function AppShell({
   exit,
@@ -469,7 +486,7 @@ function ProfileFooter({
   variant: "sidebar" | "sheet";
 }) {
   const s = useWorkspace((x) => x.snapshot)!;
-  const ownerView = isOwnerView(s);
+  const ownerView = isReducedView(s);
   return (
     <div className={"profile profile-" + variant}>
       <span className="avatar" aria-hidden="true">
@@ -732,7 +749,7 @@ function SheetGroup(props: {
 function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
   const s = useWorkspace((x) => x.snapshot)!;
   const { demo } = useWorkspace();
-  const ownerView = isOwnerView(s);
+  const ownerView = isReducedView(s);
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   return (
     <header className="topbar">
@@ -748,6 +765,7 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
       <div className="topbar-status">
         {demo && <Badge>LOCAL DEMO</Badge>}
         {demo && !ownerView && <OwnerPreviewButton />}
+        {demo && !ownerView && <BoardPreviewButton />}
         <ConnectionStatus s={s} />
         {!ownerView && <AlertBell />}
         <ThemeToggle />
@@ -769,6 +787,23 @@ function OwnerPreviewButton() {
       }
     >
       Preview owner portal
+    </button>
+  );
+}
+
+function BoardPreviewButton() {
+  return (
+    <button
+      className="button small owner-preview-button"
+      onClick={() =>
+        previewDemoBoard(true).catch((e) =>
+          useWorkspace.setState({
+            error: errorText(e, "Unable to preview the board view."),
+          }),
+        )
+      }
+    >
+      Preview board view
     </button>
   );
 }
@@ -811,7 +846,13 @@ function LogFlightModal({ onClose }: { onClose: () => void }) {
 // The bottom tab bar's "Log flight" opens the same flight form as the
 // overview's "Log a flight" button, under the same permission.
 function canLogFlight(s: Snapshot) {
-  return !isOwnerView(s) && s.aircraft.some((a) => can(s, a.uuid, "flight"));
+  return !isReducedView(s) && s.aircraft.some((a) => can(s, a.uuid, "flight"));
+}
+
+// Owners and board members read only their one view: no settings, alerts,
+// certifications or flight logging, whose calls the server refuses anyway.
+function isReducedView(s: Snapshot) {
+  return isOwnerView(s) || isBoardView(s);
 }
 
 function topBarTitle(items: NavItem[], pathname: string) {
@@ -856,5 +897,6 @@ function initials(name: string) {
 function roleLabel(s: Snapshot) {
   if (s.user.isAdmin) return "Administrator";
   if (isOwnerView(s)) return "Aircraft owner";
+  if (isBoardView(s)) return "Board member";
   return isPilotView(s) ? "Pilot" : "Team member";
 }

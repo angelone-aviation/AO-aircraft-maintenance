@@ -186,6 +186,10 @@ _Avoid_: notification, reminder
 **Owner portal**:
 A read-only view of an aircraft's status and due items for the aircraft's owner.
 
+**Board view**:
+The read-only fleet summary for a Flight Program's board members: aircraft status, due items, discrepancy counts, cost totals against budget and the last off-site backup, with a PDF board summary.
+_Avoid_: executive dashboard, read-only dashboard
+
 **Checklist**:
 A ForeFlight-compatible aircraft checklist set with normal, abnormal and emergency categories; progress is personal.
 

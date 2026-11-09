@@ -10,15 +10,21 @@ import {
   missingDefaultGroups,
 } from "./defaultPermissionGroups";
 
-it("starts owners with no aircraft and only program managers as admins", () => {
+it("starts owners with no aircraft, only program managers as admins and the board read-only", () => {
   expect(
-    defaultPermissionGroups.map((g) => [g.name, !!g.programAdmin, !!g.owner]),
+    defaultPermissionGroups.map((g) => [
+      g.name,
+      !!g.programAdmin,
+      !!g.owner,
+      !!g.board,
+    ]),
   ).toEqual([
-    ["Observers", false, false],
-    ["Pilots", false, false],
-    ["Maintenance technicians", false, false],
-    ["Program managers", true, false],
-    ["Aircraft owners", false, true],
+    ["Observers", false, false, false],
+    ["Pilots", false, false, false],
+    ["Maintenance technicians", false, false, false],
+    ["Program managers", true, false, false],
+    ["Aircraft owners", false, true, false],
+    ["Board (read-only)", false, false, true],
   ]);
   expect(defaultPermissionGroups.every((g) => !g.aircraftIds.length)).toBe(
     true,
@@ -35,5 +41,6 @@ it("matches existing groups by name, ignoring case and surrounding spaces", () =
     "Observers",
     "Maintenance technicians",
     "Aircraft owners",
+    "Board (read-only)",
   ]);
 });

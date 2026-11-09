@@ -1,11 +1,13 @@
 /**
  * Responsibility: The signed-in app shell (workspace banners, then the owner
- *   portal or the routed screen) and the route table of every screen.
+ *   portal, the board view or the routed screen) and the route table of every
+ *   screen.
  * Layer: UI (entry). Composes screens; holds no business rules.
  * Dependencies: @tanstack/react-router, src/components (AppShell, screens),
- *   src/data/store.ts, src/domain/ownerView.ts.
+ *   src/data/store.ts, src/domain (ownerView, boardView).
  */
 import { isOwnerView } from "./domain/ownerView";
+import { isBoardView } from "./domain/boardView";
 import { AppShell } from "./components/AppShell";
 import { createContext, useContext, lazy, Suspense } from "react";
 import {
@@ -18,11 +20,15 @@ import {
 } from "@tanstack/react-router";
 import { X } from "@phosphor-icons/react";
 import { useWorkspace } from "./data/store";
+import type { Snapshot } from "./domain/model";
 import { Dashboard } from "./components/Dashboard";
 
 // Screens load on demand so older phones parse less code at startup.
 const OwnerPortal = lazy(() =>
   import("./components/OwnerPortal").then((m) => ({ default: m.OwnerPortal })),
+);
+const Board = lazy(() =>
+  import("./components/Board").then((m) => ({ default: m.Board })),
 );
 const AlertsPage = lazy(() =>
   import("./components/Alerts").then((m) => ({ default: m.AlertsPage })),
@@ -277,6 +283,11 @@ const routes = [
   }),
   createRoute({
     getParentRoute: () => rootRoute,
+    path: "/board",
+    component: Board,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
     path: "/alerts",
     component: AlertsPage,
   }),
@@ -338,15 +349,19 @@ function Shell() {
           </p>
         )}
         <Suspense fallback={<p className="muted">Opening page…</p>}>
-          {isOwnerView(s!) ? (
-            <OwnerPortal key={programKey} />
-          ) : (
-            <Outlet key={programKey} />
-          )}
+          <Screen key={programKey} s={s!} />
         </Suspense>
       </main>
     </AppShell>
   );
+}
+
+// Owners and board members get their one view whatever the route, so a
+// bookmarked or typed path cannot open a screen they cannot use.
+function Screen({ s }: { s: Snapshot }) {
+  if (isOwnerView(s)) return <OwnerPortal />;
+  if (isBoardView(s)) return <Board />;
+  return <Outlet />;
 }
 
 function Notice({ text }: { text: string }) {

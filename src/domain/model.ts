@@ -57,6 +57,8 @@ export interface Group {
   programAdmin?: boolean;
   /** Aircraft owner: a read-only portal for the covered aircraft. */
   owner?: boolean;
+  /** Board member: the read-only fleet summary (GLOSSARY "Board view"). */
+  board?: boolean;
   id: string;
   name: string;
   aircraftIds: string[];
@@ -332,6 +334,10 @@ export interface Snapshot {
   audit: AuditEntry[];
   management?: import("./management").ManagedRecord[];
   costs?: import("./costs").CostRecord[];
+  /** Board view only: cost totals in place of the cost records. */
+  boardCosts?: import("./boardView").BoardAircraftCosts[];
+  /** When the newest off-site backup finished; set for the board view. */
+  offsiteBackupAt?: number;
 }
 
 /**

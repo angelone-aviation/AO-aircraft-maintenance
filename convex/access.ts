@@ -56,6 +56,7 @@ export function group(doc: Doc<"groups">): Group {
     programUuid: doc.programUuid,
     programAdmin: doc.programAdmin,
     owner: doc.owner,
+    board: doc.board,
     id: doc._id,
     name: doc.name,
     aircraftIds: doc.aircraftIds,

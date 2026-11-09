@@ -361,6 +361,7 @@ function groupSummary(g: Group, programAircraft: Aircraft[]) {
     return "Flight Program administrator · All program aircraft";
   const aircraft = groupAircraftLabel(g, programAircraft);
   if (g.owner) return `Aircraft owner (read-only portal) · ${aircraft}`;
+  if (g.board) return `Board member (read-only board view) · ${aircraft}`;
   return `${g.permissions.join(", ")} · ${aircraft}`;
 }
 
@@ -685,6 +686,7 @@ function GroupChoices({
           {g.name}
           {g.programAdmin ? " (Flight Program administrator)" : ""}
           {g.owner ? " (Aircraft owner, read-only)" : ""}
+          {g.board ? " (Board, read-only)" : ""}
         </label>
       ))}
     </>

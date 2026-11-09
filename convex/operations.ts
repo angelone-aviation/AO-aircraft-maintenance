@@ -3,9 +3,9 @@
  *   and the problem-report and flight-review mutations.
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   ./programContext, ./access, ./aircraftFiles, ./memberships, ./validators,
- *   src/domain (model, programs, flightSubmission, flightReview, ownerView,
- *   deferrals, requiredParts, aircraftStatus).
+ *   ./programContext, ./access, ./aircraftFiles, ./backups, ./memberships,
+ *   ./validators, src/domain (model, programs, flightSubmission, flightReview,
+ *   ownerView, boardView, deferrals, requiredParts, aircraftStatus).
  */
 import { v } from "convex/values";
 import {
@@ -63,6 +63,8 @@ import {
   programPermission,
 } from "../src/domain/programs";
 import { isOwnerView, ownerSnapshot } from "../src/domain/ownerView";
+import { isBoardView } from "../src/domain/boardView";
+import { latestCopy } from "./backups";
 import { earliestLocalDate } from "../src/domain/aircraftStatus";
 import {
   deferCommandSchema,
@@ -87,7 +89,8 @@ type Ctx = QueryCtx | MutationCtx;
  * scopedSnapshot to what the caller may see, with photo and attachment URLs.
  *
  * @returns null without an active account and session. An aircraft owner
- *   gets the owner whitelist.
+ *   gets the owner whitelist; a board member the board whitelist, with the
+ *   newest off-site backup's time.
  * @throws {z.ZodError} When a stored payload no longer parses.
  */
 export const snapshot = query({
@@ -96,6 +99,12 @@ export const snapshot = query({
     const identity = await activeIdentity(ctx);
     if (!identity) return null;
     const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity));
+    if (isBoardView(snapshot)) {
+      // Already the board whitelist; only the backup time is added, and no
+      // file URL is: the board sees no files.
+      snapshot.offsiteBackupAt = (await latestCopy(ctx))?.completedAt;
+      return snapshot;
+    }
     snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
     snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
     snapshot.workOrderAttachments = await workOrderAttachments(

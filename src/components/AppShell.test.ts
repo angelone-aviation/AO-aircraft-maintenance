@@ -100,10 +100,15 @@ describe("AppShell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives administrators every link, ending with Administration, Costs and Settings", () => {
+  it("gives administrators every link, ending with Administration, Costs, Board view and Settings", () => {
     const shown = links(render(asUser("admin")));
     expect(shown).toContain("Inventory");
-    expect(shown.slice(-3)).toEqual(["Administration", "Costs", "Settings"]);
+    expect(shown.slice(-4)).toEqual([
+      "Administration",
+      "Costs",
+      "Board view",
+      "Settings",
+    ]);
   });
 
   it("keeps inventory and purchasing links for program administrators", () => {
