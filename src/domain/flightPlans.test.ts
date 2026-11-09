@@ -588,9 +588,11 @@ describe("queue flags on the due fleet", () => {
     const [entry] = projectQueue(s, c.uuid);
     expect(entry.minutes).toBe(60);
     expect(entry.totalSeconds).toBeUndefined();
+    // RM-66: the calendar-only inspection is flagged although the meter is unread.
     expect(entry.flags).toStrictEqual([
       "Aircraft status: unknown",
       "i-collective: Collective component tracking requires a helicopter collective hourmeter reading.",
+      "i-calendar-unread: Due before further Flight",
     ]);
   });
 

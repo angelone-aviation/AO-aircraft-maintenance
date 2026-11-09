@@ -10,7 +10,10 @@
 import type { Snapshot } from "../model";
 import type { WorkOrder, WorkTask } from "../workOrders";
 import { applyManagement, inspectionCounters } from "../management";
-import type { ComponentRequirement } from "../components";
+import {
+  componentAircraftSeconds,
+  type ComponentRequirement,
+} from "../components";
 import { Rejection } from "../rejection";
 import {
   findRequirement,
@@ -105,6 +108,10 @@ function completeInspectionItem(
   if (!i || i.aircraftUuid !== a.uuid)
     throw new Rejection("The inspection is unavailable for this work order.");
   const counters = inspectionCounters(i, finalAircraft, s.management);
+  // Completion records the reading as the next baseline, so an unreadable
+  // meter refuses here with its own message.
+  const seconds =
+    counters.seconds ?? componentAircraftSeconds(i, finalAircraft);
   const { next } = applyManagement(
     s,
     {
@@ -114,6 +121,7 @@ function completeInspectionItem(
       version: i.version ?? 0,
       date: order.completionDate,
       ...counters,
+      seconds,
     },
     now,
   );

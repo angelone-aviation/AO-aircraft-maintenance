@@ -53,6 +53,32 @@ export function componentAircraftSeconds(
 }
 
 /**
+ * The aircraft meter reading an inspection or limit is measured against,
+ * tolerating a meter with no reading when no hours limit needs it. A
+ * calendar-only inspection on such an aircraft (only damaged data lacks a
+ * reading) must still go overdue by date (bug RM-66).
+ *
+ * @param r - The record: its meter choice and whether it sets an hours limit.
+ * @param a - The aircraft.
+ * @returns The reading in seconds, or undefined when the record sets no hours
+ *   limit and the meter cannot be read.
+ * @throws As {@link componentAircraftSeconds} when the record sets an hours
+ *   limit.
+ */
+export function aircraftSecondsFor(
+  r: Pick<Component, "usageMeter"> & { dueSeconds?: number },
+  a: Aircraft,
+) {
+  if (r.dueSeconds !== undefined) return componentAircraftSeconds(r, a);
+  try {
+    return componentAircraftSeconds(r, a);
+  } catch (error) {
+    if (error instanceof Rejection) return undefined;
+    throw error;
+  }
+}
+
+/**
  * A component's usage on a date: its baseline plus what accrued while
  * installed, on each dimension it tracks. Nothing accrues in inventory.
  *

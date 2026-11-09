@@ -528,6 +528,13 @@ describe("aircraft status on the due fleet", () => {
   it("judges an aircraft without a meter reading on what it can read", () => {
     const { s, c } = dueFleet();
     withoutMeterReading(s, c);
+    // RM-66: the calendar-only inspection grounds it as well as the AD.
+    expect(reasons(s, c.uuid)).toStrictEqual([
+      "grounded",
+      "inspection i-calendar-unread: i-calendar-unread overdue",
+      "ad ad-unread-late: AD AD-UNREAD-LATE overdue",
+    ]);
+    s.inspections = s.inspections.filter((i) => i.uuid !== "i-calendar-unread");
     expect(reasons(s, c.uuid)).toStrictEqual([
       "grounded",
       "ad ad-unread-late: AD AD-UNREAD-LATE overdue",

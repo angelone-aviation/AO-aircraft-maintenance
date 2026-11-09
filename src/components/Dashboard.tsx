@@ -784,7 +784,10 @@ function hoursMarks({ i, counters, hoursRemaining }: Schedule) {
   if (hoursRemaining === undefined) return undefined;
   return {
     remaining: amount(hoursRemaining, "h", "h", 1),
-    progress: counters && used(i.lastSeconds, i.dueSeconds, counters.seconds),
+    progress:
+      counters?.seconds === undefined
+        ? undefined
+        : used(i.lastSeconds, i.dueSeconds, counters.seconds),
     last: i.lastSeconds !== undefined ? `${hours(i.lastSeconds)} h` : undefined,
     due: i.dueSeconds !== undefined ? `${hours(i.dueSeconds)} h` : undefined,
   };

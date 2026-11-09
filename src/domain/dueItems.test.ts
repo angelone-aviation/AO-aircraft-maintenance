@@ -101,17 +101,21 @@ describe("dueItems", () => {
     });
   });
 
-  it("lists an aircraft's ADs while its meter has no reading, a passed due date still overdue", () => {
+  it("lists an aircraft's ADs and calendar inspections while its meter has no reading, a passed due date still overdue", () => {
     const { s, c } = dueFleet();
     withoutMeterReading(s, c);
     const items = byUuid(dueItems(s, undefined, DUE_FLEET_TODAY));
-    const levels = ["ad-unread", "ad-unread-late"].map((uuid) => {
-      const item = items.get(uuid);
-      return item && `${uuid} ${statusOf(item)} ${item.level}`;
-    });
+    const levels = ["ad-unread", "ad-unread-late", "i-calendar-unread"].map(
+      (uuid) => {
+        const item = items.get(uuid);
+        return item && `${uuid} ${statusOf(item)} ${item.level}`;
+      },
+    );
+    // RM-66: a calendar-only inspection is judged by its date, not left unknown.
     expect(levels).toStrictEqual([
       "ad-unread Counter unavailable/Counter unavailable unknown",
       "ad-unread-late Overdue/Counter unavailable,Overdue overdue",
+      "i-calendar-unread overdue overdue",
     ]);
   });
 });

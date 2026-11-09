@@ -6,7 +6,7 @@
  *   default reads the clock).
  * Dependencies: src/domain/components.ts, model.ts, rejection.ts.
  */
-import { componentAircraftSeconds } from "./components";
+import { aircraftSecondsFor } from "./components";
 import { localDate, type Aircraft, type Inspection } from "./model";
 import { Rejection } from "./rejection";
 
@@ -97,19 +97,20 @@ export function inspectionDueDate(inspection: Inspection): string | undefined {
  *   overdue, else "due-soon" when any is due soon, else "scheduled"; with no
  *   limit at all, "scheduled" if calendar exempt, else "unknown".
  * @throws As {@link inspectionDueDate}, and "Collective component tracking …"
- *   for a collective-meter inspection on an aircraft without that reading.
+ *   for a collective-meter inspection with an hours limit on an aircraft
+ *   without that reading.
  */
 export function inspectionStatus(
   inspection: Inspection,
   aircraft: Aircraft,
   today = localDate(),
-  counters = {
-    seconds: componentAircraftSeconds(inspection, aircraft),
+  counters: { seconds: number | undefined; cycles: number } = {
+    seconds: aircraftSecondsFor(inspection, aircraft),
     cycles: aircraft.cycles,
   },
 ) {
   const hoursRemaining =
-    inspection.dueSeconds === undefined
+    inspection.dueSeconds === undefined || counters.seconds === undefined
       ? undefined
       : (inspection.dueSeconds - counters.seconds) / HOUR_SECONDS;
   const cyclesRemaining =

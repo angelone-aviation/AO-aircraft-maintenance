@@ -26,6 +26,7 @@ export {
 } from "./components/records";
 export {
   tracking,
+  aircraftSecondsFor,
   componentAircraftSeconds,
   componentTotals,
 } from "./components/usage";

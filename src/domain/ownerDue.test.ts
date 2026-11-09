@@ -222,7 +222,7 @@ describe("on the due fleet", () => {
     );
   });
 
-  it("lists an aircraft without a meter reading, its inspections for review", () => {
+  it("lists an aircraft without a meter reading, its calendar inspections by date", () => {
     const { s, c } = dueFleet();
     withoutMeterReading(s, c);
     s.inspections = s.inspections.filter((i) => i.aircraftUuid !== c.uuid);
@@ -238,12 +238,13 @@ describe("on the due fleet", () => {
       description: "",
       dueDate: "2027-01-01",
     });
-    expect(ownerDueItems(s, c, DUE_FLEET_TODAY)[1]).toStrictEqual({
+    // RM-66: a date-only inspection is measured, not sent for review.
+    expect(ownerDueItems(s, c, DUE_FLEET_TODAY)[2]).toStrictEqual({
       uuid: "annual",
       kind: "Inspection",
       label: "Annual",
-      status: "unknown",
-      remaining: "Review",
+      status: "ok",
+      remaining: "63 days",
     });
   });
 });

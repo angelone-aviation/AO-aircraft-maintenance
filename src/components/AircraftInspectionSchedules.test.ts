@@ -86,6 +86,7 @@ describe("AircraftInspectionSchedules", () => {
     const aircraft = s.aircraft[0];
     const base = inspection("Check");
     const seconds = inspectionCounters(base, aircraft, s.management).seconds;
+    if (seconds === undefined) throw new Error("the demo aircraft has a meter");
     s.inspections = [
       {
         ...base,

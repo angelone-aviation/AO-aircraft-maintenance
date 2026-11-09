@@ -6,6 +6,7 @@
  * Dependencies: ../components, ../model, ../rejection, ./schemas.
  */
 import {
+  aircraftSecondsFor,
   componentAircraftSeconds,
   componentTotals,
   tracking,
@@ -24,20 +25,22 @@ import type { ManagedRecord } from "./schemas";
  * @param records - The program's records, to find the component.
  * @param today - The local date to measure the component on; the clock's by
  *   default.
- * @returns Seconds, cycles and the aircraft's landings.
+ * @returns Seconds, cycles and the aircraft's landings. Seconds are undefined
+ *   only for an aircraft inspection with no hours limit whose aircraft meter
+ *   has no reading: its date, cycle and landing limits still count.
  * @throws {Rejection} "Inspection component not found." when the component
- *   is not on this aircraft; as {@link componentAircraftSeconds} and
- *   {@link componentTotals}.
+ *   is not on this aircraft; as {@link componentAircraftSeconds} when the
+ *   inspection has an hours limit, and as {@link componentTotals}.
  */
 export function inspectionCounters(
   i: Inspection,
   a: Aircraft,
   records: ManagedRecord[] = [],
   today = localDate(),
-) {
+): { seconds: number | undefined; cycles: number; landings: number } {
   if (!i.componentUuid)
     return {
-      seconds: componentAircraftSeconds(i, a),
+      seconds: aircraftSecondsFor(i, a),
       cycles: a.cycles,
       landings: a.landings,
     };
@@ -118,7 +121,8 @@ function precedesCompliance(
 ) {
   const counters = inspectionCounters(i, a, records);
   return (
-    counters.seconds < (i.lastSeconds ?? 0) ||
+    (counters.seconds !== undefined &&
+      counters.seconds < (i.lastSeconds ?? 0)) ||
     counters.cycles < (i.lastCycles ?? 0) ||
     a.landings < (i.lastLandings ?? 0)
   );

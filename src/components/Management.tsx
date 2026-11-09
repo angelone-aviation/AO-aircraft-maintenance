@@ -981,7 +981,11 @@ function CompletionFields({ s, record }: { s: Snapshot; record: Inspection }) {
         label="Tracked total at completion (hours)"
         decimal
         required
-        initial={counters && counters.seconds / HOUR_SECONDS}
+        initial={
+          counters?.seconds === undefined
+            ? undefined
+            : counters.seconds / HOUR_SECONDS
+        }
       />
       <NumberField
         name="cycles"

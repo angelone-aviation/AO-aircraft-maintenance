@@ -432,6 +432,7 @@ describe("forecast on the due fleet", () => {
       .map((x) => `${x.key} | ${x.status} | ${x.remaining}`);
     expect(rows).toStrictEqual([
       "ad-unread-late:ad-unread-late/monthly-2020-01-01 | Overdue | due 2020-01-01",
+      "i-calendar-unread | overdue | due 2020-01-01",
       "i-collective | unknown | ",
     ]);
   });

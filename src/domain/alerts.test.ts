@@ -547,14 +547,16 @@ describe("on the due fleet", () => {
     ).toStrictEqual(DUE_FLEET_ALERTS);
   });
 
-  it("skips an AD limit an aircraft without a meter reading cannot judge, not its passed due date", () => {
+  it("skips an AD limit an aircraft without a meter reading cannot judge, not its passed due dates", () => {
     const { s, c } = dueFleet();
     withoutMeterReading(s, c);
     const onC = allAlerts(s, DUE_FLEET_TODAY).filter(
       (x) => x.aircraftUuid === c.uuid,
     );
+    // RM-66: the calendar-only inspection alerts although the meter is unread.
     expect(onC.map((x) => `${x.kind} ${x.title}`)).toStrictEqual([
       "ad-overdue AD AD-UNREAD-LATE overdue",
+      "inspection-overdue Inspection overdue: i-calendar-unread",
       "aircraft-grounded N182MA is grounded",
     ]);
   });

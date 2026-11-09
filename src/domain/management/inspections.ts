@@ -5,6 +5,7 @@
  * Dependencies: ../model, ../maintenance, ../requiredParts, ../rejection,
  *   ./schemas, ./context, ./counters.
  */
+import { componentAircraftSeconds } from "../components";
 import { latestLocalDate, type Inspection, type Snapshot } from "../model";
 import { endOfDueMonth } from "../maintenance";
 import { validateRequiredParts } from "../requiredParts";
@@ -86,10 +87,13 @@ export function completeInspection(
   if (existing.archived) throw new Rejection("Inspection is archived.");
   checkDate(c.date, ctx.now);
   const counters = inspectionCounters(existing, ctx.aircraft!, ctx.records);
+  // Completion sets the next baseline, so the aircraft reading must exist.
+  const seconds =
+    counters.seconds ?? componentAircraftSeconds(existing, ctx.aircraft!);
   if (tracksLandings(existing) && c.landings === undefined)
     throw new Rejection("Enter aircraft total landings at completion.");
   if (
-    c.seconds > counters.seconds ||
+    c.seconds > seconds ||
     c.cycles > counters.cycles ||
     (c.landings !== undefined &&
       (c.landings > counters.landings ||
@@ -143,7 +147,9 @@ function assertInspectionLimits(
     throw new Rejection("Enter at least one due limit or recurring interval.");
   if (r.lastDate) checkDate(r.lastDate, now);
   if (
-    (r.lastSeconds !== undefined && r.lastSeconds > counters.seconds) ||
+    (r.lastSeconds !== undefined &&
+      counters.seconds !== undefined &&
+      r.lastSeconds > counters.seconds) ||
     (r.lastCycles !== undefined && r.lastCycles > counters.cycles) ||
     (r.lastLandings !== undefined && r.lastLandings > counters.landings)
   )

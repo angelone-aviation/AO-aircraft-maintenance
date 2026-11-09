@@ -62,9 +62,10 @@ export function dueFleet() {
  * Makes the aircraft's flight time log its meter, with no reading, so its
  * total time cannot be read, and gives it two ADs: `ad-unread`, an hours
  * limit, and `ad-unread-late`, the same plus an action whose due date has
- * passed.
+ * passed; plus `i-calendar-unread`, a calendar-only inspection whose due
+ * date has passed (bug RM-66).
  *
- * @param s - The snapshot; its ADs gain the two.
+ * @param s - The snapshot; its ADs gain the two, its inspections the one.
  * @param a - An aircraft the snapshot holds; changed in place.
  */
 export function withoutMeterReading(s: Snapshot, a: Aircraft) {
@@ -73,6 +74,16 @@ export function withoutMeterReading(s: Snapshot, a: Aircraft) {
     meter: "flightTimeLog",
     currentFlightTimeLog: undefined,
   });
+  s.inspections = [
+    ...s.inspections,
+    {
+      uuid: "i-calendar-unread",
+      aircraftUuid: a.uuid,
+      reference: "i-calendar-unread",
+      description: "Annual, by date only",
+      dueDate: "2020-01-01",
+    },
+  ];
   s.airworthiness = [
     ...(s.airworthiness ?? []),
     ad(a, "ad-unread", {}, [hourly(5000)]),
@@ -100,7 +111,12 @@ function fleetInspections(a: Aircraft, b: Aircraft, c: Aircraft) {
     on(a, "i-archived", { dueDate: "2026-01-01", archived: true }),
     on(a, "i-missing", { componentUuid: "missing", dueDate: "2027-01-01" }),
     on(a, "i-gear", { componentUuid: "gear", dueSeconds: 210 * HOUR }),
-    on(c, "i-collective", { usageMeter: "collective", dueDate: "2027-01-01" }),
+    // Its hours limit needs the collective meter, which N182 has no reading of.
+    on(c, "i-collective", {
+      usageMeter: "collective",
+      dueDate: "2027-01-01",
+      dueSeconds: 1000 * HOUR,
+    }),
   ];
 }
 
