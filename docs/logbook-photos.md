@@ -1,0 +1,21 @@
+# Logbook page photos
+
+For its first year the program keeps the paper aircraft logbooks beside the app. A **logbook page photo** ties an app record to the paper: a photo of the handwritten line attached to the flight, or of the signed page attached to a work order's logbook entry. The signed paper logbook stays the maintenance record ([ADR-0004](adr/0004-logbook-generator-and-status-record-system.md)); the photo only shows which paper line an app row answers to, and the monthly [paper check](reconciliation.md) lists which rows have one.
+
+## Flights
+
+After a flight is saved from **Log a completed flight**, **End flight** or the dashboard's **Log flight**, a notice at the top of the screen says **Flight saved** and offers **Add a photo of the logbook line**. The same control sits on every flight in the flight log (the **Logbook page** column, or the **Logbook page** block on a phone), so a photo can be added later. On a phone the control opens the rear camera; elsewhere it opens the file picker. The photo needs **flight** permission on the aircraft: the pilot who logged the flight attaches it.
+
+A flight saved offline, or still waiting in the outbox, cannot be photographed on the server yet, because the server learns of the flight only when the outbox entry syncs. The photo is kept on the device (in its own IndexedDB database beside the JSON outbox) and shows on the flight as a thumbnail marked **Waiting**. The **Sync center** lists it as **Photo waiting** with the flight it belongs to, and uploads it on the next sync after the flight itself has reached the server. A server refusal (for example a photo of a flight the aircraft does not hold) stays on the photo as **Needs attention**, with **Sync now** to retry and **Discard photo** to drop it; a photo whose flight was discarded from the outbox is marked the same way, since nothing can file it. Like outbox entries, queued photos belong to the signed-in user and the Flight Program they were taken in, and they survive sign-out until that user signs in again.
+
+When connected and the flight is already in the snapshot, the photo uploads at once.
+
+## Work orders
+
+A completed work order shows **Attach signed page photo** beside **Generate logbook entry**, for a photo of the page the certifying person signed. It needs **maintenance** permission on the aircraft. Its thumbnails appear in the same place, also in the earlier records a revised order keeps.
+
+## Files
+
+JPEG, PNG, WebP and PDF files up to 7 MB are accepted, the same as Form 337 copies. HEIC and HEIF, the iPhone's default photo format, are refused with the message "HEIC photos are not accepted. Choose JPEG, PNG or WebP; on an iPhone set Camera > Formats to Most Compatible." Photos count toward the aircraft's limit of 200 current documents.
+
+Photos are stored on the aircraft record with the Form 337 copies (`aircraftFiles`, category `logbook-page`), each linked to its flight or work order. The server checks that the linked record is on that aircraft in the caller's Flight Program, so a photo cannot be filed against another program's flight. Everyone who reads the aircraft sees the thumbnails; a thumbnail opens the photo full size. Photos are never deleted: **Archive photo** asks for a reason and records who archived it and when, keeping the stored file. Uploads and archiving write the change-log events `aircraft.file_uploaded` and `aircraft.file_archived` with the category and link. The demo stores photos only in the browser.

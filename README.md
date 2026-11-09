@@ -71,7 +71,7 @@ npm run preview
 
 Open the preview URL online, sign in, and allow the app to cache before testing offline. The service worker is enabled in production builds, not the Vite development server. On iOS use Safari → Share → **Add to Home Screen**; on Android/desktop use the browser's install action. Production requires HTTPS. Native app-store packages are outside this PWA delivery.
 
-Only flight and discrepancy additions are available offline. Reference manuals a user keeps on the device (**Keep on this device** in the Reference library) also open offline; see [reference library](docs/reference-library.md#keep-on-this-device). Pending entries appear in **Sync center** and sync automatically when connected. Conflicting flights go to administrator review without changing aircraft totals. Access expires seven days after login; pending entries remain saved. Sign in with the original account to sync them. Administrators and maintenance users must be online for access changes, corrections, and resolutions.
+Only flight and discrepancy additions are available offline; a photo of the paper logbook line taken for a flight that has not synced waits on the device and uploads after it ([logbook page photos](docs/logbook-photos.md)). Reference manuals a user keeps on the device (**Keep on this device** in the Reference library) also open offline; see [reference library](docs/reference-library.md#keep-on-this-device). Pending entries appear in **Sync center** and sync automatically when connected. Conflicting flights go to administrator review without changing aircraft totals. Access expires seven days after login; pending entries remain saved. Sign in with the original account to sync them. Administrators and maintenance users must be online for access changes, corrections, and resolutions.
 
 ## Fresh-data setup and next steps
 
@@ -81,7 +81,7 @@ The flight form shows read-only **Starting Hobbs** and **Starting tach** for pil
 
 Aircraft and Flight Programs are available from the sidebar. Aircraft total time uses the selected Hobbs or tach meter plus **Total time adjustment**. Flight Programs have an editable directory with name, address, email, contact name, and website. See [aircraft and program workflows](docs/aircraft-programs.md).
 
-Inspection, component, and inventory management are available from the sidebar. No real aircraft or users were added for this phase. See [maintenance workflows](docs/maintenance-workflows.md) for permissions, calculations, and operating boundaries.
+Inspection, component, and inventory management are available from the sidebar. No real aircraft or users were added for this phase. See [maintenance workflows](docs/maintenance-workflows.md) for permissions, calculations, and operating boundaries. While paper logbooks run beside the app, the monthly [paper check](docs/reconciliation.md) lists each aircraft's flights and sign-offs to tick against the paper.
 
 The remaining rollout steps are in the [go-live checklist](docs/go-live-checklist.md):
 

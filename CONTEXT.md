@@ -132,6 +132,7 @@ sequenceDiagram
 - The server is idempotent on the entry's uuid. A flight that conflicts with the aircraft (changed version, backdated, before a counter change, lower readings) is stored as a **held flight** (`status: "review"`, `flight.held`), and totals stay unchanged until an administrator reviews it.
 - A `ConvexError` (or `[CONVEX …]` message) is permanent: the entry stays in the Sync center with its error. Any other failure is retried on the next flush.
 - Sign-out keeps the outbox (entries sync when the same user signs in) and clears form drafts and kept manuals.
+- Logbook page photos (`src/data/logbookPhotos.ts`, `attachLogbookPhoto` in `store.ts`) are the one other write that waits on the device: a photo of a flight still in the outbox is kept as a blob in its own IndexedDB database and uploaded by `flush()` once the flight is in the snapshot ([logbook page photos](docs/logbook-photos.md)).
 
 ## 5. Module boundary rules
 
