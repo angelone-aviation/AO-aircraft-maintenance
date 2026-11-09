@@ -931,8 +931,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           a.uuid === aircraftUuid ? { ...a, photoUrl: undefined } : a,
         );
       }),
-    uploadAircraftFile: (aircraftUuid, category, file) =>
-      demoAircraftFiles.upload(modify, audit, aircraftUuid, category, file),
+    uploadAircraftFile: (aircraftUuid, category, file, link) =>
+      demoAircraftFiles.upload(
+        modify,
+        audit,
+        { aircraftUuid, category, ...link },
+        file,
+      ),
     archiveAircraftFile: (id, reason) =>
       demoAircraftFiles.archive(modify, audit, id, reason),
     createUser: async (email, name, password) => {

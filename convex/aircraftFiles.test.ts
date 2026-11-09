@@ -1,10 +1,12 @@
 /**
- * Responsibility: Pins Form 337 copies on the aircraft record: who uploads and
- *   archives them, the audit entries, the 200-copy cap, and that a copy and
- *   its stored file are never deleted.
+ * Responsibility: Pins Form 337 copies and logbook page photos on the
+ *   aircraft record: who uploads and archives them, the link a photo must
+ *   carry, the audit entries, the 200-copy cap, and that a copy and its
+ *   stored file are never deleted.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/aircraftFiles, convex/operations (snapshot),
- *   src/domain/aircraftFiles, src/data/demo.
+ *   convex/workOrders (save), src/domain/aircraftFiles, src/data/demo,
+ *   tests/fixtures/workOrders.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -12,6 +14,7 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { MAX_AIRCRAFT_FILES } from "../src/domain/aircraftFiles";
+import { workOrderCommand } from "../tests/fixtures/workOrders";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -35,7 +38,32 @@ async function fixture() {
       registration: "FOREIGN",
       programUuid: "foreign",
     });
-    const makeUser = async (permissions: ("read" | "maintenance")[]) => {
+    const flight = {
+      aircraftUuid: demo.aircraft[0].uuid,
+      authorId: "pilot",
+      pilotId: "pilot",
+      submittedAt: 1,
+      status: "accepted" as const,
+      startTime: "2026-03-04T10:00:00Z",
+      hobbsOn: 3600,
+      landings: 1,
+      cycles: 1,
+      origin: "AAA",
+      destination: "BBB",
+      operation: "Mission" as const,
+      flightRules: "VFR" as const,
+      remarks: "",
+      discrepancy: "",
+    };
+    await ctx.db.insert("flights", { ...flight, uuid: FLIGHT_UUID });
+    await ctx.db.insert("flights", {
+      ...flight,
+      uuid: FOREIGN_FLIGHT_UUID,
+      aircraftUuid: "foreign-aircraft",
+    });
+    const makeUser = async (
+      permissions: ("read" | "flight" | "maintenance")[],
+    ) => {
       const group = await ctx.db.insert("groups", {
         programUuid: "demo-program",
         name: permissions.join(","),
@@ -57,15 +85,19 @@ async function fixture() {
     };
     return {
       tech: await makeUser(["read", "maintenance"]),
+      pilot: await makeUser(["read", "flight"]),
       reader: await makeUser(["read"]),
     };
   });
   return {
     t,
     tech: t.withIdentity(identities.tech),
+    pilot: t.withIdentity(identities.pilot),
     reader: t.withIdentity(identities.reader),
   };
 }
+const FLIGHT_UUID = "11111111-1111-4111-8111-111111111111";
+const FOREIGN_FLIGHT_UUID = "22222222-2222-4222-8222-222222222222";
 const pdf = new TextEncoder().encode("%PDF-1.4 Form 337").buffer;
 const upload = {
   aircraftUuid: demoSnapshot().aircraft[0].uuid,
@@ -74,6 +106,17 @@ const upload = {
   name: "337-2019-alteration.pdf",
   type: "application/pdf",
   bytes: pdf,
+};
+const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer;
+const photo = {
+  aircraftUuid: demoSnapshot().aircraft[0].uuid,
+  programUuid: "demo-program",
+  category: "logbook-page" as const,
+  linkedKind: "flight" as const,
+  linkedUuid: FLIGHT_UUID,
+  name: "logbook-line.jpg",
+  type: "image/jpeg",
+  bytes: jpeg,
 };
 it("keeps Form 337 copies on the aircraft for readers, with maintenance uploads and archiving audited", async () => {
   const { t, tech, reader } = await fixture();
@@ -265,4 +308,121 @@ it("lists a copy whose stored file is missing with an empty URL", async () => {
   });
   const seen = (await reader.query(api.operations.snapshot, {}))!;
   expect(seen.aircraftFiles).toMatchObject([{ name: "missing.pdf", url: "" }]);
+});
+
+it("lets a pilot attach and archive a photo of a flight's logbook line, linked to a flight on the aircraft", async () => {
+  const { t, tech, pilot, reader } = await fixture();
+  await pilot.action(api.aircraftFiles.upload, photo);
+  await expect(reader.action(api.aircraftFiles.upload, photo)).rejects.toThrow(
+    "Aircraft flight permission required.",
+  );
+  await expect(pilot.action(api.aircraftFiles.upload, upload)).rejects.toThrow(
+    "Aircraft maintenance permission required.",
+  );
+  await expect(
+    pilot.action(api.aircraftFiles.upload, {
+      ...photo,
+      name: "IMG_0001.HEIC",
+      type: "image/heic",
+    }),
+  ).rejects.toThrow("HEIC photos are not accepted.");
+  await expect(
+    pilot.action(api.aircraftFiles.upload, { ...photo, linkedUuid: "missing" }),
+  ).rejects.toThrow("Flight not found.");
+  // A flight on another aircraft is not this aircraft's record.
+  await expect(
+    pilot.action(api.aircraftFiles.upload, {
+      ...photo,
+      linkedUuid: FOREIGN_FLIGHT_UUID,
+    }),
+  ).rejects.toThrow("Flight not found.");
+  await expect(
+    pilot.action(api.aircraftFiles.upload, {
+      ...photo,
+      linkedKind: undefined,
+      linkedUuid: undefined,
+    }),
+  ).rejects.toThrow("Link the photo to a flight or work order.");
+  await expect(
+    tech.action(api.aircraftFiles.upload, {
+      ...upload,
+      linkedKind: "flight",
+      linkedUuid: FLIGHT_UUID,
+    }),
+  ).rejects.toThrow("A Form 337 copy is not linked to a record.");
+  const seen = (await reader.query(api.operations.snapshot, {}))!;
+  expect(seen.aircraftFiles).toMatchObject([
+    {
+      category: "logbook-page",
+      linkedKind: "flight",
+      linkedUuid: FLIGHT_UUID,
+      name: "logbook-line.jpg",
+      type: "image/jpeg",
+      size: 4,
+    },
+  ]);
+  const stored = await t.run(
+    async (ctx) => (await ctx.db.query("aircraftFiles").first())!,
+  );
+  await expect(
+    reader.mutation(api.aircraftFiles.archive, {
+      id: stored._id,
+      reason: "Wrong flight",
+      programUuid: "demo-program",
+    }),
+  ).rejects.toThrow("Aircraft flight permission required.");
+  await pilot.mutation(api.aircraftFiles.archive, {
+    id: stored._id,
+    reason: "Wrong flight",
+    programUuid: "demo-program",
+  });
+  const row = await t.run((ctx) => ctx.db.get(stored._id));
+  expect(row).toMatchObject({
+    storageId: stored.storageId,
+    archiveReason: "Wrong flight",
+    archivedBy: { name: "read,flight" },
+  });
+  const audit = (await tech.query(api.operations.snapshot, {}))!.audit.filter(
+    (a) => a.action.startsWith("aircraft.file_"),
+  );
+  expect(audit.map((a) => a.action).sort()).toEqual([
+    "aircraft.file_archived",
+    "aircraft.file_uploaded",
+  ]);
+  const uploaded = audit.find((a) => a.action === "aircraft.file_uploaded")!;
+  expect(JSON.parse(uploaded.after!)).toMatchObject({
+    category: "logbook-page",
+    linkedKind: "flight",
+    linkedUuid: FLIGHT_UUID,
+  });
+});
+
+it("needs maintenance permission for a work order's signed page and a work order on the aircraft", async () => {
+  const { tech, pilot } = await fixture();
+  const order = workOrderCommand();
+  await tech.mutation(api.workOrders.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(order),
+  });
+  const page = {
+    ...photo,
+    linkedKind: "work-order" as const,
+    linkedUuid: order.uuid,
+    name: "signed-page.jpg",
+  };
+  await expect(pilot.action(api.aircraftFiles.upload, page)).rejects.toThrow(
+    "Aircraft maintenance permission required.",
+  );
+  await expect(
+    tech.action(api.aircraftFiles.upload, { ...page, linkedUuid: "missing" }),
+  ).rejects.toThrow("Work order not found.");
+  await tech.action(api.aircraftFiles.upload, page);
+  const seen = (await tech.query(api.operations.snapshot, {}))!;
+  expect(seen.aircraftFiles).toMatchObject([
+    {
+      linkedKind: "work-order",
+      linkedUuid: order.uuid,
+      name: "signed-page.jpg",
+    },
+  ]);
 });

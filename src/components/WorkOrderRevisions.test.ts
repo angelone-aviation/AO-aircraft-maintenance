@@ -40,6 +40,7 @@ vi.mock("../data/store", () => ({
     getState: () => ui.workspace,
   }),
 }));
+vi.mock("./LogbookPhotos", () => ({ LogbookPhotoStrip: () => null }));
 
 const NOW = Date.parse("2026-10-02T12:00:00Z");
 let s: Snapshot;

@@ -2,10 +2,11 @@
  * Responsibility: The flight log, discrepancy reports, Sync center and change
  *   history screens.
  * Layer: UI. Screens over the workspace snapshot; holds no business rules.
- * Dependencies: src/data (store, auditHistory, pendingEntries), src/domain
- *   (model, programs, pilotView, flights, flightFluids, deferrals,
- *   auditHistory), ./design, ./ui, ./ExportRecordsPackage, ./AuditSummary and
- *   the flight, deferral, parts, task card and work order components.
+ * Dependencies: src/data (store, auditHistory, pendingEntries,
+ *   logbookPhotos), src/domain (model, programs, pilotView, flights,
+ *   flightFluids, deferrals, auditHistory), ./design, ./ui,
+ *   ./ExportRecordsPackage, ./AuditSummary and the flight, logbook photo,
+ *   paper check, deferral, parts, task card and work order components.
  */
 import "../styles/screens/records.css";
 import { isPilotView } from "../domain/pilotView";
@@ -26,6 +27,7 @@ import {
   ArrowsClockwise,
   Books,
   Buildings,
+  Camera,
   Check,
   CheckCircle,
   ClipboardText,
@@ -48,6 +50,10 @@ import {
 import { useWorkspace, type Workspace } from "../data/store";
 import { useAuditHistory } from "../data/auditHistory";
 import { ownEntries, pendingEntriesFile } from "../data/pendingEntries";
+import {
+  ownPendingPhotos,
+  type PendingLogbookPhoto,
+} from "../data/logbookPhotos";
 import { isGroundingReport, MAX_RESOLUTION_LENGTH } from "../domain/deferrals";
 import { previousFlights } from "../domain/flightFluids";
 import { auditActionLabel } from "../domain/auditHistory";
@@ -88,6 +94,15 @@ import { FlightForm } from "./FlightForm";
 import { FlightSessions } from "./FlightSession";
 import { DeferralStatus, DeferDiscrepancyForm } from "./Deferrals";
 import { FlightLogImportButton } from "./FlightLogImport";
+import {
+  LogbookPhotoPrompt,
+  LogbookPhotoStrip,
+  PendingThumbnail,
+  type LogbookPhotoTarget,
+} from "./LogbookPhotos";
+import { PaperCheckButton } from "./PaperCheck";
+
+const FLIGHT_PHOTO_LABEL = "Add a photo of the logbook line";
 
 // Cards and rows enter one after another; the cap lets long lists settle
 // quickly.
@@ -181,22 +196,34 @@ const dateTime = (at: number | string) =>
  *
  * @returns Cards on a phone, otherwise a table. The collective, flight time
  *   log, cycles and engine start readings show only when an aircraft or a
- *   listed flight has them. Administrators can correct a flight, or review a
+ *   listed flight has them. Each flight shows its logbook page photos and,
+ *   with flight permission, the control to add one; a flight just saved is
+ *   offered one at the top. Administrators can correct a flight, or review a
  *   held one, while connected.
  */
 export function Flights() {
   const { snapshot: s, queue, online, connected } = useWorkspace();
   const breakpoint = useBreakpoint();
   const [modal, setModal] = useState<"new" | Flight | null>(null),
-    [filter, setFilter] = useState("all");
+    [filter, setFilter] = useState("all"),
+    [saved, setSaved] = useState<LogbookPhotoTarget | null>(null);
   const log = flightLog(s!, filter, {
     disabled: !online || !connected,
     open: setModal,
   });
+  const offerPhoto = (f: { uuid: string; aircraftUuid: string }) =>
+    setSaved({
+      aircraftUuid: f.aircraftUuid,
+      linkedKind: "flight",
+      linkedUuid: f.uuid,
+    });
   return (
     <>
       <FlightLogHeader s={s!} onNew={() => setModal("new")} />
-      <FlightSessions />
+      {saved && (
+        <LogbookPhotoPrompt target={saved} onDismiss={() => setSaved(null)} />
+      )}
+      <FlightSessions onFlightSaved={offerPhoto} />
       <FlightToolbar
         s={s!}
         pending={pendingFlightCount(s!, queue)}
@@ -204,7 +231,13 @@ export function Flights() {
         onFilter={setFilter}
       />
       <FlightList log={log} phone={breakpoint === "phone"} />
-      {modal && <FlightDialog modal={modal} onClose={() => setModal(null)} />}
+      {modal && (
+        <FlightDialog
+          modal={modal}
+          onSaved={offerPhoto}
+          onClose={() => setModal(null)}
+        />
+      )}
     </>
   );
 }
@@ -247,6 +280,11 @@ const aircraftOf = (s: Snapshot, f: Flight) =>
   s.aircraft.find((a) => a.uuid === f.aircraftUuid);
 const pilotOf = (s: Snapshot, f: Flight) =>
   s.members.find((m) => m.id === f.pilotId)?.name ?? "Unknown pilot";
+const photoTarget = (f: Flight): LogbookPhotoTarget => ({
+  aircraftUuid: f.aircraftUuid,
+  linkedKind: "flight",
+  linkedUuid: f.uuid,
+});
 // Status (and Correct / Review) stay pinned while the table scrolls.
 const statusClass = (log: FlightLog) =>
   log.correct ? "rec-status before-actions" : "rec-status";
@@ -258,15 +296,18 @@ function FlightLogHeader({ s, onNew }: { s: Snapshot; onNew: () => void }) {
       title="Flight log"
       description="Every flight recorded. Every change accounted for."
       actions={
-        s.aircraft.some((a) => can(s, a.uuid, "flight")) && (
-          <>
-            <FlightLogImportButton />
-            <button type="button" className="button primary" onClick={onNew}>
-              <Plus size={18} weight="bold" aria-hidden="true" /> Log a
-              completed flight
-            </button>
-          </>
-        )
+        <>
+          <PaperCheckButton state={s} />
+          {s.aircraft.some((a) => can(s, a.uuid, "flight")) && (
+            <>
+              <FlightLogImportButton />
+              <button type="button" className="button primary" onClick={onNew}>
+                <Plus size={18} weight="bold" aria-hidden="true" /> Log a
+                completed flight
+              </button>
+            </>
+          )}
+        </>
       }
     />
   );
@@ -367,6 +408,10 @@ function FlightCard({ log, flight: f }: FlightProps) {
           </div>
         </div>
       )}
+      <div className="rec-card-extra">
+        <h3>Logbook page</h3>
+        <LogbookPhotoStrip target={photoTarget(f)} label={FLIGHT_PHOTO_LABEL} />
+      </div>
       {log.correct && (
         <CorrectButton
           flight={f}
@@ -455,6 +500,7 @@ function FlightTableHead({ log }: { log: FlightLog }) {
         </NumberHeading>
         {columns.engineStarts && <th scope="col">Engine starts</th>}
         <th scope="col">Fuel / oil / checklist</th>
+        <th scope="col">Logbook page</th>
         <th scope="col" className={statusClass(log)}>
           Status
         </th>
@@ -497,6 +543,9 @@ function FlightRow({ log, flight: f }: FlightProps) {
       )}
       <td className="rec-fluids">
         <FluidSummary log={log} flight={f} aircraft={aircraft} />
+      </td>
+      <td className="rec-photos">
+        <LogbookPhotoStrip target={photoTarget(f)} label={FLIGHT_PHOTO_LABEL} />
       </td>
       <td className={statusClass(log)}>
         <FlightStatus flight={f} />
@@ -587,9 +636,11 @@ function CorrectButton({
 
 function FlightDialog({
   modal,
+  onSaved,
   onClose,
 }: {
   modal: "new" | Flight;
+  onSaved: (flight: { uuid: string; aircraftUuid: string }) => void;
   onClose: () => void;
 }) {
   const isNew = modal === "new";
@@ -603,6 +654,7 @@ function FlightDialog({
     >
       <FlightForm
         initial={isNew ? undefined : modal}
+        onSaved={onSaved}
         onDone={onClose}
         onCancel={onClose}
       />
@@ -1081,8 +1133,15 @@ function ResolveDialog({
  *   the workspace error reads "Could not discard the entry. Try again."
  */
 export function SyncCenter() {
-  const { snapshot: s, queue, online, connected } = useWorkspace();
+  const {
+    snapshot: s,
+    queue,
+    pendingPhotos,
+    online,
+    connected,
+  } = useWorkspace();
   const own = ownEntries(queue, s!.user.id);
+  const photos = ownPendingPhotos(pendingPhotos, s!.user.id);
   const live = online && connected;
   return (
     <>
@@ -1092,13 +1151,16 @@ export function SyncCenter() {
         description="Entries recorded on this device wait here until the server acknowledges them."
         actions={<SyncActions own={own} live={live} />}
       />
-      <SyncStats s={s!} own={own} />
+      <SyncStats s={s!} own={own} photos={photos} />
       <ListCard className="rec-list-card">
-        <SyncListHead s={s!} count={own.length} live={live} />
+        <SyncListHead s={s!} count={own.length + photos.length} live={live} />
         {own.map((q) => (
           <QueuedEntryRow key={q.operation.uuid} s={s!} entry={q} />
         ))}
-        {!own.length && (
+        {photos.map((p) => (
+          <PendingPhotoRow key={p.key} s={s!} photo={p} />
+        ))}
+        {!own.length && !photos.length && (
           <EmptyState title="Everything is synchronized">
             There are no pending entries for this account.
           </EmptyState>
@@ -1142,15 +1204,21 @@ function SyncActions({ own, live }: { own: QueuedEntry[]; live: boolean }) {
   );
 }
 
-function SyncStats({ s, own }: { s: Snapshot; own: QueuedEntry[] }) {
+function SyncStats({
+  s,
+  own,
+  photos,
+}: {
+  s: Snapshot;
+  own: QueuedEntry[];
+  photos: PendingLogbookPhoto[];
+}) {
   const synced = new Date(s.syncedAt);
+  const failed = [...own, ...photos].filter((q) => q.error).length;
   return (
     <StatsStrip>
-      <StatTile label="Pending upload" value={own.length} />
-      <StatTile
-        label="Needs attention"
-        value={own.filter((q) => q.error).length}
-      />
+      <StatTile label="Pending upload" value={own.length + photos.length} />
+      <StatTile label="Needs attention" value={failed} />
       <StatTile
         label="Last snapshot"
         value={
@@ -1258,6 +1326,88 @@ function QueuedEntryDetails({
         <pre>{JSON.stringify(op, null, 2)}</pre>
       </details>
     </div>
+  );
+}
+
+// A photo waits for its flight to reach the server; one whose flight is on
+// neither this device nor the server can only be discarded.
+function PendingPhotoRow({
+  s,
+  photo,
+}: {
+  s: Snapshot;
+  photo: PendingLogbookPhoto;
+}) {
+  const { queue, syncing, discardPhoto } = useWorkspace();
+  const queued = queue.some((q) => q.operation.uuid === photo.linkedUuid);
+  const synced =
+    s.flights.some((f) => f.uuid === photo.linkedUuid) ||
+    (s.workOrders ?? []).some((w) => w.uuid === photo.linkedUuid);
+  const orphan = !queued && !synced;
+  const record = photo.linkedKind === "flight" ? "flight" : "work order";
+  return (
+    <div className="rec-entry">
+      <ListRow
+        icon={Camera}
+        tone={photo.error || orphan ? "danger" : "warn"}
+        title={
+          <>
+            Logbook photo ·{" "}
+            {s.aircraft.find((a) => a.uuid === photo.aircraftUuid)
+              ?.registration ?? photo.aircraftUuid}{" "}
+            · {programName(s, photo.programUuid)}
+          </>
+        }
+        sub={`${photo.name} · for a ${record}`}
+        meta={dateTime(photo.queuedAt)}
+        badge={
+          <StatusPill tone={photo.error || orphan ? "danger" : "warn"}>
+            {photo.error ? "Needs attention" : "Photo waiting"}
+          </StatusPill>
+        }
+        action={
+          (photo.error || orphan) && (
+            <button
+              type="button"
+              className="button small"
+              disabled={syncing}
+              onClick={() => discardPhotoEntry(photo.key, discardPhoto)}
+            >
+              Discard photo
+            </button>
+          )
+        }
+      />
+      <div className="rec-entry-extra">
+        <PendingThumbnail photo={photo} />
+        {photo.error && (
+          <p role="alert" className="error">
+            {photo.error}
+          </p>
+        )}
+        {!photo.error && !orphan && (
+          <p>Uploads once its {record} has synced.</p>
+        )}
+        {orphan && (
+          <p>
+            Its {record} is not on this device or the server, so the photo
+            cannot be filed.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function discardPhotoEntry(key: string, discard: Workspace["discardPhoto"]) {
+  if (
+    !confirm(
+      "Discard this photo from this device? It has not reached the server and cannot be recovered.",
+    )
+  )
+    return;
+  discard(key).catch(() =>
+    useWorkspace.setState({ error: "Could not discard the photo. Try again." }),
   );
 }
 

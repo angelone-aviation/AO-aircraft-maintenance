@@ -205,7 +205,7 @@ function Form337Row({
         )}
       </span>
       {onArchive && archiving && (
-        <ArchiveForm
+        <AircraftFileArchiveForm
           file={file}
           onArchive={onArchive}
           onCancel={() => setArchiving(false)}
@@ -215,9 +215,14 @@ function Form337Row({
   );
 }
 
-/** Opens stored files; demo data URLs become blob URLs, since browsers block
- * top-level data URL navigation. */
-function useOpenableUrl(file: AircraftFile) {
+/**
+ * A URL that opens a stored file in a new tab. Demo data URLs become blob
+ * URLs, since browsers block top-level data URL navigation.
+ *
+ * @param file - The file, with its stored `url` and MIME `type`.
+ * @returns The URL to open, or "" until a data URL has been converted.
+ */
+export function useOpenableUrl(file: Pick<AircraftFile, "url" | "type">) {
   const [url, setUrl] = useState(file.url.startsWith("data:") ? "" : file.url);
   useEffect(() => {
     if (!file.url.startsWith("data:")) {
@@ -266,13 +271,22 @@ function OpenLink({ url, name }: { url: string; name: string }) {
   );
 }
 
-/** Archiving needs a reason; the copy and its stored file are kept. */
-function ArchiveForm({
+/**
+ * The form that archives a current document with a reason; the copy and its
+ * stored file are kept. It unmounts with the copy on success, so only a
+ * failure ends its busy state.
+ *
+ * @param props.file - The document, named in the label.
+ * @param props.onArchive - Archives it with the trimmed reason; its error is
+ *   shown under the form.
+ * @param props.onCancel - Closes the form without archiving.
+ */
+export function AircraftFileArchiveForm({
   file,
   onArchive,
   onCancel,
 }: {
-  file: AircraftFile;
+  file: Pick<AircraftFile, "name">;
   onArchive: Archiver;
   onCancel: () => void;
 }) {

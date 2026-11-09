@@ -1,14 +1,20 @@
 /**
  * Responsibility: Pins the workspace store: outbox queuing and refusals, sync
- *   passes and failures, snapshot order, sign-out, and the demo backend
- *   commands run through it.
+ *   passes and failures, the logbook photo queue, snapshot order, sign-out,
+ *   and the demo backend commands run through it.
  * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
  * Dependencies: src/data/store.ts, src/data/local.ts, src/data/demo.ts,
- *   tests/fixtures, convex/values.
+ *   tests/fixtures, convex/values, src/domain/model.ts (types).
  */
 import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
-import { persistOperation, readQueue, readSnapshot } from "./local";
+import {
+  persistOperation,
+  readPendingPhotos,
+  readQueue,
+  readSnapshot,
+} from "./local";
+import type { Flight } from "../domain/model";
 import { demoSnapshot } from "./demo";
 import type { Backend } from "./backend";
 import type { Value } from "convex/values";
@@ -788,6 +794,159 @@ it("keeps favorites per user and offers demo-only tools only in the demo", async
   vi.unstubAllGlobals();
 });
 
+it("keeps a logbook photo on the device until its flight has synced, then uploads it once", async () => {
+  const namespace = "photo-queue-test";
+  const s = { ...demoSnapshot(), activeProgramUuid: "A" };
+  const aircraftUuid = s.aircraft[0].uuid;
+  const flightUuid = crypto.randomUUID();
+  const uploadAircraftFile = vi.fn().mockResolvedValue(undefined);
+  const workspace = await liveWorkspace(namespace, vi.fn());
+  workspace.setState({
+    snapshot: s,
+    connected: false,
+    backend: { uploadAircraftFile } as unknown as Backend,
+  });
+  const target = {
+    aircraftUuid,
+    linkedKind: "flight" as const,
+    linkedUuid: flightUuid,
+  };
+  const page = new File([new Uint8Array([255, 216])], "line.jpg", {
+    type: "image/jpeg",
+  });
+  await expect(
+    workspace.getState().attachLogbookPhoto(
+      target,
+      new File([], "x.heic", {
+        type: "image/heic",
+      }),
+    ),
+  ).rejects.toThrow("HEIC photos are not accepted.");
+  await workspace.getState().attachLogbookPhoto(target, page);
+  await workspace.getState().attachLogbookPhoto(target, page);
+  expect(workspace.getState().pendingPhotos).toMatchObject([
+    { key: `${flightUuid}:line.jpg`, authorId: s.user.id, programUuid: "A" },
+  ]);
+  expect(uploadAircraftFile).not.toHaveBeenCalled();
+  // Connected, but the server does not know the flight yet.
+  workspace.getState().setConnection(true, true);
+  await workspace.getState().flush();
+  expect(uploadAircraftFile).not.toHaveBeenCalled();
+  expect(await readPendingPhotos(namespace)).toHaveLength(1);
+  const flight: Flight = {
+    uuid: flightUuid,
+    aircraftUuid,
+    authorId: s.user.id,
+    pilotId: s.user.id,
+    submittedAt: 1,
+    status: "accepted",
+    startTime: "2026-03-04T10:00:00Z",
+    hobbsOn: 3600,
+    landings: 1,
+    cycles: 1,
+    origin: "A",
+    destination: "B",
+    operation: "Mission",
+    flightRules: "VFR",
+    remarks: "",
+    discrepancy: "",
+  };
+  await workspace.getState().receive({ ...s, flights: [flight] });
+  await vi.waitFor(() =>
+    expect(workspace.getState().pendingPhotos).toEqual([]),
+  );
+  expect(uploadAircraftFile).toHaveBeenCalledOnce();
+  const [calledAircraft, category, file, link] = uploadAircraftFile.mock
+    .calls[0] as [string, string, File, object];
+  expect([calledAircraft, category, file.name, file.type, link]).toEqual([
+    aircraftUuid,
+    "logbook-page",
+    "line.jpg",
+    "image/jpeg",
+    { linkedKind: "flight", linkedUuid: flightUuid },
+  ]);
+  expect(await readPendingPhotos(namespace)).toEqual([]);
+  // With the flight synced and a connection, a photo uploads at once.
+  await workspace.getState().attachLogbookPhoto(target, page);
+  expect(uploadAircraftFile).toHaveBeenCalledTimes(2);
+  expect(workspace.getState().pendingPhotos).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
+it("holds a refused photo for attention, retries it on request and discards it", async () => {
+  const { ConvexError } = await import("convex/values");
+  const namespace = "photo-refusal-test";
+  const s = { ...demoSnapshot(), activeProgramUuid: "A" };
+  const aircraftUuid = s.aircraft[0].uuid;
+  // The first attempt fails for each photo: a refusal for one, a dropped
+  // connection for the other.
+  const attempted = new Set<string>();
+  const uploadAircraftFile = vi.fn(
+    async (_aircraft: string, _category: string, file: File) => {
+      if (attempted.has(file.name)) return;
+      attempted.add(file.name);
+      if (file.name === "signed.jpg")
+        throw new ConvexError("Flight not found.");
+      throw new Error("WebSocket closed");
+    },
+  );
+  const workspace = await liveWorkspace(namespace, vi.fn());
+  workspace.setState({
+    snapshot: s,
+    connected: false,
+    backend: { uploadAircraftFile } as unknown as Backend,
+  });
+  const order = {
+    uuid: crypto.randomUUID(),
+    aircraftUuid,
+    status: "completed",
+  };
+  const target = {
+    aircraftUuid,
+    linkedKind: "work-order" as const,
+    linkedUuid: order.uuid,
+  };
+  const page = (name: string) =>
+    new File([new Uint8Array([255, 216])], name, { type: "image/jpeg" });
+  await workspace.getState().attachLogbookPhoto(target, page("signed.jpg"));
+  await workspace.getState().attachLogbookPhoto(target, page("flaky.jpg"));
+  workspace.setState({
+    snapshot: { ...s, workOrders: [order as never] },
+    connected: true,
+  });
+  await workspace.getState().flush();
+  expect(
+    workspace
+      .getState()
+      .pendingPhotos.map((p) => [p.name, p.error])
+      .sort(),
+  ).toEqual([
+    ["flaky.jpg", undefined],
+    ["signed.jpg", "Flight not found."],
+  ]);
+  // The transient failure is resent; the refused photo waits for the user.
+  await workspace.getState().flush();
+  expect(workspace.getState().pendingPhotos.map((p) => p.name)).toEqual([
+    "signed.jpg",
+  ]);
+  await workspace.getState().flush(true);
+  expect(workspace.getState().pendingPhotos).toEqual([]);
+  await workspace
+    .getState()
+    .attachLogbookPhoto(
+      { ...target, linkedUuid: "unknown" },
+      page("orphan.jpg"),
+    );
+  await workspace.getState().flush();
+  expect(workspace.getState().pendingPhotos.map((p) => p.name)).toEqual([
+    "orphan.jpg",
+  ]);
+  await workspace.getState().discardPhoto(`unknown:orphan.jpg`);
+  expect(workspace.getState().pendingPhotos).toEqual([]);
+  expect(await readPendingPhotos(namespace)).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
 // Keep last: replaces the device cache module for a fresh store.
 it("reports device storage that cannot be read", async () => {
   vi.resetModules();
@@ -795,6 +954,7 @@ it("reports device storage that cannot be read", async () => {
   vi.doMock("./local", () => ({
     readSnapshot: unavailable,
     readQueue: unavailable,
+    readPendingPhotos: unavailable,
   }));
   vi.stubGlobal("navigator", { onLine: true });
   const { useWorkspace } = await import("./store");

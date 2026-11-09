@@ -1,9 +1,10 @@
 /**
  * Responsibility: Keeps the device's copy of the workspace in IndexedDB:
- *   snapshots, the offline outbox, small settings and kept manual files.
+ *   snapshots, the offline outbox, queued logbook page photos, small
+ *   settings and kept manual files.
  * Layer: Data. Browser storage only; no React, no network.
  * Dependencies: idb, src/domain/model.ts (types),
- *   src/domain/workOrderCleanup.ts.
+ *   src/domain/workOrderCleanup.ts, src/data/logbookPhotos.ts (types).
  *
  * Records are filed under a workspace namespace ("demo", or "live:" and the
  * deployment URL). Devices already hold data under these database, store and
@@ -17,6 +18,11 @@ import {
 } from "idb";
 import { cleanWorkOrderSnapshot } from "../domain/workOrderCleanup";
 import type { Snapshot, QueuedOperation } from "../domain/model";
+import type { PendingLogbookPhoto } from "./logbookPhotos";
+
+interface PhotoSchema extends DBSchema {
+  photos: { key: string; value: PendingLogbookPhoto & { namespace: string } };
+}
 
 interface CacheSchema extends DBSchema {
   snapshots: { key: string; value: Snapshot };
@@ -48,6 +54,16 @@ const cacheDb = shareConnection<CacheSchema>(
 const manualDb = shareConnection<unknown>("angel-one-manuals-v1", 1, (db) => {
   db.createObjectStore("files");
 });
+
+// Queued photos are blobs too, so they stay out of the outbox database and
+// never ride along with cached snapshots.
+const photoDb = shareConnection<PhotoSchema>(
+  "angel-one-logbook-photos-v1",
+  1,
+  (db) => {
+    db.createObjectStore("photos");
+  },
+);
 
 /**
  * Reads a namespace's cached snapshot, without the retired work-order fields
@@ -177,6 +193,46 @@ export async function readManualBlob(
   uuid: string,
 ): Promise<Blob | undefined> {
   return (await manualDb()).get("files", entryKey(namespace, uuid));
+}
+
+/**
+ * Lists a namespace's logbook page photos waiting to upload.
+ *
+ * @param namespace - The workspace namespace.
+ * @returns The photos, oldest `queuedAt` first.
+ */
+export async function readPendingPhotos(
+  namespace: string,
+): Promise<PendingLogbookPhoto[]> {
+  return (await (await photoDb()).getAll("photos"))
+    .filter((p) => p.namespace === namespace)
+    .sort((a, b) => a.queuedAt - b.queuedAt);
+}
+
+/**
+ * Stores a queued photo under its key, so saving it again (with an error, or
+ * the same file chosen twice) replaces it rather than queuing a duplicate.
+ *
+ * @param namespace - The workspace namespace.
+ * @param photo - The queued photo, bytes included.
+ */
+export async function savePendingPhoto(
+  namespace: string,
+  photo: PendingLogbookPhoto,
+) {
+  await (
+    await photoDb()
+  ).put("photos", { ...photo, namespace }, entryKey(namespace, photo.key));
+}
+
+/**
+ * Deletes a queued photo; deleting one that is gone does nothing.
+ *
+ * @param namespace - The workspace namespace.
+ * @param key - The photo's key.
+ */
+export async function removePendingPhoto(namespace: string, key: string) {
+  await (await photoDb()).delete("photos", entryKey(namespace, key));
 }
 
 // One shared connection per database. A newer tab's upgrade (blocking) or a

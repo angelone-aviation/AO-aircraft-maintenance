@@ -142,6 +142,10 @@ The return-to-service wording attached to completed work.
 Generated text or unsigned PDF of the record 14 CFR 43.9 or 43.11 requires for completed work, produced for signature in the aircraft's logbook. The signed logbook, not the app, is the maintenance record.
 _Avoid_: log entry, record (bare)
 
+**Logbook page photo**:
+A photo of the paper logbook attached to the app record it answers to: the handwritten line on a flight, or the signed page on a completed work order. Kept on the aircraft record with the Form 337 copies, never deleted, only archived with a reason.
+_Avoid_: attachment (for the photo), scan, image (bare)
+
 **Correction**:
 An audited change to a completed record that keeps the original and records a reason.
 _Avoid_: edit, amendment, update (for a record change)
@@ -218,6 +222,10 @@ A summary of one imported engine-monitor file for an aircraft, compared against 
 
 **Cost**:
 A recorded expense attributed to an aircraft, work order or purchase.
+
+**Paper check**:
+The monthly list of one aircraft's flights and completed work orders as the app recorded them, with an empty Checked column to tick against the paper logbook. A checklist for the comparison, not a record: the signed paper logbook governs.
+_Avoid_: reconciliation report, audit of paper, logbook audit
 
 ## Platform and safeguards
 

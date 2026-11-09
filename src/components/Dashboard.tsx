@@ -6,7 +6,8 @@
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
  *   readings, rejection),
- *   ./design and the aircraft, flight, parts and FAA components.
+ *   ./design and the aircraft, flight, logbook photo, paper check, parts
+ *   and FAA components.
  */
 import {
   lazy,
@@ -74,6 +75,8 @@ import { AircraftForm337 } from "./AircraftFiles";
 import { AircraftInspectionSchedules } from "./AircraftInspectionSchedules";
 import { PartsAvailability } from "./RequiredParts";
 import { FlightForm } from "./FlightForm";
+import { LogbookPhotoPrompt, type LogbookPhotoTarget } from "./LogbookPhotos";
+import { PaperCheckButton } from "./PaperCheck";
 import { AircraftStatusBadge, AircraftStatusReasons } from "./AircraftStatus";
 import {
   AircraftArt,
@@ -181,6 +184,12 @@ export function Dashboard() {
         pilotView={pilotView}
         onLog={() => d.setFlight("")}
       />
+      {d.savedFlight && (
+        <LogbookPhotoPrompt
+          target={d.savedFlight}
+          onDismiss={() => d.setSavedFlight(null)}
+        />
+      )}
       {!pilotView && <InventoryNotice s={s} fleet={fleet} />}
       <FleetKpis s={s} fleet={fleet} pilotView={pilotView} />
       <FleetSection d={d} />
@@ -206,6 +215,7 @@ function useDashboard() {
   const [search, setSearch] = useState(""),
     [onlyFavorites, setOnlyFavorites] = useState(false),
     [flight, setFlight] = useState<string | null>(null),
+    [savedFlight, setSavedFlight] = useState<LogbookPhotoTarget | null>(null),
     [detailUuid, setDetailUuid] = useState<string | null>(null);
   return {
     s,
@@ -219,6 +229,8 @@ function useDashboard() {
     setOnlyFavorites,
     flight,
     setFlight,
+    savedFlight,
+    setSavedFlight,
     detailUuid,
     setDetailUuid,
   };
@@ -712,6 +724,13 @@ function DashboardDialogs({ d }: { d: DashboardState }) {
         >
           <FlightForm
             aircraftUuid={d.flight || undefined}
+            onSaved={(f) =>
+              d.setSavedFlight({
+                aircraftUuid: f.aircraftUuid,
+                linkedKind: "flight",
+                linkedUuid: f.uuid,
+              })
+            }
             onDone={closeFlight}
             onCancel={closeFlight}
           />
@@ -1171,6 +1190,7 @@ function DetailActions({ aircraft: a, s, onLog }: DetailProps) {
       <div className="dash-detail-export">
         <ExportAircraftStatus aircraftUuid={a.uuid} state={s} />
         <ExportRecordsPackage aircraftUuid={a.uuid} state={s} />
+        <PaperCheckButton aircraftUuid={a.uuid} state={s} />
       </div>
       <Link to="/flights" className="button">
         <BookOpen size={18} aria-hidden="true" /> Flight history
