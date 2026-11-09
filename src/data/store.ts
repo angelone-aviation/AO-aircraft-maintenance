@@ -113,6 +113,18 @@ export interface Workspace {
    */
   discard(uuid: string): Promise<void>;
   /**
+   * Replaces a failed outbox entry with an edited one (Edit and retry): the
+   * old entry is discarded, then the new one is queued as
+   * {@link Workspace.enqueue} does, under its own request id. If queuing is
+   * refused, the old entry is put back with its error, so nothing recorded on
+   * the device is lost.
+   *
+   * @param uuid - The entry to replace.
+   * @param operation - The edited entry, with a new uuid.
+   * @throws As {@link Workspace.enqueue}.
+   */
+  replace(uuid: string, operation: Operation): Promise<void>;
+  /**
    * Adds or removes a favorite aircraft, kept per user on this device; does
    * nothing without a snapshot.
    *
@@ -374,6 +386,20 @@ export const useWorkspace = create<Workspace>((set, get) => ({
     const { namespace } = get();
     await local.removeOperation(namespace, uuid);
     set({ queue: await local.readQueue(namespace) });
+  },
+  async replace(uuid, operation) {
+    const { namespace, queue, discard, enqueue } = get();
+    const previous = queue.find((q) => q.operation.uuid === uuid);
+    await discard(uuid);
+    try {
+      await enqueue(operation);
+    } catch (error) {
+      if (previous) {
+        await local.persistOperation(namespace, previous);
+        set({ queue: await local.readQueue(namespace) });
+      }
+      throw error;
+    }
   },
   async toggleFavorite(uuid) {
     const { snapshot, namespace, favorites } = get();

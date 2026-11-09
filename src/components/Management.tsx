@@ -92,6 +92,7 @@ import {
 import { inspectionProjections } from "../domain/forecast";
 import { daysPerServiceMonth } from "../domain/componentCalendar";
 import { AsyncForm, Field, Modal, errorText, value } from "./ui";
+import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
 import {
   EmptyState,
   IconTile,
@@ -827,6 +828,36 @@ function InspectionToolsCell({
 
 type Execute = (command: ManagementCommand) => Promise<void>;
 
+// How the stale-save review names and formats an inspection's fields.
+const INSPECTION_STALE_SAVE: StaleSaveOptions<Inspection> = {
+  label: "inspection",
+  entityUuid: (i) => i.uuid,
+  specs: {
+    reference: "Reference",
+    description: "Description",
+    ataChapter: "ATA chapter",
+    intervalSeconds: { label: "Repeat every (hours)", format: formatHours },
+    intervalCycles: "Repeat every (cycles)",
+    intervalLandings: "Repeat every (landings)",
+    intervalMonths: "Repeat every (months)",
+    lastSeconds: { label: "Last complied at (hours)", format: formatHours },
+    lastCycles: "Last complied at (cycles)",
+    lastLandings: "Last complied at (landings)",
+    lastDate: "Last compliance date",
+    dueSeconds: { label: "Due at (hours)", format: formatHours },
+    dueDate: "Due date",
+    archived: "Archived",
+    requiredParts: "Required parts",
+    manualReference: "Manual reference",
+    calendarExempt: "Calendar exempt",
+    calendarExemptReason: "Calendar exemption reason",
+  },
+};
+
+function formatHours(value: unknown) {
+  return hours(Number(value));
+}
+
 function InspectionDialog(
   props: InspectionProps & {
     selected: Inspection | "new";
@@ -836,6 +867,7 @@ function InspectionDialog(
   const { s, writable, screen, editable, selected } = props;
   const record = selected !== "new" ? selected : undefined;
   const { complete } = screen;
+  const stale = useStaleSave(INSPECTION_STALE_SAVE);
   const allowed = record
     ? can(s, record.aircraftUuid, "maintenance")
     : editable.length;
@@ -851,9 +883,25 @@ function InspectionDialog(
       onClose={() => screen.setSelected(null)}
     >
       <AsyncForm
+        key={stale.formKey}
         disabled={!writable || !allowed}
         submitLabel={complete ? "Record completion" : "Save inspection"}
-        onSubmit={(d) => saveInspection(props.execute, screen, record, d)}
+        onSubmit={(d) =>
+          stale.run({
+            // A completion changes no field of its own: the review shows what
+            // the other person changed on the record.
+            draft:
+              record && !complete
+                ? inspectionFromForm(d, record, record.uuid)
+                : record,
+            loaded: record,
+            find: (live) =>
+              live.inspections.find((i) => i.uuid === record?.uuid),
+            save: (version) =>
+              saveInspection(props.execute, screen, record, d, version),
+            useTheirs: (current) => screen.setSelected(current ?? null),
+          })
+        }
       >
         {complete && record ? (
           <CompletionFields s={s} record={record} />
@@ -863,17 +911,20 @@ function InspectionDialog(
         {complete && <Reason />}
       </AsyncForm>
       {record && <History uuid={record.uuid} />}
+      {stale.dialog}
     </Modal>
   );
 }
 
 // "Add parts / repair request" on a new schedule saves it, then opens the
-// request for it.
+// request for it. `version` is the one the save is checked against: the
+// record's, or the current one when the user keeps a stale draft.
 async function saveInspection(
   execute: Execute,
   screen: InspectionScreen,
   record: Inspection | undefined,
   d: FormData,
+  version: number,
 ) {
   const { complete } = screen;
   const inspectionUuid = record?.uuid ?? crypto.randomUUID();
@@ -890,7 +941,7 @@ async function saveInspection(
       ...common,
       action: "inspection.complete",
       uuid: record.uuid,
-      version: record.version ?? 0,
+      version,
       date: value(d, "date"),
       seconds: secs(d, "seconds")!,
       cycles: num(d, "cycles")!,
@@ -900,7 +951,7 @@ async function saveInspection(
     await execute({
       ...common,
       action: "inspection.save",
-      record: inspectionFromForm(d, record, inspectionUuid),
+      record: { ...inspectionFromForm(d, record, inspectionUuid), version },
     });
   if (!complete && value(d, "inspectionIntent") === "request")
     screen.setRequestInspectionUuid(inspectionUuid);

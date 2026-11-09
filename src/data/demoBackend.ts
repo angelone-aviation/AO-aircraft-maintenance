@@ -107,6 +107,7 @@ import {
 } from "../domain/engineTrends";
 import { applyManagement } from "../domain/management";
 import { ConvexError } from "convex/values";
+import { StaleRecordRejection } from "../domain/rejection";
 import type { AuditEntry, Discrepancy, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
 import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
@@ -133,11 +134,18 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     const run = tail.then(async () => {
       const current = workspace.getState();
       if (!current.online) throw new Error("Reconnect to make this change.");
-      const s = structuredClone(
-        (await local.readSnapshot(current.namespace + ":all")) ??
-          current.snapshot!,
-      );
-      fn(s);
+      const stored = await local.readSnapshot(current.namespace + ":all");
+      const s = structuredClone(stored ?? current.snapshot!);
+      try {
+        fn(s);
+      } catch (error) {
+        // Another tab saved since this one loaded: show the stored records,
+        // as the server's live snapshot would, so the stale-save review
+        // compares the draft with what is saved now.
+        if (stored && error instanceof StaleRecordRejection)
+          await current.receive(scopedSnapshot(stored));
+        throw error;
+      }
       s.syncedAt = Date.now();
       await local.saveSnapshot(current.namespace + ":all", s);
       await current.receive(scopedSnapshot(s));

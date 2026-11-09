@@ -51,6 +51,7 @@ import {
 } from "../domain/purchaseOrderRules";
 import type { Inspection } from "../domain/model";
 import { AsyncForm, DeleteFileButton, Modal, Field, errorText } from "./ui";
+import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
 import {
   EmptyState,
   PageHeader,
@@ -102,8 +103,39 @@ const SERIAL_FIELD_LABELS = {
 type POEditorProps = {
   initial: PODraft;
   onDone: () => void;
+  /** Reopens the editor on the draft as it stands, after a stale save the
+   * user resolved with Use theirs; without it the editor closes. */
+  onReload?: (current: PODraft) => void;
   inspection?: Inspection;
 };
+
+// How the stale-save review names and formats a draft order's fields.
+const PO_STALE_SAVE: StaleSaveOptions<PODraft> = {
+  label: "purchase order",
+  entityUuid: (d) => d.uuid,
+  specs: {
+    vendor: "Vendor",
+    vendorContact: "Vendor contact",
+    vendorAddressDetails: "Vendor address",
+    shipTo: "Deliver to",
+    shippingAddress: "Shipping address",
+    expectedDate: "Expected date",
+    currency: "Currency",
+    shippingCents: { label: "Shipping", format: formatCents },
+    notes: "Notes",
+    lines: { label: "Lines", format: formatLines },
+  },
+};
+
+function formatCents(value: unknown) {
+  return (Number(value) / 100).toFixed(2);
+}
+
+function formatLines(value: unknown) {
+  return (value as PODraft["lines"])
+    .map((l) => `${l.partNumber} × ${l.quantity}`)
+    .join("; ");
+}
 type PODetailProps = { po: PurchaseOrder; onEdit: () => void };
 type OrderAction = Exclude<POCommand["kind"], "save" | "core">;
 type ReceiveCommand = Extract<POCommand, { kind: "receive" }>;
@@ -218,10 +250,24 @@ export function InspectionPOButton({ inspection }: { inspection: Inspection }) {
  * @param props.inspection - Allows zero quantities, which the save skips.
  * @returns The form, or the vendor editor while a vendor is being added.
  */
-export function POEditor({ initial, onDone, inspection }: POEditorProps) {
+export function POEditor({
+  initial,
+  onDone,
+  onReload,
+  inspection,
+}: POEditorProps) {
   const editor = usePOEditor(initial);
   const { draft } = editor;
+  const stale = useStaleSave(PO_STALE_SAVE);
   if (editor.vendorEdit) return <AddVendorStep editor={editor} />;
+  const save = async (drafts: PODraft[]) => {
+    await editor.backend!.purchaseOrder({
+      kind: "save",
+      requestUuid: editor.requestUuid,
+      drafts,
+    });
+    onDone();
+  };
   return (
     <AsyncForm
       submitLabel={editor.target ? "Add to draft PO" : "Save draft PO"}
@@ -235,12 +281,22 @@ export function POEditor({ initial, onDone, inspection }: POEditorProps) {
           target: editor.target,
           orders: editor.s.purchaseOrders ?? [],
         });
-        await editor.backend!.purchaseOrder({
-          kind: "save",
-          requestUuid: editor.requestUuid,
-          drafts,
+        // Only the saved draft being edited can be stale; new drafts for
+        // other vendors are created alongside it.
+        await stale.run({
+          draft: drafts.find((d) => d.uuid === initial.uuid),
+          loaded: initial.version ? initial : undefined,
+          find: (live) =>
+            live.purchaseOrders?.find((p) => p.uuid === initial.uuid),
+          save: (version) =>
+            save(
+              drafts.map((d) =>
+                d.uuid === initial.uuid ? { ...d, version } : d,
+              ),
+            ),
+          useTheirs: (current) =>
+            current && onReload ? onReload(current) : onDone(),
         });
-        onDone();
       }}
     >
       <OrderFields editor={editor} />
@@ -261,6 +317,7 @@ export function POEditor({ initial, onDone, inspection }: POEditorProps) {
         />
       ))}
       <EditorFooter editor={editor} initial={initial} />
+      {stale.dialog}
     </AsyncForm>
   );
 }
@@ -528,7 +585,12 @@ function OrderDialogs({
           wide
           onClose={() => onEdit(undefined)}
         >
-          <POEditor initial={edit} onDone={() => onEdit(undefined)} />
+          <POEditor
+            key={`${edit.uuid}:${edit.version}`}
+            initial={edit}
+            onDone={() => onEdit(undefined)}
+            onReload={onEdit}
+          />
         </Modal>
       )}
       {po && (

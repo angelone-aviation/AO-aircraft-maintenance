@@ -6,7 +6,7 @@
  *   reads the clock).
  * Dependencies: ./model, ./programs, ./flights, ./changeLog,
  *   ./flightChecklistLink, ./oilInventory, ./flightPlans, ./management,
- *   ./rejection.
+ *   ./rejection, ./fieldDiff.
  *
  * The server and the demo adapter run this one sequence; each loads the state
  * it reads and stores the changes it returns.
@@ -14,6 +14,7 @@
 import {
   can,
   flightInputSchema,
+  hours,
   type Aircraft,
   type AuditEntry,
   type Flight,
@@ -33,6 +34,83 @@ import { preserveChecklistLink } from "./flightChecklistLink";
 import { preserveOilInventory } from "./oilInventory";
 import { validatePlanFlight } from "./flightPlans";
 import { validateMaintenanceTotals } from "./management";
+import { fieldDiff, type FieldDifference, type FieldSpecs } from "./fieldDiff";
+
+/** What a held flight's review compares with the aircraft. */
+interface HeldFlightFields {
+  hobbs?: number;
+  tach?: number;
+  cyclic?: number;
+  flightTimeLog?: number;
+  landings?: number;
+  cycles?: number;
+  startTime?: string;
+}
+
+const HELD_FLIGHT_FIELDS: FieldSpecs<HeldFlightFields> = {
+  hobbs: { label: "Hobbs (hours)", format: formatHours },
+  tach: { label: "Tach (hours)", format: formatHours },
+  cyclic: { label: "Collective hourmeter (hours)", format: formatHours },
+  flightTimeLog: { label: "Flight time log (hours)", format: formatHours },
+  landings: { label: "Landings", format: formatCount },
+  cycles: { label: "Cycles", format: formatCount },
+  startTime: { label: "Flight time (UTC)", format: formatUtcMinute },
+};
+
+/**
+ * A held flight beside the aircraft as it stands, for the review: each
+ * meter's closing reading against the current counter, the flight's landings
+ * and cycles against the aircraft totals, and its start against the latest
+ * flight. Only fields that differ are listed, in that order.
+ *
+ * @param flight - The held flight.
+ * @param aircraft - The aircraft now.
+ * @returns The differences; `mine` is the flight's value, `theirs` the
+ *   aircraft's. A meter the flight did not record is left out.
+ */
+export function heldFlightComparison(
+  flight: Flight,
+  aircraft: Aircraft,
+): FieldDifference[] {
+  const entry: HeldFlightFields = withoutUnset({
+    hobbs: flight.hobbsOn,
+    tach: flight.tachOn,
+    cyclic: flight.cyclicHobbsOn,
+    flightTimeLog: flight.flightTimeLogOn,
+    landings: flight.landings,
+    cycles: flight.cycles,
+    startTime: flight.startTime,
+  });
+  const current: HeldFlightFields = {
+    hobbs: aircraft.currentHobbs,
+    tach: aircraft.currentTach,
+    cyclic: aircraft.currentCyclicHobbs,
+    flightTimeLog: aircraft.currentFlightTimeLog,
+    landings: aircraft.landings,
+    cycles: aircraft.cycles,
+    startTime: aircraft.latestFlightAt,
+  };
+  return fieldDiff(entry, current, { specs: HELD_FLIGHT_FIELDS, ignore: [] });
+}
+
+function withoutUnset(fields: HeldFlightFields): HeldFlightFields {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined),
+  );
+}
+
+function formatHours(value: unknown) {
+  return hours(Number(value));
+}
+
+function formatCount(value: unknown) {
+  return Number(value).toLocaleString("en-US");
+}
+
+// "2026-01-02T10:00:00.000Z" reads "2026-01-02 10:00".
+function formatUtcMinute(value: unknown) {
+  return String(value).slice(0, 16).replace("T", " ");
+}
 
 /** The fewest characters a review explanation may hold once trimmed. */
 export const REVIEW_REASON_MIN_LENGTH = 5;

@@ -14,6 +14,7 @@ import type { Flight, FlightInput, Member, Snapshot } from "./model";
 import { Rejection } from "./rejection";
 import {
   assertReviewer,
+  heldFlightComparison,
   REVIEW_REASON_MAX_LENGTH,
   REVIEW_REASON_MIN_LENGTH,
   reviewFlight,
@@ -264,6 +265,48 @@ describe("reviewFlight refusals", () => {
     });
     expect(error).toBeInstanceOf(z.ZodError);
     expect(error).not.toBeInstanceOf(Rejection);
+  });
+});
+
+describe("heldFlightComparison", () => {
+  it("lists the readings, counts and time that differ, the flight's beside the aircraft's", () => {
+    const { s, held } = fixture();
+    const aircraft = {
+      ...s.aircraft[0],
+      latestFlightAt: "2026-10-03T11:00:00Z",
+    };
+    expect(heldFlightComparison(held, aircraft)).toEqual([
+      {
+        key: "hobbs",
+        label: "Hobbs (hours)",
+        mine: "2,342.2",
+        theirs: "2,343.2",
+      },
+      { key: "landings", label: "Landings", mine: "1", theirs: "2,195" },
+      { key: "cycles", label: "Cycles", mine: "1", theirs: "1,895" },
+      {
+        key: "startTime",
+        label: "Flight time (UTC)",
+        mine: "2026-10-03 09:00",
+        theirs: "2026-10-03 11:00",
+      },
+    ]);
+  });
+
+  it("leaves out a meter neither side records and lists nothing for a matching entry", () => {
+    const { s, held } = fixture();
+    const aircraft = s.aircraft[0];
+    expect(
+      heldFlightComparison(held, aircraft).map((d) => d.key),
+    ).not.toContain("tach");
+    const matching = {
+      ...held,
+      hobbsOn: aircraft.currentHobbs,
+      landings: aircraft.landings,
+      cycles: aircraft.cycles,
+      startTime: aircraft.latestFlightAt!,
+    };
+    expect(heldFlightComparison(matching, aircraft)).toEqual([]);
   });
 });
 

@@ -70,12 +70,13 @@ export function fieldDiff<T extends object>(
   for (const key of Object.keys(mine) as (keyof T & string)[]) {
     if (ignore.includes(key) || same(mine[key], theirs[key])) continue;
     const spec = specOf(key, options.specs?.[key]);
+    const changedBy = changer(mine[key], theirs[key], options.loaded, key);
     differences.push({
       key,
       label: spec.label,
       mine: formatField(mine[key], spec),
       theirs: formatField(theirs[key], spec),
-      changedBy: changer(mine[key], theirs[key], options.loaded, key),
+      ...(changedBy && { changedBy }),
     });
   }
   return differences;

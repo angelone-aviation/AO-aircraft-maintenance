@@ -8,7 +8,13 @@
  */
 import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
-import { persistOperation, readQueue, readSnapshot } from "./local";
+import {
+  persistOperation,
+  readQueue,
+  readSnapshot,
+  saveSnapshot,
+} from "./local";
+import { STALE_RECORD_MESSAGE } from "../domain/rejection";
 import { demoSnapshot } from "./demo";
 import type { Backend } from "./backend";
 import type { Value } from "convex/values";
@@ -270,6 +276,79 @@ it("sends an entry queued while a flush is already running", async () => {
   expect(await readQueue(namespace)).toEqual([]);
   vi.unstubAllGlobals();
 });
+it("replaces a failed entry with an edited one under a new request id, keeping the old one if the new is refused", async () => {
+  const namespace = "replace-entry-test";
+  const submit = vi.fn().mockResolvedValue({ status: "accepted" });
+  const workspace = await signedInWorkspace(namespace, submit);
+  const aircraftUuid = demoSnapshot().aircraft[0].uuid;
+  const failed = {
+    operation: discrepancy("demo-program", aircraftUuid),
+    queuedAt: 1,
+    error: "N206MA is grounded: Annual inspection overdue.",
+  };
+  await persistOperation(namespace, failed);
+  workspace.setState({ queue: await readQueue(namespace), connected: false });
+  const edited = {
+    ...discrepancy("demo-program", aircraftUuid),
+    description: "Edited",
+  };
+  await workspace.getState().replace(failed.operation.uuid, edited);
+  expect(workspace.getState().queue.map((q) => q.operation.uuid)).toEqual([
+    edited.uuid,
+  ]);
+  expect(workspace.getState().queue[0].error).toBeUndefined();
+  // A refused edit puts the failed entry back, error and all.
+  await expect(
+    workspace
+      .getState()
+      .replace(edited.uuid, { ...edited, aircraftUuid: "elsewhere" }),
+  ).rejects.toThrow("You cannot add entries for this aircraft.");
+  expect(await readQueue(namespace)).toMatchObject([
+    { operation: { uuid: edited.uuid }, queuedAt: expect.any(Number) },
+  ]);
+  vi.unstubAllGlobals();
+});
+
+it("shows the stored records when a demo save is stale, so the review compares against them", async () => {
+  vi.stubGlobal("navigator", { onLine: true });
+  const { useWorkspace } = await import("./store");
+  const namespace = "demo-stale-save-test";
+  await useWorkspace.getState().initialize(namespace, true);
+  useWorkspace.setState({ online: true, connected: true });
+  const shown = useWorkspace.getState().snapshot!;
+  const inspection = shown.inspections[0];
+  // Another tab saved a newer version into the shared demo store.
+  const stored = (await readSnapshot(namespace + ":all"))!;
+  stored.inspections = stored.inspections.map((i) =>
+    i.uuid === inspection.uuid
+      ? { ...i, description: "Changed elsewhere", version: 1 }
+      : i,
+  );
+  await saveSnapshot(namespace + ":all", stored);
+  await expect(
+    useWorkspace.getState().backend!.manage({
+      action: "inspection.save",
+      requestUuid: crypto.randomUUID(),
+      reason: "Mine",
+      record: {
+        ...inspection,
+        materials: "",
+        archived: false,
+        description: "Mine",
+        version: 0,
+      },
+    }),
+  ).rejects.toThrow(STALE_RECORD_MESSAGE);
+  const current = useWorkspace
+    .getState()
+    .snapshot!.inspections.find((i) => i.uuid === inspection.uuid)!;
+  expect(current).toMatchObject({
+    description: "Changed elsewhere",
+    version: 1,
+  });
+  vi.unstubAllGlobals();
+});
+
 it("discards a failed entry from the device outbox", async () => {
   const namespace = "discard-test";
   const entry = discrepancy("A");

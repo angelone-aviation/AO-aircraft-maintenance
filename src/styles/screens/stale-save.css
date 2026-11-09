@@ -1,0 +1,43 @@
+/*
+ * Responsibility: The stale-save review dialog and the difference table a
+ *   held flight's review shares with it.
+ * Layer: UI. Per-feature styles over the design tokens.
+ * Dependencies: src/styles/tokens.css (variables), src/styles/design.css
+ *   (.ds-dialog, .button, .muted, .error).
+ */
+.stale-save-who {
+  margin: 0 0 12px;
+}
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+.diff-table th,
+.diff-table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.diff-table thead th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.diff-table tbody th {
+  font-weight: 600;
+  width: 34%;
+}
+.diff-changed-by {
+  display: block;
+  font-weight: 400;
+  color: var(--muted);
+}
+.stale-save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
