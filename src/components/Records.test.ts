@@ -48,6 +48,11 @@ vi.mock("./design", async (original) => ({
 vi.mock("./FlightForm", () => ({ FlightForm: () => null }));
 vi.mock("./FlightSession", () => ({ FlightSessions: () => null }));
 vi.mock("./FlightLogImport", () => ({ FlightLogImportButton: () => null }));
+vi.mock("./LogbookPhotos", () => ({
+  LogbookPhotoStrip: () => null,
+  LogbookPhotoPrompt: () => null,
+  PendingThumbnail: () => null,
+}));
 vi.mock("./FlightFluids", () => ({ FlightFluidSummary: () => null }));
 vi.mock("./Deferrals", () => ({
   DeferralStatus: () => null,
@@ -304,6 +309,7 @@ function setWorkspace(snapshot: Snapshot, over: Record<string, unknown> = {}) {
   ui.workspace = {
     snapshot,
     queue: [],
+    pendingPhotos: [],
     online: true,
     connected: true,
     syncing: false,
