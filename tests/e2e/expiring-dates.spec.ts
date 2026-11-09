@@ -91,9 +91,13 @@ test("expiring dates are recorded per Flight Program and system-wide, alert unde
     .getByRole("button", { name: "Edit Entra client secret" })
     .click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Archive Entra client secret" }).click();
+  await page
+    .getByRole("button", { name: "Archive Entra client secret" })
+    .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator("#system").getByText("Entra client secret")).toHaveCount(0);
+  await expect(
+    page.locator("#system").getByText("Entra client secret"),
+  ).toHaveCount(0);
   await page.goto("/alerts");
   await expect(page.getByText("Entra client secret expired")).toHaveCount(0);
   await expect(

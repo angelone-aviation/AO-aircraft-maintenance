@@ -546,12 +546,10 @@ describe("expiring-date alerts", () => {
       ...fleet(),
       faaCredential: { configured: true, expiresOn: plus(5), version: 1 },
     };
-    expect(alertsFor(s, [system]).map((a) => a.title)).toEqual(
-      [
-        `FAA DRS API key expires on ${plus(5)}`,
-        `Entra secret expires on ${plus(10)}`,
-      ],
-    );
+    expect(alertsFor(s, [system]).map((a) => a.title)).toEqual([
+      `FAA DRS API key expires on ${plus(5)}`,
+      `Entra secret expires on ${plus(10)}`,
+    ]);
     const member = {
       ...s,
       user: { ...s.user, isAdmin: false, groupIds: ["demo-pilots"] },
