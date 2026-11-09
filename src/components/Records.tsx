@@ -5,7 +5,8 @@
  * Dependencies: src/data (store, auditHistory, pendingEntries,
  *   logbookPhotos), src/domain (model, programs, pilotView, flights,
  *   flightFluids, deferrals, auditHistory), ./design, ./ui and the flight,
- *   logbook photo, deferral, parts, task card and work order components.
+ *   logbook photo, paper check, deferral, parts, task card and work order
+ *   components.
  */
 import "../styles/screens/records.css";
 import { isPilotView } from "../domain/pilotView";
@@ -97,6 +98,7 @@ import {
   PendingThumbnail,
   type LogbookPhotoTarget,
 } from "./LogbookPhotos";
+import { PaperCheckButton } from "./PaperCheck";
 
 const FLIGHT_PHOTO_LABEL = "Add a photo of the logbook line";
 
@@ -292,15 +294,18 @@ function FlightLogHeader({ s, onNew }: { s: Snapshot; onNew: () => void }) {
       title="Flight log"
       description="Every flight recorded. Every change accounted for."
       actions={
-        s.aircraft.some((a) => can(s, a.uuid, "flight")) && (
-          <>
-            <FlightLogImportButton />
-            <button type="button" className="button primary" onClick={onNew}>
-              <Plus size={18} weight="bold" aria-hidden="true" /> Log a
-              completed flight
-            </button>
-          </>
-        )
+        <>
+          <PaperCheckButton state={s} />
+          {s.aircraft.some((a) => can(s, a.uuid, "flight")) && (
+            <>
+              <FlightLogImportButton />
+              <button type="button" className="button primary" onClick={onNew}>
+                <Plus size={18} weight="bold" aria-hidden="true" /> Log a
+                completed flight
+              </button>
+            </>
+          )}
+        </>
       }
     />
   );

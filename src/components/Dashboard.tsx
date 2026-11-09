@@ -6,8 +6,8 @@
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
  *   readings, rejection),
- *   ./design and the aircraft, flight, logbook photo, parts and FAA
- *   components.
+ *   ./design and the aircraft, flight, logbook photo, paper check, parts
+ *   and FAA components.
  */
 import {
   lazy,
@@ -75,6 +75,7 @@ import { AircraftInspectionSchedules } from "./AircraftInspectionSchedules";
 import { PartsAvailability } from "./RequiredParts";
 import { FlightForm } from "./FlightForm";
 import { LogbookPhotoPrompt, type LogbookPhotoTarget } from "./LogbookPhotos";
+import { PaperCheckButton } from "./PaperCheck";
 import { AircraftStatusBadge, AircraftStatusReasons } from "./AircraftStatus";
 import {
   AircraftArt,
@@ -1184,6 +1185,7 @@ function DetailActions({ aircraft: a, s, onLog }: DetailProps) {
     <div className="dash-detail-actions">
       <div className="dash-detail-export">
         <ExportAircraftStatus aircraftUuid={a.uuid} state={s} />
+        <PaperCheckButton aircraftUuid={a.uuid} state={s} />
       </div>
       <Link to="/flights" className="button">
         <BookOpen size={18} aria-hidden="true" /> Flight history
