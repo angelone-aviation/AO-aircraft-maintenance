@@ -136,6 +136,7 @@ export async function exportRecordsPackage(
   const { copied, skipped } = await copyFiles(plan.included, progress);
   skipped.unshift(...plan.skipped);
   progress("Compressing the package…");
+  await yieldToBrowser();
   const readme = recordsReadme(
     pkg,
     { at: `${formatUtc(now)} UTC`, by: snapshot.user.name },
@@ -152,6 +153,11 @@ export async function exportRecordsPackage(
     blob: new Blob([zip], { type: "application/zip" }),
     skipped,
   };
+}
+
+// zipSync holds the main thread, so the progress line is painted first.
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function loadChangeLog(
