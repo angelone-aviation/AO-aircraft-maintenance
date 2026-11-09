@@ -12,8 +12,8 @@ import { localDate, type Snapshot } from "../domain/model";
 import { statusSheet, type StatusSectionId } from "../domain/statusSheet";
 import { tablePdf } from "./tablePdf";
 
-// Relative column widths per section.
-const COLUMN_SHARES: Record<StatusSectionId, number[]> = {
+/** Relative column widths of each status sheet table. */
+export const STATUS_COLUMN_SHARES: Record<StatusSectionId, number[]> = {
   overview: [34, 32, 42, 32, 38, 60],
   components: [45, 65, 39, 28, 28, 28, 26],
   inspections: [46, 27, 29, 25, 24, 23, 22, 22, 28],
@@ -51,7 +51,7 @@ export function aircraftStatusReport(
   return tablePdf(
     sections.map((section) => ({
       ...section,
-      shares: COLUMN_SHARES[section.id],
+      shares: STATUS_COLUMN_SHARES[section.id],
     })),
     {
       orientation: "landscape",

@@ -1,20 +1,14 @@
 /**
  * Responsibility: Lays out a generated logbook entry as an A4 PDF to print and
  *   sign.
- * Layer: Data. Browser-only: fetches the bundled font; no React.
- * Dependencies: jspdf, public/fonts/DejaVuSans.ttf.
+ * Layer: Data. Browser-only: loads the bundled font; no React.
+ * Dependencies: jspdf, src/data/pdfFont.ts.
  *
  * Embeds DejaVu Sans because jsPDF's standard fonts only encode Windows-1252,
  * and an entry can hold any character.
  */
 import { jsPDF } from "jspdf";
-
-const FONT_FILE = "DejaVuSans.ttf";
-const FONT_NAME = "DejaVu";
-
-// Spreading the whole font into String.fromCharCode would exceed the engine's
-// argument limit.
-const CHAR_CODE_CHUNK = 8192;
+import { loadDejaVuFont } from "./pdfFont";
 
 const A4_WIDTH_MM = 210;
 const MARGIN_MM = 18;
@@ -36,11 +30,11 @@ const FOOTER_BASELINE_MM = 287;
  *   fetch's own error.
  */
 export async function logbookPdf(text: string): Promise<jsPDF> {
-  const font = await fetchFontBase64();
+  const font = await loadDejaVuFont();
   const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
-  pdf.addFileToVFS(FONT_FILE, font);
-  pdf.addFont(FONT_FILE, FONT_NAME, "normal");
-  pdf.setFont(FONT_NAME);
+  pdf.addFileToVFS(font.file, font.base64);
+  pdf.addFont(font.file, font.name, "normal");
+  pdf.setFont(font.name);
   pdf.setFontSize(10);
   const lines: string[] = pdf.splitTextToSize(
     stripControlCharacters(text),
@@ -49,17 +43,6 @@ export async function logbookPdf(text: string): Promise<jsPDF> {
   writeLines(pdf, lines);
   numberPages(pdf);
   return pdf;
-}
-
-async function fetchFontBase64(): Promise<string> {
-  const response = await fetch(`${import.meta.env.BASE_URL}fonts/${FONT_FILE}`);
-  if (!response.ok)
-    throw new Error("Unable to load the PDF font. Reconnect and try again.");
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHAR_CODE_CHUNK)
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHAR_CODE_CHUNK));
-  return btoa(binary);
 }
 
 function stripControlCharacters(text: string): string {
