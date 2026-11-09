@@ -4,8 +4,8 @@
  * Layer: UI. React components; aircraft and program rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
  *   (aircraftStatus, addresses, programs, programTransfers, model, fleet,
- *   readings, aircraftSetup), ./Costs, ./AircraftStatus, ./AircraftPhoto, ./Components, ./ui
- *   and others.
+ *   readings, aircraftSetup), ./Costs, ./AircraftStatus, ./AircraftPhoto,
+ *   ./Components, ./ui and others.
  */
 import { AircraftCostSummary } from "./Costs";
 import { AircraftStatusReasons } from "./AircraftStatus";

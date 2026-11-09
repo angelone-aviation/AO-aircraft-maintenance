@@ -284,6 +284,8 @@ function FailureControls({
   );
 }
 
+// Carries the whole saved list on every update: the draft's `update` replaces
+// `done`, and this loop outlives the render it was started from.
 async function commitActions(
   backend: Backend,
   state: RunState,
