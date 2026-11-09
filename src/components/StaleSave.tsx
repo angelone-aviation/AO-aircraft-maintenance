@@ -118,19 +118,91 @@ export function StaleSaveDialog<T extends Versioned>({
   onReloaded: () => void;
 }) {
   const { snapshot } = useWorkspace();
+  const current = snapshot ? attempt.find(snapshot) : undefined;
+  const choice = useStaleChoice(attempt, current, onClose, onReloaded);
+  const theirs = current ?? attempt.loaded;
+  return (
+    <Dialog
+      title={`Someone else changed this ${options.label}`}
+      size="narrow"
+      className="stale-save"
+      dismissOnScrim={false}
+      onClose={onClose}
+      footer={
+        <StaleSaveActions
+          busy={choice.busy}
+          canKeep={!!current}
+          onKeepMine={() => void choice.keepMine()}
+          onUseTheirs={choice.useTheirs}
+          onCancel={onClose}
+        />
+      }
+    >
+      <LatestChange
+        entityUuid={theirs && options.entityUuid?.(theirs)}
+        label={options.label}
+      />
+      <ReviewBody attempt={attempt} current={current} options={options} />
+      {choice.error && (
+        <p role="alert" className="error">
+          {choice.error}
+        </p>
+      )}
+    </Dialog>
+  );
+}
+
+function ReviewBody<T extends Versioned>({
+  attempt,
+  current,
+  options,
+}: {
+  attempt: StaleSaveAttempt<T>;
+  current: T | undefined;
+  options: StaleSaveOptions<T>;
+}) {
+  return (
+    <>
+      {current ? (
+        <DifferenceTable
+          differences={reviewDifferences(attempt, current, options)}
+          mineLabel="Yours"
+          theirsLabel="Theirs"
+          empty="Only the version differs: the same values were saved again."
+        />
+      ) : (
+        <p>This {options.label} is no longer available.</p>
+      )}
+      <p className="muted">
+        Keep mine saves your values for every field above; Use theirs reloads
+        the form with the saved values. Either way the change log keeps both.
+      </p>
+    </>
+  );
+}
+
+function reviewDifferences<T extends Versioned>(
+  attempt: StaleSaveAttempt<T>,
+  current: T,
+  options: StaleSaveOptions<T>,
+) {
+  if (!attempt.draft) return [];
+  return fieldDiff(attempt.draft, current, {
+    specs: options.specs,
+    loaded: attempt.loaded,
+  });
+}
+
+// Keep mine saves against the current version and keeps the dialog open on
+// a failure; Use theirs asks first, since the draft is lost.
+function useStaleChoice<T extends Versioned>(
+  attempt: StaleSaveAttempt<T>,
+  current: T | undefined,
+  onClose: () => void,
+  onReloaded: () => void,
+) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const current = snapshot ? attempt.find(snapshot) : undefined;
-  const theirs = current ?? attempt.loaded;
-  const differences =
-    attempt.draft && theirs
-      ? fieldDiff(attempt.draft, theirs, {
-          specs: options.specs,
-          loaded: attempt.loaded,
-        })
-      : [];
-  const entityUuid =
-    theirs && options.entityUuid ? options.entityUuid(theirs) : undefined;
   async function keepMine() {
     if (!current) return;
     setBusy(true);
@@ -150,45 +222,7 @@ export function StaleSaveDialog<T extends Versioned>({
     onReloaded();
     onClose();
   }
-  return (
-    <Dialog
-      title={`Someone else changed this ${options.label}`}
-      size="narrow"
-      className="stale-save"
-      dismissOnScrim={false}
-      onClose={onClose}
-      footer={
-        <StaleSaveActions
-          busy={busy}
-          canKeep={!!current}
-          onKeepMine={() => void keepMine()}
-          onUseTheirs={useTheirs}
-          onCancel={onClose}
-        />
-      }
-    >
-      <LatestChange entityUuid={entityUuid} label={options.label} />
-      {current ? (
-        <DifferenceTable
-          differences={differences}
-          mineLabel="Yours"
-          theirsLabel="Theirs"
-          empty="Only the version differs: the same values were saved again."
-        />
-      ) : (
-        <p>This {options.label} is no longer available.</p>
-      )}
-      <p className="muted">
-        Keep mine saves your values for every field above; Use theirs reloads
-        the form with the saved values. Either way the change log keeps both.
-      </p>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-    </Dialog>
-  );
+  return { busy, error, keepMine, useTheirs };
 }
 
 /**
@@ -262,32 +296,24 @@ function StaleSaveActions({
   onUseTheirs: () => void;
   onCancel: () => void;
 }) {
+  const actions: [string, string, boolean, () => void][] = [
+    ["Keep mine", "button primary", busy || !canKeep, onKeepMine],
+    ["Use theirs", "button", busy, onUseTheirs],
+    ["Cancel", "button", busy, onCancel],
+  ];
   return (
     <div className="stale-save-actions">
-      <button
-        type="button"
-        className="button primary"
-        disabled={busy || !canKeep}
-        onClick={onKeepMine}
-      >
-        Keep mine
-      </button>
-      <button
-        type="button"
-        className="button"
-        disabled={busy}
-        onClick={onUseTheirs}
-      >
-        Use theirs
-      </button>
-      <button
-        type="button"
-        className="button"
-        disabled={busy}
-        onClick={onCancel}
-      >
-        Cancel
-      </button>
+      {actions.map(([label, className, disabled, onClick]) => (
+        <button
+          key={label}
+          type="button"
+          className={className}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

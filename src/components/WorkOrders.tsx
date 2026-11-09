@@ -80,7 +80,11 @@ import {
   errorText,
   value,
 } from "./ui";
-import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
+import {
+  useStaleSave,
+  type StaleSaveAttempt,
+  type StaleSaveOptions,
+} from "./StaleSave";
 import {
   EmptyState,
   NoticeBar,
@@ -913,20 +917,9 @@ function WorkOrderForm({
         {...props}
         onDone={onDone}
         onSubmit={(data) =>
-          stale.run({
-            draft: initial && {
-              ...initial,
-              ...readWorkOrderFields(props, data),
-              tasks: draft.tasks,
-            },
-            loaded: initial,
-            find: (live) =>
-              live.workOrders?.find((w) => w.uuid === initial?.uuid),
-            save: (version) =>
-              submitWorkOrder(backend!, props, data, onDone, version),
-            useTheirs: (current) =>
-              current && onReload ? onReload(current) : onDone(),
-          })
+          stale.run(
+            workOrderAttempt(props, data, { backend, onDone, onReload }),
+          )
         }
       />
       <WorkOrderRecords {...props} onDone={onDone} />
@@ -1129,6 +1122,35 @@ function TaskRemovalWarning({ count }: { count: number }) {
 
 // Closing needs the user's confirmation, listing the tracking each
 // component's repair or overhaul will reset.
+// The save as the stale-save review retries or abandons it.
+function workOrderAttempt(
+  props: FormProps,
+  data: FormData,
+  {
+    backend,
+    onDone,
+    onReload,
+  }: {
+    backend: Backend | null;
+    onDone: () => void;
+    onReload?: (current: WorkOrder) => void;
+  },
+): StaleSaveAttempt<WorkOrder> {
+  const { initial, draft } = props;
+  return {
+    draft: initial && {
+      ...initial,
+      ...readWorkOrderFields(props, data),
+      tasks: draft.tasks,
+    },
+    loaded: initial,
+    find: (live) => live.workOrders?.find((w) => w.uuid === initial?.uuid),
+    save: (version) => submitWorkOrder(backend!, props, data, onDone, version),
+    useTheirs: (current) =>
+      current && onReload ? onReload(current) : onDone(),
+  };
+}
+
 // `version` is the one the save is checked against: the order's, or the
 // current one when the user keeps a stale draft.
 async function submitWorkOrder(

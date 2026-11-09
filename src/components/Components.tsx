@@ -79,7 +79,11 @@ import {
 } from "../domain/dueItems";
 import { AtaChapterField } from "./AtaChapterField";
 import { AsyncForm, Field, Modal, value } from "./ui";
-import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
+import {
+  useStaleSave,
+  type StaleSaveAttempt,
+  type StaleSaveOptions,
+} from "./StaleSave";
 import {
   EmptyState,
   IconTile,
@@ -728,19 +732,10 @@ function useComponentForm(props: ComponentFormProps) {
   };
   const submit = (d: FormData) => {
     assertAttachable(files, !!backend && online && connected);
-    const { record } = props;
-    const installed = record?.installed ?? choices.location === "aircraft";
+    const installed =
+      props.record?.installed ?? choices.location === "aircraft";
     const r = componentFromForm(d, { ...props, ...choices, installed, s });
-    return stale.run({
-      draft: r,
-      loaded: record,
-      find: (live) => findComponent(live, record?.uuid),
-      save: (version) => save({ ...r, version }),
-      useTheirs: (current) =>
-        current && props.onReload
-          ? props.onReload(current)
-          : props.onDone(r.uuid, current ?? r),
-    });
+    return stale.run(componentAttempt(r, props, save));
   };
   return {
     s,
@@ -779,6 +774,24 @@ function useComponentChoices(s: Snapshot, props: ComponentFormProps) {
     aircraft,
     track,
     setTrack,
+  };
+}
+
+// The save as the stale-save review retries or abandons it.
+function componentAttempt(
+  r: Component,
+  props: ComponentFormProps,
+  save: (r: Component) => Promise<void>,
+): StaleSaveAttempt<Component> {
+  return {
+    draft: r,
+    loaded: props.record,
+    find: (live) => findComponent(live, props.record?.uuid),
+    save: (version) => save({ ...r, version }),
+    useTheirs: (current) =>
+      current && props.onReload
+        ? props.onReload(current)
+        : props.onDone(r.uuid, current ?? r),
   };
 }
 

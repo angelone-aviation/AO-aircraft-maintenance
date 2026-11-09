@@ -92,7 +92,11 @@ import {
 import { inspectionProjections } from "../domain/forecast";
 import { daysPerServiceMonth } from "../domain/componentCalendar";
 import { AsyncForm, Field, Modal, errorText, value } from "./ui";
-import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
+import {
+  useStaleSave,
+  type StaleSaveAttempt,
+  type StaleSaveOptions,
+} from "./StaleSave";
 import {
   EmptyState,
   IconTile,
@@ -873,35 +877,14 @@ function InspectionDialog(
     : editable.length;
   return (
     <Modal
-      title={
-        complete
-          ? "Record inspection completion"
-          : record
-            ? "Inspection details"
-            : "New inspection"
-      }
+      title={inspectionDialogTitle(complete, record)}
       onClose={() => screen.setSelected(null)}
     >
       <AsyncForm
         key={stale.formKey}
         disabled={!writable || !allowed}
         submitLabel={complete ? "Record completion" : "Save inspection"}
-        onSubmit={(d) =>
-          stale.run({
-            // A completion changes no field of its own: the review shows what
-            // the other person changed on the record.
-            draft:
-              record && !complete
-                ? inspectionFromForm(d, record, record.uuid)
-                : record,
-            loaded: record,
-            find: (live) =>
-              live.inspections.find((i) => i.uuid === record?.uuid),
-            save: (version) =>
-              saveInspection(props.execute, screen, record, d, version),
-            useTheirs: (current) => screen.setSelected(current ?? null),
-          })
-        }
+        onSubmit={(d) => stale.run(inspectionAttempt(props, record, d))}
       >
         {complete && record ? (
           <CompletionFields s={s} record={record} />
@@ -914,6 +897,33 @@ function InspectionDialog(
       {stale.dialog}
     </Modal>
   );
+}
+
+function inspectionDialogTitle(complete: boolean, record?: Inspection) {
+  if (complete) return "Record inspection completion";
+  return record ? "Inspection details" : "New inspection";
+}
+
+// The save as the stale-save review retries or abandons it. A completion
+// changes no field of its own, so its review shows what the other person
+// changed on the record.
+function inspectionAttempt(
+  props: InspectionProps & { execute: Execute },
+  record: Inspection | undefined,
+  d: FormData,
+): StaleSaveAttempt<Inspection> {
+  const { screen } = props;
+  return {
+    draft:
+      record && !screen.complete
+        ? inspectionFromForm(d, record, record.uuid)
+        : record,
+    loaded: record,
+    find: (live) => live.inspections.find((i) => i.uuid === record?.uuid),
+    save: (version) =>
+      saveInspection(props.execute, screen, record, d, version),
+    useTheirs: (current) => screen.setSelected(current ?? null),
+  };
 }
 
 // "Add parts / repair request" on a new schedule saves it, then opens the

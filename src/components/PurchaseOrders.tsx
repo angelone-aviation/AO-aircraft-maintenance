@@ -51,7 +51,11 @@ import {
 } from "../domain/purchaseOrderRules";
 import type { Inspection } from "../domain/model";
 import { AsyncForm, DeleteFileButton, Modal, Field, errorText } from "./ui";
-import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
+import {
+  useStaleSave,
+  type StaleSaveAttempt,
+  type StaleSaveOptions,
+} from "./StaleSave";
 import {
   EmptyState,
   PageHeader,
@@ -260,44 +264,13 @@ export function POEditor({
   const { draft } = editor;
   const stale = useStaleSave(PO_STALE_SAVE);
   if (editor.vendorEdit) return <AddVendorStep editor={editor} />;
-  const save = async (drafts: PODraft[]) => {
-    await editor.backend!.purchaseOrder({
-      kind: "save",
-      requestUuid: editor.requestUuid,
-      drafts,
-    });
-    onDone();
-  };
   return (
     <AsyncForm
       submitLabel={editor.target ? "Add to draft PO" : "Save draft PO"}
       disabled={!editor.writable}
-      onSubmit={async () => {
-        const drafts = draftsToSave({
-          draft: editor.draft,
-          initial,
-          lineVendors: editor.vendors,
-          vendors: editor.vendorOptions,
-          target: editor.target,
-          orders: editor.s.purchaseOrders ?? [],
-        });
-        // Only the saved draft being edited can be stale; new drafts for
-        // other vendors are created alongside it.
-        await stale.run({
-          draft: drafts.find((d) => d.uuid === initial.uuid),
-          loaded: initial.version ? initial : undefined,
-          find: (live) =>
-            live.purchaseOrders?.find((p) => p.uuid === initial.uuid),
-          save: (version) =>
-            save(
-              drafts.map((d) =>
-                d.uuid === initial.uuid ? { ...d, version } : d,
-              ),
-            ),
-          useTheirs: (current) =>
-            current && onReload ? onReload(current) : onDone(),
-        });
-      }}
+      onSubmit={() =>
+        submitDrafts(editor, { initial, onDone, onReload }, stale.run)
+      }
     >
       <OrderFields editor={editor} />
       {inspection && (
@@ -320,6 +293,53 @@ export function POEditor({
       {stale.dialog}
     </AsyncForm>
   );
+}
+
+// Saves the editor's drafts (one per vendor) under the editor's request id,
+// through the stale-save review.
+function submitDrafts(
+  editor: ReturnType<typeof usePOEditor>,
+  props: Omit<POEditorProps, "inspection">,
+  run: (attempt: StaleSaveAttempt<PODraft>) => Promise<void>,
+) {
+  const drafts = draftsToSave({
+    draft: editor.draft,
+    initial: props.initial,
+    lineVendors: editor.vendors,
+    vendors: editor.vendorOptions,
+    target: editor.target,
+    orders: editor.s.purchaseOrders ?? [],
+  });
+  const save = async (saved: PODraft[]) => {
+    await editor.backend!.purchaseOrder({
+      kind: "save",
+      requestUuid: editor.requestUuid,
+      drafts: saved,
+    });
+    props.onDone();
+  };
+  return run(draftAttempt(drafts, props, save));
+}
+
+// The save as the stale-save review retries or abandons it. Only the saved
+// draft being edited can be stale; new drafts for other vendors are created
+// alongside it.
+function draftAttempt(
+  drafts: PODraft[],
+  { initial, onDone, onReload }: Omit<POEditorProps, "inspection">,
+  save: (drafts: PODraft[]) => Promise<void>,
+): StaleSaveAttempt<PODraft> {
+  return {
+    draft: drafts.find((d) => d.uuid === initial.uuid),
+    loaded: initial.version ? initial : undefined,
+    find: (live) => live.purchaseOrders?.find((p) => p.uuid === initial.uuid),
+    save: (version) =>
+      save(
+        drafts.map((d) => (d.uuid === initial.uuid ? { ...d, version } : d)),
+      ),
+    useTheirs: (current) =>
+      current && onReload ? onReload(current) : onDone(),
+  };
 }
 
 /**
