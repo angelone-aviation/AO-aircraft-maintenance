@@ -1,15 +1,18 @@
 /**
- * Responsibility: Form 337 copies kept on the aircraft record: listing them
- *   for the snapshot, uploading and archiving them.
+ * Responsibility: Documents on the aircraft record (Form 337 copies and
+ *   logbook page photos): listing them for the snapshot, uploading and
+ *   archiving them.
  * Layer: Server. A public action and mutation, internal steps, and the
- *   snapshot loader; maintenance permission writes.
+ *   snapshot loader; maintenance permission writes, or flight permission for
+ *   a flight's logbook line photo.
  * Dependencies: convex/programContext, convex/access, convex/attachments,
  *   convex/userErrors, src/domain/aircraftFiles, src/domain/model,
  *   convex/values.
  *
  * Form 337 copies are permanent status records (14 CFR 91.417(a)(2)(vi);
- * ADR-0004), so there is no delete path: archiving hides a copy from the
- * current list and keeps its stored file.
+ * ADR-0004) and a logbook page photo points at the signed paper record, so
+ * there is no delete path: archiving hides a copy from the current list and
+ * keeps its stored file.
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -29,18 +32,32 @@ import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import {
   aircraftFileArchive,
+  assertAircraftFileLink,
   assertAircraftFileRoom,
   assertAircraftFileWriter,
   MAX_AIRCRAFT_FILES,
-  validateAircraftFile,
+  validateAircraftUpload,
   type AircraftFile,
+  type AircraftFileCategory,
+  type AircraftFileLink,
 } from "../src/domain/aircraftFiles";
 
-const category = v.literal("form-337");
+const category = v.union(v.literal("form-337"), v.literal("logbook-page"));
+const linkedKind = v.union(v.literal("flight"), v.literal("work-order"));
 const target = {
   aircraftUuid: v.string(),
   programUuid: v.optional(v.string()),
+  category,
+  linkedKind: v.optional(linkedKind),
+  linkedUuid: v.optional(v.string()),
 };
+
+/** The document being written: its aircraft, category and link. */
+type Target = {
+  aircraftUuid: string;
+  programUuid?: string;
+  category: AircraftFileCategory;
+} & Partial<AircraftFileLink>;
 
 /**
  * Lists the files of every aircraft the snapshot's reader can read, archived
@@ -68,12 +85,19 @@ export async function aircraftFileList(
 }
 
 /**
- * Refuses an upload before its file is stored, unless the caller has
- * maintenance permission on the aircraft.
+ * Refuses an upload before its file is stored, unless the caller may write
+ * the document and its linked record is on the aircraft.
  *
  * @param aircraftUuid - The aircraft.
  * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} "Aircraft maintenance permission required."
+ * @param category - "form-337" or "logbook-page".
+ * @param linkedKind - For a photo, "flight" or "work-order".
+ * @param linkedUuid - For a photo, the linked record's uuid.
+ * @throws {ConvexError} "Link the photo to a flight or work order."; "A Form
+ *   337 copy is not linked to a record."; "Aircraft flight permission
+ *   required." or "Aircraft maintenance permission required."; "Flight not
+ *   found." or "Work order not found." when the linked record is not on the
+ *   aircraft.
  * @throws As `checkContext`, first.
  */
 export const checkUpload = internalQuery({
@@ -85,7 +109,7 @@ export const checkUpload = internalQuery({
 
 /**
  * Records a stored upload on the aircraft and audits
- * `aircraft.file_uploaded` with its category, name, type and size.
+ * `aircraft.file_uploaded` with its category, link, name, type and size.
  *
  * @param storageId - The stored file; the caller deletes it on a refusal.
  * @param size - Its size; the other arguments are {@link upload}'s.
@@ -95,7 +119,6 @@ export const checkUpload = internalQuery({
 export const finishUpload = internalMutation({
   args: {
     ...target,
-    category,
     storageId: v.id("_storage"),
     name: v.string(),
     type: v.string(),
@@ -104,7 +127,7 @@ export const finishUpload = internalMutation({
   handler: async (ctx, args) => {
     const owner = await authorizeFileWriter(ctx, args);
     await exposeRejections(async () => {
-      validateAircraftFile(args.name, args.type, args.size);
+      validateAircraftUpload(args.category, args.name, args.type, args.size);
       assertAircraftFileRoom(await countCurrentFiles(ctx, args.aircraftUuid));
     });
     const { programUuid: _program, ...fields } = args;
@@ -119,6 +142,8 @@ export const finishUpload = internalMutation({
         aircraftUuid: args.aircraftUuid,
         after: {
           category: args.category,
+          linkedKind: args.linkedKind,
+          linkedUuid: args.linkedUuid,
           name: args.name,
           type: args.type,
           size: args.size,
@@ -129,43 +154,47 @@ export const finishUpload = internalMutation({
 });
 
 /**
- * Uploads a Form 337 copy to an aircraft's record.
+ * Uploads a Form 337 copy, or a logbook page photo of a flight's line or a
+ * work order's signed page, to an aircraft's record.
  *
  * @param aircraftUuid - The aircraft.
  * @param programUuid - The caller's active Flight Program.
- * @param category - "form-337".
+ * @param category - "form-337" or "logbook-page".
+ * @param linkedKind - For a photo, "flight" or "work-order".
+ * @param linkedUuid - For a photo, the linked record's uuid.
  * @param name - The file name; its extension must match `type`.
  * @param type - PDF, JPEG, PNG or WebP.
  * @param bytes - The file, at most 7 MB.
- * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file." or
- *   "Attachments must be between 1 byte and 7 MB.", checked first; the
- *   {@link finishUpload} refusals, after which the stored file is deleted.
+ * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file.",
+ *   "Attachments must be between 1 byte and 7 MB." or, for a photo, the HEIC
+ *   refusal, checked first; the {@link finishUpload} refusals, after which
+ *   the stored file is deleted.
  */
 export const upload = action({
   args: {
     ...target,
-    category,
     name: v.string(),
     type: v.string(),
     bytes: v.bytes(),
   },
   handler: async (ctx, args): Promise<void> => {
     exposeRejections(() =>
-      validateAircraftFile(args.name, args.type, args.bytes.byteLength),
+      validateAircraftUpload(
+        args.category,
+        args.name,
+        args.type,
+        args.bytes.byteLength,
+      ),
     );
-    const scope = {
-      aircraftUuid: args.aircraftUuid,
-      programUuid: args.programUuid,
-    };
+    const { name, type, bytes, ...scope } = args;
     await ctx.runQuery(internal.aircraftFiles.checkUpload, scope);
     await storeThenFinish(ctx, args, (storageId) =>
       ctx.runMutation(internal.aircraftFiles.finishUpload, {
         ...scope,
-        category: args.category,
         storageId,
-        name: args.name,
-        type: args.type,
-        size: args.bytes.byteLength,
+        name,
+        type,
+        size: bytes.byteLength,
       }),
     );
   },
@@ -195,11 +224,15 @@ export const archive = mutation({
     const owner = await authorizeFileWriter(ctx, {
       aircraftUuid: file.aircraftUuid,
       programUuid: args.programUuid,
+      category: file.category,
+      linkedKind: file.linkedKind,
+      linkedUuid: file.linkedUuid,
     });
     const archived = exposeRejections(() =>
       aircraftFileArchive(file, owner.user, args.reason, Date.now()),
     );
     await ctx.db.patch(file._id, archived);
+    const { category, linkedKind, linkedUuid, name, type, size } = file;
     await audit(
       ctx,
       owner.user.id,
@@ -210,28 +243,56 @@ export const archive = mutation({
         aircraftUuid: file.aircraftUuid,
         reason: archived.archiveReason,
         before: {
-          category: file.category,
-          name: file.name,
-          type: file.type,
-          size: file.size,
+          category,
+          linkedKind,
+          linkedUuid,
+          name,
+          type,
+          size,
           uploadedAt: file.uploadedAt,
         },
-        after: { category: file.category, name: file.name, ...archived },
+        after: { category, linkedKind, linkedUuid, name, ...archived },
       },
     );
   },
 });
 
-async function authorizeFileWriter(
-  ctx: QueryCtx | MutationCtx,
-  args: { aircraftUuid: string; programUuid?: string },
-) {
+async function authorizeFileWriter(ctx: QueryCtx | MutationCtx, args: Target) {
   const state = await checkContext(ctx, args.programUuid);
-  exposeRejections(() => assertAircraftFileWriter(state, args.aircraftUuid));
+  exposeRejections(() => {
+    assertAircraftFileLink(args.category, args);
+    assertAircraftFileWriter(state, args.aircraftUuid, args.linkedKind);
+  });
+  if (args.linkedKind && args.linkedUuid)
+    await assertLinkedRecord(ctx, args.aircraftUuid, {
+      linkedKind: args.linkedKind,
+      linkedUuid: args.linkedUuid,
+    });
   const programUuid = state.aircraft.find(
     (a) => a.uuid === args.aircraftUuid,
   )?.programUuid;
   return { user: state.user, programUuid };
+}
+
+// The linked record must be on the same aircraft, already checked to be in
+// the caller's program: a photo cannot be filed against another program's
+// flight, and a queued flight is unknown here until it has synced.
+async function assertLinkedRecord(
+  ctx: QueryCtx | MutationCtx,
+  aircraftUuid: string,
+  link: AircraftFileLink,
+) {
+  const table = link.linkedKind === "flight" ? "flights" : "workOrders";
+  const record = await ctx.db
+    .query(table)
+    .withIndex("uuid", (q) => q.eq("uuid", link.linkedUuid))
+    .first();
+  if (record?.aircraftUuid !== aircraftUuid)
+    throw new ConvexError(
+      link.linkedKind === "flight"
+        ? "Flight not found."
+        : "Work order not found.",
+    );
 }
 
 // Reads at most the cap, so the check stays cheap on a full aircraft.
@@ -255,6 +316,8 @@ async function toAircraftFile(
     uuid: f._id,
     aircraftUuid: f.aircraftUuid,
     category: f.category,
+    linkedKind: f.linkedKind,
+    linkedUuid: f.linkedUuid,
     name: f.name,
     type: f.type,
     size: f.size,

@@ -19,7 +19,10 @@ import type {
   AddressLookupInput,
   AddressSuggestion,
 } from "../domain/addressLookup";
-import type { AircraftFileCategory } from "../domain/aircraftFiles";
+import type {
+  AircraftFileCategory,
+  AircraftFileLink,
+} from "../domain/aircraftFiles";
 import type {
   SpruceOrderSnapshot,
   SpruceProduct,
@@ -453,14 +456,17 @@ export interface Backend {
   /** Removes an aircraft's photo; logged even when it had none. */
   removeAircraftPhoto(aircraftUuid: string): Promise<unknown>;
   /**
-   * Files a document copy, such as a Form 337, on the aircraft's record.
+   * Files a document on the aircraft's record: a Form 337 copy, or a logbook
+   * page photo of the flight or work order `link` names.
    *
    * @param category - The kind of document.
+   * @param link - Required for a "logbook-page" photo; absent for a Form 337.
    */
   uploadAircraftFile(
     aircraftUuid: string,
     category: AircraftFileCategory,
     file: File,
+    link?: AircraftFileLink,
   ): Promise<unknown>;
   /**
    * Archives a current document copy, keeping its row and stored file.
@@ -891,10 +897,15 @@ function bindAircraftCalls(client: ConvexReactClient) {
       }),
     removeAircraftPhoto: (aircraftUuid) =>
       client.mutation(api.aircraftPhotos.remove, inProgram({ aircraftUuid })),
-    uploadAircraftFile: async (aircraftUuid, category, file) =>
+    uploadAircraftFile: async (aircraftUuid, category, file, link) =>
       client.action(
         api.aircraftFiles.upload,
-        inProgram({ aircraftUuid, category, ...(await readFileFields(file)) }),
+        inProgram({
+          aircraftUuid,
+          category,
+          ...link,
+          ...(await readFileFields(file)),
+        }),
       ),
     archiveAircraftFile: (id, reason) =>
       client.mutation(

@@ -39,7 +39,12 @@ export default defineSchema({
   // records are never deleted: archiving hides a copy and keeps its file.
   aircraftFiles: defineTable({
     aircraftUuid: v.string(),
-    category: v.literal("form-337"),
+    category: v.union(v.literal("form-337"), v.literal("logbook-page")),
+    // A logbook page photo names the flight or work order it shows.
+    linkedKind: v.optional(
+      v.union(v.literal("flight"), v.literal("work-order")),
+    ),
+    linkedUuid: v.optional(v.string()),
     storageId: v.id("_storage"),
     name: v.string(),
     type: v.string(),

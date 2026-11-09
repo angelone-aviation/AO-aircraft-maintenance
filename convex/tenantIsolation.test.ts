@@ -84,6 +84,9 @@ const FLIGHT = {
 
 const AIRCRAFT_DENIED = "You do not have permission for this aircraft.";
 const MAINTENANCE = "Aircraft maintenance permission required.";
+const FLIGHT_PERMISSION = "Aircraft flight permission required.";
+const FLIGHT_NOT_FOUND = "Flight not found.";
+const WORK_ORDER_NOT_FOUND = "Work order not found.";
 const MANUAL_MAINTENANCE = "Maintenance access is required.";
 const WORK_ORDER_DENIED = "Work order maintenance access denied.";
 const CHECKLIST_DENIED = "Checklist editing permission denied.";
@@ -448,6 +451,40 @@ const CASES: Case[] = [
       ...PDF_FILE,
     }),
   ).refuses(MAINTENANCE),
+  callAction(api.aircraftFiles.upload, "a photo of A's flight line", (a) =>
+    stampB({
+      aircraftUuid: a.row.aircraft.uuid,
+      category: "logbook-page",
+      linkedKind: "flight",
+      linkedUuid: a.row.flights.uuid,
+      ...PDF_FILE,
+    }),
+  ).refuses(FLIGHT_PERMISSION),
+  // B may write its own aircraft, but A's records are not on it.
+  callAction(
+    api.aircraftFiles.upload,
+    "a photo filing A's flight on B's aircraft",
+    (a) =>
+      stampB({
+        aircraftUuid: B_AIRCRAFT,
+        category: "logbook-page",
+        linkedKind: "flight",
+        linkedUuid: a.row.flights.uuid,
+        ...PDF_FILE,
+      }),
+  ).refuses(FLIGHT_NOT_FOUND),
+  callAction(
+    api.aircraftFiles.upload,
+    "a photo filing A's work order on B's aircraft",
+    (a) =>
+      stampB({
+        aircraftUuid: B_AIRCRAFT,
+        category: "logbook-page",
+        linkedKind: "work-order",
+        linkedUuid: a.row.workOrders.uuid,
+        ...PDF_FILE,
+      }),
+  ).refuses(WORK_ORDER_NOT_FOUND),
   callQuery(api.auditHistory.page, "A's work order history", (a) =>
     stampB({ entityUuid: a.row.workOrders.uuid, cursor: null, numItems: 50 }),
   ).refuses(HISTORY_NOT_FOUND),

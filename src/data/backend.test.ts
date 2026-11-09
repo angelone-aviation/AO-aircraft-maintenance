@@ -530,6 +530,24 @@ const CASES: Case[] = [
     },
   },
   {
+    method: "uploadAircraftFile",
+    call: (b) =>
+      b.uploadAircraftFile("aircraft-1", "logbook-page", file(), {
+        linkedKind: "flight",
+        linkedUuid: "flight-1",
+      }),
+    kind: "action",
+    name: "aircraftFiles:upload",
+    args: {
+      aircraftUuid: "aircraft-1",
+      category: "logbook-page",
+      linkedKind: "flight",
+      linkedUuid: "flight-1",
+      ...fileArgs(),
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
     method: "archiveAircraftFile",
     call: (b) => b.archiveAircraftFile("file-1", "Superseded"),
     kind: "mutation",
