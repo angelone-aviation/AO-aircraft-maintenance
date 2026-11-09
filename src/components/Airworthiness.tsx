@@ -65,6 +65,7 @@ import {
 } from "../domain/airworthiness";
 import { importADDocx, type ADImport } from "../data/adImport";
 import { Field, Modal, errorText, safeHref } from "./ui";
+import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
 import {
   Airplane,
   ArrowsClockwise,
@@ -1092,10 +1093,35 @@ function importEntries(preview: ADImport, assign: Record<string, string[]>) {
   );
 }
 
+// How the stale-save review names and formats an AD's fields.
+const AD_STALE_SAVE: StaleSaveOptions<AD> = {
+  label: "AD",
+  entityUuid: (r) => r.uuid,
+  specs: {
+    source: { label: "FAA source", format: formatADSource },
+    applicability: "Applicability",
+    reason: "Reason",
+    priorCompliance: "Prior compliance",
+    tasks: { label: "Required actions", format: formatADTasks },
+    reviewRequired: "Review required",
+    componentUuid: "Component",
+  },
+};
+
+function formatADSource(value: unknown) {
+  const source = value as AD["source"];
+  return `${source.number} · ${source.subject}`;
+}
+
+function formatADTasks(value: unknown) {
+  return (value as AD["tasks"]).map((t) => t.description).join("; ");
+}
+
 function ADDraftForm({ ad, draft }: DraftProps) {
   const needsReason = adSaveIsCorrection(
     (ad.state.airworthiness ?? []).find((r) => r.uuid === draft.uuid),
   );
+  const stale = useStaleSave(AD_STALE_SAVE);
   return (
     <Modal
       title={draft.version ? "Review AD" : "Add AD"}
@@ -1104,7 +1130,7 @@ function ADDraftForm({ ad, draft }: DraftProps) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          saveDraft(ad, draft, needsReason);
+          void submitDraft(ad, stale, draft, needsReason);
         }}
       >
         <div className="form-grid">
@@ -1119,19 +1145,45 @@ function ADDraftForm({ ad, draft }: DraftProps) {
         </button>
         {ad.error && <p role="alert">{ad.error}</p>}
       </form>
+      {stale.dialog}
     </Modal>
   );
 }
 
-function saveDraft(ad: ADScreen, draft: AD, needsReason: boolean) {
-  void ad.run(async () => {
-    await ad.backend!.saveAD({
-      kind: "save",
-      record: draft,
-      ...(needsReason ? { reason: ad.draftReason } : {}),
+// The draft is the edited copy itself, so the review compares it with the
+// stored AD and Use theirs reopens the form on a fresh copy of that.
+async function submitDraft(
+  ad: ADScreen,
+  stale: ReturnType<typeof useStaleSave<AD>>,
+  draft: AD,
+  needsReason: boolean,
+) {
+  ad.setBusy(true);
+  ad.setError("");
+  try {
+    await stale.run({
+      draft,
+      find: (live) => live.airworthiness?.find((r) => r.uuid === draft.uuid),
+      save: (version) => saveDraft(ad, { ...draft, version }, needsReason),
+      useTheirs: (current) =>
+        ad.setDraft(current ? structuredClone(current) : null),
     });
-    ad.setDraft(null);
-  }, "AD saved.");
+  } catch (e) {
+    // Shown on the screen and in the open form, which stays open to retry.
+    ad.setError(errorText(e));
+  } finally {
+    ad.setBusy(false);
+  }
+}
+
+async function saveDraft(ad: ADScreen, draft: AD, needsReason: boolean) {
+  await ad.backend!.saveAD({
+    kind: "save",
+    record: draft,
+    ...(needsReason ? { reason: ad.draftReason } : {}),
+  });
+  ad.setDraft(null);
+  ad.setNotice("AD saved.");
 }
 
 function SourceFields({ ad, draft }: DraftProps) {

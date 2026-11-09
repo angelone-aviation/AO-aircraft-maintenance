@@ -6,7 +6,7 @@
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
  *   (model, flights, flightPlans, flightReview, flightSession, readings,
  *   aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
- *   ./design, ./ui.
+ *   ./StaleSave, ./design, ./ui.
  */
 import { useId, useState } from "react";
 import {
@@ -24,6 +24,7 @@ import {
   meterAtFlight,
 } from "../domain/flights";
 import {
+  heldFlightComparison,
   REVIEW_REASON_MAX_LENGTH,
   REVIEW_REASON_MIN_LENGTH,
 } from "../domain/flightReview";
@@ -38,6 +39,7 @@ import {
   logsEngineStartsAsCycles,
   NOTE_MAX_LENGTH,
   parseHours,
+  type Aircraft,
   type Flight,
   type FlightInput,
   type Snapshot,
@@ -53,6 +55,7 @@ import {
 } from "./FlightParts";
 import { NoticeBar } from "./design";
 import { AsyncForm, value } from "./ui";
+import { DifferenceTable } from "./StaleSave";
 
 const MINUTE_MS = 60_000;
 const OPERATIONS = flightInputSchema.shape.operation.options;
@@ -101,6 +104,9 @@ type FlightFormProps = {
     flightTimeLog?: number;
   };
   operationUuid?: string;
+  /** A failed outbox entry this flight replaces (Edit and retry): it is
+   * discarded and the new entry queued under its own request id. */
+  replaces?: string;
   phase?: "all" | "preflight" | "end";
   onSavePreflight?: (input: FlightInput) => Promise<void>;
   /** An administrator override already entered, e.g. at guided flight start. */
@@ -122,9 +128,11 @@ type FlightFormProps = {
  *   without closing readings; "end" collects them.
  * @param props.onSaved - Receives a new flight's uuid and aircraft once it is
  *   queued, so the caller can offer a logbook page photo.
+ * @param props.replaces - A failed outbox entry to replace with this one.
  * @returns The form. A new flight queues in the outbox against the readings
  *   it opened with; a grounded aircraft needs an administrator's override.
- *   A review needs a connection. Preflight without `onSavePreflight` refuses
+ *   A review needs a connection and shows the held entry beside the
+ *   aircraft's current totals. Preflight without `onSavePreflight` refuses
  *   with "Preflight saving is unavailable.".
  */
 export function FlightForm(props: FlightFormProps) {
@@ -160,7 +168,8 @@ export function FlightForm(props: FlightFormProps) {
 }
 
 function useFlightModel(props: FlightFormProps) {
-  const { snapshot, enqueue, backend, online, connected } = useWorkspace();
+  const { snapshot, enqueue, replace, backend, online, connected } =
+    useWorkspace();
   const s = snapshot!;
   const draft = useFlightDraft(props, s);
   return {
@@ -168,6 +177,7 @@ function useFlightModel(props: FlightFormProps) {
     phase: props.phase ?? "all",
     s,
     enqueue,
+    replace,
     backend,
     online,
     connected,
@@ -304,7 +314,31 @@ function FlightNotices({ m }: { m: Model }) {
             "Corrections preserve original values in the audit history and recheck subsequent flights."}
         </NoticeBar>
       )}
+      {initial?.status === "review" && m.aircraft && (
+        <HeldFlightReview flight={initial} aircraft={m.aircraft} />
+      )}
     </>
+  );
+}
+
+// The held entry beside the aircraft as it stands, so the reviewer sees what
+// the reason above refers to before correcting or accepting the entry.
+function HeldFlightReview({
+  flight,
+  aircraft,
+}: {
+  flight: Flight;
+  aircraft: Aircraft;
+}) {
+  return (
+    <FlightSection title="Held entry beside the aircraft now">
+      <DifferenceTable
+        differences={heldFlightComparison(flight, aircraft)}
+        mineLabel="Held entry"
+        theirsLabel="Aircraft now"
+        empty="The entry matches the aircraft's current totals."
+      />
+    </FlightSection>
   );
 }
 
@@ -721,17 +755,23 @@ async function submitFlight(m: Model, data: FormData) {
   onDone();
 }
 
+// An edited retry replaces the failed entry; everything else queues as new.
 async function queueFlight(m: Model, input: FlightInput) {
-  const uuid = m.props.operationUuid ?? crypto.randomUUID();
-  await m.enqueue({
-    kind: "flight",
-    uuid,
+  const operation = {
+    kind: "flight" as const,
+    uuid: m.props.operationUuid ?? crypto.randomUUID(),
     authorId: m.s.user.id,
     baseVersion: m.opening.version,
     input,
     dispatchOverrideReason: m.grounded ? m.override.trim() : undefined,
+  };
+  await (m.props.replaces
+    ? m.replace(m.props.replaces, operation)
+    : m.enqueue(operation));
+  m.props.onSaved?.({
+    uuid: operation.uuid,
+    aircraftUuid: input.aircraftUuid,
   });
-  m.props.onSaved?.({ uuid, aircraftUuid: input.aircraftUuid });
 }
 
 function flightInput(m: Model, data: FormData): FlightInput {

@@ -14,7 +14,7 @@ import {
   programPermission,
 } from "../programs";
 import { validateManualReference } from "../manuals";
-import { Rejection } from "../rejection";
+import { Rejection, StaleRecordRejection } from "../rejection";
 import type { ManagedRecord, ManagementCommand } from "./schemas";
 import type { Existing } from "./context";
 
@@ -49,7 +49,7 @@ export function mayMaintain(s: Snapshot, aircraftUuid: string | undefined) {
  *   Program."; as {@link validateManualReference} for a changed reference;
  *   "Permission denied."; "Records cannot be moved between aircraft.";
  *   "Aircraft not found."; "This manual item has already been added to the
- *   selected target."; "This record changed. Refresh and try again.".
+ *   selected target."; a StaleRecordRejection for a stale version.
  */
 export function admitCommand(
   s: Snapshot,
@@ -63,13 +63,18 @@ export function admitCommand(
   checkManualReference(s, c, existing);
   const { scope, aircraft } = authorize(s, c, existing);
   assertNewSourceItem(s, records, c, existing);
-  assertFresh("record" in c ? c.record.version : c.version, existing);
+  assertFresh(c.action, "record" in c ? c.record.version : c.version, existing);
   return { existing, scope, aircraft };
 }
 
-function assertFresh(version: number, existing?: { version?: number }) {
-  if (version !== (existing?.version ?? 0))
-    throw new Rejection("This record changed. Refresh and try again.");
+function assertFresh(
+  action: string,
+  version: number,
+  existing?: { version?: number },
+) {
+  const current = existing?.version ?? 0;
+  if (version !== current)
+    throw new StaleRecordRejection(action.split(".")[0], current);
 }
 
 function findExisting(

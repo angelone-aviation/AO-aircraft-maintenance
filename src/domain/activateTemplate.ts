@@ -20,7 +20,7 @@ import { applyManagement } from "./management";
 import { endOfDueMonth } from "./maintenance";
 import { calendarDue } from "./components/calendar";
 import { saveTaskCard, taskCardDefaults } from "./taskCards";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 
 const HOUR_SECONDS = 3600;
 const MONTHS_PER_YEAR = 12;
@@ -273,7 +273,9 @@ function findActivatableTemplate(s: Snapshot, input: ActivateTemplateInput) {
   const t = s.inspectionTemplates?.find((t) => t.uuid === input.templateUuid);
   if (!t || !ownsActive(s, t.programUuid))
     throw new Rejection("Template is unavailable in this Flight Program.");
-  if (t.archived || t.version !== input.templateVersion)
+  if (t.version !== input.templateVersion)
+    throw new StaleRecordRejection("inspectionTemplate", t.version);
+  if (t.archived)
     throw new Rejection(
       "Template changed or was archived. Reopen it before creating a schedule.",
     );

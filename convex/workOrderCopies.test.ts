@@ -21,6 +21,7 @@ import {
   workOrderSchema,
   type WorkTask,
 } from "../src/domain/workOrders";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -313,9 +314,7 @@ it("adds inspections with no templates immediately and rejects cross-aircraft in
   expect(state.order.tasks).toHaveLength(1);
   expect(state.order.templateCopy).toBeUndefined();
   expect(state.jobs).toHaveLength(0);
-  await expect(start()).rejects.toThrow(
-    "Work order changed. Reopen it before saving.",
-  );
+  await expect(start()).rejects.toThrow(STALE_RECORD_MESSAGE);
   await expect(
     user.mutation(api.workOrders.save, {
       programUuid: "demo-program",
@@ -354,10 +353,7 @@ it("shows the refusals of adding an inspection and copying templates as ConvexEr
     { ...add, source: unavailable },
   ]);
   await start();
-  await shown("Work order changed. Reopen it before saving.", [
-    add,
-    { ...copy, version: 1 },
-  ]);
+  await shown(STALE_RECORD_MESSAGE, [add, { ...copy, version: 1 }]);
   await shown("This item is already on the work order.", [
     { ...add, version: 2 },
   ]);
@@ -446,8 +442,7 @@ it("checks a stale version, then a component movement, then a duplicate", async 
       payload: JSON.stringify({ ...component, version: 1 }),
     });
   });
-  const moved =
-    "Component tracking changed. Review the component readings before saving.";
+  const moved = STALE_RECORD_MESSAGE;
   await expect(save({ ...add, version: 3 })).rejects.toThrow(moved);
   await expect(
     save({ action: "copyTemplates", uuid: command.uuid, version: 3 }),
@@ -461,7 +456,7 @@ it("checks a stale version, then a component movement, then a duplicate", async 
     componentWork: [],
   });
   await expect(save({ ...add, version: 3 })).rejects.toThrow(
-    "Work order changed. Reopen it before saving.",
+    STALE_RECORD_MESSAGE,
   );
 });
 

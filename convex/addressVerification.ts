@@ -6,7 +6,7 @@
  *   stored sealed and never returned.
  * Dependencies: convex/access, convex/programContext, convex/secrets,
  *   convex/secretsMigration, convex/rateLimits, src/domain/model,
- *   src/domain/programs, src/domain/addressLookup, zod.
+ *   src/domain/programs, src/domain/addressLookup, src/domain/rejection, zod.
  */
 import {
   action,
@@ -18,6 +18,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import { admin, audit } from "./access";
 import { checkContext } from "./programContext";
 import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
@@ -177,8 +178,8 @@ export const lookup = action({
  *
  * @param key - The key, sealed.
  * @param version - The settings version the administrator last read.
- * @throws {ConvexError} "Administrator permission required."; "Address
- *   settings changed. Reload before saving." when `version` is stale.
+ * @throws {ConvexError} "Administrator permission required.";
+ *   STALE_RECORD_MESSAGE when `version` is stale.
  * @throws {z.ZodError} After the version check, for a key that is not sealed
  *   (v2) or too long.
  */
@@ -188,7 +189,7 @@ export const commit = internalMutation({
     const user = await admin(ctx);
     const saved = await ctx.db.query("addressVerificationSettings").unique();
     if ((saved?.version ?? 0) !== args.version)
-      throw new ConvexError("Address settings changed. Reload before saving.");
+      throw new ConvexError(STALE_RECORD_MESSAGE);
     const key = sealedKey.parse(args.key);
     const version = args.version + 1;
     if (saved) await ctx.db.patch(saved._id, { key, version });

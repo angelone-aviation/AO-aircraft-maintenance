@@ -487,6 +487,11 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+.rec-entry-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .rec-entry-extra {
   display: flex;
   flex-direction: column;

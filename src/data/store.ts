@@ -35,6 +35,7 @@ import {
   pendingPhotoFile,
   pendingPhotoKey,
   pendingPhotoReady,
+  relinkPendingPhoto,
   type PendingLogbookPhoto,
 } from "./logbookPhotos";
 import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
@@ -155,6 +156,19 @@ export interface Workspace {
    * @param key - The photo's key.
    */
   discardPhoto(key: string): Promise<void>;
+  /**
+   * Replaces a failed outbox entry with an edited one (Edit and retry): the
+   * old entry is discarded, then the new one is queued as
+   * {@link Workspace.enqueue} does, under its own request id. If queuing is
+   * refused, the old entry is put back with its error, so nothing recorded on
+   * the device is lost. Logbook page photos waiting on a replaced flight move
+   * to the new one.
+   *
+   * @param uuid - The entry to replace.
+   * @param operation - The edited entry, with a new uuid.
+   * @throws As {@link Workspace.enqueue}.
+   */
+  replace(uuid: string, operation: Operation): Promise<void>;
   /**
    * Adds or removes a favorite aircraft, kept per user on this device; does
    * nothing without a snapshot.
@@ -469,6 +483,24 @@ export const useWorkspace = create<Workspace>((set, get) => ({
     await local.removePendingPhoto(namespace, key);
     set({ pendingPhotos: await local.readPendingPhotos(namespace) });
   },
+  async replace(uuid, operation) {
+    const { namespace, queue, discard, enqueue } = get();
+    const previous = queue.find((q) => q.operation.uuid === uuid);
+    await discard(uuid);
+    try {
+      await enqueue(operation);
+    } catch (error) {
+      if (previous) {
+        await local.persistOperation(namespace, previous);
+        set({ queue: await local.readQueue(namespace) });
+      }
+      throw error;
+    }
+    if (!(await movePendingPhotos(namespace, uuid, operation))) return;
+    set({ pendingPhotos: await local.readPendingPhotos(namespace) });
+    // enqueue's flush may already be past its photo pass.
+    void get().flush();
+  },
   async toggleFavorite(uuid) {
     const { snapshot, namespace, favorites } = get();
     if (!snapshot) return;
@@ -540,6 +572,29 @@ function buildPendingPhoto(
 // A photo waits until its flight or work order is in the snapshot: the
 // server can file it only against a record it holds. A domain Rejection
 // counts as permanent like a ConvexError: the demo adapter throws it as is.
+// Without this, a photo of the failed flight would name a record that never
+// reaches the server, and the Sync center could only offer to discard it.
+// The new copy is saved before the old one goes, so a crash loses no photo.
+async function movePendingPhotos(
+  namespace: string,
+  from: string,
+  operation: Operation,
+): Promise<boolean> {
+  if (operation.kind !== "flight" || operation.uuid === from) return false;
+  const flight = {
+    uuid: operation.uuid,
+    aircraftUuid: operation.input.aircraftUuid,
+  };
+  const photos = (await local.readPendingPhotos(namespace)).filter(
+    (p) => p.linkedKind === "flight" && p.linkedUuid === from,
+  );
+  for (const photo of photos) {
+    await local.savePendingPhoto(namespace, relinkPendingPhoto(photo, flight));
+    await local.removePendingPhoto(namespace, photo.key);
+  }
+  return photos.length > 0;
+}
+
 async function flushPhotos(
   namespace: string,
   backend: Backend,

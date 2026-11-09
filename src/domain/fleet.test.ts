@@ -19,7 +19,7 @@ import {
   type FleetCommand,
   type Program,
 } from "./fleet";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 import {
   applyFlight,
   rebuildFlights,
@@ -385,10 +385,7 @@ describe("fleet refusals", () => {
     s.user.active = true;
     expect(save(current)).toEqual([true, "Administrator permission required."]);
     s.user.isAdmin = true;
-    expect(save(current)).toEqual([
-      true,
-      "Program changed. Refresh and try again.",
-    ]);
+    expect(save(current)).toEqual([true, STALE_RECORD_MESSAGE]);
     expect(save({ ...current, version: 1 })).toEqual([
       true,
       "Program name already exists.",
@@ -461,7 +458,7 @@ describe("fleet refusals", () => {
     input.programUuid = "demo-program";
     expect(save()).toEqual([true, "Aircraft management permission required."]);
     s.groups[0].permissions.push("maintenance");
-    expect(save()).toEqual([true, "Aircraft changed. Refresh before saving."]);
+    expect(save()).toEqual([true, STALE_RECORD_MESSAGE]);
     input.version = a.version;
     expect(save()).toEqual([
       true,

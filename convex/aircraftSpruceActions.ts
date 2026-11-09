@@ -5,7 +5,7 @@
  *   hourly allowances and stores every result.
  * Dependencies: convex/aircraftSpruce, convex/spruceHttp, convex/secrets,
  *   convex/secretsMigration, convex/userErrors, src/domain/aircraftSpruce,
- *   convex/values.
+ *   src/domain/rejection, convex/values.
  *
  * A Rejection from the domain's CSV, catalog and order checks reaches the
  * user as a ConvexError.
@@ -15,6 +15,7 @@ import { action, type ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import type { z } from "zod";
 import {
   spruceCredentials,
@@ -58,8 +59,8 @@ let catalogCache: { id: string; text: string } | undefined;
  *   complete it, as `spruceCredentials` accepts them.
  * @returns null. Spends one of the program's hourly account checks, stores the
  *   credentials sealed and audits `spruce.account.linked`.
- * @throws {ConvexError} "Account changed. Reload before saving." for a stale
- *   version, before anything is spent; the allowance's or the download's
+ * @throws {ConvexError} STALE_RECORD_MESSAGE for a stale version, before
+ *   anything is spent; the allowance's or the download's
  *   refusal. Access and validation errors from aircraftSpruce.ts and zod.
  */
 export const link = action({
@@ -76,7 +77,7 @@ export const link = action({
       programUuid: args.programUuid,
     });
     if ((current.account?.version ?? 0) !== args.version)
-      throw new ConvexError("Account changed. Reload before saving.");
+      throw new ConvexError(STALE_RECORD_MESSAGE);
     const credentials = spruceCredentials.parse(args);
     await ctx.runMutation(internal.aircraftSpruce.reserve, {
       programUuid: args.programUuid,

@@ -4,7 +4,7 @@
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/data/errors.ts, convex/values, zod,
  *   src/domain/addressLookup.ts, src/domain/addresses.ts,
- *   src/domain/logbookWording.ts.
+ *   src/domain/logbookWording.ts, src/domain/rejection.ts.
  */
 import { ConvexError, type Value } from "convex/values";
 import { ZodError } from "zod";
@@ -12,7 +12,8 @@ import { describe, expect, it } from "vitest";
 import { lookupInput } from "../domain/addressLookup";
 import { blankAddress } from "../domain/addresses";
 import { logbookPhrasesSchema } from "../domain/logbookWording";
-import { errorText } from "./errors";
+import { errorText, isStaleSave } from "./errors";
+import { StaleRecordRejection } from "../domain/rejection";
 
 // The logbook phrase limit in src/domain/logbookWording.ts.
 const PHRASE_MAX_LENGTH = 200;
@@ -121,5 +122,19 @@ describe("errorText for validation errors", () => {
 
   it("falls back for a validation error without issues", () => {
     expect(errorText(new ZodError([]), "Fallback.")).toBe("Fallback.");
+  });
+});
+
+describe("isStaleSave", () => {
+  const stale = new StaleRecordRejection("inspection", 2);
+  it("recognises the domain's refusal and the server's copy of it", () => {
+    expect(isStaleSave(stale)).toBe(true);
+    expect(isStaleSave(new ConvexError(stale.message))).toBe(true);
+    expect(isStaleSave(new ConvexError({ message: stale.message }))).toBe(true);
+  });
+  it("is false for any other failure", () => {
+    expect(isStaleSave(new Error(stale.message.slice(1)))).toBe(false);
+    expect(isStaleSave(new ConvexError("Work order changed."))).toBe(false);
+    expect(isStaleSave(undefined)).toBe(false);
   });
 });

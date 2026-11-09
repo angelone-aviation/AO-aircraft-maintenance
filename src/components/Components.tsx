@@ -80,6 +80,11 @@ import {
 import { AtaChapterField } from "./AtaChapterField";
 import { AsyncForm, Field, Modal, value } from "./ui";
 import {
+  useStaleSave,
+  type StaleSaveAttempt,
+  type StaleSaveOptions,
+} from "./StaleSave";
+import {
   EmptyState,
   IconTile,
   NoticeBar,
@@ -188,6 +193,9 @@ interface ComponentFormProps {
   inventoryOnly?: boolean;
   /** The component to edit; absent for a new one. */
   record?: Component;
+  /** Reopens the form on the record as it stands, after a stale save the
+   * user resolved with Use theirs; without it the form closes. */
+  onReload?: (current: Component) => void;
   /** Values a new component starts with; its readings start blank. */
   defaults?: Partial<Component>;
   /** Limits the aircraft offered to these. */
@@ -235,16 +243,38 @@ export function ComponentForm(props: ComponentFormProps) {
       />
     );
   return (
-    <AsyncForm
-      disabled={!form.writable}
-      submitLabel={props.record ? "Save component details" : "Save component"}
-      onSubmit={form.submit}
-    >
-      {props.review}
-      <ComponentFields form={form} props={props} />
-    </AsyncForm>
+    <>
+      <AsyncForm
+        key={form.stale.formKey}
+        disabled={!form.writable}
+        submitLabel={props.record ? "Save component details" : "Save component"}
+        onSubmit={form.submit}
+      >
+        {props.review}
+        <ComponentFields form={form} props={props} />
+      </AsyncForm>
+      {form.stale.dialog}
+    </>
   );
 }
+
+// How the stale-save review names and formats a component's fields.
+const COMPONENT_STALE_SAVE: StaleSaveOptions<Component> = {
+  label: "component",
+  entityUuid: (c) => c.uuid,
+  specs: {
+    componentType: "Component type",
+    manufacturer: "Manufacturer",
+    model: "Model",
+    partNumber: "Part number",
+    serial: "Serial number",
+    installPosition: "Install position",
+    installed: "Installed",
+    aircraftUuid: "Aircraft",
+    locationUuid: "Inventory location",
+    manualReference: "Manual reference",
+  },
+};
 
 /**
  * Plans a component's installation or removal onto a work order, or records
@@ -687,11 +717,8 @@ function useComponentForm(props: ComponentFormProps) {
   const [saved, setSaved] = useState<Component>();
   const [uploadError, setUploadError] = useState("");
   const choices = useComponentChoices(s, props);
-  const submit = async (d: FormData) => {
-    assertAttachable(files, !!backend && online && connected);
-    const { record } = props;
-    const installed = record?.installed ?? choices.location === "aircraft";
-    const r = componentFromForm(d, { ...props, ...choices, installed, s });
+  const stale = useStaleSave(COMPONENT_STALE_SAVE);
+  const save = async (r: Component) => {
     await execute(componentSaveCommand(r, props));
     const next = { ...r, version: r.version + 1 };
     const failed = await uploadAttachments(backend!, r.uuid, files);
@@ -703,6 +730,13 @@ function useComponentForm(props: ComponentFormProps) {
     }
     await props.onDone(r.uuid, next);
   };
+  const submit = async (d: FormData) => {
+    assertAttachable(files, !!backend && online && connected);
+    const installed =
+      props.record?.installed ?? choices.location === "aircraft";
+    const r = componentFromForm(d, { ...props, ...choices, installed, s });
+    return stale.run(componentAttempt(r, props, save));
+  };
   return {
     s,
     writable,
@@ -711,6 +745,7 @@ function useComponentForm(props: ComponentFormProps) {
     saved,
     uploadError,
     submit,
+    stale,
     ...choices,
   };
 }
@@ -740,6 +775,31 @@ function useComponentChoices(s: Snapshot, props: ComponentFormProps) {
     track,
     setTrack,
   };
+}
+
+// The save as the stale-save review retries or abandons it.
+function componentAttempt(
+  r: Component,
+  props: ComponentFormProps,
+  save: (r: Component) => Promise<void>,
+): StaleSaveAttempt<Component> {
+  return {
+    draft: r,
+    loaded: props.record,
+    find: (live) => findComponent(live, props.record?.uuid),
+    save: (version) => save({ ...r, version }),
+    useTheirs: (current) =>
+      current && props.onReload
+        ? props.onReload(current)
+        : props.onDone(r.uuid, current ?? r),
+  };
+}
+
+function findComponent(s: Snapshot, uuid: string | undefined) {
+  const found = s.management?.find(
+    (r) => r.kind === "component" && r.uuid === uuid,
+  );
+  return found?.kind === "component" ? found : undefined;
 }
 
 // Attachments upload after the save, so a save that could not upload them
@@ -2615,7 +2675,15 @@ function DialogBody({
   c?: Component;
 }) {
   const { mode, done } = screen;
-  if (mode === "edit") return <ComponentForm record={c} onDone={done} />;
+  if (mode === "edit")
+    return (
+      <ComponentForm
+        key={c?.version}
+        record={c}
+        onDone={done}
+        onReload={screen.setSelected}
+      />
+    );
   if (!c) return null;
   if (mode === "child")
     return (

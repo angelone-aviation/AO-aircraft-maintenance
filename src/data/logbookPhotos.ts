@@ -45,6 +45,28 @@ export function pendingPhotoKey(link: AircraftFileLink, name: string) {
 }
 
 /**
+ * A queued photo moved to the flight that replaces its own: Edit and retry
+ * saves a failed flight under a new id, and its photos follow it.
+ *
+ * @param photo - The queued photo.
+ * @param flight - The replacing flight's uuid and aircraft.
+ * @returns The photo under the new flight's key, without its old refusal.
+ */
+export function relinkPendingPhoto(
+  photo: PendingLogbookPhoto,
+  flight: { uuid: string; aircraftUuid: string },
+): PendingLogbookPhoto {
+  const link = { linkedKind: photo.linkedKind, linkedUuid: flight.uuid };
+  return {
+    ...photo,
+    ...link,
+    key: pendingPhotoKey(link, photo.name),
+    aircraftUuid: flight.aircraftUuid,
+    error: undefined,
+  };
+}
+
+/**
  * The queued photos `userId` took on this device, in queue order.
  *
  * @param photos - The device's queue, oldest first.

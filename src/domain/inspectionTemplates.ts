@@ -20,7 +20,7 @@ import {
 } from "./manuals";
 import type { ManualCandidate } from "./manualDiscovery";
 import { readCsvRows, type ImportedTask } from "./maintenanceCsv";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 import { auditEntry } from "./changeLog";
 
 const INTERVAL_MAX = 1000000;
@@ -451,7 +451,7 @@ function assertTemplateSavable(
   )
     throw new Rejection("Template belongs to another Flight Program.");
   if (input.version !== (before?.version ?? 0))
-    throw new Rejection("Template changed. Reopen it before saving.");
+    throw new StaleRecordRejection("inspectionTemplate", before?.version ?? 0);
   validateManualReference(s, input.manualReference);
   input.tasks.forEach((t) => validateManualReference(s, t.manualReference));
   if (records.some((saved) => isDuplicateTemplate(s, saved, input)))

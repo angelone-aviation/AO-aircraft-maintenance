@@ -35,7 +35,7 @@ import {
 } from "../../tests/fixtures/workOrders";
 import { totalSeconds, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 const now = Date.parse("2026-10-01T12:00:00Z");
 describe("work orders", () => {
   it("captures current aircraft and selected component readings and preserves them after flights", () => {
@@ -536,9 +536,7 @@ describe("saveWorkOrder refusals", () => {
     const { s, command, manual } = opened();
     const other = s.aircraft[1].uuid;
     const refused = (change: WorkOrderCommand) => refusal(s, change).message;
-    expect(refused({ ...command, version: 0 })).toBe(
-      "Work order changed. Reopen it before saving.",
-    );
+    expect(refused({ ...command, version: 0 })).toBe(STALE_RECORD_MESSAGE);
     expect(
       refused({
         ...command,
@@ -669,10 +667,7 @@ describe("saveWorkOrder refusals", () => {
         move({ taskUuid: undefined }),
       ],
       ["Component maintenance access denied.", move({ componentUuid: "x" })],
-      [
-        "Component tracking changed. Review the component readings before saving.",
-        move({ version: 5 }),
-      ],
+      [STALE_RECORD_MESSAGE, move({ version: 5 })],
       [
         "Component is unavailable for this aircraft movement.",
         move({ action: "install", installPosition: "LEFT" }),

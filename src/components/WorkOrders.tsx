@@ -81,6 +81,11 @@ import {
   value,
 } from "./ui";
 import {
+  useStaleSave,
+  type StaleSaveAttempt,
+  type StaleSaveOptions,
+} from "./StaleSave";
+import {
   EmptyState,
   NoticeBar,
   PageHeader,
@@ -214,6 +219,7 @@ export function WorkOrders() {
           s={s}
           selected={selected}
           onClose={() => setSelected(null)}
+          onReload={setSelected}
         />
       )}
     </>
@@ -681,12 +687,15 @@ function WorkOrderDialog({
   s,
   selected,
   onClose,
+  onReload,
 }: {
   s: Snapshot;
   selected: WorkOrder | "new";
   onClose: () => void;
+  onReload: (current: WorkOrder) => void;
 }) {
   const isNew = selected === "new";
+  // The version is in the key so that Use theirs reloads the form's fields.
   return (
     <Modal
       className="work-order-modal shop-wo-dialog"
@@ -694,13 +703,36 @@ function WorkOrderDialog({
       onClose={onClose}
     >
       <WorkOrderForm
-        key={isNew ? "new" : selected.uuid}
+        key={isNew ? "new" : `${selected.uuid}:${selected.version}`}
         s={s}
         initial={isNew ? undefined : selected}
         onDone={onClose}
+        onReload={onReload}
       />
     </Modal>
   );
+}
+
+// How the stale-save review names and formats a work order's fields.
+const WORK_ORDER_STALE_SAVE: StaleSaveOptions<WorkOrder> = {
+  label: "work order",
+  entityUuid: (w) => w.uuid,
+  specs: {
+    number: "Number",
+    dateOpened: "Date opened",
+    supervisor: "Supervisor",
+    scope: "Scope",
+    priority: "Priority",
+    status: "Status",
+    completionDate: "Completion date",
+    releaseOutcome: "Release statement",
+    finalReview: "Final review",
+    tasks: { label: "Requested work", format: formatTasks },
+  },
+};
+
+function formatTasks(value: unknown) {
+  return (value as WorkOrder["tasks"]).map((t) => t.description).join("; ");
 }
 
 function ReadingHeader({
@@ -865,15 +897,18 @@ function WorkOrderForm({
   s,
   initial,
   onDone,
+  onReload,
 }: {
   s: Snapshot;
   initial?: WorkOrder;
   onDone: () => void;
+  onReload?: (current: WorkOrder) => void;
 }) {
   const { backend, online, connected } = useWorkspace();
   const draft = useWorkOrderDraft(s, initial);
   const view = describeDraft(s, initial, draft, online && connected);
   const props = { s, initial, draft, view };
+  const stale = useStaleSave(WORK_ORDER_STALE_SAVE);
   return (
     <>
       {draft.confirmTaskRemoval &&
@@ -881,9 +916,14 @@ function WorkOrderForm({
       <DraftForm
         {...props}
         onDone={onDone}
-        onSubmit={(data) => submitWorkOrder(backend!, props, data, onDone)}
+        onSubmit={async (data) =>
+          stale.run(
+            workOrderAttempt(props, data, { backend, onDone, onReload }),
+          )
+        }
       />
       <WorkOrderRecords {...props} onDone={onDone} />
+      {stale.dialog}
     </>
   );
 }
@@ -1082,13 +1122,65 @@ function TaskRemovalWarning({ count }: { count: number }) {
 
 // Closing needs the user's confirmation, listing the tracking each
 // component's repair or overhaul will reset.
+// The save as the stale-save review retries or abandons it.
+function workOrderAttempt(
+  props: FormProps,
+  data: FormData,
+  {
+    backend,
+    onDone,
+    onReload,
+  }: {
+    backend: Backend | null;
+    onDone: () => void;
+    onReload?: (current: WorkOrder) => void;
+  },
+): StaleSaveAttempt<WorkOrder> {
+  const { initial, draft } = props;
+  return {
+    draft: initial && {
+      ...initial,
+      ...readWorkOrderFields(props, data),
+      tasks: draft.tasks,
+    },
+    loaded: initial,
+    find: (live) => live.workOrders?.find((w) => w.uuid === initial?.uuid),
+    save: (version) => submitWorkOrder(backend!, props, data, onDone, version),
+    useTheirs: (current) =>
+      current && onReload ? onReload(current) : onDone(),
+  };
+}
+
+// `version` is the one the save is checked against: the order's, or the
+// current one when the user keeps a stale draft.
 async function submitWorkOrder(
   backend: Backend,
-  { s, initial, draft, view }: FormProps,
+  props: FormProps,
   data: FormData,
   onDone: () => void,
+  version: number,
 ) {
-  const fields = workOrderFieldsSchema.parse({
+  const { s, initial, draft, view } = props;
+  const fields = readWorkOrderFields(props, data);
+  if (view.closing && !window.confirm(closeConfirmation(draft, view))) return;
+  await backend.workOrder({
+    action: "save",
+    uuid: draft.uuid,
+    version,
+    fields,
+    completionReadings:
+      draft.status === "completed"
+        ? readCompletion(s, initial, draft.aircraftUuid, data)
+        : undefined,
+    componentUuids: draft.componentUuids,
+    componentWork: view.selectedComponentWork,
+    tasks: draft.tasks,
+  });
+  onDone();
+}
+
+function readWorkOrderFields({ initial, draft }: FormProps, data: FormData) {
+  return workOrderFieldsSchema.parse({
     number: value(data, "number"),
     aircraftUuid: draft.aircraftUuid,
     dateOpened: value(data, "dateOpened"),
@@ -1100,21 +1192,6 @@ async function submitWorkOrder(
     releaseOutcome: value(data, "releaseOutcome"),
     finalReview: initial?.finalReview ?? "",
   });
-  if (view.closing && !window.confirm(closeConfirmation(draft, view))) return;
-  await backend.workOrder({
-    action: "save",
-    uuid: draft.uuid,
-    version: initial?.version ?? 0,
-    fields,
-    completionReadings:
-      draft.status === "completed"
-        ? readCompletion(s, initial, draft.aircraftUuid, data)
-        : undefined,
-    componentUuids: draft.componentUuids,
-    componentWork: view.selectedComponentWork,
-    tasks: draft.tasks,
-  });
-  onDone();
 }
 
 function closeConfirmation(draft: Draft, view: DraftView) {

@@ -22,7 +22,7 @@ import {
 import { applyManagement } from "./management";
 import { componentSchema, type Component } from "./components";
 import { applyRequestCommand, requestDraftSchema } from "./partsRequests";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 /** A program with a store, one tire in stock and a draft order for 3 tires. */
 export function poFixture() {
   const s = demoSnapshot();
@@ -791,10 +791,7 @@ const refusals: [string, (w: World) => POCommand][] = [
     "Only draft purchase orders in this program can be edited.",
     (w) => saveDraft(w, { uuid: "issued", version: w.issued.version }),
   ],
-  [
-    "Purchase order changed. Reopen it before saving.",
-    (w) => saveDraft(w, { uuid: "draft", version: 0 }),
-  ],
+  [STALE_RECORD_MESSAGE, (w) => saveDraft(w, { uuid: "draft", version: 0 })],
   [
     "Draft lines cannot contain cancelled quantities.",
     (w) => withLine(w, { cancelled: 1 }),
@@ -835,10 +832,7 @@ const refusals: [string, (w: World) => POCommand][] = [
     "Purchase order not found.",
     (w) => ({ ...act(w.issued, "close"), uuid: "missing" }),
   ],
-  [
-    "Purchase order changed. Reopen it before saving.",
-    (w) => ({ ...act(w.issued, "close"), version: 0 }),
-  ],
+  [STALE_RECORD_MESSAGE, (w) => ({ ...act(w.issued, "close"), version: 0 })],
   ["Only drafts can be issued.", (w) => act(w.issued, "issue")],
   [
     "Only unshipped, unreceived orders can return to draft for revision.",
