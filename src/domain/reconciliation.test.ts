@@ -223,9 +223,15 @@ it("gives a month with no flights or work empty rows and zero totals", () => {
   expect(check.work).toEqual([]);
   expect(check.totals).toEqual({ flights: 0, hours: "0.0", landings: 0 });
   expect(check.header.month).toBe("January 2026");
-  expect(paperCheckRecords(check)).toEqual([
-    { Section: "Totals", Hours: "0.0", Landings: "0", Flights: "0" },
-  ]);
+  const [totals] = paperCheckRecords(check);
+  expect(totals).toMatchObject({
+    Section: "Totals",
+    Hours: "0.0",
+    Landings: "0",
+    Flights: "0",
+  });
+  // The header stays complete for an empty month.
+  expect(Object.keys(totals)).toContain("Hobbs start");
 });
 
 it("refuses an unknown aircraft or a malformed month with a Rejection", () => {
@@ -255,7 +261,7 @@ it("flattens the check into CSV records: flights, then work, then totals", () =>
     "Work order",
     "Totals",
   ]);
-  expect(Object.keys(records[0])).toEqual([
+  const columns = [
     "Section",
     "Date",
     "Pilot",
@@ -265,22 +271,28 @@ it("flattens the check into CSV records: flights, then work, then totals", () =>
     "Landings",
     "Oil added",
     "Status",
+    "Work order",
+    "Signed by",
     "Photo",
     "Checked",
-  ]);
-  expect(records[5]).toEqual({
+    "Flights",
+  ];
+  for (const r of records) expect(Object.keys(r)).toEqual(columns);
+  expect(records[5]).toMatchObject({
     Section: "Work order",
     Date: "2026-03-20",
     "Work order": "WO-2026-0007: Annual maintenance",
     "Signed by": "Casey Tech",
     Photo: "Yes",
     Checked: "",
+    Hours: "",
   });
-  expect(records[7]).toEqual({
+  expect(records[7]).toMatchObject({
     Section: "Totals",
     Hours: "3.0",
     Landings: "4",
     Flights: "3",
+    Date: "",
   });
   expect(PAPER_CHECK_FLIGHT_COLUMNS).toHaveLength(10);
   expect(PAPER_CHECK_WORK_COLUMNS).toHaveLength(5);

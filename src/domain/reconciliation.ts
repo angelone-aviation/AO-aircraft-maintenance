@@ -177,41 +177,65 @@ export function paperCheck(
 }
 
 /**
- * The check as flat records for a CSV: a "Section" column names the table,
- * then the flight columns, then the work columns, then one "Totals" record.
+ * The check as flat records for a CSV. Every record carries the same
+ * columns, so an empty month still exports the full header: Section (Flight,
+ * Work order or Totals), Date, Pilot, the meter's start and end, Hours,
+ * Landings, Oil added, Status, Work order, Signed by, Photo, Checked,
+ * Flights. Cells a section does not use are "".
  *
  * @param check - The built check.
  * @returns Flight records, work records, then the totals record.
  */
 export function paperCheckRecords(check: PaperCheck): Record<string, string>[] {
-  const flights = check.flights.map((r) => ({
-    Section: "Flight",
-    Date: r.date,
-    Pilot: r.pilot,
-    [`${check.header.meter} start`]: r.meterStart,
-    [`${check.header.meter} end`]: r.meterEnd,
-    Hours: r.hours,
-    Landings: r.landings,
-    "Oil added": r.oilAdded,
-    Status: r.status,
-    Photo: r.photo,
-    Checked: r.checked,
-  }));
-  const work = check.work.map((r) => ({
-    Section: "Work order",
-    Date: r.date,
-    "Work order": r.summary,
-    "Signed by": r.signedBy,
-    Photo: r.photo,
-    Checked: r.checked,
-  }));
-  const totals = {
-    Section: "Totals",
-    Hours: check.totals.hours,
-    Landings: String(check.totals.landings),
-    Flights: String(check.totals.flights),
-  };
-  return [...flights, ...work, totals];
+  const meter = check.header.meter;
+  const record = (fields: Record<string, string>) => ({
+    Section: "",
+    Date: "",
+    Pilot: "",
+    [`${meter} start`]: "",
+    [`${meter} end`]: "",
+    Hours: "",
+    Landings: "",
+    "Oil added": "",
+    Status: "",
+    "Work order": "",
+    "Signed by": "",
+    Photo: "",
+    Checked: "",
+    Flights: "",
+    ...fields,
+  });
+  return [
+    ...check.flights.map((r) =>
+      record({
+        Section: "Flight",
+        Date: r.date,
+        Pilot: r.pilot,
+        [`${meter} start`]: r.meterStart,
+        [`${meter} end`]: r.meterEnd,
+        Hours: r.hours,
+        Landings: r.landings,
+        "Oil added": r.oilAdded,
+        Status: r.status,
+        Photo: r.photo,
+      }),
+    ),
+    ...check.work.map((r) =>
+      record({
+        Section: "Work order",
+        Date: r.date,
+        "Work order": r.summary,
+        "Signed by": r.signedBy,
+        Photo: r.photo,
+      }),
+    ),
+    record({
+      Section: "Totals",
+      Hours: check.totals.hours,
+      Landings: String(check.totals.landings),
+      Flights: String(check.totals.flights),
+    }),
+  ];
 }
 
 /**

@@ -18,4 +18,4 @@ A month with no flights or completed work orders prints both tables with a singl
 
 ## CSV
 
-The CSV has a **Section** column (Flight, Work order, Totals), then the flight columns, the work-order columns, and a final Totals record. Every cell is quoted and text that would run as a spreadsheet formula is neutralized, as in the app's other exports.
+The CSV has one set of columns for every row: **Section** (Flight, Work order or Totals), Date, Pilot, the meter's start and end, Hours, Landings, Oil added, Status, Work order, Signed by, Photo, Checked and Flights; cells a section does not use are empty, and the header is the same for an empty month. Every cell is quoted and text that would run as a spreadsheet formula is neutralized, as in the app's other exports.

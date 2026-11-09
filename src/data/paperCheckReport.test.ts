@@ -83,12 +83,12 @@ it("writes the CSV with a Section column, the meter's columns and a totals recor
   s.flights = [marchFlight(s)];
   const lines = paperCheckCsv(s, s.aircraft[0].uuid, "2026-03").split("\r\n");
   expect(lines[0]).toBe(
-    '﻿"Section","Date","Pilot","Hobbs start","Hobbs end","Hours","Landings","Oil added","Status","Photo","Checked","Flights"',
+    '﻿"Section","Date","Pilot","Hobbs start","Hobbs end","Hours","Landings","Oil added","Status","Work order","Signed by","Photo","Checked","Flights"',
   );
   expect(lines[1]).toBe(
-    '"Flight","2026-03-04","Jordan Lee","100.0","101.5","1.5","2","","Accepted","No","",""',
+    '"Flight","2026-03-04","Jordan Lee","100.0","101.5","1.5","2","","Accepted","","","No","",""',
   );
-  expect(lines[2]).toBe('"Totals","","","","","1.5","2","","","","","1"');
+  expect(lines[2]).toBe('"Totals","","","","","1.5","2","","","","","","","1"');
   expect(lines).toHaveLength(3);
 });
 
