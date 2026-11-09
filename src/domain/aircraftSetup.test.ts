@@ -160,6 +160,14 @@ describe("planAircraftSetup", () => {
       ["ads", "2020-12-02"],
       ["ads", "2025-01-03"],
     ]);
+    expect(plan.actions.map((a) => a.detail)).toEqual([
+      "Every 12 months · last done 2026-03-15",
+      "Every 100.0 h · last done 2026-10-01 at 2300.5 h",
+      "Every 500 landings · last done 2026-10-01 2100 landings",
+      "PCW 2026-02-10 at 2200 h · next due 2300 h · recurring",
+      "Not applicable",
+      "Applicable · next due 2026-12-31 · one-time",
+    ]);
     const ids = plan.actions.map((a) => a.command.requestUuid);
     expect(new Set(ids).size).toBe(6);
     expect(plan.actions.map((a) => a.key)).toEqual([
@@ -246,10 +254,12 @@ describe("planAircraftSetup", () => {
       { inspections: [], ads: rows },
       { now: NOW },
     );
-    const na = plan.actions[1].command;
-    expect(na.kind === "save" && na.record.reason).toBe(
-      SETUP_NOT_APPLICABLE_REASON,
-    );
+    const na = plan.actions[1];
+    expect(
+      na.step === "ads" &&
+        na.command.kind === "save" &&
+        na.command.record.reason,
+    ).toBe(SETUP_NOT_APPLICABLE_REASON);
   });
   it("skips rows already on record or already saved by this setup", () => {
     const rows = parseInspectionSetupCsv(
@@ -475,16 +485,18 @@ describe("setupStatus", () => {
   });
   it("counts an AD only once its applicability is decided", () => {
     const s = demoSnapshot();
-    const [{ command }] = planAircraftSetup(
+    const [action] = planAircraftSetup(
       s,
       AIRCRAFT,
       { inspections: [], ads: parseAdSetupCsv(adCsv).slice(1, 2) },
       { now: NOW },
     ).actions;
-    if (command.kind !== "save") throw new Error("expected a save");
-    s.airworthiness = [{ ...command.record, applicability: "Needs review" }];
+    if (action.step !== "ads" || action.command.kind !== "save")
+      throw new Error("expected an AD save");
+    const record = action.command.record;
+    s.airworthiness = [{ ...record, applicability: "Needs review" }];
     expect(setupStatus(s, AIRCRAFT).ads).toBe(false);
-    s.airworthiness = [command.record];
+    s.airworthiness = [record];
     expect(setupStatus(s, AIRCRAFT).ads).toBe(true);
   });
   it("names a chip and a step for every gap", () => {

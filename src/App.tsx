@@ -3,7 +3,7 @@
  *   portal or the routed screen) and the route table of every screen.
  * Layer: UI (entry). Composes screens; holds no business rules.
  * Dependencies: @tanstack/react-router, src/components (AppShell, screens),
- *   src/data/store.ts, src/domain/ownerView.ts.
+ *   src/data/store.ts, src/domain/ownerView.ts, src/domain/aircraftSetup.ts.
  */
 import { isOwnerView } from "./domain/ownerView";
 import { AppShell } from "./components/AppShell";
@@ -19,6 +19,7 @@ import {
 import { X } from "@phosphor-icons/react";
 import { useWorkspace } from "./data/store";
 import { Dashboard } from "./components/Dashboard";
+import { readSetupStep, type SetupStep } from "./domain/aircraftSetup";
 
 // Screens load on demand so older phones parse less code at startup.
 const OwnerPortal = lazy(() =>
@@ -74,6 +75,11 @@ const AircraftPage = lazy(() =>
 );
 const ProgramsPage = lazy(() =>
   import("./components/Fleet").then((m) => ({ default: m.ProgramsPage })),
+);
+const AircraftSetupPage = lazy(() =>
+  import("./components/AircraftSetup").then((m) => ({
+    default: m.AircraftSetupPage,
+  })),
 );
 const TaskCards = lazy(() =>
   import("./components/TaskCards").then((m) => ({ default: m.TaskCards })),
@@ -141,7 +147,28 @@ const manualRoute = createRoute({
     return <ManualViewer uuid={manualUuid} page={page} />;
   },
 });
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/aircraft/setup",
+  validateSearch: readSetupSearch,
+  component: () => {
+    const { step } = setupRoute.useSearch();
+    return <AircraftSetupPage step={step} />;
+  },
+});
+const setupAircraftRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/aircraft/setup/$aircraftUuid",
+  validateSearch: readSetupSearch,
+  component: () => {
+    const { aircraftUuid } = setupAircraftRoute.useParams();
+    const { step } = setupAircraftRoute.useSearch();
+    return <AircraftSetupPage aircraftUuid={aircraftUuid} step={step} />;
+  },
+});
 const routes = [
+  setupRoute,
+  setupAircraftRoute,
   createRoute({
     getParentRoute: () => rootRoute,
     path: "/airworthiness",
@@ -368,6 +395,14 @@ function Notice({ text }: { text: string }) {
 function readManualPage(search: Record<string, unknown>): { page: number } {
   const page = Number(search.page);
   return { page: Number.isInteger(page) && page > 0 ? page : 1 };
+}
+
+// An unknown step opens the wizard at its default step.
+function readSetupSearch(search: Record<string, unknown>): {
+  step?: SetupStep;
+} {
+  const step = readSetupStep(search.step);
+  return step ? { step } : {};
 }
 
 function readString(value: unknown): string | undefined {

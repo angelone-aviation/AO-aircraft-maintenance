@@ -124,15 +124,40 @@ export interface ParsedSetup {
   ads: AdSetupRow[];
 }
 
-/** One command the commit step will send, with the row it came from. */
+/**
+ * One command the commit step will send: the row it came from (`key`,
+ * `label`), what it saves in a phrase (`detail`), and the command.
+ */
 export type SetupAction =
   | {
       step: "inspections";
       key: string;
       label: string;
+      detail: string;
       command: ManagementCommand;
     }
-  | { step: "ads"; key: string; label: string; command: ADCommand };
+  | {
+      step: "ads";
+      key: string;
+      label: string;
+      detail: string;
+      command: ADCommand;
+    };
+
+/**
+ * What the wizard keeps in this browser between visits: both template texts
+ * and the rows a commit has already saved.
+ *
+ * @throws {z.ZodError} From `parse()` on a stored draft of another shape.
+ */
+export const setupDraftSchema = z.object({
+  inspectionCsv: z.string(),
+  adCsv: z.string(),
+  done: z.array(z.string()),
+});
+
+/** A parsed {@link setupDraftSchema} draft. */
+export type SetupDraft = z.infer<typeof setupDraftSchema>;
 
 /** A row the commit will not send, and why. */
 export interface SkippedRow {
@@ -476,6 +501,7 @@ function planInspections(ctx: PlanContext, rows: InspectionSetupRow[]) {
         step: "inspections",
         key,
         label: r.name,
+        detail: inspectionDetail(r),
         command: inspectionCommand(ctx.aircraft.uuid, r),
       });
   }
@@ -544,6 +570,43 @@ function warnInspectionDue(
     ctx.plan.warnings.push(`${where}: its hours interval has already run out.`);
 }
 
+// "Every 100.0 h, 12 months · last done 2026-03-15 at 2300.5 h"
+function inspectionDetail(r: InspectionSetupRow) {
+  const every = [
+    r.intervalSeconds !== undefined && `${hoursText(r.intervalSeconds)} h`,
+    r.intervalMonths && `${r.intervalMonths} months`,
+    r.intervalCycles && `${r.intervalCycles} cycles`,
+    r.intervalLandings && `${r.intervalLandings} landings`,
+  ].filter(Boolean);
+  const last = [
+    r.lastDate,
+    r.lastSeconds !== undefined && `at ${hoursText(r.lastSeconds)} h`,
+    r.lastCycles !== undefined && `${r.lastCycles} cycles`,
+    r.lastLandings !== undefined && `${r.lastLandings} landings`,
+  ].filter(Boolean);
+  return `Every ${every.join(", ")} · last done ${last.join(" ")}`;
+}
+
+// "PCW 2026-02-10 at 2200 h · next due 2300 h · recurring"
+function adDetail(r: AdSetupRow) {
+  if (!r.applies) return "Not applicable";
+  const due = [
+    r.nextDueHours !== undefined && `${r.nextDueHours} h`,
+    r.nextDueDate,
+  ].filter(Boolean);
+  return [
+    r.complianceDate
+      ? `PCW ${r.complianceDate} at ${r.complianceHours} h`
+      : "Applicable",
+    due.length ? `next due ${due.join(", ")}` : "no due limit",
+    r.recurring === undefined ? "" : r.recurring ? "recurring" : "one-time",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+const hoursText = (seconds: number) => (seconds / SECONDS_PER_HOUR).toFixed(1);
+
 function inspectionCommand(
   aircraftUuid: string,
   r: InspectionSetupRow,
@@ -598,6 +661,7 @@ function planAds(ctx: PlanContext, rows: AdSetupRow[]) {
         step: "ads",
         key,
         label: r.number,
+        detail: adDetail(r),
         command: adCommand(ctx.aircraft.uuid, r),
       });
   }

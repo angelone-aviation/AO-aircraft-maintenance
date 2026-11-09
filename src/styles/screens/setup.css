@@ -1,0 +1,176 @@
+/*
+ * Responsibility: Styles for the Set up an aircraft wizard and the Fleet
+ *   page's setup chips.
+ * Layer: UI. Every selector is scoped by a `setup-` class, so nothing here
+ *   restyles another screen.
+ * Dependencies: src/styles/tokens.css (colours, radii), src/styles/design.css.
+ */
+
+/* ---------- Steps ---------- */
+.setup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
+}
+.setup-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.setup-step:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.setup-step.current {
+  border-color: var(--accent, var(--primary));
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--accent, var(--primary)) 25%, transparent);
+}
+.setup-step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent, var(--primary));
+  color: var(--on-accent, #fff);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.setup-step small {
+  color: var(--muted);
+}
+
+/* ---------- Panels ---------- */
+.setup-panel > h2 {
+  margin-top: 0;
+}
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 14px 0;
+}
+.setup-actions .field {
+  margin: 0;
+}
+.setup-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.setup-nav .button:only-child {
+  margin-left: auto;
+}
+.setup-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 0 0 14px;
+}
+.setup-facts dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.setup-facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+.setup-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+.setup-counts {
+  margin: 14px 0;
+}
+.setup-errors,
+.setup-warnings {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+}
+.setup-errors {
+  border-color: var(--danger);
+  background: var(--danger-bg, transparent);
+}
+.setup-warnings {
+  border-color: var(--warn);
+  background: var(--warn-bg, transparent);
+}
+.setup-errors h3,
+.setup-warnings h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+.setup-errors ul,
+.setup-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* ---------- Commit progress ---------- */
+.setup-progress {
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+.setup-progress li {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setup-progress li > span:first-child {
+  font-weight: 600;
+}
+.setup-progress li p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.setup-progress-saved > span:first-child {
+  color: var(--good);
+}
+.setup-progress-failed > span:first-child {
+  color: var(--danger);
+}
+
+/* ---------- Fleet chips ---------- */
+.setup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.setup-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-pill);
+  background: var(--warn-bg, transparent);
+  color: inherit;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+.setup-chip:hover {
+  text-decoration: underline;
+}

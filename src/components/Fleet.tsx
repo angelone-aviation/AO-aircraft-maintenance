@@ -4,7 +4,7 @@
  * Layer: UI. React components; aircraft and program rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
  *   (aircraftStatus, addresses, programs, programTransfers, model, fleet,
- *   readings), ./Costs, ./AircraftStatus, ./AircraftPhoto, ./Components, ./ui
+ *   readings, aircraftSetup), ./Costs, ./AircraftStatus, ./AircraftPhoto, ./Components, ./ui
  *   and others.
  */
 import { AircraftCostSummary } from "./Costs";
@@ -40,12 +40,14 @@ import {
   type FleetCommand,
 } from "../domain/fleet";
 import { TRANSFER_REASON_MAX_LENGTH } from "../domain/programTransfers";
+import { SETUP_GAPS, setupStatus } from "../domain/aircraftSetup";
 import { AsyncForm, Field, Modal, value, safeHref } from "./ui";
 import { History } from "./ManagementShared";
 import {
   AirplaneTilt,
   ArrowsLeftRight,
   Buildings,
+  ListChecks,
   Plus,
   WifiSlash,
 } from "@phosphor-icons/react";
@@ -94,14 +96,14 @@ type TransferKind = "aircraft" | "component" | "location";
  * meter switch keeps total time by moving the adjustment.
  *
  * @param initial - The aircraft to edit; none adds one.
- * @param onDone - Called after the aircraft is saved.
+ * @param onDone - Called with the aircraft's uuid after it is saved.
  */
 export function AircraftForm({
   initial,
   onDone,
 }: {
   initial?: Aircraft;
-  onDone: () => void;
+  onDone: (aircraftUuid: string) => void;
 }) {
   const form = useAircraftForm(initial);
   return (
@@ -109,8 +111,9 @@ export function AircraftForm({
       disabled={!form.writable}
       submitLabel={initial ? "Save aircraft" : "Add aircraft"}
       onSubmit={async (d) => {
-        await form.save(aircraftSaveCommand(d, form, initial));
-        onDone();
+        const command = aircraftSaveCommand(d, form, initial);
+        await form.save(command);
+        onDone(command.aircraft.uuid);
       }}
     >
       {initial ? (
@@ -316,7 +319,7 @@ function aircraftSaveCommand(
   d: FormData,
   form: AircraftFormState,
   initial?: Aircraft,
-): FleetCommand {
+): Extract<FleetCommand, { action: "aircraft.save" }> {
   return {
     action: "aircraft.save",
     aircraft: aircraftFromForm(d, form, initial),
@@ -751,13 +754,18 @@ function AircraftHeader({
             <Buildings size={18} aria-hidden="true" /> Flight Programs
           </Link>
           {programPermission(s, "admin") && (
-            <button
-              className="button primary"
-              disabled={!writable}
-              onClick={onAdd}
-            >
-              <Plus size={18} weight="bold" aria-hidden="true" /> Add aircraft
-            </button>
+            <>
+              <Link className="button" to="/aircraft/setup">
+                <ListChecks size={18} aria-hidden="true" /> Set up an aircraft
+              </Link>
+              <button
+                className="button primary"
+                disabled={!writable}
+                onClick={onAdd}
+              >
+                <Plus size={18} weight="bold" aria-hidden="true" /> Add aircraft
+              </button>
+            </>
           )}
         </>
       }
@@ -900,11 +908,35 @@ function AircraftRow(props: RowProps) {
       extra={<AircraftExtras {...props} maintenance={maintenance} />}
     >
       <OpsMeters items={aircraftMeters(a)} />
+      <SetupChips s={s} a={a} />
       <AircraftStatusReasons
         status={status}
         label={`${a.registration} status reasons`}
       />
     </OpsRow>
+  );
+}
+
+// Each gap in the aircraft's setup opens the wizard at the step that fills
+// it; only program administrators can run the wizard.
+function SetupChips({ s, a }: { s: Snapshot; a: Aircraft }) {
+  if (!programPermission(s, "admin")) return null;
+  const { gaps } = setupStatus(s, a.uuid);
+  if (!gaps.length) return null;
+  return (
+    <p className="setup-chips" aria-label={`${a.registration} setup`}>
+      {gaps.map((gap) => (
+        <Link
+          key={gap}
+          className="setup-chip"
+          to="/aircraft/setup/$aircraftUuid"
+          params={{ aircraftUuid: a.uuid }}
+          search={{ step: SETUP_GAPS[gap].step }}
+        >
+          {SETUP_GAPS[gap].label}
+        </Link>
+      ))}
+    </p>
   );
 }
 
