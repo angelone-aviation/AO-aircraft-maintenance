@@ -88,8 +88,10 @@ vi.mock("react/jsx-dev-runtime", async (importOriginal) => {
         typeof control.onChange === "function"
       )
         ui.fields.set(control["aria-label"] as string, control);
-      // The theme switch and section links have no label of their own.
-      if (control.role === "switch") ui.fields.set("switch", control);
+      // Switches register under their name; section links have no label of
+      // their own.
+      if (control.role === "switch")
+        ui.fields.set(String(control.name ?? "switch"), control);
       if (type === "a" && typeof control.onClick === "function")
         ui.fields.set(String(control.href), control);
       if (typeof type === "function")
@@ -206,6 +208,10 @@ beforeEach(() => {
     backend: {
       setAlertEmails: (next: boolean) => {
         calls.push(["setAlertEmails", next]);
+        return alertEmails();
+      },
+      setUrgentAlertEmails: (next: boolean) => {
+        calls.push(["setUrgentAlertEmails", next]);
         return alertEmails();
       },
       costs: async (command: unknown) => void calls.push(["costs", command]),
@@ -357,7 +363,7 @@ describe("settings", () => {
 
   it("keeps the alert email choice until it is saved, and undoes a failure", async () => {
     render(h(Settings));
-    const toggle = () => ui.fields.get("switch")!;
+    const toggle = () => ui.fields.get("emailAlerts")!;
     expect(toggle().checked).toBe(false);
     alertEmails = async () => {
       throw Error("Refused");
@@ -388,6 +394,20 @@ describe("settings", () => {
     expect(toggle().checked).toBe(false);
     ui.workspace.online = false;
     expect(render()).toContain("Reconnect to change alert");
+  });
+
+  it("saves the urgent alert email choice on its own switch", async () => {
+    render(h(Settings));
+    const urgent = () => ui.fields.get("urgentAlertEmails")!;
+    // A system administrator in no group gets neither email by default.
+    expect(urgent().checked).toBe(false);
+    await (urgent().onChange as (e: object) => Promise<void>)({
+      target: { checked: true },
+    });
+    expect(calls).toEqual([["setUrgentAlertEmails", true]]);
+    expect(render()).not.toContain('role="alert"');
+    expect(urgent().checked).toBe(true);
+    expect(ui.fields.get("emailAlerts")!.checked).toBe(false);
   });
 
   it("counts only this user's entries waiting to sync", () => {

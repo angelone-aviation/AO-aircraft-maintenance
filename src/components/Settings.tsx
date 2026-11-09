@@ -384,12 +384,14 @@ function AlertEmailBlock({ s }: { s: Snapshot }) {
       description="Alerts always appear under the bell. Email can bring them to you too: new alerts for your Flight Program once a day, and urgent ones (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) as soon as they arise."
     >
       <Switch
+        name="emailAlerts"
         label="Email me a daily alert digest"
         checked={digest.checked}
         disabled={!live || digest.saving}
         onChange={digest.save}
       />
       <Switch
+        name="urgentAlertEmails"
         label="Email me urgent alerts at once"
         checked={urgent.checked}
         disabled={!live || urgent.saving}
