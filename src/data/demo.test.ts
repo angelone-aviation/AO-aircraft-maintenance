@@ -5,7 +5,13 @@
  * Dependencies: vitest, src/data/demo.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEMO_OWNER_ID, demoSnapshot, withDemoUser } from "./demo";
+import {
+  DEMO_BOARD_ID,
+  DEMO_OWNER_ID,
+  demoSnapshot,
+  withDemoRole,
+  withDemoUser,
+} from "./demo";
 
 const NOW = new Date("2026-11-03T12:00:00Z");
 
@@ -88,6 +94,30 @@ describe("withDemoUser", () => {
 
     expect(() => withDemoUser({ ...s, members: [] }, false)).toThrow(
       "Demo account not found.",
+    );
+  });
+});
+
+describe("withDemoRole", () => {
+  it("switches to the sample board member, adding them and their board group once", () => {
+    const board = withDemoRole(withDemoRole(demoSnapshot(), "board"), "board");
+
+    expect(board.user.id).toBe(DEMO_BOARD_ID);
+    expect(board.members.filter((m) => m.id === DEMO_BOARD_ID)).toHaveLength(1);
+    expect(board.groups.find((g) => g.id === "demo-board")).toMatchObject({
+      board: true,
+      aircraftIds: [],
+      permissions: ["read"],
+    });
+    expect(board.members.some((m) => m.id === DEMO_OWNER_ID)).toBe(false);
+  });
+
+  it("returns to the administrator without adding any sample account", () => {
+    const admin = withDemoRole(demoSnapshot(), "admin");
+
+    expect(admin.user.id).toBe("demo-admin");
+    expect(admin.members.map((m) => m.id)).toEqual(
+      demoSnapshot().members.map((m) => m.id),
     );
   });
 });

@@ -793,6 +793,13 @@ const CASES: Case[] = [
     args: { ...PAGE_REQUEST, programUuid: ACTIVE_PROGRAM },
   },
   {
+    method: "auditSummary",
+    call: (b) => b.auditSummary({ from: "2026-11-03", to: "2026-11-09" }),
+    kind: "query",
+    name: "auditHistory:summary",
+    args: { from: "2026-11-03", to: "2026-11-09", programUuid: ACTIVE_PROGRAM },
+  },
+  {
     method: "alertReads",
     call: (b) => b.alertReads(OTHER_PROGRAM),
     kind: "query",

@@ -171,6 +171,7 @@ describe("normalizeGroup", () => {
       programUuid: PROGRAM,
       programAdmin: false,
       owner: false,
+      board: false,
       name: "Line crew",
       aircraftIds: ["a1", "a2"],
       permissions: ["read", "flight"],

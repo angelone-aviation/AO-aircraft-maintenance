@@ -186,6 +186,7 @@ export default defineSchema({
     programUuid: v.optional(v.string()),
     programAdmin: v.optional(v.boolean()),
     owner: v.optional(v.boolean()),
+    board: v.optional(v.boolean()),
     name: v.string(),
     aircraftIds: v.array(v.string()),
     permissions: v.array(permission),

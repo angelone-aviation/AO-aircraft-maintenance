@@ -1144,6 +1144,7 @@ it("saves a group as the server stores it: name trimmed, no repeats, flags false
     ...GROUP,
     programAdmin: false,
     owner: false,
+    board: false,
     id: expect.any(String),
   });
   expect(s.audit[0]).toMatchObject({

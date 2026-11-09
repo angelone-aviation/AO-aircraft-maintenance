@@ -2,7 +2,8 @@
  * Responsibility: The rules, limits and fixed answers of account
  *   administration: accounts, permission groups, and who gets which group.
  * Layer: Domain. Pure functions and constants; no I/O, no React.
- * Dependencies: ./model (types), ./groupAircraft, ./ownerView, ./rejection.
+ * Dependencies: ./model (types), ./groupAircraft, ./ownerView, ./boardView,
+ *   ./rejection.
  *
  * Shared by the Convex functions and the offline demo adapter so both refuse
  * and answer account-administration requests the same way (issue #29).
@@ -13,6 +14,7 @@ import {
   assertGroupProgramFixed,
 } from "./groupAircraft";
 import { validateOwnerGroup } from "./ownerView";
+import { validateBoardGroup } from "./boardView";
 import { Rejection } from "./rejection";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -66,6 +68,7 @@ export interface GroupInput {
   programUuid?: string;
   programAdmin?: boolean;
   owner?: boolean;
+  board?: boolean;
   name: string;
   aircraftIds: string[];
   /** The form's explicit "all aircraft in this program" choice (#34). */
@@ -78,6 +81,7 @@ export interface GroupFields {
   programUuid: string;
   programAdmin: boolean;
   owner: boolean;
+  board: boolean;
   name: string;
   aircraftIds: string[];
   permissions: Permission[];
@@ -202,8 +206,9 @@ export function observersGroup(
  *   set.
  * @throws {Rejection} In order: as `assertGroupProgramFixed`; "Group name is
  *   required." (blank, or over 100 characters after trimming); "Write
- *   permissions also require read access."; as `validateOwnerGroup` and
- *   `assertGroupAircraftChoice`; "Select a Flight Program for this group."
+ *   permissions also require read access."; as `validateOwnerGroup`,
+ *   `validateBoardGroup` and `assertGroupAircraftChoice`; "Select a Flight
+ *   Program for this group."
  */
 export function normalizeGroup(
   input: GroupInput,
@@ -216,6 +221,7 @@ export function normalizeGroup(
   if (!input.permissions.includes("read") && input.permissions.length)
     throw new Rejection("Write permissions also require read access.");
   validateOwnerGroup(input);
+  validateBoardGroup(input);
   assertGroupAircraftChoice(existing, input);
   if (!input.programUuid)
     throw new Rejection("Select a Flight Program for this group.");
@@ -223,6 +229,7 @@ export function normalizeGroup(
     programUuid: input.programUuid,
     programAdmin: input.programAdmin ?? false,
     owner: input.owner ?? false,
+    board: input.board ?? false,
     name,
     aircraftIds: [...new Set(input.aircraftIds)],
     permissions: [...new Set(input.permissions)],

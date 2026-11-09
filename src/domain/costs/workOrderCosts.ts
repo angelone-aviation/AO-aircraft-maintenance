@@ -1,6 +1,7 @@
 /**
  * Responsibility: What one work order cost: its labor, other costs and issued
- *   parts, priced, and the program's labor rate.
+ *   parts, priced; the program's labor rate; and an aircraft's spend and
+ *   budget for a period.
  * Layer: Domain. Pure functions over a snapshot; no I/O, no React.
  * Dependencies: ../model, ../programs, ../workOrders (types), ./records,
  *   ./units, ./period.
@@ -109,6 +110,32 @@ export function workOrderCosts(s: Snapshot, w: WorkOrder, period?: Period) {
 }
 /** A work order's costs, as {@link workOrderCosts} returns them. */
 export type WorkOrderCostSummary = ReturnType<typeof workOrderCosts>;
+
+/**
+ * What an aircraft's work orders cost within a period.
+ *
+ * @returns The work orders' totals added up, in cents.
+ */
+export function aircraftSpendCents(
+  s: Snapshot,
+  aircraftUuid: string,
+  period: Period,
+): number {
+  return (s.workOrders ?? [])
+    .filter((w) => w.aircraftUuid === aircraftUuid)
+    .reduce((n, w) => n + workOrderCosts(s, w, period).totalCents, 0);
+}
+
+/**
+ * An aircraft's maintenance budget for a calendar year.
+ *
+ * @returns The budget record, or undefined when none is set.
+ */
+export const findBudget = (s: Snapshot, aircraftUuid: string, year: number) =>
+  s.costs?.find(
+    (r): r is Extract<CostRecord, { kind: "budget" }> =>
+      r.kind === "budget" && r.aircraftUuid === aircraftUuid && r.year === year,
+  );
 
 // Issued parts grouped by stock item: a manual unit cost wins over the stock
 // item's unit cost (dollars, rounded to the cent).

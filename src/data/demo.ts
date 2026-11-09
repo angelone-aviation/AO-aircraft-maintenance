@@ -1,6 +1,6 @@
 /**
  * Responsibility: The fictional workspace demo mode starts from, and the
- *   sample owner it can switch to.
+ *   sample owner and board member it can switch to.
  * Layer: Data. Fixture builders only; no storage, no React.
  * Dependencies: src/domain/model.ts (types).
  *
@@ -62,6 +62,56 @@ export function demoSnapshot(): Snapshot {
 
 /** The sample aircraft owner's member id, used to switch the demo to them. */
 export const DEMO_OWNER_ID = "demo-owner";
+/** The sample board member's id, used to switch the demo to them. */
+export const DEMO_BOARD_ID = "demo-board";
+
+/** The demo accounts the workspace can be viewed as. */
+export type DemoRole = "admin" | "owner" | "board";
+
+// Each sample account with the group that gives it its reduced view.
+const DEMO_SAMPLE_ACCOUNTS: Record<
+  Exclude<DemoRole, "admin">,
+  { group: Group; member: Member }
+> = {
+  owner: {
+    group: {
+      id: "demo-owners",
+      name: "Aircraft owners",
+      programUuid: DEMO_PROGRAM_UUID,
+      owner: true,
+      aircraftIds: ["demo-206"],
+      permissions: ["read"],
+    },
+    member: {
+      id: DEMO_OWNER_ID,
+      name: "Sam Rivera",
+      email: "sam@example.test",
+      isAdmin: false,
+      active: true,
+      groupIds: ["demo-owners"],
+      activeProgramUuid: DEMO_PROGRAM_UUID,
+    },
+  },
+  board: {
+    group: {
+      id: "demo-board",
+      name: "Board (read-only)",
+      programUuid: DEMO_PROGRAM_UUID,
+      board: true,
+      aircraftIds: [],
+      permissions: ["read"],
+    },
+    member: {
+      id: DEMO_BOARD_ID,
+      name: "Taylor Brooks",
+      email: "taylor@example.test",
+      isAdmin: false,
+      active: true,
+      groupIds: ["demo-board"],
+      activeProgramUuid: DEMO_PROGRAM_UUID,
+    },
+  },
+};
 
 /**
  * Switches the demo workspace between the administrator and a sample aircraft
@@ -73,34 +123,51 @@ export const DEMO_OWNER_ID = "demo-owner";
  * @throws {Error} "Demo account not found." when the administrator is missing.
  */
 export function withDemoUser(s: Snapshot, owner: boolean): Snapshot {
-  const group = {
-    id: "demo-owners",
-    name: "Aircraft owners",
-    programUuid: DEMO_PROGRAM_UUID,
-    owner: true,
-    aircraftIds: ["demo-206"],
-    permissions: ["read" as const],
-  };
-  const member = {
-    id: DEMO_OWNER_ID,
-    name: "Sam Rivera",
-    email: "sam@example.test",
-    isAdmin: false,
-    active: true,
-    groupIds: [group.id],
-    activeProgramUuid: DEMO_PROGRAM_UUID,
-  };
-  const groups = s.groups.some((g) => g.id === group.id)
-    ? s.groups
-    : [...s.groups, group];
-  const members = s.members.some((m) => m.id === member.id)
-    ? s.members
-    : [...s.members, member];
-  const user = members.find(
-    (m) => m.id === (owner ? DEMO_OWNER_ID : DEMO_ADMIN_ID),
+  return signInAs(
+    addSampleAccount(s, "owner"),
+    owner ? DEMO_OWNER_ID : DEMO_ADMIN_ID,
   );
+}
+
+/**
+ * Switches the demo workspace to the administrator, the sample aircraft owner
+ * or the sample board member, adding the sample account and its group the
+ * first time.
+ *
+ * @param s - The full demo snapshot.
+ * @param role - The account to sign the demo in as.
+ * @returns A copy with that user; existing sample records are kept as they
+ *   are.
+ * @throws {Error} "Demo account not found." when the administrator is missing.
+ */
+export function withDemoRole(s: Snapshot, role: DemoRole): Snapshot {
+  if (role === "admin") return signInAs(s, DEMO_ADMIN_ID);
+  return signInAs(
+    addSampleAccount(s, role),
+    DEMO_SAMPLE_ACCOUNTS[role].member.id,
+  );
+}
+
+function addSampleAccount(
+  s: Snapshot,
+  role: Exclude<DemoRole, "admin">,
+): Snapshot {
+  const { group, member } = DEMO_SAMPLE_ACCOUNTS[role];
+  return {
+    ...s,
+    groups: s.groups.some((g) => g.id === group.id)
+      ? s.groups
+      : [...s.groups, group],
+    members: s.members.some((m) => m.id === member.id)
+      ? s.members
+      : [...s.members, member],
+  };
+}
+
+function signInAs(s: Snapshot, memberId: string): Snapshot {
+  const user = s.members.find((m) => m.id === memberId);
   if (!user) throw new Error("Demo account not found.");
-  return { ...s, groups, members, user };
+  return { ...s, user };
 }
 
 // Tach runs 80 hours behind Hobbs, and landings 300 ahead of cycles.

@@ -21,7 +21,7 @@ import { dispatchGate } from "../domain/aircraftStatus";
 import { validateFlight } from "../domain/flights";
 import * as local from "./local";
 import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
-import { demoSnapshot, withDemoUser } from "./demo";
+import { demoSnapshot, withDemoRole, type DemoRole } from "./demo";
 import type { Backend } from "./backend";
 import { demoBackend } from "./demoBackend";
 import { CONVEX_FAILURE_PREFIX, errorText } from "./errors";
@@ -434,10 +434,28 @@ async function flushPass(namespace: string, backend: Backend, retry: boolean) {
 export async function previewDemoOwner(owner: boolean) {
   const current = useWorkspace.getState();
   if (!current.demo) throw new Error("Owner preview is available in the demo.");
+  await previewDemoRole(current, owner ? "owner" : "admin");
+}
+
+/**
+ * Demo only: switches the demo user to a sample board member, to preview the
+ * read-only board view, or back.
+ *
+ * @param board - True to view as the board member, false to return.
+ * @throws {Error} "Board preview is available in the demo." outside the demo.
+ */
+export async function previewDemoBoard(board: boolean) {
+  const current = useWorkspace.getState();
+  if (!current.demo) throw new Error("Board preview is available in the demo.");
+  await previewDemoRole(current, board ? "board" : "admin");
+}
+
+// Rebuilds the full demo snapshot as that account and shows its scoped view.
+async function previewDemoRole(current: Workspace, role: DemoRole) {
   const all =
     (await local.readSnapshot(current.namespace + DEMO_FULL_SUFFIX)) ??
     current.snapshot!;
-  const next = withDemoUser(all, owner);
+  const next = withDemoRole(all, role);
   await local.saveSnapshot(current.namespace + DEMO_FULL_SUFFIX, next);
   await current.receive(scopedSnapshot(next));
 }

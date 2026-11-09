@@ -8,8 +8,11 @@ import type { Group } from "./model";
 
 /**
  * The starter groups: observers, pilots, maintenance technicians, program
- * managers (program administrators) and aircraft owners. All but owners cover
- * every aircraft; an owner group covers none until its aircraft are assigned.
+ * managers (program administrators), aircraft owners and the board. All but
+ * owners cover every aircraft; an owner group covers none until its aircraft
+ * are assigned. A new program gets them all (ensureDefaultGroups); a program
+ * created before a group was added gets it when a system administrator runs
+ * the default-group backfill (convex/defaultGroups.ts `initialize`).
  */
 export const defaultPermissionGroups: Omit<Group, "id" | "programUuid">[] = [
   {
@@ -41,6 +44,14 @@ export const defaultPermissionGroups: Omit<Group, "id" | "programUuid">[] = [
     name: "Aircraft owners",
     programAdmin: false,
     owner: true,
+    aircraftIds: [],
+    permissions: ["read"],
+  },
+  {
+    // Read-only board view of the whole fleet (GLOSSARY "Board view").
+    name: "Board (read-only)",
+    programAdmin: false,
+    board: true,
     aircraftIds: [],
     permissions: ["read"],
   },

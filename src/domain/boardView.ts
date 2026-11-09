@@ -1,0 +1,279 @@
+/**
+ * Responsibility: The board view: who gets it, the read-only rule for board
+ *   groups, and the fleet-summary snapshot a board member may read.
+ * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
+ *   default reads the clock).
+ * Dependencies: ./model, ./management, ./workOrders, ./airworthiness,
+ *   ./programs, ./adOwnership, ./costs/workOrderCosts, ./costs/period,
+ *   ./rejection.
+ *
+ * The board snapshot is a whitelist of its own, not a cut of the owner
+ * snapshot: every field a board member sees was chosen here, so a field added
+ * to the snapshot or to the owner view stays hidden from the board until
+ * someone decides they may see it. Free text, people, rates and files never
+ * pass; status inputs and totals do.
+ */
+import type { Discrepancy, Group, Inspection, Snapshot } from "./model";
+import { localDate } from "./model";
+import type { ManagedRecord } from "./management";
+import type { WorkOrder } from "./workOrders";
+import type { AD } from "./airworthiness";
+import { readGroupsInActiveProgram } from "./programs";
+import { adAircraftUuid } from "./adOwnership";
+import { aircraftSpendCents, findBudget } from "./costs/workOrderCosts";
+import type { Period } from "./costs/period";
+import { Rejection } from "./rejection";
+
+const MONTHS_PER_QUARTER = 3;
+
+/** One aircraft's spend this quarter and this year against its budget. */
+export interface BoardAircraftCosts {
+  aircraftUuid: string;
+  /** The calendar year the budget and `yearCents` cover. */
+  year: number;
+  /** The current calendar quarter, as "Q4 2026". */
+  quarterLabel: string;
+  quarterCents: number;
+  yearCents: number;
+  /** Undefined when the aircraft has no budget for the year. */
+  budgetCents?: number;
+  overBudget: boolean;
+}
+
+/**
+ * Refuses a board group (`board: true`) that could write or administer, or
+ * that is also an owner group: board groups are read-only, and a group is one
+ * kind of reduced view or the other.
+ *
+ * @param g - The group being saved.
+ * @throws {Rejection} "Board groups are read-only: remove administrator and
+ *   write permissions."; "A group is a board group or an aircraft owner
+ *   group, not both."
+ */
+export function validateBoardGroup(
+  g: Pick<Group, "board" | "owner" | "programAdmin" | "permissions">,
+) {
+  if (!g.board) return;
+  if (g.programAdmin || g.permissions.some((p) => p !== "read"))
+    throw new Rejection(
+      "Board groups are read-only: remove administrator and write permissions.",
+    );
+  if (g.owner)
+    throw new Rejection(
+      "A group is a board group or an aircraft owner group, not both.",
+    );
+}
+
+/**
+ * Tells whether the user gets the board view: every group they hold with
+ * read access in the active program is a board group. Mixed roles keep the
+ * full workspace, as they do for owners.
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns True when the user holds at least one such group and all are
+ *   board groups; false for an inactive user or a system administrator.
+ */
+export function isBoardView(s: Pick<Snapshot, "user" | "groups" | "programs">) {
+  const mine = readGroupsInActiveProgram(s);
+  return mine.length > 0 && mine.every((g) => g.board);
+}
+
+/**
+ * Totals each aircraft's spend for the current quarter and year against its
+ * budget, from a snapshot that still holds the cost records.
+ *
+ * @param s - A snapshot with cost records (a program administrator's, or the
+ *   one the board whitelist is built from).
+ * @param today - A local date; today by default.
+ * @returns One row per aircraft in `s.aircraft`, in that order.
+ */
+export function boardCostTotals(
+  s: Snapshot,
+  today = localDate(),
+): BoardAircraftCosts[] {
+  const year = Number(today.slice(0, 4));
+  const quarter = quarterPeriod(today);
+  const wholeYear = { from: `${year}-01-01`, to: `${year}-12-31` };
+  return s.aircraft.map((a) => {
+    const budgetCents = findBudget(s, a.uuid, year)?.amountCents;
+    const yearCents = aircraftSpendCents(s, a.uuid, wholeYear);
+    return {
+      aircraftUuid: a.uuid,
+      year,
+      quarterLabel: quarter.label,
+      quarterCents: aircraftSpendCents(s, a.uuid, quarter),
+      yearCents,
+      budgetCents,
+      overBudget: budgetCents !== undefined && yearCents > budgetCents,
+    };
+  });
+}
+
+/**
+ * Reduces a snapshot already scoped to the program and the board's aircraft
+ * to the fleet summary a board member may read: aircraft identity and
+ * counters, the due items and open discrepancies that decide status (no
+ * notes, descriptions or people), completed work orders as number, dates and
+ * scope, cost totals in place of cost records, and the backup time.
+ *
+ * @param s - A program-scoped snapshot that still holds cost records.
+ * @param today - A local date for the cost periods; today by default.
+ * @returns The user's own member record and groups; open discrepancies with
+ *   grounding and deferral but no text; unarchived inspections, ADs and
+ *   installed components with their requirements, free text cleared;
+ *   completed work-order summaries; `boardCosts`; `offsiteBackupAt`. Flights,
+ *   the change log, files, inventory, purchasing and other people are left
+ *   out.
+ */
+export function boardSnapshot(s: Snapshot, today = localDate()): Snapshot {
+  const ids = new Set(s.aircraft.map((a) => a.uuid));
+  const components = findAircraftComponents(s, ids);
+  return {
+    programScopeVersion: s.programScopeVersion,
+    activeProgramUuid: s.activeProgramUuid,
+    programs: s.programs,
+    user: s.user,
+    authenticatedAt: s.authenticatedAt,
+    syncedAt: s.syncedAt,
+    groups: s.groups.filter((g) => s.user.groupIds.includes(g.id)),
+    members: s.members.filter((m) => m.id === s.user.id),
+    aircraft: s.aircraft,
+    flights: [],
+    audit: [],
+    discrepancies: s.discrepancies
+      .filter((d) => d.status === "open" && ids.has(d.aircraftUuid))
+      .map(toBoardDiscrepancy),
+    inspections: s.inspections
+      .filter((i) => !i.archived && ids.has(i.aircraftUuid))
+      .map(toBoardInspection),
+    airworthiness: (s.airworthiness ?? [])
+      .filter((r) => ids.has(adAircraftUuid(s, r)))
+      .map(toBoardAD),
+    management: (s.management ?? []).flatMap((r) =>
+      toBoardRecords(r, components),
+    ),
+    workOrders: (s.workOrders ?? [])
+      .filter((w) => w.status === "completed" && ids.has(w.aircraftUuid))
+      .map(toBoardWorkOrder),
+    boardCosts: boardCostTotals(s, today),
+    offsiteBackupAt: s.offsiteBackupAt,
+  };
+}
+
+// The quarter `today` falls in, inclusive of its last day.
+function quarterPeriod(today: string): Period & { label: string } {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const index = Math.floor((month - 1) / MONTHS_PER_QUARTER);
+  const first = index * MONTHS_PER_QUARTER + 1;
+  const last = first + MONTHS_PER_QUARTER - 1;
+  // Day 0 of the month after `last` is the last day of `last`.
+  const lastDay = new Date(Date.UTC(year, last, 0)).getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    from: `${year}-${pad(first)}-01`,
+    to: `${year}-${pad(last)}-${pad(lastDay)}`,
+    label: `Q${index + 1} ${year}`,
+  };
+}
+
+function findAircraftComponents(s: Snapshot, aircraft: Set<string>) {
+  return new Set(
+    (s.management ?? [])
+      .filter((r) => r.kind === "component" && aircraft.has(r.aircraftUuid))
+      .map((r) => r.uuid),
+  );
+}
+
+// Grounding and the deferral's type, category and expiry decide the status;
+// the placard and the deferring person are not the board's business.
+function toBoardDiscrepancy(d: Discrepancy): Discrepancy {
+  return {
+    uuid: d.uuid,
+    aircraftUuid: d.aircraftUuid,
+    description: "",
+    status: d.status,
+    createdAt: d.createdAt,
+    authorId: "",
+    grounding: d.grounding,
+    deferral: d.deferral && {
+      ...d.deferral,
+      placard: "",
+      deferredBy: "",
+      deferredByName: "",
+    },
+  };
+}
+
+function toBoardInspection(i: Inspection): Inspection {
+  const {
+    requiredParts: _parts,
+    materials: _materials,
+    calendarExemptReason: _reason,
+    calendarExemptChangedBy: _by,
+    manualReference: _manual,
+    ...kept
+  } = i;
+  return kept;
+}
+
+// Due limits, applicability and the compliance dates and counters decide an
+// AD's status; the decision reason and the mechanics who complied do not.
+function toBoardAD(r: AD): AD {
+  return {
+    ...r,
+    reason: "",
+    history: r.history.map((h) => ({
+      ...h,
+      mechanic: "",
+      certificate: "",
+      evidence: "",
+      recordedBy: "",
+      correctionReason: undefined,
+    })),
+  };
+}
+
+function toBoardRecords(
+  r: ManagedRecord,
+  components: Set<string>,
+): ManagedRecord[] {
+  if (r.kind === "component" && components.has(r.uuid)) {
+    const {
+      incomingTag: _tag,
+      outForRepair: _repair,
+      locationUuid: _location,
+      partsLocation: _parts,
+      ...c
+    } = r;
+    return [{ ...c, notes: "" }];
+  }
+  if (r.kind === "componentRequirement" && components.has(r.componentUuid)) {
+    const { requiredParts: _parts, ...q } = r;
+    return [{ ...q, notes: "" }];
+  }
+  return [];
+}
+
+// Only identity, dates and the scope line leave the server.
+function toBoardWorkOrder(w: WorkOrder): WorkOrder {
+  return {
+    uuid: w.uuid,
+    version: w.version,
+    recordedAt: w.recordedAt,
+    number: w.number,
+    aircraftUuid: w.aircraftUuid,
+    aircraft: w.aircraft,
+    dateOpened: w.dateOpened,
+    completionDate: w.completionDate,
+    status: w.status,
+    priority: w.priority,
+    scope: w.scope,
+    supervisor: "",
+    releaseOutcome: "",
+    finalReview: "",
+    createdBy: "",
+    componentReadings: [],
+    tasks: [],
+  };
+}

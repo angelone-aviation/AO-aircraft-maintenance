@@ -1,6 +1,6 @@
 /**
- * Responsibility: The permission group form: name, Flight Program, owner and
- *   administrator flags, aircraft access and permissions.
+ * Responsibility: The permission group form: name, Flight Program, owner,
+ *   board and administrator flags, aircraft access and permissions.
  * Layer: UI. React component; its checks are a preview, and convex/admin.ts
  *   applies the same rules on save.
  * Dependencies: src/data/store.ts, src/domain (model, groupAircraft,
@@ -36,7 +36,8 @@ type GroupDraft = ReturnType<typeof useGroupDraft>;
 /**
  * The form that creates or edits a permission group. "All aircraft in this
  * program" must be chosen explicitly (#34); owner groups name their aircraft
- * and read only. Saving checks the aircraft choice first, as the server does.
+ * and read only; board groups read only. Saving checks the aircraft choice
+ * first, as the server does.
  *
  * @param props.initial - The group to edit; a new group without it.
  * @param props.review - Set when the change log does not show that this
@@ -78,7 +79,10 @@ export function GroupForm({
       <AircraftAccess draft={draft} review={review} />
       <h3>Permissions</h3>
       <p className="muted">All groups can read their assigned aircraft.</p>
-      <PermissionChecks initial={initial} owner={draft.owner} />
+      <PermissionChecks
+        initial={initial}
+        readOnly={draft.owner || draft.board}
+      />
     </AsyncForm>
   );
 }
@@ -92,6 +96,7 @@ function useGroupDraft(
     initial?.programUuid ?? s.activeProgramUuid ?? "",
   );
   const [owner, setOwner] = useState(!!initial?.owner);
+  const [board, setBoard] = useState(!!initial?.board);
   const [programAdmin, setProgramAdmin] = useState(!!initial?.programAdmin);
   const [scope, setScope] = useState(initialScope(initial, review));
   const [selected, setSelected] = useState(initial?.aircraftIds ?? []);
@@ -103,8 +108,14 @@ function useGroupDraft(
     // Checking an aircraft is choosing selected aircraft.
     if (on && !owner) setScope("selected");
   };
-  const state = { programUuid, owner, programAdmin, scope, selected };
-  const setters = { setProgramUuid, setOwner, setProgramAdmin, setScope };
+  const state = { programUuid, owner, board, programAdmin, scope, selected };
+  const setters = {
+    setProgramUuid,
+    setOwner,
+    setBoard,
+    setProgramAdmin,
+    setScope,
+  };
   const all = !owner && scope === "all";
   return { s, ...state, ...setters, ...access, toggle, all };
 }
@@ -150,15 +161,17 @@ function groupToSave(
   initial: Group | undefined,
   draft: GroupDraft,
 ) {
-  const { owner, scope, all } = draft;
+  const { owner, board, scope, all } = draft;
   const permissions = data.getAll("permissions").map(String) as Permission[];
+  const readOnly = owner || board;
   const group = {
     id: initial?.id,
     programUuid: draft.programUuid,
-    programAdmin: !owner && draft.programAdmin,
+    programAdmin: !readOnly && draft.programAdmin,
     owner,
+    board,
     name: value(data, "name"),
-    permissions: owner
+    permissions: readOnly
       ? ["read" as const]
       : [...new Set<Permission>(["read", ...permissions])],
     aircraftIds: all ? [] : draft.aircraftIds,
@@ -202,23 +215,40 @@ function ProgramSelect({
   );
 }
 
+// A group is one reduced view at most: choosing owner or board clears the
+// other, and either one rules out administrator rights.
 function RoleFlags({ draft }: { draft: GroupDraft }) {
-  const { owner, programAdmin } = draft;
+  const { owner, board, programAdmin } = draft;
+  const readOnly = owner || board;
   return (
     <>
       <label className="checkbox">
         <input
           type="checkbox"
           checked={owner}
-          onChange={(e) => draft.setOwner(e.target.checked)}
+          onChange={(e) => {
+            draft.setOwner(e.target.checked);
+            if (e.target.checked) draft.setBoard(false);
+          }}
         />
         Aircraft owner (read-only owner portal)
       </label>
       <label className="checkbox">
         <input
           type="checkbox"
-          disabled={owner}
-          checked={!owner && programAdmin}
+          checked={board}
+          onChange={(e) => {
+            draft.setBoard(e.target.checked);
+            if (e.target.checked) draft.setOwner(false);
+          }}
+        />
+        Board member (read-only board view)
+      </label>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          disabled={readOnly}
+          checked={!readOnly && programAdmin}
           onChange={(e) => draft.setProgramAdmin(e.target.checked)}
         />
         Flight Program administrator
@@ -352,10 +382,10 @@ function AircraftChecklist({ draft }: { draft: GroupDraft }) {
 
 function PermissionChecks({
   initial,
-  owner,
+  readOnly,
 }: {
   initial?: Group;
-  owner: boolean;
+  readOnly: boolean;
 }) {
   return PERMISSION_CHOICES.map(([key, label]) => (
     <label key={key} className="checkbox">
@@ -363,7 +393,7 @@ function PermissionChecks({
         type="checkbox"
         name="permissions"
         value={key}
-        disabled={owner}
+        disabled={readOnly}
         defaultChecked={initial?.permissions.includes(key)}
       />
       {label}

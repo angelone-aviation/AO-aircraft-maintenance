@@ -11,7 +11,7 @@
 import type { Discrepancy, Group, Snapshot } from "./model";
 import type { ManagedRecord } from "./management";
 import type { WorkOrder } from "./workOrders";
-import { activeProgram } from "./programs";
+import { readGroupsInActiveProgram } from "./programs";
 import { adAircraftUuid } from "./adOwnership";
 import { isCurrentAircraftFile } from "./aircraftFiles";
 import { Rejection } from "./rejection";
@@ -43,14 +43,7 @@ export function validateOwnerGroup(
  *   owner groups; false for an inactive user or a system administrator.
  */
 export function isOwnerView(s: Pick<Snapshot, "user" | "groups" | "programs">) {
-  if (!s.user.active || s.user.isAdmin) return false;
-  const program = activeProgram(s);
-  const mine = s.groups.filter(
-    (g) =>
-      s.user.groupIds.includes(g.id) &&
-      g.programUuid === program &&
-      g.permissions.includes("read"),
-  );
+  const mine = readGroupsInActiveProgram(s);
   return mine.length > 0 && mine.every((g) => g.owner);
 }
 

@@ -8,7 +8,11 @@ import { localDate, type Aircraft, type Flight, type Snapshot } from "../model";
 import { meterAtFlight } from "../flights";
 import { inPeriod, type Period } from "./period";
 import { CENTS_PER_DOLLAR, SECONDS_PER_HOUR } from "./units";
-import { workOrderCosts } from "./workOrderCosts";
+import {
+  aircraftSpendCents,
+  findBudget,
+  workOrderCosts,
+} from "./workOrderCosts";
 
 /** Meter seconds an accepted flight added, on the meter in use at the time. */
 export function flightSeconds(a: Aircraft, f: Flight) {
@@ -69,16 +73,11 @@ export type AircraftCostReport = ReturnType<typeof aircraftCostReport>;
  *   spend is over budget.
  */
 export function budgetStatus(s: Snapshot, aircraftUuid: string, year: number) {
-  const budget = s.costs?.find(
-    (r) =>
-      r.kind === "budget" && r.aircraftUuid === aircraftUuid && r.year === year,
-  );
-  const actualCents = aircraftCostReport(s, aircraftUuid, {
+  const budgetCents = findBudget(s, aircraftUuid, year)?.amountCents;
+  const actualCents = aircraftSpendCents(s, aircraftUuid, {
     from: `${year}-01-01`,
     to: `${year}-12-31`,
-  }).totalCents;
-  const budgetCents =
-    budget?.kind === "budget" ? budget.amountCents : undefined;
+  });
   return {
     budgetCents,
     actualCents,

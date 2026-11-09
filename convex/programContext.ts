@@ -3,7 +3,7 @@
  *   program-scoped loaders every server read goes through.
  * Layer: Server. Convex reads only; the permission rules come from src/domain.
  * Dependencies: convex/values, ./_generated, ./access, src/domain (programs,
- *   model, ownerView).
+ *   model, ownerView, boardView).
  *
  * Loaders read one tenant, per program or per aircraft of the program, so
  * reads and reactive invalidation stay within it.
@@ -15,6 +15,7 @@ import { currentUser, member, group } from "./access";
 import { activeProgram, programPermission } from "../src/domain/programs";
 import type { Snapshot } from "../src/domain/model";
 import { isOwnerView } from "../src/domain/ownerView";
+import { isBoardView } from "../src/domain/boardView";
 
 type Ctx = QueryCtx | MutationCtx;
 /** The aircraft a per-aircraft loader reads for. */
@@ -72,8 +73,9 @@ export async function context(ctx: Ctx, known?: Doc<"users">) {
  * @throws {Error} The session refusal of currentUser.
  * @throws {ConvexError} In this order: "Flight Program permission denied."
  *   without read permission; "Aircraft owner access is read-only." for an
- *   aircraft owner; "Flight Program changed. Reopen the form in the correct
- *   program." when `expected` is not the active program.
+ *   aircraft owner; "Board access is read-only." for a board member; "Flight
+ *   Program changed. Reopen the form in the correct program." when `expected`
+ *   is not the active program.
  */
 export async function checkContext(
   ctx: Ctx,
@@ -85,6 +87,7 @@ export async function checkContext(
     throw new ConvexError("Flight Program permission denied.");
   if (isOwnerView(state))
     throw new ConvexError("Aircraft owner access is read-only.");
+  if (isBoardView(state)) throw new ConvexError("Board access is read-only.");
   if (activeProgram(state) !== expected)
     throw new ConvexError(
       "Flight Program changed. Reopen the form in the correct program.",

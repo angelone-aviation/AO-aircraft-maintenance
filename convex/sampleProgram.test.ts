@@ -74,7 +74,7 @@ it("creates linked sample records once, without changing real aircraft or admini
       "purchaseOrders",
     ] as const)
       expect(await ctx.db.query(table).collect()).toHaveLength(4);
-    expect(await ctx.db.query("groups").collect()).toHaveLength(9);
+    expect(await ctx.db.query("groups").collect()).toHaveLength(10);
     expect(await ctx.db.query("flightPlans").collect()).toHaveLength(8);
     expect(await ctx.db.query("management").collect()).toHaveLength(24);
     expect(await ctx.db.get(userId)).toMatchObject({

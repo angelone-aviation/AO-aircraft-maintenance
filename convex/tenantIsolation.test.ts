@@ -1,6 +1,8 @@
 /**
  * Responsibility: Pins tenant isolation: users working in Flight Program B call
- *   every public function on program A's records and get nothing of A's.
+ *   every public function on program A's records and get nothing of A's; a
+ *   board member of B is refused every write and reads only the board
+ *   whitelist.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/schema.ts, convex/sampleProgram.ts (program A),
  *   convex/memberships.ts, convex/_generated, src/domain/faaSearch.ts.
@@ -124,6 +126,7 @@ interface Payload {
 interface Case {
   /** The function as `module:name`, the form the coverage check lists. */
   fn: string;
+  kind: Kind;
   /** What of A's the call aims at; completes the test name. */
   target: string;
   call: (client: Client, a: ProgramA, me: Id<"users">) => Promise<unknown>;
@@ -457,6 +460,9 @@ const CASES: Case[] = [
   callQuery(api.auditHistory.page, "its own history", () =>
     stampB({ cursor: null, numItems: 50 }),
   ).returns(expect.objectContaining({ page: [] })),
+  callQuery(api.auditHistory.summary, "its own week", () =>
+    stampB({ from: "2026-01-01", to: "2026-12-31" }),
+  ).returns(expect.objectContaining({ truncated: false })),
   callQuery(api.alerts.readKeys, "program A", () => IN_A).refuses(
     STALE_PROGRAM,
   ),
@@ -621,6 +627,41 @@ describe.each(ATTACKERS)("$label", ({ memberOfA }) => {
   });
 });
 
+// A board member of B holds read-only access to B's whole fleet. Whatever a
+// case sends, every write is refused, nothing of A's comes back, and the
+// snapshot is the board whitelist: no flights, change log, rates or people.
+describe("B's board member", () => {
+  let world: Awaited<ReturnType<typeof seedWorld>>;
+  let before: Dump;
+
+  beforeAll(async () => {
+    world = await seedWorld(false, "board");
+    before = await dumpDatabase(world.t);
+  });
+
+  it.each(CASES)("$fn: $target", async ({ kind, call }) => {
+    const outcome = await settle(call(world.attacker, world.a, world.me));
+    expect(findNamesOfA(outcome, world.a, false)).toEqual([]);
+    if (kind !== "query") expect(outcome).toHaveProperty("refused");
+  });
+
+  it("reads only the board whitelist of its own program", async () => {
+    const view = (await world.attacker.query(api.operations.snapshot, {}))!;
+    expect(view.activeProgramUuid).toBe(PROGRAM_B);
+    expect(view.aircraft.map((a) => a.uuid)).toEqual([B_AIRCRAFT]);
+    expect(view.flights).toEqual([]);
+    expect(view.audit).toEqual([]);
+    expect(view.members.map((m) => m.id)).toEqual([view.user.id]);
+    expect(view.costs).toBeUndefined();
+    expect(view.boardCosts?.map((c) => c.aircraftUuid)).toEqual([B_AIRCRAFT]);
+    expect(JSON.stringify(view)).not.toMatch(/rateCents|laborRateCents/);
+  });
+
+  it("changes, adds and deletes no row or file", async () => {
+    expect(listChanges(before, await dumpDatabase(world.t))).toEqual([]);
+  });
+});
+
 it("attacks every public function, or says why it need not", async () => {
   const exported = await listPublicFunctions();
   const covered = new Set([
@@ -637,7 +678,7 @@ function callQuery<F extends FunctionReference<"query">>(
   args: ArgsOf<F>,
 ): Attempt {
   const ref: FunctionReference<"query"> = fn;
-  return attempt(fn, target, (c, a, me) => c.query(ref, args(a, me)));
+  return attempt(fn, "query", target, (c, a, me) => c.query(ref, args(a, me)));
 }
 
 function callMutation<F extends FunctionReference<"mutation">>(
@@ -646,7 +687,9 @@ function callMutation<F extends FunctionReference<"mutation">>(
   args: ArgsOf<F>,
 ): Attempt {
   const ref: FunctionReference<"mutation"> = fn;
-  return attempt(fn, target, (c, a, me) => c.mutation(ref, args(a, me)));
+  return attempt(fn, "mutation", target, (c, a, me) =>
+    c.mutation(ref, args(a, me)),
+  );
 }
 
 function callAction<F extends FunctionReference<"action">>(
@@ -655,16 +698,25 @@ function callAction<F extends FunctionReference<"action">>(
   args: ArgsOf<F>,
 ): Attempt {
   const ref: FunctionReference<"action"> = fn;
-  return attempt(fn, target, (c, a, me) => c.action(ref, args(a, me)));
+  return attempt(fn, "action", target, (c, a, me) =>
+    c.action(ref, args(a, me)),
+  );
 }
 
 function attempt(
   fn: FunctionReference<Kind>,
+  kind: Kind,
   target: string,
   call: Case["call"],
 ): Attempt {
   const name = getFunctionName(fn);
-  const pin = (expected: Outcome) => ({ fn: name, target, call, expected });
+  const pin = (expected: Outcome) => ({
+    fn: name,
+    kind,
+    target,
+    call,
+    expected,
+  });
   return {
     refuses: (message) => pin({ refused: message }),
     returns: (value) => pin({ returned: value }),
@@ -800,16 +852,18 @@ function stripSystemFields<T extends { _id: string; _creationTime: number }>(
   return fields;
 }
 
-async function seedWorld(memberOfA: boolean) {
+async function seedWorld(
+  memberOfA: boolean,
+  role: "admin" | "board" = "admin",
+) {
   const t = convexTest(schema, modules);
   await seedSampleProgram(t);
   const people = await t.run(async (ctx) => {
     const groups = await addProgramB(ctx);
     const alice = await addUser(ctx, ALICE_EMAIL, [groups.aAdmins], PROGRAM_A);
     await addFilesOfA(ctx, alice.id);
-    const attackerGroups = memberOfA
-      ? [groups.bAdmins, groups.aReaders]
-      : [groups.bAdmins];
+    const own = role === "board" ? groups.bBoard : groups.bAdmins;
+    const attackerGroups = memberOfA ? [own, groups.aReaders] : [own];
     const email = "attacker@example.test";
     const attacker = await addUser(ctx, email, attackerGroups, PROGRAM_B);
     return { alice, attacker };
@@ -865,11 +919,22 @@ async function addProgramB(ctx: MutationCtx) {
     aircraftIds: [],
     permissions: ["read", "flight", "discrepancy", "resolve", "maintenance"],
   });
+  const bBoard = await ctx.db.insert("groups", {
+    programUuid: PROGRAM_B,
+    name: "B board",
+    board: true,
+    aircraftIds: [],
+    permissions: ["read"],
+  });
   const aAdmins = aGroups.find((g) => g.programAdmin)!._id;
   const aReaders = aGroups.find(
-    (g) => !g.programAdmin && !g.owner && g.permissions.join() === "read",
+    (g) =>
+      !g.programAdmin &&
+      !g.owner &&
+      !g.board &&
+      g.permissions.join() === "read",
   )!._id;
-  return { bAdmins, aAdmins, aReaders };
+  return { bAdmins, bBoard, aAdmins, aReaders };
 }
 
 async function addUser(

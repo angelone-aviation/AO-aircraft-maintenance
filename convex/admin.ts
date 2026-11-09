@@ -65,6 +65,7 @@ const groupArgs = {
   programUuid: v.optional(v.string()),
   programAdmin: v.optional(v.boolean()),
   owner: v.optional(v.boolean()),
+  board: v.optional(v.boolean()),
   name: v.string(),
   aircraftIds: v.array(v.string()),
   // An empty list means every program aircraft only when this is true

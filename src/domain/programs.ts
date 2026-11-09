@@ -3,7 +3,8 @@
  *   active one, their permissions in it, and the snapshot they may read.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts and management.ts (types), adOwnership.ts,
- *   ownerView.ts, partsRequests.ts, requiredParts.ts, rejection.ts.
+ *   ownerView.ts, boardView.ts, partsRequests.ts, requiredParts.ts,
+ *   rejection.ts.
  *
  * The snapshot query and the demo adapter both send scopedSnapshot(), so what
  * it strips never reaches the browser.
@@ -21,6 +22,7 @@ import type {
 } from "./model";
 import type { ManagedRecord } from "./management";
 import { isOwnerView, ownerSnapshot } from "./ownerView";
+import { boardSnapshot, isBoardView } from "./boardView";
 import { Rejection } from "./rejection";
 
 // Inventory records are administrator data: they hold costs, vendors and
@@ -87,6 +89,27 @@ export function programIds(user: Member, groups: Group[]) {
         .map((g) => g.programUuid!),
     ),
   ];
+}
+
+/**
+ * The user's groups with read access in the active Flight Program: the groups
+ * that decide whether they get a reduced view (owner portal, board view).
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns Those groups, in group order; none for an inactive user or a
+ *   system administrator, whose access does not come from groups.
+ */
+export function readGroupsInActiveProgram(
+  s: Pick<Snapshot, "user" | "groups" | "programs">,
+): Group[] {
+  if (!s.user.active || s.user.isAdmin) return [];
+  const program = activeProgram(s);
+  return s.groups.filter(
+    (g) =>
+      s.user.groupIds.includes(g.id) &&
+      g.programUuid === program &&
+      g.permissions.includes("read"),
+  );
 }
 
 /**
@@ -219,7 +242,8 @@ export const auditVisible = (s: Snapshot) => visibleScope(s).canSeeAudit;
  * Cuts a full snapshot down to what the user may read in the active program:
  * its aircraft and their records, inventory, purchasing and costs as their
  * permissions allow, and other members reduced to what working with them
- * needs. An aircraft owner gets the owner view instead.
+ * needs. An aircraft owner gets the owner view instead, and a board member
+ * the board view.
  *
  * @param s - The full snapshot; it is not changed.
  * @returns The scoped snapshot, with `activeProgramUuid` and
@@ -236,7 +260,8 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
     ...scopeMaintenance(s, scope),
     ...scopePeople(s, scope),
   };
-  return isOwnerView(scoped) ? ownerSnapshot(scoped) : scoped;
+  if (isOwnerView(scoped)) return ownerSnapshot(scoped);
+  return isBoardView(scoped) ? boardSnapshot(scoped) : scoped;
 }
 
 // Shared by the snapshot and the paginated history so both apply the same
@@ -244,6 +269,9 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
 function visibleScope(s: Snapshot): VisibleScope {
   const active = activeProgram(s);
   const admin = programPermission(s, "admin");
+  // Board members get the cost records only so that boardSnapshot can total
+  // them; the whitelist then leaves the records themselves out.
+  const money = admin || isBoardView(s);
   const aircraft = s.aircraft.filter((a) => canReadAircraft(s, active, a));
   const ids = new Set(aircraft.map((a) => a.uuid));
   const scope = {
@@ -257,7 +285,7 @@ function visibleScope(s: Snapshot): VisibleScope {
     checklists: keepActiveProgram(s, s.checklists).filter(
       (c) => !c.aircraftUuid || ids.has(c.aircraftUuid),
     ),
-    costs: (s.costs ?? []).flatMap((r) => scopeCost(r, active, ids, admin)),
+    costs: (s.costs ?? []).flatMap((r) => scopeCost(r, active, ids, money)),
     componentTemplates: keepActiveProgram(s, s.componentTemplates),
     componentSetups: keepActiveProgram(s, s.componentSetups).filter((t) =>
       ids.has(t.aircraftUuid),
@@ -336,12 +364,12 @@ function scopeCost(
   r: CostRecord,
   active: string | undefined,
   ids: Set<string>,
-  admin: boolean,
+  money: boolean,
 ): CostRecord[] {
   if (r.kind === "settings")
-    return r.programUuid === active && admin ? [r] : [];
+    return r.programUuid === active && money ? [r] : [];
   if (!ids.has(r.aircraftUuid)) return [];
-  if (admin) return [r];
+  if (money) return [r];
   if (r.kind !== "workOrder") return [];
   return [
     {

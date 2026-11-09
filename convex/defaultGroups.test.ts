@@ -67,7 +67,7 @@ it("creates the default groups with a new program and keeps edits and retries du
     }),
   });
   const groups = await t.run((ctx) => ctx.db.query("groups").collect());
-  expect(groups).toHaveLength(5);
+  expect(groups).toHaveLength(defaultPermissionGroups.length);
   for (const expected of defaultPermissionGroups)
     expect(groups.find((g) => g.name === expected.name)).toMatchObject({
       ...expected,
@@ -91,7 +91,7 @@ it("backfills only missing names and preserves custom groups and user assignment
   const first = await admin.mutation(api.defaultGroups.initialize, {
     programUuid: "demo-program",
   });
-  expect(first.created).toHaveLength(4);
+  expect(first.created).toHaveLength(defaultPermissionGroups.length - 1);
   expect(
     (
       await admin.mutation(api.defaultGroups.initialize, {
@@ -136,7 +136,7 @@ it("names what it created and kept, audits each new group, and refuses an unknow
     preserved: [" pilots "],
   });
   const rows = await t.run((ctx) => ctx.db.query("audit").collect());
-  expect(rows).toHaveLength(4);
+  expect(rows).toHaveLength(defaultPermissionGroups.length - 1);
   for (const row of rows)
     expect(row).toMatchObject({
       action: "group.saved",
