@@ -74,6 +74,7 @@ type CsvHandlers = {
 };
 type PreviewProps = WriteProps & {
   template: ComponentTemplate;
+  aircraftUuid?: string;
   onClose: () => void;
   onApplied: () => void;
 };
@@ -164,12 +165,26 @@ function downloadSample() {
   download("component-template.csv", csvFor(), "text/csv");
 }
 
-function PendingSetups({
+/**
+ * The Setup incomplete list: recommended components waiting for verified
+ * serials and readings, with Complete setup on each row.
+ *
+ * @param props.aircraftUuid - Limits the list to one aircraft.
+ * @param props.onComplete - Receives the setup to complete.
+ * @returns The list, or null when nothing is pending.
+ */
+export function PendingSetups({
   s,
   writable,
+  aircraftUuid,
   onComplete,
-}: WriteProps & { onComplete: (setup: ComponentSetup) => void }) {
-  const pending = pendingComponentSetups(s);
+}: WriteProps & {
+  aircraftUuid?: string;
+  onComplete: (setup: ComponentSetup) => void;
+}) {
+  const pending = pendingComponentSetups(s).filter(
+    (d) => !aircraftUuid || d.aircraftUuid === aircraftUuid,
+  );
   if (!pending.length) return null;
   return (
     <details open>
@@ -337,7 +352,14 @@ function TemplateCard({ template: t, writable, editable, ...on }: CardProps) {
   );
 }
 
-function TemplateEditor({
+/**
+ * Writes a component template from its fields and a CSV of rows, typed or
+ * imported from a file.
+ *
+ * @param props.editing - The template to edit, or "new".
+ * @param props.onClose - Called on close and after the template is saved.
+ */
+export function TemplateEditor({
   s,
   writable,
   editing,
@@ -479,15 +501,23 @@ function CsvHelp() {
   );
 }
 
-function TemplatePreview({
+/**
+ * Applies a template's chosen rows to one matching aircraft as Setup
+ * incomplete entries.
+ *
+ * @param props.aircraftUuid - The aircraft selected when the preview opens.
+ * @param props.onApplied - Called once the setups are saved.
+ */
+export function TemplatePreview({
   s,
   writable,
   template,
+  aircraftUuid = "",
   onClose,
   onApplied,
 }: PreviewProps) {
   const { backend } = useWorkspace();
-  const [aircraftId, setAircraftId] = useState("");
+  const [aircraftId, setAircraftId] = useState(aircraftUuid);
   const [selected, setSelected] = useState<string[]>([]);
   const selection = { template, aircraftId, selected, onSelect: setSelected };
   return (
@@ -692,7 +722,13 @@ function TableHead({
   );
 }
 
-function SetupWindow({
+/**
+ * Completes one Setup incomplete entry through the component form, with the
+ * template's identity filled in and the readings left blank.
+ *
+ * @param props.onClose - Called on close and once the component is saved.
+ */
+export function SetupWindow({
   s,
   setup,
   onClose,

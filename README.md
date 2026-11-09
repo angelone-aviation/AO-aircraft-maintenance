@@ -3,6 +3,7 @@
 Aircraft operations and maintenance tracker built with **React, Vite, TanStack Router, Zustand, and Convex**. It holds the maintenance and status records a 14 CFR Part 91 operator must keep, scoped by **Flight Program** with permission groups. Features include:
 
 - accounts, programs and aircraft permissions;
+- a Set up an aircraft wizard that loads an aircraft's history from CSV templates after a dry run ([aircraft setup](docs/aircraft-setup.md));
 - flight logging and discrepancies, with offline sync;
 - aircraft status, a dispatch gate and MEL deferrals;
 - inspections, task cards, work orders and generated logbook-entry wording;

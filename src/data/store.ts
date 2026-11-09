@@ -159,12 +159,13 @@ let retryRequested = false;
 // Drops snapshot completions that finish after a newer receive() started.
 let receiveSequence = 0;
 // Unsent form drafts, kept per namespace under these localStorage prefixes by
-// the guided-flight, flight-session and checklist screens; cleared on
-// sign-out.
+// the guided-flight, flight-session, checklist and aircraft-setup screens;
+// cleared on sign-out.
 const DRAFT_PREFIXES = [
   "angel-one-guided:",
   "angel-one-flight-sessions:",
   "angel-one-checks:",
+  "angel-one-setup:",
 ];
 function clearDeviceDrafts(namespace: string) {
   let keys: string[];

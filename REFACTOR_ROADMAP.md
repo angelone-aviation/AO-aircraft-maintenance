@@ -682,6 +682,7 @@ The same `ConvexError` message extraction is written five times in components: `
 - [x] Batch 424 (T22 b3): `convex/flightPlans.ts`: decode through the codec and persist through `writeChanged` (no T1 or T9 batch covered it).
 - [x] Batch 425 (T22 b4): `src/domain/taskCsv.ts`, `src/domain/addressLookup.ts`, `src/domain/certifications.ts`, `src/domain/flightFluids.ts`: task CSV row errors use the shared issue text; the address-lookup, licence and oil-readings schemas get their own messages instead of zod's defaults.
 - [x] Batch 426 (T22 b5): `src/domain/activateTemplate.ts`, `src/domain/componentTemplates.ts`, `src/domain/adWorkOrders.ts` (new), with the screens `ActivateTemplate.tsx`, `ComponentTemplates.tsx`, `ADRegister.tsx` and `ADWorkOrderButton.tsx`: rules that lived only in screens move into the domain.
+- [ ] Batch 427 (T22 b6): `src/components/ui.tsx`, `src/components/ComponentTemplates.tsx` (`CsvFileField`, `importCsv`), `src/components/AircraftSetupHistory.tsx` (`readCsvFile`), `src/components/MaintenanceCsvImport.tsx`, `src/components/TaskCsvImport.tsx`: one CSV file field (size check against `CSV_MAX_BYTES`, read as text, error beside the field) shared by every CSV import; today each screen reads the file its own way. Found while adding the aircraft setup wizard (2026-11-09).
 
 ### T21. Fresh start: remove migration-only code
 

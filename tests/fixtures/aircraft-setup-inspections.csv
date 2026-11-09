@@ -1,0 +1,3 @@
+name,interval_hours,interval_months,interval_cycles,interval_landings,last_done_date,last_done_hours,last_done_cycles,last_done_landings,manual_reference
+Annual inspection,,12,,,2026-03-15,,,,"Per 14 CFR 91.409(a), end of month"
+100-hour inspection,100,,,,2026-09-30,1180.0,,,
