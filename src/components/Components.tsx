@@ -730,7 +730,7 @@ function useComponentForm(props: ComponentFormProps) {
     }
     await props.onDone(r.uuid, next);
   };
-  const submit = (d: FormData) => {
+  const submit = async (d: FormData) => {
     assertAttachable(files, !!backend && online && connected);
     const installed =
       props.record?.installed ?? choices.location === "aircraft";

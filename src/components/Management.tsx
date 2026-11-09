@@ -884,7 +884,7 @@ function InspectionDialog(
         key={stale.formKey}
         disabled={!writable || !allowed}
         submitLabel={complete ? "Record completion" : "Save inspection"}
-        onSubmit={(d) => stale.run(inspectionAttempt(props, record, d))}
+        onSubmit={async (d) => stale.run(inspectionAttempt(props, record, d))}
       >
         {complete && record ? (
           <CompletionFields s={s} record={record} />
