@@ -1,10 +1,12 @@
 /**
  * Responsibility: The Generate logbook entry button on a completed work
- *   order: composes the maintenance entry, saves it as a PDF or copies it.
+ *   order: composes the maintenance entry, saves it as a PDF or copies it,
+ *   and the photos of the signed page beside it.
  * Layer: UI. Entry wording lives in src/domain/logbook.ts.
  * Dependencies: react, react-dom, src/data/store.ts, src/data/logbookPdf.ts
  *   (loaded on demand), src/domain/certifications.ts, src/domain/logbook.ts,
- *   src/domain/model.ts, src/domain/workOrders.ts, src/components/ui.tsx.
+ *   src/domain/model.ts, src/domain/workOrders.ts, ./LogbookPhotos.tsx,
+ *   ./ui.tsx.
  */
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -24,6 +26,7 @@ import {
 import type { Snapshot } from "../domain/model";
 import type { WorkOrder } from "../domain/workOrders";
 import { Field, Modal, errorText } from "./ui";
+import { LogbookPhotoStrip } from "./LogbookPhotos";
 
 const CREDENTIAL_FIELD_MAX_LENGTH = 100;
 // Must match the line logbookText writes (src/domain/logbook.ts).
@@ -46,7 +49,9 @@ type ActionsProps = {
  * it as a PDF or copies it. The entry stays unsigned (ADR-0004).
  *
  * @param props.order - The work order.
- * @returns The button, or null until the order is completed.
+ * @returns The button and, beside it, the photos of the signed logbook page
+ *   with "Attach signed page photo" for maintenance; or null until the order
+ *   is completed.
  */
 export function LogbookEntryButton({ order }: { order: WorkOrder }) {
   const [open, setOpen] = useState(false);
@@ -56,6 +61,14 @@ export function LogbookEntryButton({ order }: { order: WorkOrder }) {
       <button type="button" className="button" onClick={() => setOpen(true)}>
         Generate logbook entry
       </button>
+      <LogbookPhotoStrip
+        target={{
+          aircraftUuid: order.aircraftUuid,
+          linkedKind: "work-order",
+          linkedUuid: order.uuid,
+        }}
+        label="Attach signed page photo"
+      />
       {open &&
         createPortal(
           <Modal

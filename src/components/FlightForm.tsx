@@ -85,6 +85,8 @@ type Draft = ReturnType<typeof useFlightDraft>;
 type Model = ReturnType<typeof useFlightModel>;
 type FlightFormProps = {
   onDone: () => void;
+  /** Called with a new flight once it is queued, before `onDone`. */
+  onSaved?: (flight: { uuid: string; aircraftUuid: string }) => void;
   /** Closes without saving; adds a secondary footer button beside Save. */
   onCancel?: () => void;
   initial?: Flight;
@@ -118,6 +120,8 @@ type FlightFormProps = {
  *   of the aircraft's readings when the form opened.
  * @param props.phase - "preflight" saves fluids through `onSavePreflight`
  *   without closing readings; "end" collects them.
+ * @param props.onSaved - Receives a new flight's uuid and aircraft once it is
+ *   queued, so the caller can offer a logbook page photo.
  * @returns The form. A new flight queues in the outbox against the readings
  *   it opened with; a grounded aircraft needs an administrator's override.
  *   A review needs a connection. Preflight without `onSavePreflight` refuses
@@ -713,16 +717,21 @@ async function submitFlight(m: Model, data: FormData) {
       value(data, "reason"),
       input,
     );
-  else
-    await m.enqueue({
-      kind: "flight",
-      uuid: m.props.operationUuid ?? crypto.randomUUID(),
-      authorId: m.s.user.id,
-      baseVersion: m.opening.version,
-      input,
-      dispatchOverrideReason: m.grounded ? m.override.trim() : undefined,
-    });
+  else await queueFlight(m, input);
   onDone();
+}
+
+async function queueFlight(m: Model, input: FlightInput) {
+  const uuid = m.props.operationUuid ?? crypto.randomUUID();
+  await m.enqueue({
+    kind: "flight",
+    uuid,
+    authorId: m.s.user.id,
+    baseVersion: m.opening.version,
+    input,
+    dispatchOverrideReason: m.grounded ? m.override.trim() : undefined,
+  });
+  m.props.onSaved?.({ uuid, aircraftUuid: input.aircraftUuid });
 }
 
 function flightInput(m: Model, data: FormData): FlightInput {

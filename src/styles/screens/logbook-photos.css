@@ -1,0 +1,98 @@
+/*
+ * Responsibility: Styles the logbook page photo strip, thumbnails, camera
+ *   control and full-size dialog in src/components/LogbookPhotos.tsx.
+ * Layer: UI. Screen styles; every selector is scoped by an `lp-` class.
+ * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`).
+ */
+
+.lp-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.lp-thumb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.lp-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lp-thumb:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+.lp-pending {
+  cursor: default;
+  opacity: 0.85;
+}
+.lp-badge {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 1px 0;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--warn, #865300);
+}
+.lp-failed .lp-badge {
+  background: var(--danger, #a52323);
+}
+.lp-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.lp-button {
+  position: relative;
+  cursor: pointer;
+}
+.lp-button:focus-within {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+.lp-busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+.lp-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.lp-status {
+  color: var(--good);
+}
+.lp-prompt .lp-strip {
+  margin: 8px 0;
+}
+.lp-full {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto 12px;
+  border-radius: 8px;
+}
+.lp-dialog .button {
+  margin-bottom: 8px;
+}

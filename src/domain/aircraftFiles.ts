@@ -178,13 +178,35 @@ export function assertAircraftFileWriter(
   aircraftUuid: string,
   linkedKind?: AircraftFileLinkKind,
 ) {
-  if (linkedKind === "flight") {
-    if (!can(s, aircraftUuid, "flight"))
-      throw new Rejection("Aircraft flight permission required.");
-    return;
-  }
-  if (!can(s, aircraftUuid, "maintenance"))
-    throw new Rejection("Aircraft maintenance permission required.");
+  if (canWriteAircraftFile(s, aircraftUuid, linkedKind)) return;
+  throw new Rejection(
+    linkedKind === "flight"
+      ? "Aircraft flight permission required."
+      : "Aircraft maintenance permission required.",
+  );
+}
+
+/**
+ * Whether the user may upload and archive one of an aircraft's documents:
+ * the permission {@link assertAircraftFileWriter} checks, for screens to
+ * show or hide the controls.
+ *
+ * @param s - The snapshot, for the user's access.
+ * @param aircraftUuid - The aircraft.
+ * @param linkedKind - What a logbook page photo links to; omitted for a
+ *   Form 337 copy.
+ * @returns True with `flight` for a flight's photo, else with `maintenance`.
+ */
+export function canWriteAircraftFile(
+  s: Snapshot,
+  aircraftUuid: string,
+  linkedKind?: AircraftFileLinkKind,
+): boolean {
+  return can(
+    s,
+    aircraftUuid,
+    linkedKind === "flight" ? "flight" : "maintenance",
+  );
 }
 
 /**

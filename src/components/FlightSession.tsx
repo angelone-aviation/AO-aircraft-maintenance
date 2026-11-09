@@ -49,6 +49,8 @@ type FlightSessionsProps = {
   plan?: FlightPlan;
   onClose?: () => void;
   onSaved?: () => void;
+  /** Called with an ended flight once it is queued, before `onClose`. */
+  onFlightSaved?: (flight: { uuid: string; aircraftUuid: string }) => void;
 };
 type Verified = { aircraft: Aircraft; at: string };
 type Flow = ReturnType<typeof useSessionFlow>;
@@ -67,6 +69,8 @@ type SessionProps = FlowProps & { session: FlightSession };
  *   once an ended flight is saved.
  * @param props.onSaved - Called once a preflight is saved, which closes
  *   Start flight.
+ * @param props.onFlightSaved - Receives an ended flight's uuid and aircraft
+ *   once it is queued, so the caller can offer a logbook page photo.
  */
 export function FlightSessions(props: FlightSessionsProps = {}) {
   const { snapshot: s, namespace } = useWorkspace();
@@ -558,6 +562,7 @@ function EndDialog({ flow, session }: SessionProps) {
         operationUuid={session.uuid}
         phase="end"
         onCancel={() => closeEnd(flow)}
+        onSaved={flow.onFlightSaved}
         onDone={() => finishSession(flow, session)}
       />
     </Dialog>
