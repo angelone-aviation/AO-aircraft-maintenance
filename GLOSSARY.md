@@ -146,6 +146,10 @@ _Avoid_: log (bare), history (bare)
 A validated request to change records in one step, carrying a request id so that repeating it has no further effect.
 _Avoid_: mutation (for the request), action, operation (reserved for offline flight and discrepancy entries)
 
+**Stale save**:
+A save refused because the record changed since the form loaded it: someone else saved in between. Nothing is merged or overwritten silently; the user reviews the fields that differ and keeps their draft (saved against the current version), uses the saved record, or cancels.
+_Avoid_: conflict, collision, race, version mismatch
+
 ## Parts and purchasing
 
 **Inventory location**:
