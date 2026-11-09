@@ -53,7 +53,7 @@ describe("parseInspectionSetupCsv", () => {
       name: "Annual",
       intervalMonths: 12,
       lastDate: "2026-03-15",
-      notes: "Per 91.409(a), 14 CFR",
+      manualReference: "Per 91.409(a), 14 CFR",
     });
     expect(rows[0].intervalSeconds).toBeUndefined();
     expect(rows[1]).toMatchObject({
@@ -65,7 +65,7 @@ describe("parseInspectionSetupCsv", () => {
       lastLandings: 2100,
     });
     const shuffled =
-      "Notes,Last done hours,Last-Done Date,last_done_landings,last_done_cycles,interval_landings,interval_cycles,interval_months,interval_hours,NAME\n,,2026-01-01,,,,,12,,Annual";
+      "Manual Reference,Last done hours,Last-Done Date,last_done_landings,last_done_cycles,interval_landings,interval_cycles,interval_months,interval_hours,NAME\n,,2026-01-01,,,,,12,,Annual";
     expect(parseInspectionSetupCsv(shuffled)[0]).toMatchObject({
       name: "Annual",
       intervalMonths: 12,
@@ -78,7 +78,9 @@ describe("parseInspectionSetupCsv", () => {
   });
   it("refuses other columns, and names the row of a bad value", () => {
     expect(() =>
-      parseInspectionSetupCsv(inspectionCsv.replace("notes", "remarks")),
+      parseInspectionSetupCsv(
+        inspectionCsv.replace("manual_reference", "notes"),
+      ),
     ).toThrow(
       new Rejection(`Use columns: ${inspectionSetupHeaders.join(", ")}.`),
     );
@@ -314,31 +316,36 @@ describe("planAircraftSetup", () => {
   });
   it("refuses what the appliers would: missing last-done, future dates, totals exceeded, duplicates", () => {
     const rows: InspectionSetupRow[] = [
-      { row: 2, name: "No interval", notes: "" },
-      { row: 3, name: "No last done", intervalSeconds: 360, notes: "" },
-      { row: 8, name: "No last date", intervalMonths: 12, notes: "" },
+      { row: 2, name: "No interval", manualReference: "" },
+      {
+        row: 3,
+        name: "No last done",
+        intervalSeconds: 360,
+        manualReference: "",
+      },
+      { row: 8, name: "No last date", intervalMonths: 12, manualReference: "" },
       {
         row: 4,
         name: "Future",
         intervalMonths: 12,
         lastDate: "2027-01-01",
-        notes: "",
+        manualReference: "",
       },
       {
         row: 5,
         name: "Too many hours",
         intervalSeconds: 360,
         lastSeconds: 3000 * HOUR_SECONDS,
-        notes: "",
+        manualReference: "",
       },
       {
         row: 6,
         name: "Too many cycles",
         intervalCycles: 10,
         lastCycles: 5000,
-        notes: "",
+        manualReference: "",
       },
-      { row: 7, name: "no interval", notes: "" },
+      { row: 7, name: "no interval", manualReference: "" },
     ];
     const ads: AdSetupRow[] = [
       {
@@ -401,7 +408,7 @@ describe("planAircraftSetup", () => {
         name: "Oil change",
         intervalSeconds: 50 * HOUR_SECONDS,
         lastSeconds: 0,
-        notes: "",
+        manualReference: "",
       },
     ];
     const ads: AdSetupRow[] = [

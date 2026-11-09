@@ -16,7 +16,7 @@ Both template texts and the rows already saved are kept in this browser per airc
 ## Inspection template
 
 ```csv
-name,interval_hours,interval_months,interval_cycles,interval_landings,last_done_date,last_done_hours,last_done_cycles,last_done_landings,notes
+name,interval_hours,interval_months,interval_cycles,interval_landings,last_done_date,last_done_hours,last_done_cycles,last_done_landings,manual_reference
 ```
 
 | Column               | Meaning                                                                                                                                                                                        |
@@ -30,7 +30,7 @@ name,interval_hours,interval_months,interval_cycles,interval_landings,last_done_
 | `last_done_hours`    | Aircraft total time when last done, in tenths; required with `interval_hours`.                                                                                                                 |
 | `last_done_cycles`   | Aircraft cycles when last done; required with `interval_cycles`.                                                                                                                               |
 | `last_done_landings` | Aircraft landings when last done; required with `interval_landings`.                                                                                                                           |
-| `notes`              | Saved as the inspection's reference (the regulation or manual section).                                                                                                                        |
+| `manual_reference`   | The regulation or manual section the inspection comes from, saved as the record's reference and shown as its title on Inspections.                                                             |
 
 Any subset of the intervals may be given, but at least one is required, and each needs its own last-done value. No last-done value may be above the aircraft's current totals. The next due point is computed from the interval and the last-done value, as the inspection form does.
 

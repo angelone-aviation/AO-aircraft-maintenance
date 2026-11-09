@@ -562,7 +562,7 @@ function ParsedRows({
   const columns =
     kind === "ads"
       ? ["Row", "AD", "Applies", "Compliance", "Next due"]
-      : ["Row", "Name", "Intervals", "Last done", "Notes"];
+      : ["Row", "Name", "Intervals", "Last done", "Manual reference"];
   return (
     <div className="table-wrap">
       <table aria-label={`${CSV_STEPS[kind].title} rows`}>
@@ -602,7 +602,7 @@ function inspectionCells(r: InspectionSetupRow) {
       <td>{r.name}</td>
       <td>{intervals.join(", ") || "—"}</td>
       <td>{last.join(" · ") || "—"}</td>
-      <td>{r.notes || "—"}</td>
+      <td>{r.manualReference || "—"}</td>
     </>
   );
 }

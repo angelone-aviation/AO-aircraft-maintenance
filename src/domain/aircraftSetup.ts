@@ -68,7 +68,7 @@ export const inspectionSetupHeaders = [
   "last_done_hours",
   "last_done_cycles",
   "last_done_landings",
-  "notes",
+  "manual_reference",
 ] as const;
 
 /** The AD compliance template's columns, in order; every one is required. */
@@ -98,7 +98,8 @@ export interface InspectionSetupRow {
   lastSeconds?: number;
   lastCycles?: number;
   lastLandings?: number;
-  notes: string;
+  /** The regulation or manual section, saved as the record's reference. */
+  manualReference: string;
 }
 
 /** One AD read from the template; hours are decimal, as AD records keep them. */
@@ -225,7 +226,7 @@ const inspectionRowSchema = z.object({
   lastSeconds: wholeCount.optional(),
   lastCycles: wholeCount.optional(),
   lastLandings: wholeCount.optional(),
-  notes: text,
+  manualReference: text,
 });
 
 const adRowSchema = z.object({
@@ -266,7 +267,7 @@ export function parseInspectionSetupCsv(csv: string): InspectionSetupRow[] {
       lastSeconds: parseHours(get("last_done_hours")),
       lastCycles: readCount(get("last_done_cycles")),
       lastLandings: readCount(get("last_done_landings")),
-      notes: get("notes"),
+      manualReference: get("manual_reference"),
     }),
   );
 }
@@ -619,7 +620,7 @@ function inspectionCommand(
       uuid: crypto.randomUUID(),
       version: 0,
       aircraftUuid,
-      reference: r.notes,
+      reference: r.manualReference,
       description: r.name,
       materials: "",
       archived: false,
