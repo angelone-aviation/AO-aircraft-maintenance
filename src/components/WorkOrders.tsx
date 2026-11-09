@@ -916,7 +916,7 @@ function WorkOrderForm({
       <DraftForm
         {...props}
         onDone={onDone}
-        onSubmit={(data) =>
+        onSubmit={async (data) =>
           stale.run(
             workOrderAttempt(props, data, { backend, onDone, onReload }),
           )
