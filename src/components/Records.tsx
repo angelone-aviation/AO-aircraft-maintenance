@@ -942,30 +942,38 @@ function ReportButtons({
   );
 }
 
+// `initial` prefills the fields and `replaces` names the failed outbox entry
+// the new report takes the place of (Edit and retry).
 function ReportDialog({
   aircraft,
+  initial,
+  replaces,
   onClose,
 }: {
   aircraft: Aircraft[];
+  initial?: ReportDraft;
+  replaces?: string;
   onClose: () => void;
 }) {
-  const { snapshot: s, online, enqueue } = useWorkspace();
+  const { snapshot: s, online, enqueue, replace } = useWorkspace();
   return (
     <Dialog
       className="rec-dialog"
       size="narrow"
-      title="Report a problem"
+      title={replaces ? "Edit and retry report" : "Report a problem"}
       dismissOnScrim={false}
       onClose={onClose}
     >
       <AsyncForm
         submitLabel="Save report"
         onSubmit={async (data) => {
-          await enqueue(reportOperation(s!, data));
+          const report = reportOperation(s!, data);
+          if (replaces) await replace(replaces, report);
+          else await enqueue(report);
           onClose();
         }}
       >
-        <ReportFields aircraft={aircraft} />
+        <ReportFields aircraft={aircraft} initial={initial} />
         {!online && (
           <p className="callout">
             This report will be saved on this device and synced when connected.
@@ -987,11 +995,22 @@ function reportOperation(s: Snapshot, data: FormData) {
   };
 }
 
-function ReportFields({ aircraft }: { aircraft: Aircraft[] }) {
+type ReportDraft = Pick<
+  Extract<QueuedEntry["operation"], { kind: "discrepancy" }>,
+  "aircraftUuid" | "description" | "grounding"
+>;
+
+function ReportFields({
+  aircraft,
+  initial,
+}: {
+  aircraft: Aircraft[];
+  initial?: ReportDraft;
+}) {
   return (
     <>
       <Field label="Aircraft">
-        <select name="aircraft">
+        <select name="aircraft" defaultValue={initial?.aircraftUuid}>
           {aircraft.map((a) => (
             <option key={a.uuid} value={a.uuid}>
               {a.registration}
@@ -1005,12 +1024,17 @@ function ReportFields({ aircraft }: { aircraft: Aircraft[] }) {
           rows={5}
           maxLength={NOTE_MAX_LENGTH}
           required
+          defaultValue={initial?.description}
           placeholder="Describe the problem and where you noticed it."
         />
       </Field>
       <label className="checkbox">
-        <input type="checkbox" name="grounding" /> Aircraft not airworthy until
-        resolved
+        <input
+          type="checkbox"
+          name="grounding"
+          defaultChecked={initial?.grounding}
+        />{" "}
+        Aircraft not airworthy until resolved
       </label>
     </>
   );
@@ -1080,6 +1104,7 @@ function ResolveDialog({
  */
 export function SyncCenter() {
   const { snapshot: s, queue, online, connected } = useWorkspace();
+  const [editing, setEditing] = useState<QueuedEntry | null>(null);
   const own = ownEntries(queue, s!.user.id);
   const live = online && connected;
   return (
@@ -1094,7 +1119,12 @@ export function SyncCenter() {
       <ListCard className="rec-list-card">
         <SyncListHead s={s!} count={own.length} live={live} />
         {own.map((q) => (
-          <QueuedEntryRow key={q.operation.uuid} s={s!} entry={q} />
+          <QueuedEntryRow
+            key={q.operation.uuid}
+            s={s!}
+            entry={q}
+            onEdit={() => setEditing(q)}
+          />
         ))}
         {!own.length && (
           <EmptyState title="Everything is synchronized">
@@ -1102,7 +1132,51 @@ export function SyncCenter() {
           </EmptyState>
         )}
       </ListCard>
+      {editing && (
+        <RetryDialog s={s!} entry={editing} onClose={() => setEditing(null)} />
+      )}
     </>
+  );
+}
+
+// Edit and retry: the failed entry's form, prefilled, saving a new entry in
+// its place. A flight starts from the aircraft's readings as they are now.
+function RetryDialog({
+  s,
+  entry,
+  onClose,
+}: {
+  s: Snapshot;
+  entry: QueuedEntry;
+  onClose: () => void;
+}) {
+  const op = entry.operation;
+  if (op.kind === "discrepancy")
+    return (
+      <ReportDialog
+        aircraft={s.aircraft.filter((a) => can(s, a.uuid, "discrepancy"))}
+        initial={op}
+        replaces={op.uuid}
+        onClose={onClose}
+      />
+    );
+  return (
+    <Dialog
+      className="rec-dialog"
+      title="Edit and retry flight"
+      subtitle="Saved as a new entry in place of the failed one."
+      dismissOnScrim={false}
+      onClose={onClose}
+    >
+      <FlightForm
+        aircraftUuid={op.input.aircraftUuid}
+        prefill={op.input}
+        dispatchOverrideReason={op.dispatchOverrideReason}
+        replaces={op.uuid}
+        onDone={onClose}
+        onCancel={onClose}
+      />
+    </Dialog>
   );
 }
 
@@ -1189,7 +1263,15 @@ function SyncListHead({
   );
 }
 
-function QueuedEntryRow({ s, entry: q }: { s: Snapshot; entry: QueuedEntry }) {
+function QueuedEntryRow({
+  s,
+  entry: q,
+  onEdit,
+}: {
+  s: Snapshot;
+  entry: QueuedEntry;
+  onEdit: () => void;
+}) {
   const op = q.operation;
   return (
     <div className="rec-entry">
@@ -1204,7 +1286,14 @@ function QueuedEntryRow({ s, entry: q }: { s: Snapshot; entry: QueuedEntry }) {
             {q.error ? "Needs attention" : "Awaiting sync"}
           </StatusPill>
         }
-        action={q.error && <DiscardButton uuid={op.uuid} />}
+        action={
+          q.error && (
+            <span className="rec-entry-actions">
+              <EditRetryButton onClick={onEdit} />
+              <DiscardButton uuid={op.uuid} />
+            </span>
+          )
+        }
       />
       <QueuedEntryDetails s={s} entry={q} />
     </div>
@@ -1256,6 +1345,20 @@ function QueuedEntryDetails({
         <pre>{JSON.stringify(op, null, 2)}</pre>
       </details>
     </div>
+  );
+}
+
+function EditRetryButton({ onClick }: { onClick: () => void }) {
+  const { syncing } = useWorkspace();
+  return (
+    <button
+      type="button"
+      className="button small primary"
+      disabled={syncing}
+      onClick={onClick}
+    >
+      Edit and retry
+    </button>
   );
 }
 
