@@ -24,7 +24,7 @@ import { trackingBaselineSchema } from "./workOrderCloseoutSchema";
 import { aircraftMeterReading, type Aircraft, type Snapshot } from "./model";
 import type { ManagedRecord } from "./management";
 import type { WorkOrder } from "./workOrders";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 
 const HOUR_SECONDS = 3600;
 const totalsSchema = z.object({
@@ -89,8 +89,9 @@ export const componentCorrectionSchema = z.object({
  * @param raw - The correction request.
  * @param now - When the correction is recorded.
  * @returns The correction, and the management records to store in its place.
- * @throws {Rejection} When the order, component or aircraft is stale or not
- *   correctable, or later records need manual review.
+ * @throws {Rejection} When the order or component is not correctable, or
+ *   later records need manual review; a StaleRecordRejection when the order,
+ *   component or aircraft is stale.
  */
 export function previewComponentCorrection(
   s: Snapshot,
@@ -173,7 +174,7 @@ function findCorrectableWork(
       "A completed work order with saved closeout readings is required.",
     );
   if (command.uuid !== order.uuid || command.version !== order.version)
-    throw new Rejection("Work order changed. Reopen the correction preview.");
+    throw new StaleRecordRejection("workOrder", order.version);
   const original = closeout.componentWork?.find(
     (c) => c.componentUuid === command.choice.componentUuid,
   );
@@ -230,8 +231,9 @@ function findCurrentRecords(
     aircraft.version !== command.aircraftVersion ||
     current.version !== command.choice.version
   )
-    throw new Rejection(
-      "Aircraft or component readings changed. Reopen the correction preview.",
+    throw new StaleRecordRejection(
+      "component",
+      current?.kind === "component" ? current.version : 0,
     );
   return { current, aircraft };
 }

@@ -39,7 +39,7 @@ import {
   type ADTask,
 } from "./airworthiness";
 import { componentSchema, type Component } from "./components";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 import { aircraftStatus } from "./aircraftStatus";
 import { localDate, totalSeconds, type Aircraft, type Snapshot } from "./model";
 import { scopedSnapshot } from "./programs";
@@ -580,12 +580,9 @@ const refusals: [string, (s: Snapshot, r: AD) => () => unknown][] = [
     "An existing AD cannot be reassigned to another asset.",
     (s, r) => saveAD(s, { ...r, aircraftUuid: s.aircraft[1].uuid }),
   ],
+  [STALE_RECORD_MESSAGE, (s, r) => saveAD(s, { ...r, version: r.version + 1 })],
   [
-    "AD changed. Reload before saving.",
-    (s, r) => saveAD(s, { ...r, version: r.version + 1 }),
-  ],
-  [
-    "AD changed. Reload before saving.",
+    STALE_RECORD_MESSAGE,
     (s, r) => () =>
       applyADCommand(s, {
         kind: "comply",
@@ -763,8 +760,8 @@ it.each(refusals)("refuses with %j and changes nothing", (message, refuse) => {
   const { s, r } = setup();
   const act = refuse(s, r);
   const before = structuredClone(s.airworthiness);
-  expect(act).toThrow(new Error(message));
   expect(act).toThrow(Rejection);
+  expect(act).toThrow(message);
   expect(s.airworthiness).toEqual(before);
 });
 

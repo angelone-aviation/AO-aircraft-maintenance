@@ -33,7 +33,7 @@ import {
   type Inspection,
   type Snapshot,
 } from "./model";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 
 const common = () => ({
   requestUuid: crypto.randomUUID(),
@@ -608,7 +608,7 @@ const refusals: [string, (w: World) => object][] = [
     }),
   ],
   [
-    "This record changed. Refresh and try again.",
+    STALE_RECORD_MESSAGE,
     () => ({
       ...common(),
       action: "stock.move",

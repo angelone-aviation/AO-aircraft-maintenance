@@ -19,7 +19,7 @@ import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { blankSearch, searchAssets } from "../src/domain/faaSearch";
 import type { Permission } from "../src/domain/model";
-import { Rejection } from "../src/domain/rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import { validationText } from "../src/domain/validationText";
 import { certificationsSchema } from "../src/domain/certifications";
 import { licenseSchema } from "../src/domain/logbook";
@@ -310,7 +310,7 @@ it("shows refusals from functions outside runCommand to the client", async () =>
         }),
     ],
     [
-      "Address settings changed. Reload before saving.",
+      STALE_RECORD_MESSAGE,
       () =>
         systemAdmin.mutation(internal.addressVerification.commit, {
           key: "sealed",
@@ -326,7 +326,7 @@ it("shows refusals from functions outside runCommand to the client", async () =>
         }),
     ],
     [
-      "FAA key settings changed. Reload before saving.",
+      STALE_RECORD_MESSAGE,
       () =>
         systemAdmin.mutation(internal.faaCredentials.commit, {
           key: "sealed",

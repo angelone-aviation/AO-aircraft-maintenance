@@ -15,6 +15,7 @@ import { downloadSpruce } from "./spruceHttp";
 import { orderFields } from "../src/domain/aircraftSpruce";
 import { SPRUCE_RATE_LIMITS } from "./aircraftSpruce";
 import { sealSecret } from "./secrets";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -171,7 +172,7 @@ it("isolates accounts by active program, never exposes secrets, and rejects stal
       version: 0,
       credentials: await sealedCredentials("demo-program"),
     }),
-  ).rejects.toThrow(/Account changed/);
+  ).rejects.toThrow(STALE_RECORD_MESSAGE);
   expect(
     JSON.stringify(await t.run((ctx) => ctx.db.query("audit").collect())),
   ).not.toContain("private");
@@ -198,7 +199,7 @@ it("isolates accounts by active program, never exposes secrets, and rejects stal
       order: "",
       rows: [],
     }),
-  ).rejects.toThrow(/Account changed/);
+  ).rejects.toThrow("Account changed. Sync again.");
 });
 it("denies unauthorized actions before contacting the provider", async () => {
   const { other } = await setup();

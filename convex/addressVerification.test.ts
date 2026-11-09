@@ -15,6 +15,7 @@ import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import type { Permission } from "../src/domain/model";
 import { sealSecret } from "./secrets";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -444,7 +445,7 @@ it("refuses a stale settings version and audits a saved key without it", async (
       key: KEY,
       version: 0,
     }),
-  ).rejects.toThrow("Address settings changed. Reload before saving.");
+  ).rejects.toThrow(STALE_RECORD_MESSAGE);
   const rows = await t.run((ctx) => ctx.db.query("audit").collect());
   expect(rows).toMatchObject([
     {

@@ -24,6 +24,7 @@ import type { MutationCtx } from "./_generated/server";
 import { PROGRAM as PROGRAM_A } from "./sampleProgram";
 import { syncMemberships } from "./memberships";
 import { blankSearch, searchAssets } from "../src/domain/faaSearch";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -377,7 +378,7 @@ const CASES: Case[] = [
   ).refuses(MAINTENANCE),
   callMutation(api.fleet.save, "A's aircraft", (a) =>
     sendInB(buildCommand("aircraft.save", { aircraft: copyAircraft(a, {}) })),
-  ).refuses("Aircraft changed. Refresh before saving."),
+  ).refuses(STALE_RECORD_MESSAGE),
   callMutation(api.fleet.save, "A's aircraft uuid, as new", (a) =>
     sendInB(
       buildCommand("aircraft.save", {

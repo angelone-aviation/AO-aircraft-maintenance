@@ -4,7 +4,7 @@
  * Layer: Server. One public action and internal functions; the key is stored
  *   sealed and never returned.
  * Dependencies: convex/secrets, convex/secretsMigration, convex/access,
- *   src/domain/faaCredential, convex/values, zod.
+ *   src/domain/faaCredential, src/domain/rejection, convex/values, zod.
  */
 import {
   action,
@@ -16,6 +16,7 @@ import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import { admin, audit } from "./access";
 import { faaCredentialInput } from "../src/domain/faaCredential";
 import { z } from "zod";
@@ -95,8 +96,7 @@ export async function faaSecret(
  * @returns null. Bumps the version and audits `faa.key.updated` with the
  *   renewal date and version, never the key.
  * @throws {ConvexError} "Administrator permission required."; "The renewal
- *   date must be in the future."; "FAA key settings changed. Reload before
- *   saving."
+ *   date must be in the future."; STALE_RECORD_MESSAGE for a stale version.
  * @throws {z.ZodError} For a malformed date or version; after the version
  *   check, for a key that is not sealed (v2) or too long.
  */
@@ -108,7 +108,7 @@ export const commit = internalMutation({
     assertRenewalInFuture(input.expiresOn);
     const saved = await ctx.db.query("faaCredentials").unique();
     if ((saved?.version ?? 0) !== input.version)
-      throw new ConvexError("FAA key settings changed. Reload before saving.");
+      throw new ConvexError(STALE_RECORD_MESSAGE);
     const value = {
       key: sealedKey.parse(args.key),
       expiresOn: input.expiresOn,

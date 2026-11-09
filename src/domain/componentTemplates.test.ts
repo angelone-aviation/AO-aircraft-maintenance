@@ -20,7 +20,7 @@ import {
 } from "./componentTemplates";
 import { CSV_MAX_BYTES } from "./maintenanceCsv";
 import { scopedSnapshot } from "./programs";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 const csv =
   'Component type,ATA chapter,Part number,Component Name,Manufacturer,Position,ID,Parent ID\nEngine,72,ENGINE,Engine,Maker,MAIN,engine,\nAppliance,72,BLADE,"Blade, assembly",Maker,,blade,engine';
 function fixture() {
@@ -162,7 +162,7 @@ it("saves a template with a new version and refuses a stale one", () => {
   expect(s.componentTemplates).toEqual([saved]);
   const stale = () => saveComponentTemplate(s, t);
   expect(stale).toThrow(Rejection);
-  expect(stale).toThrow("Template changed. Reopen it.");
+  expect(stale).toThrow(STALE_RECORD_MESSAGE);
 });
 it("records a save with the template before and after, and each setup added", () => {
   const { s, a, t, input } = fixture();

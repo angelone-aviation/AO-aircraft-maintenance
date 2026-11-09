@@ -4,7 +4,8 @@
  * Layer: Server. Queries and mutations for program administrators; the calls
  *   that reach Aircraft Spruce are in aircraftSpruceActions.ts.
  * Dependencies: convex/programContext, convex/access, convex/rateLimits,
- *   convex/secrets, src/domain (aircraftSpruce, programs, purchaseOrders), zod.
+ *   convex/secrets, src/domain (aircraftSpruce, programs, purchaseOrders,
+ *   rejection), zod.
  *
  * `version` changes on every link and disconnect, so a write prepared against
  * an older account is refused and orders synced under it stop showing.
@@ -19,6 +20,7 @@ import {
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import { checkContext } from "./programContext";
 import { programPermission } from "../src/domain/programs";
 import { poSchema } from "../src/domain/purchaseOrders";
@@ -132,8 +134,8 @@ export const reserve = internalMutation({
  * @param programUuid - The active Flight Program.
  * @param version - The version the change was prepared against.
  * @param credentials - The login, each field sealed; omit to disconnect.
- * @throws {ConvexError} The {@link status} refusals; "Account changed. Reload
- *   before saving."
+ * @throws {ConvexError} The {@link status} refusals; STALE_RECORD_MESSAGE for
+ *   a stale version.
  * @throws A ZodError for a value that is not sealed (v2) or too long.
  */
 export const commitAccount = internalMutation({
@@ -152,7 +154,7 @@ export const commitAccount = internalMutation({
   handler: async (ctx, args) => {
     const a = await account(ctx, args.programUuid);
     if ((a?.version ?? 0) !== args.version)
-      throw new ConvexError("Account changed. Reload before saving.");
+      throw new ConvexError(STALE_RECORD_MESSAGE);
     const credentials = args.credentials
       ? sealedSpruceCredentials.parse(args.credentials)
       : undefined;

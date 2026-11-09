@@ -13,6 +13,7 @@ import { movementOrderCommand } from "../../tests/fixtures/componentMovement";
 import { saveWorkOrder } from "./workOrders";
 import { applyManagement } from "./management";
 import { inventoryTagFields } from "./inventoryPrinting";
+import { STALE_RECORD_MESSAGE } from "./rejection";
 const NOW = Date.parse("2026-10-08T12:00:00Z");
 const TODAY = "2026-10-08";
 
@@ -119,7 +120,7 @@ it("cancellation leaves inventory unchanged; stale closeout fails atomically", (
   };
   c.version++;
   const before = structuredClone(s);
-  expect(() => saveWorkOrder(s, next, NOW)).toThrow("tracking changed");
+  expect(() => saveWorkOrder(s, next, NOW)).toThrow(STALE_RECORD_MESSAGE);
   expect(s).toEqual(before);
 });
 it("uses saved manual incoming tag details before a system removal", () => {

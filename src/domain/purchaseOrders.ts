@@ -35,7 +35,7 @@ import {
 } from "./components";
 import { SERVICEABLE_CONDITIONS, addDays, assertNotExpired } from "./shelfLife";
 import { auditEntry } from "./changeLog";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 
 const text = z.string().trim().max(2000);
 const id = z.string().min(1).max(200);
@@ -43,7 +43,6 @@ const qty = z.number().int().positive().max(1000000);
 const money = z.number().int().nonnegative().max(100000000000);
 
 const MAX_ORDER_CENTS = 10_000_000_000_000;
-const STALE_ORDER = "Purchase order changed. Reopen it before saving.";
 
 /** The most days an exchange line may allow for its core return. */
 export const MAX_CORE_DUE_DAYS = 365;
@@ -608,7 +607,8 @@ function assertEditableDraft(
     throw new Rejection(
       "Only draft purchase orders in this program can be edited.",
     );
-  if ((previous?.version ?? 0) !== d.version) throw new Rejection(STALE_ORDER);
+  if ((previous?.version ?? 0) !== d.version)
+    throw new StaleRecordRejection("purchaseOrder", previous?.version ?? 0);
   if (d.lines.some((l) => l.cancelled))
     throw new Rejection("Draft lines cannot contain cancelled quantities.");
   validateLines(ctx, d);
@@ -649,7 +649,8 @@ function changeOrder(ctx: Context, c: OrderCommand, scope: PurchaseOrder[]) {
   const found = scope.find((p) => p.uuid === c.uuid);
   if (!found) throw new Rejection("Purchase order not found.");
   const p = structuredClone(found);
-  if (p.version !== c.version) throw new Rejection(STALE_ORDER);
+  if (p.version !== c.version)
+    throw new StaleRecordRejection("purchaseOrder", p.version);
   runAction(ctx, p, c);
   p.version++;
   p.updatedAt = ctx.now;

@@ -14,7 +14,7 @@ import { can, totalSeconds, type Aircraft, type Snapshot } from "./model";
 import { validateMaintenanceTotals } from "./management";
 import { componentAircraftSeconds, type Component } from "./components";
 import { auditEntry, type AuditChange } from "./changeLog";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 
 const HOUR_SECONDS = 3600;
 const TENTH_HOUR_SECONDS = 360;
@@ -227,11 +227,11 @@ export function parseAdjustment(value: string) {
  * @throws {Rejection} In check order. Any save: "An active account is
  *   required." A program: "Administrator permission required." (system
  *   administrator, or program administrator saving the active program);
- *   "Program changed. Refresh and try again."; "Program name already exists."
+ *   the stale-save message; "Program name already exists."
  *   (any case). An aircraft: "Aircraft belongs to another Flight Program.";
  *   "Program not found."; "Use an explicit Flight Program transfer."; "Aircraft
- *   management permission required."; "Aircraft changed. Refresh before
- *   saving."; "Select Helicopter and enter a Collective hourmeter reading to
+ *   management permission required."; the stale-save message (a
+ *   StaleRecordRejection); "Select Helicopter and enter a Collective hourmeter reading to
  *   use it as the time source."; "Select Flight time log and enter its reading
  *   to use it as the time source."; "Registration already exists." (any case);
  *   "Aircraft total time must be nonnegative."; "Aircraft readings would
@@ -260,7 +260,7 @@ function saveProgram(s: Snapshot, c: ProgramSave, now: number): FleetChange {
     throw new Rejection("Administrator permission required.");
   const before = (s.programs ?? []).find((p) => p.uuid === input.uuid);
   if (input.version !== (before?.version ?? 0))
-    throw new Rejection("Program changed. Refresh and try again.");
+    throw new StaleRecordRejection("program", before?.version ?? 0);
   const name = input.name.toLowerCase();
   if (
     (s.programs ?? []).some(
@@ -304,7 +304,7 @@ function saveAircraft(s: Snapshot, c: AircraftSave, now: number): FleetChange {
   )
     throw new Rejection("Aircraft management permission required.");
   if (input.version !== (before?.version ?? 0))
-    throw new Rejection("Aircraft changed. Refresh before saving.");
+    throw new StaleRecordRejection("aircraft", before?.version ?? 0);
   assertTimeSourceRecorded(input);
   const registration = input.registration.toUpperCase();
   if (

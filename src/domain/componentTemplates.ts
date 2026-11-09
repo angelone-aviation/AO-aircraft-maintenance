@@ -12,7 +12,7 @@ import { ataChapterSchema } from "./ata";
 import { POSITIONS } from "./components";
 import { can, type Aircraft, type Snapshot } from "./model";
 import { activeProgram, ownsActive, programPermission } from "./programs";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 import { auditEntry } from "./changeLog";
 
 const TEXT_MAX_LENGTH = 150;
@@ -141,8 +141,8 @@ export function parseComponentTemplateCsv(csv: string) {
  * @returns The template as saved, with its version incremented.
  * @throws {z.ZodError} On an invalid payload.
  * @throws {Rejection} "Maintenance permission is required.", "Template
- *   belongs to another program.", "Template changed. Reopen it.", "Select a
- *   Flight Program." or a {@link validateRows} message.
+ *   belongs to another program.", "Select a Flight Program." or a
+ *   {@link validateRows} message; a StaleRecordRejection for a stale version.
  */
 export function saveComponentTemplate(s: Snapshot, raw: unknown) {
   if (!programPermission(s, "maintenance"))
@@ -156,7 +156,7 @@ export function saveComponentTemplate(s: Snapshot, raw: unknown) {
   )
     throw new Rejection("Template belongs to another program.");
   if ((old?.version ?? 0) !== input.version)
-    throw new Rejection("Template changed. Reopen it.");
+    throw new StaleRecordRejection("componentTemplate", old?.version ?? 0);
   const programUuid = activeProgram(s);
   if (!programUuid) throw new Rejection("Select a Flight Program.");
   const next = { ...input, programUuid, version: input.version + 1 };
@@ -382,7 +382,7 @@ function findApplicableTemplate(
   )
     throw new Rejection("Template and aircraft maintenance access required.");
   if (t.version !== input.version)
-    throw new Rejection("Template changed. Reopen the preview.");
+    throw new StaleRecordRejection("componentTemplate", t.version);
   if (!matchesComponentTemplate(t, a))
     throw new Rejection("Aircraft make and model must match the template.");
   return { t, a };

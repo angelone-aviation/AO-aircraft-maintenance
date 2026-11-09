@@ -1,7 +1,8 @@
 /**
  * Responsibility: The text a user sees for a failed command, load or sync.
  * Layer: Data. Pure function over a thrown value; no I/O, no React.
- * Dependencies: convex/values, zod, src/domain/validationText.ts.
+ * Dependencies: convex/values, zod, src/domain/validationText.ts,
+ *   src/domain/rejection.ts.
  *
  * Production puts only "Server Error" in a plain server Error, behind the
  * Convex client's "[CONVEX …]" wrapper; a refusal travels in ConvexError data.
@@ -10,6 +11,7 @@
 import { ConvexError } from "convex/values";
 import { ZodError } from "zod";
 import { validationText } from "../domain/validationText";
+import { STALE_RECORD_MESSAGE } from "../domain/rejection";
 
 /**
  * How the Convex client's message for a failed function starts, as in
@@ -42,6 +44,18 @@ export function errorText(
   return error.message.startsWith(CONVEX_FAILURE_PREFIX)
     ? fallback
     : error.message;
+}
+
+/**
+ * Whether a failed save was refused because the record changed since the
+ * form loaded it: the domain's StaleRecordRejection in the demo, or the
+ * server's ConvexError carrying the same message.
+ *
+ * @param error - The failure from a Backend command.
+ * @returns True for a stale save, which a screen reviews instead of printing.
+ */
+export function isStaleSave(error: unknown) {
+  return errorText(error) === STALE_RECORD_MESSAGE;
 }
 
 function refusalText(error: unknown): string | undefined {

@@ -19,7 +19,7 @@ import {
 } from "./model";
 import { activeProgram, programPermission } from "./programs";
 import { componentTotals, type Component } from "./components";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 import { auditEntry } from "./changeLog";
 import { requestUuidField } from "./commandRequest";
 export { adAircraftUuid } from "./adOwnership";
@@ -427,8 +427,8 @@ export function adSaveIsCorrection(old: AD | undefined) {
  * @param now - The clock for timestamps, future-date checks and the date a
  *   component's totals are read on.
  * @returns The changed records, versions advanced; [] for an unchanged import.
- * @throws {Rejection} For a refused change, such as "AD changed. Reload before
- *   saving."; the snapshot is left unchanged.
+ * @throws {Rejection} For a refused change, such as "AD not found."; a
+ *   StaleRecordRejection for a stale version. The snapshot is left unchanged.
  * @throws {z.ZodError} When the command or a changed record does not parse.
  */
 export function applyADCommand(
@@ -748,7 +748,7 @@ function changeAD(
   assertADOwner(s, r);
   const expected = cmd.kind === "save" ? r.version : cmd.version;
   if ((old?.version ?? 0) !== expected)
-    throw new Rejection("AD changed. Reload before saving.");
+    throw new StaleRecordRejection("ad", old?.version ?? 0);
   if (
     old &&
     (old.aircraftUuid !== r.aircraftUuid ||

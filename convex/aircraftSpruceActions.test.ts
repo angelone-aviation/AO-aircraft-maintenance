@@ -14,6 +14,7 @@ import { demoSnapshot } from "../src/data/demo";
 import { orderFields } from "../src/domain/aircraftSpruce";
 import { poDraftSchema, poSchema } from "../src/domain/purchaseOrders";
 import { sealSecret } from "./secrets";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -177,7 +178,7 @@ it("links after downloading one UTC day of order numbers", async () => {
       version: 0,
       ...credentials,
     }),
-  ).rejects.toMatchObject({ data: "Account changed. Reload before saving." });
+  ).rejects.toMatchObject({ data: STALE_RECORD_MESSAGE });
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 

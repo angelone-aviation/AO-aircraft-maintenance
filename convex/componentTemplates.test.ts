@@ -11,6 +11,7 @@ import { expect, it } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
+import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -122,9 +123,7 @@ it("audits the stored and saved versions, and shows every refusal with its messa
   ]);
   expect(saves.map((e) => JSON.parse(e.after!).version)).toEqual([1, 2]);
   const shown = (message: string) => ({ name: "ConvexError", data: message });
-  await expect(save(record)).rejects.toMatchObject(
-    shown("Template changed. Reopen it."),
-  );
+  await expect(save(record)).rejects.toMatchObject(shown(STALE_RECORD_MESSAGE));
   await expect(
     client.mutation(api.componentTemplates.save, {
       programUuid: "demo-program",
@@ -141,7 +140,7 @@ it("audits the stored and saved versions, and shows every refusal with its messa
         rowIds: ["1"],
       }),
     }),
-  ).rejects.toMatchObject(shown("Template changed. Reopen the preview."));
+  ).rejects.toMatchObject(shown(STALE_RECORD_MESSAGE));
   const foreign = crypto.randomUUID();
   await t.run((ctx) =>
     ctx.db.insert("componentTemplates", {

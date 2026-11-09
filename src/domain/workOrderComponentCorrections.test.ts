@@ -28,7 +28,7 @@ import {
 } from "./workOrderComponentCorrections";
 import type { Snapshot } from "./model";
 import { logbookText } from "./logbook";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 const now = Date.parse("2026-10-02T12:00:00Z");
 function setup(
   action: "overhaul" | "repair" | "service" | "both" = "overhaul",
@@ -219,7 +219,7 @@ it.each([
     "open order",
     "A completed work order with saved closeout readings is required.",
   ],
-  ["staleOrder", "Work order changed. Reopen the correction preview."],
+  ["staleOrder", STALE_RECORD_MESSAGE],
   ["otherComponent", "This component was not recorded at closeout."],
   ["movement", "Record component movement changes through a new work order."],
   [
@@ -230,10 +230,7 @@ it.each([
     "unchanged",
     "Change the component work performed before previewing a correction.",
   ],
-  [
-    "staleComponent",
-    "Aircraft or component readings changed. Reopen the correction preview.",
-  ],
+  ["staleComponent", STALE_RECORD_MESSAGE],
   [
     "requirement",
     "Manual review required: component tracking or service requirements changed after this closeout. Later records will not be overwritten.",

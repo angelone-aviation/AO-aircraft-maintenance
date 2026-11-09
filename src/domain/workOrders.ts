@@ -48,7 +48,7 @@ import {
 } from "./model";
 import { componentTotals, type Component } from "./components";
 import type { TaskCard } from "./taskCards";
-import { Rejection } from "./rejection";
+import { Rejection, StaleRecordRejection } from "./rejection";
 import { auditEntry } from "./changeLog";
 export { isPreparingJobCards } from "./workOrderCards";
 
@@ -573,9 +573,9 @@ export function componentReading(
  * @param options - `deferTemplateCopies` leaves copying job card templates
  *   for the order's items to the caller.
  * @returns The saved order, its version advanced.
- * @throws {Rejection} A refused command, such as "Work order changed. Reopen
- *   it before saving." or "This work order is closed."; and as
- *   completeWorkOrder, previewComponentCorrection and componentTotals.
+ * @throws {Rejection} A refused command, such as "This work order is
+ *   closed."; a StaleRecordRejection for a stale order or component version;
+ *   and as completeWorkOrder, previewComponentCorrection and componentTotals.
  * @throws {z.ZodError} When the command or the saved order does not parse.
  */
 export function saveWorkOrder(
@@ -719,7 +719,7 @@ function assertWritable(
   if (existing && existing.aircraftUuid !== aircraftUuid)
     throw new Rejection("A work order cannot change aircraft.");
   if ((existing?.version ?? 0) !== command.version)
-    throw new Rejection("Work order changed. Reopen it before saving.");
+    throw new StaleRecordRejection("workOrder", existing?.version ?? 0);
   return aircraftUuid;
 }
 
@@ -1041,9 +1041,7 @@ function assertMovement(
       "Move the parent component; its attached parts move with it.",
     );
   if (c.version !== movement.version)
-    throw new Rejection(
-      "Component tracking changed. Review the component readings before saving.",
-    );
+    throw new StaleRecordRejection("component", c.version);
   const available =
     movement.action === "install"
       ? !c.installed

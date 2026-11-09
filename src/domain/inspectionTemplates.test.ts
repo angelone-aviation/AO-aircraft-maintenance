@@ -21,7 +21,7 @@ import {
   templateTaskSchema,
 } from "./inspectionTemplates";
 import { scopedSnapshot } from "./programs";
-import { Rejection } from "./rejection";
+import { Rejection, STALE_RECORD_MESSAGE } from "./rejection";
 import { readFileSync } from "node:fs";
 const sample = () => ({
   ...emptyTemplate(),
@@ -176,7 +176,7 @@ it("refuses user mistakes as a Rejection and a repeated uuid as a fault", () => 
     tasks: bigTasks.slice(0, 80),
   }));
   for (const [records, message] of [
-    [[t], "Template changed. Reopen it before saving."],
+    [[t], STALE_RECORD_MESSAGE],
     [
       [{ ...sample(), name: " phase  2" }],
       "Template already exists: phase  2. Edit the saved template instead.",
