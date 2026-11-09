@@ -939,7 +939,8 @@
   .dash-detail-export {
     margin-right: 0;
   }
-  .dash-detail-actions > * {
+  .dash-detail-actions > *,
+  .dash-detail-export > * {
     flex: 1 1 auto;
   }
   .dash-detail-export .button {
