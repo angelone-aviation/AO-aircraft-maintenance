@@ -1,5 +1,5 @@
 # Responsibility: Secret-scanning rules: gitleaks' defaults plus a narrow
-#   allowlist of synthetic keys in the server tests.
+#   allowlist of synthetic and published example keys in the server tests.
 # Layer: Config. Read by gitleaks in CI (.github/workflows/ci.yml) and locally.
 # Dependencies: the default rules built into gitleaks 8.30.1.
 #
@@ -22,3 +22,10 @@ targetRules = ["generic-api-key"]
 condition = "AND"
 paths = ['''^convex/faaCredentials\.test\.ts$''']
 regexes = ['''^synthetic-saved-key-0001$''']
+
+[[allowlists]]
+description = "RFC 8291 Appendix A auth secret: a published web push test vector"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^convex/(push|webPushProtocol)\.test\.ts$''']
+regexes = ['''^BTBZMqHH6r4Tts7J_aSIgg$''']
