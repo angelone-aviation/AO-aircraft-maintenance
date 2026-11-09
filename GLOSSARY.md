@@ -40,6 +40,10 @@ A registered airframe owned by one Flight Program, carrying Hobbs, tach, total t
 **Total time**:
 Aircraft time in service: the selected meter (Hobbs or tach) plus the total time adjustment.
 
+**Aircraft setup**:
+Loading an aircraft's existing history in one guided pass: identity and baseline readings, installed components, inspections with their last-done values and AD compliance, from CSV templates, with a dry run before the inspection and AD rows are saved.
+_Avoid_: onboarding, initial load, migration
+
 **Flight**:
 A logged flight with starting and ending meter readings; the unit of usage that advances aircraft counters.
 
