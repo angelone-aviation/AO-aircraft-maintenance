@@ -101,6 +101,7 @@ import {
   HISTORY_NOT_FOUND,
   pageAuditEntries,
 } from "../domain/auditHistory";
+import { summarizeAudit } from "../domain/auditSummary";
 import {
   applyEngineTrendCommand,
   defaultEngineLimits,
@@ -1087,6 +1088,20 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       if (!canPageAuditFilter(canSee, request, newest))
         throw new Error(HISTORY_NOT_FOUND);
       return pageAuditEntries(s.audit.filter(canSee), request);
+    },
+    // The demo log is small, so the whole period is always covered.
+    auditSummary: async (period) => {
+      const current = workspace.getState();
+      const s =
+        (await local.readSnapshot(current.namespace + ":all")) ??
+        current.snapshot!;
+      if (!programPermission(s, "admin"))
+        throw new Error("Flight Program administrator required.");
+      const canSee = auditVisible(s);
+      return {
+        summary: summarizeAudit(s.audit.filter(canSee), period),
+        truncated: false,
+      };
     },
     groupAccessReview: async () => {
       const current = workspace.getState();

@@ -1,11 +1,12 @@
 /**
  * Responsibility: Pages the change log for History: a Flight Program's,
- *   an aircraft's or a record's entries, newest first.
- * Layer: Server. One public query; it returns only entries the snapshot's
+ *   an aircraft's or a record's entries, newest first; and summarizes a
+ *   period of it for Flight Program administrators.
+ * Layer: Server. Two public queries; they read only entries the snapshot's
  *   visibility rules let the caller see.
  * Dependencies: convex/programContext, src/domain (programs, auditHistory,
- *   model, and the management, partsRequests, purchaseOrders, checklists and
- *   inspectionTemplates schemas).
+ *   auditSummary, model, and the management, partsRequests, purchaseOrders,
+ *   checklists and inspectionTemplates schemas).
  */
 import { ConvexError, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
@@ -21,7 +22,16 @@ import {
   inspectionTemplateDocs,
   transferredAuditDocs,
 } from "./programContext";
-import { activeProgram, auditVisible } from "../src/domain/programs";
+import {
+  activeProgram,
+  auditVisible,
+  programPermission,
+} from "../src/domain/programs";
+import {
+  summarizeAudit,
+  type AuditSummaryResult,
+  type SummaryPeriod,
+} from "../src/domain/auditSummary";
 import { recordSchema } from "../src/domain/management";
 import { partsRequestSchema } from "../src/domain/partsRequests";
 import { poSchema } from "../src/domain/purchaseOrders";
@@ -31,14 +41,18 @@ import {
   canPageAuditFilter,
   clampAuditPageSize,
   HISTORY_NOT_FOUND,
+  MAX_AUDIT_PAGE_SIZE,
   type AuditFilter,
   type AuditPage,
 } from "../src/domain/auditHistory";
 import type { AuditEntry, Snapshot } from "../src/domain/model";
 
 // Entries read per request before a page is returned short; only reached when
-// a long run of the caller's own program index is hidden from them.
+// a long run of the caller's own program index is hidden from them. The
+// summary shares it, and says when the period was cut short by it.
 const SCAN_BUDGET = 4000;
+const DAY_MS = 86_400_000;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 type CanSee = (entry: AuditEntry) => boolean;
 type Source = (below: number | undefined) => Promise<Doc<"audit">[]>;
@@ -88,6 +102,46 @@ export const page = query({
   },
 });
 
+/**
+ * Summarizes the program's change log over a period for the weekly review:
+ * per-actor counts by action family, notable events and refused sign-ins
+ * (src/domain/auditSummary), from the same entries History pages. Days are
+ * the server's (UTC) dates of each entry.
+ *
+ * @param programUuid - The caller's active Flight Program.
+ * @param from - The first day, as an ISO date.
+ * @param to - The last day, inclusive.
+ * @returns The summary, and `truncated: true` when 4,000 entries were read
+ *   before the period's start was reached, so older entries in it are not
+ *   counted; narrow the period in that case.
+ * @throws {ConvexError} "Flight Program administrator required."; "Choose a
+ *   start and end date." for a date that is not YYYY-MM-DD; "Choose a start
+ *   date on or before the end date."
+ * @throws As `checkContext`, first.
+ */
+export const summary = query({
+  args: {
+    programUuid: v.optional(v.string()),
+    from: v.string(),
+    to: v.string(),
+  },
+  handler: async (ctx, args): Promise<AuditSummaryResult> => {
+    const { state, canSee } = await visibility(ctx, args.programUuid);
+    if (!programPermission(state, "admin"))
+      throw new ConvexError("Flight Program administrator required.");
+    const period = parsePeriod(args);
+    const sources = selectSources(ctx, state, canSee, {}, MAX_AUDIT_PAGE_SIZE);
+    const scan = await scanPeriod(sources, canSee, period);
+    const entries = scan.rows.map(
+      ({ _id, _creationTime, ...entry }): AuditEntry => entry,
+    );
+    return {
+      summary: summarizeAudit(entries, period),
+      truncated: scan.truncated,
+    };
+  },
+});
+
 // The same records the snapshot loads to decide which history entries a
 // caller may read.
 async function visibility(ctx: QueryCtx, programUuid?: string) {
@@ -123,6 +177,14 @@ async function visibility(ctx: QueryCtx, programUuid?: string) {
       ),
     }),
   };
+}
+
+function parsePeriod(period: SummaryPeriod): SummaryPeriod {
+  if (!ISO_DATE.test(period.from) || !ISO_DATE.test(period.to))
+    throw new ConvexError("Choose a start and end date.");
+  if (period.from > period.to)
+    throw new ConvexError("Choose a start date on or before the end date.");
+  return { from: period.from, to: period.to };
 }
 
 function parseCursor(cursor: string | null): number | undefined {
@@ -214,6 +276,30 @@ async function scanVisible(
     floor = edge;
   }
   return { visible, exhausted, floor };
+}
+
+// Reads rounds from just after the period's last day down to its first day,
+// by creation time (written in the same mutation as `at`, so the two agree),
+// until every source is exhausted or the budget is spent.
+async function scanPeriod(
+  sources: Source[],
+  canSee: CanSee,
+  period: SummaryPeriod,
+): Promise<{ rows: Doc<"audit">[]; truncated: boolean }> {
+  const start = Date.parse(period.from + "T00:00:00Z");
+  const rows: Doc<"audit">[] = [];
+  let floor = Date.parse(period.to + "T00:00:00Z") + DAY_MS;
+  let scanned = 0;
+  while (floor > start) {
+    if (scanned >= SCAN_BUDGET) return { rows, truncated: true };
+    const batches = await Promise.all(sources.map((s) => s(floor)));
+    scanned += batches.reduce((sum, b) => sum + b.length, 0);
+    const edge = findCompleteEdge(batches, MAX_AUDIT_PAGE_SIZE);
+    rows.push(...mergeCompleteRows(batches, edge).filter(canSee));
+    if (edge === undefined) break;
+    floor = edge;
+  }
+  return { rows, truncated: false };
 }
 
 // Rows at or above the newest last row of any full batch are complete: no

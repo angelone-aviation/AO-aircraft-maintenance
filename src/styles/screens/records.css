@@ -59,6 +59,28 @@
   padding: 7px 13px;
 }
 
+/* ---------- Change history: weekly summary ---------- */
+.rec-period {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rec-period label {
+  color: var(--faint);
+  font-size: 13px;
+}
+.rec-summary-table {
+  min-width: 720px;
+}
+.rec-summary-table th[scope="row"] {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
 /* ---------- Flight log: table card (≥760px) ---------- */
 .rec-table-card {
   background: var(--surface);

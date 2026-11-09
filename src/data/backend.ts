@@ -27,6 +27,7 @@ import type {
 } from "../domain/aircraftSpruce";
 import type { ADCommand } from "../domain/airworthiness";
 import type { AuditPage, AuditPageRequest } from "../domain/auditHistory";
+import type { AuditSummaryResult, SummaryPeriod } from "../domain/auditSummary";
 import type {
   Certification,
   CertificationFile,
@@ -627,6 +628,14 @@ export interface Backend {
    */
   auditPage(request: AuditPageRequest): Promise<AuditPage>;
   /**
+   * Flight Program administrators: the weekly summary of the active program's
+   * change log over a period (src/domain/auditSummary), with `truncated` set
+   * when the server's scan budget cut the period short.
+   *
+   * @param period - The first and last day, inclusive, as ISO dates.
+   */
+  auditSummary(period: SummaryPeriod): Promise<AuditSummaryResult>;
+  /**
    * Lists the keys of the alerts the signed-in user has marked read.
    *
    * @param programUuid - The Flight Program, or undefined outside one.
@@ -1029,6 +1038,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
   return {
     auditPage: (request) =>
       client.query(api.auditHistory.page, inProgram(request)),
+    auditSummary: (period) =>
+      client.query(api.auditHistory.summary, inProgram(period)),
     alertReads: (programUuid) =>
       client.query(api.alerts.readKeys, { programUuid }),
     markAlertsRead: (programUuid, keys, all) =>

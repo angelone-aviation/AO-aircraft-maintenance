@@ -460,6 +460,9 @@ const CASES: Case[] = [
   callQuery(api.auditHistory.page, "its own history", () =>
     stampB({ cursor: null, numItems: 50 }),
   ).returns(expect.objectContaining({ page: [] })),
+  callQuery(api.auditHistory.summary, "its own week", () =>
+    stampB({ from: "2026-01-01", to: "2026-12-31" }),
+  ).returns(expect.objectContaining({ truncated: false })),
   callQuery(api.alerts.readKeys, "program A", () => IN_A).refuses(
     STALE_PROGRAM,
   ),

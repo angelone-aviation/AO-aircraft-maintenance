@@ -4,8 +4,8 @@
  * Layer: UI. Screens over the workspace snapshot; holds no business rules.
  * Dependencies: src/data (store, auditHistory, pendingEntries), src/domain
  *   (model, programs, pilotView, flights, flightFluids, deferrals,
- *   auditHistory), ./design, ./ui and the flight, deferral, parts, task card
- *   and work order components.
+ *   auditHistory), ./design, ./ui, ./AuditSummary and the flight, deferral,
+ *   parts, task card and work order components.
  */
 import "../styles/screens/records.css";
 import { isPilotView } from "../domain/pilotView";
@@ -14,6 +14,7 @@ import { FlightFluidSummary } from "./FlightFluids";
 import { DiscrepancyParts } from "./RequiredParts";
 import { LinkedTaskCards } from "./TaskCards";
 import { AddToWorkOrder } from "./WorkOrders";
+import { WeeklySummary } from "./AuditSummary";
 import { programPermission } from "../domain/programs";
 import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -1290,25 +1291,49 @@ function discardEntry(uuid: string, discard: Workspace["discard"]) {
 
 /**
  * The program's append-only change history, newest first, for all records or
- * one aircraft, loaded a page at a time.
+ * one aircraft, loaded a page at a time; Flight Program administrators also
+ * get the Weekly summary tab (src/components/AuditSummary.tsx).
  *
  * @returns The entries with their reasons and recorded values. Offline it
  *   lists only the recent changes saved on this device.
  */
 export function History() {
   const { snapshot: s } = useWorkspace();
-  const filterId = useId();
-  const [aircraftUuid, setAircraftUuid] = useState("");
-  const history = useAuditHistory({ aircraftUuid: aircraftUuid || undefined });
+  const [tab, setTab] = useState<"log" | "summary">("log");
+  const admin = programPermission(s!, "admin");
   return (
     <>
       <PageHeader
         eyebrow="AUDIT"
         title="Change history"
         description="An append-only record of submissions, corrections, and administrative changes."
+        actions={
+          admin && (
+            <Segmented
+              label="History view"
+              options={[
+                { value: "log", label: "Change log" },
+                { value: "summary", label: "Weekly summary" },
+              ]}
+              value={tab}
+              onChange={(value) => setTab(value as "log" | "summary")}
+            />
+          )
+        }
       />
+      {admin && tab === "summary" ? <WeeklySummary /> : <ChangeLog s={s!} />}
+    </>
+  );
+}
+
+function ChangeLog({ s }: { s: Snapshot }) {
+  const filterId = useId();
+  const [aircraftUuid, setAircraftUuid] = useState("");
+  const history = useAuditHistory({ aircraftUuid: aircraftUuid || undefined });
+  return (
+    <>
       <AircraftFilter
-        s={s!}
+        s={s}
         id={filterId}
         aircraftUuid={aircraftUuid}
         onChange={setAircraftUuid}
@@ -1321,7 +1346,7 @@ export function History() {
       )}
       <ListCard className="rec-list-card">
         {history.entries.map((entry) => (
-          <AuditRow key={entry.uuid} s={s!} entry={entry} />
+          <AuditRow key={entry.uuid} s={s} entry={entry} />
         ))}
         {!history.entries.length && history.isDone && (
           <EmptyState title="No changes recorded yet">

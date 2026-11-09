@@ -142,6 +142,10 @@ _Avoid_: edit, amendment, update (for a record change)
 The record of who changed what and when, with before and after state and the reason.
 _Avoid_: log (bare), history (bare)
 
+**Weekly summary**:
+The Flight Program administrator's review of a period of the change log: entries counted by person and action family, the notable events (dispatch overrides, permission and account changes, archives, corrections) and the number of refused sign-ins.
+_Avoid_: audit report, activity digest
+
 **Command**:
 A validated request to change records in one step, carrying a request id so that repeating it has no further effect.
 _Avoid_: mutation (for the request), action, operation (reserved for offline flight and discrepancy entries)
