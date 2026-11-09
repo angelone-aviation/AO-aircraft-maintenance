@@ -45,6 +45,7 @@ import {
   componentSetupDocs,
   inspectionTemplateDocs,
   costDocs,
+  expiringItemDocs,
 } from "./programContext";
 import {
   auditRow,
@@ -296,6 +297,7 @@ export interface LoadedDocs {
   componentSetups: Doc<"componentSetups">[];
   inspectionTemplates: Doc<"inspectionTemplates">[];
   costs: Doc<"costs">[];
+  expiringItems: Doc<"expiringItems">[];
 }
 
 /** The name of a collection {@link hydrate} can load. */
@@ -452,6 +454,15 @@ const HYDRATORS: Record<Need, Hydrator> = {
   costs: async (ctx, { program, aircraft }, { docs, snapshot }) => {
     docs.costs = await costDocs(ctx, program, aircraft);
     snapshot.costs = decode("costs", docs.costs);
+  },
+  // The deployment's own dates load only for a system administrator.
+  expiringItems: async (ctx, { program }, { docs, snapshot }) => {
+    docs.expiringItems = await expiringItemDocs(
+      ctx,
+      program,
+      snapshot.user.isAdmin,
+    );
+    snapshot.expiringItems = decode("expiringItems", docs.expiringItems);
   },
 };
 

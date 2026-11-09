@@ -72,6 +72,8 @@ import type { LinkedIdentity } from "../domain/signInMethods";
 import type { TaskCardCommand, TaskEvidence } from "../domain/taskCards";
 import type { TaskCsvImport } from "../domain/taskCsv";
 import type { WorkOrderCommand } from "../domain/workOrders";
+import type { ExpiringCommand } from "../domain/expiringItems";
+import type { PushSubscriptionInput } from "../domain/pushSubscription";
 
 /**
  * Every server read and write the screens make beyond the snapshot. Two
@@ -656,6 +658,36 @@ export interface Backend {
   /** Turns the signed-in user's alert emails on or off; no change-log row. */
   setAlertEmails(enabled: boolean): Promise<unknown>;
   /**
+   * Turns the signed-in user's immediate emails for urgent alerts (GLOSSARY
+   * "Urgent alert") on or off; no change-log row.
+   */
+  setUrgentAlertEmails(enabled: boolean): Promise<unknown>;
+  /**
+   * Saves or archives an expiring date (GLOSSARY "Expiring date"): the active
+   * Flight Program's for its administrators, the deployment's own for system
+   * administrators. Writes an `expiring-date.saved` or
+   * `expiring-date.archived` change-log row.
+   */
+  expiringDate(command: ExpiringCommand): Promise<unknown>;
+  /**
+   * The public key this device subscribes to urgent alerts with.
+   *
+   * @returns "" when the deployment cannot send push messages, as the demo
+   *   never can.
+   */
+  pushPublicKey(): Promise<string>;
+  /**
+   * Asks for urgent alerts on this device; the subscription belongs to the
+   * signed-in account. No change-log row. The demo records nothing.
+   */
+  subscribePush(input: PushSubscriptionInput): Promise<unknown>;
+  /**
+   * Stops urgent alerts on this device. No change-log row.
+   *
+   * @param endpoint - The subscription's endpoint, from the browser.
+   */
+  unsubscribePush(endpoint: string): Promise<unknown>;
+  /**
    * System administrators: the newest nightly off-site backup (ADR-0008);
    * null before the first one, and always in the demo.
    */
@@ -1046,6 +1078,18 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.mutation(api.alerts.markRead, { programUuid, keys, all }),
     setAlertEmails: (enabled) =>
       client.mutation(api.alerts.setEmailPreference, { enabled }),
+    setUrgentAlertEmails: (enabled) =>
+      client.mutation(api.urgentAlerts.setUrgentEmailPreference, { enabled }),
+    expiringDate: (command) =>
+      client.mutation(api.expiringItems.save, requestedCommand(command)),
+    pushPublicKey: () => client.query(api.pushSubscriptions.publicKey, {}),
+    subscribePush: (input) =>
+      client.mutation(api.pushSubscriptions.subscribe, inProgram(input)),
+    unsubscribePush: (endpoint) =>
+      client.mutation(
+        api.pushSubscriptions.unsubscribe,
+        inProgram({ endpoint }),
+      ),
     latestOffsiteCopy: () => client.query(api.backups.latestOffsiteCopy, {}),
   } satisfies Partial<Backend>;
 }

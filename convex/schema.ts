@@ -159,6 +159,7 @@ export default defineSchema({
     isAdmin: v.optional(v.boolean()),
     activeProgramUuid: v.optional(v.string()),
     emailAlerts: v.optional(v.boolean()),
+    urgentAlertEmails: v.optional(v.boolean()),
     groupIds: v.optional(v.array(v.id("groups"))),
   }).index("email", ["email"]),
   alertReads: defineTable({
@@ -167,12 +168,39 @@ export default defineSchema({
     key: v.string(),
     readAt: v.number(),
   }).index("user_program", ["userId", "programUuid", "key"]),
+  // One row per alert sent to a member on a channel; rows from before
+  // channels exist have none and count as "digest".
   alertDeliveries: defineTable({
     userId: v.id("users"),
     programUuid: v.string(),
     key: v.string(),
     sentAt: v.number(),
+    channel: v.optional(
+      v.union(v.literal("digest"), v.literal("immediate"), v.literal("push")),
+    ),
   }).index("user_program", ["userId", "programUuid", "key"]),
+  // A device a member asked to be alerted on (Web Push); the endpoint is the
+  // push service's address for that device and browser.
+  pushSubscriptions: defineTable({
+    userId: v.id("users"),
+    programUuid: v.optional(v.string()),
+    endpoint: v.string(),
+    keys: v.object({ p256dh: v.string(), auth: v.string() }),
+    userAgent: v.optional(v.string()),
+    createdAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("user", ["userId"])
+    .index("endpoint", ["endpoint"]),
+  // Expiring dates (insurance, registration, service keys, secrets); a row
+  // without a program is the deployment's own (src/domain/expiringItems.ts).
+  expiringItems: defineTable({
+    uuid: v.string(),
+    programUuid: v.optional(v.string()),
+    payload: v.string(),
+  })
+    .index("uuid", ["uuid"])
+    .index("program", ["programUuid"]),
   // Derived index of users.groupIds (the authorization source of truth),
   // kept in sync by convex/memberships.ts.
   memberships: defineTable({

@@ -21,13 +21,14 @@ flowchart LR
     Fns["queries, mutations, actions"]
     DB[("database<br/>schema.ts")]
     Files[("file storage<br/>manuals, attachments, Form 337s")]
-    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>upload cleanup hourly"]
+    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>urgent alert check 13:10 UTC<br/>upload cleanup hourly"]
   end
   subgraph Ext["Outside services (Convex actions only)"]
     FAA["FAA DRS API"]
     Geo["Geoapify"]
     Spruce["Aircraft Spruce"]
     Resend["Resend email"]
+    Push["Web Push services"]
   end
   subgraph GH["GitHub Actions (.github/workflows)"]
     CI["ci.yml: standards, check,<br/>backup tests, e2e"]
@@ -47,6 +48,7 @@ flowchart LR
   Fns --> Geo
   Fns --> Spruce
   Fns --> Resend
+  Fns --> Push
   Deploy -->|convex deploy| Convex
   Deploy -->|wrangler deploy| Static
   Nightly -->|convex export| Convex
@@ -258,3 +260,4 @@ Decisions ([docs/adr/](docs/adr/)):
 | [0009](docs/adr/0009-password-for-everyone-plus-google-and-microsoft.md) | Everyone keeps a password; Google and Microsoft alongside. |
 | [0010](docs/adr/0010-one-convex-administrator.md) | One Convex administrator. |
 | [0011](docs/adr/0011-readable-records-copy-in-dropbox.md) | Readable records copy in Dropbox. |
+| [0012](docs/adr/0012-urgent-alerts-by-web-push-and-immediate-email.md) | Urgent alerts reach people by Web Push and an immediate email; expiring dates are records. |

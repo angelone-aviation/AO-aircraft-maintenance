@@ -3,9 +3,10 @@
  *   and the problem-report and flight-review mutations.
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   ./programContext, ./access, ./aircraftFiles, ./backups, ./memberships,
- *   ./validators, src/domain (model, programs, flightSubmission, flightReview,
- *   ownerView, boardView, deferrals, requiredParts, aircraftStatus).
+ *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
+ *   ./memberships, ./validators, src/domain (model, programs, flightSubmission,
+ *   flightReview, ownerView, boardView, deferrals, requiredParts,
+ *   aircraftStatus).
  */
 import { v } from "convex/values";
 import {
@@ -37,9 +38,12 @@ import {
   inspectionTemplateDocs,
   costDocs,
   auditDocs,
+  expiringItemDocs,
 } from "./programContext";
 import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
+import { faaCredentialStatus } from "./faaCredentials";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 import { programUsers } from "./memberships";
 import { flightFields, operationValidator } from "./validators";
 import {
@@ -125,6 +129,8 @@ export const snapshot = query({
  * Applies one offline outbox entry, a flight or a problem report, through
  * submitOperation. Idempotent on the entry's uuid. A flight that conflicts
  * with the aircraft is stored held for review, its totals unchanged.
+ * Afterwards the program's urgent alerts are checked
+ * (convex/urgentAlerts.ts).
  *
  * @returns The entry's status.
  * @throws {ConvexError} A FlightRejection's message, the program refusals of
@@ -136,7 +142,7 @@ export const submit = mutation({
   args: { operation: operationValidator },
   handler: async (ctx, { operation: raw }) => {
     const operation = operationSchema.parse(raw);
-    return runCommand(ctx, {
+    const submitted = await runCommand(ctx, {
       programUuid: operation.programUuid,
       parse: () => operation,
       load: ({ ctx, state }) => submissionState(ctx, state, operation),
@@ -152,6 +158,9 @@ export const submit = mutation({
       audit: (log, _, { changes }) => log.replay(changes?.audit ?? []),
       returns: ({ status }) => ({ status }),
     });
+    // New hours or a grounding report can make an alert urgent.
+    await scheduleUrgentAlerts(ctx, operation.programUuid);
+    return submitted;
   },
 });
 
@@ -240,8 +249,8 @@ const reviewArgs = {
  */
 export const reviewFlight = mutation({
   args: reviewArgs,
-  handler: (ctx, { programUuid, requestUuid, ...review }) =>
-    runCommand(ctx, {
+  handler: async (ctx, { programUuid, requestUuid, ...review }) => {
+    await runCommand(ctx, {
       programUuid,
       parse: () => review,
       request: () => requestOf(requestUuid, JSON.stringify(review)),
@@ -250,7 +259,10 @@ export const reviewFlight = mutation({
       persist: ({ ctx }, working, changes) =>
         persistReview(ctx, working, review.uuid, changes),
       audit: (log, _, { audit }) => log.replay(audit),
-    }),
+    });
+    // An accepted held flight adds its hours to the aircraft.
+    await scheduleUrgentAlerts(ctx, programUuid);
+  },
 });
 
 /**
@@ -326,20 +338,15 @@ async function fullSnapshot(
     audit: await auditDocs(ctx, program, aircraft),
     // scopedSnapshot strips rates and money for non-administrators.
     costs: decode("costs", await costDocs(ctx, program, aircraft)),
+    expiringItems: decode(
+      "expiringItems",
+      await expiringItemDocs(ctx, program, user.isAdmin === true),
+    ),
     aircraft: aircraft.map((a) => ({
       ...a,
       program:
         state.programs.find((p) => p.uuid === a.programUuid)?.name ?? a.program,
     })),
-  };
-}
-
-async function faaCredentialStatus(ctx: QueryCtx) {
-  const credential = await ctx.db.query("faaCredentials").unique();
-  return {
-    configured: !!(credential?.key || process.env.FAA_DRS_API_KEY),
-    expiresOn: credential?.expiresOn || "",
-    version: credential?.version ?? 0,
   };
 }
 

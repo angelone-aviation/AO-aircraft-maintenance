@@ -1,10 +1,11 @@
 /**
  * Responsibility: Builds and serves the app: the eval-free zod alias, the
- *   PDF.js files published beside the bundle, the offline PWA, and Sentry
- *   source maps when the release build has an upload token.
+ *   PDF.js files published beside the bundle, the offline PWA from its own
+ *   service worker (src/sw.ts), and Sentry source maps when the release
+ *   build has an upload token.
  * Layer: Config. Build tooling only; nothing here ships in the bundle.
  * Dependencies: vite, @vitejs/plugin-react, vite-plugin-pwa,
- *   @sentry/vite-plugin, pdfjs-dist, src/cspSafeZod.ts,
+ *   @sentry/vite-plugin, pdfjs-dist, src/cspSafeZod.ts, src/sw.ts,
  *   src/data/pdfCompatibility.js.
  */
 import { readFileSync, readdirSync } from "node:fs";
@@ -65,6 +66,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "prompt",
+      // Our own worker (src/sw.ts): the same caching generateSW produced,
+      // plus the push handlers for urgent alerts (ADR-0012).
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       includeAssets: ["icon.svg", "apple-touch-icon.png"],
       manifest: {
         name: "Angel One Aircraft Operations",
@@ -96,12 +102,13 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ["**/*.{js,mjs,css,html,png,svg,woff2,ttf,wasm}"],
         // Keep the install download small on older phones: the PDF viewer,
         // PDF export and the print font are cached the first time they are
-        // used online instead of at install. Screens and the QR scanner stay
-        // precached so the app still works offline out of the box.
+        // used online instead of at install (src/sw.ts). Screens and the QR
+        // scanner stay precached so the app still works offline out of the
+        // box.
         globIgnores: [
           "pdfjs/**",
           "fonts/*.ttf",
@@ -109,26 +116,6 @@ export default defineConfig({
           "assets/jspdf*.js",
           "assets/html2canvas-*.js",
         ],
-        runtimeCaching: [
-          {
-            // Workbox copies this function's source into sw.js, so it must
-            // not use names from this file.
-            urlPattern: ({ url }) =>
-              url.pathname.startsWith("/pdfjs/") ||
-              url.pathname.startsWith("/fonts/") ||
-              /^\/assets\/(pdfRuntime-|jspdf|html2canvas-)/.test(url.pathname),
-            handler: "CacheFirst",
-            options: {
-              cacheName: "on-demand-documents",
-              expiration: { maxEntries: 40 },
-            },
-          },
-        ],
-        navigateFallback: "/index.html",
-        // security.txt and the disclosure policy (SECURITY.md) must open as
-        // themselves even in an installed app, not as the app shell.
-        navigateFallbackDenylist: [/^\/\.well-known\//],
-        cleanupOutdatedCaches: true,
         // Otherwise it follows build.sourcemap and publishes sw.js with a
         // visible map; the worker runs no Sentry code, so it needs none.
         sourcemap: false,

@@ -2,9 +2,9 @@
  * Responsibility: Flight Program access: the programs a user belongs to, the
  *   active one, their permissions in it, and the snapshot they may read.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/model.ts and management.ts (types), adOwnership.ts,
- *   ownerView.ts, boardView.ts, partsRequests.ts, requiredParts.ts,
- *   rejection.ts.
+ * Dependencies: src/domain/model.ts, management.ts and expiringItems.ts
+ *   (types), adOwnership.ts, ownerView.ts, boardView.ts, partsRequests.ts,
+ *   requiredParts.ts, rejection.ts.
  *
  * The snapshot query and the demo adapter both send scopedSnapshot(), so what
  * it strips never reaches the browser.
@@ -21,6 +21,7 @@ import type {
   Permission,
 } from "./model";
 import type { ManagedRecord } from "./management";
+import type { ExpiringItem } from "./expiringItems";
 import { isOwnerView, ownerSnapshot } from "./ownerView";
 import { boardSnapshot, isBoardView } from "./boardView";
 import { Rejection } from "./rejection";
@@ -48,6 +49,7 @@ interface VisibleScope {
   inspectionTemplates: NonNullable<Snapshot["inspectionTemplates"]>;
   partsRequests: NonNullable<Snapshot["partsRequests"]>;
   purchaseOrders: PurchaseOrder[];
+  expiringItems: ExpiringItem[];
   canSeeAudit: (a: AuditEntry) => boolean;
 }
 
@@ -230,6 +232,23 @@ export function recordProgram(
 }
 
 /**
+ * Tells whether the user may see an expiring date: a system administrator for
+ * a system-wide one (no program), a program administrator for the active
+ * program's.
+ *
+ * @param s - The snapshot, for its user and groups.
+ * @param item - The expiring date's program, if any.
+ * @returns True when the user may see it.
+ */
+export function canSeeExpiringItem(
+  s: Snapshot,
+  item: Pick<ExpiringItem, "programUuid">,
+): boolean {
+  if (item.programUuid === undefined) return s.user.isAdmin && s.user.active;
+  return item.programUuid === activeProgram(s) && programPermission(s, "admin");
+}
+
+/**
  * The change-log filter scopedSnapshot applies, for history read page by
  * page.
  *
@@ -295,6 +314,9 @@ function visibleScope(s: Snapshot): VisibleScope {
       canSeeRequest(r, ids, admin),
     ),
     purchaseOrders: admin ? keepActiveProgram(s, s.purchaseOrders) : [],
+    expiringItems: (s.expiringItems ?? []).filter((i) =>
+      canSeeExpiringItem(s, i),
+    ),
   };
   return { ...scope, canSeeAudit: buildAuditFilter(s, scope) };
 }
@@ -429,6 +451,7 @@ function collectVisibleEntities(
     ...scope.componentSetups,
     ...scope.inspectionTemplates,
     ...scope.management,
+    ...scope.expiringItems,
     ...(s.programs?.filter((p) => p.uuid === scope.active) ?? []),
   ];
   return new Set(records.map((r) => r.uuid));
@@ -447,6 +470,7 @@ function scopeAccountData(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
     activeProgramUuid: scope.active,
     programs: scopePrograms(s, scope.active),
     aircraft: scope.aircraft,
+    expiringItems: scope.expiringItems,
   };
 }
 

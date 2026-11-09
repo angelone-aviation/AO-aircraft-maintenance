@@ -41,6 +41,7 @@ export function member(user: Doc<"users">): Member {
     certificateType: user.certificateType,
     activeProgramUuid: user.activeProgramUuid,
     emailAlerts: user.emailAlerts,
+    urgentAlertEmails: user.urgentAlertEmails,
     id: user._id,
     name: user.name ?? "Unnamed user",
     email: user.email ?? "",

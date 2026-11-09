@@ -28,6 +28,7 @@ import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
 import { costRecordSchema } from "../src/domain/costs";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { flightPlanSchema } from "../src/domain/flightPlans";
+import { expiringItemSchema } from "../src/domain/expiringItems";
 
 /** A Snapshot collection stored as one JSON payload per row. */
 export type PayloadCollection =
@@ -44,7 +45,8 @@ export type PayloadCollection =
   | "inspectionTemplates"
   | "costs"
   | "faaMonitors"
-  | "flightPlans";
+  | "flightPlans"
+  | "expiringItems";
 
 /** One record of a payload collection, as the Snapshot holds it. */
 export type StoredRecord<N extends PayloadCollection> = NonNullable<
@@ -136,6 +138,7 @@ const SCHEMAS: { [N in PayloadCollection]: Schema<StoredRecord<N>> } = {
   costs: costRecordSchema,
   faaMonitors: faaMonitorSchema,
   flightPlans: flightPlanSchema,
+  expiringItems: expiringItemSchema,
 };
 
 type Encoder<N extends PayloadCollection> = (
@@ -216,6 +219,11 @@ const ENCODERS: { [N in PayloadCollection]: Encoder<N> } = {
   flightPlans: (r, payload) => ({
     uuid: r.uuid,
     aircraftUuid: r.aircraftUuid,
+    payload,
+  }),
+  expiringItems: (r, payload) => ({
+    uuid: r.uuid,
+    programUuid: r.programUuid,
     payload,
   }),
 };

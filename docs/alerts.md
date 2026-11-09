@@ -1,0 +1,35 @@
+# Alerts, urgent alerts and expiring dates
+
+Alerts tell a member what needs attention in their Flight Program: inspections, ADs and component limits coming due or passed, grounded aircraft, their own certificates, FAA documents to review, and expiring dates. They appear under the bell in the header and on the **Alerts** page for everyone who can read the aircraft concerned, including in demo mode. The rules live in `src/domain/alerts.ts`; the bell and the page compute alerts from the workspace snapshot, so they work offline from the last snapshot.
+
+Each alert has a key that changes when its substance changes (the record, the due point). Read marks and sent emails are kept by key, so a changed alert is unread again and is emailed again.
+
+## How alerts reach people
+
+| Channel              | What goes out                                                                   | Who gets it                                                                                                                            | When                                                                |
+| -------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Bell and Alerts page | Every alert                                                                     | Everyone with read access to the aircraft (program dates: program administrators; system dates: system administrators)                 | Always                                                              |
+| Daily digest email   | Every alert not yet emailed in a digest, grouped by severity, at most 50 listed | Members whose **Email me a daily alert digest** is on (default on for Flight Program administrators)                                   | 13:00 UTC                                                           |
+| Urgent alert email   | New **urgent alerts** not yet emailed on any channel, at most 10 listed         | Members whose **Email me urgent alerts at once** is on (default on for program administrators and members with maintenance permission) | Right after the change that caused them, and after the daily digest |
+| Alert on this device | The same new urgent alerts as a push message, one card per program              | Devices a member switched on under **Settings → This device → Alert this device**                                                      | Right after the change, with the urgent email                       |
+
+**Urgent alerts** are the kinds that need action now: an aircraft grounded, an inspection or AD overdue, a component past its limit, a date expired (`URGENT_ALERT_KINDS`). Everything else waits for the digest.
+
+The urgent check (`convex/urgentAlerts.ts`) is scheduled by the mutations that can create an urgent state: a flight or problem report synced, a held flight accepted, an inspection, component or AD saved, a work order saved or closed, an aircraft or program saved, an expiring date saved. It recomputes the program's alerts for each member, from what that member's groups let them see, and sends only what is new to them. Before an email or push message is sent the alerts are **claimed** in `alertDeliveries` with their channel (`immediate` or `push`); the claim is released if the provider refuses, so the next check tries again. A member who gets the digest is not emailed at once for an alert the digest already listed; the digest still lists alerts that went out at once, as the day's summary.
+
+Email goes through Resend, whose free tier sends **100 emails a day**. Immediate emails stop at **60 a day** for the whole deployment (`IMMEDIATE_EMAILS_PER_DAY`), counted in the `rateLimits` table under `alerts:immediate` and reset at 00:00 UTC, so the digest always fits. A capped alert waits for the digest; the check reports how many it held back. With more than 40 digest recipients, lower the cap or move Resend to a paid plan ([monitoring runbook](runbooks/monitoring.md)).
+
+Push messages use Web Push (RFC 8030, 8291, 8292) straight from a Convex Node action, with the VAPID keys in the Convex environment ([ADR-0012](adr/0012-urgent-alerts-by-web-push-and-immediate-email.md), [setup](runbooks/monitoring.md#alerts-by-email-and-on-devices)). Until `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` are set, the switch does not appear and nothing is sent. A device subscription belongs to the account, not to one Flight Program; whoever signs in on the device and switches alerts on takes it over. A push service that reports the subscription gone (404 or 410) has it removed. The message carries the program name, the alert titles and the path to open, encrypted for the device; logs name the user id, never the endpoint or the text. On iPhone and iPad the app must be added to the Home Screen first (iOS 16.4 or later).
+
+Privacy rules are the digest's: each member's alerts are computed from a snapshot scoped to their own groups, record text is escaped in HTML and flattened to one line in text, and a failed send logs the user id only.
+
+## Expiring dates
+
+An **expiring date** is a renewal the program or the deployment must not miss: insurance, registration, a service key, a client secret, or anything else. Each has a label, a kind, the date, how many days before it to warn (60 by default, up to 730), an optional note, and for a program's dates an optional aircraft.
+
+- **Settings → Flight Program → Expiring dates** holds the active program's dates. Flight Program administrators see, add, edit and archive them.
+- **Settings → System → Expiring dates** holds the deployment's own: the Cloudflare API token, the Microsoft Entra client secret, `security.txt`, the VAPID keys. Only system administrators see them. The FAA DRS API key appears here as a read-only row from its own renewal date, updated under **FAA API key and renewal**.
+
+A date alerts from its warning window (`date-expiring`, coming due) and from the day after it passes (`date-expired`, action required, urgent), to the same people who see the list. Archiving hides a date and stops its alerts; the record and its change-log rows (`expiring-date.saved`, `expiring-date.archived`) are kept. Saving a date someone else changed is refused ("This expiring date changed. Refresh and try again."); a date never moves between programs.
+
+Dates are stored in `expiringItems` as JSON payloads (`src/domain/expiringItems.ts`), scoped like every other record: a member outside the program, or without administrator permission, never receives them in the snapshot.

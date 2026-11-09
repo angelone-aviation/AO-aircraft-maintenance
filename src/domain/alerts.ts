@@ -1,9 +1,10 @@
 /**
  * Responsibility: The maintenance alerts a user sees for their Flight
- *   Program, and whether they want them emailed.
+ *   Program, which of them are urgent, and whether they want them emailed.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./aircraftStatus, ./certifications, ./components,
- *   ./dueItems, ./faaCandidateReview, ./maintenance; ./airworthiness (types).
+ *   ./dueItems, ./expiringItems, ./faaCandidateReview, ./maintenance;
+ *   ./airworthiness (types).
  */
 import { aircraftStatus } from "./aircraftStatus";
 import type { AD, ADTask } from "./airworthiness";
@@ -20,6 +21,13 @@ import {
   type InspectionDue,
   type MaintenanceDue,
 } from "./dueItems";
+import {
+  daysUntil,
+  expiringKindLabels,
+  expiringStatus,
+  listExpiringItems,
+  type ExpiringItem,
+} from "./expiringItems";
 import { monitoringReviewCandidates } from "./faaCandidateReview";
 import { inspectionDueDate } from "./maintenance";
 import {
@@ -42,13 +50,16 @@ export type AlertKind =
   | "certificate-expiring"
   | "certificate-expired"
   | "faa-ad-review"
-  | "aircraft-grounded";
+  | "aircraft-grounded"
+  | "date-expiring"
+  | "date-expired";
 
 /** How urgent an alert is, as {@link severityLabels} names it. */
 export type AlertSeverity = "info" | "warning" | "danger";
 
 /** The screen an alert opens. */
-export type AlertLink = "/" | "/inspections" | "/airworthiness" | "/components";
+export type AlertLink =
+  "/" | "/inspections" | "/airworthiness" | "/components" | "/settings";
 
 /** One alert, shown in the app and sent in the email digest. */
 export interface Alert {
@@ -75,6 +86,19 @@ export const severityLabels: Record<AlertSeverity, string> = {
 
 /** A certificate alerts from this many days before it expires. */
 export const CERTIFICATE_WARNING_DAYS = 30;
+
+/**
+ * The alerts that reach people at once (GLOSSARY "Urgent alert"): an
+ * aircraft that may not fly, a limit already passed, a date already expired.
+ * Everything else waits for the daily digest.
+ */
+export const URGENT_ALERT_KINDS: readonly AlertKind[] = [
+  "aircraft-grounded",
+  "inspection-overdue",
+  "ad-overdue",
+  "component-past-due",
+  "date-expired",
+];
 
 /**
  * The AD statuses whose actions never alert. Any other AD alerts on each
@@ -126,6 +150,7 @@ export function computeAlerts(s: Snapshot, today: string): Alert[] {
     ...certificateAlerts(s, today),
     ...faaReviewAlerts(s),
     ...groundedAlerts(s, today),
+    ...expiringDateAlerts(s, today),
   ].sort(
     (x, y) =>
       SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
@@ -158,6 +183,42 @@ export function wantsAlertEmails(
         user.groupIds.includes(g.id),
     )
   );
+}
+
+/**
+ * Whether a member gets urgent alerts by email as soon as they arise.
+ *
+ * @param user - The member; `urgentAlertEmails` is their explicit choice.
+ * @param groups - The permission groups.
+ * @param programUuid - The program.
+ * @returns The explicit choice; without one, true for a member of a program
+ *   administrator group, or of a group with maintenance permission, with
+ *   read access in that program.
+ */
+export function wantsUrgentAlertEmails(
+  user: Pick<Member, "urgentAlertEmails" | "groupIds">,
+  groups: Group[],
+  programUuid: string | undefined,
+) {
+  return (
+    user.urgentAlertEmails ??
+    groups.some(
+      (g) =>
+        g.programUuid === programUuid &&
+        g.permissions.includes("read") &&
+        user.groupIds.includes(g.id) &&
+        (g.programAdmin || g.permissions.includes("maintenance")),
+    )
+  );
+}
+
+/**
+ * The urgent alerts among a list, in the list's order.
+ *
+ * @returns Those whose kind is in {@link URGENT_ALERT_KINDS}.
+ */
+export function urgentAlerts<T extends Pick<Alert, "kind">>(alerts: T[]): T[] {
+  return alerts.filter((a) => URGENT_ALERT_KINDS.includes(a.kind));
 }
 
 const alertKey = (kind: AlertKind, ...parts: unknown[]) =>
@@ -427,4 +488,45 @@ function groundedAlerts(s: Snapshot, today: string): Alert[] {
       },
     ];
   });
+}
+
+// System-wide dates alert system administrators, a program's dates its
+// administrators (listExpiringItems applies both rules).
+function expiringDateAlerts(s: Snapshot, today: string): Alert[] {
+  return [
+    ...listExpiringItems(s, "system"),
+    ...listExpiringItems(s, "program"),
+  ].flatMap((item): Alert[] => {
+    const status = expiringStatus(item, today);
+    if (status === "ok") return [];
+    return [expiringDateAlert(s, item, status === "expired", today)];
+  });
+}
+
+function expiringDateAlert(
+  s: Snapshot,
+  item: ExpiringItem,
+  expired: boolean,
+  today: string,
+): Alert {
+  const kind = expired ? "date-expired" : "date-expiring";
+  const remaining = daysUntil(today, item.expiresOn);
+  const aircraft = s.aircraft.find((a) => a.uuid === item.aircraftUuid);
+  return {
+    key: alertKey(kind, item.uuid, item.expiresOn),
+    kind,
+    severity: expired ? "danger" : "warning",
+    title: `${item.label} ${expired ? "expired" : "expires"} on ${item.expiresOn}`,
+    detail: joinDetail(
+      expiringKindLabels[item.kind],
+      aircraft?.registration,
+      expired
+        ? "Renew it, then record the new date under Expiring dates in Settings."
+        : `${remaining} day${remaining === 1 ? "" : "s"} remaining.`,
+    ),
+    aircraftUuid: aircraft?.uuid,
+    entityUuid: item.uuid,
+    dueDate: item.expiresOn,
+    link: "/settings",
+  };
 }

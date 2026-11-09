@@ -107,6 +107,7 @@ import {
   defaultEngineLimits,
 } from "../domain/engineTrends";
 import { applyManagement } from "../domain/management";
+import { applyExpiringCommand } from "../domain/expiringItems";
 import { ConvexError } from "convex/values";
 import type { AuditEntry, Discrepancy, Snapshot } from "../domain/model";
 import { can, localDate } from "../domain/model";
@@ -1177,6 +1178,26 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const before = all ? [] : ((await local.readFavorites(key)) ?? []);
       await local.saveFavorites(key, [...new Set([...before, ...keys])]);
     },
+    setUrgentAlertEmails: (urgentAlertEmails) =>
+      modify((s) => {
+        s.user = { ...s.user, urgentAlertEmails };
+        s.members = s.members.map((m) =>
+          m.id === s.user.id ? { ...m, urgentAlertEmails } : m,
+        );
+      }),
+    expiringDate: (command) =>
+      modify((s) => {
+        if (
+          command.requestUuid &&
+          s.audit.some((a) => a.uuid === command.requestUuid)
+        )
+          return;
+        applyExpiringCommand(s, command);
+      }),
+    // The demo runs in the browser alone, so no push service can reach it.
+    pushPublicKey: async () => "",
+    subscribePush: async () => undefined,
+    unsubscribePush: async () => undefined,
     setAlertEmails: (emailAlerts) =>
       modify((s) => {
         s.user = { ...s.user, emailAlerts };
