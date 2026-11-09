@@ -581,6 +581,20 @@ const refusals: [string, (s: Snapshot, r: AD) => () => unknown][] = [
     (s, r) => saveAD(s, { ...r, aircraftUuid: s.aircraft[1].uuid }),
   ],
   [
+    "AD changed. Reload before saving.",
+    (s, r) => saveAD(s, { ...r, version: r.version + 1 }),
+  ],
+  [
+    "AD changed. Reload before saving.",
+    (s, r) => () =>
+      applyADCommand(s, {
+        kind: "comply",
+        uuid: r.uuid,
+        version: stored(s, r).version + 1,
+        entry: entry(r.tasks[0].uuid),
+      }),
+  ],
+  [
     "Record the reason for changing this AD.",
     (s, r) => () => applyADCommand(s, { kind: "save", record: r }),
   ],
