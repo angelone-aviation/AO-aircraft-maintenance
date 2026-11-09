@@ -7,8 +7,9 @@
  *   src/data (store, deviceManuals, pendingEntries), src/domain (alerts,
  *   certifications, costs, csv, model, offsiteBackups, pilotView, programs),
  *   the panels it embeds (./AddressVerificationSettings, ./AircraftSpruce,
- *   ./DemoBackup, ./FaaKeySettings, ./Fleet, ./ProgramUsers, ./SignInMethods,
- *   ./UserProfile), ./design, ./ui, src/styles/screens/settings.css.
+ *   ./DemoBackup, ./DeviceAlerts, ./ExpiringDates, ./FaaKeySettings, ./Fleet,
+ *   ./ProgramUsers, ./SignInMethods, ./UserProfile), ./design, ./ui,
+ *   src/styles/screens/settings.css.
  *
  * Every signed-in user except the owner view reaches this page; each section
  * repeats the permission check of the screen its panels came from, so moving
@@ -45,13 +46,12 @@ import {
   WifiSlash,
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
-import type { Backend } from "../data/backend";
 import { formatBytes } from "../data/deviceManuals";
 import { ownEntries } from "../data/pendingEntries";
 import { localDate, type Snapshot } from "../domain/model";
 import { activeProgram, programPermission } from "../domain/programs";
 import { isPilotView } from "../domain/pilotView";
-import { wantsAlertEmails } from "../domain/alerts";
+import { wantsAlertEmails, wantsUrgentAlertEmails } from "../domain/alerts";
 import { offsiteFreshness, type OffsiteCopy } from "../domain/offsiteBackups";
 import {
   certificationLabels,
@@ -86,6 +86,8 @@ import { CsvExportCard } from "./ProgramUsers";
 import { FaaKeySettings } from "./FaaKeySettings";
 import { AddressVerificationSettings } from "./AddressVerificationSettings";
 import { DemoBackup } from "./DemoBackup";
+import { DeviceAlertsBlock } from "./DeviceAlerts";
+import { ExpiringDates } from "./ExpiringDates";
 import "../styles/screens/settings.css";
 
 type SectionKey = "account" | "device" | "program" | "system";
@@ -361,23 +363,37 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
   );
 }
 
-// The same preference, default and backend call as the checkbox in
-// My certifications (alerts.setEmailPreference); online only, like there.
+// The digest switch is the same preference, default and backend call as the
+// checkbox in My certifications (alerts.setEmailPreference); online only,
+// like there. The urgent switch defaults on for administrators and
+// maintenance members (wantsUrgentAlertEmails).
 function AlertEmailBlock({ s }: { s: Snapshot }) {
   const { backend, online, connected } = useWorkspace();
   const live = online && connected;
-  const emailAlerts = wantsAlertEmails(s.user, s.groups, s.activeProgramUuid);
-  const choice = useAlertEmailChoice(backend, emailAlerts);
+  const digest = useEmailChoice(
+    wantsAlertEmails(s.user, s.groups, s.activeProgramUuid),
+    (next) => backend!.setAlertEmails(next),
+  );
+  const urgent = useEmailChoice(
+    wantsUrgentAlertEmails(s.user, s.groups, s.activeProgramUuid),
+    (next) => backend!.setUrgentAlertEmails(next),
+  );
   return (
     <Block
       title="Alert email"
-      description="New maintenance alerts for your Flight Program, sent once a day. Alerts always appear under the bell."
+      description="Alerts always appear under the bell. Email can bring them to you too: new alerts for your Flight Program once a day, and urgent ones (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) as soon as they arise."
     >
       <Switch
         label="Email me a daily alert digest"
-        checked={choice.checked}
-        disabled={!live || choice.saving}
-        onChange={choice.save}
+        checked={digest.checked}
+        disabled={!live || digest.saving}
+        onChange={digest.save}
+      />
+      <Switch
+        label="Email me urgent alerts at once"
+        checked={urgent.checked}
+        disabled={!live || urgent.saving}
+        onChange={urgent.save}
       />
       {!live && (
         <p className="set-hint set-offline">
@@ -385,27 +401,30 @@ function AlertEmailBlock({ s }: { s: Snapshot }) {
           email.
         </p>
       )}
-      {choice.error && (
-        <p role="alert" className="error">
-          {choice.error}
+      {[digest.error, urgent.error].filter(Boolean).map((error) => (
+        <p role="alert" className="error" key={error}>
+          {error}
         </p>
-      )}
+      ))}
     </Block>
   );
 }
 
 // Shows the choice until the snapshot catches up with it, and the stored
 // preference again if saving fails.
-function useAlertEmailChoice(backend: Backend | null, emailAlerts: boolean) {
+function useEmailChoice(
+  stored: boolean,
+  persist: (next: boolean) => Promise<unknown>,
+) {
   const [pending, setPending] = useState<{ value: boolean; was: boolean }>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   async function save(next: boolean) {
     setError("");
     setSaving(true);
-    setPending({ value: next, was: emailAlerts });
+    setPending({ value: next, was: stored });
     try {
-      await backend!.setAlertEmails(next);
+      await persist(next);
     } catch (e) {
       setPending(undefined);
       setError(errorText(e, "Unable to save this setting."));
@@ -413,8 +432,7 @@ function useAlertEmailChoice(backend: Backend | null, emailAlerts: boolean) {
       setSaving(false);
     }
   }
-  const checked =
-    pending && pending.was === emailAlerts ? pending.value : emailAlerts;
+  const checked = pending && pending.was === stored ? pending.value : stored;
   return { checked, saving, error, save };
 }
 
@@ -427,6 +445,7 @@ function DeviceSection() {
   return (
     <Section id="device" index={1}>
       <ThemeBlock />
+      <DeviceAlertsBlock />
       <OfflineDataBlock syncedAt={s.syncedAt} pending={pending} />
       <Block className="set-block-note">
         <p className="set-note">
@@ -518,6 +537,7 @@ function ProgramSection() {
             onEdit={() => setEditing(true)}
           />
           <LaborRateSettings s={s} />
+          <ExpiringDates scope="program" />
           <div className="set-block set-embed">
             <AircraftSpruceAccount />
           </div>
@@ -715,6 +735,7 @@ function SystemSection() {
       <div className="set-block set-embed">
         <AddressVerificationSettings />
       </div>
+      <ExpiringDates scope="system" />
       <OffsiteBackups />
       <BackupExport s={s} />
       <div className="set-block set-embed">
@@ -723,9 +744,9 @@ function SystemSection() {
       <Block title="Set by your deployment">
         <p className="set-hint">
           Some settings are configured by whoever deploys Angel One, not in the
-          app: email sending through Resend, the site address used in links
-          (SITE_URL) and the credential encryption key. See “Deployment” in the
-          README.
+          app: email sending through Resend, the push keys for alerts on devices
+          (VAPID), the site address used in links (SITE_URL) and the credential
+          encryption key. See “Deployment” in the README.
         </p>
       </Block>
     </Section>
