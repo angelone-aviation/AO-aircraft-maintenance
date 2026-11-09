@@ -24,7 +24,7 @@ import {
 import { localDate, type Snapshot } from "../domain/model";
 import { validationText } from "../domain/validationText";
 import { ListRow, StatusPill, type Tone } from "./design";
-import { AsyncForm, Field, Modal, value } from "./ui";
+import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import { ZodError } from "zod";
 
 /** Whose dates the block lists. */
@@ -61,21 +61,7 @@ export function ExpiringDates({ scope }: { scope: ExpiringScope }) {
     <div className="set-block">
       <h3>Expiring dates</h3>
       <p className="set-hint">{DESCRIPTIONS[scope]}</p>
-      {items.length ? (
-        <div className="set-dates">
-          {items.map((item) => (
-            <ExpiringRow
-              key={item.uuid}
-              s={s}
-              item={item}
-              live={live}
-              onEdit={() => setEditing(item)}
-            />
-          ))}
-        </div>
-      ) : (
-        <p className="set-empty">No expiring dates recorded.</p>
-      )}
+      <ExpiringList s={s} items={items} live={live} onEdit={setEditing} />
       <div className="set-actions">
         <button
           type="button"
@@ -99,6 +85,34 @@ export function ExpiringDates({ scope }: { scope: ExpiringScope }) {
   );
 }
 
+function ExpiringList({
+  s,
+  items,
+  live,
+  onEdit,
+}: {
+  s: Snapshot;
+  items: ExpiringItem[];
+  live: boolean;
+  onEdit: (item: ExpiringItem) => void;
+}) {
+  if (!items.length)
+    return <p className="set-empty">No expiring dates recorded.</p>;
+  return (
+    <div className="set-dates">
+      {items.map((item) => (
+        <ExpiringRow
+          key={item.uuid}
+          s={s}
+          item={item}
+          live={live}
+          onEdit={() => onEdit(item)}
+        />
+      ))}
+    </div>
+  );
+}
+
 function ExpiringRow({
   s,
   item,
@@ -113,7 +127,6 @@ function ExpiringRow({
   const today = localDate();
   const status = expiringStatus(item, today);
   const aircraft = s.aircraft.find((a) => a.uuid === item.aircraftUuid);
-  const readOnly = item.uuid === FAA_KEY_ITEM_UUID;
   return (
     <ListRow
       icon={CalendarBlank}
@@ -128,24 +141,35 @@ function ExpiringRow({
           {statusLabel(status, daysUntil(today, item.expiresOn))}
         </StatusPill>
       }
-      action={
-        readOnly ? (
-          <span className="set-hint">
-            Updated under FAA API key and renewal
-          </span>
-        ) : (
-          <button
-            type="button"
-            className="button small"
-            aria-label={`Edit ${item.label}`}
-            disabled={!live}
-            onClick={onEdit}
-          >
-            Edit
-          </button>
-        )
-      }
+      action={<RowAction item={item} live={live} onEdit={onEdit} />}
     />
+  );
+}
+
+// The FAA key row is computed from its own settings, so it has no Edit.
+function RowAction({
+  item,
+  live,
+  onEdit,
+}: {
+  item: ExpiringItem;
+  live: boolean;
+  onEdit: () => void;
+}) {
+  if (item.uuid === FAA_KEY_ITEM_UUID)
+    return (
+      <span className="set-hint">Updated under FAA API key and renewal</span>
+    );
+  return (
+    <button
+      type="button"
+      className="button small"
+      aria-label={`Edit ${item.label}`}
+      disabled={!live}
+      onClick={onEdit}
+    >
+      Edit
+    </button>
   );
 }
 
@@ -188,22 +212,15 @@ function ExpiringDateDialog({
         disabled={!live}
         onSubmit={save}
       >
-        <ExpiringFields s={s} scope={scope} item={item} />
+        <WhatFields item={item} />
+        <WhenFields s={s} scope={scope} item={item} />
       </AsyncForm>
       {item && <ArchiveButton item={item} live={live} onDone={onClose} />}
     </Modal>
   );
 }
 
-function ExpiringFields({
-  s,
-  scope,
-  item,
-}: {
-  s: Snapshot;
-  scope: ExpiringScope;
-  item?: ExpiringItem;
-}) {
+function WhatFields({ item }: { item?: ExpiringItem }) {
   return (
     <>
       <Field label="What expires">
@@ -223,6 +240,29 @@ function ExpiringFields({
           ))}
         </select>
       </Field>
+      <Field label="Note">
+        <textarea
+          name="note"
+          rows={NOTE_ROWS}
+          maxLength={1000}
+          defaultValue={item?.note}
+        />
+      </Field>
+    </>
+  );
+}
+
+function WhenFields({
+  s,
+  scope,
+  item,
+}: {
+  s: Snapshot;
+  scope: ExpiringScope;
+  item?: ExpiringItem;
+}) {
+  return (
+    <>
       <Field label="Expires on">
         <input
           name="expiresOn"
@@ -244,31 +284,27 @@ function ExpiringFields({
           defaultValue={item?.warnDays ?? 60}
         />
       </Field>
-      {scope === "program" && (
-        <Field label="Aircraft">
-          <select name="aircraftUuid" defaultValue={item?.aircraftUuid ?? ""}>
-            <option value="">Whole Flight Program</option>
-            {s.aircraft.map((a) => (
-              <option key={a.uuid} value={a.uuid}>
-                {a.registration}
-              </option>
-            ))}
-          </select>
-        </Field>
-      )}
-      <Field label="Note">
-        <textarea
-          name="note"
-          rows={NOTE_ROWS}
-          maxLength={1000}
-          defaultValue={item?.note}
-        />
-      </Field>
+      {scope === "program" && <AircraftField s={s} item={item} />}
     </>
   );
 }
 
-// Archiving keeps the item and its history; the confirmation says so.
+// A system-wide date belongs to no aircraft, so only program dates offer one.
+function AircraftField({ s, item }: { s: Snapshot; item?: ExpiringItem }) {
+  return (
+    <Field label="Aircraft">
+      <select name="aircraftUuid" defaultValue={item?.aircraftUuid ?? ""}>
+        <option value="">Whole Flight Program</option>
+        {s.aircraft.map((a) => (
+          <option key={a.uuid} value={a.uuid}>
+            {a.registration}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
 function ArchiveButton({
   item,
   live,
@@ -278,26 +314,7 @@ function ArchiveButton({
   live: boolean;
   onDone: () => void;
 }) {
-  const backend = useWorkspace((x) => x.backend);
-  const [error, setError] = useState("");
-  const archive = async () => {
-    if (
-      !window.confirm(
-        `Archive ${item.label}? It leaves the list and stops alerting; its history is kept.`,
-      )
-    )
-      return;
-    try {
-      await backend!.expiringDate({
-        action: "archive",
-        uuid: item.uuid,
-        version: item.version,
-      });
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to archive.");
-    }
-  };
+  const { error, archive } = useArchive(item, onDone);
   return (
     <div className="set-actions">
       <button
@@ -316,6 +333,31 @@ function ArchiveButton({
       )}
     </div>
   );
+}
+
+// Archiving keeps the item and its history; the confirmation says so.
+function useArchive(item: ExpiringItem, onDone: () => void) {
+  const backend = useWorkspace((x) => x.backend);
+  const [error, setError] = useState("");
+  const archive = async () => {
+    if (
+      !window.confirm(
+        `Archive ${item.label}? It leaves the list and stops alerting; its history is kept.`,
+      )
+    )
+      return;
+    try {
+      await backend!.expiringDate({
+        action: "archive",
+        uuid: item.uuid,
+        version: item.version,
+      });
+      onDone();
+    } catch (e) {
+      setError(errorText(e, "Unable to archive this expiring date."));
+    }
+  };
+  return { error, archive };
 }
 
 // The form's fields as the domain's item; a refused value shows as the
