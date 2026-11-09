@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Responsibility: Pins the assembled records package: its name, the files in
  *   the ZIP, the README's skipped list, change-log paging, data: URL files,
@@ -7,6 +6,7 @@
  * Dependencies: vitest, fflate, node:fs, src/data/recordsPackage.ts,
  *   src/data/backend.ts (types), src/data/demo.ts, src/domain/model.ts.
  */
+// @vitest-environment node
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -1313,11 +1313,6 @@ export function History() {
         id={filterId}
         aircraftUuid={aircraftUuid}
         onChange={setAircraftUuid}
-        end={
-          aircraftUuid && (
-            <ExportRecordsPackage state={s!} aircraftUuid={aircraftUuid} />
-          )
-        }
       />
       {history.offline && (
         <NoticeBar tone="warn" icon={WifiSlash}>
@@ -1342,22 +1337,27 @@ export function History() {
   );
 }
 
-// `end` holds the actions for the chosen aircraft, such as its records export.
+// A chosen aircraft offers its records package (maintenance permission only).
 function AircraftFilter({
   s,
   id,
   aircraftUuid,
   onChange,
-  end,
 }: {
   s: Snapshot;
   id: string;
   aircraftUuid: string;
   onChange: (aircraftUuid: string) => void;
-  end?: ReactNode;
 }) {
   return (
-    <Toolbar className="rise" end={end}>
+    <Toolbar
+      className="rise"
+      end={
+        aircraftUuid && (
+          <ExportRecordsPackage state={s} aircraftUuid={aircraftUuid} />
+        )
+      }
+    >
       <div className="rec-select">
         <Airplane size={18} aria-hidden="true" />
         <label htmlFor={id}>Aircraft</label>
