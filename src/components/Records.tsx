@@ -4,8 +4,8 @@
  * Layer: UI. Screens over the workspace snapshot; holds no business rules.
  * Dependencies: src/data (store, auditHistory, pendingEntries), src/domain
  *   (model, programs, pilotView, flights, flightFluids, deferrals,
- *   auditHistory), ./design, ./ui and the flight, deferral, parts, task card
- *   and work order components.
+ *   auditHistory), ./design, ./ui, ./ExportRecordsPackage and the flight,
+ *   deferral, parts, task card and work order components.
  */
 import "../styles/screens/records.css";
 import { isPilotView } from "../domain/pilotView";
@@ -52,6 +52,7 @@ import { previousFlights } from "../domain/flightFluids";
 import { auditActionLabel } from "../domain/auditHistory";
 import { flightStatusLabels } from "../domain/flights";
 import { HistoryPager } from "./ManagementShared";
+import { ExportRecordsPackage } from "./ExportRecordsPackage";
 import {
   can,
   hours,
@@ -1312,6 +1313,11 @@ export function History() {
         id={filterId}
         aircraftUuid={aircraftUuid}
         onChange={setAircraftUuid}
+        end={
+          aircraftUuid && (
+            <ExportRecordsPackage state={s!} aircraftUuid={aircraftUuid} />
+          )
+        }
       />
       {history.offline && (
         <NoticeBar tone="warn" icon={WifiSlash}>
@@ -1336,19 +1342,22 @@ export function History() {
   );
 }
 
+// `end` holds the actions for the chosen aircraft, such as its records export.
 function AircraftFilter({
   s,
   id,
   aircraftUuid,
   onChange,
+  end,
 }: {
   s: Snapshot;
   id: string;
   aircraftUuid: string;
   onChange: (aircraftUuid: string) => void;
+  end?: ReactNode;
 }) {
   return (
-    <Toolbar className="rise">
+    <Toolbar className="rise" end={end}>
       <div className="rec-select">
         <Airplane size={18} aria-hidden="true" />
         <label htmlFor={id}>Aircraft</label>

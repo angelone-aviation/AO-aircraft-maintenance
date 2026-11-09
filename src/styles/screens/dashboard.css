@@ -812,6 +812,9 @@
   width: 100%;
 }
 .dash-detail-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-right: auto;
 }
 /* Form 337 copies on the aircraft record (AircraftFiles.tsx). */
