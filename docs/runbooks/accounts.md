@@ -7,16 +7,17 @@ Fill in each row. Names or roles only: never passwords, keys or card numbers her
 | Convex (new Pro account and production project) | Database, backend functions, auth, file storage | | Created new; one administrator (ADR-0010) | The old test project is retired, not transferred (go-live checklist). Deploy keys come from the new account only |
 | Domain registrar | Owns `angeloneaviation.org` | | | Find which registrar holds it and who has the login |
 | DNS | `angeloneaviation.org` zone, including `ops` for the app | | Already on Cloudflare (nameservers `nancy`, `rustam.ns.cloudflare.com`) | The Worker must deploy into the same Cloudflare account as the zone; the app's `ops` record and certificate are created by the deploy |
-| Cloudflare account and API token | Hosts the website; the "Edit Cloudflare Workers" token in the GitHub `production` environment publishes it | | | Token expiry: ____ ([release runbook](release.md)) |
+| Cloudflare account and API token | Hosts the website; the "Edit Cloudflare Workers" token in the GitHub `production` environment publishes it | | | Token expiry: ____ ([release runbook](release.md)); record it under Settings → System → Expiring dates so it alerts before it lapses |
 | cPanel at A2 Hosting | Published the old test website | | No: retire it | Decided 2026-11-03: the old site and its Convex project are retired, not migrated (test data only). Remove the site files; cancel the hosting when nothing else uses it |
 | GitHub `angelone-aviation/AO-aircraft-maintenance` | Source code and issue tracker | Angel One (organization) | Done | Moved from a personal test fork on 2026-11-03 |
-| Resend | Sends the daily alert email digest | | | Which sending domain is verified? |
+| Resend | Sends the daily alert email digest and the immediate urgent-alert emails | | | Which sending domain is verified? Free tier: 100 emails a day; the app caps immediate emails at 60 ([monitoring runbook](monitoring.md#alerts-by-email-and-on-devices)) |
+| VAPID key pair (Convex environment) | Signs the push messages that alert members' devices | | Generated for the deployment; never in the repository | Rotation signs every device out of alerts ([monitoring runbook](monitoring.md#alerts-by-email-and-on-devices)); record the review date under Settings → System → Expiring dates |
 | FAA DRS API key | Daily airworthiness-directive checks | | | Who requested it; expiry date; renewal path |
 | Geoapify | Address lookup for purchase orders | | | Login stored encrypted in the app settings |
 | Aircraft Spruce | Parts catalogue and ordering | | | Login stored encrypted in the app settings |
 | Google Workspace | Organization email (`angeloneaviation.org` MX is Google); can provide Google sign-in and enforce two-step sign-in | | | Google sign-in (ADR-0009) can be limited to the Workspace domain |
 | Google Cloud project with the sign-in client | Google sign-in ([setup](#google-cloud-sign-in-client)) | | | Owned by an organization account, not a personal one |
-| Microsoft Entra app registration | Microsoft sign-in ([setup](#microsoft-entra-app-registration)) | | | Client secret expiry date: |
+| Microsoft Entra app registration | Microsoft sign-in ([setup](#microsoft-entra-app-registration)) | | | Client secret expiry date: (also under Settings → System → Expiring dates) |
 | Dropbox account with the "Angel One records" app | Holds the readable records copy ([ADR-0011](../adr/0011-readable-records-copy-in-dropbox.md), [setup](dropbox-records-copy.md)) | | | Organization account with two-step sign-in; refresh token in the GitHub `backups` environment |
 | Billing | One card or budget for all of the above | | | |
 
@@ -97,7 +98,7 @@ Each button appears on the sign-in screen only when all of its provider's enviro
 1. In the [Microsoft Entra admin center](https://entra.microsoft.com/), signed in with an account that may register applications, open **Applications → App registrations → New registration**.
 2. Name it "Angel One". Under **Supported account types**, choose **Accounts in any organizational directory and personal Microsoft accounts** (multi-tenant, as ADR-0009 allows). Set the redirect URI to platform **Web**, `https://<deployment>.convex.site/api/auth/callback/microsoft-entra-id`.
 3. Under **Token configuration → Add optional claim**, choose token type **ID** and add `email` and `xms_edov` (accept adding the Microsoft Graph `email` permission if asked). If `xms_edov` is not offered, add it in **Manifest** under `optionalClaims.idToken` as `{ "name": "xms_edov", "essential": false }`. Without it, work and school accounts are refused as unverified; personal accounts still work.
-4. Under **Certificates & secrets**, add a client secret (description "Angel One production", longest expiry offered). Write its expiry date in the table at the top and set a reminder to replace it before then.
+4. Under **Certificates & secrets**, add a client secret (description "Angel One production", longest expiry offered). Write its expiry date in the table at the top and record it under **Settings → System → Expiring dates**, which alerts system administrators from 60 days before it and when it passes.
 5. Set on the deployment: `AUTH_MICROSOFT_ENTRA_ID_ID` (the **Application (client) ID** from Overview), `AUTH_MICROSOFT_ENTRA_ID_SECRET` (the secret's **Value**, not its ID) and `AUTH_MICROSOFT_ENTRA_ID_ISSUER` = `https://login.microsoftonline.com/common/v2.0`.
 6. Deploy, then test with a personal Microsoft account and with a work or school account. If Microsoft sign-in fails (an `AADSTS` error in the browser, or an error under the callback route in the Convex logs), Google can go live alone: remove the three Microsoft variables and deploy, and the button disappears. The app works around the library's known Microsoft issue (convex-auth #457) and Microsoft's per-tenant token issuer; see `convex/ssoProviders.ts`.
 

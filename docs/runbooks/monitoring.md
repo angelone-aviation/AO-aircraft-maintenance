@@ -1,6 +1,6 @@
-# Monitoring: errors, uptime and the backup heartbeat
+# Monitoring: errors, uptime, the backup heartbeat, and alerts that reach people
 
-How to switch on error reporting (Sentry) and outside monitoring (Better Stack). The code is in place and stays dormant until these keys exist: without `VITE_SENTRY_DSN` the build contains no Sentry code, and without `BACKUP_HEARTBEAT_URL` the nightly backup skips its ping. Browser reporting lives in `src/data/errorReporting.ts`; the deploy wiring in `.github/workflows/deploy.yml`.
+How to switch on error reporting (Sentry), outside monitoring (Better Stack), and the alert email and push channels. The code is in place and stays dormant until these keys exist: without `VITE_SENTRY_DSN` the build contains no Sentry code, without `BACKUP_HEARTBEAT_URL` the nightly backup skips its ping, without the Resend variables no email goes out, and without the VAPID variables no device can be alerted. Browser reporting lives in `src/data/errorReporting.ts`; the deploy wiring in `.github/workflows/deploy.yml`.
 
 ## Sentry: browser errors
 
@@ -18,6 +18,22 @@ How to switch on error reporting (Sentry) and outside monitoring (Better Stack).
 6. Create two HTTP monitors: `https://ops.angeloneaviation.org/`, and the Convex deployment's `https://<deployment>.convex.site/.well-known/openid-configuration` (the sign-in service).
 7. Create a heartbeat with a 24-hour period and a grace period of a few hours, since GitHub can start scheduled runs late. In GitHub → Settings → Environments → `backups`, add its URL as the secret `BACKUP_HEARTBEAT_URL`. The next successful **Nightly backup** pings it; a failed or skipped run sends no ping, so Better Stack alerts.
 8. Cloudflare Bot Fight Mode blocks uptime monitors. Turn it off (Cloudflare → Security → Bots), or allowlist the monitor.
+
+## Alerts by email and on devices
+
+The rules are in [docs/alerts.md](../alerts.md); this is the operator's part.
+
+10. **Email (Resend).** `RESEND_API_KEY` and `RESEND_FROM` on the Convex deployment turn on the daily digest (13:00 UTC) and the immediate emails for urgent alerts. Resend's free tier sends **100 emails a day**. The app spends at most **60 a day on immediate emails** for the whole deployment (`IMMEDIATE_EMAILS_PER_DAY` in `convex/urgentAlerts.ts`, counted in the `rateLimits` table under `alerts:immediate`, reset at 00:00 UTC), leaving at least 40 for the digest. Count the members with **Email me a daily alert digest** on: above 40, lower the cap or move Resend to a paid plan, or the digest run logs "Email provider rejected the request (429)" for the rest. The check's result in the Convex logs (`sendImmediate`) reports `sent`, `failed` and `capped`.
+11. **Push (Web Push).** Generate one VAPID key pair for the deployment on a trusted computer: `npx web-push generate-vapid-keys` (nothing is installed in the repository; the command prints a public and a private key in base64url). Set them on the Convex deployment, never in the repository or `.env` files:
+
+    ```sh
+    npx convex env set VAPID_PUBLIC_KEY <public key>
+    npx convex env set VAPID_PRIVATE_KEY <private key>
+    npx convex env set VAPID_SUBJECT mailto:accounts@angeloneonline.org
+    ```
+
+    All three must be set before **Settings → This device → Alert this device** appears. Record the pair under **Settings → System → Expiring dates** with a yearly review date, and in the [accounts inventory](accounts.md). Rotating the pair invalidates every device's subscription: members switch alerts off and on again on each device. If the private key leaks, rotate it the same way.
+12. **Checking delivery.** Turn **Alert this device** on in a browser, then save an expiring date with yesterday's date under Settings → Flight Program: within a minute the device shows "<program>: 1 urgent alert" and the opted-in members receive the email. The Convex logs show `sendImmediate` with `pushed: 1` and `sendUrgent` with `sent: 1`. A push service that answers 404 or 410 has that device's subscription removed; the member switches alerts on again.
 
 ## Privacy rules
 

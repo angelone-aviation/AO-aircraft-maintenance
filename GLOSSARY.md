@@ -180,8 +180,16 @@ An explicitly labelled in-browser mode with fictional aircraft and data persiste
 _Avoid_: sandbox, test mode
 
 **Alert**:
-An in-app notice, optionally emailed as a daily digest, about due or overdue maintenance.
+An in-app notice about due or overdue maintenance, expiring dates and documents to review, optionally emailed as a daily digest; the urgent ones also go out at once.
 _Avoid_: notification, reminder
+
+**Urgent alert**:
+An alert that needs action now and reaches people as soon as it arises, by email and on their devices: an aircraft grounded, an inspection or AD overdue, a component past its limit, an expiring date passed.
+_Avoid_: notification, critical alert, immediate alert (the channel is immediate; the alert is urgent)
+
+**Expiring date**:
+A renewal a Flight Program or the deployment must not miss (insurance, registration, a service key, a client secret), with a warning window; it alerts from the window and when the date passes.
+_Avoid_: reminder, expiry item, deadline
 
 **Owner portal**:
 A read-only view of an aircraft's status and due items for the aircraft's owner.

@@ -45,7 +45,7 @@ Protocol reference: FAA **DRS API Technical Design Document**, version 6, August
 
 ## Renewal reminders
 
-The current key expires October 14, 2027. The overview shows an in-app reminder beginning 60 days before expiration and keeps it visible through expiry. The AD page and Settings → System always show the expiration date and remaining days. These are in-app notices, not email or push notifications. Request/renew the key on the FAA website, then use **Update FAA API key** to store the new key and expiration date. On the recorded expiry date, automatic checks report a renewal error until updated. Updating credentials requires an active administrator session and online access; demo mode never accepts keys.
+The current key expires October 14, 2027. The overview shows an in-app reminder beginning 60 days before expiration and keeps it visible through expiry. The AD page and Settings → System always show the expiration date and remaining days, and the key also lists as a read-only row under Settings → System → Expiring dates, so system administrators get the same alerts as for any other expiring date ([alerts](alerts.md)). Request/renew the key on the FAA website, then use **Update FAA API key** to store the new key and expiration date. On the recorded expiry date, automatic checks report a renewal error until updated. Updating credentials requires an active administrator session and online access; demo mode never accepts keys.
 
 ## Search FAA ADs & Import
 
