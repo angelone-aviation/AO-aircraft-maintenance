@@ -177,7 +177,8 @@ it("measures component inspections on its date, not the clock's", () => {
       dueSeconds: 360000 + 36000,
     },
   ];
-  expect(ownerDueItems(s, a, "2099-06-01")[0]).toMatchObject({
+  const rows = ownerDueItems(s, a, "2099-06-01");
+  expect(rows.find((x) => x.uuid === "gear-check")).toMatchObject({
     uuid: "gear-check",
     remaining: "10.0 h",
   });

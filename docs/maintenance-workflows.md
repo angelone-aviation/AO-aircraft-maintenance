@@ -31,6 +31,8 @@ Inspections, component requirements and AD actions share one rule for when a lim
 - **Usage limits** (hours, cycles, landings) are reached at 0 remaining. The next flight would exceed the limit, so the item is overdue and the aircraft is grounded.
 - **Calendar limits** stay valid through the end of the due date. On the due date the item is due soon; from the next day it is overdue and the aircraft is grounded.
 
+A limit that is reached decides the status even when another limit of the same item cannot be judged. If the aircraft's time source has no reading, or a component does not track the counter a limit needs, a passed due date or a reached cycles or landings limit still makes the item overdue. A limit that cannot be read is never counted as time remaining: until one of the other limits is reached the item stays unknown (**Counter unavailable** on an AD action, **Review** on a component limit).
+
 Aircraft status, the dispatch gate, alerts, the owner portal, Planning and Overview all apply this rule. Component screens label a usage limit at exactly 0 **Due now** and one beyond it **Past due**; both ground the aircraft. The server checks the dispatch gate against the earliest local date anywhere, so a calendar limit is not treated as overdue until its due date has ended in every time zone.
 
 ## Inventory

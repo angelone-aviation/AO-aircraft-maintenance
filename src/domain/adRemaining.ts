@@ -5,7 +5,7 @@
  * Dependencies: ./airworthiness, ./componentCalendar, ./model.
  */
 import {
-  adCounters,
+  adLimitCounters,
   adTaskStatus,
   CLOSED_APPLICABILITY,
   type AD,
@@ -43,7 +43,7 @@ export function adRemaining(
   today = localDate(),
 ): RemainingRow[] {
   if (!isStillDue(state, record, task, today)) return [];
-  const counters = availableCounters(state, record, today);
+  const counters = adLimitCounters(state, record, today);
   const rows: RemainingRow[] = [];
   if (task.intervalHours || task.dueHours !== null)
     rows.push({
@@ -73,23 +73,6 @@ function isStillDue(state: Snapshot, record: AD, task: ADTask, today: string) {
     CLOSED_APPLICABILITY.includes(record.applicability) ||
     adTaskStatus(state, record, task, today) === "Complied"
   );
-}
-
-// A component AD counts only the hours and cycles that component tracks;
-// landings always come from the aircraft.
-function availableCounters(state: Snapshot, record: AD, today: string) {
-  const counters = adCounters(state, record, today);
-  const component = state.management?.find(
-    (item) => item.kind === "component" && item.uuid === record.componentUuid,
-  );
-  const tracks = (kind: "trackTime" | "trackCycles") =>
-    !record.componentUuid ||
-    (component?.kind === "component" && component[kind]);
-  return {
-    hours: counters && tracks("trackTime") ? counters.hours : null,
-    cycles: counters && tracks("trackCycles") ? counters.cycles : null,
-    landings: counters ? counters.landings : null,
-  };
 }
 
 // A usage limit is reached at 0 remaining (adTaskStatus), so 0 reads "Due

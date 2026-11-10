@@ -3,15 +3,17 @@
  *   that corrected aircraft totals stay after recorded maintenance.
  * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
  *   default reads the clock).
- * Dependencies: ../components, ../model, ../rejection, ./schemas.
+ * Dependencies: ../components, ../maintenance, ../model, ../rejection,
+ *   ./schemas.
  */
 import {
-  aircraftSecondsFor,
   componentAircraftSeconds,
   componentTotals,
+  componentTotalsWithoutTime,
   tracking,
   type Component,
 } from "../components";
+import { inspectionStatus } from "../maintenance";
 import { localDate, type Aircraft, type Inspection } from "../model";
 import { Rejection } from "../rejection";
 import type { ManagedRecord } from "./schemas";
@@ -26,11 +28,13 @@ import type { ManagedRecord } from "./schemas";
  * @param today - The local date to measure the component on; the clock's by
  *   default.
  * @returns Seconds, cycles and the aircraft's landings. Seconds are undefined
- *   only for an aircraft inspection with no hours limit whose aircraft meter
- *   has no reading: its date, cycle and landing limits still count.
+ *   only when they cannot be read (an aircraft meter without a reading) and
+ *   either the inspection is the aircraft's and has no hours limit, or its
+ *   date, cycle or landing limit already makes it overdue: a reached limit
+ *   decides before one that cannot be judged.
  * @throws {Rejection} "Inspection component not found." when the component
- *   is not on this aircraft; as {@link componentAircraftSeconds} when the
- *   inspection has an hours limit, and as {@link componentTotals}.
+ *   is not on this aircraft; otherwise as {@link componentAircraftSeconds}
+ *   and {@link componentTotals}.
  */
 export function inspectionCounters(
   i: Inspection,
@@ -38,25 +42,15 @@ export function inspectionCounters(
   records: ManagedRecord[] = [],
   today = localDate(),
 ): { seconds: number | undefined; cycles: number; landings: number } {
-  if (!i.componentUuid)
-    return {
-      seconds: aircraftSecondsFor(i, a),
-      cycles: a.cycles,
-      landings: a.landings,
-    };
-  const c = records.find(
-    (r): r is Component =>
-      r.kind === "component" &&
-      r.uuid === i.componentUuid &&
-      r.aircraftUuid === a.uuid,
-  );
-  if (!c) throw new Rejection("Inspection component not found.");
-  const totals = componentTotals(c, a, today);
-  return {
-    seconds: totals.timeSinceNew,
-    cycles: totals.cyclesSinceNew,
-    landings: a.landings,
-  };
+  const c = findInspectionComponent(i, a, records);
+  try {
+    return { ...readUsage(i, a, c, today), landings: a.landings };
+  } catch (error) {
+    const untimed =
+      error instanceof Rejection && readUsageWithoutTime(i, a, c, today);
+    if (!untimed) throw error;
+    return untimed;
+  }
 }
 
 /**
@@ -90,6 +84,54 @@ export function validateMaintenanceTotals(
       throw new Rejection(
         "Correction would move usage before recorded inspection compliance.",
       );
+}
+
+function findInspectionComponent(
+  i: Inspection,
+  a: Aircraft,
+  records: ManagedRecord[],
+) {
+  if (!i.componentUuid) return undefined;
+  const c = records.find(
+    (r): r is Component =>
+      r.kind === "component" &&
+      r.uuid === i.componentUuid &&
+      r.aircraftUuid === a.uuid,
+  );
+  if (!c) throw new Rejection("Inspection component not found.");
+  return c;
+}
+
+function readUsage(
+  i: Inspection,
+  a: Aircraft,
+  c: Component | undefined,
+  today: string,
+): { seconds: number | undefined; cycles: number } {
+  if (!c) return { seconds: componentAircraftSeconds(i, a), cycles: a.cycles };
+  const totals = componentTotals(c, a, today);
+  return { seconds: totals.timeSinceNew, cycles: totals.cyclesSinceNew };
+}
+
+// The usage left when the time cannot be read. An aircraft inspection with
+// no hours limit never needed it (bug RM-66). Otherwise it stands only when
+// the date, cycle or landing limit is already overdue, so a passed limit
+// grounds the aircraft, while an unreadable hours limit is never taken for
+// time remaining.
+function readUsageWithoutTime(
+  i: Inspection,
+  a: Aircraft,
+  c: Component | undefined,
+  today: string,
+) {
+  const cycles = c
+    ? componentTotalsWithoutTime(c, a, today).cyclesSinceNew
+    : a.cycles;
+  if (cycles === null) return undefined;
+  const untimed = { seconds: undefined, cycles, landings: a.landings };
+  if (!c && i.dueSeconds === undefined) return untimed;
+  const { status } = inspectionStatus(i, a, today, untimed);
+  return status === "overdue" ? untimed : undefined;
 }
 
 function precedesInstallation(a: Aircraft, c: ManagedRecord) {

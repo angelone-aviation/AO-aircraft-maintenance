@@ -29,6 +29,7 @@ export {
   aircraftSecondsFor,
   componentAircraftSeconds,
   componentTotals,
+  componentTotalsWithoutTime,
 } from "./components/usage";
 export { calendarDue } from "./components/calendar";
 export {

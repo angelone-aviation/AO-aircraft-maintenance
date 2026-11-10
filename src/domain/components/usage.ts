@@ -121,16 +121,51 @@ export function componentTotals(
 }
 
 /**
+ * What can still be read of a component's usage when {@link componentTotals}
+ * cannot compute it, for judging the limits that need nothing unreadable.
+ * GLOSSARY "Overdue": a limit that is reached decides, whatever cannot be
+ * read on another.
+ *
+ * @param a - The aircraft it is installed on; ignored in inventory.
+ * @param today - A local date, as for {@link componentTotals}.
+ * @returns Every time value null, and cycles since new: counted when only
+ *   the time is unreadable (an aircraft meter without a reading), else null.
+ * @throws {Error} "Installed aircraft not found." without `a` when installed.
+ */
+export function componentTotalsWithoutTime(
+  c: Component,
+  a?: Aircraft,
+  today = localDate(),
+) {
+  const times = {
+    timeSinceNew: null,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+  };
+  try {
+    const untimed = componentTotals({ ...c, trackTime: false }, a, today);
+    return {
+      ...times,
+      cyclesSinceNew: untimed.cyclesSinceNew as number | null,
+    };
+  } catch (error) {
+    if (error instanceof Rejection) return { ...times, cyclesSinceNew: null };
+    throw error;
+  }
+}
+
+/**
  * The time a requirement's basis counter shows.
  *
  * @returns Seconds since new, overhaul or repair; null when unknown.
  */
 export function usageOnBasis(
   basis: ComponentRequirement["timeBasis"],
-  usage: Pick<
-    UsageBefore,
-    "timeSinceNew" | "timeSinceOverhaul" | "timeSinceRepair"
-  >,
+  usage: {
+    timeSinceNew: number | null;
+    timeSinceOverhaul: number | null;
+    timeSinceRepair: number | null;
+  },
 ): number | null {
   if (basis === "TSN") return usage.timeSinceNew;
   if (basis === "TSO") return usage.timeSinceOverhaul;

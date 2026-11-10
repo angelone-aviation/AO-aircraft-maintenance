@@ -3,14 +3,26 @@
  *   each of its limits, and its status.
  * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
  *   default reads the clock).
- * Dependencies: ../model, ./records (types), ./usage, ./calendar.
+ * Dependencies: ../model, ../rejection, ./records (types), ./usage,
+ *   ./calendar.
  */
 import { localDate, type Aircraft } from "../model";
+import { Rejection } from "../rejection";
 import { calendarDue, daysBetween, shiftCalendarDate } from "./calendar";
 import type { Component, ComponentRequirement } from "./records";
-import { componentTotals, usageOnBasis } from "./usage";
+import {
+  componentTotals,
+  componentTotalsWithoutTime,
+  usageOnBasis,
+} from "./usage";
 
 const SECONDS_PER_HOUR = 3600;
+// GLOSSARY "Overdue": a usage limit at exactly 0 is "Due now".
+const REACHED_STATUSES = ["Past due", "Due now"];
+
+type Totals = Parameters<typeof usageOnBasis>[1] & {
+  cyclesSinceNew: number | null;
+};
 
 /**
  * The due-soon warnings a new requirement starts with. A stored requirement
@@ -52,8 +64,11 @@ export function requirementDueDate(
  *   limited or not computable), and the first status that applies: "Past
  *   due", "Due now" (a usage limit at 0), "Set landing baseline", "Set time
  *   baseline", "Due soon" (within a warning; see
- *   {@link REQUIREMENT_WARNING_DEFAULTS} for landings), or "Tracked".
- * @throws As {@link componentTotals} and {@link calendarDue}.
+ *   {@link REQUIREMENT_WARNING_DEFAULTS} for landings), or "Tracked". When
+ *   the component's time cannot be read, a cycle, landing or calendar limit
+ *   that is reached still gives "Past due" or "Due now", seconds undefined.
+ * @throws As {@link componentTotals}, unless such a limit is reached, and
+ *   {@link calendarDue}.
  */
 export function requirementStatus(
   r: ComponentRequirement,
@@ -61,7 +76,37 @@ export function requirementStatus(
   a?: Aircraft,
   today = localDate(),
 ) {
-  const t = componentTotals(c, a, today);
+  try {
+    return measureLimits(r, c, a, today, componentTotals(c, a, today));
+  } catch (error) {
+    const reached =
+      error instanceof Rejection && measureWithoutTime(r, c, a, today);
+    if (!reached) throw error;
+    return reached;
+  }
+}
+
+// A reached limit decides before a counter that cannot be read: a part past
+// its calendar or cycle limit must not read "unknown" because the aircraft's
+// meter has no reading. Anything short of reached keeps the failure.
+function measureWithoutTime(
+  r: ComponentRequirement,
+  c: Component,
+  a: Aircraft | undefined,
+  today: string,
+) {
+  const totals = componentTotalsWithoutTime(c, a, today);
+  const left = measureLimits(r, c, a, today, totals);
+  return REACHED_STATUSES.includes(left.status) ? left : undefined;
+}
+
+function measureLimits(
+  r: ComponentRequirement,
+  c: Component,
+  a: Aircraft | undefined,
+  today: string,
+  t: Totals,
+) {
   const basis = usageOnBasis(r.timeBasis, t);
   const landingBaselineMissing = isLandingBaselineMissing(r, c, a);
   const dueDate = requirementDueDate(r);
@@ -71,7 +116,9 @@ export function requirementStatus(
         ? undefined
         : r.dueSeconds - basis,
     cycles:
-      r.dueCycles === undefined ? undefined : r.dueCycles - t.cyclesSinceNew,
+      r.dueCycles === undefined || t.cyclesSinceNew === null
+        ? undefined
+        : r.dueCycles - t.cyclesSinceNew,
     landings:
       r.dueLandings === undefined || !a || landingBaselineMissing
         ? undefined
