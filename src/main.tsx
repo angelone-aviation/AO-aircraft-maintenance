@@ -42,7 +42,6 @@ import {
   deviceClockBehind,
   offlineValid,
   OFFLINE_WINDOW,
-  type Snapshot,
 } from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
