@@ -15,6 +15,7 @@ The file is named `<registration>-records-<YYYY-MM-DD>.zip` and contains:
 - One CSV per table (UTF-8 with a byte-order mark, every cell quoted; a dash on paper is an empty cell in the CSV): the six status sheet tables (`status-overview.csv`, `status-components.csv`, `status-inspections.csv`, `status-airworthiness.csv`, `status-form-337.csv`, `status-discrepancies.csv`), then `flights.csv`, `discrepancies.csv`, `work-orders.csv`, `ad-compliance.csv`, `components.csv`, `component-requirements.csv`, `form-337.csv` and `change-log.csv`.
 - `form-337/`: every Form 337 copy on the aircraft record, named `<upload date>-<file name>` (the upload date in UTC); archived copies are under `form-337/archived/`. A second upload of the same name on the same day gets ` (2)`.
 - `files/`: the attachments of the aircraft's work orders, named the same way.
+- `logbook-photos/`: the current [logbook page photos](logbook-photos.md) on the aircraft record (a flight's line or a work order's signed page), named the same way; `README.txt` lists each one with the flight or work order it shows. Archived photos are left out.
 
 Every time in the package is UTC and its column heading says so ("Reported (UTC)", "When (UTC)"), and the dates in file names are UTC too, so a row's file name and its upload time agree on the day. A date without a time, such as a work order's dates or a deferral, is the calendar date as recorded. The README says the same.
 
@@ -34,7 +35,7 @@ The tables:
 
 ## Size guard
 
-A package copies at most **150 MB** of stored files. Files are taken in order (Form 337 copies, then work-order attachments, oldest upload first); one that would exceed the limit is skipped and smaller later ones may still be taken. A file that cannot be downloaded is skipped too. Skipped files are listed in `README.txt` with the reason and counted in the message under the button, so the exporter can fetch them separately from the record. The tables are never cut.
+A package copies at most **150 MB** of stored files. Files are taken in order (Form 337 copies, then work-order attachments, then logbook page photos, oldest upload first); one that would exceed the limit is skipped and smaller later ones may still be taken. A file that cannot be downloaded is skipped too. Skipped files are listed in `README.txt` with the reason and counted in the message under the button, so the exporter can fetch them separately from the record. The tables are never cut.
 
 ## What the package is not
 

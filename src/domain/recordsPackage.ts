@@ -2,7 +2,8 @@
  * Responsibility: Chooses what one aircraft's records package holds: the
  *   status sheet, flights, discrepancies, work orders, AD compliance,
  *   components, Form 337 copies and the change log as tables of text, the
- *   stored files to copy in (within a size limit), and the README.
+ *   stored files and logbook page photos to copy in (within a size limit),
+ *   and the README.
  * Layer: Domain. Pure functions; no I/O and no layout.
  * Dependencies: src/domain (statusSheet, model, auditHistory, logbook,
  *   adCompliance, adOwnership, components, aircraftFiles, flights, rejection,
@@ -42,6 +43,7 @@ const SECONDS_PER_HOUR = 3600;
 const BYTES_PER_KB = 1024;
 const MEGABYTE = 1024 * 1024;
 const NOT_TRACKED = "Not tracked";
+const LOGBOOK_PHOTOS = "logbook-photos";
 const REVIEW = "Review";
 
 /**
@@ -98,7 +100,10 @@ export interface PackageFile {
   path: string;
   url: string;
   size: number;
-  /** What it is, for the README: "Form 337 copy", "Work order WO-… attachment". */
+  /**
+   * What it is, for the README: "Form 337 copy", "Work order WO-…
+   * attachment", "Logbook page photo of work order WO-…".
+   */
   description: string;
 }
 
@@ -145,7 +150,8 @@ export interface RecordsPackage {
  *   compliance entries by AD number in history order (corrections included),
  *   every component ever on the aircraft, their requirements, every Form 337
  *   copy (archived ones too) oldest upload first, and the change log oldest
- *   first; and the Form 337 copies then work-order attachments as files.
+ *   first; and the Form 337 copies, work-order attachments, then current
+ *   logbook page photos as files, each oldest upload first.
  *   A component whose usage cannot be computed reads "Review".
  * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft; as
  *   {@link assertRecordsExporter}; what {@link statusSheet} throws.
@@ -181,7 +187,11 @@ export function buildRecordsPackage(
       form337Section(s, a),
       changeLogSection(s, changeLog),
     ],
-    files: [...form337Files(s, a), ...attachmentFiles(s, orders)],
+    files: [
+      ...form337Files(s, a),
+      ...attachmentFiles(s, orders),
+      ...logbookPhotoFiles(s, a, orders),
+    ],
   };
 }
 
@@ -278,6 +288,8 @@ export function recordsReadme(
     ),
     "form-337/ - Copies of FAA Form 337 on the aircraft record, named <upload date (UTC)>-<file name>; archived copies are under form-337/archived/.",
     "files/ - Attachments of the aircraft's work orders, named <upload date (UTC)>-<file name>.",
+    `${LOGBOOK_PHOTOS}/ - The current photos of signed logbook pages (a flight's line or a work order's signed page), named <upload date (UTC)>-<file name>:`,
+    ...listPhotos(pkg.files),
     "",
     "CSV files are UTF-8 with a byte-order mark; every cell is quoted, and text that a spreadsheet would run as a formula starts with an apostrophe.",
     "Times, and the dates in file names, are UTC, as the column headings say; a date without a time (a work order's dates, a deferral, a due date) is the calendar date as recorded.",
@@ -290,6 +302,15 @@ export function recordsReadme(
       : ["None."]),
     "",
   ].join("\n");
+}
+
+// One indented line per photo saying what it shows, since its file name
+// (often "image.jpg" from a phone) does not.
+function listPhotos(files: PackageFile[]): string[] {
+  const photos = files.filter((f) => f.path.startsWith(`${LOGBOOK_PHOTOS}/`));
+  return photos.length
+    ? photos.map((f) => `  ${f.path} - ${f.description}.`)
+    : ["  None."];
 }
 
 // A placeholder row is not a record.
@@ -787,6 +808,46 @@ function attachmentFiles(s: Snapshot, orders: WorkOrder[]): PackageFile[] {
         description: `Work order ${numbers.get(f.workOrderUuid) || "(no number)"} attachment`,
       })),
   );
+}
+
+// Archived photos stay on the record but are left out: the photo that
+// replaced one is what the record shows.
+function logbookPhotoFiles(
+  s: Snapshot,
+  a: Aircraft,
+  orders: WorkOrder[],
+): PackageFile[] {
+  return uniquePaths(
+    (s.aircraftFiles ?? [])
+      .filter(
+        (f) =>
+          f.aircraftUuid === a.uuid &&
+          f.category === "logbook-page" &&
+          isCurrentAircraftFile(f),
+      )
+      .sort((x, z) => x.uploadedAt - z.uploadedAt)
+      .map((f) => ({
+        path: `${LOGBOOK_PHOTOS}/${utcDate(f.uploadedAt)}-${safeFileName(f.name)}`,
+        url: f.url,
+        size: f.size,
+        description: describePhoto(s, f, orders),
+      })),
+  );
+}
+
+function describePhoto(
+  s: Snapshot,
+  photo: AircraftFile,
+  orders: WorkOrder[],
+): string {
+  if (photo.linkedKind === "work-order") {
+    const order = orders.find((w) => w.uuid === photo.linkedUuid);
+    return `Logbook page photo of work order ${order?.number || "(no number)"}`;
+  }
+  const flight = s.flights.find((f) => f.uuid === photo.linkedUuid);
+  return flight
+    ? `Logbook page photo of the flight starting ${formatStart(flight.startTime)} UTC`
+    : "Logbook page photo of a flight";
 }
 
 // Two uploads of one name on one day would overwrite each other in the ZIP.

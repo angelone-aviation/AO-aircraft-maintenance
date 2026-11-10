@@ -502,6 +502,45 @@ describe("buildRecordsPackage", () => {
     }
   });
 
+  it("copies the current logbook page photos under logbook-photos/ and lists what each shows", () => {
+    const s = demoSnapshot();
+    const order = completedOrder(s);
+    s.flights = [flight(s, { uuid: "f1", startTime: "2026-05-01T15:00:00Z" })];
+    const photo = (uuid: string, link: object, uploadedAt: number) => ({
+      ...form337(s, uuid, "image.jpg", uploadedAt),
+      category: "logbook-page" as const,
+      type: "image/jpeg",
+      ...link,
+    });
+    const onFlight = { linkedKind: "flight", linkedUuid: "f1" } as const;
+    s.aircraftFiles = [
+      photo("w", { linkedKind: "work-order", linkedUuid: order.uuid }, AT + 1),
+      photo("f", onFlight, AT),
+      { ...photo("gone", onFlight, AT), archivedAt: AT + 2 },
+      { ...photo("other", onFlight, AT), aircraftUuid: s.aircraft[1].uuid },
+    ];
+    const pkg = build(s);
+    expect(pkg.files.map((f) => [f.path, f.description])).toEqual([
+      [
+        "logbook-photos/2026-06-01-image.jpg",
+        "Logbook page photo of the flight starting 2026-05-01 15:00 UTC",
+      ],
+      [
+        "logbook-photos/2026-06-01-image (2).jpg",
+        `Logbook page photo of work order ${order.number}`,
+      ],
+    ]);
+    const text = recordsReadme(pkg, { at: "x", by: "y" }, []);
+    expect(text).toContain(
+      `\nlogbook-photos/ - The current photos of signed logbook pages (a flight's line or a work order's signed page), named <upload date (UTC)>-<file name>:\n  logbook-photos/2026-06-01-image.jpg - Logbook page photo of the flight starting 2026-05-01 15:00 UTC.\n  logbook-photos/2026-06-01-image (2).jpg - Logbook page photo of work order ${order.number}.\n`,
+    );
+    // Photos share the size guard: one past the limit is skipped.
+    const plan = planPackageFiles(pkg.files, 2048);
+    expect(plan.skipped.map((x) => x.file.path)).toEqual([
+      "logbook-photos/2026-06-01-image (2).jpg",
+    ]);
+  });
+
   it("copies this aircraft's work-order attachments under files/", () => {
     const s = demoSnapshot();
     const order = completedOrder(s);
