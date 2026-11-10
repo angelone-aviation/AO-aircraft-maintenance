@@ -32,6 +32,7 @@ import {
   airworthinessDocs,
   faaMonitorDocs,
   expiringItemDocs,
+  discrepancyDocs,
 } from "./programContext";
 import { computeAlerts, wantsAlertEmails } from "../src/domain/alerts";
 import { backupWarningEmail, digestEmail } from "../src/domain/alertDigest";
@@ -360,12 +361,12 @@ async function emailMembers(
 
 /**
  * Loads one program's alert sources: its aircraft, maintenance records,
- * inspections, ADs, FAA monitors, expiring dates (with the deployment's) and
- * the FAA key status.
+ * inspections, ADs, FAA monitors, open problem reports, expiring dates (with
+ * the deployment's) and the FAA key status.
  *
  * @param groups - The program's permission groups, already loaded.
- * @returns The sources; members, flights, discrepancies and the change log
- *   stay empty, since no alert reads them.
+ * @returns The sources; members, flights, closed problem reports and the
+ *   change log stay empty, since no alert reads them.
  */
 export async function loadAlertSources(
   ctx: QueryCtx,
@@ -399,11 +400,18 @@ export async function loadAlertSources(
     ),
     members: [],
     flights: [],
-    discrepancies: [],
+    discrepancies: await openDiscrepancies(ctx, aircraft),
     audit: [],
     syncedAt: 0,
     authenticatedAt: 0,
   };
+}
+
+// Aircraft status grounds on open grounding reports and expired deferrals,
+// so the "is grounded" alert needs them; closed reports alert on nothing.
+async function openDiscrepancies(ctx: QueryCtx, aircraft: { uuid: string }[]) {
+  const reports = await discrepancyDocs(ctx, aircraft);
+  return reports.filter((d) => d.status === "open");
 }
 
 /**

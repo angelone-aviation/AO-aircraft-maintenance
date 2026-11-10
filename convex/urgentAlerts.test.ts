@@ -2,7 +2,8 @@
  * Responsibility: Pins urgent alerts reaching people at once: who is emailed,
  *   no second email for the same alert on any channel, the digest still
  *   listing them, the daily cap, a refused send retried later, the email
- *   choice, and the check running after a mutation.
+ *   choice, the check running after a mutation, and a grounding problem
+ *   report reaching both the urgent email and the digest.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/urgentAlerts.ts, convex/alerts.ts,
  *   convex/expiringItems.ts, convex/rateLimits.ts, convex/schema.ts,
@@ -213,4 +214,87 @@ it("schedules every program's check from the daily cron", async () => {
       .map((e) => e.to[0])
       .sort(),
   ).toEqual(["admin@example.test", "other@example.test"]);
+});
+
+const REPORT = "Nose gear oleo flat after landing";
+
+// No other urgent alert: the seeded inspections are far from due.
+const clearInspections = (t: AlertWorld["t"]) =>
+  t.run(async (ctx) => {
+    for (const i of await ctx.db.query("inspections").collect())
+      await ctx.db.patch(i._id, { dueDate: "2999-01-01" });
+  });
+
+it("emails an aircraft grounded by a synced problem report at once, and lists it in the digest", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await clearInspections(world.t);
+  await world.t.run(async (ctx) => {
+    const reader = await ctx.db.get(world.ids.reader.userId);
+    await ctx.db.patch(reader!.groupIds![0], {
+      permissions: ["read", "flight", "discrepancy"],
+    });
+  });
+  const request = stubResend();
+  await world.reader.mutation(api.operations.submit, {
+    operation: {
+      programUuid: DEMO_PROGRAM,
+      kind: "discrepancy",
+      uuid: crypto.randomUUID(),
+      authorId: world.ids.reader.userId,
+      aircraftUuid: world.ids.aircraftUuid,
+      description: REPORT,
+      grounding: true,
+    },
+  });
+  await world.t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [urgent] = sentEmails(request);
+  expect(urgent.subject).toBe("Mission operations: 1 urgent alert");
+  expect(urgent.text).toContain("N206MA is grounded");
+  expect(urgent.text).toContain("Open discrepancy: " + REPORT);
+  await world.t.action(internal.alerts.sendDigests, {});
+  const [, digest] = sentEmails(request);
+  expect(digest.subject).toBe("Mission operations: 1 maintenance alert");
+  expect(digest.text).toContain("N206MA is grounded");
+});
+
+it("emails an aircraft grounded by an expired deferral, and nothing for a resolved report", async () => {
+  const { t, ids } = await seedAlertProgram();
+  await clearInspections(t);
+  const report = {
+    aircraftUuid: ids.aircraftUuid,
+    description: REPORT,
+    authorId: ids.reader.userId,
+    createdAt: 0,
+  };
+  await t.run(async (ctx) => {
+    await ctx.db.insert("discrepancies", {
+      ...report,
+      uuid: "resolved-report",
+      status: "resolved",
+      grounding: true,
+    });
+  });
+  const request = stubResend();
+  expect(await sendImmediate(t)).toMatchObject({ sent: 0 });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("discrepancies", {
+      ...report,
+      uuid: "deferred-report",
+      status: "open",
+      deferral: {
+        type: "mel",
+        melItem: "32-1",
+        category: "B",
+        placard: "INOP",
+        deferredOn: "2020-01-01",
+        deferredAt: 0,
+        deferredBy: ids.a.userId,
+        deferredByName: "admin",
+        expiresOn: "2020-01-04",
+      },
+    });
+  });
+  expect(await sendImmediate(t)).toMatchObject({ sent: 1 });
+  expect(sentEmails(request)[0].text).toContain("deferral expired 2020-01-04");
 });

@@ -5,7 +5,7 @@
  * Layer: Server. Three public mutations through runCommand; the rules are the
  *   domain's.
  * Dependencies: convex/runCommand, convex/management, convex/attachments,
- *   src/domain (inspectionTemplates, activateTemplate,
+ *   convex/urgentAlerts, src/domain (inspectionTemplates, activateTemplate,
  *   deleteInspectionTemplates).
  */
 import { deleteInspectionTemplates } from "../src/domain/deleteInspectionTemplates";
@@ -21,6 +21,7 @@ import {
 } from "./runCommand";
 import { writeInspection } from "./management";
 import { deleteBlobIfUnused } from "./attachments";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 import { saveInspectionTemplates } from "../src/domain/inspectionTemplates";
 
 // The payload of a template save is a bare list, so the request id travels
@@ -69,9 +70,9 @@ export const save = mutation({
 
 /**
  * Activates a template on an aircraft (an inspection) or a component (a
- * component requirement), with a draft job card per template task, and
- * replays the domain's change-log entries. A replayed request id changes
- * nothing.
+ * component requirement), with a draft job card per template task, replays
+ * the domain's change-log entries, and schedules the urgent-alert check. A
+ * replayed request id changes nothing.
  *
  * @param payload - JSON, as `activateTemplateSchema`.
  * @param programUuid - The caller's active Flight Program.
@@ -82,8 +83,8 @@ export const save = mutation({
  */
 export const activate = mutation({
   args,
-  handler: (ctx, { payload, programUuid, requestUuid }) =>
-    runCommand(ctx, {
+  handler: async (ctx, { payload, programUuid, requestUuid }) => {
+    const uuid = await runCommand(ctx, {
       programUuid,
       parse: () => JSON.parse(payload),
       request: () => requestOf(requestUuid, payload),
@@ -103,7 +104,12 @@ export const activate = mutation({
       },
       audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (result) => result.record.uuid,
-    }),
+    });
+    // A last-done date in the past can make the new inspection or
+    // requirement overdue at once.
+    await scheduleUrgentAlerts(ctx, programUuid);
+    return uuid;
+  },
 });
 
 /**
