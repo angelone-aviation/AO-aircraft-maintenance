@@ -4,7 +4,8 @@
  * Layer: UI. React components over the form's own fields; the picks come
  *   from the domain.
  * Dependencies: react, @phosphor-icons/react, src/domain/flightSuggestions.ts,
- *   src/domain/model.ts, src/styles/screens/flight-suggestions.css.
+ *   src/domain/model.ts, ./design.tsx,
+ *   src/styles/screens/flight-suggestions.css.
  *
  * The flight form's fields are uncontrolled, so the button writes the picked
  * values into the named fields of its own form, as typing would.
@@ -17,6 +18,7 @@ import {
   type LastFlightFill,
 } from "../domain/flightSuggestions";
 import type { Snapshot } from "../domain/model";
+import { markFormFilled } from "./design";
 import "../styles/screens/flight-suggestions.css";
 
 /**
@@ -44,6 +46,8 @@ export function SameAsLastFlight({
   const apply = (e: MouseEvent<HTMLButtonElement>) => {
     const form = e.currentTarget.form;
     if (form) fillFields(form, fill);
+    // Written values fire no trusted input, so the dialog is told directly.
+    markFormFilled(e.currentTarget);
     setDone(true);
   };
   return (

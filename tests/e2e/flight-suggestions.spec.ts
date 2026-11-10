@@ -57,6 +57,28 @@ for (const size of SIZES) {
   });
 }
 
+test("asks before Escape discards a form filled from the last flight", async ({
+  page,
+}) => {
+  await openDemo(page);
+  await logFirstFlight(await openFlightForm(page));
+  await page
+    .getByRole("article", { name: "N206MA" })
+    .getByRole("button", { name: "Log flight", exact: true })
+    .click();
+  const form = page.getByRole("dialog");
+  await form.getByRole("button", REPEAT).click();
+  const asked = new Promise<string>((resolve) =>
+    page.once("dialog", (question) => {
+      resolve(question.message());
+      void question.dismiss();
+    }),
+  );
+  await page.keyboard.press("Escape");
+  expect(await asked).toBe("Discard what you have entered in this form?");
+  await expect(form.getByLabel("Origin", { exact: true })).toHaveValue("KBOI");
+});
+
 test("suggests the program's places on the route fields", async ({ page }) => {
   await openDemo(page);
   await logFirstFlight(await openFlightForm(page));
