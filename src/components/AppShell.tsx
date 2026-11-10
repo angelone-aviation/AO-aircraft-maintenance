@@ -6,8 +6,8 @@
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, pendingEntries), src/domain (pilotView, ownerView,
  *   boardView, memberRole, programs, model), ./Alerts, ./UserProfile,
- *   ./ComponentIcon,
- *   ./InspectionIcon, ./WorkOrderIcon, ./FlightForm, ./ui, ./design.
+ *   ./ComponentIcon, ./InspectionIcon, ./WorkOrderIcon, ./FlightForm,
+ *   ./OutboxLine, ./KeyboardShortcuts, ./ui, ./design.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, rootRouteId, useRouterState } from "@tanstack/react-router";
@@ -17,6 +17,7 @@ import {
   ArrowsClockwise,
   Bell,
   BookOpen,
+  BookOpenText,
   Books,
   Buildings,
   CalendarDots,
@@ -61,6 +62,12 @@ import { ComponentIcon } from "./ComponentIcon";
 import { InspectionIcon } from "./InspectionIcon";
 import { WorkOrderIcon } from "./WorkOrderIcon";
 import { FlightForm } from "./FlightForm";
+import { OutboxLine } from "./OutboxLine";
+import {
+  ShortcutsHelp,
+  hasKeyboardPointer,
+  useKeyboardShortcuts,
+} from "./KeyboardShortcuts";
 import { Badge, Modal, errorText } from "./ui";
 import {
   Dialog,
@@ -240,6 +247,14 @@ const SETTINGS_LINK: NavItem = {
   icon: GearSix,
   group: "manage",
 };
+// Plain explanations of the app's words, for every signed-in role, owners
+// and board members included.
+const GLOSSARY_LINK: NavItem = {
+  path: "/glossary",
+  label: "Glossary",
+  icon: BookOpenText,
+  group: "manage",
+};
 const CLOSED_GROUPS_KEY = "angelone-nav-closed";
 /** Sidebar counts above this show as "99+". */
 const MAX_NAV_COUNT = 99;
@@ -252,7 +267,7 @@ function useNavigation() {
   const ownerView = isOwnerView(s);
   const admin = programPermission(s, "admin");
   const boardView = isBoardView(s);
-  if (boardView && !ownerView) return [BOARD_LINK];
+  if (boardView && !ownerView) return [BOARD_LINK, GLOSSARY_LINK];
   const visible: NavItem[] = WORKSPACE_LINKS.filter(
     (link) => admin || !link.adminOnly,
   ).filter((item) =>
@@ -264,6 +279,7 @@ function useNavigation() {
   // An owner who also sits on the board reaches both of their views.
   if (boardView) visible.push(BOARD_LINK);
   if (!ownerView) visible.push(SETTINGS_LINK);
+  visible.push(GLOSSARY_LINK);
   return visible;
 }
 
@@ -304,9 +320,9 @@ export { ThemeToggle };
  * @returns The layout. Pilots see only pilot navigation, owners only the
  *   overview and board members only the board view; program administrators
  *   also get inventory and purchasing, Administration, Costs and the board
- *   view; Settings ends the list for everyone but owners and board members,
- *   who keep their one view. Phones offer Log flight to anyone who may log
- *   one.
+ *   view; Settings follows for everyone but owners and board members, who
+ *   keep their one view, and the Glossary ends every list. Phones offer Log
+ *   flight to anyone who may log one; on computers, N opens it too.
  */
 export function AppShell({
   exit,
@@ -321,6 +337,9 @@ export function AppShell({
   const [more, setMore] = useMoreSheet(breakpoint);
   const [logging, setLogging] = useState(false);
   const canLog = canLogFlight(s);
+  const shortcuts = useKeyboardShortcuts(
+    canLog ? () => setLogging(true) : undefined,
+  );
   return (
     <div className={"app-layout " + breakpoint}>
       {breakpoint === "desktop" && <Sidebar items={items} exit={exit} />}
@@ -329,6 +348,7 @@ export function AppShell({
       )}
       <div className="main-area">
         <TopBar items={items} phone={breakpoint === "phone"} />
+        <OutboxLine />
         {children}
         <AppFooter />
       </div>
@@ -343,6 +363,9 @@ export function AppShell({
         <MoreSheet items={items} onClose={() => setMore(false)} exit={exit} />
       )}
       {logging && <LogFlightModal onClose={() => setLogging(false)} />}
+      {shortcuts.help && (
+        <ShortcutsHelp canLog={canLog} onClose={shortcuts.closeHelp} />
+      )}
     </div>
   );
 }
@@ -513,6 +536,11 @@ function ProfileFooter({
             <GearSix size={15} aria-hidden="true" />
             Settings
           </Link>
+          {hasKeyboardPointer() && (
+            <small className="shortcut-hint">
+              Press <kbd>?</kbd> for keyboard shortcuts
+            </small>
+          )}
         </div>
       )}
     </div>
@@ -765,9 +793,7 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
   const unknown = useRouterState({
     select: (r) => r.matches.at(-1)?.routeId === rootRouteId,
   });
-  const title = unknown
-    ? "Page not found"
-    : (reducedViewTitle(s) ?? topBarTitle(items, pathname));
+  const title = unknown ? "Page not found" : shellTitle(s, items, pathname);
   useDocumentTitle(title);
   return (
     <header className="topbar">
@@ -784,7 +810,7 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
         {demo && <Badge>LOCAL DEMO</Badge>}
         {demo && !ownerView && <OwnerPreviewButton />}
         {demo && !ownerView && <BoardPreviewButton />}
-        <ConnectionStatus s={s} />
+        <ConnectionStatus />
         {!ownerView && <AlertBell />}
         <ThemeToggle />
       </div>
@@ -826,17 +852,14 @@ function BoardPreviewButton() {
   );
 }
 
-function ConnectionStatus({ s }: { s: Snapshot }) {
-  const { queue, online, connected } = useWorkspace();
-  const pending = ownEntries(queue, s.user.id).length;
-  const live = online && connected;
+// The waiting-entry count lives in the OutboxLine under the top bar, which
+// phones show in full; this pill says only whether the app is connected.
+function ConnectionStatus() {
+  const live = useWorkspace((x) => x.online && x.connected);
   return (
     <span className={"connection " + (live ? "" : "offline")}>
       <span className="connection-dot" aria-hidden="true" />
-      <span className="connection-label">
-        {live ? "Connected" : "Offline"}
-        {pending > 0 && ` · ${pending} pending`}
-      </span>
+      <span className="connection-label">{live ? "Connected" : "Offline"}</span>
     </span>
   );
 }
@@ -871,6 +894,11 @@ function canLogFlight(s: Snapshot) {
 // certifications or flight logging, whose calls the server refuses anyway.
 function isReducedView(s: Snapshot) {
   return isOwnerView(s) || isBoardView(s);
+}
+
+function shellTitle(s: Snapshot, items: NavItem[], pathname: string) {
+  if (pathname === GLOSSARY_LINK.path) return GLOSSARY_LINK.label;
+  return reducedViewTitle(s) ?? topBarTitle(items, pathname);
 }
 
 // Owners and board members see their one view on every route.

@@ -1,0 +1,41 @@
+/*
+ * Responsibility: The waiting-to-send line under the top bar.
+ * Layer: UI. Styles for src/components/OutboxLine.tsx.
+ * Dependencies: src/styles/tokens.css (colours, radii).
+ *
+ * Sticky just below the 64px top bar, so it stays in view while the screen
+ * scrolls. Warn colours with an icon and words: never colour alone.
+ */
+.outbox-line {
+  position: sticky;
+  top: 64px;
+  z-index: 19;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px clamp(16px, 3vw, 36px);
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+}
+.outbox-line.empty {
+  position: static;
+  padding: 0;
+  border: 0;
+}
+.outbox-line svg {
+  flex: none;
+}
+.outbox-line-text {
+  min-width: 0;
+}
+.outbox-line-link {
+  margin-left: auto;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 4px 0;
+}
