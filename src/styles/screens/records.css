@@ -586,6 +586,10 @@
   font-size: 15px;
   text-overflow: ellipsis;
 }
+/* Wide enough for the placeholder that lists what the search matches. */
+.rec-search {
+  flex-basis: 340px;
+}
 .rec-select > select option {
   background: var(--surface);
   color: var(--text);
@@ -643,6 +647,9 @@
   }
   .rec-select {
     width: 100%;
+  }
+  .rec-search {
+    flex-basis: 100%;
   }
   .rec-select > select {
     flex: 1;

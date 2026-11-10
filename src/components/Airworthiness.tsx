@@ -484,7 +484,7 @@ function ADFilters({ ad }: ADProps) {
       </OpsSelect>
       <SearchField
         label="Search ADs"
-        placeholder="AD number, subject, make, model or action"
+        placeholder="AD number, subject or model"
         value={ad.search}
         onChange={ad.setSearch}
       />

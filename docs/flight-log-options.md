@@ -20,3 +20,7 @@ Enable **Flight time log** in the aircraft profile beside Twin, Turbine, and the
 Pilots enter the updated cumulative takeoff-to-touchdown hours, in tenths, rather than takeoff and touchdown timestamps. When this is the selected source, Hobbs and tach ending readings are optional. The selected source drives aircraft total time and the maintenance/component tracking that uses aircraft time. Flight time log readings also appear in work-order completion, logbook entries, and aircraft status sheets.
 
 The new input and source option are hidden when the aircraft option is off. Previously recorded flight readings remain available for history and corrections. Disabling the option while it is the selected source switches back to Hobbs and preserves total time. Existing aircraft are unchanged until the option is enabled.
+
+## Finding flights
+
+The flight log lists flights newest first. Its search matches the aircraft registration, pilot or copilot name, origin, destination, remarks and the date, typed as recorded (`2026-11-03`) or as shown (`Nov 3, 2026`). The Aircraft select narrows the log to one aircraft, and the status choices to accepted, held for review or rejected flights; each status count covers the flights matching the search and aircraft. The log shows the first 50 matching flights, and **Show more** adds 50 at a time; changing a filter starts again at 50.

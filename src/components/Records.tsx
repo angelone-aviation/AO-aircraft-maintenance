@@ -369,10 +369,11 @@ function FlightToolbar({
   const { counts } = view.rows;
   return (
     <Toolbar
-      className="rise rec-flight-filters"
+      className="rise"
       end={!!pending && <PendingFlightsLink count={pending} />}
     >
       <SearchField
+        className="rec-search"
         label="Search flights"
         placeholder="Aircraft, pilot, route, remarks or date"
         value={filters.search}
@@ -917,6 +918,7 @@ function DiscrepancyToolbar({
       }
     >
       <SearchField
+        className="rec-search"
         label="Search reports"
         placeholder="Aircraft, description, resolution or reporter"
         value={search}

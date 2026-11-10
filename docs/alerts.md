@@ -1,6 +1,6 @@
 # Alerts, urgent alerts and expiring dates
 
-Alerts tell a member what needs attention in their Flight Program: inspections, ADs and component limits coming due or passed, grounded aircraft, their own certificates, FAA documents to review, and expiring dates. They appear under the bell in the header and on the **Alerts** page for everyone who can read the aircraft concerned, including in demo mode. The rules live in `src/domain/alerts.ts`; the bell and the page compute alerts from the workspace snapshot, so they work offline from the last snapshot.
+Alerts tell a member what needs attention in their Flight Program: inspections, ADs and component limits coming due or passed, grounded aircraft, their own certificates, FAA documents to review, and expiring dates. They appear under the bell in the header and on the **Alerts** page for everyone who can read the aircraft concerned, including in demo mode. The rules live in `src/domain/alerts.ts`; the bell and the page compute alerts from the workspace snapshot, so they work offline from the last snapshot. The page's search narrows the list by alert title, detail or aircraft registration; **Mark all read** still marks every current alert.
 
 Each alert has a key that changes when its substance changes (the record, the due point). Read marks and sent emails are kept by key, so a changed alert is unread again and is emailed again.
 

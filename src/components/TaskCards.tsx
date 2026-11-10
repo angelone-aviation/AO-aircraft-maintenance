@@ -140,7 +140,7 @@ export function TaskCards() {
       <div className="management-toolbar">
         <SearchField
           label="Search job cards"
-          placeholder="Card, title, description, aircraft or work order"
+          placeholder="Card, title, aircraft or work order"
           value={filters.search}
           onChange={filters.setSearch}
         />

@@ -527,7 +527,7 @@ function WorkOrderFilters({
     >
       <SearchField
         label="Search work orders"
-        placeholder="Work order, aircraft, supervisor or work item"
+        placeholder="Work order, aircraft or work item"
         value={filter.search}
         onChange={filter.setSearch}
       />

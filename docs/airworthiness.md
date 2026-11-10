@@ -1,6 +1,6 @@
 # Airworthiness directives
 
-Open **Airworthiness directives** from the navigation and select an aircraft.
+Open **Airworthiness directives** from the navigation and select an aircraft. The search beside it narrows the register by AD number, subject, section, make, model, amendment, superseding AD or required action, and opens every group so the matches are in view; the counts above still cover all of the aircraft's ADs.
 
 ## Import and review
 
