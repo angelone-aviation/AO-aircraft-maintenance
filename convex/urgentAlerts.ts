@@ -6,8 +6,8 @@
  *   create an urgent state, plus the member's email choice; the alert rules
  *   and the messages are the domain's.
  * Dependencies: convex/values, ./_generated, ./access, ./alerts, ./mailer,
- *   ./memberships, ./rateLimits, src/domain (alerts, alertDigest, model,
- *   programs).
+ *   ./memberships, ./rateLimits, ./recordsDate, src/domain (alerts,
+ *   alertDigest, model, programs).
  *
  * Resend's free tier sends 100 emails a day. Immediate emails stop at
  * IMMEDIATE_EMAILS_PER_DAY so the digest always fits; a capped alert waits
@@ -36,13 +36,14 @@ import {
 import { createMailer, mailerSettings } from "./mailer";
 import { programUsers } from "./memberships";
 import { consume, DAY } from "./rateLimits";
+import { recordsDate } from "./recordsDate";
 import {
   urgentAlerts,
   wantsUrgentAlertEmails,
   type Alert,
 } from "../src/domain/alerts";
 import { urgentEmail, urgentPushPayload } from "../src/domain/alertDigest";
-import { localDate, type Group } from "../src/domain/model";
+import type { Group } from "../src/domain/model";
 
 /** Immediate alert emails allowed per UTC day, for the whole deployment. */
 export const IMMEDIATE_EMAILS_PER_DAY = 60;
@@ -219,7 +220,7 @@ export const sendImmediate = internalAction({
     if (!settings && !pushReady) return { ...counts, skipped: true };
     const { programName, recipients } = await ctx.runQuery(
       internal.urgentAlerts.urgentRecipients,
-      { programUuid, today: localDate() },
+      { programUuid, today: recordsDate() },
     );
     const mail = settings && createMailer(settings);
     const pushes: PushJob[] = [];

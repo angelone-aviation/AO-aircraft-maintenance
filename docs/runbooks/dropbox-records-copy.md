@@ -52,7 +52,7 @@ In the repository: **Settings > Environments > `backups` > Environment secrets**
 | `DROPBOX_APP_SECRET`    | App secret from step 1    |
 | `DROPBOX_REFRESH_TOKEN` | Refresh token from step 2 |
 
-Optional: an environment **variable** `RECORDS_TIME_ZONE` (an IANA name such as `America/Chicago`) changes the time zone the workbook uses. The default is `America/New_York`.
+Optional: an environment **variable** `RECORDS_TIME_ZONE` (an IANA name such as `America/Chicago`) changes the time zone the workbook uses. The default is `America/New_York`. The Convex deployment reads a variable of the same name for the date its alert emails and push messages are judged on ([monitoring](monitoring.md#alerts-by-email-and-on-devices)); keep the two the same.
 
 ## 4. Check it works
 

@@ -6,7 +6,7 @@
  *   from the daily cron and sends through the mailer. The alert rules are
  *   the domain's.
  * Dependencies: convex (access, faaCredentials, mailer, memberships,
- *   programContext), src/domain (alerts, alertDigest, offsiteBackups,
+ *   programContext, recordsDate), src/domain (alerts, alertDigest, offsiteBackups,
  *   airworthiness, expiringItems, faa, management, programs, model).
  */
 import {
@@ -25,6 +25,7 @@ import { currentUser, group, member } from "./access";
 import { faaCredentialStatus } from "./faaCredentials";
 import { createMailer, mailerSettings, type Mailer } from "./mailer";
 import { programUsers } from "./memberships";
+import { recordsDate } from "./recordsDate";
 import {
   checkContext,
   managementDocs,
@@ -42,7 +43,7 @@ import { expiringItemSchema } from "../src/domain/expiringItems";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { recordSchema } from "../src/domain/management";
 import { activeProgram, scopedSnapshot } from "../src/domain/programs";
-import { localDate, type Group, type Snapshot } from "../src/domain/model";
+import type { Group, Snapshot } from "../src/domain/model";
 
 const MAX_KEYS = 500;
 const MAX_KEY_LENGTH = 300;
@@ -257,7 +258,7 @@ export const sendDigests = internalAction({
     const settings = mailerSettings();
     // In-app alerts work without email; skip quietly until both are set.
     if (!settings) return { sent: 0, failed: 0, skipped: true };
-    const today = localDate();
+    const today = recordsDate();
     const mail = createMailer(settings);
     const backup = await ctx.runQuery(internal.alerts.digestBackupWarning, {});
     const freshness = offsiteFreshness(backup.latest, Date.now());

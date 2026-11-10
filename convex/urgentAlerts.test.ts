@@ -2,8 +2,9 @@
  * Responsibility: Pins urgent alerts reaching people at once: who is emailed,
  *   no second email for the same alert on any channel, the digest still
  *   listing them, the daily cap, a refused send retried later, the email
- *   choice, the check running after a mutation, and a grounding problem
- *   report reaching both the urgent email and the digest.
+ *   choice, the check running after a mutation, a grounding problem report
+ *   reaching both the urgent email and the digest, and calendar limits
+ *   judged on the records time zone's date.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/urgentAlerts.ts, convex/alerts.ts,
  *   convex/expiringItems.ts, convex/rateLimits.ts, convex/schema.ts,
@@ -297,4 +298,34 @@ it("emails an aircraft grounded by an expired deferral, and nothing for a resolv
   });
   expect(await sendImmediate(t)).toMatchObject({ sent: 1 });
   expect(sentEmails(request)[0].text).toContain("deferral expired 2020-01-04");
+});
+
+it("judges calendar limits on the records time zone's date, not the UTC date", async () => {
+  const { t } = await seedAlertProgram();
+  await t.run(async (ctx) => {
+    for (const i of await ctx.db.query("inspections").collect())
+      await ctx.db.patch(i._id, { dueDate: "2026-11-10" });
+  });
+  const request = stubResend();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  // 20:00 on the due date in New York is already 11 Nov in UTC. GLOSSARY
+  // "Overdue": a calendar limit is overdue from the day after its due date.
+  vi.setSystemTime(new Date("2026-11-11T01:00:00Z"));
+  expect(await sendImmediate(t)).toMatchObject({ sent: 0 });
+  const digests = await t.action(internal.alerts.sendDigests, {});
+  expect(digests).toMatchObject({ sent: 2 });
+  expect(sentEmails(request)[0].text).toContain("Inspection due soon");
+  expect(sentEmails(request)[0].text).not.toContain("grounded");
+  // Midnight in New York.
+  vi.setSystemTime(new Date("2026-11-11T05:00:00Z"));
+  expect(await sendImmediate(t)).toMatchObject({ sent: 1 });
+  expect(sentEmails(request)[2].text).toContain("N206MA is grounded");
+  // A deployment further west sets RECORDS_TIME_ZONE.
+  const west = await seedAlertProgram();
+  await west.t.run(async (ctx) => {
+    for (const i of await ctx.db.query("inspections").collect())
+      await ctx.db.patch(i._id, { dueDate: "2026-11-10" });
+  });
+  vi.stubEnv("RECORDS_TIME_ZONE", "America/Los_Angeles");
+  expect(await sendImmediate(west.t)).toMatchObject({ sent: 0 });
 });
