@@ -5,7 +5,8 @@
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, backend type; poPdf and partsRequestPdf on demand),
  *   src/domain (model, vendors, management, addresses, programs,
- *   purchaseOrders, purchaseOrderRules, aircraftSpruce, costs/units),
+ *   purchaseOrders, purchaseOrderRules, shelfLife, aircraftSpruce,
+ *   costs/units),
  *   ./AircraftSpruce, ./Vendors, ./CoreReturns, ./SavedAddresses, ./ShopList,
  *   ./ui, ./design, CSS.
  */
@@ -50,6 +51,7 @@ import {
   inspectionShortfalls,
 } from "../domain/purchaseOrderRules";
 import type { Inspection } from "../domain/model";
+import { usableQuantity } from "../domain/shelfLife";
 import { AsyncForm, DeleteFileButton, Modal, Field, errorText } from "./ui";
 import {
   useStaleSave,
@@ -1101,13 +1103,14 @@ function LineExchangeFields({ editor, line: l, index }: LineProps) {
 
 function LineNotes({ editor, line: l, inspection }: LineProps) {
   const { s } = editor;
+  const stock = editor.stocks.find((x) => x.uuid === l.stockUuid);
   return (
     <>
       {!!l.stockUuid && (
         <p>
-          On hand:{" "}
-          {editor.stocks.find((x) => x.uuid === l.stockUuid)?.quantity ?? 0} ·
-          On order: {onOrder(s, l.stockUuid)}
+          On hand: {stock?.quantity ?? 0} · Available:{" "}
+          {stock ? usableQuantity(stock) : 0} · On order:{" "}
+          {onOrder(s, l.stockUuid)}
           {inspection
             ? ` · Required: ${inspection.requiredParts?.find((r) => r.stockUuid === l.stockUuid)?.quantity ?? 0}`
             : ""}

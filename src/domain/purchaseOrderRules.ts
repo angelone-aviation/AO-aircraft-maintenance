@@ -4,7 +4,7 @@
  *   and how one edited draft becomes a draft per vendor.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./purchaseOrders, ./currencyCode, ./vendors, ./addresses,
- *   ./rejection; types from ./model and ./management.
+ *   ./shelfLife, ./rejection; types from ./model and ./management.
  */
 import {
   onOrder,
@@ -16,6 +16,7 @@ import {
 } from "./purchaseOrders";
 import { vendorKey } from "./vendors";
 import { formatAddress } from "./addresses";
+import { usableQuantity } from "./shelfLife";
 import { Rejection } from "./rejection";
 import type { Inspection, Snapshot } from "./model";
 import type { Stock, Vendor } from "./management";
@@ -70,15 +71,19 @@ export function deliveryOverdue(po: PurchaseOrder, today: string) {
 }
 
 /**
- * What an inspection's required parts still lack once stock on hand, units
+ * What an inspection's required parts still lack once usable stock, units
  * outstanding on issued orders and units on its own draft orders count.
+ * Expired and reserved units cannot be issued, so they are not counted, as in
+ * the inspection's own parts check.
  *
+ * @param now - The time to judge shelf life at; the clock by default.
  * @returns One entry per required part whose stock lot exists, in list
  *   order; `quantity` is never below 0.
  */
 export function inspectionShortfalls(
   s: Pick<Snapshot, "management" | "purchaseOrders">,
   inspection: Pick<Inspection, "uuid" | "requiredParts">,
+  now = Date.now(),
 ): { stock: Stock; quantity: number }[] {
   return (inspection.requiredParts ?? []).flatMap((r) => {
     const stock = s.management?.find(
@@ -87,7 +92,7 @@ export function inspectionShortfalls(
     if (stock?.kind !== "stock") return [];
     const quantity =
       r.quantity -
-      stock.quantity -
+      usableQuantity(stock, now) -
       onOrder(s, stock.uuid) -
       plannedForInspection(s, inspection.uuid, stock.uuid);
     return [{ stock, quantity: Math.max(0, quantity) }];
