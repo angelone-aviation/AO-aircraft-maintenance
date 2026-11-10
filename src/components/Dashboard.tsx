@@ -729,31 +729,9 @@ function RecordsCallout() {
 
 function DashboardDialogs({ d }: { d: DashboardState }) {
   const detail = d.s.aircraft.find((a) => a.uuid === d.detailUuid);
-  const closeFlight = () => d.setFlight(null);
   return (
     <>
-      {d.flight !== null && (
-        <Dialog
-          title="Log a flight"
-          subtitle="Saved on this device first, then synced."
-          onClose={closeFlight}
-          dismissOnScrim={false}
-          className="dash-flight"
-        >
-          <FlightForm
-            aircraftUuid={d.flight || undefined}
-            onSaved={(f) =>
-              d.setSavedFlight({
-                aircraftUuid: f.aircraftUuid,
-                linkedKind: "flight",
-                linkedUuid: f.uuid,
-              })
-            }
-            onDone={closeFlight}
-            onCancel={closeFlight}
-          />
-        </Dialog>
-      )}
+      {d.flight !== null && <LogFlightDialog d={d} flight={d.flight} />}
       {detail && (
         <AircraftDetail
           aircraft={detail}
@@ -768,6 +746,33 @@ function DashboardDialogs({ d }: { d: DashboardState }) {
         />
       )}
     </>
+  );
+}
+
+// `flight` is the aircraft to log for; "" lets the pilot choose.
+function LogFlightDialog({ d, flight }: { d: DashboardState; flight: string }) {
+  const closeFlight = () => d.setFlight(null);
+  return (
+    <Dialog
+      title="Log a flight"
+      subtitle="Saved on this device first, then synced."
+      onClose={closeFlight}
+      dismissOnScrim={false}
+      className="dash-flight"
+    >
+      <FlightForm
+        aircraftUuid={flight || undefined}
+        onSaved={(f) =>
+          d.setSavedFlight({
+            aircraftUuid: f.aircraftUuid,
+            linkedKind: "flight",
+            linkedUuid: f.uuid,
+          })
+        }
+        onDone={closeFlight}
+        onCancel={closeFlight}
+      />
+    </Dialog>
   );
 }
 
