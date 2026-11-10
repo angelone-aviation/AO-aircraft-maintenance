@@ -56,7 +56,9 @@ test.describe("Escape in a nested dialog (ui-1)", () => {
     await expect(po.getByLabel("Part 1 number", { exact: true })).toHaveValue(
       "PN-12345",
     );
-    // The next Escape belongs to the purchase order itself.
+    // The next Escape belongs to the purchase order itself, which asks
+    // before discarding what was typed in it.
+    page.once("dialog", (question) => void question.accept());
     await page.keyboard.press("Escape");
     await expect(po).toHaveCount(0);
   });

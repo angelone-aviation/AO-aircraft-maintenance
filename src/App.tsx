@@ -9,6 +9,7 @@
 import { isOwnerView } from "./domain/ownerView";
 import { isBoardView } from "./domain/boardView";
 import { AppShell } from "./components/AppShell";
+import { setDialogHistory } from "./components/design";
 import { createContext, useContext, lazy, Suspense } from "react";
 import {
   Link,
@@ -330,6 +331,7 @@ const routes = [
   }),
 ];
 const router = createRouter({ routeTree: rootRoute.addChildren(routes) });
+setDialogHistory(router.history);
 
 // Registers the route tree so Link, useSearch and useNavigate type-check
 // paths and search params against it.

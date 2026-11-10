@@ -87,6 +87,7 @@ export function ChecklistEditor({ initial, onClose, onSaved }: EditorProps) {
       title={initial.version ? "Edit checklist" : "Import / create checklist"}
       wide
       onClose={close}
+      confirmDiscard={false}
     >
       <AsyncForm
         submitLabel="Save checklist"

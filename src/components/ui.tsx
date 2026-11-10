@@ -30,11 +30,12 @@ const DOWNLOAD_URL_LIFETIME_MS = 1000;
 
 /**
  * A dialog for forms: a centred modal from 760px, a bottom sheet below.
- * Unlike `Dialog`, a click on the scrim never discards a half-filled form;
- * Escape and the close button do.
+ * Unlike `Dialog`, a click on the scrim never closes it; Escape and Back ask
+ * before discarding what the user entered, and the close button closes.
  *
  * @param props.wide - Uses the wide dialog size.
  * @param props.className - Added after the `modal` class.
+ * @param props.confirmDiscard - False for a form that asks by itself.
  * @returns The design system's DialogFrame.
  */
 export function Modal({
@@ -43,12 +44,14 @@ export function Modal({
   onClose,
   wide = false,
   className = "",
+  confirmDiscard,
 }: {
   title: string;
   wide?: boolean;
   className?: string;
   children: ReactNode;
   onClose: () => void;
+  confirmDiscard?: boolean;
 }) {
   return (
     <DialogFrame
@@ -56,6 +59,7 @@ export function Modal({
       onClose={onClose}
       size={wide ? "wide" : "default"}
       dismissOnScrim={false}
+      confirmDiscard={confirmDiscard}
       className={["modal", className].filter(Boolean).join(" ")}
     >
       {children}
