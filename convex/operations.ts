@@ -126,6 +126,20 @@ export const snapshot = query({
 });
 
 /**
+ * The signed-in account's id, without loading the program. The app asks only
+ * when the snapshot fails, to check that the copy kept on the device belongs
+ * to the account now signed in before offering it.
+ *
+ * @returns The user id, as `Snapshot.user.id`; null without an active account
+ *   and session.
+ */
+export const signedInUser = query({
+  args: {},
+  handler: async (ctx): Promise<string | null> =>
+    (await activeIdentity(ctx))?.user._id ?? null,
+});
+
+/**
  * Applies one offline outbox entry, a flight or a problem report, through
  * submitOperation. Idempotent on the entry's uuid. A flight that conflicts
  * with the aircraft is stored held for review, its totals unchanged.
