@@ -55,7 +55,10 @@ _Avoid_: squawk, issue, defect (in records)
 Postponement of a discrepancy under a Minimum Equipment List (MEL) item and category, with placard text and a repair deadline.
 
 **Aircraft status**:
-The computed level of an aircraft, airworthy, due soon or grounded, together with the reasons that produced it.
+The computed level of an aircraft, airworthy, due soon or grounded, together with the reasons that produced it. Screens show **Setup incomplete** in place of airworthy or due soon while the aircraft's setup has gaps.
+
+**Setup incomplete** (aircraft status):
+The status shown for an aircraft that is not grounded while any step of its aircraft setup holds no data (baseline readings, an installed component, an inspection schedule, an AD with its applicability decided). The missing steps are its reasons. It never reads as airworthy, but it does not ground the aircraft or close the dispatch gate. Also the label of a component added from a template that still waits for its serial and readings.
 
 **Dispatch gate**:
 The check that blocks releasing a grounded aircraft for a flight.

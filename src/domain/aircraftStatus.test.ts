@@ -1,10 +1,11 @@
 /**
- * Responsibility: Pins aircraft status levels, reasons and their order, and
- *   the dispatch gate's refusals and overrides.
+ * Responsibility: Pins aircraft status levels, reasons and their order, the
+ *   shown status of an aircraft whose setup is incomplete, and the dispatch
+ *   gate's refusals and overrides.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/aircraftStatus.ts, ./airworthiness, ./components,
- *   ./deferrals, ./model, ./rejection, src/data/demo.ts (seed),
- *   tests/fixtures/dueFleet.ts.
+ *   ./deferrals, ./model, ./rejection, ./boardView, ./ownerView,
+ *   src/data/demo.ts (seed), tests/fixtures/dueFleet.ts.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -17,11 +18,14 @@ import {
   aircraftStatus,
   dispatchGate,
   earliestLocalDate,
+  shownAircraftStatus,
 } from "./aircraftStatus";
 import { blankAD, blankADTask } from "./airworthiness";
 import { componentSchema, requirementSchema } from "./components";
 import { deferDiscrepancy } from "./deferrals";
 import { localDate, totalSeconds, type Snapshot } from "./model";
+import { boardSnapshot } from "./boardView";
+import { ownerSnapshot } from "./ownerView";
 import { Rejection } from "./rejection";
 
 const today = localDate();
@@ -362,6 +366,81 @@ describe("aircraft status", () => {
           entityUuid: "d1",
         },
       ],
+    });
+  });
+});
+
+describe("shown aircraft status", () => {
+  // A component due in 500 h and an applicable AD due in a year: nothing
+  // near, so a set-up N206MA without the demo's due-soon 100-hour reads
+  // airworthy.
+  function setUpN206() {
+    const s = setup();
+    component(s, totalSeconds(s.aircraft[0]) + 500 * 3600);
+    ad(s, addDays(365));
+    s.inspections.push({
+      uuid: "annual",
+      aircraftUuid: N206,
+      reference: "Annual",
+      description: "",
+      dueDate: addDays(200),
+    });
+    return s;
+  }
+
+  it("shows setup incomplete with the gaps for an aircraft with no records, and still dispatches", () => {
+    const s = setup();
+    expect(aircraftStatus(s, N206, today).level).toBe("airworthy");
+    expect(shownAircraftStatus(s, N206, today)).toEqual({
+      level: "setup-incomplete",
+      reasons: [
+        { kind: "setup", label: "Components missing", entityUuid: N206 },
+        { kind: "setup", label: "Inspections missing", entityUuid: N206 },
+        { kind: "setup", label: "ADs not reviewed", entityUuid: N206 },
+      ],
+    });
+    expect(dispatchGate(s, N206, undefined, today)).toBeUndefined();
+  });
+  it("keeps due-soon reasons after the gaps", () => {
+    const s = demoSnapshot();
+    expect(
+      shownAircraftStatus(s, N206, today).reasons.map((r) => r.label),
+    ).toEqual([
+      "Components missing",
+      "ADs not reviewed",
+      "100-hour inspection due soon",
+    ]);
+  });
+  it("shows grounded over setup incomplete, with grounding reasons only", () => {
+    const s = setup();
+    s.aircraft[0].operationalStatus = "grounded";
+    expect(shownAircraftStatus(s, N206, today)).toEqual(
+      aircraftStatus(s, N206, today),
+    );
+  });
+  it("leaves a fully set-up aircraft as computed", () => {
+    const s = setUpN206();
+    expect(shownAircraftStatus(s, N206, today)).toEqual({
+      level: "airworthy",
+      reasons: [],
+    });
+  });
+  it("reads the same through the owner portal's and board's reduced records", () => {
+    const s = setUpN206();
+    for (const reduced of [ownerSnapshot(s), boardSnapshot(s, today)])
+      expect(shownAircraftStatus(reduced, N206, today).level).toBe("airworthy");
+    s.management = [];
+    for (const reduced of [ownerSnapshot(s), boardSnapshot(s, today)])
+      expect(shownAircraftStatus(reduced, N206, today).level).toBe(
+        "setup-incomplete",
+      );
+  });
+  it("counts an AD still needing review as a gap", () => {
+    const s = setUpN206();
+    s.airworthiness![0].applicability = "Needs review";
+    expect(shownAircraftStatus(s, N206, today)).toMatchObject({
+      level: "setup-incomplete",
+      reasons: [{ label: "ADs not reviewed" }],
     });
   });
 });

@@ -70,13 +70,27 @@ function component(s: Snapshot, uuid: string, over: object = {}) {
   });
 }
 
-// Leaves the first aircraft airworthy, with nothing due, grounding or open.
+// Leaves the first aircraft with nothing due, grounding or open; its setup
+// then has gaps, so it shows "Setup incomplete" until setUp() fills them.
 function quiet(s: Snapshot) {
   s.aircraft[0].operationalStatus = "airworthy";
   s.management = [];
   s.inspections = [];
   s.airworthiness = [];
   s.discrepancies = [];
+}
+
+// Fills the first aircraft's setup gaps without adding anything due: a
+// component with no limits, a distant inspection and an AD that does not
+// apply.
+function setUp(s: Snapshot) {
+  const ad = blankAD(s.aircraft[0].uuid);
+  ad.applicability = "Not applicable";
+  s.management = [...(s.management ?? []), component(s, "set-up-engine")];
+  s.inspections.push(
+    inspection(s, { reference: "Annual", dueDate: "2030-01-01" }),
+  );
+  s.airworthiness = [...(s.airworthiness ?? []), ad];
 }
 
 function inspection(s: Snapshot, over: Partial<Inspection>): Inspection {
@@ -300,6 +314,7 @@ it("notes the flight time log only when kept and read, and the collective hourme
   const s = demoSnapshot();
   const a = s.aircraft[0];
   quiet(s);
+  setUp(s);
   const notes = () => section(s, "overview").notes.slice(1);
   expect(notes()).toEqual([expect.stringMatching(/^Data synchronized /)]);
   Object.assign(a, { flightTimeLog: true });
@@ -484,6 +499,7 @@ describe("agrees with aircraftStatus", () => {
 
   it("when a deferral is about to expire or still has time", () => {
     const { s, a } = fleetWith((s, a) => {
+      setUp(s);
       s.discrepancies = [
         report(a, { uuid: "soon", deferral: melDeferral("2026-11-01") }),
         report(a, { uuid: "later", deferral: melDeferral("2026-12-01") }),
@@ -505,7 +521,7 @@ describe("agrees with aircraftStatus", () => {
   });
 
   it("when nothing is due: airworthy, with no reason note", () => {
-    const { s, a } = fleetWith(() => {});
+    const { s, a } = fleetWith(setUp);
     const [overview] = statusSheet(s, a.uuid, DUE_FLEET_TODAY).sections;
     expect(aircraftStatus(s, a.uuid, DUE_FLEET_TODAY).level).toBe("airworthy");
     expect(overview.rows[0][0]).toBe("Airworthy");
@@ -513,6 +529,16 @@ describe("agrees with aircraftStatus", () => {
       "Aircraft status is computed from the records on this sheet. Profile status entered on the aircraft record: airworthy.",
     );
   });
+});
+
+it("shows setup incomplete with the gaps for an aircraft not yet set up, though nothing grounds it", () => {
+  const { s, a } = fleetWith(() => {});
+  expect(aircraftStatus(s, a.uuid, DUE_FLEET_TODAY).level).toBe("airworthy");
+  const [overview] = statusSheet(s, a.uuid, DUE_FLEET_TODAY).sections;
+  expect(overview.rows[0][0]).toBe("Setup incomplete");
+  expect(overview.notes[0]).toBe(
+    "Setup incomplete: Components missing; Inspections missing; ADs not reviewed.",
+  );
 });
 
 it("lists each installed component's limits in component order and reviews one it cannot compute", () => {

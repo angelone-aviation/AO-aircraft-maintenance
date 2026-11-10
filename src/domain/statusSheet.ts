@@ -9,7 +9,7 @@
  *
  * The content of the 14 CFR 91.417(a)(2) status records, kept apart from any
  * document so it can be tested as data. Every status on the sheet is the one
- * aircraftStatus and dueItems give the screens; the sheet computes none.
+ * shownAircraftStatus and dueItems give the screens; the sheet computes none.
  */
 import {
   localDate,
@@ -20,11 +20,11 @@ import {
   type Snapshot,
 } from "./model";
 import {
-  aircraftStatus,
   aircraftStatusFindings,
   aircraftStatusLabels,
-  type AircraftStatus,
+  shownAircraftStatus,
   type AircraftStatusFinding,
+  type ShownAircraftStatus,
 } from "./aircraftStatus";
 import {
   dueItems,
@@ -117,7 +117,7 @@ export function statusSheet(
       serial: a.serial,
     },
     sections: [
-      overviewSection(s, a, aircraftStatus(s, a.uuid, today)),
+      overviewSection(s, a, shownAircraftStatus(s, a.uuid, today)),
       componentsSection(components, a, today),
       limitsSection(due, components),
       inspectionsSection(due, components),
@@ -131,7 +131,7 @@ export function statusSheet(
 function overviewSection(
   s: Snapshot,
   a: Aircraft,
-  status: AircraftStatus,
+  status: ShownAircraftStatus,
 ): StatusSection {
   const notes = listStatusNotes(a, status);
   if (a.flightTimeLog && a.currentFlightTimeLog !== undefined)
@@ -170,7 +170,7 @@ function overviewSection(
 
 // The profile status is what someone entered; only "grounded" changes the
 // aircraft status, so it is named apart from it.
-function listStatusNotes(a: Aircraft, status: AircraftStatus): string[] {
+function listStatusNotes(a: Aircraft, status: ShownAircraftStatus): string[] {
   const label = aircraftStatusLabels[status.level];
   const reasons = status.reasons.map((r) => r.label).join("; ");
   return [

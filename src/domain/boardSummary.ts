@@ -10,7 +10,7 @@
  * The screen and the PDF both render this one summary, so they cannot drift.
  */
 import { localDate, type Aircraft, type Snapshot } from "./model";
-import { aircraftStatus, type AircraftStatusLevel } from "./aircraftStatus";
+import { shownAircraftStatus, type ShownStatusLevel } from "./aircraftStatus";
 import { adTaskStatus } from "./airworthiness";
 import { dueItems, type MaintenanceDue } from "./dueItems";
 import { ownerDueItems, type DueItem } from "./ownerDue";
@@ -35,7 +35,7 @@ const STATUS_RANK: Record<DueItem["status"], number> = {
 /** One aircraft's line of the board summary. */
 export interface BoardAircraftLine {
   aircraft: Aircraft;
-  status: AircraftStatusLevel;
+  status: ShownStatusLevel;
   overdue: number;
   dueSoon: number;
   openDiscrepancies: number;
@@ -54,7 +54,7 @@ export interface BoardDueLine extends DueItem {
 export interface BoardSummary {
   today: string;
   programName: string;
-  fleet: Record<AircraftStatusLevel, number>;
+  fleet: Record<ShownStatusLevel, number>;
   overdue: number;
   aircraft: BoardAircraftLine[];
   upcoming: BoardDueLine[];
@@ -80,7 +80,12 @@ export function boardSummary(s: Snapshot, now = Date.now()): BoardSummary {
   // group names; those are the owner portal's, not the board's.
   const reached = isBoardView(s) ? boardViewAircraft(s) : s.aircraft;
   const aircraft = reached.map((a) => summarizeAircraft(s, a, costs, today));
-  const fleet = { airworthy: 0, "due-soon": 0, grounded: 0 };
+  const fleet = {
+    airworthy: 0,
+    "due-soon": 0,
+    "setup-incomplete": 0,
+    grounded: 0,
+  };
   for (const line of aircraft) fleet[line.status] += 1;
   return {
     today,
@@ -109,7 +114,7 @@ function summarizeAircraft(
   );
   return {
     aircraft: a,
-    status: aircraftStatus(s, a.uuid, today).level,
+    status: shownAircraftStatus(s, a.uuid, today).level,
     overdue: due.filter((i) => i.status === "overdue").length,
     dueSoon: due.filter((i) => i.status === "due-soon").length,
     openDiscrepancies: open.length,

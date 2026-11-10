@@ -63,7 +63,10 @@ vi.mock("./ui", async (original) => ({
 }));
 vi.mock("@tanstack/react-router", () => ({ Link: () => null }));
 vi.mock("./Costs", () => ({ AircraftCostSummary: () => null }));
-vi.mock("./AircraftStatus", () => ({ AircraftStatusReasons: () => null }));
+vi.mock("./AircraftStatus", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./AircraftStatus")>()),
+  AircraftStatusReasons: () => null,
+}));
 vi.mock("./AircraftPhoto", () => ({ AircraftPhoto: () => null }));
 vi.mock("./AddressFields", () => ({ AddressFields: () => null }));
 vi.mock("./DrsComboBox", () => ({ DrsComboBox: () => null }));

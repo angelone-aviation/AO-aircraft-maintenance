@@ -30,7 +30,12 @@ describe("the fleet lines", () => {
     const summary = boardSummary(s, NOW);
     expect(summary.today).toBe("2026-10-30");
     expect(summary.programName).toBe("Mission operations");
-    expect(summary.fleet).toEqual({ airworthy: 1, "due-soon": 0, grounded: 2 });
+    expect(summary.fleet).toEqual({
+      airworthy: 0,
+      "due-soon": 0,
+      "setup-incomplete": 1,
+      grounded: 2,
+    });
     expect(summary.overdue).toBe(7);
     expect(
       summary.aircraft.map((l) => ({
@@ -44,7 +49,8 @@ describe("the fleet lines", () => {
     ).toEqual([
       line("N206MA", "grounded", 4, 4, 2, 1),
       line("N208MA", "grounded", 3, 0, 1, 0),
-      line("N182MA", "airworthy", 0, 0, 0, 0),
+      // N182MA has no components and no reviewed AD in dueFleet.
+      line("N182MA", "setup-incomplete", 0, 0, 0, 0),
     ]);
   });
 

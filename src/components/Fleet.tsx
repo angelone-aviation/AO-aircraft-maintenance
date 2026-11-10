@@ -8,8 +8,12 @@
  *   ./Components, ./ui and others.
  */
 import { AircraftCostSummary } from "./Costs";
-import { AircraftStatusReasons } from "./AircraftStatus";
-import { aircraftStatus, aircraftStatusLabels } from "../domain/aircraftStatus";
+import { AircraftStatusReasons, STATUS_TONE } from "./AircraftStatus";
+import {
+  aircraftStatusLabels,
+  shownAircraftStatus,
+  type ShownAircraftStatus,
+} from "../domain/aircraftStatus";
 import { AircraftPhoto } from "./AircraftPhoto";
 import { AddressFields } from "./AddressFields";
 import { addressFromForm } from "../domain/addresses";
@@ -64,12 +68,6 @@ import {
 } from "./design";
 import { OpsList, OpsMeters, OpsRow } from "./OpsList";
 
-const statusTone = {
-  airworthy: "good",
-  "due-soon": "warn",
-  grounded: "danger",
-} as const;
-const statusLabel = aircraftStatusLabels;
 const TEXT_FIELDS = [
   ["registration", "Registration"],
   ["make", "Make"],
@@ -877,9 +875,9 @@ interface RowProps {
 function AircraftRow(props: RowProps) {
   const { aircraft: a, writable } = props;
   const { s } = useFleet();
-  const status = aircraftStatus(s, a.uuid);
+  const status = shownAircraftStatus(s, a.uuid);
   const maintenance = can(s, a.uuid, "maintenance");
-  const tone = statusTone[status.level];
+  const tone = STATUS_TONE[status.level];
   return (
     <OpsRow
       icon={AirplaneTilt}
@@ -887,7 +885,11 @@ function AircraftRow(props: RowProps) {
       title={a.registration}
       sub={<AircraftSub a={a} />}
       meta={<AircraftTotal a={a} />}
-      badge={<StatusPill tone={tone}>{statusLabel[status.level]}</StatusPill>}
+      badge={
+        <StatusPill tone={tone}>
+          {aircraftStatusLabels[status.level]}
+        </StatusPill>
+      }
       actions={
         maintenance && (
           <button
@@ -904,7 +906,7 @@ function AircraftRow(props: RowProps) {
       <OpsMeters items={aircraftMeters(a)} />
       <SetupChips s={s} a={a} />
       <AircraftStatusReasons
-        status={status}
+        status={withoutChipReasons(s, status)}
         label={`${a.registration} status reasons`}
       />
     </OpsRow>
@@ -932,6 +934,19 @@ function SetupChips({ s, a }: { s: Snapshot; a: Aircraft }) {
       ))}
     </p>
   );
+}
+
+// An administrator sees the setup gaps as chips that open the wizard, so the
+// reason list leaves them out rather than naming each gap twice.
+function withoutChipReasons(
+  s: Snapshot,
+  status: ShownAircraftStatus,
+): ShownAircraftStatus {
+  if (!programPermission(s, "admin")) return status;
+  return {
+    ...status,
+    reasons: status.reasons.filter((r) => r.kind !== "setup"),
+  };
 }
 
 // Only damaged data has a meter without a reading (the form requires one),

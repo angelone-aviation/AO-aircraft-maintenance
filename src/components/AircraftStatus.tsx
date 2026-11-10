@@ -9,9 +9,12 @@
 import { useWorkspace } from "../data/store";
 import {
   aircraftStatus,
+  aircraftStatusLabels,
   canOverrideDispatch,
   MIN_OVERRIDE_REASON,
-  type AircraftStatus,
+  shownAircraftStatus,
+  type ShownAircraftStatus,
+  type ShownStatusLevel,
 } from "../domain/aircraftStatus";
 import type { Snapshot } from "../domain/model";
 import { Field } from "./ui";
@@ -22,22 +25,29 @@ import "../styles/screens/dashboard.css";
 // not export.
 const OVERRIDE_REASON_MAX = 1000;
 
-const STATUS_TONE = {
+/**
+ * The tone of each shown status level. Setup incomplete is never green: an
+ * aircraft whose records are not all loaded must not look ready.
+ */
+export const STATUS_TONE = {
   airworthy: "good",
   "due-soon": "warn",
+  "setup-incomplete": "warn",
   grounded: "danger",
-} as const;
-const STATUS_LABEL = {
-  airworthy: "Airworthy",
-  "due-soon": "Due soon",
-  grounded: "Grounded",
-};
+} as const satisfies Record<ShownStatusLevel, string>;
 
-/** A pill naming the status level: Airworthy, Due soon or Grounded. */
-export function AircraftStatusBadge({ status }: { status: AircraftStatus }) {
+/**
+ * A pill naming the status level: Airworthy, Due soon, Setup incomplete or
+ * Grounded.
+ */
+export function AircraftStatusBadge({
+  status,
+}: {
+  status: ShownAircraftStatus;
+}) {
   return (
     <StatusPill tone={STATUS_TONE[status.level]}>
-      {STATUS_LABEL[status.level]}
+      {aircraftStatusLabels[status.level]}
     </StatusPill>
   );
 }
@@ -52,21 +62,22 @@ export function AircraftStatusReasons({
   status,
   label,
 }: {
-  status: AircraftStatus;
+  status: ShownAircraftStatus;
   label: string;
 }) {
   if (!status.reasons.length) return null;
   return (
     <ul className="dash-status-reasons" aria-label={label}>
       {status.reasons.map((r) => (
-        <li key={r.kind + r.entityUuid}>{r.label}</li>
+        <li key={r.kind + r.entityUuid + r.label}>{r.label}</li>
       ))}
     </ul>
   );
 }
 
 /**
- * Badge plus reason list, for cards, tables and details.
+ * Badge plus reason list, for cards, tables and details, showing the setup
+ * gaps of an aircraft whose setup is incomplete.
  *
  * @throws {Error} "Aircraft not found." for an aircraft not in the snapshot.
  */
@@ -78,7 +89,7 @@ export function AircraftStatusSummary({
   registration: string;
 }) {
   const s = useWorkspace().snapshot!;
-  const status = aircraftStatus(s, aircraftUuid);
+  const status = shownAircraftStatus(s, aircraftUuid);
   return (
     <div className="dash-status-summary">
       <AircraftStatusBadge status={status} />
