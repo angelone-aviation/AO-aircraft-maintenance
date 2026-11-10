@@ -247,6 +247,15 @@ describe("inspections", () => {
     expect(html).toContain("Calendar exempt");
   });
 
+  // Due hours are total time, which differs from the meter by the
+  // adjustment (a replaced Hobbs meter).
+  it("labels an aircraft schedule's due hours as total time", () => {
+    s.inspections = [inspection({ reference: "100-hour", dueSeconds: 1 })];
+    const html = inspections();
+    expect(html).toContain('<span class="mx-due-basis">Total time</span>');
+    expect(html).not.toMatch(/mx-due-basis">(Hobbs|Tach)/);
+  });
+
   it("needs a connection to create a schedule", () => {
     ui.workspace = { ...ui.workspace, connected: false };
     const html = inspections();

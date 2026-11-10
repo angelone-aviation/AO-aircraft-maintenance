@@ -180,6 +180,52 @@ it("marks cycles by their count, with the singular for one left", () => {
   expect(card).toContain("Last 1 cycles");
   expect(card).toContain("Due 1,143 cycles");
 });
+it("words a usage limit at exactly 0 as due now in the outlook", () => {
+  const { outlook } = render(
+    { reference: "ZERO-HOURS", dueSeconds: 1650.4 * HOUR },
+    { reference: "ZERO-CYCLES", dueCycles: 1142 },
+  );
+  expect(outlook).toMatch(/ZERO-HOURS .* Due now/);
+  expect(outlook).toMatch(/ZERO-CYCLES .* Due now/);
+  expect(outlook).not.toContain("0.0 h");
+});
+it("words an expired deferral as expired, apart from one still in force", () => {
+  const deferral = (expiresOn: string) => ({
+    type: "mel" as const,
+    melItem: "33-1",
+    category: "B" as const,
+    placard: "INOP",
+    deferredOn: shift(-10),
+    deferredAt: 0,
+    deferredBy: "demo-admin",
+    deferredByName: "Admin",
+    expiresOn,
+  });
+  const report = {
+    aircraftUuid: "demo-182",
+    status: "open" as const,
+    authorId: "demo-admin",
+    createdAt: 0,
+  };
+  snapshot.discrepancies = [
+    {
+      ...report,
+      uuid: "late",
+      description: "LATE",
+      deferral: deferral(shift(-1)),
+    },
+    {
+      ...report,
+      uuid: "valid",
+      description: "VALID",
+      deferral: deferral(shift(5)),
+    },
+  ];
+  const { outlook } = render();
+  expect(outlook).toMatch(/Deferral expired N182MA · LATE Expired/);
+  expect(outlook).toMatch(/Deferred discrepancy N182MA · VALID Deferred/);
+  expect(page()).toMatch(/dash-tone-danger">Expired</);
+});
 it("keeps an inspection it cannot compute unverified instead of failing", () => {
   const { card } = render({
     reference: "Component",
@@ -279,7 +325,7 @@ describe("pilot view", () => {
     expect(pilot).not.toContain("need replenishment");
     expect(pilot).not.toContain("Maintenance outlook");
     expect(pilot).not.toContain("Flights awaiting review");
-    expect(pilot).toContain("Aircraft status: ");
+    expect(pilot).toContain("Profile status: ");
   });
 });
 

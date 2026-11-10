@@ -46,7 +46,7 @@ test("pilot view keeps flight and discrepancy tools while hiding maintenance man
     page.getByRole("heading", { name: "Maintenance outlook" }),
   ).toHaveCount(0);
   await expect(
-    page.getByText("Aircraft status:", { exact: false }).first(),
+    page.getByText("Profile status:", { exact: false }).first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Log a flight", exact: true }).click();
   await expect(

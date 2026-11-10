@@ -54,6 +54,7 @@ import {
   inspectionDueLimit,
   type InspectionLimit,
 } from "../domain/maintenance";
+import { deferralExpired } from "../domain/deferrals";
 import { maintenancePartsPlans, type PartsPlan } from "../domain/partsPlanning";
 import { partsNeedAttention } from "../domain/requiredParts";
 import { SECONDS_PER_HOUR } from "../domain/readings";
@@ -553,6 +554,7 @@ function MaintenanceOutlook({ s, fleet }: FleetProps) {
           key={d.uuid}
           report={d}
           registration={registration(d.aircraftUuid)}
+          today={today}
         />
       ))}
       {otherPlans.map((p) => (
@@ -632,18 +634,21 @@ function InspectionOutlook({
 function DiscrepancyOutlook({
   report: d,
   registration,
+  today,
 }: {
   report: Snapshot["discrepancies"][number];
   registration: string;
+  today: string;
 }) {
+  const { tone, title, value } = discrepancyOutlook(d, today);
   return (
     <OutlookRow
       to="/discrepancies"
       icon={Warning}
-      tone={d.deferral ? "warn" : "danger"}
-      title={d.deferral ? "Deferred discrepancy" : "Open discrepancy"}
+      tone={tone}
+      title={title}
       sub={`${registration} · ${d.description}`}
-      value={d.deferral ? "Deferred" : "Open"}
+      value={value}
     >
       <PartsAvailability
         parts={d.requiredParts}
@@ -651,6 +656,19 @@ function DiscrepancyOutlook({
       />
     </OutlookRow>
   );
+}
+
+// An expired deferral grounds the aircraft (aircraftStatus), so it reads in
+// the danger tone, not as a deferral still in force.
+function discrepancyOutlook(
+  d: Snapshot["discrepancies"][number],
+  today: string,
+): { tone: Tone; title: string; value: string } {
+  if (!d.deferral)
+    return { tone: "danger", title: "Open discrepancy", value: "Open" };
+  if (deferralExpired(d.deferral, today))
+    return { tone: "danger", title: "Deferral expired", value: "Expired" };
+  return { tone: "warn", title: "Deferred discrepancy", value: "Deferred" };
 }
 
 function OutlookRow({
@@ -883,12 +901,15 @@ function used(last: number | undefined, due: number | undefined, now: number) {
     : undefined;
 }
 /** Compact due value for the maintenance outlook ("8.8 h", "26 Nov"), for
- * the limit that drives the inspection's status. */
+ * the limit that drives the inspection's status. A usage limit at 0 is
+ * reached (GLOSSARY "Overdue"), so it reads "Due now", as on the cards. */
 function dueShort(x: Schedule, today: string) {
-  const short = (v: number, unit: string, decimals = 0) =>
-    v < 0
+  const short = (v: number, unit: string, decimals = 0) => {
+    if (v === 0) return "Due now";
+    return v < 0
       ? `${fixed(-v, decimals)} ${unit} overdue`
       : `${fixed(v, decimals)} ${unit}`;
+  };
   const { limit } = x;
   if (limit?.dimension === "hours") return short(limit.remaining, "h", 1);
   const dueDate = inspectionDueDate(x.i);
@@ -1000,7 +1021,7 @@ function CardNotes({
     <div className="dash-card-notes">
       {pilotView && (
         <StatusPill tone={operationalTone(a)}>
-          Aircraft status: {a.operationalStatus}
+          Profile status: {a.operationalStatus}
         </StatusPill>
       )}
       {componentWarning && (
@@ -1272,7 +1293,7 @@ function StatusNotes({
         ))}
         <li className={"dash-note " + operationalTone(a)}>
           <Info size={18} aria-hidden="true" />
-          Aircraft status: {a.operationalStatus}.
+          Profile status: {a.operationalStatus}.
         </li>
       </ul>
       <p className="dash-detail-foot">
