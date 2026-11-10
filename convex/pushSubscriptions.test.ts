@@ -1,8 +1,8 @@
 /**
  * Responsibility: Pins device subscriptions: the public key only when the
  *   deployment can send, a device moving to whoever signs in on it, own rows
- *   only, malformed keys and hosts other than push services refused, and the
- *   device limit.
+ *   only, malformed keys and hosts other than push services refused, the
+ *   device limit, and whether the caller's account holds this device.
  * Layer: Test. convex-test suite; never shipped.
  * Dependencies: convex/pushSubscriptions.ts, convex/schema.ts,
  *   src/domain/pushSubscription.ts, tests/fixtures/alertProgram.ts.
@@ -112,4 +112,22 @@ it("refuses malformed subscriptions, a stale program and too many devices", asyn
     data: "Too many devices receive alerts. Turn alerts off on another device first.",
   });
   expect(await rows(t)).toHaveLength(MAX_PUSH_DEVICES);
+});
+
+it("answers whether the caller's account holds a device, never another's", async () => {
+  const { t, a, reader } = await seedAlertProgram();
+  const endpoint = device(1).endpoint;
+  expect(await a.query(api.pushSubscriptions.held, { endpoint })).toBe(false);
+  await a.mutation(api.pushSubscriptions.subscribe, device(1));
+  expect(await a.query(api.pushSubscriptions.held, { endpoint })).toBe(true);
+  // Signed in as someone else on the same device: the switch reads off
+  // until they switch it on, which moves the device to them.
+  expect(await reader.query(api.pushSubscriptions.held, { endpoint })).toBe(
+    false,
+  );
+  await reader.mutation(api.pushSubscriptions.subscribe, device(1));
+  expect(await a.query(api.pushSubscriptions.held, { endpoint })).toBe(false);
+  await expect(
+    t.query(api.pushSubscriptions.held, { endpoint }),
+  ).rejects.toThrow();
 });

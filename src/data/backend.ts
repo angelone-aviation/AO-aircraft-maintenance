@@ -705,6 +705,13 @@ export interface Backend {
    */
   unsubscribePush(endpoint: string): Promise<unknown>;
   /**
+   * Whether the signed-in account receives urgent alerts on this device.
+   *
+   * @param endpoint - The subscription's endpoint, from the browser.
+   * @returns False for another account's subscription; always in the demo.
+   */
+  pushDeviceHeld(endpoint: string): Promise<boolean>;
+  /**
    * System administrators: the newest nightly off-site backup (ADR-0008);
    * null before the first one, and always in the demo.
    */
@@ -1114,6 +1121,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
         api.pushSubscriptions.unsubscribe,
         inProgram({ endpoint }),
       ),
+    pushDeviceHeld: (endpoint) =>
+      client.query(api.pushSubscriptions.held, { endpoint }),
     latestOffsiteCopy: () => client.query(api.backups.latestOffsiteCopy, {}),
   } satisfies Partial<Backend>;
 }

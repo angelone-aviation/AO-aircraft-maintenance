@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { WifiSlash } from "@phosphor-icons/react";
 import type { Backend } from "../data/backend";
 import {
-  currentPushEndpoint,
+  deviceAlertsOn,
   disablePushAlerts,
   enablePushAlerts,
   needsHomeScreenInstall,
@@ -67,9 +67,9 @@ export function DeviceAlertsBlock() {
   );
 }
 
-// The deployment's key and this device's subscription load once per backend;
-// a reply after the block closes is dropped. The demo, and a browser
-// without push, never ask.
+// The deployment's key and whether this account holds this device's
+// subscription load once per backend; a reply after the block closes is
+// dropped. The demo, and a browser without push, never ask.
 function usePushDevice(backend: Backend | null, demo: boolean) {
   const supported = !demo && backend !== null && pushSupported();
   const [key, setKey] = useState<string>();
@@ -79,11 +79,11 @@ function usePushDevice(backend: Backend | null, demo: boolean) {
   useEffect(() => {
     if (!supported) return;
     let active = true;
-    void Promise.all([backend.pushPublicKey(), currentPushEndpoint()]).then(
-      ([publicKey, endpoint]) => {
+    void loadDeviceState(backend).then(
+      (state) => {
         if (!active) return;
-        setKey(publicKey);
-        setEnabled(endpoint !== null);
+        setKey(state.publicKey);
+        setEnabled(state.enabled);
       },
       // Without the key the switch stays hidden; the bell still works.
       () => active && setKey(""),
@@ -107,4 +107,10 @@ function usePushDevice(backend: Backend | null, demo: boolean) {
     }
   }
   return { available: supported && !!key, enabled, busy, error, toggle };
+}
+
+async function loadDeviceState(backend: Backend) {
+  const publicKey = await backend.pushPublicKey();
+  const enabled = !!publicKey && (await deviceAlertsOn(backend, publicKey));
+  return { publicKey, enabled };
 }

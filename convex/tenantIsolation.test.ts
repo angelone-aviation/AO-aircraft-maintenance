@@ -160,6 +160,7 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
     "Writes the caller's own urgent-alert email choice.",
   "pushSubscriptions:publicKey":
     "Returns the deployment's public push key, the same for everyone.",
+  "pushSubscriptions:held": "Answers for the caller's own device only.",
 };
 const EXPIRING_UUID = "22222222-2222-4222-8222-222222222222";
 const PUSH_SUBSCRIPTION = {

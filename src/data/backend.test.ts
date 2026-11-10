@@ -885,6 +885,13 @@ const CASES: Case[] = [
     name: "pushSubscriptions:unsubscribe",
     args: { endpoint: PUSH_SUBSCRIPTION.endpoint, programUuid: ACTIVE_PROGRAM },
   },
+  {
+    method: "pushDeviceHeld",
+    call: (b) => b.pushDeviceHeld(PUSH_SUBSCRIPTION.endpoint),
+    kind: "query",
+    name: "pushSubscriptions:held",
+    args: { endpoint: PUSH_SUBSCRIPTION.endpoint },
+  },
 ];
 
 it.each(CASES)(

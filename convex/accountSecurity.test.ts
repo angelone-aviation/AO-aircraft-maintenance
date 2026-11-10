@@ -348,11 +348,31 @@ it("rate-limits account creation per actor, counting refused attempts", async ()
   ).toMatch(/Too many/);
 });
 
-it("disabling a user ends their sessions and refresh tokens", async () => {
+// A device the member switched alerts on for (ADR-0012).
+const addDevice = (f: Awaited<ReturnType<typeof fixture>>, userId: string) =>
+  f.t.run((ctx) =>
+    ctx.db.insert("pushSubscriptions", {
+      userId: userId as Id<"users">,
+      endpoint: `https://fcm.googleapis.com/fcm/send/${userId}`,
+      keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
+      createdAt: 0,
+      lastSeenAt: 0,
+    }),
+  );
+const devicesOf = (f: Awaited<ReturnType<typeof fixture>>, userId: string) =>
+  f.t.run(async (ctx) =>
+    (await ctx.db.query("pushSubscriptions").collect()).filter(
+      (d) => d.userId === userId,
+    ),
+  );
+
+it("disabling a user ends their sessions, refresh tokens and alerted devices", async () => {
   const f = await fixture();
   const target = await provision(f, "pilot@example.test");
   await signIn(f, "pilot@example.test", PASSWORD);
   await signIn(f, "pilot@example.test", PASSWORD);
+  await addDevice(f, target);
+  await addDevice(f, f.ids.system.user);
   const sessions = () =>
     f.t.run(async (ctx) => ({
       sessions: (
@@ -384,6 +404,9 @@ it("disabling a user ends their sessions and refresh tokens", async () => {
   const after = await sessions();
   expect(after.sessions).toBe(0);
   expect(after.tokens).toBe(0);
+  // A lost or shared device stops showing the member's alerts.
+  expect(await devicesOf(f, target)).toEqual([]);
+  expect(await devicesOf(f, f.ids.system.user)).toHaveLength(1);
   // The administrators' own sessions survive.
   expect(after.others).toBe(before.others - before.sessions);
   const audit = await f.t.run((ctx) => ctx.db.query("audit").collect());
@@ -435,10 +458,13 @@ it("locks an account after the configured failed sign-ins, and a password reset 
     ).rejects.toThrow();
   // Locked: even the right password is refused.
   await expect(signIn(f, "pilot@example.test", PASSWORD)).rejects.toThrow();
+  await addDevice(f, target);
   await f.system.action(api.admin.resetPassword, {
     id: target,
     password: "a-brand-new-password-1",
   });
+  // A reset cuts off every device, the alerted ones included.
+  expect(await devicesOf(f, target)).toEqual([]);
   expect(
     await f.t.run((ctx) => ctx.db.query("authRateLimits").collect()),
   ).toHaveLength(0);

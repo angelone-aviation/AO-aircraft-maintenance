@@ -4,7 +4,8 @@
  * Layer: Server. Public actions and mutations over internal steps; every
  *   change is audited.
  * Dependencies: @convex-dev/auth/server, convex (access, programContext,
- *   memberships, accountGuards, validators, userErrors), src/domain
+ *   memberships, accountGuards, pushSubscriptions, validators, userErrors),
+ *   src/domain
  *   (certifications, releaseStatements, logbookWording, logbook, programs,
  *   accountRules).
  */
@@ -36,6 +37,7 @@ import {
 } from "@convex-dev/auth/server";
 import { admin, audit } from "./access";
 import { syncMemberships } from "./memberships";
+import { forgetDevices } from "./pushSubscriptions";
 import { permission } from "./validators";
 import {
   ACCOUNT_NAME_MAX_LENGTH,
@@ -265,7 +267,8 @@ export const resetPassword = action({
 
 /**
  * Audits a password reset, which also unlocks the account: it clears the
- * failed-sign-in counter and records whether one was cleared.
+ * failed-sign-in counter and records whether one was cleared. Like the reset
+ * sessions, the account's alerted devices are forgotten.
  *
  * @param actorId - The administrator.
  * @param userId - The account reset.
@@ -274,6 +277,7 @@ export const recordPasswordReset = internalMutation({
   args: { actorId: v.string(), userId: v.id("users") },
   handler: async (ctx, args) => {
     const signInLockoutCleared = await clearSignInLockout(ctx, args.userId);
+    await forgetDevices(ctx, args.userId);
     await audit(ctx, args.actorId, "user.password_reset", args.userId, {
       after: { signInLockoutCleared },
     });
@@ -284,7 +288,8 @@ export const recordPasswordReset = internalMutation({
  * Sets an account's status, administrator flag and groups, and optionally its
  * Flight Programs, name and certifications. A selected program where no
  * chosen group grants read access adds its Observers group. Audits
- * "user.permissions_changed"; disabling ends every session.
+ * "user.permissions_changed"; disabling ends every session and forgets the
+ * account's alerted devices.
  *
  * @param programUuids - The programs the groups must belong to, when given.
  * @param certificationsPayload - JSON, as `certificationsSchema`.
@@ -529,13 +534,15 @@ function accessFields(
   };
 }
 
-// Disabling ends every session, so re-enabling revives none on lost devices.
+// Disabling ends every session, so re-enabling revives none on lost devices,
+// and every alerted device, so none keeps showing the member's alerts.
 async function endDisabledSessions(
   ctx: MutationCtx,
   actorId: string,
   before: Doc<"users">,
 ) {
   const sessions = await endSessions(ctx, before._id);
+  await forgetDevices(ctx, before._id);
   if (before.active || sessions)
     await audit(ctx, actorId, "user.sessions_ended", before._id, {
       after: { sessions },

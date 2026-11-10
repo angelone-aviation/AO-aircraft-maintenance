@@ -1219,6 +1219,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     pushPublicKey: async () => "",
     subscribePush: async () => undefined,
     unsubscribePush: async () => undefined,
+    pushDeviceHeld: async () => false,
     setAlertEmails: (emailAlerts) =>
       modify((s) => {
         s.user = { ...s.user, emailAlerts };
