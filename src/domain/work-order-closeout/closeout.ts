@@ -3,12 +3,14 @@
  *   serviced components, compliance and component work make up, and what it
  *   would write about its components.
  * Layer: Domain. Updates the working snapshot; no I/O, no React.
- * Dependencies: zod, ../model, ../workOrders (types), ../certifications,
- *   ../workOrderComponentWork, ../workOrderCloseoutSchema, ../rejection,
- *   ./closing, ./readings, ./servicedComponents, ./compliance, ./logbookText.
+ * Dependencies: zod, ../model, ../changeLog, ../workOrders (types),
+ *   ../certifications, ../workOrderComponentWork, ../workOrderCloseoutSchema,
+ *   ../rejection, ./closing, ./readings, ./servicedComponents, ./compliance,
+ *   ./logbookText.
  */
 import { z } from "zod";
-import type { Aircraft, Snapshot } from "../model";
+import type { Aircraft, Inspection, Snapshot } from "../model";
+import { auditEntry } from "../changeLog";
 import type { WorkOrder } from "../workOrders";
 import { memberLicense } from "../certifications";
 import {
@@ -76,6 +78,7 @@ export function completeWorkOrder(
     (uuid) => componentSummary(ctx, uuid, componentWork),
   );
   const compliance = recordCompliance(ctx, completed, components);
+  const tracked = { management: s.management, inspections: s.inspections };
   const serviceResults = applyWorkOrderComponentWork(
     s,
     order,
@@ -83,9 +86,65 @@ export function completeWorkOrder(
     componentWork,
     now,
   );
+  auditComponentWork(s, order, tracked, now);
   addServiceCompliance(s, order, serviceResults, compliance);
   updateServicedTotals(components, serviceResults);
   return closeoutRecord(ctx, readings, components, compliance, serviceResults);
+}
+
+// Component work changes components, the requirements it rebases or moves
+// and the inspections that follow a moved component, outside applyManagement.
+// Each changed record gets its own change-log row, as a direct service does,
+// so its Change history shows the close-out.
+function auditComponentWork(
+  s: Snapshot,
+  order: WorkOrder,
+  before: Pick<Snapshot, "management" | "inspections">,
+  now: number,
+) {
+  const reason = `Component work recorded at close-out of work order ${order.number}.`;
+  const changed = [
+    ...listChanged(before.management ?? [], s.management ?? []),
+    ...listChanged(before.inspections, s.inspections),
+  ];
+  for (const { old, next } of changed)
+    s.audit.unshift(
+      auditEntry(
+        s,
+        {
+          action: CLOSEOUT_ACTIONS[recordKind(next)],
+          entityUuid: next.uuid,
+          aircraftUuid: order.aircraftUuid,
+          reason,
+          before: old,
+          after: next,
+        },
+        now,
+      ),
+    );
+}
+
+type Tracked = NonNullable<Snapshot["management"]>[number] | Inspection;
+
+const CLOSEOUT_ACTIONS = {
+  component: "component.closeout",
+  componentRequirement: "component.requirement.closeout",
+  inspection: "inspection.closeout",
+} as const;
+
+function recordKind(r: Tracked): keyof typeof CLOSEOUT_ACTIONS {
+  if (!("kind" in r)) return "inspection";
+  return r.kind === "component" ? "component" : "componentRequirement";
+}
+
+// Records whose version the close-out raised; movements are new history
+// entries, not changes, and other kinds are not touched by component work.
+function listChanged<T extends Tracked>(before: T[], after: T[]) {
+  return after.flatMap((next) => {
+    if ("kind" in next && !(next.kind in CLOSEOUT_ACTIONS)) return [];
+    const old = before.find((r) => r.uuid === next.uuid);
+    return old && old.version !== next.version ? [{ old, next }] : [];
+  });
 }
 
 /** What completing an order would write about its components. */

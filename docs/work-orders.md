@@ -34,7 +34,7 @@ Closed orders retain a view-only requested-work list with nested job cards that 
 
 Repair resets TSR; overhaul resets TSO; both resets both. Lifetime time, cycles and service days are preserved. Overhaul renews applicable overhaul requirements using their configured relative cycle and calendar intervals. Other requirements retain their remaining time intervals across a counter reset; their previous compliance may be shown as a negative, rebased reading when it predates zero on the new counter. Absolute lifetime limits are not renewed.
 
-Closing saves component movements, updated requirements, the work-order closeout and immutable before/after readings atomically. The log book entry includes the component work description, completion date and reference. Subsequent flights accrue from the completion baseline, including flights after a backdated closeout. A changed component version or a later movement requires review before closeout. Closed orders cannot apply the actions again.
+Closing saves component movements, updated requirements, the work-order closeout and immutable before/after readings atomically. Every component, service requirement and inspection the component work changes gets its own Change history entry (`component.closeout`, `component.requirement.closeout`, `inspection.closeout`) with the values before and after and the reason "Component work recorded at close-out of work order WO-…". The log book entry includes the component work description, completion date and reference. Subsequent flights accrue from the completion baseline, including flights after a backdated closeout. A changed component version or a later movement requires review before closeout. Closed orders cannot apply the actions again.
 
 ## Component calendar display
 
