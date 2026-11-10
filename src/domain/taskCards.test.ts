@@ -467,7 +467,7 @@ it("links stock parts to the correct program and location, supports non-stock pa
   );
   expect(card.partsUsed[0].source).toBe("non-stock");
 });
-it("refuses linking an expired stock lot but keeps a lot linked before it expired", () => {
+it("refuses linking an expired stock lot but keeps a lot linked before it expired or was renamed", () => {
   const s = demoSnapshot();
   const owner = s.aircraft[0].programUuid;
   const lot = (uuid: string, expirationDate: string) => ({
@@ -541,6 +541,24 @@ it("refuses linking an expired stock lot but keeps a lot linked before it expire
     later,
   );
   expect(card.partsUsed[0]).toMatchObject({ stockUuid: "fresh", quantity: 2 });
+  // The lot's part number is corrected later: the recorded part keeps the
+  // number it was recorded with, and only a re-entered number must match.
+  (s.management[1] as { partNumber: string }).partNumber = "SEAL-10";
+  card = saveTaskCard(s, edit(card, { notesRemarks: "Seal replaced" }), later);
+  expect(card.partsUsed[0].partNumber).toBe("SEAL-1");
+  expect(() =>
+    saveTaskCard(
+      s,
+      edit(card, { partsUsed: [{ ...linked, partNumber: "SEAL-2" }] }),
+      later,
+    ),
+  ).toThrow("The part number must match the selected stock item.");
+  card = saveTaskCard(
+    s,
+    edit(card, { partsUsed: [{ ...linked, partNumber: "SEAL-10" }] }),
+    later,
+  );
+  expect(card.partsUsed[0].partNumber).toBe("SEAL-10");
 });
 it("signs and completes a stored card whose legacy required step was never signed", () => {
   const s = demoSnapshot();

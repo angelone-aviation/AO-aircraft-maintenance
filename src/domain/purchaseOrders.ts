@@ -353,8 +353,10 @@ export function poTotal(po: PODraft) {
  *   entry and a `po.<kind>` change-log entry; on a replay, the orders as the
  *   request left them.
  * @throws {Rejection} Every refusal of the command, checked in a fixed order;
- *   as {@link validateRequestAllocations} and the stock rules it applies, and
- *   as {@link assertConfirmedAddress} when issuing.
+ *   as {@link validateRequestAllocations} for the orders a save or an issue
+ *   changes, the stock rules a receipt applies, and
+ *   {@link assertConfirmedAddress} when issuing. A refusal about one line
+ *   starts "PO-NNNNN, line <part number>: ".
  * @throws {z.ZodError} On an invalid command.
  */
 export function applyPOCommand(
@@ -383,7 +385,11 @@ export function applyPOCommand(
     ...orders.filter((p) => !changes.some((n) => n.uuid === p.uuid)),
     ...changes,
   ];
-  validateRequestAllocations(s);
+  // Saving and issuing commit an order's lines; shipping, receiving, closing
+  // and cancelling leave them as issued, whatever the records they name have
+  // become since.
+  if (c.kind === "save" || c.kind === "issue")
+    validateRequestAllocations(s, changes);
   auditChanges(s, c, changes, now);
   original.partsRequests = s.partsRequests;
   original.purchaseOrders = s.purchaseOrders;
@@ -426,27 +432,36 @@ export function coreReturnRows(
 }
 
 /**
- * Checks every order line's parts-request allocations and repair link, then
- * that no request line is ordered beyond what it still needs.
+ * Checks the lines of the orders a command saved or issued: each line's
+ * parts-request allocations and repair link against the records as they are
+ * now, then that no request line is ordered beyond what it still needs. Other
+ * orders are not rechecked, so a record corrected after an order was issued
+ * never blocks that order or any other.
  *
  * @param s - The snapshot with its orders and parts requests.
- * @throws {Rejection} In order, for each line: "Request allocations exceed PO
- *   quantity."; for a live repair line, "Component already has an
- *   outstanding repair PO." or "Repair PO lines must reference one existing
- *   component and its repair request."; for each allocation, a mismatched
- *   request, parts mode for a component, a live order's vendor, currency or
- *   ship-to, or a mismatched repair; then, for each request line, "PO
- *   quantity exceeds the uncommitted request balance." or "This repair
+ * @param orders - The orders to check; every order by default.
+ * @throws {Rejection} Starting "PO-NNNNN, line <part number>: ". In order,
+ *   for each line: "Request allocations exceed PO quantity."; for a live
+ *   repair line, "Component already has an outstanding repair PO.", "The
+ *   repair component is no longer in inventory under this part number. Update
+ *   its repair request and this line." or "Repair PO lines must reference one
+ *   existing component and its repair request."; for each allocation, a
+ *   mismatched request, parts mode for a component, a live order's vendor,
+ *   currency or ship-to, or a mismatched repair; then, for each allocation,
+ *   "PO quantity exceeds the uncommitted request balance." or "This repair
  *   request is already ordered or fulfilled.".
  */
-export function validateRequestAllocations(s: Snapshot) {
+export function validateRequestAllocations(
+  s: Snapshot,
+  orders: PurchaseOrder[] = s.purchaseOrders ?? [],
+) {
   const commitments = requestPurchases(s.purchaseOrders ?? []);
-  const seenRepair = new Set<string>();
-  for (const p of s.purchaseOrders ?? [])
-    for (const l of p.lines) checkOrderLine(s, p, l, seenRepair);
-  for (const r of s.partsRequests ?? [])
-    for (const line of r.lines)
-      checkRequestBalance(s, commitments, r, line.uuid, line.quantity);
+  for (const p of orders)
+    for (const l of p.lines)
+      namingLine(p.number, l, () => checkOrderLine(s, p, l));
+  for (const p of orders)
+    for (const l of p.lines)
+      namingLine(p.number, l, () => checkLineBalances(s, commitments, l));
 }
 
 interface Context {
@@ -505,14 +520,27 @@ function replayedOrders(
   return replay.map(({ p }) => p);
 }
 
-function validateLines(ctx: Context, d: PODraft) {
+// Names the order and line in a line's refusal: one save can carry several
+// drafts, and a draft several lines.
+function namingLine(number: string, l: POLine, check: () => void) {
+  try {
+    check();
+  } catch (error) {
+    if (!(error instanceof Rejection) || error instanceof StaleRecordRejection)
+      throw error;
+    throw new Rejection(`${number}, line ${l.partNumber}: ${error.message}`);
+  }
+}
+
+function validateLines(ctx: Context, d: PODraft, number: string) {
   const { s, program } = ctx;
   if (d.vendorUuid && !hasVendor(s, d.vendorUuid, program))
     throw new Rejection("Choose a vendor in this Flight Program.");
   if (!Number.isSafeInteger(poTotal(d)) || poTotal(d) > MAX_ORDER_CENTS)
     throw new Rejection("Order total exceeds the supported amount.");
   assertUnique(d.lines.map((l) => l.uuid));
-  for (const l of d.lines) validateLine(s, program, l);
+  for (const l of d.lines)
+    namingLine(number, l, () => validateLine(s, program, l));
 }
 
 function hasVendor(s: Snapshot, uuid: string, program: string) {
@@ -522,7 +550,7 @@ function hasVendor(s: Snapshot, uuid: string, program: string) {
   );
 }
 
-function validateLine(s: Snapshot, program: string, l: POLine) {
+function assertDeliveryLocation(s: Snapshot, program: string, l: POLine) {
   const location = s.management?.find(
     (r) => r.kind === "location" && r.uuid === l.locationUuid,
   );
@@ -530,6 +558,10 @@ function validateLine(s: Snapshot, program: string, l: POLine) {
     throw new Rejection(
       "Choose a delivery inventory location in this Flight Program.",
     );
+}
+
+function validateLine(s: Snapshot, program: string, l: POLine) {
+  assertDeliveryLocation(s, program, l);
   if (l.stockUuid && !matchesStock(s, program, l))
     throw new Rejection(
       "Selected stock must match the part, category and location.",
@@ -590,6 +622,7 @@ function saveDrafts(
     const previous = orders.find((p) => p.uuid === d.uuid);
     assertEditableDraft(ctx, d, previous);
     const number = previous?.number ?? `PO-${String(++seq).padStart(5, "0")}`;
+    validateLines(ctx, d, number);
     saved.push(draftOrder(ctx, c, d, previous, number));
   }
   return saved;
@@ -611,7 +644,6 @@ function assertEditableDraft(
     throw new StaleRecordRejection("purchaseOrder", previous?.version ?? 0);
   if (d.lines.some((l) => l.cancelled))
     throw new Rejection("Draft lines cannot contain cancelled quantities.");
-  validateLines(ctx, d);
 }
 
 function draftOrder(
@@ -676,7 +708,7 @@ function runAction(ctx: Context, p: PurchaseOrder, c: OrderCommand) {
 
 function issueOrder(ctx: Context, p: PurchaseOrder) {
   if (p.phase !== "draft") throw new Rejection("Only drafts can be issued.");
-  validateLines(ctx, p);
+  validateLines(ctx, p, p.number);
   if (p.shippingAddress) assertConfirmedAddress(p.shippingAddress);
   p.phase = "issued";
   p.issuedAt = ctx.now;
@@ -761,7 +793,6 @@ function moveOrder(
 ) {
   if (p.phase !== "issued")
     throw new Rejection("Issue the order before shipping or receiving.");
-  validateLines(ctx, p);
   if (c.date > latestLocalDate(ctx.now))
     throw new Rejection("Shipment and receipt dates cannot be in the future.");
   assertUnique(c.lines.map((l) => l.lineUuid));
@@ -813,6 +844,7 @@ function shipForRepair(
   if (
     !component ||
     component.installed ||
+    component.parentComponentUuid ||
     component.outForRepair ||
     recordProgram(s, component) !== program
   )
@@ -852,6 +884,11 @@ function receiveOrder(ctx: Context, p: PurchaseOrder, c: ReceiveCommand) {
   const lines: PurchaseOrder["receipts"][number]["lines"] = [];
   for (const x of c.lines) {
     const l = p.lines.find((l) => l.uuid === x.lineUuid)!;
+    // A receipt writes stock into the line's location, so that is the one
+    // link of an issued line checked again.
+    namingLine(p.number, l, () =>
+      assertDeliveryLocation(ctx.s, ctx.program, l),
+    );
     lines.push(receiveLine(ctx, { p, c, l, x }));
   }
   p.receipts.push({
@@ -1046,11 +1083,15 @@ function receivedComponent(
 }
 
 function receiveStock(ctx: Context, d: Delivery, category: Stock["category"]) {
-  const { p, c, x } = d;
+  const { p, c, l, x } = d;
   if (x.serials.length)
     throw new Rejection("Serial numbers are only for trackable components.");
   const stock = matchingLot(ctx.s, d);
   if (!stock) return addLot(ctx, d, category);
+  // The lot is the same lot after a part-number correction; its history says
+  // what the order called it.
+  const ordered =
+    stock.partNumber === l.partNumber ? "" : ` (ordered as ${l.partNumber})`;
   applyManagement(
     ctx.s,
     {
@@ -1060,7 +1101,7 @@ function receiveStock(ctx: Context, d: Delivery, category: Stock["category"]) {
       version: stock.version,
       operation: "receive",
       quantity: x.quantity,
-      reason: `Receipt ${p.number}; invoice ${c.invoice}`,
+      reason: `Receipt ${p.number}${ordered}; invoice ${c.invoice}`,
     },
     ctx.now,
   );
@@ -1220,18 +1261,17 @@ function auditChanges(
     );
 }
 
-function checkOrderLine(
-  s: Snapshot,
-  p: PurchaseOrder,
-  l: POLine,
-  seenRepair: Set<string>,
-) {
+function checkOrderLine(s: Snapshot, p: PurchaseOrder, l: POLine) {
   const allocations = l.requestAllocations ?? [];
   if (allocations.reduce((n, a) => n + a.quantity, 0) > l.quantity)
     throw new Rejection("Request allocations exceed PO quantity.");
-  if (l.repairComponentUuid && p.phase !== "cancelled" && outstanding(p, l) > 0)
-    checkRepairLine(s, p, l, l.repairComponentUuid, seenRepair);
+  if (l.repairComponentUuid && isLiveLine(p, l))
+    checkRepairLine(s, p, l, l.repairComponentUuid);
   for (const a of allocations) checkAllocation(s, p, l, a);
+}
+
+function isLiveLine(p: PurchaseOrder, l: POLine) {
+  return p.phase !== "cancelled" && outstanding(p, l) > 0;
 }
 
 // A component is out for repair on one order at a time, and a repair line
@@ -1241,11 +1281,9 @@ function checkRepairLine(
   p: PurchaseOrder,
   l: POLine,
   componentUuid: string,
-  seenRepair: Set<string>,
 ) {
-  if (seenRepair.has(componentUuid))
+  if (hasOtherRepairLine(s, p, l, componentUuid))
     throw new Rejection("Component already has an outstanding repair PO.");
-  seenRepair.add(componentUuid);
   const component = findComponent(s, componentUuid);
   if (
     !component ||
@@ -1253,7 +1291,12 @@ function checkRepairLine(
     component.parentComponentUuid ||
     (component.outForRepair && component.outForRepair.poUuid !== p.uuid) ||
     recordProgram(s, component) !== p.programUuid ||
-    component.partNumber !== l.partNumber ||
+    component.partNumber !== l.partNumber
+  )
+    throw new Rejection(
+      "The repair component is no longer in inventory under this part number. Update its repair request and this line.",
+    );
+  if (
     l.kind !== "component" ||
     l.quantity !== 1 ||
     !l.repairWork ||
@@ -1262,6 +1305,22 @@ function checkRepairLine(
     throw new Rejection(
       "Repair PO lines must reference one existing component and its repair request.",
     );
+}
+
+function hasOtherRepairLine(
+  s: Snapshot,
+  p: PurchaseOrder,
+  l: POLine,
+  componentUuid: string,
+) {
+  return (s.purchaseOrders ?? []).some((other) =>
+    other.lines.some(
+      (x) =>
+        x.repairComponentUuid === componentUuid &&
+        (other.uuid !== p.uuid || x.uuid !== l.uuid) &&
+        isLiveLine(other, x),
+    ),
+  );
 }
 
 function checkAllocation(
@@ -1285,8 +1344,7 @@ function checkAllocation(
     throw new Rejection(
       "Use stock parts for parts requests; use a repair request for an existing serialized component.",
     );
-  const live = p.phase !== "cancelled" && outstanding(p, l) > 0;
-  if (live && conflictsWithOrder(r, p))
+  if (isLiveLine(p, l) && conflictsWithOrder(r, p))
     throw new Rejection(
       "Request vendor, currency and ship-to must match the PO.",
     );
@@ -1308,6 +1366,19 @@ function conflictsWithOrder(r: PartsRequest, p: PurchaseOrder) {
     r.currency !== p.currency ||
     (!!r.shipTo && r.shipTo.trim() !== p.shipTo.trim())
   );
+}
+
+function checkLineBalances(
+  s: Snapshot,
+  commitments: RequestPurchase[],
+  l: POLine,
+) {
+  for (const a of l.requestAllocations ?? []) {
+    const r = s.partsRequests?.find((r) => r.uuid === a.requestUuid);
+    const line = r?.lines.find((x) => x.uuid === a.lineUuid);
+    if (r && line)
+      checkRequestBalance(s, commitments, r, line.uuid, line.quantity);
+  }
 }
 
 // Open orders, reservations and issues together may not exceed a request
