@@ -40,7 +40,7 @@ test("the waiting-to-send line counts offline entries and links to the Sync cent
 }) => {
   await page.setViewportSize(PHONE);
   await openDemo(page, { offlineReady: true });
-  const line = page.locator(".outbox-line [role=status]");
+  const line = page.locator(".outbox-line [aria-live=polite]");
   await expect(line).toHaveText("");
   await context.setOffline(true);
   await page

@@ -31,7 +31,9 @@ export function waitingText(count: number, offline: boolean): string {
  * entries waiting to send; empty otherwise.
  *
  * @returns A polite live region that stays mounted, so screen readers hear
- *   the line when it appears or its text changes, not on every render.
+ *   the line when it appears or its text changes, not on every render. It
+ *   is aria-live rather than role="status", so it never competes with the
+ *   app's one status notice.
  */
 export function OutboxLine() {
   const userId = useWorkspace((x) => x.snapshot?.user.id);
@@ -42,7 +44,7 @@ export function OutboxLine() {
   return (
     <div className={"outbox-line" + (text ? "" : " empty")}>
       {text && <CloudArrowUp size={18} weight="bold" aria-hidden="true" />}
-      <span role="status" className="outbox-line-text">
+      <span aria-live="polite" aria-atomic="true" className="outbox-line-text">
         {text}
       </span>
       {text && (

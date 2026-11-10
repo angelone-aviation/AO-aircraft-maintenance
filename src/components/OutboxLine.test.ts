@@ -46,7 +46,7 @@ describe("OutboxLine", () => {
   it("keeps an empty live region when nothing waits", () => {
     workspace.queue = [entry("someone else")];
     expect(render()).toBe(
-      '<div class="outbox-line empty"><span role="status" class="outbox-line-text"></span></div>',
+      '<div class="outbox-line empty"><span aria-live="polite" aria-atomic="true" class="outbox-line-text"></span></div>',
     );
   });
 
