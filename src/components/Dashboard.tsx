@@ -5,7 +5,7 @@
  *   src/domain.
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
- *   readings, rejection),
+ *   overview, readings, rejection),
  *   ./design and the aircraft, flight, logbook photo, paper check, parts
  *   and FAA components.
  */
@@ -35,6 +35,7 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { isPilotView } from "../domain/pilotView";
+import { overviewSections, type OverviewSection } from "../domain/overview";
 import {
   aircraftStatus,
   aircraftStatusLabels,
@@ -170,14 +171,15 @@ interface DetailProps {
  * favorites) with its most urgent inspection, AD alerts, the maintenance
  * outlook and an aircraft detail dialog.
  *
- * @returns The screen. Pilot view leaves out the inventory notice, the review
+ * @returns The screen, its sections in the order `overviewSections` gives the
+ *   member's role. Pilot view leaves out the inventory notice, the review
  *   KPI, the FAA renewal alert, the outlook and parts availability, and shows
  *   each aircraft's operational status. Logging a flight needs the flight
  *   permission on an aircraft.
  */
 export function Dashboard() {
   const d = useDashboard();
-  const { s, pilotView, fleet } = d;
+  const { s, pilotView } = d;
   return (
     <div className="dash">
       <DashboardHeader
@@ -191,22 +193,69 @@ export function Dashboard() {
           onDismiss={() => d.setSavedFlight(null)}
         />
       )}
-      {!pilotView && <InventoryNotice s={s} fleet={fleet} />}
-      <FleetKpis s={s} fleet={fleet} pilotView={pilotView} />
-      <FleetSection d={d} />
-      <section className="dash-panel dash-ads">
-        <Suspense fallback={null}>
-          <ADAlerts />
-        </Suspense>
-      </section>
-      {!pilotView && <FaaRenewalAlert />}
-      <div className="dash-bottom">
-        {!pilotView && <MaintenanceOutlook s={s} fleet={fleet} />}
-        <RecordsCallout />
-      </div>
+      {sectionRows(overviewSections(s)).map((row) => (
+        <SectionRow key={row.join()} row={row} d={d} />
+      ))}
       <DashboardDialogs d={d} />
     </div>
   );
+}
+
+// The outlook and the records callout share the bottom grid, side by side
+// on wide screens when one follows the other.
+const BOTTOM_GRID: ReadonlySet<OverviewSection> = new Set([
+  "outlook",
+  "records",
+]);
+
+function sectionRows(sections: readonly OverviewSection[]) {
+  const rows: OverviewSection[][] = [];
+  for (const section of sections) {
+    const last = rows.at(-1);
+    if (last?.[0] === "outlook" && section === "records") last.push(section);
+    else rows.push([section]);
+  }
+  return rows;
+}
+
+function SectionRow({ row, d }: { row: OverviewSection[]; d: DashboardState }) {
+  const sections = row.map((section) => (
+    <DashboardSection key={section} section={section} d={d} />
+  ));
+  if (!BOTTOM_GRID.has(row[0])) return sections;
+  return <div className="dash-bottom">{sections}</div>;
+}
+
+function DashboardSection({
+  section,
+  d,
+}: {
+  section: OverviewSection;
+  d: DashboardState;
+}) {
+  const { s, fleet, pilotView } = d;
+  switch (section) {
+    case "inventory":
+      return <InventoryNotice s={s} fleet={fleet} />;
+    case "kpis":
+      return <FleetKpis s={s} fleet={fleet} pilotView={pilotView} />;
+    case "fleet":
+      return <FleetSection d={d} />;
+    case "adAlerts":
+      return (
+        <section className="dash-panel dash-ads">
+          <Suspense fallback={null}>
+            <ADAlerts />
+          </Suspense>
+        </section>
+      );
+    case "faaRenewal":
+      return <FaaRenewalAlert />;
+    case "outlook":
+      return <MaintenanceOutlook s={s} fleet={fleet} />;
+    case "records":
+      return <RecordsCallout />;
+  }
 }
 
 function useDashboard() {

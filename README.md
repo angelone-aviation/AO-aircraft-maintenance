@@ -255,6 +255,7 @@ Open the preview URL online, sign in, and allow the app to cache before testing 
 - Pending entries appear in **Sync center** and sync automatically when connected. Conflicting flights go to administrator review without changing aircraft totals.
 - Access expires seven days after login; pending entries remain saved. Sign in with the original account to sync them. A device clock up to five minutes behind the server still opens; one further behind is asked to set its date and time automatically.
 - What happens to a refused entry, a held flight, or a record two people changed at once is in [offline entries and colliding changes](docs/offline.md).
+- When a new version of the app has downloaded, a notice says **A new version is ready. Save any open form first.** **Reload now** switches to it and reloads the page; a form not yet saved is lost, so save it first.
 
 ## Verification
 

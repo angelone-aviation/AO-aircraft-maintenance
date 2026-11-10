@@ -1065,6 +1065,12 @@ dialog.ds-dialog.more-sheet {
   color: var(--text);
   font-size: 14.5px;
 }
+.app-update-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
 .callout {
   padding: 14px 18px;
   margin: 0 0 20px;

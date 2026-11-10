@@ -56,6 +56,7 @@ import {
 } from "./components/liveScreen";
 import { WorkspaceUnavailable } from "./components/WorkspaceUnavailable";
 import { ErrorBoundary, RenderFailure } from "./components/ErrorBoundary";
+import { offerAppUpdate } from "./components/appUpdate";
 void initErrorReporting();
 initTheme();
 const configuredUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
@@ -491,7 +492,7 @@ function Loading() {
     </div>
   );
 }
-registerSW({
+const applyUpdate = registerSW({
   onRegisteredSW() {
     // An update gives the PDF viewer files new addresses: cache them again
     // while online so kept manuals keep opening offline.
@@ -500,17 +501,13 @@ registerSW({
         if (kept) void warmPdfViewer();
       });
   },
+  // Notices show only inside an open workspace, where the user has already
+  // signed in (or opened the demo) and their aircraft are on the device.
   onOfflineReady() {
-    useWorkspace.setState({
-      notice:
-        "App installed for offline use. Sign in online to cache your permitted aircraft.",
-    });
+    useWorkspace.setState({ notice: "App installed for offline use." });
   },
   onNeedRefresh() {
-    useWorkspace.setState({
-      notice:
-        "An app update is available. Save your current form, then close all app tabs and reopen to update.",
-    });
+    offerAppUpdate(applyUpdate);
   },
   onRegisterError: captureError,
 });
