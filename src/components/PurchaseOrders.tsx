@@ -612,36 +612,58 @@ function OrderDialogs({
 }) {
   return (
     <>
-      {edit && (
-        <Modal
-          title={edit.version ? "Edit draft PO" : "New purchase order"}
-          wide
-          onClose={() => onEdit(undefined)}
-        >
-          <POEditor
-            key={`${edit.uuid}:${edit.version}`}
-            initial={edit}
-            onDone={() => onEdit(undefined)}
-            onReload={onEdit}
-          />
-        </Modal>
-      )}
-      {po && (
-        <Modal
-          title={`${po.number} · ${poStatus(po)}`}
-          wide
-          onClose={() => onView(undefined)}
-        >
-          <PODetail
-            po={po}
-            onEdit={() => {
-              onView(undefined);
-              onEdit(po);
-            }}
-          />
-        </Modal>
-      )}
+      {edit && <EditOrderDialog edit={edit} onEdit={onEdit} />}
+      {po && <ViewOrderDialog po={po} onEdit={onEdit} onView={onView} />}
     </>
+  );
+}
+
+function EditOrderDialog({
+  edit,
+  onEdit,
+}: {
+  edit: PODraft;
+  onEdit: (draft?: PODraft) => void;
+}) {
+  return (
+    <Modal
+      title={edit.version ? "Edit draft PO" : "New purchase order"}
+      wide
+      onClose={() => onEdit(undefined)}
+    >
+      <POEditor
+        key={`${edit.uuid}:${edit.version}`}
+        initial={edit}
+        onDone={() => onEdit(undefined)}
+        onReload={onEdit}
+      />
+    </Modal>
+  );
+}
+
+function ViewOrderDialog({
+  po,
+  onEdit,
+  onView,
+}: {
+  po: PurchaseOrder;
+  onEdit: (draft?: PODraft) => void;
+  onView: (uuid?: string) => void;
+}) {
+  return (
+    <Modal
+      title={`${po.number} · ${poStatus(po)}`}
+      wide
+      onClose={() => onView(undefined)}
+    >
+      <PODetail
+        po={po}
+        onEdit={() => {
+          onView(undefined);
+          onEdit(po);
+        }}
+      />
+    </Modal>
   );
 }
 
