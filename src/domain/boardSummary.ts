@@ -5,7 +5,7 @@
  * Layer: Domain. Pure functions; no I/O, no React (a `now` left to its default
  *   reads the clock).
  * Dependencies: ./model, ./aircraftStatus, ./dueItems, ./ownerDue,
- *   ./boardView, ./offsiteBackups.
+ *   ./boardView, ./offsiteBackups, ./components/calendar.
  *
  * The screen and the PDF both render this one summary, so they cannot drift.
  */
@@ -20,10 +20,10 @@ import {
   type BoardAircraftCosts,
 } from "./boardView";
 import { offsiteFreshness, type OffsiteFreshness } from "./offsiteBackups";
+import { daysBetween } from "./components/calendar";
 
 /** How far ahead the board's due list looks, in calendar days. */
 export const BOARD_DUE_HORIZON_DAYS = 30;
-const DAY_MS = 86_400_000;
 const STATUS_RANK: Record<DueItem["status"], number> = {
   overdue: 0,
   "due-soon": 1,
@@ -149,21 +149,22 @@ function listUpcoming(
 function calendarDays(items: MaintenanceDue[], today: string) {
   const days = new Map<string, number>();
   for (const item of items) {
-    if (item.kind === "inspection" && item.due?.daysRemaining !== undefined)
-      days.set(item.inspection.uuid, item.due.daysRemaining);
-    if (item.kind === "componentRequirement" && item.due?.days !== undefined)
-      days.set(item.requirement.uuid, item.due.days);
-    if (item.kind === "ad") {
-      const dates = item.ad.tasks.flatMap((t) =>
-        t.dueDate ? [t.dueDate] : [],
-      );
-      if (dates.length)
-        days.set(item.ad.uuid, daysUntil(today, dates.sort()[0]));
-    }
+    const left = daysLeft(item, today);
+    if (left) days.set(left.uuid, left.days);
   }
   return days;
 }
 
-// ISO dates parse as UTC midnight, so the difference is whole days.
-const daysUntil = (today: string, date: string) =>
-  Math.round((Date.parse(date) - Date.parse(today)) / DAY_MS);
+function daysLeft(
+  item: MaintenanceDue,
+  today: string,
+): { uuid: string; days: number } | undefined {
+  if (item.kind === "inspection" && item.due?.daysRemaining !== undefined)
+    return { uuid: item.inspection.uuid, days: item.due.daysRemaining };
+  if (item.kind === "componentRequirement" && item.due?.days !== undefined)
+    return { uuid: item.requirement.uuid, days: item.due.days };
+  if (item.kind !== "ad") return undefined;
+  const dates = item.ad.tasks.flatMap((t) => (t.dueDate ? [t.dueDate] : []));
+  if (!dates.length) return undefined;
+  return { uuid: item.ad.uuid, days: daysBetween(today, dates.sort()[0]) };
+}
