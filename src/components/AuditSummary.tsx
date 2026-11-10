@@ -97,26 +97,13 @@ export function WeeklySummary() {
   const { result, error, loading } = useSummary(backend, live, period);
   return (
     <>
-      <Toolbar className="rise">
-        <Segmented
-          label="Summary period"
-          options={PERIOD_OPTIONS}
-          value={kind}
-          onChange={(value) => setKind(value as PeriodKind)}
-        />
-        {kind === "custom" && (
-          <CustomPeriod period={custom} onChange={setCustom} />
-        )}
-        {result && (
-          <button
-            type="button"
-            className="button small"
-            onClick={() => exportCsv(s, result, period)}
-          >
-            Export CSV
-          </button>
-        )}
-      </Toolbar>
+      <SummaryToolbar
+        kind={kind}
+        onKind={setKind}
+        custom={custom}
+        onCustom={setCustom}
+        onExport={result && (() => exportCsv(s, result, period))}
+      />
       {!live && (
         <NoticeBar tone="warn" icon={WifiSlash}>
           The weekly summary needs a connection.
@@ -130,6 +117,40 @@ export function WeeklySummary() {
       {loading && <p role="status">Loading summary…</p>}
       {result && <SummaryBody s={s} result={result} />}
     </>
+  );
+}
+
+function SummaryToolbar({
+  kind,
+  onKind,
+  custom,
+  onCustom,
+  onExport,
+}: {
+  kind: PeriodKind;
+  onKind: (kind: PeriodKind) => void;
+  custom: SummaryPeriod;
+  onCustom: (period: SummaryPeriod) => void;
+  /** Absent until a summary has loaded. */
+  onExport?: () => void;
+}) {
+  return (
+    <Toolbar className="rise">
+      <Segmented
+        label="Summary period"
+        options={PERIOD_OPTIONS}
+        value={kind}
+        onChange={(value) => onKind(value as PeriodKind)}
+      />
+      {kind === "custom" && (
+        <CustomPeriod period={custom} onChange={onCustom} />
+      )}
+      {onExport && (
+        <button type="button" className="button small" onClick={onExport}>
+          Export CSV
+        </button>
+      )}
+    </Toolbar>
   );
 }
 
@@ -283,22 +304,34 @@ function ActorTable({
           </thead>
           <tbody>
             {summary.actors.map((actor) => (
-              <tr key={actor.actorId}>
-                <th scope="row">{actorName(s, actor.actorId)}</th>
-                {FAMILY_ORDER.map((f) => (
-                  <td key={f} className="rec-num">
-                    {actor.counts[f] || ""}
-                  </td>
-                ))}
-                <td className="rec-num">
-                  <strong>{actor.total}</strong>
-                </td>
-              </tr>
+              <ActorRow key={actor.actorId} s={s} actor={actor} />
             ))}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function ActorRow({
+  s,
+  actor,
+}: {
+  s: Snapshot;
+  actor: AuditSummaryResult["summary"]["actors"][number];
+}) {
+  return (
+    <tr>
+      <th scope="row">{actorName(s, actor.actorId)}</th>
+      {FAMILY_ORDER.map((f) => (
+        <td key={f} className="rec-num">
+          {actor.counts[f] || ""}
+        </td>
+      ))}
+      <td className="rec-num">
+        <strong>{actor.total}</strong>
+      </td>
+    </tr>
   );
 }
 
