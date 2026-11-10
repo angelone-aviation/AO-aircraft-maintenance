@@ -3,8 +3,9 @@
  *   encrypted request per subscribed device, the push-channel claim, a gone
  *   subscription removed, a refused send retried later and by itself, an
  *   alert that
- *   cleared and returned pushed again, and a stored endpoint that is not a
- *   push service never fetched.
+ *   cleared and returned pushed again, a stored endpoint that is not a push
+ *   service never fetched, and a subscription refused for good (401 or 403)
+ *   on three checks in a row removed.
  * Layer: Test. convex-test suite with a stubbed push service; never shipped.
  * Dependencies: convex/push.ts, convex/urgentAlerts.ts,
  *   convex/pushSubscriptions.ts, convex/webPushProtocol.ts,
@@ -215,5 +216,39 @@ it("retries a refused push by itself, a few times", async () => {
   await checkProgram(world);
   expect(request).toHaveBeenCalledTimes(2);
   expect(await deliveries(world.t)).toHaveLength(2);
+  error.mockRestore();
+});
+
+it("removes a subscription the push service refuses on three checks in a row, and not before", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  await world.a.mutation(api.pushSubscriptions.subscribe, SUBSCRIPTION);
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  // As after a VAPID key rotation: every send to the device is refused.
+  const request = stubPushService(403);
+  await checkProgram(world);
+  await checkProgram(world);
+  // A refusal is not retried by itself: it is not transient.
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(await subscriptions(world.t)).toHaveLength(1);
+  // An accepted message between refusals starts the count again.
+  stubPushService(201);
+  await checkProgram(world);
+  await world.t.run(async (ctx) => {
+    for (const d of await ctx.db.query("alertDeliveries").collect())
+      await ctx.db.delete(d._id);
+  });
+  const refused = stubPushService(401);
+  for (let check = 0; check < 2; check++) await checkProgram(world);
+  expect(await subscriptions(world.t)).toHaveLength(1);
+  await checkProgram(world);
+  expect(refused).toHaveBeenCalledTimes(3);
+  expect(await subscriptions(world.t)).toEqual([]);
+  expect(error).toHaveBeenCalledWith(
+    "Push message not sent",
+    world.ids.a.userId,
+    "Push service refused the subscription (401).",
+  );
   error.mockRestore();
 });

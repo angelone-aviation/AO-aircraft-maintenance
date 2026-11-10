@@ -194,6 +194,8 @@ export default defineSchema({
     userAgent: v.optional(v.string()),
     createdAt: v.number(),
     lastSeenAt: v.number(),
+    // Sends the push service refused for good (401, 403) in a row.
+    refusals: v.optional(v.number()),
   })
     .index("user", ["userId"])
     .index("endpoint", ["endpoint"]),

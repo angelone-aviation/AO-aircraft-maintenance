@@ -139,6 +139,46 @@ export const ofUser = internalQuery({
 });
 
 /**
+ * How many refusals for good (401 or 403) in a row remove a subscription. A
+ * VAPID key rotation makes every refusal permanent, but so does a VAPID
+ * misconfiguration until it is fixed; three checks keep the devices through
+ * a brief mistake, and the device's switch then reads off.
+ */
+export const MAX_PUSH_REFUSALS = 3;
+
+/**
+ * Counts a refusal for good of a send to a device, and removes the
+ * subscription at {@link MAX_PUSH_REFUSALS} in a row.
+ *
+ * @returns Whether the subscription was removed.
+ */
+export const recordRefusal = internalMutation({
+  args: { id: v.id("pushSubscriptions") },
+  handler: async (ctx, { id }) => {
+    const row = await ctx.db.get(id);
+    if (!row) return true;
+    const refusals = (row.refusals ?? 0) + 1;
+    if (refusals < MAX_PUSH_REFUSALS) {
+      await ctx.db.patch(id, { refusals });
+      return false;
+    }
+    await ctx.db.delete(id);
+    return true;
+  },
+});
+
+/**
+ * Starts a device's refusal count again after a send it accepted.
+ */
+export const recordAccepted = internalMutation({
+  args: { id: v.id("pushSubscriptions") },
+  handler: async (ctx, { id }) => {
+    const row = await ctx.db.get(id);
+    if (row?.refusals) await ctx.db.patch(id, { refusals: 0 });
+  },
+});
+
+/**
  * Forgets every device an account is alerted on, when its sessions end
  * (disabled, password reset), so a lost or shared device stops showing the
  * member's alerts (ADR-0012).

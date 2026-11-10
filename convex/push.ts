@@ -27,6 +27,12 @@ import { isPushServiceEndpoint } from "../src/domain/pushSubscription";
 const PUSH_TIMEOUT_MS = 15000;
 // The push service no longer knows the subscription (RFC 8030 §7.3).
 const GONE_STATUSES = [404, 410];
+// The push service refuses the sender for this subscription (RFC 8292 §4.2),
+// as after a VAPID key rotation; retrying soon cannot help.
+const REFUSED_STATUSES = [401, 403];
+
+// What became of one device's message.
+type Outcome = "accepted" | "removed" | "refused" | "failed";
 
 interface Counts {
   sent: number;
@@ -80,8 +86,8 @@ function readVapidKeys(): VapidKeys | undefined {
   return { publicKey, privateKey, subject };
 }
 
-// True when the member's claim was released for a retry: devices exist, but
-// none accepted the message for a reason other than being gone.
+// True when the member's claim was released for a retry: no device accepted
+// the message, and one failed for a reason that may pass.
 async function notifyMember(
   ctx: ActionCtx,
   vapid: VapidKeys,
@@ -100,36 +106,29 @@ async function notifyMember(
   const devices = await ctx.runQuery(internal.pushSubscriptions.ofUser, {
     userId,
   });
-  const removedBefore = counts.removed;
-  let accepted = 0;
+  const outcomes: Outcome[] = [];
   for (const device of devices)
-    if (await deliver(ctx, vapid, device, payload, counts)) accepted++;
-  if (accepted) return false;
+    outcomes.push(await deliver(ctx, vapid, device, payload, counts));
+  if (outcomes.includes("accepted")) return false;
   await ctx.runMutation(internal.urgentAlerts.releaseDeliveries, {
     userId,
     programUuid,
     channel: "push",
     keys: claim.claimed,
   });
-  return counts.removed - removedBefore < devices.length;
+  return outcomes.includes("failed");
 }
 
-// True once the push service accepted the message for this device. A row
-// saved before endpoints were checked is dropped, never fetched.
+// A row saved before endpoints were checked is dropped, never fetched.
 async function deliver(
   ctx: ActionCtx,
   vapid: VapidKeys,
   device: Doc<"pushSubscriptions">,
   payload: string,
   counts: Counts,
-): Promise<boolean> {
-  if (!isPushServiceEndpoint(device.endpoint)) {
-    await ctx.runMutation(internal.pushSubscriptions.remove, {
-      id: device._id,
-    });
-    counts.removed++;
-    return false;
-  }
+): Promise<Outcome> {
+  if (!isPushServiceEndpoint(device.endpoint))
+    return removeDevice(ctx, device, counts);
   try {
     const request = await buildPushRequest(device, payload, vapid);
     const response = await fetch(request.url, {
@@ -139,26 +138,60 @@ async function deliver(
       redirect: "error",
       signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
     });
-    if (response.ok) {
-      counts.sent++;
-      return true;
-    }
-    if (GONE_STATUSES.includes(response.status)) {
-      await ctx.runMutation(internal.pushSubscriptions.remove, {
-        id: device._id,
-      });
-      counts.removed++;
-      return false;
-    }
-    throw new Error(`Push service rejected the message (${response.status}).`);
+    return await settle(ctx, device, response.status, counts);
   } catch (error) {
     // One device's failure must not stop the others.
     counts.failed++;
-    console.error(
-      "Push message not sent",
-      device.userId,
-      error instanceof Error ? error.message : "unknown error",
-    );
-    return false;
+    logFailure(device, error);
+    return "failed";
   }
+}
+
+async function settle(
+  ctx: ActionCtx,
+  device: Doc<"pushSubscriptions">,
+  status: number,
+  counts: Counts,
+): Promise<Outcome> {
+  if (status >= 200 && status < 300) {
+    counts.sent++;
+    if (device.refusals)
+      await ctx.runMutation(internal.pushSubscriptions.recordAccepted, {
+        id: device._id,
+      });
+    return "accepted";
+  }
+  if (GONE_STATUSES.includes(status)) return removeDevice(ctx, device, counts);
+  if (!REFUSED_STATUSES.includes(status))
+    throw new Error(`Push service rejected the message (${status}).`);
+  counts.failed++;
+  logFailure(
+    device,
+    new Error(`Push service refused the subscription (${status}).`),
+  );
+  const removed = await ctx.runMutation(
+    internal.pushSubscriptions.recordRefusal,
+    { id: device._id },
+  );
+  if (removed) counts.removed++;
+  return "refused";
+}
+
+async function removeDevice(
+  ctx: ActionCtx,
+  device: Doc<"pushSubscriptions">,
+  counts: Counts,
+): Promise<Outcome> {
+  await ctx.runMutation(internal.pushSubscriptions.remove, { id: device._id });
+  counts.removed++;
+  return "removed";
+}
+
+// Logs name the user id, never the endpoint or the message.
+function logFailure(device: Doc<"pushSubscriptions">, error: unknown) {
+  console.error(
+    "Push message not sent",
+    device.userId,
+    error instanceof Error ? error.message : "unknown error",
+  );
 }
