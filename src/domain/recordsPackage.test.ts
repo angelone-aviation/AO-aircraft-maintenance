@@ -23,6 +23,7 @@ import {
   planPackageFiles,
   recordsPackageName,
   recordsReadme,
+  type ChangeLogRows,
   type PackageFile,
   type RecordsSectionId,
 } from "./recordsPackage";
@@ -35,9 +36,13 @@ const HOUR = 3600;
 const DAY_MS = 86_400_000;
 const MB = 1024 * 1024;
 const AT = Date.parse("2026-06-01T12:00:00Z");
-const EMPTY_LOG = { entries: [], complete: true };
+const EMPTY_LOG: ChangeLogRows = { entries: [], complete: true };
 
-function build(s: Snapshot, uuid = s.aircraft[0].uuid, log = EMPTY_LOG) {
+function build(
+  s: Snapshot,
+  uuid = s.aircraft[0].uuid,
+  log: ChangeLogRows = EMPTY_LOG,
+) {
   return buildRecordsPackage(s, uuid, TODAY, log);
 }
 
