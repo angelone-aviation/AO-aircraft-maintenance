@@ -560,39 +560,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const s = workspace.getState().snapshot!;
       if (!can(s, aircraftUuid, "read"))
         throw Error("Aircraft read permission required.");
-      const limits = s.engineTrendLimits?.find(
-        (l) => l.aircraftUuid === aircraftUuid,
-      );
-      return {
-        trends: (s.engineTrends ?? []).filter(
-          (t) => t.aircraftUuid === aircraftUuid,
-        ),
-        limits: limits
-          ? {
-              chtMaxF: limits.chtMaxF,
-              oilPressureMinPsi: limits.oilPressureMinPsi,
-            }
-          : defaultEngineLimits,
-      };
+      return engineTrendData(s, aircraftUuid);
     },
     engineTrend: (aircraftUuid, command) =>
       modify((s) => {
         if (!can(s, aircraftUuid, "maintenance"))
           throw Error("Aircraft maintenance permission required.");
-        const stored = s.engineTrendLimits?.find(
-          (l) => l.aircraftUuid === aircraftUuid,
-        );
-        const data = {
-          trends: (s.engineTrends ?? []).filter(
-            (t) => t.aircraftUuid === aircraftUuid,
-          ),
-          limits: stored
-            ? {
-                chtMaxF: stored.chtMaxF,
-                oilPressureMinPsi: stored.oilPressureMinPsi,
-              }
-            : defaultEngineLimits,
-        };
+        const data = engineTrendData(s, aircraftUuid);
         const result = applyEngineTrendCommand(data, command, {
           aircraftUuid,
           actorId: s.user.id,
@@ -613,7 +587,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           ];
         audit(
           s,
-          `engineTrend.${command.action === "import" ? "imported" : command.action === "remove" ? "removed" : "limits"}`,
+          ENGINE_TREND_ACTIONS[command.action],
           command.action === "limits" ? aircraftUuid : command.uuid,
           aircraftUuid,
         );
@@ -1235,6 +1209,30 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
   };
 }
 // Stands in for the server's per-user, per-program alertReads table.
+const ENGINE_TREND_ACTIONS = {
+  import: "engineTrend.imported",
+  remove: "engineTrend.removed",
+  limits: "engineTrend.limits",
+} as const;
+
+// An aircraft's engine trends and limits, as the server's query returns them.
+function engineTrendData(s: Snapshot, aircraftUuid: string) {
+  const limits = s.engineTrendLimits?.find(
+    (l) => l.aircraftUuid === aircraftUuid,
+  );
+  return {
+    trends: (s.engineTrends ?? []).filter(
+      (t) => t.aircraftUuid === aircraftUuid,
+    ),
+    limits: limits
+      ? {
+          chtMaxF: limits.chtMaxF,
+          oilPressureMinPsi: limits.oilPressureMinPsi,
+        }
+      : defaultEngineLimits,
+  };
+}
+
 function demoAlertReadsKey(
   workspace: DemoWorkspace,
   programUuid: string | undefined,
