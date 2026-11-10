@@ -62,10 +62,16 @@ export const FAMILY_LABELS: Readonly<Record<ActionFamily, string>> = {
 /** The families in table order. */
 export const FAMILY_ORDER = Object.keys(FAMILY_LABELS) as ActionFamily[];
 
-/** A range of local dates, inclusive. */
+/**
+ * A range of local dates, inclusive. `fromMs` and `toMs`, when set, are the
+ * reviewer's own midnights at its start and just after its end, so the days
+ * are theirs and not the server's.
+ */
 export interface SummaryPeriod {
   from: string;
   to: string;
+  fromMs?: number;
+  toMs?: number;
 }
 
 /** Why an entry is listed as notable. */
@@ -114,6 +120,11 @@ export interface AuditSummaryResult {
   /** True when the scan budget ran out before the period's start, so older
    * entries in the period are not counted. */
   truncated: boolean;
+  /** True when the reader sees account-wide entries (readsAccountWideAudit):
+   * only then does `refusedSignIns` count anything, and only then are
+   * password resets, sessions ended and permissions a system administrator
+   * set among the entries. */
+  accountWide: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -158,8 +169,20 @@ export function summaryPeriod(
 }
 
 /**
- * Summarizes the change-log entries that fall in a period, by the local date
- * of each entry's `at`.
+ * The period with the device's own midnights at its start and just after its
+ * end, for a summary of the reviewer's local days.
+ *
+ * @param period - The first and last local date.
+ * @returns The period with `fromMs` and `toMs` set; on 2026-11-10 in New
+ *   York, "to" 2026-11-10 gives `toMs` 2026-11-11T05:00:00Z.
+ */
+export function withLocalBounds({ from, to }: SummaryPeriod): SummaryPeriod {
+  return { from, to, fromMs: localMidnight(from), toMs: localMidnight(to, 1) };
+}
+
+/**
+ * Summarizes the change-log entries that fall in a period: within its
+ * `fromMs` and `toMs` when set, else by the local date of each entry's `at`.
  *
  * @param entries - Entries in any order; those outside the period are
  *   ignored.
@@ -175,10 +198,7 @@ export function summarizeAudit(
   entries: AuditEntry[],
   period: SummaryPeriod,
 ): AuditSummary {
-  const inPeriod = entries.filter((a) => {
-    const day = localDate(a.at);
-    return day >= period.from && day <= period.to;
-  });
+  const inPeriod = entries.filter((a) => isInPeriod(a.at, period));
   const counted = inPeriod.filter((a) => a.action !== REFUSED_SIGN_IN);
   return {
     period,
@@ -197,14 +217,17 @@ export function summarizeAudit(
 
 /**
  * The summary table as CSV rows: one per actor with a column per family and
- * a total, then a "Refused sign-ins" row.
+ * a total, then a "Refused sign-ins" row when the summary counts them.
  *
  * @param summary - The summary.
  * @param nameOf - Names an actor id for the first column.
+ * @param countsRefusals - Whether the reader sees refused sign-ins
+ *   (`AuditSummaryResult.accountWide`); without them a 0 would mislead.
  */
 export function auditSummaryCsvRows(
   summary: AuditSummary,
   nameOf: (actorId: string) => string,
+  countsRefusals = true,
 ): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = summary.actors.map((actor) => ({
     Actor: nameOf(actor.actorId),
@@ -213,8 +236,22 @@ export function auditSummaryCsvRows(
     ),
     Total: actor.total,
   }));
-  rows.push({ Actor: "Refused sign-ins", Total: summary.refusedSignIns });
+  if (countsRefusals)
+    rows.push({ Actor: "Refused sign-ins", Total: summary.refusedSignIns });
   return rows;
+}
+
+function isInPeriod(at: number, period: SummaryPeriod): boolean {
+  if (period.fromMs !== undefined && period.toMs !== undefined)
+    return at >= period.fromMs && at < period.toMs;
+  const day = localDate(at);
+  return day >= period.from && day <= period.to;
+}
+
+// The device's midnight at the start of a date, `days` later.
+function localMidnight(date: string, days = 0): number {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day + days).getTime();
 }
 
 function emptyCounts(): Record<ActionFamily, number> {

@@ -1,11 +1,12 @@
 /**
  * Responsibility: Pins the weekly summary of the change log: the period
  *   window, family mapping, per-actor counts and order, the notable events
- *   and their precedence, refused sign-ins counted only, and the CSV rows.
+ *   and their precedence, refused sign-ins counted only, the reviewer's own
+ *   day bounds, and the CSV rows with or without the refusals row.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/auditSummary.ts, ./model (types).
  */
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import type { AuditEntry } from "./model";
 import {
   actionFamily,
@@ -13,6 +14,7 @@ import {
   FAMILY_ORDER,
   summarizeAudit,
   summaryPeriod,
+  withLocalBounds,
 } from "./auditSummary";
 
 // Entries are stamped at local noon so the day never shifts with the zone.
@@ -164,5 +166,52 @@ describe("weekly summary", () => {
       },
       { Actor: "Refused sign-ins", Total: 1 },
     ]);
+    // A reader who sees no refused sign-ins gets no row claiming 0.
+    expect(
+      auditSummaryCsvRows(summary, (id) => id, false).map((r) => r.Actor),
+    ).toEqual(["alex"]);
+  });
+
+  it("counts the reviewer's own days when the period carries their midnights", () => {
+    const period = {
+      ...PERIOD,
+      fromMs: DAY("2026-11-04"),
+      toMs: DAY("2026-11-06"),
+    };
+    const summary = summarizeAudit(
+      [
+        entry("flight.created", { day: "2026-11-03" }),
+        entry("flight.created", { day: "2026-11-04" }),
+        entry("flight.created", { day: "2026-11-05" }),
+        entry("flight.created", { day: "2026-11-06" }),
+      ],
+      period,
+    );
+    // From fromMs inclusive to toMs exclusive, whatever the dates say.
+    expect(summary.total).toBe(2);
+  });
+});
+
+describe("local day bounds", () => {
+  const zone = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = zone;
+  });
+
+  it("are the device's midnights at the start and just after the end", () => {
+    process.env.TZ = "America/New_York";
+    expect(withLocalBounds({ from: "2026-11-04", to: "2026-11-10" })).toEqual({
+      from: "2026-11-04",
+      to: "2026-11-10",
+      fromMs: Date.parse("2026-11-04T05:00:00Z"),
+      toMs: Date.parse("2026-11-11T05:00:00Z"),
+    });
+    // Across the end of daylight saving time (1 November 2026).
+    expect(
+      withLocalBounds({ from: "2026-10-31", to: "2026-10-31" }),
+    ).toMatchObject({
+      fromMs: Date.parse("2026-10-31T04:00:00Z"),
+      toMs: Date.parse("2026-11-01T04:00:00Z"),
+    });
   });
 });

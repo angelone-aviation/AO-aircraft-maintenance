@@ -147,6 +147,21 @@ export function reducedViewGroups(
 }
 
 /**
+ * Tells whether the user reads account-wide change-log entries: those with
+ * no Flight Program, such as refused sign-ins, password resets, sessions
+ * ended and permissions a system administrator set. Only a system
+ * administrator working in Unassigned records does.
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns True for an active system administrator with no active program.
+ */
+export function readsAccountWideAudit(
+  s: Pick<Snapshot, "user" | "groups" | "programs">,
+): boolean {
+  return s.user.active && s.user.isAdmin && !activeProgram(s);
+}
+
+/**
  * Picks the Flight Program the user is working in: the one they chose if they
  * may read it, else the first they may. A system administrator may read every
  * program, and choosing "" leaves them in none.
@@ -467,7 +482,7 @@ function buildAuditFilter(
         (!!a.aircraftUuid && ids.has(a.aircraftUuid))
       );
     if (a.aircraftUuid) return ids.has(a.aircraftUuid);
-    return entities.has(a.entityUuid) || (s.user.isAdmin && !active);
+    return entities.has(a.entityUuid) || readsAccountWideAudit(s);
   };
 }
 

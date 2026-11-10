@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the Weekly summary tab of Change history in the demo:
  *   a change made in the session is counted for its author, the period
- *   switches, and the table exports as CSV.
+ *   switches, refused sign-ins are not claimed as 0 inside a program, and
+ *   the table exports as CSV.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test, node:fs.
  */
@@ -34,7 +35,11 @@ test("weekly summary counts the session's changes by person and exports CSV", as
   const row = table.getByRole("row", { name: /Alex Morgan/ });
   await expect(row).toBeVisible();
   await expect(row.getByRole("cell").last()).toHaveText(/^[1-9]\d*$/);
-  await expect(page.getByText(/refused sign-in/)).toBeVisible();
+  // Refused sign-ins belong to no program: no count of 0, but where to look.
+  await expect(page.getByText(/· \d+ refused sign-in/)).toHaveCount(0);
+  await expect(
+    page.getByText(/System administrators review them under Unassigned/),
+  ).toBeVisible();
   // Free text never reaches the summary: only counts and notable actions.
   await expect(page.getByText("cabin door seal worn")).toHaveCount(0);
 
@@ -50,5 +55,5 @@ test("weekly summary counts the session's changes by person and exports CSV", as
   const csv = await readFile((await download.path())!, "utf8");
   expect(csv).toContain('"Actor","Flights and discrepancies"');
   expect(csv).toContain('"Alex Morgan"');
-  expect(csv).toContain('"Refused sign-ins"');
+  expect(csv).not.toContain("Refused sign-ins");
 });

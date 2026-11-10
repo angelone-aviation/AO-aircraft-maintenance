@@ -1,15 +1,16 @@
 /**
  * Responsibility: Pins the weekly summary query: Flight Program
- *   administrators only, the period checks, counts over the visible entries
- *   of the active program only, and the flag set when the scan budget cuts
- *   the period short.
+ *   administrators only, the period checks and the caller's own day bounds,
+ *   counts over the visible entries of the active program only, refused
+ *   sign-ins counted only where they are read, and the flag set when the
+ *   scan budget cuts the period short.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/auditHistory, src/data/demo, src/domain/auditSummary.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import schema from "./schema";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import type { AuditSummaryResult } from "../src/domain/auditSummary";
@@ -111,12 +112,6 @@ it("summarizes the week for a program administrator: families, actors, notable e
     },
     { action: "inspection.completed", daysAgo: 3 },
     { action: "flight.created", daysAgo: 9 },
-    {
-      action: "user.sign_in_refused",
-      daysAgo: 1,
-      actorId: "system",
-      after: JSON.stringify({ email: "stranger@example.test" }),
-    },
     { action: "flight.created", daysAgo: 0, programUuid: "foreign" },
   ]);
   const result: AuditSummaryResult = await admin.query(
@@ -124,8 +119,10 @@ it("summarizes the week for a program administrator: families, actors, notable e
     { programUuid: PROGRAM, ...WEEK },
   );
   expect(result.truncated).toBe(false);
+  // Refused sign-ins carry no program, so a program's summary has none.
+  expect(result.accountWide).toBe(false);
   expect(result.summary.total).toBe(4);
-  expect(result.summary.refusedSignIns).toBe(1);
+  expect(result.summary.refusedSignIns).toBe(0);
   expect(result.summary.actors.map((x) => [x.actorId, x.total])).toEqual([
     ["alex", 2],
     ["sam", 2],
@@ -137,7 +134,6 @@ it("summarizes the week for a program administrator: families, actors, notable e
   expect(result.summary.notable.map((n) => n.kind)).toEqual([
     "dispatch-override",
   ]);
-  expect(JSON.stringify(result)).not.toContain("stranger@");
 });
 
 it("refuses readers, outsiders and bad periods", async () => {
@@ -188,3 +184,86 @@ it("says when the scan budget cut the period short", async () => {
   expect(result.summary.total).toBeGreaterThan(0);
   expect(result.summary.total).toBeLessThan(4100);
 }, 60_000);
+
+// A New York reviewer's day: midnight there is 05:00 UTC in November.
+const NEW_YORK_OFFSET_MS = 5 * 3_600_000;
+const newYorkDay = (date: string) => ({
+  from: date,
+  to: date,
+  fromMs: Date.parse(date + "T00:00:00Z") + NEW_YORK_OFFSET_MS,
+  toMs: Date.parse(date + "T00:00:00Z") + DAY_MS + NEW_YORK_OFFSET_MS,
+});
+
+it("counts a change made this evening west of UTC in that reviewer's today", async () => {
+  // 20:00 in New York is 01:00 UTC on the next UTC date.
+  const evening = Date.parse(TODAY + "T00:00:00Z") + DAY_MS + 3_600_000;
+  const daysAgo = (NOW - evening) / DAY_MS;
+  const { admin } = await fixture([{ action: "flight.created", daysAgo }]);
+  const asked = { programUuid: PROGRAM, ...newYorkDay(TODAY) };
+  const local = await admin.query(api.auditHistory.summary, asked);
+  expect(local.summary.total).toBe(1);
+  // Without the reviewer's bounds the server's UTC dates still apply.
+  const utc = await admin.query(api.auditHistory.summary, {
+    programUuid: PROGRAM,
+    from: TODAY,
+    to: TODAY,
+  });
+  expect(utc.summary.total).toBe(0);
+});
+
+it("refuses day bounds that are not the dates' midnights in some time zone", async () => {
+  const { admin } = await fixture([]);
+  const day = newYorkDay(TODAY);
+  for (const bounds of [
+    { fromMs: day.fromMs },
+    { toMs: day.toMs },
+    { fromMs: day.fromMs - 2 * DAY_MS, toMs: day.toMs },
+    { fromMs: day.fromMs, toMs: day.toMs + DAY_MS },
+  ])
+    await expect(
+      admin.query(api.auditHistory.summary, {
+        programUuid: PROGRAM,
+        from: TODAY,
+        to: TODAY,
+        ...bounds,
+      }),
+    ).rejects.toThrow("Choose a start and end date.");
+});
+
+it("counts refused sign-ins for a system administrator in Unassigned records only", async () => {
+  const t = convexTest(schema, modules);
+  const subject = (activeProgramUuid: string) =>
+    t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        name: "Root",
+        active: true,
+        isAdmin: true,
+        activeProgramUuid,
+        groupIds: [],
+      });
+      const session = await ctx.db.insert("authSessions", {
+        userId,
+        expirationTime: NOW + DAY_MS,
+      });
+      return `${userId}|${session}`;
+    });
+  await t.run((ctx) => ctx.db.insert("programs", demoSnapshot().programs![0]));
+  await t.mutation(internal.identities.recordRefusal, {
+    provider: "google",
+    providerAccountId: "1234567890",
+    email: "stranger@example.test",
+    reason: "no_account",
+  });
+  const unassigned = t.withIdentity({ subject: await subject("") });
+  const result = await unassigned.query(api.auditHistory.summary, WEEK);
+  expect(result.accountWide).toBe(true);
+  expect(result.summary.refusedSignIns).toBe(1);
+  expect(JSON.stringify(result)).not.toContain("stranger@");
+  const inProgram = t.withIdentity({ subject: await subject(PROGRAM) });
+  const programWide = await inProgram.query(api.auditHistory.summary, {
+    programUuid: PROGRAM,
+    ...WEEK,
+  });
+  expect(programWide.accountWide).toBe(false);
+  expect(programWide.summary.refusedSignIns).toBe(0);
+});

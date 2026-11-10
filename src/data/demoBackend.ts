@@ -94,6 +94,7 @@ import {
   scopedSnapshot,
   auditVisible,
   programPermission,
+  readsAccountWideAudit,
 } from "../domain/programs";
 import { applyFleet } from "../domain/fleet";
 import {
@@ -1132,6 +1133,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       return {
         summary: summarizeAudit(s.audit.filter(canSee), period),
         truncated: false,
+        accountWide: readsAccountWideAudit(s),
       };
     },
     groupAccessReview: async () => {

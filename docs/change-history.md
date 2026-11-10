@@ -6,10 +6,12 @@
 
 Flight Program administrators get a second tab, **Weekly summary**, for the periodic review of the log without reading it entry by entry.
 
-- **Period**: the last 7 days by default, the last 30 days, or a custom range of dates (inclusive). Days are the server's dates of each entry.
+- **Period**: the last 7 days by default, the last 30 days, or a custom range of dates (inclusive). Days are the reviewer's own: the app sends the server its device's midnights at the start and end of the period, so a change made this evening is in "Last 7 days" wherever the reviewer is. A request without them (an older app) counts the server's UTC dates.
 - **Changes by person**: one row per person with the number of entries they made in each action family, and a total; most active first. The families group the stored actions by their type: flights and discrepancies (`flight.*`, `discrepancy.*`, `plan.*`); inspections and components; ADs; work orders and job cards; parts and purchasing (`stock.*`, `partsRequest.*`, `po.*`, inventory, locations, vendors); users and access (`user.*`, `group.*`, `program.*`); FAA; and other.
 - **Notable events**, newest first, each with a link to its screen where one exists: dispatch overrides; permission changes (groups saved or deleted, memberships and program access changed); account changes (users created, disabled, password reset, sessions ended); archives and deletions; and corrections, meaning any other entry that carries a reason, shown with the reason.
 - **Refused sign-ins** are counted only. Their entries record the email a stranger typed, and the summary never repeats it.
-- **Export CSV** saves the table (`change-summary-<from>-to-<to>.csv`) with a column per family and a final refused sign-ins row.
+- **Export CSV** saves the table (`change-summary-<from>-to-<to>.csv`) with a column per family, and a final refused sign-ins row where they are counted.
+
+What a program's summary covers follows who reads each entry. Inside a Flight Program, its administrators see the program's own access changes (groups saved or deleted, accounts created in it, members' program access changed). Account-wide entries carry no program: refused sign-ins, password resets, ended sessions, and accounts disabled or permissions set by a system administrator. A system administrator reviews those with the summary under **Unassigned records**, the only place it counts refused sign-ins. Inside a program the summary shows no refused sign-ins count, and says where to find them instead of showing 0.
 
 The server builds the summary from the same entries the change log pages, under the same visibility rules, and reads at most 4,000 entries per request. When a period holds more, the summary says so and counts only the newest entries it read; choose a shorter period. In the demo the summary covers the changes made during the session, since the demo starts with an empty log. The summary needs a connection.
