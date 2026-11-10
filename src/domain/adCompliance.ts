@@ -1,5 +1,6 @@
 /**
- * Responsibility: An AD's compliance history as corrected.
+ * Responsibility: An AD's compliance history as corrected, and the rounding
+ *   allowed when it is compared with the counters.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/airworthiness.ts (types).
  *
@@ -7,6 +8,13 @@
  * airworthiness.ts imports can use it without an import cycle.
  */
 import type { AD, ADCompliance } from "./airworthiness";
+
+/**
+ * Hours a compliance entry may lie above the current counters: totals are
+ * shown to 0.1 h, so an entry copied from the screen can sit up to 0.05 h
+ * above the stored seconds.
+ */
+export const HOURS_ROUNDING_ALLOWANCE = 0.05;
 
 /**
  * The compliance history as corrected: each correction takes the place of
