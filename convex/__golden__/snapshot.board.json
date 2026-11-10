@@ -1,0 +1,282 @@
+{
+ "activeProgramUuid": "demo-program",
+ "aircraft": [
+  {
+   "_creationTime": 1793707200000.001,
+   "_id": "000000000000000000010001aircraft",
+   "adjustmentSeconds": 0,
+   "baselineCycles": 1894,
+   "baselineHobbs": 8428320,
+   "baselineLandings": 2194,
+   "baselineTach": 8140320,
+   "currentHobbs": 8428320,
+   "currentTach": 8140320,
+   "cycles": 1894,
+   "landings": 2194,
+   "make": "Cessna",
+   "meter": "hobbs",
+   "model": "206 Stationair",
+   "operationalStatus": "unknown",
+   "program": "Mission operations",
+   "programUuid": "demo-program",
+   "registration": "N206MA",
+   "serial": "DEMO-demo-206",
+   "uuid": "demo-206",
+   "version": 0
+  },
+  {
+   "_creationTime": 1793707200000.002,
+   "_id": "000000000000000000010002aircraft",
+   "adjustmentSeconds": 0,
+   "baselineCycles": 3201,
+   "baselineHobbs": 15186960,
+   "baselineLandings": 3501,
+   "baselineTach": 14898960,
+   "currentHobbs": 15186960,
+   "currentTach": 14898960,
+   "cycles": 3201,
+   "landings": 3501,
+   "make": "Cessna",
+   "meter": "hobbs",
+   "model": "208 Caravan",
+   "operationalStatus": "unknown",
+   "program": "Mission operations",
+   "programUuid": "demo-program",
+   "registration": "N208MA",
+   "serial": "DEMO-demo-208",
+   "uuid": "demo-208",
+   "version": 0
+  },
+  {
+   "_creationTime": 1793707200000.003,
+   "_id": "000000000000000000010003aircraft",
+   "adjustmentSeconds": 0,
+   "baselineCycles": 1142,
+   "baselineHobbs": 5941440,
+   "baselineLandings": 1442,
+   "baselineTach": 5653440,
+   "currentHobbs": 5941440,
+   "currentTach": 5653440,
+   "cycles": 1142,
+   "landings": 1442,
+   "make": "Cessna",
+   "meter": "hobbs",
+   "model": "182 Skylane",
+   "operationalStatus": "unknown",
+   "program": "Mission operations",
+   "programUuid": "demo-program",
+   "registration": "N182MA",
+   "serial": "DEMO-demo-182",
+   "uuid": "demo-182",
+   "version": 0
+  }
+ ],
+ "airworthiness": [
+  {
+   "aircraftUuid": "demo-206",
+   "applicability": "Needs review",
+   "componentUuid": "",
+   "history": [],
+   "programUuid": "demo-program",
+   "reason": "",
+   "reviewRequired": true,
+   "source": {
+    "amendment": "",
+    "effective": "",
+    "issued": "",
+    "make": "",
+    "model": "",
+    "number": "2020-01-01",
+    "recurring": "Unknown",
+    "section": "Airframe",
+    "source": "Manual entry",
+    "sourceNotes": "",
+    "subject": "Demo AD",
+    "supersededBy": "",
+    "url": ""
+   },
+   "sourceHistory": [],
+   "tasks": [],
+   "updatedAt": 1793707200000,
+   "uuid": "00000000-0000-4000-8000-000000000006",
+   "version": 1
+  }
+ ],
+ "audit": [],
+ "authenticatedAt": 1793707200000.039,
+ "boardCosts": [
+  {
+   "aircraftUuid": "demo-206",
+   "budgetCents": 2500000,
+   "overBudget": false,
+   "quarterCents": 0,
+   "quarterLabel": "Q4 2026",
+   "year": 2026,
+   "yearCents": 0
+  },
+  {
+   "aircraftUuid": "demo-208",
+   "overBudget": false,
+   "quarterCents": 0,
+   "quarterLabel": "Q4 2026",
+   "year": 2026,
+   "yearCents": 0
+  },
+  {
+   "aircraftUuid": "demo-182",
+   "overBudget": false,
+   "quarterCents": 0,
+   "quarterLabel": "Q4 2026",
+   "year": 2026,
+   "yearCents": 0
+  }
+ ],
+ "discrepancies": [
+  {
+   "aircraftUuid": "demo-208",
+   "authorId": "",
+   "createdAt": 1793620800000,
+   "description": "",
+   "status": "open",
+   "uuid": "demo-report"
+  }
+ ],
+ "flights": [],
+ "groups": [
+  {
+   "aircraftIds": [],
+   "board": true,
+   "id": "00000000000000000000010038groups",
+   "name": "Board",
+   "permissions": [
+    "read"
+   ],
+   "programUuid": "demo-program"
+  }
+ ],
+ "inspections": [
+  {
+   "aircraftUuid": "demo-206",
+   "description": "Airframe and engine inspection",
+   "dueSeconds": 8460000,
+   "reference": "100-hour inspection",
+   "uuid": "demo-insp-1"
+  },
+  {
+   "aircraftUuid": "demo-206",
+   "description": "Calendar inspection",
+   "dueDate": "2027-01-26",
+   "reference": "Annual inspection",
+   "uuid": "demo-insp-2"
+  },
+  {
+   "aircraftUuid": "demo-208",
+   "description": "Airframe and engine inspection",
+   "dueSeconds": 15300000,
+   "reference": "100-hour inspection",
+   "uuid": "demo-insp-3"
+  },
+  {
+   "aircraftUuid": "demo-182",
+   "description": "Calendar inspection",
+   "dueDate": "2026-11-27",
+   "reference": "Annual inspection",
+   "uuid": "demo-insp-4"
+  }
+ ],
+ "management": [
+  {
+   "aircraftUuid": "demo-206",
+   "componentType": "Engine",
+   "cyclesSinceNew": 400,
+   "installPosition": "MAIN",
+   "installed": true,
+   "installedCycles": 400,
+   "installedDate": "2025-01-01",
+   "installedSeconds": 3600000,
+   "kind": "component",
+   "manufacturer": "Lycoming",
+   "model": "IO-540",
+   "notes": "",
+   "partNumber": "IO-540",
+   "programUuid": "demo-program",
+   "serial": "SN-component-206",
+   "serviceDaysBase": 0,
+   "timeSinceNew": 1800000,
+   "timeSinceOverhaul": 360000,
+   "timeSinceRepair": null,
+   "trackCalendar": false,
+   "trackCycles": true,
+   "trackTime": true,
+   "uuid": "component-206",
+   "version": 1
+  },
+  {
+   "aircraftUuid": "demo-182",
+   "componentType": "Engine",
+   "cyclesSinceNew": 400,
+   "installPosition": "MAIN",
+   "installed": true,
+   "installedCycles": 400,
+   "installedDate": "2025-01-01",
+   "installedSeconds": 3600000,
+   "kind": "component",
+   "manufacturer": "Lycoming",
+   "model": "IO-540",
+   "notes": "",
+   "partNumber": "IO-540",
+   "programUuid": "demo-program",
+   "serial": "SN-component-182",
+   "serviceDaysBase": 0,
+   "timeSinceNew": 1800000,
+   "timeSinceOverhaul": 360000,
+   "timeSinceRepair": null,
+   "trackCalendar": false,
+   "trackCycles": true,
+   "trackTime": true,
+   "uuid": "component-182",
+   "version": 1
+  }
+ ],
+ "members": [
+  {
+   "active": true,
+   "activeProgramUuid": "demo-program",
+   "availableAsPilot": true,
+   "email": "",
+   "groupIds": [
+    "00000000000000000000010038groups"
+   ],
+   "id": "000000000000000000000010039users",
+   "isAdmin": false,
+   "name": "Board member"
+  }
+ ],
+ "programScopeVersion": 1,
+ "programs": [
+  {
+   "_creationTime": 1793707200000,
+   "_id": "000000000000000000010000programs",
+   "address": "Demo airfield",
+   "contactName": "Demo coordinator",
+   "email": "operations@example.test",
+   "name": "Mission operations",
+   "uuid": "demo-program",
+   "version": 1,
+   "website": "https://example.test"
+  }
+ ],
+ "syncedAt": 1793707200000,
+ "user": {
+  "active": true,
+  "activeProgramUuid": "demo-program",
+  "email": "",
+  "groupIds": [
+   "00000000000000000000010038groups"
+  ],
+  "id": "000000000000000000000010039users",
+  "isAdmin": false,
+  "name": "Board member"
+ },
+ "workOrders": []
+}

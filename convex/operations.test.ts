@@ -901,6 +901,14 @@ describe("discrepancy resolution", () => {
   });
 });
 
+it("names the signed-in account to a current session only", async () => {
+  const { t, pilot, ids } = await fixture();
+  expect(await pilot.query(api.operations.signedInUser, {})).toBe(ids.user);
+  expect(await t.query(api.operations.signedInUser, {})).toBeNull();
+  await t.run(async (ctx) => ctx.db.delete(ids.session));
+  expect(await pilot.query(api.operations.signedInUser, {})).toBeNull();
+});
+
 it("rejects a revoked session even while its access JWT remains unexpired", async () => {
   const { t, pilot, ids, op } = await fixture();
   await t.run(async (ctx) => ctx.db.delete(ids.session));

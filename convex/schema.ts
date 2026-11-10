@@ -328,6 +328,10 @@ export default defineSchema({
     .index("aircraft", ["aircraftUuid"]),
   taskEvidence: defineTable({
     taskCardUuid: v.string(),
+    // The job card's aircraft, so the snapshot reads evidence once per
+    // aircraft. Rows uploaded before it was stored lack it until
+    // attachments:backfillAircraft runs.
+    aircraftUuid: v.optional(v.string()),
     storageId: v.id("_storage"),
     name: v.string(),
     size: v.number(),
@@ -339,6 +343,7 @@ export default defineSchema({
     ),
   })
     .index("taskCard", ["taskCardUuid"])
+    .index("aircraft", ["aircraftUuid"])
     .index("storage", ["storageId"]),
   rateLimits: defineTable({
     key: v.string(),
@@ -446,12 +451,16 @@ export default defineSchema({
     .index("storage", ["storageId"]),
   workOrderFiles: defineTable({
     workOrderUuid: v.string(),
+    // As on taskEvidence: the work order's aircraft, for one read per
+    // aircraft.
+    aircraftUuid: v.optional(v.string()),
     storageId: v.id("_storage"),
     name: v.string(),
     size: v.number(),
     uploadedAt: v.number(),
   })
     .index("workOrder", ["workOrderUuid"])
+    .index("aircraft", ["aircraftUuid"])
     .index("storage", ["storageId"]),
   flightPlans: defineTable({
     uuid: v.string(),

@@ -230,6 +230,70 @@ describe("scopedSnapshot", () => {
       groupIds: ["g"],
     });
   });
+  it("follows the first location or component with a uuid (characterizes current behaviour)", () => {
+    const s = snapshotAs([group("m", { programAdmin: true })]);
+    const stock = asRecord({ kind: "stock", uuid: "s", locationUuid: "l" });
+    const requirement = asRecord({
+      kind: "componentRequirement",
+      uuid: "q",
+      componentUuid: "c",
+    });
+    const records = (first: string) => [
+      asRecord({ kind: "location", uuid: "l", programUuid: first }),
+      asRecord({ kind: "location", uuid: "l", programUuid: "other" }),
+      asRecord({ kind: "component", uuid: "c", programUuid: first }),
+      asRecord({ kind: "component", uuid: "c", programUuid: "other" }),
+      stock,
+      requirement,
+    ];
+    const kept = (management: ManagedRecord[]) =>
+      scopedSnapshot({ ...s, management }).management;
+    expect(kept(records(HOME))).toEqual(
+      expect.arrayContaining([stock, requirement]),
+    );
+    expect(kept(records("other"))).not.toContain(stock);
+    expect(kept(records("other"))).not.toContain(requirement);
+  });
+  it("keeps files only for the records the user may see", () => {
+    const s = snapshotAs([
+      group("g", {
+        aircraftIds: ["demo-206"],
+        permissions: ["read", "maintenance"],
+      }),
+    ]);
+    const on = (uuid: string, aircraftUuid: string) =>
+      ({ uuid, aircraftUuid }) as never;
+    s.taskCards = [on("seen", "demo-206"), on("hidden", "demo-208")];
+    s.archivedTaskCards = [on("old", "demo-206")];
+    s.taskEvidence = ["seen", "hidden", "old", "gone"].map(
+      (taskCardUuid) => ({ taskCardUuid }) as never,
+    );
+    s.workOrders = [on("w1", "demo-206"), on("w2", "demo-208")];
+    s.workOrderAttachments = ["w1", "w2"].map(
+      (workOrderUuid) => ({ workOrderUuid }) as never,
+    );
+    const scoped = scopedSnapshot(s);
+    expect(scoped.taskEvidence?.map((f) => f.taskCardUuid)).toEqual([
+      "seen",
+      "old",
+    ]);
+    expect(scoped.workOrderAttachments?.map((f) => f.workOrderUuid)).toEqual([
+      "w1",
+    ]);
+    const manager = snapshotAs([group("m", { programAdmin: true })]);
+    manager.management = [
+      asRecord({ kind: "stock", uuid: "s", programUuid: HOME }),
+      asRecord({ kind: "vendor", uuid: "v", programUuid: HOME }),
+      asRecord({ kind: "stock", uuid: "elsewhere", programUuid: "other" }),
+    ];
+    manager.inventoryAttachments = ["s", "v", "elsewhere"].map(
+      (stockUuid) => ({ stockUuid }) as never,
+    );
+    expect(
+      scopedSnapshot(manager).inventoryAttachments?.map((f) => f.stockUuid),
+    ).toEqual(["s"]);
+    expect(scopedSnapshot(s).inventoryAttachments).toEqual([]);
+  });
   it("hides inventory change-log rows from all but program administrators", () => {
     const rows = [
       audit({ action: "stock.save", aircraftUuid: "demo-206" }),

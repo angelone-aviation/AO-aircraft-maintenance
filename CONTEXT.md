@@ -92,7 +92,7 @@ sequenceDiagram
   participant UI as screens
   Q->>Q: activeIdentity, context() and program-scoped loaders (programContext.ts)
   Q->>Q: scopedSnapshot() (src/domain/programs.ts) strips what the caller may not see
-  Q-->>WS: Snapshot via useQuery (src/main.tsx) → receive()
+  Q-->>WS: Snapshot via useQueries (src/main.tsx; a failure shows WorkspaceUnavailable) → receive()
   WS->>IDB: saveSnapshot(namespace)
   WS-->>UI: snapshot
 ```

@@ -4,8 +4,8 @@
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
- *   ./memberships, ./validators, src/domain (model, programs, flightSubmission,
- *   flightReview, ownerView, boardView, deferrals, requiredParts,
+ *   ./urgentAlerts, ./memberships, ./validators, src/domain (model, programs,
+ *   flightSubmission, flightReview, ownerView, deferrals, requiredParts,
  *   aircraftStatus).
  */
 import { v } from "convex/values";
@@ -39,6 +39,7 @@ import {
   costDocs,
   auditDocs,
   expiringItemDocs,
+  perAircraft,
 } from "./programContext";
 import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
@@ -100,6 +101,8 @@ type Ctx = QueryCtx | MutationCtx;
  *   gets the owner whitelist, with file links only for their aircraft's
  *   photo and documents; a board member the board whitelist, with the newest
  *   off-site backup's time; a user who is both, the two side by side.
+ *   The view is known from the groups before any record is read, so a
+ *   reduced view reads only what its whitelists are built from.
  * @throws {z.ZodError} When a stored payload no longer parses.
  */
 export const snapshot = query({
@@ -107,22 +110,26 @@ export const snapshot = query({
   handler: async (ctx): Promise<Snapshot | null> => {
     const identity = await activeIdentity(ctx);
     if (!identity) return null;
-    const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity));
-    if (isOwnerView(snapshot) || isBoardView(snapshot))
-      return addReducedViewExtras(ctx, snapshot);
-    snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
-    snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
-    snapshot.workOrderAttachments = await workOrderAttachments(
-      ctx,
-      snapshot.workOrders ?? [],
-    );
-    snapshot.taskEvidence = await taskEvidence(ctx, [
-      ...(snapshot.taskCards ?? []),
-      ...(snapshot.archivedTaskCards ?? []),
-    ]);
-    snapshot.aircraftFiles = await aircraftFileList(ctx, snapshot);
-    return snapshot;
+    const state = await context(ctx, identity.user);
+    if (!isOwnerView(state) && !isBoardView(state))
+      return workspaceSnapshot(ctx, identity, state);
+    const records = await reducedViewRecords(ctx, identity, state);
+    return addReducedViewExtras(ctx, scopedSnapshot(records));
   },
+});
+
+/**
+ * The signed-in account's id, without loading the program. The app asks only
+ * when the snapshot fails, to check that the copy kept on the device belongs
+ * to the account now signed in before offering it.
+ *
+ * @returns The user id, as `Snapshot.user.id`; null without an active account
+ *   and session.
+ */
+export const signedInUser = query({
+  args: {},
+  handler: async (ctx): Promise<string | null> =>
+    (await activeIdentity(ctx))?.user._id ?? null,
 });
 
 /**
@@ -333,12 +340,87 @@ async function addReducedViewExtras(ctx: QueryCtx, snapshot: Snapshot) {
   return snapshot;
 }
 
+type Identity = { user: Doc<"users">; session: Doc<"authSessions"> };
+type ProgramState = Awaited<ReturnType<typeof context>>;
+
+async function workspaceSnapshot(
+  ctx: QueryCtx,
+  identity: Identity,
+  state: ProgramState,
+): Promise<Snapshot> {
+  const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity, state));
+  snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
+  snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
+  snapshot.workOrderAttachments = await workOrderAttachments(
+    ctx,
+    snapshot.workOrders ?? [],
+  );
+  snapshot.taskEvidence = await taskEvidence(ctx, [
+    ...(snapshot.taskCards ?? []),
+    ...(snapshot.archivedTaskCards ?? []),
+  ]);
+  snapshot.aircraftFiles = await aircraftFileList(ctx, snapshot);
+  return snapshot;
+}
+
+// What the owner and board whitelists are built from. They show aircraft
+// status only (no flights, change log, plans, templates, purchasing, files or
+// other people), so none of that is read. The board's cost totals still need
+// the job cards and parts requests that price issued parts
+// (boardCostTotals).
+async function reducedViewRecords(
+  ctx: QueryCtx,
+  { user, session }: Identity,
+  state: ProgramState,
+): Promise<Snapshot> {
+  const program = activeProgram(state);
+  const aircraft = state.aircraft;
+  const management = await managementDocs(ctx, program);
+  return {
+    ...state,
+    user: member(user),
+    authenticatedAt: session._creationTime,
+    members: [member(user)],
+    discrepancies: await discrepancyDocs(ctx, aircraft),
+    airworthiness: decode(
+      "airworthiness",
+      await airworthinessDocs(ctx, aircraft),
+    ),
+    workOrders: decode("workOrders", await workOrderDocs(ctx, aircraft)),
+    ...(isBoardView(state)
+      ? await boardCostRecords(ctx, program, aircraft)
+      : {}),
+    inspections: await inspectionDocs(ctx, aircraft, management),
+    management: decode("management", management),
+    aircraft: withProgramNames(state),
+  };
+}
+
+async function boardCostRecords(
+  ctx: QueryCtx,
+  program: string | undefined,
+  aircraft: Aircraft[],
+) {
+  return {
+    taskCards: decode("taskCards", await taskCardDocs(ctx, aircraft)),
+    archivedTaskCards: decode(
+      "archivedTaskCards",
+      await archivedTaskCardDocs(ctx, aircraft),
+    ),
+    partsRequests: decode(
+      "partsRequests",
+      await partsRequestDocs(ctx, program),
+    ),
+    costs: decode("costs", await costDocs(ctx, program, aircraft)),
+  };
+}
+
 // Everything the active program holds, before scopedSnapshot narrows it.
 async function fullSnapshot(
   ctx: QueryCtx,
-  { user, session }: { user: Doc<"users">; session: Doc<"authSessions"> },
+  { user, session }: Identity,
+  state: ProgramState,
 ): Promise<Snapshot> {
-  const state = await context(ctx, user);
   const program = activeProgram(state);
   const aircraft = state.aircraft;
   const management = await managementDocs(ctx, program);
@@ -361,12 +443,16 @@ async function fullSnapshot(
       "expiringItems",
       await expiringItemDocs(ctx, program, user.isAdmin === true),
     ),
-    aircraft: aircraft.map((a) => ({
-      ...a,
-      program:
-        state.programs.find((p) => p.uuid === a.programUuid)?.name ?? a.program,
-    })),
+    aircraft: withProgramNames(state),
   };
+}
+
+function withProgramNames(state: ProgramState) {
+  return state.aircraft.map((a) => ({
+    ...a,
+    program:
+      state.programs.find((p) => p.uuid === a.programUuid)?.name ?? a.program,
+  }));
 }
 
 // System administrators manage every account; everyone else sees the active
@@ -486,51 +572,82 @@ async function workOrderAttachments(
   ctx: QueryCtx,
   workOrders: NonNullable<Snapshot["workOrders"]>,
 ) {
-  const lists = await Promise.all(
-    workOrders.map(async (w) => {
-      const files = await ctx.db
+  const files = await filesByRecord(
+    workOrders,
+    (aircraftUuid) =>
+      ctx.db
         .query("workOrderFiles")
-        .withIndex("workOrder", (q) => q.eq("workOrderUuid", w.uuid))
-        .collect();
-      return Promise.all(
-        files.map(async (f) => ({
-          uuid: f._id,
-          workOrderUuid: w.uuid,
-          name: f.name,
-          size: f.size,
-          uploadedAt: f.uploadedAt,
-          url: await fileUrl(ctx, f.storageId),
-        })),
-      );
-    }),
+        .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
+        .collect(),
+    (f) => f.workOrderUuid,
   );
-  return lists.flat();
+  return Promise.all(
+    workOrders.flatMap((w) =>
+      (files.get(w.uuid) ?? []).map(async (f) => ({
+        uuid: f._id,
+        workOrderUuid: w.uuid,
+        name: f.name,
+        size: f.size,
+        uploadedAt: f.uploadedAt,
+        url: await fileUrl(ctx, f.storageId),
+      })),
+    ),
+  );
 }
 
 async function taskEvidence(
   ctx: QueryCtx,
   cards: NonNullable<Snapshot["taskCards"]>,
 ) {
-  const lists = await Promise.all(
-    cards.map(async (t) => {
-      const files = await ctx.db
+  const files = await filesByRecord(
+    cards,
+    (aircraftUuid) =>
+      ctx.db
         .query("taskEvidence")
-        .withIndex("taskCard", (q) => q.eq("taskCardUuid", t.uuid))
-        .collect();
-      return Promise.all(
-        files.map(async (f) => ({
-          uuid: f._id,
-          taskCardUuid: t.uuid,
-          name: f.name,
-          size: f.size,
-          uploadedAt: f.uploadedAt,
-          category: f.category,
-          url: await fileUrl(ctx, f.storageId),
-        })),
-      );
-    }),
+        .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
+        .collect(),
+    (f) => f.taskCardUuid,
   );
-  return lists.flat();
+  return Promise.all(
+    cards.flatMap((t) =>
+      (files.get(t.uuid) ?? []).map(async (f) => ({
+        uuid: f._id,
+        taskCardUuid: t.uuid,
+        name: f.name,
+        size: f.size,
+        uploadedAt: f.uploadedAt,
+        category: f.category,
+        url: await fileUrl(ctx, f.storageId),
+      })),
+    ),
+  );
+}
+
+// Files filed on job cards or work orders, read once per aircraft (a lookup
+// per record passed Convex's limit on index reads at about 4,000 job cards)
+// and grouped by record, each record's oldest first as its own index gave
+// them. Rows uploaded before files carried their aircraft are read once more
+// until attachments:backfillAircraft has run; only the records' own are kept.
+async function filesByRecord<F extends { _creationTime: number }>(
+  records: { aircraftUuid: string }[],
+  readAircraft: (aircraftUuid: string | undefined) => Promise<F[]>,
+  recordOf: (file: F) => string,
+): Promise<Map<string, F[]>> {
+  const aircraft = [...new Set(records.map((r) => r.aircraftUuid))];
+  const files = [
+    ...(await perAircraft(
+      aircraft.map((uuid) => ({ uuid })),
+      readAircraft,
+    )),
+    ...(await readAircraft(undefined)),
+  ].sort((a, b) => a._creationTime - b._creationTime);
+  const byRecord = new Map<string, F[]>();
+  for (const f of files) {
+    const list = byRecord.get(recordOf(f));
+    if (list) list.push(f);
+    else byRecord.set(recordOf(f), [f]);
+  }
+  return byRecord;
 }
 
 const fileUrl = async (ctx: QueryCtx, storageId: Id<"_storage">) =>

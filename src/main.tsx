@@ -3,19 +3,25 @@
  *   demo backend, signs the user in and mounts the workspace.
  * Layer: UI. The browser entry point; the only module that creates the Convex
  *   client.
- * Dependencies: convex/react, @convex-dev/auth/react, src/data (store,
- *   backend, deviceManuals, pdfOffline, pendingEntries, pushDevice,
- *   errorReporting),
- *   src/domain/model.ts, src/App.tsx, src/components.
+ * Dependencies: convex/react, convex/server, @convex-dev/auth/react,
+ *   src/data (store, backend, deviceManuals, pdfOffline, pendingEntries,
+ *   pushDevice, errorReporting), src/domain/model.ts, src/App.tsx,
+ *   src/components.
  */
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ConvexReactClient,
   useConvexAuth,
-  useQuery,
+  useQueries,
   useConvexConnectionState,
 } from "convex/react";
+import {
+  getFunctionName,
+  makeFunctionReference,
+  type FunctionReference,
+  type FunctionReturnType,
+} from "convex/server";
 import { ConvexAuthProvider, useAuthActions } from "@convex-dev/auth/react";
 import { registerSW } from "virtual:pwa-register";
 import { AirplaneTilt, ArrowRight } from "@phosphor-icons/react";
@@ -31,13 +37,20 @@ import {
   initErrorReporting,
   reactErrorHandlers,
 } from "./data/errorReporting";
-import { offlineValid, OFFLINE_WINDOW, type Snapshot } from "./domain/model";
+import { offlineValid, OFFLINE_WINDOW } from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
 import "./styles/tokens.css";
 import "./styles.css";
 import { Wordmark, initTheme } from "./components/design";
 import { SignInNotice, SsoSignIn } from "./components/SignInMethods";
+import {
+  chooseLiveScreen,
+  keptCopyIsTheirs,
+  type LiveSession,
+} from "./components/liveScreen";
+import { WorkspaceUnavailable } from "./components/WorkspaceUnavailable";
+import { ErrorBoundary, RenderFailure } from "./components/ErrorBoundary";
 void initErrorReporting();
 initTheme();
 const configuredUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
@@ -67,20 +80,7 @@ const authStorage = {
 };
 
 type AuthActions = ReturnType<typeof useAuthActions>;
-type LiveScreen = "loading" | "workspace" | "sign-in";
-interface LiveSession {
-  ready: boolean;
-  snapshot: Snapshot | null;
-  online: boolean;
-  socket: boolean;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  /**
-   * The server's snapshot: undefined until loaded, null without an active
-   * account and session.
-   */
-  result: Snapshot | null | undefined;
-}
+type ArglessQuery = FunctionReference<"query", "public", Record<string, never>>;
 
 function clearAuthStorage() {
   for (const key of Object.keys(localStorage))
@@ -201,26 +201,41 @@ function LiveRoot({
   onDemo?: () => void;
 }) {
   const { signOut } = useAuthActions();
-  const screen = chooseLiveScreen(useLiveSession(client));
+  const [openKeptCopy, setOpenKeptCopy] = useState(false);
+  const session = useLiveSession(client);
+  const screen = chooseLiveScreen(session, openKeptCopy);
+  const exit = () => void signOutOfLive(signOut);
   if (screen === "loading") return <Loading />;
-  if (screen === "workspace") {
-    const exit = () => void signOutOfLive(signOut);
+  if (screen === "unavailable")
+    return (
+      <Welcome>
+        <WorkspaceUnavailable
+          keptCopySyncedAt={
+            keptCopyIsTheirs(session) ? session.snapshot?.syncedAt : undefined
+          }
+          userId={session.signedInUserId}
+          onRetry={() => window.location.reload()}
+          onOpenKeptCopy={() => setOpenKeptCopy(true)}
+          onSignOut={exit}
+        />
+      </Welcome>
+    );
+  if (screen === "workspace")
     return (
       <AccessGate onExit={exit}>
         <App onExit={exit} />
       </AccessGate>
     );
-  }
   return <SignIn onDemo={onDemo} />;
 }
 function useLiveSession(client: ConvexReactClient): LiveSession {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const connection = useConvexConnectionState();
   const { ready, snapshot, initialize, receive, online } = useWorkspace();
-  const result = useQuery(
-    api.operations.snapshot,
-    isAuthenticated ? {} : "skip",
-  );
+  const outcome = useQueryOutcome(api.operations.snapshot, isAuthenticated);
+  const failure = outcome instanceof Error ? outcome : undefined;
+  const result = outcome instanceof Error ? undefined : outcome;
+  const signedIn = useQueryOutcome(api.operations.signedInUser, !!failure);
   useEffect(() => {
     useWorkspace.setState({ backend: convexBackend(client) });
     void initialize("live:" + configuredUrl, false);
@@ -233,11 +248,29 @@ function useLiveSession(client: ConvexReactClient): LiveSession {
     isLoading,
     isAuthenticated,
     result,
+    failure,
+    signedInUserId: signedIn instanceof Error ? undefined : signedIn,
   };
   useReportConnection(session);
   useReceiveSnapshot(session, receive);
   useConnection(false);
   return session;
+}
+// useQuery throws a failed query into render, which left a blank page that a
+// reload could not clear; useQueries hands the Error back instead. Memoized
+// by name, as useQuery is: each `api.x.y` access is a new reference.
+function useQueryOutcome<Query extends ArglessQuery>(
+  query: Query,
+  enabled: boolean,
+): FunctionReturnType<Query> | Error | undefined {
+  const name = getFunctionName(query);
+  const queries = useMemo(() => {
+    const request: Parameters<typeof useQueries>[0] = {};
+    if (enabled)
+      request.outcome = { query: makeFunctionReference(name), args: {} };
+    return request;
+  }, [name, enabled]);
+  return useQueries(queries).outcome;
 }
 function useReportConnection(session: LiveSession) {
   const { online, isAuthenticated, socket, ready, result } = session;
@@ -261,26 +294,6 @@ function useReceiveSnapshot(
     else if (!isLoading && !isAuthenticated && online && socket)
       void receive(null);
   }, [result, isAuthenticated, isLoading, online, socket, ready, receive]);
-}
-// Offline, or with the socket down, the cached snapshot opens the workspace
-// and AccessGate enforces the seven days. Connected, it opens only once the
-// server's snapshot is for the same user, so a cached workspace never shows
-// for a signed-out or different account.
-function chooseLiveScreen(session: LiveSession): LiveScreen {
-  const { ready, snapshot, isLoading, isAuthenticated, result } = session;
-  const live = session.online && session.socket;
-  if (
-    !ready ||
-    (live && (isLoading || (isAuthenticated && result === undefined)))
-  )
-    return "loading";
-  if (
-    snapshot &&
-    (!live ||
-      (isAuthenticated && result && snapshot.user.id === result.user.id))
-  )
-    return "workspace";
-  return "sign-in";
 }
 async function signOutOfLive(signOut: AuthActions["signOut"]) {
   const { backend } = useWorkspace.getState();
@@ -484,5 +497,13 @@ registerSW({
   onRegisterError: captureError,
 });
 createRoot(document.getElementById("root")!, reactErrorHandlers()).render(
-  <Root />,
+  <ErrorBoundary
+    fallback={
+      <Welcome>
+        <RenderFailure />
+      </Welcome>
+    }
+  >
+    <Root />
+  </ErrorBoundary>,
 );

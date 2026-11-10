@@ -48,6 +48,8 @@ const PROGRAM_ADMIN_AUDIT_ACTIONS: readonly string[] = [
 ];
 
 type CostRecord = NonNullable<Snapshot["costs"]>[number];
+/** Finds a managed record by kind and uuid: the first, as `find` would. */
+type FindRecord = (kind: string, uuid: string) => ManagedRecord | undefined;
 type PurchaseOrder = NonNullable<Snapshot["purchaseOrders"]>[number];
 type LineEvents = { lines: { lineUuid: string; quantity: number }[] }[];
 
@@ -260,22 +262,9 @@ export function recordProgram(
   s: Snapshot,
   r: ManagedRecord,
 ): string | undefined {
-  if (r.programUuid) return r.programUuid;
-  if (r.kind === "stock") {
-    const location = s.management?.find(
-      (x) => x.kind === "location" && x.uuid === r.locationUuid,
-    );
-    return location?.programUuid;
-  }
-  if (r.kind === "componentRequirement" || r.kind === "componentMovement") {
-    const component = s.management?.find(
-      (x) => x.kind === "component" && x.uuid === r.componentUuid,
-    );
-    return component ? recordProgram(s, component) : undefined;
-  }
-  return "aircraftUuid" in r
-    ? s.aircraft.find((a) => a.uuid === r.aircraftUuid)?.programUuid
-    : undefined;
+  return programOfRecord(s, r, (kind, uuid) =>
+    s.management?.find((x) => x.kind === kind && x.uuid === uuid),
+  );
 }
 
 /**
@@ -334,6 +323,7 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
 function visibleScope(s: Snapshot): VisibleScope {
   const active = activeProgram(s);
   const admin = programPermission(s, "admin");
+  const findRecord = indexRecords(s.management);
   // Board members get the cost records only so that boardSnapshot can total
   // them; the whitelist then leaves the records themselves out.
   const money = admin || isBoardView(s);
@@ -345,7 +335,7 @@ function visibleScope(s: Snapshot): VisibleScope {
     aircraft,
     ids,
     management: (s.management ?? []).filter((r) =>
-      canSeeManagedRecord(s, ids, admin, r),
+      canSeeManagedRecord(s, findRecord, ids, admin, r),
     ),
     checklists: keepActiveProgram(s, s.checklists).filter(
       (c) => !c.aircraftUuid || ids.has(c.aircraftUuid),
@@ -385,29 +375,51 @@ function canReadAircraft(
   );
 }
 
+// The rules of recordProgram, over any lookup: scoping a whole snapshot
+// passes an index, so it is not a scan per record.
+function programOfRecord(
+  s: Snapshot,
+  r: ManagedRecord,
+  findRecord: FindRecord,
+): string | undefined {
+  if (r.programUuid) return r.programUuid;
+  if (r.kind === "stock")
+    return findRecord("location", r.locationUuid)?.programUuid;
+  if (r.kind === "componentRequirement" || r.kind === "componentMovement") {
+    const component = findRecord("component", r.componentUuid);
+    return component ? programOfRecord(s, component, findRecord) : undefined;
+  }
+  return "aircraftUuid" in r
+    ? s.aircraft.find((a) => a.uuid === r.aircraftUuid)?.programUuid
+    : undefined;
+}
+
+// Keeps the first record of each kind and uuid, so lookups match `find`.
+function indexRecords(records: ManagedRecord[] = []): FindRecord {
+  const index = new Map<string, ManagedRecord>();
+  for (const r of records) {
+    const key = `${r.kind}:${r.uuid}`;
+    if (!index.has(key)) index.set(key, r);
+  }
+  return (kind, uuid) => index.get(`${kind}:${uuid}`);
+}
+
 function canSeeManagedRecord(
   s: Snapshot,
+  findRecord: FindRecord,
   ids: Set<string>,
   admin: boolean,
   r: ManagedRecord,
 ): boolean {
-  if (!ownsActive(s, recordProgram(s, r))) return false;
+  if (!ownsActive(s, programOfRecord(s, r, findRecord))) return false;
   if (INVENTORY_KINDS.includes(r.kind) && !admin) return false;
-  const owner = findOwningRecord(s, r);
+  // Requirements and movements go with their component's aircraft.
+  const owner =
+    ("componentUuid" in r && findRecord("component", r.componentUuid)) || r;
   return (
     !("aircraftUuid" in owner) ||
     !owner.aircraftUuid ||
     ids.has(owner.aircraftUuid)
-  );
-}
-
-// Requirements and movements go with their component's aircraft.
-function findOwningRecord(s: Snapshot, r: ManagedRecord): ManagedRecord {
-  if (!("componentUuid" in r)) return r;
-  return (
-    s.management?.find(
-      (c) => c.kind === "component" && c.uuid === r.componentUuid,
-    ) ?? r
   );
 }
 
@@ -543,7 +555,9 @@ function scopeAircraftRecords(
   scope: VisibleScope,
 ): Partial<Snapshot> {
   const onAircraft = matchesAircraft(scope.ids);
-  const cards = [...(s.taskCards ?? []), ...(s.archivedTaskCards ?? [])];
+  const visibleCards = uuidsOf(
+    [...(s.taskCards ?? []), ...(s.archivedTaskCards ?? [])].filter(onAircraft),
+  );
   return {
     componentTemplates: scope.componentTemplates,
     componentSetups: scope.componentSetups,
@@ -553,7 +567,7 @@ function scopeAircraftRecords(
     taskCards: (s.taskCards ?? []).filter(onAircraft),
     archivedTaskCards: (s.archivedTaskCards ?? []).filter(onAircraft),
     taskEvidence: (s.taskEvidence ?? []).filter((f) =>
-      cards.some((t) => t.uuid === f.taskCardUuid && onAircraft(t)),
+      visibleCards.has(f.taskCardUuid),
     ),
     faaMonitors: (s.faaMonitors ?? []).filter(onAircraft),
     airworthiness: (s.airworthiness ?? []).filter((r) =>
@@ -565,18 +579,20 @@ function scopeAircraftRecords(
 function scopePurchasing(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
   const { ids, admin } = scope;
   const orders = keepActiveProgram(s, s.purchaseOrders);
+  const orderUuids = uuidsOf(orders);
+  const visibleRequests = uuidsOf(
+    (s.partsRequests ?? []).filter((r) => canSeeRequest(r, ids, admin)),
+  );
   return {
     partsOnOrder: orders
       .filter((p) => p.phase === "issued")
       .flatMap(listPartsOnOrder),
     purchaseOrderFiles: (s.purchaseOrderFiles ?? []).filter(
-      (f) => orders.some((p) => p.uuid === f.poUuid) && admin,
+      (f) => orderUuids.has(f.poUuid) && admin,
     ),
     partsRequests: scope.partsRequests,
     partsRequestPurchases: requestPurchases(orders).filter((a) =>
-      (s.partsRequests ?? []).some(
-        (r) => r.uuid === a.requestUuid && canSeeRequest(r, ids, admin),
-      ),
+      visibleRequests.has(a.requestUuid),
     ),
     purchaseOrders: scope.purchaseOrders,
   };
@@ -610,23 +626,19 @@ function sumLineQuantity(events: LineEvents, lineUuid: string): number {
 function scopeMaintenance(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
   const { admin, management } = scope;
   const onAircraft = matchesAircraft(scope.ids);
+  const filed = uuidsOf(
+    management.filter((r) => r.kind === "stock" || r.kind === "component"),
+  );
+  const visibleOrders = uuidsOf((s.workOrders ?? []).filter(onAircraft));
   return {
     checklists: scope.checklists,
     costs: scope.costs,
     workOrders: (s.workOrders ?? []).filter(onAircraft),
     inventoryAttachments: (s.inventoryAttachments ?? []).filter(
-      (f) =>
-        admin &&
-        management.some(
-          (r) =>
-            (r.kind === "stock" || r.kind === "component") &&
-            r.uuid === f.stockUuid,
-        ),
+      (f) => admin && filed.has(f.stockUuid),
     ),
     workOrderAttachments: (s.workOrderAttachments ?? []).filter((f) =>
-      (s.workOrders ?? []).some(
-        (w) => w.uuid === f.workOrderUuid && onAircraft(w),
-      ),
+      visibleOrders.has(f.workOrderUuid),
     ),
     flightPlans: (s.flightPlans ?? []).filter(onAircraft),
     flights: s.flights.filter(onAircraft),
@@ -635,6 +647,10 @@ function scopeMaintenance(s: Snapshot, scope: VisibleScope): Partial<Snapshot> {
     management,
     audit: s.audit.filter(scope.canSeeAudit),
   };
+}
+
+function uuidsOf(records: { uuid: string }[]): Set<string> {
+  return new Set(records.map((r) => r.uuid));
 }
 
 function matchesAircraft(ids: Set<string>) {

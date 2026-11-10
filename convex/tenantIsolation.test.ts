@@ -152,6 +152,7 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
   "auth:signOut": "Convex Auth; ends the caller's own session.",
   "auth:isAuthenticated": "Convex Auth; answers for the caller's own session.",
   "identities:mine": "Lists the caller's own linked identities.",
+  "operations:signedInUser": "Returns the caller's own user id.",
   "admin:saveLicense": "Writes the caller's own license fields.",
   "admin:saveLogbookPhrases": "Writes the caller's own logbook phrases.",
   "admin:saveReleaseStatements": "Writes the caller's own release statements.",

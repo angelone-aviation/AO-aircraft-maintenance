@@ -909,6 +909,7 @@ async function attachDocuments(ctx: MutationCtx, at: Attaching) {
   await insertManual(ctx, at, name, uploadedAt);
   await ctx.db.insert("taskEvidence", {
     taskCardUuid: card.uuid,
+    aircraftUuid: card.aircraftUuid,
     storageId,
     name,
     size,
@@ -923,7 +924,14 @@ async function attachDocuments(ctx: MutationCtx, at: Attaching) {
     size,
     uploadedAt,
   });
-  const order = { workOrderUuid: wo.uuid, storageId, name, size, uploadedAt };
+  const order = {
+    workOrderUuid: wo.uuid,
+    aircraftUuid: wo.aircraftUuid,
+    storageId,
+    name,
+    size,
+    uploadedAt,
+  };
   await ctx.db.insert("workOrderFiles", order);
   await ctx.db.insert("poFiles", {
     poUuid: po.uuid,
