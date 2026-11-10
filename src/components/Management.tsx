@@ -971,16 +971,28 @@ function draftInspection(complete: boolean, record: Inspection, d: FormData) {
 async function saveInspection(
   execute: Execute,
   screen: InspectionScreen,
-  save: {
-    record: Inspection | undefined;
-    d: FormData;
-    version: number;
-    merged?: Inspection;
-  },
+  save: InspectionSave,
 ) {
-  const { record, d, version } = save;
   const { complete } = screen;
-  const inspectionUuid = record?.uuid ?? crypto.randomUUID();
+  const inspectionUuid = save.record?.uuid ?? crypto.randomUUID();
+  await execute(inspectionCommand(complete, save, inspectionUuid));
+  if (!complete && value(save.d, "inspectionIntent") === "request")
+    screen.setRequestInspectionUuid(inspectionUuid);
+  screen.setSelected(null);
+}
+
+type InspectionSave = {
+  record: Inspection | undefined;
+  d: FormData;
+  version: number;
+  merged?: Inspection;
+};
+
+function inspectionCommand(
+  complete: boolean,
+  { record, d, version, merged }: InspectionSave,
+  inspectionUuid: string,
+): ManagementCommand {
   const common = {
     requestUuid: crypto.randomUUID(),
     reason: complete
@@ -990,7 +1002,7 @@ async function saveInspection(
         : "Inspection created.",
   };
   if (complete && record)
-    await execute({
+    return {
       ...common,
       action: "inspection.complete",
       uuid: record.uuid,
@@ -999,20 +1011,16 @@ async function saveInspection(
       seconds: secs(d, "seconds")!,
       cycles: num(d, "cycles")!,
       landings: num(d, "landings"),
-    });
-  else
-    await execute({
-      ...common,
-      action: "inspection.save",
-      record: {
-        ...inspectionFromForm(d, record, inspectionUuid),
-        ...save.merged,
-        version,
-      },
-    });
-  if (!complete && value(d, "inspectionIntent") === "request")
-    screen.setRequestInspectionUuid(inspectionUuid);
-  screen.setSelected(null);
+    };
+  return {
+    ...common,
+    action: "inspection.save",
+    record: {
+      ...inspectionFromForm(d, record, inspectionUuid),
+      ...merged,
+      version,
+    },
+  };
 }
 
 // A saved schedule keeps its aircraft, component, time source and materials;
@@ -1084,6 +1092,21 @@ function CompletionFields({ s, record }: { s: Snapshot; record: Inspection }) {
           required
         />
       </Field>
+      <TrackedAtCompletion counters={counters} />
+      {tracksLandings(record) && (
+        <LandingsAtCompletion landings={aircraft().landings} />
+      )}
+    </>
+  );
+}
+
+function TrackedAtCompletion({
+  counters,
+}: {
+  counters: ReturnType<typeof readCounters>;
+}) {
+  return (
+    <>
       <NumberField
         name="seconds"
         label="Tracked total at completion (hours)"
@@ -1101,9 +1124,6 @@ function CompletionFields({ s, record }: { s: Snapshot; record: Inspection }) {
         required
         initial={counters?.cycles}
       />
-      {tracksLandings(record) && (
-        <LandingsAtCompletion landings={aircraft().landings} />
-      )}
     </>
   );
 }
