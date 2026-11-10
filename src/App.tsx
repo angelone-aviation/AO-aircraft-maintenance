@@ -123,6 +123,11 @@ const Settings = lazy(() =>
 const Planning = lazy(() =>
   import("./components/Planning").then((m) => ({ default: m.Planning })),
 );
+const MaintenanceCalendar = lazy(() =>
+  import("./components/MaintenanceCalendar").then((m) => ({
+    default: m.MaintenanceCalendar,
+  })),
+);
 const Inspections = lazy(() =>
   import("./components/Management").then((m) => ({ default: m.Inspections })),
 );
@@ -268,6 +273,11 @@ const routes = [
     getParentRoute: () => rootRoute,
     path: "/planning",
     component: Planning,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/planning/calendar",
+    component: MaintenanceCalendar,
   }),
   createRoute({
     getParentRoute: () => rootRoute,

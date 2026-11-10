@@ -5,9 +5,9 @@
  *   src/domain.
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
- *   overview, readings, rejection),
+ *   overview, readings, rejection, remainingMeters),
  *   ./design and the aircraft, flight, flight readiness, logbook photo,
- *   paper check, parts and FAA components.
+ *   paper check, parts, remaining meter and FAA components.
  */
 import {
   lazy,
@@ -56,6 +56,7 @@ import {
   type InspectionLimit,
 } from "../domain/maintenance";
 import { deferralExpired } from "../domain/deferrals";
+import { limitMeter } from "../domain/remainingMeters";
 import { maintenancePartsPlans, type PartsPlan } from "../domain/partsPlanning";
 import { partsNeedAttention } from "../domain/requiredParts";
 import { SECONDS_PER_HOUR } from "../domain/readings";
@@ -79,6 +80,7 @@ import { PartsAvailability } from "./RequiredParts";
 import { FlightForm } from "./FlightForm";
 import { LogbookPhotoPrompt, type LogbookPhotoTarget } from "./LogbookPhotos";
 import { PaperCheckButton } from "./PaperCheck";
+import { RemainingMeter } from "./RemainingMeter";
 import { AircraftStatusBadge, AircraftStatusReasons } from "./AircraftStatus";
 import { FlightReadinessLine } from "./FlightReadiness";
 import {
@@ -673,6 +675,12 @@ function InspectionOutlook({
       sub={`${registration} · ${x.i.description}`}
       value={dueShort(x, today)}
     >
+      {x.limit && (
+        <RemainingMeter
+          meter={limitMeter(x.i, x.limit)}
+          item={x.i.reference || x.i.description}
+        />
+      )}
       <PartsAvailability
         parts={x.i.requiredParts}
         source={{ kind: "inspection", uuid: x.i.uuid, workOrderUuid: "" }}

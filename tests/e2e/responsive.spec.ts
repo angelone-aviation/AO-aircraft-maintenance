@@ -51,6 +51,7 @@ const ROUTES = [
   "/discrepancies",
   "/inspections",
   "/planning",
+  "/planning/calendar",
   "/airworthiness",
   "/work-orders",
   "/task-cards",

@@ -1,0 +1,42 @@
+/*
+ * Responsibility: The "hours left" meter: a short track beside a due item's
+ *   remaining amount, filled by the share of the interval left.
+ * Layer: UI. Styles for RemainingMeter.tsx only.
+ * Dependencies: src/styles/tokens.css (colours, both themes).
+ *
+ * An overdue limit keeps an empty track with a danger outline, so the meter
+ * reads as spent rather than missing.
+ */
+.remaining-meter {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.remaining-meter-track {
+  display: inline-block;
+  flex: none;
+  width: 72px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.remaining-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--good);
+}
+.remaining-due-soon .remaining-meter-fill {
+  background: var(--warn);
+}
+.remaining-overdue .remaining-meter-track {
+  background: var(--danger-bg);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.remaining-meter-word {
+  color: var(--danger);
+  font-size: 0.75rem;
+  font-weight: 700;
+}

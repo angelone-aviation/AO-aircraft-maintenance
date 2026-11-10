@@ -19,6 +19,7 @@ import {
   BookOpen,
   Books,
   Buildings,
+  CalendarBlank,
   CalendarDots,
   Cards,
   CaretDown,
@@ -128,6 +129,12 @@ const WORKSPACE_LINKS: WorkspaceLink[] = [
     path: "/planning",
     label: "Planning",
     icon: CalendarDots,
+    group: "maintain",
+  },
+  {
+    path: "/planning/calendar",
+    label: "Maintenance calendar",
+    icon: CalendarBlank,
     group: "maintain",
   },
   {

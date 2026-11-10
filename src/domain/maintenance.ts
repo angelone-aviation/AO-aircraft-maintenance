@@ -198,7 +198,14 @@ export function compareInspectionUrgency(x: Urgency, y: Urgency): number {
 
 const limitUrgency = (x: Urgency) => x.limit?.urgency ?? Number.MAX_VALUE;
 
-function inspectionLimits(remaining: Remaining) {
+/**
+ * Each limit an inspection sets, with whether it is overdue or due soon.
+ *
+ * @param remaining - What remains on each limit, as {@link inspectionStatus}
+ *   returns it.
+ * @returns One entry per limit set, in hours, days, cycles, landings order.
+ */
+export function inspectionLimits(remaining: Remaining) {
   return (
     Object.keys(INSPECTION_DUE_SOON_WITHIN) as InspectionDimension[]
   ).flatMap((dimension) => {
