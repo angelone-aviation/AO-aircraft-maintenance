@@ -4,13 +4,14 @@
  *   falls due within the next 30 days, and the off-site backup's freshness.
  * Layer: Domain. Pure functions; no I/O, no React (a `now` left to its default
  *   reads the clock).
- * Dependencies: ./model, ./aircraftStatus, ./dueItems, ./ownerDue,
- *   ./boardView, ./offsiteBackups, ./components/calendar.
+ * Dependencies: ./model, ./aircraftStatus, ./airworthiness, ./dueItems,
+ *   ./ownerDue, ./boardView, ./offsiteBackups, ./components/calendar.
  *
  * The screen and the PDF both render this one summary, so they cannot drift.
  */
 import { localDate, type Aircraft, type Snapshot } from "./model";
 import { aircraftStatus, type AircraftStatusLevel } from "./aircraftStatus";
+import { adTaskStatus } from "./airworthiness";
 import { dueItems, type MaintenanceDue } from "./dueItems";
 import { ownerDueItems, type DueItem } from "./ownerDue";
 import {
@@ -124,7 +125,7 @@ function listUpcoming(
 ): BoardDueLine[] {
   return aircraft
     .flatMap((a) => {
-      const days = calendarDays(dueItems(s, a.uuid, today), today);
+      const days = calendarDays(s, dueItems(s, a.uuid, today), today);
       return ownerDueItems(s, a, today).map((item) => ({
         ...item,
         registration: a.registration,
@@ -146,16 +147,17 @@ function listUpcoming(
 
 // The calendar days left on each item that a date limits, by the uuid the
 // owner's due row carries (an AD counts from its earliest task due date).
-function calendarDays(items: MaintenanceDue[], today: string) {
+function calendarDays(s: Snapshot, items: MaintenanceDue[], today: string) {
   const days = new Map<string, number>();
   for (const item of items) {
-    const left = daysLeft(item, today);
+    const left = daysLeft(s, item, today);
     if (left) days.set(left.uuid, left.days);
   }
   return days;
 }
 
 function daysLeft(
+  s: Snapshot,
   item: MaintenanceDue,
   today: string,
 ): { uuid: string; days: number } | undefined {
@@ -164,7 +166,14 @@ function daysLeft(
   if (item.kind === "componentRequirement" && item.due?.days !== undefined)
     return { uuid: item.requirement.uuid, days: item.due.days };
   if (item.kind !== "ad") return undefined;
-  const dates = item.ad.tasks.flatMap((t) => (t.dueDate ? [t.dueDate] : []));
+  // An action that compliance has closed, such as by a terminating action,
+  // keeps its last due date; that date no longer falls due.
+  const { ad } = item;
+  const dates = ad.tasks.flatMap((t) =>
+    t.dueDate && adTaskStatus(s, ad, t, today) !== "Complied"
+      ? [t.dueDate]
+      : [],
+  );
   if (!dates.length) return undefined;
   return { uuid: item.ad.uuid, days: daysBetween(today, dates.sort()[0]) };
 }
