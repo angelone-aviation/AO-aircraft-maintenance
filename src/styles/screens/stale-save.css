@@ -36,6 +36,20 @@
   font-weight: 400;
   color: var(--muted);
 }
+.stale-save-blocked {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--danger);
+  border-radius: 6px;
+}
+.stale-save-blocked p {
+  margin: 0 0 6px;
+}
+.stale-save-blocked ul {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
 .stale-save-actions {
   display: flex;
   flex-wrap: wrap;

@@ -1,10 +1,12 @@
 /**
  * Responsibility: Pins AD records: atomic saves, maintenance access, version
  *   checks, compliance and its correction, an AD uuid another Flight Program
- *   holds, and the change-log rows an import writes.
+ *   holds, the change-log rows an import writes, and that keeping a stale
+ *   draft never puts back a due point a later compliance moved.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/airworthiness, convex/operations, src/data/demo,
- *   src/domain/airworthiness.
+ *   src/domain/airworthiness, src/domain/recordMerge,
+ *   src/domain/keepMineRules.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -18,6 +20,8 @@ import {
   blankADTask,
   type AD,
 } from "../src/domain/airworthiness";
+import { mergeKeepMine } from "../src/domain/recordMerge";
+import { AD_KEEP_MINE } from "../src/domain/keepMineRules";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -424,6 +428,97 @@ it("applies an AD command once per request id: a replay returns nothing and writ
   ).rejects.toMatchObject({ data: "Request identifier already used." });
   expect(await stored()).toEqual(saved);
 });
+
+it("keeps a later compliance's next due when a stale AD draft is kept", async () => {
+  const t = convexTest(schema, modules),
+    s = demoSnapshot();
+  const editor = t.withIdentity({ subject: await administrator(t, s) });
+  const send = (command: object) =>
+    editor.mutation(api.airworthiness.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(command),
+    });
+  const stored = async (): Promise<AD> =>
+    JSON.parse(
+      (await t.run((ctx) => ctx.db.query("airworthiness").first()))!.payload,
+    );
+  await send({ kind: "save", record: trackedAD(s.aircraft[0].uuid) });
+  const loaded = await stored();
+  await send({
+    kind: "comply",
+    uuid: loaded.uuid,
+    version: loaded.version,
+    entry: complianceAt(loaded.tasks[0].uuid, 2340),
+  });
+  const complied = await stored();
+  expect(complied.tasks[0].dueHours).toBe(2440);
+  const mine = structuredClone(loaded);
+  mine.source.subject = "Inspect wing attachment fittings";
+  const reason = "Subject wording corrected.";
+
+  // The whole stale draft, re-sent at the current version, is refused.
+  const stale = { ...mine, version: complied.version };
+  await expect(
+    send({ kind: "save", record: stale, reason }),
+  ).rejects.toMatchObject({
+    data: expect.stringMatching(
+      /^Compliance was recorded on required action 1/,
+    ),
+  });
+  expect(await stored()).toEqual(complied);
+
+  // Keep mine sends only the subject over the current record.
+  const merge = mergeKeepMine(
+    { base: loaded, mine, theirs: complied },
+    { rules: AD_KEEP_MINE },
+  );
+  await send({
+    kind: "save",
+    record: { ...merge.merged!, version: complied.version },
+    reason,
+  });
+  const kept = await stored();
+  expect(kept.source.subject).toBe("Inspect wing attachment fittings");
+  expect(kept.tasks[0].dueHours).toBe(2440);
+  expect(kept.history).toEqual(complied.history);
+});
+
+function trackedAD(aircraftUuid: string): AD {
+  const record = blankAD(aircraftUuid);
+  record.source.number = "2026-01-01";
+  record.source.subject = "Inspect attachment fittings";
+  record.applicability = "Applicable";
+  record.reviewRequired = false;
+  record.tasks = [
+    {
+      ...blankADTask(),
+      description: "Inspect fittings per paragraph (g)",
+      recurrence: "Recurring",
+      dueHours: 2300,
+      intervalHours: 100,
+    },
+  ];
+  return record;
+}
+
+function complianceAt(taskUuid: string, hours: number) {
+  return {
+    uuid: crypto.randomUUID(),
+    taskUuid,
+    date: "2026-01-02",
+    hours,
+    cycles: null,
+    method: "Inspected fittings; no defects",
+    serviceBulletin: "",
+    terminatedBy: "",
+    workOrderUuid: "",
+    mechanic: "A. Mechanic",
+    certificate: "",
+    evidence: "",
+    recordedAt: 0,
+    recordedBy: "",
+  };
+}
 
 // Stores the demo aircraft and program, and signs in a system administrator
 // working in that program.

@@ -86,6 +86,11 @@ import {
   type StaleSaveOptions,
 } from "./StaleSave";
 import {
+  WORK_ORDER_KEEP_MINE,
+  workOrderEdit,
+  type WorkOrderEdit,
+} from "../domain/keepMineRules";
+import {
   EmptyState,
   NoticeBar,
   PageHeader,
@@ -713,10 +718,12 @@ function WorkOrderDialog({
   );
 }
 
-// How the stale-save review names and formats a work order's fields.
-const WORK_ORDER_STALE_SAVE: StaleSaveOptions<WorkOrder> = {
+// How the stale-save review names and formats what the work order form
+// saves, down to each task's status, notes and parts delay.
+const WORK_ORDER_STALE_SAVE: StaleSaveOptions<WorkOrderEdit> = {
   label: "work order",
   entityUuid: (w) => w.uuid,
+  rules: WORK_ORDER_KEEP_MINE,
   specs: {
     number: "Number",
     dateOpened: "Date opened",
@@ -727,12 +734,34 @@ const WORK_ORDER_STALE_SAVE: StaleSaveOptions<WorkOrder> = {
     completionDate: "Completion date",
     releaseOutcome: "Release statement",
     finalReview: "Final review",
-    tasks: { label: "Requested work", format: formatTasks },
+    tasks: {
+      label: "Requested work",
+      item: (t, index) => `Task ${index + 1} (${t.description})`,
+      fields: {
+        description: "Description",
+        status: "Status",
+        notes: "Work notes",
+        partsDelay: "Parts delay",
+        maintenanceReference: "Maintenance manual reference",
+        source: { label: "Source", format: formatWorkSource },
+      },
+    },
+    componentWork: { label: "Component work", format: formatComponentWork },
+    componentUuids: {
+      label: "Components with readings",
+      format: (ids) => `${(ids as string[]).length} selected`,
+    },
   },
 };
 
-function formatTasks(value: unknown) {
-  return (value as WorkOrder["tasks"]).map((t) => t.description).join("; ");
+function formatWorkSource(value: unknown) {
+  return (value as WorkSource).kind;
+}
+
+function formatComponentWork(value: unknown) {
+  return (value as ComponentWork[])
+    .map((work) => `${componentWorkLabels[work.action]}: ${work.description}`)
+    .join("; ");
 }
 
 function ReadingHeader({
@@ -1120,9 +1149,9 @@ function TaskRemovalWarning({ count }: { count: number }) {
   );
 }
 
-// Closing needs the user's confirmation, listing the tracking each
-// component's repair or overhaul will reset.
-// The save as the stale-save review retries or abandons it.
+// The save as the stale-save review retries or abandons it: the draft, the
+// loaded order and the current one are compared as the save command sees
+// them (fields, tasks, component work), not as whole stored orders.
 function workOrderAttempt(
   props: FormProps,
   data: FormData,
@@ -1135,48 +1164,78 @@ function workOrderAttempt(
     onDone: () => void;
     onReload?: (current: WorkOrder) => void;
   },
-): StaleSaveAttempt<WorkOrder> {
+): StaleSaveAttempt<WorkOrderEdit> {
   const { initial, draft } = props;
+  const stored = (live: Snapshot | null) =>
+    live?.workOrders?.find((w) => w.uuid === initial?.uuid);
   return {
     draft: initial && {
-      ...initial,
+      ...workOrderEdit(initial),
       ...readWorkOrderFields(props, data),
       tasks: draft.tasks,
+      componentWork: draft.componentWork,
+      componentUuids: draft.componentUuids,
     },
-    loaded: initial,
-    find: (live) => live.workOrders?.find((w) => w.uuid === initial?.uuid),
-    save: (version) => submitWorkOrder(backend!, props, data, onDone, version),
-    useTheirs: (current) =>
-      current && onReload ? onReload(current) : onDone(),
+    loaded: initial && workOrderEdit(initial),
+    find: (live) => {
+      const order = stored(live);
+      return order && workOrderEdit(order);
+    },
+    save: (version, merged) =>
+      submitWorkOrder(backend!, props, data, { onDone, version, merged }),
+    useTheirs: () => {
+      const order = stored(useWorkspace.getState().snapshot);
+      return order && onReload ? onReload(order) : onDone();
+    },
   };
 }
 
-// `version` is the one the save is checked against: the order's, or the
-// current one when the user keeps a stale draft.
+// Closing needs the user's confirmation, listing the tracking each
+// component's repair or overhaul will reset. `version` is the one the save
+// is checked against: the order's, or the current one when the user keeps a
+// stale draft, which then saves `merged` (only the user's changes over the
+// current order) instead of the form as it stands.
 async function submitWorkOrder(
   backend: Backend,
   props: FormProps,
   data: FormData,
-  onDone: () => void,
-  version: number,
+  save: { onDone: () => void; version: number; merged?: WorkOrderEdit },
 ) {
   const { s, initial, draft, view } = props;
-  const fields = readWorkOrderFields(props, data);
+  const edit = save.merged ?? {
+    ...readWorkOrderFields(props, data),
+    tasks: draft.tasks,
+    componentWork: view.selectedComponentWork,
+    componentUuids: draft.componentUuids,
+  };
   if (view.closing && !window.confirm(closeConfirmation(draft, view))) return;
   await backend.workOrder({
     action: "save",
     uuid: draft.uuid,
-    version,
-    fields,
+    version: save.version,
+    fields: workOrderFieldsSchema.parse(edit),
     completionReadings:
-      draft.status === "completed"
+      edit.status === "completed"
         ? readCompletion(s, initial, draft.aircraftUuid, data)
         : undefined,
-    componentUuids: draft.componentUuids,
-    componentWork: view.selectedComponentWork,
-    tasks: draft.tasks,
+    componentUuids: edit.componentUuids,
+    componentWork: save.merged
+      ? selectedWork(s, save.merged)
+      : edit.componentWork,
+    tasks: edit.tasks,
   });
-  onDone();
+  save.onDone();
+}
+
+// A merged order's component work, limited as the form limits its own: to
+// components the order's readings, tasks and job cards still cover.
+function selectedWork(s: Snapshot, edit: WorkOrderEdit) {
+  const order = {
+    ...edit,
+    componentReadings: edit.componentUuids.map((id) => ({ componentUuid: id })),
+  };
+  const ids = workOrderComponentIds(s, order, edit.status !== "completed");
+  return edit.componentWork.filter((w) => ids.includes(w.componentUuid));
 }
 
 function readWorkOrderFields({ initial, draft }: FormProps, data: FormData) {

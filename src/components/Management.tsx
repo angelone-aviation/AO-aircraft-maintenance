@@ -97,6 +97,8 @@ import {
   type StaleSaveAttempt,
   type StaleSaveOptions,
 } from "./StaleSave";
+import type { FieldSpecs } from "../domain/fieldDiff";
+import { INSPECTION_KEEP_MINE } from "../domain/keepMineRules";
 import {
   EmptyState,
   IconTile,
@@ -832,30 +834,56 @@ function InspectionToolsCell({
 
 type Execute = (command: ManagementCommand) => Promise<void>;
 
-// How the stale-save review names and formats an inspection's fields.
-const INSPECTION_STALE_SAVE: StaleSaveOptions<Inspection> = {
-  label: "inspection",
-  entityUuid: (i) => i.uuid,
-  specs: {
-    reference: "Reference",
-    description: "Description",
-    ataChapter: "ATA chapter",
-    intervalSeconds: { label: "Repeat every (hours)", format: formatHours },
-    intervalCycles: "Repeat every (cycles)",
-    intervalLandings: "Repeat every (landings)",
-    intervalMonths: "Repeat every (months)",
-    lastSeconds: { label: "Last complied at (hours)", format: formatHours },
-    lastCycles: "Last complied at (cycles)",
-    lastLandings: "Last complied at (landings)",
-    lastDate: "Last compliance date",
-    dueSeconds: { label: "Due at (hours)", format: formatHours },
-    dueDate: "Due date",
-    archived: "Archived",
-    requiredParts: "Required parts",
-    manualReference: "Manual reference",
-    calendarExempt: "Calendar exempt",
-    calendarExemptReason: "Calendar exemption reason",
-  },
+// How the stale-save review names and formats an inspection's fields;
+// required parts are named by their stock lot's part number.
+function inspectionStaleSave(s: Snapshot): StaleSaveOptions<Inspection> {
+  const records = s.management ?? [];
+  const partNumber = (stockUuid: string) =>
+    records.find((r): r is Stock => r.kind === "stock" && r.uuid === stockUuid)
+      ?.partNumber ?? "part no longer in stock";
+  const locationName = (uuid: unknown) =>
+    records.find((r): r is Location => r.kind === "location" && r.uuid === uuid)
+      ?.name ?? "unknown location";
+  return {
+    label: "inspection",
+    entityUuid: (i) => i.uuid,
+    rules: INSPECTION_KEEP_MINE,
+    specs: {
+      ...INSPECTION_FIELD_LABELS,
+      requiredParts: {
+        label: "Required parts",
+        itemKey: "stockUuid",
+        item: (part) => `Required part ${partNumber(part.stockUuid)}`,
+        fields: {
+          quantity: "Quantity",
+          locationUuid: { label: "Location", format: locationName },
+        },
+      },
+    },
+  };
+}
+
+const INSPECTION_FIELD_LABELS: FieldSpecs<Inspection> = {
+  reference: "Reference",
+  description: "Description",
+  ataChapter: "ATA chapter",
+  materials: "Materials",
+  intervalSeconds: { label: "Repeat every (hours)", format: formatHours },
+  intervalCycles: "Repeat every (cycles)",
+  intervalLandings: "Repeat every (landings)",
+  intervalMonths: "Repeat every (months)",
+  lastSeconds: { label: "Last complied at (hours)", format: formatHours },
+  lastCycles: "Last complied at (cycles)",
+  lastLandings: "Last complied at (landings)",
+  lastDate: "Last compliance date",
+  dueSeconds: { label: "One-time due at (hours)", format: formatHours },
+  dueCycles: "One-time due at (cycles)",
+  dueLandings: "One-time due at (landings)",
+  dueDate: "One-time due date",
+  archived: "Archived",
+  manualReference: "Manual reference",
+  calendarExempt: "Calendar exempt",
+  calendarExemptReason: "Calendar exemption reason",
 };
 
 function formatHours(value: unknown) {
@@ -871,7 +899,7 @@ function InspectionDialog(
   const { s, writable, screen, editable, selected } = props;
   const record = selected !== "new" ? selected : undefined;
   const { complete } = screen;
-  const stale = useStaleSave(INSPECTION_STALE_SAVE);
+  const stale = useStaleSave(inspectionStaleSave(s));
   const allowed = record
     ? can(s, record.aircraftUuid, "maintenance")
     : editable.length;
@@ -904,9 +932,10 @@ function inspectionDialogTitle(complete: boolean, record?: Inspection) {
   return record ? "Inspection details" : "New inspection";
 }
 
-// The save as the stale-save review retries or abandons it. A completion
-// changes no field of its own, so its review shows what the other person
-// changed on the record.
+// The save as the stale-save review retries or abandons it. A completion's
+// draft is the schedule with the readings being recorded as its last
+// compliance, so the review refuses it when someone else recorded a
+// completion meanwhile.
 function inspectionAttempt(
   props: InspectionProps & { execute: Execute },
   record: Inspection | undefined,
@@ -914,28 +943,43 @@ function inspectionAttempt(
 ): StaleSaveAttempt<Inspection> {
   const { screen } = props;
   return {
-    draft:
-      record && !screen.complete
-        ? inspectionFromForm(d, record, record.uuid)
-        : record,
+    draft: record && draftInspection(screen.complete, record, d),
     loaded: record,
     find: (live) => live.inspections.find((i) => i.uuid === record?.uuid),
-    save: (version) =>
-      saveInspection(props.execute, screen, record, d, version),
+    save: (version, merged) =>
+      saveInspection(props.execute, screen, { record, d, version, merged }),
     useTheirs: (current) => screen.setSelected(current ?? null),
+  };
+}
+
+function draftInspection(complete: boolean, record: Inspection, d: FormData) {
+  if (!complete) return inspectionFromForm(d, record, record.uuid);
+  return {
+    ...record,
+    lastDate: value(d, "date"),
+    lastSeconds: secs(d, "seconds"),
+    lastCycles: num(d, "cycles"),
+    lastLandings: num(d, "landings") ?? record.lastLandings,
   };
 }
 
 // "Add parts / repair request" on a new schedule saves it, then opens the
 // request for it. `version` is the one the save is checked against: the
-// record's, or the current one when the user keeps a stale draft.
+// record's, or the current one when the user keeps a stale draft, which
+// then saves `merged` (only the user's changes over the current record)
+// instead of the form as it stands. A completion is a command on whatever
+// the record is now, so it has nothing to merge.
 async function saveInspection(
   execute: Execute,
   screen: InspectionScreen,
-  record: Inspection | undefined,
-  d: FormData,
-  version: number,
+  save: {
+    record: Inspection | undefined;
+    d: FormData;
+    version: number;
+    merged?: Inspection;
+  },
 ) {
+  const { record, d, version } = save;
   const { complete } = screen;
   const inspectionUuid = record?.uuid ?? crypto.randomUUID();
   const common = {
@@ -961,7 +1005,11 @@ async function saveInspection(
     await execute({
       ...common,
       action: "inspection.save",
-      record: { ...inspectionFromForm(d, record, inspectionUuid), version },
+      record: {
+        ...inspectionFromForm(d, record, inspectionUuid),
+        ...save.merged,
+        version,
+      },
     });
   if (!complete && value(d, "inspectionIntent") === "request")
     screen.setRequestInspectionUuid(inspectionUuid);

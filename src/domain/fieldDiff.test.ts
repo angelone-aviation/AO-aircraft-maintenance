@@ -11,6 +11,7 @@ import {
   fieldDiff,
   fieldLabel,
   fieldText,
+  sameValue,
 } from "./fieldDiff";
 
 interface Sample {
@@ -56,7 +57,7 @@ it("lists only the differing fields, in the draft's order, skipping bookkeeping"
       mine: "Engine",
       theirs: "Airframe",
     },
-    { key: "tags", label: "Tags", mine: '["a","b"]', theirs: '["a"]' },
+    { key: "tags", label: "Tags", mine: "a; b", theirs: "a" },
   ]);
   expect(fieldDiff(loaded, { ...loaded, version: 5 })).toEqual([]);
   expect(DEFAULT_IGNORED_FIELDS).toEqual([
@@ -114,14 +115,39 @@ it("reads a form's blank (\"\" or false) and a record's unset field as one value
   ]);
 });
 
-it("labels camelCase names and renders booleans, objects and blanks", () => {
+it("labels camelCase names and renders booleans and numbers", () => {
   expect(fieldLabel("lastSeconds")).toBe("Last seconds");
   expect(fieldLabel("installPosition")).toBe("Install position");
   expect(fieldLabel("reference")).toBe("Reference");
   expect(fieldText(true)).toBe("Yes");
   expect(fieldText(false)).toBe("No");
-  expect(fieldText({ a: 1 })).toBe('{"a":1}');
+  expect(fieldText(12.5)).toBe("12.5");
+});
+
+it("puts lists and objects in plain words, without ids or blank fields", () => {
+  expect(fieldText(["a", "b"])).toBe("a; b");
+  expect(fieldText([])).toBe(EMPTY_FIELD_TEXT);
+  expect(
+    fieldText([
+      { uuid: "1111", partNumber: "MS-1", quantity: 2, stockUuid: "s1" },
+      { uuid: "2222", partNumber: "MS-2", quantity: 1, notes: "" },
+    ]),
+  ).toBe("Part number: MS-1, Quantity: 2; Part number: MS-2, Quantity: 1");
+  expect(fieldText({ uuid: "1111" })).toBe(EMPTY_FIELD_TEXT);
+});
+
+it("compares nested values field by field: key order and blanks do not count", () => {
+  expect(sameValue({ a: 1, b: "" }, { b: undefined, a: 1 })).toBe(true);
+  expect(sameValue({ a: 1 }, { a: 1, c: false })).toBe(true);
+  expect(sameValue({ a: 1 }, { a: 2 })).toBe(false);
+  expect(sameValue([{ a: 1 }], [{ a: 1 }])).toBe(true);
+  expect(sameValue([1, 2], [2, 1])).toBe(false);
+  expect(sameValue([], undefined)).toBe(true);
+  expect(sameValue([1], { 0: 1 })).toBe(false);
+  expect(sameValue("2", 2)).toBe(false);
+});
+
+it("renders blanks", () => {
   expect(fieldText("")).toBe(EMPTY_FIELD_TEXT);
   expect(fieldText(null)).toBe(EMPTY_FIELD_TEXT);
-  expect(fieldText(12.5)).toBe("12.5");
 });

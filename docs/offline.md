@@ -21,11 +21,22 @@ A flight that reaches the server after the aircraft moved on is not applied. It 
 
 Every record edited online carries a version. A form saves against the version it loaded; if someone else saved in between, the server refuses the save with one message, "This record was changed by someone else. Review the differences." Nothing is merged and the last writer does not win silently.
 
-The inspection, component, AD, work order and purchase order forms catch that refusal and open a review instead of printing it. The review names who saved the record last and when (from the change log) and lists only the fields on which the two copies differ, yours beside theirs, each marked as changed by you, by them or by both. It offers three choices:
+The inspection, component, AD, work order and purchase order forms catch that refusal and open a review instead of printing it. The review names who saved the record last and when (from the change log) and lists every field either person changed since the form opened, in plain words, nested fields included: a required action's next due hours, a work item's status or parts delay, a purchase order line's quantity. Each row shows your value beside theirs and says who changed it and what Keep mine does with it. The review offers three choices:
 
-- **Keep mine** saves your form as it stands against the current version. Every field shown takes your value, including a field the other person changed, so their change is replaced; both saves remain in the change log with their reasons.
+- **Keep mine** saves only the fields you changed, on top of the record as it is now. A field only the other person changed keeps their value; a field you both changed takes yours, and its row says so. List items (required actions, work items, order lines) are combined one by one: an item either of you added is kept, and an item one of you removed stays removed unless the other changed it. Both saves remain in the change log.
 - **Use theirs** reloads the form from the record as it is now, after confirmation. Your typed changes are dropped.
 - **Cancel** returns to the form with your changes still in it, for example to copy a value before deciding.
+
+Keep mine is not offered, and the review says why, when the two saves describe one fact differently and cannot be combined safely:
+
+- an inspection's last compliance or due limits (for example a completion recorded by each of you), or its calendar exemption;
+- an AD action's due limits or intervals after compliance was recorded on that action, or the AD's applicability decision;
+- where a component is installed or stored, or its time, cycle and calendar baselines;
+- a work item's status and parts delay, or the order's status and completion date;
+- a purchase order's vendor;
+- a list item one of you removed and the other changed.
+
+Use theirs and make the change again in that case. Parts of a record that only the server writes are never taken from a form: an AD's compliance history and earlier FAA source versions, a component sent out for repair, an inspection's calendar-exemption stamp, and the due values a recurring interval sets. The server also refuses an AD save that changes an action's due limits without having seen compliance recorded on that action since, so a re-sent old copy cannot put back a due point that compliance moved.
 
 Other versioned records (task cards, parts requests, saved addresses, flight plans, checklists, settings keys) refuse a stale save with the same message but still show it as text; their forms do not open the review yet.
 
