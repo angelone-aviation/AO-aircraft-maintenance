@@ -185,6 +185,43 @@ describe("shared parts requests", () => {
       5,
     );
   });
+  it("stores the calendar date an issue was made on, which must be today somewhere", () => {
+    const { s } = fixture();
+    // 19:00 on 31 December in Chicago, 01:00 on 1 January in UTC.
+    const evening = Date.parse("2027-01-01T01:00:00Z");
+    const run = (kind: "reserve" | "issue", extra: object = {}) =>
+      applyRequestCommand(
+        s,
+        {
+          kind,
+          requestUuid: crypto.randomUUID(),
+          uuid: "request",
+          version: s.partsRequests![0].version,
+          lineUuid: "item",
+          stockUuid: "stock",
+          quantity: 1,
+          alternateConfirmed: false,
+          ...extra,
+        },
+        evening,
+      );
+    run("reserve");
+    run("reserve");
+    expect(() => run("issue", { date: "2026-12-29" })).toThrow(
+      new Rejection("The issue date must be today."),
+    );
+    const issued = {
+      lineUuid: "item",
+      stockUuid: "stock",
+      quantity: 1,
+      at: evening,
+      actorId: s.user.id,
+    };
+    expect(run("issue", { date: "2026-12-31" }).issues).toEqual([
+      { ...issued, date: "2026-12-31" },
+    ]);
+    expect(run("issue").issues[1]).toStrictEqual(issued);
+  });
   it("protects reservations from direct stock changes and rejects stale requests atomically", () => {
     const { s, r } = fixture();
     const cmd: RequestCommand = {

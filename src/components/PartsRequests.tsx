@@ -1657,6 +1657,8 @@ function ReservationForm({ request: r, line }: ReservationFormProps) {
           stockUuid,
           quantity,
           alternateConfirmed: alternate,
+          // Costs count an issued part on this date in every time zone.
+          date: operation === "issue" ? localDate() : undefined,
         });
       }}
     >

@@ -17,6 +17,7 @@ import { addressSchema, formatAddress } from "./addresses";
 import { z } from "zod";
 import {
   can,
+  isLocalToday,
   latestLocalDate,
   localDate,
   type Inspection,
@@ -138,6 +139,9 @@ export const requestDraftSchema = z.object({
 /**
  * A stored parts request: the draft plus its program, aircraft, source label,
  * `PR-NNNNN` number, stock reservations and issues, and every command applied.
+ * An issue's `date` is the calendar date on the device that issued it; costs
+ * are dated by it, so every time zone counts the part in the same period.
+ * Issues stored before it existed have none.
  *
  * @throws {z.ZodError} From `parse()` on an invalid field.
  */
@@ -164,6 +168,7 @@ export const partsRequestSchema = requestDraftSchema.extend({
       quantity: count.positive(),
       at: z.number(),
       actorId: id,
+      date: z.iso.date().optional(),
     }),
   ),
   history: z.array(
@@ -185,7 +190,8 @@ export type RequestLine = z.infer<typeof requestLineSchema>;
 
 /**
  * A parts-request command: save a draft; reserve, release or issue stock for
- * one line; or cancel the request.
+ * one line; or cancel the request. An issue may carry `date`, today's
+ * calendar date on the issuing device.
  *
  * @throws {z.ZodError} From `parse()` on an invalid command.
  */
@@ -204,6 +210,7 @@ export const requestCommandSchema = z.discriminatedUnion("kind", [
     stockUuid: id,
     quantity: count.positive(),
     alternateConfirmed: z.boolean().default(false),
+    date: z.iso.date().optional(),
   }),
   z.object({
     kind: z.literal("cancel"),
@@ -419,8 +426,8 @@ export function auditStockChange(
  *   stored request unchanged, if the same user sends the same command.
  * @throws {Rejection} For a refused command: no active program, a reused
  *   request id, a stale version, missing access, a cancelled or locked
- *   request, or a repair or stock rule; also as {@link resolveRequestSource}
- *   and `assertNotExpired`.
+ *   request, a repair or stock rule, or "The issue date must be today."; also
+ *   as {@link resolveRequestSource} and `assertNotExpired`.
  * @throws {z.ZodError} For an invalid command or result.
  *
  * Side effects: on success, replaces `original`'s partsRequests, management
@@ -1046,6 +1053,10 @@ function releaseStock(
   reservation.quantity -= c.quantity;
   r.reservations = r.reservations.filter((a) => a.quantity > 0);
   if (c.kind !== "issue") return;
+  // The server cannot see the user's time zone, so it accepts any date that
+  // is today somewhere.
+  if (c.date && !isLocalToday(c.date, now))
+    throw new Rejection("The issue date must be today.");
   stock.quantity -= c.quantity;
   r.issues.push({
     lineUuid: line.uuid,
@@ -1053,6 +1064,7 @@ function releaseStock(
     quantity: c.quantity,
     at: now,
     actorId: s.user.id,
+    ...(c.date ? { date: c.date } : {}),
   });
 }
 

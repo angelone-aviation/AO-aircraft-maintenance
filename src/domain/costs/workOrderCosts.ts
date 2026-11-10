@@ -6,7 +6,7 @@
  * Dependencies: ../model, ../programs, ../workOrders (types), ./records,
  *   ./units, ./period.
  */
-import { localDate, type Snapshot } from "../model";
+import type { Snapshot } from "../model";
 import { activeProgram } from "../programs";
 import type { WorkOrder } from "../workOrders";
 import type { CostRecord, WorkOrderCost } from "./records";
@@ -39,7 +39,9 @@ export const laborRate = (s: Snapshot) =>
  * Stock issued against the work order through parts requests: requests on
  * its tasks, and requests on job cards it owns, archived ones included.
  *
- * @returns One entry per issue, dated the local date it was issued.
+ * @returns One entry per issue, dated the calendar date the issue carries,
+ *   so the server and every browser put it in the same period; an issue
+ *   stored without one takes the UTC date it was issued.
  */
 export function partIssues(s: Snapshot, w: Pick<WorkOrder, "uuid">) {
   const cards = new Map(
@@ -60,7 +62,7 @@ export function partIssues(s: Snapshot, w: Pick<WorkOrder, "uuid">) {
         return {
           stockUuid: i.stockUuid,
           quantity: i.quantity,
-          date: localDate(i.at),
+          date: i.date ?? new Date(i.at).toISOString().slice(0, 10),
           partNumber: line?.partNumber ?? "",
           description: line?.description ?? "",
         };
