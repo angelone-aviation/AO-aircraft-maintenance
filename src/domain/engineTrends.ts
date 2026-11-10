@@ -42,6 +42,13 @@ const CRUISE_RPM_SHARE = 0.8;
 const HEADER_SEARCH_ROWS = 20;
 const ENGINE_FILE_MAX_ROWS = 200_000;
 const FILE_NAME_MAX = 200;
+// Ten times a long real channel header, "Manifold Pressure (inHg)".
+const HEADER_CELL_MAX = 240;
+// The brackets that may enclose a unit in a header cell, opener to closer.
+const UNIT_BRACKETS = new Map([
+  ["(", ")"],
+  ["[", "]"],
+]);
 
 const KPA_TO_PSI = 0.145038;
 const BAR_TO_PSI = 14.5038;
@@ -419,11 +426,54 @@ interface SampleTotals {
   egtSpread?: number;
 }
 
+// A longer cell names no channel or date column, so it is not read at all:
+// the header search reads every cell of the first 20 rows of a 7 MB file.
 function normalizeHeader(header: string) {
-  return header
-    .toLowerCase()
-    .replace(/\([^)]*\)|\[[^\]]*\]|°\s*[cf]\b/g, "")
-    .replace(/[^a-z0-9]/g, "");
+  if (header.length > HEADER_CELL_MAX) return "";
+  return splitUnitMarks(header.toLowerCase()).name.replace(/[^a-z0-9]/g, "");
+}
+
+// Splits a lowercased header cell into its name and the text of its unit
+// marks ("(…)", "[…]", "°f", "°c"), left to right as the regex
+// /\(([^)]*)\)|\[([^\]]*)\]|(°\s*[cf])\b/g would. A scan, because that regex
+// rescans to the end of the cell from every bracket that is never closed: a
+// header of 200,000 "(" took 16 s. Here an unclosed bracket is plain text.
+function splitUnitMarks(cell: string): { name: string; units: string[] } {
+  const lastClose = new Map([
+    [")", cell.lastIndexOf(")")],
+    ["]", cell.lastIndexOf("]")],
+  ]);
+  const units: string[] = [];
+  let name = "";
+  let at = 0;
+  while (at < cell.length) {
+    const mark = readUnitMark(cell, at, lastClose);
+    if (mark) units.push(mark.unit);
+    else name += cell[at];
+    at = mark ? mark.end : at + 1;
+  }
+  return { name, units };
+}
+
+// The unit mark starting at `at`, if any. A bracket opened after the last
+// closing one cannot close, so it is answered without a search; a found one
+// is consumed up to its close, which keeps the whole scan linear.
+function readUnitMark(
+  cell: string,
+  at: number,
+  lastClose: Map<string, number>,
+) {
+  const closer = UNIT_BRACKETS.get(cell[at]);
+  if (closer) {
+    if (at > (lastClose.get(closer) ?? -1)) return undefined;
+    const close = cell.indexOf(closer, at + 1);
+    return { unit: cell.slice(at + 1, close), end: close + 1 };
+  }
+  if (cell[at] !== "°") return undefined;
+  const degree = /°\s*[cf]\b/y;
+  degree.lastIndex = at;
+  const match = degree.exec(cell);
+  return match ? { unit: match[0], end: at + match[0].length } : undefined;
 }
 
 function readDateParts(text: string) {
@@ -489,9 +539,7 @@ function mapColumns(header: string[], unitsRow: string[]) {
     const channel = channelForHeader(cell);
     if (!channel || columns.some((c) => c.channel === channel)) return;
     const units = [
-      ...[...cell.matchAll(/\(([^)]*)\)|\[([^\]]*)\]|(°\s*[cf])\b/gi)].map(
-        (m) => m[1] ?? m[2] ?? m[3],
-      ),
+      ...splitUnitMarks(cell.toLowerCase()).units,
       unitsRow[index] ?? "",
     ].map((u) => u.trim().toLowerCase());
     columns.push({ index, channel, convert: chooseConverter(channel, units) });

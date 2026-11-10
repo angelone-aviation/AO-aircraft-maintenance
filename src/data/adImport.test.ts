@@ -57,6 +57,44 @@ it("warns of duplicates, circular supersessions and missing effective dates", ()
   ]);
 });
 
+// Well above what a real report takes and far below what the quadratic reads
+// took (17 s for the 40,000 labels here, 4 s for just 5,000 AD tables).
+const LINEAR_TIME_BUDGET_MS = 1000;
+
+it("reads a section table with many labels and no Model in linear time", () => {
+  const started = performance.now();
+  const parsed = parseADTables([
+    [["Engine", "Make: ".repeat(40_000)]],
+    [["2020-01-01", "Eff: 1/1/2020"]],
+  ]);
+  expect(performance.now() - started).toBeLessThan(LINEAR_TIME_BUDGET_MS);
+  expect(parsed.entries[0]).toMatchObject({ section: "Engine", make: "" });
+});
+
+it("reads the make between the first Make and the next Model", () => {
+  const parsed = parseADTables([
+    [["Engine", "Make: Lycoming", "Make: x", "Model: IO-540", "Model: y"]],
+    [["2020-01-01", "Eff: 1/1/2020"]],
+  ]);
+  expect(parsed.entries[0]).toMatchObject({
+    make: "Lycoming\nMake: x",
+    model: "IO-540",
+  });
+});
+
+it("checks supersessions across many AD tables in linear time", () => {
+  const tables = Array.from({ length: 10_000 }, (_, i) => [
+    [
+      `${1000 + Math.floor(i / 100)}-${String(i % 100).padStart(2, "0")}-01`,
+      "Eff: x",
+      "Superseded by: x",
+    ],
+  ]);
+  const started = performance.now();
+  expect(parseADTables(tables).warnings).toEqual([]);
+  expect(performance.now() - started).toBeLessThan(LINEAR_TIME_BUDGET_MS);
+});
+
 it("refuses a report without AD tables", () => {
   expect(() => parseADTables([[["Airframe"]]])).toThrow(
     "No AD tables found. Choose a DOCX compliance report with AD number and subject fields.",
