@@ -166,7 +166,7 @@ it("shows a tile only for what needs review", () => {
   ];
   const html = summary({ ...a, operationalStatus: "grounded" }, s);
   expect(html).toContain(
-    '<div class="preflight-metrics"><div class="preflight-metric attention"><span>Aircraft status to review</span><strong>grounded</strong></div><div class="preflight-metric attention"><span>Overdue inspections</span><strong>1</strong></div></div>',
+    '<div class="preflight-metrics"><div class="preflight-metric attention"><span>Recorded status (manual)</span><strong>Grounded</strong></div><div class="preflight-metric attention"><span>Overdue inspections</span><strong>1</strong></div></div>',
   );
-  expect(summary(a, s)).not.toContain("Aircraft status to review");
+  expect(summary(a, s)).not.toContain("Recorded status (manual)");
 });

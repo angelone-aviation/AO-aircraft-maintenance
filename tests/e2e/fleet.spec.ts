@@ -126,7 +126,7 @@ test("program directory and aircraft total-time setup persist through editing an
     .getByRole("list", { name: "Flight Programs", exact: true })
     .getByRole("listitem")
     .filter({ hasText: "Medical flight program" })
-    .getByRole("button", { name: "Edit Flight Program" })
+    .getByRole("button", { name: "Edit Flight Program details" })
     .click();
   await page
     .getByLabel("Flight Program name", { exact: true })

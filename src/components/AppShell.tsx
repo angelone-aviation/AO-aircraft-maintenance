@@ -5,11 +5,12 @@
  * Layer: UI. React components around the routed screens.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, pendingEntries), src/domain (pilotView, ownerView,
- *   boardView, programs, model), ./Alerts, ./UserProfile, ./ComponentIcon,
+ *   boardView, memberRole, programs, model), ./Alerts, ./UserProfile,
+ *   ./ComponentIcon,
  *   ./InspectionIcon, ./WorkOrderIcon, ./FlightForm, ./ui, ./design.
  */
-import { useState, type ReactNode } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, rootRouteId, useRouterState } from "@tanstack/react-router";
 import {
   Airplane,
   AirplaneTakeoff,
@@ -49,6 +50,7 @@ import {
   previewDemoOwner,
 } from "../data/store";
 import { isPilotView, pilotNavigation } from "../domain/pilotView";
+import { memberRoleLabel } from "../domain/memberRole";
 import { isOwnerView } from "../domain/ownerView";
 import { isBoardView } from "../domain/boardView";
 import { programPermission } from "../domain/programs";
@@ -93,6 +95,7 @@ const RAIL_PATHS = [
 ];
 // Screens reached from inside other screens, for the top-bar title.
 const EXTRA_TITLES: [RegExp, string][] = [
+  [/^\/aircraft\/setup/, "Set up an aircraft"],
   [/^\/manuals\//, "Reference library"],
   [/^\/inspection-templates/, "Inspection templates"],
   [/^\/task-cards/, "Job cards"],
@@ -241,6 +244,7 @@ const CLOSED_GROUPS_KEY = "angelone-nav-closed";
 /** Sidebar counts above this show as "99+". */
 const MAX_NAV_COUNT = 99;
 const FOOTER_YEAR = new Date().getFullYear();
+const APP_TITLE = "Angel One";
 
 function useNavigation() {
   const s = useWorkspace((x) => x.snapshot)!;
@@ -497,7 +501,7 @@ function ProfileFooter({
       </span>
       <div className="profile-text">
         <strong>{s.user.name}</strong>
-        <small>{roleLabel(s)}</small>
+        <small>{memberRoleLabel(s)}</small>
         {!ownerView && variant === "sheet" && <MyCertifications />}
       </div>
       <SignOutButton exit={exit} variant={variant} />
@@ -541,7 +545,11 @@ function Sidebar({ items, exit }: { items: NavItem[]; exit: () => void }) {
   const count = useCounts();
   return (
     <aside className="sidebar">
-      <Link to="/" className="brand" aria-label="Angel One overview">
+      <Link
+        to="/"
+        className="brand"
+        aria-label="Angel One aircraft operations: overview"
+      >
         <Wordmark variant="white" width={156} />
         <small>AIRCRAFT OPERATIONS</small>
       </Link>
@@ -754,6 +762,13 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
   const { demo } = useWorkspace();
   const ownerView = isReducedView(s);
   const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const unknown = useRouterState({
+    select: (r) => r.matches.at(-1)?.routeId === rootRouteId,
+  });
+  const title = unknown
+    ? "Page not found"
+    : (reducedViewTitle(s) ?? topBarTitle(items, pathname));
+  useDocumentTitle(title);
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -762,7 +777,7 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
             <Wordmark height={24} />
           </Link>
         ) : (
-          <span>{topBarTitle(items, pathname)}</span>
+          <span>{title}</span>
         )}
       </div>
       <div className="topbar-status">
@@ -858,6 +873,20 @@ function isReducedView(s: Snapshot) {
   return isOwnerView(s) || isBoardView(s);
 }
 
+// Owners and board members see their one view on every route.
+function reducedViewTitle(s: Snapshot) {
+  if (isBoardView(s) && !isOwnerView(s)) return "Board view";
+  return isOwnerView(s) ? "Owner portal" : undefined;
+}
+
+// Browser history, tabs and screen-reader page announcements tell pages
+// apart by the document title.
+function useDocumentTitle(title: string) {
+  useEffect(() => {
+    document.title = `${title} · ${APP_TITLE}`;
+  }, [title]);
+}
+
 function topBarTitle(items: NavItem[], pathname: string) {
   return (
     items.find((i) => i.path === pathname)?.label ??
@@ -895,11 +924,4 @@ function initials(name: string) {
     .map((n) => n[0])
     .slice(0, 2)
     .join("");
-}
-
-function roleLabel(s: Snapshot) {
-  if (s.user.isAdmin) return "Administrator";
-  if (isOwnerView(s)) return "Aircraft owner";
-  if (isBoardView(s)) return "Board member";
-  return isPilotView(s) ? "Pilot" : "Team member";
 }

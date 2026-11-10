@@ -115,6 +115,20 @@ export const aircraftInputSchema = z.object({
   ]),
 });
 
+/**
+ * The manual status assessment recorded on an aircraft, as the aircraft
+ * form's Status select words it; not the computed aircraft status.
+ */
+export const operationalStatusLabels: Record<
+  Aircraft["operationalStatus"],
+  string
+> = {
+  unknown: "Unverified",
+  airworthy: "Airworthy",
+  maintenance: "Maintenance",
+  grounded: "Grounded",
+};
+
 /** A parsed {@link aircraftInputSchema} aircraft. */
 export type AircraftInput = z.infer<typeof aircraftInputSchema>;
 

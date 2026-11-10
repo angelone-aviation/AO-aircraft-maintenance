@@ -14,10 +14,14 @@ import { demoSnapshot } from "../data/demo";
 import type { Snapshot } from "../domain/model";
 import { AppShell } from "./AppShell";
 
-const view = { path: "/", breakpoint: "desktop", unread: 0 };
+const view = { path: "/", routeId: "/", breakpoint: "desktop", unread: 0 };
 vi.mock("@tanstack/react-router", () => ({
+  rootRouteId: "__root__",
   useRouterState: (o: { select: (r: object) => string }) =>
-    o.select({ location: { pathname: view.path } }),
+    o.select({
+      location: { pathname: view.path },
+      matches: [{ routeId: "__root__" }, { routeId: view.routeId }],
+    }),
   Link: (props: {
     to: string;
     className?: string;
@@ -96,7 +100,12 @@ const links = (html: string) =>
 
 describe("AppShell", () => {
   afterEach(() => {
-    Object.assign(view, { path: "/", breakpoint: "desktop", unread: 0 });
+    Object.assign(view, {
+      path: "/",
+      routeId: "/",
+      breakpoint: "desktop",
+      unread: 0,
+    });
     vi.unstubAllGlobals();
   });
 
@@ -141,12 +150,25 @@ describe("AppShell", () => {
     expect(closed("not json")).toBe(0);
   });
 
-  it("titles nested screens by their section, and others Overview", () => {
+  it("titles nested screens by their section, unknown ones Page not found, and reduced views by their name", () => {
     view.breakpoint = "tablet";
     view.path = "/manuals/abc";
     expect(render()).toContain("<span>Reference library</span>");
+    view.path = "/aircraft/setup/abc";
+    expect(render()).toContain("<span>Set up an aircraft</span>");
     view.path = "/nowhere";
-    expect(render()).toContain("<span>Overview</span>");
+    view.routeId = "__root__";
+    expect(render()).toContain("<span>Page not found</span>");
+    view.path = "/settings";
+    view.routeId = "/settings";
+    expect(render(asUser("owner"))).toContain("<span>Owner portal</span>");
+  });
+
+  it("labels the sidebar profile with the role Settings shows", () => {
+    expect(render(asUser("admin"))).toContain(
+      "<small>System administrator</small>",
+    );
+    expect(render(asUser("mechanic"))).toContain("<small>Mechanic</small>");
   });
 
   it("offers Log flight on phones only to those who may log a flight", () => {

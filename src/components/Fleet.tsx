@@ -38,6 +38,7 @@ import {
   type Program,
   type AircraftInput,
   type FleetCommand,
+  operationalStatusLabels,
 } from "../domain/fleet";
 import { TRANSFER_REASON_MAX_LENGTH } from "../domain/programTransfers";
 import { SETUP_GAPS, setupStatus } from "../domain/aircraftSetup";
@@ -69,13 +70,6 @@ const statusTone = {
   grounded: "danger",
 } as const;
 const statusLabel = aircraftStatusLabels;
-// The manual assessment, worded as in the aircraft form's Status select.
-const profileLabel: Record<Aircraft["operationalStatus"], string> = {
-  unknown: "Unverified",
-  airworthy: "Airworthy",
-  maintenance: "Maintenance",
-  grounded: "Grounded",
-};
 const TEXT_FIELDS = [
   ["registration", "Registration"],
   ["make", "Make"],
@@ -223,7 +217,7 @@ export function ProgramDialog({
   const { s, writable, save } = useFleet();
   return (
     <Modal
-      title={record ? "Edit Flight Program" : "Add Flight Program"}
+      title={record ? "Edit Flight Program details" : "Add Flight Program"}
       onClose={onClose}
     >
       <AsyncForm
@@ -1004,7 +998,7 @@ function aircraftMeters(a: Aircraft) {
   if (a.helicopter && a.currentCyclicHobbs !== undefined)
     meters.push(["Collective hourmeter", `${hours(a.currentCyclicHobbs)} h`]);
   meters.push(countersMeter(a));
-  meters.push(["Profile", profileLabel[a.operationalStatus]]);
+  meters.push(["Profile", operationalStatusLabels[a.operationalStatus]]);
   const options = aircraftOptions(a);
   if (options) meters.push(["Options", options]);
   return meters;
@@ -1049,7 +1043,7 @@ function ProgramsHeader({
     <PageHeader
       eyebrow="WORKSPACE"
       title="Flight Programs"
-      description="Programs group aircraft, people and permissions. Switch the active program from the sidebar."
+      description="Programs group aircraft, people and permissions. Switch the active program with the Flight Program selector: in the sidebar, or under All sections on phones and tablets."
       actions={
         admin && (
           <button
@@ -1127,7 +1121,7 @@ function ProgramRow({
             disabled={!writable}
             onClick={onEdit}
           >
-            Edit Flight Program
+            Edit Flight Program details
           </button>
         )
       }
@@ -1250,7 +1244,9 @@ function TransferIntro() {
     <header className="ops-card-head">
       <IconTile icon={ArrowsLeftRight} tone="blue" size="md" />
       <div>
-        <h2 id="ops-transfer-title">Transfer Flight Program</h2>
+        <h2 id="ops-transfer-title">
+          Transfer records between Flight Programs
+        </h2>
         <p>
           System administrators can assign unassigned records or transfer them
           from the active program. Aircraft transfers include their flights,

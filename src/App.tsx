@@ -23,6 +23,7 @@ import { X } from "@phosphor-icons/react";
 import { useWorkspace } from "./data/store";
 import type { Snapshot } from "./domain/model";
 import { Dashboard } from "./components/Dashboard";
+import { EmptyState } from "./components/design";
 import { readSetupStep, type SetupStep } from "./domain/aircraftSetup";
 
 const BOARD_PATH = "/board";
@@ -141,9 +142,16 @@ const ExitContext = createContext<() => void>(() => {});
 const rootRoute = createRootRoute({
   component: Shell,
   notFoundComponent: () => (
-    <p>
-      Page not found. <Link to="/">Return to overview</Link>
-    </p>
+    <EmptyState
+      title="Page not found"
+      action={
+        <Link to="/" className="button">
+          Back to Overview
+        </Link>
+      }
+    >
+      This address does not match a page in Angel One.
+    </EmptyState>
   ),
 });
 const manualRoute = createRoute({
@@ -406,7 +414,7 @@ function Notice({ text }: { text: string }) {
       <span>{text}</span>
       <button
         className="icon-button"
-        aria-label="Dismiss notification"
+        aria-label="Dismiss notice"
         onClick={() => useWorkspace.setState({ notice: "" })}
       >
         <X size={16} aria-hidden="true" />
