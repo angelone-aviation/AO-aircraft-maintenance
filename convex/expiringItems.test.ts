@@ -277,3 +277,67 @@ it("opens a system-wide date's history to system administrators only", async () 
     { data: HISTORY_NOT_FOUND },
   );
 });
+
+it("moves an aircraft's expiring dates with it to the new Flight Program, audited", async () => {
+  const world = await seedAlertProgram();
+  const { t, a, b, ids } = world;
+  const registration = policy({
+    kind: "registration",
+    label: "N-number registration",
+    aircraftUuid: ids.aircraftUuid,
+  });
+  const unrelated = "22222222-2222-4222-8222-222222222222";
+  await a.mutation(api.expiringItems.save, save(registration));
+  await a.mutation(api.expiringItems.save, save(policy({ uuid: unrelated })));
+  const root = await systemAdmin(world);
+  await root.mutation(api.programs.transfer, {
+    ...inProgram,
+    kind: "aircraft",
+    uuid: ids.aircraftUuid,
+    destination: OTHER_PROGRAM,
+    reason: "Sold to the other program",
+  });
+  const rows = await t.run((ctx) => ctx.db.query("expiringItems").collect());
+  const moved = rows.find((r) => r.uuid === ITEM_UUID)!;
+  expect(moved.programUuid).toBe(OTHER_PROGRAM);
+  expect(JSON.parse(moved.payload)).toMatchObject({
+    programUuid: OTHER_PROGRAM,
+    aircraftUuid: ids.aircraftUuid,
+    version: 2,
+  });
+  expect(rows.find((r) => r.uuid === unrelated)!.programUuid).toBe(
+    DEMO_PROGRAM,
+  );
+  // The destination's administrators see, edit and read the history of it;
+  // the source's no longer hold it.
+  const theirs = await b.query(api.operations.snapshot, {});
+  expect(theirs?.expiringItems?.map((i) => i.uuid)).toEqual([ITEM_UUID]);
+  const ours = await a.query(api.operations.snapshot, {});
+  expect(ours?.expiringItems?.map((i) => i.uuid)).toEqual([unrelated]);
+  await b.mutation(api.expiringItems.save, {
+    programUuid: OTHER_PROGRAM,
+    payload: JSON.stringify({
+      action: "save",
+      item: { ...registration, programUuid: OTHER_PROGRAM, version: 2 },
+    }),
+  });
+  const history = await b.query(api.auditHistory.page, {
+    programUuid: OTHER_PROGRAM,
+    entityUuid: ITEM_UUID,
+    cursor: null,
+    numItems: 10,
+  });
+  expect(history.page.map((e) => [e.action, e.programUuid])).toEqual([
+    ["expiring-date.saved", OTHER_PROGRAM],
+    ["expiring-date.transferred", OTHER_PROGRAM],
+    ["expiring-date.saved", DEMO_PROGRAM],
+  ]);
+  const transferred = history.page[1];
+  expect(transferred.reason).toBe("Sold to the other program");
+  expect(JSON.parse(transferred.before!)).toMatchObject({
+    programUuid: DEMO_PROGRAM,
+  });
+  expect(JSON.parse(transferred.after!)).toMatchObject({
+    programUuid: OTHER_PROGRAM,
+  });
+});

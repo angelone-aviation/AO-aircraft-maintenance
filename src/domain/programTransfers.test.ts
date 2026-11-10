@@ -346,6 +346,48 @@ it("moves an aircraft with its components, inspections and checklists once its p
   });
 });
 
+it("moves the program's expiring dates for an aircraft with it, one change-log row each, newest first", () => {
+  const { s } = locationWithCommitments();
+  const plane = s.aircraft[0];
+  const date = (uuid: string, aircraftUuid?: string, programUuid?: string) => ({
+    uuid,
+    programUuid,
+    aircraftUuid,
+    kind: "registration" as const,
+    label: uuid,
+    expiresOn: "2027-01-01",
+    warnDays: 60,
+    version: 1,
+  });
+  s.expiringItems = [
+    date("registration", plane.uuid, "demo-program"),
+    date("other-aircraft", s.aircraft[1].uuid, "demo-program"),
+    date("program-wide", undefined, "demo-program"),
+    date("system-wide"),
+  ];
+  const earlier = s.audit.length;
+  const moved = transferProgram(s, toOther("aircraft", plane.uuid));
+  expect(moved).toContain("registration");
+  expect(
+    s.expiringItems.map((i) => [i.uuid, i.programUuid, i.version]),
+  ).toEqual([
+    ["registration", "other", 2],
+    ["other-aircraft", "demo-program", 1],
+    ["program-wide", "demo-program", 1],
+    ["system-wide", undefined, 1],
+  ]);
+  expect(s.audit.length).toBe(earlier + 2);
+  expect(s.audit.slice(0, 2).map((e) => [e.action, e.entityUuid])).toEqual([
+    ["program.transferred", plane.uuid],
+    ["expiring-date.transferred", "registration"],
+  ]);
+  expect(s.audit[1]).toMatchObject({
+    programUuid: "other",
+    aircraftUuid: plane.uuid,
+    reason: toOther("aircraft", plane.uuid).reason,
+  });
+});
+
 // A tracked engine stored in Main hangar, last fitted to the first aircraft.
 // convex/programs.test.ts pins the requirements that go with it.
 function storedEngine(partsLocation = "") {
