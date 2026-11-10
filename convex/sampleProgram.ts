@@ -746,10 +746,12 @@ function sampleFlight(
     startTime: plan.departureAt,
     submittedAt: now,
     status: "accepted",
-    hobbsOn: a.seconds,
-    hobbsOff: a.seconds + HOUR,
-    tachOn: a.seconds,
-    tachOff: a.seconds + HOUR,
+    // `*Off` is where the flight started (the baseline) and `*On` where it
+    // ended (the aircraft's current reading), as an accepted flight is stored.
+    hobbsOff: a.seconds,
+    hobbsOn: a.seconds + HOUR,
+    tachOff: a.seconds,
+    tachOn: a.seconds + HOUR,
     cycles: 1,
     landings: 1,
     origin: plan.origin,
