@@ -237,6 +237,25 @@ export function canSeeExpiringItem(
   return item.programUuid === activeProgram(s) && programPermission(s, "admin");
 }
 
+/** Which snapshot a user receives in the active program. */
+export type SnapshotView = "workspace" | "owner" | "board";
+
+/**
+ * Decides which snapshot the user receives: the owner portal (isOwnerView),
+ * else the board view (isBoardView), else the workspace. The snapshot query
+ * decides with it what to read, and scopedSnapshot which whitelist to apply,
+ * so the two cannot disagree.
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns The view; "workspace" for a system administrator.
+ */
+export function snapshotView(
+  s: Pick<Snapshot, "user" | "groups" | "programs">,
+): SnapshotView {
+  if (isOwnerView(s)) return "owner";
+  return isBoardView(s) ? "board" : "workspace";
+}
+
 /**
  * The change-log filter scopedSnapshot applies, for history read page by
  * page.
@@ -268,8 +287,9 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
     ...scopeMaintenance(s, scope),
     ...scopePeople(s, scope),
   };
-  if (isOwnerView(scoped)) return ownerSnapshot(scoped);
-  return isBoardView(scoped) ? boardSnapshot(scoped) : scoped;
+  const view = snapshotView(scoped);
+  if (view === "owner") return ownerSnapshot(scoped);
+  return view === "board" ? boardSnapshot(scoped) : scoped;
 }
 
 // Shared by the snapshot and the paginated history so both apply the same

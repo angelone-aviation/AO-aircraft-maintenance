@@ -4,8 +4,8 @@
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
- *   ./memberships, ./validators, src/domain (model, programs, flightSubmission,
- *   flightReview, ownerView, boardView, deferrals, requiredParts,
+ *   ./urgentAlerts, ./memberships, ./validators, src/domain (model, programs,
+ *   flightSubmission, flightReview, ownerView, deferrals, requiredParts,
  *   aircraftStatus).
  */
 import { v } from "convex/values";
@@ -63,11 +63,11 @@ import {
 } from "../src/domain/requiredParts";
 import {
   scopedSnapshot,
+  snapshotView,
   activeProgram,
   programPermission,
 } from "../src/domain/programs";
-import { isOwnerView, ownerSnapshot } from "../src/domain/ownerView";
-import { isBoardView } from "../src/domain/boardView";
+import { ownerSnapshot } from "../src/domain/ownerView";
 import { latestCopy } from "./backups";
 import { earliestLocalDate } from "../src/domain/aircraftStatus";
 import {
@@ -91,6 +91,8 @@ type Ctx = QueryCtx | MutationCtx;
 /**
  * The caller's workspace: the active Flight Program's records, narrowed by
  * scopedSnapshot to what the caller may see, with photo and attachment URLs.
+ * snapshotView picks the view before anything else is read, so an owner's or
+ * board member's call reads only what their whitelist is built from.
  *
  * @returns null without an active account and session. An aircraft owner
  *   gets the owner whitelist; a board member the board whitelist, with the
@@ -102,26 +104,11 @@ export const snapshot = query({
   handler: async (ctx): Promise<Snapshot | null> => {
     const identity = await activeIdentity(ctx);
     if (!identity) return null;
-    const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity));
-    if (isBoardView(snapshot)) {
-      // Already the board whitelist; only the backup time is added, and no
-      // file URL is: the board sees no files.
-      snapshot.offsiteBackupAt = (await latestCopy(ctx))?.completedAt;
-      return snapshot;
-    }
-    snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
-    snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
-    snapshot.workOrderAttachments = await workOrderAttachments(
-      ctx,
-      snapshot.workOrders ?? [],
-    );
-    snapshot.taskEvidence = await taskEvidence(ctx, [
-      ...(snapshot.taskCards ?? []),
-      ...(snapshot.archivedTaskCards ?? []),
-    ]);
-    snapshot.aircraftFiles = await aircraftFileList(ctx, snapshot);
-    // Re-apply the owner whitelist after attachment URLs are added above.
-    return isOwnerView(snapshot) ? ownerSnapshot(snapshot) : snapshot;
+    const state = await context(ctx, identity.user);
+    const view = snapshotView(state);
+    return view === "workspace"
+      ? workspaceSnapshot(ctx, identity, state)
+      : reducedSnapshot(ctx, identity, state, view);
   },
 });
 
@@ -328,12 +315,108 @@ export const saveDiscrepancyParts = mutation({
     }),
 });
 
+type Identity = { user: Doc<"users">; session: Doc<"authSessions"> };
+type ProgramState = Awaited<ReturnType<typeof context>>;
+
+async function workspaceSnapshot(
+  ctx: QueryCtx,
+  identity: Identity,
+  state: ProgramState,
+): Promise<Snapshot> {
+  const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity, state));
+  snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
+  snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
+  snapshot.workOrderAttachments = await workOrderAttachments(
+    ctx,
+    snapshot.workOrders ?? [],
+  );
+  snapshot.taskEvidence = await taskEvidence(ctx, [
+    ...(snapshot.taskCards ?? []),
+    ...(snapshot.archivedTaskCards ?? []),
+  ]);
+  snapshot.aircraftFiles = await aircraftFileList(ctx, snapshot);
+  return snapshot;
+}
+
+// The owner and board whitelists come out of scopedSnapshot already. The
+// board sees no files, so only the backup time is added; the owner gets
+// aircraft photos and Form 337 copies, and the owner whitelist is applied
+// again after them.
+async function reducedSnapshot(
+  ctx: QueryCtx,
+  identity: Identity,
+  state: ProgramState,
+  view: "owner" | "board",
+): Promise<Snapshot> {
+  const snapshot = scopedSnapshot(
+    await reducedViewRecords(ctx, identity, state, view),
+  );
+  if (view === "board") {
+    snapshot.offsiteBackupAt = (await latestCopy(ctx))?.completedAt;
+    return snapshot;
+  }
+  snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
+  snapshot.aircraftFiles = await aircraftFileList(ctx, snapshot);
+  return ownerSnapshot(snapshot);
+}
+
+// What the owner and board whitelists are built from. They show aircraft
+// status only (no flights, change log, plans, templates, purchasing, files or
+// other people), so none of that is read. The board's cost totals still need
+// the job cards and parts requests that price issued parts
+// (boardCostTotals).
+async function reducedViewRecords(
+  ctx: QueryCtx,
+  { user, session }: Identity,
+  state: ProgramState,
+  view: "owner" | "board",
+): Promise<Snapshot> {
+  const program = activeProgram(state);
+  const aircraft = state.aircraft;
+  const management = await managementDocs(ctx, program);
+  return {
+    ...state,
+    user: member(user),
+    authenticatedAt: session._creationTime,
+    members: [member(user)],
+    discrepancies: await discrepancyDocs(ctx, aircraft),
+    airworthiness: decode(
+      "airworthiness",
+      await airworthinessDocs(ctx, aircraft),
+    ),
+    workOrders: decode("workOrders", await workOrderDocs(ctx, aircraft)),
+    ...(view === "board" ? await boardCostRecords(ctx, program, aircraft) : {}),
+    inspections: await inspectionDocs(ctx, aircraft, management),
+    management: decode("management", management),
+    aircraft: withProgramNames(state),
+  };
+}
+
+async function boardCostRecords(
+  ctx: QueryCtx,
+  program: string | undefined,
+  aircraft: Aircraft[],
+) {
+  return {
+    taskCards: decode("taskCards", await taskCardDocs(ctx, aircraft)),
+    archivedTaskCards: decode(
+      "archivedTaskCards",
+      await archivedTaskCardDocs(ctx, aircraft),
+    ),
+    partsRequests: decode(
+      "partsRequests",
+      await partsRequestDocs(ctx, program),
+    ),
+    costs: decode("costs", await costDocs(ctx, program, aircraft)),
+  };
+}
+
 // Everything the active program holds, before scopedSnapshot narrows it.
 async function fullSnapshot(
   ctx: QueryCtx,
-  { user, session }: { user: Doc<"users">; session: Doc<"authSessions"> },
+  { user, session }: Identity,
+  state: ProgramState,
 ): Promise<Snapshot> {
-  const state = await context(ctx, user);
   const program = activeProgram(state);
   const aircraft = state.aircraft;
   const management = await managementDocs(ctx, program);
@@ -356,12 +439,16 @@ async function fullSnapshot(
       "expiringItems",
       await expiringItemDocs(ctx, program, user.isAdmin === true),
     ),
-    aircraft: aircraft.map((a) => ({
-      ...a,
-      program:
-        state.programs.find((p) => p.uuid === a.programUuid)?.name ?? a.program,
-    })),
+    aircraft: withProgramNames(state),
   };
+}
+
+function withProgramNames(state: ProgramState) {
+  return state.aircraft.map((a) => ({
+    ...a,
+    program:
+      state.programs.find((p) => p.uuid === a.programUuid)?.name ?? a.program,
+  }));
 }
 
 // System administrators manage every account; everyone else sees the active
