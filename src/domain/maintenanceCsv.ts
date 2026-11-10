@@ -1,7 +1,7 @@
 /**
  * Responsibility: Imports a manual's maintenance schedule from CSV files
  *   (inspections, component limits and their tasks) as candidates to review,
- *   and the RFC 4180 CSV reader every CSV import shares.
+ *   and the UTF-8 decoder and RFC 4180 CSV reader the CSV imports share.
  * Layer: Domain. Pure parsing; no I/O, no React.
  * Dependencies: zod, ./manuals, ./manualDiscovery, ./rejection.
  */
@@ -116,6 +116,28 @@ export const csvSourceKey = (
   kind: "inspection" | "component_requirement" | "task",
   id: string,
 ) => `${manualUuid}:csv:${kind}:${id}`;
+
+/**
+ * Decodes a CSV file's bytes as UTF-8, refusing anything else rather than
+ * reading it with replacement characters that would be saved into records.
+ * A spreadsheet's plain "CSV" is Windows-1252, which this refuses as soon as
+ * a cell holds an accent, a dash or a section sign.
+ *
+ * @param bytes - The file's content.
+ * @returns The text; a leading byte-order mark is dropped.
+ * @throws {Rejection} "This file is not UTF-8 text. …", naming the format to
+ *   save as.
+ */
+export function decodeCsvFile(bytes: ArrayBuffer | Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    // The decoder's own TypeError says nothing a person can act on.
+    throw new Rejection(
+      'This file is not UTF-8 text. Save it as "CSV UTF-8 (Comma delimited)" in Excel, or as CSV with UTF-8 encoding in another spreadsheet, and choose it again.',
+    );
+  }
+}
 
 /**
  * Reads CSV text into rows of cells, as {@link readCsvRows} does.

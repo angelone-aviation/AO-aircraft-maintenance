@@ -378,9 +378,11 @@ describe("template library", () => {
   it("imports a CSV file once it parses, and shows why it does not", async () => {
     openLibrary();
     click("New template / import CSV");
-    const file = (text: string, size = text.length) => ({
-      files: [{ size, text: async () => text }],
+    const bytes = (content: Uint8Array, size = content.length) => ({
+      files: [{ size, arrayBuffer: async () => content.buffer }],
     });
+    const file = (text: string, size?: number) =>
+      bytes(new TextEncoder().encode(text), size);
     const big = await change(
       "Import component CSV",
       file("", 2 * 1024 ** 2 + 1),
@@ -394,6 +396,14 @@ describe("template library", () => {
     expect(html).not.toContain('role="alert"');
     expect(html).toContain(`>${good}</textarea>`);
     expect(await change("Import component CSV", { files: [] })).toBe(html);
+    // "Bougie café" as a spreadsheet's plain CSV (Windows-1252) writes it.
+    const cp1252 = Uint8Array.from([
+      ...new TextEncoder().encode(`${HEADER}\nAppliance,,,Bougie caf`),
+      0xe9,
+    ]);
+    const refused = await change("Import component CSV", bytes(cp1252));
+    expect(refused).toContain('<p role="alert">This file is not UTF-8 text.');
+    expect(refused).toContain(`>${good}</textarea>`);
   });
 });
 

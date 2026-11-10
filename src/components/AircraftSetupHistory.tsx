@@ -24,7 +24,7 @@ import {
   type SetupPlan,
   type SetupStep,
 } from "../domain/aircraftSetup";
-import { CSV_MAX_BYTES } from "../domain/maintenanceCsv";
+import { CSV_MAX_BYTES, decodeCsvFile } from "../domain/maintenanceCsv";
 import { hours, type Aircraft, type Snapshot } from "../domain/model";
 import { NoticeBar } from "./design";
 import { Field, downloadBlankCsv, errorText } from "./ui";
@@ -766,8 +766,8 @@ function countText(actions: SetupAction[]) {
   return `${plural(n("inspections"), "inspection")} and ${plural(n("ads"), "AD")}`;
 }
 
-// The file replaces the text only once read; a parse error then shows under
-// the text, where it can be fixed.
+// The file replaces the text only once read as UTF-8; a parse error then
+// shows under the text, where it can be fixed.
 async function readCsvFile(
   file: File | undefined,
   onCsv: (csv: string) => void,
@@ -778,6 +778,10 @@ async function readCsvFile(
     onError("CSV must be under 2 MB.");
     return;
   }
-  onCsv(await file.text());
-  onError("");
+  try {
+    onCsv(decodeCsvFile(await file.arrayBuffer()));
+    onError("");
+  } catch (e) {
+    onError(errorText(e));
+  }
 }

@@ -59,7 +59,7 @@ An AD that applies gets one required action carrying the next due limits; a comp
 
 ## Format rules
 
-Column names match ignoring case, spaces and hyphens, in any order; every listed column is required and unknown or repeated columns are rejected. Use comma-delimited UTF-8 with conventional quoting; a leading byte-order mark is ignored. Spreadsheets also rewrite date-shaped cells: format the `ad_number` and date columns as Text before typing, or check them in the dry run. Each file is limited to 2 MiB and 2,000 rows. Blank cells mean unknown. Hours for inspections use at most one decimal place (meter readings read in tenths); AD hours accept any decimal. Months, cycles and landings are whole numbers.
+Column names match ignoring case, spaces and hyphens, in any order; every listed column is required and unknown or repeated columns are rejected. Use comma-delimited UTF-8 with conventional quoting; a leading byte-order mark is ignored. An uploaded file that is not UTF-8 is refused: Excel's plain "CSV (Comma delimited)" is Windows-1252, so save as **CSV UTF-8 (Comma delimited)**. Spreadsheets also rewrite date-shaped cells: format the `ad_number` and date columns as Text before typing, or check them in the dry run. Each file is limited to 2 MiB and 2,000 rows. Blank cells mean unknown. Hours for inspections use at most one decimal place (meter readings read in tenths); AD hours accept any decimal. Months, cycles and landings are whole numbers.
 
 ## What the dry run checks
 

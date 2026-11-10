@@ -10,6 +10,7 @@ import {
   CSV_MAX_BYTES,
   CSV_MAX_MEGABYTES,
   csvSourceKey,
+  decodeCsvFile,
   importHeaders,
   parseMaintenanceCsv,
   readCsv,
@@ -355,4 +356,29 @@ it("caps an inspection's description plus conditions at 2,000 characters", () =>
   expect(inspection("c".repeat(187))).toEqual([
     "inspections, row 2: Description plus conditions must fit within 2,000 characters.",
   ]);
+});
+
+it("decodes a UTF-8 file, dropping its byte-order mark", () => {
+  const bytes = new TextEncoder().encode(
+    "\uFEFFname\nInspección §91.409 – 12 mo",
+  );
+  expect(decodeCsvFile(bytes)).toBe("name\nInspección §91.409 – 12 mo");
+  expect(decodeCsvFile(bytes.buffer)).toBe("name\nInspección §91.409 – 12 mo");
+});
+it("refuses a Windows-1252 file instead of reading replacement characters", () => {
+  // "Inspección §91.409 – 12 mo" as Excel's plain CSV writes it.
+  const cp1252 = Uint8Array.from([
+    ...new TextEncoder().encode("Inspecci"),
+    0xf3,
+    ...new TextEncoder().encode("n "),
+    0xa7,
+    ...new TextEncoder().encode("91.409 "),
+    0x96,
+    ...new TextEncoder().encode(" 12 mo"),
+  ]);
+  expect(() => decodeCsvFile(cp1252)).toThrow(
+    new Rejection(
+      'This file is not UTF-8 text. Save it as "CSV UTF-8 (Comma delimited)" in Excel, or as CSV with UTF-8 encoding in another spreadsheet, and choose it again.',
+    ),
+  );
 });
