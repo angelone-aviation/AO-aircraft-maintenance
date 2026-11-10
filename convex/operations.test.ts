@@ -223,7 +223,11 @@ describe("flight submissions and reviews", () => {
     expect(state.a!.cycles).toBe(a.cycles + 1);
     expect(state.flights).toHaveLength(1);
     expect(state.reports).toHaveLength(1);
-    expect(state.audit).toHaveLength(1);
+    // The flight and the report it filed each have one creation row.
+    expect(state.audit.map((row) => [row.action, row.entityUuid])).toEqual([
+      ["flight.created", operation.uuid],
+      ["discrepancy.created", `${operation.uuid}-discrepancy`],
+    ]);
   });
   it("holds stale submissions without changing totals and preserves both records", async () => {
     const { pilot, op, a } = await fixture();

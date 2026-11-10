@@ -94,7 +94,8 @@ export function submitOperation(
  * for review (`status: "review"`, audited `flight.held`).
  *
  * @returns As {@link submitOperation}; stock, then the flight, its problem
- *   report and the audit: oil used, the flight, then any dispatch override.
+ *   report and the audit: oil used, the flight, its problem report, then any
+ *   dispatch override.
  * @throws As {@link submitOperation}, checking the checklist, the plan, the
  *   crew's program, the readings, active crew, the gate, then the oil stock.
  */
@@ -125,6 +126,7 @@ export function submitFlight(
     flightTimeLogOff: aircraft.currentFlightTimeLog,
   };
   const stock = drawDownOil(s, input, now);
+  const report = fileFlightReport(op, aircraft, now);
   return {
     status: flight.status,
     changes: {
@@ -132,8 +134,8 @@ export function submitFlight(
       flight,
       // A held flight changes no totals until an administrator accepts it.
       aircraft: reviewReason ? undefined : applyFlight(aircraft, input),
-      discrepancy: fileFlightReport(op, aircraft, now),
-      audit: listFlightAudit(op, aircraft, flight, stock).map((change) =>
+      discrepancy: report,
+      audit: listFlightAudit(op, flight, { stock, report }).map((change) =>
         auditEntry(s, change, now),
       ),
     },
@@ -297,37 +299,53 @@ function fileFlightReport(
   };
 }
 
+// The report a flight files gets its own creation row, as one filed from
+// Report a problem does, so its history starts with it.
 function listFlightAudit(
   op: FlightOperation,
-  aircraft: Aircraft,
   flight: Flight,
-  stock: SubmissionChanges["stock"],
+  filed: { stock: SubmissionChanges["stock"]; report?: Discrepancy },
 ): AuditChange[] {
-  const override = flight.dispatchOverride;
+  const { aircraftUuid } = flight;
   return [
-    ...stock.map((change) => ({
+    ...filed.stock.map((change) => ({
       action: "stock.oil_used",
       entityUuid: change.before.uuid,
-      aircraftUuid: aircraft.uuid,
+      aircraftUuid,
       reason: `Oil added for flight ${op.uuid}`,
       ...oilUsageAudit(change),
     })),
     {
       action: flight.status === "review" ? "flight.held" : "flight.created",
       entityUuid: op.uuid,
-      aircraftUuid: aircraft.uuid,
+      aircraftUuid,
       after: flight,
     },
-    ...(override
-      ? [
-          {
-            action: "flight.dispatch_override",
-            entityUuid: op.uuid,
-            aircraftUuid: aircraft.uuid,
-            reason: override.reason,
-            after: override,
-          },
-        ]
-      : []),
+    ...optionalRows(op, flight, filed.report),
   ];
+}
+
+function optionalRows(
+  op: FlightOperation,
+  flight: Flight,
+  report: Discrepancy | undefined,
+): AuditChange[] {
+  const { aircraftUuid, dispatchOverride: override } = flight;
+  const rows: AuditChange[] = [];
+  if (report)
+    rows.push({
+      action: "discrepancy.created",
+      entityUuid: report.uuid,
+      aircraftUuid,
+      after: report,
+    });
+  if (override)
+    rows.push({
+      action: "flight.dispatch_override",
+      entityUuid: op.uuid,
+      aircraftUuid,
+      reason: override.reason,
+      after: override,
+    });
+  return rows;
 }
