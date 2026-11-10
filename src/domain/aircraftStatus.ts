@@ -211,14 +211,19 @@ function listProfileFindings(a: Aircraft): Finding[] {
   return flagGrounded("profile", a.uuid, label);
 }
 
+// The Reference is optional, so the label falls back to the description, as
+// alerts and the status sheet name it. An inspection of a component removed
+// to storage does not ground the aircraft it came off, as for its ADs.
 function listInspectionFindings(due: MaintenanceDue[]) {
   return due.flatMap((item): Finding[] => {
-    if (item.kind !== "inspection") return [];
-    const { uuid, reference } = item.inspection;
+    if (item.kind !== "inspection" || item.component?.installed === false)
+      return [];
+    const { uuid, reference, description } = item.inspection;
+    const name = reference || description;
     if (item.level === "overdue")
-      return flagGrounded("inspection", uuid, `${reference} overdue`);
+      return flagGrounded("inspection", uuid, `${name} overdue`);
     if (item.level !== "due-soon") return [];
-    return flagDueSoon("inspection", uuid, `${reference} due soon`);
+    return flagDueSoon("inspection", uuid, `${name} due soon`);
   });
 }
 

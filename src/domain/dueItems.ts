@@ -49,6 +49,8 @@ export type InspectionDue = {
   kind: "inspection";
   inspection: Inspection;
   aircraft: Aircraft;
+  /** The component the inspection tracks, when the snapshot holds it. */
+  component?: Component;
   level: DueLevel;
 } & Outcome<ReturnType<typeof inspectionStatus>>;
 
@@ -176,7 +178,11 @@ function listInspections(
     const a = s.aircraft.find((x) => x.uuid === i.aircraftUuid);
     if (!a) return [];
     const outcome = measureInspection(s, i, a, today);
-    return [{ kind: "inspection", inspection: i, aircraft: a, ...outcome }];
+    const component = i.componentUuid
+      ? findComponent(s, i.componentUuid)
+      : undefined;
+    const item = { inspection: i, aircraft: a, component, ...outcome };
+    return [{ kind: "inspection" as const, ...item }];
   });
 }
 
