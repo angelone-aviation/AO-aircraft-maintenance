@@ -39,6 +39,7 @@ import {
   costDocs,
   auditDocs,
   expiringItemDocs,
+  perAircraft,
 } from "./programContext";
 import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
@@ -568,51 +569,82 @@ async function workOrderAttachments(
   ctx: QueryCtx,
   workOrders: NonNullable<Snapshot["workOrders"]>,
 ) {
-  const lists = await Promise.all(
-    workOrders.map(async (w) => {
-      const files = await ctx.db
+  const files = await filesByRecord(
+    workOrders,
+    (aircraftUuid) =>
+      ctx.db
         .query("workOrderFiles")
-        .withIndex("workOrder", (q) => q.eq("workOrderUuid", w.uuid))
-        .collect();
-      return Promise.all(
-        files.map(async (f) => ({
-          uuid: f._id,
-          workOrderUuid: w.uuid,
-          name: f.name,
-          size: f.size,
-          uploadedAt: f.uploadedAt,
-          url: await fileUrl(ctx, f.storageId),
-        })),
-      );
-    }),
+        .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
+        .collect(),
+    (f) => f.workOrderUuid,
   );
-  return lists.flat();
+  return Promise.all(
+    workOrders.flatMap((w) =>
+      (files.get(w.uuid) ?? []).map(async (f) => ({
+        uuid: f._id,
+        workOrderUuid: w.uuid,
+        name: f.name,
+        size: f.size,
+        uploadedAt: f.uploadedAt,
+        url: await fileUrl(ctx, f.storageId),
+      })),
+    ),
+  );
 }
 
 async function taskEvidence(
   ctx: QueryCtx,
   cards: NonNullable<Snapshot["taskCards"]>,
 ) {
-  const lists = await Promise.all(
-    cards.map(async (t) => {
-      const files = await ctx.db
+  const files = await filesByRecord(
+    cards,
+    (aircraftUuid) =>
+      ctx.db
         .query("taskEvidence")
-        .withIndex("taskCard", (q) => q.eq("taskCardUuid", t.uuid))
-        .collect();
-      return Promise.all(
-        files.map(async (f) => ({
-          uuid: f._id,
-          taskCardUuid: t.uuid,
-          name: f.name,
-          size: f.size,
-          uploadedAt: f.uploadedAt,
-          category: f.category,
-          url: await fileUrl(ctx, f.storageId),
-        })),
-      );
-    }),
+        .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
+        .collect(),
+    (f) => f.taskCardUuid,
   );
-  return lists.flat();
+  return Promise.all(
+    cards.flatMap((t) =>
+      (files.get(t.uuid) ?? []).map(async (f) => ({
+        uuid: f._id,
+        taskCardUuid: t.uuid,
+        name: f.name,
+        size: f.size,
+        uploadedAt: f.uploadedAt,
+        category: f.category,
+        url: await fileUrl(ctx, f.storageId),
+      })),
+    ),
+  );
+}
+
+// Files filed on job cards or work orders, read once per aircraft (a lookup
+// per record passed Convex's limit on index reads at about 4,000 job cards)
+// and grouped by record, each record's oldest first as its own index gave
+// them. Rows uploaded before files carried their aircraft are read once more
+// until attachments:backfillAircraft has run; only the records' own are kept.
+async function filesByRecord<F extends { _creationTime: number }>(
+  records: { aircraftUuid: string }[],
+  readAircraft: (aircraftUuid: string | undefined) => Promise<F[]>,
+  recordOf: (file: F) => string,
+): Promise<Map<string, F[]>> {
+  const aircraft = [...new Set(records.map((r) => r.aircraftUuid))];
+  const files = [
+    ...(await perAircraft(
+      aircraft.map((uuid) => ({ uuid })),
+      readAircraft,
+    )),
+    ...(await readAircraft(undefined)),
+  ].sort((a, b) => a._creationTime - b._creationTime);
+  const byRecord = new Map<string, F[]>();
+  for (const f of files) {
+    const list = byRecord.get(recordOf(f));
+    if (list) list.push(f);
+    else byRecord.set(recordOf(f), [f]);
+  }
+  return byRecord;
 }
 
 const fileUrl = async (ctx: QueryCtx, storageId: Id<"_storage">) =>

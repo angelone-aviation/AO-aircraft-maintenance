@@ -421,7 +421,7 @@ class Generator {
       t.workOrders.push(encode("workOrders", order));
       this.audit(t, a, "workOrder.save", order.uuid, order.recordedAt, order);
       t.costs.push(encode("costs", this.cost(a, order.uuid)));
-      if (!open) t.workOrderFiles.push(this.file(blob, order.uuid, "work"));
+      if (!open) t.workOrderFiles.push(this.file(blob, a, order.uuid, "work"));
       for (let j = 0; j < VOLUME.jobCardsPerWorkOrder; j++)
         this.jobCard(t, a, order.uuid, w * 100 + j, blob, w === 0 && j === 0);
     }
@@ -441,7 +441,7 @@ class Generator {
     this.audit(t, a, "taskCard.save", card.uuid, card.updatedAt, card);
     if (n % VOLUME.evidenceEvery === 0)
       t.taskEvidence.push({
-        ...this.file(blob, card.uuid, "card"),
+        ...this.file(blob, a, card.uuid, "card"),
         category: "photo",
       });
   }
@@ -546,9 +546,15 @@ class Generator {
     });
   }
 
-  private file(blob: Id<"_storage">, owner: string, kind: "card" | "work") {
+  private file(
+    blob: Id<"_storage">,
+    a: Aircraft,
+    owner: string,
+    kind: "card" | "work",
+  ) {
     return {
       ...(kind === "card" ? { taskCardUuid: owner } : { workOrderUuid: owner }),
+      aircraftUuid: a.uuid,
       storageId: blob,
       name: `${kind}-${owner.slice(-6)}.pdf`,
       size: 2048,

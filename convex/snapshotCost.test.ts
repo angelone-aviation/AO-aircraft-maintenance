@@ -19,7 +19,9 @@ import type { QueryCtx } from "./_generated/server";
 import schema from "./schema";
 import { snapshot as snapshotQuery } from "./operations";
 import {
+  addJobCards,
   seedProgramVolume,
+  VOLUME,
   type VolumeAccounts,
 } from "../tests/fixtures/programVolume";
 import {
@@ -125,6 +127,21 @@ describe("the workspace snapshot at one year of records", () => {
     expect(reads.board.bytes).toBeLessThan(reads.admin.bytes * 0.7);
     expect(reads.board.documents * 2).toBeLessThan(reads.admin.documents);
   });
+
+  it("looks files up once per aircraft, not once per job card or work order", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: SEEDED_AT });
+    const before = { pilot: reads.pilot, admin: reads.admin };
+    await t.run((ctx) => addJobCards(ctx, SEEDED_AT, 100));
+    for (const role of ["pilot", "admin"] as const) {
+      const after = await measure(t, accounts[role]);
+      expect(after.lookups, role).toBe(before[role].lookups);
+      expect(after.documents, role).toBe(before[role].documents + 110);
+    }
+  });
+
+  it("keeps the pilot's lookups to a few per aircraft and table", () => {
+    expect(reads.pilot.lookups).toBeLessThan(VOLUME.aircraft * 30);
+  });
 });
 
 it("returns the owner and board views it returned before", async () => {
@@ -169,13 +186,16 @@ it("keeps each job card's evidence together, in job-card order", async () => {
       payload: first.payload.replace(first.uuid, SECOND_CARD),
     });
     const blob = await ctx.storage.store(new Blob(["%PDF-1.4"]));
-    for (const [card, name] of [
-      [SECOND_CARD, "b1"],
-      [first.uuid, "a1"],
-      [SECOND_CARD, "b2"],
-    ])
+    // b1 was filed before files carried their aircraft, as older rows were.
+    const filed: [string, string, string | undefined][] = [
+      [SECOND_CARD, "b1", undefined],
+      [first.uuid, "a1", first.aircraftUuid],
+      [SECOND_CARD, "b2", first.aircraftUuid],
+    ];
+    for (const [card, name, aircraftUuid] of filed)
       await ctx.db.insert("taskEvidence", {
         taskCardUuid: card,
+        aircraftUuid,
         storageId: blob,
         name,
         size: 8,

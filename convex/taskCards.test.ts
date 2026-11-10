@@ -110,7 +110,7 @@ it("persists cards, enforces access and prevents forged signoffs", async () => {
   ).rejects.toThrow("access denied");
 });
 it("records real signer identity, invalidates signatures on evidence upload, and freezes completed cards", async () => {
-  const { tech, reader } = await fixture(),
+  const { t, tech, reader } = await fixture(),
     command = taskCardCommand();
   command.fields.steps = [];
   await tech.mutation(api.taskCards.save, {
@@ -158,6 +158,10 @@ it("records real signer identity, invalidates signatures on evidence upload, and
   await tech.action(api.taskCards.upload, file);
   card = await getCard();
   expect(card.technicianSignoff).toBeNull();
+  // Filed under the card's aircraft, which the snapshot reads evidence by.
+  expect(
+    await t.run(async (ctx) => (await ctx.db.query("taskEvidence").first())!),
+  ).toMatchObject({ taskCardUuid: card.uuid, aircraftUuid: card.aircraftUuid });
   expect(
     (await tech.query(api.operations.snapshot, {}))?.taskEvidence,
   ).toMatchObject([

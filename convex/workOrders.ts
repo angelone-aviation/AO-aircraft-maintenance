@@ -161,6 +161,7 @@ export const finishUpload = internalMutation({
     const { programUuid: _program, ...fields } = args;
     await ctx.db.insert("workOrderFiles", {
       ...fields,
+      aircraftUuid: doc.aircraftUuid,
       uploadedAt: Date.now(),
     });
     await audit(ctx, user._id, "workOrder.attachment", doc.uuid, {

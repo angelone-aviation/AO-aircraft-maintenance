@@ -262,6 +262,11 @@ Raised by the audit; not batches. Update as batches find more.
     - the `users` table drops Convex Auth's `phone` index, which is safe and now commented;
     - an unknown sign-in provider gets the Microsoft logo;
     - the logbook preview passes "[completion date]" as a licence as-of date (harmless).
+69. **Snapshot cost, left after the size fixes (SZ-1, 2026-11-10):** measured by `convex/snapshotCost.test.ts`; the real fix is the retention window in the size design.
+    - `inventoryAttachments` (`convex/operations.ts`) still looks files up once per stock or component record for administrators (about 900 lookups at the test volume). Its count follows the inventory, not the years, and transfers re-tag stock, so a stored program key could go stale; key the rows by program only together with the transfer path.
+    - `filesByRecord` reads evidence and work-order files stored without an aircraft once more on every snapshot, across programs. Remove that read once `attachments:backfillAircraft` has run on every deployment.
+    - `adAircraftUuid` (`src/domain/adOwnership.ts`) and `partsInventory` (`src/domain/requiredParts.ts`) still scan the managed records once per AD or record while the snapshot is scoped.
+    - The board view reads every job card so its cost totals can price parts issued against them; a stored per-work-order cost total would remove that read.
 
 ## Tier 1: foundation and leaf modules
 

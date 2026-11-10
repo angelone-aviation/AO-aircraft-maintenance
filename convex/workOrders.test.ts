@@ -733,6 +733,14 @@ async function openOrderWithAttachment() {
   return { ...f, command, save, file, attachment };
 }
 
+it("files an upload under its work order's aircraft, which the snapshot reads files by", async () => {
+  const { command, attachment } = await openOrderWithAttachment();
+  expect(attachment).toMatchObject({
+    workOrderUuid: command.uuid,
+    aircraftUuid: command.fields.aircraftUuid,
+  });
+});
+
 it("shows the work order's own refusals to the user as ConvexErrors", async () => {
   const { t, tech, command, save, file, attachment } =
     await openOrderWithAttachment();

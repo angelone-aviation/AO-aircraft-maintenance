@@ -94,6 +94,7 @@ Run the one-off commands from the README [Deployment](../../README.md#deployment
 ```sh
 read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY
 npx convex run memberships:backfill
+npx convex run attachments:backfillAircraft
 unset CONVEX_DEPLOY_KEY
 ```
 

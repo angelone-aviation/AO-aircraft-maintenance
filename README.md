@@ -309,6 +309,14 @@ npx convex run memberships:backfill
 
 Until it runs, Flight Program member lists (pilot pickers, group-deletion reviews) show only accounts changed after the deploy. Permissions are unaffected: they still come from each user's group list.
 
+After deploying the version that stores the aircraft on job-card evidence and work-order files, fill it in on files uploaded before, once. It is safe to rerun, batches itself through both tables, and does nothing on a fresh deployment or once complete:
+
+```bash
+npx convex run attachments:backfillAircraft
+```
+
+Until it runs, those older files still show: the workspace snapshot reads them through a slower fallback on every load.
+
 ## Operations
 
 _En route: keeping it flying._

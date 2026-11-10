@@ -135,7 +135,11 @@ export const finishUpload = internalMutation({
     );
     const { programUuid: _program, ...fields } = args;
     const now = Date.now();
-    await ctx.db.insert("taskEvidence", { ...fields, uploadedAt: now });
+    await ctx.db.insert("taskEvidence", {
+      ...fields,
+      aircraftUuid: t.aircraftUuid,
+      uploadedAt: now,
+    });
     const next = withNewEvidence(t, now);
     const doc = await ctx.db
       .query("taskCards")

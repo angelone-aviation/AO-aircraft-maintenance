@@ -1,13 +1,15 @@
 /**
  * Responsibility: Pins when a stored file is kept or deleted: after its
- *   record is deleted, and when an upload's filing is refused.
+ *   record is deleted, and when an upload's filing is refused; and the
+ *   backfill of the aircraft on older file rows.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/attachments.ts, convex/storageReferences.ts,
- *   convex/schema.ts.
+ *   convex/schema.ts, convex/server.
  */
 import { convexTest } from "convex-test";
 import { ConvexError } from "convex/values";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
 import { deleteBlobIfUnused, storeThenFinish } from "./attachments";
 import { STORAGE_REFERENCES } from "./storageReferences";
@@ -197,4 +199,79 @@ it("deletes the stored bytes and rethrows the same error when filing is refused"
   expect(
     await t.run((ctx) => ctx.db.system.query("_storage").collect()),
   ).toEqual([]);
+});
+
+it("backfills the aircraft on older file rows, page by page, and stops once done", async () => {
+  vi.useFakeTimers();
+  try {
+    const t = convexTest(schema, modules);
+    const backfill = makeFunctionReference<
+      "mutation",
+      Record<string, never>,
+      { table: string; filled: number; isDone: boolean }
+    >("attachments:backfillAircraft");
+    const evidence = await t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob(["%PDF"]));
+      const row = (taskCardUuid: string) =>
+        ctx.db.insert("taskEvidence", {
+          name: FILE.name,
+          size: FILE.size,
+          taskCardUuid,
+          storageId,
+          uploadedAt: 1,
+          category: "photo",
+        });
+      await ctx.db.insert("taskCards", {
+        uuid: "card",
+        aircraftUuid: "A",
+        payload: "{}",
+      });
+      await ctx.db.insert("archivedTaskCards", {
+        uuid: "old",
+        aircraftUuid: "B",
+        payload: "{}",
+      });
+      await ctx.db.insert("workOrders", {
+        uuid: "order",
+        aircraftUuid: "A",
+        payload: "{}",
+      });
+      await ctx.db.insert("workOrderFiles", {
+        name: FILE.name,
+        size: FILE.size,
+        workOrderUuid: "order",
+        storageId,
+        uploadedAt: 1,
+      });
+      // More than one page, so the backfill has to schedule itself.
+      for (let n = 0; n < 150; n++) await row("card");
+      return { archived: await row("old"), orphan: await row("deleted") };
+    });
+    expect(await t.mutation(backfill, {})).toEqual({
+      table: "taskEvidence",
+      filled: 100,
+      isDone: false,
+    });
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const aircraftOf = () =>
+      t.run(async (ctx) => ({
+        evidence: (await ctx.db.query("taskEvidence").collect()).map(
+          (r) => [r._id, r.aircraftUuid ?? null] as const,
+        ),
+        orders: (await ctx.db.query("workOrderFiles").collect()).map(
+          (r) => r.aircraftUuid ?? null,
+        ),
+      }));
+    const once = await aircraftOf();
+    const byId = new Map(once.evidence);
+    expect(byId.get(evidence.archived)).toBe("B");
+    expect(byId.get(evidence.orphan)).toBeNull();
+    expect(once.evidence.filter(([, a]) => a === "A")).toHaveLength(150);
+    expect(once.orders).toEqual(["A"]);
+    await t.mutation(backfill, {});
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(await aircraftOf()).toEqual(once);
+  } finally {
+    vi.useRealTimers();
+  }
 });
