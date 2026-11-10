@@ -54,9 +54,14 @@ it("refuses to file evidence on a card the user may no longer write, filing noth
 
 it("says evidence removed meanwhile is not found", async () => {
   const { t, tech } = await world();
+  const command = taskCardCommand();
+  await tech.mutation(api.taskCards.save, {
+    programUuid: PROGRAM,
+    payload: JSON.stringify(command),
+  });
   const id = await t.run(async (ctx) => {
     const row = await ctx.db.insert("taskEvidence", {
-      taskCardUuid: "card",
+      taskCardUuid: command.uuid,
       storageId: await ctx.storage.store(new Blob(["x"])),
       name: "gone.jpg",
       size: 1,
