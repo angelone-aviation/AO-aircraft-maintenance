@@ -1,7 +1,8 @@
 # Responsibility: Releases main to production: Convex functions and schema
 #   first, then the website on Cloudflare.
 # Layer: Tooling (release workflow). Runs after a green CI push to main, or
-#   by hand from main (with a backup confirmation).
+#   by hand from main (with a backup confirmation). Releases only the newest
+#   commit on main, and only after CI passed for it.
 # Dependencies: the Convex CLI, wrangler, Sentry (optional), and the
 #   "production" environment. Runbooks: docs/runbooks/release.md, monitoring.md.
 name: Deploy
@@ -18,9 +19,16 @@ on:
         type: boolean
         required: true
         default: false
+      deploy_without_green_ci:
+        description: "EMERGENCY ONLY: deploy although CI has not passed for this commit (docs/runbooks/release.md, Emergency deploy without green CI)"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
+  # Read-only: a manual run looks up the CI runs for its commit.
+  actions: read
 
 concurrency:
   group: deploy-production
@@ -37,6 +45,7 @@ jobs:
     # Manual: main only, after the backup box is ticked.
     # Auto: green CI that was itself a push to main in this repository (not a
     # pull-request or fork CI run).
+    # Both: only the newest commit on main, with green CI (checked in steps).
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_run' &&
@@ -74,6 +83,42 @@ jobs:
         run: |
           git merge-base --is-ancestor "$DEPLOY_SHA" refs/remotes/origin/main || {
             echo "::error::Commit ${DEPLOY_SHA::12} is not on main; Deploy only releases commits on main."
+            exit 1
+          }
+
+      # Deploy only moves production forward. Re-running an old CI or Deploy
+      # run, or approving a queued one late, names an older commit; releasing
+      # it would put old functions and an old website over newer ones, and
+      # Convex has no rollback.
+      - name: Require the newest commit on main
+        run: |
+          newest=$(git rev-parse refs/remotes/origin/main)
+          if [ "$DEPLOY_SHA" != "$newest" ]; then
+            echo "::error::Commit ${DEPLOY_SHA::12} is not the newest commit on main (${newest::12}), so nothing was deployed. Deploy only releases the newest commit: the run that follows its green CI does that."
+            exit 1
+          fi
+
+      # An automatic run starts only from a green CI run. A manual run must
+      # meet the same bar: the browser tests, backup-job tests, dependency
+      # audit and secret scan run in CI only, not in `npm run check` below.
+      # The filter is the test the job condition applies to an automatic run.
+      - name: Require green CI for a manual run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WITHOUT_GREEN_CI: ${{ inputs.deploy_without_green_ci }}
+        run: |
+          if [ "$WITHOUT_GREEN_CI" = "true" ]; then
+            echo "::warning::Emergency override: deploying ${DEPLOY_SHA::12} without a green CI run (docs/runbooks/release.md)."
+            exit 0
+          fi
+          green=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${DEPLOY_SHA}&per_page=100" \
+            --jq '.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .conclusion == "success") | .head_sha') || {
+            echo "::error::Could not read the CI runs for commit ${DEPLOY_SHA::12} from GitHub, so nothing was deployed. Run Deploy again."
+            exit 1
+          }
+          printf '%s\n' "$green" | grep -qxF "$DEPLOY_SHA" || {
+            echo "::error::CI has not passed for commit ${DEPLOY_SHA::12}, so nothing was deployed. Wait for CI to finish (a green run deploys by itself), or fix main. Emergencies: docs/runbooks/release.md, \"Emergency deploy without green CI\"."
             exit 1
           }
 
@@ -202,6 +247,6 @@ jobs:
             echo "- Convex deployment: ${CONVEX_URL:-not reached}"
             echo "- Cloudflare Worker version tag: ${DEPLOY_SHA::12} (wrangler ${WRANGLER_VERSION})"
             echo ""
-            echo "Next: run the post-deploy commands in docs/runbooks/release.md and check the site."
+            echo "Next: check the live site (docs/runbooks/release.md, \"After every deploy\")."
             echo "Roll back the website with Cloudflare (Workers > angel-one > Deployments). Convex cannot be rolled back: fix forward."
           } >> "$GITHUB_STEP_SUMMARY"
