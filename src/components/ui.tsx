@@ -1,8 +1,8 @@
 /**
  * Responsibility: Shared building blocks for forms and pages: the modal, the
- *   async form and delete button, labelled fields, badges, empty states, page
- *   titles, safe links, file and blank-CSV downloads, and the text shown for
- *   an error.
+ *   async form and delete button, revealing a refused save, labelled fields,
+ *   empty states, page titles, safe links, file and blank-CSV downloads, and
+ *   the text shown for an error.
  * Layer: UI. Shared components; no Convex imports.
  * Dependencies: react, @phosphor-icons/react, ./design.tsx, src/data/store.ts,
  *   src/data/errors.ts, src/domain/csv.ts.
@@ -16,6 +16,7 @@ import {
   isValidElement,
   type ReactNode,
   type FormEvent,
+  type SyntheticEvent,
 } from "react";
 import { CircleNotch } from "@phosphor-icons/react";
 import { DialogFrame, PageHeader } from "./design";
@@ -168,6 +169,36 @@ export function AsyncForm({
 }
 
 /**
+ * Keeps a refused save in front of the user, for forms that show their own
+ * error instead of using AsyncForm. Disabling a busy form drops focus from
+ * the field or button the save started from to the page, and the error often
+ * renders below the visible part of a long dialog.
+ *
+ * @param error - The error text the form shows; "" when there is none.
+ * @returns `alertRef`, for the element that shows the error, and
+ *   `rememberOrigin`, to call with the submit or click event that starts the
+ *   save. When the error appears, focus returns to that field or button if it
+ *   fell to the page (never if the user moved it), and the error scrolls into
+ *   view clear of a sticky footer. The same text twice in a row does not
+ *   reveal again, so clear the error when a save starts.
+ */
+export function useRevealError(error: string) {
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  const origin = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!error) return;
+    restoreFocus(origin.current);
+    // "nearest" honours the dialog body's scroll-padding-bottom, so the
+    // error stops above the sticky footer instead of under it.
+    alertRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
+  function rememberOrigin(e: SyntheticEvent<HTMLElement>) {
+    origin.current = saveOrigin(e);
+  }
+  return { alertRef, rememberOrigin };
+}
+
+/**
  * A labelled field. Clones a single element child with the label's id and
  * points its aria-describedby at the hint; any other child renders as is.
  * A component child gets them as its `id` and `aria-describedby` props: it
@@ -196,26 +227,6 @@ export function Field({
         : children}
       {hint && <small id={id + "-hint"}>{hint}</small>}
     </div>
-  );
-}
-
-/**
- * A status badge. A string child shows with its hyphens as spaces, so a code
- * such as "due-soon" reads "Due Soon" once CSS capitalizes each word.
- *
- * @param props.tone - Defaults to neutral.
- */
-export function Badge({
-  children,
-  tone = "neutral",
-}: {
-  children: ReactNode;
-  tone?: "neutral" | "good" | "warning" | "danger";
-}) {
-  return (
-    <span className={"badge " + tone}>
-      {typeof children === "string" ? children.replace(/-/g, " ") : children}
-    </span>
   );
 }
 
@@ -388,27 +399,14 @@ function useProgramSubmit(onSubmit: (data: FormData) => Promise<void>) {
   return { busy, error, submit };
 }
 
-// Disabling the busy form drops focus from the field or button the user
-// submitted from to <body>, and the error renders at the end of a long form,
-// often below the visible part of the dialog.
-function useRevealError(error: string) {
-  const alertRef = useRef<HTMLParagraphElement>(null);
-  const origin = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!error) return;
-    restoreFocus(origin.current);
-    // "nearest" honours the dialog body's scroll-padding-bottom, so the
-    // error stops above the sticky footer instead of under it.
-    alertRef.current?.scrollIntoView({ block: "nearest" });
-  }, [error]);
-  function rememberOrigin(e: FormEvent<HTMLFormElement>) {
-    const focused = document.activeElement;
-    origin.current =
-      focused instanceof HTMLElement && e.currentTarget.contains(focused)
-        ? focused
-        : (e.nativeEvent as SubmitEvent).submitter;
-  }
-  return { alertRef, rememberOrigin };
+// The focused field or button inside the form or button the save started
+// from; else the submit button, since Safari does not focus a clicked button.
+function saveOrigin(e: SyntheticEvent<HTMLElement>): HTMLElement {
+  const focused = document.activeElement;
+  const inside = focused && e.currentTarget.contains(focused);
+  if (inside && focused instanceof HTMLElement) return focused;
+  const { submitter } = e.nativeEvent as SubmitEvent;
+  return submitter ?? e.currentTarget;
 }
 
 // Only when focus was dropped: never take it from where the user moved it.

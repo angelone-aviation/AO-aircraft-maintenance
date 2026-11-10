@@ -591,7 +591,7 @@ main {
   gap: 6px;
   flex: none;
 }
-.topbar-status .badge {
+.topbar-status > .ds-pill {
   margin-right: 4px;
 }
 .connection {
@@ -839,7 +839,7 @@ dialog.ds-dialog.more-sheet {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  .topbar-status .badge,
+  .topbar-status > .ds-pill,
   .topbar .owner-preview-button {
     display: none;
   }
@@ -996,48 +996,6 @@ dialog.ds-dialog.more-sheet {
   margin-bottom: 14px;
 }
 
-/* Badges: pills (tone dot drawn in CSS so accessible names don't change) */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 11px;
-  border-radius: var(--radius-pill);
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.35;
-  white-space: nowrap;
-  background: var(--surface2);
-  color: var(--muted);
-  text-transform: capitalize;
-}
-.badge.good,
-.badge.warning,
-.badge.danger {
-  padding-left: 10px;
-}
-.badge.good::before,
-.badge.warning::before,
-.badge.danger::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  flex: none;
-}
-.badge.good {
-  background: var(--good-bg);
-  color: var(--good);
-}
-.badge.warning {
-  background: var(--warn-bg);
-  color: var(--warn);
-}
-.badge.danger {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
 .count {
   display: inline-block;
   margin-left: 8px;

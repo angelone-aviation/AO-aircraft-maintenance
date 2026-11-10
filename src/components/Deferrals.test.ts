@@ -81,7 +81,9 @@ const inDays = (days: number) => localDate(Date.now() + days * DAY_MS);
 describe("DeferralStatus", () => {
   it("counts the days left of an open deferral", () => {
     const html = status({ expiresOn: inDays(3) });
-    expect(html).toContain('<span class="badge warning">Deferred</span>');
+    expect(html).toContain(
+      '<span class="ds-pill ds-tone-warn"><span class="ds-pill-dot" aria-hidden="true"></span>Deferred</span>',
+    );
     expect(html).toContain(`Expires ${inDays(3)} · 3 days remaining`);
     expect(status({ expiresOn: inDays(1) })).toContain("· 1 day remaining");
   });
@@ -89,7 +91,7 @@ describe("DeferralStatus", () => {
   it("grounds the aircraft once an open deferral expires", () => {
     const html = status({ expiresOn: inDays(-1) });
     expect(html).toContain(
-      '<span class="badge danger">Deferral expired</span>',
+      '<span class="ds-pill ds-tone-danger"><span class="ds-pill-dot" aria-hidden="true"></span>Deferral expired</span>',
     );
     expect(html).toContain("The aircraft is grounded until this is resolved.");
   });
@@ -99,7 +101,9 @@ describe("DeferralStatus", () => {
       "No expiry under 91.213(d); repair at the next required inspection.",
     );
     const resolved = status({ expiresOn: inDays(-1) }, false);
-    expect(resolved).toContain('<span class="badge neutral">Deferred</span>');
+    expect(resolved).toContain(
+      '<span class="ds-pill ds-tone-neutral"><span class="ds-pill-dot" aria-hidden="true"></span>Deferred</span>',
+    );
     expect(resolved).toContain(
       "Deferral ended when the discrepancy was resolved.",
     );

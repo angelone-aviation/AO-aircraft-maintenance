@@ -755,6 +755,57 @@ html:has(dialog.ds-dialog[open]) {
   }
 }
 
+/* ---------- Loading placeholder (Skeleton) ---------- */
+/* tokens.css stops the pulse under prefers-reduced-motion. */
+.ds-skeleton {
+  display: grid;
+  gap: var(--space-6);
+}
+.ds-skeleton.section {
+  gap: var(--space-4);
+}
+.ds-skeleton-head {
+  display: grid;
+  gap: var(--space-3);
+}
+.ds-skeleton-line,
+.ds-skeleton-card {
+  display: block;
+  background: var(--surface2);
+  animation: ds-pulse 1.4s ease-in-out infinite;
+}
+.ds-skeleton-line {
+  width: min(420px, 70%);
+  height: 14px;
+  border-radius: var(--radius-pill);
+}
+.ds-skeleton-line.title {
+  width: min(280px, 55%);
+  height: 30px;
+  border-radius: var(--radius-control);
+}
+.ds-skeleton.section .ds-skeleton-line.title {
+  height: 20px;
+}
+.ds-skeleton-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+.ds-skeleton-card {
+  height: 148px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.ds-skeleton.section .ds-skeleton-card {
+  height: 88px;
+}
+@keyframes ds-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 /* ---------- Aircraft line drawing ---------- */
 .ds-aircraft-art {
   display: block;

@@ -93,6 +93,7 @@ import {
   KpiTile,
   NoticeBar,
   PageHeader,
+  Skeleton,
   ProgressTrack,
   RoundButton,
   SearchField,
@@ -248,7 +249,7 @@ function DashboardSection({
     case "adAlerts":
       return (
         <section className="dash-panel dash-ads">
-          <Suspense fallback={null}>
+          <Suspense fallback={<Skeleton shape="section" />}>
             <ADAlerts />
           </Suspense>
         </section>
@@ -1232,7 +1233,7 @@ function AircraftDetail(detail: DetailProps) {
         )}
       </div>
       <div className="dash-detail-section dash-detail-ads">
-        <Suspense fallback={null}>
+        <Suspense fallback={<Skeleton shape="section" />}>
           <ADAlerts aircraftUuid={a.uuid} />
         </Suspense>
       </div>
@@ -1249,7 +1250,7 @@ function DetailHero({
 }: DetailProps & { status: AircraftStatus }) {
   return (
     <div className="dash-detail-hero">
-      <AircraftArt opacity={0.28} className="dash-detail-art" />
+      <AircraftArt aircraft={a} opacity={0.28} className="dash-detail-art" />
       <RoundButton
         label="Close dialog"
         onNavy

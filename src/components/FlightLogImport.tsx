@@ -27,8 +27,8 @@ import {
   type LogbookFormat,
   type PlannedRow,
 } from "../domain/flightLogImport";
-import { AsyncForm, Badge, Field, errorText, value } from "./ui";
-import { Dialog } from "./design";
+import { AsyncForm, Field, errorText, value } from "./ui";
+import { Dialog, StatusPill } from "./design";
 
 const OPERATIONS: FlightInput["operation"][] = [
   "Private",
@@ -396,13 +396,14 @@ function RowStatus({
         Row {row.row}: {row.error}
       </span>
     );
-  if (row.duplicate) return <Badge tone="warning">Possible duplicate</Badge>;
+  if (row.duplicate)
+    return <StatusPill tone="warn">Possible duplicate</StatusPill>;
   if (review)
     return (
       <>
-        <Badge tone="warning">Held for review</Badge> {review}
+        <StatusPill tone="warn">Held for review</StatusPill> {review}
       </>
     );
-  if (selected) return <Badge tone="good">Ready</Badge>;
+  if (selected) return <StatusPill tone="good">Ready</StatusPill>;
   return "Not selected";
 }

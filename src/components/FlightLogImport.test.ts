@@ -115,7 +115,9 @@ describe("FlightLogImportButton", () => {
     const lines = LOGBOOK.trimEnd().split("\n");
     const html = await preview([...lines, lines[12]].join("\n"));
     expect(html).toContain('aria-label="Import row 13" checked=""/>');
-    expect(html).toContain('<span class="badge good">Ready</span>');
+    expect(html).toContain(
+      '<span class="ds-pill ds-tone-good"><span class="ds-pill-dot" aria-hidden="true"></span>Ready</span>',
+    );
     expect(html).toContain('aria-label="Import row 15" disabled=""/>');
     expect(html).toContain('aria-label="Import row 19"/>');
     expect(html).toContain("Possible duplicate");

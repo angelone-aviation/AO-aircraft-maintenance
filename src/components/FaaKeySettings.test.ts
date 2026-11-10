@@ -66,7 +66,10 @@ vi.mock("@tanstack/react-router", () => ({
     ]),
 }));
 
-type FormSubmit = Pick<FormEvent, "preventDefault">;
+type FormSubmit = Pick<
+  FormEvent<HTMLElement>,
+  "preventDefault" | "currentTarget" | "nativeEvent"
+>;
 
 const DAY_MS = 86_400_000;
 const ONLINE = { online: true, connected: true, demo: false };
@@ -76,6 +79,7 @@ const UNCONFIRMED =
 beforeEach(() => {
   hooks.states = [];
   dialog.submit = undefined;
+  vi.unstubAllGlobals();
 });
 
 function expiringIn(days: number): FaaCredentialStatus {
@@ -120,7 +124,13 @@ async function failReplacement(error: Error) {
   hooks.states[0] = true;
   renderAgain();
   if (!dialog.submit) throw new Error("The replacement dialog did not open.");
-  dialog.submit({ preventDefault: () => {} });
+  // The dialog notes where the save started; nothing is focused here.
+  vi.stubGlobal("document", { activeElement: null });
+  dialog.submit({
+    preventDefault: () => {},
+    currentTarget: {} as HTMLElement,
+    nativeEvent: {} as Event,
+  });
   await new Promise((resolve) => setTimeout(resolve, 0));
   return renderAgain();
 }
@@ -150,9 +160,27 @@ describe("FaaKeySettings", () => {
 
   it("offers the replacement only to system administrators", () => {
     expect(renderPanel()).toContain(
-      '<button type="button" class="button small">Update FAA API key</button>',
+      '<button type="button" class="button small" aria-label="Update FAA API key">Update…</button>',
     );
     expect(renderPanel(2, false)).not.toContain("Update FAA API key");
+  });
+
+  it("names the key's state in its pill: a key is valid through its expiry date", () => {
+    const pill = (faaCredential?: FaaCredentialStatus) => {
+      workspace.state = {
+        snapshot: { faaCredential, user: { isAdmin: true } },
+        ...ONLINE,
+      };
+      return renderAgain().match(/<\/span>([^<]+)<\/span>/)?.[1];
+    };
+    expect(pill(expiringIn(61))).toBe("Active");
+    expect(pill(expiringIn(60))).toBe("Renew soon");
+    expect(pill(expiringIn(0))).toBe("Renew soon");
+    expect(pill(expiringIn(-1))).toBe("Expired");
+    expect(pill({ configured: true, expiresOn: "", version: 1 })).toBe(
+      "No expiry date",
+    );
+    expect(pill(undefined)).toBe("Not set up");
   });
 
   it("disables the replacement offline and in demo mode", () => {

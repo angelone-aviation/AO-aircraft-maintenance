@@ -7,7 +7,7 @@
  */
 import { DrsComboBox } from "./DrsComboBox";
 import "./faaSearch.css";
-import { useState } from "react";
+import { useState, type SyntheticEvent } from "react";
 import { useWorkspace } from "../data/store";
 import type { Backend } from "../data/backend";
 import { can, type Snapshot } from "../domain/model";
@@ -21,7 +21,7 @@ import {
   type FaaSearchResult,
   type SearchAsset,
 } from "../domain/faaSearch";
-import { Field, Modal, errorText, safeHref } from "./ui";
+import { Field, Modal, errorText, safeHref, useRevealError } from "./ui";
 
 // The AD import command takes at most 500 entries (adCommandSchema).
 const MAX_IMPORT_ASSIGNMENTS = 500;
@@ -50,7 +50,7 @@ const DATE_RANGE = [
 type SearchRow = FaaSearchInput["assets"][number];
 // Candidate id → ids of the assets ("" for the airframe) to receive the AD.
 type Selection = Record<string, string[]>;
-type FaaSearch = ReturnType<typeof useFaaSearch>;
+type FaaSearch = Omit<ReturnType<typeof useFaaSearch>, "alertRef">;
 type SearchProps = { search: FaaSearch };
 type AssetProps = SearchProps & { asset: SearchAsset };
 type RowProps = {
@@ -105,7 +105,8 @@ export function FaaSearchImport({ aircraftUuid }: { aircraftUuid: string }) {
 
 function FaaSearchDialog(props: DialogProps) {
   const { snapshot, demo } = useWorkspace();
-  const search = useFaaSearch(props);
+  // The error ref stays out of `search`, so render code never reads a ref.
+  const { alertRef, ...search } = useFaaSearch(props);
   const aircraft = snapshot!.aircraft.find(
     (a) => a.uuid === props.aircraftUuid,
   );
@@ -125,7 +126,7 @@ function FaaSearchDialog(props: DialogProps) {
           FAA.
         </p>
       )}
-      <SearchForm search={search} />
+      <SearchForm search={search} alertRef={alertRef} />
       {search.results && (
         <SearchResults search={search} results={search.results} />
       )}
@@ -159,14 +160,14 @@ function useFaaSearch({ aircraftUuid, onImported }: DialogProps) {
       isTracked(snapshot!, aircraftUuid, number, id),
     change,
     reset: () => change(blankSearch(aircraftUuid, assets)),
-    find: () =>
-      run(async () => {
+    find: (from: SyntheticEvent<HTMLElement>) =>
+      run(from, async () => {
         // A new search discards the previous results and assignments.
         change(form);
         setResults(await findADs(form, backend!));
       }),
-    importSelected: () =>
-      run(async () => {
+    importSelected: (from: SyntheticEvent<HTMLElement>) =>
+      run(from, async () => {
         const entries = importEntries(results ?? [], selected, assets);
         await backend!.saveAD({ kind: "import", aircraftUuid, entries });
         onImported(importNotice(selected));
@@ -177,7 +178,13 @@ function useFaaSearch({ aircraftUuid, onImported }: DialogProps) {
 function useTask() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const run = async (task: () => Promise<void>) => {
+  // A failed import also shows here, above the results, so it is scrolled to.
+  const { alertRef, rememberOrigin } = useRevealError(error);
+  const run = async (
+    from: SyntheticEvent<HTMLElement>,
+    task: () => Promise<void>,
+  ) => {
+    rememberOrigin(from);
     setBusy(true);
     setError("");
     try {
@@ -188,23 +195,30 @@ function useTask() {
       setBusy(false);
     }
   };
-  return { busy, error, setError, run };
+  return { busy, error, setError, run, alertRef };
 }
 
-function SearchForm({ search }: SearchProps) {
+function SearchForm({
+  search,
+  alertRef,
+}: SearchProps & { alertRef: ReturnType<typeof useFaaSearch>["alertRef"] }) {
   const { busy, form } = search;
   return (
     <form
       className="faa-search-form"
       onSubmit={(e) => {
         e.preventDefault();
-        void search.find();
+        void search.find(e);
       }}
     >
       <AssetList search={search} />
       <DocumentFilters search={search} />
       <AdvancedFilters search={search} />
-      {search.error && <p role="alert">{search.error}</p>}
+      {search.error && (
+        <p ref={alertRef} role="alert">
+          {search.error}
+        </p>
+      )}
       <button
         className="button secondary"
         type="submit"
@@ -536,7 +550,7 @@ function ImportButton({ search }: SearchProps) {
           count === 0 ||
           count > MAX_IMPORT_ASSIGNMENTS
         }
-        onClick={() => void search.importSelected()}
+        onClick={(e) => void search.importSelected(e)}
       >
         Import selected ({count}) as Needs review
       </button>

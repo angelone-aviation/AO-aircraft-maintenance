@@ -67,7 +67,7 @@ import {
   type StaleInitialLimit,
 } from "../domain/airworthiness";
 import { importADDocx, type ADImport } from "../data/adImport";
-import { Field, Modal, errorText, safeHref } from "./ui";
+import { Field, Modal, errorText, safeHref, useRevealError } from "./ui";
 import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
 import type { FieldSpecs } from "../domain/fieldDiff";
 import { AD_KEEP_MINE } from "../domain/keepMineRules";
@@ -1207,6 +1207,7 @@ function ADDraftForm({ ad, draft }: DraftProps) {
   // The stored AD as it was when the form opened (or was reloaded): what
   // Keep mine measures the user's changes against.
   const [loaded, setLoaded] = useState(() => storedAD(ad.state, draft.uuid));
+  const reveal = useRevealError(ad.error);
   return (
     <Modal
       title={draft.version ? "Review AD" : "Add AD"}
@@ -1215,6 +1216,7 @@ function ADDraftForm({ ad, draft }: DraftProps) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          reveal.rememberOrigin(e);
           void submitDraft(ad, stale, {
             draft,
             loaded,
@@ -1223,20 +1225,32 @@ function ADDraftForm({ ad, draft }: DraftProps) {
           });
         }}
       >
-        <div className="form-grid">
-          <SourceFields ad={ad} draft={draft} />
-          <ApplicabilityFields ad={ad} draft={draft} />
-        </div>
-        <DraftReview ad={ad} draft={draft} />
-        <DraftTasks ad={ad} draft={draft} />
-        {needsReason && <ChangeReasonField ad={ad} />}
+        <DraftFields ad={ad} draft={draft} needsReason={needsReason} />
         <button className="button primary" disabled={ad.busy} type="submit">
           Save AD
         </button>
-        {ad.error && <p role="alert">{ad.error}</p>}
+        <FormError alertRef={reveal.alertRef} error={ad.error} />
       </form>
       {stale.dialog}
     </Modal>
+  );
+}
+
+function DraftFields({
+  ad,
+  draft,
+  needsReason,
+}: DraftProps & { needsReason: boolean }) {
+  return (
+    <>
+      <div className="form-grid">
+        <SourceFields ad={ad} draft={draft} />
+        <ApplicabilityFields ad={ad} draft={draft} />
+      </div>
+      <DraftReview ad={ad} draft={draft} />
+      <DraftTasks ad={ad} draft={draft} />
+      {needsReason && <ChangeReasonField ad={ad} />}
+    </>
   );
 }
 
@@ -1651,6 +1665,7 @@ function ComplianceForm({
   compliance,
 }: ADProps & { compliance: ComplianceDraft }) {
   const set = ad.setCompliance;
+  const reveal = useRevealError(ad.error);
   return (
     <Modal
       title={
@@ -1663,6 +1678,7 @@ function ComplianceForm({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          reveal.rememberOrigin(e);
           saveCompliance(ad, compliance);
         }}
       >
@@ -1681,7 +1697,7 @@ function ComplianceForm({
         <button className="button primary" disabled={ad.busy}>
           {compliance.corrects ? "Save correction" : "Save compliance"}
         </button>
-        {ad.error && <p role="alert">{ad.error}</p>}
+        <FormError alertRef={reveal.alertRef} error={ad.error} />
       </form>
     </Modal>
   );
@@ -1799,6 +1815,7 @@ function ClearLimitForm({
   clearing,
 }: ADProps & { clearing: ClearingDraft }) {
   const { record, stale } = clearing;
+  const reveal = useRevealError(ad.error);
   return (
     <Modal
       title="Clear initial limit"
@@ -1807,6 +1824,7 @@ function ClearLimitForm({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          reveal.rememberOrigin(e);
           saveClearedLimit(ad, clearing);
         }}
       >
@@ -1829,9 +1847,24 @@ function ClearLimitForm({
         <button className="button primary" disabled={ad.busy}>
           Clear initial limit
         </button>
-        {ad.error && <p role="alert">{ad.error}</p>}
+        <FormError alertRef={reveal.alertRef} error={ad.error} />
       </form>
     </Modal>
+  );
+}
+
+function FormError({
+  alertRef,
+  error,
+}: {
+  alertRef: ReturnType<typeof useRevealError>["alertRef"];
+  error: string;
+}) {
+  if (!error) return null;
+  return (
+    <p ref={alertRef} role="alert">
+      {error}
+    </p>
   );
 }
 

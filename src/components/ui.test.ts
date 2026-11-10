@@ -12,7 +12,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { errorText as dataErrorText } from "../data/errors";
 import {
   AsyncForm,
-  Badge,
   DeleteFileButton,
   Empty,
   Field,
@@ -119,20 +118,6 @@ describe("Field", () => {
     expect(render(h(Field, { label: "Serial", children: "text" }))).toMatch(
       /<\/label>text<\/div>$/,
     );
-  });
-});
-
-describe("Badge", () => {
-  it("shows a string's hyphens as spaces, in the neutral tone by default", () => {
-    expect(render(h(Badge, { children: "not-yet-due" }))).toBe(
-      '<span class="badge neutral">not yet due</span>',
-    );
-  });
-
-  it("leaves element children untouched", () => {
-    expect(
-      render(h(Badge, { tone: "danger", children: h("b", null, "a-b") })),
-    ).toBe('<span class="badge danger"><b>a-b</b></span>');
   });
 });
 

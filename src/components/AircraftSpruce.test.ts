@@ -244,8 +244,13 @@ describe("AircraftSpruceAccount", () => {
 
   it("describes the link and its catalog", async () => {
     const html = await mount(h(AircraftSpruceAccount));
-    expect(html).toContain("<p>No account linked.</p>");
-    expect(button("Link Aircraft Spruce account").disabled).toBe(false);
+    expect(html).toContain(
+      '<p class="set-integration-summary">No account linked.</p>',
+    );
+    expect(button("Update…")).toMatchObject({
+      "aria-label": "Update Aircraft Spruce account",
+      disabled: false,
+    });
     status = { configured: true, version: 3, currency: "CAD" };
     expect(await mount(h(AircraftSpruceAccount))).toContain(
       "Catalog not downloaded yet.",
@@ -257,18 +262,18 @@ describe("AircraftSpruceAccount", () => {
       `12,345 products · refreshed ${new Date(CATALOG_AT).toLocaleString()}`,
     );
     expect(linked).not.toContain("Catalog not downloaded");
-    expect(button("Replace Aircraft Spruce account").disabled).toBe(false);
+    expect(button("Update…").disabled).toBe(false);
   });
 
   it("waits for the status, and a connection outside the demo", async () => {
     element = h(AircraftSpruceAccount);
     render();
-    expect(button("Link Aircraft Spruce account").disabled).toBe(true);
+    expect(button("Update…").disabled).toBe(true);
     ui.workspace.demo = true;
     expect(await mount(h(AircraftSpruceAccount))).toContain(
       "Not available in the demo: keys and accounts are saved only on a live deployment.",
     );
-    expect(button("Link Aircraft Spruce account").disabled).toBe(true);
+    expect(button("Update…").disabled).toBe(true);
   });
 
   it("says when the status does not load", async () => {
@@ -289,7 +294,7 @@ describe("AircraftSpruceAccount", () => {
   it("links an account with the confirmed currency", async () => {
     status = { configured: true, version: 3, currency: "CAD" };
     await mount(h(AircraftSpruceAccount));
-    await click("Replace Aircraft Spruce account");
+    await click("Update…");
     expect(ui.fields.get("Confirmed account catalog currency")!.value).toBe(
       "CAD",
     );
@@ -316,17 +321,17 @@ describe("AircraftSpruceAccount", () => {
       "Account linked. Refresh the catalog to search products.",
     );
     expect(html).toContain("catalog currency USD");
-    await click("Replace Aircraft Spruce account");
+    await click("Update…");
     expect(ui.fields.get("Aircraft Spruce user ID")!.value).toBe("");
   });
 
   it("clears typed credentials when the form closes", async () => {
     await mount(h(AircraftSpruceAccount));
-    await click("Link Aircraft Spruce account");
+    await click("Update…");
     type("Aircraft Spruce password", "secret");
     (ui.forms.get("Validate and link account")!.onClose as () => void)();
     render();
-    await click("Link Aircraft Spruce account");
+    await click("Update…");
     expect(ui.fields.get("Aircraft Spruce password")!.value).toBe("");
   });
 

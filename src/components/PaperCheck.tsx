@@ -9,11 +9,11 @@
  *
  * The report module pulls in jsPDF, so it loads only when someone exports.
  */
-import { useState } from "react";
+import { useState, type SyntheticEvent } from "react";
 import { ListChecks } from "@phosphor-icons/react";
 import { can, localDate, type Snapshot } from "../domain/model";
 import { Dialog } from "./design";
-import { Field, download, errorText } from "./ui";
+import { Field, download, errorText, useRevealError } from "./ui";
 
 const CSV_TYPE = "text/csv";
 const YEAR_MONTH_LENGTH = "YYYY-MM".length;
@@ -68,7 +68,11 @@ function PaperCheckDialog({
 }) {
   const [aircraftUuid, setAircraft] = useState(aircraft[0].uuid);
   const [month, setMonth] = useState(localDate().slice(0, YEAR_MONTH_LENGTH));
-  const { busy, error, save } = usePaperCheckSave(state, aircraftUuid, month);
+  const { busy, error, save, alertRef } = usePaperCheckSave(
+    state,
+    aircraftUuid,
+    month,
+  );
   return (
     <Dialog
       title="Paper check"
@@ -86,7 +90,7 @@ function PaperCheckDialog({
       <MonthField value={month} onChange={setMonth} />
       <SaveButtons busy={busy} disabled={busy || !month} onSave={save} />
       {error && (
-        <p role="alert" className="error">
+        <p ref={alertRef} role="alert" className="error">
           {error}
         </p>
       )}
@@ -101,7 +105,12 @@ function usePaperCheckSave(
 ) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function save(format: PaperCheckFormat) {
+  const { alertRef, rememberOrigin } = useRevealError(error);
+  async function save(
+    from: SyntheticEvent<HTMLElement>,
+    format: PaperCheckFormat,
+  ) {
+    rememberOrigin(from);
     setBusy(true);
     setError("");
     try {
@@ -112,7 +121,7 @@ function usePaperCheckSave(
       setBusy(false);
     }
   }
-  return { busy, error, save };
+  return { busy, error, save, alertRef };
 }
 
 function AircraftSelect({
@@ -163,7 +172,10 @@ function SaveButtons({
 }: {
   busy: boolean;
   disabled: boolean;
-  onSave: (format: PaperCheckFormat) => Promise<void>;
+  onSave: (
+    from: SyntheticEvent<HTMLElement>,
+    format: PaperCheckFormat,
+  ) => Promise<void>;
 }) {
   return (
     <div className="form-footer">
@@ -171,7 +183,7 @@ function SaveButtons({
         type="button"
         className="button primary"
         disabled={disabled}
-        onClick={() => void onSave("pdf")}
+        onClick={(e) => void onSave(e, "pdf")}
       >
         {busy ? "Building…" : "Save PDF"}
       </button>
@@ -179,7 +191,7 @@ function SaveButtons({
         type="button"
         className="button"
         disabled={disabled}
-        onClick={() => void onSave("csv")}
+        onClick={(e) => void onSave(e, "csv")}
       >
         Save CSV
       </button>

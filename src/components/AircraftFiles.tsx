@@ -20,7 +20,7 @@ import {
   type AircraftFile,
 } from "../domain/aircraftFiles";
 import { Switch } from "./design";
-import { errorText } from "./ui";
+import { errorText, useRevealError } from "./ui";
 import "../styles/screens/dashboard.css";
 
 const BYTES_PER_KB = 1024;
@@ -291,7 +291,7 @@ export function AircraftFileArchiveForm({
   onCancel: () => void;
 }) {
   const [reason, setReason] = useState("");
-  const { busy, error, submit } = useArchive(onArchive, reason);
+  const { busy, error, submit, alertRef } = useArchive(onArchive, reason);
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
@@ -309,7 +309,7 @@ export function AircraftFileArchiveForm({
       />
       <ArchiveActions busy={busy} onCancel={onCancel} />
       {error && (
-        <p role="alert" className="error">
+        <p ref={alertRef} role="alert" className="error">
           {error}
         </p>
       )}
@@ -320,8 +320,10 @@ export function AircraftFileArchiveForm({
 function useArchive(onArchive: Archiver, reason: string) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function submit(e: FormEvent) {
+  const { alertRef, rememberOrigin } = useRevealError(error);
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    rememberOrigin(e);
     setBusy(true);
     setError("");
     try {
@@ -333,7 +335,7 @@ function useArchive(onArchive: Archiver, reason: string) {
       setBusy(false);
     }
   }
-  return { busy, error, submit };
+  return { busy, error, submit, alertRef };
 }
 
 function ArchiveActions({
