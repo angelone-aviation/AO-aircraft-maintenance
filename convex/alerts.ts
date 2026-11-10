@@ -152,6 +152,7 @@ export const markRead = mutation({
  * so an alert that clears and later returns is unread again. Keys never
  * marked are ignored.
  *
+ * @param programUuid - The caller's active Flight Program.
  * @param keys - The cleared alerts' keys; duplicates count once.
  * @throws {ConvexError} As `markRead`.
  */
@@ -305,15 +306,15 @@ export const recordDeliveries = internalMutation({
 
 /**
  * Ends the occurrence of every alert that has cleared in a scope (a Flight
- * Program or {@link SYSTEM_SCOPE}):
- * forgets each member's delivery rows, on every channel, and read marks for
- * alerts they no longer have, so an alert that returns is sent again and is
- * unread again. The alerts are computed inside this transaction, so a row is
- * dropped only if its alert is gone at that moment; a claim made beside a
- * check that saw older records is never lost. A read mark is kept while the
- * alert exists on any date that is today somewhere, since a device judges
- * dates on its own calendar day. Read marks in the system scope belong to
- * the unassigned records' bell and are left alone.
+ * Program or {@link SYSTEM_SCOPE}): forgets each member's delivery rows, on
+ * every channel, and read marks for alerts they no longer have, so an alert
+ * that returns is sent again and is unread again. The alerts are computed
+ * inside this transaction, so a row is dropped only if its alert is gone at
+ * that moment; a claim made beside a check that saw older records is never
+ * lost. A read mark is kept while the alert exists on any date that is today
+ * somewhere, since a device judges dates on its own calendar day. Read marks
+ * in the system scope belong to the unassigned records' bell and are left
+ * alone.
  *
  * @returns `today`: the records date the alerts were computed for, which the
  *   check that follows must use.
