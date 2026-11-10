@@ -558,3 +558,47 @@ describe("aircraft status on the due fleet", () => {
     ]);
   });
 });
+
+describe("inspection reasons", () => {
+  it("name an inspection without a Reference by its description", () => {
+    const s = setup();
+    s.inspections.push({
+      uuid: "transponder",
+      aircraftUuid: N206,
+      reference: "",
+      description: "Transponder check",
+      dueDate: "2024-10-15",
+    });
+    expect(aircraftStatus(s, N206, "2026-11-09").reasons).toContainEqual({
+      kind: "inspection",
+      label: "Transponder check overdue",
+      entityUuid: "transponder",
+    });
+  });
+
+  it("leave out an overdue inspection of a component removed to storage", () => {
+    const s = setup();
+    s.discrepancies = [];
+    s.aircraft[0].operationalStatus = "airworthy";
+    component(s, 1000 * 3600);
+    s.inspections.push({
+      uuid: "pump-check",
+      aircraftUuid: N206,
+      componentUuid: "pump",
+      reference: "Pump check",
+      description: "",
+      dueSeconds: 90 * 3600,
+    });
+    const status = () => aircraftStatus(s, N206, DUE_FLEET_TODAY);
+    expect(status()).toMatchObject({
+      level: "grounded",
+      reasons: [{ label: "Pump check overdue" }],
+    });
+    expect(() => dispatchGate(s, N206, undefined, DUE_FLEET_TODAY)).toThrow(
+      "Pump check overdue",
+    );
+    Object.assign(s.management![0], { installed: false });
+    expect(status()).toEqual({ level: "airworthy", reasons: [] });
+    expect(dispatchGate(s, N206, undefined, DUE_FLEET_TODAY)).toBeUndefined();
+  });
+});

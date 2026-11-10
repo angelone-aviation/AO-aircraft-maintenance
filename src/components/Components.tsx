@@ -49,6 +49,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   can,
   hours,
+  localDate,
   totalSeconds,
   parseHours,
   type Aircraft,
@@ -1346,6 +1347,7 @@ function baselineCommand(
     version: c.version,
     requestUuid: crypto.randomUUID(),
     reason: "Component baseline updated.",
+    date: localDate(),
     ...installReadings(d, c, track),
     ...usageReadings(d, c, track),
   };

@@ -26,7 +26,7 @@ import {
   aircraftMeterLabels,
   hours,
   logsEngineStartsAsCycles,
-  totalSeconds,
+  recordedTotalSeconds,
   type Aircraft,
   type Snapshot,
 } from "../domain/model";
@@ -892,7 +892,7 @@ function AircraftRow(props: RowProps) {
       tone={tone}
       title={a.registration}
       sub={<AircraftSub a={a} />}
-      meta={<>{hours(totalSeconds(a))} h</>}
+      meta={<AircraftTotal a={a} />}
       badge={<StatusPill tone={tone}>{statusLabel[status.level]}</StatusPill>}
       actions={
         maintenance && (
@@ -938,6 +938,13 @@ function SetupChips({ s, a }: { s: Snapshot; a: Aircraft }) {
       ))}
     </p>
   );
+}
+
+// Only damaged data has a meter without a reading (the form requires one),
+// and this page is where it is repaired, so the row says so, not the page.
+function AircraftTotal({ a }: { a: Aircraft }) {
+  const seconds = recordedTotalSeconds(a);
+  return <>{seconds === undefined ? "Not recorded" : `${hours(seconds)} h`}</>;
 }
 
 function AircraftSub({ a }: { a: Aircraft }) {

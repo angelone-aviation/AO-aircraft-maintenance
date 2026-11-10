@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins work orders on the server: saving, close-out,
- *   revisions, component corrections, job-card copies and archiving, the
+ * Responsibility: Pins work orders on the server: saving, close-out and the
+ *   change-log rows of the components it changes, revisions, component corrections, job-card copies and archiving, the
  *   attachments of an open order, and the refusals users see.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/workOrders.ts, convex/admin.ts, convex/taskCards.ts,
@@ -435,6 +435,20 @@ it("commits component resets and movement history with closeout and rejects repe
     action: "both",
     reference: "AMM 72",
   });
+  const rows = await t.run((ctx) =>
+    ctx.db
+      .query("audit")
+      .withIndex("entity", (q) => q.eq("entityUuid", component.uuid))
+      .collect(),
+  );
+  const number = after!.workOrders![0].number;
+  expect(rows.map((r) => [r.action, r.reason])).toEqual([
+    [
+      "component.closeout",
+      `Component work recorded at close-out of work order ${number}.`,
+    ],
+  ]);
+  expect(JSON.parse(rows[0].after!)).toMatchObject({ timeSinceOverhaul: 0 });
   await expect(
     tech.mutation(api.workOrders.save, {
       ...args,

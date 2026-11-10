@@ -38,8 +38,10 @@ test("aircraft details exports a readable PDF status sheet", async ({
   const text = await pdfText(doc);
   for (const phrase of [
     "AIRCRAFT STATUS SHEET",
-    "Recorded aircraft status:",
+    "Aircraft status:",
+    "Aircraft status is computed from the records on this sheet.",
     "Aircraft total time:",
+    "COMPONENT LIMITS",
     "INSPECTION SCHEDULES",
     "AIRWORTHINESS DIRECTIVES",
     "FORM 337 COPIES",

@@ -2,18 +2,30 @@
  * Responsibility: Pins the status sheet content: header, section order,
  *   placeholder rows, sort orders, which records are listed, component
  *   fallbacks, the failure on an uncomputable inspection, a total it cannot
- *   read, and the notes under each table.
+ *   read, the notes under each table, and that the sheet's status and marks
+ *   agree with aircraftStatus in every grounding state.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/domain/statusSheet.ts, airworthiness.ts, components.ts,
- *   model.ts, rejection.ts, src/data/demo.ts and tests/fixtures/dueFleet.ts
- *   (fixtures).
+ * Dependencies: src/domain/statusSheet.ts, aircraftStatus.ts,
+ *   airworthiness.ts, components.ts, model.ts, rejection.ts,
+ *   src/data/demo.ts and tests/fixtures/dueFleet.ts (fixtures).
  */
-import { expect, it } from "vitest";
-import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
+import { describe, expect, it } from "vitest";
+import {
+  DUE_FLEET_TODAY,
+  dueFleet,
+  withoutMeterReading,
+} from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
-import { blankAD } from "./airworthiness";
+import { aircraftStatus, aircraftStatusLabels } from "./aircraftStatus";
+import { blankAD, blankADTask } from "./airworthiness";
 import { componentSchema } from "./components";
-import { totalSeconds, type Inspection, type Snapshot } from "./model";
+import {
+  totalSeconds,
+  type Aircraft,
+  type Discrepancy,
+  type Inspection,
+  type Snapshot,
+} from "./model";
 import { Rejection } from "./rejection";
 import { statusSheet, type StatusSectionId } from "./statusSheet";
 
@@ -58,6 +70,15 @@ function component(s: Snapshot, uuid: string, over: object = {}) {
   });
 }
 
+// Leaves the first aircraft airworthy, with nothing due, grounding or open.
+function quiet(s: Snapshot) {
+  s.aircraft[0].operationalStatus = "airworthy";
+  s.management = [];
+  s.inspections = [];
+  s.airworthiness = [];
+  s.discrepancies = [];
+}
+
 function inspection(s: Snapshot, over: Partial<Inspection>): Inspection {
   return {
     uuid: crypto.randomUUID(),
@@ -87,7 +108,7 @@ function form337(
   };
 }
 
-it("heads the sheet with the aircraft and lists six sections in order", () => {
+it("heads the sheet with the aircraft and lists seven sections in order", () => {
   const s = demoSnapshot();
   const a = s.aircraft[0];
   const result = sheet(s);
@@ -99,6 +120,7 @@ it("heads the sheet with the aircraft and lists six sections in order", () => {
   expect(result.sections.map((x) => [x.id, x.title])).toEqual([
     ["overview", "Aircraft overview"],
     ["components", "Installed components"],
+    ["limits", "Component limits"],
     ["inspections", "Inspection schedules"],
     ["airworthiness", "Airworthiness directives"],
     ["form337", "Form 337 copies"],
@@ -126,10 +148,11 @@ it("holds one placeholder row for each empty table", () => {
     .map((x) => x.rows);
   expect(rows).toEqual([
     [["No installed component records", "-", "-", "-", "-", "-", "-"]],
+    [["No component limits recorded", "-", "-", "-", "-"]],
     [["No active inspection schedules", ...Array(8).fill("-")]],
     [["No AD records", "-", "-", "-", "-"]],
     [["No Form 337 copies on file", "-", "-"]],
-    [["-", "No open discrepancies recorded", "-"]],
+    [["-", "No open discrepancies recorded", "-", "-"]],
   ]);
 });
 
@@ -276,7 +299,8 @@ it("lists closed ADs and a removed Component's AD under its section", () => {
 it("notes the flight time log only when kept and read, and the collective hourmeter when read", () => {
   const s = demoSnapshot();
   const a = s.aircraft[0];
-  const notes = () => section(s, "overview").notes;
+  quiet(s);
+  const notes = () => section(s, "overview").notes.slice(1);
   expect(notes()).toEqual([expect.stringMatching(/^Data synchronized /)]);
   Object.assign(a, { flightTimeLog: true });
   expect(notes()).toHaveLength(1);
@@ -325,6 +349,216 @@ it("lists only this aircraft's open discrepancies", () => {
     { ...report, uuid: "other", aircraftUuid: s.aircraft[1].uuid },
   ];
   expect(section(s, "discrepancies").rows.map((r) => r.slice(1))).toEqual([
-    ["Open leak", "Open"],
+    ["Open leak", "-", "Open"],
+  ]);
+});
+
+// One record of the due fleet at a time, on an aircraft otherwise airworthy.
+function fleetWith(build: (s: Snapshot, a: Aircraft) => void) {
+  const { s, a } = dueFleet();
+  quiet(s);
+  build(s, a);
+  return { s, a };
+}
+
+function keep<T extends { uuid: string }>(records: T[], ...uuids: string[]) {
+  return records.filter((r) => uuids.includes(r.uuid));
+}
+
+function report(a: Aircraft, over: Partial<Discrepancy>): Discrepancy {
+  return {
+    uuid: "report",
+    aircraftUuid: a.uuid,
+    description: "Cabin light inoperative",
+    status: "open",
+    authorId: "pilot",
+    createdAt: Date.parse("2026-10-20T12:00:00Z"),
+    ...over,
+  };
+}
+
+function melDeferral(expiresOn: string): Discrepancy["deferral"] {
+  return {
+    type: "mel",
+    melItem: "33-1",
+    category: "B",
+    placard: "INOP",
+    deferredOn: "2026-10-20",
+    deferredAt: 0,
+    deferredBy: "admin",
+    deferredByName: "Admin",
+    expiresOn,
+  };
+}
+
+const full = dueFleet().s;
+const HOURS_95 = 95 * HOUR_SECONDS;
+
+// Each state grounds the aircraft by one record; `mark` is what that
+// record's own row must say.
+const GROUNDING_STATES: [
+  string,
+  (s: Snapshot, a: Aircraft) => void,
+  StatusSectionId,
+  RegExp,
+][] = [
+  [
+    "the profile",
+    (_s, a) => Object.assign(a, { operationalStatus: "grounded" }),
+    "overview",
+    /Profile status entered on the aircraft record: grounded/,
+  ],
+  [
+    "an overdue inspection",
+    (s) => (s.inspections = keep(full.inspections, "i-late")),
+    "inspections",
+    /"overdue"/,
+  ],
+  [
+    "a component past its life limit",
+    (s) => {
+      s.management = keep(structuredClone(full.management!), "pump", "r-now");
+      Object.assign(s.management[1], { dueSeconds: HOURS_95 });
+    },
+    "limits",
+    /"95\.0 h TSN","-5\.0 h","Past due \(overdue\)"/,
+  ],
+  [
+    "a component limit with nothing left",
+    (s) => (s.management = keep(full.management!, "pump", "r-now")),
+    "limits",
+    /"100\.0 h TSN","0\.0 h","Due now \(overdue\)"/,
+  ],
+  [
+    "an overdue AD action",
+    (s) => (s.airworthiness = keep(full.airworthiness!, "ad-overdue")),
+    "airworthiness",
+    /"Overdue"/,
+  ],
+  [
+    "a grounding discrepancy",
+    (s, a) => (s.discrepancies = [report(a, { grounding: true })]),
+    "discrepancies",
+    /"-","Open: grounds the aircraft"/,
+  ],
+  [
+    "an expired MEL deferral",
+    (s, a) =>
+      (s.discrepancies = [report(a, { deferral: melDeferral("2026-10-23") })]),
+    "discrepancies",
+    /MEL 33-1 \(Category B\)\\nDeferred 2026-10-20\\nExpires 2026-10-23","Open: deferral expired, grounds the aircraft"/,
+  ],
+];
+
+describe("agrees with aircraftStatus", () => {
+  it.each(GROUNDING_STATES)(
+    "when %s grounds the aircraft",
+    (_name, build, id, mark) => {
+      const { s, a } = fleetWith(build);
+      const status = aircraftStatus(s, a.uuid, DUE_FLEET_TODAY);
+      expect(status.level).toBe("grounded");
+      const result = statusSheet(s, a.uuid, DUE_FLEET_TODAY);
+      const [overview] = result.sections;
+      expect(overview.columns[0]).toBe("Aircraft status:");
+      expect(overview.rows[0][0]).toBe("Grounded");
+      expect(overview.notes[0]).toBe(
+        `Grounded: ${status.reasons.map((r) => r.label).join("; ")}.`,
+      );
+      const rows = result.sections.find((x) => x.id === id)!;
+      expect(JSON.stringify([rows.rows, rows.notes])).toMatch(mark);
+    },
+  );
+
+  it("when several records ground it, naming every reason", () => {
+    const { s, a } = fleetWith((s, a) => {
+      for (const [, build] of GROUNDING_STATES.slice(1, 3)) build(s, a);
+      s.discrepancies = [report(a, { grounding: true })];
+    });
+    const labels = aircraftStatus(s, a.uuid, DUE_FLEET_TODAY).reasons.map(
+      (r) => r.label,
+    );
+    expect(labels).toHaveLength(3);
+    const [overview] = statusSheet(s, a.uuid, DUE_FLEET_TODAY).sections;
+    expect(overview.notes[0]).toBe(`Grounded: ${labels.join("; ")}.`);
+  });
+
+  it("when a deferral is about to expire or still has time", () => {
+    const { s, a } = fleetWith((s, a) => {
+      s.discrepancies = [
+        report(a, { uuid: "soon", deferral: melDeferral("2026-11-01") }),
+        report(a, { uuid: "later", deferral: melDeferral("2026-12-01") }),
+      ];
+    });
+    const status = aircraftStatus(s, a.uuid, DUE_FLEET_TODAY);
+    const result = statusSheet(s, a.uuid, DUE_FLEET_TODAY);
+    expect(status.level).toBe("due-soon");
+    expect(result.sections[0].rows[0][0]).toBe(
+      aircraftStatusLabels["due-soon"],
+    );
+    expect(result.sections[0].notes[0]).toBe(
+      "Due soon: MEL 33-1 (Category B) deferral expires 2026-11-01.",
+    );
+    expect(result.sections.at(-1)!.rows.map((r) => r[3])).toEqual([
+      "Open: deferral expires soon",
+      "Open: deferred",
+    ]);
+  });
+
+  it("when nothing is due: airworthy, with no reason note", () => {
+    const { s, a } = fleetWith(() => {});
+    const [overview] = statusSheet(s, a.uuid, DUE_FLEET_TODAY).sections;
+    expect(aircraftStatus(s, a.uuid, DUE_FLEET_TODAY).level).toBe("airworthy");
+    expect(overview.rows[0][0]).toBe("Airworthy");
+    expect(overview.notes[0]).toBe(
+      "Aircraft status is computed from the records on this sheet. Profile status entered on the aircraft record: airworthy.",
+    );
+  });
+});
+
+it("lists each installed component's limits in component order and reviews one it cannot compute", () => {
+  const { s, a } = dueFleet();
+  s.inspections = [];
+  const rows = statusSheet(s, a.uuid, DUE_FLEET_TODAY).sections.find(
+    (x) => x.id === "limits",
+  )!.rows;
+  expect(rows.map((r) => [r[1].split("\n")[0], r[4]])).toEqual([
+    ["r-now limit", "Due now (overdue)"],
+    ["r-today limit", "Due soon"],
+    ["r-tracked limit", "Tracked"],
+    ["r-landing limit", "Set landing baseline"],
+    ["r-early limit", "Review"],
+    ["r-gear-tso limit", "Set time baseline"],
+  ]);
+  expect(rows[0]).toEqual([
+    " Type pump\nS/N SN-pump",
+    "r-now limit\nLife Limits",
+    "100.0 h TSN",
+    "0.0 h",
+    "Due now (overdue)",
+  ]);
+  expect(rows[1].slice(2, 4)).toEqual([DUE_FLEET_TODAY, "0 days"]);
+  expect(rows[4].slice(2)).toEqual(["Review", "Review", "Review"]);
+});
+
+it("prints the next due of an AD action that has a limit but no repeat interval", () => {
+  const s = demoSnapshot();
+  quiet(s);
+  const hours = totalSeconds(s.aircraft[0]) / HOUR_SECONDS;
+  const limited = (number: string, limits: object) => {
+    const r = blankAD(s.aircraft[0].uuid);
+    r.applicability = "Applicable";
+    r.reviewRequired = false;
+    r.source = { ...r.source, number };
+    r.tasks = [{ ...blankADTask(), recurrence: "One-time", ...limits }];
+    return r;
+  };
+  s.airworthiness = [
+    limited("2026-01-01", { dueDate: "2020-01-01" }),
+    limited("2026-01-02", { dueHours: hours + 10 }),
+  ];
+  const rows = section(s, "airworthiness").rows.map((r) => r.slice(3));
+  expect(rows).toEqual([
+    ["Due 2020-01-01\nMonths remaining (approx.): 77.4 overdue", "Overdue"],
+    [`Due at ${(hours + 10).toFixed(1)} h\nHours remaining: 10.0`, "Due soon"],
   ]);
 });

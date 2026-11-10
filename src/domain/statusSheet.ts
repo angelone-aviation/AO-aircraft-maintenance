@@ -1,13 +1,15 @@
 /**
  * Responsibility: Chooses and orders what one aircraft's status sheet says:
- *   totals, installed components, inspections, ADs, Form 337 copies and open
- *   discrepancies, as rows of text.
+ *   its status, totals, installed components and their limits, inspections,
+ *   ADs, Form 337 copies and open discrepancies, as rows of text.
  * Layer: Domain. Pure functions; no I/O and no layout.
- * Dependencies: src/domain (model, dueItems, maintenance, components,
- *   componentCalendar, airworthiness, adRemaining, aircraftFiles, rejection).
+ * Dependencies: src/domain (model, aircraftStatus, dueItems, maintenance,
+ *   components, componentCalendar, airworthiness, adRemaining, deferrals,
+ *   aircraftFiles, rejection).
  *
  * The content of the 14 CFR 91.417(a)(2) status records, kept apart from any
- * document so it can be tested as data.
+ * document so it can be tested as data. Every status on the sheet is the one
+ * aircraftStatus and dueItems give the screens; the sheet computes none.
  */
 import {
   localDate,
@@ -18,28 +20,44 @@ import {
   type Snapshot,
 } from "./model";
 import {
+  aircraftStatus,
+  aircraftStatusFindings,
+  aircraftStatusLabels,
+  type AircraftStatus,
+  type AircraftStatusFinding,
+} from "./aircraftStatus";
+import {
   dueItems,
   type AdDue,
   type InspectionDue,
   type MaintenanceDue,
+  type RequirementDue,
 } from "./dueItems";
 import { inspectionDueDate } from "./maintenance";
-import { componentTotals, type Component } from "./components";
+import {
+  componentTotals,
+  requirementDueDate,
+  type Component,
+  type ComponentRequirement,
+} from "./components";
 import { daysPerServiceMonth } from "./componentCalendar";
-import type { AD } from "./airworthiness";
+import type { AD, ADTask } from "./airworthiness";
 import { adRemaining } from "./adRemaining";
+import { deferralLabel, type Deferral } from "./deferrals";
 import { isCurrentAircraftFile } from "./aircraftFiles";
 import { Rejection } from "./rejection";
 
 const SECONDS_PER_HOUR = 3600;
 const BYTES_PER_KB = 1024;
 const NOT_TRACKED = "Not tracked";
+const REVIEW = "Review";
 const NUMERIC = { numeric: true } as const;
 
 /** Names a section, so a layout can size its columns. */
 export type StatusSectionId =
   | "overview"
   | "components"
+  | "limits"
   | "inspections"
   | "airworthiness"
   | "form337"
@@ -62,17 +80,20 @@ export interface StatusSheet {
 }
 
 /**
- * Builds the status sheet content for one aircraft as recorded in `s`, with
- * its inspections and ADs from {@link dueItems}. A Component whose times
+ * Builds the status sheet content for one aircraft as recorded in `s`: its
+ * {@link aircraftStatus} with the reasons, and its inspections, component
+ * limits and ADs from {@link dueItems}. A Component whose times or limits
  * cannot be computed reads "Review", and a total time that cannot be read
  * "Not recorded", instead of failing the sheet.
  * @param s - Snapshot holding the aircraft and its records.
  * @param aircraftUuid - The aircraft to report on.
  * @param today - Local `YYYY-MM-DD` that due dates are counted from.
- * @returns The header and six sections: overview, installed components,
- *   inspections by reference, every AD (closed ones too) by Component uuid
- *   then AD number (digit runs in references and AD numbers compare as
- *   numbers), current Form 337 copies oldest first, and open discrepancies.
+ * @returns The header and seven sections: overview (the aircraft status,
+ *   its reasons in the first note), installed components, their limits in
+ *   component order, inspections by reference, every AD (closed ones too) by
+ *   Component uuid then AD number (digit runs in references and AD numbers
+ *   compare as numbers), current Form 337 copies oldest first, and open
+ *   discrepancies, each marked when it grounds the aircraft or is deferred.
  * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft;
  *   what an inspection's status threw, as {@link dueItems} keeps it.
  */
@@ -88,6 +109,7 @@ export function statusSheet(
       c.kind === "component" && c.installed && c.aircraftUuid === a.uuid,
   );
   const due = dueItems(s, a.uuid, today);
+  const findings = aircraftStatusFindings(s, a.uuid, today);
   return {
     header: {
       registration: a.registration,
@@ -95,18 +117,23 @@ export function statusSheet(
       serial: a.serial,
     },
     sections: [
-      overviewSection(s, a),
+      overviewSection(s, a, aircraftStatus(s, a.uuid, today)),
       componentsSection(components, a, today),
+      limitsSection(due, components),
       inspectionsSection(due, components),
       airworthinessSection(s, due, components, today),
       form337Section(s, a),
-      discrepanciesSection(s, a),
+      discrepanciesSection(s, a, findings),
     ],
   };
 }
 
-function overviewSection(s: Snapshot, a: Aircraft): StatusSection {
-  const notes: string[] = [];
+function overviewSection(
+  s: Snapshot,
+  a: Aircraft,
+  status: AircraftStatus,
+): StatusSection {
+  const notes = listStatusNotes(a, status);
   if (a.flightTimeLog && a.currentFlightTimeLog !== undefined)
     notes.push(`Flight time log: ${formatHours(a.currentFlightTimeLog)} hours`);
   if (a.currentCyclicHobbs !== undefined)
@@ -120,7 +147,7 @@ function overviewSection(s: Snapshot, a: Aircraft): StatusSection {
     id: "overview",
     title: "Aircraft overview",
     columns: [
-      "Recorded aircraft status:",
+      "Aircraft status:",
       "Aircraft total time:",
       "Hobbs / Tach (hours)",
       "Cycles / Landings",
@@ -129,7 +156,7 @@ function overviewSection(s: Snapshot, a: Aircraft): StatusSection {
     ],
     rows: [
       [
-        a.operationalStatus,
+        aircraftStatusLabels[status.level],
         formatTotal(recordedTotalSeconds(a)),
         `${formatHours(a.currentHobbs)} / ${formatHours(a.currentTach)}`,
         `${a.cycles} / ${a.landings}`,
@@ -139,6 +166,17 @@ function overviewSection(s: Snapshot, a: Aircraft): StatusSection {
     ],
     notes,
   };
+}
+
+// The profile status is what someone entered; only "grounded" changes the
+// aircraft status, so it is named apart from it.
+function listStatusNotes(a: Aircraft, status: AircraftStatus): string[] {
+  const label = aircraftStatusLabels[status.level];
+  const reasons = status.reasons.map((r) => r.label).join("; ");
+  return [
+    ...(reasons ? [`${label}: ${reasons}.`] : []),
+    `Aircraft status is computed from the records on this sheet. Profile status entered on the aircraft record: ${a.operationalStatus}.`,
+  ];
 }
 
 // Only damaged data has a meter without a reading: the aircraft form requires
@@ -196,6 +234,66 @@ function componentRow(c: Component, a: Aircraft, today: string): string[] {
     : [NOT_TRACKED, NOT_TRACKED, NOT_TRACKED];
   const cycles = c.trackCycles ? String(totals.cyclesSinceNew) : NOT_TRACKED;
   return [...identity, ...times, cycles];
+}
+
+// Status record under 14 CFR 91.417(a)(2)(ii) and (iii): each installed
+// Component's life limits and overhaul requirements, with what is left.
+function limitsSection(
+  due: MaintenanceDue[],
+  components: Component[],
+): StatusSection {
+  const items = due
+    .filter((d): d is RequirementDue => d.kind === "componentRequirement")
+    .sort(
+      (x, z) =>
+        components.indexOf(x.component) - components.indexOf(z.component),
+    );
+  return {
+    id: "limits",
+    title: "Component limits",
+    columns: ["Component", "Requirement", "Next due", "Remaining", "Status"],
+    rows: items.length
+      ? items.map(limitRow)
+      : [["No component limits recorded", "-", "-", "-", "-"]],
+    notes: [],
+  };
+}
+
+function limitRow(d: RequirementDue): string[] {
+  const { requirement: r, component: c } = d;
+  const identity = [
+    `${c.installPosition || ""} ${c.componentType}\nS/N ${c.serial}`,
+    `${r.description}\n${r.requirementType}`,
+  ];
+  // As componentRow: a limit that cannot be computed is flagged for review.
+  if (!d.due) return [...identity, REVIEW, REVIEW, REVIEW];
+  return [
+    ...identity,
+    joinLines(listLimitDue(r)) || "-",
+    joinLines(listLimitLeft(d.due)) || "-",
+    // GLOSSARY "Overdue": "Past due" and "Due now" are both overdue.
+    d.level === "overdue" ? `${d.due.status} (overdue)` : d.due.status,
+  ];
+}
+
+function listLimitDue(r: ComponentRequirement): (string | undefined)[] {
+  return [
+    requirementDueDate(r),
+    r.dueSeconds === undefined
+      ? undefined
+      : `${formatHours(r.dueSeconds)} h ${r.timeBasis}`,
+    r.dueCycles === undefined ? undefined : `${r.dueCycles} cyc`,
+    r.dueLandings === undefined ? undefined : `${r.dueLandings} landings`,
+  ];
+}
+
+function listLimitLeft(left: NonNullable<RequirementDue["due"]>) {
+  return [
+    left.seconds === undefined ? "" : `${formatHours(left.seconds)} h`,
+    left.cycles === undefined ? "" : `${left.cycles} cyc`,
+    left.landings === undefined ? "" : `${left.landings} landings`,
+    left.days === undefined ? "" : `${left.days} days`,
+  ];
 }
 
 function inspectionsSection(
@@ -337,7 +435,7 @@ function airworthinessSection(
       "AD number",
       "Aircraft / component",
       "Subject / required action",
-      "Remaining / prior compliance",
+      "Next due / remaining / prior compliance",
       "Status",
     ],
     rows: ads.length
@@ -360,9 +458,7 @@ function adRow(
   const asset = component
     ? `${component.installPosition || ""} ${component.componentType}\nS/N ${component.serial}`
     : r.source.section;
-  const units = r.tasks.flatMap((t) =>
-    adRemaining(s, r, t, today).map((x) => `${x.label}: ${x.value}`),
-  );
+  const units = r.tasks.flatMap((t) => listAdLimits(s, r, t, today));
   if (r.priorCompliance)
     units.push(
       `PCW ${r.priorCompliance.date}`,
@@ -375,6 +471,20 @@ function adRow(
     units.join("\n") || "-",
     d.status,
   ];
+}
+
+// 91.417(a)(2)(v) asks for when the next action is required: the limit
+// itself, then what is left of it. An action that is complied lists neither.
+function listAdLimits(s: Snapshot, r: AD, t: ADTask, today: string): string[] {
+  const left = adRemaining(s, r, t, today);
+  if (!left.length) return [];
+  const due = [
+    t.dueDate ? `Due ${t.dueDate}` : "",
+    t.dueHours === null ? "" : `Due at ${t.dueHours.toFixed(1)} h`,
+    t.dueCycles === null ? "" : `Due at ${t.dueCycles} cyc`,
+    t.dueLandings == null ? "" : `Due at ${t.dueLandings} landings`,
+  ];
+  return [...due.filter(Boolean), ...left.map((x) => `${x.label}: ${x.value}`)];
 }
 
 function formatPriorHours(prior: NonNullable<AD["priorCompliance"]>): string {
@@ -414,19 +524,55 @@ function form337Section(s: Snapshot, a: Aircraft): StatusSection {
   };
 }
 
-function discrepanciesSection(s: Snapshot, a: Aircraft): StatusSection {
+function discrepanciesSection(
+  s: Snapshot,
+  a: Aircraft,
+  findings: AircraftStatusFinding[],
+): StatusSection {
   const open = s.discrepancies.filter(
     (d) => d.aircraftUuid === a.uuid && d.status === "open",
   );
   return {
     id: "discrepancies",
     title: "Open discrepancies",
-    columns: ["Reported", "Description", "Status"],
+    columns: ["Reported", "Description", "Deferral", "Status"],
     rows: open.length
-      ? open.map((d) => [localDate(d.createdAt), d.description, "Open"])
-      : [["-", "No open discrepancies recorded", "-"]],
+      ? open.map((d) => [
+          localDate(d.createdAt),
+          d.description,
+          d.deferral ? describeDeferral(d.deferral) : "-",
+          discrepancyStatus(d, findings),
+        ])
+      : [["-", "No open discrepancies recorded", "-", "-"]],
     notes: [],
   };
+}
+
+function describeDeferral(x: Deferral): string {
+  return joinLines([
+    deferralLabel(x),
+    `Deferred ${x.deferredOn}`,
+    x.expiresOn ? `Expires ${x.expiresOn}` : "No expiry",
+  ]);
+}
+
+// What aircraftStatus found for the report decides the wording, so the row
+// and the status at the top of the sheet cannot disagree.
+function discrepancyStatus(
+  d: Snapshot["discrepancies"][number],
+  findings: AircraftStatusFinding[],
+): string {
+  const found = findings.find(
+    (f) =>
+      f.reason.entityUuid === d.uuid &&
+      (f.reason.kind === "discrepancy" || f.reason.kind === "deferral"),
+  );
+  if (found?.level === "grounded")
+    return found.reason.kind === "deferral"
+      ? "Open: deferral expired, grounds the aircraft"
+      : "Open: grounds the aircraft";
+  if (found) return "Open: deferral expires soon";
+  return d.deferral ? "Open: deferred" : "Open";
 }
 
 function formatHours(seconds: number | null | undefined): string {

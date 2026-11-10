@@ -16,10 +16,11 @@ import { tablePdf } from "./tablePdf";
 export const STATUS_COLUMN_SHARES: Record<StatusSectionId, number[]> = {
   overview: [34, 32, 42, 32, 38, 60],
   components: [45, 65, 39, 28, 28, 28, 26],
+  limits: [58, 75, 44, 40, 42],
   inspections: [46, 27, 29, 25, 24, 23, 22, 22, 28],
   airworthiness: [31, 45, 80, 63, 40],
   form337: [170, 50, 39],
-  discrepancies: [30, 200, 29],
+  discrepancies: [30, 123, 58, 48],
 };
 
 /** Printed in the footer of every page. */

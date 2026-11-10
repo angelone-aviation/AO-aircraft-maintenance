@@ -173,6 +173,19 @@ describe("AircraftPage", () => {
     expect(page()).not.toContain("Add aircraft");
   });
 
+  it("lists an aircraft whose meter has no reading, with Edit aircraft", () => {
+    const { aircraft } = workspace.snapshot;
+    aircraft[0] = {
+      ...aircraft[0],
+      flightTimeLog: true,
+      meter: "flightTimeLog",
+      currentFlightTimeLog: undefined,
+    };
+    const html = page();
+    expect(html).toContain(aircraft[0].registration);
+    expect(html.match(/Edit aircraft/g)).toHaveLength(aircraft.length);
+  });
+
   it("lists only the meters an aircraft has", () => {
     const html = page();
     expect(html).toContain("Engine starts / landings");

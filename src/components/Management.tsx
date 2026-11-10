@@ -61,7 +61,6 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   can,
   hours,
-  aircraftMeterLabels,
   recordedTotalSeconds,
   type Aircraft,
   type Inspection,
@@ -613,7 +612,6 @@ function InspectionMainCell({
 // An overdue schedule shows a full track; otherwise the most-used interval.
 function DueCell({
   inspection: i,
-  aircraft: a,
   look,
   status,
   projected,
@@ -621,7 +619,7 @@ function DueCell({
   status: ReturnType<typeof inspectionStatus>;
   projected: Projections;
 }) {
-  const lines = dueLines(i, a, status);
+  const lines = dueLines(i, status);
   const shares = usedShares(lines);
   const progress = status.status === "overdue" ? 1 : maxShare(shares);
   const lead = leadLine(lines, shares);
@@ -703,7 +701,6 @@ function DueLineView({
 // one-time limit; without either the line has no share.
 function dueLines(
   i: Inspection,
-  a: Aircraft,
   status: ReturnType<typeof inspectionStatus>,
 ): DueLine[] {
   const span = (interval?: number, due?: number, last?: number) =>
@@ -713,7 +710,7 @@ function dueLines(
     lines.push({
       key: "hours",
       due: `Due ${hours(i.dueSeconds)} h`,
-      basis: hourBasis(i, a),
+      basis: hourBasis(i),
       remaining: status.hoursRemaining,
       unit: "h",
       used: usedShare(
@@ -730,10 +727,12 @@ function dueLines(
   return lines;
 }
 
-function hourBasis(i: Inspection, a: Aircraft) {
+// An aircraft inspection's hours are total time (meter plus adjustment), so
+// naming the meter would send a pilot to fly to the wrong Hobbs reading.
+function hourBasis(i: Inspection) {
   if (i.componentUuid) return "Component TSN";
   if (i.usageMeter === "collective") return "Collective hourmeter";
-  return aircraftMeterLabels[a.meter];
+  return "Total time";
 }
 
 function countLine(

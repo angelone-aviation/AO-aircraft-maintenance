@@ -13,12 +13,17 @@ import {
   can,
   latestLocalDate,
   localDate,
+  recordedTotalSeconds,
   totalSeconds,
   type Aircraft,
   type Snapshot,
 } from "./model";
 import { activeProgram, programPermission } from "./programs";
-import { componentTotals, type Component } from "./components";
+import {
+  componentTotals,
+  componentTotalsWithoutTime,
+  type Component,
+} from "./components";
 import { Rejection, StaleRecordRejection } from "./rejection";
 import { auditEntry } from "./changeLog";
 import { requestUuidField } from "./commandRequest";
@@ -280,6 +285,8 @@ type SaveCommand = Extract<ADCommand, { kind: "save" }>;
 type ComplyCommand = Extract<ADCommand, { kind: "comply" }>;
 type CorrectCommand = Extract<ADCommand, { kind: "correct" }>;
 type Counters = { hours: number; cycles: number; landings: number };
+// Each counter read on its own; null for one that cannot be read.
+type LimitCounters = { [K in keyof Counters]: number | null };
 type TaskStatus =
   | "Complied"
   | "Counter unavailable"
@@ -504,6 +511,41 @@ export function adCounters(
 }
 
 /**
+ * The counters an AD's limits compare against, each read on its own, so a
+ * meter without a reading leaves the cycles and landings limits judged. A
+ * component AD counts only the hours and cycles its component tracks;
+ * landings are the aircraft's.
+ *
+ * @param s - The aircraft and the program's components.
+ * @param r - The AD.
+ * @param today - The local date a component's totals are read on.
+ * @returns Hours (decimal), cycles and landings; null for each one that
+ *   cannot be read, all three when the aircraft is unknown.
+ */
+export function adLimitCounters(
+  s: Snapshot,
+  r: AD,
+  today = localDate(),
+): LimitCounters {
+  const a = s.aircraft.find((a) => a.uuid === adAircraftUuid(s, r));
+  if (!a) return { hours: null, cycles: null, landings: null };
+  if (!r.componentUuid) {
+    const seconds = recordedTotalSeconds(a);
+    const hours = seconds === undefined ? null : seconds / SECONDS_PER_HOUR;
+    return { hours, cycles: a.cycles, landings: a.landings };
+  }
+  const c = findComponent(s, r.componentUuid);
+  const totals = c ? readComponentTotals(c, a, today) : null;
+  const untimed = totals ?? (c && componentTotalsWithoutTime(c, a, today));
+  return {
+    hours:
+      totals && c?.trackTime ? totals.timeSinceNew / SECONDS_PER_HOUR : null,
+    cycles: c?.trackCycles ? (untimed?.cyclesSinceNew ?? null) : null,
+    landings: a.landings,
+  };
+}
+
+/**
  * The due status of one required action, the nearest limit deciding.
  *
  * @param s - The aircraft and the program's components.
@@ -511,10 +553,11 @@ export function adCounters(
  * @param t - One of its actions.
  * @param today - The local date calendar limits compare against and a
  *   component's totals are read on.
- * @returns "Complied" when compliance ends it; "Due not set" when nothing is
- *   due; "Counter unavailable" when a usage limit cannot be read; else
- *   "Overdue", "Due soon" (30 or fewer days, hours, cycles or landings left)
- *   or "Scheduled".
+ * @returns "Complied" when compliance ends it; "Overdue" when any limit is
+ *   reached, even if another cannot be read; "Counter unavailable" when a
+ *   usage limit cannot be read; "Due not set" when no limit is set, as after
+ *   compliance on an action that repeats without a fixed interval; else "Due
+ *   soon" (30 or fewer days, hours, cycles or landings left) or "Scheduled".
  */
 export function adTaskStatus(
   s: Snapshot,
@@ -524,12 +567,12 @@ export function adTaskStatus(
 ): TaskStatus {
   const last = lastCompliance(r, t.uuid);
   if (last && isComplied(r, t, last)) return "Complied";
-  if (last && !hasInterval(t)) return "Due not set";
-  // A passed due date is overdue even when a usage counter is unavailable.
-  if (t.dueDate && t.dueDate < today) return "Overdue";
-  const counters = adCounters(s, r, today);
-  if (isCounterUnavailable(s, r, t, counters)) return "Counter unavailable";
-  return rankRemaining(t, counters, today);
+  const counters = adLimitCounters(s, r, today);
+  const status = rankRemaining(t, counters, today);
+  // A limit that is reached decides: a counter that cannot be read on one
+  // limit must never hide a passed date or a reached limit on another.
+  if (status === "Overdue" || !hasUnreadLimit(t, counters)) return status;
+  return "Counter unavailable";
 }
 
 /**
@@ -846,7 +889,8 @@ function recordCompliance(s: Snapshot, cmd: ComplyCommand, r: AD, now: number) {
     throw new Rejection("Compliance entry already recorded.");
   checkEntry(s, r, t, entry, now, lastCompliance(r, t.uuid));
   r.history.push(entry);
-  advanceDue(t, entry);
+  if (hasInterval(t)) advanceDue(t, entry);
+  else clearSatisfiedLimits(t, entry);
 }
 
 function recordCorrection(
@@ -1065,6 +1109,18 @@ function isBelow(a?: number | null, b?: number | null) {
   return a != null && b != null && a < b;
 }
 
+// An action without a repeat interval has no next due to work out, so new
+// compliance clears the limits it satisfied. Any limit on the action after
+// that was entered since ("at the next annual") and counts. A correction
+// does not come here: it must not clear a limit entered after the original.
+function clearSatisfiedLimits(t: ADTask, entry: ADCompliance) {
+  if (entry.terminatedBy) return;
+  t.dueDate = "";
+  t.dueHours = null;
+  t.dueCycles = null;
+  t.dueLandings = null;
+}
+
 // Repeating limits advance from the completion; an initial limit without a
 // repeat interval is satisfied by it, as on inspections.
 function advanceDue(t: ADTask, entry: ADCompliance) {
@@ -1127,44 +1183,36 @@ function isComplied(r: AD, t: ADTask, last: ADCompliance) {
   );
 }
 
-function isCounterUnavailable(
-  s: Snapshot,
-  r: AD,
-  t: ADTask,
-  counters: Counters | null,
-) {
-  if (t.dueLandings != null && !counters) return true;
-  if (t.dueHours === null && t.dueCycles === null) return false;
-  if (!counters) return true;
-  const component = findComponent(s, r.componentUuid);
+function hasUnreadLimit(t: ADTask, c: LimitCounters) {
   return (
-    !!component &&
-    ((t.dueHours !== null && !component.trackTime) ||
-      (t.dueCycles !== null && !component.trackCycles))
+    (t.dueHours !== null && c.hours === null) ||
+    (t.dueCycles !== null && c.cycles === null) ||
+    (t.dueLandings != null && c.landings === null)
   );
 }
 
 // One rule for every maintenance limit (GLOSSARY "Overdue"): a usage limit
 // is reached at 0 remaining, because the next flight would exceed it; a
 // calendar limit stays valid through its due date. Hours compare in whole
-// seconds, as inspections do, so floating-point noise cannot hide a 0.
-function rankRemaining(
-  t: ADTask,
-  c: Counters | null,
-  today: string,
-): TaskStatus {
+// seconds, as inspections do, so floating-point noise cannot hide a 0. A
+// limit whose counter cannot be read is left out.
+function rankRemaining(t: ADTask, c: LimitCounters, today: string): TaskStatus {
   const days = t.dueDate
     ? [(Date.parse(t.dueDate) - Date.parse(today)) / MS_PER_DAY]
     : [];
   const usage = [
-    ...(c && t.dueHours !== null
+    ...(c.hours !== null && t.dueHours !== null
       ? [
           Math.round((t.dueHours - c.hours) * SECONDS_PER_HOUR) /
             SECONDS_PER_HOUR,
         ]
       : []),
-    ...(c && t.dueCycles !== null ? [t.dueCycles - c.cycles] : []),
-    ...(c && t.dueLandings != null ? [t.dueLandings - c.landings] : []),
+    ...(c.cycles !== null && t.dueCycles !== null
+      ? [t.dueCycles - c.cycles]
+      : []),
+    ...(c.landings !== null && t.dueLandings != null
+      ? [t.dueLandings - c.landings]
+      : []),
   ];
   if (days.some((n) => n < 0) || usage.some((n) => n <= 0)) return "Overdue";
   const remaining = [...days, ...usage];

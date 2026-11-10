@@ -126,6 +126,7 @@ describe("buildRecordsPackage", () => {
     expect(pkg.sections.map((x) => [x.id, x.file])).toEqual([
       ["status.overview", "status-overview.csv"],
       ["status.components", "status-components.csv"],
+      ["status.limits", "status-component-limits.csv"],
       ["status.inspections", "status-inspections.csv"],
       ["status.airworthiness", "status-airworthiness.csv"],
       ["status.form337", "status-form-337.csv"],
@@ -140,7 +141,7 @@ describe("buildRecordsPackage", () => {
       ["changeLog", "change-log.csv"],
     ]);
     const status = statusSheet(s, s.aircraft[0].uuid, TODAY);
-    expect(pkg.sections.slice(0, 6).map((x) => x.rows)).toEqual(
+    expect(pkg.sections.slice(0, 7).map((x) => x.rows)).toEqual(
       status.sections.map((x) => x.rows),
     );
     for (const x of pkg.sections) {
@@ -159,7 +160,7 @@ describe("buildRecordsPackage", () => {
   it("holds a placeholder row in every empty table", () => {
     const s = demoSnapshot();
     const empties = build(s)
-      .sections.slice(6)
+      .sections.slice(7)
       .map((x) => [x.id, x.rows[0][0]]);
     expect(empties).toEqual([
       ["flights", "No flights recorded"],

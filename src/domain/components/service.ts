@@ -22,7 +22,10 @@ import { componentAircraftSeconds, componentTotals } from "./usage";
  * @param requestUuid - The command's request id; the entry is
  *   `<requestUuid>-movement`.
  * @param reason - The entry's note.
- * @returns A version-1 entry by the caller, dated the local date of `now`.
+ * @param date - The user's local date of the move, which the entry is dated
+ *   and its totals read on; by default the local date of `now`, which on the
+ *   server is the UTC date.
+ * @returns A version-1 entry by the caller.
  * @throws As {@link componentTotals}.
  */
 export function movement(
@@ -32,11 +35,12 @@ export function movement(
   requestUuid: string,
   reason: string,
   now: number,
+  date = localDate(now),
 ): ComponentMovement {
   const t = componentTotals(
     c,
     s.aircraft.find((a) => a.uuid === c.aircraftUuid),
-    localDate(now),
+    date,
   );
   return {
     programUuid: c.programUuid,
@@ -46,7 +50,7 @@ export function movement(
     componentUuid: c.uuid,
     aircraftUuid: c.aircraftUuid,
     action,
-    date: localDate(now),
+    date,
     installPosition: c.installPosition,
     partsLocation: c.partsLocation,
     locationUuid: c.locationUuid,

@@ -302,6 +302,7 @@ function replayFlights(
       rebuilt.aircraft,
       s.management ?? [],
       s.inspections,
+      s.airworthiness ?? [],
     ),
   );
   return rebuilt;

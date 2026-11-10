@@ -1,12 +1,12 @@
 /**
  * Responsibility: The "remaining" lines (hours, months, cycles, landings) shown
- *   for one recurring AD task.
+ *   for one AD task that is still to be done.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./adCompliance, ./airworthiness, ./componentCalendar, ./model.
+ * Dependencies: ./airworthiness, ./componentCalendar, ./model.
  */
-import { lastCompliance } from "./adCompliance";
 import {
-  adCounters,
+  adLimitCounters,
+  adTaskStatus,
   CLOSED_APPLICABILITY,
   type AD,
   type ADTask,
@@ -22,8 +22,10 @@ const COUNTER_UNAVAILABLE = "Counter unavailable";
 type RemainingRow = { label: string; value: string };
 
 /**
- * Lists what is left before a recurring AD task falls due, one row for each
- * interval the task sets, in the order hours, months, cycles, landings.
+ * Lists what is left before an AD task falls due, one row for each limit or
+ * repeat interval the task sets, in the order hours, months, cycles,
+ * landings. A first limit without a repeat interval ("within 50 hours") is
+ * listed like a repeating one.
  *
  * @param state - The snapshot holding the aircraft and component counters.
  * @param record - The AD the task belongs to.
@@ -31,7 +33,8 @@ type RemainingRow = { label: string; value: string };
  * @param today - The local date the approximate months count from and a
  *   component's totals are read on.
  * @returns Rows such as `{ label: "Hours remaining", value: "42.5" }`, with
- *   "<n> overdue" below 0; none once the task or the AD no longer recurs.
+ *   "<n> overdue" below 0; none once compliance has ended the task or the
+ *   AD no longer applies.
  */
 export function adRemaining(
   state: Snapshot,
@@ -39,25 +42,25 @@ export function adRemaining(
   task: ADTask,
   today = localDate(),
 ): RemainingRow[] {
-  if (!recursAgain(record, task)) return [];
-  const counters = availableCounters(state, record, today);
+  if (!isStillDue(state, record, task, today)) return [];
+  const counters = adLimitCounters(state, record, today);
   const rows: RemainingRow[] = [];
-  if (task.intervalHours)
+  if (task.intervalHours || task.dueHours !== null)
     rows.push({
       label: "Hours remaining",
       value: usageValue(task.dueHours, counters.hours, 1, roundToSecond),
     });
-  if (task.intervalDays)
+  if (task.intervalDays || task.dueDate)
     rows.push({
       label: "Months remaining (approx.)",
       value: monthsValue(task.dueDate, today),
     });
-  if (task.intervalCycles)
+  if (task.intervalCycles || task.dueCycles !== null)
     rows.push({
       label: "Cycles remaining",
       value: usageValue(task.dueCycles, counters.cycles, 0),
     });
-  if (task.intervalLandings)
+  if (task.intervalLandings || task.dueLandings != null)
     rows.push({
       label: "Landings remaining",
       value: usageValue(task.dueLandings ?? null, counters.landings, 0),
@@ -65,29 +68,11 @@ export function adRemaining(
   return rows;
 }
 
-function recursAgain(record: AD, task: ADTask) {
+function isStillDue(state: Snapshot, record: AD, task: ADTask, today: string) {
   return !(
-    task.recurrence === "One-time" ||
-    lastCompliance(record, task.uuid)?.terminatedBy ||
-    CLOSED_APPLICABILITY.includes(record.applicability)
+    CLOSED_APPLICABILITY.includes(record.applicability) ||
+    adTaskStatus(state, record, task, today) === "Complied"
   );
-}
-
-// A component AD counts only the hours and cycles that component tracks;
-// landings always come from the aircraft.
-function availableCounters(state: Snapshot, record: AD, today: string) {
-  const counters = adCounters(state, record, today);
-  const component = state.management?.find(
-    (item) => item.kind === "component" && item.uuid === record.componentUuid,
-  );
-  const tracks = (kind: "trackTime" | "trackCycles") =>
-    !record.componentUuid ||
-    (component?.kind === "component" && component[kind]);
-  return {
-    hours: counters && tracks("trackTime") ? counters.hours : null,
-    cycles: counters && tracks("trackCycles") ? counters.cycles : null,
-    landings: counters ? counters.landings : null,
-  };
 }
 
 // A usage limit is reached at 0 remaining (adTaskStatus), so 0 reads "Due

@@ -12,7 +12,7 @@ All maintenance and inventory mutations require a live authenticated connection.
 
 Create an aircraft schedule with a reference, description, and optional required-parts/supplies notes. Usage may follow the aircraft or one of its serialized components. Each recurrence can use hours, cycles, months, or a combination. Supply last-compliance values for each recurring interval; calendar deadlines fall on the last day of the target month. One-time due values are available when that limit has no recurrence.
 
-Completion captures date, tracked total hours, tracked cycles, work description, actor, and before/after values. It advances recurring limits and archives one-time schedules. Archived schedules remain available through **Show archived**. Schedule creation and editing record change history automatically. Component-targeted schedules stay tied to that serial, including while the component is in storage; create another schedule for a replacement component.
+Completion captures date, tracked total hours, tracked cycles, work description, actor, and before/after values. It advances recurring limits and archives one-time schedules. Archived schedules remain available through **Show archived**. Schedule creation and editing record change history automatically. Component-targeted schedules stay tied to that serial, including while the component is in storage; create another schedule for a replacement component. While the component is in storage its schedules still show their status and alerts, but they no longer ground the aircraft it came off or block its flights.
 
 Inspections and components have an optional **ATA Chapter** dropdown using the supplied chapter catalog. The selected two-digit code (including leading zeroes) is stored for future filtering and shown with its description in each table. Existing records remain unassigned; selecting **Unassigned** clears the classification. Chapter changes are included in the audit history and CSV exports.
 
@@ -20,7 +20,7 @@ Inspections and components have an optional **ATA Chapter** dropdown using the s
 
 The component module now follows the legacy v19 component, service-requirement, and movement records. It includes free-text type, ATA, manufacturer, part/serial, notes, independent tracking switches, aircraft/inventory location, installation position, historical installation readings, TSN and nullable TSO/TSR baselines, cycles, and accumulated service days.
 
-Use **Details** to view requirements and history, **Edit component** for identity/location details, **Set baseline** for verified readings, and **Move / service** for installation, removal, overhaul, or repair. **Add service requirement** supports separate life, overhaul, and inspection requirements with TSN/TSO/TSR bases, absolute or relative limits, calendar units, and warning thresholds.
+Use **Details** to view requirements and history, **Edit component** for identity/location details, **Set baseline** for verified readings, and **Move / service** for installation, removal, overhaul, or repair. **Set baseline** is refused when the new totals fall below the last compliance recorded on one of the component's inspections, service requirements or ADs, and the message names the record: correct that record first, so no limit is left with more remaining than its interval. A correction of aircraft total time, cycles or landings (Edit aircraft or a flight review) is refused the same way below an inspection's or an aircraft AD's recorded compliance. **Add service requirement** supports separate life, overhaul, and inspection requirements with TSN/TSO/TSR bases, absolute or relative limits, calendar units, and warning thresholds.
 
 See [the legacy comparison and field mapping](component-legacy-alignment.md) for calculations, the clean component schema, and access behavior.
 
@@ -30,6 +30,8 @@ Inspections, component requirements and AD actions share one rule for when a lim
 
 - **Usage limits** (hours, cycles, landings) are reached at 0 remaining. The next flight would exceed the limit, so the item is overdue and the aircraft is grounded.
 - **Calendar limits** stay valid through the end of the due date. On the due date the item is due soon; from the next day it is overdue and the aircraft is grounded.
+
+A limit that is reached decides the status even when another limit of the same item cannot be judged. If the aircraft's time source has no reading, or a component does not track the counter a limit needs, a passed due date or a reached cycles or landings limit still makes the item overdue. A limit that cannot be read is never counted as time remaining: until one of the other limits is reached the item stays unknown (**Counter unavailable** on an AD action, **Review** on a component limit).
 
 Aircraft status, the dispatch gate, alerts, the owner portal, Planning and Overview all apply this rule. Component screens label a usage limit at exactly 0 **Due now** and one beyond it **Past due**; both ground the aircraft. The server checks the dispatch gate against the earliest local date anywhere, so a calendar limit is not treated as overdue until its due date has ended in every time zone.
 
