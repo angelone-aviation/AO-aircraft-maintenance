@@ -37,7 +37,7 @@ import {
   type AlertSources,
 } from "./alerts";
 import { createMailer, mailerSettings } from "./mailer";
-import { consume, DAY } from "./rateLimits";
+import { consume, DAY, HOUR, MINUTE, refund } from "./rateLimits";
 import {
   urgentAlerts,
   wantsUrgentAlertEmails,
@@ -53,6 +53,18 @@ export const IMMEDIATE_CAP_KEY = "alerts:immediate";
 
 const CAPPED = "Daily limit of immediate alert emails reached.";
 const MAX_CLAIM_KEYS = 500;
+
+/**
+ * How long a check waits before retrying sends a provider refused, by
+ * attempt. One transient error must not hold an urgent alert until the next
+ * change or the next day's check; three retries bound the requests made to
+ * a provider that keeps failing.
+ */
+export const RETRY_DELAYS_MS: readonly number[] = [
+  5 * MINUTE,
+  15 * MINUTE,
+  HOUR,
+];
 
 /** What one urgent-alert check did. */
 export interface SendImmediateResult {
@@ -181,6 +193,8 @@ export const claimDeliveries = internalMutation({
 
 /**
  * Releases a claim whose send failed, so the alerts go out on a later check.
+ * A refused immediate email also gives back its share of the day's
+ * {@link IMMEDIATE_EMAILS_PER_DAY}, which counts only emails sent.
  *
  * @param keys - The claimed keys to forget.
  */
@@ -195,6 +209,7 @@ export const releaseDeliveries = internalMutation({
     const rows = await deliveryRows(ctx, userId, programUuid, channel);
     for (const row of rows)
       if (keys.includes(row.key)) await ctx.db.delete(row._id);
+    if (channel === "immediate") await refund(ctx, IMMEDIATE_CAP_KEY, DAY);
   },
 });
 
@@ -204,15 +219,20 @@ export const releaseDeliveries = internalMutation({
  * may have created an urgent state, and after the daily digest. It first
  * ends the occurrence of every alert that has cleared
  * (`alerts.forgetCleared`), so an alert that returns is sent again. A failed
- * email is counted, logged by user id, and its claim released.
+ * email is counted, logged by user id, and its claim released, and the
+ * check runs again after the next of {@link RETRY_DELAYS_MS}.
  *
+ * @param attempt - How many retries came before this check; 0 by default.
  * @returns How many emails were sent, failed and held back by the daily cap,
  *   how many members get a push message, and `skipped` when neither Resend
  *   (RESEND_API_KEY, RESEND_FROM) nor Web Push (the VAPID variables) is set.
  */
 export const sendImmediate = internalAction({
-  args: { programUuid: v.string() },
-  handler: async (ctx, { programUuid }): Promise<SendImmediateResult> => {
+  args: { programUuid: v.string(), attempt: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    { programUuid, attempt = 0 },
+  ): Promise<SendImmediateResult> => {
     const settings = mailerSettings();
     const pushReady = hasVapidKeys();
     const counts = { sent: 0, failed: 0, capped: 0, pushed: 0 };
@@ -240,7 +260,14 @@ export const sendImmediate = internalAction({
     if (pushes.length)
       await ctx.scheduler.runAfter(0, internal.push.sendUrgent, {
         notifications: pushes,
+        attempt,
       });
+    if (counts.failed && attempt < RETRY_DELAYS_MS.length)
+      await ctx.scheduler.runAfter(
+        RETRY_DELAYS_MS[attempt],
+        internal.urgentAlerts.sendImmediate,
+        { programUuid, attempt: attempt + 1 },
+      );
     return { ...counts, pushed: pushes.length, skipped: false };
   },
 });

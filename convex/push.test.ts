@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the push sender: dormant without VAPID keys, one
  *   encrypted request per subscribed device, the push-channel claim, a gone
- *   subscription removed, a refused send retried later, an alert that
+ *   subscription removed, a refused send retried later and by itself, an
+ *   alert that
  *   cleared and returned pushed again, and a stored endpoint that is not a
  *   push service never fetched.
  * Layer: Test. convex-test suite with a stubbed push service; never shipped.
@@ -196,4 +197,23 @@ it("never fetches a stored endpoint that is not a push service, and drops it", a
   expect(request).not.toHaveBeenCalled();
   expect(await subscriptions(world.t)).toEqual([]);
   expect(await deliveries(world.t)).toEqual([]);
+});
+
+it("retries a refused push by itself, a few times", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  await world.a.mutation(api.pushSubscriptions.subscribe, SUBSCRIPTION);
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const answers = [500, 201];
+  const request = vi
+    .fn<typeof fetch>()
+    .mockImplementation(
+      async () => new Response(null, { status: answers.shift() ?? 500 }),
+    );
+  vi.stubGlobal("fetch", request);
+  await checkProgram(world);
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(await deliveries(world.t)).toHaveLength(2);
+  error.mockRestore();
 });

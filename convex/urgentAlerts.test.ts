@@ -129,6 +129,30 @@ it("counts each immediate email against the cap", async () => {
   expect(row.count).toBe(1);
 });
 
+it("spends the day's cap only on emails the provider accepted", async () => {
+  const { t } = await seedAlertProgram();
+  stubResend(503);
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  for (let i = 0; i < IMMEDIATE_EMAILS_PER_DAY; i++)
+    expect(await sendImmediate(t)).toMatchObject({ sent: 0, failed: 1 });
+  error.mockRestore();
+  const count = async () =>
+    (
+      await t.run((ctx) =>
+        ctx.db
+          .query("rateLimits")
+          .withIndex("key", (q) => q.eq("key", IMMEDIATE_CAP_KEY))
+          .unique(),
+      )
+    )?.count;
+  expect(await count()).toBe(0);
+  // The provider recovers; the cap is still whole.
+  const request = stubResend(200);
+  expect(await sendImmediate(t)).toMatchObject({ sent: 1, capped: 0 });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(await count()).toBe(1);
+});
+
 it("releases the claim when the provider refuses, so the next check retries", async () => {
   const { t, ids } = await seedAlertProgram();
   stubResend(503);
@@ -145,6 +169,34 @@ it("releases the claim when the provider refuses, so the next check retries", as
   stubResend(200);
   expect(await sendImmediate(t)).toMatchObject({ sent: 1 });
   expect(await deliveries(t)).toHaveLength(2);
+});
+
+it("retries a failed email by itself, a few times with growing delays", async () => {
+  const { t } = await seedAlertProgram();
+  vi.useFakeTimers();
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  // One transient refusal: the retry five minutes later delivers.
+  let answers = [503, 200];
+  const request = vi
+    .fn<typeof fetch>()
+    .mockImplementation(
+      async () => new Response("{}", { status: answers.shift() ?? 200 }),
+    );
+  stubResend();
+  vi.stubGlobal("fetch", request);
+  expect(await sendImmediate(t)).toMatchObject({ sent: 0, failed: 1 });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(await deliveries(t)).toHaveLength(2);
+  // A provider that keeps refusing gets three retries, then the alert waits
+  // for the next change or the daily check.
+  const failing = await seedAlertProgram();
+  answers = Array(10).fill(503);
+  request.mockClear();
+  await sendImmediate(failing.t);
+  await failing.t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(request).toHaveBeenCalledTimes(4);
+  error.mockRestore();
 });
 
 it("honours the urgent email choice", async () => {
