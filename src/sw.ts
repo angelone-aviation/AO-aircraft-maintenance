@@ -29,6 +29,13 @@ interface PushPayload {
   title: string;
   body: string;
   url: string;
+  tag: string;
+}
+
+// TypeScript's DOM types omit `renotify`; Chromium honours it and other
+// browsers ignore it.
+interface AlertCardOptions extends NotificationOptions {
+  renotify?: boolean;
 }
 
 const APP_SHELL = "/index.html";
@@ -68,16 +75,17 @@ registerRoute(
 
 self.addEventListener("push", (event) => {
   const payload = readPayload(event);
-  event.waitUntil(
-    self.registration.showNotification(payload.title, {
-      body: payload.body,
-      icon: ICON,
-      badge: ICON,
-      data: { url: payload.url },
-      // One alert card per program: a newer message replaces the older.
-      tag: `urgent:${payload.title}`,
-    }),
-  );
+  const options: AlertCardOptions = {
+    body: payload.body,
+    icon: ICON,
+    badge: ICON,
+    data: { url: payload.url },
+    // One alert card per program: a newer message replaces the older, and
+    // still sounds, since it carries a new alert.
+    tag: payload.tag,
+    renotify: true,
+  };
+  event.waitUntil(self.registration.showNotification(payload.title, options));
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -89,13 +97,20 @@ self.addEventListener("notificationclick", (event) => {
 // A message the server did not send (or an empty one) still shows a card
 // that opens the alerts screen, so nothing arrives silently.
 function readPayload(event: PushEvent): PushPayload {
-  const fallback = { title: "Angel One alerts", body: "", url: ALERTS_URL };
+  const fallback = {
+    title: "Angel One alerts",
+    body: "",
+    url: ALERTS_URL,
+    tag: "urgent",
+  };
   try {
     const data = event.data?.json() as Partial<PushPayload> | null;
     return {
       title: typeof data?.title === "string" ? data.title : fallback.title,
       body: typeof data?.body === "string" ? data.body : fallback.body,
       url: typeof data?.url === "string" ? data.url : fallback.url,
+      // A message from before tags were sent shares one card.
+      tag: typeof data?.tag === "string" ? data.tag : fallback.tag,
     };
   } catch {
     return fallback;

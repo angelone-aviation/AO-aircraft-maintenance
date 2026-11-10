@@ -317,6 +317,7 @@ export function pushPayloadFor(job: PushJob, claimed: string[]) {
   return urgentPushPayload(
     job.alerts.filter((a) => claimed.includes(a.key)),
     job.programName,
+    job.programUuid,
   );
 }
 
