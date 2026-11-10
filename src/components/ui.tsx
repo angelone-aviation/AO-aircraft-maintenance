@@ -8,6 +8,8 @@
  *   src/data/errors.ts, src/domain/csv.ts.
  */
 import {
+  useEffect,
+  useRef,
   useState,
   useId,
   cloneElement,
@@ -113,6 +115,8 @@ export function DeleteFileButton({
 /**
  * A form that submits through an async command, disabling its fields while
  * the command runs and showing the command's error above the footer.
+ * A refused submit scrolls its error into view, clear of a sticky footer,
+ * and returns focus to the field or button it was submitted from.
  *
  * @param props.onSubmit - Receives the form data, including the name and value
  *   of the submit button that was clicked.
@@ -138,14 +142,18 @@ export function AsyncForm({
   disabled?: boolean;
 }) {
   const { busy, error, submit } = useProgramSubmit(onSubmit);
+  const { alertRef, rememberOrigin } = useRevealError(error);
   return (
     <form
-      onSubmit={submit}
+      onSubmit={(e) => {
+        rememberOrigin(e);
+        return submit(e);
+      }}
       onChange={(e) => onChange?.(new FormData(e.currentTarget))}
     >
       <fieldset disabled={busy || disabled}>{children}</fieldset>
       {error && (
-        <p role="alert" className="error">
+        <p ref={alertRef} role="alert" className="error">
           {error}
         </p>
       )}
@@ -378,6 +386,37 @@ function useProgramSubmit(onSubmit: (data: FormData) => Promise<void>) {
     await run(() => onSubmit(data));
   }
   return { busy, error, submit };
+}
+
+// Disabling the busy form drops focus from the field or button the user
+// submitted from to <body>, and the error renders at the end of a long form,
+// often below the visible part of the dialog.
+function useRevealError(error: string) {
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  const origin = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!error) return;
+    restoreFocus(origin.current);
+    // "nearest" honours the dialog body's scroll-padding-bottom, so the
+    // error stops above the sticky footer instead of under it.
+    alertRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
+  function rememberOrigin(e: FormEvent<HTMLFormElement>) {
+    const focused = document.activeElement;
+    origin.current =
+      focused instanceof HTMLElement && e.currentTarget.contains(focused)
+        ? focused
+        : (e.nativeEvent as SubmitEvent).submitter;
+  }
+  return { alertRef, rememberOrigin };
+}
+
+// Only when focus was dropped: never take it from where the user moved it.
+// role="alert" already announces the error, so focus does not go to it.
+function restoreFocus(origin: HTMLElement | null) {
+  const focused = document.activeElement;
+  if (focused && focused !== document.body) return;
+  origin?.focus({ preventScroll: true });
 }
 
 function useBusyAction() {
