@@ -117,12 +117,13 @@ const SECTION_META: Record<
     label: "System",
     icon: HardDrives,
     description:
-      "Integration keys shared by every Flight Program, and full data backups.",
+      "Integration keys shared by every Flight Program, the deployment's expiring dates and backups.",
   },
 };
 
-// Same columns and file names as the exports that used to sit on the
-// Flight Program administrator's Administration page and on Administration.
+// Snapshot tables offered as CSV extracts. Neither list is a backup: work
+// orders, job cards, AD compliance, costs, purchasing and files are not in
+// them (the nightly off-site copy holds everything, ADR-0008).
 const PROGRAM_TABLES = [
   "aircraft",
   "flights",
@@ -132,7 +133,7 @@ const PROGRAM_TABLES = [
   "management",
   "audit",
 ] as const;
-const BACKUP_TABLES = [
+const SYSTEM_TABLES = [
   "aircraft",
   "programs",
   "flights",
@@ -145,6 +146,15 @@ const BACKUP_TABLES = [
   "audit",
 ] as const;
 const CSV_TYPE = "text/csv;charset=utf-8";
+// A file name that says what is in it, where the table key does not.
+const CSV_FILE_NAMES: Partial<Record<string, string>> = {
+  programs: "flight-programs",
+  inspectionTemplates: "inspection-templates",
+  management: "components-stock-locations-vendors",
+  members: "users",
+  groups: "permission-groups",
+  audit: "change-log-recent",
+};
 
 type Program = NonNullable<Snapshot["programs"]>[number];
 
@@ -646,18 +656,21 @@ function ProgramExport({ s, program }: { s: Snapshot; program: Program }) {
   return (
     <div className="set-block set-embed">
       <CsvExportCard
-        title="Export program data"
+        title="CSV extract (partial)"
         tables={PROGRAM_TABLES}
+        fileNames={CSV_FILE_NAMES}
         onDownload={(table) =>
           download(
-            `${program.uuid}-${table}.csv`,
+            `${program.uuid}-${csvFileName(table)}.csv`,
             tableCsv(s, table as (typeof PROGRAM_TABLES)[number]),
             CSV_TYPE,
           )
         }
       >
-        CSV exports of this Flight Program&apos;s records in this workspace
-        snapshot.
+        A spreadsheet extract of some of this Flight Program&apos;s tables, from
+        this device&apos;s snapshot. {extractLimits(s)} For one aircraft&apos;s
+        complete record, export its records package from Change history or
+        the aircraft on Overview.
       </CsvExportCard>
     </div>
   );
@@ -740,7 +753,7 @@ function SystemSection() {
       </div>
       <ExpiringDates scope="system" />
       <OffsiteBackups />
-      <BackupExport s={s} />
+      <SystemExtract s={s} />
       <div className="set-block set-embed">
         <DemoBackup />
       </div>
@@ -756,22 +769,24 @@ function SystemSection() {
   );
 }
 
-function BackupExport({ s }: { s: Snapshot }) {
+function SystemExtract({ s }: { s: Snapshot }) {
   return (
     <div className="set-block set-embed">
       <CsvExportCard
-        title="Download data backup"
-        tables={BACKUP_TABLES}
+        title="CSV extract (partial)"
+        tables={SYSTEM_TABLES}
+        fileNames={CSV_FILE_NAMES}
         onDownload={(table) =>
           download(
-            `angel-one-${table}-${localDate()}.csv`,
-            tableCsv(s, table as (typeof BACKUP_TABLES)[number]),
+            `angel-one-${csvFileName(table)}-${localDate()}.csv`,
+            tableCsv(s, table as (typeof SYSTEM_TABLES)[number]),
             CSV_TYPE,
           )
         }
       >
-        CSV exports of this workspace snapshot, excluding authentication
-        secrets. Export pending entries separately in Sync center.
+        A spreadsheet extract of some tables in this device&apos;s snapshot,
+        for analysis. {extractLimits(s)} The nightly off-site copies are the
+        backups. Pending entries are exported in Sync center.
       </CsvExportCard>
     </div>
   );
@@ -995,9 +1010,19 @@ function rateHint(rate: number | undefined) {
 
 function tableCsv(
   s: Snapshot,
-  table: (typeof PROGRAM_TABLES)[number] | (typeof BACKUP_TABLES)[number],
+  table: (typeof PROGRAM_TABLES)[number] | (typeof SYSTEM_TABLES)[number],
 ) {
   return toCsv((s[table] ?? []).map((row) => ({ ...row })));
+}
+
+function csvFileName(table: string) {
+  return CSV_FILE_NAMES[table] ?? table;
+}
+
+// The change log in the snapshot is the newest entries only; the rest is in
+// Change history and the backups.
+function extractLimits(s: Snapshot) {
+  return `It is not a backup: work orders, job cards, AD compliance, costs, purchasing and files are not included, and the change log holds only the ${s.audit.length} newest entries this device has.`;
 }
 
 function backupWaitText(failed: boolean, connected: boolean) {

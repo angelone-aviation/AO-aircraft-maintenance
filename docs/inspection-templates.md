@@ -1,6 +1,6 @@
 # Inspection templates
 
-Open **Inspection templates** in the navigation. The table groups requirements by aircraft type or component model, manufacturer, optional part number, and a named inspection group. Templates belong to the active Flight Program. Maintenance users can create, edit and archive them; program readers can view them. They persist in Convex, or in browser storage for the local demo, and are included in the administrator CSV exports.
+Open **Inspection templates** in the navigation. The table groups requirements by aircraft type or component model, manufacturer, optional part number, and a named inspection group. Templates belong to the active Flight Program. Maintenance users can create, edit and archive them; program readers can view them. They persist in Convex, or in browser storage for the local demo, and are included in the administrators' partial CSV extracts (Settings).
 
 Templates store descriptions, conditions, hour/cycle/calendar intervals, separate initial thresholds, component requirement type, TSN/TSO/TSR and absolute/recurring bases, optional manual references and checklist tasks. They contain no aircraft assignment, installed-component identity, last-complied readings/dates, due values, results or signatures. The server rejects those operational fields. Saving a template does not create an active inspection or component requirement.
 

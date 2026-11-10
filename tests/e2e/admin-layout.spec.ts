@@ -69,12 +69,14 @@ test("administration tabs drive the primary action; backups and keys are in Sett
     /^angel-one-aircraft-.+\.csv$/,
   );
   for (const heading of [
-    "Download data backup",
+    "CSV extract (partial)",
     "FAA API key and renewal",
     "Address verification",
   ])
     await expect(
-      page.getByRole("heading", { name: heading, exact: true }),
+      page
+        .getByRole("region", { name: "System", exact: true })
+        .getByRole("heading", { name: heading, exact: true }),
     ).toBeVisible();
 });
 
@@ -159,7 +161,7 @@ test("program administrators see sectioned users, groups and aircraft, with expo
   ).toBeVisible();
   // Program details and exports moved to Settings → Flight Program.
   await expect(
-    page.getByRole("heading", { name: "Export program data", exact: true }),
+    page.getByRole("heading", { name: "CSV extract (partial)", exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByText(
@@ -173,7 +175,7 @@ test("program administrators see sectioned users, groups and aircraft, with expo
   await expect(
     page.getByRole("heading", {
       level: 3,
-      name: "Export program data",
+      name: "CSV extract (partial)",
       exact: true,
     }),
   ).toBeVisible();

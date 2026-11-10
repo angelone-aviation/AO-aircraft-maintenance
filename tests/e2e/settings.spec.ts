@@ -38,16 +38,21 @@ test("system administrators see all four sections with the moved panels", async 
     "Program details",
     "Default labor rate",
     "Aircraft Spruce account",
-    "Export program data",
     "FAA API key and renewal",
     "Address verification",
     "Off-site backups",
-    "Download data backup",
     "Full demo backup for cloud transfer",
   ])
     await expect(
       page.getByRole("heading", { level: 3, name: heading, exact: true }),
     ).toBeVisible();
+  // Both CSV extracts say they are partial and not a backup.
+  for (const section of ["#program", "#system"]) {
+    const extract = page
+      .locator(section)
+      .getByRole("region", { name: "CSV extract (partial)", exact: true });
+    await expect(extract).toContainText("It is not a backup");
+  }
   await expect(page.getByText("See “Deployment” in the README.")).toBeVisible();
   // The nightly off-site backup is recorded only by the production job.
   await expect(
@@ -86,7 +91,7 @@ test("system administrators see all four sections with the moved panels", async 
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page.getByRole("link", { name: "Administration", exact: true }).click();
   for (const heading of [
-    "Download data backup",
+    "CSV extract (partial)",
     "FAA API key and renewal",
     "Address verification",
   ])
@@ -107,7 +112,6 @@ test("program administrators get Flight Program settings but not System", async 
     "FAA API key and renewal",
     "Address verification",
     "Off-site backups",
-    "Download data backup",
   ])
     await expect(
       page.getByRole("heading", { name: heading, exact: true }),

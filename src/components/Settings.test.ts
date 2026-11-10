@@ -454,15 +454,24 @@ describe("settings", () => {
     render(h(Settings));
     const exports = ui.stubList.filter((x) => x.name === "CsvExportCard");
     for (const card of exports)
-      (card.props.onDownload as (table: string) => void)("aircraft");
-    expect(calls).toEqual([
-      ["download", "demo-program-aircraft.csv", "text/csv;charset=utf-8"],
-      [
-        "download",
-        "angel-one-aircraft-2026-11-04.csv",
-        "text/csv;charset=utf-8",
-      ],
+      for (const table of ["aircraft", "audit"])
+        (card.props.onDownload as (table: string) => void)(table);
+    expect(calls.map((c) => c[1])).toEqual([
+      "demo-program-aircraft.csv",
+      "demo-program-change-log-recent.csv",
+      "angel-one-aircraft-2026-11-04.csv",
+      "angel-one-change-log-recent-2026-11-04.csv",
     ]);
+    expect(calls[0][2]).toBe("text/csv;charset=utf-8");
+    // Each extract says it is partial, with the change log's real size.
+    for (const card of exports) {
+      expect(card.props.title).toBe("CSV extract (partial)");
+      expect(
+        renderToStaticMarkup(h("p", null, card.props.children as never)),
+      ).toContain(
+        `It is not a backup: work orders, job cards, AD compliance, costs, purchasing and files are not included, and the change log holds only the ${s.audit.length} newest entries this device has.`,
+      );
+    }
   });
 
   it("saves the labor rate in cents and shows the current one", async () => {

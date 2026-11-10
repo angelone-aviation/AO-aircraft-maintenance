@@ -308,4 +308,20 @@ describe("shared pieces", () => {
     ui.clicks.get("flights.csv")![0]();
     expect(onDownload).toHaveBeenCalledWith("flights");
   });
+
+  it("names a table's file readably where asked, and downloads by table", () => {
+    const onDownload = vi.fn();
+    const html = renderToStaticMarkup(
+      h(CsvExportCard, {
+        title: "Exports",
+        tables: ["audit", "flights"],
+        fileNames: { audit: "change-log-recent" },
+        onDownload,
+      }),
+    );
+    expect(html).toContain('aria-label="Download change-log-recent.csv"');
+    expect(html).toContain('aria-label="Download flights.csv"');
+    ui.clicks.get("change-log-recent.csv")![0]();
+    expect(onDownload).toHaveBeenCalledWith("audit");
+  });
 });
