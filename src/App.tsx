@@ -17,12 +17,15 @@ import {
   createRoute,
   createRouter,
   RouterProvider,
+  useRouterState,
 } from "@tanstack/react-router";
 import { X } from "@phosphor-icons/react";
 import { useWorkspace } from "./data/store";
 import type { Snapshot } from "./domain/model";
 import { Dashboard } from "./components/Dashboard";
 import { readSetupStep, type SetupStep } from "./domain/aircraftSetup";
+
+const BOARD_PATH = "/board";
 
 // Screens load on demand so older phones parse less code at startup.
 const OwnerPortal = lazy(() =>
@@ -310,7 +313,7 @@ const routes = [
   }),
   createRoute({
     getParentRoute: () => rootRoute,
-    path: "/board",
+    path: BOARD_PATH,
     component: Board,
   }),
   createRoute({
@@ -384,10 +387,16 @@ function Shell() {
 }
 
 // Owners and board members get their one view whatever the route, so a
-// bookmarked or typed path cannot open a screen they cannot use.
+// bookmarked or typed path cannot open a screen they cannot use. An owner
+// who also sits on the board opens the board view at its own path and the
+// owner portal everywhere else.
 function Screen({ s }: { s: Snapshot }) {
-  if (isOwnerView(s)) return <OwnerPortal />;
-  if (isBoardView(s)) return <Board />;
+  const onBoardPath = useRouterState({
+    select: (r) => r.location.pathname === BOARD_PATH,
+  });
+  const owner = isOwnerView(s);
+  if (isBoardView(s) && (!owner || onBoardPath)) return <Board />;
+  if (owner) return <OwnerPortal />;
   return <Outlet />;
 }
 

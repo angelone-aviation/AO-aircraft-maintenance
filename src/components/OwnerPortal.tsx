@@ -4,8 +4,8 @@
  * Layer: UI. React components; reads the owner's snapshot and changes no
  *   records.
  * Dependencies: react, src/data/store.ts, src/data/adReport.ts (on demand),
- *   src/domain/model.ts, src/domain/ownerDue.ts, ./AircraftFiles,
- *   ./AircraftStatus, ./ExportAircraftStatus, ./ui.
+ *   src/domain/model.ts, src/domain/ownerDue.ts, src/domain/ownerView.ts,
+ *   ./AircraftFiles, ./AircraftStatus, ./ExportAircraftStatus, ./ui.
  */
 import { useState } from "react";
 import { useWorkspace, previewDemoOwner } from "../data/store";
@@ -17,6 +17,7 @@ import {
   type Snapshot,
 } from "../domain/model";
 import { ownerDueItems, type DueItem } from "../domain/ownerDue";
+import { ownerPortalAircraft } from "../domain/ownerView";
 import { AircraftStatusSummary } from "./AircraftStatus";
 import { ExportAircraftStatus } from "./ExportAircraftStatus";
 import { AircraftForm337 } from "./AircraftFiles";
@@ -43,6 +44,9 @@ type AircraftProps = { state: Snapshot; aircraft: Aircraft };
 export function OwnerPortal() {
   const { snapshot: s, demo } = useWorkspace();
   const [error, setError] = useState("");
+  // An owner who also sits on the board holds other aircraft for the board
+  // view; the portal lists only their own.
+  const owned = ownerPortalAircraft(s!);
   return (
     <>
       <PageTitle
@@ -56,10 +60,10 @@ export function OwnerPortal() {
           {error}
         </p>
       )}
-      {s!.aircraft.map((a) => (
+      {owned.map((a) => (
         <OwnerAircraft key={a.uuid} state={s!} aircraft={a} />
       ))}
-      {!s!.aircraft.length && (
+      {!owned.length && (
         <Empty title="No aircraft assigned">
           Ask your Flight Program administrator to assign your aircraft.
         </Empty>

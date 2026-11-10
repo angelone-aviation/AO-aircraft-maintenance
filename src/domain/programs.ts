@@ -3,8 +3,8 @@
  *   active one, their permissions in it, and the snapshot they may read.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts, management.ts and expiringItems.ts
- *   (types), adOwnership.ts, ownerView.ts, boardView.ts, partsRequests.ts,
- *   requiredParts.ts, rejection.ts.
+ *   (types), adOwnership.ts, boardView.ts, reducedViews.ts,
+ *   partsRequests.ts, requiredParts.ts, rejection.ts.
  *
  * The snapshot query and the demo adapter both send scopedSnapshot(), so what
  * it strips never reaches the browser.
@@ -22,8 +22,8 @@ import type {
 } from "./model";
 import type { ManagedRecord } from "./management";
 import type { ExpiringItem } from "./expiringItems";
-import { isOwnerView, ownerSnapshot } from "./ownerView";
-import { boardSnapshot, isBoardView } from "./boardView";
+import { isBoardView } from "./boardView";
+import { reducedSnapshot } from "./reducedViews";
 import { Rejection } from "./rejection";
 
 // Inventory records are administrator data: they hold costs, vendors and
@@ -128,6 +128,22 @@ export function readGroupsInActiveProgram(
       g.programUuid === program &&
       g.permissions.includes("read"),
   );
+}
+
+/**
+ * The user's read groups in the active Flight Program when every one of them
+ * gives a reduced view (an aircraft owner group or a board group). One
+ * ordinary group gives the workspace, so there are none then.
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns Those groups, in group order; none for a user with an ordinary
+ *   read group, no read group, or no access through groups.
+ */
+export function reducedViewGroups(
+  s: Pick<Snapshot, "user" | "groups" | "programs">,
+): Group[] {
+  const mine = readGroupsInActiveProgram(s);
+  return mine.every((g) => g.owner || g.board) ? mine : [];
 }
 
 /**
@@ -277,8 +293,8 @@ export const auditVisible = (s: Snapshot) => visibleScope(s).canSeeAudit;
  * Cuts a full snapshot down to what the user may read in the active program:
  * its aircraft and their records, inventory, purchasing and costs as their
  * permissions allow, and other members reduced to what working with them
- * needs. An aircraft owner gets the owner view instead, and a board member
- * the board view.
+ * needs. A user whose groups give only reduced views gets those instead
+ * (reducedSnapshot): the owner portal, the board view, or both.
  *
  * @param s - The full snapshot; it is not changed.
  * @returns The scoped snapshot, with `activeProgramUuid` and
@@ -295,8 +311,7 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
     ...scopeMaintenance(s, scope),
     ...scopePeople(s, scope),
   };
-  if (isOwnerView(scoped)) return ownerSnapshot(scoped);
-  return isBoardView(scoped) ? boardSnapshot(scoped) : scoped;
+  return reducedSnapshot(scoped) ?? scoped;
 }
 
 // Shared by the snapshot and the paginated history so both apply the same

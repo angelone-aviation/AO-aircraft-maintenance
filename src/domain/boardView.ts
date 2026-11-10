@@ -13,12 +13,18 @@
  * someone decides they may see it. Free text, people, rates and files never
  * pass; status inputs and totals do.
  */
-import type { Discrepancy, Group, Inspection, Snapshot } from "./model";
+import type {
+  Aircraft,
+  Discrepancy,
+  Group,
+  Inspection,
+  Snapshot,
+} from "./model";
 import { localDate } from "./model";
 import type { ManagedRecord } from "./management";
 import type { WorkOrder } from "./workOrders";
 import type { AD } from "./airworthiness";
-import { readGroupsInActiveProgram } from "./programs";
+import { groupCoversAircraft, reducedViewGroups } from "./programs";
 import { adAircraftUuid } from "./adOwnership";
 import { aircraftSpendCents, findBudget } from "./costs/workOrderCosts";
 import type { Period } from "./costs/period";
@@ -65,17 +71,32 @@ export function validateBoardGroup(
 }
 
 /**
- * Tells whether the user gets the board view: every group they hold with
- * read access in the active program is a board group. Mixed roles keep the
- * full workspace, as they do for owners.
+ * Tells whether the user gets the board view: they hold a board group with
+ * read access in the active program, and every other such group is a board
+ * or owner group. A user who also holds an owner group gets the owner portal
+ * beside it; one ordinary group gives the workspace instead.
  *
  * @param s - The user, the groups and the programs.
- * @returns True when the user holds at least one such group and all are
- *   board groups; false for an inactive user or a system administrator.
+ * @returns False for an inactive user or a system administrator.
  */
 export function isBoardView(s: Pick<Snapshot, "user" | "groups" | "programs">) {
-  const mine = readGroupsInActiveProgram(s);
-  return mine.length > 0 && mine.every((g) => g.board);
+  return reducedViewGroups(s).some((g) => g.board);
+}
+
+/**
+ * The aircraft the board view covers: those the user's board groups reach.
+ * An owner group they also hold adds none.
+ *
+ * @param s - A snapshot scoped to the program, for a user in a board view.
+ * @returns Those aircraft, in snapshot order.
+ */
+export function boardViewAircraft(
+  s: Pick<Snapshot, "user" | "groups" | "programs" | "aircraft">,
+): Aircraft[] {
+  const board = reducedViewGroups(s).filter((g) => g.board);
+  return s.aircraft.filter((a) =>
+    board.some((g) => groupCoversAircraft(g, a.uuid)),
+  );
 }
 
 /**

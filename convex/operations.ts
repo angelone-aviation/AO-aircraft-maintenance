@@ -66,7 +66,11 @@ import {
   activeProgram,
   programPermission,
 } from "../src/domain/programs";
-import { isOwnerView, ownerSnapshot } from "../src/domain/ownerView";
+import {
+  isOwnerView,
+  ownerPortalAircraft,
+  ownerPortalFiles,
+} from "../src/domain/ownerView";
 import { isBoardView } from "../src/domain/boardView";
 import { latestCopy } from "./backups";
 import { earliestLocalDate } from "../src/domain/aircraftStatus";
@@ -93,8 +97,9 @@ type Ctx = QueryCtx | MutationCtx;
  * scopedSnapshot to what the caller may see, with photo and attachment URLs.
  *
  * @returns null without an active account and session. An aircraft owner
- *   gets the owner whitelist; a board member the board whitelist, with the
- *   newest off-site backup's time.
+ *   gets the owner whitelist, with file links only for their aircraft's
+ *   photo and documents; a board member the board whitelist, with the newest
+ *   off-site backup's time; a user who is both, the two side by side.
  * @throws {z.ZodError} When a stored payload no longer parses.
  */
 export const snapshot = query({
@@ -103,12 +108,8 @@ export const snapshot = query({
     const identity = await activeIdentity(ctx);
     if (!identity) return null;
     const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity));
-    if (isBoardView(snapshot)) {
-      // Already the board whitelist; only the backup time is added, and no
-      // file URL is: the board sees no files.
-      snapshot.offsiteBackupAt = (await latestCopy(ctx))?.completedAt;
-      return snapshot;
-    }
+    if (isOwnerView(snapshot) || isBoardView(snapshot))
+      return addReducedViewExtras(ctx, snapshot);
     snapshot.aircraft = await withPhotoUrls(ctx, snapshot.aircraft);
     snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
     snapshot.workOrderAttachments = await workOrderAttachments(
@@ -120,8 +121,7 @@ export const snapshot = query({
       ...(snapshot.archivedTaskCards ?? []),
     ]);
     snapshot.aircraftFiles = await aircraftFileList(ctx, snapshot);
-    // Re-apply the owner whitelist after attachment URLs are added above.
-    return isOwnerView(snapshot) ? ownerSnapshot(snapshot) : snapshot;
+    return snapshot;
   },
 });
 
@@ -313,6 +313,25 @@ export const saveDiscrepancyParts = mutation({
       audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),
     }),
 });
+
+// A reduced view is already its whitelist, so only what is named here is
+// added: the backup time for the board, and for an owner the photo and the
+// documents of the aircraft their owner groups name. No other file URL is.
+async function addReducedViewExtras(ctx: QueryCtx, snapshot: Snapshot) {
+  if (isBoardView(snapshot))
+    snapshot.offsiteBackupAt = (await latestCopy(ctx))?.completedAt;
+  if (!isOwnerView(snapshot)) return snapshot;
+  const owned = ownerPortalAircraft(snapshot);
+  const withPhotos = await withPhotoUrls(ctx, owned);
+  snapshot.aircraft = snapshot.aircraft.map(
+    (a) => withPhotos.find((photo) => photo.uuid === a.uuid) ?? a,
+  );
+  snapshot.aircraftFiles = ownerPortalFiles(
+    await aircraftFileList(ctx, { ...snapshot, aircraft: owned }),
+    owned,
+  );
+  return snapshot;
+}
 
 // Everything the active program holds, before scopedSnapshot narrows it.
 async function fullSnapshot(

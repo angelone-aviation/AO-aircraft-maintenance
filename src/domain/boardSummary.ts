@@ -13,7 +13,12 @@ import { localDate, type Aircraft, type Snapshot } from "./model";
 import { aircraftStatus, type AircraftStatusLevel } from "./aircraftStatus";
 import { dueItems, type MaintenanceDue } from "./dueItems";
 import { ownerDueItems, type DueItem } from "./ownerDue";
-import { boardCostTotals, type BoardAircraftCosts } from "./boardView";
+import {
+  boardCostTotals,
+  boardViewAircraft,
+  isBoardView,
+  type BoardAircraftCosts,
+} from "./boardView";
 import { offsiteFreshness, type OffsiteFreshness } from "./offsiteBackups";
 
 /** How far ahead the board's due list looks, in calendar days. */
@@ -62,14 +67,18 @@ export interface BoardSummary {
  *
  * @param s - The snapshot.
  * @param now - The current time (epoch ms); the clock by default.
- * @returns Aircraft in snapshot order. `upcoming` holds every due item that
+ * @returns Aircraft in snapshot order; for a board member, only those their
+ *   board groups reach. `upcoming` holds every due item that
  *   is overdue, due soon, or has a calendar limit within 30 days, worst first
  *   and then soonest first.
  */
 export function boardSummary(s: Snapshot, now = Date.now()): BoardSummary {
   const today = localDate(now);
   const costs = s.boardCosts ?? boardCostTotals(s, today);
-  const aircraft = s.aircraft.map((a) => summarizeAircraft(s, a, costs, today));
+  // An owner who also sits on the board holds aircraft only their owner
+  // group names; those are the owner portal's, not the board's.
+  const reached = isBoardView(s) ? boardViewAircraft(s) : s.aircraft;
+  const aircraft = reached.map((a) => summarizeAircraft(s, a, costs, today));
   const fleet = { airworthy: 0, "due-soon": 0, grounded: 0 };
   for (const line of aircraft) fleet[line.status] += 1;
   return {
@@ -79,7 +88,7 @@ export function boardSummary(s: Snapshot, now = Date.now()): BoardSummary {
     fleet,
     overdue: aircraft.reduce((n, line) => n + line.overdue, 0),
     aircraft,
-    upcoming: listUpcoming(s, today),
+    upcoming: listUpcoming(s, reached, today),
     backup:
       s.offsiteBackupAt === undefined
         ? null
@@ -108,8 +117,12 @@ function summarizeAircraft(
   };
 }
 
-function listUpcoming(s: Snapshot, today: string): BoardDueLine[] {
-  return s.aircraft
+function listUpcoming(
+  s: Snapshot,
+  aircraft: Aircraft[],
+  today: string,
+): BoardDueLine[] {
+  return aircraft
     .flatMap((a) => {
       const days = calendarDays(dueItems(s, a.uuid, today), today);
       return ownerDueItems(s, a, today).map((item) => ({
