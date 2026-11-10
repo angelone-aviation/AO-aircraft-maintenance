@@ -4,13 +4,13 @@
 
 ## Who can export
 
-Users with **maintenance** permission on the aircraft, Flight Program administrators and system administrators. Aircraft owners keep the status sheet PDF only: the package holds flights, work detail and the change log, which the owner portal leaves out. The server scopes what each user's workspace holds, so a package never contains more than its exporter could see on screen.
+Users with **maintenance** permission on the aircraft, Flight Program administrators and system administrators. Aircraft owners keep the status sheet PDF only: the package holds flights, work detail and the change log, which the owner portal leaves out. The server scopes what each user's workspace holds, so a package never contains more than its exporter could see on screen. The package is assembled in the browser from those records, so the export itself refuses anyone else ("Records packages are for users with maintenance permission on the aircraft."); the server does not stop a pilot reading the same records on screen, so this rule keeps the package to the people who hand it over rather than keeping its contents secret.
 
 ## What the package holds
 
 The file is named `<registration>-records-<YYYY-MM-DD>.zip` and contains:
 
-- `README.txt`: the aircraft, the Flight Program, when the package was generated and by whom, what each file is, and any files left out with the reason.
+- `README.txt`: the aircraft, the Flight Program, when the package was generated and by whom, a **WARNINGS** block when a table is incomplete, what each file is, and any files left out with the reason.
 - `records.pdf`: every table below, printed in the same style as the status sheet, in DejaVu Sans so any character prints. Wide tables are landscape; the Form 337 list is portrait. The footer of every page says that the signed logbook entries remain the maintenance record.
 - One CSV per table (UTF-8 with a byte-order mark, every cell quoted; a dash on paper is an empty cell in the CSV): the six status sheet tables (`status-overview.csv`, `status-components.csv`, `status-inspections.csv`, `status-airworthiness.csv`, `status-form-337.csv`, `status-discrepancies.csv`), then `flights.csv`, `discrepancies.csv`, `work-orders.csv`, `ad-compliance.csv`, `components.csv`, `component-requirements.csv`, `form-337.csv` and `change-log.csv`.
 - `form-337/`: every Form 337 copy on the aircraft record, named `<upload date>-<file name>`; archived copies are under `form-337/archived/`. A second upload of the same name on the same day gets ` (2)`.
@@ -28,7 +28,7 @@ The tables:
 | Components                | Every component ever on the aircraft, installed ones first, with installation and removal dates, TSN, TSO, TSR, cycles and what it tracks. Usage that cannot be computed reads "Review".                                                                                                                                                                            |
 | Component requirements    | Each requirement's type, basis, interval, last done, next due and status.                                                                                                                                                                                                                                                                                           |
 | Form 337 copies on file   | Every copy, archived ones too, with its status and its path in the package.                                                                                                                                                                                                                                                                                         |
-| Change log                | Every change-log entry for the aircraft, oldest first: when, action, who, record, reason, before and after. The log is paged from the server until exhausted; offline, only the recent entries on the device are included and the README says so.                                                                                                                   |
+| Change log                | Every change-log entry for the aircraft, oldest first: when, action, who, record, reason, before and after. The log is paged from the server until exhausted. Offline, only the recent entries on the device are included; a log longer than 400 pages of 100 entries keeps the newest. Either way the package says the log is partial in the README's WARNINGS block and file list, in the first row of `change-log.csv` and in the note under the table in `records.pdf`.                                                                                                                   |
 
 ## Size guard
 

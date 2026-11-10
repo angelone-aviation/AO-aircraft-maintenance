@@ -20,7 +20,7 @@ import type {
   Flight,
   Snapshot,
 } from "./model";
-import { localDate } from "./model";
+import { can, localDate } from "./model";
 import { statusSheet, type StatusSectionId } from "./statusSheet";
 import { auditActionLabel } from "./auditHistory";
 import { logbookRecordText } from "./logbook";
@@ -85,6 +85,11 @@ export interface RecordsSection {
   /** One cell per column; an empty table holds one placeholder row. */
   rows: string[][];
   notes: string[];
+  /**
+   * What a reader must know before trusting the rows, such as a partial
+   * change log: also in the notes, first in the CSV and in the README.
+   */
+  warning?: string;
 }
 
 /** A stored file the package copies in, fetched by its URL. */
@@ -107,6 +112,12 @@ export interface SkippedFile {
 export interface ChangeLogRows {
   entries: AuditEntry[];
   complete: boolean;
+  /**
+   * The entries are the recent ones kept on the device, read offline; an
+   * incomplete log without it was cut at the newest entries one package
+   * reads.
+   */
+  fromDevice?: boolean;
 }
 
 /** What one aircraft's records package holds, before files are fetched. */
@@ -136,8 +147,8 @@ export interface RecordsPackage {
  *   copy (archived ones too) oldest upload first, and the change log oldest
  *   first; and the Form 337 copies then work-order attachments as files.
  *   A component whose usage cannot be computed reads "Review".
- * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft; what
- *   {@link statusSheet} throws.
+ * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft; as
+ *   {@link assertRecordsExporter}; what {@link statusSheet} throws.
  */
 export function buildRecordsPackage(
   s: Snapshot,
@@ -147,6 +158,7 @@ export function buildRecordsPackage(
 ): RecordsPackage {
   const a = s.aircraft.find((x) => x.uuid === aircraftUuid);
   if (!a) throw new Rejection("Aircraft not found.");
+  assertRecordsExporter(s, aircraftUuid);
   const status = statusSheet(s, aircraftUuid, today);
   const components = (s.management ?? []).filter(
     (c): c is Component => c.kind === "component" && c.aircraftUuid === a.uuid,
@@ -171,6 +183,24 @@ export function buildRecordsPackage(
     ],
     files: [...form337Files(s, a), ...attachmentFiles(s, orders)],
   };
+}
+
+/**
+ * Checks that the signed-in user may export the aircraft's records package:
+ * mechanics with maintenance permission on it, and program and system
+ * administrators. The package is assembled in the browser from records the
+ * user can already read, so this is where the rule holds.
+ *
+ * @param s - The exporter's snapshot.
+ * @param aircraftUuid - The aircraft.
+ * @throws {Rejection} "Records packages are for users with maintenance
+ *   permission on the aircraft." for anyone else.
+ */
+export function assertRecordsExporter(s: Snapshot, aircraftUuid: string) {
+  if (!can(s, aircraftUuid, "maintenance"))
+    throw new Rejection(
+      "Records packages are for users with maintenance permission on the aircraft.",
+    );
 }
 
 /**
@@ -220,8 +250,9 @@ export function recordsPackageName(registration: string, today: string) {
  * @param pkg - The package content.
  * @param generated - When it was generated, as text, and the user's name.
  * @param skipped - Files left out, with why; "None." when empty.
- * @returns Plain text: identity, purpose and the legal note, one line per
- *   file and folder, then the skipped files.
+ * @returns Plain text: identity, purpose and the legal note, a WARNINGS
+ *   block when a table is incomplete (such as a partial change log), one
+ *   line per file and folder, then the skipped files.
  */
 export function recordsReadme(
   pkg: RecordsPackage,
@@ -229,17 +260,22 @@ export function recordsReadme(
   skipped: SkippedFile[],
 ): string {
   const { aircraft } = pkg;
+  const warnings = pkg.sections.flatMap((x) => (x.warning ? [x.warning] : []));
   return [
     "ANGEL ONE RECORDS PACKAGE",
     `Aircraft: ${aircraft.registration} - ${aircraft.makeModel}, S/N ${aircraft.serial}`,
     `Flight Program: ${aircraft.program}`,
     `Generated: ${generated.at} by ${generated.by}`,
     "",
-    "The records Angel One holds for this aircraft, for inspection under 14 CFR 91.417(c) or transfer with the aircraft under 14 CFR 91.419. Angel One is the system of record for the six status records of 91.417(a)(2); the signed entries in the aircraft's logbooks remain the maintenance record. Values are as recorded when the package was generated. Corrections are appended in Angel One with a reason and never edited into history, so the change log lists every change.",
+    `The records Angel One holds for this aircraft, for inspection under 14 CFR 91.417(c) or transfer with the aircraft under 14 CFR 91.419. Angel One is the system of record for the six status records of 91.417(a)(2); the signed entries in the aircraft's logbooks remain the maintenance record. Values are as recorded when the package was generated. Corrections are appended in Angel One with a reason and never edited into history, so ${warnings.length ? "Angel One's change log lists every change; this package's copy of it is partial (see WARNINGS)." : "the change log lists every change."}`,
     "",
+    ...(warnings.length ? ["WARNINGS", ...warnings, ""] : []),
     "FILES",
     "records.pdf - Every table below as a printable document.",
-    ...pkg.sections.map((x) => `${x.file} - ${x.title} (${countRows(x)}).`),
+    ...pkg.sections.map(
+      (x) =>
+        `${x.file} - ${x.title} (${countRows(x)})${x.warning ? ", partial: see WARNINGS" : ""}.`,
+    ),
     "form-337/ - Copies of FAA Form 337 on the aircraft record, named <upload date>-<file name>; archived copies are under form-337/archived/.",
     "files/ - Attachments of the aircraft's work orders, named <upload date>-<file name>.",
     "",
@@ -772,6 +808,7 @@ function safeFileName(name: string): string {
 
 function changeLogSection(s: Snapshot, log: ChangeLogRows): RecordsSection {
   const entries = [...log.entries].sort((x, z) => x.at - z.at);
+  const warning = changeLogWarning(log, entries.length);
   const columns = [
     "When (UTC)",
     "Action",
@@ -797,12 +834,20 @@ function changeLogSection(s: Snapshot, log: ChangeLogRows): RecordsSection {
           e.after ?? "-",
         ])
       : [placeholder("No changes recorded", columns.length)],
-    notes: log.complete
-      ? [`${entries.length} entries; the change log is append-only.`]
-      : [
-          `${entries.length} entries: only the recent changes available on this device. Reconnect and export again for the complete change log.`,
-        ],
+    notes: [
+      warning ?? `${entries.length} entries; the change log is append-only.`,
+    ],
+    warning,
   };
+}
+
+// Says plainly what an incomplete change log leaves out, and what to do.
+function changeLogWarning(log: ChangeLogRows, count: number) {
+  if (log.complete) return undefined;
+  const entries = `${count} ${count === 1 ? "entry" : "entries"}`;
+  if (log.fromDevice)
+    return `Partial change log: ${entries}, only the recent changes kept on the exporting device, which was offline. Angel One holds the complete change log; export again while connected to include it.`;
+  return `Partial change log: the newest ${entries}. The change log is longer than one package reads, so older entries are not included.`;
 }
 
 function memberName(s: Snapshot, id: string): string {

@@ -573,11 +573,33 @@ describe("buildRecordsPackage", () => {
         '{"status":"accepted"}',
       ],
     ]);
-    const partial = buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, {
+    expect(full.warning).toBeUndefined();
+    const offline = buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, {
+      entries,
+      complete: false,
+      fromDevice: true,
+    }).sections.at(-1)!;
+    expect(offline.warning).toBe(
+      "Partial change log: 2 entries, only the recent changes kept on the exporting device, which was offline. Angel One holds the complete change log; export again while connected to include it.",
+    );
+    expect(offline.notes).toEqual([offline.warning]);
+    const capped = buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, {
       entries,
       complete: false,
     }).sections.at(-1)!;
-    expect(partial.notes[0]).toMatch(/^2 entries: only the recent changes/);
+    expect(capped.warning).toBe(
+      "Partial change log: the newest 2 entries. The change log is longer than one package reads, so older entries are not included.",
+    );
+  });
+
+  it("refuses a user without maintenance permission on the aircraft", () => {
+    const s = demoSnapshot();
+    s.user = s.members.find((m) => m.id === "demo-pilot")!;
+    expect(() => build(s)).toThrow(
+      new Rejection(
+        "Records packages are for users with maintenance permission on the aircraft.",
+      ),
+    );
   });
 });
 
@@ -656,5 +678,24 @@ describe("recordsReadme and recordsPackageName", () => {
     expect(skipped).toMatch(
       /SKIPPED FILES\nfiles\/a\.pdf - Work order WO-1 attachment: Could not be downloaded\.\n$/,
     );
+    expect(text).toContain("so the change log lists every change.\n");
+    expect(text).not.toContain("WARNINGS");
+  });
+
+  it("warns first, and beside the CSV, when the change log is partial", () => {
+    const s = demoSnapshot();
+    const pkg = build(s, s.aircraft[0].uuid, {
+      entries: [],
+      complete: false,
+      fromDevice: true,
+    });
+    const text = recordsReadme(pkg, { at: "x", by: "y" }, []);
+    expect(text).toContain(
+      "this package's copy of it is partial (see WARNINGS).\n\nWARNINGS\nPartial change log: 0 entries, only the recent changes kept on the exporting device",
+    );
+    expect(text).toContain(
+      "\nchange-log.csv - Change log (0 rows), partial: see WARNINGS.\n",
+    );
+    expect(text).not.toContain("so the change log lists every change");
   });
 });
