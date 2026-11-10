@@ -14,6 +14,8 @@ import {
   latestLocalDate,
   localDate,
   offlineValid,
+  deviceClockBehind,
+  CLOCK_SKEW_TOLERANCE_MS,
   OFFLINE_WINDOW,
   parseHours,
   type Flight,
@@ -121,7 +123,19 @@ describe("access and deadlines", () => {
         s.authenticatedAt + OFFLINE_WINDOW,
       ),
     ).toBe(false);
-    expect(offlineValid(s, s.authenticatedAt - 1)).toBe(false);
+    // A device clock a little behind the server opens a fresh sign-in; one
+    // further behind stays locked, and says why.
+    expect(offlineValid(s, s.authenticatedAt - 1)).toBe(true);
+    expect(offlineValid(s, s.authenticatedAt - CLOCK_SKEW_TOLERANCE_MS)).toBe(
+      true,
+    );
+    const behind = s.authenticatedAt - CLOCK_SKEW_TOLERANCE_MS - 1;
+    expect(offlineValid(s, behind)).toBe(false);
+    expect(deviceClockBehind(s, behind)).toBe(true);
+    expect(deviceClockBehind(s, s.authenticatedAt + OFFLINE_WINDOW)).toBe(
+      false,
+    );
+    expect(CLOCK_SKEW_TOLERANCE_MS).toBe(5 * 60_000);
   });
   it("requires aircraft scope and read permission along with writes", () => {
     const s = demoSnapshot();

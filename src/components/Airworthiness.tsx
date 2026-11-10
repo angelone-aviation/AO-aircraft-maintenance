@@ -66,6 +66,8 @@ import {
 import { importADDocx, type ADImport } from "../data/adImport";
 import { Field, Modal, errorText, safeHref } from "./ui";
 import { useStaleSave, type StaleSaveOptions } from "./StaleSave";
+import type { FieldSpecs } from "../domain/fieldDiff";
+import { AD_KEEP_MINE } from "../domain/keepMineRules";
 import {
   Airplane,
   ArrowsClockwise,
@@ -1093,28 +1095,66 @@ function importEntries(preview: ADImport, assign: Record<string, string[]>) {
   );
 }
 
-// How the stale-save review names and formats an AD's fields.
-const AD_STALE_SAVE: StaleSaveOptions<AD> = {
-  label: "AD",
-  entityUuid: (r) => r.uuid,
-  specs: {
-    source: { label: "FAA source", format: formatADSource },
-    applicability: "Applicability",
-    reason: "Reason",
-    priorCompliance: "Prior compliance",
-    tasks: { label: "Required actions", format: formatADTasks },
-    reviewRequired: "Review required",
-    componentUuid: "Component",
+const AD_TASK_LABELS: FieldSpecs<ADTask> = {
+  description: "Required action",
+  recurrence: "Action recurrence",
+  dueDate: "Next due date",
+  dueHours: "Next due hours",
+  dueCycles: "Next due cycles",
+  dueLandings: "Next due landings",
+  intervalDays: "Repeat every days",
+  intervalHours: "Repeat every hours",
+  intervalCycles: "Repeat every cycles",
+  intervalLandings: "Repeat every landings",
+  workOrderUuid: {
+    label: "Work order",
+    format: (uuid) => (uuid ? "Linked" : "Not linked"),
   },
 };
 
-function formatADSource(value: unknown) {
-  const source = value as AD["source"];
-  return `${source.number} · ${source.subject}`;
-}
+// How the stale-save review names and formats an AD's fields, down to each
+// required action's limits; the compliance history reads as a count and its
+// latest entry, never as stored data.
+const AD_STALE_SAVE: StaleSaveOptions<AD> = {
+  label: "AD",
+  entityUuid: (r) => r.uuid,
+  rules: AD_KEEP_MINE,
+  specs: {
+    source: {
+      label: "FAA source",
+      fields: {
+        ...Object.fromEntries(SOURCE_FIELDS),
+        recurring: "Recurring",
+        section: "Section",
+        sourceNotes: "Source notes",
+      },
+    },
+    applicability: "Applicability",
+    reason: "Applicability reason / paragraph",
+    priorCompliance: {
+      label: "Previous compliance",
+      fields: { date: "Date", ...PRIOR_HOURS_LABELS },
+    },
+    tasks: {
+      label: "Required actions",
+      item: (t, index) => `Required action ${index + 1} (${t.description})`,
+      fields: AD_TASK_LABELS,
+    },
+    history: { label: "Compliance history", format: formatADHistory },
+    sourceHistory: {
+      label: "Earlier FAA source versions",
+      format: (kept) => `${(kept as AD["sourceHistory"]).length} kept`,
+    },
+    reviewRequired: "Review required",
+  },
+};
 
-function formatADTasks(value: unknown) {
-  return (value as AD["tasks"]).map((t) => t.description).join("; ");
+function formatADHistory(value: unknown) {
+  const history = value as AD["history"];
+  const latest = history.at(-1);
+  if (!latest) return "No entries";
+  const at = latest.hours === null ? "" : ` at ${latest.hours} h`;
+  return `${history.length} ${history.length === 1 ? "entry" : "entries"}; latest ${latest.date}${at} by ${latest.mechanic}`;
 }
 
 function ADDraftForm({ ad, draft }: DraftProps) {
@@ -1122,6 +1162,9 @@ function ADDraftForm({ ad, draft }: DraftProps) {
     (ad.state.airworthiness ?? []).find((r) => r.uuid === draft.uuid),
   );
   const stale = useStaleSave(AD_STALE_SAVE);
+  // The stored AD as it was when the form opened (or was reloaded): what
+  // Keep mine measures the user's changes against.
+  const [loaded, setLoaded] = useState(() => storedAD(ad.state, draft.uuid));
   return (
     <Modal
       title={draft.version ? "Review AD" : "Add AD"}
@@ -1130,7 +1173,12 @@ function ADDraftForm({ ad, draft }: DraftProps) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void submitDraft(ad, stale, draft, needsReason);
+          void submitDraft(ad, stale, {
+            draft,
+            loaded,
+            needsReason,
+            onReload: setLoaded,
+          });
         }}
       >
         <div className="form-grid">
@@ -1150,23 +1198,38 @@ function ADDraftForm({ ad, draft }: DraftProps) {
   );
 }
 
-// The draft is the edited copy itself, so the review compares it with the
-// stored AD and Use theirs reopens the form on a fresh copy of that.
+function storedAD(s: Snapshot, uuid: string) {
+  const stored = s.airworthiness?.find((r) => r.uuid === uuid);
+  return stored && structuredClone(stored);
+}
+
+// The draft is the edited copy itself: the review compares it and the copy
+// the form opened on with the stored AD, and Use theirs reopens the form on
+// a fresh copy of that.
 async function submitDraft(
   ad: ADScreen,
   stale: ReturnType<typeof useStaleSave<AD>>,
-  draft: AD,
-  needsReason: boolean,
+  form: {
+    draft: AD;
+    loaded: AD | undefined;
+    needsReason: boolean;
+    onReload: (current: AD | undefined) => void;
+  },
 ) {
+  const { draft, loaded, needsReason } = form;
   ad.setBusy(true);
   ad.setError("");
   try {
     await stale.run({
       draft,
+      loaded,
       find: (live) => live.airworthiness?.find((r) => r.uuid === draft.uuid),
-      save: (version) => saveDraft(ad, { ...draft, version }, needsReason),
-      useTheirs: (current) =>
-        ad.setDraft(current ? structuredClone(current) : null),
+      save: (version, merged) =>
+        saveDraft(ad, { ...(merged ?? draft), version }, needsReason),
+      useTheirs: (current) => {
+        form.onReload(current && structuredClone(current));
+        ad.setDraft(current ? structuredClone(current) : null);
+      },
     });
   } catch (e) {
     // Shown on the screen and in the open form, which stays open to retry.

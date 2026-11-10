@@ -1,27 +1,31 @@
 /**
  * Responsibility: The stale-save review: when a save is refused because
- *   someone else changed the record, shows the fields that differ (yours and
- *   theirs, with who saved last and when) and offers Keep mine, Use theirs
- *   or Cancel; also the difference table a held flight's review reuses.
+ *   someone else changed the record, shows every field either person
+ *   changed (yours and theirs, with who saved last and when) and offers
+ *   Keep mine, Use theirs or Cancel; also the difference table a held
+ *   flight's review reuses.
  * Layer: UI. Shared dialog and hook; no Convex imports.
  * Dependencies: react, react-dom, ./design.tsx, src/data/store.ts,
- *   src/data/errors.ts, src/domain/fieldDiff.ts, src/domain/model.ts,
- *   src/styles/screens/stale-save.css.
+ *   src/data/errors.ts, src/domain/fieldDiff.ts, src/domain/recordMerge.ts,
+ *   src/domain/model.ts, src/styles/screens/stale-save.css.
  *
- * Records are never merged: Keep mine re-submits the whole draft against the
- * current version, so the other person's change to any shown field is
- * replaced and stays in the change log; Use theirs drops the draft.
+ * Keep mine never re-submits the whole draft: that put back fields the other
+ * person had just saved. It saves only what the user changed since the form
+ * opened, on top of the current record (src/domain/recordMerge.ts), and is
+ * withheld when the two saves cannot be combined; Use theirs drops the draft.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Dialog } from "./design";
 import { useWorkspace } from "../data/store";
 import { errorText, isStaleSave } from "../data/errors";
+import type { FieldDifference, FieldSpecs } from "../domain/fieldDiff";
 import {
-  fieldDiff,
-  type FieldDifference,
-  type FieldSpecs,
-} from "../domain/fieldDiff";
+  mergeKeepMine,
+  type KeepMineMerge,
+  type MergedField,
+  type MergeRules,
+} from "../domain/recordMerge";
 import type { AuditEntry, Snapshot } from "../domain/model";
 import "../styles/screens/stale-save.css";
 
@@ -36,8 +40,10 @@ export interface StaleSaveAttempt<T extends Versioned> {
   loaded?: T;
   /** The record as it stands now, from the live snapshot. */
   find: (s: Snapshot) => T | undefined;
-  /** Saves the draft against a version; the first try uses the loaded one. */
-  save: (version: number) => Promise<void>;
+  /** Saves against a version: the draft against the loaded version on the
+   * first try; on Keep mine, `merged` (the draft's changes on top of the
+   * current record) against the current version. */
+  save: (version: number, merged?: T) => Promise<void>;
   /** Reloads the form from the current record, dropping the draft; the
    * record is undefined when it is no longer in the snapshot. */
   useTheirs: (current: T | undefined) => void;
@@ -49,6 +55,8 @@ export interface StaleSaveOptions<T extends Versioned> {
   label: string;
   /** Labels and formats for the fields shown. */
   specs?: FieldSpecs<T>;
+  /** What Keep mine may not combine on this kind of record. */
+  rules?: MergeRules<T>;
   /** The record's change-log id, for who saved it last. */
   entityUuid?: (record: T) => string;
 }
@@ -95,16 +103,18 @@ export function useStaleSave<T extends Versioned>(
 }
 
 /**
- * The review of a refused save: who saved the record last, the fields on
- * which the draft and the current record differ, and the three choices.
+ * The review of a refused save: who saved the record last, every field
+ * either person changed since the form opened, and the three choices.
  *
  * @param props.attempt - The refused save.
- * @param props.options - The record's label, specs and change-log id.
+ * @param props.options - The record's label, specs, rules and change-log id.
  * @param props.onClose - Closes the dialog; Cancel keeps the form as it is.
  * @param props.onReloaded - Called after Use theirs, once confirmed.
- * @returns The dialog. Keep mine saves against the current version and
- *   shows a failure inside the dialog; it is unavailable once the record is
- *   gone from the snapshot.
+ * @returns The dialog. Keep mine saves the user's changed fields on top of
+ *   the current record, against its version, and shows a failure inside the
+ *   dialog. It is unavailable when the record is gone, when the form holds
+ *   no loaded copy to tell the user's changes by, until the current record
+ *   has arrived, and when a rule says the two saves cannot be combined.
  */
 export function StaleSaveDialog<T extends Versioned>({
   attempt,
@@ -119,7 +129,8 @@ export function StaleSaveDialog<T extends Versioned>({
 }) {
   const { snapshot } = useWorkspace();
   const current = snapshot ? attempt.find(snapshot) : undefined;
-  const choice = useStaleChoice(attempt, current, onClose, onReloaded);
+  const review = reviewOf(attempt, current, options);
+  const choice = useStaleChoice(attempt, current, review, onClose, onReloaded);
   const theirs = current ?? attempt.loaded;
   return (
     <Dialog
@@ -131,7 +142,7 @@ export function StaleSaveDialog<T extends Versioned>({
       footer={
         <StaleSaveActions
           busy={choice.busy}
-          canKeep={!!current}
+          canKeep={!!review?.merged}
           onKeepMine={() => void choice.keepMine()}
           onUseTheirs={choice.useTheirs}
           onCancel={onClose}
@@ -142,7 +153,7 @@ export function StaleSaveDialog<T extends Versioned>({
         entityUuid={theirs && options.entityUuid?.(theirs)}
         label={options.label}
       />
-      <ReviewBody attempt={attempt} current={current} options={options} />
+      <ReviewBody review={review} current={current} label={options.label} />
       {choice.error && (
         <p role="alert" className="error">
           {choice.error}
@@ -152,63 +163,99 @@ export function StaleSaveDialog<T extends Versioned>({
   );
 }
 
+// The merge Keep mine would save. None without the three copies, or while
+// the snapshot still holds the version the form loaded: the refusal proves a
+// newer one exists, and merging onto the old copy would show no difference.
+function reviewOf<T extends Versioned>(
+  attempt: StaleSaveAttempt<T>,
+  current: T | undefined,
+  options: StaleSaveOptions<T>,
+): KeepMineMerge<T> | undefined {
+  const { draft, loaded } = attempt;
+  if (!current || !draft || !loaded) return undefined;
+  if (current.version === loaded.version) return undefined;
+  return mergeKeepMine(
+    { base: loaded, mine: draft, theirs: current },
+    { specs: options.specs, rules: options.rules },
+  );
+}
+
 function ReviewBody<T extends Versioned>({
-  attempt,
+  review,
   current,
-  options,
+  label,
 }: {
-  attempt: StaleSaveAttempt<T>;
+  review: KeepMineMerge<T> | undefined;
   current: T | undefined;
-  options: StaleSaveOptions<T>;
+  label: string;
 }) {
+  if (!current) return <p>This {label} is no longer available.</p>;
+  if (!review) return <p className="muted">{NO_MERGE_TEXT}</p>;
   return (
     <>
-      {current ? (
-        <DifferenceTable
-          differences={reviewDifferences(attempt, current, options)}
-          mineLabel="Yours"
-          theirsLabel="Theirs"
-          empty="Only the version differs: the same values were saved again."
-        />
-      ) : (
-        <p>This {options.label} is no longer available.</p>
-      )}
+      <DifferenceTable
+        differences={review.fields}
+        mineLabel="Yours"
+        theirsLabel="Theirs"
+        empty="Only the version differs: the same values were saved again."
+      />
+      {review.blocked.length > 0 && <BlockedMerge reasons={review.blocked} />}
       <p className="muted">
-        Keep mine saves your values for every field above; Use theirs reloads
-        the form with the saved values. Either way the change log keeps both.
+        Keep mine saves only the fields you changed, on top of the {label} as it
+        is now; fields changed only by them stay as they saved them. Use theirs
+        reloads the form with the saved values and drops your changes. Either
+        way the change log keeps both saves.
       </p>
     </>
   );
 }
 
-function reviewDifferences<T extends Versioned>(
-  attempt: StaleSaveAttempt<T>,
-  current: T,
-  options: StaleSaveOptions<T>,
-) {
-  if (!attempt.draft) return [];
-  return fieldDiff(attempt.draft, current, {
-    specs: options.specs,
-    loaded: attempt.loaded,
-  });
+const NO_MERGE_TEXT =
+  "Your changes cannot be told apart from theirs here, so Keep mine is not available. Use theirs to reload the saved values, or Cancel to go back to your form.";
+
+function BlockedMerge({ reasons }: { reasons: string[] }) {
+  return (
+    <div className="stale-save-blocked" role="status">
+      <p>
+        <strong>Keep mine is not available</strong> because your changes cannot
+        be combined with theirs:
+      </p>
+      <ul>
+        {reasons.map((reason) => (
+          <li key={reason}>{sentence(reason)}</li>
+        ))}
+      </ul>
+      <p>
+        Use theirs to reload the saved values, then make your change again;
+        Cancel first if you need to copy something from your form.
+      </p>
+    </div>
+  );
 }
 
-// Keep mine saves against the current version and keeps the dialog open on
-// a failure; Use theirs asks first, since the draft is lost.
+function sentence(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// Keep mine saves the merge against the current version and keeps the
+// dialog open on a failure (a third save in between is refused as stale
+// again, and the table then shows the newer record); Use theirs asks first,
+// since the draft is lost.
 function useStaleChoice<T extends Versioned>(
   attempt: StaleSaveAttempt<T>,
   current: T | undefined,
+  review: KeepMineMerge<T> | undefined,
   onClose: () => void,
   onReloaded: () => void,
 ) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function keepMine() {
-    if (!current) return;
+    if (!current || !review?.merged) return;
     setBusy(true);
     setError("");
     try {
-      await attempt.save(current.version ?? 0);
+      await attempt.save(current.version ?? 0, review.merged);
       onClose();
     } catch (e) {
       setError(errorText(e));
@@ -226,9 +273,12 @@ function useStaleChoice<T extends Versioned>(
 }
 
 /**
- * Two copies of a record side by side, one row per differing field.
+ * Two copies of a record side by side, one row per differing field, each
+ * marked with who changed it and, in a stale-save review, what Keep mine
+ * does with it.
  *
- * @param props.differences - From fieldDiff; none renders `empty`.
+ * @param props.differences - From fieldDiff or mergeKeepMine; none renders
+ *   `empty`.
  * @param props.mineLabel - The heading over the first copy.
  * @param props.theirsLabel - The heading over the second copy.
  * @param props.empty - Shown instead of the table when nothing differs.
@@ -239,7 +289,7 @@ export function DifferenceTable({
   theirsLabel,
   empty,
 }: {
-  differences: FieldDifference[];
+  differences: (FieldDifference | MergedField)[];
   mineLabel: ReactNode;
   theirsLabel: ReactNode;
   empty: ReactNode;
@@ -261,7 +311,7 @@ export function DifferenceTable({
               {d.label}
               {d.changedBy && (
                 <small className="diff-changed-by">
-                  {CHANGED_BY_TEXT[d.changedBy]}
+                  {changeNote(d, d.changedBy)}
                 </small>
               )}
             </th>
@@ -282,6 +332,24 @@ const CHANGED_BY_TEXT: Record<
   them: "Changed by them",
   both: "Changed by both",
 };
+
+const KEEPS_TEXT: Record<MergedField["keeps"], string> = {
+  mine: "Keep mine saves yours",
+  theirs: "stays as they saved it",
+  neither: "cannot be combined",
+};
+
+// Who changed the field and, in a stale-save review, what Keep mine stores.
+function changeNote(
+  d: FieldDifference | MergedField,
+  changedBy: NonNullable<FieldDifference["changedBy"]>,
+) {
+  const who = CHANGED_BY_TEXT[changedBy];
+  if (!("keeps" in d)) return who;
+  if (changedBy === "both" && d.keeps === "mine")
+    return `${who}: Keep mine replaces theirs with yours`;
+  return `${who}: ${KEEPS_TEXT[d.keeps]}`;
+}
 
 function StaleSaveActions({
   busy,

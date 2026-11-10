@@ -223,7 +223,39 @@ describe("flight submissions and reviews", () => {
     expect(state.a!.cycles).toBe(a.cycles + 1);
     expect(state.flights).toHaveLength(1);
     expect(state.reports).toHaveLength(1);
-    expect(state.audit).toHaveLength(1);
+    // The flight and the report it filed each have one creation row.
+    expect(state.audit.map((row) => [row.action, row.entityUuid])).toEqual([
+      ["flight.created", operation.uuid],
+      ["discrepancy.created", `${operation.uuid}-discrepancy`],
+    ]);
+  });
+  it("refuses a resent entry id with other readings, so the device keeps it", async () => {
+    const { t, pilot, op, a } = await fixture();
+    const first = op();
+    await pilot.mutation(api.operations.submit, { operation: first });
+    const stored = () =>
+      t.run(async (ctx) => ({
+        flights: await ctx.db.query("flights").collect(),
+        audit: await ctx.db.query("audit").collect(),
+      }));
+    const before = await stored();
+    // A retry of the same entry after a lost reply is answered as before.
+    expect(
+      await pilot.mutation(api.operations.submit, { operation: first }),
+    ).toEqual({ status: "accepted" });
+    const changed = {
+      ...first,
+      input: { ...first.input, hobbsOn: a.currentHobbs + 7200, landings: 3 },
+    };
+    await expect(
+      pilot.mutation(api.operations.submit, { operation: changed }),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: expect.stringMatching(
+        /^This entry was already received with different readings/,
+      ),
+    });
+    expect(await stored()).toEqual(before);
   });
   it("holds stale submissions without changing totals and preserves both records", async () => {
     const { pilot, op, a } = await fixture();
@@ -243,6 +275,31 @@ describe("flight submissions and reviews", () => {
     expect(s!.flights.find((f) => f.uuid === second.uuid)?.status).toBe(
       "review",
     );
+  });
+  it("holds a flight longer than 24 hours (a decimal comma read as 23425) until an administrator accepts it", async () => {
+    const { pilot, admin, op, a } = await fixture();
+    const slip = op();
+    // 2341.2 h then "2342,5" typed: the browser keeps 23425.
+    slip.input = { ...slip.input, hobbsOn: 23425 * 3600 };
+    expect(
+      await pilot.mutation(api.operations.submit, { operation: slip }),
+    ).toEqual({ status: "review" });
+    let s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.aircraft[0].currentHobbs).toBe(a.currentHobbs);
+    expect(s!.flights[0].reviewReason).toMatch(
+      /^Hobbs reading is 21,083.8 hours past the current counter/,
+    );
+    // Nothing is lost: the administrator can still accept it as logged.
+    await admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: slip.uuid,
+      decision: "accept",
+      reason: "Ferry flight over several days, readings verified",
+      input: slip.input,
+    });
+    s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.aircraft[0].currentHobbs).toBe(23425 * 3600);
+    expect(s!.flights[0].status).toBe("accepted");
   });
   it("admin review accepts a valid backdated flight and rebuilds subsequent starting counters", async () => {
     const { pilot, admin, op, a } = await fixture();

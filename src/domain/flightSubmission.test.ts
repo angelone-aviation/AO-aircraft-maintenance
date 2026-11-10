@@ -143,6 +143,26 @@ describe("submitting a flight", () => {
       }),
     ]);
   });
+  it("gives the report a held flight files its own creation row", () => {
+    const s = world();
+    const op = flight(
+      s,
+      { discrepancy: "Left brake pedal soft on rollout" },
+      { baseVersion: s.aircraft[0].version + 1 },
+    );
+    const { status, changes } = submitOperation(s, op, options);
+    expect(status).toBe("review");
+    const reportUuid = `${op.uuid}-discrepancy`;
+    expect(changes!.discrepancy).toMatchObject({
+      uuid: reportUuid,
+      status: "open",
+    });
+    expect(changes!.audit.map((e) => [e.action, e.entityUuid])).toEqual([
+      ["flight.held", op.uuid],
+      ["discrepancy.created", reportUuid],
+    ]);
+    expect(JSON.parse(changes!.audit[1].after!)).toEqual(changes!.discrepancy);
+  });
   it("holds a stale or out-of-sequence flight for review without changing totals", () => {
     const s = world();
     const stale = submitOperation(
@@ -422,6 +442,12 @@ describe("submitting a problem report", () => {
     expect(() =>
       submitOperation(s, { ...op, authorId: "demo-pilot" }, options),
     ).toThrow("Entry ID already used.");
+    expect(() =>
+      submitOperation(s, { ...op, description: "Oil leak, right" }, options),
+    ).toThrow(/^This report was already received with different details/);
+    expect(() =>
+      submitOperation(s, { ...op, grounding: false }, options),
+    ).toThrow(FlightRejection);
   });
   it("links only a flight of the same aircraft", () => {
     const s = world();

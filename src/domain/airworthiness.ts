@@ -821,6 +821,7 @@ function saveAD(
 ) {
   if (adSaveIsCorrection(old) && !cmd.reason)
     throw new Rejection("Record the reason for changing this AD.");
+  assertLimitsSeeCompliance(old, r);
   r.history = old?.history ?? [];
   r.sourceHistory = old?.sourceHistory ?? [];
   if (old && JSON.stringify(old.source) !== JSON.stringify(r.source))
@@ -877,6 +878,41 @@ function assertActions(s: Snapshot, old: AD | undefined, r: AD) {
     if (t.recurrence === "One-time" && hasInterval(t))
       throw new Rejection("One-time actions cannot have repeating intervals.");
   }
+}
+
+// A save carries the history its form loaded. Compliance moves an action's
+// next due, so a save that has not seen a later entry for an action may not
+// set that action's limits: it would put back the due point the compliance
+// replaced (a re-sent stale draft), even at the current version.
+function assertLimitsSeeCompliance(old: AD | undefined, r: AD) {
+  if (!old) return;
+  const seen = new Set(r.history.map((h) => h.uuid));
+  old.tasks.forEach((stored, index) => {
+    const unseen = old.history.some(
+      (h) => h.taskUuid === stored.uuid && !seen.has(h.uuid),
+    );
+    const sent = r.tasks.find((t) => t.uuid === stored.uuid);
+    if (!unseen || !sent || sameLimits(sent, stored)) return;
+    throw new Rejection(
+      `Compliance was recorded on required action ${index + 1} after this AD was opened, which moved its next due. Reload the AD before changing that action's due limits.`,
+    );
+  });
+}
+
+const TASK_LIMIT_FIELDS = [
+  "dueDate",
+  "dueHours",
+  "dueCycles",
+  "dueLandings",
+  "intervalDays",
+  "intervalHours",
+  "intervalCycles",
+  "intervalLandings",
+  "recurrence",
+] as const satisfies readonly (keyof ADTask)[];
+
+function sameLimits(a: ADTask, b: ADTask) {
+  return TASK_LIMIT_FIELDS.every((k) => (a[k] ?? null) === (b[k] ?? null));
 }
 
 function recordCompliance(s: Snapshot, cmd: ComplyCommand, r: AD, now: number) {

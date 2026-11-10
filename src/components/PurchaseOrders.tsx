@@ -58,6 +58,7 @@ import {
   type StaleSaveAttempt,
   type StaleSaveOptions,
 } from "./StaleSave";
+import { PO_KEEP_MINE } from "../domain/keepMineRules";
 import {
   EmptyState,
   PageHeader,
@@ -129,19 +130,27 @@ const PO_STALE_SAVE: StaleSaveOptions<PODraft> = {
     currency: "Currency",
     shippingCents: { label: "Shipping", format: formatCents },
     notes: "Notes",
-    lines: { label: "Lines", format: formatLines },
+    lines: {
+      label: "Lines",
+      item: (l, index) => `Line ${index + 1} (${l.partNumber})`,
+      fields: {
+        partNumber: "Part number",
+        description: "Description",
+        quantity: "Quantity",
+        unitCents: { label: "Unit cost", format: formatCents },
+        kind: "Kind",
+        exchange: "Exchange",
+        coreDueDays: "Core due (days)",
+      },
+    },
   },
+  rules: PO_KEEP_MINE,
 };
 
 function formatCents(value: unknown) {
   return (Number(value) / 100).toFixed(2);
 }
 
-function formatLines(value: unknown) {
-  return (value as PODraft["lines"])
-    .map((l) => `${l.partNumber} × ${l.quantity}`)
-    .join("; ");
-}
 type PODetailProps = { po: PurchaseOrder; onEdit: () => void };
 type OrderAction = Exclude<POCommand["kind"], "save" | "core">;
 type ReceiveCommand = Extract<POCommand, { kind: "receive" }>;
@@ -335,9 +344,11 @@ function draftAttempt(
     draft: drafts.find((d) => d.uuid === initial.uuid),
     loaded: initial.version ? initial : undefined,
     find: (live) => live.purchaseOrders?.find((p) => p.uuid === initial.uuid),
-    save: (version) =>
+    save: (version, merged) =>
       save(
-        drafts.map((d) => (d.uuid === initial.uuid ? { ...d, version } : d)),
+        drafts.map((d) =>
+          d.uuid === initial.uuid ? { ...(merged ?? d), version } : d,
+        ),
       ),
     useTheirs: (current) =>
       current && onReload ? onReload(current) : onDone(),

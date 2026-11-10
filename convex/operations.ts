@@ -5,8 +5,8 @@
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
  *   ./urgentAlerts, ./memberships, ./validators, src/domain (model, programs,
- *   flightSubmission, flightReview, ownerView, deferrals, requiredParts,
- *   aircraftStatus).
+ *   flightSubmission, flightReview, ownerView, boardView, deferrals,
+ *   requiredParts, rejection, aircraftStatus).
  */
 import { v } from "convex/values";
 import {
@@ -17,6 +17,7 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { runCommand, hydrate, errorsOf, requestOf } from "./runCommand";
+import { Rejection } from "../src/domain/rejection";
 import { decode } from "./collections";
 import {
   context,
@@ -678,7 +679,7 @@ async function submissionState(
     state,
   );
   if (user._id !== operation.authorId)
-    throw new Error(
+    throw new Rejection(
       "This offline entry belongs to a different user. Sign in with the original account.",
     );
   const aircraft = await aircraftByUuid(ctx, aircraftUuid);

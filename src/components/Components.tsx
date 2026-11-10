@@ -85,6 +85,8 @@ import {
   type StaleSaveAttempt,
   type StaleSaveOptions,
 } from "./StaleSave";
+import { COMPONENT_KEEP_MINE } from "../domain/keepMineRules";
+import { EMPTY_FIELD_TEXT, type FieldSpecs } from "../domain/fieldDiff";
 import {
   EmptyState,
   IconTile,
@@ -259,23 +261,63 @@ export function ComponentForm(props: ComponentFormProps) {
   );
 }
 
-// How the stale-save review names and formats a component's fields.
-const COMPONENT_STALE_SAVE: StaleSaveOptions<Component> = {
-  label: "component",
-  entityUuid: (c) => c.uuid,
-  specs: {
-    componentType: "Component type",
-    manufacturer: "Manufacturer",
-    model: "Model",
-    partNumber: "Part number",
-    serial: "Serial number",
-    installPosition: "Install position",
-    installed: "Installed",
-    aircraftUuid: "Aircraft",
-    locationUuid: "Inventory location",
-    manualReference: "Manual reference",
-  },
+// How the stale-save review names and formats a component's fields: ids
+// read as the aircraft, location or component they name, counters in hours.
+function componentStaleSave(s: Snapshot): StaleSaveOptions<Component> {
+  const id = (label: string) => ({
+    label,
+    format: (uuid: unknown) => recordName(s, uuid),
+  });
+  return {
+    label: "component",
+    entityUuid: (c) => c.uuid,
+    rules: COMPONENT_KEEP_MINE,
+    specs: {
+      ...COMPONENT_FIELD_LABELS,
+      aircraftUuid: id("Aircraft"),
+      parentComponentUuid: id("Part of"),
+      locationUuid: id("Inventory location"),
+    },
+  };
+}
+
+function hoursSpec(label: string) {
+  return {
+    label,
+    format: (seconds: unknown) => `${hours(Number(seconds))} h`,
+  };
+}
+
+const COMPONENT_FIELD_LABELS: FieldSpecs<Component> = {
+  componentType: "Component type",
+  manufacturer: "Manufacturer",
+  model: "Model",
+  faaSearchModel: "FAA search model",
+  partNumber: "Part number",
+  serial: "Serial number",
+  ataChapter: "ATA chapter",
+  installPosition: "Install position",
+  installed: "Installed",
+  partsLocation: "Shelf or bin",
+  manualReference: "Manual reference",
+  incomingTag: { label: "Incoming tag", fields: tagFieldLabels },
+  installedSeconds: hoursSpec("Aircraft time at installation"),
+  timeSinceNew: hoursSpec("Time since new"),
+  timeSinceOverhaul: hoursSpec("Time since overhaul"),
+  timeSinceRepair: hoursSpec("Time since repair"),
+  outForRepair: { label: "Out for repair", format: () => "Yes" },
 };
+
+function recordName(s: Snapshot, uuid: unknown) {
+  if (!uuid) return EMPTY_FIELD_TEXT;
+  const aircraft = s.aircraft.find((a) => a.uuid === uuid);
+  if (aircraft) return aircraft.registration;
+  const record = s.management?.find((r) => r.uuid === uuid);
+  if (record?.kind === "location") return record.name;
+  if (record?.kind === "component")
+    return `${record.componentType} ${record.serial}`.trim();
+  return "no longer listed";
+}
 
 /**
  * Plans a component's installation or removal onto a work order, or records
@@ -718,7 +760,7 @@ function useComponentForm(props: ComponentFormProps) {
   const [saved, setSaved] = useState<Component>();
   const [uploadError, setUploadError] = useState("");
   const choices = useComponentChoices(s, props);
-  const stale = useStaleSave(COMPONENT_STALE_SAVE);
+  const stale = useStaleSave(componentStaleSave(s));
   const save = async (r: Component) => {
     await execute(componentSaveCommand(r, props));
     const next = { ...r, version: r.version + 1 };
@@ -788,7 +830,7 @@ function componentAttempt(
     draft: r,
     loaded: props.record,
     find: (live) => findComponent(live, props.record?.uuid),
-    save: (version) => save({ ...r, version }),
+    save: (version, merged) => save({ ...(merged ?? r), version }),
     useTheirs: (current) =>
       current && props.onReload
         ? props.onReload(current)

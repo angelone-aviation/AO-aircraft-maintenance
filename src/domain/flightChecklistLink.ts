@@ -18,8 +18,9 @@ import { Rejection } from "./rejection";
  * @param s - The snapshot holding the checklists and aircraft.
  * @param input - The flight entry.
  * @throws {z.ZodError} When the linked run is malformed.
- * @throws {Error} "Checklist is unavailable for this aircraft or Flight
- *   Program." when any other condition fails.
+ * @throws {Rejection} "Checklist is unavailable for this aircraft or Flight
+ *   Program." when any other condition fails, for example a checklist
+ *   removed while the entry waited to sync.
  */
 export function validateChecklistFlight(s: Snapshot, input: FlightInput) {
   if (!input.checklistRun) return;
@@ -33,9 +34,7 @@ export function validateChecklistFlight(s: Snapshot, input: FlightInput) {
       s.aircraft.find((a) => a.uuid === input.aircraftUuid)?.programUuid ||
     link.checklistVersion > record.version
   )
-    // Not a Rejection: on the outbox path that would turn a retried failure
-    // into a permanent one (CONTEXT.md §4), a change for the outbox review.
-    throw new Error(
+    throw new Rejection(
       "Checklist is unavailable for this aircraft or Flight Program.",
     );
 }

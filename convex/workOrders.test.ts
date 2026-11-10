@@ -1,10 +1,13 @@
 /**
  * Responsibility: Pins work orders on the server: saving, close-out and the
- *   change-log rows of the components it changes, revisions, component corrections, job-card copies and archiving, the
- *   attachments of an open order, and the refusals users see.
+ *   change-log rows of the components it changes, revisions, component
+ *   corrections, job-card copies and archiving, the attachments of an open
+ *   order, the refusals users see, and that keeping a stale edit leaves
+ *   another person's task progress in place.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/workOrders.ts, convex/admin.ts, convex/taskCards.ts,
- *   convex/schema.ts, src/domain/workOrders.ts, src/data/demo.ts,
+ *   convex/schema.ts, src/domain/workOrders.ts, src/domain/recordMerge.ts,
+ *   src/domain/keepMineRules.ts, src/data/demo.ts,
  *   tests/fixtures (workOrders, taskCards).
  */
 import { convexTest } from "convex-test";
@@ -13,6 +16,12 @@ import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { MAX_ATTACHMENTS } from "./attachments";
+import { workOrderFieldsSchema } from "../src/domain/workOrders";
+import { mergeKeepMine } from "../src/domain/recordMerge";
+import {
+  WORK_ORDER_KEEP_MINE,
+  workOrderEdit,
+} from "../src/domain/keepMineRules";
 import {
   workOrderComponent,
   workOrderCommand,
@@ -112,6 +121,52 @@ it("persists work orders and audit entries; rejects unauthorized, stale and cros
   await expect(
     tech.mutation(api.workOrders.save, { ...args, programUuid: "wrong" }),
   ).rejects.toThrow("Program changed");
+});
+it("keeps a task's progress saved meanwhile when a stale supervisor edit is kept", async () => {
+  const { tech } = await fixture();
+  const task = {
+    uuid: crypto.randomUUID(),
+    source: { kind: "manual" as const, uuid: crypto.randomUUID() },
+    description: "Inspect cabin fittings",
+    status: "requested" as const,
+    notes: "",
+    partsDelay: "",
+  };
+  const opened = { ...workOrderCommand(), tasks: [task] };
+  const save = (command: object) =>
+    tech.mutation(api.workOrders.save, {
+      programUuid: PROGRAM,
+      payload: JSON.stringify(command),
+    });
+  const stored = async () =>
+    (await tech.query(api.operations.snapshot, {}))!.workOrders![0];
+  await save(opened);
+  const loaded = workOrderEdit(await stored());
+  const delayed = {
+    ...task,
+    status: "parts-delay" as const,
+    partsDelay: "Awaiting replacement fitting",
+  };
+  await save({ ...opened, version: 1, tasks: [delayed] });
+  const theirs = workOrderEdit(await stored());
+  const mine = { ...loaded, supervisor: "Second supervisor" };
+  const merge = mergeKeepMine(
+    { base: loaded, mine, theirs },
+    { rules: WORK_ORDER_KEEP_MINE },
+  );
+  const merged = merge.merged!;
+  await save({
+    ...opened,
+    version: theirs.version,
+    fields: workOrderFieldsSchema.parse(merged),
+    tasks: merged.tasks,
+  });
+  const kept = await stored();
+  expect(kept.supervisor).toBe("Second supervisor");
+  expect(kept.tasks[0]).toMatchObject({
+    status: "parts-delay",
+    partsDelay: "Awaiting replacement fitting",
+  });
 });
 it("saves once per request id, which the order never stores: a replay writes nothing", async () => {
   const { t, tech } = await fixture();

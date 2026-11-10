@@ -659,13 +659,17 @@ function RemarksSection({ m }: { m: Model }) {
             placeholder="Anything worth noting about this flight"
           />
         </FlightField>
-        {discrepancyShown && <DiscrepancyField />}
+        {discrepancyShown && (
+          <DiscrepancyField defaultValue={m.defaults?.discrepancy} />
+        )}
       </div>
     </FlightSection>
   );
 }
 
-function DiscrepancyField() {
+// Prefilled on Edit and retry: the failed entry may hold the only copy of
+// the defect the pilot wrote.
+function DiscrepancyField({ defaultValue }: { defaultValue?: string }) {
   return (
     <FlightField
       className="flight-discrepancy"
@@ -684,6 +688,7 @@ function DiscrepancyField() {
     >
       <textarea
         name="discrepancy"
+        defaultValue={defaultValue}
         maxLength={NOTE_MAX_LENGTH}
         rows={2}
         placeholder="Any problem observed during this flight?"

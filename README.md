@@ -251,7 +251,7 @@ Open the preview URL online, sign in, and allow the app to cache before testing 
 - A photo taken for a flight that has not synced waits on the device and uploads after it ([logbook page photos](docs/logbook-photos.md)).
 - Reference manuals a user keeps on the device (**Keep on this device** in the Reference library) also open offline; see [reference library](docs/reference-library.md#keep-on-this-device).
 - Pending entries appear in **Sync center** and sync automatically when connected. Conflicting flights go to administrator review without changing aircraft totals.
-- Access expires seven days after login; pending entries remain saved. Sign in with the original account to sync them.
+- Access expires seven days after login; pending entries remain saved. Sign in with the original account to sync them. A device clock up to five minutes behind the server still opens; one further behind is asked to set its date and time automatically.
 - What happens to a refused entry, a held flight, or a record two people changed at once is in [offline entries and colliding changes](docs/offline.md).
 
 ## Verification

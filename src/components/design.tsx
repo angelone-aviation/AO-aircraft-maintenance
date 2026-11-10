@@ -61,6 +61,8 @@ type DialogProps = {
   footer?: ReactNode;
   size?: "default" | "narrow" | "wide" | "full";
   dismissOnScrim?: boolean;
+  /** False when the dialog asks before discarding by itself. */
+  confirmDiscard?: boolean;
   closeLabel?: string;
   className?: string;
   children?: ReactNode;
@@ -677,6 +679,11 @@ export function RoundButton({
  * @param props.open - False renders nothing; defaults to true.
  * @param props.onClose - Called by Escape (the top-most dialog only), the
  *   close button and, unless `dismissOnScrim` is false, a click on the scrim.
+ *   Once the user has typed or chosen anything in a form inside the dialog,
+ *   Escape, the scrim and the browser's Back or Forward first ask
+ *   "Discard what you have entered in this form?", and do nothing if the
+ *   answer is no.
+ * @param props.confirmDiscard - False for a dialog that asks by itself.
  * @param props.size - default (720px), narrow (560), wide (1100) or full
  *   (1480).
  * @param props.header - Replaces the title and close button; the title then
@@ -696,11 +703,13 @@ export const DialogFrame = DialogInner;
 function DialogInner({
   size = "default",
   dismissOnScrim = true,
+  confirmDiscard = true,
   closeLabel = "Close dialog",
   ...props
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
-  const dismiss = useDismiss(props.onClose, dismissOnScrim);
+  const mayDiscard = useDiscardGuard(ref, confirmDiscard);
+  const dismiss = useDismiss(props.onClose, dismissOnScrim, mayDiscard);
   const titleId = useId();
   const subtitleId = useId();
   useModal(ref);
@@ -955,7 +964,11 @@ function useModal(ref: RefObject<HTMLDialogElement | null>) {
 
 // The handlers read the latest onClose through a ref, so a new onClose never
 // re-runs the effect that opened the dialog.
-function useDismiss(onClose: () => void, dismissOnScrim: boolean) {
+function useDismiss(
+  onClose: () => void,
+  dismissOnScrim: boolean,
+  mayDiscard: () => boolean,
+) {
   const onCloseRef = useRef(onClose);
   const pressStartedOnScrim = useRef(false);
   useEffect(() => {
@@ -969,7 +982,7 @@ function useDismiss(onClose: () => void, dismissOnScrim: boolean) {
       // dialog the browser cancelled closes; its parents keep their forms.
       if (e.target !== e.currentTarget) return;
       e.preventDefault();
-      onCloseRef.current();
+      if (mayDiscard()) onCloseRef.current();
     },
     onPointerDown: (e: PointerEvent<HTMLDialogElement>) => {
       pressStartedOnScrim.current = e.target === e.currentTarget;
@@ -978,10 +991,80 @@ function useDismiss(onClose: () => void, dismissOnScrim: boolean) {
     // the panel and ends outside it leaves the dialog open.
     onClick: (e: MouseEvent<HTMLDialogElement>) => {
       const own = pressStartedOnScrim.current && e.target === e.currentTarget;
-      if (dismissOnScrim && own) onCloseRef.current();
+      if (dismissOnScrim && own && mayDiscard()) onCloseRef.current();
       pressStartedOnScrim.current = false;
     },
   };
+}
+
+const DISCARD_QUESTION = "Discard what you have entered in this form?";
+const HISTORY_MOVES: readonly string[] = ["BACK", "FORWARD", "GO"];
+
+/** The part of the router's history a dialog uses to hold up Back. */
+export interface DialogHistory {
+  block(blocker: {
+    blockerFn: (move: { action: string }) => boolean;
+    enableBeforeUnload: boolean;
+  }): () => void;
+}
+
+let dialogHistory: DialogHistory | undefined;
+
+/**
+ * Gives dialogs the app's browser history, so a dialog holding unsaved input
+ * can ask before Back or Forward discards it. The app calls it once, when it
+ * creates its router; without it, dialogs guard Escape and the scrim only.
+ *
+ * @param history - The router's history.
+ */
+export function setDialogHistory(history: DialogHistory) {
+  dialogHistory = history;
+}
+
+// Whether the dialog may close without losing the user's input: true until
+// they type or choose something in one of its forms, then only once they
+// confirm. A real input event is the test, because forms also set values
+// themselves after opening. The history asks it before Back or Forward, the
+// phone's usual way to close a sheet; the app's own navigation after a save
+// is never held up.
+function useDiscardGuard(
+  ref: RefObject<HTMLDialogElement | null>,
+  enabled: boolean,
+) {
+  const touched = useRef(false);
+  const mayDiscard = useCallback(
+    () => !enabled || !touched.current || window.confirm(DISCARD_QUESTION),
+    [enabled],
+  );
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog || !enabled) return;
+    const mark = (e: Event) => {
+      if (e.isTrusted && isEntryField(e.target)) touched.current = true;
+    };
+    dialog.addEventListener("input", mark);
+    return () => dialog.removeEventListener("input", mark);
+  }, [ref, enabled]);
+  useEffect(() => {
+    if (!dialogHistory || !enabled) return;
+    return dialogHistory.block({
+      enableBeforeUnload: false,
+      blockerFn: ({ action }) =>
+        HISTORY_MOVES.includes(action) && !mayDiscard(),
+    });
+  }, [enabled, mayDiscard]);
+  return mayDiscard;
+}
+
+// A field of a form, where entries live; a search box only filters.
+function isEntryField(target: EventTarget | null) {
+  if (target instanceof HTMLInputElement)
+    return !!target.form && target.type !== "search";
+  return (
+    (target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement) &&
+    !!target.form
+  );
 }
 
 // A custom header has no h2 to point at, so the title names the dialog.

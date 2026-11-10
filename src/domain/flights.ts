@@ -25,6 +25,14 @@ import { Rejection } from "./rejection";
 // Device clocks run a little fast; a start this far ahead is still accepted.
 const FUTURE_START_TOLERANCE_MS = 5 * 60_000;
 
+/**
+ * The longest single flight the app applies without a review: 24 hours of
+ * meter time. A longer one is almost always a typing slip (a missed decimal
+ * point turns 2342.5 into 23425), which would rewrite the aircraft's total
+ * time and every hours-based due point.
+ */
+export const MAX_PLAUSIBLE_FLIGHT_SECONDS = 24 * 3600;
+
 const ISO_MINUTE_LENGTH = "YYYY-MM-DDTHH:MM".length;
 
 const METER_INPUT_FIELD = {
@@ -40,6 +48,8 @@ const METER_READING_FIELD = {
   cyclic: "currentCyclicHobbs",
   flightTimeLog: "currentFlightTimeLog",
 } as const;
+
+type MeterName = keyof typeof METER_INPUT_FIELD;
 
 const READING_LABELS = {
   currentHobbs: "Hobbs",
@@ -153,22 +163,21 @@ export function meterAtFlight(aircraft: Aircraft, time: string) {
  * @param aircraft - The aircraft before the flight.
  * @param input - The flight as logged.
  * @throws {z.ZodError} When the input does not parse.
- * @throws {Error} "The <meter> reading is required for this aircraft." when
- *   it lacks the reading of the meter in use at its start ("hobbs", "tach",
- *   "Collective hourmeter" or "Flight time log"); "Flight time cannot be in the
- *   future." when it starts more than five minutes from now.
+ * @throws {Rejection} "The <meter> reading is required for this aircraft."
+ *   when it lacks the reading of the meter in use at its start ("hobbs",
+ *   "tach", "Collective hourmeter" or "Flight time log"); "Flight time cannot
+ *   be in the future." when it starts more than five minutes from now. A
+ *   Rejection, so the server shows the reason on a refused outbox entry.
  */
 export function validateFlight(aircraft: Aircraft, input: FlightInput): void {
   flightInputSchema.parse(input);
   const meter = meterAtFlight(aircraft, input.startTime);
-  // Plain Errors, not Rejections: on the outbox path a Rejection would turn a
-  // retried failure into a permanent one (CONTEXT.md §4).
   if (input[METER_INPUT_FIELD[meter]] === undefined)
-    throw new Error(
+    throw new Rejection(
       `The ${meter === "hobbs" || meter === "tach" ? meter : aircraftMeterLabels[meter]} reading is required for this aircraft.`,
     );
   if (Date.parse(input.startTime) > Date.now() + FUTURE_START_TOLERANCE_MS)
-    throw new Error("Flight time cannot be in the future.");
+    throw new Rejection("Flight time cannot be in the future.");
 }
 
 /**
@@ -214,6 +223,44 @@ export function conflictReason(
     return "Flight time log reading is lower than the current counter.";
   if (input.tachOn !== undefined && input.tachOn < aircraft.currentTach)
     return "Tach reading is lower than the current counter.";
+}
+
+/**
+ * Why a newly arrived flight is held for review instead of being applied:
+ * {@link conflictReason}, else a meter that moved more than
+ * {@link MAX_PLAUSIBLE_FLIGHT_SECONDS} past its current counter. The length
+ * check applies only on arrival (sync, logbook import), so an administrator
+ * who accepts a long flight can still have it replayed into the totals.
+ *
+ * @param aircraft - The aircraft as it stands.
+ * @param input - The flight as logged.
+ * @param baseVersion - The aircraft version the entry was started against.
+ * @returns The first reason, as a sentence for the user, or undefined.
+ */
+export function heldReason(
+  aircraft: Aircraft,
+  input: FlightInput,
+  baseVersion: number,
+): string | undefined {
+  return (
+    conflictReason(aircraft, input, baseVersion) ??
+    implausibleLengthReason(aircraft, input)
+  );
+}
+
+function implausibleLengthReason(aircraft: Aircraft, input: FlightInput) {
+  for (const meter of Object.keys(METER_INPUT_FIELD) as MeterName[]) {
+    const reading = input[METER_INPUT_FIELD[meter]];
+    const current = aircraft[METER_READING_FIELD[meter]] ?? 0;
+    if (reading === undefined) continue;
+    if (reading - current > MAX_PLAUSIBLE_FLIGHT_SECONDS)
+      return `${meterLabel(meter)} reading is ${hours(reading - current)} hours past the current counter, longer than any single flight. Check for a missed decimal point or a decimal comma.`;
+  }
+  return undefined;
+}
+
+function meterLabel(meter: MeterName) {
+  return READING_LABELS[METER_READING_FIELD[meter]];
 }
 
 /**

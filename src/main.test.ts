@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the live session's rules: which screen a cached
  *   snapshot opens, when a sign-out clears the device, the sign-in failure
- *   message, signing out offline and where error reporting is wired in.
+ *   message, signing out offline, and where error reporting and the number
+ *   field guard are wired in.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/main.tsx, react-dom/server, convex/server.
  *
@@ -37,6 +38,7 @@ const live = vi.hoisted(() => ({
   workspace: {} as Record<string, unknown>,
   rootOptions: undefined as unknown,
   workerOptions: undefined as unknown,
+  guardNumberEntry: vi.fn(),
   reporting: {
     initErrorReporting: vi.fn(async () => {}),
     reactErrorHandlers: () => ROOT_HOOKS,
@@ -91,6 +93,9 @@ vi.mock("./data/deviceManuals", () => ({
   removeAllKeptManuals: async () => {},
 }));
 vi.mock("./data/pdfOffline", () => ({ warmPdfViewer: vi.fn() }));
+vi.mock("./components/numberEntry", () => ({
+  guardNumberEntry: live.guardNumberEntry,
+}));
 vi.mock("./data/backend", () => ({ convexBackend: () => ({}) }));
 vi.mock("./App", () => ({
   App: ({ onExit }: { onExit: () => void }) => {
@@ -229,6 +234,9 @@ describe("error reporting", () => {
     expect(live.workerOptions).toMatchObject({
       onRegisterError: live.reporting.captureError,
     });
+    // Every number field in the app is guarded by one listener.
+    expect(live.guardNumberEntry).toHaveBeenCalledOnce();
+    expect(live.guardNumberEntry).toHaveBeenCalledWith(document);
   });
 });
 

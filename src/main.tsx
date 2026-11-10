@@ -26,6 +26,7 @@ import { ConvexAuthProvider, useAuthActions } from "@convex-dev/auth/react";
 import { registerSW } from "virtual:pwa-register";
 import { AirplaneTilt, ArrowRight } from "@phosphor-icons/react";
 import { api } from "../convex/_generated/api";
+import { guardNumberEntry } from "./components/numberEntry";
 import { renewDemoAccess, useWorkspace, type Workspace } from "./data/store";
 import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
@@ -37,7 +38,12 @@ import {
   initErrorReporting,
   reactErrorHandlers,
 } from "./data/errorReporting";
-import { offlineValid, OFFLINE_WINDOW } from "./domain/model";
+import {
+  deviceClockBehind,
+  offlineValid,
+  OFFLINE_WINDOW,
+  type Snapshot,
+} from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
 import "./styles/tokens.css";
@@ -385,10 +391,18 @@ function AccessExpired({ onExit }: { onExit: () => void }) {
   return (
     <Welcome>
       <h1>Time to reconnect.</h1>
-      <p>
-        Your seven-day offline access has expired. Pending entries are
-        preserved. Sign in again to continue.
-      </p>
+      {snapshot && deviceClockBehind(snapshot) ? (
+        <p>
+          This device&apos;s clock is behind the time you signed in. Set the
+          date and time to update automatically, then reopen the app. Pending
+          entries are preserved.
+        </p>
+      ) : (
+        <p>
+          Your seven-day offline access has expired. Pending entries are
+          preserved. Sign in again to continue.
+        </p>
+      )}
       <button className="button primary" onClick={onExit}>
         Return to sign in
       </button>
@@ -496,6 +510,7 @@ registerSW({
   },
   onRegisterError: captureError,
 });
+guardNumberEntry(document);
 createRoot(document.getElementById("root")!, reactErrorHandlers()).render(
   <ErrorBoundary
     fallback={
