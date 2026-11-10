@@ -27,7 +27,10 @@ import { audit } from "./access";
 import { exposeRejections } from "./userErrors";
 import { programPermission } from "../src/domain/programs";
 import { poSchema, poAttachmentRemovable } from "../src/domain/purchaseOrders";
-import { validateInventoryFile } from "../src/domain/inventoryAttachments";
+import {
+  assertFileContents,
+  validateInventoryFile,
+} from "../src/domain/inventoryAttachments";
 
 const scope = {
   poUuid: v.string(),
@@ -114,15 +117,18 @@ export const finish = internalMutation({
  * @param type - PDF, JPEG, PNG or WebP.
  * @param bytes - The file, at most 7 MB.
  * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file." or
- *   "Attachments must be between 1 byte and 7 MB.", checked first; the
+ *   "Attachments must be between 1 byte and 7 MB.", checked first; then
+ *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG or
+ *   WebP file." when the first bytes are not the declared type's; the
  *   {@link finish} refusals, after which the stored file is deleted.
  */
 export const upload = action({
   args: { ...scope, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
-    exposeRejections(() =>
-      validateInventoryFile(args.name, args.type, args.bytes.byteLength),
-    );
+    exposeRejections(() => {
+      validateInventoryFile(args.name, args.type, args.bytes.byteLength);
+      assertFileContents(args.type, args.bytes);
+    });
     const target = {
       poUuid: args.poUuid,
       receiptUuid: args.receiptUuid,

@@ -58,6 +58,7 @@ import { saveChecklist } from "../domain/checklists";
 import {
   inventoryAttachmentAccess,
   validateInventoryFile,
+  assertFileContents,
 } from "../domain/inventoryAttachments";
 import { releaseStatementsSchema } from "../domain/releaseStatements";
 import { logbookPhrasesSchema } from "../domain/logbookWording";
@@ -442,6 +443,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     attachInventoryFile: async (stockUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
       const bytes = new Uint8Array(await file.arrayBuffer());
+      assertFileContents(file.type, bytes.buffer);
       let binary = "";
       for (const byte of bytes) binary += String.fromCharCode(byte);
       const url = `data:${file.type};base64,${btoa(binary)}`;
@@ -685,6 +687,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     attachPOFile: async (poUuid, receiptUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
       const bytes = new Uint8Array(await file.arrayBuffer());
+      assertFileContents(file.type, bytes.buffer);
       let binary = "";
       for (const byte of bytes) binary += String.fromCharCode(byte);
       await modify((s) => {

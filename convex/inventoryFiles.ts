@@ -28,6 +28,7 @@ import { recordSchema } from "../src/domain/management";
 import {
   inventoryAttachmentAccess,
   validateInventoryFile,
+  assertFileContents,
 } from "../src/domain/inventoryAttachments";
 import { recordProgram } from "../src/domain/programs";
 
@@ -100,15 +101,18 @@ export const finishUpload = internalMutation({
  * @param type - PDF, JPEG, PNG or WebP.
  * @param bytes - The file, at most 7 MB.
  * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file." or
- *   "Attachments must be between 1 byte and 7 MB.", checked first; the
+ *   "Attachments must be between 1 byte and 7 MB.", checked first; then
+ *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG or
+ *   WebP file." when the first bytes are not the declared type's; the
  *   {@link finishUpload} refusals, after which the stored file is deleted.
  */
 export const upload = action({
   args: { ...scope, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
-    exposeRejections(() =>
-      validateInventoryFile(args.name, args.type, args.bytes.byteLength),
-    );
+    exposeRejections(() => {
+      validateInventoryFile(args.name, args.type, args.bytes.byteLength);
+      assertFileContents(args.type, args.bytes);
+    });
     const target = { stockUuid: args.stockUuid, programUuid: args.programUuid };
     await ctx.runQuery(internal.inventoryFiles.checkUpload, target);
     await storeThenFinish(ctx, args, (storageId) =>

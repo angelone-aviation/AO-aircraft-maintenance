@@ -3,7 +3,8 @@
  *   copies and logbook page photos) in demo mode, mirroring
  *   convex/aircraftFiles.ts.
  * Layer: Data. Demo adapter helper; files stay in this browser.
- * Dependencies: src/domain/aircraftFiles.ts, src/domain/model.ts (types).
+ * Dependencies: src/domain/aircraftFiles.ts, src/domain/inventoryAttachments.ts,
+ *   src/domain/model.ts (types).
  */
 import type { Snapshot } from "../domain/model";
 import {
@@ -17,6 +18,7 @@ import {
   type AircraftFileCategory,
   type AircraftFileLink,
 } from "../domain/aircraftFiles";
+import { assertFileContents } from "../domain/inventoryAttachments";
 
 type Modify = (fn: (s: Snapshot) => void) => Promise<void>;
 type Audit = (
@@ -46,7 +48,8 @@ export const demoAircraftFiles = {
    * @param target - The aircraft, the category and, for a "logbook-page"
    *   photo, the flight or work order it shows.
    * @param file - The uploaded file.
-   * @throws {Error} As validateAircraftUpload for the file; the link
+   * @throws {Error} As validateAircraftUpload and assertFileContents for
+   *   the file; the link
    *   refusals of assertAircraftFileLink; "Aircraft flight permission
    *   required." or "Aircraft maintenance permission required."; "Flight
    *   not found." or "Work order not found."; "This aircraft already has
@@ -60,6 +63,7 @@ export const demoAircraftFiles = {
   ) {
     const { aircraftUuid, category, linkedKind, linkedUuid } = target;
     validateAircraftUpload(category, file.name, file.type, file.size);
+    assertFileContents(file.type, await file.arrayBuffer());
     assertAircraftFileLink(category, target);
     const url = await readDataUrl(file);
     await modify((s) => {
