@@ -856,7 +856,14 @@ function LocationField({ editor }: { editor: Editor }) {
     ...new Set(inventory.locations.map((location) => location.name)),
   ];
   return (
-    <Field label="Inventory location">
+    <Field
+      label="Inventory location"
+      hint={
+        inventory.locations.length
+          ? undefined
+          : "Add an inventory location in this Flight Program to select it here."
+      }
+    >
       <select
         value={draft.base}
         onChange={(e) => editor.patch({ base: e.target.value })}
@@ -874,11 +881,6 @@ function LocationField({ editor }: { editor: Editor }) {
           </option>
         ))}
       </select>
-      {!inventory.locations.length && (
-        <small>
-          Add an inventory location in this Flight Program to select it here.
-        </small>
-      )}
     </Field>
   );
 }

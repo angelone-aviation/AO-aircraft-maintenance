@@ -278,12 +278,11 @@ function MovementNotes() {
           maxLength={DESCRIPTION_MAX_LENGTH}
         />
       </Field>
-      <Field label="Supporting document / reference">
+      <Field
+        label="Supporting document / reference"
+        hint="Attach an 8130 or other supporting document in the inventory item’s attachments."
+      >
         <input name="reference" maxLength={REFERENCE_MAX_LENGTH} />
-        <small>
-          Attach an 8130 or other supporting document in the inventory item’s
-          attachments.
-        </small>
       </Field>
     </>
   );

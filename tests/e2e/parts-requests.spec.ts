@@ -80,6 +80,10 @@ test("inspection request reserves stock, orders the shortage, receives and issue
     "FILTER-1",
   );
   await expect(dialog.getByLabel("Quantity", { exact: true })).toHaveValue("5");
+  // The location select is named by its label, like every other field.
+  await expect(
+    dialog.getByRole("combobox", { name: "Inventory location", exact: true }),
+  ).toBeVisible();
   if (await dialog.getByRole("checkbox", { name: /Recurring —/ }).count())
     await dialog.getByRole("checkbox", { name: /Recurring —/ }).uncheck();
   await dialog.getByLabel("Preferred vendor").fill("Request Vendor");
