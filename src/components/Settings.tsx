@@ -66,6 +66,7 @@ import {
 } from "../domain/costs";
 import { CENTS_PER_DOLLAR } from "../domain/costs/units";
 import { toCsv } from "../domain/csv";
+import { certificationsEffect } from "../domain/taskCards";
 import { AsyncForm, Field, download, errorText, safeHref, value } from "./ui";
 import {
   IconTile,
@@ -331,7 +332,7 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
   return (
     <Block
       title="Certifications"
-      description="Used on logbook entries you sign. Certifications do not change what you can do in Angel One."
+      description={`Printed on logbook entries you sign. ${certificationsEffect}`}
     >
       {certifications.length ? (
         <ul className="set-certs">

@@ -28,6 +28,7 @@ import {
 import type { Group, Member, Snapshot } from "../domain/model";
 import type { Program } from "../domain/fleet";
 import { wantsAlertEmails } from "../domain/alerts";
+import { certificationsEffect } from "../domain/taskCards";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -500,8 +501,7 @@ function Certifications({
       )}
       <p className="muted">
         Select applicable certifications. Leave dates blank if not applicable or
-        not recorded. Certification selections do not change application
-        permissions.
+        not recorded. {certificationsEffect}
       </p>
       <CertificationPanel kind="pilot" tools={tools} />
       <CertificationPanel kind="mechanic" tools={tools} />
