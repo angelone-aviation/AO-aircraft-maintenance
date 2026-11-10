@@ -3,15 +3,18 @@
  *   backend when connected and from the snapshot's recent entries offline.
  * Layer: Data. React hook over the workspace store; renders nothing.
  * Dependencies: react, src/data/store.ts, src/data/backend.ts (types),
- *   src/domain/auditHistory.ts, src/domain/model.ts (types).
+ *   src/data/errors.ts, src/domain/auditHistory.ts, src/domain/model.ts
+ *   (types).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "./store";
 import {
   AUDIT_PAGE_SIZE,
+  HISTORY_NOT_FOUND,
   matchesAuditFilter,
   type AuditFilter,
 } from "../domain/auditHistory";
+import { errorText } from "./errors";
 import type { AuditEntry, Snapshot } from "../domain/model";
 import type { Backend } from "./backend";
 
@@ -24,7 +27,9 @@ import type { Backend } from "./backend";
  * @param filter - The record (`entityUuid`) or aircraft to show; neither for
  *   all history.
  * @returns The entries, newest first, with paging and load state. `error`
- *   holds the backend's message, or "Could not load change history.".
+ *   holds the backend's message, or "Could not load change history.". A
+ *   record refused as "History not found." on the first page has no history
+ *   the user can read: it shows as empty and done, not as an error.
  */
 export function useAuditHistory({ entityUuid, aircraftUuid }: AuditFilter) {
   const { backend, online, connected, snapshot } = useWorkspace();
@@ -83,7 +88,14 @@ function useAuditPages(
         setCursor(result.continueCursor);
         setDone(result.isDone);
       } catch (e) {
-        if (id === request.current) setError(describeLoadError(e));
+        if (id !== request.current) return;
+        // The server refuses a record without visible entries as it refuses
+        // an unknown id (so neither is revealed); a record the user holds
+        // open with no entries yet is simply empty.
+        if (from === null && entityUuid && isNotFound(e)) {
+          setEntries([]);
+          setDone(true);
+        } else setError(describeLoadError(e));
       } finally {
         if (id === request.current) setLoading(false);
       }
@@ -91,6 +103,10 @@ function useAuditPages(
     [backend, entityUuid, aircraftUuid],
   );
   return { entries, cursor, isDone, loading, error, load };
+}
+
+function isNotFound(e: unknown): boolean {
+  return errorText(e, "") === HISTORY_NOT_FOUND;
 }
 
 function describeLoadError(e: unknown): string {

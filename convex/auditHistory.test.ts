@@ -211,6 +211,28 @@ it("applies the snapshot's aircraft scoping and loads a record's full history by
   expect(record).toHaveLength(AUDIT_LIMIT + 50);
   expect(record.every((e) => e.aircraftUuid === a.uuid)).toBe(true);
 });
+it("pages cost entries for program administrators only, as the snapshot lists them", async () => {
+  const { t, ids, a } = await fixture();
+  const manager = t.withIdentity({ subject: ids.manager });
+  const restricted = t.withIdentity({ subject: ids.restricted });
+  await manager.mutation(api.costs.execute, {
+    programUuid: "demo-program",
+    payload: JSON.stringify({
+      action: "budget.set",
+      aircraftUuid: a.uuid,
+      year: 2026,
+      amountCents: 500000,
+    }),
+  });
+  const [budget] = await t.run((ctx) => ctx.db.query("costs").collect());
+  const isCost = (e: { action: string }) => e.action === "cost.budget.set";
+  expect((await all(manager)).filter(isCost)).toHaveLength(1);
+  expect(await all(manager, { entityUuid: budget.uuid })).toHaveLength(1);
+  expect((await all(restricted)).filter(isCost)).toEqual([]);
+  await expect(all(restricted, { entityUuid: budget.uuid })).rejects.toThrow(
+    "History not found",
+  );
+});
 it("isolates Flight Programs and requires an active session", async () => {
   const { t, ids } = await fixture();
   const outsider = t.withIdentity({ subject: ids.outsider });

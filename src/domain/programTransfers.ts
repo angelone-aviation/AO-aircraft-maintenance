@@ -3,12 +3,13 @@
  *   records that belong to it, from the active Flight Program to another.
  * Layer: Domain. Applier on a working snapshot; no I/O, no React.
  * Dependencies: src/domain/programs.ts, partsRequests.ts, purchaseOrders.ts,
- *   rejection.ts; model.ts, fleet.ts, management.ts, components.ts (types).
+ *   changeLog.ts, rejection.ts; model.ts, fleet.ts, management.ts,
+ *   components.ts (types).
  *
  * Existing change-log rows are never re-tagged (ADR-0005): History follows
  * each record's current owner instead.
  */
-import type { Snapshot } from "./model";
+import type { AuditEntry, Snapshot } from "./model";
 import type { Program } from "./fleet";
 import type { ManagedRecord, Stock } from "./management";
 import type { Component } from "./components";
@@ -16,6 +17,7 @@ import { activeProgram, ownsActive, recordProgram } from "./programs";
 import { requestStatus } from "./partsRequests";
 import { outstanding, type POLine, type PurchaseOrder } from "./purchaseOrders";
 import { Rejection } from "./rejection";
+import { auditEntry } from "./changeLog";
 
 /**
  * The longest transfer reason the transfer form accepts, as other change-log
@@ -40,15 +42,17 @@ interface Moving {
 
 /**
  * Moves a record to another Flight Program and appends one
- * "program.transferred" change-log row. An aircraft takes its components,
- * inspections, checklists and component setups; a component leaves its
- * aircraft; a location takes its stock. Each moved record's version goes up.
+ * "program.transferred" change-log row, first in `s.audit`. An aircraft
+ * takes its components, inspections, checklists, component setups and the
+ * program's expiring dates for it (one "expiring-date.transferred" row
+ * each, after the transfer's row); a component leaves its aircraft; a
+ * location takes its stock. Each moved record's version goes up.
  *
  * @param s - The working snapshot; mutated in place.
  * @param input - The record, destination and reason.
  * @returns The uuids whose change-log rows the destination must now reach:
- *   the record, its checklists, setups, components and their child records,
- *   or a location's stock. Moved inspections are not listed.
+ *   the record, its checklists, setups, expiring dates, components and their
+ *   child records, or a location's stock. Moved inspections are not listed.
  * @throws {Rejection} When the user is not an active system administrator,
  *   the reason is blank, the destination is missing or is the active program,
  *   the record is not in the active program, or open parts requests, an
@@ -126,6 +130,42 @@ function claimAircraft(
     d.programUuid = destination.uuid;
     moving.entities.add(d.uuid);
   }
+  moveExpiringItems(s, input, moving);
+}
+
+// An expiring date names its aircraft (registration, insurance), and only
+// its program's administrators may edit it, so it moves with the aircraft;
+// each move is its own change-log row, as the item's earlier rows are.
+function moveExpiringItems(
+  s: Snapshot,
+  input: ProgramTransfer,
+  moving: Moving,
+) {
+  const source = activeProgram(s);
+  const rows: AuditEntry[] = [];
+  s.expiringItems = (s.expiringItems ?? []).map((item) => {
+    if (item.aircraftUuid !== input.uuid || item.programUuid !== source)
+      return item;
+    const next = {
+      ...item,
+      programUuid: input.destination,
+      version: item.version + 1,
+    };
+    moving.entities.add(item.uuid);
+    rows.push(
+      auditEntry(s, {
+        action: "expiring-date.transferred",
+        entityUuid: item.uuid,
+        aircraftUuid: item.aircraftUuid,
+        programUuid: input.destination,
+        reason: input.reason,
+        before: item,
+        after: next,
+      }),
+    );
+    return next;
+  });
+  s.audit.unshift(...rows);
 }
 
 // Reservations and orders point at this program's stock and vendors, and an

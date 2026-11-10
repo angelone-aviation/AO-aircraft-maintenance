@@ -3,8 +3,8 @@
  *   active one, their permissions in it, and the snapshot they may read.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts, management.ts and expiringItems.ts
- *   (types), adOwnership.ts, ownerView.ts, boardView.ts, partsRequests.ts,
- *   requiredParts.ts, rejection.ts.
+ *   (types), adOwnership.ts, boardView.ts, reducedViews.ts,
+ *   partsRequests.ts, requiredParts.ts, rejection.ts.
  *
  * The snapshot query and the demo adapter both send scopedSnapshot(), so what
  * it strips never reaches the browser.
@@ -22,14 +22,30 @@ import type {
 } from "./model";
 import type { ManagedRecord } from "./management";
 import type { ExpiringItem } from "./expiringItems";
-import { isOwnerView, ownerSnapshot } from "./ownerView";
-import { boardSnapshot, isBoardView } from "./boardView";
+import { isBoardView } from "./boardView";
+import { reducedSnapshot } from "./reducedViews";
 import { Rejection } from "./rejection";
 
 // Inventory records are administrator data: they hold costs, vendors and
 // invoices.
 const INVENTORY_KINDS: readonly string[] = ["stock", "location", "vendor"];
-const INVENTORY_AUDIT_ACTION = /^(stock|location|vendor|inventory)\./;
+// Change-log rows that hold administrator data whatever aircraft they are
+// tagged with: inventory records, and expiring dates (insurance and
+// registration rows name their aircraft and carry the label and the note).
+const ADMIN_AUDIT_ACTION = /^(stock|location|vendor|inventory|expiring-date)\./;
+// Rows about who may use a program and where it ships to. Their records (a
+// group, a membership, a saved address) are not in the snapshot's record
+// lists and never transfer, so the row's tag names the program whose
+// administrators may read it. Named one by one: a new action stays hidden
+// until someone decides who reads it.
+const PROGRAM_ADMIN_AUDIT_ACTIONS: readonly string[] = [
+  "group.saved",
+  "group.deleted",
+  "user.created",
+  "user.program_access_added",
+  "user.program_access_changed",
+  "address.saved",
+];
 
 type CostRecord = NonNullable<Snapshot["costs"]>[number];
 type PurchaseOrder = NonNullable<Snapshot["purchaseOrders"]>[number];
@@ -112,6 +128,37 @@ export function readGroupsInActiveProgram(
       g.programUuid === program &&
       g.permissions.includes("read"),
   );
+}
+
+/**
+ * The user's read groups in the active Flight Program when every one of them
+ * gives a reduced view (an aircraft owner group or a board group). One
+ * ordinary group gives the workspace, so there are none then.
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns Those groups, in group order; none for a user with an ordinary
+ *   read group, no read group, or no access through groups.
+ */
+export function reducedViewGroups(
+  s: Pick<Snapshot, "user" | "groups" | "programs">,
+): Group[] {
+  const mine = readGroupsInActiveProgram(s);
+  return mine.every((g) => g.owner || g.board) ? mine : [];
+}
+
+/**
+ * Tells whether the user reads account-wide change-log entries: those with
+ * no Flight Program, such as refused sign-ins, password resets, sessions
+ * ended and permissions a system administrator set. Only a system
+ * administrator working in Unassigned records does.
+ *
+ * @param s - The user, the groups and the programs.
+ * @returns True for an active system administrator with no active program.
+ */
+export function readsAccountWideAudit(
+  s: Pick<Snapshot, "user" | "groups" | "programs">,
+): boolean {
+  return s.user.active && s.user.isAdmin && !activeProgram(s);
 }
 
 /**
@@ -261,8 +308,8 @@ export const auditVisible = (s: Snapshot) => visibleScope(s).canSeeAudit;
  * Cuts a full snapshot down to what the user may read in the active program:
  * its aircraft and their records, inventory, purchasing and costs as their
  * permissions allow, and other members reduced to what working with them
- * needs. An aircraft owner gets the owner view instead, and a board member
- * the board view.
+ * needs. A user whose groups give only reduced views gets those instead
+ * (reducedSnapshot): the owner portal, the board view, or both.
  *
  * @param s - The full snapshot; it is not changed.
  * @returns The scoped snapshot, with `activeProgramUuid` and
@@ -279,8 +326,7 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
     ...scopeMaintenance(s, scope),
     ...scopePeople(s, scope),
   };
-  if (isOwnerView(scoped)) return ownerSnapshot(scoped);
-  return isBoardView(scoped) ? boardSnapshot(scoped) : scoped;
+  return reducedSnapshot(scoped) ?? scoped;
 }
 
 // Shared by the snapshot and the paginated history so both apply the same
@@ -409,10 +455,10 @@ function buildAuditFilter(
 ): (a: AuditEntry) => boolean {
   const { active, admin, ids } = scope;
   const entities = collectVisibleEntities(s, scope);
-  // Older change-log rows about inventory records hold the full record. Rows
-  // are never rewritten (ADR-0005), so hide them from everyone without
-  // program-admin permission, even when they carry an aircraft tag. The
-  // action prefix covers rows whose record is not loaded.
+  // Change-log rows about inventory records and expiring dates hold the full
+  // record. Rows are never rewritten (ADR-0005), so hide them from everyone
+  // without program-admin permission, even when they carry an aircraft tag.
+  // The action prefix covers rows whose record is not loaded.
   const inventoryRecords = new Set(
     (s.management ?? [])
       .filter((r) => INVENTORY_KINDS.includes(r.kind))
@@ -421,20 +467,22 @@ function buildAuditFilter(
   return (a) => {
     if (
       !admin &&
-      (inventoryRecords.has(a.entityUuid) ||
-        INVENTORY_AUDIT_ACTION.test(a.action))
+      (inventoryRecords.has(a.entityUuid) || ADMIN_AUDIT_ACTION.test(a.action))
     )
       return false;
-    // A row's program tag records where it was written, not who may read it:
-    // transfers never re-tag rows (ADR-0005), so a row follows the current
-    // owner of its record or aircraft, like rows without a tag already do.
+    if (a.programUuid && PROGRAM_ADMIN_AUDIT_ACTIONS.includes(a.action))
+      return admin && a.programUuid === active;
+    // Any other row's program tag records where it was written, not who may
+    // read it: transfers never re-tag rows (ADR-0005), so a row follows the
+    // current owner of its record or aircraft, like rows without a tag
+    // already do.
     if (a.programUuid)
       return (
         entities.has(a.entityUuid) ||
         (!!a.aircraftUuid && ids.has(a.aircraftUuid))
       );
     if (a.aircraftUuid) return ids.has(a.aircraftUuid);
-    return entities.has(a.entityUuid) || (s.user.isAdmin && !active);
+    return entities.has(a.entityUuid) || readsAccountWideAudit(s);
   };
 }
 

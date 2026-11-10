@@ -247,7 +247,8 @@ function useNavigation() {
   const pilotView = isPilotView(s);
   const ownerView = isOwnerView(s);
   const admin = programPermission(s, "admin");
-  if (isBoardView(s)) return [BOARD_LINK];
+  const boardView = isBoardView(s);
+  if (boardView && !ownerView) return [BOARD_LINK];
   const visible: NavItem[] = WORKSPACE_LINKS.filter(
     (link) => admin || !link.adminOnly,
   ).filter((item) =>
@@ -256,6 +257,8 @@ function useNavigation() {
       : !pilotView || pilotNavigation.has(item.path),
   );
   if (admin) visible.push(...ADMIN_LINKS);
+  // An owner who also sits on the board reaches both of their views.
+  if (boardView) visible.push(BOARD_LINK);
   if (!ownerView) visible.push(SETTINGS_LINK);
   return visible;
 }

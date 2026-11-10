@@ -928,6 +928,34 @@ it("saves an address as its next version, named and confirmed", async () => {
   expect((await stored()).savedAddresses).toEqual([saved]);
 });
 
+it("audits an address edit as the server does: the program, before and after", async () => {
+  const { backend, stored } = await demo("demo-address-audit");
+  const first = await backend.saveAddress(PROGRAM, address("a", "Hangar"));
+  const second = await backend.saveAddress(PROGRAM, {
+    ...address("a", "Depot", 1),
+  });
+  const [edit, create] = (await stored()).audit;
+  expect(create).toMatchObject({
+    action: "address.saved",
+    entityUuid: "a",
+    programUuid: PROGRAM,
+    before: undefined,
+    after: JSON.stringify(first),
+  });
+  expect(edit).toMatchObject({
+    action: "address.saved",
+    programUuid: PROGRAM,
+    before: JSON.stringify(first),
+    after: JSON.stringify(second),
+  });
+  const history = await backend.auditPage({
+    entityUuid: "a",
+    cursor: null,
+    numItems: 10,
+  });
+  expect(history.page.map((e) => e.uuid)).toEqual([edit.uuid, create.uuid]);
+});
+
 it.each<[string, (s: Snapshot) => void, ReturnType<typeof address>, string]>([
   [
     "a member who is not a program administrator",
@@ -1150,8 +1178,32 @@ it("saves a group as the server stores it: name trimmed, no repeats, flags false
   expect(s.audit[0]).toMatchObject({
     action: "group.saved",
     entityUuid: saved.id,
+    programUuid: PROGRAM,
     after: JSON.stringify(saved),
   });
+  // Tagged with its program, the row is in the administrator's history.
+  const history = await backend.auditPage({ cursor: null, numItems: 10 });
+  expect(history.page.map((e) => e.uuid)).toContain(s.audit[0].uuid);
+});
+
+it("logs program access changes under the program, as the server does", async () => {
+  const { backend, stored } = await demo("demo-access-audit");
+  const id = await backend.createProgramUser(
+    "sam@example.test",
+    "Sam Rivera",
+    "correct horse battery staple 42",
+    PROGRAM,
+    ["demo-pilots"],
+  );
+  await backend.updateProgramAccess(id, PROGRAM, ["demo-pilots"], false);
+  expect(
+    (await stored()).audit
+      .slice(0, 2)
+      .map((e) => [e.action, e.entityUuid, e.programUuid]),
+  ).toEqual([
+    ["user.program_access_changed", id, PROGRAM],
+    ["user.created", id, PROGRAM],
+  ]);
 });
 
 it.each<[string, Partial<typeof GROUP> & { allAircraft?: boolean }, string]>([

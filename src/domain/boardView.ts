@@ -4,27 +4,202 @@
  * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
  *   default reads the clock).
  * Dependencies: ./model, ./management, ./workOrders, ./airworthiness,
- *   ./programs, ./adOwnership, ./costs/workOrderCosts, ./costs/period,
- *   ./rejection.
+ *   ./deferrals, ./components/records (types), ./programs, ./adOwnership,
+ *   ./costs/workOrderCosts, ./costs/period, ./rejection.
  *
  * The board snapshot is a whitelist of its own, not a cut of the owner
- * snapshot: every field a board member sees was chosen here, so a field added
- * to the snapshot or to the owner view stays hidden from the board until
- * someone decides they may see it. Free text, people, rates and files never
- * pass; status inputs and totals do.
+ * snapshot: every field a board member sees is named here (BOARD_FIELDS), so
+ * a field added to the snapshot, a record or the owner view stays hidden from
+ * the board until someone decides they may see it. Free text, people, rates
+ * and files never pass; status inputs, totals and the names the due list
+ * shows do.
  */
-import type { Discrepancy, Group, Inspection, Snapshot } from "./model";
+import type {
+  Aircraft,
+  Discrepancy,
+  Group,
+  Inspection,
+  Snapshot,
+} from "./model";
 import { localDate } from "./model";
 import type { ManagedRecord } from "./management";
 import type { WorkOrder } from "./workOrders";
-import type { AD } from "./airworthiness";
-import { readGroupsInActiveProgram } from "./programs";
+import type { AD, ADCompliance, ADSource } from "./airworthiness";
+import type { Deferral } from "./deferrals";
+import type { Component, ComponentRequirement } from "./components/records";
+import { groupCoversAircraft, reducedViewGroups } from "./programs";
 import { adAircraftUuid } from "./adOwnership";
 import { aircraftSpendCents, findBudget } from "./costs/workOrderCosts";
 import type { Period } from "./costs/period";
 import { Rejection } from "./rejection";
 
 const MONTHS_PER_QUARTER = 3;
+/** What the board reads in place of a terminating action's text. */
+export const BOARD_TERMINATED = "Terminating action recorded";
+
+/**
+ * The fields the board view copies from each kind of record, by name. Every
+ * other field is cleared (descriptions, notes, reasons, people) or left out,
+ * so a field added to a schema stays hidden from the board until it is
+ * listed here. Inspection references and descriptions, requirement
+ * descriptions and AD subjects pass: they are the names the due list shows.
+ */
+export const BOARD_FIELDS = {
+  inspection: [
+    "uuid",
+    "version",
+    "programUuid",
+    "aircraftUuid",
+    "componentUuid",
+    "reference",
+    "description",
+    "ataChapter",
+    "sourceKey",
+    "usageMeter",
+    "calendarExempt",
+    "calendarExemptChangedAt",
+    "dueSeconds",
+    "dueCycles",
+    "dueLandings",
+    "dueDate",
+    "intervalSeconds",
+    "intervalLandings",
+    "intervalCycles",
+    "intervalMonths",
+    "lastSeconds",
+    "lastCycles",
+    "lastLandings",
+    "lastDate",
+    "archived",
+  ],
+  ad: [
+    "uuid",
+    "version",
+    "programUuid",
+    "aircraftUuid",
+    "componentUuid",
+    "applicability",
+    "priorCompliance",
+    "reviewRequired",
+    "updatedAt",
+  ],
+  adSource: [
+    "number",
+    "faaModified",
+    "amendment",
+    "issued",
+    "effective",
+    "subject",
+    "recurring",
+    "supersededBy",
+    "url",
+    "source",
+    "section",
+    "make",
+    "model",
+  ],
+  adTask: [
+    "uuid",
+    "dueDate",
+    "dueHours",
+    "dueCycles",
+    "dueLandings",
+    "intervalLandings",
+    "intervalDays",
+    "intervalHours",
+    "intervalCycles",
+    "recurrence",
+    "workOrderUuid",
+  ],
+  adCompliance: [
+    "uuid",
+    "taskUuid",
+    "date",
+    "hours",
+    "cycles",
+    "landings",
+    "workOrderUuid",
+    "recordedAt",
+    "corrects",
+  ],
+  component: [
+    "uuid",
+    "version",
+    "kind",
+    "programUuid",
+    "aircraftUuid",
+    "parentComponentUuid",
+    "createdAt",
+    "ataChapter",
+    "componentType",
+    "partNumber",
+    "serial",
+    "model",
+    "faaSearchModel",
+    "manufacturer",
+    "expirationDate",
+    "usageMeter",
+    "trackTime",
+    "trackCycles",
+    "trackCalendar",
+    "installed",
+    "installedDate",
+    "removedDate",
+    "installPosition",
+    "installedSeconds",
+    "installedCycles",
+    "timeSinceNew",
+    "timeSinceOverhaul",
+    "timeSinceRepair",
+    "cyclesSinceNew",
+    "serviceDaysBase",
+    "calendarSinceNewUnknown",
+    "calendarOverhaulDaysBase",
+    "calendarOverhaulDate",
+  ],
+  requirement: [
+    "uuid",
+    "version",
+    "kind",
+    "programUuid",
+    "componentUuid",
+    "aircraftUuid",
+    "sourceKey",
+    "requirementType",
+    "description",
+    "lastDate",
+    "lastSeconds",
+    "lastCycles",
+    "lastLandings",
+    "calendarIntervalValue",
+    "calendarIntervalUnit",
+    "intervalSeconds",
+    "timeBasis",
+    "timeLimitMode",
+    "timeResetSeconds",
+    "intervalLandings",
+    "intervalCycles",
+    "cycleLimitMode",
+    "landingLimitMode",
+    "landingReferenceAircraftUuid",
+    "warningLandings",
+    "dueDate",
+    "dueSeconds",
+    "dueCycles",
+    "dueLandings",
+    "warningCalendarMonths",
+    "warningSeconds",
+    "warningCycles",
+  ],
+} as const satisfies {
+  inspection: readonly (keyof Inspection)[];
+  ad: readonly (keyof AD)[];
+  adSource: readonly (keyof ADSource)[];
+  adTask: readonly (keyof AD["tasks"][number])[];
+  adCompliance: readonly (keyof ADCompliance)[];
+  component: readonly (keyof Component)[];
+  requirement: readonly (keyof ComponentRequirement)[];
+};
 
 /** One aircraft's spend this quarter and this year against its budget. */
 export interface BoardAircraftCosts {
@@ -65,17 +240,32 @@ export function validateBoardGroup(
 }
 
 /**
- * Tells whether the user gets the board view: every group they hold with
- * read access in the active program is a board group. Mixed roles keep the
- * full workspace, as they do for owners.
+ * Tells whether the user gets the board view: they hold a board group with
+ * read access in the active program, and every other such group is a board
+ * or owner group. A user who also holds an owner group gets the owner portal
+ * beside it; one ordinary group gives the workspace instead.
  *
  * @param s - The user, the groups and the programs.
- * @returns True when the user holds at least one such group and all are
- *   board groups; false for an inactive user or a system administrator.
+ * @returns False for an inactive user or a system administrator.
  */
 export function isBoardView(s: Pick<Snapshot, "user" | "groups" | "programs">) {
-  const mine = readGroupsInActiveProgram(s);
-  return mine.length > 0 && mine.every((g) => g.board);
+  return reducedViewGroups(s).some((g) => g.board);
+}
+
+/**
+ * The aircraft the board view covers: those the user's board groups reach.
+ * An owner group they also hold adds none.
+ *
+ * @param s - A snapshot scoped to the program, for a user in a board view.
+ * @returns Those aircraft, in snapshot order.
+ */
+export function boardViewAircraft(
+  s: Pick<Snapshot, "user" | "groups" | "programs" | "aircraft">,
+): Aircraft[] {
+  const board = reducedViewGroups(s).filter((g) => g.board);
+  return s.aircraft.filter((a) =>
+    board.some((g) => groupCoversAircraft(g, a.uuid)),
+  );
 }
 
 /**
@@ -186,7 +376,8 @@ function findAircraftComponents(s: Snapshot, aircraft: Set<string>) {
 }
 
 // Grounding and the deferral's type, category and expiry decide the status;
-// the placard and the deferring person are not the board's business.
+// the placard, the MEL item and the deferring person are not the board's
+// business.
 function toBoardDiscrepancy(d: Discrepancy): Discrepancy {
   return {
     uuid: d.uuid,
@@ -196,41 +387,69 @@ function toBoardDiscrepancy(d: Discrepancy): Discrepancy {
     createdAt: d.createdAt,
     authorId: "",
     grounding: d.grounding,
-    deferral: d.deferral && {
-      ...d.deferral,
-      placard: "",
-      deferredBy: "",
-      deferredByName: "",
-    },
+    deferral: d.deferral && toBoardDeferral(d.deferral),
+  };
+}
+
+function toBoardDeferral(d: Deferral): Deferral {
+  const recorded = {
+    deferredOn: d.deferredOn,
+    deferredAt: d.deferredAt,
+    deferredBy: "",
+    deferredByName: "",
+    expiresOn: d.expiresOn,
+  };
+  if (d.type === "91.213d")
+    return { type: d.type, notHazard: d.notHazard, placard: "", ...recorded };
+  return {
+    type: d.type,
+    category: d.category,
+    days: d.days,
+    melItem: "",
+    placard: "",
+    ...recorded,
   };
 }
 
 function toBoardInspection(i: Inspection): Inspection {
-  const {
-    requiredParts: _parts,
-    materials: _materials,
-    calendarExemptReason: _reason,
-    calendarExemptChangedBy: _by,
-    manualReference: _manual,
-    ...kept
-  } = i;
-  return kept;
+  return pickFields(i, BOARD_FIELDS.inspection);
 }
 
 // Due limits, applicability and the compliance dates and counters decide an
-// AD's status; the decision reason and the mechanics who complied do not.
+// AD's status; the notes, the method and the mechanics who complied do not.
+// Whether a terminating action was recorded stops the recurrence, so its
+// presence passes as a fixed phrase, never the text typed.
 function toBoardAD(r: AD): AD {
   return {
-    ...r,
+    ...pickFields(r, BOARD_FIELDS.ad),
     reason: "",
-    history: r.history.map((h) => ({
-      ...h,
-      mechanic: "",
-      certificate: "",
-      evidence: "",
-      recordedBy: "",
-      correctionReason: undefined,
+    source: toBoardADSource(r.source),
+    sourceHistory: r.sourceHistory.map((h) => ({
+      at: h.at,
+      source: toBoardADSource(h.source),
     })),
+    tasks: r.tasks.map((t) => ({
+      ...pickFields(t, BOARD_FIELDS.adTask),
+      description: "",
+    })),
+    history: r.history.map(toBoardCompliance),
+  };
+}
+
+function toBoardADSource(source: ADSource): ADSource {
+  return { ...pickFields(source, BOARD_FIELDS.adSource), sourceNotes: "" };
+}
+
+function toBoardCompliance(h: ADCompliance): ADCompliance {
+  return {
+    ...pickFields(h, BOARD_FIELDS.adCompliance),
+    method: "",
+    serviceBulletin: "",
+    terminatedBy: h.terminatedBy ? BOARD_TERMINATED : "",
+    mechanic: "",
+    certificate: "",
+    evidence: "",
+    recordedBy: "",
   };
 }
 
@@ -238,21 +457,21 @@ function toBoardRecords(
   r: ManagedRecord,
   components: Set<string>,
 ): ManagedRecord[] {
-  if (r.kind === "component" && components.has(r.uuid)) {
-    const {
-      incomingTag: _tag,
-      outForRepair: _repair,
-      locationUuid: _location,
-      partsLocation: _parts,
-      ...c
-    } = r;
-    return [{ ...c, notes: "" }];
-  }
-  if (r.kind === "componentRequirement" && components.has(r.componentUuid)) {
-    const { requiredParts: _parts, ...q } = r;
-    return [{ ...q, notes: "" }];
-  }
+  if (r.kind === "component" && components.has(r.uuid))
+    return [{ ...pickFields(r, BOARD_FIELDS.component), notes: "" }];
+  if (r.kind === "componentRequirement" && components.has(r.componentUuid))
+    return [{ ...pickFields(r, BOARD_FIELDS.requirement), notes: "" }];
   return [];
+}
+
+// Copies the named fields a record holds, and no other.
+function pickFields<T extends object, K extends keyof T>(
+  record: T,
+  keys: readonly K[],
+): Pick<T, K> {
+  const picked = {} as Pick<T, K>;
+  for (const key of keys) if (key in record) picked[key] = record[key];
+  return picked;
 }
 
 // Only identity, dates and the scope line leave the server.

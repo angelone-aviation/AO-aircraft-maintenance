@@ -640,7 +640,8 @@ export interface Backend {
    * change log over a period (src/domain/auditSummary), with `truncated` set
    * when the server's scan budget cut the period short.
    *
-   * @param period - The first and last day, inclusive, as ISO dates.
+   * @param period - The first and last day, inclusive, as ISO dates, with
+   *   the reviewer's own midnights when set (`withLocalBounds`).
    */
   auditSummary(period: SummaryPeriod): Promise<AuditSummaryResult>;
   /**

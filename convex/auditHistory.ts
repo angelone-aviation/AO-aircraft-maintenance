@@ -4,9 +4,10 @@
  *   period of it for Flight Program administrators.
  * Layer: Server. Two public queries; they read only entries the snapshot's
  *   visibility rules let the caller see.
- * Dependencies: convex/programContext, src/domain (programs, auditHistory,
- *   auditSummary, model, and the management, partsRequests, purchaseOrders,
- *   checklists and inspectionTemplates schemas).
+ * Dependencies: convex/programContext, convex/collections, src/domain
+ *   (programs, auditHistory, auditSummary, model, and the management,
+ *   partsRequests, purchaseOrders, checklists and inspectionTemplates
+ *   schemas).
  */
 import { ConvexError, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
@@ -20,12 +21,16 @@ import {
   componentTemplateDocs,
   componentSetupDocs,
   inspectionTemplateDocs,
+  costDocs,
+  expiringItemDocs,
   transferredAuditDocs,
 } from "./programContext";
+import { decode } from "./collections";
 import {
   activeProgram,
   auditVisible,
   programPermission,
+  readsAccountWideAudit,
 } from "../src/domain/programs";
 import {
   summarizeAudit,
@@ -52,6 +57,10 @@ import type { AuditEntry, Snapshot } from "../src/domain/model";
 // summary shares it, and says when the period was cut short by it.
 const SCAN_BUDGET = 4000;
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+// The furthest any time zone's midnight lies from UTC midnight (UTC+14 and
+// UTC-12): local day bounds further than this do not belong to their date.
+const MAX_UTC_OFFSET_MS = 14 * HOUR_MS;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 type CanSee = (entry: AuditEntry) => boolean;
@@ -106,17 +115,23 @@ export const page = query({
  * Summarizes the program's change log over a period for the weekly review:
  * per-actor counts by action family, notable events and refused sign-ins
  * (src/domain/auditSummary), from the same entries History pages. Days are
- * the server's (UTC) dates of each entry.
+ * the caller's when it sends its local midnights, else the server's (UTC)
+ * dates of each entry.
  *
  * @param programUuid - The caller's active Flight Program.
  * @param from - The first day, as an ISO date.
  * @param to - The last day, inclusive.
- * @returns The summary, and `truncated: true` when 4,000 entries were read
+ * @param fromMs - The caller's midnight at the start of `from`; with `toMs`.
+ * @param toMs - The caller's midnight just after `to`.
+ * @returns The summary; `truncated: true` when 4,000 entries were read
  *   before the period's start was reached, so older entries in it are not
- *   counted; narrow the period in that case.
+ *   counted (narrow the period in that case); and `accountWide`, true only
+ *   for a system administrator in Unassigned records, the one reader of
+ *   refused sign-ins and other account-wide entries.
  * @throws {ConvexError} "Flight Program administrator required."; "Choose a
- *   start and end date." for a date that is not YYYY-MM-DD; "Choose a start
- *   date on or before the end date."
+ *   start and end date." for a date that is not YYYY-MM-DD, or bounds that
+ *   are not that date's midnight in some time zone; "Choose a start date on
+ *   or before the end date."
  * @throws As `checkContext`, first.
  */
 export const summary = query({
@@ -124,6 +139,8 @@ export const summary = query({
     programUuid: v.optional(v.string()),
     from: v.string(),
     to: v.string(),
+    fromMs: v.optional(v.number()),
+    toMs: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<AuditSummaryResult> => {
     const { state, canSee } = await visibility(ctx, args.programUuid);
@@ -138,6 +155,7 @@ export const summary = query({
     return {
       summary: summarizeAudit(entries, period),
       truncated: scan.truncated,
+      accountWide: readsAccountWideAudit(state),
     };
   },
 });
@@ -175,16 +193,37 @@ async function visibility(ctx: QueryCtx, programUuid?: string) {
         await inspectionTemplateDocs(ctx, program),
         inspectionTemplateSchema,
       ),
+      costs: decode("costs", await costDocs(ctx, program, state.aircraft)),
+      expiringItems: decode(
+        "expiringItems",
+        await expiringItemDocs(ctx, program, state.user.isAdmin),
+      ),
     }),
   };
 }
 
 function parsePeriod(period: SummaryPeriod): SummaryPeriod {
-  if (!ISO_DATE.test(period.from) || !ISO_DATE.test(period.to))
+  const { from, to, fromMs, toMs } = period;
+  if (!ISO_DATE.test(from) || !ISO_DATE.test(to))
     throw new ConvexError("Choose a start and end date.");
-  if (period.from > period.to)
+  if (from > to)
     throw new ConvexError("Choose a start date on or before the end date.");
-  return { from: period.from, to: period.to };
+  if (fromMs === undefined && toMs === undefined) return { from, to };
+  const startUtc = Date.parse(from + "T00:00:00Z");
+  const endUtc = Date.parse(to + "T00:00:00Z") + DAY_MS;
+  if (
+    fromMs === undefined ||
+    toMs === undefined ||
+    !isNear(fromMs, startUtc) ||
+    !isNear(toMs, endUtc)
+  )
+    throw new ConvexError("Choose a start and end date.");
+  return { from, to, fromMs, toMs };
+}
+
+// A local midnight of the date: within the widest UTC offset of its UTC one.
+function isNear(ms: number, utcMidnight: number): boolean {
+  return Number.isFinite(ms) && Math.abs(ms - utcMidnight) <= MAX_UTC_OFFSET_MS;
 }
 
 function parseCursor(cursor: string | null): number | undefined {
@@ -286,9 +325,9 @@ async function scanPeriod(
   canSee: CanSee,
   period: SummaryPeriod,
 ): Promise<{ rows: Doc<"audit">[]; truncated: boolean }> {
-  const start = Date.parse(period.from + "T00:00:00Z");
+  const start = period.fromMs ?? Date.parse(period.from + "T00:00:00Z");
   const rows: Doc<"audit">[] = [];
-  let floor = Date.parse(period.to + "T00:00:00Z") + DAY_MS;
+  let floor = period.toMs ?? Date.parse(period.to + "T00:00:00Z") + DAY_MS;
   let scanned = 0;
   while (floor > start) {
     if (scanned >= SCAN_BUDGET) return { rows, truncated: true };

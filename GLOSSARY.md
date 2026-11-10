@@ -212,7 +212,7 @@ A renewal a Flight Program or the deployment must not miss (insurance, registrat
 _Avoid_: reminder, expiry item, deadline
 
 **Owner portal**:
-A read-only view of an aircraft's status and due items for the aircraft's owner.
+A read-only view of an aircraft's status and due items for the aircraft's owner. With a board group as well, the owner gets the board view beside it, never the workspace.
 
 **Board view**:
 The read-only fleet summary for a Flight Program's board members: aircraft status, due items, discrepancy counts, cost totals against budget and the last off-site backup, with a PDF board summary.

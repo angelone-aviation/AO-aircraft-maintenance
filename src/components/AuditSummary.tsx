@@ -18,6 +18,7 @@ import {
   FAMILY_LABELS,
   FAMILY_ORDER,
   summaryPeriod,
+  withLocalBounds,
   type AuditSummaryResult,
   type NotableEvent,
   type NotableKind,
@@ -75,11 +76,12 @@ const ROUTES_BY_TYPE: Record<string, string> = {
 
 /**
  * The weekly summary of the active program's change log, for Flight Program
- * administrators: the last 7 days by default, the last 30 or a custom range;
- * one row per actor with counts per action family; the notable events
- * (dispatch overrides, permission and account changes, archives, corrections
- * with their reasons) linked to their screens; refused sign-ins as a count;
- * and a CSV of the table.
+ * administrators: the last 7 days by default, the last 30 or a custom range,
+ * in the reviewer's own days; one row per actor with counts per action
+ * family; the notable events (dispatch overrides, permission and account
+ * changes, archives, corrections with their reasons) linked to their
+ * screens; refused sign-ins as a count where the reader sees them (a system
+ * administrator in Unassigned records); and a CSV of the table.
  *
  * @returns The tab. Offline it says the summary needs a connection.
  */
@@ -160,7 +162,9 @@ function useSummaryLoader(backend: Backend | null, from: string, to: string) {
     const id = ++request.current;
     const period = { from, to };
     try {
-      const result = await backend.auditSummary(period);
+      // The reviewer's own days, not the server's: "Last 7 days" in the
+      // evening west of UTC includes that evening.
+      const result = await backend.auditSummary(withLocalBounds(period));
       if (id === request.current) setAnswer({ period, result, error: "" });
     } catch (e) {
       if (id === request.current)
@@ -214,7 +218,7 @@ function CustomPeriod({
 
 function SummaryBody({
   s,
-  result: { summary, truncated },
+  result: { summary, truncated, accountWide },
 }: {
   s: Snapshot;
   result: AuditSummaryResult;
@@ -229,9 +233,17 @@ function SummaryBody({
       )}
       <p className="muted">
         {summary.period.from} to {summary.period.to}: {summary.total}{" "}
-        {summary.total === 1 ? "entry" : "entries"} · {summary.refusedSignIns}{" "}
-        refused sign-in{summary.refusedSignIns === 1 ? "" : "s"}
+        {summary.total === 1 ? "entry" : "entries"}
+        {accountWide &&
+          ` · ${summary.refusedSignIns} refused sign-in${summary.refusedSignIns === 1 ? "" : "s"}`}
       </p>
+      {!accountWide && (
+        <p className="muted">
+          Refused sign-ins, password resets, ended sessions and permissions set
+          by a system administrator belong to no Flight Program. System
+          administrators review them under Unassigned records.
+        </p>
+      )}
       <ActorTable s={s} summary={summary} />
       <NotableList s={s} events={summary.notable} />
     </>
@@ -344,9 +356,10 @@ function actorName(s: Snapshot, actorId: string) {
 }
 
 function exportCsv(s: Snapshot, result: AuditSummaryResult, p: SummaryPeriod) {
-  download(
-    `change-summary-${p.from}-to-${p.to}.csv`,
-    toCsv(auditSummaryCsvRows(result.summary, (id) => actorName(s, id))),
-    CSV_TYPE,
+  const rows = auditSummaryCsvRows(
+    result.summary,
+    (id) => actorName(s, id),
+    result.accountWide,
   );
+  download(`change-summary-${p.from}-to-${p.to}.csv`, toCsv(rows), CSV_TYPE);
 }

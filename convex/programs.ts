@@ -18,6 +18,7 @@ import {
   componentSetupDocs,
   partsRequestDocs,
   purchaseOrderDocs,
+  expiringItemDocs,
 } from "./programContext";
 import {
   runCommand,
@@ -103,9 +104,9 @@ export const transfer = mutation({
         await persistTransfer(ctx, state, working);
         await listTransferredAudit(ctx, args, entities);
       },
-      // The transfer's own row is written after the listing above, so it is
+      // The transfer's rows are written after the listing above, so they are
       // never listed there.
-      audit: (log, { s }) => log.replay(s.audit.slice(0, 1)),
+      audit: (log, { s }) => log.replay(s.audit),
     }),
 });
 
@@ -124,6 +125,9 @@ async function loadTransfer(
   const inspections = await transferredInspections(ctx, args);
   const checklists = aircraftKind ? await checklistDocs(ctx, program) : [];
   const setups = aircraftKind ? await componentSetupDocs(ctx, program) : [];
+  const expiring = aircraftKind
+    ? await expiringItemDocs(ctx, program, false)
+    : [];
   const s: Snapshot = {
     ...state,
     management: decode("management", documents),
@@ -131,6 +135,7 @@ async function loadTransfer(
     ...(await loadCommitments(ctx, program)),
     checklists: decode("checklists", checklists),
     componentSetups: decode("componentSetups", setups),
+    expiringItems: decode("expiringItems", expiring),
     audit: [],
   };
   return {
@@ -139,6 +144,7 @@ async function loadTransfer(
     inspections,
     checklists,
     setups,
+    expiring,
     originals: new Map(state.aircraft.map((a) => [a.uuid, JSON.stringify(a)])),
     versions: new Map(inspections.map((i) => [i._id, i.version])),
   };
@@ -187,7 +193,7 @@ async function persistTransfer(
   state: ProgramContext,
   working: TransferState,
 ) {
-  const { s, documents, inspections, checklists, setups } = working;
+  const { s, documents, inspections, checklists, setups, expiring } = working;
   await patchMovedAircraft(ctx, state.aircraft, working.originals);
   await writeChanged(ctx, "management", documents, s.management ?? []);
   for (const i of inspections)
@@ -208,6 +214,7 @@ async function persistTransfer(
     setups,
     moved(s.componentSetups ?? [], setups),
   );
+  await writeChanged(ctx, "expiringItems", expiring, s.expiringItems ?? []);
 }
 
 // transferProgram changes only an aircraft's program and version, so only

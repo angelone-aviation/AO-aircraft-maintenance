@@ -1,9 +1,11 @@
 /**
  * Responsibility: Pins saved addresses: who may list and save them, program
- *   boundaries, the checks and cap on saving, and what readers see.
+ *   boundaries, the checks and cap on saving, what readers see, and what
+ *   the change log keeps of an edit and for whom.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/savedAddresses.ts, convex/schema.ts,
- *   src/domain/addresses, src/data/demo.ts (fixture).
+ * Dependencies: convex/savedAddresses.ts, convex/auditHistory.ts,
+ *   convex/operations.ts, convex/schema.ts, src/domain/addresses,
+ *   src/data/demo.ts (fixture).
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -304,6 +306,62 @@ it("audits each save, and still saves an edit when the program is at the cap", a
     ["address.saved", input.uuid, "demo-program"],
     ["address.saved", input.uuid, "demo-program"],
   ]);
+});
+
+it("records an edit's before and after, and lets only program administrators read the address's history", async () => {
+  const { t, a, b, reader } = await setup();
+  const save = (entry: object) =>
+    a.mutation(api.savedAddresses.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify({ ...input, ...entry }),
+    });
+  await save({});
+  const moved = { ...input.address, street: "99 Other Rd" };
+  await save({ version: 1, address: moved });
+  const rows = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(rows[0].before).toBeUndefined();
+  expect(JSON.parse(rows[0].after!)).toMatchObject({
+    version: 1,
+    address: { street: "123 Main St" },
+  });
+  expect(JSON.parse(rows[1].before!)).toEqual(JSON.parse(rows[0].after!));
+  expect(JSON.parse(rows[1].after!)).toMatchObject({
+    uuid: input.uuid,
+    version: 2,
+    programUuid: "demo-program",
+    address: { street: "99 Other Rd" },
+  });
+  // The lookup key is storage detail, not part of the record.
+  expect(rows[1].after).not.toContain("nameKey");
+  const history = (programUuid: string, entityUuid?: string) => ({
+    programUuid,
+    entityUuid,
+    cursor: null,
+    numItems: 10,
+  });
+  const own = await a.query(
+    api.auditHistory.page,
+    history("demo-program", input.uuid),
+  );
+  expect(own.page.map((e) => e.action)).toEqual([
+    "address.saved",
+    "address.saved",
+  ]);
+  const program = await a.query(api.auditHistory.page, history("demo-program"));
+  expect(program.page).toHaveLength(2);
+  const snapshot = await a.query(api.operations.snapshot, {});
+  expect(snapshot?.audit).toHaveLength(2);
+  // Readers pick addresses but do not read who changed the directory.
+  expect(
+    (await reader.query(api.auditHistory.page, history("demo-program"))).page,
+  ).toEqual([]);
+  expect((await reader.query(api.operations.snapshot, {}))?.audit).toEqual([]);
+  await expect(
+    reader.query(api.auditHistory.page, history("demo-program", input.uuid)),
+  ).rejects.toThrow("History not found.");
+  await expect(
+    b.query(api.auditHistory.page, history("other-program", input.uuid)),
+  ).rejects.toThrow("History not found.");
 });
 
 it("refuses as ConvexError in order: administrator, entry, owner, version, name, cap", async () => {

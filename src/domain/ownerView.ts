@@ -8,12 +8,12 @@
  * The owner snapshot is built as a whitelist, so a field added to the snapshot
  * stays hidden from owners until someone decides they may see it.
  */
-import type { Discrepancy, Group, Snapshot } from "./model";
+import type { Aircraft, Discrepancy, Group, Snapshot } from "./model";
 import type { ManagedRecord } from "./management";
 import type { WorkOrder } from "./workOrders";
-import { readGroupsInActiveProgram } from "./programs";
+import { groupCoversAircraft, reducedViewGroups } from "./programs";
 import { adAircraftUuid } from "./adOwnership";
-import { isCurrentAircraftFile } from "./aircraftFiles";
+import { isCurrentAircraftFile, type AircraftFile } from "./aircraftFiles";
 import { Rejection } from "./rejection";
 
 /**
@@ -34,17 +34,32 @@ export function validateOwnerGroup(
 }
 
 /**
- * Tells whether the user gets the owner portal: every group they hold with
- * read access in the active program is an owner group. Mixed roles keep the
- * full workspace.
+ * Tells whether the user gets the owner portal: they hold an owner group
+ * with read access in the active program, and every other such group is an
+ * owner or board group. A user who also holds a board group gets the board
+ * view beside it; one ordinary group gives the workspace instead.
  *
  * @param s - The user, the groups and the programs.
- * @returns True when the user holds at least one such group and all are
- *   owner groups; false for an inactive user or a system administrator.
+ * @returns False for an inactive user or a system administrator.
  */
 export function isOwnerView(s: Pick<Snapshot, "user" | "groups" | "programs">) {
-  const mine = readGroupsInActiveProgram(s);
-  return mine.length > 0 && mine.every((g) => g.owner);
+  return reducedViewGroups(s).some((g) => g.owner);
+}
+
+/**
+ * The aircraft the owner portal covers: those the user's owner groups name.
+ * A board group they also hold adds none.
+ *
+ * @param s - A snapshot scoped to the program, for a user in an owner view.
+ * @returns Those aircraft, in snapshot order.
+ */
+export function ownerPortalAircraft(
+  s: Pick<Snapshot, "user" | "groups" | "programs" | "aircraft">,
+): Aircraft[] {
+  const owned = reducedViewGroups(s).filter((g) => g.owner);
+  return s.aircraft.filter((a) =>
+    owned.some((g) => groupCoversAircraft(g, a.uuid)),
+  );
 }
 
 /**
@@ -55,7 +70,8 @@ export function isOwnerView(s: Pick<Snapshot, "user" | "groups" | "programs">) {
  * @param s - A program- and aircraft-scoped snapshot.
  * @returns The user's own member record and groups; open discrepancies,
  *   unarchived inspections, ADs, components on the aircraft with their
- *   requirements, completed work-order summaries and current Form 337 copies.
+ *   requirements, completed work-order summaries and current Form 337 copies
+ *   (no logbook page photos).
  */
 export function ownerSnapshot(s: Snapshot): Snapshot {
   const ids = new Set(s.aircraft.map((a) => a.uuid));
@@ -87,12 +103,43 @@ export function ownerSnapshot(s: Snapshot): Snapshot {
     workOrders: (s.workOrders ?? [])
       .filter((w) => w.status === "completed" && ids.has(w.aircraftUuid))
       .map(toOwnerWorkOrder),
-    // Form 337 copies are status records kept for the owner
-    // (91.417(a)(2)(vi)); owners see only current, not archived, copies.
-    aircraftFiles: (s.aircraftFiles ?? []).filter(
-      (f) => ids.has(f.aircraftUuid) && isCurrentAircraftFile(f),
-    ),
+    aircraftFiles: ownerPortalFiles(s.aircraftFiles ?? [], s.aircraft),
   };
+}
+
+/**
+ * The documents an owner may open, from a list of aircraft files: the
+ * current Form 337 copies, status records kept for the owner
+ * (91.417(a)(2)(vi)). Logbook page photos stay with the workspace: they show
+ * flights and signed work the owner portal leaves out.
+ *
+ * @param files - Aircraft files, with their links.
+ * @param aircraft - The aircraft the owner portal covers.
+ * @returns Each current copy on those aircraft, in list order, with its
+ *   name, type, size, upload time and link only.
+ */
+export function ownerPortalFiles(
+  files: AircraftFile[],
+  aircraft: { uuid: string }[],
+): AircraftFile[] {
+  const ids = new Set(aircraft.map((a) => a.uuid));
+  return files
+    .filter(
+      (f) =>
+        f.category === "form-337" &&
+        ids.has(f.aircraftUuid) &&
+        isCurrentAircraftFile(f),
+    )
+    .map((f) => ({
+      uuid: f.uuid,
+      aircraftUuid: f.aircraftUuid,
+      category: f.category,
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      uploadedAt: f.uploadedAt,
+      url: f.url,
+    }));
 }
 
 function findAircraftComponents(s: Snapshot, aircraft: Set<string>) {
