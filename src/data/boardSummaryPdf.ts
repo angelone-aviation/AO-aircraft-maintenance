@@ -46,7 +46,12 @@ export function boardSummaryParagraphs(summary: BoardSummary): Paragraph[] {
     },
     { text: "Fleet status", bold: true },
     {
-      text: `Airworthy ${fleet.airworthy} - Due soon ${fleet["due-soon"]} - Grounded ${fleet.grounded} - Overdue items ${summary.overdue}`,
+      text:
+        `Airworthy ${fleet.airworthy} - Due soon ${fleet["due-soon"]} - ` +
+        (fleet["setup-incomplete"]
+          ? `Setup incomplete ${fleet["setup-incomplete"]} - `
+          : "") +
+        `Grounded ${fleet.grounded} - Overdue items ${summary.overdue}`,
     },
     { text: "Aircraft", bold: true },
     ...summary.aircraft.map((line) => ({ text: describeAircraft(line) })),

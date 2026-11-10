@@ -1,13 +1,16 @@
 /**
  * Responsibility: Aircraft status (airworthy, due soon or grounded, with
- *   reasons) and the dispatch gate that blocks flights on a grounded aircraft.
+ *   reasons; setup incomplete as shown) and the dispatch gate that blocks
+ *   flights on a grounded aircraft.
  * Layer: Domain. Pure rules shared by the browser and Convex; no I/O, no React.
- * Dependencies: ./airworthiness, ./deferrals, ./dueItems, ./model,
- *   ./programs, ./rejection.
+ * Dependencies: ./aircraftSetup, ./airworthiness, ./deferrals, ./dueItems,
+ *   ./model, ./programs, ./rejection.
  *
  * Status is derived from recorded data only. A missing or uncomputable
- * schedule adds no reason here; it never implies readiness elsewhere.
+ * schedule adds no reason here, so screens show "Setup incomplete" in place
+ * of airworthy while an aircraft's setup has gaps (shownAircraftStatus).
  */
+import { SETUP_GAPS, setupStatus } from "./aircraftSetup";
 import { CLOSED_APPLICABILITY } from "./airworthiness";
 import {
   deferralDaysRemaining,
@@ -30,7 +33,13 @@ export type AircraftStatusLevel = "airworthy" | "due-soon" | "grounded";
 /** One reason for a status level: the record's kind, a label and its uuid. */
 export interface AircraftStatusReason {
   kind:
-    "profile" | "inspection" | "ad" | "component" | "discrepancy" | "deferral";
+    | "profile"
+    | "inspection"
+    | "ad"
+    | "component"
+    | "discrepancy"
+    | "deferral"
+    | "setup";
   label: string;
   entityUuid: string;
 }
@@ -48,10 +57,23 @@ export interface AircraftStatusFinding {
   reason: AircraftStatusReason;
 }
 
+/**
+ * A status level as screens and documents show it: the computed level, or
+ * "setup-incomplete" (GLOSSARY "Setup incomplete").
+ */
+export type ShownStatusLevel = AircraftStatusLevel | "setup-incomplete";
+
+/** An aircraft's status as shown, with the reasons for that level. */
+export interface ShownAircraftStatus {
+  level: ShownStatusLevel;
+  reasons: AircraftStatusReason[];
+}
+
 /** Display name of each status level. */
-export const aircraftStatusLabels: Record<AircraftStatusLevel, string> = {
+export const aircraftStatusLabels: Record<ShownStatusLevel, string> = {
   airworthy: "Airworthy",
   "due-soon": "Due soon",
+  "setup-incomplete": "Setup incomplete",
   grounded: "Grounded",
 };
 
@@ -81,6 +103,39 @@ export function aircraftStatus(
   const soon = reasonsAt(findings, "due-soon");
   if (soon.length) return { level: "due-soon", reasons: soon };
   return { level: "airworthy", reasons: [] };
+}
+
+/**
+ * Computes the status every screen and document shows. It is
+ * {@link aircraftStatus}, except that an aircraft that is not grounded shows
+ * "setup-incomplete" while its setup has gaps, because missing records must
+ * never read as airworthy. It does not ground the aircraft: the dispatch gate
+ * and alerts judge {@link aircraftStatus} alone.
+ *
+ * @param s - Snapshot holding the aircraft and its records.
+ * @param aircraftUuid - The aircraft.
+ * @param today - Local date (YYYY-MM-DD) that calendar limits are judged on.
+ * @returns For setup-incomplete, one "setup" reason per gap in setup step
+ *   order (labelled as the Aircraft page's setup chips), then any due-soon
+ *   reasons; otherwise {@link aircraftStatus}'s result.
+ * @throws {Error} "Aircraft not found." for an unknown aircraft.
+ */
+export function shownAircraftStatus(
+  s: Snapshot,
+  aircraftUuid: string,
+  today = localDate(),
+): ShownAircraftStatus {
+  const status = aircraftStatus(s, aircraftUuid, today);
+  if (status.level === "grounded") return status;
+  const gaps = setupStatus(s, aircraftUuid).gaps.map(
+    (gap): AircraftStatusReason => ({
+      kind: "setup",
+      label: SETUP_GAPS[gap].label,
+      entityUuid: aircraftUuid,
+    }),
+  );
+  if (!gaps.length) return status;
+  return { level: "setup-incomplete", reasons: [...gaps, ...status.reasons] };
 }
 
 /**
@@ -122,6 +177,41 @@ export function aircraftStatusFindings(
  */
 export function earliestLocalDate(now = Date.now()) {
   return new Date(now - EARLIEST_ZONE_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Why a flight the aircraft was grounded after it began is held. */
+export const GROUNDED_DURING_FLIGHT =
+  "The aircraft was grounded during this flight.";
+
+/**
+ * Tells whether an aircraft is grounded only by problems reported after a
+ * flight began. The flight was released on an aircraft the gate passed, so
+ * it is held for an administrator's review rather than refused (decision
+ * D6); anything that grounded the aircraft before it began still refuses it.
+ *
+ * @param s - Snapshot holding the aircraft's records.
+ * @param aircraftUuid - The aircraft.
+ * @param startTime - When the flight began (ISO 8601).
+ * @param today - Local date for {@link aircraftStatus}.
+ * @returns True when grounded and every grounding reason is a discrepancy
+ *   created after `startTime`.
+ * @throws {Error} "Aircraft not found." for an unknown aircraft.
+ */
+export function groundedDuringFlight(
+  s: Snapshot,
+  aircraftUuid: string,
+  startTime: string,
+  today = localDate(),
+): boolean {
+  const status = aircraftStatus(s, aircraftUuid, today);
+  if (status.level !== "grounded") return false;
+  const began = Date.parse(startTime);
+  return status.reasons.every(
+    (r) =>
+      r.kind === "discrepancy" &&
+      (s.discrepancies.find((d) => d.uuid === r.entityUuid)?.createdAt ?? 0) >
+        began,
+  );
 }
 
 /** Shortest dispatch-override reason accepted, in characters after trimming. */

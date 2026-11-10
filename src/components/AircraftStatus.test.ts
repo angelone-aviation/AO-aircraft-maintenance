@@ -10,7 +10,7 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
-import type { AircraftStatus } from "../domain/aircraftStatus";
+import type { ShownAircraftStatus } from "../domain/aircraftStatus";
 import type { Snapshot } from "../domain/model";
 import {
   AircraftStatusBadge,
@@ -41,19 +41,32 @@ function renderGate(s: Snapshot, aircraftUuid = N206) {
   );
 }
 
-const status = (level: AircraftStatus["level"], labels: string[] = []) =>
+const status = (level: ShownAircraftStatus["level"], labels: string[] = []) =>
   ({
     level,
     reasons: labels.map((label, i) => ({ kind: "ad", entityUuid: i, label })),
-  }) as unknown as AircraftStatus;
+  }) as unknown as ShownAircraftStatus;
 
 describe("status display", () => {
   it("names each level", () => {
-    const badge = (level: AircraftStatus["level"]) =>
+    const badge = (level: ShownAircraftStatus["level"]) =>
       renderToStaticMarkup(h(AircraftStatusBadge, { status: status(level) }));
     expect(badge("airworthy")).toContain(">Airworthy<");
     expect(badge("due-soon")).toContain(">Due soon<");
     expect(badge("grounded")).toContain(">Grounded<");
+    expect(badge("setup-incomplete")).toContain(">Setup incomplete<");
+    expect(badge("setup-incomplete")).not.toContain("ds-tone-good");
+  });
+
+  it("summarizes an aircraft with setup gaps as setup incomplete, naming them", () => {
+    workspace.state = { snapshot: demoSnapshot() };
+    const html = renderToStaticMarkup(
+      h(AircraftStatusSummary, { aircraftUuid: N206, registration: "N206MA" }),
+    );
+    expect(html).toContain(">Setup incomplete<");
+    expect(html).toContain("<li>Components missing</li>");
+    expect(html).toContain("<li>ADs not reviewed</li>");
+    expect(html).not.toContain(">Airworthy<");
   });
 
   it("lists reasons in the given order under the label, or nothing", () => {

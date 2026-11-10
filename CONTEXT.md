@@ -132,6 +132,7 @@ sequenceDiagram
 - Only two `Operation` kinds exist: `flight` and `discrepancy` (`operationSchema`). All other writes need a connection.
 - `enqueue()` checks the access lease, author, `can()`, `validateFlight`, the checklist link, the dispatch gate and the flight plan, stamps `programUuid`, and stores the entry in the IndexedDB outbox.
 - `flush()` sends entries when online, connected and within the lease, only for the signed-in author and the active program. Each goes through `backend.submit` → `operations.submit` → `runCommand` → `submitOperation`, the one sequence shared with the demo.
+- A later flight on an aircraft that has the user's own earlier flights in the outbox is queued with the version those flights will leave (`aircraftAfterPendingFlights`), so the legs are accepted in order; if an earlier one is held or refused, the later ones are held.
 - The server is idempotent on the entry's uuid. A flight that conflicts with the aircraft (changed version, backdated, before a counter change, lower readings) is stored as a **held flight** (`status: "review"`, `flight.held`), and totals stay unchanged until an administrator reviews it.
 - A `ConvexError` (or `[CONVEX …]` message) is permanent: the entry stays in the Sync center with its error. Any other failure is retried on the next flush.
 - Sign-out keeps the outbox (entries sync when the same user signs in) and clears form drafts and kept manuals.

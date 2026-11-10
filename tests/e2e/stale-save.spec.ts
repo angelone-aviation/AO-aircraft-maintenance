@@ -180,23 +180,16 @@ test("a failed entry can be edited and retried from the Sync center", async ({
     await navigator.serviceWorker.ready;
   });
   await context.setOffline(true);
-  // A grounding report queued before the flight grounds the aircraft when
-  // it syncs first, so the flight behind it is refused at the dispatch gate.
-  await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
-  await page.getByRole("button", { name: "Report a problem" }).click();
-  await page
-    .getByLabel("What did you observe?")
-    .fill("Alternator inoperative after start");
-  await page.getByRole("checkbox", { name: /Aircraft not airworthy/ }).check();
-  await page.getByRole("button", { name: "Save report" }).click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page.getByRole("link", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Log a flight", exact: true }).click();
   await page.getByLabel("Ending Hobbs *", { exact: true }).fill("2342.2");
   await page.getByLabel("Flight date & time").fill("2026-01-01T10:00");
   await page.getByLabel("Discrepancy", { exact: true }).fill(DEFECT);
   await page.getByRole("button", { name: "Save flight", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  // An annual already overdue when the flight began grounds the aircraft at
+  // sync, so the flight is refused at the dispatch gate. (A problem reported
+  // after the flight began would hold it for review instead.)
+  await addOverdueAnnual(page);
   await context.setOffline(false);
 
   await page.getByRole("link", { name: /Sync center/ }).click();
@@ -357,6 +350,45 @@ async function storedAD(page: Page): Promise<AD> {
 async function storedWorkOrder(page: Page): Promise<WorkOrder> {
   const all = await demoSnapshotOf(page);
   return all.workOrders!.find((w) => w.number === WORK_ORDER_NUMBER)!;
+}
+
+// Stored straight into every copy of the demo's records, as a save from
+// another device would reach them.
+async function addOverdueAnnual(page: Page) {
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("angel-one-v1");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("snapshots", "readwrite");
+    const cursor = tx.objectStore("snapshots").openCursor();
+    cursor.onsuccess = () => {
+      const entry = cursor.result;
+      if (!entry) return;
+      const s = entry.value as Snapshot;
+      entry.update({
+        ...s,
+        inspections: [
+          ...s.inspections,
+          {
+            uuid: "overdue-annual",
+            aircraftUuid: "demo-206",
+            reference: "Annual",
+            description: "",
+            dueDate: "2025-12-01",
+          },
+        ],
+      });
+      entry.continue();
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+  await page.reload();
 }
 
 function demoSnapshotOf(page: Page): Promise<Snapshot> {

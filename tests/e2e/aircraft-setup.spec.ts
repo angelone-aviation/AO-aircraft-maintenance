@@ -206,7 +206,7 @@ test("keeps one commit per aircraft when the Save step is left and reopened", as
   await expect(progress.getByText("Saved", { exact: true })).toHaveCount(
     BULK_ROWS,
   );
-  await step(/Review/).click();
+  await step(/Review \(dry run\)/).click();
   await expect(
     page.getByText(
       `Save will write nothing. ${BULK_ROWS} rows will not be saved; each is listed below with the reason.`,

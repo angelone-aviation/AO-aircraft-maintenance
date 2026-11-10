@@ -57,10 +57,13 @@ _Avoid_: squawk, issue, defect (in records)
 Postponement of a discrepancy under a Minimum Equipment List (MEL) item and category, with placard text and a repair deadline.
 
 **Aircraft status**:
-The computed level of an aircraft, airworthy, due soon or grounded, together with the reasons that produced it.
+The computed level of an aircraft, airworthy, due soon or grounded, together with the reasons that produced it. Screens show **Setup incomplete** in place of airworthy or due soon while the aircraft's setup has gaps.
+
+**Setup incomplete** (aircraft status):
+The status shown for an aircraft that is not grounded while any step of its aircraft setup holds no data (baseline readings, an installed component, an inspection schedule, an AD with its applicability decided). The missing steps are its reasons. It never reads as airworthy, but it does not ground the aircraft or close the dispatch gate. Also the label of a component added from a template that still waits for its serial and readings.
 
 **Dispatch gate**:
-The check that blocks releasing a grounded aircraft for a flight.
+The check that blocks releasing a grounded aircraft for a flight. A flight whose aircraft was grounded only by problems reported after it began is not refused: it can still be logged and is held for conflict review ("The aircraft was grounded during this flight.").
 
 **OK to fly**:
 The one-line verdict on an aircraft card and detail: "Not OK to fly" exactly when the aircraft is grounded (the dispatch gate would refuse a flight), otherwise "OK to fly", with the single most important reason.
@@ -70,11 +73,11 @@ _Avoid_: cleared, released
 A recorded, reasoned decision to fly despite the dispatch gate; the reason is kept with the flight.
 
 **Pending entry**:
-A flight or discrepancy recorded offline and waiting in the outbox to sync.
+A flight or discrepancy recorded offline and waiting in the outbox to sync. A user's later pending flight on an aircraft starts from the readings and version their earlier pending flights on it will leave, so the legs sync in order.
 _Avoid_: queued operation (in user-facing text), draft
 
 **Conflict review**:
-Administrator review of a synced flight whose readings disagree with the aircraft's current counters, or that is longer than 24 hours on a meter (longer than any single flight); totals are not changed until reviewed.
+Administrator review of a synced flight whose readings disagree with the aircraft's current counters, that is longer than 24 hours on a meter (longer than any single flight), or whose aircraft was grounded during the flight; totals are not changed until reviewed.
 
 ## Maintenance
 

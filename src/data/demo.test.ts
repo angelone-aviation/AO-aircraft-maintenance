@@ -1,17 +1,24 @@
 /**
  * Responsibility: Pins the demo fixture's promises: fresh snapshots, dates
- *   relative to now, the meter offsets, and the owner switch.
+ *   relative to now, the meter offsets, the owner switch, and the demo
+ *   workspace's aircraft statuses.
  * Layer: Test.
- * Dependencies: vitest, src/data/demo.ts.
+ * Dependencies: vitest, src/data/demo.ts, src/domain (aircraftStatus,
+ *   airworthiness, components schemas).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEMO_BOARD_ID,
   DEMO_OWNER_ID,
   demoSnapshot,
+  demoWorkspace,
   withDemoRole,
   withDemoUser,
 } from "./demo";
+
+import { shownAircraftStatus } from "../domain/aircraftStatus";
+import { adSchema } from "../domain/airworthiness";
+import { componentSchema } from "../domain/components/records";
 
 const NOW = new Date("2026-11-03T12:00:00Z");
 
@@ -119,5 +126,17 @@ describe("withDemoRole", () => {
     expect(admin.members.map((m) => m.id)).toEqual(
       demoSnapshot().members.map((m) => m.id),
     );
+  });
+});
+
+describe("the demo workspace", () => {
+  it("reads N206MA due soon, N208MA airworthy and N182MA setup incomplete", () => {
+    const s = demoWorkspace();
+    expect(s.aircraft.map((a) => shownAircraftStatus(s, a.uuid).level)).toEqual(
+      ["due-soon", "airworthy", "setup-incomplete"],
+    );
+    for (const c of s.management ?? []) componentSchema.parse(c);
+    for (const ad of s.airworthiness ?? []) adSchema.parse(ad);
+    expect(demoSnapshot().management).toBeUndefined();
   });
 });

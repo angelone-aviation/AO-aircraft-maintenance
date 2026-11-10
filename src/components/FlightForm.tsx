@@ -4,9 +4,10 @@
  * Layer: UI. React component; new flights queue in the offline outbox and
  *   reviews save online.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (model, flights, flightPlans, flightReview, flightSession, readings,
- *   aircraftStatus), ./FlightFluids, ./FlightParts, ./FlightSuggestions,
- *   ./AircraftStatus, ./StaleSave, ./TermTip, ./design, ./ui.
+ *   (model, flights, flightPlans, flightReview, flightSession,
+ *   flightSubmission, readings, aircraftStatus), ./FlightFluids,
+ *   ./FlightParts, ./FlightSuggestions, ./AircraftStatus, ./StaleSave,
+ *   ./TermTip, ./design, ./ui.
  */
 import { useId, useState } from "react";
 import {
@@ -29,6 +30,7 @@ import {
   REVIEW_REASON_MIN_LENGTH,
 } from "../domain/flightReview";
 import { plannedFlightRules } from "../domain/flightSession";
+import { aircraftAfterPendingFlights } from "../domain/flightSubmission";
 import { SECONDS_PER_HOUR } from "../domain/readings";
 import {
   can,
@@ -42,9 +44,15 @@ import {
   type Aircraft,
   type Flight,
   type FlightInput,
+  type Operation,
+  type QueuedOperation,
   type Snapshot,
 } from "../domain/model";
-import { aircraftStatus, canOverrideDispatch } from "../domain/aircraftStatus";
+import {
+  aircraftStatus,
+  canOverrideDispatch,
+  groundedDuringFlight,
+} from "../domain/aircraftStatus";
 import { DispatchGate } from "./AircraftStatus";
 import { FlightFluidFields, type Fluids } from "./FlightFluids";
 import {
@@ -170,10 +178,10 @@ export function FlightForm(props: FlightFormProps) {
 }
 
 function useFlightModel(props: FlightFormProps) {
-  const { snapshot, enqueue, replace, backend, online, connected } =
+  const { snapshot, queue, enqueue, replace, backend, online, connected } =
     useWorkspace();
   const s = snapshot!;
-  const draft = useFlightDraft(props, s);
+  const draft = useFlightDraft(props, s, queue);
   return {
     props,
     phase: props.phase ?? "all",
@@ -188,8 +196,16 @@ function useFlightModel(props: FlightFormProps) {
   };
 }
 
-function useFlightDraft(props: FlightFormProps, s: Snapshot) {
-  const choice = useAircraftChoice(props, s);
+function useFlightDraft(
+  props: FlightFormProps,
+  s: Snapshot,
+  queue: QueuedOperation[],
+) {
+  // The entry an Edit and retry replaces is not an earlier leg of itself.
+  const pending = queue
+    .map((q) => q.operation)
+    .filter((op) => op.uuid !== props.replaces);
+  const choice = useAircraftChoice(props, s, pending);
   const defaults = props.initial ?? props.prefill;
   const [fluids, setFluids] = useState<Fluids>({
     fuel: defaults?.fuel,
@@ -216,7 +232,11 @@ function useFlightDraft(props: FlightFormProps, s: Snapshot) {
   };
 }
 
-function useAircraftChoice(props: FlightFormProps, s: Snapshot) {
+function useAircraftChoice(
+  props: FlightFormProps,
+  s: Snapshot,
+  pending: Operation[],
+) {
   const { initial, plan } = props;
   const aircrafts = s.aircraft.filter(
     (a) => can(s, a.uuid, "flight") || !!initial,
@@ -229,10 +249,13 @@ function useAircraftChoice(props: FlightFormProps, s: Snapshot) {
       "",
   );
   // Freeze the readings together with their version so a live update cannot
-  // silently change what the pilot verified while this form was open.
-  const [openingReadings] = useState(() => openingReadingsOf(aircrafts));
+  // silently change what the pilot verified while this form was open. A leg
+  // logged behind the user's own unsynced legs starts where they end.
+  const [openingReadings] = useState(() =>
+    openingReadingsOf(aircrafts.map((a) => afterPending(s, a, pending))),
+  );
   const opening = props.openingOverride ?? openingReadings[selected];
-  return { aircrafts, selected, setSelected, opening };
+  return { aircrafts, selected, setSelected, opening, pending };
 }
 
 // What the form shows for the chosen aircraft. A review starts from the
@@ -245,8 +268,6 @@ function flightView(props: FlightFormProps, s: Snapshot, d: Draft) {
     aircraft && initial
       ? meterAtFlight(aircraft, initial.startTime)
       : aircraft?.meter;
-  // Reviews correct existing records; only new flights pass the dispatch gate.
-  const gated = !initial && !!aircraft;
   const typed =
     d.typedEnds?.aircraftUuid === d.selected ? d.typedEnds.ends : undefined;
   const shown = flightOptionalEntries(aircraft ?? {}, requiredMeter, defaults);
@@ -258,12 +279,31 @@ function flightView(props: FlightFormProps, s: Snapshot, d: Draft) {
     showCyclic: shown.cyclic,
     showFlightTimeLog: shown.flightTimeLog,
     readingsChanged:
-      !initial && aircraft && opening && aircraft.version !== opening.version,
+      !initial &&
+      aircraft &&
+      opening &&
+      afterPending(s, aircraft, d.pending).version !== opening.version,
     engines: aircraft ? flightEnginePositions(aircraft, defaults) : [],
     showLandingSurface: shown.landingSurface,
-    gated,
-    grounded: gated && aircraftStatus(s, aircraft.uuid).level === "grounded",
+    ...dispatchState(props, s, aircraft),
   };
+}
+
+// Reviews correct existing records; only new flights pass the dispatch gate.
+// Ending a started flight the aircraft was grounded after it began skips it:
+// the entry is saved and held for review (decision D6).
+function dispatchState(
+  props: FlightFormProps,
+  s: Snapshot,
+  aircraft: Aircraft | undefined,
+) {
+  const startTime = props.phase === "end" ? props.prefill?.startTime : "";
+  if (props.initial || !aircraft)
+    return { gated: false, grounded: false, heldInFlight: false };
+  if (startTime && groundedDuringFlight(s, aircraft.uuid, startTime))
+    return { gated: false, grounded: false, heldInFlight: true };
+  const grounded = aircraftStatus(s, aircraft.uuid).level === "grounded";
+  return { gated: true, grounded, heldInFlight: false };
 }
 
 function FluidFields({ m }: { m: Model }) {
@@ -277,6 +317,24 @@ function FluidFields({ m }: { m: Model }) {
       phase={FLUID_PHASES[m.phase]}
       required={m.phase === "preflight" || !!prefill?.checklistRun}
     />
+  );
+}
+
+function GroundedInFlightNotice({ m }: { m: Model }) {
+  return (
+    <NoticeBar
+      tone="warn"
+      icon={Warning}
+      role="status"
+      className="flight-notice"
+    >
+      <strong>
+        {m.aircraft!.registration} was grounded during this flight.
+      </strong>{" "}
+      Save the flight to record it: it will be held for an administrator's
+      review, and aircraft totals stay unchanged until then. No new flight can
+      start until the grounding items are resolved or deferred.
+    </NoticeBar>
   );
 }
 
@@ -299,6 +357,7 @@ function FlightNotices({ m }: { m: Model }) {
           onReason={m.setOverride}
         />
       )}
+      {m.heldInFlight && <GroundedInFlightNotice m={m} />}
       {plan && (
         <NoticeBar icon={ClipboardText} className="flight-notice">
           {m.phase === "preflight"
@@ -865,6 +924,10 @@ function typedEndsFrom(aircraftUuid: string, data: FormData): TypedEnds {
       METER_INPUTS.map((name) => [name, value(data, name)]),
     ) as Record<MeterInput, string>,
   };
+}
+
+function afterPending(s: Snapshot, a: Aircraft, pending: Operation[]) {
+  return aircraftAfterPendingFlights(s, a.uuid, pending) ?? a;
 }
 
 function openingReadingsOf(aircrafts: Snapshot["aircraft"]) {

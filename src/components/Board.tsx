@@ -6,11 +6,13 @@
  *   administrator's) and changes no records.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
  *   src/data/boardSummaryPdf.ts (on demand), src/domain (model, boardView,
- *   boardSummary, aircraftStatus, costs, programs), ./design, ./ui.
+ *   boardSummary, aircraftStatus, costs, programs), ./design, ./ui,
+ *   ./AircraftStatus.
  */
 import { useState } from "react";
 import {
   AirplaneTilt,
+  ClipboardText,
   HourglassMedium,
   Prohibit,
   WarningCircle,
@@ -25,10 +27,7 @@ import {
   type BoardDueLine,
   type BoardSummary,
 } from "../domain/boardSummary";
-import {
-  aircraftStatusLabels,
-  type AircraftStatusLevel,
-} from "../domain/aircraftStatus";
+import { aircraftStatusLabels } from "../domain/aircraftStatus";
 import { formatCents } from "../domain/costs";
 import {
   EmptyState,
@@ -42,13 +41,9 @@ import {
   type Tone,
 } from "./design";
 import { errorText } from "./ui";
+import { STATUS_TONE } from "./AircraftStatus";
 import "../styles/screens/board.css";
 
-const STATUS_TONES: Record<AircraftStatusLevel, Tone> = {
-  airworthy: "good",
-  "due-soon": "warn",
-  grounded: "danger",
-};
 const DUE_TONES: Record<BoardDueLine["status"], Tone> = {
   overdue: "danger",
   "due-soon": "warn",
@@ -119,8 +114,9 @@ function BoardMembersOnly() {
 
 function FleetTiles({ summary }: { summary: BoardSummary }) {
   const { fleet } = summary;
+  const setup = fleet["setup-incomplete"];
   return (
-    <KpiStrip className="board-kpis">
+    <KpiStrip className="board-kpis" columns={setup ? 5 : 4}>
       <KpiTile
         label="Airworthy"
         value={fleet.airworthy}
@@ -136,6 +132,16 @@ function FleetTiles({ summary }: { summary: BoardSummary }) {
         valueTone={fleet["due-soon"] ? "warn" : undefined}
         footnote="Aircraft with an item coming due"
       />
+      {setup > 0 && (
+        <KpiTile
+          label="Setup incomplete"
+          value={setup}
+          icon={ClipboardText}
+          tone="warn"
+          valueTone="warn"
+          footnote="Records still being loaded; not shown as airworthy"
+        />
+      )}
       <KpiTile
         label="Grounded"
         value={fleet.grounded}
@@ -166,7 +172,7 @@ function AircraftLines({ lines }: { lines: BoardAircraftLine[] }) {
           sub={`${line.aircraft.make} ${line.aircraft.model} · ${line.overdue} overdue · ${line.dueSoon} due soon · ${describeDiscrepancies(line)}`}
           meta={describeSpend(line)}
           badge={
-            <StatusPill tone={STATUS_TONES[line.status]}>
+            <StatusPill tone={STATUS_TONE[line.status]}>
               {aircraftStatusLabels[line.status]}
             </StatusPill>
           }

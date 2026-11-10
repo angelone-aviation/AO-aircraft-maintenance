@@ -37,9 +37,9 @@ import { useWorkspace } from "../data/store";
 import { isPilotView } from "../domain/pilotView";
 import { overviewSections, type OverviewSection } from "../domain/overview";
 import {
-  aircraftStatus,
   aircraftStatusLabels,
-  type AircraftStatus,
+  shownAircraftStatus,
+  type ShownAircraftStatus,
 } from "../domain/aircraftStatus";
 import {
   dueItems,
@@ -82,7 +82,11 @@ import { LogbookPhotoPrompt, type LogbookPhotoTarget } from "./LogbookPhotos";
 import { PaperCheckButton } from "./PaperCheck";
 import { RemainingMeter } from "./RemainingMeter";
 import { TermTip } from "./TermTip";
-import { AircraftStatusBadge, AircraftStatusReasons } from "./AircraftStatus";
+import {
+  AircraftStatusBadge,
+  AircraftStatusReasons,
+  STATUS_TONE,
+} from "./AircraftStatus";
 import { FlightReadinessLine } from "./FlightReadiness";
 import {
   AircraftArt,
@@ -116,11 +120,6 @@ const SCHEDULE_TONES: Record<ScheduleState, Tone> = {
   scheduled: "good",
   unknown: "neutral",
 };
-const STATUS_TONES: Record<AircraftStatus["level"], Tone> = {
-  airworthy: "good",
-  "due-soon": "warn",
-  grounded: "danger",
-};
 const OPERATIONAL_TONES: Partial<Record<Aircraft["operationalStatus"], Tone>> =
   { grounded: "danger", maintenance: "warn" };
 
@@ -152,7 +151,7 @@ interface CardProps {
   aircraft: Aircraft;
   index: number;
   s: Snapshot;
-  status: AircraftStatus;
+  status: ShownAircraftStatus;
   next: NextDue;
   pilotView: boolean;
   favorite: boolean;
@@ -527,7 +526,7 @@ function cardProps(d: DashboardState, a: Aircraft, index: number): CardProps {
     index,
     aircraft: a,
     s,
-    status: aircraftStatus(s, a.uuid),
+    status: shownAircraftStatus(s, a.uuid),
     next: nextDue(fleet.schedules.get(a.uuid) ?? [], a, fleet.today),
     pilotView,
     favorite: d.favorites.includes(a.uuid),
@@ -1212,7 +1211,7 @@ function CardActions({ aircraft: a, s, pilotView, onView, onLog }: CardProps) {
 
 function AircraftDetail(detail: DetailProps) {
   const { aircraft: a, s, pilotView } = detail;
-  const status = aircraftStatus(s, a.uuid);
+  const status = shownAircraftStatus(s, a.uuid);
   return (
     <Dialog
       title={a.registration}
@@ -1247,7 +1246,7 @@ function DetailHero({
   aircraft: a,
   status,
   onClose,
-}: DetailProps & { status: AircraftStatus }) {
+}: DetailProps & { status: ShownAircraftStatus }) {
   return (
     <div className="dash-detail-hero">
       <AircraftArt aircraft={a} opacity={0.28} className="dash-detail-art" />
@@ -1258,7 +1257,7 @@ function DetailHero({
         className="dash-detail-close"
       />
       <span
-        className={"dash-detail-pill dash-dot-" + STATUS_TONES[status.level]}
+        className={"dash-detail-pill dash-dot-" + STATUS_TONE[status.level]}
       >
         <span className="dash-detail-dot" aria-hidden="true" />
         {aircraftStatusLabels[status.level]}
@@ -1349,9 +1348,9 @@ function StatusNotes({
   status,
 }: {
   aircraft: Aircraft;
-  status: AircraftStatus;
+  status: ShownAircraftStatus;
 }) {
-  const tone = STATUS_TONES[status.level];
+  const tone = STATUS_TONE[status.level];
   return (
     <section className="dash-detail-section" aria-labelledby="dash-notes">
       <h3 className="dash-detail-label" id="dash-notes">
@@ -1359,7 +1358,10 @@ function StatusNotes({
       </h3>
       <ul className="dash-notes" aria-label={`${a.registration} status notes`}>
         {status.reasons.map((r) => (
-          <li key={r.kind + r.entityUuid} className={"dash-note " + tone}>
+          <li
+            key={r.kind + r.entityUuid + r.label}
+            className={"dash-note " + tone}
+          >
             <WarningCircle size={18} aria-hidden="true" />
             {r.label}
           </li>

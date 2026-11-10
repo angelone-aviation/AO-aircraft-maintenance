@@ -28,7 +28,7 @@ Every other server call from a board member is refused with "Board access is rea
 
 ## The screen
 
-- **Fleet status** tiles: how many aircraft are airworthy, due soon and grounded, and how many items are overdue, from the same status rules as the overview.
+- **Fleet status** tiles: how many aircraft are airworthy, due soon and grounded, and how many items are overdue, from the same status rules as the overview. A **Setup incomplete** tile appears while any aircraft's setup has gaps ([aircraft setup](aircraft-setup.md)); those aircraft are not counted as airworthy.
 - **Aircraft**: each aircraft's status, overdue and due-soon counts, open discrepancies (with how many are grounding), and spend: this quarter's total, this year's total against the year's budget, and "over budget" when it is.
 - **Due in the next 30 days**: every inspection, component limit and AD that is overdue, due soon, or has a calendar limit within 30 days, worst first and then soonest first.
 - **Off-site backup**: the freshness sentence from the nightly backup (ADR-0008). The demo has no backups and says so; a program administrator who opens the view is pointed to Settings → System, where the status is reported to system administrators.

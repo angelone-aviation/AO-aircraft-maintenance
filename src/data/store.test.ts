@@ -557,7 +557,10 @@ it("records an AD's due limits before and after a demo edit", async () => {
     },
   ];
   await backend.saveAD({ kind: "save", record: r });
-  const saved = useWorkspace.getState().snapshot!.airworthiness![0];
+  // The demo already holds a reviewed AD per set-up aircraft.
+  const saved = useWorkspace
+    .getState()
+    .snapshot!.airworthiness!.find((x) => x.uuid === r.uuid)!;
   const edit = structuredClone(saved);
   edit.tasks[0].dueHours = 3000;
   // A decided AD is a record: changing it needs a reason (issue #21).
@@ -854,6 +857,112 @@ it("allows one queued flight per flight plan", async () => {
   workspace.setState({ queue: [{ ...pending, error: "Rejected" }] });
   await expect(workspace.getState().enqueue(planned())).rejects.toThrow(
     "This plan has a failed flight entry. Discard it in the Sync center before logging the flight again.",
+  );
+  vi.unstubAllGlobals();
+});
+
+// Three legs logged offline on one aircraft, each queued from the stored
+// readings the form opened with, then synced through the demo backend.
+async function syncOfflineLegs(namespace: string, firstLegHours = 1) {
+  vi.stubGlobal("navigator", { onLine: true });
+  const { useWorkspace } = await import("./store");
+  await useWorkspace.getState().initialize(namespace, true);
+  useWorkspace.setState({ online: true, connected: false });
+  const a = useWorkspace.getState().snapshot!.aircraft[0];
+  const ends = [firstLegHours, firstLegHours + 1, firstLegHours + 2];
+  const legs = ends.map((hours, i) =>
+    demoFlight(a.uuid, 3 - i, a.currentHobbs + hours * 3600, a.version),
+  );
+  for (const leg of legs) {
+    await useWorkspace.getState().enqueue(leg);
+    // The outbox is ordered by queue time, in milliseconds.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  const queued = useWorkspace.getState().queue.map((q) => q.operation);
+  useWorkspace.getState().setConnection(true, true);
+  await vi.waitFor(() => expect(useWorkspace.getState().queue).toEqual([]));
+  const s = useWorkspace.getState().snapshot!;
+  const status = legs.map((l) => s.flights.find((f) => f.uuid === l.uuid));
+  return { a, queued, status, after: s.aircraft[0] };
+}
+
+it("queues a pilot's offline legs on one aircraft so they are accepted in order", async () => {
+  const { a, queued, status, after } = await syncOfflineLegs("offline-legs");
+  expect(queued.map((op) => op.kind === "flight" && op.baseVersion)).toEqual([
+    a.version,
+    a.version + 1,
+    a.version + 2,
+  ]);
+  expect(status.map((f) => f?.status)).toEqual([
+    "accepted",
+    "accepted",
+    "accepted",
+  ]);
+  expect(status.map((f) => f?.hobbsOff)).toEqual([
+    a.currentHobbs,
+    a.currentHobbs + 3600,
+    a.currentHobbs + 2 * 3600,
+  ]);
+  expect(after.currentHobbs).toBe(a.currentHobbs + 3 * 3600);
+  vi.unstubAllGlobals();
+});
+
+it("holds every later offline leg when the first is held", async () => {
+  // 30 hours is longer than any single flight, so the first leg is held.
+  const { a, status, after } = await syncOfflineLegs("offline-legs-held", 30);
+  expect(status.map((f) => f?.status)).toEqual(["review", "review", "review"]);
+  expect(status.slice(1).map((f) => f?.reviewReason)).toEqual([
+    "Aircraft totals changed after this entry was started.",
+    "Aircraft totals changed after this entry was started.",
+  ]);
+  expect(after.currentHobbs).toBe(a.currentHobbs);
+  vi.unstubAllGlobals();
+});
+
+it("keeps the version of a leg whose form opened on other readings", async () => {
+  const workspace = await signedInWorkspace("offline-legs-stale");
+  workspace.setState({ connected: false });
+  const a = demoSnapshot().aircraft[0];
+  await workspace
+    .getState()
+    .enqueue(demoFlight(a.uuid, 2, a.currentHobbs + 3600, a.version));
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  await workspace
+    .getState()
+    .enqueue(demoFlight(a.uuid, 1, a.currentHobbs + 7200, a.version + 5));
+  expect(
+    workspace
+      .getState()
+      .queue.map(
+        (q) => q.operation.kind === "flight" && q.operation.baseVersion,
+      ),
+  ).toEqual([a.version, a.version + 5]);
+  vi.unstubAllGlobals();
+});
+
+it("queues the end of a flight the aircraft was grounded after it began", async () => {
+  const workspace = await signedInWorkspace("grounded-in-flight");
+  workspace.setState({ connected: false });
+  const a = demoSnapshot().aircraft[0];
+  const leg = demoFlight(a.uuid, 2, a.currentHobbs + 3600, a.version);
+  const s = demoSnapshot();
+  s.discrepancies.push({
+    uuid: "hard-landing",
+    aircraftUuid: a.uuid,
+    description: "Hard landing",
+    status: "open",
+    grounding: true,
+    authorId: s.user.id,
+    createdAt: Date.now() - 3600000,
+  });
+  workspace.setState({ snapshot: s });
+  await workspace.getState().enqueue(leg);
+  expect(workspace.getState().queue.map((q) => q.operation.uuid)).toEqual([
+    leg.uuid,
+  ]);
+  const later = demoFlight(a.uuid, 0.5, a.currentHobbs + 7200, a.version);
+  await expect(workspace.getState().enqueue(later)).rejects.toThrow(
+    "N206MA is grounded",
   );
   vi.unstubAllGlobals();
 });

@@ -5,8 +5,8 @@
  * Layer: Data. Zustand store over IndexedDB and the Backend; no UI.
  * Dependencies: zustand, convex/values, src/data (local, backend, demo,
  *   demoBackend, deviceManuals, errors, logbookPhotos), src/domain (model,
- *   programs, flights, flightChecklistLink, flightPlans, aircraftStatus,
- *   aircraftFiles, rejection).
+ *   programs, flights, flightChecklistLink, flightPlans, flightSubmission,
+ *   aircraftStatus, aircraftFiles, rejection).
  *
  * Only flights and problem reports queue offline; every other write needs a
  * connection. A logbook page photo is the one exception: it waits on the
@@ -16,12 +16,13 @@
  */
 import { validateChecklistFlight } from "../domain/flightChecklistLink";
 import { validatePlanFlight } from "../domain/flightPlans";
+import { aircraftAfterPendingFlights } from "../domain/flightSubmission";
 import { scopedSnapshot } from "../domain/programs";
 import { create } from "zustand";
 import { ConvexError } from "convex/values";
 import type { Operation, QueuedOperation, Snapshot } from "../domain/model";
 import { can, localDate, offlineValid } from "../domain/model";
-import { dispatchGate } from "../domain/aircraftStatus";
+import { dispatchGate, groundedDuringFlight } from "../domain/aircraftStatus";
 import { validateFlight } from "../domain/flights";
 import {
   assertAircraftFileWriter,
@@ -39,7 +40,7 @@ import {
   type PendingLogbookPhoto,
 } from "./logbookPhotos";
 import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
-import { demoSnapshot, withDemoRole, type DemoRole } from "./demo";
+import { demoWorkspace, withDemoRole, type DemoRole } from "./demo";
 import type { Backend } from "./backend";
 import { demoBackend } from "./demoBackend";
 import { CONVEX_FAILURE_PREFIX, errorText } from "./errors";
@@ -324,8 +325,10 @@ export const useWorkspace = create<Workspace>((set, get) => ({
         "Your offline access expired. Reconnect and sign in; pending entries are preserved.",
       );
     assertEntryAllowed(snapshot, operation);
-    if (operation.kind === "flight")
+    if (operation.kind === "flight") {
       assertFlightEntry(snapshot, operation, get().queue);
+      operation = chainAfterPendingFlights(snapshot, operation, get().queue);
+    }
     operation = { ...operation, programUuid: snapshot.activeProgramUuid };
     const entry = { operation, queuedAt: Date.now() };
     await local.persistOperation(namespace, entry);
@@ -516,7 +519,7 @@ async function openDemoSnapshot(
   const full =
     (await local.readSnapshot(namespace + DEMO_FULL_SUFFIX)) ??
     cached ??
-    demoSnapshot();
+    demoWorkspace();
   if (cached?.user.id === full.user.id)
     full.authenticatedAt = cached.authenticatedAt;
   const snapshot = scopedSnapshot(full);
@@ -549,15 +552,23 @@ function assertFlightEntry(
     input,
   );
   validateChecklistFlight(snapshot, input);
-  dispatchGate(
-    snapshot,
-    input.aircraftUuid,
-    operation.dispatchOverrideReason,
-    localDate(),
-  );
+  assertDispatchable(snapshot, operation);
   if (!input.flightPlanUuid) return;
   validatePlanFlight(snapshot, input);
   assertPlanFree(queue, input.flightPlanUuid);
+}
+
+// A flight the aircraft was grounded after it began is queued: the server
+// holds it for review, as it would refuse one grounded before it began.
+function assertDispatchable(snapshot: Snapshot, operation: FlightEntry) {
+  const { aircraftUuid, startTime } = operation.input;
+  const today = localDate();
+  if (
+    operation.dispatchOverrideReason === undefined &&
+    groundedDuringFlight(snapshot, aircraftUuid, startTime, today)
+  )
+    return;
+  dispatchGate(snapshot, aircraftUuid, operation.dispatchOverrideReason, today);
 }
 
 // A failed entry still blocks: it can be retried, and letting a second
@@ -577,6 +588,23 @@ function assertPlanFree(queue: QueuedOperation[], planUuid: string) {
 }
 
 type FlightEntry = Extract<Operation, { kind: "flight" }>;
+
+// A leg started from the stored aircraft while this user's earlier legs on it
+// wait in the outbox takes the version they will leave, so the server accepts
+// the legs in order (decision D7). A form that opened on other readings keeps
+// its version, and the server holds it as before.
+function chainAfterPendingFlights(
+  snapshot: Snapshot,
+  operation: FlightEntry,
+  queue: QueuedOperation[],
+): FlightEntry {
+  const { aircraftUuid } = operation.input;
+  const stored = snapshot.aircraft.find((a) => a.uuid === aircraftUuid);
+  if (operation.baseVersion !== stored?.version) return operation;
+  const pending = queue.map((q) => q.operation);
+  const after = aircraftAfterPendingFlights(snapshot, aircraftUuid, pending);
+  return { ...operation, baseVersion: after?.version ?? stored.version };
+}
 
 function buildPendingPhoto(
   snapshot: Snapshot,

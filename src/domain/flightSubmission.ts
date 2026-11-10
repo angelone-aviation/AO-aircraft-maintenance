@@ -23,7 +23,11 @@ import type { Stock } from "./management";
 import { applyFlight, heldReason, validateFlight } from "./flights";
 import { validateChecklistFlight } from "./flightChecklistLink";
 import { validatePlanFlight } from "./flightPlans";
-import { dispatchGate } from "./aircraftStatus";
+import {
+  dispatchGate,
+  GROUNDED_DURING_FLIGHT,
+  groundedDuringFlight,
+} from "./aircraftStatus";
 import { oilInventoryDeductions, oilUsageAudit } from "./oilInventory";
 import { programIds } from "./programs";
 import { Rejection } from "./rejection";
@@ -92,7 +96,8 @@ export function submitOperation(
 }
 
 /**
- * Submits a flight. One that conflicts with the aircraft's counters is held
+ * Submits a flight. One that conflicts with the aircraft's counters, or whose
+ * aircraft was grounded only by problems reported after it began, is held
  * for review (`status: "review"`, audited `flight.held`).
  *
  * @returns As {@link submitOperation}; stock, then the flight, its problem
@@ -115,8 +120,15 @@ export function submitFlight(
   const aircraft = s.aircraft.find((a) => a.uuid === input.aircraftUuid);
   if (!aircraft) throw new FlightRejection("Aircraft not found.");
   validateEntry(s, input, aircraft);
-  const dispatchOverride = gateDispatch(s, op, aircraft, today, now);
-  const reviewReason = heldReason(aircraft, input, op.baseVersion);
+  const inFlight =
+    op.dispatchOverrideReason === undefined &&
+    groundedDuringFlight(s, aircraft.uuid, input.startTime, today);
+  const dispatchOverride = inFlight
+    ? undefined
+    : gateDispatch(s, op, aircraft, today, now);
+  const reviewReason = inFlight
+    ? GROUNDED_DURING_FLIGHT
+    : heldReason(aircraft, input, op.baseVersion);
   const flight = flightRecord(op, aircraft, now, {
     dispatchOverride,
     reviewReason,
@@ -136,6 +148,42 @@ export function submitFlight(
       ),
     },
   };
+}
+
+/**
+ * The aircraft as the server will hold it once the user's own unsynced
+ * flights on it are accepted in outbox order. A later leg logged offline
+ * starts from it, so it carries the version and starting readings its
+ * earlier legs will produce and is accepted after them (decision D7). An
+ * earlier leg the server holds or refuses leaves the aircraft a version
+ * short, so every leg chained after it is held too.
+ *
+ * @param s - Snapshot holding the aircraft, the signed-in user and the
+ *   flights the server already has.
+ * @param aircraftUuid - The aircraft.
+ * @param pending - The device's outbox operations, oldest first; failed
+ *   entries count, as they may still be retried.
+ * @returns The stored aircraft advanced by each of the user's pending
+ *   flights on it that the snapshot does not hold yet; undefined for an
+ *   unknown aircraft.
+ */
+export function aircraftAfterPendingFlights(
+  s: Snapshot,
+  aircraftUuid: string,
+  pending: readonly Operation[],
+): Aircraft | undefined {
+  const aircraft = s.aircraft.find((a) => a.uuid === aircraftUuid);
+  if (!aircraft) return undefined;
+  const synced = new Set(s.flights.map((f) => f.uuid));
+  return pending
+    .filter(
+      (op): op is FlightOperation =>
+        op.kind === "flight" &&
+        op.authorId === s.user.id &&
+        op.input.aircraftUuid === aircraftUuid &&
+        !synced.has(op.uuid),
+    )
+    .reduce((current, op) => applyFlight(current, op.input), aircraft);
 }
 
 /**
