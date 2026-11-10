@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins the Set up an aircraft wizard: creating an aircraft,
  *   loading the inspection and AD templates, the dry run, the commit, the
- *   records it leaves on their screens, the resumable draft and the Fleet
- *   page's setup chips.
+ *   records it leaves on their screens, the resumable draft, the Fleet
+ *   page's setup chips, the one commit per aircraft and the confirmation of
+ *   an unusual AD number.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test, tests/fixtures/aircraft-setup-*.csv.
  */
@@ -13,6 +14,11 @@ const inspectionsCsv = path.resolve(
   "tests/fixtures/aircraft-setup-inspections.csv",
 );
 const adsCsv = path.resolve("tests/fixtures/aircraft-setup-ads.csv");
+const INSPECTION_HEADER =
+  "name,interval_hours,interval_months,interval_cycles,interval_landings,last_done_date,last_done_hours,last_done_cycles,last_done_landings,manual_reference";
+const AD_HEADER =
+  "ad_number,title,applies,compliance_date,compliance_hours,method,next_due_hours,next_due_date,recurring,notes";
+const BULK_ROWS = 150;
 
 test("sets up an aircraft from the two templates after a dry run, then resumes and chips the fleet", async ({
   page,
@@ -86,11 +92,35 @@ test("sets up an aircraft from the two templates after a dry run, then resumes a
   const progress = page.getByRole("list", { name: "Save progress" });
   await expect(progress.getByText("Saved", { exact: true })).toHaveCount(4);
 
-  // The draft remembers what was saved, so a resumed review skips it all.
+  // The draft remembers what was saved, so a resumed review skips it all and
+  // says why for every row.
   await page.reload();
   await page.getByRole("button", { name: /Review \(dry run\)/ }).click();
-  await expect(page.getByText("Skipped rows (4)")).toBeVisible();
-  await expect(page.getByText("Nothing to save.")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Save will write nothing. 4 rows will not be saved; each is listed below with the reason.",
+    ),
+  ).toBeVisible();
+  const notSaved = page.getByRole("table", { name: "Rows not saved" });
+  await expect(notSaved.getByRole("row")).toHaveCount(5);
+  await expect(
+    notSaved.getByText(/This setup saved it earlier, so it is not saved again/),
+  ).toHaveCount(4);
+
+  // A second file on the same spreadsheet rows is new work, not "saved".
+  await page.getByRole("button", { name: /^3\s*Inspections/ }).click();
+  await page
+    .getByLabel("Inspections rows (CSV)")
+    .fill(
+      `${INSPECTION_HEADER}\nELT battery,,12,,,2026-01-10,,,,91.207\nPitot-static,,24,,,2025-06-01,,,,91.411`,
+    );
+  await page.getByRole("button", { name: /Review \(dry run\)/ }).click();
+  await expect(
+    page.getByText(/^Save will write 2 inspections and 0 ADs\./),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("table", { name: "Records to save" }),
+  ).toContainText("ELT battery");
 
   await page.goto("/inspections");
   const mine = page
@@ -129,4 +159,117 @@ test("sets up an aircraft from the two templates after a dry run, then resumes a
   await expect(
     page.getByRole("heading", { name: "Components installed", exact: true }),
   ).toBeVisible();
+});
+
+test("keeps one commit per aircraft when the Save step is left and reopened", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/aircraft/setup/demo-206?step=inspections");
+  const rows = Array.from(
+    { length: BULK_ROWS },
+    (_, i) => `Bulk item ${i + 1},100,,,,,2300.5,,,ref`,
+  );
+  const text = page.getByLabel("Inspections rows (CSV)");
+  await text.fill([INSPECTION_HEADER, ...rows].join("\n"));
+  const step = (name: RegExp) =>
+    page
+      .getByRole("list", { name: "Setup steps" })
+      .getByRole("button", { name });
+  await step(/Save$/).click();
+  await page
+    .getByRole("button", { name: `Save ${BULK_ROWS} inspections and 0 ADs` })
+    .click();
+  const progress = page.getByRole("list", { name: "Save progress" });
+  await expect(
+    progress.getByText("Saved", { exact: true }).first(),
+  ).toBeVisible();
+
+  // Leaving the step does not stop the commit, and the other steps say so.
+  await step(/Inspections/).click();
+  await expect(
+    page.getByText(/^Saving the setup: \d+ of 150 rows done/),
+  ).toBeVisible();
+  await expect(text).not.toBeEditable();
+
+  // Back on Save there is the running commit, never a second Save button.
+  await step(/Save$/).click();
+  await expect(progress).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^Save \d+ inspections/ }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Setup saved for N206MA")).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(progress.getByText("Saved", { exact: true })).toHaveCount(
+    BULK_ROWS,
+  );
+  await step(/Review/).click();
+  await expect(
+    page.getByText(
+      `Save will write nothing. ${BULK_ROWS} rows will not be saved; each is listed below with the reason.`,
+    ),
+  ).toBeVisible();
+  // Every row is on the aircraft exactly once, in each stored snapshot.
+  const counts = await page.evaluate(savedBulkCounts);
+  expect(counts.length).toBeGreaterThan(0);
+  for (const names of counts) {
+    expect(names.total).toBe(BULK_ROWS);
+    expect(names.distinct).toBe(BULK_ROWS);
+  }
+});
+
+// Counts the "Bulk item" inspections in every snapshot the demo keeps in
+// IndexedDB; runs in the page.
+async function savedBulkCounts() {
+  const snapshots = await new Promise<
+    { inspections?: { description: string }[] }[]
+  >((resolve, reject) => {
+    const request = indexedDB.open("angel-one-v1");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const all = request.result
+        .transaction("snapshots", "readonly")
+        .objectStore("snapshots")
+        .getAll();
+      all.onsuccess = () => resolve(all.result);
+      all.onerror = () => reject(all.error);
+    };
+  });
+  return snapshots.map((s) => {
+    const names = (s.inspections ?? [])
+      .map((i) => i.description)
+      .filter((d) => d.startsWith("Bulk item"));
+    return { total: names.length, distinct: new Set(names).size };
+  });
+}
+
+test("holds the commit until an AD number a spreadsheet rewrote is confirmed", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/aircraft/setup/demo-206?step=ads");
+  await page
+    .getByLabel("AD compliance rows (CSV)")
+    .fill(`${AD_HEADER}\n10/9/2011,Seat rail,no,,,,,,,`);
+  await page.getByRole("button", { name: "Next: Review (dry run)" }).click();
+  await expect(page.getByText("Confirm before saving")).toBeVisible();
+  await expect(
+    page.getByText(
+      /Row 2 \(AD 10\/9\/2011\): the AD number is not in the form/,
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Next: Save" }).click();
+  const save = page.getByRole("button", {
+    name: "Save 0 inspections and 1 AD",
+  });
+  await expect(save).toBeDisabled();
+  await page
+    .getByLabel(/I have checked these AD numbers against the directives/)
+    .check();
+  await expect(save).toBeEnabled();
 });

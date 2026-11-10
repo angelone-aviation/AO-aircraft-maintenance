@@ -17,6 +17,7 @@ import {
   parseInspectionSetupCsv,
   planAircraftSetup,
   readSetupStep,
+  recordedSetupKeys,
   setupStatus,
   type AdSetupRow,
   type InspectionSetupRow,
@@ -173,13 +174,14 @@ describe("planAircraftSetup", () => {
     const ids = plan.actions.map((a) => a.command.requestUuid);
     expect(new Set(ids).size).toBe(6);
     expect(plan.actions.map((a) => a.key)).toEqual([
-      "inspection:2",
-      "inspection:3",
-      "inspection:4",
-      "ad:2",
-      "ad:3",
-      "ad:4",
+      "inspection-name:annual",
+      "inspection-name:100_hour",
+      "inspection-name:gear_retraction",
+      "ad-number:2024-05-01",
+      "ad-number:2020-12-02",
+      "ad-number:2025-01-03",
     ]);
+    expect(plan.confirmations).toEqual([]);
   });
   it("builds commands the inspection and AD appliers accept", () => {
     const s = demoSnapshot();
@@ -263,7 +265,7 @@ describe("planAircraftSetup", () => {
         na.command.record.reason,
     ).toBe(SETUP_NOT_APPLICABLE_REASON);
   });
-  it("skips rows already on record or already saved by this setup", () => {
+  it("skips rows already on record or already saved by this setup, and says why", () => {
     const rows = parseInspectionSetupCsv(
       inspectionCsv.replace("Annual,", "airframe AND engine inspection,"),
     );
@@ -271,34 +273,166 @@ describe("planAircraftSetup", () => {
       demoSnapshot(),
       AIRCRAFT,
       { inspections: rows, ads: parseAdSetupCsv(adCsv) },
-      { now: NOW, done: ["inspection:3", "ad:3"] },
+      {
+        now: NOW,
+        done: ["inspection-name:100_hour", "ad-number:2020-12-02"],
+      },
     );
     expect(plan.errors).toEqual([]);
     expect(plan.skipped).toEqual([
       {
         step: "inspections",
-        key: "inspection:2",
+        key: "inspection-name:airframe_and_engine_inspection",
         label: "airframe AND engine inspection",
-        reason: "Already on record for this aircraft",
+        reason:
+          "An inspection with this name is already on the aircraft, so the row is not saved and the existing inspection is not changed.",
       },
       {
         step: "inspections",
-        key: "inspection:3",
+        key: "inspection-name:100_hour",
         label: "100-hour",
-        reason: "Already saved by this setup",
+        reason:
+          "This setup saved it earlier, so it is not saved again; later changes to the row are not applied.",
       },
       {
         step: "ads",
-        key: "ad:3",
+        key: "ad-number:2020-12-02",
         label: "2020-12-02",
-        reason: "Already saved by this setup",
+        reason:
+          "This setup saved it earlier, so it is not saved again; later changes to the row are not applied.",
       },
     ]);
     expect(plan.actions.map((a) => a.key)).toEqual([
-      "inspection:4",
-      "ad:2",
-      "ad:4",
+      "inspection-name:gear_retraction",
+      "ad-number:2024-05-01",
+      "ad-number:2025-01-03",
     ]);
+  });
+  it("remembers saved rows by name and AD number, not by spreadsheet row", () => {
+    const s = demoSnapshot();
+    const first = planAircraftSetup(s, AIRCRAFT, parsed(), { now: NOW });
+    const done = first.actions.map((a) => a.key);
+    // A second file: other records on the same spreadsheet rows.
+    const second = planAircraftSetup(
+      s,
+      AIRCRAFT,
+      {
+        inspections: parseInspectionSetupCsv(
+          inspectionCsv
+            .replace("Annual,", "ELT battery,")
+            .replace("100-hour,", "Pitot-static,")
+            .replace("Gear retraction,", "Transponder,"),
+        ),
+        ads: parseAdSetupCsv(
+          adCsv
+            .replace("2024-05-01,", "2024-05-11,")
+            .replace("2020-12-02,", "2020-12-12,")
+            .replace("2025-01-03,", "2025-01-13,"),
+        ),
+      },
+      { now: NOW, done },
+    );
+    expect(second.skipped).toEqual([]);
+    expect(second.actions.map((a) => a.label)).toEqual([
+      "ELT battery",
+      "Pitot-static",
+      "Transponder",
+      "2024-05-11",
+      "2020-12-12",
+      "2025-01-13",
+    ]);
+    // The corrected first file: a row inserted above the saved ones.
+    const [header, ...body] = inspectionCsv.split("\n");
+    const inserted = [header, "ELT battery,,12,,,2026-01-10,,,,", ...body].join(
+      "\n",
+    );
+    const corrected = planAircraftSetup(
+      s,
+      AIRCRAFT,
+      { inspections: parseInspectionSetupCsv(inserted), ads: [] },
+      { now: NOW, done },
+    );
+    expect(corrected.actions.map((a) => a.label)).toEqual(["ELT battery"]);
+    expect(corrected.skipped.map((r) => r.label)).toEqual([
+      "Annual",
+      "100-hour",
+      "Gear retraction",
+    ]);
+  });
+  it("ignores saved-row keys of the retired row-number form", () => {
+    const rows: InspectionSetupRow[] = [
+      {
+        row: 2,
+        name: "2",
+        intervalMonths: 12,
+        lastDate: "2026-01-01",
+        manualReference: "",
+      },
+    ];
+    const plan = planAircraftSetup(
+      demoSnapshot(),
+      AIRCRAFT,
+      { inspections: rows, ads: [] },
+      { now: NOW, done: ["inspection:2", "ad:2"] },
+    );
+    expect(plan.actions.map((a) => a.label)).toEqual(["2"]);
+  });
+  it("asks for confirmation of an AD number that is not in the FAA form, and saves it as written", () => {
+    const numbers = [
+      "2011-10-09",
+      "98-05-14",
+      "2011-10-09R1",
+      "2011-10-09 r2",
+      "10/9/2011",
+      "=2024-05-01",
+      "AD 2012-01-01",
+      "2011-10-9",
+    ];
+    const ads = parseAdSetupCsv(
+      [adSetupHeaders.join(","), ...numbers.map((n) => `${n},,no,,,,,,,`)].join(
+        "\n",
+      ),
+    );
+    const plan = planAircraftSetup(
+      demoSnapshot(),
+      AIRCRAFT,
+      { inspections: [], ads },
+      { now: NOW },
+    );
+    expect(plan.errors).toEqual([]);
+    expect(plan.confirmations).toEqual([
+      "Row 6 (AD 10/9/2011): the AD number is not in the form 2011-10-09 or 98-05-14 (a spreadsheet may have rewritten it as a date). It is saved exactly as written.",
+      "Row 7 (AD =2024-05-01): the AD number is not in the form 2011-10-09 or 98-05-14 (a spreadsheet may have rewritten it as a date). It is saved exactly as written.",
+      "Row 8 (AD AD 2012-01-01): the AD number is not in the form 2011-10-09 or 98-05-14 (a spreadsheet may have rewritten it as a date). It is saved exactly as written.",
+      "Row 9 (AD 2011-10-9): the AD number is not in the form 2011-10-09 or 98-05-14 (a spreadsheet may have rewritten it as a date). It is saved exactly as written.",
+    ]);
+    const saved = plan.actions.flatMap((a) =>
+      a.step === "ads" && a.command.kind === "save"
+        ? [a.command.record.source.number]
+        : [],
+    );
+    expect(saved).toEqual(numbers);
+  });
+  it("does not ask about the number of a row it will not save", () => {
+    const s = demoSnapshot();
+    const ads = parseAdSetupCsv(
+      `${adSetupHeaders.join(",")}\n10/9/2011,,no,,,,,,,`,
+    );
+    const first = planAircraftSetup(
+      s,
+      AIRCRAFT,
+      { inspections: [], ads },
+      { now: NOW },
+    );
+    applyADCommand(s, first.actions[0].command as never, NOW);
+    const again = planAircraftSetup(
+      s,
+      AIRCRAFT,
+      { inspections: [], ads },
+      { now: NOW },
+    );
+    expect(again.skipped).toHaveLength(1);
+    expect(again.confirmations).toEqual([]);
   });
   it("skips an AD already tracked on the airframe, whatever its spacing or case", () => {
     const s = demoSnapshot();
@@ -489,6 +623,30 @@ describe("planAircraftSetup", () => {
     const plan = planAircraftSetup(demoSnapshot(), "missing", parsed());
     expect(plan.errors).toEqual(["Aircraft not found."]);
     expect(plan.actions).toEqual([]);
+  });
+});
+
+describe("recordedSetupKeys", () => {
+  it("lists the plan keys of the aircraft's active inspections and airframe ADs", () => {
+    const s = demoSnapshot();
+    const plan = planAircraftSetup(
+      s,
+      AIRCRAFT,
+      {
+        inspections: parseInspectionSetupCsv(inspectionCsv),
+        ads: parseAdSetupCsv(adCsv),
+      },
+      { now: NOW },
+    );
+    const before = recordedSetupKeys(s, AIRCRAFT);
+    expect(plan.actions.filter((a) => before.has(a.key))).toEqual([]);
+    applyManagement(s, plan.actions[0].command as never, NOW);
+    applyADCommand(s, plan.actions[3].command as never, NOW);
+    const after = recordedSetupKeys(s, AIRCRAFT);
+    expect(
+      plan.actions.filter((a) => after.has(a.key)).map((a) => a.key),
+    ).toEqual(["inspection-name:annual", "ad-number:2024-05-01"]);
+    expect(recordedSetupKeys(s, "another-aircraft").size).toBe(0);
   });
 });
 
