@@ -36,6 +36,7 @@ const WORDMARK_SRC = {
   white: "/branding/angelone-white.png",
 } as const;
 const WORDMARK_WIDTH = 156;
+const CALLOUT_ART = "/branding/cessna-oblique.svg";
 // Enough cards to fill a desktop row and hint at more below.
 const SKELETON_PAGE_CARDS = 4;
 
@@ -836,26 +837,50 @@ export function Wordmark({
  * The inverted aircraft line drawing for navy panels; decorative, and never
  * placed behind text.
  *
+ * @param props.aircraft - Draws its type, as {@link aircraftArtKind} picks
+ *   it; without one, the Cessna 172 drawing of the Overview callout.
  * @param props.drift - Lets it drift slowly.
  */
 export function AircraftArt({
+  aircraft,
   className,
   opacity = 0.34,
   drift = false,
 }: {
+  aircraft?: { make: string; model: string };
   className?: string;
   opacity?: number;
   drift?: boolean;
 }) {
+  const src = aircraft
+    ? `/branding/aircraft-${aircraftArtKind(aircraft.make, aircraft.model)}.svg`
+    : CALLOUT_ART;
   return (
     <img
-      src="/branding/cessna-oblique.svg"
+      src={src}
       alt=""
       aria-hidden="true"
       className={cx("ds-aircraft-art", drift && "drift", className)}
       style={{ "--art-opacity": opacity } as CSSProperties}
     />
   );
+}
+
+/** Which line drawing an aircraft gets; generic when its type is not known. */
+export type AircraftArtKind = "high-wing" | "caravan" | "twin" | "generic";
+
+/**
+ * Picks an aircraft's line drawing from its make and model alone, ignoring
+ * case: Caravan or 208, then Conquest, 441 or twin, then 182 or 206.
+ *
+ * @returns The drawing's kind; "generic" for any other aircraft.
+ */
+export function aircraftArtKind(make: string, model: string): AircraftArtKind {
+  const type = `${make} ${model}`;
+  if (/caravan|208/i.test(type)) return "caravan";
+  if (/conquest|441|twin/i.test(type)) return "twin";
+  if (/182|206/.test(type)) return "high-wing";
+  return "generic";
 }
 
 type WordmarkProps = {

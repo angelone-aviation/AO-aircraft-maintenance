@@ -1189,7 +1189,7 @@ function DetailHero({
 }: DetailProps & { status: AircraftStatus }) {
   return (
     <div className="dash-detail-hero">
-      <AircraftArt opacity={0.28} className="dash-detail-art" />
+      <AircraftArt aircraft={a} opacity={0.28} className="dash-detail-art" />
       <RoundButton
         label="Close dialog"
         onNavy

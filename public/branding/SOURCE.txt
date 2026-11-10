@@ -7,3 +7,8 @@ angelone.png and angelone-white.png: wordmarks supplied by the client in the UI 
 cessna-oblique.svg: public-domain "Cessna 172 line drawing oblique" by Werneuchen on Wikimedia Commons
 (https://commons.wikimedia.org/wiki/File:Cessna_172_line_drawing_oblique.svg), downloaded
 2026-11-04 and used unchanged for the dashboard callout art.
+
+aircraft-high-wing.svg (Cessna 182 and 206), aircraft-caravan.svg (208 Caravan), aircraft-twin.svg
+(441 Conquest and other light twins) and aircraft-generic.svg (any other aircraft): original side-view
+line drawings made for Angel One on 2026-11-10, not traced or copied from any artwork. They are drawn
+in black and inverted by CSS for the navy aircraft detail header, like cessna-oblique.svg.

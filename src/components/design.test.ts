@@ -11,6 +11,7 @@ import { createElement as h, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AircraftArt,
   Dialog,
   ListRow,
   ProgressTrack,
@@ -19,6 +20,7 @@ import {
   Skeleton,
   StatusPill,
   Wordmark,
+  aircraftArtKind,
   initTheme,
   setTheme,
 } from "./design";
@@ -57,6 +59,24 @@ describe("design markup", () => {
     expect(
       html(h(Skeleton, { shape: "section" })).match(/"ds-skeleton-card"/g),
     ).toHaveLength(1);
+  });
+
+  it("draws an aircraft by its make and model, ignoring case", () => {
+    expect(aircraftArtKind("Cessna", "182 Skylane")).toBe("high-wing");
+    expect(aircraftArtKind("CESSNA", "U206G Stationair")).toBe("high-wing");
+    expect(aircraftArtKind("Cessna", "208B Grand Caravan EX")).toBe("caravan");
+    expect(aircraftArtKind("Textron", "caravan")).toBe("caravan");
+    expect(aircraftArtKind("Cessna", "441 Conquest II")).toBe("twin");
+    expect(aircraftArtKind("Cessna", "CONQUEST")).toBe("twin");
+    expect(aircraftArtKind("Piper", "PA-39 Twin Comanche")).toBe("twin");
+    expect(aircraftArtKind("Piper", "PA-28 Cherokee")).toBe("generic");
+    expect(aircraftArtKind("", "")).toBe("generic");
+    const art = (aircraft?: { make: string; model: string }) =>
+      html(h(AircraftArt, { aircraft })).match(/src="([^"]+)"/)?.[1];
+    expect(art({ make: "Cessna", model: "208 Caravan" })).toBe(
+      "/branding/aircraft-caravan.svg",
+    );
+    expect(art()).toBe("/branding/cessna-oblique.svg");
   });
 
   it("uses a search field's label as its placeholder unless one is given", () => {
