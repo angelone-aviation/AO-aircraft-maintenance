@@ -101,6 +101,7 @@ describe("exportRecordsPackage", () => {
       "form-337/2026-03-01-Repair.pdf",
       "records.pdf",
       "status-airworthiness.csv",
+      "status-component-limits.csv",
       "status-components.csv",
       "status-discrepancies.csv",
       "status-form-337.csv",

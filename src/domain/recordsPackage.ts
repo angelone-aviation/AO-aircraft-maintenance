@@ -54,6 +54,7 @@ export const MAX_PACKAGE_FILE_BYTES = 150 * MEGABYTE;
 const STATUS_FILES: Record<StatusSectionId, string> = {
   overview: "status-overview.csv",
   components: "status-components.csv",
+  limits: "status-component-limits.csv",
   inspections: "status-inspections.csv",
   airworthiness: "status-airworthiness.csv",
   form337: "status-form-337.csv",
@@ -129,7 +130,7 @@ export interface RecordsPackage {
  * @param aircraftUuid - The aircraft.
  * @param today - Local `YYYY-MM-DD` that due dates are counted from.
  * @param changeLog - The aircraft's change log, oldest or newest first.
- * @returns The six {@link statusSheet} sections, then flights oldest first,
+ * @returns The seven {@link statusSheet} sections, then flights oldest first,
  *   every discrepancy oldest first, work orders by date opened, AD
  *   compliance entries by AD number in history order (corrections included),
  *   every component ever on the aircraft, their requirements, every Form 337

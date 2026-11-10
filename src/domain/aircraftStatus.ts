@@ -42,6 +42,12 @@ export interface AircraftStatus {
   reasons: AircraftStatusReason[];
 }
 
+/** One record's effect on the status: the level it causes and why. */
+export interface AircraftStatusFinding {
+  level: Exclude<AircraftStatusLevel, "airworthy">;
+  reason: AircraftStatusReason;
+}
+
 /** Display name of each status level. */
 export const aircraftStatusLabels: Record<AircraftStatusLevel, string> = {
   airworthy: "Airworthy",
@@ -69,21 +75,41 @@ export function aircraftStatus(
   aircraftUuid: string,
   today = localDate(),
 ): AircraftStatus {
+  const findings = aircraftStatusFindings(s, aircraftUuid, today);
+  const grounded = reasonsAt(findings, "grounded");
+  if (grounded.length) return { level: "grounded", reasons: grounded };
+  const soon = reasonsAt(findings, "due-soon");
+  if (soon.length) return { level: "due-soon", reasons: soon };
+  return { level: "airworthy", reasons: [] };
+}
+
+/**
+ * Lists every record that grounds an aircraft or is due soon, each at its
+ * own level, for a document that must mark each record the way
+ * {@link aircraftStatus} judged it.
+ *
+ * @param s - Snapshot holding the aircraft and its records.
+ * @param aircraftUuid - The aircraft.
+ * @param today - Local date (YYYY-MM-DD) that calendar limits are judged on.
+ * @returns Grounding and due-soon findings together, in the order profile,
+ *   inspections, components, ADs, then discrepancies.
+ * @throws {Error} "Aircraft not found." for an unknown aircraft.
+ */
+export function aircraftStatusFindings(
+  s: Snapshot,
+  aircraftUuid: string,
+  today = localDate(),
+): AircraftStatusFinding[] {
   const a = s.aircraft.find((a) => a.uuid === aircraftUuid);
   if (!a) throw new Error("Aircraft not found.");
   const due = dueItems(s, a.uuid, today);
-  const findings = [
+  return [
     ...listProfileFindings(a),
     ...listInspectionFindings(due),
     ...listComponentFindings(s, due),
     ...listAdFindings(due),
     ...listDiscrepancyFindings(s, a, today),
   ];
-  const grounded = reasonsAt(findings, "grounded");
-  if (grounded.length) return { level: "grounded", reasons: grounded };
-  const soon = reasonsAt(findings, "due-soon");
-  if (soon.length) return { level: "due-soon", reasons: soon };
-  return { level: "airworthy", reasons: [] };
 }
 
 /**
@@ -164,10 +190,7 @@ export function dispatchGate(
   return { by: s.user.id, name: s.user.name, reason, at: now };
 }
 
-interface Finding {
-  level: Exclude<AircraftStatusLevel, "airworthy">;
-  reason: AircraftStatusReason;
-}
+type Finding = AircraftStatusFinding;
 type ReasonKind = AircraftStatusReason["kind"];
 
 function reasonsAt(findings: Finding[], level: Finding["level"]) {

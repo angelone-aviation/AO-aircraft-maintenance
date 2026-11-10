@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins the AD task "remaining" rows: order, overdue and due-now
- *   values, missing counters, and the tasks that show none.
+ *   values, limits without a repeat interval, missing counters, and the
+ *   tasks that show none.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/adRemaining.ts, ./airworthiness, src/data/demo.ts.
  */
@@ -9,8 +10,27 @@ import { demoSnapshot } from "../data/demo";
 import { blankAD, blankADTask, adCounters } from "./airworthiness";
 import { adRemaining } from "./adRemaining";
 
+function compliance(taskUuid: string, terminatedBy: string) {
+  return {
+    uuid: crypto.randomUUID(),
+    taskUuid,
+    date: "2026-01-01",
+    hours: null,
+    cycles: null,
+    method: "Inspected",
+    serviceBulletin: "",
+    terminatedBy,
+    workOrderUuid: "",
+    mechanic: "A. Mechanic",
+    certificate: "",
+    evidence: "",
+    recordedAt: 0,
+    recordedBy: "test",
+  };
+}
+
 describe("AD recurrence remaining", () => {
-  it("uses aircraft totals and displays only configured recurrence counters", () => {
+  it("uses aircraft totals and lists every limit the task sets, repeating or not", () => {
     const s = demoSnapshot();
     const r = blankAD(s.aircraft[0].uuid);
     const current = adCounters(s, r)!;
@@ -20,11 +40,32 @@ describe("AD recurrence remaining", () => {
       dueHours: current.hours + 42.5,
       dueCycles: 1,
     };
+    const cyclesOver = `${current.cycles - 1} overdue`;
     expect(adRemaining(s, r, t)).toEqual([
       { label: "Hours remaining", value: "42.5" },
+      { label: "Cycles remaining", value: cyclesOver },
     ]);
+    // A first limit without a repeat interval ("within 42.5 hours").
     t.intervalHours = 0;
-    expect(adRemaining(s, r, t)).toEqual([]);
+    expect(adRemaining(s, r, t).map((row) => row.value)).toEqual([
+      "42.5",
+      cyclesOver,
+    ]);
+    expect(adRemaining(s, r, blankADTask())).toEqual([]);
+  });
+  it("lists a one-time action's limit until compliance ends it", () => {
+    const s = demoSnapshot();
+    const r = blankAD(s.aircraft[0].uuid);
+    const t = {
+      ...blankADTask(),
+      recurrence: "One-time" as const,
+      dueDate: "2026-10-01",
+    };
+    expect(adRemaining(s, r, t, "2026-11-01")).toEqual([
+      { label: "Months remaining (approx.)", value: "1.0 overdue" },
+    ]);
+    r.history = [compliance(t.uuid, "")];
+    expect(adRemaining(s, r, t, "2026-11-01")).toEqual([]);
   });
   it("reports overdue counters and approximate months from the actual deadline", () => {
     const s = demoSnapshot();
@@ -63,14 +104,11 @@ describe("AD recurrence remaining", () => {
     t.dueHours = current.hours - 0.1;
     expect(adRemaining(s, r, t)[0].value).toBe("0.1 overdue");
   });
-  it("does not invent due values or show one-time or terminated recurrence", () => {
+  it("does not invent due values or show an AD that does not apply", () => {
     const s = demoSnapshot();
     const r = blankAD(s.aircraft[0].uuid);
     const t = { ...blankADTask(), intervalHours: 100 };
     expect(adRemaining(s, r, t)[0].value).toBe("Due not set");
-    t.recurrence = "One-time";
-    expect(adRemaining(s, r, t)).toEqual([]);
-    t.recurrence = "Recurring";
     r.applicability = "Not applicable";
     expect(adRemaining(s, r, t)).toEqual([]);
   });
@@ -181,24 +219,7 @@ describe("AD recurrence remaining", () => {
     r.applicability = "Superseded";
     expect(adRemaining(s, r, t)).toEqual([]);
     r.applicability = blankAD(s.aircraft[0].uuid).applicability;
-    r.history = [
-      {
-        uuid: crypto.randomUUID(),
-        taskUuid: t.uuid,
-        date: "2026-01-01",
-        hours: null,
-        cycles: null,
-        method: "Terminating action",
-        serviceBulletin: "",
-        terminatedBy: "SB 12",
-        workOrderUuid: "",
-        mechanic: "A. Mechanic",
-        certificate: "",
-        evidence: "",
-        recordedAt: 0,
-        recordedBy: "test",
-      },
-    ];
+    r.history = [compliance(t.uuid, "SB 12")];
     expect(adRemaining(s, r, t)).toEqual([]);
   });
   it("reports a missing counter for landings when the AD's aircraft is unknown", () => {
