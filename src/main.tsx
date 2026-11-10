@@ -30,7 +30,12 @@ import {
   initErrorReporting,
   reactErrorHandlers,
 } from "./data/errorReporting";
-import { offlineValid, OFFLINE_WINDOW, type Snapshot } from "./domain/model";
+import {
+  deviceClockBehind,
+  offlineValid,
+  OFFLINE_WINDOW,
+  type Snapshot,
+} from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
 import "./styles/tokens.css";
@@ -366,10 +371,18 @@ function AccessExpired({ onExit }: { onExit: () => void }) {
   return (
     <Welcome>
       <h1>Time to reconnect.</h1>
-      <p>
-        Your seven-day offline access has expired. Pending entries are
-        preserved. Sign in again to continue.
-      </p>
+      {snapshot && deviceClockBehind(snapshot) ? (
+        <p>
+          This device&apos;s clock is behind the time you signed in. Set the
+          date and time to update automatically, then reopen the app. Pending
+          entries are preserved.
+        </p>
+      ) : (
+        <p>
+          Your seven-day offline access has expired. Pending entries are
+          preserved. Sign in again to continue.
+        </p>
+      )}
       <button className="button primary" onClick={onExit}>
         Return to sign in
       </button>

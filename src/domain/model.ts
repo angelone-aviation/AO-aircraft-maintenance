@@ -432,8 +432,16 @@ export function isAvailablePilot(
 }
 
 /**
- * Whether a cached snapshot may open: an active user, signed in no later than
- * `now` and less than {@link OFFLINE_WINDOW} before it.
+ * How far a device clock may run behind the server's sign-in time: the
+ * server stamps `authenticatedAt`, the device compares it with its own clock.
+ */
+export const CLOCK_SKEW_TOLERANCE_MS = 5 * 60_000;
+
+/**
+ * Whether a cached snapshot may open: an active user, signed in less than
+ * {@link OFFLINE_WINDOW} before `now`, and not after it by more than
+ * {@link CLOCK_SKEW_TOLERANCE_MS}. A clock further behind stays locked out,
+ * or setting it back would keep offline access open for good.
  *
  * @param snapshot - The cached snapshot.
  * @param now - The current time (epoch ms).
@@ -442,9 +450,24 @@ export function isAvailablePilot(
 export function offlineValid(snapshot: Snapshot, now = Date.now()): boolean {
   return (
     snapshot.user.active &&
-    now >= snapshot.authenticatedAt &&
+    !deviceClockBehind(snapshot, now) &&
     now < snapshot.authenticatedAt + OFFLINE_WINDOW
   );
+}
+
+/**
+ * Whether the device clock reads earlier than the sign-in the server
+ * recorded, by more than {@link CLOCK_SKEW_TOLERANCE_MS}: the reason a fresh
+ * sign-in would not open, which is not an expired window.
+ *
+ * @param snapshot - The cached snapshot.
+ * @param now - The current time (epoch ms).
+ */
+export function deviceClockBehind(
+  snapshot: Pick<Snapshot, "authenticatedAt">,
+  now = Date.now(),
+): boolean {
+  return now < snapshot.authenticatedAt - CLOCK_SKEW_TOLERANCE_MS;
 }
 
 /** The display name of each meter an aircraft's hours can be read from. */
