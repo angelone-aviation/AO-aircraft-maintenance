@@ -1,8 +1,8 @@
 /**
  * Responsibility: Pins the live session's rules: which screen a cached
  *   snapshot opens, when a sign-out clears the device, the sign-in failure
- *   message, signing out offline, and where error reporting and the number
- *   field guard are wired in.
+ *   message, signing out offline, the service worker's notices, and where
+ *   error reporting and the number field guard are wired in.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/main.tsx, react-dom/server, convex/server.
  *
@@ -38,6 +38,9 @@ const live = vi.hoisted(() => ({
   workspace: {} as Record<string, unknown>,
   rootOptions: undefined as unknown,
   workerOptions: undefined as unknown,
+  applyUpdate: vi.fn(async () => {}),
+  offerAppUpdate: vi.fn(),
+  workspaceUpdates: [] as unknown[],
   guardNumberEntry: vi.fn(),
   reporting: {
     initErrorReporting: vi.fn(async () => {}),
@@ -47,7 +50,13 @@ const live = vi.hoisted(() => ({
 }));
 
 vi.mock("virtual:pwa-register", () => ({
-  registerSW: (options: unknown) => (live.workerOptions = options),
+  registerSW: (options: unknown) => {
+    live.workerOptions = options;
+    return live.applyUpdate;
+  },
+}));
+vi.mock("./components/appUpdate", () => ({
+  offerAppUpdate: live.offerAppUpdate,
 }));
 vi.mock("react-dom/client", () => ({
   createRoot: (_element: unknown, options: unknown) => {
@@ -85,7 +94,8 @@ vi.mock("@convex-dev/auth/react", () => ({
 vi.mock("./data/store", () => {
   const useWorkspace = () => live.workspace;
   useWorkspace.getState = () => live.workspace;
-  useWorkspace.setState = () => {};
+  useWorkspace.setState = (update: unknown) =>
+    void live.workspaceUpdates.push(update);
   return { useWorkspace, renewDemoAccess: vi.fn() };
 });
 vi.mock("./data/deviceManuals", () => ({
@@ -131,6 +141,7 @@ beforeEach(async () => {
   await import("./main");
 });
 afterEach(() => {
+  live.workspaceUpdates = [];
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -239,6 +250,28 @@ describe("error reporting", () => {
     expect(live.guardNumberEntry).toHaveBeenCalledWith(document);
   });
 });
+
+describe("app updates", () => {
+  it("offers the waiting update with the function that applies it", () => {
+    worker().onNeedRefresh();
+    expect(live.offerAppUpdate).toHaveBeenCalledWith(live.applyUpdate);
+    expect(live.workspaceUpdates).toEqual([]);
+  });
+
+  it("says the app works offline without asking a signed-in user to sign in", () => {
+    worker().onOfflineReady();
+    expect(live.workspaceUpdates).toEqual([
+      { notice: "App installed for offline use." },
+    ]);
+  });
+});
+
+function worker() {
+  return live.workerOptions as {
+    onNeedRefresh: () => void;
+    onOfflineReady: () => void;
+  };
+}
 
 function screen(
   workspace: Record<string, unknown>,

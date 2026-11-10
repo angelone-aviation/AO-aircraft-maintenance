@@ -9,6 +9,7 @@
 import { isOwnerView } from "./domain/ownerView";
 import { isBoardView } from "./domain/boardView";
 import { AppShell } from "./components/AppShell";
+import { AppUpdateNotice } from "./components/appUpdate";
 import { setDialogHistory } from "./components/design";
 import { createContext, useContext, lazy, Suspense } from "react";
 import {
@@ -382,6 +383,7 @@ function Shell() {
             Demo workspace · Fictional aircraft and local browser data.
           </div>
         )}
+        <AppUpdateNotice />
         {notice && <Notice text={notice} />}
         {error && (
           <p className="error" role="alert">
