@@ -466,7 +466,8 @@ function AircraftList({ aircraft }: { aircraft: Aircraft[] }) {
 function SettingsMoved() {
   return (
     <NoticeBar icon={GearSix} className="adm-moved rise">
-      Integration keys and data backups are in Settings → System.{" "}
+      FAA and address keys, the deployment&apos;s expiring dates and backups:
+      Settings → System.{" "}
       <Link to="/settings" hash="system">
         Open System settings
       </Link>

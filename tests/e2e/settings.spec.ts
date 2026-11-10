@@ -10,7 +10,13 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 
-const SECTIONS = ["My account", "This device", "Flight Program", "System"];
+const SECTIONS = [
+  "My account",
+  "Alerts",
+  "This device",
+  "Flight Program",
+  "System",
+];
 const PHONE = { width: 390, height: 844 };
 const PROGRAM_ADMIN: MemberGroup = {
   id: "program-admin",
@@ -24,7 +30,7 @@ const PILOT: MemberGroup = {
   permissions: ["read", "flight", "discrepancy"],
 };
 
-test("system administrators see all four sections with the moved panels", async ({
+test("system administrators see all five sections with the moved panels", async ({
   page,
 }) => {
   await openDemo(page);
@@ -41,7 +47,7 @@ test("system administrators see all four sections with the moved panels", async 
     "FAA API key and renewal",
     "Address verification",
     "Off-site backups",
-    "Full demo backup for cloud transfer",
+    "Download this demo's data",
   ])
     await expect(
       page.getByRole("heading", { level: 3, name: heading, exact: true }),
@@ -53,7 +59,14 @@ test("system administrators see all four sections with the moved panels", async 
       .getByRole("region", { name: "CSV extract (partial)", exact: true });
     await expect(extract).toContainText("It is not a backup");
   }
-  await expect(page.getByText("See “Deployment” in the README.")).toBeVisible();
+  // The demo turns none of the deployment's optional features on, and says so.
+  await expect(
+    page
+      .locator("#system")
+      .getByText(
+        "The demo sends no email or device alerts, signs in with passwords only and reports no errors.",
+      ),
+  ).toBeVisible();
   // The nightly off-site backup is recorded only by the production job.
   await expect(
     page
@@ -107,7 +120,12 @@ test("program administrators get Flight Program settings but not System", async 
   await expectSettings(page);
   await becomeMember(page, PROGRAM_ADMIN);
   await expectSettings(page);
-  await expectSections(page, ["My account", "This device", "Flight Program"]);
+  await expectSections(page, [
+    "My account",
+    "Alerts",
+    "This device",
+    "Flight Program",
+  ]);
   for (const heading of [
     "FAA API key and renewal",
     "Address verification",
@@ -117,13 +135,15 @@ test("program administrators get Flight Program settings but not System", async 
       page.getByRole("heading", { name: heading, exact: true }),
     ).toHaveCount(0);
   await expect(
-    page.locator("#account").getByText("Flight Program administrator"),
+    page.locator("#account dd").getByText("Flight Program administrator"),
   ).toBeVisible();
   // The Flight Programs edit form, opened from Settings.
   await page
-    .getByRole("button", { name: "Edit program details", exact: true })
+    .getByRole("button", { name: "Edit Flight Program details", exact: true })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Edit Flight Program" });
+  const dialog = page.getByRole("dialog", {
+    name: "Edit Flight Program details",
+  });
   await dialog
     .getByLabel("Flight Program name", { exact: true })
     .fill("Mission operations west");
@@ -147,12 +167,12 @@ test("program administrators get Flight Program settings but not System", async 
   ).toBeVisible();
 });
 
-test("pilots see only My account and This device", async ({ page }) => {
+test("pilots see only My account, Alerts and This device", async ({ page }) => {
   await openDemo(page);
   await expectSettings(page);
   await becomeMember(page, PILOT);
   await expectSettings(page);
-  await expectSections(page, ["My account", "This device"]);
+  await expectSections(page, ["My account", "Alerts", "This device"]);
   for (const heading of ["Default labor rate", "Aircraft Spruce account"])
     await expect(
       page.getByRole("heading", { name: heading, exact: true }),
@@ -253,7 +273,7 @@ test("a labor rate saved in Settings shows on Costs", async ({ page }) => {
   await expect(page.getByLabel("Rate per hour (USD)")).toHaveCount(0);
 });
 
-test("the alert digest switch uses the My certifications preference and needs a connection", async ({
+test("alert email is chosen only under Alerts, and needs a connection", async ({
   page,
   context,
 }) => {
@@ -272,10 +292,9 @@ test("the alert digest switch uses the My certifications preference and needs a 
     .click();
   const dialog = page.getByRole("dialog", { name: "My certifications" });
   await expect(
-    dialog.getByRole("checkbox", {
-      name: "Email me maintenance alerts (daily digest)",
-    }),
-  ).toBeChecked();
+    dialog.getByText("Alert email is chosen under Settings → Alerts."),
+  ).toBeVisible();
+  await expect(dialog.getByRole("checkbox", { name: /alert/i })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close dialog" }).click();
   await context.setOffline(true);
   await expect(digest).toBeDisabled();
@@ -292,7 +311,7 @@ test("moved-panel notices and deep links open the right Settings section", async
   await openDemo(page, "/admin");
   await expect(
     page.getByText(
-      "Integration keys and data backups are in Settings → System.",
+      "FAA and address keys, the deployment's expiring dates and backups: Settings → System.",
     ),
   ).toBeVisible();
   await page.getByRole("link", { name: "Open System settings" }).click();
@@ -302,7 +321,9 @@ test("moved-panel notices and deep links open the right Settings section", async
   ).toBeInViewport();
 
   await page.goto("/costs");
-  await expect(page.getByText("Labor rate moved to Settings.")).toBeVisible();
+  await expect(
+    page.getByText("Change it in Settings → Flight Program."),
+  ).toBeVisible();
   await page
     .getByRole("link", { name: "Open Flight Program settings" })
     .click();
@@ -317,7 +338,9 @@ test("moved-panel notices and deep links open the right Settings section", async
 
   await page.goto("/vendors");
   await expect(
-    page.getByText("Aircraft Spruce account is in Settings."),
+    page.getByText(
+      "The Aircraft Spruce account is linked in Settings → Flight Program.",
+    ),
   ).toBeVisible();
   await page
     .getByRole("link", { name: "Open Flight Program settings" })
@@ -352,7 +375,7 @@ test("moved-panel notices and deep links open the right Settings section", async
   await becomeMember(page, PROGRAM_ADMIN);
   await expect(
     page.getByText(
-      "Program details, labor rate and exports are in Settings → Flight Program.",
+      "Program details, labor rate, expiring dates, Aircraft Spruce account and exports: Settings → Flight Program.",
     ),
   ).toBeVisible();
   await page

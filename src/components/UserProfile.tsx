@@ -4,7 +4,7 @@
  * Layer: UI. React components; saves and files go through the workspace
  *   backend.
  * Dependencies: react-dom, src/data/store.ts, src/data/backend.ts (types),
- *   src/domain (certifications, model, alerts, accountRules), ./ui.tsx.
+ *   src/domain (certifications, model, taskCards, accountRules), ./ui.tsx.
  */
 import { createPortal } from "react-dom";
 import {
@@ -27,7 +27,6 @@ import {
 } from "../domain/certifications";
 import type { Group, Member, Snapshot } from "../domain/model";
 import type { Program } from "../domain/fleet";
-import { wantsAlertEmails } from "../domain/alerts";
 import { certificationsEffect } from "../domain/taskCards";
 import {
   PASSWORD_MAX_LENGTH,
@@ -65,14 +64,15 @@ type CertificationTools = {
 
 /**
  * The account form: a new account, another user's profile, access and
- * certifications, or with `self` the signed-in user's certifications and
- * alert emails. Saving creates the account first, so after a later failure
+ * certifications, or with `self` the signed-in user's certifications (alert
+ * email is chosen only in Settings → Alerts). Saving creates the account
+ * first, so after a later failure
  * saving again updates it; license copies upload last, for certifications
  * still selected.
  *
  * @param props.initial - The user to edit; a new account without it.
  * @param props.self - The signed-in user's own form: name and email are
- *   read-only, and alert emails replace the access fields.
+ *   read-only, and there are no access fields.
  * @param props.onDone - Called once everything is saved.
  */
 export function UserProfileForm({
@@ -103,7 +103,9 @@ export function UserProfileForm({
           onSelect={form.setGroupIds}
         />
       )}
-      {self && <EmailAlertsField checked={form.save.emailAlerts} />}
+      {self && (
+        <p className="muted">Alert email is chosen under Settings → Alerts.</p>
+      )}
       <Certifications initial={initial} tools={form} />
     </AsyncForm>
   );
@@ -152,8 +154,6 @@ function useProfileForm(initial: Member | undefined, self: boolean) {
   const copies = useLicenseCopies(backend, userId);
   const [groupIds, setGroupIds] = useState(initial?.groupIds ?? []);
   const s = snapshot!;
-  const emailAlerts =
-    self && wantsAlertEmails(s.user, s.groups, s.activeProgramUuid);
   const save = {
     backend: backend!,
     initial,
@@ -161,7 +161,6 @@ function useProfileForm(initial: Member | undefined, self: boolean) {
     userId,
     editor,
     groupIds,
-    emailAlerts,
     onCreated: setCreatedId,
   };
   const live = online && connected;
@@ -235,8 +234,10 @@ function useLicenseCopies(backend: Backend | null, userId?: string) {
 async function saveProfile(save: ProfileSave, data: FormData) {
   const certifications = certificationsSchema.parse(save.editor.rows);
   const id = save.userId || (await createAccount(save, data));
-  if (save.self) await saveOwnSettings(save, id, certifications, data);
-  else
+  if (save.self) {
+    if (save.editor.touched)
+      await save.backend.saveCertifications(id, certifications);
+  } else
     await save.backend.updateUser(userUpdate(save, id, certifications, data));
   // Copies chosen for a certification that was unchecked since are skipped.
   const { pending, rows } = save.editor;
@@ -255,17 +256,6 @@ async function createAccount(save: ProfileSave, data: FormData) {
   );
   save.onCreated(id);
   return id;
-}
-
-async function saveOwnSettings(
-  { backend, editor, emailAlerts }: ProfileSave,
-  id: string,
-  certifications: Certification[],
-  data: FormData,
-) {
-  if (editor.touched) await backend.saveCertifications(id, certifications);
-  if (data.has("emailAlerts") !== emailAlerts)
-    await backend.setAlertEmails(data.has("emailAlerts"));
 }
 
 // An untouched existing user keeps their stored certifications.
@@ -470,15 +460,6 @@ function ProgramGroups({
         </p>
       )}
     </fieldset>
-  );
-}
-
-function EmailAlertsField({ checked }: { checked: boolean }) {
-  return (
-    <label className="checkbox">
-      <input type="checkbox" name="emailAlerts" defaultChecked={checked} />
-      Email me maintenance alerts (daily digest)
-    </label>
   );
 }
 

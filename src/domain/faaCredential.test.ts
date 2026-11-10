@@ -4,7 +4,11 @@
  * Dependencies: src/domain/faaCredential.ts.
  */
 import { it, expect } from "vitest";
-import { faaCredentialInput, faaRenewal } from "./faaCredential";
+import {
+  faaCredentialInput,
+  faaKeyNoticeForMembers,
+  faaRenewal,
+} from "./faaCredential";
 it("shows reminders starting 60 days before expiry and keeps expired notices visible", () => {
   const status = { configured: true, expiresOn: "2027-10-14", version: 1 };
   expect(faaRenewal(status, "2027-08-14").warning).toBe(false);
@@ -44,6 +48,37 @@ it("words each renewal notice exactly", () => {
     message:
       "FAA API key expired on 2027-10-14. Renew it to continue AD checks.",
   });
+});
+it("tells members who renews the key, warning exactly when administrators are warned", () => {
+  const status = { configured: true, expiresOn: "2027-10-14", version: 1 };
+  for (const today of ["2027-08-14", "2027-08-15", "2027-10-14", "2027-10-15"])
+    expect(faaKeyNoticeForMembers(status, today).warning).toBe(
+      faaRenewal(status, today).warning,
+    );
+  expect(faaKeyNoticeForMembers(status, "2027-10-13").message).toBe(
+    "FAA AD checks stop when the FAA API key expires on 2027-10-14 (in 1 day). A system administrator renews it.",
+  );
+  expect(faaKeyNoticeForMembers(status, "2027-10-14").message).toBe(
+    "FAA AD checks stop when the FAA API key expires on 2027-10-14 (today). A system administrator renews it.",
+  );
+  expect(faaKeyNoticeForMembers(status, "2027-10-15").message).toBe(
+    "FAA AD checks stopped when the FAA API key expired on 2027-10-14. A system administrator renews it.",
+  );
+  expect(faaKeyNoticeForMembers(undefined)).toEqual({
+    warning: true,
+    message:
+      "FAA AD checks need an FAA API key. A system administrator adds it.",
+  });
+  expect(
+    faaKeyNoticeForMembers({ ...status, expiresOn: "" }, "2027-10-13").message,
+  ).toBe(
+    "The FAA API key's expiration date is not recorded. A system administrator records it.",
+  );
+  // No member notice asks the reader to renew.
+  for (const today of ["2027-10-13", "2027-10-14", "2027-10-15"])
+    expect(faaKeyNoticeForMembers(status, today).message).not.toMatch(
+      /\bRenew\b/,
+    );
 });
 it("accepts a trimmed 16 to 512 character key without spaces", () => {
   const input = { expiresOn: "2027-10-14", version: 0 };

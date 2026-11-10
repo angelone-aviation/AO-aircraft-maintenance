@@ -19,9 +19,11 @@ import { monitoringReviewCandidates } from "../domain/faaCandidateReview";
 import { monitoringScope } from "../domain/faaMonitoringSearch";
 import { ADRegister } from "./ADRegister";
 import { FaaSearchImport } from "./FaaSearchImport";
-import { FaaKeySettings } from "./FaaKeySettings";
+import { FaaKeyStatus } from "./FaaKeySettings";
+import { FAA_DRS_KEY_URL } from "../domain/faaCredential";
 import {
   emptyMonitor,
+  FAA_CHECK_HOUR_UTC,
   faaSearchTerms,
   type FaaCandidate,
   type FaaCommand,
@@ -550,8 +552,8 @@ function ADStats({ ad }: ADProps) {
 function ADTools({ ad }: ADProps) {
   return (
     <>
-      <Disclosure icon={Key} title="FAA connection and renewal settings">
-        <FaaKeySettings />
+      <Disclosure icon={Key} title="FAA API key status">
+        <FaaKeyStatus />
       </Disclosure>
       <Disclosure icon={ArrowsClockwise} title="FAA monitoring and updates">
         <FaaMonitoring
@@ -1930,12 +1932,14 @@ function MonitorSettings({ monitor: m }: { monitor: FaaMonitor }) {
 function KeySetupHelp() {
   return (
     <p>
-      Request a key from{" "}
-      <a href="https://drs.faa.gov/help" target="_blank" rel="noreferrer">
-        DRS Help → DRS API
-      </a>
-      . Use FAA API key and renewal above to update the shared key. Daily checks
-      run at 10:00 UTC while the backend is running.
+      Checks use the shared FAA API key (status above; a system administrator
+      requests it at{" "}
+      <a href={FAA_DRS_KEY_URL} target="_blank" rel="noreferrer">
+        the FAA DRS API page
+      </a>{" "}
+      and saves it in Settings → System). Daily checks run at{" "}
+      {String(FAA_CHECK_HOUR_UTC).padStart(2, "0")}:00 UTC while the backend is
+      running.
     </p>
   );
 }

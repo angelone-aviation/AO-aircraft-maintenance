@@ -182,21 +182,32 @@ test("flags a one-time limit left after compliance, clears it with a reason, and
     page.getByText(/One-time initial limit \(due date 2025-06-01\)/),
   ).toBeVisible();
 });
-test("shows renewal settings but never accepts API keys in offline demo storage", async ({
+test("shows the FAA key status here and edits the key only in Settings, never in the demo", async ({
   page,
 }) => {
-  await page
-    .getByText("FAA connection and renewal settings", { exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "FAA API key and renewal" }),
-  ).toBeVisible();
+  await page.getByText("FAA API key status", { exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Update FAA API key" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("link", { name: "Update the FAA key in Settings → System" })
+    .click();
+  await expect(page).toHaveURL(/\/settings#system$/);
+  const system = page.locator("#system");
+  await expect(
+    system.getByRole("heading", { name: "FAA API key and renewal" }),
+  ).toBeVisible();
+  await expect(
+    system.getByRole("button", { name: "Update FAA API key" }),
   ).toBeDisabled();
   await expect(
-    page.getByRole("link", { name: "Request / renew key at FAA" }),
+    system.getByRole("link", { name: "Request / renew key at FAA" }),
   ).toHaveAttribute("href", "https://drs.faa.gov/drs-api");
+  await expect(
+    system.getByText(
+      "Not available in the demo: keys and accounts are saved only on a live deployment.",
+    ),
+  ).toHaveCount(2);
 });
 test("prefills FAA search from aircraft profiles, supports overrides and resets without changing profiles", async ({
   page,

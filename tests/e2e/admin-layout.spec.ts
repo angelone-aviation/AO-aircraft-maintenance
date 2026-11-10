@@ -53,7 +53,7 @@ test("administration tabs drive the primary action; backups and keys are in Sett
   // Backups and integration keys moved to Settings → System.
   await expect(
     page.getByText(
-      "Integration keys and data backups are in Settings → System.",
+      "FAA and address keys, the deployment's expiring dates and backups: Settings → System.",
     ),
   ).toBeVisible();
   await page
@@ -165,11 +165,11 @@ test("program administrators see sectioned users, groups and aircraft, with expo
   ).toHaveCount(0);
   await expect(
     page.getByText(
-      "Program details, labor rate and exports are in Settings → Flight Program.",
+      "Program details, labor rate, expiring dates, Aircraft Spruce account and exports: Settings → Flight Program.",
     ),
   ).toBeVisible();
   await page
-    .getByRole("link", { name: "Edit Flight Program settings", exact: true })
+    .getByRole("link", { name: "Flight Program settings", exact: true })
     .click();
   await expect(page).toHaveURL(/\/settings#program$/);
   await expect(

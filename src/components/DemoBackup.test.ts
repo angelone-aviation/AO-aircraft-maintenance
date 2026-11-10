@@ -1,5 +1,5 @@
 /**
- * Responsibility: Pins when the full demo backup panel shows.
+ * Responsibility: Pins when the demo data download panel shows.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/DemoBackup.tsx, react-dom/server.
  */
@@ -20,7 +20,7 @@ const render = (demo: boolean, snapshot: object | null) => {
 describe("DemoBackup", () => {
   it("offers the download in demo mode", () => {
     expect(render(true, {})).toContain(
-      '<button type="button" class="button primary">Download full demo backup</button>',
+      '<button type="button" class="button small">Download demo data</button>',
     );
   });
 

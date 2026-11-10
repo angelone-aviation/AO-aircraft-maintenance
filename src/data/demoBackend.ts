@@ -1236,6 +1236,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     subscribePush: async () => undefined,
     unsubscribePush: async () => undefined,
     pushDeviceHeld: async () => false,
+    // The demo shows the alert email switches a deployment with email shows;
+    // like everything else in the demo, it sends nothing.
+    alertEmailEnabled: async () => true,
+    signInProviders: async () => [],
     setAlertEmails: (emailAlerts) =>
       modify((s) => {
         s.user = { ...s.user, emailAlerts };

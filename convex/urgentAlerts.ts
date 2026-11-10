@@ -39,14 +39,14 @@ import {
 import { createMailer, mailerSettings } from "./mailer";
 import { consume, DAY, HOUR, MINUTE, refund } from "./rateLimits";
 import {
+  IMMEDIATE_EMAILS_PER_DAY,
   urgentAlerts,
   wantsUrgentAlertEmails,
   type Alert,
 } from "../src/domain/alerts";
 import { urgentEmail, urgentPushPayload } from "../src/domain/alertDigest";
 
-/** Immediate alert emails allowed per UTC day, for the whole deployment. */
-export const IMMEDIATE_EMAILS_PER_DAY = 60;
+export { IMMEDIATE_EMAILS_PER_DAY };
 
 /** The rate-limit key the cap counts under. */
 export const IMMEDIATE_CAP_KEY = "alerts:immediate";

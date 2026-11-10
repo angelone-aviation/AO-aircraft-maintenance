@@ -133,6 +133,20 @@ it("keeps alert read state per user and per program", async () => {
   ).rejects.toThrow(/invalid alerts/);
 });
 
+it("tells signed-in members whether alert email is set up", async () => {
+  const { t, reader } = await setup();
+  vi.stubEnv("RESEND_API_KEY", "re_test");
+  vi.stubEnv("RESEND_FROM", "");
+  expect(await reader.query(api.alerts.emailEnabled, {})).toBe(false);
+  vi.stubEnv("RESEND_FROM", "Angel One <alerts@example.test>");
+  expect(await reader.query(api.alerts.emailEnabled, {})).toBe(true);
+  vi.stubEnv("RESEND_API_KEY", "");
+  expect(await reader.query(api.alerts.emailEnabled, {})).toBe(false);
+  await expect(t.query(api.alerts.emailEnabled, {})).rejects.toThrow(
+    "An active account and session are required.",
+  );
+});
+
 it("refuses an invalid set of alert keys as a ConvexError", async () => {
   const { a } = await setup();
   const refused = {

@@ -5,12 +5,14 @@
  * Layer: UI. React components; the supplier is reached only through the
  *   workspace backend.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts,
- *   src/domain/programs.ts, src/domain/aircraftSpruce.ts, ./ui.tsx.
+ *   src/domain/programs.ts, src/domain/aircraftSpruce.ts, ./ui.tsx,
+ *   ./demoNotice.
  */
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
 import { programPermission } from "../domain/programs";
+import { DEMO_KEYS_UNAVAILABLE } from "./demoNotice";
 import {
   ORDER_NUMBER_MAX_LENGTH,
   SEARCH_MAX_LENGTH,
@@ -198,12 +200,7 @@ function LinkButton({
 function AccountFooter({ demo, notice }: { demo: boolean; notice: string }) {
   return (
     <>
-      {demo && (
-        <p>
-          Link accounts in the connected app. Demo mode does not store
-          credentials.
-        </p>
-      )}
+      {demo && <p className="set-hint">{DEMO_KEYS_UNAVAILABLE}</p>}
       {notice && <p role="status">{notice}</p>}
     </>
   );

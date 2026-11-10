@@ -11,6 +11,9 @@ import { adSourceSchema, type ADSource } from "./airworthiness";
 import type { Snapshot } from "./model";
 import { Rejection } from "./rejection";
 
+/** The UTC hour the daily FAA AD check runs (convex/crons.ts). */
+export const FAA_CHECK_HOUR_UTC = 10;
+
 /** A DRS document type: final-rule ADs (ADFRAWD) or emergency ADs (ADFREAD). */
 export type DrsType = "ADFRAWD" | "ADFREAD";
 

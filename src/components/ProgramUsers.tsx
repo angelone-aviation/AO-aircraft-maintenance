@@ -190,7 +190,7 @@ function AdministrationHeader({ roster, enabled, dialogs }: ScreenProps) {
         <>
           <Link className="button adm-secondary" to="/settings" hash="program">
             <Buildings size={18} aria-hidden="true" />
-            Edit Flight Program settings
+            Flight Program settings
           </Link>
           <button
             className="button primary adm-primary"
@@ -445,7 +445,8 @@ function EditButton({ enabled, onClick, children }: ButtonProps) {
 function SettingsMovedNotice() {
   return (
     <NoticeBar icon={GearSix} className="adm-moved rise">
-      Program details, labor rate and exports are in Settings → Flight Program.{" "}
+      Program details, labor rate, expiring dates, Aircraft Spruce account and
+      exports: Settings → Flight Program.{" "}
       <Link to="/settings" hash="program">
         Open Flight Program settings
       </Link>

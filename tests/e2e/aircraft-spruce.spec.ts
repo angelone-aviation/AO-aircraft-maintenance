@@ -28,9 +28,11 @@ test("program vendor settings explain the live connection and prevent saving cre
     }),
   ).toBeDisabled();
   await expect(
-    page.getByText(
-      "Link accounts in the connected app. Demo mode does not store credentials.",
-    ),
+    page
+      .locator("#program")
+      .getByText(
+        "Not available in the demo: keys and accounts are saved only on a live deployment.",
+      ),
   ).toBeVisible();
   await expect(
     page.getByLabel("Aircraft Spruce password", { exact: true }),

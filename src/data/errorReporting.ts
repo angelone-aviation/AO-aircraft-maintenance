@@ -27,6 +27,9 @@ const BREADCRUMB_URL_KEYS = ["url", "from", "to"] as const;
 
 let reporter: Promise<Reporter | undefined> | undefined;
 
+/** Whether this build reports browser errors (it names a Sentry DSN). */
+export const errorReportingEnabled = !!DSN;
+
 /**
  * Starts error reporting when the build names a Sentry DSN. Events recorded
  * offline wait in IndexedDB and are sent at the next start-up.

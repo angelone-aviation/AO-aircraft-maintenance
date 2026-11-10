@@ -188,6 +188,7 @@ let calls: unknown[][];
 let element: Parameters<typeof renderToStaticMarkup>[0];
 let alertEmails: () => Promise<unknown>;
 let latestCopy: () => Promise<unknown>;
+let features: { email: () => Promise<boolean>; signIn: string[] };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -198,6 +199,7 @@ beforeEach(() => {
   s = demoSnapshot();
   alertEmails = async () => undefined;
   latestCopy = async () => ({ completedAt: NOW - 3_600_000, bytes: 3 << 20 });
+  features = { email: async () => true, signIn: [] };
   ui.workspace = {
     snapshot: s,
     hash: "",
@@ -216,6 +218,9 @@ beforeEach(() => {
       },
       costs: async (command: unknown) => void calls.push(["costs", command]),
       latestOffsiteCopy: () => latestCopy(),
+      alertEmailEnabled: () => features.email(),
+      pushPublicKey: async () => "",
+      signInProviders: async () => features.signIn,
     },
   };
   vi.stubGlobal("document", {
@@ -279,15 +284,17 @@ describe("settings", () => {
   it("shows each section only to those who may use it", () => {
     expect(sections(render(h(Settings)))).toEqual([
       "My account",
+      "Alerts",
       "This device",
       "Flight Program",
       "System",
     ]);
     asMember({ groupIds: ["demo-pilots"] });
-    expect(sections(render())).toEqual(["My account", "This device"]);
+    expect(sections(render())).toEqual(["My account", "Alerts", "This device"]);
     s.groups = s.groups.map((g) => ({ ...g, programAdmin: true }));
     expect(sections(render())).toEqual([
       "My account",
+      "Alerts",
       "This device",
       "Flight Program",
     ]);
@@ -408,6 +415,49 @@ describe("settings", () => {
     expect(render()).not.toContain('role="alert"');
     expect(urgent().checked).toBe(true);
     expect(ui.fields.get("emailAlerts")!.checked).toBe(false);
+  });
+
+  it("says what the deployment has not turned on instead of offering it", async () => {
+    features = { email: async () => false, signIn: [] };
+    render(h(Settings));
+    let html = await runEffects();
+    expect(html).toContain(
+      "Email alerts are not turned on for this deployment.",
+    );
+    expect(ui.fields.has("emailAlerts")).toBe(false);
+    expect(html).toContain("This deployment signs in with passwords only.");
+    expect(html).toMatch(
+      /Alert email \(Resend\)<\/span><span[^>]*>.*Not set up/,
+    );
+    expect(html).toMatch(/Google sign-in<\/span><span[^>]*>.*Not set up/);
+    expect(html).toContain(
+      "Urgent emails stop at 60 a day for the whole deployment",
+    );
+    expect(html).toContain("once a day at 13:00 UTC");
+    ui.states.clear();
+    features = { email: async () => true, signIn: ["google"] };
+    render();
+    html = await runEffects();
+    expect(ui.fields.has("emailAlerts")).toBe(true);
+    expect(html).toContain(
+      "A Google account whose verified email matches yours is linked",
+    );
+    expect(html).not.toContain("Microsoft account");
+    expect(html).toMatch(/Google sign-in<\/span><span[^>]*>.*On<\/span>/);
+  });
+
+  it("shows when offline access on this device ends", () => {
+    s.authenticatedAt = Date.parse("2026-11-03T08:00:00Z");
+    const html = render(h(Settings));
+    const until = new Date(Date.parse("2026-11-10T08:00:00Z"));
+    expect(html).toContain(
+      until.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }),
+    );
+    expect(html).toContain("(7 days after you signed in)");
   });
 
   it("counts only this user's entries waiting to sync", () => {
