@@ -4,7 +4,8 @@
  *   clears (text, people, rates, files).
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/boardView.ts, ./programs, ./aircraftStatus,
- *   ./defaultPermissionGroups, ./model, ./rejection, tests/fixtures.
+ *   ./defaultPermissionGroups, ./model, ./rejection, ./airworthiness,
+ *   ./management, ./components/records (schemas), tests/fixtures.
  */
 import { describe, it, expect } from "vitest";
 import { partsFixture } from "../../tests/fixtures/requiredParts";
@@ -19,11 +20,20 @@ import {
   missingDefaultGroups,
 } from "./defaultPermissionGroups";
 import {
+  BOARD_FIELDS,
   boardCostTotals,
   boardSnapshot,
   isBoardView,
   validateBoardGroup,
 } from "./boardView";
+import {
+  adComplianceSchema,
+  adSchema,
+  adSourceSchema,
+  adTaskSchema,
+} from "./airworthiness";
+import { inspectionSchema } from "./management";
+import { componentSchema, requirementSchema } from "./components/records";
 import { Rejection } from "./rejection";
 
 const AIRCRAFT = "demo-206";
@@ -361,5 +371,108 @@ describe("board view", () => {
     expect(
       missingDefaultGroups([{ name: "board (READ-ONLY)" }]).map((g) => g.name),
     ).not.toContain("Board (read-only)");
+  });
+});
+
+// What the board never reads, by record: typed text, people, parts and
+// places. A schema key in neither this list nor BOARD_FIELDS fails the test,
+// so a new field is decided on before it can reach the board.
+const BOARD_WITHHELD = {
+  inspection: [
+    "calendarExemptReason",
+    "calendarExemptChangedBy",
+    "requiredParts",
+    "manualReference",
+    "materials",
+  ],
+  ad: ["reason", "source", "sourceHistory", "tasks", "history"],
+  adSource: ["sourceNotes"],
+  adTask: ["description"],
+  adCompliance: [
+    "method",
+    "serviceBulletin",
+    "terminatedBy",
+    "mechanic",
+    "certificate",
+    "evidence",
+    "recordedBy",
+    "correctionReason",
+  ],
+  component: [
+    "outForRepair",
+    "incomingTag",
+    "manualReference",
+    "notes",
+    "locationUuid",
+    "partsLocation",
+  ],
+  requirement: ["requiredParts", "manualReference", "notes"],
+} satisfies Record<keyof typeof BOARD_FIELDS, string[]>;
+
+const SCHEMAS = {
+  inspection: inspectionSchema,
+  ad: adSchema,
+  adSource: adSourceSchema,
+  adTask: adTaskSchema,
+  adCompliance: adComplianceSchema,
+  component: componentSchema,
+  requirement: requirementSchema,
+} satisfies Record<keyof typeof BOARD_FIELDS, { shape: object }>;
+
+describe("the board whitelist", () => {
+  it.each(Object.keys(SCHEMAS) as (keyof typeof SCHEMAS)[])(
+    "decides every %s field: passed by name or withheld",
+    (record) => {
+      const passed: readonly string[] = BOARD_FIELDS[record];
+      const withheld: readonly string[] = BOARD_WITHHELD[record];
+      expect(passed.filter((k) => withheld.includes(k))).toEqual([]);
+      expect([...passed, ...withheld].sort()).toEqual(
+        Object.keys(SCHEMAS[record].shape).sort(),
+      );
+    },
+  );
+
+  it("passes no withheld text of an inspection, AD, deferral or component", () => {
+    const s = boardState();
+    const marked = (key: string) => `MARK-${key}`;
+    s.inspections = s.inspections.map((i) => ({
+      ...i,
+      calendarExemptReason: marked("calendarExemptReason"),
+      calendarExemptChangedBy: marked("calendarExemptChangedBy"),
+      materials: marked("materials"),
+    }));
+    const ad = s.airworthiness![0];
+    s.airworthiness = [
+      {
+        ...ad,
+        reason: marked("reason"),
+        source: { ...ad.source, sourceNotes: marked("sourceNotes") },
+        tasks: ad.tasks.map((t) => ({ ...t, description: marked("task") })),
+        history: ad.history.map((h) => ({
+          ...h,
+          method: marked("method"),
+          serviceBulletin: marked("serviceBulletin"),
+          terminatedBy: marked("terminatedBy"),
+          correctionReason: marked("correctionReason"),
+        })),
+      },
+    ];
+    s.discrepancies = s.discrepancies.map((d) => ({
+      ...d,
+      deferral: {
+        type: "mel",
+        melItem: marked("melItem"),
+        category: "C",
+        placard: marked("placard"),
+        deferredOn: TODAY,
+        deferredAt: 1,
+        deferredBy: marked("deferredBy"),
+        deferredByName: marked("deferredByName"),
+      },
+    }));
+    const view = boardSnapshot(scopedSnapshot(s), TODAY);
+    expect(JSON.stringify(view).match(/MARK-[A-Za-z]+/g) ?? []).toEqual([]);
+    expect(view.airworthiness![0].history.length).toBeGreaterThan(0);
+    expect(view.discrepancies.every((d) => d.deferral)).toBe(true);
   });
 });

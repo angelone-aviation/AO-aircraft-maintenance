@@ -20,9 +20,11 @@ The server sends board members a whitelist built in `boardSnapshot` (`src/domain
 - the time of the newest off-site backup;
 - the member's own record and groups.
 
-Nothing else passes: no flights, no change log, no files or attachments, no inventory, purchasing or parts requests, no other people, and no free text (discrepancy descriptions, notes, reasons, placards, mechanic names and evidence references are cleared).
+Nothing else passes: no flights, no change log, no files or attachments, no inventory, purchasing or parts requests, no other people, and no free text. Discrepancy descriptions, notes, reasons, placards and MEL item numbers, AD source notes, required-action descriptions, compliance methods, service bulletins, mechanic names, certificates and evidence references, and manual references are cleared. The board does read the names the due list shows: inspection references and descriptions, component requirement descriptions, AD numbers and subjects, and each completed work order's scope line. Whether a compliance entry recorded a terminating action decides whether the AD recurs, so the board reads "Terminating action recorded" in its place, never the text typed.
 
-Every other server call from a board member is refused with "Board access is read-only."; the tenant-isolation suite runs every public function as a board member and checks the whitelist.
+Each record is rebuilt from fields named one by one in `BOARD_FIELDS`; a test fails when a record's schema gains a field that is neither named there nor listed as withheld.
+
+Every other server call from a board member is refused with "Board access is read-only."; the tenant-isolation suite runs every public function as a board member, and the board view suites check the whitelist field by field.
 
 ## The screen
 

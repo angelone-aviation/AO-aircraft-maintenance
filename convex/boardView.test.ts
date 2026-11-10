@@ -1,11 +1,12 @@
 /**
  * Responsibility: Pins the board view on the server: the snapshot a board
- *   member gets (totals and status inputs, no rates, flights, change log or
- *   people), the backup time it carries, and that every call but the snapshot
- *   is refused as read-only.
+ *   member gets (totals and status inputs, no rates, flights, change log,
+ *   people or typed text), the backup time it carries, and that every call
+ *   but the snapshot is refused as read-only.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/operations, convex/costs, convex/workOrders,
- *   convex/auditHistory, convex/alerts, src/data/demo, tests/fixtures.
+ *   convex/auditHistory, convex/alerts, src/data/demo, src/domain
+ *   (airworthiness, boardView), tests/fixtures.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -13,6 +14,9 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
+import { OWNED_AIRCRAFT, seedSampleRoles } from "../tests/fixtures/sampleRoles";
+import { adSchema } from "../src/domain/airworthiness";
+import { BOARD_TERMINATED } from "../src/domain/boardView";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -190,4 +194,104 @@ it("refuses every program call from a board member as read-only", async () => {
   await expect(
     board.query(api.alerts.readKeys, { programUuid: PROGRAM }),
   ).rejects.toThrow(READ_ONLY);
+});
+
+// Text typed on an AD and a deferral of the sample program's first aircraft,
+// each value marked so that any that reaches the board is found by name.
+async function seedTypedText() {
+  const world = await seedSampleRoles();
+  await world.t.run(async (ctx) => {
+    const doc = (await ctx.db
+      .query("airworthiness")
+      .withIndex("aircraft", (q) => q.eq("aircraftUuid", OWNED_AIRCRAFT))
+      .first())!;
+    const ad = adSchema.parse(JSON.parse(doc.payload));
+    const taskUuid = crypto.randomUUID();
+    const typed = adSchema.parse({
+      ...ad,
+      reason: "MARK-reason",
+      source: { ...ad.source, sourceNotes: "MARK-sourceNotes" },
+      sourceHistory: [
+        { at: 1, source: { ...ad.source, sourceNotes: "MARK-oldNotes" } },
+      ],
+      tasks: [
+        {
+          uuid: taskUuid,
+          description: "MARK-task",
+          dueDate: "",
+          dueHours: null,
+          dueCycles: null,
+          intervalDays: null,
+          intervalHours: 100,
+          intervalCycles: null,
+          recurrence: "Recurring",
+          workOrderUuid: "",
+        },
+      ],
+      history: [
+        {
+          uuid: crypto.randomUUID(),
+          taskUuid,
+          date: "2026-01-01",
+          hours: 10,
+          cycles: null,
+          method: "MARK-method",
+          serviceBulletin: "MARK-serviceBulletin",
+          terminatedBy: "MARK-terminatedBy",
+          workOrderUuid: "",
+          mechanic: "MARK-mechanic",
+          certificate: "MARK-certificate",
+          evidence: "MARK-evidence",
+          recordedAt: 1,
+          recordedBy: "MARK-recordedBy",
+        },
+      ],
+    });
+    await ctx.db.patch(doc._id, { payload: JSON.stringify(typed) });
+    const report = (await ctx.db
+      .query("discrepancies")
+      .withIndex("aircraft", (q) => q.eq("aircraftUuid", OWNED_AIRCRAFT))
+      .first())!;
+    await ctx.db.patch(report._id, {
+      status: "open",
+      deferral: {
+        type: "mel",
+        melItem: "MARK-melItem",
+        category: "C",
+        placard: "MARK-placard",
+        deferredOn: "2026-11-01",
+        deferredAt: 1,
+        deferredBy: "MARK-deferredBy",
+        deferredByName: "MARK-deferredByName",
+        expiresOn: "2026-11-11",
+      },
+    });
+  });
+  return world;
+}
+
+it("passes the board no text typed on ADs and deferrals, only what decides status", async () => {
+  const world = await seedTypedText();
+  const view = (await world.board.query(api.operations.snapshot, {}))!;
+  expect(JSON.stringify(view).match(/MARK-[A-Za-z]+/g) ?? []).toEqual([]);
+  const ad = view.airworthiness!.find((r) => r.history.length)!;
+  // A terminating action stops the recurrence, so its presence passes.
+  expect(ad.history[0]).toMatchObject({
+    date: "2026-01-01",
+    hours: 10,
+    terminatedBy: BOARD_TERMINATED,
+  });
+  expect(ad.tasks[0]).toMatchObject({ intervalHours: 100, description: "" });
+  const deferred = view.discrepancies.find((d) => d.deferral)!;
+  expect(deferred.deferral).toMatchObject({
+    type: "mel",
+    category: "C",
+    deferredOn: "2026-11-01",
+    expiresOn: "2026-11-11",
+    melItem: "",
+    placard: "",
+  });
+  // The program administrator still reads every value.
+  const admin = await world.manager.query(api.operations.snapshot, {});
+  expect(JSON.stringify(admin)).toContain("MARK-terminatedBy");
 });
