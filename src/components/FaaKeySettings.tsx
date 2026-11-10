@@ -21,7 +21,7 @@ import {
 } from "../domain/faaCredential";
 import { localDate } from "../domain/model";
 import { DEMO_KEYS_UNAVAILABLE } from "./demoNotice";
-import { Field, Modal, errorText } from "./ui";
+import { Field, Modal, errorText, useRevealError } from "./ui";
 
 const DAY_MS = 86_400_000;
 
@@ -161,6 +161,7 @@ function ReplaceKeyDialog({
   const [key, setKey] = useState("");
   const [expiresOn, setExpiry] = useState("");
   const { busy, error, replace } = useKeyReplacement(onSaved);
+  const { alertRef, rememberOrigin } = useRevealError(error);
   return (
     <Modal
       title="Update FAA API key"
@@ -171,6 +172,7 @@ function ReplaceKeyDialog({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          rememberOrigin(e);
           void replace({ key, expiresOn, version });
         }}
       >
@@ -180,7 +182,11 @@ function ReplaceKeyDialog({
           onKey={setKey}
           onExpiry={setExpiry}
         />
-        {error && <p role="alert">{error}</p>}
+        {error && (
+          <p ref={alertRef} role="alert">
+            {error}
+          </p>
+        )}
         <button className="button primary" disabled={busy}>
           {busy ? "Verifying with FAA…" : "Verify and save replacement"}
         </button>

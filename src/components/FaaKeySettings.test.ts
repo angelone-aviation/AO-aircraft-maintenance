@@ -66,7 +66,10 @@ vi.mock("@tanstack/react-router", () => ({
     ]),
 }));
 
-type FormSubmit = Pick<FormEvent, "preventDefault">;
+type FormSubmit = Pick<
+  FormEvent<HTMLElement>,
+  "preventDefault" | "currentTarget" | "nativeEvent"
+>;
 
 const DAY_MS = 86_400_000;
 const ONLINE = { online: true, connected: true, demo: false };
@@ -76,6 +79,7 @@ const UNCONFIRMED =
 beforeEach(() => {
   hooks.states = [];
   dialog.submit = undefined;
+  vi.unstubAllGlobals();
 });
 
 function expiringIn(days: number): FaaCredentialStatus {
@@ -120,7 +124,13 @@ async function failReplacement(error: Error) {
   hooks.states[0] = true;
   renderAgain();
   if (!dialog.submit) throw new Error("The replacement dialog did not open.");
-  dialog.submit({ preventDefault: () => {} });
+  // The dialog notes where the save started; nothing is focused here.
+  vi.stubGlobal("document", { activeElement: null });
+  dialog.submit({
+    preventDefault: () => {},
+    currentTarget: {} as HTMLElement,
+    nativeEvent: {} as Event,
+  });
   await new Promise((resolve) => setTimeout(resolve, 0));
   return renderAgain();
 }

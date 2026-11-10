@@ -8,7 +8,7 @@
  *   src/domain/model.ts, src/domain/workOrders.ts, ./LogbookPhotos.tsx,
  *   ./ui.tsx.
  */
-import { useState } from "react";
+import { useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
 import { certificateOptions, memberLicense } from "../domain/certifications";
@@ -25,7 +25,7 @@ import {
 } from "../domain/logbook";
 import type { Snapshot } from "../domain/model";
 import type { WorkOrder } from "../domain/workOrders";
-import { Field, Modal, errorText } from "./ui";
+import { Field, Modal, errorText, useRevealError } from "./ui";
 import { LogbookPhotoStrip } from "./LogbookPhotos";
 
 const CREDENTIAL_FIELD_MAX_LENGTH = 100;
@@ -214,7 +214,12 @@ function useActionStatus() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  async function run(action: () => Promise<string>) {
+  const { alertRef, rememberOrigin } = useRevealError(error);
+  async function run(
+    from: SyntheticEvent<HTMLElement>,
+    action: () => Promise<string>,
+  ) {
+    rememberOrigin(from);
     setBusy(true);
     setError("");
     setMessage("");
@@ -226,14 +231,14 @@ function useActionStatus() {
       setBusy(false);
     }
   }
-  return { message, error, busy, run };
+  return { message, error, busy, run, alertRef };
 }
 
 function StatusMessages({ status }: { status: Status }) {
   return (
     <>
       {status.error && (
-        <p role="alert" className="error">
+        <p ref={status.alertRef} role="alert" className="error">
           {status.error}
         </p>
       )}
@@ -460,7 +465,7 @@ function SaveLicenseButton({
       type="button"
       className="button"
       disabled={status.busy || !online || !connected}
-      onClick={() => void status.run(saveLicense)}
+      onClick={(e) => void status.run(e, saveLicense)}
     >
       Save license to my profile
     </button>
@@ -469,11 +474,12 @@ function SaveLicenseButton({
 
 function EntryActions({ entry, status, order, onClose }: ActionsProps) {
   const disabled = status.busy || !entry.exportable;
-  const exportWith = (action: () => Promise<string>) => () =>
-    void status.run(async () => {
-      entry.signer.validLicense();
-      return action();
-    });
+  const exportWith =
+    (action: () => Promise<string>) => (e: SyntheticEvent<HTMLElement>) =>
+      void status.run(e, async () => {
+        entry.signer.validLicense();
+        return action();
+      });
   return (
     <div className="form-footer">
       <button

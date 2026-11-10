@@ -102,6 +102,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("ADAlerts", () => {
@@ -204,7 +205,9 @@ describe("the AD form", () => {
     });
     handler("button Add AD")();
     render(Airworthiness);
-    handler("form")({ preventDefault() {} });
+    // The form notes where the save started; nothing is focused here.
+    vi.stubGlobal("document", { activeElement: null });
+    handler("form")({ preventDefault() {}, nativeEvent: {} });
     await vi.waitFor(() =>
       expect(
         render(Airworthiness).match(/role="alert"[^>]*>No</g),
