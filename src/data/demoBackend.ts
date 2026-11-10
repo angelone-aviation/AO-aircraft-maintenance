@@ -1207,6 +1207,14 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const before = all ? [] : ((await local.readFavorites(key)) ?? []);
       await local.saveFavorites(key, [...new Set([...before, ...keys])]);
     },
+    forgetAlertReads: async (programUuid, keys) => {
+      const key = demoAlertReadsKey(workspace, programUuid);
+      const before = (await local.readFavorites(key)) ?? [];
+      await local.saveFavorites(
+        key,
+        before.filter((k) => !keys.includes(k)),
+      );
+    },
     setUrgentAlertEmails: (urgentAlertEmails) =>
       modify((s) => {
         s.user = { ...s.user, urgentAlertEmails };
@@ -1227,6 +1235,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     pushPublicKey: async () => "",
     subscribePush: async () => undefined,
     unsubscribePush: async () => undefined,
+    pushDeviceHeld: async () => false,
     setAlertEmails: (emailAlerts) =>
       modify((s) => {
         s.user = { ...s.user, emailAlerts };

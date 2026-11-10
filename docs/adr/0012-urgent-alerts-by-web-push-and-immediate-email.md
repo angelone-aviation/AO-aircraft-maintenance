@@ -20,7 +20,7 @@ Until now an alert reached a person only when they opened the app or read the ne
 ## Consequences
 
 - People get the four urgent kinds within a minute of the change, on the device and by email, and the digest once a day as before. An opted-in administrator can receive a few emails on a busy day; the cap, not the digest, bounds them.
-- A push subscription is tied to a browser profile on a device. Signing in as someone else on the same device moves the subscription to that account. iOS delivers push only to an app added to the Home Screen (iOS 16.4+); the Settings block says so.
+- A push subscription is tied to a browser profile on a device. Signing in as someone else on the same device moves the subscription to that account once they switch alerts on. Signing out releases the device, and disabling an account or resetting its password forgets its devices, so no device keeps showing a member's alerts without a session (amended 2026-11-10). iOS delivers push only to an app added to the Home Screen (iOS 16.4+); the Settings block says so.
 - Push services (Google, Apple, Mozilla) see the encrypted message, its size and the VAPID subject, never the text. Convex, not the browser, calls them, so `connect-src` is unchanged.
 - The deployment carries no new runtime dependency. The cost is about 250 lines of protocol code, pinned to the RFC 8291 test vector in `convex/webPushProtocol.test.ts`; if the `web-push` package is ever preferred, only `convex/push.ts` changes.
 - Operators record the deployment's renewals (Cloudflare token, Entra secret, security.txt, the VAPID keys) under Settings → System → Expiring dates instead of a calendar; the [accounts runbook](../runbooks/accounts.md) points there.

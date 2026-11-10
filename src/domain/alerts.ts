@@ -150,13 +150,24 @@ export function computeAlerts(s: Snapshot, today: string): Alert[] {
     ...certificateAlerts(s, today),
     ...faaReviewAlerts(s),
     ...groundedAlerts(s, today),
-    ...expiringDateAlerts(s, today),
-  ].sort(
-    (x, y) =>
-      SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
-      (x.dueDate ?? UNDATED).localeCompare(y.dueDate ?? UNDATED) ||
-      x.title.localeCompare(y.title),
-  );
+    ...expiringDateAlerts(s, "system", today),
+    ...expiringDateAlerts(s, "program", today),
+  ].sort(compareAlerts);
+}
+
+/**
+ * The deployment's own expiring dates, the FAA key's renewal included, as a
+ * system administrator's alerts apart from any Flight Program, so the server
+ * sends each of them once rather than once per program.
+ *
+ * @param s - A snapshot holding the system-wide dates and the FAA key status.
+ * @param today - A YYYY-MM-DD local date.
+ * @returns As {@link computeAlerts} orders them; none for an inactive user
+ *   or one who is not a system administrator.
+ */
+export function systemDateAlerts(s: Snapshot, today: string): Alert[] {
+  if (!s.user.active || !s.user.isAdmin) return [];
+  return expiringDateAlerts(s, "system", today).sort(compareAlerts);
 }
 
 /**
@@ -490,13 +501,22 @@ function groundedAlerts(s: Snapshot, today: string): Alert[] {
   });
 }
 
+function compareAlerts(x: Alert, y: Alert) {
+  return (
+    SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
+    (x.dueDate ?? UNDATED).localeCompare(y.dueDate ?? UNDATED) ||
+    x.title.localeCompare(y.title)
+  );
+}
+
 // System-wide dates alert system administrators, a program's dates its
 // administrators (listExpiringItems applies both rules).
-function expiringDateAlerts(s: Snapshot, today: string): Alert[] {
-  return [
-    ...listExpiringItems(s, "system"),
-    ...listExpiringItems(s, "program"),
-  ].flatMap((item): Alert[] => {
+function expiringDateAlerts(
+  s: Snapshot,
+  scope: "system" | "program",
+  today: string,
+): Alert[] {
+  return listExpiringItems(s, scope).flatMap((item): Alert[] => {
     const status = expiringStatus(item, today);
     if (status === "ok") return [];
     return [expiringDateAlert(s, item, status === "expired", today)];

@@ -4,7 +4,7 @@
  * Layer: Server. A public action over internal steps; maintenance permission
  *   on the aircraft searches.
  * Dependencies: convex/rateLimits, convex/faaCredentials, convex/faaDrs,
- *   convex/programContext, convex/userErrors, src/domain (model, management,
+ *   convex/programContext, convex/recordsDate, convex/userErrors, src/domain (model, management,
  *   faaSearch).
  */
 import {
@@ -19,6 +19,7 @@ import { searchFAA } from "./faaDrs";
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { checkContext, managementDocs } from "./programContext";
+import { recordsDate } from "./recordsDate";
 import { exposeRejections } from "./userErrors";
 import { can } from "../src/domain/model";
 import { recordSchema } from "../src/domain/management";
@@ -148,10 +149,7 @@ export const search = action({
       throw new ConvexError(
         "Configure the FAA API key in FAA connection and renewal settings before searching.",
       );
-    if (
-      credential.expiresOn &&
-      credential.expiresOn <= new Date().toISOString().slice(0, 10)
-    )
+    if (credential.expiresOn && credential.expiresOn <= recordsDate())
       throw new ConvexError("Renew the FAA API key before searching.");
     await ctx.runMutation(internal.faaSearch.reserve, {
       programUuid: args.programUuid,

@@ -662,6 +662,17 @@ export interface Backend {
     keys: string[],
     all: boolean,
   ): Promise<unknown>;
+  /**
+   * Forgets the signed-in user's read marks for alerts that have cleared, so
+   * an alert that returns is unread again; writes no change-log row.
+   *
+   * @param programUuid - The Flight Program, or undefined outside one.
+   * @param keys - The cleared alerts' keys; ones never marked are ignored.
+   */
+  forgetAlertReads(
+    programUuid: string | undefined,
+    keys: string[],
+  ): Promise<unknown>;
   /** Turns the signed-in user's alert emails on or off; no change-log row. */
   setAlertEmails(enabled: boolean): Promise<unknown>;
   /**
@@ -694,6 +705,13 @@ export interface Backend {
    * @param endpoint - The subscription's endpoint, from the browser.
    */
   unsubscribePush(endpoint: string): Promise<unknown>;
+  /**
+   * Whether the signed-in account receives urgent alerts on this device.
+   *
+   * @param endpoint - The subscription's endpoint, from the browser.
+   * @returns False for another account's subscription; always in the demo.
+   */
+  pushDeviceHeld(endpoint: string): Promise<boolean>;
   /**
    * System administrators: the newest nightly off-site backup (ADR-0008);
    * null before the first one, and always in the demo.
@@ -1088,6 +1106,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.query(api.alerts.readKeys, { programUuid }),
     markAlertsRead: (programUuid, keys, all) =>
       client.mutation(api.alerts.markRead, { programUuid, keys, all }),
+    forgetAlertReads: (programUuid, keys) =>
+      client.mutation(api.alerts.forgetRead, { programUuid, keys }),
     setAlertEmails: (enabled) =>
       client.mutation(api.alerts.setEmailPreference, { enabled }),
     setUrgentAlertEmails: (enabled) =>
@@ -1102,6 +1122,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
         api.pushSubscriptions.unsubscribe,
         inProgram({ endpoint }),
       ),
+    pushDeviceHeld: (endpoint) =>
+      client.query(api.pushSubscriptions.held, { endpoint }),
     latestOffsiteCopy: () => client.query(api.backups.latestOffsiteCopy, {}),
   } satisfies Partial<Backend>;
 }

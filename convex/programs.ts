@@ -4,8 +4,8 @@
  * Layer: Server. Convex mutations; the selection and transfer rules live in
  *   src/domain (programs, programTransfers).
  * Dependencies: convex/values, ./_generated, ./access, ./programContext,
- *   ./runCommand, ./collections, ./userErrors, src/domain (model, programs,
- *   programTransfers).
+ *   ./runCommand, ./collections, ./urgentAlerts, ./userErrors, src/domain
+ *   (model, programs, programTransfers).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -27,6 +27,7 @@ import {
   type ProgramContext,
 } from "./runCommand";
 import { decode } from "./collections";
+import { scheduleUrgentAlerts } from "./urgentAlerts";
 import { exposeRejections } from "./userErrors";
 import { assertProgramSelectable } from "../src/domain/programs";
 import { transferProgram } from "../src/domain/programTransfers";
@@ -81,8 +82,9 @@ type TransferArgs = ObjectType<typeof transferArgs>;
  * record's current owner (visibleScope): the destination sees the moved
  * records' rows, and the source keeps only rows that also concern what it
  * still holds. Rows the destination's own program and aircraft indexes would
- * not reach are listed in `transferredAudit` for its History feed. A replayed
- * request id changes nothing.
+ * not reach are listed in `transferredAudit` for its History feed. Schedules
+ * the urgent-alert check for both programs. A replayed request id changes
+ * nothing.
  *
  * @param reason - Why the records move; required.
  * @param requestUuid - The request id, when the client sends one.
@@ -92,8 +94,8 @@ type TransferArgs = ObjectType<typeof transferArgs>;
  */
 export const transfer = mutation({
   args: transferArgs,
-  handler: (ctx, args) =>
-    runCommand(ctx, {
+  handler: async (ctx, args) => {
+    const result = await runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => args,
       request: ({ programUuid: _program, requestUuid, ...transfer }) =>
@@ -107,7 +109,13 @@ export const transfer = mutation({
       // The transfer's rows are written after the listing above, so they are
       // never listed there.
       audit: (log, { s }) => log.replay(s.audit),
-    }),
+    });
+    // What arrived overdue or grounded is news to the destination's members;
+    // the source's check forgets the alerts that left with it.
+    await scheduleUrgentAlerts(ctx, args.programUuid);
+    await scheduleUrgentAlerts(ctx, args.destination);
+    return result;
+  },
 });
 
 type TransferState = Awaited<ReturnType<typeof loadTransfer>>;

@@ -16,6 +16,7 @@ import { demoSnapshot } from "../src/data/demo";
 import { blankSearch, searchAssets } from "../src/domain/faaSearch";
 import { FAA_GLOBAL_DAILY } from "./faaSearch";
 import { FAA_SECRET } from "./faaCredentials";
+import { recordsDate } from "./recordsDate";
 import { sealSecret } from "./secrets";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -237,7 +238,7 @@ it("shows the search's refusals as ConvexErrors, including one from the FAA sear
     await t.run(async (ctx) => {
       const credential = (await ctx.db.query("faaCredentials").unique())!;
       await ctx.db.patch(credential._id, {
-        expiresOn: new Date().toISOString().slice(0, 10),
+        expiresOn: recordsDate(),
       });
     });
     await expect(

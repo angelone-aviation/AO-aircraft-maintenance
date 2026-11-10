@@ -1,6 +1,7 @@
 /**
  * Responsibility: Counts uses of a limited action per key in fixed time
- *   windows, and refuses a use once the window's allowance is spent.
+ *   windows, refuses a use once the window's allowance is spent, and gives
+ *   back a use that did not happen.
  * Layer: Server. Mutation helper over the rateLimits table.
  * Dependencies: convex/values (ConvexError), convex/_generated/server.
  */
@@ -47,4 +48,29 @@ export async function consume(
   if (count + cost > limit) throw new ConvexError(message);
   if (row) await ctx.db.patch(row._id, { windowStart, count: count + cost });
   else await ctx.db.insert("rateLimits", { key, windowStart, count: cost });
+}
+
+/**
+ * Gives back `cost` uses recorded by {@link consume} for an action that did
+ * not happen (an email the provider refused), while their window lasts.
+ *
+ * @param ctx - Mutation context; patches the key's rateLimits row.
+ * @param key - The key `consume` counted under.
+ * @param windowMs - The same window length.
+ * @param cost - Uses to give back; the count never drops below zero.
+ */
+export async function refund(
+  ctx: MutationCtx,
+  key: string,
+  windowMs: number,
+  cost = 1,
+): Promise<void> {
+  const now = Date.now();
+  const row = await ctx.db
+    .query("rateLimits")
+    .withIndex("key", (q) => q.eq("key", key))
+    .unique();
+  // A use from an earlier window was already forgotten when it rolled over.
+  if (!row || row.windowStart !== now - (now % windowMs)) return;
+  await ctx.db.patch(row._id, { count: Math.max(0, row.count - cost) });
 }

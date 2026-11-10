@@ -837,6 +837,13 @@ const CASES: Case[] = [
     args: { programUuid: undefined, keys: ["alert-1"], all: true },
   },
   {
+    method: "forgetAlertReads",
+    call: (b) => b.forgetAlertReads(OTHER_PROGRAM, ["alert-1"]),
+    kind: "mutation",
+    name: "alerts:forgetRead",
+    args: { programUuid: OTHER_PROGRAM, keys: ["alert-1"] },
+  },
+  {
     method: "setAlertEmails",
     call: (b) => b.setAlertEmails(false),
     kind: "mutation",
@@ -877,6 +884,13 @@ const CASES: Case[] = [
     kind: "mutation",
     name: "pushSubscriptions:unsubscribe",
     args: { endpoint: PUSH_SUBSCRIPTION.endpoint, programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "pushDeviceHeld",
+    call: (b) => b.pushDeviceHeld(PUSH_SUBSCRIPTION.endpoint),
+    kind: "query",
+    name: "pushSubscriptions:held",
+    args: { endpoint: PUSH_SUBSCRIPTION.endpoint },
   },
 ];
 

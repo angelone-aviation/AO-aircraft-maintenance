@@ -120,10 +120,11 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-it("needs a renewal date after today's UTC date, before contacting the FAA", async () => {
+it("needs a renewal date after today in the records time zone, before contacting the FAA", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2026-11-03T23:30:00Z"));
-  // Ahead of UTC, so the local date is already November 4.
+  // 20:30 on 3 Nov in New York, the default records time zone; already
+  // 4 Nov in UTC and in the runtime's own zone.
+  vi.setSystemTime(new Date("2026-11-04T01:30:00Z"));
   vi.stubEnv("TZ", "Pacific/Auckland");
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
   const { admin } = await setupAdmin();

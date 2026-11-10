@@ -113,6 +113,7 @@ it("builds a push message of alert titles that opens the alerts screen", () => {
     title: "Ops: 2 urgent alerts",
     body: "Title a\nTwo lines",
     url: "/alerts",
+    tag: "urgent:Ops",
   });
   const many = Array.from({ length: URGENT_LIMIT + 3 }, (_, i) =>
     alert(String(i), "danger"),
@@ -125,4 +126,18 @@ it("builds a push message of alert titles that opens the alerts screen", () => {
     "Ops",
   );
   expect(long.body).toHaveLength(400);
+});
+
+it("tags every push message of a program alike, whatever its count, so a newer card replaces the older", () => {
+  const one = urgentPushPayload([alert("a", "danger")], "Ops", "program-1");
+  const two = urgentPushPayload(
+    [alert("a", "danger"), alert("b", "danger")],
+    "Ops",
+    "program-1",
+  );
+  expect(one.tag).toBe("urgent:program-1");
+  expect(two.tag).toBe(one.tag);
+  expect(
+    urgentPushPayload([alert("a", "danger")], "Ops", "program-2").tag,
+  ).not.toBe(one.tag);
 });

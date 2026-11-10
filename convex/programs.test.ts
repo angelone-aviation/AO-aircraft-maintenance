@@ -262,7 +262,7 @@ it("enforces active program and roles on raw writes, automatic ownership, and st
   ).toHaveLength(1);
 });
 it("enforces ownership on management records and supports explicit system-only transfers with dependent records", async () => {
-  const { system, onlyA } = await setup();
+  const { t, system, onlyA } = await setup();
   const location = {
     kind: "location",
     uuid: "location-B",
@@ -326,6 +326,14 @@ it("enforces ownership on management records and supports explicit system-only t
   expect((await onlyA.query(api.operations.snapshot, {}))?.aircraft).toEqual(
     [],
   );
+  // The destination's members must hear of what arrived overdue, and the
+  // source's alerts for it have cleared.
+  const checks = await t.run(async (ctx) =>
+    (await ctx.db.system.query("_scheduled_functions").collect())
+      .filter((f) => f.name.includes("sendImmediate"))
+      .map((f) => f.args[0].programUuid),
+  );
+  expect(checks.slice(-2)).toEqual(["A", "B"]);
   expect((await onlyA.query(api.operations.snapshot, {}))?.management).toEqual(
     [],
   );

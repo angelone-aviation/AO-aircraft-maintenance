@@ -6,8 +6,7 @@
  *   create an urgent state, plus the member's email choice; the alert rules
  *   and the messages are the domain's.
  * Dependencies: convex/values, ./_generated, ./access, ./alerts, ./mailer,
- *   ./memberships, ./rateLimits, src/domain (alerts, alertDigest, model,
- *   programs).
+ *   ./rateLimits, src/domain (alerts, alertDigest).
  *
  * Resend's free tier sends 100 emails a day. Immediate emails stop at
  * IMMEDIATE_EMAILS_PER_DAY so the digest always fits; a capped alert waits
@@ -25,24 +24,26 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { currentUser, group, member } from "./access";
+import { currentUser, member } from "./access";
 import {
+  alertAudience,
   deliveredKeys,
   deliveryRows,
-  loadAlertSources,
+  emailChoice,
   memberAlerts,
+  sendableSources,
+  SYSTEM_SCOPE,
+  SYSTEM_SCOPE_NAME,
   type AlertSources,
 } from "./alerts";
 import { createMailer, mailerSettings } from "./mailer";
-import { programUsers } from "./memberships";
-import { consume, DAY } from "./rateLimits";
+import { consume, DAY, HOUR, MINUTE, refund } from "./rateLimits";
 import {
   urgentAlerts,
   wantsUrgentAlertEmails,
   type Alert,
 } from "../src/domain/alerts";
 import { urgentEmail, urgentPushPayload } from "../src/domain/alertDigest";
-import { localDate, type Group } from "../src/domain/model";
 
 /** Immediate alert emails allowed per UTC day, for the whole deployment. */
 export const IMMEDIATE_EMAILS_PER_DAY = 60;
@@ -52,6 +53,18 @@ export const IMMEDIATE_CAP_KEY = "alerts:immediate";
 
 const CAPPED = "Daily limit of immediate alert emails reached.";
 const MAX_CLAIM_KEYS = 500;
+
+/**
+ * How long a check waits before retrying sends a provider refused, by
+ * attempt. One transient error must not hold an urgent alert until the next
+ * change or the next day's check; three retries bound the requests made to
+ * a provider that keeps failing.
+ */
+export const RETRY_DELAYS_MS: readonly number[] = [
+  5 * MINUTE,
+  15 * MINUTE,
+  HOUR,
+];
 
 /** What one urgent-alert check did. */
 export interface SendImmediateResult {
@@ -99,51 +112,52 @@ export async function scheduleUrgentAlerts(
 }
 
 /**
- * The program's name and the active members with urgent alerts not yet sent
+ * Schedules the check of the deployment's own dates (`SYSTEM_SCOPE`), from a
+ * mutation that changed one.
+ */
+export async function scheduleSystemAlerts(ctx: MutationCtx): Promise<void> {
+  await ctx.scheduler.runAfter(0, internal.urgentAlerts.sendImmediate, {
+    programUuid: SYSTEM_SCOPE,
+  });
+}
+
+/**
+ * The scope's name and the active members with urgent alerts not yet sent
  * to them, each seeing only what their groups allow.
  *
+ * @param programUuid - A Flight Program, or `SYSTEM_SCOPE` for the
+ *   deployment's own dates.
  * @param today - The local date the alerts are computed for.
  * @returns Per member: the alerts to email (none without an address or the
- *   email choice, and none already emailed on any channel), the alerts to
- *   push (none without a subscribed device), and every current alert key.
+ *   email choice, and none already emailed on any channel) and the alerts to
+ *   push (none without a subscribed device).
  */
 export const urgentRecipients = internalQuery({
   args: { programUuid: v.string(), today: v.string() },
   handler: async (ctx, { programUuid, today }) => {
-    const program = await ctx.db
-      .query("programs")
-      .withIndex("uuid", (q) => q.eq("uuid", programUuid))
-      .unique();
-    if (!program) return { programName: "", recipients: [] };
-    const groups = (
-      await ctx.db
-        .query("groups")
-        .withIndex("program", (q) => q.eq("programUuid", programUuid))
-        .collect()
-    ).map(group);
-    const users = (await programUsers(ctx, programUuid)).filter(
-      (u) => u.active,
-    );
+    const programName = await scopeName(ctx, programUuid);
+    if (programName === undefined) return { programName: "", recipients: [] };
+    const { groups, users } = await alertAudience(ctx, programUuid);
     const recipients: Recipient[] = [];
     if (users.length) {
-      const sources = await loadAlertSources(ctx, programUuid, groups);
+      const sources = await sendableSources(ctx, programUuid, groups);
       for (const u of users) {
-        const r = await urgentRecipient(ctx, sources, groups, u, today);
+        const r = await urgentRecipient(ctx, sources, u, today);
         if (r) recipients.push(r);
       }
     }
-    return { programName: program.name, recipients };
+    return { programName, recipients };
   },
 });
 
 /**
  * Claims alerts for one channel before they are sent, so two checks running
- * at once cannot both send them, and forgets claims for alerts that cleared.
- * An immediate email claim also spends one of the day's
- * {@link IMMEDIATE_EMAILS_PER_DAY}.
+ * at once cannot both send them. An immediate email claim also spends one of
+ * the day's {@link IMMEDIATE_EMAILS_PER_DAY}. A claim lasts until
+ * `alerts.forgetCleared` finds its alert gone; nothing is forgotten here,
+ * because the caller may have computed its alerts from older records.
  *
  * @param keys - The alerts about to be sent.
- * @param active - Every current alert key for the member.
  * @returns The keys newly claimed (none when every key was already sent on
  *   the channel), and `capped` when the day's emails are spent, in which
  *   case nothing is claimed.
@@ -154,13 +168,9 @@ export const claimDeliveries = internalMutation({
     programUuid: v.string(),
     channel: v.union(v.literal("immediate"), v.literal("push")),
     keys: v.array(v.string()),
-    active: v.array(v.string()),
   },
-  handler: async (ctx, { userId, programUuid, channel, keys, active }) => {
+  handler: async (ctx, { userId, programUuid, channel, keys }) => {
     const rows = await deliveryRows(ctx, userId, programUuid, channel);
-    const live = new Set(active);
-    for (const row of rows)
-      if (!live.has(row.key)) await ctx.db.delete(row._id);
     const sent = new Set(rows.map((r) => r.key));
     const claimed = [...new Set(keys.slice(0, MAX_CLAIM_KEYS))].filter(
       (key) => !sent.has(key),
@@ -183,6 +193,8 @@ export const claimDeliveries = internalMutation({
 
 /**
  * Releases a claim whose send failed, so the alerts go out on a later check.
+ * A refused immediate email also gives back its share of the day's
+ * {@link IMMEDIATE_EMAILS_PER_DAY}, which counts only emails sent.
  *
  * @param keys - The claimed keys to forget.
  */
@@ -197,29 +209,40 @@ export const releaseDeliveries = internalMutation({
     const rows = await deliveryRows(ctx, userId, programUuid, channel);
     for (const row of rows)
       if (keys.includes(row.key)) await ctx.db.delete(row._id);
+    if (channel === "immediate") await refund(ctx, IMMEDIATE_CAP_KEY, DAY);
   },
 });
 
 /**
  * Emails each opted-in member the program's new urgent alerts, and hands the
  * ones for subscribed devices to the push sender. Runs after a mutation that
- * may have created an urgent state, and after the daily digest. A failed
- * email is counted, logged by user id, and its claim released.
+ * may have created an urgent state, and after the daily digest. It first
+ * ends the occurrence of every alert that has cleared
+ * (`alerts.forgetCleared`), so an alert that returns is sent again. A failed
+ * email is counted, logged by user id, and its claim released, and the
+ * check runs again after the next of {@link RETRY_DELAYS_MS}.
  *
+ * @param attempt - How many retries came before this check; 0 by default.
  * @returns How many emails were sent, failed and held back by the daily cap,
  *   how many members get a push message, and `skipped` when neither Resend
  *   (RESEND_API_KEY, RESEND_FROM) nor Web Push (the VAPID variables) is set.
  */
 export const sendImmediate = internalAction({
-  args: { programUuid: v.string() },
-  handler: async (ctx, { programUuid }): Promise<SendImmediateResult> => {
+  args: { programUuid: v.string(), attempt: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    { programUuid, attempt = 0 },
+  ): Promise<SendImmediateResult> => {
     const settings = mailerSettings();
     const pushReady = hasVapidKeys();
     const counts = { sent: 0, failed: 0, capped: 0, pushed: 0 };
     if (!settings && !pushReady) return { ...counts, skipped: true };
+    const { today } = await ctx.runMutation(internal.alerts.forgetCleared, {
+      programUuid,
+    });
     const { programName, recipients } = await ctx.runQuery(
       internal.urgentAlerts.urgentRecipients,
-      { programUuid, today: localDate() },
+      { programUuid, today },
     );
     const mail = settings && createMailer(settings);
     const pushes: PushJob[] = [];
@@ -231,14 +254,20 @@ export const sendImmediate = internalAction({
           userId: r.userId,
           programUuid,
           alerts: r.pushAlerts.map(({ key, title }) => ({ key, title })),
-          active: r.active,
           programName,
         });
     }
     if (pushes.length)
       await ctx.scheduler.runAfter(0, internal.push.sendUrgent, {
         notifications: pushes,
+        attempt,
       });
+    if (counts.failed && attempt < RETRY_DELAYS_MS.length)
+      await ctx.scheduler.runAfter(
+        RETRY_DELAYS_MS[attempt],
+        internal.urgentAlerts.sendImmediate,
+        { programUuid, attempt: attempt + 1 },
+      );
     return { ...counts, pushed: pushes.length, skipped: false };
   },
 });
@@ -246,9 +275,10 @@ export const sendImmediate = internalAction({
 /**
  * The daily check from the cron: an urgent alert that arose by the calendar
  * alone (a date or deadline passed overnight) reaches people who get no
- * digest. Each program's check is scheduled on its own.
+ * digest. Each program's check, and the deployment's own dates' check, is
+ * scheduled on its own.
  *
- * @returns How many programs were scheduled.
+ * @returns How many checks were scheduled.
  */
 export const daily = internalAction({
   args: {},
@@ -267,7 +297,6 @@ export interface PushJob {
   userId: Id<"users">;
   programUuid: string;
   alerts: Pick<Alert, "key" | "title">[];
-  active: string[];
   programName: string;
 }
 
@@ -276,7 +305,6 @@ export const pushJobValidator = v.object({
   userId: v.id("users"),
   programUuid: v.string(),
   alerts: v.array(v.object({ key: v.string(), title: v.string() })),
-  active: v.array(v.string()),
   programName: v.string(),
 });
 
@@ -289,6 +317,7 @@ export function pushPayloadFor(job: PushJob, claimed: string[]) {
   return urgentPushPayload(
     job.alerts.filter((a) => claimed.includes(a.key)),
     job.programName,
+    job.programUuid,
   );
 }
 
@@ -320,10 +349,18 @@ async function reserveImmediateEmail(ctx: MutationCtx) {
   }
 }
 
+async function scopeName(ctx: QueryCtx, scope: string) {
+  if (scope === SYSTEM_SCOPE) return SYSTEM_SCOPE_NAME;
+  const program = await ctx.db
+    .query("programs")
+    .withIndex("uuid", (q) => q.eq("uuid", scope))
+    .unique();
+  return program?.name;
+}
+
 async function urgentRecipient(
   ctx: QueryCtx,
   sources: AlertSources,
-  groups: Group[],
   u: Doc<"users">,
   today: string,
 ) {
@@ -338,7 +375,12 @@ async function urgentRecipient(
   ]);
   const pushed = new Set(deliveredKeys(rows, "push"));
   const wantsEmail =
-    !!u.email && wantsUrgentAlertEmails(member(u), groups, sources.programUuid);
+    !!u.email &&
+    wantsUrgentAlertEmails(
+      member(u),
+      sources.groups,
+      emailChoice(sources.programUuid, u, sources),
+    );
   const subscribed = await hasDevice(ctx, u._id);
   const emailAlerts = wantsEmail
     ? urgent.filter((a) => !emailed.has(a.key))
@@ -350,7 +392,6 @@ async function urgentRecipient(
     email: u.email ?? "",
     emailAlerts: emailAlerts.map(trimAlert),
     pushAlerts: pushAlerts.map(trimAlert),
-    active: alerts.map((a) => a.key),
   };
 }
 
@@ -380,7 +421,6 @@ async function emailRecipient(
     programUuid,
     channel: "immediate",
     keys: r.emailAlerts.map((a) => a.key),
-    active: r.active,
   });
   if (claim.capped) {
     counts.capped++;

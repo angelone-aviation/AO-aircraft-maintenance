@@ -143,14 +143,18 @@ export function urgentEmail<T extends DigestAlert>(
  *
  * @param alerts - The new urgent alerts, in the order to list them.
  * @param programName - The program's name, for the title.
+ * @param scope - The program's uuid (or the system scope), for the tag;
+ *   the name when absent.
  * @returns The title ("<program>: N urgent alerts"), a one-line-per-alert
- *   body of at most {@link URGENT_LIMIT} titles cut to 400 characters, and
- *   the app path to open.
+ *   body of at most {@link URGENT_LIMIT} titles cut to 400 characters, the
+ *   app path to open, and a tag the same for every message of the program,
+ *   so the device keeps one card per program.
  */
 export function urgentPushPayload<T extends Pick<DigestAlert, "title">>(
   alerts: T[],
   programName: string,
-): { title: string; body: string; url: string } {
+  scope = programName,
+): { title: string; body: string; url: string; tag: string } {
   const shown = alerts.slice(0, URGENT_LIMIT);
   const more = alerts.length - shown.length;
   const lines = shown.map((a) => oneLine(a.title));
@@ -159,6 +163,7 @@ export function urgentPushPayload<T extends Pick<DigestAlert, "title">>(
     title: `${oneLine(programName)}: ${countOf(alerts.length, "urgent alert")}`,
     body: lines.join("\n").slice(0, PUSH_BODY_MAX_LENGTH),
     url: URGENT_ALERTS_PATH,
+    tag: `urgent:${scope}`,
   };
 }
 

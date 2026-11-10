@@ -1,7 +1,11 @@
 /**
  * Responsibility: Pins the push sender: dormant without VAPID keys, one
  *   encrypted request per subscribed device, the push-channel claim, a gone
- *   subscription removed, and a refused send retried later.
+ *   subscription removed, a refused send retried later and by itself, an
+ *   alert that
+ *   cleared and returned pushed again, a stored endpoint that is not a push
+ *   service never fetched, and a subscription refused for good (401 or 403)
+ *   on three checks in a row removed.
  * Layer: Test. convex-test suite with a stubbed push service; never shipped.
  * Dependencies: convex/push.ts, convex/urgentAlerts.ts,
  *   convex/pushSubscriptions.ts, convex/webPushProtocol.ts,
@@ -19,7 +23,7 @@ import {
 // RFC 8291's receiver keys: a well-formed subscription.
 const SUBSCRIPTION = {
   programUuid: DEMO_PROGRAM,
-  endpoint: "https://push.example.test/send/admin-phone",
+  endpoint: "https://fcm.googleapis.com/fcm/send/admin-phone",
   keys: {
     p256dh:
       "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
@@ -80,7 +84,6 @@ it("stays dormant without VAPID keys", async () => {
           userId: world.ids.a.userId,
           programUuid: DEMO_PROGRAM,
           alerts: [{ key: "k", title: "Grounded" }],
-          active: ["k"],
           programName: "Ops",
         },
       ],
@@ -146,10 +149,106 @@ it("releases the claim after a refused send, logging the user id only", async ()
     world.ids.a.userId,
     "Push service rejected the message (500).",
   );
-  expect(JSON.stringify(error.mock.calls)).not.toContain("push.example.test");
+  expect(JSON.stringify(error.mock.calls)).not.toContain("admin-phone");
   error.mockRestore();
   const request = stubPushService(201);
   await checkProgram(world);
   expect(request).toHaveBeenCalledTimes(1);
   expect(await deliveries(world.t)).toHaveLength(2);
+});
+
+it("pushes an urgent alert again when it cleared and came back", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  await world.a.mutation(api.pushSubscriptions.subscribe, SUBSCRIPTION);
+  const request = stubPushService();
+  const setDue = (dueDate: string) =>
+    world.t.run(async (ctx) => {
+      for (const i of await ctx.db.query("inspections").collect())
+        await ctx.db.patch(i._id, { dueDate });
+    });
+  expect(await checkProgram(world)).toMatchObject({ pushed: 1 });
+  // A mistaken due date is corrected, then put back: the same keys return.
+  await setDue("2999-01-01");
+  expect(await checkProgram(world)).toMatchObject({ pushed: 0 });
+  expect(await deliveries(world.t)).toEqual([]);
+  await setDue("2000-01-01");
+  expect(await checkProgram(world)).toMatchObject({ pushed: 1 });
+  expect(await checkProgram(world)).toMatchObject({ pushed: 0 });
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+it("never fetches a stored endpoint that is not a push service, and drops it", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  // A row saved before endpoints were checked.
+  await world.t.run((ctx) =>
+    ctx.db.insert("pushSubscriptions", {
+      userId: world.ids.a.userId,
+      endpoint: "https://169.254.169.254/latest/meta-data/",
+      keys: SUBSCRIPTION.keys,
+      createdAt: 0,
+      lastSeenAt: 0,
+    }),
+  );
+  const request = stubPushService();
+  await checkProgram(world);
+  expect(request).not.toHaveBeenCalled();
+  expect(await subscriptions(world.t)).toEqual([]);
+  expect(await deliveries(world.t)).toEqual([]);
+});
+
+it("retries a refused push by itself, a few times", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  await world.a.mutation(api.pushSubscriptions.subscribe, SUBSCRIPTION);
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const answers = [500, 201];
+  const request = vi
+    .fn<typeof fetch>()
+    .mockImplementation(
+      async () => new Response(null, { status: answers.shift() ?? 500 }),
+    );
+  vi.stubGlobal("fetch", request);
+  await checkProgram(world);
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(await deliveries(world.t)).toHaveLength(2);
+  error.mockRestore();
+});
+
+it("removes a subscription the push service refuses on three checks in a row, and not before", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  await world.a.mutation(api.pushSubscriptions.subscribe, SUBSCRIPTION);
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  // As after a VAPID key rotation: every send to the device is refused.
+  const request = stubPushService(403);
+  await checkProgram(world);
+  await checkProgram(world);
+  // A refusal is not retried by itself: it is not transient.
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(await subscriptions(world.t)).toHaveLength(1);
+  // An accepted message between refusals starts the count again.
+  stubPushService(201);
+  await checkProgram(world);
+  await world.t.run(async (ctx) => {
+    for (const d of await ctx.db.query("alertDeliveries").collect())
+      await ctx.db.delete(d._id);
+  });
+  const refused = stubPushService(401);
+  for (let check = 0; check < 2; check++) await checkProgram(world);
+  expect(await subscriptions(world.t)).toHaveLength(1);
+  await checkProgram(world);
+  expect(refused).toHaveBeenCalledTimes(3);
+  expect(await subscriptions(world.t)).toEqual([]);
+  expect(error).toHaveBeenCalledWith(
+    "Push message not sent",
+    world.ids.a.userId,
+    "Push service refused the subscription (401).",
+  );
+  error.mockRestore();
 });

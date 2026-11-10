@@ -4,7 +4,7 @@
  * Layer: Server. One public action and internal functions; the key is stored
  *   sealed and never returned.
  * Dependencies: convex/secrets, convex/secretsMigration, convex/access,
- *   src/domain/faaCredential, src/domain/rejection, convex/values, zod.
+ *   convex/recordsDate, src/domain/faaCredential, src/domain/rejection, convex/values, zod.
  *
  * faaCredentialStatus is the one reader of the row for snapshots and alerts,
  * so what leaves the server about the key is decided here.
@@ -23,6 +23,7 @@ import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import { admin, audit } from "./access";
+import { recordsDate } from "./recordsDate";
 import {
   faaCredentialInput,
   type FaaCredentialStatus,
@@ -201,9 +202,9 @@ export const initializeExpiry = internalMutation({
   },
 });
 
-// ISO dates compare as text; "today" is the UTC date.
+// ISO dates compare as text; "today" is the records time zone's date.
 function assertRenewalInFuture(expiresOn: string): void {
-  if (expiresOn <= new Date().toISOString().slice(0, 10))
+  if (expiresOn <= recordsDate())
     throw new ConvexError("The renewal date must be in the future.");
 }
 

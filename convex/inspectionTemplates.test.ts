@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the inspection template library on the server:
  *   program-scoped saving, authorization, activation with draft job cards,
- *   deletion with cards, evidence and change log, and replayed request ids.
+ *   deletion with cards, evidence and change log, replayed request ids, and
+ *   the urgent-alert check after an activation.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/inspectionTemplates, convex/schema, src/domain
  *   (inspectionTemplates, deleteInspectionTemplates), tests/fixtures.
@@ -467,4 +468,15 @@ it("activates, saves and deletes once per request id: a replay writes nothing", 
       payload: JSON.stringify([]),
     }),
   ).rejects.toMatchObject({ data: "Request identifier already used." });
+});
+
+it("schedules the urgent-alert check after an activation, which can add an overdue inspection", async () => {
+  const { t, activate, programUuid } = await activationFixture(false);
+  await activate();
+  const scheduled = await t.run((ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect(),
+  );
+  expect(scheduled.map((f) => [f.name, f.args])).toEqual([
+    [expect.stringContaining("sendImmediate"), [{ programUuid }]],
+  ]);
 });

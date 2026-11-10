@@ -1,13 +1,23 @@
 /**
  * Responsibility: Each member's maintenance alerts: which they have read,
  *   their email choice, the daily digest and off-site backup warning, and
- *   the alert sources and delivery rows the urgent sender shares.
+ *   the alert sources and delivery rows the urgent sender shares, with the
+ *   step that ends an alert's occurrence once it has cleared.
  * Layer: Server. Public functions for the signed-in member; the digest runs
  *   from the daily cron and sends through the mailer. The alert rules are
  *   the domain's.
  * Dependencies: convex (access, faaCredentials, mailer, memberships,
- *   programContext), src/domain (alerts, alertDigest, offsiteBackups,
- *   airworthiness, expiringItems, faa, management, programs, model).
+ *   programContext, recordsDate), src/domain (alerts, alertDigest,
+ *   offsiteBackups, aircraftStatus, airworthiness, expiringItems, faa,
+ *   management, programs, model).
+ *
+ * Deployment-wide dates are checked once, in SYSTEM_SCOPE, for system
+ * administrators whatever their groups; a program's checks leave them out.
+ *
+ * Deliveries and read marks are kept by alert key, and a key does not change
+ * when a state ends and starts again (an aircraft grounded a second time).
+ * So every check first runs forgetCleared, which drops the rows of alerts a
+ * member no longer has: de-duplication is per occurrence, not per key.
  */
 import {
   query,
@@ -16,6 +26,7 @@ import {
   internalMutation,
   internalAction,
   type ActionCtx,
+  type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -25,6 +36,7 @@ import { currentUser, group, member } from "./access";
 import { faaCredentialStatus } from "./faaCredentials";
 import { createMailer, mailerSettings, type Mailer } from "./mailer";
 import { programUsers } from "./memberships";
+import { recordsDate } from "./recordsDate";
 import {
   checkContext,
   managementDocs,
@@ -32,8 +44,13 @@ import {
   airworthinessDocs,
   faaMonitorDocs,
   expiringItemDocs,
+  discrepancyDocs,
 } from "./programContext";
-import { computeAlerts, wantsAlertEmails } from "../src/domain/alerts";
+import {
+  computeAlerts,
+  systemDateAlerts,
+  wantsAlertEmails,
+} from "../src/domain/alerts";
 import { backupWarningEmail, digestEmail } from "../src/domain/alertDigest";
 import { offsiteFreshness } from "../src/domain/offsiteBackups";
 import { adSchema } from "../src/domain/airworthiness";
@@ -41,15 +58,29 @@ import { expiringItemSchema } from "../src/domain/expiringItems";
 import { faaMonitorSchema } from "../src/domain/faa";
 import { recordSchema } from "../src/domain/management";
 import { activeProgram, scopedSnapshot } from "../src/domain/programs";
-import { localDate, type Group, type Snapshot } from "../src/domain/model";
+import { earliestLocalDate } from "../src/domain/aircraftStatus";
+import {
+  latestLocalDate,
+  type Group,
+  type Snapshot,
+} from "../src/domain/model";
 
 const MAX_KEYS = 500;
 const MAX_KEY_LENGTH = 300;
 
 /**
- * One program's records every member's alerts are computed from, before
- * scopedSnapshot narrows them to a member. System-wide expiring dates are
- * loaded too; the scope hides them from anyone but a system administrator.
+ * The scope the deployment's own expiring dates are checked and delivered
+ * in, apart from every Flight Program (a program uuid is never empty).
+ */
+export const SYSTEM_SCOPE = "";
+
+/** The name system-scope emails and push messages carry. */
+export const SYSTEM_SCOPE_NAME = "System";
+
+/**
+ * One scope's records every member's alerts are computed from: a program's,
+ * before scopedSnapshot narrows them to a member, or for {@link SYSTEM_SCOPE}
+ * the deployment's own dates.
  */
 export type AlertSources = Omit<Snapshot, "user"> & { programUuid: string };
 
@@ -117,6 +148,31 @@ export const markRead = mutation({
 });
 
 /**
+ * Forgets the caller's read marks for alerts their device no longer shows,
+ * so an alert that clears and later returns is unread again. Keys never
+ * marked are ignored.
+ *
+ * @param keys - The cleared alerts' keys; duplicates count once.
+ * @throws {ConvexError} As `markRead`.
+ */
+export const forgetRead = mutation({
+  args: { programUuid: v.optional(v.string()), keys: v.array(v.string()) },
+  handler: async (ctx, { programUuid, keys }) => {
+    const state = await checkContext(ctx, programUuid);
+    const cleared = new Set(validKeys(keys));
+    const rows = await readRows(
+      ctx,
+      state.user.id as Id<"users">,
+      programUuid ?? "",
+    );
+    await deleteRows(
+      ctx,
+      rows.filter((r) => cleared.has(r.key)),
+    );
+  },
+});
+
+/**
  * Turns the caller's alert emails on or off.
  *
  * @throws As `currentUser`.
@@ -129,35 +185,46 @@ export const setEmailPreference = mutation({
   },
 });
 
-/** Every Flight Program the digest covers, by uuid and name. */
+/**
+ * Every scope the digest and the daily urgent check cover: each Flight
+ * Program, then {@link SYSTEM_SCOPE}.
+ *
+ * @returns Each scope's uuid and the name its emails carry.
+ */
 export const digestPrograms = internalQuery({
   args: {},
-  handler: async (ctx) =>
-    (await ctx.db.query("programs").collect()).map((p) => ({
+  handler: async (ctx) => [
+    ...(await ctx.db.query("programs").collect()).map((p) => ({
       uuid: p.uuid,
       name: p.name,
     })),
+    { uuid: SYSTEM_SCOPE, name: SYSTEM_SCOPE_NAME },
+  ],
 });
 
 /**
- * Opted-in active members of one program with alerts not yet emailed to
- * them, each seeing only what their groups allow.
+ * Opted-in active members of one scope with alerts not yet emailed to them,
+ * each seeing only what their groups allow.
  *
+ * @param programUuid - A Flight Program, or {@link SYSTEM_SCOPE}.
  * @param today - The local date the alerts are computed for.
- * @returns Per member: the pending alerts, and every current alert key.
+ * @returns Per member: the pending alerts.
  */
 export const digestRecipients = internalQuery({
   args: { programUuid: v.string(), today: v.string() },
   handler: async (ctx, { programUuid, today }) => {
-    const groups = (
-      await ctx.db
-        .query("groups")
-        .withIndex("program", (q) => q.eq("programUuid", programUuid))
-        .collect()
-    ).map(group);
-    const users = await emailMembers(ctx, programUuid, groups);
+    const audience = await alertAudience(ctx, programUuid);
+    const users = audience.users.filter(
+      (u) =>
+        u.email &&
+        wantsAlertEmails(
+          member(u),
+          audience.groups,
+          emailChoice(programUuid, u, audience),
+        ),
+    );
     if (!users.length) return [];
-    const sources = await loadAlertSources(ctx, programUuid, groups);
+    const sources = await sendableSources(ctx, programUuid, audience.groups);
     const recipients: DigestRecipient[] = [];
     for (const u of users) {
       const recipient = await pendingDigest(
@@ -209,26 +276,20 @@ export const digestBackupWarning = internalQuery({
 });
 
 /**
- * Records which alerts a digest emailed and forgets digest deliveries for
- * alerts that cleared, so a cleared alert that returns is emailed again.
- * Rows of the immediate and push channels are left alone.
+ * Records which alerts a digest emailed. Nothing is forgotten here: only
+ * {@link forgetCleared} ends an occurrence.
  *
  * @param keys - The alerts the email showed.
- * @param active - Every current alert key for the member.
  */
 export const recordDeliveries = internalMutation({
   args: {
     userId: v.id("users"),
     programUuid: v.string(),
     keys: v.array(v.string()),
-    active: v.array(v.string()),
   },
-  handler: async (ctx, { userId, programUuid, keys, active }) => {
+  handler: async (ctx, { userId, programUuid, keys }) => {
     const rows = await deliveryRows(ctx, userId, programUuid, "digest");
-    const live = new Set(active);
     const known = new Set(rows.map((r) => r.key));
-    for (const row of rows)
-      if (!live.has(row.key)) await ctx.db.delete(row._id);
     const sentAt = Date.now();
     for (const key of new Set(keys))
       if (!known.has(key))
@@ -243,9 +304,64 @@ export const recordDeliveries = internalMutation({
 });
 
 /**
+ * Ends the occurrence of every alert that has cleared in a scope (a Flight
+ * Program or {@link SYSTEM_SCOPE}):
+ * forgets each member's delivery rows, on every channel, and read marks for
+ * alerts they no longer have, so an alert that returns is sent again and is
+ * unread again. The alerts are computed inside this transaction, so a row is
+ * dropped only if its alert is gone at that moment; a claim made beside a
+ * check that saw older records is never lost. A read mark is kept while the
+ * alert exists on any date that is today somewhere, since a device judges
+ * dates on its own calendar day. Read marks in the system scope belong to
+ * the unassigned records' bell and are left alone.
+ *
+ * @returns `today`: the records date the alerts were computed for, which the
+ *   check that follows must use.
+ */
+export const forgetCleared = internalMutation({
+  args: { programUuid: v.string() },
+  handler: async (ctx, { programUuid }) => {
+    const now = Date.now();
+    const today = recordsDate(now);
+    const system = programUuid === SYSTEM_SCOPE;
+    const audience = await alertAudience(ctx, programUuid);
+    let sources: AlertSources | undefined;
+    for (const u of audience.users) {
+      const deliveries = await deliveryRows(ctx, u._id, programUuid);
+      const reads = system ? [] : await readRows(ctx, u._id, programUuid);
+      if (!deliveries.length && !reads.length) continue;
+      // The bell shows a program's members the deployment's dates too, so
+      // their read marks are judged against every alert, system dates
+      // included.
+      sources ??= system
+        ? await sendableSources(ctx, programUuid, audience.groups)
+        : await loadAlertSources(ctx, programUuid, audience.groups);
+      const keysOn = alertKeysOf(sources, u);
+      const live = keysOn(today);
+      await deleteRows(
+        ctx,
+        deliveries.filter((r) => !live.has(r.key)),
+      );
+      const marks = reads.filter((r) => !live.has(r.key));
+      if (!marks.length) continue;
+      const elsewhere = [earliestLocalDate(now), latestLocalDate(now)].map(
+        keysOn,
+      );
+      await deleteRows(
+        ctx,
+        marks.filter((r) => !elsewhere.some((keys) => keys.has(r.key))),
+      );
+    }
+    return { today };
+  },
+});
+
+/**
  * Emails each opted-in member their program's new alerts, and warns system
  * administrators of a stale off-site backup: at the top of a digest they get
- * anyway, or alone. A failed email is counted and logged by user id.
+ * anyway, or alone. A failed email is counted and logged by user id; a
+ * program whose alerts cannot be computed (a damaged record) is logged by
+ * its uuid and skipped, and the other programs and the warnings still go.
  *
  * @returns How many emails were sent and failed; `skipped` when
  *   RESEND_API_KEY or RESEND_FROM is not set.
@@ -256,7 +372,6 @@ export const sendDigests = internalAction({
     const settings = mailerSettings();
     // In-app alerts work without email; skip quietly until both are set.
     if (!settings) return { sent: 0, failed: 0, skipped: true };
-    const today = localDate();
     const mail = createMailer(settings);
     const backup = await ctx.runQuery(internal.alerts.digestBackupWarning, {});
     const freshness = offsiteFreshness(backup.latest, Date.now());
@@ -269,7 +384,7 @@ export const sendDigests = internalAction({
     const warned: string[] = [];
     for (const program of programs)
       warned.push(
-        ...(await sendProgramDigests(ctx, mail, program, today, warningFor)),
+        ...(await sendIsolatedDigests(ctx, mail, program, warningFor)),
       );
     if (backupWarning)
       await sendBackupWarnings(
@@ -304,6 +419,27 @@ function readRows(ctx: QueryCtx, userId: Id<"users">, programUuid: string) {
     )
     .collect();
 }
+
+async function programGroups(ctx: QueryCtx, programUuid: string) {
+  const docs = await ctx.db
+    .query("groups")
+    .withIndex("program", (q) => q.eq("programUuid", programUuid))
+    .collect();
+  return docs.map(group);
+}
+
+async function deleteRows(
+  ctx: MutationCtx,
+  rows: Doc<"alertDeliveries" | "alertReads">[],
+) {
+  for (const row of rows) await ctx.db.delete(row._id);
+}
+
+// The member's alert keys on a date; none when they cannot work in the
+// program.
+const alertKeysOf =
+  (sources: AlertSources, u: Doc<"users">) => (date: string) =>
+    new Set(memberAlerts(sources, u, date)?.map((a) => a.key));
 
 /**
  * A member's delivery rows in a program.
@@ -342,30 +478,60 @@ export function deliveredKeys(
 const channelOf = (row: Doc<"alertDeliveries">): DeliveryChannel =>
   row.channel ?? "digest";
 
-// Members via the memberships index; groupIds stays authoritative.
-async function emailMembers(
-  ctx: QueryCtx,
-  programUuid: string,
-  groups: Group[],
-) {
+/**
+ * Who a scope's alerts may reach: a program's active members with a group in
+ * it (via the memberships index; groupIds stays authoritative), or every
+ * active system administrator for {@link SYSTEM_SCOPE}, whatever their
+ * groups.
+ *
+ * @param scope - A Flight Program, or {@link SYSTEM_SCOPE}.
+ * @returns The scope, its groups (every group for the system scope, so each
+ *   administrator's email switches can be read) and programs, and the users.
+ */
+export async function alertAudience(ctx: QueryCtx, scope: string) {
+  const programs = await ctx.db.query("programs").collect();
+  if (scope === SYSTEM_SCOPE) {
+    const users = await ctx.db.query("users").collect();
+    return {
+      scope,
+      programs,
+      groups: (await ctx.db.query("groups").collect()).map(group),
+      users: users.filter((u) => u.active && u.isAdmin),
+    };
+  }
+  const groups = await programGroups(ctx, scope);
   const groupIds = new Set(groups.map((g) => g.id));
-  return (await programUsers(ctx, programUuid)).filter(
-    (u) =>
-      u.active &&
-      u.email &&
-      (u.groupIds ?? []).some((id) => groupIds.has(id)) &&
-      wantsAlertEmails(member(u), groups, programUuid),
+  const users = (await programUsers(ctx, scope)).filter(
+    (u) => u.active && (u.groupIds ?? []).some((id) => groupIds.has(id)),
   );
+  return { scope, programs, groups, users };
+}
+
+/**
+ * The Flight Program whose email switches decide what a member is emailed:
+ * the scope itself, or for {@link SYSTEM_SCOPE} the program whose Settings
+ * the administrator sees, as for the off-site backup warning.
+ *
+ * @param context - Every group and program, for the system scope.
+ * @returns The program uuid; undefined when the member has none.
+ */
+export function emailChoice(
+  scope: string,
+  u: Doc<"users">,
+  context: Pick<Snapshot, "groups" | "programs">,
+): string | undefined {
+  if (scope !== SYSTEM_SCOPE) return scope;
+  return activeProgram({ user: member(u), ...context });
 }
 
 /**
  * Loads one program's alert sources: its aircraft, maintenance records,
- * inspections, ADs, FAA monitors, expiring dates (with the deployment's) and
- * the FAA key status.
+ * inspections, ADs, FAA monitors, open problem reports, expiring dates (with
+ * the deployment's) and the FAA key status.
  *
  * @param groups - The program's permission groups, already loaded.
- * @returns The sources; members, flights, discrepancies and the change log
- *   stay empty, since no alert reads them.
+ * @returns The sources; members, flights, closed problem reports and the
+ *   change log stay empty, since no alert reads them.
  */
 export async function loadAlertSources(
   ctx: QueryCtx,
@@ -399,6 +565,53 @@ export async function loadAlertSources(
     ),
     members: [],
     flights: [],
+    discrepancies: await openDiscrepancies(ctx, aircraft),
+    audit: [],
+    syncedAt: 0,
+    authenticatedAt: 0,
+  };
+}
+
+// Aircraft status grounds on open grounding reports and expired deferrals,
+// so the "is grounded" alert needs them; closed reports alert on nothing.
+async function openDiscrepancies(ctx: QueryCtx, aircraft: { uuid: string }[]) {
+  const reports = await discrepancyDocs(ctx, aircraft);
+  return reports.filter((d) => d.status === "open");
+}
+
+/**
+ * What a scope's check sends from: a program's alert sources without the
+ * deployment's dates, which go out once in {@link SYSTEM_SCOPE}, or for the
+ * system scope those dates and the FAA key status alone.
+ *
+ * @param scope - A Flight Program, or {@link SYSTEM_SCOPE}.
+ * @param groups - The scope's groups, as {@link alertAudience} gives them.
+ */
+export async function sendableSources(
+  ctx: QueryCtx,
+  scope: string,
+  groups: Group[],
+): Promise<AlertSources> {
+  if (scope !== SYSTEM_SCOPE) {
+    const sources = await loadAlertSources(ctx, scope, groups);
+    return {
+      ...sources,
+      expiringItems: sources.expiringItems?.filter((i) => i.programUuid),
+      faaCredential: undefined,
+    };
+  }
+  return {
+    programUuid: SYSTEM_SCOPE,
+    programs: await ctx.db.query("programs").collect(),
+    groups,
+    aircraft: [],
+    faaCredential: await faaCredentialStatus(ctx),
+    expiringItems: (await expiringItemDocs(ctx, undefined, true)).map((d) =>
+      expiringItemSchema.parse(JSON.parse(d.payload)),
+    ),
+    members: [],
+    flights: [],
+    inspections: [],
     discrepancies: [],
     audit: [],
     syncedAt: 0,
@@ -407,11 +620,13 @@ export async function loadAlertSources(
 }
 
 /**
- * One member's alerts in the program, from what their groups let them see.
+ * One member's alerts in the scope: in a program, from what their groups
+ * let them see; in {@link SYSTEM_SCOPE}, the deployment's dates.
  *
  * @param today - The local date the alerts are computed for.
  * @returns The alerts, as computeAlerts orders them; undefined when the
- *   member cannot work in the program.
+ *   member cannot work in the program, or is not a system administrator in
+ *   the system scope.
  */
 export function memberAlerts(
   sources: AlertSources,
@@ -419,6 +634,10 @@ export function memberAlerts(
   today: string,
 ) {
   const { programUuid, ...records } = sources;
+  if (programUuid === SYSTEM_SCOPE)
+    return u.isAdmin
+      ? systemDateAlerts({ ...records, user: member(u) }, today)
+      : undefined;
   const state = scopedSnapshot({
     ...records,
     user: { ...member(u), activeProgramUuid: programUuid },
@@ -451,8 +670,28 @@ async function pendingDigest(
       severity,
       link,
     })),
-    active: alerts.map((a) => a.key),
   };
+}
+
+// One program's failure must not cost every later program its digest and
+// the system administrators their backup warning; Convex does not retry a
+// failed action.
+async function sendIsolatedDigests(
+  ctx: ActionCtx,
+  mail: Mailer,
+  program: { uuid: string; name: string },
+  warningFor: (userId: string) => string | undefined,
+): Promise<string[]> {
+  try {
+    return await sendProgramDigests(ctx, mail, program, warningFor);
+  } catch (error) {
+    console.error(
+      "Alert digest skipped for a Flight Program",
+      program.uuid,
+      error instanceof Error ? error.name : "unknown error",
+    );
+    return [];
+  }
 }
 
 // Returns the members whose digest carried the backup warning.
@@ -460,9 +699,11 @@ async function sendProgramDigests(
   ctx: ActionCtx,
   mail: Mailer,
   program: { uuid: string; name: string },
-  today: string,
   warningFor: (userId: string) => string | undefined,
 ) {
+  const { today } = await ctx.runMutation(internal.alerts.forgetCleared, {
+    programUuid: program.uuid,
+  });
   const recipients = await ctx.runQuery(internal.alerts.digestRecipients, {
     programUuid: program.uuid,
     today,
@@ -482,7 +723,6 @@ async function sendProgramDigests(
       userId: r.userId,
       programUuid: program.uuid,
       keys: email.shown.map((a) => a.key),
-      active: r.active,
     });
   }
   return warned;

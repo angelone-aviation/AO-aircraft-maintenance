@@ -1,17 +1,19 @@
 /**
  * Responsibility: Pins alert read state per user and program, and the daily
- *   digest: who is emailed what, no resends, failures, and the off-site
- *   backup warning that only system administrators get.
+ *   digest: who is emailed what, no resends, failures, the off-site backup
+ *   warning that only system administrators get, which delivery rows are
+ *   forgotten once their alerts clear, and one program's damaged record not
+ *   stopping the others' digests.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/alerts.ts, convex/backups.ts, convex/memberships.ts,
- *   convex/schema.ts, src/domain/model.ts, src/data/demo.ts (fixture).
+ *   convex/recordsDate.ts, convex/schema.ts, src/data/demo.ts (fixture).
  */
 import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { localDate } from "../src/domain/model";
+import { recordsDate } from "./recordsDate";
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const modules = import.meta.glob([
@@ -118,6 +120,17 @@ it("keeps alert read state per user and per program", async () => {
     "k2",
     "k3",
   ]);
+  // Forgetting the marks of cleared alerts drops only the caller's own.
+  await reader.mutation(api.alerts.markRead, { ...demo, keys: ["k2"] });
+  await a.mutation(api.alerts.forgetRead, { ...demo, keys: ["k2", "never"] });
+  expect(await a.query(api.alerts.readKeys, demo)).toEqual(["k3"]);
+  expect(await reader.query(api.alerts.readKeys, demo)).toEqual(["k2"]);
+  await expect(
+    b.mutation(api.alerts.forgetRead, { ...demo, keys: ["k3"] }),
+  ).rejects.toThrow();
+  await expect(
+    a.mutation(api.alerts.forgetRead, { ...demo, keys: [""] }),
+  ).rejects.toThrow(/invalid alerts/);
 });
 
 it("refuses an invalid set of alert keys as a ConvexError", async () => {
@@ -398,29 +411,48 @@ it("sends no backup warning while the newest copy is fresh", async () => {
   }
 });
 
-it("forgets deliveries of cleared alerts, so an alert that returns is emailed again", async () => {
+it("forgets the deliveries of cleared alerts only, one program at a time", async () => {
   const { t, ids } = await setup();
   stubResend();
   await t.action(internal.alerts.sendDigests, {});
-  const pending = async () =>
-    (
-      await t.query(internal.alerts.digestRecipients, {
-        ...demo,
-        today: localDate(),
-      })
-    ).find((r) => r.userId === ids.a.userId);
-  expect(await pending()).toBeUndefined();
-  const [kept] = (await deliveries(t)).filter((d) => d.userId === ids.a.userId);
-  await t.mutation(internal.alerts.recordDeliveries, {
-    userId: ids.a.userId,
-    ...demo,
-    keys: [],
-    active: [kept.key],
+  const keysOf = async (userId: string) =>
+    (await deliveries(t)).filter((d) => d.userId === userId).map((d) => d.key);
+  const forget = () => t.mutation(internal.alerts.forgetCleared, demo);
+  // Nothing has cleared: the rows stay, so nothing is emailed twice.
+  expect(await forget()).toEqual({ today: recordsDate() });
+  expect(await keysOf(ids.a.userId)).toHaveLength(2);
+  await t.run(async (ctx) => {
+    for (const i of await ctx.db.query("inspections").collect())
+      await ctx.db.patch(i._id, { dueDate: "2999-01-01" });
+  });
+  await forget();
+  expect(await keysOf(ids.a.userId)).toEqual([]);
+  expect(await keysOf(ids.b.userId)).toHaveLength(2);
+});
+
+it("goes on with the other programs' digests when one program's alerts cannot be computed", async () => {
+  const { t, ids } = await setup();
+  await t.run((ctx) =>
+    ctx.db.insert("expiringItems", {
+      uuid: "55555555-5555-4555-8555-555555555555",
+      programUuid: "demo-program",
+      payload: JSON.stringify({ label: "An older shape" }),
+    }),
+  );
+  const request = stubResend();
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await t.action(internal.alerts.sendDigests, {})).toMatchObject({
+    sent: 1,
+    failed: 0,
   });
   expect(
-    (await deliveries(t))
-      .filter((d) => d.userId === ids.a.userId)
-      .map((d) => d.key),
-  ).toEqual([kept.key]);
-  expect((await pending())?.alerts).toHaveLength(1);
+    request.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).to),
+  ).toEqual([["other@example.test"]]);
+  expect(error).toHaveBeenCalledWith(
+    "Alert digest skipped for a Flight Program",
+    "demo-program",
+    expect.any(String),
+  );
+  expect(JSON.stringify(error.mock.calls)).not.toContain(String(ids.a.userId));
+  error.mockRestore();
 });

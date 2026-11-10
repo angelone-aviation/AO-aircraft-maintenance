@@ -4,7 +4,8 @@
  * Layer: UI. The browser entry point; the only module that creates the Convex
  *   client.
  * Dependencies: convex/react, @convex-dev/auth/react, src/data (store,
- *   backend, deviceManuals, pdfOffline, pendingEntries, errorReporting),
+ *   backend, deviceManuals, pdfOffline, pendingEntries, pushDevice,
+ *   errorReporting),
  *   src/domain/model.ts, src/App.tsx, src/components.
  */
 import { useEffect, useId, useState } from "react";
@@ -24,6 +25,7 @@ import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
 import { pendingEntriesFile } from "./data/pendingEntries";
 import { convexBackend } from "./data/backend";
+import { releasePushDevice } from "./data/pushDevice";
 import {
   captureError,
   initErrorReporting,
@@ -281,6 +283,11 @@ function chooseLiveScreen(session: LiveSession): LiveScreen {
   return "sign-in";
 }
 async function signOutOfLive(signOut: AuthActions["signOut"]) {
+  const { backend } = useWorkspace.getState();
+  // While the session lasts, so the next person on this device never sees
+  // the previous member's alerts (ADR-0012). A browser that cannot
+  // unsubscribe must not keep anyone signed in; the failure is reported.
+  if (backend) await releasePushDevice(backend).catch(captureError);
   await useWorkspace.getState().signOutLocal();
   // Offline the server can't be told; removing the stored tokens is what
   // signs this device out.

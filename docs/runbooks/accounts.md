@@ -43,7 +43,7 @@ After **10 failed password sign-ins within an hour** an account refuses every pa
 To unlock at once, a **system administrator resets the user's password** (Administration → the user → Reset password):
 
 1. Confirm who is asking, out of band (phone or in person). Anyone who knows an email can lock that account, so a lockout is not itself evidence the user forgot their password.
-2. Reset the password. The reset sets the new password, ends every session the user has on any device, and clears the failed-sign-in counter. The change log entry `user.password_reset` records `signInLockoutCleared: true` when a lock was cleared.
+2. Reset the password. The reset sets the new password, ends every session the user has on any device, forgets every device they turned urgent alerts on for, and clears the failed-sign-in counter. The change log entry `user.password_reset` records `signInLockoutCleared: true` when a lock was cleared.
 3. Give the user the new password over a different channel from the email address.
 
 If many accounts lock at the same time, someone is guessing passwords across accounts (password spraying). The app has no global failed-sign-in alarm yet (see below); look in the Convex dashboard's `authRateLimits` table for many rows with a recent `lastAttemptTime`, and raise it with the technical owner. Limiting sign-in attempts per IP address belongs at the Cloudflare edge and is part of the release-process decision.
@@ -54,7 +54,7 @@ Why no global budget in the app: `@convex-dev/auth` 0.0.96 has no hook that runs
 
 A system administrator unticks **Account active** on the user. Saving:
 
-- deletes every session and refresh token the user has, so every device they are signed in on loses access at its next request (the change log records `user.sessions_ended` with the number of sessions);
+- deletes every session and refresh token the user has, so every device they are signed in on loses access at its next request (the change log records `user.sessions_ended` with the number of sessions), and forgets every device the user turned urgent alerts on for;
 - refuses every later sign-in, by password or by Google or Microsoft, without creating a session.
 
 Re-enabling the user does not bring old sessions back; they sign in again. Removing a user from one Flight Program (Flight Program administrators can do this) does not end sessions, because the user may still belong to other programs.
