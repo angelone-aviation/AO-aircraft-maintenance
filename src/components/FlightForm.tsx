@@ -5,8 +5,8 @@
  *   reviews save online.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
  *   (model, flights, flightPlans, flightReview, flightSession, readings,
- *   aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
- *   ./StaleSave, ./design, ./ui.
+ *   aircraftStatus), ./FlightFluids, ./FlightParts, ./FlightSuggestions,
+ *   ./AircraftStatus, ./StaleSave, ./design, ./ui.
  */
 import { useId, useState } from "react";
 import {
@@ -53,6 +53,7 @@ import {
   FlightTimeStrip,
   MeterBox,
 } from "./FlightParts";
+import { PlaceSuggestions, SameAsLastFlight } from "./FlightSuggestions";
 import { NoticeBar } from "./design";
 import { AsyncForm, value } from "./ui";
 import { DifferenceTable } from "./StaleSave";
@@ -346,6 +347,14 @@ function CrewSection({ m }: { m: Model }) {
   const { s, defaults, props } = m;
   return (
     <FlightSection title="Aircraft & crew">
+      {offersRepeat(m) && m.aircraft && (
+        <SameAsLastFlight
+          key={m.aircraft.uuid}
+          s={s}
+          aircraftUuid={m.aircraft.uuid}
+          registration={m.aircraft.registration}
+        />
+      )}
       <div className="flight-grid">
         <FlightField label="Aircraft">
           <select
@@ -533,6 +542,7 @@ function EngineStartsSection({ m }: { m: Model }) {
 
 function RouteSection({ m, rulesId }: { m: Model; rulesId: string }) {
   const { defaults, props } = m;
+  const placesId = useId();
   // In the two-column grid, the operation field would sit alone on its row
   // after an even number of fields, so it spans the row instead.
   const fieldsBefore =
@@ -550,9 +560,12 @@ function RouteSection({ m, rulesId }: { m: Model; rulesId: string }) {
               defaultValue={defaults?.[place] ?? props.plan?.[place]}
               maxLength={FLIGHT_PLACE_MAX_LENGTH}
               placeholder="Code or location; optional"
+              list={placesId}
+              autoComplete="off"
             />
           </FlightField>
         ))}
+        <PlaceSuggestions id={placesId} flights={m.s.flights} />
         <CountFields m={m} />
         <RulesField m={m} rulesId={rulesId} />
         <FlightField label="Type of operation" wide={fieldsBefore % 2 === 0}>
@@ -928,6 +941,12 @@ function meterName(meter: MeterInput, helicopter: boolean | undefined) {
 function stripLabel(meter: MeterInput, helicopter: boolean | undefined) {
   if (meter === "hobbs" && helicopter) return "Run-time hourmeter";
   return meter === "tach" ? "Tach" : meterName(meter, helicopter);
+}
+
+// Only a fresh flight offers it: plans, sessions, retries and reviews
+// already carry their own crew and route.
+function offersRepeat({ props, phase }: Model) {
+  return !props.initial && !props.plan && !props.prefill && phase === "all";
 }
 
 function memberOptions(s: Snapshot, keep: string | undefined) {

@@ -1014,6 +1014,17 @@ function useDismiss(
 }
 
 const DISCARD_QUESTION = "Discard what you have entered in this form?";
+const FORM_FILLED_EVENT = "angelone:form-filled";
+
+/**
+ * Tells the enclosing dialog that the user filled its form in one action
+ * (such as "Same as last flight"), so closing it asks first, as typing does.
+ *
+ * @param field - Any element inside the dialog's form.
+ */
+export function markFormFilled(field: Element) {
+  field.dispatchEvent(new Event(FORM_FILLED_EVENT, { bubbles: true }));
+}
 const HISTORY_MOVES: readonly string[] = ["BACK", "FORWARD", "GO"];
 
 /** The part of the router's history a dialog uses to hold up Back. */
@@ -1040,7 +1051,8 @@ export function setDialogHistory(history: DialogHistory) {
 // Whether the dialog may close without losing the user's input: true until
 // they type or choose something in one of its forms, then only once they
 // confirm. A real input event is the test, because forms also set values
-// themselves after opening. The history asks it before Back or Forward, the
+// themselves after opening; a fill the user asked for counts through
+// markFormFilled. The history asks it before Back or Forward, the
 // phone's usual way to close a sheet; the app's own navigation after a save
 // is never held up.
 function useDiscardGuard(
@@ -1058,8 +1070,13 @@ function useDiscardGuard(
     const mark = (e: Event) => {
       if (e.isTrusted && isEntryField(e.target)) touched.current = true;
     };
+    const markFilled = () => (touched.current = true);
     dialog.addEventListener("input", mark);
-    return () => dialog.removeEventListener("input", mark);
+    dialog.addEventListener(FORM_FILLED_EVENT, markFilled);
+    return () => {
+      dialog.removeEventListener("input", mark);
+      dialog.removeEventListener(FORM_FILLED_EVENT, markFilled);
+    };
   }, [ref, enabled]);
   useEffect(() => {
     if (!dialogHistory || !enabled) return;
