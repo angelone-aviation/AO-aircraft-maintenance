@@ -15,6 +15,7 @@
 import {
   hours,
   aircraftMeterLabels,
+  localDate,
   type Aircraft,
   type Flight,
   type Snapshot,
@@ -54,7 +55,7 @@ const METER_FIELDS: Record<
 
 /** One flight of the month, as the paper line should read. */
 export interface PaperCheckFlightRow {
-  /** The pilot's local date, `YYYY-MM-DD`. */
+  /** The local date the flight started on, `YYYY-MM-DD`. */
   date: string;
   pilot: string;
   /** Tracking-meter readings in hours to one decimal, or "" when unrecorded. */
@@ -131,10 +132,10 @@ export const PAPER_CHECK_WORK_COLUMNS = [
  *   logbook page photos.
  * @param aircraftUuid - The aircraft.
  * @param yearMonth - The month as `YYYY-MM`.
- * @returns Flights whose start falls in the month by the pilot's local date,
- *   earliest first; work orders completed in the month by completion date
- *   then number; totals over accepted flights. A month with nothing has
- *   empty rows and zero totals.
+ * @returns Flights that started in the month by local date (the date the
+ *   Flight log shows on this device), earliest first; work orders completed
+ *   in the month by completion date then number; totals over accepted
+ *   flights. A month with nothing has empty rows and zero totals.
  * @throws {Rejection} "Aircraft not found."; "Choose a month as YYYY-MM."
  */
 export function paperCheck(
@@ -147,8 +148,10 @@ export function paperCheck(
   const match = YEAR_MONTH.exec(yearMonth);
   if (!match) throw new Rejection("Choose a month as YYYY-MM.");
   const flights = s.flights
-    .filter((f) => f.aircraftUuid === a.uuid && inMonth(f.startTime, yearMonth))
-    .sort((x, z) => x.startTime.localeCompare(z.startTime));
+    .filter(
+      (f) => f.aircraftUuid === a.uuid && inMonth(flightDate(f), yearMonth),
+    )
+    .sort((x, z) => Date.parse(x.startTime) - Date.parse(z.startTime));
   const work = (s.workOrders ?? [])
     .filter(
       (w) =>
@@ -255,16 +258,21 @@ export function formatOilAdded(oil: OilReading[] | undefined): string {
   return [...byUnit].map(([unit, added]) => `${added} ${unit}`).join(" + ");
 }
 
-// Both dates are ISO strings whose first seven characters are the month in
-// the writer's zone, which is the date on the paper.
-function inMonth(isoDate: string, yearMonth: string): boolean {
-  return isoDate.startsWith(yearMonth);
+// A flight's start is stored as a UTC instant ("…Z"), so its first ten
+// characters are the UTC date: a day late for an evening flight west of
+// Greenwich. The paper line carries the local date, as the Flight log shows.
+function flightDate(f: Flight): string {
+  return localDate(Date.parse(f.startTime));
+}
+
+function inMonth(date: string, yearMonth: string): boolean {
+  return date.startsWith(yearMonth);
 }
 
 function flightRow(s: Snapshot, a: Aircraft, f: Flight): PaperCheckFlightRow {
   const { start, end } = readings(a, f);
   return {
-    date: f.startTime.slice(0, 10),
+    date: flightDate(f),
     pilot: s.members.find((m) => m.id === f.pilotId)?.name ?? "Unknown pilot",
     meterStart: start === undefined ? "" : hours(start),
     meterEnd: end === undefined ? "" : hours(end),

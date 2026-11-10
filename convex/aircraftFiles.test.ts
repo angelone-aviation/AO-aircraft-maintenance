@@ -310,6 +310,43 @@ it("lists a copy whose stored file is missing with an empty URL", async () => {
   expect(seen.aircraftFiles).toMatchObject([{ name: "missing.pdf", url: "" }]);
 });
 
+it("refuses a file whose first bytes are not its declared type, storing nothing", async () => {
+  const { t, tech, pilot } = await fixture();
+  const text = (body: string) => new TextEncoder().encode(body).buffer;
+  const heic = new Uint8Array([
+    0,
+    0,
+    0,
+    24,
+    ...new TextEncoder().encode("ftypheic"),
+  ]);
+  const refusals = [
+    pilot.action(api.aircraftFiles.upload, {
+      ...photo,
+      name: "x.png",
+      type: "image/png",
+      bytes: text('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+    }),
+    pilot.action(api.aircraftFiles.upload, {
+      ...photo,
+      name: "IMG_0001.jpg",
+      bytes: heic.buffer,
+    }),
+    tech.action(api.aircraftFiles.upload, {
+      ...upload,
+      bytes: text("<html><body>337</body></html>"),
+    }),
+  ];
+  for (const refusal of refusals)
+    await expect(refusal).rejects.toThrow(
+      "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+    );
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("aircraftFiles").collect()).toEqual([]);
+    expect(await ctx.db.system.query("_storage").collect()).toEqual([]);
+  });
+});
+
 it("lets a pilot attach and archive a photo of a flight's logbook line, linked to a flight on the aircraft", async () => {
   const { t, tech, pilot, reader } = await fixture();
   await pilot.action(api.aircraftFiles.upload, photo);

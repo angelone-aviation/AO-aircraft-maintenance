@@ -13,6 +13,8 @@ import { adNumber, type ADSource } from "../domain/airworthiness";
 
 const SECTIONS: string[] = ["Airframe", "Engine", "Propeller", "Appliance"];
 const AD_NUMBER = /^\d{2,4}-\d{2}-\d{2}/;
+const MAKE_LABEL = "Make:";
+const MODEL_LABEL = "Model:";
 const MAX_REPORT_BYTES = 10 * 1024 * 1024;
 // Caps the unzipped XML, so a small zip cannot expand into a huge document.
 const MAX_DOCUMENT_XML_BYTES = 20 * 1024 * 1024;
@@ -93,9 +95,20 @@ function readSection(
 ): SectionContext {
   return {
     section,
-    make: text.match(/Make:\s*(.*?)\s*Model:/s)?.[1]?.trim() ?? "",
+    make: readMake(text),
     model: text.match(/Model:\s*([^\n]*)/)?.[1]?.trim() ?? "",
   };
+}
+
+// The text between the first "Make:" and the next "Model:". Found with
+// indexOf because a lazy /Make:\s*(.*?)\s*Model:/s rescans to the end of the
+// text from every "Make:" when no "Model:" follows: 40,000 labels took 17 s.
+function readMake(text: string): string {
+  const make = text.indexOf(MAKE_LABEL);
+  if (make < 0) return "";
+  const start = make + MAKE_LABEL.length;
+  const model = text.indexOf(MODEL_LABEL, start);
+  return model < 0 ? "" : text.slice(start, model).trim();
 }
 
 function readEntry(
@@ -129,13 +142,12 @@ function readEntry(
 function listWarnings(entries: ADSource[]): string[] {
   const warnings: string[] = [];
   const keys = new Set<string>();
+  const firstByNumber = indexFirstByNumber(entries);
   for (const e of entries) {
     const key = e.section + e.make + e.model + adNumber(e.number);
     if (keys.has(key)) warnings.push(`Duplicate ${e.number} in ${e.section}.`);
     keys.add(key);
-    const target = entries.find(
-      (t) => adNumber(t.number) === adNumber(e.supersededBy),
-    );
+    const target = firstByNumber.get(adNumber(e.supersededBy));
     if (target && adNumber(target.supersededBy) === adNumber(e.number))
       warnings.push(
         `${e.number}: circular supersession reference with ${target.number}; verify FAA source.`,
@@ -143,6 +155,17 @@ function listWarnings(entries: ADSource[]): string[] {
     if (!e.effective) warnings.push(`${e.number}: effective date missing.`);
   }
   return warnings;
+}
+
+// The first entry for each AD number, so the supersession check is one
+// lookup per entry rather than a scan of every entry.
+function indexFirstByNumber(entries: ADSource[]): Map<string, ADSource> {
+  const first = new Map<string, ADSource>();
+  for (const e of entries) {
+    const number = adNumber(e.number);
+    if (!first.has(number)) first.set(number, e);
+  }
+  return first;
 }
 
 async function readDocumentXml(file: File): Promise<Document> {

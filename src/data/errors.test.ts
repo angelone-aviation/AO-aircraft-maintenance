@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { lookupInput } from "../domain/addressLookup";
 import { blankAddress } from "../domain/addresses";
 import { logbookPhrasesSchema } from "../domain/logbookWording";
-import { errorText, isStaleSave } from "./errors";
+import { MODULE_LOAD_ERROR_TEXT, errorText, isStaleSave } from "./errors";
 import { StaleRecordRejection } from "../domain/rejection";
 
 // The logbook phrase limit in src/domain/logbookWording.ts.
@@ -73,6 +73,18 @@ describe("errorText", () => {
   it("shows any other Error's message, as the demo and local checks throw", () => {
     expect(errorText(new Error("Connect to the live app."), "Fallback.")).toBe(
       "Connect to the live app.",
+    );
+  });
+
+  it.each([
+    "Failed to fetch dynamically imported module: https://app.test/assets/recordsPackage-Cd9q.js",
+    "error loading dynamically imported module: https://app.test/assets/paperCheckReport-a1.js",
+    "Importing a module script failed.",
+    "Unable to preload CSS for /assets/Board-x.css",
+  ])("explains a module the browser could not load: %s", (message) => {
+    const failure = new TypeError(message);
+    expect(errorText(failure, "Unable to export.")).toBe(
+      MODULE_LOAD_ERROR_TEXT,
     );
   });
 

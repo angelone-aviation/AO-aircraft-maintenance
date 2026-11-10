@@ -8,7 +8,7 @@ While the program keeps paper logbooks beside the app, someone compares the two 
 
 ## What it lists
 
-**Flights**, earliest first, every flight that started in the month by the pilot's local date: the date, the pilot, the aircraft's tracking meter at the start and the end of the flight (the column is named after the meter, such as **Hobbs start**), the hours flown (end minus start), landings, oil added (such as "1.5 US qt"), the flight's status (Accepted, Needs review or Rejected), whether a [logbook page photo](logbook-photos.md) is attached, and **Checked**. A reading that was not recorded is left blank, as is the hours cell that depends on it.
+**Flights**, earliest first, every flight that started in the month by its local date: the date (the one the Flight log shows on this device, not the UTC date the start time is stored under, so an evening flight stays on its own day and month), the pilot, the aircraft's tracking meter at the start and the end of the flight (the column is named after the meter, such as **Hobbs start**), the hours flown (end minus start), landings, oil added (such as "1.5 US qt"), the flight's status (Accepted, Needs review or Rejected), whether a [logbook page photo](logbook-photos.md) is attached, and **Checked**. A reading that was not recorded is left blank, as is the hours cell that depends on it.
 
 **Month totals** count accepted flights only: flights, hours and landings. A held flight (Needs review) or a rejected one changes no aircraft totals, so it is listed for the comparison but not counted.
 

@@ -19,9 +19,13 @@ function setup() {
 }
 
 const pdf = () =>
-  new File([new Uint8Array([0, 255, 65])], "337.pdf", {
-    type: "application/pdf",
-  });
+  new File(
+    [new TextEncoder().encode("%PDF-"), new Uint8Array([0, 255, 65])],
+    "337.pdf",
+    {
+      type: "application/pdf",
+    },
+  );
 const jpeg = () =>
   new File([new Uint8Array([255, 216, 255])], "line.jpg", {
     type: "image/jpeg",
@@ -52,11 +56,21 @@ function flight(aircraftUuid: string, uuid: string): Flight {
   };
 }
 
+it("refuses a file whose first bytes are not its declared type, as the server does", async () => {
+  const { s, modify, audit, aircraft } = setup();
+  const svg = new File(["<svg/>"], "page.png", { type: "image/png" });
+  await expect(
+    demoAircraftFiles.upload(modify, audit, form337(aircraft), svg),
+  ).rejects.toThrow("This file's contents do not match its type.");
+  expect(s.aircraftFiles ?? []).toEqual([]);
+  expect(audit).not.toHaveBeenCalled();
+});
+
 it("keeps an upload as a data URL and logs it", async () => {
   const { s, modify, audit, aircraft } = setup();
   await demoAircraftFiles.upload(modify, audit, form337(aircraft), pdf());
   expect(s.aircraftFiles).toMatchObject([
-    { aircraftUuid: aircraft, url: "data:application/pdf;base64,AP9B" },
+    { aircraftUuid: aircraft, url: "data:application/pdf;base64,JVBERi0A/0E=" },
   ]);
   expect(audit).toHaveBeenCalledWith(
     s,
@@ -71,7 +85,7 @@ it("keeps an upload as a data URL and logs it", async () => {
       linkedUuid: undefined,
       name: "337.pdf",
       type: "application/pdf",
-      size: 3,
+      size: 8,
     },
   );
 });

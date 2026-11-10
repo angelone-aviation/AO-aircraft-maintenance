@@ -166,8 +166,59 @@ describe("exportRecordsPackage", () => {
       now: NOW,
     });
     const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
-    expect(strFromU8(files["change-log.csv"]).split("\r\n")).toHaveLength(2);
-    expect(strFromU8(files["README.txt"])).toContain("Change log (1 row)");
+    const lines = strFromU8(files["change-log.csv"]).split("\r\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toMatch(
+      /^"Partial change log: 1 entry, only the recent changes kept on the exporting device, which was offline\./,
+    );
+    const readme = strFromU8(files["README.txt"]);
+    expect(readme).toContain("Change log (1 row), partial: see WARNINGS.");
+    expect(readme).toContain("\nWARNINGS\nPartial change log: 1 entry");
+  });
+
+  it("says a change log cut at the page limit is partial, without asking to reconnect", async () => {
+    stubFetch({});
+    const s = demoSnapshot();
+    const a = s.aircraft[0];
+    const entries = Array.from({ length: PAGE * 2 }, (_, i) =>
+      entry(i, a.uuid),
+    );
+    const backend = fakeBackend(entries);
+    const auditPage = backend.auditPage;
+    // Never done: every page claims more follow.
+    backend.auditPage = async (request) => ({
+      ...(await auditPage(request)),
+      isDone: false,
+    });
+    const result = await exportRecordsPackage({
+      snapshot: s,
+      aircraftUuid: a.uuid,
+      backend,
+      now: NOW,
+    });
+    const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
+    const readme = strFromU8(files["README.txt"]);
+    expect(readme).toContain(
+      "Partial change log: the newest 200 entries. The change log is longer than one package reads",
+    );
+    expect(readme).not.toContain("Reconnect");
+  });
+
+  it("refuses a user without maintenance permission before reading anything", async () => {
+    const s = demoSnapshot();
+    s.user = s.members.find((m) => m.id === "demo-pilot")!;
+    const calls: number[] = [];
+    await expect(
+      exportRecordsPackage({
+        snapshot: s,
+        aircraftUuid: s.aircraft[0].uuid,
+        backend: fakeBackend([], calls),
+        now: NOW,
+      }),
+    ).rejects.toThrow(
+      "Records packages are for users with maintenance permission on the aircraft.",
+    );
+    expect(calls).toEqual([]);
   });
 
   it("lists a file it could not download in the README and keeps the rest", async () => {

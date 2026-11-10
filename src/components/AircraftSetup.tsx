@@ -1,11 +1,12 @@
 /**
  * Responsibility: The Set up an aircraft wizard (GLOSSARY "Aircraft setup"):
- *   its page, step navigation, the draft kept in this browser, and the
- *   Aircraft and Components installed steps.
+ *   its page, step navigation, its link to the aircraft's setup session, and
+ *   the Aircraft and Components installed steps.
  * Layer: UI. React components; setup rules live in src/domain/aircraftSetup.
- * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
- *   (aircraftSetup, model, programs, components, componentTemplates), ./Fleet,
- *   ./Components, ./ComponentTemplates, ./AircraftSetupHistory, ./design, ./ui.
+ * Dependencies: react, @tanstack/react-router, src/data/store.ts,
+ *   src/data/aircraftSetupSession.ts, src/domain (aircraftSetup, model,
+ *   programs, components, componentTemplates), ./Fleet, ./Components,
+ *   ./ComponentTemplates, ./AircraftSetupHistory, ./design, ./ui.
  *
  * The components step saves as it goes (through the component and template
  * forms); inspections and ADs are saved only by the commit step, after the
@@ -13,14 +14,24 @@
  * localStorage per aircraft, so a failed commit can be resumed.
  */
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { WifiSlash } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import {
+  editSetupDraft,
+  forgetSetupDraft,
+  openSetupSession,
+  retrySetupCommit,
+  setupSession,
+  startSetupCommit,
+  subscribeSetupSessions,
+  type SetupCommitPorts,
+  type SetupRun,
+} from "../data/aircraftSetupSession";
+import {
   SETUP_STEPS,
-  setupDraftSchema,
+  recordedSetupKeys,
   setupStatus,
-  type SetupDraft,
   type SetupStatus,
   type SetupStep,
 } from "../domain/aircraftSetup";
@@ -57,7 +68,6 @@ import "../styles/screens/setup.css";
 
 // src/data/store.ts clears localStorage keys with this prefix on sign-out.
 const DRAFT_KEY_PREFIX = "angel-one-setup";
-const EMPTY_DRAFT: SetupDraft = { inspectionCsv: "", adCsv: "", done: [] };
 const STEP_LABELS: Record<SetupStep, string> = {
   aircraft: "Aircraft",
   components: "Components installed",
@@ -149,7 +159,7 @@ function SetupWizard({
   draftKey: string;
 }) {
   const open = useOpenStep();
-  const drafts = useSetupDraft(draftKey);
+  const drafts = useSetupDraft(draftKey, aircraft?.uuid);
   const current = aircraft ? (step ?? "components") : "aircraft";
   const onStep = (next: SetupStep) => open(aircraft!.uuid, next);
   return (
@@ -161,6 +171,7 @@ function SetupWizard({
         storageError={drafts.storageError}
         onStep={onStep}
       />
+      {drafts.run?.busy && <SavingNotice run={drafts.run} />}
       {aircraft ? (
         <StepPanel
           step={current}
@@ -225,6 +236,19 @@ function WizardChrome({
   );
 }
 
+// Shown on every step, so a commit started on the Save step is never out of
+// sight while it runs. Not a live region: the count changes with every row,
+// and the Save step announces the result once.
+function SavingNotice({ run }: { run: SetupRun }) {
+  const handled = run.saved.length + run.onRecord.length;
+  return (
+    <NoticeBar tone="blue">
+      Saving the setup: {handled} of {run.actions.length} rows done. Keep this
+      page open until it finishes; the files cannot be changed meanwhile.
+    </NoticeBar>
+  );
+}
+
 function StepPanel({ step, props }: { step: SetupStep; props: StepProps }) {
   const nav = <StepNav step={step} onStep={props.onStep} />;
   const all = { ...props, nav };
@@ -240,7 +264,7 @@ function StepPanel({ step, props }: { step: SetupStep; props: StepProps }) {
     case "review":
       return <ReviewStep {...all} />;
     case "commit":
-      return <CommitStep key={props.drafts.revision} {...all} />;
+      return <CommitStep {...all} />;
   }
 }
 
@@ -566,59 +590,40 @@ function AddComponentDialog({
   );
 }
 
-function useSetupDraft(key: string): SetupDrafts {
-  const [loaded] = useState(() => loadDraft(key));
-  const [draft, setDraft] = useState(loaded.draft);
-  const [storageError, setStorageError] = useState(loaded.error);
-  const [revision, setRevision] = useState(0);
+// Binds the wizard to the aircraft's session. The session, not this
+// component, owns the draft and the commit, so both survive the step changes
+// and page visits that unmount the wizard.
+function useSetupDraft(
+  key: string,
+  aircraftUuid: string | undefined,
+): SetupDrafts {
+  // Once per visit: reload the stored draft (sign-out clears it).
+  useState(() => openSetupSession(key));
+  const session = useSyncExternalStore(subscribeSetupSessions, () =>
+    setupSession(key),
+  );
+  const { backend } = useWorkspace();
+  const ports: SetupCommitPorts = {
+    send: (action) =>
+      action.step === "inspections"
+        ? backend!.manage(action.command)
+        : backend!.saveAD(action.command),
+    onRecord: (action) => isOnRecord(aircraftUuid, action.key),
+  };
   return {
-    draft,
-    revision,
-    storageError,
-    update: (patch) => {
-      const next = { ...draft, ...patch };
-      setDraft(next);
-      if ("inspectionCsv" in patch || "adCsv" in patch)
-        setRevision((r) => r + 1);
-      setStorageError(persistDraft(key, next));
-    },
-    clear: () => {
-      setDraft(EMPTY_DRAFT);
-      try {
-        localStorage.removeItem(key);
-      } catch {
-        // Nothing to clear when storage is blocked.
-      }
-    },
+    draft: session.draft,
+    storageError: session.storageError,
+    run: session.run,
+    update: (patch) => void editSetupDraft(key, patch),
+    clear: () => void forgetSetupDraft(key),
+    start: (actions) => void startSetupCommit(key, actions, ports),
+    retry: () => void retrySetupCommit(key, ports),
   };
 }
 
-// Returns the storage error to show, or "" once the draft is stored.
-function persistDraft(key: string, draft: SetupDraft): string {
-  try {
-    localStorage.setItem(key, JSON.stringify(draft));
-    return "";
-  } catch {
-    // Blocked or full storage: the draft stays on screen for this visit.
-    return "Browser storage failed, so this setup cannot be resumed after leaving the page. Finish it in this visit.";
-  }
-}
-
-function loadDraft(key: string): { draft: SetupDraft; error: string } {
-  try {
-    const raw = localStorage.getItem(key);
-    return {
-      draft: raw ? setupDraftSchema.parse(JSON.parse(raw)) : EMPTY_DRAFT,
-      error: "",
-    };
-  } catch {
-    // Blocked storage or a draft of another shape: start empty and say so,
-    // since rows the lost draft recorded as saved are only found by the
-    // review's duplicate check.
-    return {
-      draft: EMPTY_DRAFT,
-      error:
-        "The saved setup draft could not be loaded. Rows it had already saved are skipped as duplicates in the review.",
-    };
-  }
+// Reads the live snapshot, not the one the wizard rendered with: the commit
+// asks for every row, long after the render that started it.
+function isOnRecord(aircraftUuid: string | undefined, key: string) {
+  const s = useWorkspace.getState().snapshot;
+  return !!s && !!aircraftUuid && recordedSetupKeys(s, aircraftUuid).has(key);
 }

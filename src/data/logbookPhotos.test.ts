@@ -37,23 +37,27 @@ function photo(over: Partial<PendingLogbookPhoto>): PendingLogbookPhoto {
   };
 }
 
-it("keys a photo by its record and file name", () => {
-  expect(pendingPhotoKey(LINK, "line.jpg")).toBe("f1:line.jpg");
+it("keys a photo by its record and its own id", () => {
+  expect(pendingPhotoKey(LINK, "p1")).toBe("f1:p1");
 });
 
 it("moves a photo to a replacing flight under that flight's key, clearing its refusal", () => {
-  const moved = relinkPendingPhoto(photo({ error: "Flight not found." }), {
-    uuid: "f2",
-    aircraftUuid: "b",
-  });
+  const moved = relinkPendingPhoto(
+    photo({ key: "f1:p1", error: "Flight not found." }),
+    { uuid: "f2", aircraftUuid: "b" },
+  );
   expect(moved).toMatchObject({
-    key: "f2:line.jpg",
+    key: "f2:p1",
     linkedKind: "flight",
     linkedUuid: "f2",
     aircraftUuid: "b",
     name: "line.jpg",
   });
   expect(moved.error).toBeUndefined();
+  // A photo queued under the earlier name key keeps its name as its id.
+  expect(
+    relinkPendingPhoto(photo({}), { uuid: "f2", aircraftUuid: "b" }).key,
+  ).toBe("f2:line.jpg");
 });
 
 it("filters the queue by author and by record", () => {

@@ -21,6 +21,7 @@ import { MAX_AUDIT_PAGE_SIZE } from "../domain/auditHistory";
 import { localDate, type AuditEntry, type Snapshot } from "../domain/model";
 import type { StatusSectionId } from "../domain/statusSheet";
 import {
+  assertRecordsExporter,
   buildRecordsPackage,
   planPackageFiles,
   recordsPackageName,
@@ -116,8 +117,9 @@ export interface RecordsPackageResult {
  *
  * @param request - The snapshot, aircraft, backend and progress callback.
  * @returns The ZIP as a Blob, its name, and the skipped files.
- * @throws {Rejection} "Aircraft not found." when the snapshot lacks the
- *   aircraft; what {@link buildRecordsPackage} throws.
+ * @throws {Rejection} As {@link assertRecordsExporter}, before anything is
+ *   read; "Aircraft not found." when the snapshot lacks the aircraft; what
+ *   {@link buildRecordsPackage} throws.
  * @throws {Error} The font loader's "Unable to load the PDF font…", or the
  *   backend's error while paging the change log.
  */
@@ -125,6 +127,7 @@ export async function exportRecordsPackage(
   request: RecordsPackageRequest,
 ): Promise<RecordsPackageResult> {
   const { snapshot, aircraftUuid, now = new Date() } = request;
+  assertRecordsExporter(snapshot, aircraftUuid);
   const progress = request.onProgress ?? (() => {});
   const today = localDate(now.getTime());
   progress("Loading the change log…");
@@ -168,6 +171,7 @@ async function loadChangeLog(
     return {
       entries: snapshot.audit.filter((a) => a.aircraftUuid === aircraftUuid),
       complete: false,
+      fromDevice: true,
     };
   const entries: AuditEntry[] = [];
   let cursor: string | null = null;
@@ -209,12 +213,16 @@ function toTable(section: RecordsSection): PdfTable {
 }
 
 // A printed "-" stands for an empty cell; in a CSV the cell is empty (toCsv
-// would otherwise quote the dash as text, since it can start a formula).
+// would otherwise quote the dash as text, since it can start a formula). A
+// warning is the first row, where someone opening the CSV alone sees it.
 function csv(section: RecordsSection): string {
   const cell = (value: string | undefined) =>
     value === undefined || value === "-" ? "" : value;
+  const rows = section.warning
+    ? [[section.warning], ...section.rows]
+    : section.rows;
   return toCsv(
-    section.rows.map((row) =>
+    rows.map((row) =>
       Object.fromEntries(section.columns.map((c, i) => [c, cell(row[i])])),
     ),
   );

@@ -23,6 +23,7 @@ import {
   planPackageFiles,
   recordsPackageName,
   recordsReadme,
+  type ChangeLogRows,
   type PackageFile,
   type RecordsSectionId,
 } from "./recordsPackage";
@@ -35,9 +36,13 @@ const HOUR = 3600;
 const DAY_MS = 86_400_000;
 const MB = 1024 * 1024;
 const AT = Date.parse("2026-06-01T12:00:00Z");
-const EMPTY_LOG = { entries: [], complete: true };
+const EMPTY_LOG: ChangeLogRows = { entries: [], complete: true };
 
-function build(s: Snapshot, uuid = s.aircraft[0].uuid, log = EMPTY_LOG) {
+function build(
+  s: Snapshot,
+  uuid = s.aircraft[0].uuid,
+  log: ChangeLogRows = EMPTY_LOG,
+) {
   return buildRecordsPackage(s, uuid, TODAY, log);
 }
 
@@ -197,13 +202,13 @@ describe("buildRecordsPackage", () => {
       flight(s, { aircraftUuid: s.aircraft[1].uuid }),
     ];
     const { rows, columns } = section(s, "flights");
-    expect(columns[0]).toBe("Date and time");
+    expect(columns[0]).toBe("Start (UTC)");
     expect(rows.map((r) => r[0])).toEqual([
-      "2026-05-01T10:00:00-05:00",
-      "2026-05-02T10:00:00-05:00",
+      "2026-05-01 15:00",
+      "2026-05-02 15:00",
     ]);
     expect(rows[0]).toEqual([
-      "2026-05-01T10:00:00-05:00",
+      "2026-05-01 15:00",
       "Alex Morgan",
       "KMIA - MYNN",
       "2341.2 / 2342.7",
@@ -462,7 +467,7 @@ describe("buildRecordsPackage", () => {
     expect(copies.rows.map((r) => [r[0], r[3], r[4]])).toEqual([
       [
         "Repair.pdf",
-        "Archived 2026-06-03 12:00 by Alex Morgan: Superseded",
+        "Archived 2026-06-03 12:00 UTC by Alex Morgan: Superseded",
         "form-337/archived/2026-06-01-Repair.pdf",
       ],
       ["Repair.pdf", "Current", "form-337/2026-06-02-Repair.pdf"],
@@ -475,6 +480,71 @@ describe("buildRecordsPackage", () => {
       ["form-337/2026-06-02-Repair (2).pdf", "Form 337 copy"],
     ]);
     expect(pkg.files[0].url).toBe("data:application/pdf;base64,old");
+  });
+
+  it("states every time in UTC under a labelled heading, file names too", () => {
+    const zone = process.env.TZ;
+    // West of Greenwich, where 02:00 UTC is still the evening before.
+    process.env.TZ = "America/Chicago";
+    try {
+      const s = demoSnapshot();
+      const evening = Date.parse("2026-11-01T02:00:00Z");
+      s.aircraftFiles = [form337(s, "copy", "337.pdf", evening)];
+      s.flights = [flight(s, { startTime: "2026-11-01T04:30:00.000Z" })];
+      const pkg = build(s);
+      const copies = pkg.sections.find((x) => x.id === "form337Copies")!;
+      expect(copies.columns[1]).toBe("Uploaded (UTC)");
+      expect(copies.rows[0].slice(1, 2)).toEqual(["2026-11-01 02:00"]);
+      expect(pkg.files[0].path).toBe("form-337/2026-11-01-337.pdf");
+      const flights = pkg.sections.find((x) => x.id === "flights")!;
+      expect(flights.rows[0][0]).toBe("2026-11-01 04:30");
+      const reports = pkg.sections.find((x) => x.id === "discrepancies")!;
+      expect([reports.columns[0], reports.columns[6]]).toEqual([
+        "Reported (UTC)",
+        "Resolved (UTC)",
+      ]);
+    } finally {
+      process.env.TZ = zone;
+    }
+  });
+
+  it("copies the current logbook page photos under logbook-photos/ and lists what each shows", () => {
+    const s = demoSnapshot();
+    const order = completedOrder(s);
+    s.flights = [flight(s, { uuid: "f1", startTime: "2026-05-01T15:00:00Z" })];
+    const photo = (uuid: string, link: object, uploadedAt: number) => ({
+      ...form337(s, uuid, "image.jpg", uploadedAt),
+      category: "logbook-page" as const,
+      type: "image/jpeg",
+      ...link,
+    });
+    const onFlight = { linkedKind: "flight", linkedUuid: "f1" } as const;
+    s.aircraftFiles = [
+      photo("w", { linkedKind: "work-order", linkedUuid: order.uuid }, AT + 1),
+      photo("f", onFlight, AT),
+      { ...photo("gone", onFlight, AT), archivedAt: AT + 2 },
+      { ...photo("other", onFlight, AT), aircraftUuid: s.aircraft[1].uuid },
+    ];
+    const pkg = build(s);
+    expect(pkg.files.map((f) => [f.path, f.description])).toEqual([
+      [
+        "logbook-photos/2026-06-01-image.jpg",
+        "Logbook page photo of the flight starting 2026-05-01 15:00 UTC",
+      ],
+      [
+        "logbook-photos/2026-06-01-image (2).jpg",
+        `Logbook page photo of work order ${order.number}`,
+      ],
+    ]);
+    const text = recordsReadme(pkg, { at: "x", by: "y" }, []);
+    expect(text).toContain(
+      `\nlogbook-photos/ - The current photos of signed logbook pages (a flight's line or a work order's signed page), named <upload date (UTC)>-<file name>:\n  logbook-photos/2026-06-01-image.jpg - Logbook page photo of the flight starting 2026-05-01 15:00 UTC.\n  logbook-photos/2026-06-01-image (2).jpg - Logbook page photo of work order ${order.number}.\n`,
+    );
+    // Photos share the size guard: one past the limit is skipped.
+    const plan = planPackageFiles(pkg.files, 2048);
+    expect(plan.skipped.map((x) => x.file.path)).toEqual([
+      "logbook-photos/2026-06-01-image (2).jpg",
+    ]);
   });
 
   it("copies this aircraft's work-order attachments under files/", () => {
@@ -574,11 +644,33 @@ describe("buildRecordsPackage", () => {
         '{"status":"accepted"}',
       ],
     ]);
-    const partial = buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, {
+    expect(full.warning).toBeUndefined();
+    const offline = buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, {
+      entries,
+      complete: false,
+      fromDevice: true,
+    }).sections.at(-1)!;
+    expect(offline.warning).toBe(
+      "Partial change log: 2 entries, only the recent changes kept on the exporting device, which was offline. Angel One holds the complete change log; export again while connected to include it.",
+    );
+    expect(offline.notes).toEqual([offline.warning]);
+    const capped = buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, {
       entries,
       complete: false,
     }).sections.at(-1)!;
-    expect(partial.notes[0]).toMatch(/^2 entries: only the recent changes/);
+    expect(capped.warning).toBe(
+      "Partial change log: the newest 2 entries. The change log is longer than one package reads, so older entries are not included.",
+    );
+  });
+
+  it("refuses a user without maintenance permission on the aircraft", () => {
+    const s = demoSnapshot();
+    s.user = s.members.find((m) => m.id === "demo-pilot")!;
+    expect(() => build(s)).toThrow(
+      new Rejection(
+        "Records packages are for users with maintenance permission on the aircraft.",
+      ),
+    );
   });
 });
 
@@ -657,5 +749,24 @@ describe("recordsReadme and recordsPackageName", () => {
     expect(skipped).toMatch(
       /SKIPPED FILES\nfiles\/a\.pdf - Work order WO-1 attachment: Could not be downloaded\.\n$/,
     );
+    expect(text).toContain("so the change log lists every change.\n");
+    expect(text).not.toContain("WARNINGS");
+  });
+
+  it("warns first, and beside the CSV, when the change log is partial", () => {
+    const s = demoSnapshot();
+    const pkg = build(s, s.aircraft[0].uuid, {
+      entries: [],
+      complete: false,
+      fromDevice: true,
+    });
+    const text = recordsReadme(pkg, { at: "x", by: "y" }, []);
+    expect(text).toContain(
+      "this package's copy of it is partial (see WARNINGS).\n\nWARNINGS\nPartial change log: 0 entries, only the recent changes kept on the exporting device",
+    );
+    expect(text).toContain(
+      "\nchange-log.csv - Change log (0 rows), partial: see WARNINGS.\n",
+    );
+    expect(text).not.toContain("so the change log lists every change");
   });
 });

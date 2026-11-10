@@ -2,7 +2,8 @@
  * Responsibility: Chooses what one aircraft's records package holds: the
  *   status sheet, flights, discrepancies, work orders, AD compliance,
  *   components, Form 337 copies and the change log as tables of text, the
- *   stored files to copy in (within a size limit), and the README.
+ *   stored files and logbook page photos to copy in (within a size limit),
+ *   and the README.
  * Layer: Domain. Pure functions; no I/O and no layout.
  * Dependencies: src/domain (statusSheet, model, auditHistory, logbook,
  *   adCompliance, adOwnership, components, aircraftFiles, flights, rejection,
@@ -20,7 +21,7 @@ import type {
   Flight,
   Snapshot,
 } from "./model";
-import { localDate } from "./model";
+import { can } from "./model";
 import { statusSheet, type StatusSectionId } from "./statusSheet";
 import { auditActionLabel } from "./auditHistory";
 import { logbookRecordText } from "./logbook";
@@ -42,6 +43,7 @@ const SECONDS_PER_HOUR = 3600;
 const BYTES_PER_KB = 1024;
 const MEGABYTE = 1024 * 1024;
 const NOT_TRACKED = "Not tracked";
+const LOGBOOK_PHOTOS = "logbook-photos";
 const REVIEW = "Review";
 
 /**
@@ -86,6 +88,11 @@ export interface RecordsSection {
   /** One cell per column; an empty table holds one placeholder row. */
   rows: string[][];
   notes: string[];
+  /**
+   * What a reader must know before trusting the rows, such as a partial
+   * change log: also in the notes, first in the CSV and in the README.
+   */
+  warning?: string;
 }
 
 /** A stored file the package copies in, fetched by its URL. */
@@ -94,7 +101,10 @@ export interface PackageFile {
   path: string;
   url: string;
   size: number;
-  /** What it is, for the README: "Form 337 copy", "Work order WO-… attachment". */
+  /**
+   * What it is, for the README: "Form 337 copy", "Work order WO-…
+   * attachment", "Logbook page photo of work order WO-…".
+   */
   description: string;
 }
 
@@ -108,6 +118,12 @@ export interface SkippedFile {
 export interface ChangeLogRows {
   entries: AuditEntry[];
   complete: boolean;
+  /**
+   * The entries are the recent ones kept on the device, read offline; an
+   * incomplete log without it was cut at the newest entries one package
+   * reads.
+   */
+  fromDevice?: boolean;
 }
 
 /** What one aircraft's records package holds, before files are fetched. */
@@ -135,10 +151,11 @@ export interface RecordsPackage {
  *   compliance entries by AD number in history order (corrections included),
  *   every component ever on the aircraft, their requirements, every Form 337
  *   copy (archived ones too) oldest upload first, and the change log oldest
- *   first; and the Form 337 copies then work-order attachments as files.
+ *   first; and the Form 337 copies, work-order attachments, then current
+ *   logbook page photos as files, each oldest upload first.
  *   A component whose usage cannot be computed reads "Review".
- * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft; what
- *   {@link statusSheet} throws.
+ * @throws {Rejection} "Aircraft not found." when `s` lacks the aircraft; as
+ *   {@link assertRecordsExporter}; what {@link statusSheet} throws.
  */
 export function buildRecordsPackage(
   s: Snapshot,
@@ -148,6 +165,7 @@ export function buildRecordsPackage(
 ): RecordsPackage {
   const a = s.aircraft.find((x) => x.uuid === aircraftUuid);
   if (!a) throw new Rejection("Aircraft not found.");
+  assertRecordsExporter(s, aircraftUuid);
   const status = statusSheet(s, aircraftUuid, today);
   const components = (s.management ?? []).filter(
     (c): c is Component => c.kind === "component" && c.aircraftUuid === a.uuid,
@@ -170,8 +188,30 @@ export function buildRecordsPackage(
       form337Section(s, a),
       changeLogSection(s, changeLog),
     ],
-    files: [...form337Files(s, a), ...attachmentFiles(s, orders)],
+    files: [
+      ...form337Files(s, a),
+      ...attachmentFiles(s, orders),
+      ...logbookPhotoFiles(s, a, orders),
+    ],
   };
+}
+
+/**
+ * Checks that the signed-in user may export the aircraft's records package:
+ * mechanics with maintenance permission on it, and program and system
+ * administrators. The package is assembled in the browser from records the
+ * user can already read, so this is where the rule holds.
+ *
+ * @param s - The exporter's snapshot.
+ * @param aircraftUuid - The aircraft.
+ * @throws {Rejection} "Records packages are for users with maintenance
+ *   permission on the aircraft." for anyone else.
+ */
+export function assertRecordsExporter(s: Snapshot, aircraftUuid: string) {
+  if (!can(s, aircraftUuid, "maintenance"))
+    throw new Rejection(
+      "Records packages are for users with maintenance permission on the aircraft.",
+    );
 }
 
 /**
@@ -221,8 +261,9 @@ export function recordsPackageName(registration: string, today: string) {
  * @param pkg - The package content.
  * @param generated - When it was generated, as text, and the user's name.
  * @param skipped - Files left out, with why; "None." when empty.
- * @returns Plain text: identity, purpose and the legal note, one line per
- *   file and folder, then the skipped files.
+ * @returns Plain text: identity, purpose and the legal note, a WARNINGS
+ *   block when a table is incomplete (such as a partial change log), one
+ *   line per file and folder, then the skipped files.
  */
 export function recordsReadme(
   pkg: RecordsPackage,
@@ -230,21 +271,29 @@ export function recordsReadme(
   skipped: SkippedFile[],
 ): string {
   const { aircraft } = pkg;
+  const warnings = pkg.sections.flatMap((x) => (x.warning ? [x.warning] : []));
   return [
     "ANGEL ONE RECORDS PACKAGE",
     `Aircraft: ${aircraft.registration} - ${aircraft.makeModel}, S/N ${aircraft.serial}`,
     `Flight Program: ${aircraft.program}`,
     `Generated: ${generated.at} by ${generated.by}`,
     "",
-    "The records Angel One holds for this aircraft, for inspection under 14 CFR 91.417(c) or transfer with the aircraft under 14 CFR 91.419. Angel One is the system of record for the six status records of 91.417(a)(2); the signed entries in the aircraft's logbooks remain the maintenance record. Values are as recorded when the package was generated. Corrections are appended in Angel One with a reason and never edited into history, so the change log lists every change.",
+    `The records Angel One holds for this aircraft, for inspection under 14 CFR 91.417(c) or transfer with the aircraft under 14 CFR 91.419. Angel One is the system of record for the six status records of 91.417(a)(2); the signed entries in the aircraft's logbooks remain the maintenance record. Values are as recorded when the package was generated. Corrections are appended in Angel One with a reason and never edited into history, so ${warnings.length ? "Angel One's change log lists every change; this package's copy of it is partial (see WARNINGS)." : "the change log lists every change."}`,
     "",
+    ...(warnings.length ? ["WARNINGS", ...warnings, ""] : []),
     "FILES",
     "records.pdf - Every table below as a printable document.",
-    ...pkg.sections.map((x) => `${x.file} - ${x.title} (${countRows(x)}).`),
-    "form-337/ - Copies of FAA Form 337 on the aircraft record, named <upload date>-<file name>; archived copies are under form-337/archived/.",
-    "files/ - Attachments of the aircraft's work orders, named <upload date>-<file name>.",
+    ...pkg.sections.map(
+      (x) =>
+        `${x.file} - ${x.title} (${countRows(x)})${x.warning ? ", partial: see WARNINGS" : ""}.`,
+    ),
+    "form-337/ - Copies of FAA Form 337 on the aircraft record, named <upload date (UTC)>-<file name>; archived copies are under form-337/archived/.",
+    "files/ - Attachments of the aircraft's work orders, named <upload date (UTC)>-<file name>.",
+    `${LOGBOOK_PHOTOS}/ - The current photos of signed logbook pages (a flight's line or a work order's signed page), named <upload date (UTC)>-<file name>:`,
+    ...listPhotos(pkg.files),
     "",
     "CSV files are UTF-8 with a byte-order mark; every cell is quoted, and text that a spreadsheet would run as a formula starts with an apostrophe.",
+    "Times, and the dates in file names, are UTC, as the column headings say; a date without a time (a work order's dates, a deferral, a due date) is the calendar date as recorded.",
     "",
     "SKIPPED FILES",
     ...(skipped.length
@@ -254,6 +303,15 @@ export function recordsReadme(
       : ["None."]),
     "",
   ].join("\n");
+}
+
+// One indented line per photo saying what it shows, since its file name
+// (often "image.jpg" from a phone) does not.
+function listPhotos(files: PackageFile[]): string[] {
+  const photos = files.filter((f) => f.path.startsWith(`${LOGBOOK_PHOTOS}/`));
+  return photos.length
+    ? photos.map((f) => `  ${f.path} - ${f.description}.`)
+    : ["  None."];
 }
 
 // A placeholder row is not a record.
@@ -279,9 +337,9 @@ function aircraftWorkOrders(s: Snapshot, a: Aircraft): WorkOrder[] {
 function flightsSection(s: Snapshot, a: Aircraft): RecordsSection {
   const flights = s.flights
     .filter((f) => f.aircraftUuid === a.uuid)
-    .sort((x, z) => x.startTime.localeCompare(z.startTime));
+    .sort((x, z) => Date.parse(x.startTime) - Date.parse(z.startTime));
   const columns = [
-    "Date and time",
+    "Start (UTC)",
     "Pilot",
     "Route",
     "Hobbs start / end",
@@ -315,7 +373,7 @@ function flightRow(s: Snapshot, f: Flight): string[] {
     ? `${flightStatusLabels[f.status]}: ${f.reviewReason}`
     : flightStatusLabels[f.status];
   return [
-    f.startTime,
+    formatStart(f.startTime),
     names.join(" / "),
     `${f.origin} - ${f.destination}`,
     `${formatHours(f.hobbsOff)} / ${formatHours(f.hobbsOn)}`,
@@ -357,13 +415,13 @@ function discrepanciesSection(s: Snapshot, a: Aircraft): RecordsSection {
     .filter((d) => d.aircraftUuid === a.uuid)
     .sort((x, z) => x.createdAt - z.createdAt);
   const columns = [
-    "Reported",
+    "Reported (UTC)",
     "Reported by",
     "Description",
     "Grounding",
     "Deferral",
     "Status",
-    "Resolved",
+    "Resolved (UTC)",
     "Resolved by",
     "Resolution",
   ];
@@ -677,7 +735,13 @@ function requirementState(
 
 function form337Section(s: Snapshot, a: Aircraft): RecordsSection {
   const copies = form337Copies(s, a);
-  const columns = ["Document", "Uploaded", "Size", "Status", "Package file"];
+  const columns = [
+    "Document",
+    "Uploaded (UTC)",
+    "Size",
+    "Status",
+    "Package file",
+  ];
   return {
     id: "form337Copies",
     title: "Form 337 copies on file",
@@ -700,7 +764,8 @@ function form337Section(s: Snapshot, a: Aircraft): RecordsSection {
 
 function describeCopyStatus(f: AircraftFile): string {
   if (isCurrentAircraftFile(f)) return "Current";
-  const when = f.archivedAt === undefined ? "" : ` ${formatUtc(f.archivedAt)}`;
+  const when =
+    f.archivedAt === undefined ? "" : ` ${formatUtc(f.archivedAt)} UTC`;
   return `Archived${when} by ${f.archivedBy?.name ?? "-"}: ${f.archiveReason ?? ""}`.trim();
 }
 
@@ -714,7 +779,7 @@ function form337Copies(s: Snapshot, a: Aircraft) {
       const folder = isCurrentAircraftFile(copy)
         ? "form-337"
         : "form-337/archived";
-      const name = `${localDate(copy.uploadedAt)}-${safeFileName(copy.name)}`;
+      const name = `${utcDate(copy.uploadedAt)}-${safeFileName(copy.name)}`;
       return { copy, path: `${folder}/${name}` };
     }),
   );
@@ -738,12 +803,52 @@ function attachmentFiles(s: Snapshot, orders: WorkOrder[]): PackageFile[] {
       .filter((f) => numbers.has(f.workOrderUuid))
       .sort((x, z) => x.uploadedAt - z.uploadedAt)
       .map((f) => ({
-        path: `files/${localDate(f.uploadedAt)}-${safeFileName(f.name)}`,
+        path: `files/${utcDate(f.uploadedAt)}-${safeFileName(f.name)}`,
         url: f.url,
         size: f.size,
         description: `Work order ${numbers.get(f.workOrderUuid) || "(no number)"} attachment`,
       })),
   );
+}
+
+// Archived photos stay on the record but are left out: the photo that
+// replaced one is what the record shows.
+function logbookPhotoFiles(
+  s: Snapshot,
+  a: Aircraft,
+  orders: WorkOrder[],
+): PackageFile[] {
+  return uniquePaths(
+    (s.aircraftFiles ?? [])
+      .filter(
+        (f) =>
+          f.aircraftUuid === a.uuid &&
+          f.category === "logbook-page" &&
+          isCurrentAircraftFile(f),
+      )
+      .sort((x, z) => x.uploadedAt - z.uploadedAt)
+      .map((f) => ({
+        path: `${LOGBOOK_PHOTOS}/${utcDate(f.uploadedAt)}-${safeFileName(f.name)}`,
+        url: f.url,
+        size: f.size,
+        description: describePhoto(s, f, orders),
+      })),
+  );
+}
+
+function describePhoto(
+  s: Snapshot,
+  photo: AircraftFile,
+  orders: WorkOrder[],
+): string {
+  if (photo.linkedKind === "work-order") {
+    const order = orders.find((w) => w.uuid === photo.linkedUuid);
+    return `Logbook page photo of work order ${order?.number || "(no number)"}`;
+  }
+  const flight = s.flights.find((f) => f.uuid === photo.linkedUuid);
+  return flight
+    ? `Logbook page photo of the flight starting ${formatStart(flight.startTime)} UTC`
+    : "Logbook page photo of a flight";
 }
 
 // Two uploads of one name on one day would overwrite each other in the ZIP.
@@ -773,6 +878,7 @@ function safeFileName(name: string): string {
 
 function changeLogSection(s: Snapshot, log: ChangeLogRows): RecordsSection {
   const entries = [...log.entries].sort((x, z) => x.at - z.at);
+  const warning = changeLogWarning(log, entries.length);
   const columns = [
     "When (UTC)",
     "Action",
@@ -798,12 +904,20 @@ function changeLogSection(s: Snapshot, log: ChangeLogRows): RecordsSection {
           e.after ?? "-",
         ])
       : [placeholder("No changes recorded", columns.length)],
-    notes: log.complete
-      ? [`${entries.length} entries; the change log is append-only.`]
-      : [
-          `${entries.length} entries: only the recent changes available on this device. Reconnect and export again for the complete change log.`,
-        ],
+    notes: [
+      warning ?? `${entries.length} entries; the change log is append-only.`,
+    ],
+    warning,
   };
+}
+
+// Says plainly what an incomplete change log leaves out, and what to do.
+function changeLogWarning(log: ChangeLogRows, count: number) {
+  if (log.complete) return undefined;
+  const entries = `${count} ${count === 1 ? "entry" : "entries"}`;
+  if (log.fromDevice)
+    return `Partial change log: ${entries}, only the recent changes kept on the exporting device, which was offline. Angel One holds the complete change log; export again while connected to include it.`;
+  return `Partial change log: the newest ${entries}. The change log is longer than one package reads, so older entries are not included.`;
 }
 
 function memberName(s: Snapshot, id: string): string {
@@ -816,6 +930,19 @@ function placeholder(text: string, columns: number): string[] {
 
 function formatHours(seconds: number | null | undefined): string {
   return seconds == null ? "-" : (seconds / SECONDS_PER_HOUR).toFixed(1);
+}
+
+// The package states every moment in UTC, labelled, as the change log does,
+// so a file's name, its upload time and a flight's start agree on the day
+// wherever the package is read.
+function utcDate(ms: number): string {
+  return formatUtc(ms).slice(0, "YYYY-MM-DD".length);
+}
+
+// A start time that does not parse is printed as stored rather than lost.
+function formatStart(startTime: string): string {
+  const ms = Date.parse(startTime);
+  return Number.isNaN(ms) ? startTime : formatUtc(ms);
 }
 
 function formatUtc(ms: number): string {

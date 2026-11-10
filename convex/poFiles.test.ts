@@ -138,6 +138,14 @@ it("checks the file first, then the administrator, the order's program and the r
         }),
     ],
     [
+      "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+      () =>
+        reader.action(api.poFiles.upload, {
+          ...upload,
+          bytes: new TextEncoder().encode("<html></html>").buffer,
+        }),
+    ],
+    [
       "Inventory administrator access required.",
       () => reader.action(api.poFiles.upload, upload),
     ],

@@ -7,7 +7,7 @@
  *   a flight's logbook line photo.
  * Dependencies: convex/programContext, convex/access, convex/attachments,
  *   convex/userErrors, src/domain/aircraftFiles, src/domain/model,
- *   convex/values.
+ *   src/domain/inventoryAttachments, convex/values.
  *
  * Form 337 copies are permanent status records (14 CFR 91.417(a)(2)(vi);
  * ADR-0004) and a logbook page photo points at the signed paper record, so
@@ -30,6 +30,7 @@ import { audit } from "./access";
 import { storeThenFinish } from "./attachments";
 import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
+import { assertFileContents } from "../src/domain/inventoryAttachments";
 import {
   aircraftFileArchive,
   assertAircraftFileLink,
@@ -167,7 +168,9 @@ export const finishUpload = internalMutation({
  * @param bytes - The file, at most 7 MB.
  * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file.",
  *   "Attachments must be between 1 byte and 7 MB." or, for a photo, the HEIC
- *   refusal, checked first; the {@link finishUpload} refusals, after which
+ *   refusal, checked first; then "This file's contents do not match its
+ *   type. Choose a PDF, JPEG, PNG or WebP file." when the first bytes are
+ *   not the declared type's; the {@link finishUpload} refusals, after which
  *   the stored file is deleted.
  */
 export const upload = action({
@@ -178,14 +181,15 @@ export const upload = action({
     bytes: v.bytes(),
   },
   handler: async (ctx, args): Promise<void> => {
-    exposeRejections(() =>
+    exposeRejections(() => {
       validateAircraftUpload(
         args.category,
         args.name,
         args.type,
         args.bytes.byteLength,
-      ),
-    );
+      );
+      assertFileContents(args.type, args.bytes);
+    });
     const { name, type, bytes, ...scope } = args;
     await ctx.runQuery(internal.aircraftFiles.checkUpload, scope);
     await storeThenFinish(ctx, args, (storageId) =>

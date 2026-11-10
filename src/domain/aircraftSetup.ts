@@ -128,6 +128,10 @@ export interface ParsedSetup {
 /**
  * One command the commit step will send: the row it came from (`key`,
  * `label`), what it saves in a phrase (`detail`), and the command.
+ *
+ * `key` is the row's identity, "inspection-name:<name>" or
+ * "ad-number:<number>" ignoring case and spacing: the same record keeps its
+ * key when the file is edited, reordered or replaced.
  */
 export type SetupAction =
   | {
@@ -147,7 +151,8 @@ export type SetupAction =
 
 /**
  * What the wizard keeps in this browser between visits: both template texts
- * and the rows a commit has already saved.
+ * and the keys of the rows a commit has already saved. Keys of the retired
+ * row-number form ("inspection:3") match no row and are ignored.
  *
  * @throws {z.ZodError} From `parse()` on a stored draft of another shape.
  */
@@ -176,6 +181,11 @@ export interface SetupPlan {
   actions: SetupAction[];
   skipped: SkippedRow[];
   warnings: string[];
+  /**
+   * Values the commit saves exactly as written although they look altered;
+   * the administrator must confirm them before the commit starts.
+   */
+  confirmations: string[];
   errors: string[];
 }
 
@@ -206,6 +216,10 @@ export const SETUP_AD_SOURCE = "Aircraft setup";
 
 const TEXT_MAX_LENGTH = 2000;
 const AD_NUMBER_MAX_LENGTH = 100;
+// FAA AD numbers after adNumber(): year (four digits, two before 2000),
+// biweekly period and sequence, with an optional revision ("2011-10-09R1").
+// A spreadsheet rewrites the date-shaped ones ("10/9/2011").
+const FAA_AD_NUMBER = /^(?:\d{2}|\d{4})-\d{2}-\d{2}(?:R\d+)?$/;
 const YES = new Set(["yes", "y", "true", "1"]);
 const NO = new Set(["no", "n", "false", "0"]);
 
@@ -313,14 +327,17 @@ export function parseAdSetupCsv(csv: string): AdSetupRow[] {
  * @param s - The aircraft and its records.
  * @param aircraftUuid - The aircraft being set up.
  * @param parsed - The template rows.
- * @param options.done - Row keys already saved by this setup; they are
- *   skipped, so a resumed commit sends only what is left.
+ * @param options.done - Keys ({@link SetupAction}) of the rows this setup
+ *   has already saved; they are skipped, so a resumed commit sends only what
+ *   is left.
  * @param options.now - The clock, for future-date checks.
  * @returns The plan. `errors` names rows the appliers would refuse (an
  *   interval without its last-done value, last-done above current totals, a
  *   future date, a duplicate within the file); `warnings` names what is saved
  *   but worth a look (missing baseline, limits already passed, an AD with no
- *   due limit); `skipped` lists rows already on record or already saved.
+ *   due limit); `confirmations` names AD numbers not in the FAA form;
+ *   `skipped` lists every row that is not saved, with the reason: already on
+ *   the aircraft ({@link recordedSetupKeys}) or already saved by this setup.
  */
 export function planAircraftSetup(
   s: Snapshot,
@@ -332,6 +349,7 @@ export function planAircraftSetup(
     actions: [],
     skipped: [],
     warnings: [],
+    confirmations: [],
     errors: [],
   };
   const aircraft = s.aircraft.find((a) => a.uuid === aircraftUuid);
@@ -346,6 +364,7 @@ export function planAircraftSetup(
     today: latestLocalDate(options.now),
     localToday: localDate(options.now),
     done: new Set(options.done ?? []),
+    recorded: recordedSetupKeys(s, aircraftUuid),
     plan,
   };
   if (!ctx.totalSeconds)
@@ -355,6 +374,29 @@ export function planAircraftSetup(
   planInspections(ctx, parsed.inspections);
   planAds(ctx, parsed.ads);
   return plan;
+}
+
+/**
+ * The {@link SetupAction} keys of what an aircraft already holds: its active
+ * inspections by name and its airframe ADs by number. A row with one of these
+ * keys would duplicate a record, so the plan skips it and the commit checks
+ * again just before sending it.
+ *
+ * @param s - The snapshot.
+ * @param aircraftUuid - The aircraft.
+ * @returns The keys; empty for an aircraft without such records.
+ */
+export function recordedSetupKeys(
+  s: Snapshot,
+  aircraftUuid: string,
+): Set<string> {
+  const inspections = s.inspections
+    .filter((i) => i.aircraftUuid === aircraftUuid && !i.archived)
+    .map((i) => inspectionKey(i.description));
+  const ads = (s.airworthiness ?? [])
+    .filter((r) => r.aircraftUuid === aircraftUuid && !r.componentUuid)
+    .map((r) => adKey(r.source.number));
+  return new Set([...inspections, ...ads]);
 }
 
 /**
@@ -409,6 +451,7 @@ interface PlanContext {
   today: string;
   localToday: string;
   done: Set<string>;
+  recorded: Set<string>;
   plan: SetupPlan;
 }
 
@@ -419,6 +462,9 @@ const norm = (h: string) =>
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
+
+const inspectionKey = (name: string) => `inspection-name:${norm(name)}`;
+const adKey = (number: string) => `ad-number:${adNumber(number)}`;
 
 function readTemplate<T>(
   csv: string,
@@ -480,23 +526,22 @@ function readYesNo(value: string, column: string, optional = false) {
 
 function planInspections(ctx: PlanContext, rows: InspectionSetupRow[]) {
   const seen = new Set<string>();
-  const existing = new Set(
-    ctx.s.inspections
-      .filter((i) => i.aircraftUuid === ctx.aircraft.uuid && !i.archived)
-      .map((i) => norm(i.description)),
-  );
   for (const r of rows) {
-    const key = `inspection:${r.row}`;
+    const key = inspectionKey(r.name);
     const where = `Row ${r.row} (${r.name})`;
-    if (seen.has(norm(r.name))) {
+    if (seen.has(key)) {
       ctx.plan.errors.push(`${where}: the name appears twice in the file.`);
       continue;
     }
-    seen.add(norm(r.name));
-    if (ctx.done.has(key))
-      ctx.plan.skipped.push(skippedRow("inspections", key, r.name, DONE));
-    else if (existing.has(norm(r.name)))
-      ctx.plan.skipped.push(skippedRow("inspections", key, r.name, ON_RECORD));
+    seen.add(key);
+    const reason = skipReason(ctx, key, INSPECTION_ON_RECORD);
+    if (reason)
+      ctx.plan.skipped.push({
+        step: "inspections",
+        key,
+        label: r.name,
+        reason,
+      });
     else if (checkInspection(ctx, r, where))
       ctx.plan.actions.push({
         step: "inspections",
@@ -508,16 +553,17 @@ function planInspections(ctx: PlanContext, rows: InspectionSetupRow[]) {
   }
 }
 
-const DONE = "Already saved by this setup";
-const ON_RECORD = "Already on record for this aircraft";
+const DONE =
+  "This setup saved it earlier, so it is not saved again; later changes to the row are not applied.";
+const INSPECTION_ON_RECORD =
+  "An inspection with this name is already on the aircraft, so the row is not saved and the existing inspection is not changed.";
+const AD_ON_RECORD =
+  "This AD is already tracked on the aircraft, so the row is not saved and the existing record is not changed.";
 
-function skippedRow(
-  step: SkippedRow["step"],
-  key: string,
-  label: string,
-  reason: string,
-): SkippedRow {
-  return { step, key, label, reason };
+// Why a row is not saved, or "" when it is new to the aircraft.
+function skipReason(ctx: PlanContext, key: string, onRecord: string): string {
+  if (ctx.done.has(key)) return DONE;
+  return ctx.recorded.has(key) ? onRecord : "";
 }
 
 // Mirrors assertInspectionLimits so the file is fixed before the commit.
@@ -638,34 +684,37 @@ function inspectionCommand(
 
 function planAds(ctx: PlanContext, rows: AdSetupRow[]) {
   const seen = new Set<string>();
-  const existing = new Set(
-    (ctx.s.airworthiness ?? [])
-      .filter((r) => r.aircraftUuid === ctx.aircraft.uuid && !r.componentUuid)
-      .map((r) => adNumber(r.source.number)),
-  );
   for (const r of rows) {
-    const key = `ad:${r.row}`;
+    const key = adKey(r.number);
     const where = `Row ${r.row} (AD ${r.number})`;
-    if (seen.has(adNumber(r.number))) {
+    if (seen.has(key)) {
       ctx.plan.errors.push(
         `${where}: the AD number appears twice in the file.`,
       );
       continue;
     }
-    seen.add(adNumber(r.number));
-    if (ctx.done.has(key))
-      ctx.plan.skipped.push(skippedRow("ads", key, r.number, DONE));
-    else if (existing.has(adNumber(r.number)))
-      ctx.plan.skipped.push(skippedRow("ads", key, r.number, ON_RECORD));
-    else if (checkAd(ctx, r, where))
-      ctx.plan.actions.push({
-        step: "ads",
-        key,
-        label: r.number,
-        detail: adDetail(r),
-        command: adCommand(ctx.aircraft.uuid, r),
-      });
+    seen.add(key);
+    const reason = skipReason(ctx, key, AD_ON_RECORD);
+    if (reason)
+      ctx.plan.skipped.push({ step: "ads", key, label: r.number, reason });
+    else if (checkAd(ctx, r, where)) planAd(ctx, r, key, where);
   }
+}
+
+function planAd(ctx: PlanContext, r: AdSetupRow, key: string, where: string) {
+  // The number is the AD's identity for every later duplicate check and FAA
+  // match, so one a spreadsheet rewrote is never corrected by guessing.
+  if (!FAA_AD_NUMBER.test(adNumber(r.number)))
+    ctx.plan.confirmations.push(
+      `${where}: the AD number is not in the form 2011-10-09 or 98-05-14 (a spreadsheet may have rewritten it as a date). It is saved exactly as written.`,
+    );
+  ctx.plan.actions.push({
+    step: "ads",
+    key,
+    label: r.number,
+    detail: adDetail(r),
+    command: adCommand(ctx.aircraft.uuid, r),
+  });
 }
 
 // Mirrors assertApplicabilityDecision for the PCW and Applicable cases.

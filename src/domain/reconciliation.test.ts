@@ -2,10 +2,12 @@
  * Responsibility: Pins the paper check: which flights and work orders a month
  *   lists and in what order, the readings, oil, status and photo columns,
  *   the totals over accepted flights, the empty month, and the CSV records.
- * Layer: Test. Vitest suite; never shipped in the build.
+ * Layer: Test. Vitest suite (Node, for a fixed time zone); never shipped in
+ *   the build.
  * Dependencies: src/domain/reconciliation.ts, src/data/demo.ts, src/domain
  *   (model, aircraftFiles, workOrders types), tests/fixtures/workOrders.
  */
+// @vitest-environment node
 import { expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { Flight, Snapshot } from "./model";
@@ -22,6 +24,14 @@ import {
 import { Rejection } from "./rejection";
 
 const HOUR = 3600;
+// West of Greenwich, where an evening flight starts on the next UTC day.
+process.env.TZ = "America/Chicago";
+
+// A start time as the flight forms store it: the local wall time as a UTC
+// instant ("…Z"), never an offset.
+function startAt(month: number, day: number, hour: number, minute = 0) {
+  return new Date(2026, month - 1, day, hour, minute).toISOString();
+}
 
 function flight(aircraftUuid: string, over: Partial<Flight>): Flight {
   return {
@@ -31,7 +41,7 @@ function flight(aircraftUuid: string, over: Partial<Flight>): Flight {
     pilotId: "demo-pilot",
     submittedAt: 1,
     status: "accepted",
-    startTime: "2026-03-04T10:00:00-07:00",
+    startTime: startAt(3, 4, 10),
     hobbsOff: 100 * HOUR,
     hobbsOn: 101 * HOUR,
     landings: 2,
@@ -83,7 +93,7 @@ function month(): Snapshot {
   expect(a.meter).toBe("hobbs");
   const late = flight(a.uuid, {
     uuid: "late",
-    startTime: "2026-03-28T09:00:00-07:00",
+    startTime: startAt(3, 28, 9),
     hobbsOff: 101 * HOUR,
     hobbsOn: 102.5 * HOUR,
     landings: 1,
@@ -91,32 +101,32 @@ function month(): Snapshot {
   });
   const early = flight(a.uuid, {
     uuid: "early",
-    startTime: "2026-03-04T10:00:00-07:00",
+    startTime: startAt(3, 4, 10),
   });
   const held = flight(a.uuid, {
     uuid: "held",
     status: "review",
-    startTime: "2026-03-10T10:00:00-07:00",
+    startTime: startAt(3, 10, 10),
     hobbsOff: undefined,
     landings: 5,
   });
   const rejected = flight(a.uuid, {
     uuid: "rejected",
     status: "rejected",
-    startTime: "2026-03-12T10:00:00-07:00",
+    startTime: startAt(3, 12, 10),
     landings: 7,
   });
-  // Started in March UTC but on 31 March local time: on March's paper page.
+  // Stored as 1 April 04:30 UTC, flown at 23:30 on 31 March: on March's page.
   const edge = flight(a.uuid, {
     uuid: "edge",
-    startTime: "2026-03-31T23:30:00-07:00",
+    startTime: startAt(3, 31, 23, 30),
     hobbsOff: 102.5 * HOUR,
     hobbsOn: 103 * HOUR,
     landings: 1,
   });
   const april = flight(a.uuid, {
     uuid: "april",
-    startTime: "2026-04-01T08:00:00-07:00",
+    startTime: startAt(4, 1, 8),
   });
   const other = flight(s.aircraft[1].uuid, { uuid: "other" });
   s.flights = [late, april, early, other, held, rejected, edge];
@@ -193,6 +203,10 @@ it("lists the month's flights earliest first with the paper line's readings, oil
   });
   // Held and rejected flights change no totals.
   expect(check.totals).toEqual({ flights: 3, hours: "3.0", landings: 4 });
+  // The 23:30 flight is on March's page only, although its stored UTC date
+  // is 1 April.
+  const april = paperCheck(s, s.aircraft[0].uuid, "2026-04");
+  expect(april.flights.map((r) => r.date)).toEqual(["2026-04-01"]);
 });
 
 it("lists the month's completed work orders by completion date with who signed and the page photo", () => {

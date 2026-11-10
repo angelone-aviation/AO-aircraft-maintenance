@@ -1,6 +1,6 @@
 /**
- * Responsibility: Pins the inventory attachment file rule and who may manage
- *   an item's attachments.
+ * Responsibility: Pins the inventory attachment file rule, the check of a
+ *   file's first bytes, and who may manage an item's attachments.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/inventoryAttachments.ts, rejection.ts,
  *   src/data/demo.ts (fixture).
@@ -9,11 +9,51 @@ import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
   MAX_ACTION_FILE_BYTES,
+  assertFileContents,
   inventoryAttachmentAccess,
   validateInventoryFile,
 } from "./inventoryAttachments";
 import { Rejection } from "./rejection";
 import type { Stock } from "./management";
+
+describe("attachment contents", () => {
+  const bytes = (...values: (number | string)[]) =>
+    new Uint8Array(
+      values.flatMap((v) =>
+        typeof v === "string" ? [...new TextEncoder().encode(v)] : [v],
+      ),
+    ).buffer;
+  const matches = (type: string, file: ArrayBuffer) => {
+    try {
+      assertFileContents(type, file);
+      return true;
+    } catch (e) {
+      expect(e).toBeInstanceOf(Rejection);
+      return false;
+    }
+  };
+
+  it("accepts each type's own first bytes and refuses the others", () => {
+    const files = {
+      "application/pdf": bytes("%PDF-1.7"),
+      "image/jpeg": bytes(0xff, 0xd8, 0xff, 0xe1),
+      "image/png": bytes(0x89, "PNG", 0x0d, 0x0a, 0x1a, 0x0a, 0),
+      "image/webp": bytes("RIFF", 1, 2, 3, 4, "WEBPVP8 "),
+    };
+    for (const type of Object.keys(files))
+      expect(
+        Object.entries(files).map(([, file]) => matches(type, file)),
+      ).toEqual(Object.keys(files).map((t) => t === type));
+  });
+
+  it("refuses a file too short to tell, a RIFF that is not WebP and an unknown type", () => {
+    expect(matches("image/jpeg", bytes(0xff, 0xd8))).toBe(false);
+    expect(matches("image/webp", bytes("RIFF", 1, 2, 3, 4, "WAVE"))).toBe(
+      false,
+    );
+    expect(matches("image/svg+xml", bytes("<svg"))).toBe(false);
+  });
+});
 
 describe("attachment files", () => {
   it("accepts each type with its extension in any case, up to 7 MiB", () => {

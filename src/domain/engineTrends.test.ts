@@ -95,6 +95,32 @@ describe("engine log format detection", () => {
       undefined,
     ]);
   });
+  it("reads unit marks left to right, keeping an unclosed bracket as text", () => {
+    expect(
+      ["CHT1 (deg (F))", "CHT1 [F] °C", "CHT1 (", "CHT1 (F", "EGT1 [x"].map(
+        channelForHeader,
+      ),
+    ).toEqual(["CHT1", "CHT1", "CHT1", undefined, undefined]);
+  });
+  it("reads no channel from a header cell over 240 characters", () => {
+    const padded = (length: number) => "CHT1".padEnd(length, " ");
+    expect([padded(240), padded(241)].map(channelForHeader)).toEqual([
+      "CHT1",
+      undefined,
+    ]);
+  });
+  it("answers a header of unclosed brackets at once", () => {
+    // One cell of 200,000 "(" took 16 s when each bracket rescanned the cell.
+    const budgetMs = 1000;
+    for (const open of ["(", "["]) {
+      const started = performance.now();
+      const text = `${open.repeat(200_000)},Date\n1,2\n`;
+      expect(() => parseEngineLog(text, "x.csv")).toThrow(
+        "Unrecognized engine data file",
+      );
+      expect(performance.now() - started).toBeLessThan(budgetMs);
+    }
+  });
   it("rejects files without engine channels", () => {
     expect(() =>
       parseEngineLog("Date,Time,Altitude\n2026-01-01,10:00:00,5000", "x.csv"),

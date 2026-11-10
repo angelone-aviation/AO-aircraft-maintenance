@@ -27,7 +27,8 @@ function marchFlight(s: Snapshot): Flight {
     pilotId: "demo-pilot",
     submittedAt: 1,
     status: "accepted",
-    startTime: "2026-03-04T10:00:00-07:00",
+    // The local wall time as a UTC instant, as the flight forms store it.
+    startTime: new Date(2026, 2, 4, 10).toISOString(),
     hobbsOff: 100 * HOUR,
     hobbsOn: 101.5 * HOUR,
     landings: 2,

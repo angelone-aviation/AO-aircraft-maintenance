@@ -200,6 +200,12 @@ it("checks the file before access, and deletes the stored file when filing is re
     }),
   ).rejects.toThrow("Choose a PDF, JPEG, PNG or WebP file.");
   await expect(
+    reader.action(api.inventoryFiles.upload, {
+      ...upload,
+      bytes: new TextEncoder().encode("<html></html>").buffer,
+    }),
+  ).rejects.toThrow("This file's contents do not match its type.");
+  await expect(
     admin.action(api.inventoryFiles.upload, { ...upload, stockUuid: "gone" }),
   ).rejects.toThrow("Inventory administrator access to this item is required.");
   const blobs = () => t.run((ctx) => ctx.db.system.query("_storage").collect());

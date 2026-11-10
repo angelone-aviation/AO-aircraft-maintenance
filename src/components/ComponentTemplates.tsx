@@ -5,7 +5,7 @@
  * Layer: UI. React components; template rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts,
  *   src/data/backend.ts (types), src/domain (model, programs, components,
- *   componentTemplates, csv), ./Components, ./ui.
+ *   componentTemplates, csv, maintenanceCsv), ./Components, ./ui.
  */
 import { Link } from "@tanstack/react-router";
 import { Fragment, useState } from "react";
@@ -24,6 +24,7 @@ import {
   type ComponentSetup,
 } from "../domain/componentTemplates";
 import { toCsv } from "../domain/csv";
+import { decodeCsvFile } from "../domain/maintenanceCsv";
 import { type Component } from "../domain/components";
 import { ComponentForm } from "./Components";
 import {
@@ -439,7 +440,7 @@ async function importCsv(
     return;
   }
   try {
-    const text = await file.text();
+    const text = decodeCsvFile(await file.arrayBuffer());
     parseComponentTemplateCsv(text);
     onCsv(text);
     onError("");

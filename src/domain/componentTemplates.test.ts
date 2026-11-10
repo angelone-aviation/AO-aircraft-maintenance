@@ -105,13 +105,13 @@ it("scopes templates and setup recommendations to the active program and aircraf
   expect(scoped.componentTemplates).toHaveLength(1);
   expect(scoped.componentSetups).toHaveLength(2);
 });
-it("reads columns in any order and case, numbers rows without an ID, and names the failing row", () => {
+it("reads columns in any order and case, gives rows without an ID one made from their content, and names the failing row", () => {
   const rows = parseComponentTemplateCsv(
     '\uFEFF"component  NAME",Part Number,COMPONENT TYPE,ata chapter\nPump,P-1,Appliance,\nFan,F-1,Appliance,',
   );
   expect(rows.map((r) => [r.id, r.model, r.partNumber])).toEqual([
-    ["1", "Pump", "P-1"],
-    ["2", "Fan", "F-1"],
+    ["auto-767a0c41b5426ee8", "Pump", "P-1"],
+    ["auto-7a4b9f2aad39253b", "Fan", "F-1"],
   ]);
   const refused = () =>
     parseComponentTemplateCsv(csv.replace("Appliance,72", "Gizmo,72"));
@@ -278,4 +278,70 @@ it("keeps a setup pending until a component has its uuid, and a child until its 
     expect(setupParentReady(s, blade)).toBe(expected);
   }
   expect(pendingComponentSetups(s)).toEqual([blade]);
+});
+
+const BARE_HEADER = "Component type,ATA chapter,Part number,Component Name";
+const BARE_ROWS = [
+  "Engine,72,IO-520-F,Engine",
+  "Propeller,61,D3A34C401,Propeller",
+];
+const idsOf = (lines: string[]) =>
+  Object.fromEntries(
+    parseComponentTemplateCsv([BARE_HEADER, ...lines].join("\n")).map((r) => [
+      r.model,
+      r.id,
+    ]),
+  );
+
+it("keeps a row's generated ID when rows are added above it, reordered, or respaced", () => {
+  const first = idsOf(BARE_ROWS);
+  const edited = idsOf([
+    "Appliance,74,10-500556-101,Left magneto",
+    BARE_ROWS[1],
+    "Engine , 72 ,io-520-f,  ENGINE ",
+  ]);
+  expect(edited.Propeller).toBe(first.Propeller);
+  expect(edited["ENGINE"]).toBe(first.Engine);
+  expect(new Set(Object.values(edited)).size).toBe(3);
+  // An explicit ID always wins, and rows of the same content stay distinct.
+  const twins = parseComponentTemplateCsv(
+    `${BARE_HEADER},ID\n${BARE_ROWS[0]},\n${BARE_ROWS[0]},\n${BARE_ROWS[0]},mine`,
+  ).map((r) => r.id);
+  expect(twins).toEqual([first.Engine, `${first.Engine}-2`, "mine"]);
+});
+it("recommends a row added to a template without IDs when it is applied again", () => {
+  const s = demoSnapshot();
+  const a = s.aircraft[0];
+  const save = (version: number, uuid: string, lines: string[]) =>
+    saveComponentTemplate(s, {
+      uuid,
+      version,
+      name: "C206 components",
+      make: a.make,
+      model: a.model,
+      rows: parseComponentTemplateCsv([BARE_HEADER, ...lines].join("\n")),
+    });
+  const apply = (t: { uuid: string; version: number }, rowIds: string[]) =>
+    applyComponentTemplate(s, {
+      templateUuid: t.uuid,
+      version: t.version,
+      aircraftUuid: a.uuid,
+      rowIds,
+    });
+  const t = save(0, crypto.randomUUID(), BARE_ROWS);
+  expect(
+    apply(
+      t,
+      t.rows.map((r) => r.id),
+    ),
+  ).toHaveLength(2);
+  const edited = save(t.version, t.uuid, [
+    "Appliance,74,10-500556-101,Left magneto",
+    ...BARE_ROWS,
+  ]);
+  const added = apply(
+    edited,
+    edited.rows.map((r) => r.id),
+  );
+  expect(added.map((d) => d.row.model)).toEqual(["Left magneto"]);
 });
