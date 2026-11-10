@@ -338,9 +338,9 @@ it("moves a failed flight's waiting photos to the flight that replaces it", asyn
   );
   const edited = demoFlight(a.uuid, 1, a.currentHobbs + 3600, 0);
   await workspace.getState().replace(failed.uuid, edited);
-  expect(workspace.getState().pendingPhotos).toMatchObject([
-    { key: `${edited.uuid}:line.jpg`, linkedUuid: edited.uuid },
-  ]);
+  const [moved] = workspace.getState().pendingPhotos;
+  expect(moved).toMatchObject({ name: "line.jpg", linkedUuid: edited.uuid });
+  expect(moved.key).toMatch(new RegExp(`^${edited.uuid}:`));
   expect(await readPendingPhotos(namespace)).toHaveLength(1);
   vi.unstubAllGlobals();
 });
@@ -925,17 +925,24 @@ it("keeps a logbook photo on the device until its flight has synced, then upload
       }),
     ),
   ).rejects.toThrow("HEIC photos are not accepted.");
+  // A phone names every camera capture alike: the facing page has the same
+  // name as the first line but is a different photo, and both are kept.
+  const facing = new File([new Uint8Array([255, 216, 9])], "line.jpg", {
+    type: "image/jpeg",
+  });
   await workspace.getState().attachLogbookPhoto(target, page);
-  await workspace.getState().attachLogbookPhoto(target, page);
-  expect(workspace.getState().pendingPhotos).toMatchObject([
-    { key: `${flightUuid}:line.jpg`, authorId: s.user.id, programUuid: "A" },
-  ]);
+  await workspace.getState().attachLogbookPhoto(target, facing);
+  const queued = workspace.getState().pendingPhotos;
+  expect(queued.map((p) => p.size).sort()).toEqual([2, 3]);
+  expect(queued[0]).toMatchObject({ authorId: s.user.id, programUuid: "A" });
+  expect(queued[0].key).toMatch(new RegExp(`^${flightUuid}:`));
+  expect(queued[0].key).not.toBe(queued[1].key);
   expect(uploadAircraftFile).not.toHaveBeenCalled();
   // Connected, but the server does not know the flight yet.
   workspace.getState().setConnection(true, true);
   await workspace.getState().flush();
   expect(uploadAircraftFile).not.toHaveBeenCalled();
-  expect(await readPendingPhotos(namespace)).toHaveLength(1);
+  expect(await readPendingPhotos(namespace)).toHaveLength(2);
   const flight: Flight = {
     uuid: flightUuid,
     aircraftUuid,
@@ -958,20 +965,26 @@ it("keeps a logbook photo on the device until its flight has synced, then upload
   await vi.waitFor(() =>
     expect(workspace.getState().pendingPhotos).toEqual([]),
   );
-  expect(uploadAircraftFile).toHaveBeenCalledOnce();
-  const [calledAircraft, category, file, link] = uploadAircraftFile.mock
-    .calls[0] as [string, string, File, object];
-  expect([calledAircraft, category, file.name, file.type, link]).toEqual([
-    aircraftUuid,
-    "logbook-page",
-    "line.jpg",
-    "image/jpeg",
-    { linkedKind: "flight", linkedUuid: flightUuid },
-  ]);
+  expect(uploadAircraftFile).toHaveBeenCalledTimes(2);
+  const calls = uploadAircraftFile.mock.calls as [
+    string,
+    string,
+    File,
+    object,
+  ][];
+  for (const [calledAircraft, category, file, link] of calls)
+    expect([calledAircraft, category, file.name, file.type, link]).toEqual([
+      aircraftUuid,
+      "logbook-page",
+      "line.jpg",
+      "image/jpeg",
+      { linkedKind: "flight", linkedUuid: flightUuid },
+    ]);
+  expect(calls.map(([, , file]) => file.size).sort()).toEqual([2, 3]);
   expect(await readPendingPhotos(namespace)).toEqual([]);
   // With the flight synced and a connection, a photo uploads at once.
   await workspace.getState().attachLogbookPhoto(target, page);
-  expect(uploadAircraftFile).toHaveBeenCalledTimes(2);
+  expect(uploadAircraftFile).toHaveBeenCalledTimes(3);
   expect(workspace.getState().pendingPhotos).toEqual([]);
   vi.unstubAllGlobals();
 });
@@ -1044,7 +1057,8 @@ it("holds a refused photo for attention, retries it on request and discards it",
   expect(workspace.getState().pendingPhotos.map((p) => p.name)).toEqual([
     "orphan.jpg",
   ]);
-  await workspace.getState().discardPhoto(`unknown:orphan.jpg`);
+  const [orphan] = workspace.getState().pendingPhotos;
+  await workspace.getState().discardPhoto(orphan.key);
   expect(workspace.getState().pendingPhotos).toEqual([]);
   expect(await readPendingPhotos(namespace)).toEqual([]);
   vi.unstubAllGlobals();

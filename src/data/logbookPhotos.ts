@@ -17,7 +17,7 @@ import type { Snapshot } from "../domain/model";
 
 /** A photo kept on the device until its flight or work order has synced. */
 export interface PendingLogbookPhoto extends AircraftFileLink {
-  /** {@link pendingPhotoKey}: one queued photo per file name on a record. */
+  /** {@link pendingPhotoKey}: the record and the photo's own id. */
   key: string;
   aircraftUuid: string;
   authorId: string;
@@ -33,15 +33,17 @@ export interface PendingLogbookPhoto extends AircraftFileLink {
 }
 
 /**
- * The key a queued photo is stored under.
+ * The key a queued photo is stored under. The id is generated for each photo
+ * queued, never taken from the file name: a phone names every camera capture
+ * "image.jpg", and a name key let the second page photo replace the first.
  *
  * @param link - The flight or work order.
- * @param name - The photo's file name.
- * @returns `<linkedUuid>:<name>`, so choosing the same file again replaces
- *   the queued copy rather than queuing a duplicate.
+ * @param photoId - The photo's id, unique on the device.
+ * @returns `<linkedUuid>:<photoId>`. Photos queued before ids were generated
+ *   keep their `<linkedUuid>:<name>` key.
  */
-export function pendingPhotoKey(link: AircraftFileLink, name: string) {
-  return `${link.linkedUuid}:${name}`;
+export function pendingPhotoKey(link: AircraftFileLink, photoId: string) {
+  return `${link.linkedUuid}:${photoId}`;
 }
 
 /**
@@ -50,7 +52,8 @@ export function pendingPhotoKey(link: AircraftFileLink, name: string) {
  *
  * @param photo - The queued photo.
  * @param flight - The replacing flight's uuid and aircraft.
- * @returns The photo under the new flight's key, without its old refusal.
+ * @returns The photo under the new flight's key with the same photo id,
+ *   without its old refusal.
  */
 export function relinkPendingPhoto(
   photo: PendingLogbookPhoto,
@@ -60,7 +63,7 @@ export function relinkPendingPhoto(
   return {
     ...photo,
     ...link,
-    key: pendingPhotoKey(link, photo.name),
+    key: pendingPhotoKey(link, photo.key.slice(photo.key.indexOf(":") + 1)),
     aircraftUuid: flight.aircraftUuid,
     error: undefined,
   };

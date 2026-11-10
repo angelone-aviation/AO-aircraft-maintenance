@@ -557,7 +557,7 @@ function buildPendingPhoto(
 ): PendingLogbookPhoto {
   const link = { linkedKind: target.linkedKind, linkedUuid: target.linkedUuid };
   return {
-    key: pendingPhotoKey(link, file.name),
+    key: pendingPhotoKey(link, crypto.randomUUID()),
     aircraftUuid: target.aircraftUuid,
     ...link,
     authorId: snapshot.user.id,

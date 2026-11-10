@@ -210,8 +210,8 @@ export async function readPendingPhotos(
 }
 
 /**
- * Stores a queued photo under its key, so saving it again (with an error, or
- * the same file chosen twice) replaces it rather than queuing a duplicate.
+ * Stores a queued photo under its key, so saving it again (with the server's
+ * refusal) replaces it rather than queuing a duplicate.
  *
  * @param namespace - The workspace namespace.
  * @param photo - The queued photo, bytes included.
