@@ -2,13 +2,14 @@
  * Responsibility: Money and labor time in cost records: their units and
  *   limits, and how people type and read them.
  * Layer: Domain. Pure functions and constants; no I/O, no React.
- * Dependencies: ../rejection; ./records (types).
+ * Dependencies: ../rejection, ../readings (comma rule); ./records (types).
  *
  * Money is integer cents. Labor time is integer seconds, exact for hours
  * entered to the hundredth (36 s); entries saved before that carry only whole
  * minutes and keep their amounts.
  */
 import { Rejection } from "../rejection";
+import { plainNumberText } from "../readings";
 import type { LaborEntry } from "./records";
 
 /** Seconds in a minute, the unit of labor saved before exact seconds. */
@@ -53,14 +54,16 @@ export function parseLaborHours(value: string) {
 }
 
 /**
- * Parses money as typed: "$1,234.5" is 123,450 cents.
+ * Parses money as typed: "$1,234.5" is 123,450 cents. Commas are read as
+ * plainNumberText reads them, so "45,50" is refused, never $4,550.
  *
  * @param max - The largest amount accepted, in cents.
- * @throws {Rejection} "Enter a positive amount with up to two decimals." or
- *   "Amount is too large."
+ * @throws {Rejection} As plainNumberText for a comma that may be a decimal
+ *   comma; "Enter a positive amount with up to two decimals."; "Amount is too
+ *   large."
  */
 export function parseCents(value: string, max = MAX_CENTS) {
-  const v = value.trim().replace(/^\$/, "").replaceAll(",", "");
+  const v = plainNumberText(value.trim().replace(/^\$/, ""));
   if (!/^\d+(\.\d{1,2})?$/.test(v))
     throw new Rejection("Enter a positive amount with up to two decimals.");
   const [whole, fraction = ""] = v.split(".");

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the meter-reading rules: typed hours to stored seconds,
- *   the tenths-of-an-hour schema, and the texts a reading is shown and edited
- *   as.
+ *   the comma rule every number field shares, the tenths-of-an-hour schema,
+ *   and the texts a reading is shown and edited as.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: ./readings, ./model (re-export), ./rejection.
  */
@@ -10,10 +10,14 @@ import { z } from "zod";
 import { parseHours as modelParseHours } from "./model";
 import { Rejection } from "./rejection";
 import {
+  DECIMAL_COMMA_MESSAGE,
+  EXPONENT_MESSAGE,
   hoursField,
   hoursToSeconds,
   meterReadingSchema,
+  numberEntryProblem,
   parseHours,
+  plainNumberText,
   readingText,
 } from "./readings";
 
@@ -34,12 +38,19 @@ describe("parseHours", () => {
     expect(parseHours("   ")).toBeUndefined();
   });
 
-  it.each(["1.25", "abc", "-1", " 1", "1 ", "1.", ".5", "1e3", "1,234"])(
+  it.each(["1.25", "abc", "-1", " 1", "1 ", "1.", ".5", "1e3"])(
     "refuses %j",
     (text) => {
       expect(refusal(text)).toEqual([true, ONE_DECIMAL]);
     },
   );
+
+  it("reads thousands commas only beside a decimal point", () => {
+    expect(parseHours("2,342.5")).toBe(8433000);
+    expect(parseHours("1,234,567.8")).toBe(4444444080);
+    for (const text of ["2342,5", "1,234", "2,34.5", "2.342,5", ",5"])
+      expect(refusal(text)).toEqual([true, DECIMAL_COMMA_MESSAGE]);
+  });
 
   it("refuses a reading past the largest safe integer", () => {
     expect(refusal("2501999792983.7")).toEqual([
@@ -54,6 +65,25 @@ describe("parseHours", () => {
 
   it("is the one model.ts re-exports", () => {
     expect(modelParseHours).toBe(parseHours);
+  });
+});
+
+describe("plainNumberText and numberEntryProblem", () => {
+  it("drops thousands commas beside a decimal point and refuses any other comma", () => {
+    expect(plainNumberText("2342.5")).toBe("2342.5");
+    expect(plainNumberText("2,342.50")).toBe("2342.50");
+    expect(plainNumberText(" 12 ")).toBe(" 12 ");
+    for (const text of ["45,50", "4,550", "2342,5", "1,23.4", "1,234,56.0"])
+      expect(() => plainNumberText(text)).toThrow(DECIMAL_COMMA_MESSAGE);
+  });
+
+  it("refuses a comma or an exponent going into a number input", () => {
+    expect(numberEntryProblem(",")).toBe(DECIMAL_COMMA_MESSAGE);
+    expect(numberEntryProblem("2342,5")).toBe(DECIMAL_COMMA_MESSAGE);
+    expect(numberEntryProblem("e")).toBe(EXPONENT_MESSAGE);
+    expect(numberEntryProblem("1E5")).toBe(EXPONENT_MESSAGE);
+    expect(numberEntryProblem("2342.5")).toBeUndefined();
+    expect(numberEntryProblem("")).toBeUndefined();
   });
 });
 

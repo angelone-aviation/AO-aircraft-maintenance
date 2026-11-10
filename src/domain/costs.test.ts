@@ -164,6 +164,11 @@ describe("cost parsing and math", () => {
     expect(() => parseLaborHours("1001")).toThrow("1,000");
     expect(parseCents("0.29")).toBe(29);
     expect(parseCents("$1,234.5")).toBe(123450);
+    // A decimal comma is refused, never read as a 100x larger amount.
+    expect(() => parseCents("45,50")).toThrow(
+      "Use a point for decimals, as in 2342.5, and leave out thousands commas.",
+    );
+    expect(() => parseCents("$1,234")).toThrow("Use a point for decimals");
     expect(parseCents("19.99")).toBe(1999);
     expect(() => parseCents("1.999")).toThrow();
     expect(() => parseCents("-5")).toThrow();

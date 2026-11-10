@@ -19,6 +19,7 @@ import { ConvexAuthProvider, useAuthActions } from "@convex-dev/auth/react";
 import { registerSW } from "virtual:pwa-register";
 import { AirplaneTilt, ArrowRight } from "@phosphor-icons/react";
 import { api } from "../convex/_generated/api";
+import { guardNumberEntry } from "./components/numberEntry";
 import { renewDemoAccess, useWorkspace, type Workspace } from "./data/store";
 import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
@@ -476,6 +477,7 @@ registerSW({
   },
   onRegisterError: captureError,
 });
+guardNumberEntry(document);
 createRoot(document.getElementById("root")!, reactErrorHandlers()).render(
   <Root />,
 );
