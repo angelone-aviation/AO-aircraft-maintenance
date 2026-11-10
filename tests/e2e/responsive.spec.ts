@@ -90,7 +90,7 @@ for (const theme of ["light", "dark"] as const)
       await page.goto(route);
       // The screen's code and its stylesheet load on demand.
       await page.waitForLoadState("networkidle");
-      await expect(page.getByText("Opening page…")).toHaveCount(0);
+      await expect(page.locator(".ds-skeleton")).toHaveCount(0);
       for (const viewport of VIEWPORTS) {
         await page.setViewportSize(viewport);
         await settle(page);

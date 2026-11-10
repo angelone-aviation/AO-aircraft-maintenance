@@ -1,6 +1,7 @@
 /**
  * Responsibility: The design system's shared building blocks: layout, status
- *   and data display, controls, dialogs, brand images, breakpoint and theme.
+ *   and data display, loading placeholders, controls, dialogs, brand images,
+ *   breakpoint and theme.
  * Layer: UI. Presentational React components and hooks; no workspace data.
  * Dependencies: react, @phosphor-icons/react, src/styles/design.css.
  *
@@ -35,6 +36,8 @@ const WORDMARK_SRC = {
   white: "/branding/angelone-white.png",
 } as const;
 const WORDMARK_WIDTH = 156;
+// Enough cards to fill a desktop row and hint at more below.
+const SKELETON_PAGE_CARDS = 4;
 
 /**
  * A Phosphor icon component, passed as `Airplane`, not `<Airplane />`.
@@ -437,6 +440,32 @@ export function ProgressTrack({
       {marker && (
         <span className="ds-progress-marker" style={{ left: pct + "%" }} />
       )}
+    </div>
+  );
+}
+
+/**
+ * A loading placeholder shaped like what is coming, so content does not pop
+ * in: a page heading over a grid of cards, or one section card. The shapes
+ * pulse unless the user prefers reduced motion, and screen readers hear one
+ * polite "Loading" instead of them.
+ *
+ * @param props.shape - "page" (the default) or "section".
+ */
+export function Skeleton({ shape = "page" }: { shape?: "page" | "section" }) {
+  const cards = shape === "page" ? SKELETON_PAGE_CARDS : 1;
+  return (
+    <div className={cx("ds-skeleton", shape)} role="status">
+      <span className="sr-only">Loading</span>
+      <div className="ds-skeleton-head" aria-hidden="true">
+        <span className="ds-skeleton-line title" />
+        <span className="ds-skeleton-line" />
+      </div>
+      <div className="ds-skeleton-cards" aria-hidden="true">
+        {Array.from({ length: cards }, (_, i) => (
+          <span key={i} className="ds-skeleton-card" />
+        ))}
+      </div>
     </div>
   );
 }

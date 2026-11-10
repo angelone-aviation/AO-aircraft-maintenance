@@ -16,6 +16,7 @@ import {
   ProgressTrack,
   SearchField,
   Segmented,
+  Skeleton,
   StatusPill,
   Wordmark,
   initTheme,
@@ -43,6 +44,19 @@ describe("design markup", () => {
     expect(html(h(StatusPill, { tone: "warning", children: "Due" }))).toContain(
       "ds-tone-warn",
     );
+  });
+
+  it("announces a loading placeholder once, politely, and hides its shapes", () => {
+    const page = html(h(Skeleton));
+    expect(page).toMatch(/^<div class="ds-skeleton page" role="status">/);
+    expect(page.match(/<span class="sr-only">Loading<\/span>/g)).toHaveLength(
+      1,
+    );
+    expect(page.match(/"ds-skeleton-card"/g)).toHaveLength(4);
+    expect(page.match(/aria-hidden="true"/g)).toHaveLength(2);
+    expect(
+      html(h(Skeleton, { shape: "section" })).match(/"ds-skeleton-card"/g),
+    ).toHaveLength(1);
   });
 
   it("uses a search field's label as its placeholder unless one is given", () => {

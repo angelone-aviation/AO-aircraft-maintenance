@@ -24,7 +24,7 @@ import { X } from "@phosphor-icons/react";
 import { useWorkspace } from "./data/store";
 import type { Snapshot } from "./domain/model";
 import { Dashboard } from "./components/Dashboard";
-import { EmptyState } from "./components/design";
+import { EmptyState, Skeleton } from "./components/design";
 import { readSetupStep, type SetupStep } from "./domain/aircraftSetup";
 
 const BOARD_PATH = "/board";
@@ -341,7 +341,12 @@ const routes = [
     component: Settings,
   }),
 ];
-const router = createRouter({ routeTree: rootRoute.addChildren(routes) });
+// A lazy screen suspends inside the router's own boundary, so the router
+// shows the loading skeleton while the screen's code downloads.
+const router = createRouter({
+  routeTree: rootRoute.addChildren(routes),
+  defaultPendingComponent: Skeleton,
+});
 setDialogHistory(router.history);
 
 // Registers the route tree so Link, useSearch and useNavigate type-check
@@ -388,7 +393,7 @@ function Shell() {
             {error}
           </p>
         )}
-        <Suspense fallback={<p className="muted">Opening page…</p>}>
+        <Suspense fallback={<Skeleton />}>
           <Screen key={programKey} s={s!} />
         </Suspense>
       </main>

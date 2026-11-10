@@ -88,6 +88,7 @@ import {
   KpiTile,
   NoticeBar,
   PageHeader,
+  Skeleton,
   ProgressTrack,
   RoundButton,
   SearchField,
@@ -195,7 +196,7 @@ export function Dashboard() {
       <FleetKpis s={s} fleet={fleet} pilotView={pilotView} />
       <FleetSection d={d} />
       <section className="dash-panel dash-ads">
-        <Suspense fallback={null}>
+        <Suspense fallback={<Skeleton shape="section" />}>
           <ADAlerts />
         </Suspense>
       </section>
@@ -1171,7 +1172,7 @@ function AircraftDetail(detail: DetailProps) {
         )}
       </div>
       <div className="dash-detail-section dash-detail-ads">
-        <Suspense fallback={null}>
+        <Suspense fallback={<Skeleton shape="section" />}>
           <ADAlerts aircraftUuid={a.uuid} />
         </Suspense>
       </div>
