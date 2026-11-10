@@ -244,6 +244,31 @@ describe("flight submissions and reviews", () => {
       "review",
     );
   });
+  it("holds a flight longer than 24 hours (a decimal comma read as 23425) until an administrator accepts it", async () => {
+    const { pilot, admin, op, a } = await fixture();
+    const slip = op();
+    // 2341.2 h then "2342,5" typed: the browser keeps 23425.
+    slip.input = { ...slip.input, hobbsOn: 23425 * 3600 };
+    expect(
+      await pilot.mutation(api.operations.submit, { operation: slip }),
+    ).toEqual({ status: "review" });
+    let s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.aircraft[0].currentHobbs).toBe(a.currentHobbs);
+    expect(s!.flights[0].reviewReason).toMatch(
+      /^Hobbs reading is 21,083.8 hours past the current counter/,
+    );
+    // Nothing is lost: the administrator can still accept it as logged.
+    await admin.mutation(api.operations.reviewFlight, {
+      programUuid: "demo-program",
+      uuid: slip.uuid,
+      decision: "accept",
+      reason: "Ferry flight over several days, readings verified",
+      input: slip.input,
+    });
+    s = await pilot.query(api.operations.snapshot, {});
+    expect(s!.aircraft[0].currentHobbs).toBe(23425 * 3600);
+    expect(s!.flights[0].status).toBe("accepted");
+  });
   it("admin review accepts a valid backdated flight and rebuilds subsequent starting counters", async () => {
     const { pilot, admin, op, a } = await fixture();
     const later = op();

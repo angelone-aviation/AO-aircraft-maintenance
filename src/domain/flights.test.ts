@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins what src/domain/flights.ts promises: the meter in use,
- *   flight validation, conflict order, counter advance, the chronology replay
- *   and its change-history wording.
+ *   flight validation, conflict order, the 24-hour hold on arrival, counter
+ *   advance, the chronology replay and its change-history wording.
  * Layer: Test. Vitest suite on the demo fleet; never shipped in the build.
  * Dependencies: ./flights, ./model, ./fleet (types), ./rejection,
  *   src/data/demo.ts.
@@ -13,8 +13,10 @@ import type { AircraftCounterEvent } from "./fleet";
 import type { Aircraft, Flight, FlightInput } from "./model";
 import { Rejection } from "./rejection";
 import {
+  MAX_PLAUSIBLE_FLIGHT_SECONDS,
   applyFlight,
   conflictReason,
+  heldReason,
   flightStatusLabels,
   meterAtFlight,
   rebuildFlights,
@@ -159,6 +161,46 @@ describe("validateFlight", () => {
     });
     expect(() => validateFlight(a, future)).toThrow(
       "The hobbs reading is required for this aircraft.",
+    );
+  });
+});
+
+describe("heldReason", () => {
+  it("holds a meter that moved more than 24 hours, after every conflict", () => {
+    const a = n206({ currentCyclicHobbs: h(10), currentFlightTimeLog: h(10) });
+    expect(MAX_PLAUSIBLE_FLIGHT_SECONDS).toBe(h(24));
+    const at = (hours: number) => a.currentHobbs + h(hours);
+    expect(heldReason(a, input(a, { hobbsOn: at(24) }), 0)).toBeUndefined();
+    expect(heldReason(a, input(a, { hobbsOn: at(24.1) }), 0)).toBe(
+      "Hobbs reading is 24.1 hours past the current counter, longer than any single flight. Check for a missed decimal point or a decimal comma.",
+    );
+    // A decimal comma dropped by the browser: 2342,5 read as 23425.
+    expect(heldReason(a, input(a, { hobbsOn: h(23425) }), 0)).toMatch(
+      /^Hobbs reading is 21,083.8 hours past/,
+    );
+    for (const [field, label] of [
+      ["tachOn", "Tach"],
+      ["cyclicHobbsOn", "Collective hourmeter"],
+      ["flightTimeLogOn", "Flight time log"],
+    ] as const) {
+      const reading = {
+        [field]: (field === "tachOn" ? a.currentTach : h(10)) + h(30),
+      };
+      expect(heldReason(a, input(a, reading), 0)).toMatch(
+        new RegExp(`^${label} reading is 30.0 hours past`),
+      );
+    }
+    expect(heldReason(a, input(a, { hobbsOn: at(30) }), 1)).toBe(
+      "Aircraft totals changed after this entry was started.",
+    );
+  });
+
+  it("leaves the replay rule alone, so an accepted long flight replays", () => {
+    const a = n206();
+    const long = flight(a, { hobbsOn: a.currentHobbs + h(30) });
+    expect(conflictReason(a, long, 0)).toBeUndefined();
+    expect(rebuildFlights(a, [long]).aircraft.currentHobbs).toBe(
+      a.currentHobbs + h(30),
     );
   });
 });

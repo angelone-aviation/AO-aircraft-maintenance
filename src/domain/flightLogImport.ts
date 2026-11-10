@@ -10,7 +10,7 @@ import { readCsvRows } from "./maintenanceCsv";
 import { parseExportDate, parseExportTime } from "./engineTrends";
 import {
   applyFlight,
-  conflictReason,
+  heldReason,
   meterAtFlight,
   validateFlight,
 } from "./flights";
@@ -257,7 +257,7 @@ export function sequenceImport(s: Snapshot, rows: PlannedRow[]) {
     .map((row) => {
       const input = row.input!;
       const aircraft = running.get(input.aircraftUuid)!;
-      const reviewReason = conflictReason(aircraft, input, aircraft.version);
+      const reviewReason = heldReason(aircraft, input, aircraft.version);
       if (!reviewReason)
         running.set(aircraft.uuid, applyFlight(aircraft, input));
       return { row, input, baseVersion: aircraft.version, reviewReason };

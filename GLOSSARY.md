@@ -68,7 +68,7 @@ A flight or discrepancy recorded offline and waiting in the outbox to sync.
 _Avoid_: queued operation (in user-facing text), draft
 
 **Conflict review**:
-Administrator review of a synced flight whose readings disagree with the aircraft's current counters; totals are not changed until reviewed.
+Administrator review of a synced flight whose readings disagree with the aircraft's current counters, or that is longer than 24 hours on a meter (longer than any single flight); totals are not changed until reviewed.
 
 ## Maintenance
 

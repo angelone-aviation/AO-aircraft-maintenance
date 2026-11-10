@@ -19,7 +19,7 @@ import type {
   Snapshot,
 } from "./model";
 import type { Stock } from "./management";
-import { applyFlight, conflictReason, validateFlight } from "./flights";
+import { applyFlight, heldReason, validateFlight } from "./flights";
 import { validateChecklistFlight } from "./flightChecklistLink";
 import { validatePlanFlight } from "./flightPlans";
 import { dispatchGate } from "./aircraftStatus";
@@ -107,7 +107,7 @@ export function submitFlight(
   if (!aircraft) throw new Error("Aircraft not found.");
   validateEntry(s, input, aircraft);
   const dispatchOverride = gateDispatch(s, op, aircraft, today, now);
-  const reviewReason = conflictReason(aircraft, input, op.baseVersion);
+  const reviewReason = heldReason(aircraft, input, op.baseVersion);
   const flight: Flight = {
     ...input,
     dispatchOverride,
