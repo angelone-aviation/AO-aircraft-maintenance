@@ -73,8 +73,11 @@ export interface SubmitOptions {
  *   plan the entry refers to; the crew in `members`; and the aircraft's
  *   management, inspections, airworthiness and discrepancies for the gate.
  * @returns The entry's status, with the changes to store unless resubmitted.
- * @throws {FlightRejection} When the dispatch gate or oil stock refuses it.
- * @throws {Error} For any other refusal, such as "Entry ID already used.".
+ * @throws {Rejection} Every refusal a user can act on, so the server shows
+ *   its reason in the Sync center: a FlightRejection for the crew, an unknown
+ *   aircraft, a reused entry id, a bad flight link, the dispatch gate or the
+ *   oil stock; a Rejection from the readings, checklist and flight plan
+ *   checks.
  */
 export function submitOperation(
   s: Snapshot,
@@ -104,7 +107,7 @@ export function submitFlight(
   if (existing) return resubmitted(existing, op.authorId, existing.status);
   const { input } = op;
   const aircraft = s.aircraft.find((a) => a.uuid === input.aircraftUuid);
-  if (!aircraft) throw new Error("Aircraft not found.");
+  if (!aircraft) throw new FlightRejection("Aircraft not found.");
   validateEntry(s, input, aircraft);
   const dispatchOverride = gateDispatch(s, op, aircraft, today, now);
   const reviewReason = heldReason(aircraft, input, op.baseVersion);
@@ -141,8 +144,8 @@ export function submitFlight(
  * Submits a problem report, optionally linked to a flight.
  *
  * @returns As {@link submitOperation}; always `status: "accepted"`.
- * @throws {Error} "Entry ID already used." for another author's id;
- *   "Linked flight does not belong to this aircraft." for a bad link.
+ * @throws {FlightRejection} "Entry ID already used." for another author's
+ *   id; "Linked flight does not belong to this aircraft." for a bad link.
  */
 export function submitDiscrepancy(
   s: Snapshot,
@@ -189,7 +192,8 @@ function resubmitted(
   authorId: string,
   status: Flight["status"],
 ): Submission {
-  if (existing.authorId !== authorId) throw new Error("Entry ID already used.");
+  if (existing.authorId !== authorId)
+    throw new FlightRejection("Entry ID already used.");
   return { status };
 }
 
@@ -197,7 +201,9 @@ function assertLinkedFlight(s: Snapshot, op: DiscrepancyOperation) {
   if (!op.flightUuid) return;
   const flight = s.flights.find((f) => f.uuid === op.flightUuid);
   if (!flight || flight.aircraftUuid !== op.aircraftUuid)
-    throw new Error("Linked flight does not belong to this aircraft.");
+    throw new FlightRejection(
+      "Linked flight does not belong to this aircraft.",
+    );
 }
 
 function validateEntry(s: Snapshot, input: FlightInput, aircraft: Aircraft) {
@@ -241,15 +247,16 @@ function assertCrewInProgram(s: Snapshot, input: FlightInput, a: Aircraft) {
       (!pilot.isAdmin &&
         !programIds(pilot, s.groups).includes(a.programUuid ?? ""))
     )
-      throw new Error("Pilot must belong to this Flight Program.");
+      throw new FlightRejection("Pilot must belong to this Flight Program.");
   }
 }
 
 function assertActiveCrew(s: Snapshot, input: FlightInput) {
   const active = (id: string) => s.members.find((m) => m.id === id)?.active;
-  if (!active(input.pilotId)) throw new Error("Select an active pilot.");
+  if (!active(input.pilotId))
+    throw new FlightRejection("Select an active pilot.");
   if (input.copilotId && !active(input.copilotId))
-    throw new Error("Select an active copilot.");
+    throw new FlightRejection("Select an active copilot.");
 }
 
 // Oil added from inventory. Expired, insufficient or non-oil stock refuses the

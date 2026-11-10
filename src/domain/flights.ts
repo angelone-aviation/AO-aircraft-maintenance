@@ -163,22 +163,21 @@ export function meterAtFlight(aircraft: Aircraft, time: string) {
  * @param aircraft - The aircraft before the flight.
  * @param input - The flight as logged.
  * @throws {z.ZodError} When the input does not parse.
- * @throws {Error} "The <meter> reading is required for this aircraft." when
- *   it lacks the reading of the meter in use at its start ("hobbs", "tach",
- *   "Collective hourmeter" or "Flight time log"); "Flight time cannot be in the
- *   future." when it starts more than five minutes from now.
+ * @throws {Rejection} "The <meter> reading is required for this aircraft."
+ *   when it lacks the reading of the meter in use at its start ("hobbs",
+ *   "tach", "Collective hourmeter" or "Flight time log"); "Flight time cannot
+ *   be in the future." when it starts more than five minutes from now. A
+ *   Rejection, so the server shows the reason on a refused outbox entry.
  */
 export function validateFlight(aircraft: Aircraft, input: FlightInput): void {
   flightInputSchema.parse(input);
   const meter = meterAtFlight(aircraft, input.startTime);
-  // Plain Errors, not Rejections: on the outbox path a Rejection would turn a
-  // retried failure into a permanent one (CONTEXT.md §4).
   if (input[METER_INPUT_FIELD[meter]] === undefined)
-    throw new Error(
+    throw new Rejection(
       `The ${meter === "hobbs" || meter === "tach" ? meter : aircraftMeterLabels[meter]} reading is required for this aircraft.`,
     );
   if (Date.parse(input.startTime) > Date.now() + FUTURE_START_TOLERANCE_MS)
-    throw new Error("Flight time cannot be in the future.");
+    throw new Rejection("Flight time cannot be in the future.");
 }
 
 /**
