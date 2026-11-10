@@ -439,11 +439,10 @@ function PickerButtons({ p, view }: PartProps) {
 function Directory({ programUuid }: { programUuid: string }) {
   const { online, connected } = useWorkspace();
   const { choices, addSaved, error } = useAddressChoices(programUuid);
-  const { entries } = choices;
   const [search, setSearch] = useState("");
   const [edit, setEdit] = useState<SavedAddressInput>();
   const offline = !online || !connected;
-  const shown = entries.filter((e) => matchesSearch(e, search));
+  const shown = choices.entries.filter((e) => matchesSearch(e, search));
   return (
     <>
       <DirectoryHeader
@@ -459,7 +458,7 @@ function Directory({ programUuid }: { programUuid: string }) {
       )}
       <AddressTable
         shown={shown}
-        any={entries.length > 0}
+        any={choices.entries.length > 0}
         offline={offline}
         onEdit={setEdit}
       />
