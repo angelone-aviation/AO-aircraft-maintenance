@@ -13,6 +13,7 @@ import {
   readPendingPhotos,
   readQueue,
   readSnapshot,
+  saveFavorites,
   saveSnapshot,
 } from "./local";
 import type { Flight } from "../domain/model";
@@ -1063,6 +1064,29 @@ it("holds a refused photo for attention, retries it on request and discards it",
   await workspace.getState().discardPhoto(orphan.key);
   expect(workspace.getState().pendingPhotos).toEqual([]);
   expect(await readPendingPhotos(namespace)).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
+it("opens a live device copy only in the current program scope format, with its favorites", async () => {
+  vi.stubGlobal("navigator", { onLine: true });
+  const { useWorkspace } = await import("./store");
+  const { programScopeVersion: _old, ...unscoped } = demoSnapshot();
+  await saveSnapshot("scope-format-old", unscoped);
+  await useWorkspace.getState().initialize("scope-format-old", false);
+  expect(useWorkspace.getState()).toMatchObject({
+    ready: true,
+    snapshot: null,
+    favorites: [],
+  });
+  const current = { ...demoSnapshot(), programScopeVersion: 1 };
+  await saveSnapshot("scope-format-current", current);
+  await saveFavorites(`scope-format-current:${current.user.id}`, ["a1"]);
+  await useWorkspace.getState().initialize("scope-format-current", false);
+  expect(useWorkspace.getState()).toMatchObject({
+    ready: true,
+    snapshot: current,
+    favorites: ["a1"],
+  });
   vi.unstubAllGlobals();
 });
 
