@@ -20,7 +20,7 @@ import type {
   Flight,
   Snapshot,
 } from "./model";
-import { can, localDate } from "./model";
+import { can } from "./model";
 import { statusSheet, type StatusSectionId } from "./statusSheet";
 import { auditActionLabel } from "./auditHistory";
 import { logbookRecordText } from "./logbook";
@@ -276,10 +276,11 @@ export function recordsReadme(
       (x) =>
         `${x.file} - ${x.title} (${countRows(x)})${x.warning ? ", partial: see WARNINGS" : ""}.`,
     ),
-    "form-337/ - Copies of FAA Form 337 on the aircraft record, named <upload date>-<file name>; archived copies are under form-337/archived/.",
-    "files/ - Attachments of the aircraft's work orders, named <upload date>-<file name>.",
+    "form-337/ - Copies of FAA Form 337 on the aircraft record, named <upload date (UTC)>-<file name>; archived copies are under form-337/archived/.",
+    "files/ - Attachments of the aircraft's work orders, named <upload date (UTC)>-<file name>.",
     "",
     "CSV files are UTF-8 with a byte-order mark; every cell is quoted, and text that a spreadsheet would run as a formula starts with an apostrophe.",
+    "Times, and the dates in file names, are UTC, as the column headings say; a date without a time (a work order's dates, a deferral, a due date) is the calendar date as recorded.",
     "",
     "SKIPPED FILES",
     ...(skipped.length
@@ -314,9 +315,9 @@ function aircraftWorkOrders(s: Snapshot, a: Aircraft): WorkOrder[] {
 function flightsSection(s: Snapshot, a: Aircraft): RecordsSection {
   const flights = s.flights
     .filter((f) => f.aircraftUuid === a.uuid)
-    .sort((x, z) => x.startTime.localeCompare(z.startTime));
+    .sort((x, z) => Date.parse(x.startTime) - Date.parse(z.startTime));
   const columns = [
-    "Date and time",
+    "Start (UTC)",
     "Pilot",
     "Route",
     "Hobbs start / end",
@@ -350,7 +351,7 @@ function flightRow(s: Snapshot, f: Flight): string[] {
     ? `${flightStatusLabels[f.status]}: ${f.reviewReason}`
     : flightStatusLabels[f.status];
   return [
-    f.startTime,
+    formatStart(f.startTime),
     names.join(" / "),
     `${f.origin} - ${f.destination}`,
     `${formatHours(f.hobbsOff)} / ${formatHours(f.hobbsOn)}`,
@@ -392,13 +393,13 @@ function discrepanciesSection(s: Snapshot, a: Aircraft): RecordsSection {
     .filter((d) => d.aircraftUuid === a.uuid)
     .sort((x, z) => x.createdAt - z.createdAt);
   const columns = [
-    "Reported",
+    "Reported (UTC)",
     "Reported by",
     "Description",
     "Grounding",
     "Deferral",
     "Status",
-    "Resolved",
+    "Resolved (UTC)",
     "Resolved by",
     "Resolution",
   ];
@@ -712,7 +713,13 @@ function requirementState(
 
 function form337Section(s: Snapshot, a: Aircraft): RecordsSection {
   const copies = form337Copies(s, a);
-  const columns = ["Document", "Uploaded", "Size", "Status", "Package file"];
+  const columns = [
+    "Document",
+    "Uploaded (UTC)",
+    "Size",
+    "Status",
+    "Package file",
+  ];
   return {
     id: "form337Copies",
     title: "Form 337 copies on file",
@@ -735,7 +742,8 @@ function form337Section(s: Snapshot, a: Aircraft): RecordsSection {
 
 function describeCopyStatus(f: AircraftFile): string {
   if (isCurrentAircraftFile(f)) return "Current";
-  const when = f.archivedAt === undefined ? "" : ` ${formatUtc(f.archivedAt)}`;
+  const when =
+    f.archivedAt === undefined ? "" : ` ${formatUtc(f.archivedAt)} UTC`;
   return `Archived${when} by ${f.archivedBy?.name ?? "-"}: ${f.archiveReason ?? ""}`.trim();
 }
 
@@ -749,7 +757,7 @@ function form337Copies(s: Snapshot, a: Aircraft) {
       const folder = isCurrentAircraftFile(copy)
         ? "form-337"
         : "form-337/archived";
-      const name = `${localDate(copy.uploadedAt)}-${safeFileName(copy.name)}`;
+      const name = `${utcDate(copy.uploadedAt)}-${safeFileName(copy.name)}`;
       return { copy, path: `${folder}/${name}` };
     }),
   );
@@ -773,7 +781,7 @@ function attachmentFiles(s: Snapshot, orders: WorkOrder[]): PackageFile[] {
       .filter((f) => numbers.has(f.workOrderUuid))
       .sort((x, z) => x.uploadedAt - z.uploadedAt)
       .map((f) => ({
-        path: `files/${localDate(f.uploadedAt)}-${safeFileName(f.name)}`,
+        path: `files/${utcDate(f.uploadedAt)}-${safeFileName(f.name)}`,
         url: f.url,
         size: f.size,
         description: `Work order ${numbers.get(f.workOrderUuid) || "(no number)"} attachment`,
@@ -860,6 +868,19 @@ function placeholder(text: string, columns: number): string[] {
 
 function formatHours(seconds: number | null | undefined): string {
   return seconds == null ? "-" : (seconds / SECONDS_PER_HOUR).toFixed(1);
+}
+
+// The package states every moment in UTC, labelled, as the change log does,
+// so a file's name, its upload time and a flight's start agree on the day
+// wherever the package is read.
+function utcDate(ms: number): string {
+  return formatUtc(ms).slice(0, "YYYY-MM-DD".length);
+}
+
+// A start time that does not parse is printed as stored rather than lost.
+function formatStart(startTime: string): string {
+  const ms = Date.parse(startTime);
+  return Number.isNaN(ms) ? startTime : formatUtc(ms);
 }
 
 function formatUtc(ms: number): string {

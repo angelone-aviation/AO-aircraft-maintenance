@@ -196,13 +196,13 @@ describe("buildRecordsPackage", () => {
       flight(s, { aircraftUuid: s.aircraft[1].uuid }),
     ];
     const { rows, columns } = section(s, "flights");
-    expect(columns[0]).toBe("Date and time");
+    expect(columns[0]).toBe("Start (UTC)");
     expect(rows.map((r) => r[0])).toEqual([
-      "2026-05-01T10:00:00-05:00",
-      "2026-05-02T10:00:00-05:00",
+      "2026-05-01 15:00",
+      "2026-05-02 15:00",
     ]);
     expect(rows[0]).toEqual([
-      "2026-05-01T10:00:00-05:00",
+      "2026-05-01 15:00",
       "Alex Morgan",
       "KMIA - MYNN",
       "2341.2 / 2342.7",
@@ -461,7 +461,7 @@ describe("buildRecordsPackage", () => {
     expect(copies.rows.map((r) => [r[0], r[3], r[4]])).toEqual([
       [
         "Repair.pdf",
-        "Archived 2026-06-03 12:00 by Alex Morgan: Superseded",
+        "Archived 2026-06-03 12:00 UTC by Alex Morgan: Superseded",
         "form-337/archived/2026-06-01-Repair.pdf",
       ],
       ["Repair.pdf", "Current", "form-337/2026-06-02-Repair.pdf"],
@@ -474,6 +474,32 @@ describe("buildRecordsPackage", () => {
       ["form-337/2026-06-02-Repair (2).pdf", "Form 337 copy"],
     ]);
     expect(pkg.files[0].url).toBe("data:application/pdf;base64,old");
+  });
+
+  it("states every time in UTC under a labelled heading, file names too", () => {
+    const zone = process.env.TZ;
+    // West of Greenwich, where 02:00 UTC is still the evening before.
+    process.env.TZ = "America/Chicago";
+    try {
+      const s = demoSnapshot();
+      const evening = Date.parse("2026-11-01T02:00:00Z");
+      s.aircraftFiles = [form337(s, "copy", "337.pdf", evening)];
+      s.flights = [flight(s, { startTime: "2026-11-01T04:30:00.000Z" })];
+      const pkg = build(s);
+      const copies = pkg.sections.find((x) => x.id === "form337Copies")!;
+      expect(copies.columns[1]).toBe("Uploaded (UTC)");
+      expect(copies.rows[0].slice(1, 2)).toEqual(["2026-11-01 02:00"]);
+      expect(pkg.files[0].path).toBe("form-337/2026-11-01-337.pdf");
+      const flights = pkg.sections.find((x) => x.id === "flights")!;
+      expect(flights.rows[0][0]).toBe("2026-11-01 04:30");
+      const reports = pkg.sections.find((x) => x.id === "discrepancies")!;
+      expect([reports.columns[0], reports.columns[6]]).toEqual([
+        "Reported (UTC)",
+        "Resolved (UTC)",
+      ]);
+    } finally {
+      process.env.TZ = zone;
+    }
   });
 
   it("copies this aircraft's work-order attachments under files/", () => {
