@@ -18,7 +18,12 @@ import {
   type ComponentRequirement,
 } from "../components";
 import { usageOnBasis } from "../components/usage";
-import { latestLocalDate, type Inspection, type Snapshot } from "../model";
+import {
+  isLocalToday,
+  latestLocalDate,
+  type Inspection,
+  type Snapshot,
+} from "../model";
 import { Rejection } from "../rejection";
 import type { CommandOf, ManagedRecord } from "./schemas";
 import { existingOfKind, type Change, type Context } from "./context";
@@ -48,7 +53,8 @@ const MOVEMENT_ACTIONS: Partial<Record<string, ComponentMovement["action"]>> = {
  *   completed through a work order."; as {@link validateComponent} or
  *   {@link serviceComponent}; "Baseline would precede recorded inspection
  *   compliance."; "Baseline would precede the last compliance of requirement
- *   "<description>"." or "… of AD <number>.".
+ *   "<description>"." or "… of AD <number>."; "The baseline date must be
+ *   today.".
  */
 export function changeComponent(
   s: Snapshot,
@@ -84,8 +90,21 @@ export function changeComponent(
     c.action === "component.baseline"
       ? "BASELINE"
       : (MOVEMENT_ACTIONS[c.operation] ?? "REPAIR");
-  extras.push(movement(next, action, s, c.requestUuid, c.reason, ctx.now));
+  const date = movementDate(c, ctx.now);
+  extras.push(
+    movement(next, action, s, c.requestUuid, c.reason, ctx.now, date),
+  );
   return { next, extras, updatedInspections };
+}
+
+// The movement entry carries the user's local date, not the server's UTC
+// date, which is already tomorrow on a US evening. A service command's date
+// is checked to be today somewhere; a baseline's is checked here.
+function movementDate(c: ComponentCommand, now: number) {
+  if (c.date === undefined) return undefined;
+  if (!isLocalToday(c.date, now))
+    throw new Rejection("The baseline date must be today.");
+  return c.date;
 }
 
 function rebaseline(

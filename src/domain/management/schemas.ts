@@ -214,6 +214,8 @@ export const managementCommandSchema = z.discriminatedUnion("action", [
     uuid: text,
     version: count,
     ...baselineFields,
+    // The user's local date, for the movement entry; older clients omit it.
+    date: date.optional(),
   }),
   z.object({
     ...commandBase,
