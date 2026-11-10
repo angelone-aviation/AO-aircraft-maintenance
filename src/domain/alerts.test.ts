@@ -17,6 +17,7 @@ import {
   ALERTS_SKIPPED_AD_STATUSES,
   computeAlerts as allAlerts,
   URGENT_ALERT_KINDS,
+  systemDateAlerts,
   urgentAlerts,
   wantsAlertEmails,
   wantsUrgentAlertEmails,
@@ -555,6 +556,30 @@ describe("expiring-date alerts", () => {
       user: { ...s.user, isAdmin: false, groupIds: ["demo-pilots"] },
     };
     expect(alertsFor(member, [system, date()])).toEqual([]);
+  });
+  it("lists only the deployment's dates as a system administrator's own alerts, most urgent first", () => {
+    const s = {
+      ...fleet(),
+      faaCredential: { configured: true, expiresOn: plus(5), version: 1 },
+      expiringItems: [
+        date(),
+        date({
+          uuid: "22222222-2222-4222-8222-222222222222",
+          programUuid: undefined,
+          kind: "secret",
+          label: "Entra secret",
+          expiresOn: plus(-1),
+        }),
+      ],
+    };
+    expect(systemDateAlerts(s, today).map((a) => a.title)).toEqual([
+      `Entra secret expired on ${plus(-1)}`,
+      `FAA DRS API key expires on ${plus(5)}`,
+    ]);
+    const member = { ...s, user: { ...s.user, isAdmin: false } };
+    expect(systemDateAlerts(member, today)).toEqual([]);
+    const inactive = { ...s, user: { ...s.user, active: false } };
+    expect(systemDateAlerts(inactive, today)).toEqual([]);
   });
 });
 

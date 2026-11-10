@@ -4,8 +4,9 @@
  *   listing them, the daily cap, a refused send retried later, the email
  *   choice, the check running after a mutation, a grounding problem report
  *   reaching both the urgent email and the digest, calendar limits judged
- *   on the records time zone's date, and de-duplication per occurrence: an
- *   alert that cleared and returned is sent, and unread, again.
+ *   on the records time zone's date, de-duplication per occurrence (an alert
+ *   that cleared and returned is sent, and unread, again), and deployment-wide
+ *   dates sent once to system administrators, whatever their groups.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/urgentAlerts.ts, convex/alerts.ts,
  *   convex/expiringItems.ts, convex/rateLimits.ts, convex/schema.ts,
@@ -205,12 +206,12 @@ it("runs after a mutation that can create an urgent state", async () => {
   expect(email.text).toContain("Hull policy expired on 2020-01-01");
 });
 
-it("schedules every program's check from the daily cron", async () => {
+it("schedules every program's check, and the deployment's dates', from the daily cron", async () => {
   const { t } = await seedAlertProgram();
   vi.useFakeTimers();
   const request = stubResend();
   expect(await t.action(internal.urgentAlerts.daily, {})).toEqual({
-    scheduled: 2,
+    scheduled: 3,
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   expect(
@@ -452,4 +453,101 @@ it("keeps a read mark for an alert a device ahead of the records date already sh
   });
   await sendImmediate(t);
   expect(await a.query(api.alerts.readKeys, inProgram)).toEqual(overdue);
+});
+
+const SECRET = {
+  uuid: "33333333-3333-4333-8333-333333333333",
+  kind: "secret",
+  label: "Entra client secret",
+  expiresOn: "2020-01-01",
+  version: 1,
+};
+const SECRET_LINE = "Entra client secret expired on 2020-01-01";
+const linesAbout = (request: ReturnType<typeof stubResend>, text: string) =>
+  sentEmails(request).filter((e) => e.text.includes(text));
+
+// A system administrator in no permission group, as admin.bootstrap creates
+// the first one, with both email switches on.
+async function addRoot(t: AlertWorld["t"]) {
+  const subject = await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {
+      active: true,
+      isAdmin: true,
+      name: "root",
+      email: "root@example.test",
+      groupIds: [],
+      activeProgramUuid: "",
+      emailAlerts: true,
+      urgentAlertEmails: true,
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId,
+      expirationTime: Date.now() + DAY,
+    });
+    return `${userId}|${session}`;
+  });
+  return t.withIdentity({ subject });
+}
+
+it("emails a deployment-wide expired date to a system administrator in no group, at once and in the digest", async () => {
+  const { t } = await seedAlertProgram();
+  vi.useFakeTimers();
+  const root = await addRoot(t);
+  const request = stubResend();
+  // Saved while working in no Flight Program.
+  await root.mutation(api.expiringItems.save, {
+    payload: JSON.stringify({
+      action: "save",
+      item: { ...SECRET, version: 0 },
+    }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const urgent = linesAbout(request, SECRET_LINE);
+  expect(urgent.map((e) => [e.to[0], e.subject])).toEqual([
+    ["root@example.test", "System: 1 urgent alert"],
+  ]);
+  await t.action(internal.alerts.sendDigests, {});
+  const digest = linesAbout(request, SECRET_LINE).slice(1);
+  expect(digest.map((e) => [e.to[0], e.subject])).toEqual([
+    ["root@example.test", "System: 1 maintenance alert"],
+  ]);
+  // Nobody outside the system administrators hears of it.
+  expect(
+    sentEmails(request).filter(
+      (e) => e.to[0] !== "root@example.test" && e.text.includes("Entra"),
+    ),
+  ).toEqual([]);
+});
+
+it("sends a deployment-wide date once, not once per Flight Program, and only by the switches the administrator sees", async () => {
+  const { t, ids } = await seedAlertProgram();
+  vi.useFakeTimers();
+  await t.run(async (ctx) => {
+    const other = await ctx.db.get(ids.b.userId);
+    const admin = await ctx.db.get(ids.a.userId);
+    // An administrator of both programs, urgent emails on by default there.
+    await ctx.db.patch(ids.a.userId, {
+      isAdmin: true,
+      groupIds: [...admin!.groupIds!, ...other!.groupIds!],
+    });
+    await ctx.db.insert("expiringItems", {
+      uuid: SECRET.uuid,
+      payload: JSON.stringify(SECRET),
+    });
+  });
+  await t.mutation(internal.memberships.backfill, {});
+  const root = await addRoot(t);
+  await root.mutation(api.urgentAlerts.setUrgentEmailPreference, {
+    enabled: false,
+  });
+  const request = stubResend();
+  await t.action(internal.urgentAlerts.daily, {});
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const urgent = linesAbout(request, SECRET_LINE);
+  expect(urgent.map((e) => [e.to[0], e.subject])).toEqual([
+    ["admin@example.test", "System: 1 urgent alert"],
+  ]);
+  await t.action(internal.urgentAlerts.daily, {});
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(linesAbout(request, SECRET_LINE)).toHaveLength(1);
 });

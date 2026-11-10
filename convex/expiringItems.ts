@@ -16,7 +16,7 @@ import {
   validationErrors,
   writeChanged,
 } from "./runCommand";
-import { scheduleUrgentAlerts } from "./urgentAlerts";
+import { scheduleSystemAlerts, scheduleUrgentAlerts } from "./urgentAlerts";
 import {
   applyExpiringCommand,
   expiringCommandSchema,
@@ -26,7 +26,8 @@ import {
  * Saves or archives one expiring date, as the domain allows, and writes its
  * `expiring-date.saved` or `expiring-date.archived` change-log row. A
  * replayed request id changes nothing. Afterwards the program's urgent
- * alerts are checked, since an expired date is one.
+ * alerts are checked, since an expired date is one, and for a deployment-wide
+ * date the system administrators' check too.
  *
  * @param payload - The command, as JSON (`expiringCommandSchema`).
  * @param programUuid - The caller's active Flight Program; undefined for a
@@ -54,6 +55,11 @@ export const save = mutation({
       returns: (item) => ({ uuid: item.uuid, version: item.version }),
     });
     await scheduleUrgentAlerts(ctx, programUuid);
+    // A deployment-wide date alerts system administrators in its own check,
+    // whichever program the caller works in, or none.
+    const command = expiringCommandSchema.parse(JSON.parse(payload));
+    if (command.action === "save" && !command.item.programUuid)
+      await scheduleSystemAlerts(ctx);
     return saved;
   },
 });
