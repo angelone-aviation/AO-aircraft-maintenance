@@ -117,19 +117,10 @@ export function submitFlight(
   validateEntry(s, input, aircraft);
   const dispatchOverride = gateDispatch(s, op, aircraft, today, now);
   const reviewReason = heldReason(aircraft, input, op.baseVersion);
-  const flight: Flight = {
-    ...input,
+  const flight = flightRecord(op, aircraft, now, {
     dispatchOverride,
-    uuid: op.uuid,
-    authorId: op.authorId,
-    submittedAt: now,
-    status: reviewReason ? "review" : "accepted",
     reviewReason,
-    hobbsOff: aircraft.currentHobbs,
-    tachOff: aircraft.currentTach,
-    cyclicHobbsOff: aircraft.currentCyclicHobbs,
-    flightTimeLogOff: aircraft.currentFlightTimeLog,
-  };
+  });
   const stock = drawDownOil(s, input, now);
   const report = fileFlightReport(op, aircraft, now);
   return {
@@ -165,16 +156,7 @@ export function submitDiscrepancy(
       status: "accepted",
     });
   assertLinkedFlight(s, op);
-  const report: Discrepancy = {
-    uuid: op.uuid,
-    aircraftUuid: op.aircraftUuid,
-    flightUuid: op.flightUuid,
-    description: op.description,
-    grounding: op.grounding,
-    status: "open",
-    authorId: op.authorId,
-    createdAt: now,
-  };
+  const report = reportRecord(op, now);
   return {
     status: "accepted",
     changes: {
@@ -193,6 +175,42 @@ export function submitDiscrepancy(
         ),
       ],
     },
+  };
+}
+
+// The `*Off` readings are where the flight started: the aircraft's current
+// counters before it.
+function flightRecord(
+  op: FlightOperation,
+  aircraft: Aircraft,
+  now: number,
+  outcome: Pick<Flight, "dispatchOverride" | "reviewReason">,
+): Flight {
+  return {
+    ...op.input,
+    dispatchOverride: outcome.dispatchOverride,
+    uuid: op.uuid,
+    authorId: op.authorId,
+    submittedAt: now,
+    status: outcome.reviewReason ? "review" : "accepted",
+    reviewReason: outcome.reviewReason,
+    hobbsOff: aircraft.currentHobbs,
+    tachOff: aircraft.currentTach,
+    cyclicHobbsOff: aircraft.currentCyclicHobbs,
+    flightTimeLogOff: aircraft.currentFlightTimeLog,
+  };
+}
+
+function reportRecord(op: DiscrepancyOperation, now: number): Discrepancy {
+  return {
+    uuid: op.uuid,
+    aircraftUuid: op.aircraftUuid,
+    flightUuid: op.flightUuid,
+    description: op.description,
+    grounding: op.grounding,
+    status: "open",
+    authorId: op.authorId,
+    createdAt: now,
   };
 }
 
