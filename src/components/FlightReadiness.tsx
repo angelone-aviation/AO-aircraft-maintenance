@@ -7,7 +7,7 @@
  *   src/domain/flightReadiness.ts, ./design.tsx.
  */
 import { CheckCircle, WarningCircle, XCircle } from "@phosphor-icons/react";
-import type { AircraftStatus } from "../domain/aircraftStatus";
+import type { ShownAircraftStatus } from "../domain/aircraftStatus";
 import { flightReadiness } from "../domain/flightReadiness";
 import { NoticeBar } from "./design";
 import "../styles/screens/readiness.css";
@@ -15,6 +15,7 @@ import "../styles/screens/readiness.css";
 const LOOK = {
   airworthy: { tone: "good", icon: CheckCircle },
   "due-soon": { tone: "warn", icon: WarningCircle },
+  "setup-incomplete": { tone: "warn", icon: WarningCircle },
   grounded: { tone: "danger", icon: XCircle },
 } as const;
 
@@ -22,14 +23,14 @@ const LOOK = {
  * Shows whether the aircraft is OK to fly, in words and an icon as well as
  * colour, with its most important reason and how many others there are.
  *
- * @param props.status - The aircraft's status from `aircraftStatus`.
+ * @param props.status - The aircraft's status from `shownAircraftStatus`.
  * @param props.className - Placement class from the screen.
  */
 export function FlightReadinessLine({
   status,
   className,
 }: {
-  status: AircraftStatus;
+  status: ShownAircraftStatus;
   className?: string;
 }) {
   const r = flightReadiness(status);

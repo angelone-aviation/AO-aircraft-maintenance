@@ -41,6 +41,22 @@ describe("flightReadiness", () => {
     });
   });
 
+  it("stays OK to fly when setup is incomplete, naming a setup gap first", () => {
+    const result = flightReadiness({
+      level: "setup-incomplete",
+      reasons: [
+        reason("inspection", "Annual due soon"),
+        reason("setup", "No components"),
+      ],
+    });
+    expect(result).toEqual({
+      ok: true,
+      level: "setup-incomplete",
+      reason: "No components",
+      more: 1,
+    });
+  });
+
   it("is not OK to fly when grounded", () => {
     const result = flightReadiness(
       grounded(reason("inspection", "Annual overdue")),

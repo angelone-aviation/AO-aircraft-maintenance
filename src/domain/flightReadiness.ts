@@ -5,18 +5,20 @@
  * Dependencies: src/domain/aircraftStatus.ts (status, levels, reasons).
  *
  * This adds no rule: "not OK to fly" is exactly the grounded level that the
- * dispatch gate refuses, and due soon stays OK. It only picks which of the
- * status's own reasons to name.
+ * dispatch gate refuses; due soon and setup incomplete stay OK. It only
+ * picks which of the status's own reasons to name.
  */
 import type {
-  AircraftStatus,
-  AircraftStatusLevel,
   AircraftStatusReason,
+  ShownAircraftStatus,
+  ShownStatusLevel,
 } from "./aircraftStatus";
 
-// A deliberate grounding by a person comes first, then a known defect on the
-// airframe, then an expired MEL deferral, then scheduled maintenance.
+// Setup gaps only appear on a setup-incomplete aircraft, where they explain
+// the level. Then a deliberate grounding by a person, a known defect on the
+// airframe, an expired MEL deferral, then scheduled maintenance.
 const REASON_PRIORITY: readonly AircraftStatusReason["kind"][] = [
+  "setup",
   "profile",
   "discrepancy",
   "deferral",
@@ -29,7 +31,7 @@ const REASON_PRIORITY: readonly AircraftStatusReason["kind"][] = [
 export interface FlightReadiness {
   /** False exactly when the dispatch gate would refuse a flight. */
   ok: boolean;
-  level: AircraftStatusLevel;
+  level: ShownStatusLevel;
   /** The reason to show first; undefined when airworthy. */
   reason?: string;
   /** How many other reasons the status holds at the same level. */
@@ -39,12 +41,12 @@ export interface FlightReadiness {
 /**
  * Gives an aircraft's OK-to-fly verdict and its most important reason.
  *
- * @param status - The aircraft's status from `aircraftStatus`.
+ * @param status - The aircraft's status as shown, from `shownAircraftStatus`.
  * @returns Not OK only when grounded. The reason is the status reason whose
- *   kind comes first in the order profile, discrepancy, deferral,
+ *   kind comes first in the order setup, profile, discrepancy, deferral,
  *   inspection, AD, component; ties keep the status's own order.
  */
-export function flightReadiness(status: AircraftStatus): FlightReadiness {
+export function flightReadiness(status: ShownAircraftStatus): FlightReadiness {
   const [first] = [...status.reasons].sort(
     (x, y) => REASON_PRIORITY.indexOf(x.kind) - REASON_PRIORITY.indexOf(y.kind),
   );
