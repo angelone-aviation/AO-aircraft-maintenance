@@ -672,6 +672,7 @@ function world() {
   return { s, d, run, draft, issued, repair, repairLine };
 }
 type World = ReturnType<typeof world>;
+type SaveCommand = Extract<POCommand, { kind: "save" }>;
 
 const act = (
   p: PurchaseOrder,
@@ -1202,5 +1203,58 @@ describe("orders keep the references they were issued with", () => {
     expect(() => w.run(receive(w.issued))).toThrow(
       "PO-00002, line TIRE: Choose a delivery inventory location in this Flight Program.",
     );
+  });
+});
+
+describe("a parts request after its purchase order is cancelled", () => {
+  const resave = (w: World, change: object) => {
+    const stored = w.s.partsRequests!.find((r) => r.uuid === "request")!;
+    return applyRequestCommand(
+      w.s,
+      {
+        kind: "save",
+        requestUuid: request(),
+        draft: { ...requestDraftSchema.parse(stored), ...change },
+      },
+      now,
+    );
+  };
+  const LOCKED =
+    "Release reservations and remove draft PO allocations before changing lines or purchasing details. Fulfilled lines are retained for traceability.";
+  it("can change vendor and lines, and be ordered from the new vendor", () => {
+    const w = world();
+    const p = allocatedOrder(w);
+    expect(() => resave(w, { vendor: "Vendor B" })).toThrow(LOCKED);
+    w.run(act(p, "cancel"));
+    const saved = resave(w, {
+      vendor: "Vendor B",
+      lines: [
+        { uuid: "item", partNumber: "TIRE", description: "Tire", quantity: 4 },
+      ],
+    });
+    expect(saved).toMatchObject({ vendor: "Vendor B" });
+    expect(saved.lines[0].quantity).toBe(4);
+    const [reordered] = applyPOCommand(
+      w.s,
+      {
+        kind: "save",
+        requestUuid: request(),
+        drafts: [
+          {
+            ...(allocated(w, 4, { quantity: 4 }) as SaveCommand).drafts[0],
+            uuid: "reorder",
+            vendor: "Vendor B",
+          },
+        ],
+      },
+      now,
+    );
+    expect(reordered).toMatchObject({ vendor: "Vendor B", phase: "draft" });
+  });
+  it("stays fixed while units received on the order remain allocated to it", () => {
+    const w = world();
+    const received = w.run(receive(allocatedOrder(w)));
+    w.run(act(received, "cancel"));
+    expect(() => resave(w, { vendor: "Vendor B" })).toThrow(LOCKED);
   });
 });

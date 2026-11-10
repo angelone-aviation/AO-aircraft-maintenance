@@ -828,12 +828,15 @@ function assertDraft({ s, previous, now }: RequestContext, d: RequestDraft) {
     );
 }
 
+// An allocation commits a request while it still holds units, on order or
+// received. Once its order is cancelled it holds none, so the request can be
+// changed and ordered again.
 function isCommitted(s: Snapshot, r: PartsRequest) {
   return (
     r.reservations.length > 0 ||
     r.issues.length > 0 ||
     requestPurchases(s.purchaseOrders ?? []).some(
-      (a) => a.requestUuid === r.uuid,
+      (a) => a.requestUuid === r.uuid && a.quantity > 0,
     )
   );
 }

@@ -11,7 +11,7 @@ Use **Parts & repair requests** in the sidebar, or the **Parts / repair requests
 
 Maintenance users can create requests for aircraft they can maintain. Inventory administrators manage reservations, stock issues, cancellation and purchasing. Users see requests only within their accessible Flight Program and aircraft; maintenance users can see PO progress without access to full purchasing records.
 
-Cancelling a request releases its reservations but retains issues and history. Cancel outstanding PO quantities first. A repair PO cannot be cancelled while its component is away. Request lines and purchasing details become fixed once reserved, issued or allocated to a PO; release reservations and remove draft allocations before editing unused lines. Historical fulfilled/cancelled PO links remain immutable.
+Cancelling a request releases its reservations but retains issues and history. Cancel outstanding PO quantities first. A repair PO cannot be cancelled while its component is away. Request lines and purchasing details become fixed once reserved, issued or allocated to a PO; release reservations and remove draft allocations before editing unused lines. An allocation counts while it still holds units, on order or received: when a PO is cancelled before anything was received, its request can change vendor, currency, ship-to and lines again and be added to a PO for another vendor. Historical fulfilled/cancelled PO links remain immutable, and a request with units received on a PO stays fixed.
 
 The PDFs use the fields supplied in `parts order form and repair order form.pdf` and `packing slip.pdf`. Signature/date lines are provided for document signoff. These are generated forms; vendor API ordering and tracking integrations are outside this release.
 
