@@ -81,14 +81,21 @@ case "$1" in
       fail) echo "Error: export failed (fake)" >&2; exit 1 ;;
       corrupt) echo "not a zip file" >"$path" ;;
       *)
+        # A real export lists every table, empty ones too, and holds
+        # _storage/documents.jsonl whenever file storage was asked for.
+        mode=${FAKE_EXPORT:-ok}
         src=$(mktemp -d)
         echo "# Convex snapshot (fake)" >"$src/README.md"
-        mkdir -p "$src/_storage"
-        printf '{"_id":"kg2storage%s","sha256":"x","size":5}\n' "$RANDOM" >"$src/_storage/documents.jsonl"
-        printf 'hello' >"$src/_storage/kg2storage"
-        if [[ "${FAKE_EXPORT:-ok}" == ok ]]; then
+        if [[ "$mode" != no-storage ]]; then
+          mkdir -p "$src/_storage"
+          printf '{"_id":"kg2storage%s","sha256":"x","size":5}\n' "$RANDOM" >"$src/_storage/documents.jsonl"
+          printf 'hello' >"$src/_storage/kg2storage"
+        fi
+        if [[ "$mode" != empty ]]; then
           mkdir -p "$src/users" "$src/aircraft"
-          printf '{"_id":"u1","name":"Pilot %s"}\n{"_id":"u2","name":"Mechanic"}\n' "$RANDOM" >"$src/users/documents.jsonl"
+          : >"$src/users/documents.jsonl"
+          [[ "$mode" == no-users ]] ||
+            printf '{"_id":"u1","name":"Pilot %s"}\n{"_id":"u2","name":"Mechanic"}\n' "$RANDOM" >"$src/users/documents.jsonl"
           printf '{"_id":"a1","tail":"N1"}\n{"_id":"a2","tail":"N2"}\n{"_id":"a3","tail":"N3"}\n' >"$src/aircraft/documents.jsonl"
           echo '{"type":"object"}' >"$src/users/generated_schema.jsonl"
         fi
@@ -312,13 +319,14 @@ daily_file="$(bucket_dir)/$daily_key"
 check "daily object exists" test -f "$daily_file"
 check "recorded bytes equal the encrypted object's size" test "$(jq .bytes <<<"$rec")" = "$(wc -c <"$daily_file" | tr -d ' ')"
 check "daily object decrypts to a byte-identical copy of the export" decrypts_to "$daily_file" "$state/last-export.zip"
-check "recorded sha256 is the plaintext ZIP's" test "$(jq -r .sha256 <<<"$rec")" = "$(sha_of "$state/last-export.zip")"
+check "recorded sha256 is the encrypted object's, as backups:recordOffsiteCopy documents" \
+  test "$(jq -r .sha256 <<<"$rec")" = "$(sha_of "$daily_file")"
 check "monthly copy is the same encrypted file" cmp -s "$daily_file" "$(bucket_dir)/$monthly_key"
 manifest="${daily_file%.zip.age}.manifest.json"
 check "manifest sits beside the daily object" test -f "$manifest"
 check "manifest sits beside the monthly object" test -f "$(bucket_dir)/${monthly_key%.zip.age}.manifest.json"
 check "manifest records hashes, sizes, commit, CLI version and table counts" jq_true \
-  --arg sha "$(jq -r .sha256 <<<"$rec")" --argjson bytes "$(jq .bytes <<<"$rec")" \
+  --arg sha "$(sha_of "$state/last-export.zip")" --argjson bytes "$(jq .bytes <<<"$rec")" \
   --argjson plainBytes "$(wc -c <"$state/last-export.zip" | tr -d ' ')" --arg encSha "$(sha_of "$daily_file")" '
     .plaintext.sha256 == $sha and .plaintext.bytes == $plainBytes
     and .encrypted.sha256 == $encSha and .encrypted.bytes == $bytes
@@ -438,6 +446,13 @@ failure_case export-corrupt "export that is not a ZIP" FAKE_EXPORT=corrupt
 check "export that is not a ZIP: nothing uploaded" test -z "$(objects)"
 failure_case export-empty "export with no table documents" FAKE_EXPORT=empty
 check "export with no table documents: says so" output_says "no documents"
+check "export with no table documents: nothing uploaded" test -z "$(objects)"
+failure_case export-no-storage "export without file storage" FAKE_EXPORT=no-storage
+check "export without file storage: says so" output_says "no file storage"
+check "export without file storage: nothing uploaded" test -z "$(objects)"
+failure_case export-no-users "export with no user accounts" FAKE_EXPORT=no-users
+check "export with no user accounts: says so" output_says "no user accounts"
+check "export with no user accounts: nothing uploaded" test -z "$(objects)"
 failure_case upload-fails "failed upload" FAKE_FAIL_PUT='^daily/.*\.zip\.age$'
 failure_case upload-short "object smaller than the file after upload" FAKE_TRUNCATE_PUT='^daily/.*\.zip\.age$'
 check "object smaller than the file after upload: says so" output_says "after upload"

@@ -18,12 +18,12 @@ Who holds the decryption key: the technical owner (named in `accounts.md`) in th
 
 The **Nightly backup** workflow (`.github/workflows/backup.yml`) runs `scripts/backup/nightly.sh` every day at 08:41 UTC (about 3:41 am US Eastern). It:
 
-1. exports production with its uploaded files (`npx convex export --include-file-storage`) and checks that the ZIP is valid and not empty;
+1. exports production with its uploaded files (`npx convex export --include-file-storage`) and checks that the ZIP is valid, includes file storage and holds at least one user account. It does not compare the table counts with earlier nights; the manifest keeps them so a person can;
 2. encrypts it with `age` to the public key in `BACKUP_AGE_PUBLIC_KEY`;
 3. uploads it to `daily/` with a manifest, and checks that the object is there at the right size;
 4. on the first successful night of each month, uploads the same file to `monthly/` (if the 1st was missed, the next good night counts);
-5. saves the environment variables, encrypted, to `env/` when they have changed since the last copy;
-6. records the copy in the app (`backups:recordOffsiteCopy`), which shows it under Settings → System → Off-site backups;
+5. saves the environment variables, encrypted, to `env/` when they or the backup key have changed since the last copy;
+6. records the copy in the app (`backups:recordOffsiteCopy`: the encrypted object's key, size and SHA-256), which shows it under Settings → System → Off-site backups;
 7. if Dropbox is set up (`DROPBOX_REFRESH_TOKEN` in the `backups` environment), builds the readable Excel workbook from the same export and adds it to Dropbox ([Dropbox records copy](dropbox-records-copy.md)). This runs after step 6, so a Dropbox problem fails the run without hiding a good R2 copy.
 
 The job never deletes or overwrites a backup in R2; deletion after 90 days is the bucket's lifecycle rule. The plaintext export exists only on GitHub's runner, which is discarded after each run. The one readable copy that leaves the runner is the optional Dropbox workbook, which by design is not encrypted: anyone with access to that Dropbox folder can read names, emails and costs (ADR-0011). Its secrets are in the GitHub environment `backups`. To test the script without credentials: `npm run test:backup` (needs `age`, `zip`, `unzip` and `jq`).
@@ -37,10 +37,10 @@ angelone-backups/
   monthly/2026-11/angelone-20261104T084112Z.zip.age          first good night of November (forever)
   monthly/2026-11/angelone-20261104T084112Z.manifest.json
   env/angelone-env-20261104T084112Z.txt.age                  environment variables, encrypted (forever)
-  state/env-fingerprint.txt                                  SHA-256 of the last saved variables; not locked
+  state/env-fingerprint.txt                                  SHA-256 of the last saved variables and the key they were encrypted to; not locked
 ```
 
-The time in each name is when the export started, in UTC, so names sort by time. The **manifest** is not encrypted and holds no personal data or secrets: `exportStartedAt`, `gitCommit`, `convexCliVersion`, `encryptedTo` (the public key used, so you know which private key opens it), the SHA-256 and size of the plaintext ZIP and of the encrypted file, and the document count per table. `state/` must stay outside the lock rules: the job replaces `state/env-fingerprint.txt` whenever the variables change.
+The time in each name is when the export started, in UTC, so names sort by time. The **manifest** is not encrypted and holds no personal data or secrets: `exportStartedAt`, `gitCommit`, `convexCliVersion`, `encryptedTo` (the public key used, so you know which private key opens it), the SHA-256 and size of the plaintext ZIP and of the encrypted file, and the document count per table. `state/` must stay outside the lock rules: the job replaces `state/env-fingerprint.txt` whenever the variables or the backup key change.
 
 ### Run it by hand
 
@@ -66,6 +66,7 @@ Open the failed run and read the red error line. Running the workflow again is a
 |---|---|
 | `CONVEX_DEPLOY_KEY must be a production deploy key` | The `backups` environment secret `CONVEX_BACKUP_DEPLOY_KEY` is missing or not a `prod:` key. |
 | `BACKUP_AGE_PUBLIC_KEY holds an age private key` | The private key was saved in GitHub by mistake. Delete that secret, then [change the key](#changing-the-backup-key). |
+| `The export has no documents in any table`, `… no file storage` or `… no user accounts` | The export is incomplete, or the deploy key belongs to a deployment nobody uses. Nothing was uploaded. Check that `CONVEX_BACKUP_DEPLOY_KEY` is the key of the production deployment people sign in to, then run again. |
 | `npx convex export failed` | Check Convex status and that the deploy key still exists (Convex dashboard → Settings). Convex allows one export at a time per deployment, so a dashboard backup running at the same time can block it; run again later. |
 | `Upload to s3://… failed` or `Could not check s3://…` | The R2 token expired, was deleted, or lacks object read and write on the bucket; or `R2_BUCKET` / `R2_ACCOUNT_ID` is wrong. |
 | `… after upload, expected … bytes` | The upload was cut short. Run again. |
@@ -92,7 +93,7 @@ age -r "$BACKUP_AGE_PUBLIC_KEY" -o "angelone-env-$(date -u +%Y%m%dT%H%M%SZ).txt.
      --endpoint-url "https://<account-id>.r2.cloudflarestorage.com" --region auto
    ```
 
-2. Put the private key in a file only for as long as you need it, on an encrypted disk (for example `key.txt`, pasted from the password manager), and delete it afterwards.
+2. Put the private key in a file only for as long as you need it, on an encrypted disk (for example `key.txt`, pasted from the password manager), and delete it afterwards. In the repository's top folder, `.gitignore` covers the names this runbook uses (`key.txt`, `new-key.txt`, `env.txt`, `angelone-env-….txt`, `*.age`, `*.manifest.json`, `*.zip`), so they cannot be committed by accident; a file with another name or in a subfolder is not covered.
 3. Decrypt:
 
    ```sh
@@ -137,13 +138,14 @@ Use the newest monthly copy and the environment variables that were current when
 2. Take a fresh Convex backup first. Restores are destructive.
 3. Restore from the Convex dashboard (last 7 days), or from R2 for anything older: download and decrypt the `daily/` or `monthly/` copy ([above](#download-and-decrypt)), then `npx convex import --prod --replace-all angelone-<time>.zip`.
 4. Re-apply environment variables from the matching `env/` file if the deployment is new.
-5. Verify as in the rehearsal.
-6. Record the restore in the app's change log by hand (ADR-0005): what was restored, from which snapshot, and why. Use `audit:recordManualEntry` as described in [Production database access](database-access.md#recording-the-hand-written-change-log-entry).
+5. Re-apply access changes made since the backup. A restore brings accounts, passwords, memberships and sessions back as they were: disable again anyone disabled since, reset again any password reset since, and remove again any member removed since.
+6. Verify as in the rehearsal.
+7. Record the restore in the app's change log by hand (ADR-0005): what was restored, from which snapshot, and why. Use `audit:recordManualEntry` as described in [Production database access](database-access.md#recording-the-hand-written-change-log-entry).
 
 ## Changing the backup key
 
 Do this if the private key may have been exposed, or when the holders change.
 
 1. `age-keygen -o new-key.txt` prints the new public key (`age1…`). Store the private key as in [the setup](../go-live-checklist.md#backup-setup-remaining): the technical owner's password manager plus a new sealed copy for the organization. Delete `new-key.txt`.
-2. Replace the `backups` environment secret `BACKUP_AGE_PUBLIC_KEY` with the new public key, and run the workflow by hand.
+2. Replace the `backups` environment secret `BACKUP_AGE_PUBLIC_KEY` with the new public key, and run the workflow by hand. That run encrypts the export and a new `env/` copy to the new key, even when no variable changed; check that its summary lists an `env/` object.
 3. **Keep every old private key** for as long as archives encrypted to it exist, which for `monthly/` and `env/` is forever. Label each with its public key; the manifest's `encryptedTo` says which one a file needs.
