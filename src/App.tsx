@@ -26,6 +26,9 @@ import type { Snapshot } from "./domain/model";
 import { Dashboard } from "./components/Dashboard";
 import { EmptyState } from "./components/design";
 import { readSetupStep, type SetupStep } from "./domain/aircraftSetup";
+// Loaded at startup: the "Larger text" setting applies on every screen,
+// the sign-in screen included.
+import "./styles/largeText.css";
 
 const BOARD_PATH = "/board";
 const GLOSSARY_PATH = "/glossary";

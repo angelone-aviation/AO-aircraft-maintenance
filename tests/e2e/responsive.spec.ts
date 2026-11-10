@@ -1,9 +1,9 @@
 /**
  * Responsibility: Pins the layout on phones and tablets: every route, in both
- *   themes, at three phone sizes, a landscape phone and two tablet sizes,
- *   with a 60-character unbroken word in the records, never scrolls the page
- *   sideways and keeps its navigation on screen; and a dialog on a short
- *   screen keeps the focused field visible.
+ *   themes, with normal and larger text, at three phone sizes, a landscape
+ *   phone and two tablet sizes, with a 60-character unbroken word in the
+ *   records, never scrolls the page sideways and keeps its navigation on
+ *   screen; and a dialog on a short screen keeps the focused field visible.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  *
@@ -75,15 +75,20 @@ const ROUTES = [
   "/admin",
   "/settings",
   "/board",
+  "/glossary",
   "/no-such-page",
 ];
 
-for (const theme of ["light", "dark"] as const)
-  test(`every route fits phones and tablets in the ${theme} theme`, async ({
+const LOOKS = (["light", "dark"] as const).flatMap((theme) =>
+  [false, true].map((largeText) => ({ theme, largeText })),
+);
+
+for (const { theme, largeText } of LOOKS)
+  test(`every route fits phones and tablets in the ${theme} theme${largeText ? " with larger text" : ""}`, async ({
     page,
   }) => {
     test.setTimeout(ROUTES.length * 15_000);
-    await openDemo(page, theme);
+    await openDemo(page, theme, largeText);
     await injectLongWord(page);
     const problems: string[] = [];
     for (const route of ROUTES) {
@@ -131,16 +136,26 @@ test("Start flight keeps the field being typed in on a short screen", async ({
   ).toBe(true);
 });
 
-async function openDemo(page: Page, theme: "light" | "dark") {
-  await page.addInitScript((t) => {
-    sessionStorage.setItem("angel-one-demo", "true");
-    localStorage.setItem("angelone-theme", t);
-  }, theme);
+async function openDemo(
+  page: Page,
+  theme: "light" | "dark",
+  largeText = false,
+) {
+  await page.addInitScript(
+    ({ t, large }) => {
+      sessionStorage.setItem("angel-one-demo", "true");
+      localStorage.setItem("angelone-theme", t);
+      if (large) localStorage.setItem("angelone-large-text", "on");
+    },
+    { t: theme, large: largeText },
+  );
   await page.goto("/");
   await expect(page.getByRole("main")).toBeVisible();
-  await expect(page.locator("html")).toHaveClass(
+  const html = page.locator("html");
+  await expect(html).toHaveClass(
     theme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b)/,
   );
+  if (largeText) await expect(html).toHaveClass(/\blarge-text\b/);
 }
 
 // Adds the long word to every free-text field of every stored snapshot, then
@@ -205,8 +220,10 @@ async function layoutProblems(page: Page): Promise<string[]> {
     const width = window.innerWidth;
     const height = window.innerHeight;
     const found: string[] = [];
+    // Measured against clientWidth, in the page's own pixels like
+    // scrollWidth: the "Larger text" zoom makes them differ from the window's.
     const pageWidth = document.documentElement.scrollWidth;
-    if (pageWidth > width)
+    if (pageWidth > document.documentElement.clientWidth)
       found.push(`page is ${pageWidth}px wide (${widestElement(width)})`);
     const offscreen = (selector: string) =>
       [...document.querySelectorAll<HTMLElement>(selector)].filter((el) => {

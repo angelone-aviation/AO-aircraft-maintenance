@@ -1,0 +1,80 @@
+/*
+ * Responsibility: The "Larger text" device setting's look: the whole
+ *   interface about 18% larger, text and tap targets together.
+ * Layer: UI. Applies while <html> has the large-text class.
+ * Dependencies: src/components/LargeText.tsx (sets the class).
+ *
+ * The app's sizes are in pixels, so a larger root font size would change
+ * nothing; CSS zoom scales every size instead. Zoom also scales viewport
+ * units, so each rule sized in vh is divided back to the real screen height
+ * here, or panels and dialogs would run off the bottom of the screen.
+ */
+html.large-text {
+  --text-zoom: 1.18;
+  zoom: var(--text-zoom);
+}
+html.large-text .app-layout,
+html.large-text .main-area,
+html.large-text .loading,
+html.large-text .welcome {
+  min-height: calc(100vh / var(--text-zoom));
+}
+html.large-text .sidebar,
+html.large-text .rail {
+  height: calc(100dvh / var(--text-zoom));
+}
+html.large-text .ds-dialog-panel {
+  max-height: calc(88vh / var(--text-zoom));
+}
+html.large-text .ds-dialog.full .ds-dialog-panel,
+html.large-text .ds-dialog.work-order-modal .ds-dialog-panel {
+  max-height: calc(94vh / var(--text-zoom));
+}
+html.large-text .more-sheet .ds-dialog-panel {
+  max-height: calc(84vh / var(--text-zoom));
+}
+html.large-text .lp-full {
+  max-height: calc(70vh / var(--text-zoom));
+}
+html.large-text .pdf-reader-viewport {
+  max-height: calc(75vh / var(--text-zoom));
+}
+@media (max-width: 759px) {
+  html.large-text .ds-dialog-panel,
+  html.large-text .ds-dialog.narrow .ds-dialog-panel,
+  html.large-text .ds-dialog.wide .ds-dialog-panel,
+  html.large-text .ds-dialog.full .ds-dialog-panel {
+    max-height: calc(92vh / var(--text-zoom));
+  }
+}
+/*
+ * The breakpoints still read the real screen width, so a tablet keeps its
+ * tablet layout with about a sixth less room. The top bar takes the phone's
+ * compact form there (the demo's preview buttons give way), and list figures
+ * may wrap on phones rather than push the page sideways.
+ */
+@media (max-width: 1099px) {
+  html.large-text .topbar-status .badge,
+  html.large-text .topbar .owner-preview-button {
+    display: none;
+  }
+  html.large-text .connection {
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    justify-content: center;
+  }
+  html.large-text .connection-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+@media (max-width: 759px) {
+  html.large-text .ds-list-meta {
+    white-space: normal;
+  }
+}
