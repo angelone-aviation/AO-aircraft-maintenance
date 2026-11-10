@@ -1,10 +1,12 @@
 # Peer testing with Convex Cloud and A2 Hosting
 
+> Historical. The A2 Hosting plan was not used: the site is served by Cloudflare ([release runbook](runbooks/release.md)). The demo download described below is now **Settings → System → Download this demo's data**, and no Angel One script or server function imports its file.
+
 The website runs on A2; records, accounts, backend functions and uploaded files run on Convex. Use a separate empty Convex project/deployment and an HTTPS test subdomain for peers.
 
 ## Browser demo source (confirmed)
 
-The user confirmed their working records are in **Explore the local demo**, not the local Convex database. Do not run the local-database transfer wizard for these records. In the same browser and origin that shows the records, open **Settings → System → Full demo backup for cloud transfer → Download full demo backup**. Save the JSON under `.convex/peer-testing/` for conversion and import. It includes all Flight Programs, embedded work-order/job-card attachments, separately stored manual PDFs and pending entries. Missing PDFs are reported rather than silently omitted. Demo users have no password credentials; real cloud accounts and identity mappings must be set up as part of the subsequent import. This file is an application backup, not a Convex snapshot ZIP, and cannot be passed directly to `convex import`.
+The user confirmed their working records are in **Explore the local demo**, not the local Convex database. Do not run the local-database transfer wizard for these records. In the same browser and origin that shows the records, open **Settings → System → Download this demo's data → Download demo data**. Save the JSON under `.convex/peer-testing/` for conversion and import. It includes all Flight Programs, embedded work-order/job-card attachments, separately stored manual PDFs and pending entries. Missing PDFs are reported rather than silently omitted. Demo users have no password credentials; real cloud accounts and identity mappings must be set up as part of the subsequent import. This file is an application backup, not a Convex snapshot ZIP, and cannot be passed directly to `convex import`.
 
 ## Original local-database verification
 

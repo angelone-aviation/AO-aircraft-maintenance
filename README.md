@@ -210,14 +210,14 @@ Some settings are set on the Convex deployment, not in the app's **Settings** pa
 | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`                                                           | The Google sign-in button                                                                                                                                              | [Accounts runbook](docs/runbooks/accounts.md#google-and-microsoft-sign-in)       |
 | `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | The Microsoft sign-in button                                                                                                                                           | [Accounts runbook](docs/runbooks/accounts.md#google-and-microsoft-sign-in)       |
 
-Each sign-in button appears only when all of its provider's variables are set. In the app, **Settings → System** holds the FAA and Geoapify keys and data backups; **Settings → Flight Program** holds each program's details, labor rate and Aircraft Spruce account.
+Each sign-in button appears only when all of its provider's variables are set. In the app, **Settings → System** shows which of these features are on (Deployment status) and holds the FAA and Geoapify keys, the deployment's expiring dates, the off-site backup status and a partial CSV extract (not a backup); **Settings → Flight Program** holds each program's details, labor rate, expiring dates, Aircraft Spruce account and partial CSV extract.
 
 ### Alerts by email and on devices
 
 - Maintenance alerts appear under the bell in the header for everyone, including demo mode.
 - To also email a daily digest (13:00 UTC) of new alerts, set a [Resend](https://resend.com) API key and a verified sender on the deployment: `npx convex env set RESEND_API_KEY re_...` and `npx convex env set RESEND_FROM "Angel One <alerts@your-domain>"`. Without both, email is skipped and in-app alerts keep working. Digests link back to `SITE_URL`.
-- Program administrators receive digests by default; anyone can change this under Settings → My account (or My certifications).
-- Urgent alerts (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) also go out at once: by email to program administrators and maintenance members (switch under Settings → My account; at most 60 a day so the digest fits Resend's free 100), and to devices members switch on under Settings → This device once the deployment has Web Push keys. See the [monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) and [alerts](docs/alerts.md).
+- Program administrators receive digests by default; anyone can change this under Settings → Alerts.
+- Urgent alerts (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) also go out at once: by email to program administrators and maintenance members (switch under Settings → Alerts; at most 60 a day so the digest fits Resend's free 100), and to devices members switch on under Settings → Alerts once the deployment has Web Push keys (until then Settings says device alerts are not turned on). See the [monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) and [alerts](docs/alerts.md).
 - System administrators whose alert email is on also get an "Off-site backups" warning, at the top of their digest or on its own, while the newest nightly off-site backup is more than 36 hours old or none has been recorded; Settings → System shows the newest copy.
 
 ### Accounts and sign-in
