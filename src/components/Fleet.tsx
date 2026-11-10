@@ -1263,7 +1263,6 @@ function TransferIntro() {
   );
 }
 
-// The record list is keyed by kind, so switching kind clears the choice.
 function TransferFields({
   s,
   kind,
@@ -1285,16 +1284,7 @@ function TransferFields({
           <option value="location">Storage location</option>
         </select>
       </Field>
-      <Field label="Record to transfer">
-        <select key={kind} name="record" required>
-          <option value="">Select record</option>
-          {transferRecords(s, kind).map((r) => (
-            <option key={r.uuid} value={r.uuid}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <RecordField s={s} kind={kind} />
       <DestinationField s={s} />
       <Field label="Transfer reason">
         <textarea
@@ -1304,6 +1294,22 @@ function TransferFields({
         />
       </Field>
     </>
+  );
+}
+
+// The record list is keyed by kind, so switching kind clears the choice.
+function RecordField({ s, kind }: { s: Snapshot; kind: TransferKind }) {
+  return (
+    <Field label="Record to transfer">
+      <select key={kind} name="record" required>
+        <option value="">Select record</option>
+        {transferRecords(s, kind).map((r) => (
+          <option key={r.uuid} value={r.uuid}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+    </Field>
   );
 }
 
