@@ -116,17 +116,10 @@ export function useStaleSave<T extends Versioned>(
  *   no loaded copy to tell the user's changes by, until the current record
  *   has arrived, and when a rule says the two saves cannot be combined.
  */
-export function StaleSaveDialog<T extends Versioned>({
-  attempt,
-  options,
-  onClose,
-  onReloaded,
-}: {
-  attempt: StaleSaveAttempt<T>;
-  options: StaleSaveOptions<T>;
-  onClose: () => void;
-  onReloaded: () => void;
-}) {
+export function StaleSaveDialog<T extends Versioned>(
+  props: StaleSaveDialogProps<T>,
+) {
+  const { attempt, options, onClose, onReloaded } = props;
   const { snapshot } = useWorkspace();
   const current = snapshot ? attempt.find(snapshot) : undefined;
   const review = reviewOf(attempt, current, options);
@@ -161,6 +154,13 @@ export function StaleSaveDialog<T extends Versioned>({
       )}
     </Dialog>
   );
+}
+
+interface StaleSaveDialogProps<T extends Versioned> {
+  attempt: StaleSaveAttempt<T>;
+  options: StaleSaveOptions<T>;
+  onClose: () => void;
+  onReloaded: () => void;
 }
 
 // The merge Keep mine would save. None without the three copies, or while
