@@ -11,7 +11,8 @@
 .dash {
   min-width: 0;
 }
-.dash-notice {
+/* Tucked under the header; lower in a mechanic's order it keeps its gap. */
+.ds-page-header + .dash-notice {
   margin-top: calc(var(--page-gap) * -0.4);
 }
 
@@ -429,6 +430,10 @@
   grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 24px;
   animation: rise 0.55s 0.3s var(--ease) both;
+}
+/* A mechanic's outlook leads the page, above the other sections. */
+.dash-bottom:not(:last-child) {
+  margin-bottom: 24px;
 }
 .dash-outlook {
   padding: 26px 26px 12px;
