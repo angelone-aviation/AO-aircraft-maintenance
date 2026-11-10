@@ -27,6 +27,7 @@ import {
   laborCents,
   parseCents,
   parseLaborHours,
+  partIssues,
   periodFor,
   workOrderCosts,
   type CostCommand,
@@ -266,6 +267,32 @@ describe("exact labor hours (#46)", () => {
   });
 });
 describe("work order costs", () => {
+  it("dates an issued part by the date its issue carries, in every time zone", () => {
+    const { s, order } = fixture();
+    // 19:00 on 31 December in Chicago, 01:00 on 1 January in UTC.
+    const issue = {
+      lineUuid: "l1",
+      stockUuid: "filter",
+      quantity: 1,
+      at: Date.parse("2027-01-01T01:00:00Z"),
+      actorId: "demo-admin",
+    };
+    // The second was stored before issues carried a date: its UTC date.
+    s.partsRequests![0].issues = [{ ...issue, date: "2026-12-31" }, issue];
+    const zone = process.env.TZ;
+    const seen = ["UTC", "America/Chicago"].map((tz) => {
+      process.env.TZ = tz;
+      return [
+        partIssues(s, order).map((i) => i.date),
+        workOrderCosts(s, order, { from: "2026-01-01", to: "2026-12-31" })
+          .partsCents,
+      ];
+    });
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+    const everywhere = [["2026-12-31", "2027-01-01"], 1235];
+    expect(seen).toEqual([everywhere, everywhere]);
+  });
   it("totals labor, parts (stock cost or manual) and other costs", () => {
     const { s, order, run } = fixture();
     run({ action: "settings.laborRate", laborRateCents: 10000 });

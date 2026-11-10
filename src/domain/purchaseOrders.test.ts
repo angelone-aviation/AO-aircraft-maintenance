@@ -672,6 +672,7 @@ function world() {
   return { s, d, run, draft, issued, repair, repairLine };
 }
 type World = ReturnType<typeof world>;
+type SaveCommand = Extract<POCommand, { kind: "save" }>;
 
 const act = (
   p: PurchaseOrder,
@@ -809,23 +810,23 @@ const refusals: [string, (w: World) => POCommand][] = [
     (w) => saveDraft(w, { lines: [w.d.lines[0], w.d.lines[0]] }),
   ],
   [
-    "Choose a delivery inventory location in this Flight Program.",
+    "PO-00004, line TIRE: Choose a delivery inventory location in this Flight Program.",
     (w) => withLine(w, { locationUuid: "nowhere" }),
   ],
   [
-    "Selected stock must match the part, category and location.",
+    "PO-00004, line OTHER: Selected stock must match the part, category and location.",
     (w) => withLine(w, { partNumber: "OTHER" }),
   ],
   [
-    "Aircraft is outside this Flight Program.",
+    "PO-00004, line TIRE: Aircraft is outside this Flight Program.",
     (w) => withLine(w, { aircraftUuid: "nowhere" }),
   ],
   [
-    "Inspection does not match the aircraft.",
+    "PO-00004, line TIRE: Inspection does not match the aircraft.",
     (w) => withLine(w, { inspectionUuid: "nowhere" }),
   ],
   [
-    "Work order does not match the aircraft.",
+    "PO-00004, line TIRE: Work order does not match the aircraft.",
     (w) => withLine(w, { workOrderUuid: "nowhere" }),
   ],
   [
@@ -971,7 +972,7 @@ const refusals: [string, (w: World) => POCommand][] = [
     },
   ],
   [
-    "Request allocations exceed PO quantity.",
+    "PO-00004, line TIRE: Request allocations exceed PO quantity.",
     (w) =>
       withLine(w, {
         quantity: 1,
@@ -981,26 +982,33 @@ const refusals: [string, (w: World) => POCommand][] = [
       }),
   ],
   [
-    "Component already has an outstanding repair PO.",
+    "PO-00004, line PUMP: Component already has an outstanding repair PO.",
     (w) => saveDraft(w, { lines: [w.repairLine] }),
   ],
   [
-    "Repair PO lines must reference one existing component and its repair request.",
+    "PO-00004, line PUMP: The repair component is no longer in inventory under this part number. Update its repair request and this line.",
     (w) =>
       saveDraft(w, {
         lines: [{ ...w.repairLine, repairComponentUuid: "missing" }],
       }),
   ],
   [
-    "PO allocation does not match the parts request.",
+    "PO-00004, line PUMP: Repair PO lines must reference one existing component and its repair request.",
+    (w) => {
+      w.run(act(w.repair, "cancel"));
+      return saveDraft(w, { lines: [{ ...w.repairLine, quantity: 2 }] });
+    },
+  ],
+  [
+    "PO-00004, line TIRE: PO allocation does not match the parts request.",
     (w) => allocated(w, 1, { aircraftUuid: w.s.aircraft[0].uuid }),
   ],
   [
-    "Use stock parts for parts requests; use a repair request for an existing serialized component.",
+    "PO-00004, line TIRE: Use stock parts for parts requests; use a repair request for an existing serialized component.",
     (w) => allocated(w, 1, { kind: "component", stockUuid: "" }),
   ],
   [
-    "Request vendor, currency and ship-to must match the PO.",
+    "PO-00004, line TIRE: Request vendor, currency and ship-to must match the PO.",
     (w) => ({
       kind: "save",
       requestUuid: request(),
@@ -1014,7 +1022,7 @@ const refusals: [string, (w: World) => POCommand][] = [
     }),
   ],
   [
-    "Repair allocation does not match the original component and work requested.",
+    "PO-00004, line PUMP: Repair allocation does not match the original component and work requested.",
     (w) =>
       allocated(w, 1, {
         requestAllocations: [
@@ -1025,7 +1033,7 @@ const refusals: [string, (w: World) => POCommand][] = [
       }),
   ],
   [
-    "PO quantity exceeds the uncommitted request balance.",
+    "PO-00004, line TIRE: PO quantity exceeds the uncommitted request balance.",
     (w) => allocated(w, 6, { quantity: 6 }),
   ],
 ];
@@ -1114,5 +1122,139 @@ describe("purchase order results", () => {
       quantity: 1,
     });
     expect(p.lines[0].stockUuid).toBe("tire");
+  });
+});
+
+const correct = (w: World, uuid: string, change: object) => {
+  const record = w.s.management!.find((r) => r.uuid === uuid)!;
+  applyManagement(
+    w.s,
+    {
+      action: "record.save",
+      requestUuid: request(),
+      reason: "Correction",
+      record: { ...record, ...change } as typeof record,
+    },
+    now,
+  );
+};
+
+describe("orders keep the references they were issued with", () => {
+  it("receives into the ordered lot after its part number and category are corrected", () => {
+    const w = world();
+    const shipped = w.run(ship(w.issued));
+    correct(w, "tire", { partNumber: "TIRE-600", category: "supply" });
+    const p = w.run(receive(shipped));
+    expect(p.lines[0].partNumber).toBe("TIRE");
+    expect(p.receipts[0].lines[0].itemUuids).toEqual(["tire"]);
+    expect(w.s.management!.find((r) => r.uuid === "tire")).toMatchObject({
+      partNumber: "TIRE-600",
+      quantity: 2,
+    });
+    expect(
+      w.s.audit.find((a) => a.action === "stock.move.receive"),
+    ).toMatchObject({
+      reason: "Receipt PO-00002 (ordered as TIRE); invoice INV",
+    });
+  });
+  it("ships and receives a line whose aircraft has left the Flight Program", () => {
+    const w = world();
+    const aircraftUuid = w.s.aircraft[0].uuid;
+    const [saved] = applyPOCommand(w.s, withLine(w, { aircraftUuid }), now);
+    const issued = w.run(act(saved, "issue", ""));
+    w.s.aircraft[0].programUuid = "other-program";
+    const p = w.run(receive(w.run(ship(issued))));
+    expect(p.receipts).toHaveLength(1);
+  });
+  it("leaves other orders alone when a component on a repair order is corrected", () => {
+    const w = world();
+    correct(w, "pump", { partNumber: "PUMP-2" });
+    expect(w.run(saveDraft(w, {})).number).toBe("PO-00004");
+    expect(w.run(ship(w.issued)).shipments).toHaveLength(1);
+    const shipped = w.run(ship(w.repair));
+    expect(shipped.lines[0].partNumber).toBe("PUMP");
+    const back = w.run(
+      receive(shipped, {
+        serials: [{ serial: "SN1", hours: 101, cycles: 101 }],
+      }),
+    );
+    expect(poStatus(back)).toBe("Received");
+  });
+  it("refuses to issue a draft whose repair component changed, naming the order and line", () => {
+    const w = world();
+    const draft = w.run(act(w.repair, "revise"));
+    correct(w, "pump", { partNumber: "PUMP-2" });
+    expect(() => w.run(act(draft, "issue", ""))).toThrow(
+      "PO-00003, line PUMP: The repair component is no longer in inventory under this part number. Update its repair request and this line.",
+    );
+    expect(w.run(act(draft, "cancel")).phase).toBe("cancelled");
+  });
+  it("refuses to ship a repair component that was attached to an assembly", () => {
+    const w = world();
+    const c = w.s.management!.find((r) => r.uuid === "pump") as Component;
+    c.parentComponentUuid = "engine";
+    expect(() => w.run(ship(w.repair))).toThrow(
+      "Repair component must be in inventory and available before shipment.",
+    );
+  });
+  it("refuses a receipt whose delivery location has left the Flight Program", () => {
+    const w = world();
+    w.s.management!.find((r) => r.uuid === "store")!.programUuid = "other";
+    expect(() => w.run(receive(w.issued))).toThrow(
+      "PO-00002, line TIRE: Choose a delivery inventory location in this Flight Program.",
+    );
+  });
+});
+
+describe("a parts request after its purchase order is cancelled", () => {
+  const resave = (w: World, change: object) => {
+    const stored = w.s.partsRequests!.find((r) => r.uuid === "request")!;
+    return applyRequestCommand(
+      w.s,
+      {
+        kind: "save",
+        requestUuid: request(),
+        draft: { ...requestDraftSchema.parse(stored), ...change },
+      },
+      now,
+    );
+  };
+  const LOCKED =
+    "Release reservations and remove draft PO allocations before changing lines or purchasing details. Fulfilled lines are retained for traceability.";
+  it("can change vendor and lines, and be ordered from the new vendor", () => {
+    const w = world();
+    const p = allocatedOrder(w);
+    expect(() => resave(w, { vendor: "Vendor B" })).toThrow(LOCKED);
+    w.run(act(p, "cancel"));
+    const saved = resave(w, {
+      vendor: "Vendor B",
+      lines: [
+        { uuid: "item", partNumber: "TIRE", description: "Tire", quantity: 4 },
+      ],
+    });
+    expect(saved).toMatchObject({ vendor: "Vendor B" });
+    expect(saved.lines[0].quantity).toBe(4);
+    const [reordered] = applyPOCommand(
+      w.s,
+      {
+        kind: "save",
+        requestUuid: request(),
+        drafts: [
+          {
+            ...(allocated(w, 4, { quantity: 4 }) as SaveCommand).drafts[0],
+            uuid: "reorder",
+            vendor: "Vendor B",
+          },
+        ],
+      },
+      now,
+    );
+    expect(reordered).toMatchObject({ vendor: "Vendor B", phase: "draft" });
+  });
+  it("stays fixed while units received on the order remain allocated to it", () => {
+    const w = world();
+    const received = w.run(receive(allocatedOrder(w)));
+    w.run(act(received, "cancel"));
+    expect(() => resave(w, { vendor: "Vendor B" })).toThrow(LOCKED);
   });
 });

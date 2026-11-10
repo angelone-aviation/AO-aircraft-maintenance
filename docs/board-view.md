@@ -30,7 +30,7 @@ Every other server call from a board member is refused with "Board access is rea
 - **Aircraft**: each aircraft's status, overdue and due-soon counts, open discrepancies (with how many are grounding), and spend: this quarter's total, this year's total against the year's budget, and "over budget" when it is.
 - **Due in the next 30 days**: every inspection, component limit and AD that is overdue, due soon, or has a calendar limit within 30 days, worst first and then soonest first.
 - **Off-site backup**: the freshness sentence from the nightly backup (ADR-0008). The demo has no backups and says so; a program administrator who opens the view is pointed to Settings → System, where the status is reported to system administrators.
-- **Download board summary (PDF)**: the same summary as paragraphs, in Helvetica, named `board-summary-<date>.pdf`.
+- **Download board summary (PDF)**: the same summary as paragraphs, in DejaVu Sans, named `board-summary-<date>.pdf`.
 
 ## Demo
 

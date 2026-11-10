@@ -911,6 +911,28 @@ function validatePartUsed(
       throw new Rejection("Non-stock parts cannot link to inventory.");
     return;
   }
+  const stock = findStoredLot(s, part, owner);
+  const recorded = prior?.partsUsed.find(
+    (p) =>
+      p.uuid === part.uuid &&
+      p.source === "stock" &&
+      p.stockUuid === part.stockUuid,
+  );
+  // A part keeps the number it was recorded with when its stock item's part
+  // number is corrected later; only a number entered now must match the item.
+  if (
+    part.partNumber !== stock.partNumber &&
+    part.partNumber !== recorded?.partNumber
+  )
+    throw new Rejection("The part number must match the selected stock item.");
+  assertLinkableLot(stock, !!recorded, now);
+}
+
+function findStoredLot(
+  s: Snapshot,
+  part: TaskPart,
+  owner: string | undefined,
+): Stock {
   const stock = s.management?.find(
     (r): r is Stock => r.kind === "stock" && r.uuid === part.stockUuid,
   );
@@ -927,26 +949,13 @@ function validatePartUsed(
     throw new Rejection(
       "Select a stock item and its inventory location in this aircraft’s Flight Program.",
     );
-  if (part.partNumber !== stock.partNumber)
-    throw new Rejection("The part number must match the selected stock item.");
-  assertLinkableLot(stock, part, prior, now);
+  return stock;
 }
 
 // Expired stock cannot be issued, so it cannot be newly linked as a part used.
 // A lot linked before it expired stays, so the card can still be edited,
 // signed and completed.
-function assertLinkableLot(
-  stock: Stock,
-  part: TaskPart,
-  prior: TaskCard | undefined,
-  now: number,
-) {
-  const linked = prior?.partsUsed.some(
-    (p) =>
-      p.uuid === part.uuid &&
-      p.source === "stock" &&
-      p.stockUuid === part.stockUuid,
-  );
+function assertLinkableLot(stock: Stock, linked: boolean, now: number) {
   if (!linked && expiredForUse(stock.expirationDate, now))
     throw new Rejection(
       `${stock.partNumber} expired on ${stock.expirationDate}. Expired stock cannot be linked as a part used; choose another lot or record a non-stock item.`,

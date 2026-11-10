@@ -1657,6 +1657,8 @@ function ReservationForm({ request: r, line }: ReservationFormProps) {
           stockUuid,
           quantity,
           alternateConfirmed: alternate,
+          // Costs count an issued part on this date in every time zone.
+          date: operation === "issue" ? localDate() : undefined,
         });
       }}
     >
@@ -2245,7 +2247,7 @@ async function saveRequestPdf(
 ) {
   try {
     const { requestPdf } = await import("../data/partsRequestPdf");
-    requestPdf(request, s, kind).save(filename);
+    (await requestPdf(request, s, kind)).save(filename);
   } catch (e) {
     onError(errorText(e));
   }

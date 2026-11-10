@@ -128,7 +128,7 @@ async function loadTransfer(
     ...state,
     management: decode("management", documents),
     inspections,
-    ...(await loadCommitments(ctx, program, args.kind)),
+    ...(await loadCommitments(ctx, program)),
     checklists: decode("checklists", checklists),
     componentSetups: decode("componentSetups", setups),
     audit: [],
@@ -161,14 +161,13 @@ async function transferredInspections(
   return [];
 }
 
-// Aircraft wait for their open requests; locations for reserved stock and
-// open order lines delivering there (transferProgram).
+// Aircraft wait for their open requests and order lines; components for
+// their repair requests and orders; locations for reserved stock and open
+// order lines delivering there (transferProgram).
 async function loadCommitments(
   ctx: MutationCtx,
   program: string | undefined,
-  kind: TransferArgs["kind"],
 ): Promise<Pick<Snapshot, "partsRequests" | "purchaseOrders">> {
-  if (kind === "component") return { partsRequests: [], purchaseOrders: [] };
   return {
     partsRequests: decode(
       "partsRequests",

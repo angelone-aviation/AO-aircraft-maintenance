@@ -1054,3 +1054,164 @@ it("transfers once per request id: a replay returns nothing and writes nothing",
   });
   expect(await stored()).toEqual(saved);
 });
+
+// An issued order is shipped and received in the program that issued it, so
+// the records its open lines point at stay until the order is settled.
+it("component and aircraft transfers wait for the purchase orders that point at them", async () => {
+  const { system } = await setup();
+  const today = new Date().toISOString().slice(0, 10);
+  const send = (payload: object) => ({
+    programUuid: "A",
+    payload: JSON.stringify({ requestUuid: crypto.randomUUID(), ...payload }),
+  });
+  const po = (c: object) =>
+    system.mutation(api.purchaseOrders.execute, send(c));
+  const draft = (uuid: string, line: object) => ({
+    kind: "save",
+    drafts: [
+      {
+        uuid,
+        version: 0,
+        vendor: "Vendor",
+        vendorContact: "",
+        shipTo: "Hangar",
+        expectedDate: "",
+        currency: "USD",
+        shippingCents: 0,
+        notes: "",
+        lines: [{ uuid: "line", locationUuid: "location-A", ...line }],
+      },
+    ],
+  });
+  const movement = (kind: string, uuid: string, version: number) => ({
+    kind,
+    uuid,
+    version,
+    date: today,
+    carrier: "UPS",
+    tracking: "1Z",
+    invoice: "INV",
+    notes: "",
+  });
+  const transfer = (kind: "aircraft" | "component", uuid: string) =>
+    system.mutation(api.programs.transfer, {
+      programUuid: "A",
+      kind,
+      uuid,
+      destination: "B",
+      reason: "New base",
+    });
+  await system.mutation(
+    api.management.execute,
+    send({
+      reason: "Stock in",
+      action: "record.save",
+      record: {
+        kind: "component",
+        uuid: "alt",
+        version: 0,
+        aircraftUuid: "",
+        componentType: "Appliance",
+        partNumber: "ALT-1",
+        serial: "S1",
+        manufacturer: "",
+        notes: "",
+        trackTime: true,
+        trackCycles: false,
+        trackCalendar: false,
+        installed: false,
+        locationUuid: "location-A",
+        installedSeconds: 0,
+        installedCycles: 0,
+        timeSinceNew: 0,
+        timeSinceOverhaul: null,
+        timeSinceRepair: null,
+        cyclesSinceNew: 0,
+        serviceDaysBase: 0,
+      },
+    }),
+  );
+  await system.mutation(
+    api.partsRequests.execute,
+    send({
+      kind: "save",
+      draft: {
+        uuid: "req",
+        version: 0,
+        source: { kind: "component", uuid: "alt" },
+        mode: "repair",
+        date: today,
+        engineer: "E",
+        priority: "P2 Routine",
+        requiredBy: "",
+        currency: "USD",
+        vendor: "Vendor",
+        shipTo: "Hangar",
+        lines: [
+          {
+            uuid: "rl",
+            partNumber: "ALT-1",
+            description: "Alternator",
+            quantity: 1,
+            componentUuid: "alt",
+            service: "repair",
+            defect: "Low output",
+            workRequested: "Repair",
+          },
+        ],
+      },
+    }),
+  );
+  await expect(transfer("component", "alt")).rejects.toThrow(
+    "Cancel or complete the open repair requests and orders for ALT-1 S/N S1 (PR-00001) before transferring it.",
+  );
+  await po(
+    draft("po-repair", {
+      partNumber: "ALT-1",
+      description: "Alternator",
+      quantity: 1,
+      unitCents: 50000,
+      kind: "component",
+      repairComponentUuid: "alt",
+      repairWork: "repair",
+      requestAllocations: [{ requestUuid: "req", lineUuid: "rl", quantity: 1 }],
+    }),
+  );
+  await po({ kind: "issue", uuid: "po-repair", version: 1, reason: "" });
+  const lines = [{ lineUuid: "line", quantity: 1 }];
+  await po({ ...movement("ship", "po-repair", 2), lines });
+  await expect(transfer("component", "alt")).rejects.toThrow(
+    "Receive ALT-1 S/N S1 back from repair on PO-00001 before transferring it.",
+  );
+  await po({
+    ...movement("receive", "po-repair", 3),
+    lines: [
+      {
+        ...lines[0],
+        condition: "overhauled",
+        serials: [{ serial: "S1", hours: 0, cycles: 0 }],
+      },
+    ],
+  });
+  await transfer("component", "alt");
+
+  await po(
+    draft("po-plane", {
+      partNumber: "FILTER",
+      description: "Oil filter",
+      quantity: 2,
+      unitCents: 1999,
+      kind: "part",
+      aircraftUuid: "plane-A",
+    }),
+  );
+  await po({ kind: "issue", uuid: "po-plane", version: 1, reason: "" });
+  await expect(transfer("aircraft", "plane-A")).rejects.toThrow(
+    "Receive or cancel open purchase order lines (FILTER on PO-00002) before transferring this aircraft.",
+  );
+  await po({
+    ...movement("receive", "po-plane", 2),
+    lines: [{ lineUuid: "line", quantity: 2, condition: "new", serials: [] }],
+  });
+  await transfer("aircraft", "plane-A");
+});

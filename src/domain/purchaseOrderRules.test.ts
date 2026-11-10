@@ -220,6 +220,23 @@ describe("inspectionShortfalls", () => {
       ["tire", 2],
     ]);
   });
+  it("counts only stock that can be issued: not expired, not reserved", () => {
+    const now = Date.parse("2026-11-10T12:00:00Z");
+    const required = [
+      { stockUuid: "tire", locationUuid: "store", quantity: 5 },
+    ];
+    const shortfall = (lot: object) =>
+      inspectionShortfalls(
+        { management: [{ ...stock("tire", 4), ...lot }], purchaseOrders: [] },
+        { uuid: "insp", requiredParts: required },
+        now,
+      )[0].quantity;
+    expect(shortfall({})).toBe(1);
+    expect(shortfall({ reservedQuantity: 3 })).toBe(4);
+    expect(shortfall({ expirationDate: "2026-11-08" })).toBe(5);
+    // Usable through its expiration date, in every time zone.
+    expect(shortfall({ expirationDate: "2026-11-11" })).toBe(1);
+  });
 });
 
 describe("draftsToSave", () => {
