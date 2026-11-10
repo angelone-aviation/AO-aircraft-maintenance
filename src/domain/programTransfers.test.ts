@@ -430,3 +430,87 @@ it("records a transfer reason longer than the form allows", () => {
   });
   expect(s.audit[0]).toMatchObject({ action: "program.transferred", reason });
 });
+
+it("refuses to transfer an aircraft while an issued purchase-order line names it", () => {
+  const { s, order } = locationWithCommitments();
+  const plane = s.aircraft[0];
+  const naming = (...args: Parameters<typeof order>) => {
+    const po = order(...args);
+    po.lines[0].aircraftUuid = plane.uuid;
+    return po;
+  };
+  const move = () =>
+    transferProgram(structuredClone(s), toOther("aircraft", plane.uuid));
+  s.purchaseOrders = [naming("issued", 1)];
+  expect(move).toThrow(Rejection);
+  expect(move).toThrow(
+    "Receive or cancel open purchase order lines (FILTER-1 on PO-00001) before transferring this aircraft.",
+  );
+  // An order for another aircraft, a draft and a settled order do not wait.
+  for (const po of [
+    order("issued"),
+    naming("draft"),
+    naming("issued", 2),
+    naming("issued", 0, 2),
+    naming("cancelled"),
+  ]) {
+    s.purchaseOrders = [po];
+    expect(move()).toContain(plane.uuid);
+  }
+});
+
+it("refuses to transfer a component that is out for repair or has an open repair request or order", () => {
+  const { s, engine } = storedEngine();
+  const { request, order } = locationWithCommitments();
+  const repair = {
+    ...request,
+    mode: "repair" as const,
+    reservations: [],
+    lines: [{ ...request.lines[0], quantity: 1, componentUuid: "engine" }],
+  };
+  const repairOrder = (
+    phase: "draft" | "issued" | "cancelled",
+    received = 0,
+  ) => {
+    const po = order(phase, received);
+    po.lines[0] = {
+      ...po.lines[0],
+      quantity: 1,
+      repairComponentUuid: "engine",
+      requestAllocations: [
+        { requestUuid: "request", lineUuid: "line", quantity: 1 },
+      ],
+    };
+    return po;
+  };
+  const move = (kind: "component" | "aircraft" = "component") =>
+    transferProgram(
+      structuredClone(s),
+      toOther(kind, kind === "component" ? "engine" : s.aircraft[0].uuid),
+    );
+  s.partsRequests = [repair];
+  expect(move).toThrow(Rejection);
+  expect(move).toThrow(
+    "Cancel or complete the open repair requests and orders for PN S/N SN (PR-00001) before transferring it.",
+  );
+  s.purchaseOrders = [repairOrder("draft")];
+  expect(move).toThrow(
+    "Cancel or complete the open repair requests and orders for PN S/N SN (PR-00001, PO-00001) before transferring it.",
+  );
+  engine.outForRepair = { poUuid: "po", date: "2026-11-03" };
+  s.purchaseOrders = [repairOrder("issued")];
+  expect(move).toThrow(
+    "Receive PN S/N SN back from repair on PO-00001 before transferring it.",
+  );
+  // The component would leave with its aircraft, so the aircraft waits too.
+  expect(() => move("aircraft")).toThrow(
+    "Receive PN S/N SN back from repair on PO-00001 before transferring it.",
+  );
+  // Back from repair, or with the request cancelled, it can go.
+  delete engine.outForRepair;
+  s.purchaseOrders = [repairOrder("issued", 1)];
+  expect(move()).toContain("engine");
+  s.purchaseOrders = [repairOrder("cancelled")];
+  s.partsRequests = [{ ...repair, cancelled: true }];
+  expect(move()).toContain("engine");
+});

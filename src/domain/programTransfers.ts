@@ -3,7 +3,7 @@
  *   records that belong to it, from the active Flight Program to another.
  * Layer: Domain. Applier on a working snapshot; no I/O, no React.
  * Dependencies: src/domain/programs.ts, partsRequests.ts, purchaseOrders.ts,
- *   rejection.ts; model.ts, fleet.ts, management.ts (types).
+ *   rejection.ts; model.ts, fleet.ts, management.ts, components.ts (types).
  *
  * Existing change-log rows are never re-tagged (ADR-0005): History follows
  * each record's current owner instead.
@@ -11,9 +11,10 @@
 import type { Snapshot } from "./model";
 import type { Program } from "./fleet";
 import type { ManagedRecord, Stock } from "./management";
+import type { Component } from "./components";
 import { activeProgram, ownsActive, recordProgram } from "./programs";
 import { requestStatus } from "./partsRequests";
-import { outstanding } from "./purchaseOrders";
+import { outstanding, type POLine, type PurchaseOrder } from "./purchaseOrders";
 import { Rejection } from "./rejection";
 
 /**
@@ -52,7 +53,9 @@ interface Moving {
  *   the reason is blank, the destination is missing or is the active program,
  *   the record is not in the active program, or open parts requests, an
  *   installed component, linked inspections, tracked components, reserved
- *   stock or open purchase-order lines still tie it here.
+ *   stock, open purchase-order lines, or a component's repair (out for
+ *   repair, or an open repair request or order) still tie it here. The last
+ *   three name the requests and orders to settle.
  */
 export function transferProgram(s: Snapshot, input: ProgramTransfer) {
   if (!s.user.active || !s.user.isAdmin)
@@ -98,17 +101,15 @@ function claimAircraft(
   const aircraft = s.aircraft.find((a) => a.uuid === input.uuid);
   if (!aircraft || !ownsActive(s, aircraft.programUuid))
     throw new Rejection("Aircraft not found in active Flight Program.");
-  // Reservations and orders point at this program's stock and vendors.
-  if (hasOpenPartsRequests(s, aircraft.uuid))
-    throw new Rejection(
-      "Cancel or fulfill this aircraft's open parts requests before transferring it.",
-    );
+  assertAircraftUncommitted(s, aircraft.uuid);
   aircraft.programUuid = destination.uuid;
   aircraft.program = destination.name;
   aircraft.version++;
-  for (const r of s.management ?? [])
-    if (r.kind === "component" && r.aircraftUuid === aircraft.uuid)
-      moving.components.add(r.uuid);
+  for (const r of s.management ?? []) {
+    if (r.kind !== "component" || r.aircraftUuid !== aircraft.uuid) continue;
+    assertComponentUncommitted(s, r);
+    moving.components.add(r.uuid);
+  }
   for (const i of s.inspections) {
     if (i.aircraftUuid !== aircraft.uuid) continue;
     i.programUuid = destination.uuid;
@@ -125,6 +126,67 @@ function claimAircraft(
     d.programUuid = destination.uuid;
     moving.entities.add(d.uuid);
   }
+}
+
+// Reservations and orders point at this program's stock and vendors, and an
+// issued order can only be received in the program that issued it.
+function assertAircraftUncommitted(s: Snapshot, aircraftUuid: string) {
+  if (hasOpenPartsRequests(s, aircraftUuid))
+    throw new Rejection(
+      "Cancel or fulfill this aircraft's open parts requests before transferring it.",
+    );
+  const ordered = describeOpenOrderLines(
+    s,
+    (l) => l.aircraftUuid === aircraftUuid,
+  );
+  if (ordered.length)
+    throw new Rejection(
+      `Receive or cancel open purchase order lines (${ordered.join(", ")}) before transferring this aircraft.`,
+    );
+}
+
+// A component sent for repair comes back on the order that shipped it, in the
+// program that issued it; its repair request and order stay behind too.
+function assertComponentUncommitted(s: Snapshot, component: Component) {
+  const label = `${component.partNumber} S/N ${component.serial}`;
+  const orders = s.purchaseOrders ?? [];
+  if (component.outForRepair) {
+    const shippedOn = orders.find(
+      (p) => p.uuid === component.outForRepair?.poUuid,
+    );
+    throw new Rejection(
+      `Receive ${label} back from repair on ${shippedOn?.number ?? "its purchase order"} before transferring it.`,
+    );
+  }
+  const open = [
+    ...openRepairRequests(s, component.uuid),
+    ...orders
+      .filter((p) => isRepairing(p, component.uuid))
+      .map((p) => p.number),
+  ];
+  if (open.length)
+    throw new Rejection(
+      `Cancel or complete the open repair requests and orders for ${label} (${open.join(", ")}) before transferring it.`,
+    );
+}
+
+function openRepairRequests(s: Snapshot, componentUuid: string) {
+  return (s.partsRequests ?? [])
+    .filter(
+      (r) =>
+        r.lines.some((l) => l.componentUuid === componentUuid) &&
+        !["Cancelled", "Fulfilled"].includes(requestStatus(s, r)),
+    )
+    .map((r) => r.number);
+}
+
+function isRepairing(p: PurchaseOrder, componentUuid: string) {
+  return (
+    ["draft", "issued"].includes(p.phase) &&
+    p.lines.some(
+      (l) => l.repairComponentUuid === componentUuid && outstanding(p, l) > 0,
+    )
+  );
 }
 
 function hasOpenPartsRequests(s: Snapshot, aircraftUuid: string) {
@@ -151,6 +213,7 @@ function claimRecord(s: Snapshot, input: ProgramTransfer, moving: Moving) {
       throw new Rejection(
         "Transfer the associated aircraft while this component has linked inspection schedules.",
       );
+    assertComponentUncommitted(s, record);
     moving.components.add(record.uuid);
   }
   if (record.kind === "location") claimLocation(s, record.uuid, moving);
@@ -180,10 +243,10 @@ function assertLocationUncommitted(s: Snapshot, locationUuid: string) {
     (x): x is Stock => x.kind === "stock" && x.locationUuid === locationUuid,
   );
   const reserved = stock.flatMap((x) => describeReservation(s, x));
+  const stockIds = new Set(stock.map((x) => x.uuid));
   const ordered = describeOpenOrderLines(
     s,
-    locationUuid,
-    new Set(stock.map((x) => x.uuid)),
+    (l) => l.locationUuid === locationUuid || stockIds.has(l.stockUuid),
   );
   if (!reserved.length && !ordered.length) return;
   const release = `release reserved stock (${reserved.join(", ")})`;
@@ -208,20 +271,17 @@ function describeReservation(s: Snapshot, stock: Stock): string[] {
   return stock.reservedQuantity ? [stock.partNumber] : [];
 }
 
+// The lines of issued orders, not yet fully received or cancelled, that
+// point at the record being moved.
 function describeOpenOrderLines(
   s: Snapshot,
-  locationUuid: string,
-  stockIds: Set<string>,
+  pointsAtRecord: (l: POLine) => boolean,
 ): string[] {
   return (s.purchaseOrders ?? [])
     .filter((p) => p.phase === "issued")
     .flatMap((p) =>
       p.lines
-        .filter(
-          (l) =>
-            (l.locationUuid === locationUuid || stockIds.has(l.stockUuid)) &&
-            outstanding(p, l) > 0,
-        )
+        .filter((l) => pointsAtRecord(l) && outstanding(p, l) > 0)
         .map((l) => `${l.partNumber} on ${p.number}`),
     );
 }
