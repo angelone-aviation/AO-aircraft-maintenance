@@ -1,6 +1,7 @@
 /**
  * Responsibility: Aircraft status (airworthy, due soon or grounded, with
- *   reasons) and the dispatch gate that blocks flights on a grounded aircraft.
+ *   reasons; setup incomplete as shown) and the dispatch gate that blocks
+ *   flights on a grounded aircraft.
  * Layer: Domain. Pure rules shared by the browser and Convex; no I/O, no React.
  * Dependencies: ./aircraftSetup, ./airworthiness, ./deferrals, ./dueItems,
  *   ./model, ./programs, ./rejection.
@@ -176,6 +177,41 @@ export function aircraftStatusFindings(
  */
 export function earliestLocalDate(now = Date.now()) {
   return new Date(now - EARLIEST_ZONE_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Why a flight the aircraft was grounded after it began is held. */
+export const GROUNDED_DURING_FLIGHT =
+  "The aircraft was grounded during this flight.";
+
+/**
+ * Tells whether an aircraft is grounded only by problems reported after a
+ * flight began. The flight was released on an aircraft the gate passed, so
+ * it is held for an administrator's review rather than refused (decision
+ * D6); anything that grounded the aircraft before it began still refuses it.
+ *
+ * @param s - Snapshot holding the aircraft's records.
+ * @param aircraftUuid - The aircraft.
+ * @param startTime - When the flight began (ISO 8601).
+ * @param today - Local date for {@link aircraftStatus}.
+ * @returns True when grounded and every grounding reason is a discrepancy
+ *   created after `startTime`.
+ * @throws {Error} "Aircraft not found." for an unknown aircraft.
+ */
+export function groundedDuringFlight(
+  s: Snapshot,
+  aircraftUuid: string,
+  startTime: string,
+  today = localDate(),
+): boolean {
+  const status = aircraftStatus(s, aircraftUuid, today);
+  if (status.level !== "grounded") return false;
+  const began = Date.parse(startTime);
+  return status.reasons.every(
+    (r) =>
+      r.kind === "discrepancy" &&
+      (s.discrepancies.find((d) => d.uuid === r.entityUuid)?.createdAt ?? 0) >
+        began,
+  );
 }
 
 /** Shortest dispatch-override reason accepted, in characters after trimming. */

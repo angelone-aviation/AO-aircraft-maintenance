@@ -22,6 +22,8 @@ import { Rejection } from "./rejection";
 
 const now = Date.parse("2026-10-20T12:00:00Z");
 const options = { now, today: "2026-10-20" };
+// flight() starts at 10:00 on the same day.
+const BEFORE_TAKEOFF = Date.parse("2026-10-20T09:00:00Z");
 const location: ManagedRecord = {
   kind: "location",
   uuid: "oil-store",
@@ -259,7 +261,7 @@ describe("submitting a flight", () => {
         grounding: true,
         status: "open",
         authorId: s.user.id,
-        createdAt: now,
+        createdAt: BEFORE_TAKEOFF,
       },
     ];
     const grounded = rejection(() => submitOperation(s, flight(s), options));
@@ -282,6 +284,33 @@ describe("submitting a flight", () => {
         after: JSON.stringify(changes!.flight!.dispatchOverride),
       }),
     );
+  });
+  it("holds a flight the aircraft was grounded after it began, unless an administrator overrides", () => {
+    const s = world();
+    const report = (uuid: string, createdAt: number) => ({
+      uuid,
+      aircraftUuid: s.aircraft[0].uuid,
+      description: "Hard landing",
+      grounding: true,
+      status: "open" as const,
+      authorId: s.user.id,
+      createdAt,
+    });
+    s.discrepancies = [report("after-landing", now)];
+    const { status, changes } = submitOperation(s, flight(s), options);
+    expect(status).toBe("review");
+    expect(changes!.flight).toMatchObject({
+      reviewReason: "The aircraft was grounded during this flight.",
+      dispatchOverride: undefined,
+    });
+    expect(changes!.aircraft).toBeUndefined();
+    const reason = "Ferry flight to the repair station";
+    const op = flight(s, {}, { dispatchOverrideReason: reason });
+    expect(submitOperation(s, op, options).status).toBe("accepted");
+    s.discrepancies.push(report("before-takeoff", BEFORE_TAKEOFF));
+    expect(
+      rejection(() => submitOperation(s, flight(s), options)),
+    ).toBeInstanceOf(FlightRejection);
   });
   it("requires an active pilot and copilot from the aircraft's Flight Program", () => {
     const s = world();
@@ -313,7 +342,7 @@ describe("submitting a flight", () => {
         grounding: true,
         status: "open",
         authorId: s.user.id,
-        createdAt: now,
+        createdAt: BEFORE_TAKEOFF,
       },
     ];
     const everything = flight(s, {
@@ -366,7 +395,7 @@ describe("submitting a flight", () => {
         grounding: true,
         status: "open",
         authorId: s.user.id,
-        createdAt: now,
+        createdAt: BEFORE_TAKEOFF,
       },
     ];
     const grounded = flight(s, oilAdded());

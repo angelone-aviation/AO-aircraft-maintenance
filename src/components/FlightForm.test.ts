@@ -186,6 +186,34 @@ it("shows grounding reasons, requires an administrator override and disables sav
   expect(blocked).toContain("Ask a Flight Program administrator");
   expect(blocked).toContain('<form><fieldset disabled="">');
 });
+it("lets a pilot end a flight the aircraft was grounded after it began, to be held", async () => {
+  const startTime = "2026-01-01T10:00:00.000Z";
+  const report = (createdAt: number) => ({
+    uuid: `grounding-${createdAt}`,
+    aircraftUuid: snapshot.aircraft[0].uuid,
+    description: "Hard landing",
+    status: "open" as const,
+    grounding: true,
+    authorId: snapshot.user.id,
+    createdAt,
+  });
+  snapshot.user = { ...snapshot.members[1] };
+  snapshot.discrepancies.push(report(Date.parse(startTime) + 60_000));
+  const end = () => form({ phase: "end", prefill: { startTime } });
+  const html = end();
+  expect(html).toContain("N206MA was grounded during this flight.");
+  expect(html).not.toContain("N206MA is grounded.");
+  expect(html).toContain("<form><fieldset>");
+  await submit!(flightData());
+  expect(enqueue).toHaveBeenCalledWith(
+    expect.objectContaining({ dispatchOverrideReason: undefined }),
+  );
+  // Logging a new flight is still gated, as is an end when the aircraft
+  // was grounded before take-off.
+  expect(form({})).toContain('<form><fieldset disabled="">');
+  snapshot.discrepancies.push(report(Date.parse(startTime) - 60_000));
+  expect(end()).toContain('<form><fieldset disabled="">');
+});
 it("refuses a preflight it has no way to save", async () => {
   form({ phase: "preflight" });
   await expect(submit!(flightData())).rejects.toThrow(

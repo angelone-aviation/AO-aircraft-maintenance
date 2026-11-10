@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the dispatch gate on submitted flights (a grounded
- *   aircraft refused, an administrator's override recorded) and discrepancy
- *   grounding flags and deferrals.
+ *   aircraft refused, an administrator's override recorded, a flight grounded
+ *   after it began held for review) and discrepancy grounding flags and
+ *   deferrals.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/operations.ts (submit, deferDiscrepancy),
  *   convex/schema.ts, src/domain/model.ts, src/data/demo.ts (fixture).
@@ -23,6 +24,9 @@ const modules = import.meta.glob([
 ]);
 const DAY_MS = 86_400_000;
 const HOUR_SECONDS = 3600;
+const FLIGHT_START = "2026-01-01T10:00:00Z";
+const BEFORE_FLIGHT = Date.parse(FLIGHT_START) - DAY_MS;
+const AFTER_TAKEOFF = Date.parse(FLIGHT_START) + 30 * 60_000;
 
 /**
  * Seeds the demo program and a second one, an aircraft in each, a pilot and a
@@ -95,7 +99,7 @@ async function fixture() {
   const input = (pilotId: string): FlightInput => ({
     aircraftUuid: a.uuid,
     pilotId,
-    startTime: "2026-01-01T10:00:00Z",
+    startTime: FLIGHT_START,
     hobbsOn: a.currentHobbs + HOUR_SECONDS,
     landings: 1,
     cycles: 1,
@@ -115,14 +119,15 @@ async function fixture() {
     input: input(authorId),
     dispatchOverrideReason,
   });
-  const report = (aircraftUuid = a.uuid) => ({
+  // Reported before the flight's start unless `createdAt` says otherwise.
+  const report = (aircraftUuid = a.uuid, createdAt = BEFORE_FLIGHT) => ({
     uuid: crypto.randomUUID(),
     aircraftUuid,
     description: "Alternator inoperative",
     status: "open" as const,
     grounding: true,
     authorId: ids.pilot,
-    createdAt: Date.now(),
+    createdAt,
   });
   return { t, pilot, admin, ids, a, other, flight, report };
 }
@@ -203,6 +208,48 @@ describe("dispatch gate at submission", () => {
         operation: flight(ids.pilot),
       }),
     ).toEqual({ status: "accepted" });
+  });
+});
+
+describe("a flight grounded after it began", () => {
+  it("is held for review with the reason, leaving totals unchanged", async () => {
+    const { t, pilot, ids, a, flight, report } = await fixture();
+    await t.run((ctx) =>
+      ctx.db.insert("discrepancies", report(a.uuid, AFTER_TAKEOFF)),
+    );
+    const operation = flight(ids.pilot);
+    expect(await pilot.mutation(api.operations.submit, { operation })).toEqual({
+      status: "review",
+    });
+    const state = await t.run(async (ctx) => ({
+      flight: await ctx.db
+        .query("flights")
+        .withIndex("uuid", (q) => q.eq("uuid", operation.uuid))
+        .unique(),
+      aircraft: await ctx.db
+        .query("aircraft")
+        .withIndex("uuid", (q) => q.eq("uuid", a.uuid))
+        .unique(),
+      audit: await ctx.db.query("audit").collect(),
+    }));
+    expect(state.flight).toMatchObject({
+      status: "review",
+      reviewReason: "The aircraft was grounded during this flight.",
+    });
+    expect(state.flight!.dispatchOverride).toBeUndefined();
+    expect(state.aircraft!.currentHobbs).toBe(a.currentHobbs);
+    expect(state.audit.map((e) => e.action)).toContain("flight.held");
+  });
+  it("is still refused when anything else grounded the aircraft first", async () => {
+    const { t, pilot, ids, a, flight, report } = await fixture();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("discrepancies", report(a.uuid, AFTER_TAKEOFF));
+      await ctx.db.insert("discrepancies", report(a.uuid, BEFORE_FLIGHT));
+    });
+    await expect(
+      pilot.mutation(api.operations.submit, { operation: flight(ids.pilot) }),
+    ).rejects.toThrow("N206MA is grounded");
+    expect(await t.run((ctx) => ctx.db.query("flights").collect())).toEqual([]);
   });
 });
 

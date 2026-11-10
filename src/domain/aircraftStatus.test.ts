@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins aircraft status levels, reasons and their order, the
- *   shown status of an aircraft whose setup is incomplete, and the dispatch
- *   gate's refusals and overrides.
+ *   shown status of an aircraft whose setup is incomplete, when it was
+ *   grounded during a flight, and the dispatch gate's refusals and overrides.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/aircraftStatus.ts, ./airworthiness, ./components,
  *   ./deferrals, ./model, ./rejection, ./boardView, ./ownerView,
@@ -18,6 +18,7 @@ import {
   aircraftStatus,
   dispatchGate,
   earliestLocalDate,
+  groundedDuringFlight,
   shownAircraftStatus,
 } from "./aircraftStatus";
 import { blankAD, blankADTask } from "./airworthiness";
@@ -442,6 +443,33 @@ describe("shown aircraft status", () => {
       level: "setup-incomplete",
       reasons: [{ label: "ADs not reviewed" }],
     });
+  });
+});
+
+describe("grounded during a flight", () => {
+  const START = "2026-06-01T10:00:00.000Z";
+  const report = (uuid: string, createdAt: number) => ({
+    uuid,
+    aircraftUuid: N206,
+    description: "Hard landing",
+    grounding: true,
+    status: "open" as const,
+    authorId: "pilot",
+    createdAt,
+  });
+  it("is true only when every grounding reason was reported after the start", () => {
+    const s = setup();
+    expect(groundedDuringFlight(s, N206, START, today)).toBe(false);
+    s.discrepancies = [report("after", Date.parse(START) + 1)];
+    expect(groundedDuringFlight(s, N206, START, today)).toBe(true);
+    s.discrepancies.push(report("at-start", Date.parse(START)));
+    expect(groundedDuringFlight(s, N206, START, today)).toBe(false);
+  });
+  it("is false when the profile or a limit grounds the aircraft", () => {
+    const s = setup();
+    s.discrepancies = [report("after", Date.parse(START) + 1)];
+    s.aircraft[0].operationalStatus = "grounded";
+    expect(groundedDuringFlight(s, N206, START, today)).toBe(false);
   });
 });
 

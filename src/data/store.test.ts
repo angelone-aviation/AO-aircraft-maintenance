@@ -937,6 +937,33 @@ it("keeps the version of a leg whose form opened on other readings", async () =>
   vi.unstubAllGlobals();
 });
 
+it("queues the end of a flight the aircraft was grounded after it began", async () => {
+  const workspace = await signedInWorkspace("grounded-in-flight");
+  workspace.setState({ connected: false });
+  const a = demoSnapshot().aircraft[0];
+  const leg = demoFlight(a.uuid, 2, a.currentHobbs + 3600, a.version);
+  const s = demoSnapshot();
+  s.discrepancies.push({
+    uuid: "hard-landing",
+    aircraftUuid: a.uuid,
+    description: "Hard landing",
+    status: "open",
+    grounding: true,
+    authorId: s.user.id,
+    createdAt: Date.now() - 3600000,
+  });
+  workspace.setState({ snapshot: s });
+  await workspace.getState().enqueue(leg);
+  expect(workspace.getState().queue.map((q) => q.operation.uuid)).toEqual([
+    leg.uuid,
+  ]);
+  const later = demoFlight(a.uuid, 0.5, a.currentHobbs + 7200, a.version);
+  await expect(workspace.getState().enqueue(later)).rejects.toThrow(
+    "N206MA is grounded",
+  );
+  vi.unstubAllGlobals();
+});
+
 it("keeps the outbox but clears this namespace's drafts on sign-out", async () => {
   const { MemoryCacheStorage } =
     await import("../../tests/fixtures/cacheStorage");

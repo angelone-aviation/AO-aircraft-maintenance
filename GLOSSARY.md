@@ -61,7 +61,7 @@ The computed level of an aircraft, airworthy, due soon or grounded, together wit
 The status shown for an aircraft that is not grounded while any step of its aircraft setup holds no data (baseline readings, an installed component, an inspection schedule, an AD with its applicability decided). The missing steps are its reasons. It never reads as airworthy, but it does not ground the aircraft or close the dispatch gate. Also the label of a component added from a template that still waits for its serial and readings.
 
 **Dispatch gate**:
-The check that blocks releasing a grounded aircraft for a flight.
+The check that blocks releasing a grounded aircraft for a flight. A flight whose aircraft was grounded only by problems reported after it began is not refused: it can still be logged and is held for conflict review ("The aircraft was grounded during this flight.").
 
 **Dispatch override**:
 A recorded, reasoned decision to fly despite the dispatch gate; the reason is kept with the flight.
@@ -71,7 +71,7 @@ A flight or discrepancy recorded offline and waiting in the outbox to sync. A us
 _Avoid_: queued operation (in user-facing text), draft
 
 **Conflict review**:
-Administrator review of a synced flight whose readings disagree with the aircraft's current counters, or that is longer than 24 hours on a meter (longer than any single flight); totals are not changed until reviewed.
+Administrator review of a synced flight whose readings disagree with the aircraft's current counters, that is longer than 24 hours on a meter (longer than any single flight), or whose aircraft was grounded during the flight; totals are not changed until reviewed.
 
 ## Maintenance
 

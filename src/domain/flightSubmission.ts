@@ -23,7 +23,11 @@ import type { Stock } from "./management";
 import { applyFlight, heldReason, validateFlight } from "./flights";
 import { validateChecklistFlight } from "./flightChecklistLink";
 import { validatePlanFlight } from "./flightPlans";
-import { dispatchGate } from "./aircraftStatus";
+import {
+  dispatchGate,
+  GROUNDED_DURING_FLIGHT,
+  groundedDuringFlight,
+} from "./aircraftStatus";
 import { oilInventoryDeductions, oilUsageAudit } from "./oilInventory";
 import { programIds } from "./programs";
 import { Rejection } from "./rejection";
@@ -92,7 +96,8 @@ export function submitOperation(
 }
 
 /**
- * Submits a flight. One that conflicts with the aircraft's counters is held
+ * Submits a flight. One that conflicts with the aircraft's counters, or whose
+ * aircraft was grounded only by problems reported after it began, is held
  * for review (`status: "review"`, audited `flight.held`).
  *
  * @returns As {@link submitOperation}; stock, then the flight, its problem
@@ -115,8 +120,15 @@ export function submitFlight(
   const aircraft = s.aircraft.find((a) => a.uuid === input.aircraftUuid);
   if (!aircraft) throw new FlightRejection("Aircraft not found.");
   validateEntry(s, input, aircraft);
-  const dispatchOverride = gateDispatch(s, op, aircraft, today, now);
-  const reviewReason = heldReason(aircraft, input, op.baseVersion);
+  const inFlight =
+    op.dispatchOverrideReason === undefined &&
+    groundedDuringFlight(s, aircraft.uuid, input.startTime, today);
+  const dispatchOverride = inFlight
+    ? undefined
+    : gateDispatch(s, op, aircraft, today, now);
+  const reviewReason = inFlight
+    ? GROUNDED_DURING_FLIGHT
+    : heldReason(aircraft, input, op.baseVersion);
   const flight = flightRecord(op, aircraft, now, {
     dispatchOverride,
     reviewReason,

@@ -47,7 +47,11 @@ import {
   type QueuedOperation,
   type Snapshot,
 } from "../domain/model";
-import { aircraftStatus, canOverrideDispatch } from "../domain/aircraftStatus";
+import {
+  aircraftStatus,
+  canOverrideDispatch,
+  groundedDuringFlight,
+} from "../domain/aircraftStatus";
 import { DispatchGate } from "./AircraftStatus";
 import { FlightFluidFields, type Fluids } from "./FlightFluids";
 import {
@@ -261,8 +265,6 @@ function flightView(props: FlightFormProps, s: Snapshot, d: Draft) {
     aircraft && initial
       ? meterAtFlight(aircraft, initial.startTime)
       : aircraft?.meter;
-  // Reviews correct existing records; only new flights pass the dispatch gate.
-  const gated = !initial && !!aircraft;
   const typed =
     d.typedEnds?.aircraftUuid === d.selected ? d.typedEnds.ends : undefined;
   const shown = flightOptionalEntries(aircraft ?? {}, requiredMeter, defaults);
@@ -280,9 +282,25 @@ function flightView(props: FlightFormProps, s: Snapshot, d: Draft) {
       afterPending(s, aircraft, d.pending).version !== opening.version,
     engines: aircraft ? flightEnginePositions(aircraft, defaults) : [],
     showLandingSurface: shown.landingSurface,
-    gated,
-    grounded: gated && aircraftStatus(s, aircraft.uuid).level === "grounded",
+    ...dispatchState(props, s, aircraft),
   };
+}
+
+// Reviews correct existing records; only new flights pass the dispatch gate.
+// Ending a started flight the aircraft was grounded after it began skips it:
+// the entry is saved and held for review (decision D6).
+function dispatchState(
+  props: FlightFormProps,
+  s: Snapshot,
+  aircraft: Aircraft | undefined,
+) {
+  const startTime = props.phase === "end" ? props.prefill?.startTime : "";
+  if (props.initial || !aircraft)
+    return { gated: false, grounded: false, heldInFlight: false };
+  if (startTime && groundedDuringFlight(s, aircraft.uuid, startTime))
+    return { gated: false, grounded: false, heldInFlight: true };
+  const grounded = aircraftStatus(s, aircraft.uuid).level === "grounded";
+  return { gated: true, grounded, heldInFlight: false };
 }
 
 function FluidFields({ m }: { m: Model }) {
@@ -296,6 +314,24 @@ function FluidFields({ m }: { m: Model }) {
       phase={FLUID_PHASES[m.phase]}
       required={m.phase === "preflight" || !!prefill?.checklistRun}
     />
+  );
+}
+
+function GroundedInFlightNotice({ m }: { m: Model }) {
+  return (
+    <NoticeBar
+      tone="warn"
+      icon={Warning}
+      role="status"
+      className="flight-notice"
+    >
+      <strong>
+        {m.aircraft!.registration} was grounded during this flight.
+      </strong>{" "}
+      Save the flight to record it: it will be held for an administrator's
+      review, and aircraft totals stay unchanged until then. No new flight can
+      start until the grounding items are resolved or deferred.
+    </NoticeBar>
   );
 }
 
@@ -318,6 +354,7 @@ function FlightNotices({ m }: { m: Model }) {
           onReason={m.setOverride}
         />
       )}
+      {m.heldInFlight && <GroundedInFlightNotice m={m} />}
       {plan && (
         <NoticeBar icon={ClipboardText} className="flight-notice">
           {m.phase === "preflight"

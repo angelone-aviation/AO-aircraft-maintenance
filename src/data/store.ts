@@ -22,7 +22,7 @@ import { create } from "zustand";
 import { ConvexError } from "convex/values";
 import type { Operation, QueuedOperation, Snapshot } from "../domain/model";
 import { can, localDate, offlineValid } from "../domain/model";
-import { dispatchGate } from "../domain/aircraftStatus";
+import { dispatchGate, groundedDuringFlight } from "../domain/aircraftStatus";
 import { validateFlight } from "../domain/flights";
 import {
   assertAircraftFileWriter,
@@ -552,15 +552,23 @@ function assertFlightEntry(
     input,
   );
   validateChecklistFlight(snapshot, input);
-  dispatchGate(
-    snapshot,
-    input.aircraftUuid,
-    operation.dispatchOverrideReason,
-    localDate(),
-  );
+  assertDispatchable(snapshot, operation);
   if (!input.flightPlanUuid) return;
   validatePlanFlight(snapshot, input);
   assertPlanFree(queue, input.flightPlanUuid);
+}
+
+// A flight the aircraft was grounded after it began is queued: the server
+// holds it for review, as it would refuse one grounded before it began.
+function assertDispatchable(snapshot: Snapshot, operation: FlightEntry) {
+  const { aircraftUuid, startTime } = operation.input;
+  const today = localDate();
+  if (
+    operation.dispatchOverrideReason === undefined &&
+    groundedDuringFlight(snapshot, aircraftUuid, startTime, today)
+  )
+    return;
+  dispatchGate(snapshot, aircraftUuid, operation.dispatchOverrideReason, today);
 }
 
 // A failed entry still blocks: it can be retried, and letting a second
