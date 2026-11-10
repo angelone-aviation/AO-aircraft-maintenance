@@ -5,8 +5,8 @@
  *   search and merge rules are the domain's, and each run is charged to the
  *   FAA allowance.
  * Dependencies: convex (access, faaSearch, faaCredentials, faaDrs,
- *   programContext, recordsDate, userErrors), src/domain (faa, faaMonitoringSearch, model,
- *   airworthiness, management), zod.
+ *   programContext, recordsDate, userErrors), src/domain (faa,
+ *   faaMonitoringSearch, model, airworthiness, management), zod.
  */
 import {
   monitoringQueries,
@@ -57,7 +57,8 @@ import { z } from "zod";
  */
 export const MAX_ENABLED_FAA_MONITORS = 25;
 
-// A monitor attempted within the last hour (a manual check) skips the daily run.
+// A monitor attempted within the last hour (a manual check) skips the daily
+// run.
 const DAILY_SKIP_RECENT_MS = 3_600_000;
 // Keeps the stored monitor under Convex's 1 MiB document limit.
 const CANDIDATE_HISTORY_MAX_BYTES = 700_000;

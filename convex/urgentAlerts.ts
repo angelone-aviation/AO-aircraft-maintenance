@@ -138,13 +138,12 @@ export const urgentRecipients = internalQuery({
     const programName = await scopeName(ctx, programUuid);
     if (programName === undefined) return { programName: "", recipients: [] };
     const { groups, users } = await alertAudience(ctx, programUuid);
+    if (!users.length) return { programName, recipients: [] };
+    const sources = await sendableSources(ctx, programUuid, groups);
     const recipients: Recipient[] = [];
-    if (users.length) {
-      const sources = await sendableSources(ctx, programUuid, groups);
-      for (const u of users) {
-        const r = await urgentRecipient(ctx, sources, u, today);
-        if (r) recipients.push(r);
-      }
+    for (const u of users) {
+      const r = await urgentRecipient(ctx, sources, u, today);
+      if (r) recipients.push(r);
     }
     return { programName, recipients };
   },
@@ -250,12 +249,7 @@ export const sendImmediate = internalAction({
       if (mail && r.email && r.emailAlerts.length)
         await emailRecipient(ctx, mail, programUuid, programName, r, counts);
       if (pushReady && r.pushAlerts.length)
-        pushes.push({
-          userId: r.userId,
-          programUuid,
-          alerts: r.pushAlerts.map(({ key, title }) => ({ key, title })),
-          programName,
-        });
+        pushes.push(pushJobOf(r, programUuid, programName));
     }
     if (pushes.length)
       await ctx.scheduler.runAfter(0, internal.push.sendUrgent, {
@@ -401,6 +395,15 @@ async function hasDevice(ctx: QueryCtx, userId: Id<"users">) {
     .withIndex("user", (q) => q.eq("userId", userId))
     .first();
   return first !== null;
+}
+
+function pushJobOf(
+  r: Recipient,
+  programUuid: string,
+  programName: string,
+): PushJob {
+  const alerts = r.pushAlerts.map(({ key, title }) => ({ key, title }));
+  return { userId: r.userId, programUuid, alerts, programName };
 }
 
 function trimAlert({ key, title, detail, severity, link }: Alert): UrgentAlert {

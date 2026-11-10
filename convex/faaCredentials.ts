@@ -4,7 +4,8 @@
  * Layer: Server. One public action and internal functions; the key is stored
  *   sealed and never returned.
  * Dependencies: convex/secrets, convex/secretsMigration, convex/access,
- *   convex/recordsDate, src/domain/faaCredential, src/domain/rejection, convex/values, zod.
+ *   convex/recordsDate, src/domain/faaCredential, src/domain/rejection,
+ *   convex/values, zod.
  *
  * faaCredentialStatus is the one reader of the row for snapshots and alerts,
  * so what leaves the server about the key is decided here.
