@@ -72,6 +72,38 @@ it("emails the overdue AD, the component past its limit and the expired date at 
   expect(email.text).not.toMatch(/due soon|AD-B/);
 });
 
+it("emails nothing to a member whose groups give no read permission, even opted in", async () => {
+  const world = await seedFleet();
+  await world.t.run(async (ctx) => {
+    const groupId = await ctx.db.insert("groups", {
+      programUuid: DEMO_PROGRAM,
+      name: "Flight only",
+      programAdmin: false,
+      aircraftIds: [],
+      permissions: ["flight"],
+    });
+    await ctx.db.insert("users", {
+      active: true,
+      isAdmin: false,
+      name: "flight-only",
+      email: "flight-only@example.test",
+      groupIds: [groupId],
+      activeProgramUuid: DEMO_PROGRAM,
+      emailAlerts: true,
+      urgentAlertEmails: true,
+    });
+  });
+  await world.t.mutation(internal.memberships.backfill, {});
+  const request = stubResend();
+  await world.t.action(internal.alerts.sendDigests, {});
+  await world.t.action(internal.urgentAlerts.sendImmediate, {
+    programUuid: DEMO_PROGRAM,
+  });
+  const recipients = sentEmails(request).map((e) => e.to[0]);
+  expect(recipients).toContain("admin@example.test");
+  expect(recipients).not.toContain("flight-only@example.test");
+});
+
 it("finds no recipients for a scope that is not a Flight Program", async () => {
   const { t } = await seedAlertProgram();
   expect(
