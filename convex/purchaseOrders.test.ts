@@ -159,7 +159,8 @@ it("persists PO receipts atomically and replays without double inventory or audi
       poUuid: d.uuid,
       name: "invoice.pdf",
       type: "application/pdf",
-      bytes: new TextEncoder().encode("test").buffer,
+      // A real PDF header, so the program check is what refuses it.
+      bytes: new TextEncoder().encode("%PDF-1.4 test").buffer,
     }),
   ).rejects.toThrow("Program changed");
 });

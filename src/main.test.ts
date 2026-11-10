@@ -62,6 +62,19 @@ vi.mock("convex/react", () => ({
     if (getFunctionName(query) !== "operations:snapshot") return [];
     return args === "skip" ? undefined : live.result;
   },
+  // The app reads the snapshot through useQueries, which hands a failure back
+  // instead of throwing; a disabled query is left out of the request.
+  useQueries: (
+    request: Record<string, { query: FunctionReference<"query"> }>,
+  ) =>
+    Object.fromEntries(
+      Object.entries(request).map(([key, { query }]) => [
+        key,
+        getFunctionName(query) === "operations:snapshot"
+          ? live.result
+          : undefined,
+      ]),
+    ),
 }));
 vi.mock("@convex-dev/auth/react", () => ({
   ConvexAuthProvider: ({ children }: { children: unknown }) => children,

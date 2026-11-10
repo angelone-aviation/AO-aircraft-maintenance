@@ -5,18 +5,21 @@
  *   covers them.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/OwnerPortal.tsx, src/data/demo.ts
- *   (demoSnapshot), react-dom/server, tests/fixtures/dueFleet.ts.
+ *   (demoSnapshot, withDemoRole), react-dom/server, tests/fixtures/dueFleet.ts.
  */
 // @vitest-environment node
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { withoutMeterReading } from "../../tests/fixtures/dueFleet";
-import { demoSnapshot } from "../data/demo";
+import { demoSnapshot, withDemoRole } from "../data/demo";
 import type { Snapshot } from "../domain/model";
 import { OwnerPortal } from "./OwnerPortal";
 
-const base = demoSnapshot();
+// The portal lists only the aircraft the user's owner groups name, so the
+// fixture signs in as the demo's sample owner.
+const ownerSnapshot = () => withDemoRole(demoSnapshot(), "owner");
+const base = ownerSnapshot();
 const aircraftUuid = base.aircraft[0].uuid;
 const order = (day: number, status = "completed") => ({
   uuid: `wo-${day}`,
@@ -71,7 +74,7 @@ describe("OwnerPortal", () => {
   });
 
   it("shows a total time it cannot read as not recorded", () => {
-    const s = demoSnapshot();
+    const s = ownerSnapshot();
     withoutMeterReading(s, s.aircraft[0]);
     const { snapshot } = workspace;
     workspace.snapshot = { ...snapshot, aircraft: s.aircraft.slice(0, 1) };
