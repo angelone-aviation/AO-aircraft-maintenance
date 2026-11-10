@@ -21,7 +21,7 @@ import {
 } from "../domain/accountRules";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
 import { assertAttachmentRoom, withNewEvidence } from "../domain/attachments";
-import { demoAircraftFiles } from "./demoAircraftFiles";
+import { demoAircraftFiles, readDataUrl } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
 import {
   certificationsSchema,
@@ -311,10 +311,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     attachTaskEvidence: async (taskCardUuid, category, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      const url = await readDataUrl(file);
       await modify((s) => {
         const t = s.taskCards?.find((t) => t.uuid === taskCardUuid);
         if (!t || !taskWritable(s, t))
@@ -456,11 +453,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     attachInventoryFile: async (stockUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      assertFileContents(file.type, bytes.buffer);
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      assertFileContents(file.type, await file.arrayBuffer());
+      const url = await readDataUrl(file);
       await modify((s) => {
         inventoryAttachmentAccess(s, stockUuid);
         assertRoomAmong(
@@ -492,10 +486,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     attachWorkOrderFile: async (workOrderUuid, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      const url = await readDataUrl(file);
       await modify((s) => {
         const w = s.workOrders?.find((w) => w.uuid === workOrderUuid);
         if (!w || !can(s, w.aircraftUuid, "maintenance") || !isOpenWorkOrder(w))
@@ -704,10 +695,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       ),
     attachPOFile: async (poUuid, receiptUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      assertFileContents(file.type, bytes.buffer);
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
+      assertFileContents(file.type, await file.arrayBuffer());
+      const url = await readDataUrl(file);
       await modify((s) => {
         const po = s.purchaseOrders?.find((p) => p.uuid === poUuid);
         if (
@@ -726,7 +715,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           name: file.name,
           type: file.type,
           size: file.size,
-          url: `data:${file.type};base64,${btoa(binary)}`,
+          url,
           uploadedAt: Date.now(),
         };
         s.purchaseOrderFiles = [...(s.purchaseOrderFiles ?? []), f];
@@ -1051,10 +1040,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         .snapshot?.certificationFiles?.find((f) => f.id === id)?.url ?? null,
     uploadCertification: async (userId, kind, file) => {
       validateCertificationFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      const url = await readDataUrl(file);
       await modify((s) => {
         if (userId !== s.user.id && !s.user.isAdmin)
           throw Error("Permission denied.");
