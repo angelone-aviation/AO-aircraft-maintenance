@@ -34,6 +34,7 @@ The rules are in [docs/alerts.md](../alerts.md); this is the operator's part.
 
     All three must be set before **Settings → This device → Alert this device** appears. Record the pair under **Settings → System → Expiring dates** with a yearly review date, and in the [accounts inventory](accounts.md). Rotating the pair invalidates every device's subscription: members switch alerts off and on again on each device. If the private key leaks, rotate it the same way.
 12. **Checking delivery.** Turn **Alert this device** on in a browser, then save an expiring date with yesterday's date under Settings → Flight Program: within a minute the device shows "<program>: 1 urgent alert" and the opted-in members receive the email. The Convex logs show `sendImmediate` with `pushed: 1` and `sendUrgent` with `sent: 1`. A push service that answers 404 or 410 has that device's subscription removed; the member switches alerts on again.
+13. **Time zone.** The server decides which calendar day it is for alerts (what is due or has expired today) from the Convex variable `RECORDS_TIME_ZONE`, an IANA zone name; without it, `America/New_York`. Set this if the program is not on US Eastern time: `npx convex env set RECORDS_TIME_ZONE America/Chicago`. The GitHub variable of the same name in the `backups` environment is separate: it sets the time zone of the readable workbook ([Dropbox records copy](dropbox-records-copy.md)). Give both the same zone.
 
 ## Privacy rules
 
