@@ -4,7 +4,8 @@
  *   period of it for Flight Program administrators.
  * Layer: Server. Two public queries; they read only entries the snapshot's
  *   visibility rules let the caller see.
- * Dependencies: convex/programContext, convex/collections, src/domain
+ * Dependencies: convex/programContext, convex/collections,
+ *   convex/recordsDate, src/domain
  *   (programs, auditHistory, auditSummary, model, and the management,
  *   partsRequests, purchaseOrders, checklists and inspectionTemplates
  *   schemas).
@@ -26,6 +27,7 @@ import {
   transferredAuditDocs,
 } from "./programContext";
 import { decode } from "./collections";
+import { recordsMidnight } from "./recordsDate";
 import {
   activeProgram,
   auditVisible,
@@ -122,6 +124,7 @@ export const page = query({
  * @param from - The first day, as an ISO date.
  * @param to - The last day, inclusive.
  * @param fromMs - The caller's midnight at the start of `from`; with `toMs`.
+ *   Without both, days start at midnight in the records time zone.
  * @param toMs - The caller's midnight just after `to`.
  * @returns The summary; `truncated: true` when 4,000 entries were read
  *   before the period's start was reached, so older entries in it are not
@@ -208,7 +211,15 @@ function parsePeriod(period: SummaryPeriod): SummaryPeriod {
     throw new ConvexError("Choose a start and end date.");
   if (from > to)
     throw new ConvexError("Choose a start date on or before the end date.");
-  if (fromMs === undefined && toMs === undefined) return { from, to };
+  // A caller that sends no day bounds gets the records time zone's days,
+  // the same days the server's alerts use, for the scan and the counts.
+  if (fromMs === undefined && toMs === undefined)
+    return {
+      from,
+      to,
+      fromMs: recordsMidnight(from),
+      toMs: recordsMidnight(nextDate(to)),
+    };
   const startUtc = Date.parse(from + "T00:00:00Z");
   const endUtc = Date.parse(to + "T00:00:00Z") + DAY_MS;
   if (
@@ -379,4 +390,11 @@ function buildPage(
         : (batch.at(-1)?._creationTime ?? before ?? 0),
     ),
   };
+}
+
+// The ISO date after `date`.
+function nextDate(date: string): string {
+  return new Date(Date.parse(date + "T00:00:00Z") + DAY_MS)
+    .toISOString()
+    .slice(0, 10);
 }

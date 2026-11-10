@@ -202,13 +202,14 @@ it("counts a change made this evening west of UTC in that reviewer's today", asy
   const asked = { programUuid: PROGRAM, ...newYorkDay(TODAY) };
   const local = await admin.query(api.auditHistory.summary, asked);
   expect(local.summary.total).toBe(1);
-  // Without the reviewer's bounds the server's UTC dates still apply.
-  const utc = await admin.query(api.auditHistory.summary, {
+  // Without the reviewer's bounds the records time zone's days apply, US
+  // Eastern by default, as they do for the server's alerts.
+  const records = await admin.query(api.auditHistory.summary, {
     programUuid: PROGRAM,
     from: TODAY,
     to: TODAY,
   });
-  expect(utc.summary.total).toBe(0);
+  expect(records.summary.total).toBe(1);
 });
 
 it("refuses day bounds that are not the dates' midnights in some time zone", async () => {
