@@ -1,0 +1,18 @@
+{
+ "admin": {
+  "bytes": 6276682,
+  "sha256": "d8acbad288b5c4aacab0c30bd09af0cbc806d7d8272b0faa9f619ab4b2cbd408"
+ },
+ "pilot": {
+  "bytes": 1979323,
+  "sha256": "3a47413a5c84c3ac5b3b638b8b8d99886685fc7d24b668ab9263327af6937525"
+ },
+ "owner": {
+  "bytes": 108787,
+  "sha256": "67c527e6c135a6ea9011ddd678750d30031056711904ee9ba00d15a49acedc63"
+ },
+ "board": {
+  "bytes": 634376,
+  "sha256": "f7e9e5bde0482ce39332d2ab8ec77f2b19d0d6dfbfd41d19390ece47c6cc82c8"
+ }
+}
