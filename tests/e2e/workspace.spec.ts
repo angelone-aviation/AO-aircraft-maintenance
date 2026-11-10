@@ -68,7 +68,7 @@ test("conflicting flights require admin review and preserve audit evidence", asy
   await context.setOffline(true);
   for (const [time, meter] of [
     ["2026-01-01T10:00", "2342.2"],
-    ["2026-01-02T10:00", "2343.2"],
+    ["2025-12-31T10:00", "2343.2"],
   ]) {
     await page
       .getByRole("button", { name: "Log a flight", exact: true })
@@ -86,6 +86,10 @@ test("conflicting flights require admin review and preserve audit evidence", asy
     page.getByRole("cell", { name: "Needs review", exact: true }),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Review", exact: true }).click();
+  // The pilot's legs now chain offline (D7), so the second leg is held for
+  // its date instead: it was entered before the first. The reviewer corrects
+  // it from the pilot log.
+  await page.getByLabel("Flight date & time").fill("2026-01-02T10:00");
   await page
     .getByLabel("Explanation")
     .fill("Verified sequence against the pilot log.");

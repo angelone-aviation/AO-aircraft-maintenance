@@ -12,8 +12,12 @@
 }
 .mcal-nav {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  /* Larger text zooms the page, so on a 360px phone Today must be able to
+     drop below the month rather than push the page sideways. */
+  min-width: 0;
 }
 .mcal-month {
   min-width: 10ch;

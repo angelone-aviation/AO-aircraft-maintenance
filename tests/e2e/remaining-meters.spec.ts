@@ -62,9 +62,11 @@ for (const [size, viewport] of [
       "METER-SOON",
       9,
     );
-    await expect(schedules.getByText("Overdue", { exact: true })).toHaveCount(
-      1,
-    );
+    // The meter's own word, beside the bar; the row's status pill says
+    // Overdue as well.
+    await expect(
+      schedules.locator("strong", { hasText: /^Overdue$/ }),
+    ).toHaveCount(1);
   });
 }
 
