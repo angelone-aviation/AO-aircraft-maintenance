@@ -4,8 +4,8 @@
  *   and owner groups save only as read-only.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex (operations, workOrders, admin, savedAddresses,
- *   memberships, schema), src/domain/workOrders.ts, tests/fixtures
- *   (requiredParts, workOrders).
+ *   memberships, aircraftFiles, schema), src/domain/workOrders.ts,
+ *   tests/fixtures (requiredParts, workOrders, sampleRoles).
  */
 import { convexTest } from "convex-test";
 import { describe, it, expect } from "vitest";
@@ -17,6 +17,11 @@ import {
   workOrderComponent,
 } from "../tests/fixtures/workOrders";
 import type { WorkOrder } from "../src/domain/workOrders";
+import {
+  OWNED_AIRCRAFT,
+  PROGRAM,
+  seedSampleRoles,
+} from "../tests/fixtures/sampleRoles";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -285,5 +290,70 @@ describe("owner portal isolation", () => {
       permissions: ["read"],
     });
     expect((await t.run((ctx) => ctx.db.get(ids.owners)))?.owner).toBe(true);
+  });
+});
+
+describe("owner portal documents", () => {
+  const upload = (category: "form-337" | "logbook-page", name: string) => ({
+    aircraftUuid: OWNED_AIRCRAFT,
+    programUuid: PROGRAM,
+    category,
+    name,
+    type: category === "form-337" ? "application/pdf" : "image/jpeg",
+    bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).buffer,
+  });
+
+  it("sends an owner current Form 337 copies only, never logbook page photos", async () => {
+    const world = await seedSampleRoles();
+    const linked = await world.t.run(async (ctx) => {
+      const first = (table: "flights" | "workOrders") =>
+        ctx.db
+          .query(table)
+          .withIndex("aircraft", (q) => q.eq("aircraftUuid", OWNED_AIRCRAFT))
+          .first();
+      return {
+        flight: (await first("flights"))!.uuid,
+        order: (await first("workOrders"))!.uuid,
+      };
+    });
+    await world.tech.action(api.aircraftFiles.upload, {
+      ...upload("form-337", "337.pdf"),
+      bytes: new TextEncoder().encode("%PDF-1.4").buffer as ArrayBuffer,
+    });
+    await world.pilot.action(api.aircraftFiles.upload, {
+      ...upload("logbook-page", "flight-line.jpg"),
+      linkedKind: "flight",
+      linkedUuid: linked.flight,
+    });
+    await world.tech.action(api.aircraftFiles.upload, {
+      ...upload("logbook-page", "signed-page.jpg"),
+      linkedKind: "work-order",
+      linkedUuid: linked.order,
+    });
+    const view = (await world.owner.query(api.operations.snapshot, {}))!;
+    const files = view.aircraftFiles ?? [];
+    expect(files.map((f) => [f.category, f.name])).toEqual([
+      ["form-337", "337.pdf"],
+    ]);
+    expect(Object.keys(files[0]).sort()).toEqual(
+      [
+        "aircraftUuid",
+        "category",
+        "name",
+        "size",
+        "type",
+        "uploadedAt",
+        "url",
+        "uuid",
+      ].sort(),
+    );
+    const text = JSON.stringify(view);
+    for (const leaked of [linked.flight, linked.order, "flight-line.jpg"])
+      expect(text).not.toContain(leaked);
+    // Readers of the aircraft still see the photos with their links.
+    const tech = (await world.tech.query(api.operations.snapshot, {}))!;
+    expect(
+      tech.aircraftFiles?.filter((f) => f.category === "logbook-page"),
+    ).toHaveLength(2);
   });
 });

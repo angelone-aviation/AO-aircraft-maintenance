@@ -70,7 +70,8 @@ export function ownerPortalAircraft(
  * @param s - A program- and aircraft-scoped snapshot.
  * @returns The user's own member record and groups; open discrepancies,
  *   unarchived inspections, ADs, components on the aircraft with their
- *   requirements, completed work-order summaries and current Form 337 copies.
+ *   requirements, completed work-order summaries and current Form 337 copies
+ *   (no logbook page photos).
  */
 export function ownerSnapshot(s: Snapshot): Snapshot {
   const ids = new Set(s.aircraft.map((a) => a.uuid));
@@ -107,22 +108,38 @@ export function ownerSnapshot(s: Snapshot): Snapshot {
 }
 
 /**
- * The documents an owner may open, from a list of aircraft files: Form 337
- * copies are status records kept for the owner (91.417(a)(2)(vi)), and
- * owners see only current, not archived, copies.
+ * The documents an owner may open, from a list of aircraft files: the
+ * current Form 337 copies, status records kept for the owner
+ * (91.417(a)(2)(vi)). Logbook page photos stay with the workspace: they show
+ * flights and signed work the owner portal leaves out.
  *
  * @param files - Aircraft files, with their links.
  * @param aircraft - The aircraft the owner portal covers.
- * @returns The current copies on those aircraft, in list order.
+ * @returns Each current copy on those aircraft, in list order, with its
+ *   name, type, size, upload time and link only.
  */
 export function ownerPortalFiles(
   files: AircraftFile[],
   aircraft: { uuid: string }[],
 ): AircraftFile[] {
   const ids = new Set(aircraft.map((a) => a.uuid));
-  return files.filter(
-    (f) => ids.has(f.aircraftUuid) && isCurrentAircraftFile(f),
-  );
+  return files
+    .filter(
+      (f) =>
+        f.category === "form-337" &&
+        ids.has(f.aircraftUuid) &&
+        isCurrentAircraftFile(f),
+    )
+    .map((f) => ({
+      uuid: f.uuid,
+      aircraftUuid: f.aircraftUuid,
+      category: f.category,
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      uploadedAt: f.uploadedAt,
+      url: f.url,
+    }));
 }
 
 function findAircraftComponents(s: Snapshot, aircraft: Set<string>) {
