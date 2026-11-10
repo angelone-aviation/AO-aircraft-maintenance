@@ -14,10 +14,10 @@ Some aviation words on the key screens are underlined with dots: **Hobbs** and *
 
 ## Glossary
 
-**Glossary**, the last link in the menu, explains every term a reader outside aviation meets in the app: abbreviations with their long forms, record-keeping words, the status words (Airworthy, Due soon, Grounded, Overdue, Held for review) and the roles. Every signed-in role reaches it, owners and board members included, and it works offline. It has a search box, an A to Z letter bar, and an anchor for each term (`/glossary#term-mel`); a term opened that way is focused and highlighted. Definitions link to the other terms they use.
+**Glossary**, in the Manage menu just above Settings (the last link for owners and board members), explains every term a reader outside aviation meets in the app: abbreviations with their long forms, record-keeping words, the status words (Airworthy, Due soon, Grounded, Overdue, Held for review) and the roles. Every signed-in role reaches it, owners and board members included, and it works offline. It has a search box, an A to Z letter bar, and an anchor for each term (`/glossary#term-mel`); a term opened that way is focused and highlighted. Definitions link to the other terms they use.
 
 The text comes from one typed module, `src/domain/glossaryTerms.ts`, written for lay readers and kept consistent with [GLOSSARY.md](../GLOSSARY.md). Its tests require a definition of at most two sentences for every entry, no duplicate terms, links only to entries that exist, and a definition for every term a screen explains.
 
 ## Keyboard shortcuts
 
-On computers, **/** moves to the page's search box, **N** opens the flight form for users who may log flights, and **?** lists the shortcuts. They do nothing while you type in a field, while Ctrl, Alt or Cmd is held, or while a dialog is open. The sidebar shows "Press ? for keyboard shortcuts" only on devices with a mouse or trackpad; touch-only phones and tablets show no hint.
+On computers, **/** moves to the page's search box, **N** opens the flight form for users who may log flights, and **?** lists the shortcuts. They do nothing while you type in a field, while Ctrl, Alt or Cmd is held, or while a dialog is open. The page footer shows "Press ? for keyboard shortcuts" only on devices with a mouse or trackpad; touch-only phones and tablets show no hint.

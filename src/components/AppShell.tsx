@@ -278,8 +278,9 @@ function useNavigation() {
   if (admin) visible.push(...ADMIN_LINKS);
   // An owner who also sits on the board reaches both of their views.
   if (boardView) visible.push(BOARD_LINK);
-  if (!ownerView) visible.push(SETTINGS_LINK);
+  // Settings stays the last link, next to the sidebar's profile footer.
   visible.push(GLOSSARY_LINK);
+  if (!ownerView) visible.push(SETTINGS_LINK);
   return visible;
 }
 
@@ -320,9 +321,10 @@ export { ThemeToggle };
  * @returns The layout. Pilots see only pilot navigation, owners only the
  *   overview and board members only the board view; program administrators
  *   also get inventory and purchasing, Administration, Costs and the board
- *   view; Settings follows for everyone but owners and board members, who
- *   keep their one view, and the Glossary ends every list. Phones offer Log
- *   flight to anyone who may log one; on computers, N opens it too.
+ *   view; everyone gets the Glossary, and Settings ends the list for
+ *   everyone but owners and board members, who keep their one view. Phones
+ *   offer Log flight to anyone who may log one; on computers, N opens it
+ *   too.
  */
 export function AppShell({
   exit,
@@ -536,11 +538,6 @@ function ProfileFooter({
             <GearSix size={15} aria-hidden="true" />
             Settings
           </Link>
-          {hasKeyboardPointer() && (
-            <small className="shortcut-hint">
-              Press <kbd>?</kbd> for keyboard shortcuts
-            </small>
-          )}
         </div>
       )}
     </div>
@@ -871,6 +868,11 @@ function AppFooter() {
         ANGEL ONE <span className="footer-dot">·</span>{" "}
         <em>To every nation, kindred, tongue and people.</em>
       </span>
+      {hasKeyboardPointer() && (
+        <span className="shortcut-hint">
+          Press <kbd>?</kbd> for keyboard shortcuts
+        </span>
+      )}
       <span>{FOOTER_YEAR} · Aircraft operations</span>
     </footer>
   );

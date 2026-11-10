@@ -1,5 +1,5 @@
 /*
- * Responsibility: The keyboard shortcut list and the sidebar's shortcut hint.
+ * Responsibility: The keyboard shortcut list and the footer's shortcut hint.
  * Layer: UI. Styles for src/components/KeyboardShortcuts.tsx and the hint in
  *   src/components/AppShell.tsx.
  * Dependencies: src/styles/tokens.css (colours, radii).
@@ -33,16 +33,8 @@
   font: 600 13px/1.4 var(--font);
   text-align: center;
 }
-.shortcut-hint {
-  flex: 1 0 100%;
-  margin: 0 0 12px;
-  color: var(--on-navy-muted);
-  font-size: 12px;
-}
 .shortcut-hint kbd {
   min-width: 0;
   padding: 0 5px;
-  background: transparent;
-  color: var(--on-navy-text);
-  border-color: var(--on-navy-muted);
+  font-size: 12px;
 }

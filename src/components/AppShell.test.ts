@@ -109,15 +109,15 @@ describe("AppShell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives administrators every link, ending with Administration, Costs, Board view, Settings and Glossary", () => {
+  it("gives administrators every link, ending with Administration, Costs, Board view, Glossary and Settings", () => {
     const shown = links(render(asUser("admin")));
     expect(shown).toContain("Inventory");
     expect(shown.slice(-5)).toEqual([
       "Administration",
       "Costs",
       "Board view",
-      "Settings",
       "Glossary",
+      "Settings",
     ]);
   });
 
@@ -133,7 +133,7 @@ describe("AppShell", () => {
     expect(pilot).toContain("Flight log");
     expect(pilot).not.toContain("Work orders");
     expect(pilot).not.toContain("Administration");
-    expect(pilot.slice(-2)).toEqual(["Settings", "Glossary"]);
+    expect(pilot.slice(-2)).toEqual(["Glossary", "Settings"]);
     expect(links(render(asUser("owner")))).toEqual(["Overview", "Glossary"]);
   });
 
