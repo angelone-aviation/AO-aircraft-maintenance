@@ -892,6 +892,20 @@ const CASES: Case[] = [
     name: "pushSubscriptions:held",
     args: { endpoint: PUSH_SUBSCRIPTION.endpoint },
   },
+  {
+    method: "alertEmailEnabled",
+    call: (b) => b.alertEmailEnabled(),
+    kind: "query",
+    name: "alerts:emailEnabled",
+    args: {},
+  },
+  {
+    method: "signInProviders",
+    call: (b) => b.signInProviders(),
+    kind: "query",
+    name: "identities:providers",
+    args: {},
+  },
 ];
 
 it.each(CASES)(
