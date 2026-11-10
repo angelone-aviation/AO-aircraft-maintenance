@@ -4,7 +4,8 @@
  *   monitoring) and the dashboard's AD alerts.
  * Layer: UI. React components; AD rules live in src/domain.
  * Dependencies: src/data (store, adImport, adReport on demand), src/domain
- *   (airworthiness, faa and the AD helpers), ./design, ./ui and the AD,
+ *   (airworthiness, faa, listSearch and the AD helpers), ./design, ./ui and
+ *   the AD,
  *   FAA, parts and ops components.
  */
 import { ADTrackingFields } from "./ADTrackingFields";
@@ -18,6 +19,7 @@ import { RequestPartsButton } from "./PartsRequests";
 import { monitoringReviewCandidates } from "../domain/faaCandidateReview";
 import { monitoringScope } from "../domain/faaMonitoringSearch";
 import { ADRegister } from "./ADRegister";
+import { adMatches } from "../domain/listSearch";
 import { FaaSearchImport } from "./FaaSearchImport";
 import { FaaKeyStatus } from "./FaaKeySettings";
 import { FAA_DRS_KEY_URL } from "../domain/faaCredential";
@@ -89,6 +91,7 @@ import {
   IconTile,
   NoticeBar,
   PageHeader,
+  SearchField,
   StatsStrip,
   StatTile,
   Toolbar,
@@ -301,6 +304,7 @@ function useADScreen() {
   const { snapshot: s, backend, online, connected, demo } = useWorkspace();
   const state = s!;
   const screen = useADState(state.aircraft[0]?.uuid ?? "");
+  const [search, setSearch] = useState("");
   const { aircraft } = screen;
   const editable =
     can(state, aircraft, "maintenance") && (demo || (online && connected));
@@ -308,6 +312,8 @@ function useADScreen() {
   return {
     ...screen,
     ...screenActions(screen),
+    search,
+    setSearch,
     state,
     backend,
     editable,
@@ -456,6 +462,14 @@ function ADToolbar({ ad }: ADProps) {
         </>
       }
     >
+      <ADFilters ad={ad} />
+    </Toolbar>
+  );
+}
+
+function ADFilters({ ad }: ADProps) {
+  return (
+    <>
       <OpsSelect
         label="Aircraft"
         icon={Airplane}
@@ -468,7 +482,13 @@ function ADToolbar({ ad }: ADProps) {
           </option>
         ))}
       </OpsSelect>
-    </Toolbar>
+      <SearchField
+        label="Search ADs"
+        placeholder="AD number, subject, make, model or action"
+        value={ad.search}
+        onChange={ad.setSearch}
+      />
+    </>
   );
 }
 
@@ -608,17 +628,16 @@ function importCandidate(ad: ADScreen, c: FaaCandidate) {
   ad.openDraft(r);
 }
 
+// A search opens every group, so the matching ADs are in view.
 function ADRegisterSection({ ad }: ADProps) {
+  const matching = ad.rows.filter((r) => adMatches(r, ad.search));
   return (
     <>
-      {!ad.rows.length && (
-        <EmptyState title="No AD records for this aircraft">
-          Import a report or add an AD to begin.
-        </EmptyState>
-      )}
+      <NoADs rows={ad.rows} matching={matching} />
       <StaleLimitNotice rows={ad.rows} />
       <ADRegister
-        records={ad.rows}
+        records={matching}
+        expanded={!!ad.search.trim()}
         state={ad.state}
         aircraftUuid={ad.aircraft}
         editable={ad.editable && !ad.busy}
@@ -630,6 +649,21 @@ function ADRegisterSection({ ad }: ADProps) {
         onClearInitialLimit={ad.clearLimit}
       />
     </>
+  );
+}
+
+function NoADs({ rows, matching }: { rows: AD[]; matching: AD[] }) {
+  if (!rows.length)
+    return (
+      <EmptyState title="No AD records for this aircraft">
+        Import a report or add an AD to begin.
+      </EmptyState>
+    );
+  if (matching.length) return null;
+  return (
+    <EmptyState title="No matching ADs">
+      Try another search or aircraft.
+    </EmptyState>
   );
 }
 
