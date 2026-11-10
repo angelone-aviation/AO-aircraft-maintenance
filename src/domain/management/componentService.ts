@@ -2,8 +2,10 @@
  * Responsibility: A component's shop service and baseline correction, with
  *   the requirements, inspections and movement entry that follow it.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ../components, ../model, ../rejection, ./schemas, ./context.
+ * Dependencies: ../adCompliance, ../components, ../model, ../rejection,
+ *   ./schemas, ./context.
  */
+import { effectiveCompliance } from "../adCompliance";
 import {
   componentTotals,
   moveRequirement,
@@ -15,6 +17,7 @@ import {
   type ComponentMovement,
   type ComponentRequirement,
 } from "../components";
+import { usageOnBasis } from "../components/usage";
 import { latestLocalDate, type Inspection, type Snapshot } from "../model";
 import { Rejection } from "../rejection";
 import type { CommandOf, ManagedRecord } from "./schemas";
@@ -23,6 +26,9 @@ import { existingOfKind, type Change, type Context } from "./context";
 type ComponentCommand = CommandOf<"component.service" | "component.baseline">;
 
 const MIN_BASELINE_REASON_LENGTH = 10;
+const SECONDS_PER_HOUR = 3600;
+// Allows the 0.1 h rounding shown for current totals, as AD compliance does.
+const HOURS_ROUNDING_ALLOWANCE = 0.05;
 
 const MOVEMENT_ACTIONS: Partial<Record<string, ComponentMovement["action"]>> = {
   install: "INSTALL",
@@ -41,7 +47,8 @@ const MOVEMENT_ACTIONS: Partial<Record<string, ComponentMovement["action"]>> = {
  *   reason of at least 10 characters." or "Installations and removals must be
  *   completed through a work order."; as {@link validateComponent} or
  *   {@link serviceComponent}; "Baseline would precede recorded inspection
- *   compliance.".
+ *   compliance."; "Baseline would precede the last compliance of requirement
+ *   "<description>"." or "… of AD <number>.".
  */
 export function changeComponent(
   s: Snapshot,
@@ -61,6 +68,8 @@ export function changeComponent(
           extras: [] as ManagedRecord[],
         }
       : serviceInShop(s, c, existing, ctx.now);
+  if (c.action === "component.baseline")
+    assertAfterRecordedCompliance(s, next, () => nextTotals(s, next, ctx.now));
   const updatedInspections = followComponent(s, next, ctx.now);
   if (next.aircraftUuid !== existing.aircraftUuid)
     extras.push(
@@ -156,11 +165,7 @@ function serviceInShop(
 function followComponent(s: Snapshot, next: Component, now: number) {
   const updated: Inspection[] = [];
   for (const i of s.inspections.filter((i) => i.componentUuid === next.uuid)) {
-    const counters = componentTotals(
-      next,
-      s.aircraft.find((a) => a.uuid === next.aircraftUuid),
-      latestLocalDate(now),
-    );
+    const counters = nextTotals(s, next, now);
     if (
       counters.timeSinceNew < (i.lastSeconds ?? 0) ||
       counters.cyclesSinceNew < (i.lastCycles ?? 0)
@@ -176,4 +181,65 @@ function followComponent(s: Snapshot, next: Component, now: number) {
       });
   }
   return updated;
+}
+
+type Totals = ReturnType<typeof componentTotals>;
+
+function nextTotals(s: Snapshot, next: Component, now: number): Totals {
+  const aircraft = s.aircraft.find((a) => a.uuid === next.aircraftUuid);
+  return componentTotals(next, aircraft, latestLocalDate(now));
+}
+
+// A baseline below a requirement's or an AD's recorded compliance would leave
+// more remaining than the whole interval (a 100-hour check with 280 h left),
+// so it is refused as it is for inspections; the user corrects the record
+// that blocks it first. Totals are read only when such a record exists. Shop
+// service needs no check: it rebases the requirements it restarts, and AD
+// compliance counts time since new, which service does not change.
+function assertAfterRecordedCompliance(
+  s: Snapshot,
+  next: Component,
+  totals: () => Totals,
+) {
+  for (const r of s.management ?? [])
+    if (r.kind === "componentRequirement" && r.componentUuid === next.uuid)
+      if (precedesRequirement(r, totals))
+        throw new Rejection(
+          `Baseline would precede the last compliance of requirement "${r.description}".`,
+        );
+  for (const r of s.airworthiness ?? [])
+    if (r.componentUuid === next.uuid && precedesAD(r, next, totals))
+      throw new Rejection(
+        `Baseline would precede the last compliance of AD ${r.source.number}.`,
+      );
+}
+
+function precedesRequirement(r: ComponentRequirement, totals: () => Totals) {
+  if (r.lastSeconds === undefined && r.lastCycles === undefined) return false;
+  const t = totals();
+  const basis = usageOnBasis(r.timeBasis, t);
+  return (
+    (r.lastSeconds !== undefined &&
+      (basis === null || r.lastSeconds > basis)) ||
+    (r.lastCycles !== undefined && r.lastCycles > t.cyclesSinceNew)
+  );
+}
+
+// A component AD counts only the hours and cycles its component tracks.
+function precedesAD(
+  r: NonNullable<Snapshot["airworthiness"]>[number],
+  c: Component,
+  totals: () => Totals,
+) {
+  return effectiveCompliance(r).some((h) => {
+    const hours = c.trackTime ? h.hours : null;
+    const cycles = c.trackCycles ? h.cycles : null;
+    if (hours === null && cycles === null) return false;
+    const t = totals();
+    return (
+      (hours !== null &&
+        hours > t.timeSinceNew / SECONDS_PER_HOUR + HOURS_ROUNDING_ALLOWANCE) ||
+      (cycles !== null && cycles > t.cyclesSinceNew)
+    );
+  });
 }

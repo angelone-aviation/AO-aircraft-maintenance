@@ -3,9 +3,12 @@
  *   that corrected aircraft totals stay after recorded maintenance.
  * Layer: Domain. Pure functions; no I/O, no React (a `today` left to its
  *   default reads the clock).
- * Dependencies: ../components, ../maintenance, ../model, ../rejection,
- *   ./schemas.
+ * Dependencies: ../adCompliance, ../adOwnership, ../airworthiness (types),
+ *   ../components, ../maintenance, ../model, ../rejection, ./schemas.
  */
+import { effectiveCompliance } from "../adCompliance";
+import { adAircraftUuid } from "../adOwnership";
+import type { AD } from "../airworthiness";
 import {
   componentAircraftSeconds,
   componentTotals,
@@ -14,9 +17,18 @@ import {
   type Component,
 } from "../components";
 import { inspectionStatus } from "../maintenance";
-import { localDate, type Aircraft, type Inspection } from "../model";
+import {
+  localDate,
+  recordedTotalSeconds,
+  type Aircraft,
+  type Inspection,
+} from "../model";
 import { Rejection } from "../rejection";
 import type { ManagedRecord } from "./schemas";
+
+const SECONDS_PER_HOUR = 3600;
+// Allows the 0.1 h rounding shown for current totals, as AD compliance does.
+const HOURS_ROUNDING_ALLOWANCE = 0.05;
 
 /**
  * The usage an inspection is measured against: the aircraft's, or for a
@@ -55,21 +67,25 @@ export function inspectionCounters(
 
 /**
  * Checks that corrected aircraft totals do not fall before recorded work:
- * an installed component's installation, a landing-based service, or an
- * inspection's last compliance.
+ * an installed component's installation, a landing-based service, an
+ * inspection's last compliance, or an aircraft AD's recorded compliance.
  *
  * @param a - The aircraft with its corrected totals.
  * @param records - The program's records.
  * @param inspections - The inspections to check; others' aircraft are skipped.
+ * @param ads - The ADs to check; component ADs and others' aircraft are
+ *   skipped (a correction moves component baselines with the aircraft).
  * @throws {Rejection} "Correction would move aircraft totals before a
  *   component installation.", "… landings before recorded service
- *   compliance." or "… usage before recorded inspection compliance.", in
- *   that order; as {@link inspectionCounters}.
+ *   compliance.", "… usage before recorded inspection compliance." or "…
+ *   usage before the recorded compliance of AD <number>.", in that order; as
+ *   {@link inspectionCounters}.
  */
 export function validateMaintenanceTotals(
   a: Aircraft,
   records: ManagedRecord[],
   inspections: Inspection[],
+  ads: AD[] = [],
 ) {
   if (records.some((c) => precedesInstallation(a, c)))
     throw new Rejection(
@@ -84,6 +100,11 @@ export function validateMaintenanceTotals(
       throw new Rejection(
         "Correction would move usage before recorded inspection compliance.",
       );
+  const blocking = ads.find((r) => precedesAircraftAD(a, r, records));
+  if (blocking)
+    throw new Rejection(
+      `Correction would move usage before the recorded compliance of AD ${blocking.source.number}.`,
+    );
 }
 
 function findInspectionComponent(
@@ -132,6 +153,22 @@ function readUsageWithoutTime(
   if (!c && i.dueSeconds === undefined) return untimed;
   const { status } = inspectionStatus(i, a, today, untimed);
   return status === "overdue" ? untimed : undefined;
+}
+
+// An AD with more hours left than its interval after a downward correction
+// would fall due late, as an inspection would; the AD must be corrected first.
+function precedesAircraftAD(a: Aircraft, r: AD, records: ManagedRecord[]) {
+  if (r.componentUuid || adAircraftUuid({ management: records }, r) !== a.uuid)
+    return false;
+  const seconds = recordedTotalSeconds(a);
+  return effectiveCompliance(r).some(
+    (h) =>
+      (h.hours !== null &&
+        seconds !== undefined &&
+        h.hours > seconds / SECONDS_PER_HOUR + HOURS_ROUNDING_ALLOWANCE) ||
+      (h.cycles !== null && h.cycles > a.cycles) ||
+      (h.landings != null && h.landings > a.landings),
+  );
 }
 
 function precedesInstallation(a: Aircraft, c: ManagedRecord) {

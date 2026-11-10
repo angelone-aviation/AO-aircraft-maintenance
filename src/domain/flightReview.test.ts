@@ -2,12 +2,13 @@
  * Responsibility: Pins conflict review: who may review, every refusal in the
  *   server's order and class, and what an accepted or rejected review stores.
  * Layer: Test. Vitest suite on the demo fleet; never shipped in the build.
- * Dependencies: ./flightReview, ./flights, ./flightPlans, ./model, ./rejection,
- *   src/data/demo.ts.
+ * Dependencies: ./airworthiness, ./flightReview, ./flights, ./flightPlans,
+ *   ./model, ./rejection, src/data/demo.ts.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { demoSnapshot } from "../data/demo";
+import { blankAD } from "./airworthiness";
 import { applyFlight } from "./flights";
 import { flightPlanSchema, type FlightPlan } from "./flightPlans";
 import type { Flight, FlightInput, Member, Snapshot } from "./model";
@@ -178,6 +179,40 @@ describe("reviewFlight refusals", () => {
     expect(() =>
       reviewFlight(s, { ...review, input: corrected }),
     ).not.toThrow();
+  });
+
+  it("refuses totals that would fall before an aircraft AD's compliance", () => {
+    const { s, held, input } = fixture();
+    const ad = blankAD(held.aircraftUuid);
+    ad.source = { ...ad.source, number: "2026-05-05" };
+    ad.history = [
+      {
+        uuid: "done",
+        taskUuid: "task",
+        date: "2026-01-01",
+        hours: 1_000_000,
+        cycles: null,
+        method: "Inspected",
+        serviceBulletin: "",
+        terminatedBy: "",
+        workOrderUuid: "",
+        mechanic: "A Mechanic",
+        certificate: "",
+        evidence: "",
+        recordedAt: 0,
+        recordedBy: "",
+      },
+    ];
+    s.airworthiness = [ad];
+    const review = {
+      uuid: held.uuid,
+      decision: "accept" as const,
+      reason: REASON,
+    };
+    expect(refusal(s, { ...review, input })).toMatchObject({
+      message:
+        "Correction would move usage before the recorded compliance of AD 2026-05-05.",
+    });
   });
 
   it("takes 5 trimmed characters and up to 5000 as entered", () => {

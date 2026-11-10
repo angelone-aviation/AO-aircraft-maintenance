@@ -323,7 +323,12 @@ function saveAircraft(s: Snapshot, c: AircraftSave, now: number): FleetChange {
   const records = beforeRecords.map(
     (r) => components.find((c) => c.uuid === r.uuid) ?? r,
   );
-  validateMaintenanceTotals(next, records, s.inspections);
+  validateMaintenanceTotals(
+    next,
+    records,
+    s.inspections,
+    s.airworthiness ?? [],
+  );
   s.aircraft = [...s.aircraft.filter((a) => a.uuid !== next.uuid), next];
   s.management = records;
   auditAircraftSave(s, c, before, next, components, beforeRecords, now);
