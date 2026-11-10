@@ -442,6 +442,12 @@ describe("submitting a problem report", () => {
     expect(() =>
       submitOperation(s, { ...op, authorId: "demo-pilot" }, options),
     ).toThrow("Entry ID already used.");
+    expect(() =>
+      submitOperation(s, { ...op, description: "Oil leak, right" }, options),
+    ).toThrow(/^This report was already received with different details/);
+    expect(() =>
+      submitOperation(s, { ...op, grounding: false }, options),
+    ).toThrow(FlightRejection);
   });
   it("links only a flight of the same aircraft", () => {
     const s = world();

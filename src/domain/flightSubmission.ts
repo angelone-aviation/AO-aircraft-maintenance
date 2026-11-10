@@ -4,19 +4,20 @@
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./management, ./flights, ./flightChecklistLink,
  *   ./flightPlans, ./aircraftStatus, ./oilInventory, ./programs, ./rejection,
- *   ./changeLog.
+ *   ./changeLog, ./fieldDiff (sameValue, for a resent entry).
  *
  * The server and the demo adapter run this one sequence; each loads the state
  * it reads and stores the changes it returns.
  */
-import type {
-  Aircraft,
-  AuditEntry,
-  Discrepancy,
-  Flight,
-  FlightInput,
-  Operation,
-  Snapshot,
+import {
+  flightInputSchema,
+  type Aircraft,
+  type AuditEntry,
+  type Discrepancy,
+  type Flight,
+  type FlightInput,
+  type Operation,
+  type Snapshot,
 } from "./model";
 import type { Stock } from "./management";
 import { applyFlight, heldReason, validateFlight } from "./flights";
@@ -27,6 +28,7 @@ import { oilInventoryDeductions, oilUsageAudit } from "./oilInventory";
 import { programIds } from "./programs";
 import { Rejection } from "./rejection";
 import { auditEntry, type AuditChange } from "./changeLog";
+import { sameValue } from "./fieldDiff";
 
 /** A refused entry, with a message the Sync center shows as written. */
 export class FlightRejection extends Rejection {}
@@ -105,7 +107,10 @@ export function submitFlight(
   { now, today }: SubmitOptions,
 ): Submission {
   const existing = s.flights.find((f) => f.uuid === op.uuid);
-  if (existing) return resubmitted(existing, op.authorId, existing.status);
+  if (existing)
+    return resubmitted(existing, op, sameFlight(existing, op.input), {
+      status: existing.status,
+    });
   const { input } = op;
   const aircraft = s.aircraft.find((a) => a.uuid === input.aircraftUuid);
   if (!aircraft) throw new FlightRejection("Aircraft not found.");
@@ -155,7 +160,10 @@ export function submitDiscrepancy(
   { now }: SubmitOptions,
 ): Submission {
   const existing = s.discrepancies.find((d) => d.uuid === op.uuid);
-  if (existing) return resubmitted(existing, op.authorId, "accepted");
+  if (existing)
+    return resubmitted(existing, op, sameReport(existing, op), {
+      status: "accepted",
+    });
   assertLinkedFlight(s, op);
   const report: Discrepancy = {
     uuid: op.uuid,
@@ -188,15 +196,44 @@ export function submitDiscrepancy(
   };
 }
 
-// An entry's id is never reusable by another author.
+// A retry after a lost reply resends the same entry, which is answered
+// with its stored status. An id is never reusable by another author, and
+// never with other contents: answering "accepted" would let the device drop
+// an entry the server did not store.
 function resubmitted(
   existing: { authorId: string },
-  authorId: string,
-  status: Flight["status"],
+  op: Operation,
+  same: boolean,
+  answer: { status: Flight["status"] },
 ): Submission {
-  if (existing.authorId !== authorId)
+  if (existing.authorId !== op.authorId)
     throw new FlightRejection("Entry ID already used.");
-  return { status };
+  if (!same)
+    throw new FlightRejection(
+      op.kind === "flight" ? RESENT_FLIGHT_MESSAGE : RESENT_REPORT_MESSAGE,
+    );
+  return answer;
+}
+
+const RESENT_FLIGHT_MESSAGE =
+  "This entry was already received with different readings, which were not saved. Check the flight log, then discard this copy or log the flight again.";
+const RESENT_REPORT_MESSAGE =
+  "This report was already received with different details, which were not saved. Check Discrepancies, then discard this copy or report it again.";
+
+// Compared as entered: a later correction by an administrator also makes a
+// resent copy differ, and the device then shows why it was not saved.
+function sameFlight(existing: Flight, input: FlightInput) {
+  const keys = Object.keys(flightInputSchema.shape) as (keyof FlightInput)[];
+  return keys.every((key) => sameValue(existing[key], input[key]));
+}
+
+function sameReport(existing: Discrepancy, op: DiscrepancyOperation) {
+  return (
+    existing.aircraftUuid === op.aircraftUuid &&
+    existing.description === op.description &&
+    sameValue(existing.grounding, op.grounding) &&
+    sameValue(existing.flightUuid, op.flightUuid)
+  );
 }
 
 function assertLinkedFlight(s: Snapshot, op: DiscrepancyOperation) {

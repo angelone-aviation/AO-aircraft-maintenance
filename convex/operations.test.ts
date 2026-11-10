@@ -229,6 +229,34 @@ describe("flight submissions and reviews", () => {
       ["discrepancy.created", `${operation.uuid}-discrepancy`],
     ]);
   });
+  it("refuses a resent entry id with other readings, so the device keeps it", async () => {
+    const { t, pilot, op, a } = await fixture();
+    const first = op();
+    await pilot.mutation(api.operations.submit, { operation: first });
+    const stored = () =>
+      t.run(async (ctx) => ({
+        flights: await ctx.db.query("flights").collect(),
+        audit: await ctx.db.query("audit").collect(),
+      }));
+    const before = await stored();
+    // A retry of the same entry after a lost reply is answered as before.
+    expect(
+      await pilot.mutation(api.operations.submit, { operation: first }),
+    ).toEqual({ status: "accepted" });
+    const changed = {
+      ...first,
+      input: { ...first.input, hobbsOn: a.currentHobbs + 7200, landings: 3 },
+    };
+    await expect(
+      pilot.mutation(api.operations.submit, { operation: changed }),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: expect.stringMatching(
+        /^This entry was already received with different readings/,
+      ),
+    });
+    expect(await stored()).toEqual(before);
+  });
   it("holds stale submissions without changing totals and preserves both records", async () => {
     const { pilot, op, a } = await fixture();
     await pilot.mutation(api.operations.submit, { operation: op() });
