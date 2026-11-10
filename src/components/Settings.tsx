@@ -7,7 +7,7 @@
  *   src/data (store, pendingEntries), src/domain (alerts, certifications,
  *   costs, memberRole, model, programs, signInMethods, taskCards), the panels
  *   it embeds (./AddressVerificationSettings, ./AircraftSpruce, ./DemoBackup,
- *   ./DeviceAlerts, ./ExpiringDates, ./FaaKeySettings, ./Fleet,
+ *   ./DeviceAlerts, ./ExpiringDates, ./FaaKeySettings, ./Fleet, ./LargeText,
  *   ./SettingsExtracts, ./SettingsSystem, ./SignInMethods, ./UserProfile),
  *   ./SettingsBlock, ./useDeploymentFeatures, ./design, ./ui,
  *   src/styles/screens/settings.css.
@@ -94,6 +94,7 @@ import { FaaKeySettings } from "./FaaKeySettings";
 import { AddressVerificationSettings } from "./AddressVerificationSettings";
 import { DemoBackup } from "./DemoBackup";
 import { DeviceAlertsBlock } from "./DeviceAlerts";
+import { LargeTextBlock } from "./LargeText";
 import { ExpiringDates } from "./ExpiringDates";
 import { ProgramExtract, SystemExtract } from "./SettingsExtracts";
 import { DeploymentStatus, OffsiteBackups } from "./SettingsSystem";
@@ -459,12 +460,13 @@ function DeviceSection() {
   return (
     <Section id="device" index={2}>
       <ThemeBlock />
+      <LargeTextBlock />
       <OfflineDataBlock s={s} pending={pending} />
       <Block className="set-block-note">
         <p className="set-note">
           <Info size={18} weight="duotone" aria-hidden="true" />
-          Your theme, favorites, sidebar layout and print settings are kept on
-          this device and do not follow your account.
+          Your theme, text size, favorites, sidebar layout and print settings
+          are kept on this device and do not follow your account.
         </p>
       </Block>
     </Section>

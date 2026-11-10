@@ -31,7 +31,9 @@ test("offline flight and discrepancy persist across reload and synchronize once"
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await reportProblem(page, "Offline inspection: oil leak under cowling");
   // Both entries must be queued before reloading.
-  await expect(page.getByText("Offline · 2 pending")).toBeVisible();
+  await expect(
+    page.getByText("2 entries waiting to send · Offline"),
+  ).toBeVisible();
   await page.reload();
   await page.getByRole("link", { name: /Sync center/ }).click();
   await expect(

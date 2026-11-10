@@ -5,7 +5,7 @@
  * Dependencies: src/data (store, auditHistory, pendingEntries,
  *   logbookPhotos), src/domain (model, programs, pilotView, flights,
  *   flightLog, listSearch, flightFluids, deferrals, auditHistory), ./design,
- *   ./ui,
+ *   ./ui, ./TermTip,
  *   ./ExportRecordsPackage, ./AuditSummary and the flight, logbook photo,
  *   paper check, deferral, parts, task card and work order components.
  */
@@ -116,6 +116,7 @@ import {
   type LogbookPhotoTarget,
 } from "./LogbookPhotos";
 import { PaperCheckButton } from "./PaperCheck";
+import { TermTip } from "./TermTip";
 
 const FLIGHT_PHOTO_LABEL = "Add a photo of the logbook line";
 
@@ -929,7 +930,7 @@ function DiscrepancyToolbar({
           {open.length} open
         </StatusPill>
         <StatusPill tone="neutral" dot={false} className="rec-count">
-          {deferred} deferred
+          <TermTip term="deferral">{`${deferred} deferred`}</TermTip>
         </StatusPill>
         {grounding > 0 && (
           <StatusPill tone="danger" className="rec-count">
@@ -1219,6 +1220,9 @@ function DeferDialog({ uuid, onClose }: { uuid: string; onClose: () => void }) {
       dismissOnScrim={false}
       onClose={onClose}
     >
+      <p className="term-tip-line">
+        Defer under an <TermTip term="mel" /> item or 14 CFR 91.213(d).
+      </p>
       <DeferDiscrepancyForm uuid={uuid} onDone={onClose} />
     </Dialog>
   );

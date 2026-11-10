@@ -1,0 +1,40 @@
+/*
+ * Responsibility: The keyboard shortcut list and the footer's shortcut hint.
+ * Layer: UI. Styles for src/components/KeyboardShortcuts.tsx and the hint in
+ *   src/components/AppShell.tsx.
+ * Dependencies: src/styles/tokens.css (colours, radii).
+ */
+.shortcuts-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.shortcuts-row dt {
+  min-width: 52px;
+}
+.shortcuts-row dd {
+  margin: 0;
+}
+.shortcuts-list kbd,
+.shortcut-hint kbd {
+  display: inline-block;
+  min-width: 28px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: 600 13px/1.4 var(--font);
+  text-align: center;
+}
+.shortcut-hint kbd {
+  min-width: 0;
+  padding: 0 5px;
+  font-size: 12px;
+}

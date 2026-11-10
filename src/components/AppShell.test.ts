@@ -109,13 +109,14 @@ describe("AppShell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives administrators every link, ending with Administration, Costs, Board view and Settings", () => {
+  it("gives administrators every link, ending with Administration, Costs, Board view, Glossary and Settings", () => {
     const shown = links(render(asUser("admin")));
     expect(shown).toContain("Inventory");
-    expect(shown.slice(-4)).toEqual([
+    expect(shown.slice(-5)).toEqual([
       "Administration",
       "Costs",
       "Board view",
+      "Glossary",
       "Settings",
     ]);
   });
@@ -127,13 +128,13 @@ describe("AppShell", () => {
       expect(shown).not.toContain(link);
   });
 
-  it("shows pilots only pilot navigation, and owners only the overview", () => {
+  it("shows pilots only pilot navigation, and owners only the overview, with the Glossary for both", () => {
     const pilot = links(render(asUser("pilot")));
     expect(pilot).toContain("Flight log");
     expect(pilot).not.toContain("Work orders");
     expect(pilot).not.toContain("Administration");
-    expect(pilot.at(-1)).toBe("Settings");
-    expect(links(render(asUser("owner")))).toEqual(["Overview"]);
+    expect(pilot.slice(-2)).toEqual(["Glossary", "Settings"]);
+    expect(links(render(asUser("owner")))).toEqual(["Overview", "Glossary"]);
   });
 
   it("shows sidebar counts above 99 as 99+", () => {
@@ -162,6 +163,9 @@ describe("AppShell", () => {
     view.path = "/settings";
     view.routeId = "/settings";
     expect(render(asUser("owner"))).toContain("<span>Owner portal</span>");
+    view.path = "/glossary";
+    view.routeId = "/glossary";
+    expect(render(asUser("owner"))).toContain("<span>Glossary</span>");
   });
 
   it("labels the sidebar profile with the role Settings shows", () => {

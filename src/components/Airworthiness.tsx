@@ -4,9 +4,8 @@
  *   monitoring) and the dashboard's AD alerts.
  * Layer: UI. React components; AD rules live in src/domain.
  * Dependencies: src/data (store, adImport, adReport on demand), src/domain
- *   (airworthiness, faa, listSearch and the AD helpers), ./design, ./ui and
- *   the AD,
- *   FAA, parts and ops components.
+ *   (airworthiness, faa, listSearch and the AD helpers), ./design, ./ui,
+ *   ./TermTip and the AD, FAA, parts and ops components.
  */
 import { ADTrackingFields } from "./ADTrackingFields";
 import { localDate, type Snapshot } from "../domain/model";
@@ -98,6 +97,7 @@ import {
   type IconType,
 } from "./design";
 import { OpsSelect } from "./OpsList";
+import { TermTip } from "./TermTip";
 
 const PCW = "Previously Complied With (PCW)";
 // Marks an import group the user chose not to import yet.
@@ -420,7 +420,13 @@ function ADHeader({ ad }: ADProps) {
     <PageHeader
       eyebrow="COMPLIANCE"
       title="Airworthiness directives"
-      description="FAA directives that apply to your aircraft, with applicability review, compliance records and printable reports."
+      description={
+        <>
+          <TermTip term="faa" /> directives (<TermTip term="ad">ADs</TermTip>)
+          that apply to your aircraft, with applicability review, compliance
+          records and printable reports.
+        </>
+      }
       actions={
         <>
           <span className="ops-ad-faa">
