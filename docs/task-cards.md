@@ -4,7 +4,7 @@ Use **Task templates → Create task template** on an inspection, installed comp
 
 Templates contain instructions, notes and required parts; results and signoffs belong to work-order copies. Each copy retains its template origin, starts in draft, and has no execution results. Later template edits apply to future copies. For existing orders, use **Add missing task templates**. Repeating this action does not duplicate existing copies.
 
-Card numbers are unique within the aircraft's current Flight Program. Leave the number blank for `TC-YYYY-NNNN`. The table filters by aircraft, status and card number/title. Linked records include an optional open work order, inspection, installed component, component service requirement and originating discrepancy. Related records must belong to the same aircraft. A saved work-order association cannot be reassigned.
+Card numbers are unique within the aircraft's current Flight Program. Leave the number blank for `TC-YYYY-NNNN`. The table filters by aircraft and status, and its search matches the card number, title, description, aircraft registration and work order number. Linked records include an optional open work order, inspection, installed component, component service requirement and originating discrepancy. Related records must belong to the same aircraft. A saved work-order association cannot be reassigned.
 
 The editor includes ATA chapter, description, maintenance-data references, applicability and a **Notes / remarks** field. Planning contains only **Required parts**. Previous step data remains readable in **Previously recorded step details**; it is no longer an editable checklist or a signoff prerequisite. Existing planning and functional-test data is retained in storage.
 

@@ -26,3 +26,7 @@ The new input and source option are hidden when the aircraft option is off. Prev
 On a new flight (not one from a plan, a flight session, a retry or a review), **Same as last flight** fills the pilot, copilot, origin and destination from the most recent flight of the chosen aircraft that you can see; rejected flights are skipped. It never fills meter readings, times, fuel, oil, remarks or the date: starting readings still come from the aircraft's totals. The button appears only when the aircraft has a previous flight. A pilot or copilot who can no longer be chosen is not filled in.
 
 The Origin and Destination fields suggest the Flight Program's eight most-used places from its own flight records, origins and destinations counted together, most used first and then most recent. Spellings that differ only in letter case or spaces count as one place. Any other place can still be typed. No outside lookup is made.
+
+## Finding flights
+
+The flight log lists flights newest first. Its search matches the aircraft registration, pilot or copilot name, origin, destination, remarks and the date, typed as recorded (`2026-11-03`) or as shown (`Nov 3, 2026`). The Aircraft select narrows the log to one aircraft, and the status choices to accepted, held for review or rejected flights; each status count covers the flights matching the search and aircraft. The log shows the first 50 matching flights, and **Show more** adds 50 at a time; changing a filter starts again at 50.

@@ -4,9 +4,9 @@
  * Layer: UI. React components; job card rules live in src/domain.
  * Dependencies: react, react-dom, zod (ZodError), src/data/store.ts,
  *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
- *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders),
- *   ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording, ./TaskCsvImport,
- *   ./Manuals, ./ui.
+ *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders,
+ *   listSearch), ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording,
+ *   ./TaskCsvImport, ./Manuals, ./design (SearchField), ./ui.
  *
  * A template holds instructions only: results, parts and signoffs go on the
  * job card a work order copies from it.
@@ -27,6 +27,8 @@ import { recordProgram } from "../domain/programs";
 import type { Stock } from "../domain/management";
 import { expiredForUse, usableQuantity } from "../domain/shelfLife";
 import { taskCardMatchesWorkItem } from "../domain/workOrderCards";
+import { taskCardMatches } from "../domain/listSearch";
+import { SearchField } from "./design";
 import type { WorkOrder, WorkTask } from "../domain/workOrders";
 import { TaskCsvImportButton } from "./TaskCsvImport";
 import { ManualReferenceFields } from "./Manuals";
@@ -92,11 +94,10 @@ type CardOrder = "zone" | "number";
 type SignKind = "technician" | "inspection";
 type Choice = { uuid: string; name: string };
 type Filters = { aircraft: string; status: string; search: string };
-type FilterState = {
-  aircraft: string;
+type FilterState = Filters & {
   setAircraft: (uuid: string) => void;
-  status: string;
   setStatus: (status: string) => void;
+  setSearch: (search: string) => void;
 };
 type Removal = ReturnType<typeof useCardRemoval>;
 type LinkedView = {
@@ -128,23 +129,23 @@ export function TaskCards() {
   const { snapshot: state, online, connected } = useWorkspace();
   const s = state!;
   const [selected, setSelected] = useState<Selection>();
-  const [aircraft, setAircraft] = useState("");
-  const [status, setStatus] = useState("");
-  const [search, setSearch] = useState("");
+  const filters = useCardFilters();
   const [orderBy, setOrderBy] = useState<CardOrder>("zone");
-  const rows = filterCards(s.taskCards, { aircraft, status, search }, orderBy);
+  const rows = filterCards(s, filters, orderBy);
   const live = online && connected;
-  const filters = { aircraft, setAircraft, status, setStatus };
   return (
     <>
       <JobCardsTitle s={s} live={live} onCreate={() => setSelected({})} />
       <TaskCsvImportButton />
       <div className="management-toolbar">
+        <SearchField
+          label="Search job cards"
+          placeholder="Card, title, aircraft or work order"
+          value={filters.search}
+          onChange={filters.setSearch}
+        />
         <CardFilters s={s} filters={filters} />
         <CardOrderSelect value={orderBy} onChange={setOrderBy} />
-        <Field label="Search job cards">
-          <input value={search} onChange={(e) => setSearch(e.target.value)} />
-        </Field>
       </div>
       {!live && (
         <p className="notice">
@@ -152,7 +153,12 @@ export function TaskCards() {
           evidence.
         </p>
       )}
-      <CardRows s={s} rows={rows} onSelect={setSelected} />
+      <CardRows
+        s={s}
+        rows={rows}
+        anyCards={!!s.taskCards?.length}
+        onSelect={setSelected}
+      />
       <SelectionDialog selected={selected} onSelect={setSelected} />
     </>
   );
@@ -309,6 +315,13 @@ function JobCardsTitle(props: {
   );
 }
 
+function useCardFilters(): FilterState {
+  const [aircraft, setAircraft] = useState("");
+  const [status, setStatus] = useState("");
+  const [search, setSearch] = useState("");
+  return { aircraft, setAircraft, status, setStatus, search, setSearch };
+}
+
 function CardFilters({ s, filters: f }: { s: Snapshot; filters: FilterState }) {
   return (
     <>
@@ -340,9 +353,13 @@ function CardFilters({ s, filters: f }: { s: Snapshot; filters: FilterState }) {
   );
 }
 
-function CardRows(props: {
+function CardRows({
+  anyCards,
+  ...props
+}: {
   s: Snapshot;
   rows: TaskCard[];
+  anyCards: boolean;
   onSelect: (selection: Selection) => void;
 }) {
   if (!props.rows.length)
@@ -350,10 +367,16 @@ function CardRows(props: {
     // with nothing focusable in it, so show only the empty state.
     return (
       <div className="panel">
-        <Empty title="No job cards">
-          Create a card here or add one from an inspection, service requirement
-          or discrepancy.
-        </Empty>
+        {anyCards ? (
+          <Empty title="No matching job cards">
+            Try another search, aircraft or status.
+          </Empty>
+        ) : (
+          <Empty title="No job cards">
+            Create a card here or add one from an inspection, service
+            requirement or discrepancy.
+          </Empty>
+        )}
       </div>
     );
   return (
@@ -1851,23 +1874,17 @@ function compareCardNumbers(a: TaskCard, b: TaskCard) {
   return a.cardNumber.localeCompare(b.cardNumber, undefined, { numeric: true });
 }
 
-function filterCards(
-  cards: TaskCard[] | undefined,
-  filters: Filters,
-  orderBy: CardOrder,
-) {
-  return (cards ?? [])
-    .filter((card) => matchesFilters(card, filters))
+function filterCards(s: Snapshot, filters: Filters, orderBy: CardOrder) {
+  return (s.taskCards ?? [])
+    .filter((card) => matchesFilters(s, card, filters))
     .sort(cardOrder(orderBy));
 }
 
-function matchesFilters(card: TaskCard, filters: Filters) {
+function matchesFilters(s: Snapshot, card: TaskCard, filters: Filters) {
   return (
     (!filters.aircraft || card.aircraftUuid === filters.aircraft) &&
     matchesStatus(card, filters.status) &&
-    `${card.cardNumber} ${card.title}`
-      .toLowerCase()
-      .includes(filters.search.toLowerCase())
+    taskCardMatches(s, card, filters.search)
   );
 }
 

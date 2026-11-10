@@ -4,7 +4,8 @@
  * Layer: UI. Screens over the workspace snapshot; holds no business rules.
  * Dependencies: src/data (store, auditHistory, pendingEntries,
  *   logbookPhotos), src/domain (model, programs, pilotView, flights,
- *   flightFluids, deferrals, auditHistory), ./design, ./ui,
+ *   flightLog, listSearch, flightFluids, deferrals, auditHistory), ./design,
+ *   ./ui,
  *   ./ExportRecordsPackage, ./AuditSummary and the flight, logbook photo,
  *   paper check, deferral, parts, task card and work order components.
  */
@@ -17,7 +18,13 @@ import { LinkedTaskCards } from "./TaskCards";
 import { AddToWorkOrder } from "./WorkOrders";
 import { WeeklySummary } from "./AuditSummary";
 import { programPermission } from "../domain/programs";
-import { useId, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Airplane,
@@ -58,6 +65,13 @@ import { isGroundingReport, MAX_RESOLUTION_LENGTH } from "../domain/deferrals";
 import { previousFlights } from "../domain/flightFluids";
 import { auditActionLabel } from "../domain/auditHistory";
 import { flightStatusLabels } from "../domain/flights";
+import {
+  FLIGHT_LOG_PAGE_SIZE,
+  flightLogRows,
+  type FlightLogFilters,
+  type FlightStatusFilter,
+} from "../domain/flightLog";
+import { discrepancyMatches } from "../domain/listSearch";
 import { HistoryPager } from "./ManagementShared";
 import { ExportRecordsPackage } from "./ExportRecordsPackage";
 import {
@@ -80,6 +94,7 @@ import {
   ListRow,
   NoticeBar,
   PageHeader,
+  SearchField,
   Segmented,
   StatTile,
   StatsStrip,
@@ -112,7 +127,12 @@ const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   minute: "2-digit",
   hourCycle: "h23",
 };
-const FLIGHT_FILTERS = [
+const NO_FLIGHT_FILTERS: FlightLogFilters = {
+  search: "",
+  aircraftUuid: "",
+  status: "all",
+};
+const FLIGHT_FILTERS: { value: FlightStatusFilter; label: string }[] = [
   { value: "all", label: "All flights" },
   { value: "accepted", label: "Accepted" },
   { value: "review", label: "Needs review" },
@@ -154,7 +174,10 @@ const AUDIT_ICONS: Record<string, IconType> = {
 /** The flight log's rows and the columns and actions they show. */
 interface FlightLog {
   s: Snapshot;
+  /** The matching flights shown so far. */
   flights: Flight[];
+  /** Whether the program has any flight, matching or not. */
+  anyFlights: boolean;
   /** Each flight's previous accepted or held flight on its aircraft, by start
    * time: oil used is measured from it. */
   previous: Map<string, Flight>;
@@ -170,6 +193,7 @@ interface CorrectAction {
   open: (flight: Flight) => void;
 }
 type FlightProps = { log: FlightLog; flight: Flight };
+type FlightLogView = ReturnType<typeof useFlightLogView>;
 interface ReportActions {
   disabled: boolean;
   onDefer: (uuid: string) => void;
@@ -190,24 +214,27 @@ const dateTime = (at: number | string) =>
   `${shortDate(at)} · ${new Date(at).toLocaleTimeString(undefined, TIME_OPTIONS)}`;
 
 /**
- * The flight log: the program's flights, newest first, filtered by status,
- * with a link to the Sync center while the user's flights wait on this
- * device.
+ * The flight log: the program's flights, newest first, narrowed by a search,
+ * an aircraft and a status, with a link to the Sync center while the user's
+ * flights wait on this device.
  *
- * @returns Cards on a phone, otherwise a table. The collective, flight time
- *   log, cycles and engine start readings show only when an aircraft or a
- *   listed flight has them. Each flight shows its logbook page photos and,
- *   with flight permission, the control to add one; a flight just saved is
- *   offered one at the top. Administrators can correct a flight, or review a
- *   held one, while connected.
+ * @returns Cards on a phone, otherwise a table, of the first 50 matching
+ *   flights; Show more adds 50 at a time, and changing a filter starts again
+ *   at 50. The status counts cover every flight matching the search and
+ *   aircraft. The collective, flight time log, cycles and engine start
+ *   readings show only when an aircraft or a matching flight has them. Each
+ *   flight shows its logbook page photos and, with flight permission, the
+ *   control to add one; a flight just saved is offered one at the top.
+ *   Administrators can correct a flight, or review a held one, while
+ *   connected.
  */
 export function Flights() {
   const { snapshot: s, queue, online, connected } = useWorkspace();
   const breakpoint = useBreakpoint();
   const [modal, setModal] = useState<"new" | Flight | null>(null),
-    [filter, setFilter] = useState("all"),
     [saved, setSaved] = useState<LogbookPhotoTarget | null>(null);
-  const log = flightLog(s!, filter, {
+  const view = useFlightLogView(s!);
+  const log = flightLog(s!, view, {
     disabled: !online || !connected,
     open: setModal,
   });
@@ -227,10 +254,10 @@ export function Flights() {
       <FlightToolbar
         s={s!}
         pending={pendingFlightCount(s!, queue)}
-        filter={filter}
-        onFilter={setFilter}
+        view={view}
       />
       <FlightList log={log} phone={breakpoint === "phone"} />
+      <ShowMoreFlights view={view} />
       {modal && (
         <FlightDialog
           modal={modal}
@@ -242,17 +269,33 @@ export function Flights() {
   );
 }
 
+// Changing a filter starts the list again at its first page.
+function useFlightLogView(s: Snapshot) {
+  const [filters, setFilters] = useState(NO_FLIGHT_FILTERS),
+    [limit, setLimit] = useState(FLIGHT_LOG_PAGE_SIZE);
+  return {
+    filters,
+    limit,
+    rows: flightLogRows(s, filters),
+    change: (patch: Partial<FlightLogFilters>) => {
+      setFilters({ ...filters, ...patch });
+      setLimit(FLIGHT_LOG_PAGE_SIZE);
+    },
+    showMore: () => setLimit(limit + FLIGHT_LOG_PAGE_SIZE),
+  };
+}
+
+// Columns follow every matching flight, so they stay put on Show more.
 function flightLog(
   s: Snapshot,
-  filter: string,
+  view: FlightLogView,
   correct: CorrectAction,
 ): FlightLog {
-  const flights = [...s.flights]
-    .sort((a, b) => b.startTime.localeCompare(a.startTime))
-    .filter((f) => filter === "all" || f.status === filter);
+  const { flights } = view.rows;
   return {
     s,
-    flights,
+    flights: flights.slice(0, view.limit),
+    anyFlights: s.flights.length > 0,
     previous: previousFlights(s.flights),
     columns: {
       engineStarts: flights.some((f) => f.engineStarts?.length),
@@ -316,25 +359,36 @@ function FlightLogHeader({ s, onNew }: { s: Snapshot; onNew: () => void }) {
 function FlightToolbar({
   s,
   pending,
-  filter,
-  onFilter,
+  view,
 }: {
   s: Snapshot;
   pending: number;
-  filter: string;
-  onFilter: (filter: string) => void;
+  view: FlightLogView;
 }) {
-  const counts: Record<string, number> = { all: s.flights.length };
-  for (const f of s.flights) counts[f.status] = (counts[f.status] ?? 0) + 1;
+  const { filters, change } = view;
+  const { counts } = view.rows;
   return (
     <Toolbar
       className="rise"
       end={!!pending && <PendingFlightsLink count={pending} />}
     >
+      <SearchField
+        className="rec-search"
+        label="Search flights"
+        placeholder="Aircraft, pilot, route, remarks or date"
+        value={filters.search}
+        onChange={(search) => change({ search })}
+      />
+      <AircraftSelect
+        s={s}
+        allLabel="All aircraft"
+        value={filters.aircraftUuid}
+        onChange={(aircraftUuid) => change({ aircraftUuid })}
+      />
       <Segmented
         label="Flight status"
-        value={filter}
-        onChange={onFilter}
+        value={filters.status}
+        onChange={(status) => change({ status: status as FlightStatusFilter })}
         options={FLIGHT_FILTERS.map((o) => ({
           ...o,
           count: counts[o.value] || undefined,
@@ -360,7 +414,9 @@ function FlightList({ log, phone }: { log: FlightLog; phone: boolean }) {
   if (!log.flights.length)
     return (
       <EmptyState title="No flights in this view">
-        Log your first flight to start building the aircraft record.
+        {log.anyFlights
+          ? "Try another search, aircraft or status."
+          : "Log your first flight to start building the aircraft record."}
       </EmptyState>
     );
   if (!phone) return <FlightTable log={log} />;
@@ -375,6 +431,32 @@ function FlightList({ log, phone }: { log: FlightLog; phone: boolean }) {
           <FlightCard log={log} flight={f} />
         </article>
       ))}
+    </div>
+  );
+}
+
+// The count line stays once the list was long enough to page, and takes focus
+// when the last Show more removes the button, so keyboard focus is not lost.
+function ShowMoreFlights({ view }: { view: FlightLogView }) {
+  const status = useRef<HTMLParagraphElement>(null);
+  const total = view.rows.flights.length;
+  const shown = Math.min(view.limit, total);
+  if (total <= FLIGHT_LOG_PAGE_SIZE) return null;
+  const showMore = () => {
+    view.showMore();
+    if (shown + FLIGHT_LOG_PAGE_SIZE >= total)
+      requestAnimationFrame(() => status.current?.focus());
+  };
+  return (
+    <div className="rec-pager">
+      <p ref={status} role="status" tabIndex={-1}>
+        Showing {shown} of {total} flights
+      </p>
+      {shown < total && (
+        <button type="button" className="button" onClick={showMore}>
+          Show more
+        </button>
+      )}
     </div>
   );
 }
@@ -736,8 +818,9 @@ function EngineStarts({ flight: f }: { flight: Flight }) {
 
 /**
  * Discrepancy reports, newest first: the open ones, or all of them with
- * "Include resolved reports", under counts of open, deferred and grounding
- * reports.
+ * "Include resolved reports", narrowed by a search of registration,
+ * description, resolution and reporter, under counts of every open,
+ * deferred and grounding report.
  *
  * @returns The report cards. Reporting a problem queues it on this device,
  *   so it works offline; deferring and recording a resolution need a
@@ -749,7 +832,8 @@ export function Discrepancies() {
   const [adding, setAdding] = useState(false),
     [resolve, setResolve] = useState<string | null>(null),
     [defer, setDefer] = useState<string | null>(null),
-    [showResolved, setShowResolved] = useState(false);
+    [showResolved, setShowResolved] = useState(false),
+    [search, setSearch] = useState("");
   const available = s!.aircraft.filter((a) => can(s!, a.uuid, "discrepancy"));
   const actions = {
     disabled: !online || !connected,
@@ -764,10 +848,12 @@ export function Discrepancies() {
       />
       <DiscrepancyToolbar
         s={s!}
+        search={search}
+        onSearch={setSearch}
         showResolved={showResolved}
         onShowResolved={setShowResolved}
       />
-      <ReportList s={s!} showResolved={showResolved} actions={actions} />
+      <ReportList s={s!} filters={{ search, showResolved }} actions={actions} />
       {adding && (
         <ReportDialog aircraft={available} onClose={() => setAdding(false)} />
       )}
@@ -805,10 +891,14 @@ function DiscrepancyHeader({
 
 function DiscrepancyToolbar({
   s,
+  search,
+  onSearch,
   showResolved,
   onShowResolved,
 }: {
   s: Snapshot;
+  search: string;
+  onSearch: (search: string) => void;
   showResolved: boolean;
   onShowResolved: (show: boolean) => void;
 }) {
@@ -827,6 +917,13 @@ function DiscrepancyToolbar({
         />
       }
     >
+      <SearchField
+        className="rec-search"
+        label="Search reports"
+        placeholder="Aircraft, description, resolution or reporter"
+        value={search}
+        onChange={onSearch}
+      />
       <div className="rec-chips">
         <StatusPill tone="warn" className="rec-count">
           {open.length} open
@@ -846,23 +943,21 @@ function DiscrepancyToolbar({
 
 function ReportList({
   s,
-  showResolved,
+  filters: { search, showResolved },
   actions,
 }: {
   s: Snapshot;
-  showResolved: boolean;
+  filters: { search: string; showResolved: boolean };
   actions: ReportActions;
 }) {
   const pilotView = isPilotView(s);
-  const reports = s.discrepancies
-    .filter((d) => showResolved || d.status === "open")
+  const listed = s.discrepancies.filter(
+    (d) => showResolved || d.status === "open",
+  );
+  const reports = listed
+    .filter((d) => discrepancyMatches(s, d, search))
     .sort((a, b) => b.createdAt - a.createdAt);
-  if (!reports.length)
-    return (
-      <EmptyState title="No open reports">
-        New discrepancies will appear here.
-      </EmptyState>
-    );
+  if (!reports.length) return <NoReports anyListed={listed.length > 0} />;
   return (
     <div className="rec-disc-grid">
       {reports.map((d, i) => (
@@ -876,6 +971,18 @@ function ReportList({
         </article>
       ))}
     </div>
+  );
+}
+
+function NoReports({ anyListed }: { anyListed: boolean }) {
+  if (anyListed)
+    return (
+      <EmptyState title="No matching reports">Try another search.</EmptyState>
+    );
+  return (
+    <EmptyState title="No open reports">
+      New discrepancies will appear here.
+    </EmptyState>
   );
 }
 
@@ -1640,14 +1747,12 @@ export function History() {
 }
 
 function ChangeLog({ s }: { s: Snapshot }) {
-  const filterId = useId();
   const [aircraftUuid, setAircraftUuid] = useState("");
   const history = useAuditHistory({ aircraftUuid: aircraftUuid || undefined });
   return (
     <>
       <AircraftFilter
         s={s}
-        id={filterId}
         aircraftUuid={aircraftUuid}
         onChange={setAircraftUuid}
       />
@@ -1677,12 +1782,10 @@ function ChangeLog({ s }: { s: Snapshot }) {
 // A chosen aircraft offers its records package (maintenance permission only).
 function AircraftFilter({
   s,
-  id,
   aircraftUuid,
   onChange,
 }: {
   s: Snapshot;
-  id: string;
   aircraftUuid: string;
   onChange: (aircraftUuid: string) => void;
 }) {
@@ -1695,23 +1798,41 @@ function AircraftFilter({
         )
       }
     >
-      <div className="rec-select">
-        <Airplane size={18} aria-hidden="true" />
-        <label htmlFor={id}>Aircraft</label>
-        <select
-          id={id}
-          value={aircraftUuid}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">All aircraft and program records</option>
-          {s.aircraft.map((a) => (
-            <option key={a.uuid} value={a.uuid}>
-              {a.registration}
-            </option>
-          ))}
-        </select>
-      </div>
+      <AircraftSelect
+        s={s}
+        allLabel="All aircraft and program records"
+        value={aircraftUuid}
+        onChange={onChange}
+      />
     </Toolbar>
+  );
+}
+
+function AircraftSelect({
+  s,
+  allLabel,
+  value,
+  onChange,
+}: {
+  s: Snapshot;
+  allLabel: string;
+  value: string;
+  onChange: (aircraftUuid: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="rec-select">
+      <Airplane size={18} aria-hidden="true" />
+      <label htmlFor={id}>Aircraft</label>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{allLabel}</option>
+        {s.aircraft.map((a) => (
+          <option key={a.uuid} value={a.uuid}>
+            {a.registration}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

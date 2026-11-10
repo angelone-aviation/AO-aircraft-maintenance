@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins what the record screens' docs promise: flight order,
- *   filters and optional columns, who may correct or resolve, the report
- *   counts, the Sync center's entries and discard, and the history filter.
+ *   search, filters, paging and optional columns, who may correct or resolve,
+ *   the report search and counts, the Sync center's entries and discard,
+ *   and the history filter.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/Records.tsx, src/data/demo.ts, react-dom/server.
  *
@@ -148,6 +149,64 @@ describe("Flights", () => {
   });
 });
 
+describe("Flights search and paging", () => {
+  it("searches and narrows to an aircraft, counting statuses over the matches", () => {
+    setWorkspace(
+      withFlights(
+        flight("a", "2026-10-01", { destination: "KPAE" }),
+        flight("b", "2026-10-02", { destination: "KPAE", status: "review" }),
+        flight("c", "2026-10-03", { aircraftUuid: N208.uuid }),
+      ),
+    );
+    render(Flights);
+    handler("SearchField Search flights")("kpae");
+    const html = render(Flights);
+    expect(html).toContain("2026-10-02");
+    expect(html).not.toContain("2026-10-03");
+    expect(statusCount(html, "All flights")).toBe("2");
+    expect(statusCount(html, "Needs review")).toBe("1");
+    handler("SearchField Search flights")("");
+    render(Flights);
+    handler("AircraftSelect")(N208.uuid);
+    const one = render(Flights);
+    expect(one).toContain("2026-10-03");
+    expect(one).not.toContain("2026-10-01");
+    expect(statusCount(one, "All flights")).toBe("1");
+  });
+
+  it("says when no flight matches the filters", () => {
+    setWorkspace(withFlights(flight("a", "2026-10-01")));
+    render(Flights);
+    handler("SearchField Search flights")("nothing like this");
+    expect(render(Flights)).toContain(
+      "Try another search, aircraft or status.",
+    );
+  });
+
+  it("shows 50 flights, adds 50 with Show more and starts again on a new filter", () => {
+    const days = Array.from({ length: 120 }, (_, i) =>
+      new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10),
+    );
+    setWorkspace(withFlights(...days.map((day) => flight(day, day))));
+    const focusLater = vi.fn();
+    vi.stubGlobal("requestAnimationFrame", focusLater);
+    const rows = (html: string) => html.match(/<tr>/g)!.length - 1;
+    expect(rows(render(Flights))).toBe(50);
+    expect(render(Flights)).toContain("Showing 50 of 120 flights");
+    handler("button Show more")();
+    expect(rows(render(Flights))).toBe(100);
+    expect(focusLater).not.toHaveBeenCalled();
+    handler("button Show more")();
+    expect(focusLater).toHaveBeenCalledOnce();
+    const all = render(Flights);
+    expect(rows(all)).toBe(120);
+    expect(all).toContain("Showing 120 of 120 flights");
+    expect(all).not.toContain(">Show more<");
+    handler("Segmented Flight status")("accepted");
+    expect(rows(render(Flights))).toBe(50);
+  });
+});
+
 describe("Flights columns and actions", () => {
   it("shows the optional reading columns only when an aircraft or flight uses them", () => {
     const columns = [
@@ -202,6 +261,20 @@ describe("Discrepancies", () => {
     expect(html).toContain("3 open");
     expect(html).toContain("1 deferred");
     expect(html).toContain("1 grounding");
+  });
+});
+
+describe("Discrepancy search", () => {
+  it("narrows the reports and keeps the counts of every open report", () => {
+    setWorkspace({ ...ADMIN, discrepancies: REPORTS });
+    render(Discrepancies);
+    handler("SearchField Search reports")("report grounds");
+    const html = render(Discrepancies);
+    expect(html).toContain("Report grounds");
+    expect(html).not.toContain("Report old");
+    expect(html).toContain("3 open");
+    handler("SearchField Search reports")("no such report");
+    expect(render(Discrepancies)).toContain("No matching reports");
   });
 });
 
@@ -319,6 +392,12 @@ function setWorkspace(snapshot: Snapshot, over: Record<string, unknown> = {}) {
     backend: { resolve: vi.fn() },
     ...over,
   };
+}
+
+// The count a status choice shows beside its label.
+function statusCount(html: string, label: string) {
+  const choice = new RegExp(`${label}<[^]*?>(\\d+)<`);
+  return html.match(choice)?.[1];
 }
 
 function withFlights(...flights: Flight[]): Snapshot {

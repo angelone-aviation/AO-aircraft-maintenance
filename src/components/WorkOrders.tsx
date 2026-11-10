@@ -4,7 +4,7 @@
  * Layer: UI. React components; work order rules live in src/domain.
  * Dependencies: react, react-dom, @phosphor-icons/react, src/data/store.ts,
  *   src/domain (model, readings, components, workOrders, workOrderCards,
- *   workOrderComponentWork, workOrderTaskRemoval), ./PartsRequests,
+ *   workOrderComponentWork, workOrderTaskRemoval, listSearch), ./PartsRequests,
  *   ./RequestedComponentMovement, ./TaskCards, ./WorkOrderCosts,
  *   ./WorkOrderComponentWork, ./WorkOrderRevisions, ./ReleaseStatements,
  *   ./LogbookEntry, ./LogbookSample, ./LogbookWording,
@@ -14,6 +14,7 @@ import { RequestPartsButton } from "./PartsRequests";
 import { localDate } from "../domain/model";
 import { SECONDS_PER_HOUR } from "../domain/readings";
 import { removedTaskCards } from "../domain/workOrderTaskRemoval";
+import { workOrderMatches } from "../domain/listSearch";
 import { RequestedComponentMovement } from "./RequestedComponentMovement";
 import { ComponentCloseoutCorrection } from "./ComponentCloseoutCorrection";
 import { WorkOrderRevisions } from "./WorkOrderRevisions";
@@ -95,6 +96,7 @@ import {
   NoticeBar,
   PageHeader,
   ProgressTrack,
+  SearchField,
   StatTile,
   StatsStrip,
   StatusPill,
@@ -186,7 +188,9 @@ export function AddToWorkOrder({
 
 /**
  * The work orders screen: counts, the open (or all) orders of one or every
- * aircraft, newest first, and the dialog that opens, edits or closes one.
+ * aircraft, newest first, narrowed by a search of number, registration,
+ * supervisor, scope and work items, and the dialog that opens, edits or
+ * closes one.
  *
  * @returns The screen. Saving, closing, copying templates and attachments
  *   call `backend.workOrder`, `attachWorkOrderFile` and `removeWorkOrderFile`;
@@ -196,28 +200,25 @@ export function WorkOrders() {
   const { snapshot: state, online, connected } = useWorkspace();
   const s = state!;
   const [selected, setSelected] = useState<WorkOrder | "new" | null>(null);
-  const [aircraft, setAircraft] = useState("");
-  const [showClosed, setShowClosed] = useState(false);
+  const filter = useWorkOrderFilter();
   const scoped = (s.workOrders ?? []).filter(
-    (w) => !aircraft || w.aircraftUuid === aircraft,
+    (w) => !filter.aircraft || w.aircraftUuid === filter.aircraft,
   );
+  const shown = scoped.filter((w) => filter.showClosed || isOpenWorkOrder(w));
   const list = newestFirst(
-    scoped.filter((w) => showClosed || isOpenWorkOrder(w)),
+    shown.filter((w) => workOrderMatches(w, filter.search)),
   );
   const enabled = online && connected;
   return (
     <>
       <WorkOrdersHeader s={s} enabled={enabled} onOpen={setSelected} />
       <WorkOrderCounts scoped={scoped} />
-      <WorkOrderFilters
-        s={s}
-        filter={{ aircraft, setAircraft, showClosed, setShowClosed }}
-      />
+      <WorkOrderFilters s={s} filter={filter} />
       {!enabled && <OfflineNotice />}
       {list.length ? (
         <WorkOrderTable s={s} list={list} onSelect={setSelected} />
       ) : (
-        <NoWorkOrders anyInScope={!!scoped.length} />
+        <NoWorkOrders anyInScope={!!scoped.length} anyListed={!!shown.length} />
       )}
       {selected && (
         <WorkOrderDialog
@@ -229,6 +230,20 @@ export function WorkOrders() {
       )}
     </>
   );
+}
+
+function useWorkOrderFilter() {
+  const [aircraft, setAircraft] = useState("");
+  const [showClosed, setShowClosed] = useState(false);
+  const [search, setSearch] = useState("");
+  return {
+    aircraft,
+    setAircraft,
+    showClosed,
+    setShowClosed,
+    search,
+    setSearch,
+  };
 }
 
 function newestFirst(orders: WorkOrder[]) {
@@ -497,12 +512,7 @@ function WorkOrderFilters({
   filter,
 }: {
   s: Snapshot;
-  filter: {
-    aircraft: string;
-    setAircraft: (uuid: string) => void;
-    showClosed: boolean;
-    setShowClosed: (show: boolean) => void;
-  };
+  filter: ReturnType<typeof useWorkOrderFilter>;
 }) {
   return (
     <Toolbar
@@ -515,6 +525,12 @@ function WorkOrderFilters({
         />
       }
     >
+      <SearchField
+        label="Search work orders"
+        placeholder="Work order, aircraft or work item"
+        value={filter.search}
+        onChange={filter.setSearch}
+      />
       <ShopSelect
         label="Aircraft"
         icon={Airplane}
@@ -678,7 +694,19 @@ function CountCell({
   );
 }
 
-function NoWorkOrders({ anyInScope }: { anyInScope: boolean }) {
+function NoWorkOrders({
+  anyInScope,
+  anyListed,
+}: {
+  anyInScope: boolean;
+  anyListed: boolean;
+}) {
+  if (anyListed)
+    return (
+      <EmptyState title="No matching work orders">
+        Try another search or aircraft.
+      </EmptyState>
+    );
   return (
     <EmptyState title="No work orders">
       {anyInScope

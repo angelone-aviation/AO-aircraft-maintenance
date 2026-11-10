@@ -5,10 +5,10 @@
  *   through the alert-reads store.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/data/alerts.ts (useAlertReads),
- *   src/domain/alerts.ts, src/domain/model.ts (localDate),
- *   src/components/design.tsx, maintenance.css.
+ *   src/domain/alerts.ts, src/domain/listSearch.ts, src/domain/model.ts
+ *   (localDate), src/components/design.tsx, maintenance.css.
  */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Bell, Check, Checks } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
@@ -20,8 +20,9 @@ import {
   type Alert,
   type AlertSeverity,
 } from "../domain/alerts";
+import { alertMatches } from "../domain/listSearch";
 import { localDate } from "../domain/model";
-import { EmptyState, PageHeader } from "./design";
+import { EmptyState, PageHeader, SearchField, Toolbar } from "./design";
 import "../styles/screens/maintenance.css";
 
 // Most urgent first: the order the screen lists the groups in.
@@ -84,14 +85,17 @@ export function AlertBell() {
 
 /**
  * The alerts screen: the user's current alerts grouped by severity, most
- * urgent first, each with a link to its screen.
+ * urgent first, each with a link to its screen, narrowed by a search of
+ * title, detail and registration.
  *
  * @returns The screen. Marking read saves through the alert-reads store and
- *   shows its error, if any, above the groups.
+ *   shows its error, if any, above the groups. Mark all read covers every
+ *   current alert, whatever the search shows.
  */
 export function AlertsPage() {
-  const { alerts, isRead, unread } = useAlerts();
-  const { markRead, error } = useAlertReads();
+  const alertView = useAlerts();
+  const { alerts, unread } = alertView;
+  const error = useAlertReads((x) => x.error);
   return (
     <div className="mx-alerts">
       <PageHeader
@@ -115,21 +119,39 @@ export function AlertsPage() {
           {error}
         </p>
       )}
-      {!alerts.length && (
-        <EmptyState title="No alerts">
-          Nothing is due or awaiting review.
-        </EmptyState>
+      <AlertList view={alertView} />
+    </div>
+  );
+}
+
+function AlertList({ view }: { view: ReturnType<typeof useAlerts> }) {
+  const markRead = useAlertReads((x) => x.markRead);
+  const [search, setSearch] = useState("");
+  const { alerts, snapshot } = view;
+  const shown = alerts.filter((a) => alertMatches(snapshot, a, search));
+  return (
+    <>
+      {!!alerts.length && (
+        <Toolbar>
+          <SearchField
+            label="Search alerts"
+            placeholder="Alert, detail or aircraft"
+            value={search}
+            onChange={setSearch}
+          />
+        </Toolbar>
       )}
+      <NoAlerts any={!!alerts.length} shown={!!shown.length} />
       {SEVERITIES.map((severity) => (
         <AlertGroup
           key={severity}
           severity={severity}
-          rows={alerts.filter((a) => a.severity === severity)}
-          isRead={isRead}
+          rows={shown.filter((a) => a.severity === severity)}
+          isRead={view.isRead}
           onMarkRead={(key) => void markRead([key])}
         />
       ))}
-    </div>
+    </>
   );
 }
 
@@ -139,11 +161,25 @@ function useAlerts() {
   const alerts = useMemo(() => computeAlerts(s, localDate()), [s]);
   const readSet = useMemo(() => new Set(read), [read]);
   return {
+    snapshot: s,
     alerts,
     read,
     isRead: (key: string) => readSet.has(key),
     unread: alerts.filter((a) => !readSet.has(a.key)).length,
   };
+}
+
+function NoAlerts({ any, shown }: { any: boolean; shown: boolean }) {
+  if (!any)
+    return (
+      <EmptyState title="No alerts">
+        Nothing is due or awaiting review.
+      </EmptyState>
+    );
+  if (shown) return null;
+  return (
+    <EmptyState title="No matching alerts">Try another search.</EmptyState>
+  );
 }
 
 // Marks every current alert read and forgets marks on alerts no longer

@@ -19,6 +19,7 @@ import { safeHref } from "./ui";
 
 type RegisterProps = {
   records: AD[];
+  expanded?: boolean;
   state: Snapshot;
   aircraftUuid: string;
   editable: boolean;
@@ -26,7 +27,7 @@ type RegisterProps = {
   onView: (record: AD) => void;
   onClearInitialLimit: (record: AD, stale: StaleInitialLimit) => void;
 };
-type RowProps = Omit<RegisterProps, "records" | "aircraftUuid"> & {
+type RowProps = Omit<RegisterProps, "records" | "aircraftUuid" | "expanded"> & {
   record: AD;
 };
 
@@ -36,13 +37,19 @@ type RowProps = Omit<RegisterProps, "records" | "aircraftUuid"> & {
  * counting its ADs, those needing review and stale one-time limits.
  *
  * @param props.records - The aircraft's AD records.
+ * @param props.expanded - Opens every group; otherwise each starts closed.
  * @param props.editable - Enables Edit and Clear initial limit.
  * @param props.onClearInitialLimit - Receives the AD and one of its one-time
  *   limits that compliance should have cleared.
  * @returns The register. A row offers its AD to a work order only while the
  *   AD is Scheduled, Due soon or Overdue.
  */
-export function ADRegister({ records, aircraftUuid, ...row }: RegisterProps) {
+export function ADRegister({
+  records,
+  aircraftUuid,
+  expanded,
+  ...row
+}: RegisterProps) {
   const groups = new Map<string, AD[]>();
   for (const record of records) {
     const key = record.componentUuid || "airframe";
@@ -54,6 +61,7 @@ export function ADRegister({ records, aircraftUuid, ...row }: RegisterProps) {
         <ADGroup
           key={id}
           {...row}
+          open={expanded}
           id={id}
           entries={entries}
           aircraftUuid={aircraftUuid}
@@ -68,6 +76,7 @@ function ADGroup(
     id: string;
     entries: AD[];
     aircraftUuid: string;
+    open?: boolean;
   },
 ) {
   const { state, entries } = props;
@@ -79,7 +88,7 @@ function ADGroup(
     (record) => staleInitialLimits(record).length,
   ).length;
   return (
-    <details className="ad-register-group">
+    <details className="ad-register-group" open={props.open || undefined}>
       <summary>
         <strong>{title}</strong>
         <span>{detail}</span>
