@@ -2,6 +2,8 @@
 
 Maintenance-records and operations tracker for a mission flight program's aircraft. It holds the records a US operator must keep under 14 CFR Part 91 and the day-to-day work that produces them. Seeded 2026-11-01 from `docs/*.md` and the code; sharpen terms with `/domain-modeling` as decisions land.
 
+The app's **Glossary** page and its term tips explain these words, and the aviation abbreviations on screen, for readers outside aviation. Their plain-language text lives in `src/domain/glossaryTerms.ts`; keep it consistent with the meanings here.
+
 ## Access
 
 **Flight Program**:
