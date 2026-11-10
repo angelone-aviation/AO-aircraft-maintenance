@@ -163,7 +163,7 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
 };
 const EXPIRING_UUID = "22222222-2222-4222-8222-222222222222";
 const PUSH_SUBSCRIPTION = {
-  endpoint: "https://push.example.test/b-device",
+  endpoint: "https://fcm.googleapis.com/fcm/send/b-device",
   keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
 };
 

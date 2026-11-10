@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins the push sender: dormant without VAPID keys, one
  *   encrypted request per subscribed device, the push-channel claim, a gone
- *   subscription removed, a refused send retried later, and an alert that
- *   cleared and returned pushed again.
+ *   subscription removed, a refused send retried later, an alert that
+ *   cleared and returned pushed again, and a stored endpoint that is not a
+ *   push service never fetched.
  * Layer: Test. convex-test suite with a stubbed push service; never shipped.
  * Dependencies: convex/push.ts, convex/urgentAlerts.ts,
  *   convex/pushSubscriptions.ts, convex/webPushProtocol.ts,
@@ -20,7 +21,7 @@ import {
 // RFC 8291's receiver keys: a well-formed subscription.
 const SUBSCRIPTION = {
   programUuid: DEMO_PROGRAM,
-  endpoint: "https://push.example.test/send/admin-phone",
+  endpoint: "https://fcm.googleapis.com/fcm/send/admin-phone",
   keys: {
     p256dh:
       "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
@@ -146,7 +147,7 @@ it("releases the claim after a refused send, logging the user id only", async ()
     world.ids.a.userId,
     "Push service rejected the message (500).",
   );
-  expect(JSON.stringify(error.mock.calls)).not.toContain("push.example.test");
+  expect(JSON.stringify(error.mock.calls)).not.toContain("admin-phone");
   error.mockRestore();
   const request = stubPushService(201);
   await checkProgram(world);
@@ -174,4 +175,25 @@ it("pushes an urgent alert again when it cleared and came back", async () => {
   expect(await checkProgram(world)).toMatchObject({ pushed: 1 });
   expect(await checkProgram(world)).toMatchObject({ pushed: 0 });
   expect(request).toHaveBeenCalledTimes(2);
+});
+
+it("never fetches a stored endpoint that is not a push service, and drops it", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  // A row saved before endpoints were checked.
+  await world.t.run((ctx) =>
+    ctx.db.insert("pushSubscriptions", {
+      userId: world.ids.a.userId,
+      endpoint: "https://169.254.169.254/latest/meta-data/",
+      keys: SUBSCRIPTION.keys,
+      createdAt: 0,
+      lastSeenAt: 0,
+    }),
+  );
+  const request = stubPushService();
+  await checkProgram(world);
+  expect(request).not.toHaveBeenCalled();
+  expect(await subscriptions(world.t)).toEqual([]);
+  expect(await deliveries(world.t)).toEqual([]);
 });

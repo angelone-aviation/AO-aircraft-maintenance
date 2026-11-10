@@ -21,8 +21,10 @@ import {
 import type { Id } from "./_generated/dataModel";
 import { checkContext } from "./programContext";
 import {
+  isPushServiceEndpoint,
   MAX_PUSH_DEVICES,
   pushSubscriptionInputSchema,
+  UNSUPPORTED_PUSH_SERVICE,
 } from "../src/domain/pushSubscription";
 
 const subscriptionArgs = {
@@ -54,7 +56,9 @@ export const publicKey = query({
  * signed in on it).
  *
  * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} As `checkContext`; "Too many devices receive alerts.
+ * @throws {ConvexError} As `checkContext`; "This browser's alert service is
+ *   not supported. Use Chrome, Edge, Firefox or Safari." for an endpoint
+ *   outside the browsers' push services; "Too many devices receive alerts.
  *   Turn alerts off on another device first." past 10 devices.
  * @throws {z.ZodError} For a malformed subscription.
  */
@@ -62,6 +66,8 @@ export const subscribe = mutation({
   args: subscriptionArgs,
   handler: async (ctx, { programUuid, ...raw }) => {
     const state = await checkContext(ctx, programUuid);
+    if (!isPushServiceEndpoint(raw.endpoint))
+      throw new ConvexError(UNSUPPORTED_PUSH_SERVICE);
     const input = pushSubscriptionInputSchema.parse(raw);
     const userId = state.user.id as Id<"users">;
     const existing = await byEndpoint(ctx, input.endpoint);
@@ -110,7 +116,8 @@ export const ofUser = internalQuery({
 });
 
 /**
- * Drops a subscription the push service reported gone (404 or 410).
+ * Drops a subscription the push service reported gone (404 or 410), or one
+ * whose endpoint is not a push service.
  */
 export const remove = internalMutation({
   args: { id: v.id("pushSubscriptions") },

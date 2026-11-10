@@ -3,14 +3,17 @@
  *   browser can receive push messages, whether it is subscribed, and turning
  *   that on or off through the service worker and the Backend.
  * Layer: Data. Browser push APIs and the Backend; no React.
- * Dependencies: src/data/backend.ts (types), src/domain/pushSubscription.ts
- *   (types).
+ * Dependencies: src/data/backend.ts (types), src/domain/pushSubscription.ts.
  *
  * iOS delivers push messages only to an app added to the Home Screen (iOS
  * 16.4 and later), never to a Safari tab; the Settings block says so.
  */
 import type { Backend } from "./backend";
-import type { PushSubscriptionInput } from "../domain/pushSubscription";
+import {
+  isPushServiceEndpoint,
+  UNSUPPORTED_PUSH_SERVICE,
+  type PushSubscriptionInput,
+} from "../domain/pushSubscription";
 
 const DENIED =
   "This device blocks alerts from Angel One. Allow them in the browser's site settings, then try again.";
@@ -68,7 +71,9 @@ export async function currentPushEndpoint(): Promise<string | null> {
  * @param publicKey - The deployment's public push key (base64url).
  * @throws {Error} "This device blocks alerts from Angel One. …" when the
  *   permission is refused; "Reload the app once online …" without a service
- *   worker registration; the server's refusal.
+ *   worker registration; "This browser's alert service is not supported. …"
+ *   when the browser's push service is not one the server sends to; the
+ *   server's refusal.
  */
 export async function enablePushAlerts(
   backend: Backend,
@@ -84,6 +89,10 @@ export async function enablePushAlerts(
       userVisibleOnly: true,
       applicationServerKey: decodeKey(publicKey),
     }));
+  if (!isPushServiceEndpoint(subscription.endpoint)) {
+    await subscription.unsubscribe();
+    throw new Error(UNSUPPORTED_PUSH_SERVICE);
+  }
   try {
     await backend.subscribePush(toInput(subscription));
   } catch (error) {

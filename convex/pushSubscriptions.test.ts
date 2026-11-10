@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins device subscriptions: the public key only when the
  *   deployment can send, a device moving to whoever signs in on it, own rows
- *   only, malformed keys refused and the device limit.
+ *   only, malformed keys and hosts other than push services refused, and the
+ *   device limit.
  * Layer: Test. convex-test suite; never shipped.
  * Dependencies: convex/pushSubscriptions.ts, convex/schema.ts,
  *   src/domain/pushSubscription.ts, tests/fixtures/alertProgram.ts.
@@ -18,7 +19,7 @@ import {
 const inProgram = { programUuid: DEMO_PROGRAM };
 const device = (n: number) => ({
   ...inProgram,
-  endpoint: `https://push.example.test/device-${n}`,
+  endpoint: `https://fcm.googleapis.com/fcm/send/device-${n}`,
   keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
   userAgent: "Test browser",
 });
@@ -72,9 +73,23 @@ it("refuses malformed subscriptions, a stale program and too many devices", asyn
   await expect(
     a.mutation(api.pushSubscriptions.subscribe, {
       ...device(1),
-      endpoint: "http://push.example.test/plain",
+      endpoint: "http://fcm.googleapis.com/fcm/send/plain",
     }),
   ).rejects.toThrow();
+  // Only the browsers' push services: the server must not POST elsewhere.
+  for (const endpoint of [
+    "https://169.254.169.254/latest/meta-data/",
+    "https://127.0.0.1:8443/admin",
+    "https://user:secret@fcm.googleapis.com/fcm/send/x",
+    "https://push.example.test/send/1",
+  ])
+    await expect(
+      a.mutation(api.pushSubscriptions.subscribe, { ...device(1), endpoint }),
+      endpoint,
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "This browser's alert service is not supported. Use Chrome, Edge, Firefox or Safari.",
+    });
   await expect(
     a.mutation(api.pushSubscriptions.subscribe, {
       ...device(1),

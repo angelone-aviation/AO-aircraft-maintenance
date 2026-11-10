@@ -4,7 +4,7 @@
  * Layer: Server. A Node action scheduled by the urgent-alert sender; the
  *   message and the dedup claim come from elsewhere.
  * Dependencies: convex/values, ./_generated, ./urgentAlerts (job type and
- *   message), ./webPushProtocol.
+ *   message), ./webPushProtocol, src/domain/pushSubscription.
  *
  * Dormant until VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are
  * set (docs/runbooks/monitoring.md). Logs name the user id, never the
@@ -17,6 +17,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { pushJobValidator, pushPayloadFor, type PushJob } from "./urgentAlerts";
 import { buildPushRequest, type VapidKeys } from "./webPushProtocol";
+import { isPushServiceEndpoint } from "../src/domain/pushSubscription";
 
 const PUSH_TIMEOUT_MS = 15000;
 // The push service no longer knows the subscription (RFC 8030 §7.3).
@@ -92,7 +93,8 @@ async function notifyMember(
   });
 }
 
-// True once the push service accepted the message for this device.
+// True once the push service accepted the message for this device. A row
+// saved before endpoints were checked is dropped, never fetched.
 async function deliver(
   ctx: ActionCtx,
   vapid: VapidKeys,
@@ -100,6 +102,13 @@ async function deliver(
   payload: string,
   counts: Counts,
 ): Promise<boolean> {
+  if (!isPushServiceEndpoint(device.endpoint)) {
+    await ctx.runMutation(internal.pushSubscriptions.remove, {
+      id: device._id,
+    });
+    counts.removed++;
+    return false;
+  }
   try {
     const request = await buildPushRequest(device, payload, vapid);
     const response = await fetch(request.url, {
