@@ -89,7 +89,7 @@ test("records recurring compliance, persists it, exports a PDF, and flags due wo
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^AD-Compliance-N206MA.*\.pdf$/);
   await download.saveAs(test.info().outputPath(download.suggestedFilename()));
-  await page.getByRole("button", { name: "Review / edit AD" }).click();
+  await editAD(page, "2026-01-01");
   dialog = page.getByRole("dialog");
   await dialog.getByRole("checkbox", { name: "Hours", exact: true }).check();
   await dialog.getByLabel("Next due hours").fill("2000");
@@ -117,7 +117,7 @@ test("flags a one-time limit left after compliance, clears it with a reason, and
   await recordCompliance(page);
   // A one-time date on the repeating action after compliance, as compliance
   // recorded before the #42 fix left behind.
-  await page.getByRole("button", { name: "Review / edit AD" }).click();
+  await editAD(page, "2026-04-04");
   dialog = page.getByRole("dialog");
   await dialog.getByRole("checkbox", { name: "Calendar", exact: true }).check();
   await dialog.getByLabel("Next due date").fill("2025-06-01");
@@ -250,7 +250,7 @@ test("marking an AD not applicable completes review and persists the status", as
     .fill("Applicability review test");
   await saveAD(dialog);
   await openFirstRegisterGroup(page);
-  await page.getByRole("button", { name: "Review / edit AD" }).click();
+  await editAD(page, "2026-02-02");
   dialog = page.getByRole("dialog");
   await dialog
     .getByLabel("Applicability", { exact: true })
@@ -264,8 +264,13 @@ test("marking an AD not applicable completes review and persists the status", as
   await saveAD(dialog);
   await page.reload();
   await openFirstRegisterGroup(page);
-  await expect(page.getByText("Not applicable", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Review / edit AD" }).click();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "2026-02-02" })
+      .getByText("Not applicable", { exact: true }),
+  ).toBeVisible();
+  await editAD(page, "2026-02-02");
   dialog = page.getByRole("dialog");
   await expect(
     dialog.getByLabel("Applicability and source changes reviewed"),
@@ -388,4 +393,14 @@ async function saveAD(dialog: Locator) {
 
 async function openFirstRegisterGroup(page: Page) {
   await page.locator(".ad-register-group > summary").first().click();
+}
+
+// The demo already holds a reviewed AD on N206MA, so the edit button is
+// found on this AD's own row.
+async function editAD(page: Page, number: string) {
+  await page
+    .getByRole("row")
+    .filter({ hasText: number })
+    .getByRole("button", { name: "Review / edit AD" })
+    .click();
 }

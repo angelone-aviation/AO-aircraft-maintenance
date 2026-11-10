@@ -40,7 +40,7 @@ import {
   type PendingLogbookPhoto,
 } from "./logbookPhotos";
 import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
-import { demoSnapshot, withDemoRole, type DemoRole } from "./demo";
+import { demoWorkspace, withDemoRole, type DemoRole } from "./demo";
 import type { Backend } from "./backend";
 import { demoBackend } from "./demoBackend";
 import { CONVEX_FAILURE_PREFIX, errorText } from "./errors";
@@ -519,7 +519,7 @@ async function openDemoSnapshot(
   const full =
     (await local.readSnapshot(namespace + DEMO_FULL_SUFFIX)) ??
     cached ??
-    demoSnapshot();
+    demoWorkspace();
   if (cached?.user.id === full.user.id)
     full.authenticatedAt = cached.authenticatedAt;
   const snapshot = scopedSnapshot(full);

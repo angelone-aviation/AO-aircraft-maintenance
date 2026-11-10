@@ -2,7 +2,8 @@
  * Responsibility: The fictional workspace demo mode starts from, and the
  *   sample owner and board member it can switch to.
  * Layer: Data. Fixture builders only; no storage, no React.
- * Dependencies: src/domain/model.ts (types).
+ * Dependencies: src/domain/model.ts, airworthiness.ts and
+ *   components/records.ts (types).
  *
  * Server tests seed from demoSnapshot() too, so a change here changes them.
  */
@@ -14,6 +15,8 @@ import type {
   Member,
   Snapshot,
 } from "../domain/model";
+import type { AD } from "../domain/airworthiness";
+import type { Component } from "../domain/components/records";
 
 const DEMO_PROGRAM_UUID = "demo-program";
 const DEMO_ADMIN_ID = "demo-admin";
@@ -23,6 +26,7 @@ const DAY_MS = 86_400_000;
 /**
  * Builds the demo workspace: one program, three Cessnas, the administrator
  * signed in, a pilot group, an open problem report and four inspections.
+ * Every aircraft's setup has gaps; demoWorkspace() completes two of them.
  *
  * @returns A new snapshot on each call, so callers may mutate it. Times are
  *   relative to now: the report is a day old, annuals fall due in 24 and 84
@@ -57,6 +61,24 @@ export function demoSnapshot(): Snapshot {
     discrepancies: [demoReport(user.id, now)],
     inspections: demoInspections(now),
     audit: [],
+  };
+}
+
+/**
+ * Builds the workspace the demo app opens with: {@link demoSnapshot} with
+ * the setup of N206MA and N208MA complete (an installed engine and a
+ * reviewed AD each), so they read Due soon and Airworthy, while N182MA stays
+ * mid-setup and reads "Setup incomplete". Tests that seed from demoSnapshot()
+ * keep a workspace with no components or ADs.
+ *
+ * @returns A new snapshot on each call, so callers may mutate it.
+ */
+export function demoWorkspace(): Snapshot {
+  const s = demoSnapshot();
+  return {
+    ...s,
+    management: demoComponents(s.aircraft),
+    airworthiness: demoADReviews(),
   };
 }
 
@@ -243,6 +265,105 @@ function demoReport(authorId: string, now: number): Discrepancy {
     status: "open",
     authorId,
     createdAt: now - DAY_MS,
+  };
+}
+
+// N206MA and N208MA have their setup complete (an installed engine and an
+// AD review each); N182MA is left mid-setup so the demo shows "Setup
+// incomplete" once. The engines carry no limits, so nothing falls due.
+function demoComponents(aircraft: Aircraft[]): Component[] {
+  const engines: Record<string, [string, string]> = {
+    "demo-206": ["Continental IO-550-F", "DEMO-ENG-206"],
+    "demo-208": ["Pratt & Whitney PT6A-114A", "DEMO-ENG-208"],
+  };
+  return aircraft.flatMap((a) => {
+    const engine = engines[a.uuid];
+    if (!engine) return [];
+    return [demoEngine(a, ...engine)];
+  });
+}
+
+function demoEngine(a: Aircraft, model: string, serial: string): Component {
+  return {
+    uuid: `${a.uuid}-engine`,
+    kind: "component",
+    version: 1,
+    programUuid: DEMO_PROGRAM_UUID,
+    aircraftUuid: a.uuid,
+    componentType: "Engine",
+    partNumber: model,
+    serial,
+    manufacturer: model.split(" ")[0],
+    notes: "Fictional demo engine.",
+    trackTime: true,
+    trackCycles: true,
+    trackCalendar: false,
+    installed: true,
+    installedDate: "2024-03-01",
+    installedSeconds: a.currentHobbs,
+    installedCycles: a.cycles,
+    timeSinceNew: 1200 * HOUR_SECONDS,
+    timeSinceOverhaul: null,
+    timeSinceRepair: null,
+    cyclesSinceNew: 900,
+    serviceDaysBase: 0,
+  };
+}
+
+// One reviewed, fictional AD per set-up aircraft; "Not applicable" adds
+// nothing due.
+function demoADReviews(): AD[] {
+  return [
+    demoADReview(
+      "demo-206",
+      "0de30206-0000-4000-8000-000000000206",
+      "2019-99-01",
+      "Fuel selector valve placard",
+    ),
+    demoADReview(
+      "demo-208",
+      "0de30208-0000-4000-8000-000000000208",
+      "2019-99-02",
+      "Cargo pod drain fitting",
+    ),
+  ];
+}
+
+function demoADReview(
+  aircraftUuid: string,
+  uuid: string,
+  number: string,
+  subject: string,
+): AD {
+  return {
+    // AD records are keyed by a real UUID; a fixed one keeps the seed stable.
+    uuid,
+    version: 1,
+    programUuid: DEMO_PROGRAM_UUID,
+    aircraftUuid,
+    componentUuid: "",
+    source: {
+      number,
+      amendment: "",
+      issued: "2019-12-01",
+      effective: "2020-01-05",
+      subject: `${subject} (fictional demo AD)`,
+      recurring: "No",
+      supersededBy: "",
+      url: "",
+      source: "Manual entry",
+      section: "Airframe",
+      make: "Cessna",
+      model: "",
+      sourceNotes: "",
+    },
+    applicability: "Not applicable",
+    reason: "Serial range does not include this aircraft.",
+    tasks: [],
+    history: [],
+    sourceHistory: [],
+    reviewRequired: false,
+    updatedAt: 0,
   };
 }
 

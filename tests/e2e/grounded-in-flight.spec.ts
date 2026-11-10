@@ -134,7 +134,10 @@ async function shoot(page: Page, name: string) {
       dark,
     );
     const theme = dark ? "dark" : "light";
-    await page.screenshot({ path: `${SHOTS}/behaviour-${name}-${theme}.png` });
+    await page.screenshot({
+      path: `${SHOTS}/behaviour-${name}-${theme}.png`,
+      animations: "disabled",
+    });
   }
   await page.evaluate(() => document.documentElement.classList.remove("dark"));
 }

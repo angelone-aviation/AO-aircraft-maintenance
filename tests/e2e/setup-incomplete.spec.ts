@@ -2,15 +2,12 @@
  * Responsibility: Pins that an aircraft whose setup has gaps reads "Setup
  *   incomplete" with the gaps named, never Airworthy, on the Overview card
  *   and detail, the Aircraft page and the board view, at phone and desktop
- *   sizes, and that a fully set-up aircraft still reads Airworthy.
+ *   sizes, and that the set-up demo aircraft read Due soon and Airworthy.
  * Layer: Test. Playwright spec against the demo in a production build.
- * Dependencies: @playwright/test, src/domain (airworthiness, components).
+ * Dependencies: @playwright/test.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { blankAD } from "../../src/domain/airworthiness";
-import { componentSchema } from "../../src/domain/components";
 
-const N208 = "demo-208";
 const VIEWPORTS = [
   { name: "phone", width: 390, height: 844 },
   { name: "desktop", width: 1280, height: 900 },
@@ -24,17 +21,18 @@ for (const viewport of VIEWPORTS) {
     page,
   }) => {
     await openDemo(page, viewport);
-    // N208MA has inspections but no components and no reviewed AD.
-    const card = page.getByRole("article", { name: "N208MA", exact: true });
+    // N182MA is left mid-setup: no components and no reviewed AD.
+    const card = page.getByRole("article", { name: "N182MA", exact: true });
     await expect(card).toContainText("Setup incomplete");
     await expect(card).not.toContainText("Airworthy");
     await expect(card).toContainText("Components missing");
+    await card.scrollIntoViewIfNeeded();
     await shoot(page, `setup-incomplete-overview-${viewport.name}`);
 
     await card
       .getByRole("button", { name: "View aircraft", exact: true })
       .click();
-    const notes = page.getByRole("list", { name: "N208MA status notes" });
+    const notes = page.getByRole("list", { name: "N182MA status notes" });
     await expect(notes).toContainText("Components missing");
     await expect(notes).toContainText("ADs not reviewed");
     await expect(page.locator(".dash-detail-pill")).toHaveText(
@@ -44,7 +42,7 @@ for (const viewport of VIEWPORTS) {
     await page.getByRole("button", { name: "Close dialog" }).click();
 
     await page.goto("/aircraft");
-    const chips = page.getByLabel("N208MA setup", { exact: true });
+    const chips = page.getByLabel("N182MA setup", { exact: true });
     await expect(chips).toContainText("Components missing");
     await expect(
       page.locator(".ds-pill", { hasText: "Setup incomplete" }).first(),
@@ -59,13 +57,14 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
-test("a fully set-up aircraft still reads Airworthy", async ({ page }) => {
+test("the set-up demo aircraft read as before", async ({ page }) => {
   await openDemo(page, VIEWPORTS[1]);
-  await completeSetup(page, N208);
-  await page.reload();
-  const card = page.getByRole("article", { name: "N208MA", exact: true });
-  await expect(card).toContainText("Airworthy");
-  await expect(card).not.toContainText("Setup incomplete");
+  const n208 = page.getByRole("article", { name: "N208MA", exact: true });
+  await expect(n208).toContainText("Airworthy");
+  await expect(n208).not.toContainText("Setup incomplete");
+  const n206 = page.getByRole("article", { name: "N206MA", exact: true });
+  await expect(n206).toContainText("Due soon");
+  await expect(n206).not.toContainText("Setup incomplete");
 });
 
 async function openDemo(page: Page, size: { width: number; height: number }) {
@@ -88,65 +87,10 @@ async function shoot(page: Page, name: string) {
       dark,
     );
     const theme = dark ? "dark" : "light";
-    await page.screenshot({ path: `${SHOTS}/behaviour-${name}-${theme}.png` });
+    await page.screenshot({
+      path: `${SHOTS}/behaviour-${name}-${theme}.png`,
+      animations: "disabled",
+    });
   }
   await page.evaluate(() => document.documentElement.classList.remove("dark"));
-}
-
-// Gives the aircraft an installed component without limits and an AD that
-// does not apply, in every stored copy of the demo snapshot.
-async function completeSetup(page: Page, aircraftUuid: string) {
-  const component = componentSchema.parse({
-    uuid: "e2e-engine",
-    kind: "component",
-    version: 1,
-    programUuid: "demo-program",
-    aircraftUuid,
-    componentType: "Engine",
-    partNumber: "PN",
-    serial: "SN-E2E",
-    manufacturer: "",
-    notes: "",
-    trackTime: false,
-    trackCycles: false,
-    trackCalendar: false,
-    installed: true,
-    installedDate: "2026-01-01",
-    installedSeconds: 0,
-    installedCycles: 0,
-    timeSinceNew: 0,
-    timeSinceOverhaul: null,
-    timeSinceRepair: null,
-    cyclesSinceNew: 0,
-    serviceDaysBase: 0,
-  });
-  const ad = { ...blankAD(aircraftUuid), applicability: "Not applicable" };
-  await page.evaluate(
-    async ({ component, ad }) => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("angel-one-v1");
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
-      });
-      const tx = db.transaction("snapshots", "readwrite");
-      const cursor = tx.objectStore("snapshots").openCursor();
-      cursor.onsuccess = () => {
-        const entry = cursor.result;
-        if (!entry) return;
-        const s = entry.value;
-        entry.update({
-          ...s,
-          management: [...(s.management ?? []), component],
-          airworthiness: [...(s.airworthiness ?? []), ad],
-        });
-        entry.continue();
-      };
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-      db.close();
-    },
-    { component, ad },
-  );
 }

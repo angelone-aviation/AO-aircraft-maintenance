@@ -557,7 +557,10 @@ it("records an AD's due limits before and after a demo edit", async () => {
     },
   ];
   await backend.saveAD({ kind: "save", record: r });
-  const saved = useWorkspace.getState().snapshot!.airworthiness![0];
+  // The demo already holds a reviewed AD per set-up aircraft.
+  const saved = useWorkspace
+    .getState()
+    .snapshot!.airworthiness!.find((x) => x.uuid === r.uuid)!;
   const edit = structuredClone(saved);
   edit.tasks[0].dueHours = 3000;
   // A decided AD is a record: changing it needs a reason (issue #21).
