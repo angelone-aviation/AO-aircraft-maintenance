@@ -269,46 +269,17 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       notice: "",
     });
     try {
-      const [cached, queue, pendingPhotos] = await Promise.all([
-        local.readSnapshot(namespace),
-        local.readQueue(namespace),
-        local.readPendingPhotos(namespace),
-      ]);
-      const full = demo
-        ? ((await local.readSnapshot(namespace + DEMO_FULL_SUFFIX)) ??
-          cached ??
-          demoSnapshot())
-        : cached;
-      if (demo && full && cached?.user.id === full.user.id)
-        full.authenticatedAt = cached.authenticatedAt;
-      const snapshot = full
-        ? demo
-          ? scopedSnapshot(full)
-          : full.programScopeVersion === PROGRAM_SCOPE_VERSION
-            ? full
-            : null
-        : null;
-      if (demo && full)
-        await local.saveSnapshot(namespace + DEMO_FULL_SUFFIX, full);
-      // Persist before showing the workspace, so once it renders no startup
-      // write is still pending that could overwrite a newer one.
-      if (snapshot && demo) await local.saveSnapshot(namespace, snapshot);
-      const favorites = snapshot
-        ? ((await local.readFavorites(namespace + ":" + snapshot.user.id)) ??
-          [])
-        : [];
+      const opened = await readDeviceWorkspace(namespace, demo);
       set({
         namespace,
         demo,
-        snapshot,
-        queue,
-        pendingPhotos,
-        favorites,
+        ...opened,
         ready: true,
         connected: demo && navigator.onLine,
         backend: demo ? demoBackend(useWorkspace) : get().backend,
       });
-      if (snapshot) void reconcileKeptManuals(namespace, snapshot);
+      if (opened.snapshot)
+        void reconcileKeptManuals(namespace, opened.snapshot);
     } catch {
       set({
         ready: true,
@@ -352,53 +323,9 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       throw new Error(
         "Your offline access expired. Reconnect and sign in; pending entries are preserved.",
       );
-    if (operation.authorId !== snapshot.user.id)
-      throw new Error("Account does not match this entry.");
-    const aircraftUuid =
-      operation.kind === "flight"
-        ? operation.input.aircraftUuid
-        : operation.aircraftUuid;
-    if (
-      !can(
-        snapshot,
-        aircraftUuid,
-        operation.kind === "flight" ? "flight" : "discrepancy",
-      )
-    )
-      throw new Error("You cannot add entries for this aircraft.");
+    assertEntryAllowed(snapshot, operation);
     if (operation.kind === "flight")
-      validateFlight(
-        snapshot.aircraft.find((a) => a.uuid === aircraftUuid)!,
-        operation.input,
-      );
-    if (operation.kind === "flight") {
-      validateChecklistFlight(snapshot, operation.input);
-      dispatchGate(
-        snapshot,
-        aircraftUuid,
-        operation.dispatchOverrideReason,
-        localDate(),
-      );
-    }
-    if (operation.kind === "flight" && operation.input.flightPlanUuid) {
-      validatePlanFlight(snapshot, operation.input);
-      const planUuid = operation.input.flightPlanUuid;
-      const pending = get().queue.find(
-        (q) =>
-          q.operation.kind === "flight" &&
-          q.operation.input.flightPlanUuid === planUuid,
-      );
-      // A failed entry still blocks: it can be retried, and letting a second
-      // flight queue beside it risks logging the plan twice.
-      if (pending?.error)
-        throw new Error(
-          "This plan has a failed flight entry. Discard it in the Sync center before logging the flight again.",
-        );
-      if (pending)
-        throw new Error(
-          "This plan already has a flight pending synchronization.",
-        );
-    }
+      assertFlightEntry(snapshot, operation, get().queue);
     operation = { ...operation, programUuid: snapshot.activeProgramUuid };
     const entry = { operation, queuedAt: Date.now() };
     await local.persistOperation(namespace, entry);
@@ -522,7 +449,7 @@ export const useWorkspace = create<Workspace>((set, get) => ({
   },
 }));
 async function flushPass(namespace: string, backend: Backend, retry: boolean) {
-  const { getState: get, setState: set } = useWorkspace;
+  const { getState: get } = useWorkspace;
   for (const entry of await local.readQueue(namespace)) {
     if (
       !get().online ||
@@ -532,24 +459,125 @@ async function flushPass(namespace: string, backend: Backend, retry: boolean) {
     )
       continue;
     if (entry.error && !retry) continue;
-    try {
-      const result = await backend.submit(entry.operation);
-      await local.removeOperation(namespace, entry.operation.uuid);
-      set({
-        notice:
-          result.status === "review"
-            ? "Entry synced and held for administrator review. Aircraft totals are unchanged."
-            : "Entry synchronized successfully.",
-      });
-    } catch (error) {
-      if (!permanentSyncError(error)) continue;
-      await local.persistOperation(namespace, {
-        ...entry,
-        error: errorText(error),
-      });
-    }
+    await submitEntry(namespace, backend, entry);
   }
 }
+
+// A permanent refusal stays in the outbox with its text; any other failure
+// is retried on the next flush.
+async function submitEntry(
+  namespace: string,
+  backend: Backend,
+  entry: QueuedOperation,
+) {
+  try {
+    const result = await backend.submit(entry.operation);
+    await local.removeOperation(namespace, entry.operation.uuid);
+    useWorkspace.setState({
+      notice:
+        result.status === "review"
+          ? "Entry synced and held for administrator review. Aircraft totals are unchanged."
+          : "Entry synchronized successfully.",
+    });
+  } catch (error) {
+    if (!permanentSyncError(error)) return;
+    await local.persistOperation(namespace, {
+      ...entry,
+      error: errorText(error),
+    });
+  }
+}
+// The device copy a namespace opens with. The demo rebuilds its scoped view
+// from the full fictional snapshot and saves both before the workspace shows,
+// so once it renders no startup write is still pending that could overwrite
+// a newer one. A live copy cached under another program scope format is
+// dropped.
+async function readDeviceWorkspace(namespace: string, demo: boolean) {
+  const [cached, queue, pendingPhotos] = await Promise.all([
+    local.readSnapshot(namespace),
+    local.readQueue(namespace),
+    local.readPendingPhotos(namespace),
+  ]);
+  const snapshot = demo
+    ? await openDemoSnapshot(namespace, cached)
+    : cached?.programScopeVersion === PROGRAM_SCOPE_VERSION
+      ? cached
+      : null;
+  const favorites = snapshot
+    ? ((await local.readFavorites(namespace + ":" + snapshot.user.id)) ?? [])
+    : [];
+  return { snapshot, queue, pendingPhotos, favorites };
+}
+
+async function openDemoSnapshot(
+  namespace: string,
+  cached: Snapshot | undefined,
+): Promise<Snapshot> {
+  const full =
+    (await local.readSnapshot(namespace + DEMO_FULL_SUFFIX)) ??
+    cached ??
+    demoSnapshot();
+  if (cached?.user.id === full.user.id)
+    full.authenticatedAt = cached.authenticatedAt;
+  const snapshot = scopedSnapshot(full);
+  await local.saveSnapshot(namespace + DEMO_FULL_SUFFIX, full);
+  await local.saveSnapshot(namespace, snapshot);
+  return snapshot;
+}
+
+function assertEntryAllowed(snapshot: Snapshot, operation: Operation) {
+  if (operation.authorId !== snapshot.user.id)
+    throw new Error("Account does not match this entry.");
+  const flight = operation.kind === "flight";
+  const aircraftUuid = flight
+    ? operation.input.aircraftUuid
+    : operation.aircraftUuid;
+  if (!can(snapshot, aircraftUuid, flight ? "flight" : "discrepancy"))
+    throw new Error("You cannot add entries for this aircraft.");
+}
+
+// Checks the server's submitOperation makes too, refused here before the
+// flight waits in the outbox.
+function assertFlightEntry(
+  snapshot: Snapshot,
+  operation: FlightEntry,
+  queue: QueuedOperation[],
+) {
+  const { input } = operation;
+  validateFlight(
+    snapshot.aircraft.find((a) => a.uuid === input.aircraftUuid)!,
+    input,
+  );
+  validateChecklistFlight(snapshot, input);
+  dispatchGate(
+    snapshot,
+    input.aircraftUuid,
+    operation.dispatchOverrideReason,
+    localDate(),
+  );
+  if (!input.flightPlanUuid) return;
+  validatePlanFlight(snapshot, input);
+  assertPlanFree(queue, input.flightPlanUuid);
+}
+
+// A failed entry still blocks: it can be retried, and letting a second
+// flight queue beside it risks logging the plan twice.
+function assertPlanFree(queue: QueuedOperation[], planUuid: string) {
+  const pending = queue.find(
+    (q) =>
+      q.operation.kind === "flight" &&
+      q.operation.input.flightPlanUuid === planUuid,
+  );
+  if (pending?.error)
+    throw new Error(
+      "This plan has a failed flight entry. Discard it in the Sync center before logging the flight again.",
+    );
+  if (pending)
+    throw new Error("This plan already has a flight pending synchronization.");
+}
+
+type FlightEntry = Extract<Operation, { kind: "flight" }>;
+
 function buildPendingPhoto(
   snapshot: Snapshot,
   target: { aircraftUuid: string } & AircraftFileLink,
@@ -569,12 +597,11 @@ function buildPendingPhoto(
     blob: file,
   };
 }
-// A photo waits until its flight or work order is in the snapshot: the
-// server can file it only against a record it holds. A domain Rejection
-// counts as permanent like a ConvexError: the demo adapter throws it as is.
-// Without this, a photo of the failed flight would name a record that never
-// reaches the server, and the Sync center could only offer to discard it.
-// The new copy is saved before the old one goes, so a crash loses no photo.
+// When a failed flight entry is replaced, its queued photos follow the new
+// entry. Without this, a photo of the failed flight would name a record that
+// never reaches the server, and the Sync center could only offer to discard
+// it. The new copy is saved before the old one goes, so a crash loses no
+// photo.
 async function movePendingPhotos(
   namespace: string,
   from: string,
@@ -595,33 +622,45 @@ async function movePendingPhotos(
   return photos.length > 0;
 }
 
+// A photo waits until its flight or work order is in the snapshot: the
+// server can file it only against a record it holds.
 async function flushPhotos(
   namespace: string,
   backend: Backend,
   retry: boolean,
 ) {
-  const { getState: get, setState: set } = useWorkspace;
+  const { getState: get } = useWorkspace;
   for (const photo of await local.readPendingPhotos(namespace)) {
     const snapshot = get().snapshot;
     if (!get().online || !get().connected || !snapshot) continue;
     if (!pendingPhotoReady(photo, snapshot)) continue;
     if (photo.error && !retry) continue;
-    try {
-      await backend.uploadAircraftFile(
-        photo.aircraftUuid,
-        "logbook-page",
-        pendingPhotoFile(photo),
-        { linkedKind: photo.linkedKind, linkedUuid: photo.linkedUuid },
-      );
-      await local.removePendingPhoto(namespace, photo.key);
-      set({ notice: "Logbook page photo uploaded." });
-    } catch (error) {
-      if (!permanentSyncError(error) && !(error instanceof Rejection)) continue;
-      await local.savePendingPhoto(namespace, {
-        ...photo,
-        error: errorText(error),
-      });
-    }
+    await uploadPhoto(namespace, backend, photo);
+  }
+}
+
+// A domain Rejection counts as permanent like a ConvexError: the demo adapter
+// throws it as is.
+async function uploadPhoto(
+  namespace: string,
+  backend: Backend,
+  photo: PendingLogbookPhoto,
+) {
+  try {
+    await backend.uploadAircraftFile(
+      photo.aircraftUuid,
+      "logbook-page",
+      pendingPhotoFile(photo),
+      { linkedKind: photo.linkedKind, linkedUuid: photo.linkedUuid },
+    );
+    await local.removePendingPhoto(namespace, photo.key);
+    useWorkspace.setState({ notice: "Logbook page photo uploaded." });
+  } catch (error) {
+    if (!permanentSyncError(error) && !(error instanceof Rejection)) return;
+    await local.savePendingPhoto(namespace, {
+      ...photo,
+      error: errorText(error),
+    });
   }
 }
 /**
