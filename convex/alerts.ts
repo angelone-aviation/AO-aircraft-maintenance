@@ -359,7 +359,9 @@ export const forgetCleared = internalMutation({
 /**
  * Emails each opted-in member their program's new alerts, and warns system
  * administrators of a stale off-site backup: at the top of a digest they get
- * anyway, or alone. A failed email is counted and logged by user id.
+ * anyway, or alone. A failed email is counted and logged by user id; a
+ * program whose alerts cannot be computed (a damaged record) is logged by
+ * its uuid and skipped, and the other programs and the warnings still go.
  *
  * @returns How many emails were sent and failed; `skipped` when
  *   RESEND_API_KEY or RESEND_FROM is not set.
@@ -382,7 +384,7 @@ export const sendDigests = internalAction({
     const warned: string[] = [];
     for (const program of programs)
       warned.push(
-        ...(await sendProgramDigests(ctx, mail, program, warningFor)),
+        ...(await sendIsolatedDigests(ctx, mail, program, warningFor)),
       );
     if (backupWarning)
       await sendBackupWarnings(
@@ -669,6 +671,27 @@ async function pendingDigest(
       link,
     })),
   };
+}
+
+// One program's failure must not cost every later program its digest and
+// the system administrators their backup warning; Convex does not retry a
+// failed action.
+async function sendIsolatedDigests(
+  ctx: ActionCtx,
+  mail: Mailer,
+  program: { uuid: string; name: string },
+  warningFor: (userId: string) => string | undefined,
+): Promise<string[]> {
+  try {
+    return await sendProgramDigests(ctx, mail, program, warningFor);
+  } catch (error) {
+    console.error(
+      "Alert digest skipped for a Flight Program",
+      program.uuid,
+      error instanceof Error ? error.name : "unknown error",
+    );
+    return [];
+  }
 }
 
 // Returns the members whose digest carried the backup warning.

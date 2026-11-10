@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins alert read state per user and program, and the daily
  *   digest: who is emailed what, no resends, failures, the off-site backup
- *   warning that only system administrators get, and which delivery rows
- *   are forgotten once their alerts clear.
+ *   warning that only system administrators get, which delivery rows are
+ *   forgotten once their alerts clear, and one program's damaged record not
+ *   stopping the others' digests.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/alerts.ts, convex/backups.ts, convex/memberships.ts,
  *   convex/recordsDate.ts, convex/schema.ts, src/data/demo.ts (fixture).
@@ -427,4 +428,31 @@ it("forgets the deliveries of cleared alerts only, one program at a time", async
   await forget();
   expect(await keysOf(ids.a.userId)).toEqual([]);
   expect(await keysOf(ids.b.userId)).toHaveLength(2);
+});
+
+it("goes on with the other programs' digests when one program's alerts cannot be computed", async () => {
+  const { t, ids } = await setup();
+  await t.run((ctx) =>
+    ctx.db.insert("expiringItems", {
+      uuid: "55555555-5555-4555-8555-555555555555",
+      programUuid: "demo-program",
+      payload: JSON.stringify({ label: "An older shape" }),
+    }),
+  );
+  const request = stubResend();
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await t.action(internal.alerts.sendDigests, {})).toMatchObject({
+    sent: 1,
+    failed: 0,
+  });
+  expect(
+    request.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).to),
+  ).toEqual([["other@example.test"]]);
+  expect(error).toHaveBeenCalledWith(
+    "Alert digest skipped for a Flight Program",
+    "demo-program",
+    expect.any(String),
+  );
+  expect(JSON.stringify(error.mock.calls)).not.toContain(String(ids.a.userId));
+  error.mockRestore();
 });
