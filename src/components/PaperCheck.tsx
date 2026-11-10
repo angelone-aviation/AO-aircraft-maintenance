@@ -83,14 +83,7 @@ function PaperCheckDialog({
           onChange={setAircraft}
         />
       )}
-      <Field label="Month">
-        <input
-          type="month"
-          required
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-        />
-      </Field>
+      <MonthField value={month} onChange={setMonth} />
       <SaveButtons busy={busy} disabled={busy || !month} onSave={save} />
       {error && (
         <p role="alert" className="error">
@@ -140,6 +133,25 @@ function AircraftSelect({
           </option>
         ))}
       </select>
+    </Field>
+  );
+}
+
+function MonthField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (month: string) => void;
+}) {
+  return (
+    <Field label="Month">
+      <input
+        type="month"
+        required
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </Field>
   );
 }
