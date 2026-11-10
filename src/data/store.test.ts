@@ -1078,7 +1078,7 @@ it("opens a live device copy only in the current program scope format, with its 
     snapshot: null,
     favorites: [],
   });
-  const current = { ...demoSnapshot(), programScopeVersion: 1 };
+  const current = { ...demoSnapshot(), programScopeVersion: 1 as const };
   await saveSnapshot("scope-format-current", current);
   await saveFavorites(`scope-format-current:${current.user.id}`, ["a1"]);
   await useWorkspace.getState().initialize("scope-format-current", false);
