@@ -1,0 +1,93 @@
+/*
+ * Responsibility: The Glossary page's layout: search row, letter jump bar and
+ *   the A to Z term list.
+ * Layer: UI. Styles for src/components/Glossary.tsx.
+ * Dependencies: src/styles/tokens.css (colours, radii, type sizes).
+ *
+ * Headings and terms keep clear of the sticky top bar (64px) and the letter
+ * bar when the page jumps to them.
+ */
+.glossary {
+  max-width: 880px;
+}
+.glossary-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+.glossary-tools .ds-search {
+  flex: 1 1 260px;
+}
+.glossary-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.glossary-letters {
+  position: sticky;
+  top: 64px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  background: var(--bg);
+}
+.glossary-letters a {
+  display: inline-grid;
+  place-items: center;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--blue-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+.glossary-letters a:hover {
+  background: var(--blue-soft);
+}
+.glossary-group h2 {
+  scroll-margin-top: 150px;
+  margin: 28px 0 8px;
+  font-size: 22px;
+}
+.glossary-group dl {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.glossary-term {
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+}
+.glossary-term:first-child {
+  border-top: 0;
+}
+.glossary-term.target {
+  background: var(--blue-soft);
+}
+.glossary-term dt {
+  scroll-margin-top: 150px;
+  font-weight: 700;
+  font-size: 17px;
+}
+.glossary-long {
+  display: block;
+  font-weight: 500;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+}
+.glossary-term dd {
+  margin: 6px 0 0;
+  line-height: 1.55;
+}
+.glossary-term dd a {
+  color: var(--blue-ink);
+}

@@ -6,7 +6,7 @@
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
  *   (model, flights, flightPlans, flightReview, flightSession, readings,
  *   aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
- *   ./StaleSave, ./design, ./ui.
+ *   ./StaleSave, ./TermTip, ./design, ./ui.
  */
 import { useId, useState } from "react";
 import {
@@ -56,6 +56,7 @@ import {
 import { NoticeBar } from "./design";
 import { AsyncForm, value } from "./ui";
 import { DifferenceTable } from "./StaleSave";
+import { TermTip } from "./TermTip";
 
 const MINUTE_MS = 60_000;
 const OPERATIONS = flightInputSchema.shape.operation.options;
@@ -437,6 +438,12 @@ function MeterSection({ m, hintId }: { m: Model; hintId: string }) {
           Aircraft readings changed while this form was open. Close and reopen
           it to verify the latest readings, or save this entry for review.
         </NoticeBar>
+      )}
+      {m.aircraft && !m.aircraft.helicopter && (
+        <p className="term-tip-line">
+          What the meters mean: <TermTip term="hobbs" /> ·{" "}
+          <TermTip term="tach" />
+        </p>
       )}
       <MeterBoxes key={m.selected} m={m} hintId={hintId} />
       {m.phase !== "preflight" && required && (

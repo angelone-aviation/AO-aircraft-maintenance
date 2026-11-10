@@ -28,6 +28,7 @@ import { EmptyState } from "./components/design";
 import { readSetupStep, type SetupStep } from "./domain/aircraftSetup";
 
 const BOARD_PATH = "/board";
+const GLOSSARY_PATH = "/glossary";
 
 // Screens load on demand so older phones parse less code at startup.
 const OwnerPortal = lazy(() =>
@@ -135,6 +136,9 @@ const ScanPage = lazy(() =>
   import("./components/InventoryScanner").then((m) => ({
     default: m.ScanPage,
   })),
+);
+const GlossaryPage = lazy(() =>
+  import("./components/Glossary").then((m) => ({ default: m.GlossaryPage })),
 );
 const Inventory = lazy(() =>
   import("./components/Management").then((m) => ({ default: m.Inventory })),
@@ -340,6 +344,11 @@ const routes = [
     path: "/settings",
     component: Settings,
   }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: GLOSSARY_PATH,
+    component: GlossaryPage,
+  }),
 ];
 const router = createRouter({ routeTree: rootRoute.addChildren(routes) });
 setDialogHistory(router.history);
@@ -399,11 +408,12 @@ function Shell() {
 // Owners and board members get their one view whatever the route, so a
 // bookmarked or typed path cannot open a screen they cannot use. An owner
 // who also sits on the board opens the board view at its own path and the
-// owner portal everywhere else.
+// owner portal everywhere else. The Glossary holds no records, so it opens
+// for everyone.
 function Screen({ s }: { s: Snapshot }) {
-  const onBoardPath = useRouterState({
-    select: (r) => r.location.pathname === BOARD_PATH,
-  });
+  const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const onBoardPath = pathname === BOARD_PATH;
+  if (pathname === GLOSSARY_PATH) return <Outlet />;
   const owner = isOwnerView(s);
   if (isBoardView(s) && (!owner || onBoardPath)) return <Board />;
   if (owner) return <OwnerPortal />;

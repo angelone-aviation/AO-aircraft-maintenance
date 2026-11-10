@@ -6,8 +6,8 @@
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
  *   readings, rejection),
- *   ./design and the aircraft, flight, logbook photo, paper check, parts
- *   and FAA components.
+ *   ./design, ./TermTip and the aircraft, flight, logbook photo, paper check,
+ *   parts and FAA components.
  */
 import {
   lazy,
@@ -78,6 +78,7 @@ import { PartsAvailability } from "./RequiredParts";
 import { FlightForm } from "./FlightForm";
 import { LogbookPhotoPrompt, type LogbookPhotoTarget } from "./LogbookPhotos";
 import { PaperCheckButton } from "./PaperCheck";
+import { TermTip } from "./TermTip";
 import { AircraftStatusBadge, AircraftStatusReasons } from "./AircraftStatus";
 import {
   AircraftArt,
@@ -1079,7 +1080,7 @@ function readTotalSeconds(a: Aircraft) {
   }
 }
 
-function Meter({ term, children }: { term: string; children: ReactNode }) {
+function Meter({ term, children }: { term: ReactNode; children: ReactNode }) {
   return (
     <div>
       <dt>{term}</dt>
@@ -1234,10 +1235,16 @@ function DetailStats({ aircraft: a }: { aircraft: Aircraft }) {
   return (
     <dl className="dash-detail-stats">
       <HoursStat
-        term={a.helicopter ? "Run-time hourmeter (console Hobbs)" : "Hobbs"}
+        term={
+          a.helicopter ? (
+            "Run-time hourmeter (console Hobbs)"
+          ) : (
+            <TermTip term="hobbs" />
+          )
+        }
         seconds={a.currentHobbs}
       />
-      <HoursStat term="Tach" seconds={a.currentTach} />
+      <HoursStat term={<TermTip term="tach" />} seconds={a.currentTach} />
       {a.flightTimeLog && (
         <Meter term="Flight time log">
           {a.currentFlightTimeLog === undefined ? (
@@ -1259,7 +1266,7 @@ function DetailStats({ aircraft: a }: { aircraft: Aircraft }) {
   );
 }
 
-function HoursStat({ term, seconds }: { term: string; seconds: number }) {
+function HoursStat({ term, seconds }: { term: ReactNode; seconds: number }) {
   return (
     <Meter term={term}>
       <HoursValue seconds={seconds} />

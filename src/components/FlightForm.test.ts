@@ -26,6 +26,8 @@ vi.mock("./ui", async (importOriginal) => {
     },
   };
 });
+// Term tips link through the router, which these tests do not mount.
+vi.mock("./TermTip", () => ({ TermTip: () => null }));
 vi.mock("../data/store", () => {
   const state = () => ({ snapshot, enqueue, backend, online, connected: true });
   return { useWorkspace: Object.assign(state, { getState: state }) };

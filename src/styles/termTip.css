@@ -1,0 +1,72 @@
+/*
+ * Responsibility: The term tip's look: a dotted-underlined term and its
+ *   definition popover.
+ * Layer: UI. Styles for src/components/TermTip.tsx.
+ * Dependencies: src/styles/tokens.css (colours, radii, shadow).
+ *
+ * The popover is placed by script in the top layer, so the browser's default
+ * centred popover position is cleared here.
+ */
+.term-tip-term {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.term-tip-term:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.term-tip-pop {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  /* Zoom scales vw too; --text-zoom is set only with larger text. */
+  max-width: min(300px, calc(100vw / var(--text-zoom, 1) - 16px));
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lift);
+  font-size: 14.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+}
+.term-tip-pop:popover-open {
+  display: grid;
+  gap: 6px;
+}
+.term-tip-title {
+  font-weight: 700;
+}
+.term-tip-long {
+  font-weight: 500;
+  color: var(--muted);
+}
+.term-tip-more {
+  justify-self: start;
+  color: var(--blue-ink);
+  font-weight: 600;
+  padding: 4px 0;
+}
+.term-tip-line {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
