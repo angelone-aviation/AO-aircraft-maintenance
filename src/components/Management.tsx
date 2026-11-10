@@ -6,9 +6,10 @@
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/domain (model, management, maintenance, forecast,
  *   shelfLife, componentInventory, partsPlanning, ata, programs, addresses,
- *   inventoryAttachments, componentCalendar, rejection), ./ManagementShared
+ *   inventoryAttachments, remainingMeters, rejection), ./ManagementShared
  *   and sibling screens' parts (Components, PartsRequests, PurchaseOrders,
- *   TaskCards, WorkOrders, Manuals, RequiredParts, Inventory*), ./ui,
+ *   TaskCards, WorkOrders, Manuals, RequiredParts, Inventory*),
+ *   ./RemainingMeter, ./ui,
  *   ./design.
  *
  * Record lists keep real <table> markup restyled as CSS-grid cards, with
@@ -87,9 +88,14 @@ import {
   inspectionDueDate,
   inspectionStatus,
   inspectionStatusLabels,
+  type InspectionDimension,
 } from "../domain/maintenance";
 import { inspectionProjections } from "../domain/forecast";
-import { daysPerServiceMonth } from "../domain/componentCalendar";
+import {
+  inspectionRemainingMeters,
+  type RemainingMeter as RemainingMeterValue,
+} from "../domain/remainingMeters";
+import { RemainingMeter } from "./RemainingMeter";
 import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import {
   useStaleSave,
@@ -104,7 +110,6 @@ import {
   ListCard,
   NoticeBar,
   PageHeader,
-  ProgressTrack,
   SearchField,
   StatTile,
   StatsStrip,
@@ -151,7 +156,6 @@ import {
 export { Components } from "./Components";
 
 const HOUR_SECONDS = 3600;
-const DAY_MS = 86400000;
 // Rows after the eighth share one entrance-animation delay.
 const MAX_STAGGERED_ROWS = 8;
 const UNMEASURED: ReturnType<typeof inspectionStatus> = {
@@ -163,6 +167,12 @@ const UNMEASURED: ReturnType<typeof inspectionStatus> = {
 };
 
 type Basis = "h" | "cycles" | "landings" | "days";
+const DIMENSION_OF_BASIS: Record<Basis, InspectionDimension> = {
+  h: "hours",
+  cycles: "cycles",
+  landings: "landings",
+  days: "days",
+};
 const units: Record<Basis, [string, string]> = {
   h: ["h", "h"],
   cycles: ["cycle", "cycles"],
@@ -275,15 +285,6 @@ function remainingLabel(value: number, basis: Basis) {
       : `${amount} ${amount === 1 ? one : many}`;
   return `${text} ${value < 0 ? "overdue" : "remaining"}`;
 }
-
-/** Share of the current interval already used (0–1), when it is knowable. */
-function usedShare(remaining?: number, span?: number) {
-  if (remaining === undefined || !span || span <= 0) return undefined;
-  return Math.min(1, Math.max(0, 1 - remaining / span));
-}
-
-const daysBetween = (from: string, to: string) =>
-  (Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / DAY_MS;
 
 type Look = { label: string; tone: Tone; tile: Tone; icon: IconType };
 
@@ -525,7 +526,6 @@ type DueLine = {
   basis?: string;
   remaining?: number;
   unit?: Basis;
-  used?: number;
 };
 type Projections = ReturnType<typeof inspectionProjections>;
 type RowProps = InspectionProps & {
@@ -611,7 +611,8 @@ function InspectionMainCell({
   );
 }
 
-// An overdue schedule shows a full track; otherwise the most-used interval.
+// Each limit's remaining amount sits beside a meter of the share of its
+// interval left; an archived schedule shows the amounts without meters.
 function DueCell({
   inspection: i,
   look,
@@ -622,25 +623,26 @@ function DueCell({
   projected: Projections;
 }) {
   const lines = dueLines(i, status);
-  const shares = usedShares(lines);
-  const progress = status.status === "overdue" ? 1 : maxShare(shares);
-  const lead = leadLine(lines, shares);
+  const meters = inspectionRemainingMeters(i, status);
+  const lead = leadLine(lines, meters);
   const leadTone =
     i.archived || status.status === "scheduled" ? "neutral" : look.tone;
+  const meterOf = (l: DueLine) =>
+    i.archived || !l.unit ? undefined : findMeter(meters, l.unit);
   return (
     <td role="cell" className="mx-insp-due">
       {lines.map((l) => (
-        <DueLineView key={l.key} line={l} lead={l === lead} tone={leadTone} />
+        <DueLineView
+          key={l.key}
+          line={l}
+          lead={l === lead}
+          tone={leadTone}
+          meter={meterOf(l)}
+          item={i.reference || i.description}
+        />
       ))}
       {!lines.length && (
         <span className="mx-due-what">No due limit recorded</span>
-      )}
-      {progress !== undefined && !i.archived && (
-        <ProgressTrack
-          value={progress}
-          tone={look.tone === "neutral" ? "blue" : look.tone}
-          className="mx-insp-progress"
-        />
       )}
       {projected.has(i.uuid) && (
         <span className="mx-insp-note">Projected ~{projected.get(i.uuid)}</span>
@@ -649,22 +651,24 @@ function DueCell({
   );
 }
 
-function maxShare(shares: number[]) {
-  return shares.length ? Math.max(...shares) : undefined;
+function findMeter(meters: RemainingMeterValue[], unit: Basis) {
+  return meters.find((m) => m.dimension === DIMENSION_OF_BASIS[unit]);
 }
 
-function usedShares(lines: DueLine[]) {
-  return lines.map((l) => l.used).filter((n): n is number => n !== undefined);
-}
-
-// The basis that drives the status: the first one past due, else the
-// most-used interval, else the first with a known remainder.
-function leadLine(lines: DueLine[], shares: number[]) {
+// The basis that drives the status: the first one past due, else the one
+// with the least of its interval left, else the first with a known remainder.
+function leadLine(lines: DueLine[], meters: RemainingMeterValue[]) {
+  const shareOf = (l: DueLine) =>
+    l.unit ? findMeter(meters, l.unit)?.share : undefined;
+  const least = lines.reduce<DueLine | undefined>((best, l) => {
+    const share = shareOf(l);
+    if (share === undefined) return best;
+    return best && shareOf(best)! <= share ? best : l;
+  }, undefined);
   return (
     lines.find((l) => l.remaining !== undefined && l.remaining <= 0) ??
-    (shares.length
-      ? lines.find((l) => l.used === Math.max(...shares))
-      : lines.find((l) => l.remaining !== undefined))
+    least ??
+    lines.find((l) => l.remaining !== undefined)
   );
 }
 
@@ -672,11 +676,20 @@ function DueLineView({
   line: l,
   lead,
   tone,
+  meter,
+  item,
 }: {
   line: DueLine;
   lead: boolean;
   tone: Tone;
+  meter?: RemainingMeterValue;
+  item: string;
 }) {
+  const left = l.remaining !== undefined && l.unit && (
+    <strong className={"mx-due-left" + (lead ? " lead mx-tone-" + tone : "")}>
+      {remainingLabel(l.remaining, l.unit)}
+    </strong>
+  );
   return (
     <span className="mx-due-line">
       <span className="mx-due-what">
@@ -688,25 +701,21 @@ function DueLineView({
           </>
         )}
       </span>
-      {l.remaining !== undefined && l.unit && (
-        <strong
-          className={"mx-due-left" + (lead ? " lead mx-tone-" + tone : "")}
-        >
-          {remainingLabel(l.remaining, l.unit)}
-        </strong>
+      {meter ? (
+        <RemainingMeter meter={meter} item={item}>
+          {left}
+        </RemainingMeter>
+      ) : (
+        left
       )}
     </span>
   );
 }
 
-// A used share needs the interval, or the span from the last compliance to a
-// one-time limit; without either the line has no share.
 function dueLines(
   i: Inspection,
   status: ReturnType<typeof inspectionStatus>,
 ): DueLine[] {
-  const span = (interval?: number, due?: number, last?: number) =>
-    interval ?? (last !== undefined ? due! - last : 0);
   const lines: DueLine[] = [];
   if (i.dueSeconds !== undefined)
     lines.push({
@@ -715,15 +724,11 @@ function dueLines(
       basis: hourBasis(i),
       remaining: status.hoursRemaining,
       unit: "h",
-      used: usedShare(
-        status.hoursRemaining,
-        span(i.intervalSeconds, i.dueSeconds, i.lastSeconds) / HOUR_SECONDS,
-      ),
     });
   if (i.dueLandings !== undefined)
-    lines.push(countLine(i, "landings", status.landingsRemaining, span));
+    lines.push(countLine(i, "landings", status.landingsRemaining));
   if (i.dueCycles !== undefined)
-    lines.push(countLine(i, "cycles", status.cyclesRemaining, span));
+    lines.push(countLine(i, "cycles", status.cyclesRemaining));
   const calendar = calendarLine(i, status);
   if (calendar) lines.push(calendar);
   return lines;
@@ -741,19 +746,9 @@ function countLine(
   i: Inspection,
   unit: "landings" | "cycles",
   remaining: number | undefined,
-  span: (interval?: number, due?: number, last?: number) => number,
 ): DueLine {
-  const [due, interval, last] =
-    unit === "landings"
-      ? [i.dueLandings!, i.intervalLandings, i.lastLandings]
-      : [i.dueCycles!, i.intervalCycles, i.lastCycles];
-  return {
-    key: unit,
-    due: `Due ${due} ${unit}`,
-    remaining,
-    unit,
-    used: usedShare(remaining, span(interval, due, last)),
-  };
+  const due = unit === "landings" ? i.dueLandings! : i.dueCycles!;
+  return { key: unit, due: `Due ${due} ${unit}`, remaining, unit };
 }
 
 function calendarLine(
@@ -763,15 +758,11 @@ function calendarLine(
   if (i.calendarExempt) return { key: "calendar", due: "Calendar exempt" };
   const dueDate = inspectionDueDate(i);
   if (!dueDate) return undefined;
-  const span = i.lastDate
-    ? daysBetween(i.lastDate, dueDate)
-    : (i.intervalMonths ?? 0) * daysPerServiceMonth;
   return {
     key: "calendar",
     due: `Due ${dueDate}`,
     remaining: status.daysRemaining,
     unit: "days",
-    used: usedShare(status.daysRemaining, span),
   };
 }
 

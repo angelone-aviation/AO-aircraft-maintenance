@@ -3,7 +3,7 @@
  *   limit, the status and a projected due date, sortable by what remains.
  * Layer: UI. React components; limits and status come from src/domain.
  * Dependencies: src/domain (model, management, maintenance,
- *   componentCalendar, forecast), ./ui.tsx.
+ *   componentCalendar, forecast, remainingMeters), ./RemainingMeter, ./ui.
  */
 import { useState } from "react";
 import type { Aircraft, Inspection, Snapshot } from "../domain/model";
@@ -11,6 +11,11 @@ import { inspectionCounters } from "../domain/management";
 import { inspectionDueDate, inspectionStatus } from "../domain/maintenance";
 import { daysPerServiceMonth } from "../domain/componentCalendar";
 import { inspectionProjections } from "../domain/forecast";
+import {
+  inspectionRemainingMeters,
+  type RemainingMeter as Meter,
+} from "../domain/remainingMeters";
+import { RemainingMeter } from "./RemainingMeter";
 import { Badge, Empty, Field } from "./ui";
 
 const REMAINING_BY_SORT = {
@@ -159,33 +164,35 @@ function ScheduleItem({ row }: { row: ScheduleRow }) {
   );
 }
 
+// Each limit's text keeps its wording; the meter beside it adds the share of
+// the interval left.
 function RemainingLimits({ row }: { row: ScheduleRow }) {
   const { inspection, remaining: r } = row;
+  const meters = inspectionRemainingMeters(inspection, r);
   return (
     <>
-      {r.hoursRemaining !== undefined && (
-        <small className="block">
-          {remainingText(r.hoursRemaining, "hours", 1)}
+      {meters.map((meter) => (
+        <small className="block" key={meter.dimension}>
+          <RemainingMeter meter={meter} item={scheduleName(row)}>
+            {limitText(meter, inspection)}
+          </RemainingMeter>
         </small>
-      )}
-      {r.daysRemaining !== undefined && (
-        <small className="block">
-          {remainingText(r.daysRemaining / daysPerServiceMonth, "months", 1)}{" "}
-          (approx.) · Due {inspectionDueDate(inspection)}
-        </small>
-      )}
-      {r.cyclesRemaining !== undefined && (
-        <small className="block">
-          {remainingText(r.cyclesRemaining, "cycles", 0)}
-        </small>
-      )}
-      {r.landingsRemaining !== undefined && (
-        <small className="block">
-          {remainingText(r.landingsRemaining, "landings", 0)}
-        </small>
-      )}
+      ))}
     </>
   );
+}
+
+function limitText({ dimension, remaining }: Meter, inspection: Inspection) {
+  switch (dimension) {
+    case "hours":
+      return remainingText(remaining, "hours", 1);
+    case "days":
+      return `${remainingText(remaining / daysPerServiceMonth, "months", 1)} (approx.) · Due ${inspectionDueDate(inspection)}`;
+    case "cycles":
+      return remainingText(remaining, "cycles", 0);
+    case "landings":
+      return remainingText(remaining, "landings", 0);
+  }
 }
 
 function remainingText(value: number, unit: string, decimals: number) {

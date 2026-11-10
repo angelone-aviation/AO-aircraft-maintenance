@@ -243,16 +243,18 @@ table.mx-insp-table {
   text-align: right;
   white-space: nowrap;
 }
+/* Caps the meter column so the meter wraps under the amount instead of
+   squeezing the due value on phones. */
+.mx-due-line > .remaining-meter {
+  max-width: 11rem;
+  justify-content: flex-end;
+}
 .mx-due-left.lead {
   color: var(--text);
 }
 .mx-due-left.lead.mx-tone-warn,
 .mx-due-left.lead.mx-tone-danger {
   color: var(--mx-tone);
-}
-.mx-insp-progress.ds-progress {
-  height: 5px;
-  margin: 4px 0 2px;
 }
 .mx-insp-row > .mx-insp-actions {
   display: flex;
