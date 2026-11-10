@@ -661,6 +661,17 @@ export interface Backend {
     keys: string[],
     all: boolean,
   ): Promise<unknown>;
+  /**
+   * Forgets the signed-in user's read marks for alerts that have cleared, so
+   * an alert that returns is unread again; writes no change-log row.
+   *
+   * @param programUuid - The Flight Program, or undefined outside one.
+   * @param keys - The cleared alerts' keys; ones never marked are ignored.
+   */
+  forgetAlertReads(
+    programUuid: string | undefined,
+    keys: string[],
+  ): Promise<unknown>;
   /** Turns the signed-in user's alert emails on or off; no change-log row. */
   setAlertEmails(enabled: boolean): Promise<unknown>;
   /**
@@ -1087,6 +1098,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.query(api.alerts.readKeys, { programUuid }),
     markAlertsRead: (programUuid, keys, all) =>
       client.mutation(api.alerts.markRead, { programUuid, keys, all }),
+    forgetAlertReads: (programUuid, keys) =>
+      client.mutation(api.alerts.forgetRead, { programUuid, keys }),
     setAlertEmails: (enabled) =>
       client.mutation(api.alerts.setEmailPreference, { enabled }),
     setUrgentAlertEmails: (enabled) =>

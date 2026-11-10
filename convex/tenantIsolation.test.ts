@@ -516,6 +516,9 @@ const CASES: Case[] = [
   callMutation(api.alerts.markRead, "program A", () =>
     stampA({ keys: ["inspection-due"] }),
   ).refuses(STALE_PROGRAM),
+  callMutation(api.alerts.forgetRead, "program A", () =>
+    stampA({ keys: ["inspection-due"] }),
+  ).refuses(STALE_PROGRAM),
   callMutation(api.expiringItems.save, "A's expiring date", (a) =>
     sendInB({
       action: "archive",

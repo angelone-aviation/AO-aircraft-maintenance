@@ -46,19 +46,25 @@ export function useUnreadAlertCount() {
 
 /**
  * A link to the alerts screen whose badge shows the unread count. It reloads
- * the read marks whenever the user, program, backend or connection changes.
+ * the read marks whenever the user, program, backend or connection changes,
+ * and forgets the marks of alerts that have cleared, so an alert that
+ * returns (an aircraft grounded a second time) is unread again.
  *
  * @returns The bell link.
  */
 export function AlertBell() {
   const { backend, connected, snapshot } = useWorkspace();
   const load = useAlertReads((x) => x.load);
-  const { unread } = useAlerts();
+  const forgetCleared = useAlertReads((x) => x.forgetCleared);
+  const { alerts, unread, read } = useAlerts();
   const user = snapshot?.user.id;
   const program = snapshot?.activeProgramUuid;
   useEffect(() => {
     void load();
   }, [load, backend, connected, user, program]);
+  useEffect(() => {
+    void forgetCleared(alerts.map((a) => a.key));
+  }, [forgetCleared, alerts, read]);
   return (
     <Link
       to="/alerts"
@@ -128,6 +134,7 @@ function useAlerts() {
   const readSet = useMemo(() => new Set(read), [read]);
   return {
     alerts,
+    read,
     isRead: (key: string) => readSet.has(key),
     unread: alerts.filter((a) => !readSet.has(a.key)).length,
   };

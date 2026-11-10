@@ -3,8 +3,9 @@
  *   no second email for the same alert on any channel, the digest still
  *   listing them, the daily cap, a refused send retried later, the email
  *   choice, the check running after a mutation, a grounding problem report
- *   reaching both the urgent email and the digest, and calendar limits
- *   judged on the records time zone's date.
+ *   reaching both the urgent email and the digest, calendar limits judged
+ *   on the records time zone's date, and de-duplication per occurrence: an
+ *   alert that cleared and returned is sent, and unread, again.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/urgentAlerts.ts, convex/alerts.ts,
  *   convex/expiringItems.ts, convex/rateLimits.ts, convex/schema.ts,
@@ -13,7 +14,9 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { DAY } from "./rateLimits";
+import { recordsDate } from "./recordsDate";
 import { IMMEDIATE_CAP_KEY, IMMEDIATE_EMAILS_PER_DAY } from "./urgentAlerts";
+import { computeAlerts } from "../src/domain/alerts";
 import {
   DEMO_PROGRAM,
   seedAlertProgram,
@@ -328,4 +331,125 @@ it("judges calendar limits on the records time zone's date, not the UTC date", a
   });
   vi.stubEnv("RECORDS_TIME_ZONE", "America/Los_Angeles");
   expect(await sendImmediate(west.t)).toMatchObject({ sent: 0 });
+});
+
+const ground = (world: AlertWorld, grounded: boolean) =>
+  world.t.run(async (ctx) => {
+    const aircraft = (await ctx.db.query("aircraft").collect()).find(
+      (a) => a.uuid === world.ids.aircraftUuid,
+    )!;
+    await ctx.db.patch(aircraft._id, {
+      operationalStatus: grounded ? "grounded" : "airworthy",
+    });
+  });
+
+it("emails an urgent alert again when it cleared and came back, and once per occurrence", async () => {
+  const world = await seedAlertProgram();
+  const { t } = world;
+  await clearInspections(t);
+  const request = stubResend();
+  await ground(world, true);
+  expect(await sendImmediate(t)).toMatchObject({ sent: 1 });
+  expect(await sendImmediate(t)).toMatchObject({ sent: 0 });
+  // Returned to service: the check finds the alert gone, which ends the
+  // occurrence although nothing new is sent.
+  await ground(world, false);
+  expect(await sendImmediate(t)).toMatchObject({ sent: 0 });
+  expect(await deliveries(t)).toEqual([]);
+  // Grounded again for the same reason: the same key, a new occurrence.
+  await ground(world, true);
+  expect(await sendImmediate(t)).toMatchObject({ sent: 1 });
+  expect(await sendImmediate(t)).toMatchObject({ sent: 0 });
+  expect(sentEmails(request).map((e) => e.subject)).toEqual([
+    "Mission operations: 1 urgent alert",
+    "Mission operations: 1 urgent alert",
+  ]);
+});
+
+it("lists an alert in the digest again when it cleared and came back", async () => {
+  const world = await seedAlertProgram();
+  const { t } = world;
+  await clearInspections(t);
+  const request = stubResend();
+  const sendDigests = () => t.action(internal.alerts.sendDigests, {});
+  await ground(world, true);
+  expect(await sendDigests()).toMatchObject({ sent: 1 });
+  expect(await sendDigests()).toMatchObject({ sent: 0 });
+  await ground(world, false);
+  expect(await sendDigests()).toMatchObject({ sent: 0 });
+  await ground(world, true);
+  expect(await sendDigests()).toMatchObject({ sent: 1 });
+  expect(sentEmails(request)[1].text).toContain("N206MA is grounded");
+});
+
+it("keeps a claim while its alert lasts, whatever a check running beside it saw", async () => {
+  const world = await seedAlertProgram();
+  const { t, ids } = world;
+  stubResend();
+  await sendImmediate(t);
+  const claimed = (await deliveries(t)).map((r) => r.key).sort();
+  expect(claimed).toHaveLength(2);
+  // A second check that computed its alerts before these arose claims
+  // another alert; the claims it never saw must stay, or they go out twice.
+  await t.mutation(internal.urgentAlerts.claimDeliveries, {
+    userId: ids.a.userId,
+    ...inProgram,
+    channel: "immediate",
+    keys: ["another-alert"],
+  });
+  const kept = (await deliveries(t)).map((r) => r.key).sort();
+  expect(kept).toEqual([...claimed, "another-alert"].sort());
+  expect(await sendImmediate(t)).toMatchObject({ sent: 0 });
+});
+
+it("makes a returning alert unread again, and keeps the marks of alerts that last", async () => {
+  const world = await seedAlertProgram();
+  const { t, a } = world;
+  stubResend();
+  await ground(world, true);
+  const shown = async () => {
+    const snapshot = await a.query(api.operations.snapshot, {});
+    return computeAlerts(snapshot!, recordsDate()).map((x) => x.key);
+  };
+  const before = await shown();
+  const grounded = before.find((k) => k.startsWith("aircraft-grounded"))!;
+  await a.mutation(api.alerts.markRead, { ...inProgram, keys: before });
+  await sendImmediate(t);
+  expect((await a.query(api.alerts.readKeys, inProgram)).sort()).toEqual(
+    [...before].sort(),
+  );
+  // The profile grounding ends: the reasons, and so the key, change.
+  await ground(world, false);
+  await sendImmediate(t);
+  const lasting = await shown();
+  expect(lasting).not.toContain(grounded);
+  expect(await a.query(api.alerts.readKeys, inProgram)).not.toContain(grounded);
+  await ground(world, true);
+  await sendImmediate(t);
+  expect(await shown()).toContain(grounded);
+  expect(await a.query(api.alerts.readKeys, inProgram)).not.toContain(grounded);
+});
+
+it("keeps a read mark for an alert a device ahead of the records date already shows", async () => {
+  const { t, a } = await seedAlertProgram();
+  await t.run(async (ctx) => {
+    for (const i of await ctx.db.query("inspections").collect())
+      await ctx.db.patch(i._id, { dueDate: "2026-11-10" });
+  });
+  stubResend();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  // 10 Nov in New York, already 11 Nov in Auckland, where the inspection
+  // reads overdue.
+  vi.setSystemTime(new Date("2026-11-10T15:00:00Z"));
+  const snapshot = await a.query(api.operations.snapshot, {});
+  const overdue = computeAlerts(snapshot!, "2026-11-11")
+    .filter((x) => x.kind === "inspection-overdue")
+    .map((x) => x.key);
+  expect(overdue).toHaveLength(1);
+  await a.mutation(api.alerts.markRead, {
+    ...inProgram,
+    keys: [...overdue, "gone-everywhere"],
+  });
+  await sendImmediate(t);
+  expect(await a.query(api.alerts.readKeys, inProgram)).toEqual(overdue);
 });

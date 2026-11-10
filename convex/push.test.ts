@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the push sender: dormant without VAPID keys, one
  *   encrypted request per subscribed device, the push-channel claim, a gone
- *   subscription removed, and a refused send retried later.
+ *   subscription removed, a refused send retried later, and an alert that
+ *   cleared and returned pushed again.
  * Layer: Test. convex-test suite with a stubbed push service; never shipped.
  * Dependencies: convex/push.ts, convex/urgentAlerts.ts,
  *   convex/pushSubscriptions.ts, convex/webPushProtocol.ts,
@@ -80,7 +81,6 @@ it("stays dormant without VAPID keys", async () => {
           userId: world.ids.a.userId,
           programUuid: DEMO_PROGRAM,
           alerts: [{ key: "k", title: "Grounded" }],
-          active: ["k"],
           programName: "Ops",
         },
       ],
@@ -152,4 +152,26 @@ it("releases the claim after a refused send, logging the user id only", async ()
   await checkProgram(world);
   expect(request).toHaveBeenCalledTimes(1);
   expect(await deliveries(world.t)).toHaveLength(2);
+});
+
+it("pushes an urgent alert again when it cleared and came back", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await stubVapid();
+  await world.a.mutation(api.pushSubscriptions.subscribe, SUBSCRIPTION);
+  const request = stubPushService();
+  const setDue = (dueDate: string) =>
+    world.t.run(async (ctx) => {
+      for (const i of await ctx.db.query("inspections").collect())
+        await ctx.db.patch(i._id, { dueDate });
+    });
+  expect(await checkProgram(world)).toMatchObject({ pushed: 1 });
+  // A mistaken due date is corrected, then put back: the same keys return.
+  await setDue("2999-01-01");
+  expect(await checkProgram(world)).toMatchObject({ pushed: 0 });
+  expect(await deliveries(world.t)).toEqual([]);
+  await setDue("2000-01-01");
+  expect(await checkProgram(world)).toMatchObject({ pushed: 1 });
+  expect(await checkProgram(world)).toMatchObject({ pushed: 0 });
+  expect(request).toHaveBeenCalledTimes(2);
 });

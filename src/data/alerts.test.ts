@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins read-alert tracking: the device copy, merging the
- *   server's reads, marking all read, and the error messages.
+ * Responsibility: Pins read-alert tracking: the device copy until the server
+ *   answers, marks not saved yet, marking all read, forgetting the marks of
+ *   cleared alerts, and the error messages.
  * Layer: Test. Vitest suite over fake-indexeddb; never shipped in the build.
  * Dependencies: src/data/alerts.ts, src/data/store.ts, src/data/local.ts,
  *   convex/values.
@@ -22,13 +23,61 @@ async function setup(namespace: string, backend: object) {
   return { reads: useAlertReads, scope };
 }
 
-it("merges the device copy with the server's reads and keeps both", async () => {
-  const alertReads = vi.fn().mockResolvedValue(["server"]);
+it("shows the device copy until the server answers, then the server's reads", async () => {
+  let answer: (keys: string[]) => void = () => {};
+  const alertReads = () => new Promise<string[]>((r) => (answer = r));
   const { reads, scope } = await setup("alerts-load", { alertReads });
   await saveFavorites(scope, ["device"]);
+  const loading = reads.getState().load();
+  await vi.waitFor(() => expect(reads.getState().keys).toEqual(["device"]));
+  expect(reads.getState().synced).toBe(false);
+  // The server forgot "device" when its alert cleared: the copy must not
+  // bring the mark back.
+  answer(["server"]);
+  await loading;
+  expect(reads.getState()).toMatchObject({
+    scope,
+    keys: ["server"],
+    synced: true,
+  });
+  expect(await readFavorites(scope)).toEqual(["server"]);
+});
+
+it("keeps a mark the server has not saved yet when its reads arrive", async () => {
+  const markAlertsRead = vi.fn().mockRejectedValue(new Error("Offline."));
+  const backend = { alertReads: async () => ["a"], markAlertsRead };
+  const { reads } = await setup("alerts-unsaved", backend);
   await reads.getState().load();
-  expect(reads.getState()).toMatchObject({ scope, keys: ["device", "server"] });
-  expect(await readFavorites(scope)).toEqual(["device", "server"]);
+  await reads.getState().markRead(["b"]);
+  await reads.getState().load();
+  expect(reads.getState().keys).toEqual(["a", "b"]);
+  // Once saved, the server's answer alone decides.
+  markAlertsRead.mockResolvedValue(undefined);
+  await reads.getState().markRead(["b"]);
+  await reads.getState().load();
+  expect(reads.getState().keys).toEqual(["a"]);
+});
+
+it("forgets the marks of alerts no longer shown, once the server's reads have loaded", async () => {
+  const forgetAlertReads = vi.fn().mockResolvedValue(undefined);
+  const backend = { alertReads: async () => ["a", "b", "c"], forgetAlertReads };
+  const { reads, scope } = await setup("alerts-forget", backend);
+  // Before the load the device copy may be incomplete: nothing is forgotten.
+  await reads.getState().forgetCleared(["a"]);
+  expect(forgetAlertReads).not.toHaveBeenCalled();
+  await reads.getState().load();
+  await reads.getState().forgetCleared(["a", "c", "unread"]);
+  expect(reads.getState().keys).toEqual(["a", "c"]);
+  expect(await readFavorites(scope)).toEqual(["a", "c"]);
+  expect(forgetAlertReads).toHaveBeenCalledExactlyOnceWith("demo-program", [
+    "b",
+  ]);
+  await reads.getState().forgetCleared(["a", "c"]);
+  expect(forgetAlertReads).toHaveBeenCalledTimes(1);
+  // A failed save is not an error to show: the server forgets by itself.
+  forgetAlertReads.mockRejectedValue(new Error("Offline."));
+  await reads.getState().forgetCleared(["a"]);
+  expect(reads.getState()).toMatchObject({ keys: ["a"], error: "" });
 });
 
 it("marks keys read, or replaces the reads with them", async () => {

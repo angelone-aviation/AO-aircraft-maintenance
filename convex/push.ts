@@ -74,7 +74,6 @@ async function notifyMember(
     programUuid,
     channel: "push",
     keys: job.alerts.map((a) => a.key),
-    active: job.active,
   });
   if (!claim.claimed.length) return;
   const payload = JSON.stringify(pushPayloadFor(job, claim.claimed));
