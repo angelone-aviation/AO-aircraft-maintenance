@@ -4,7 +4,7 @@ Open Components → Imported components → Component templates → New template
 
 Required CSV headers: `Component type,ATA chapter,Part number,Component Name`. ATA and part-number cells can be blank. Optional headers: `Manufacturer,Position,ID,Parent ID`.
 
-Component types: Appliance, Engine, Propeller, Main Rotor, Tail Rotor. Positions: LEFT, RIGHT, NUMBER 1, NUMBER 2, MAIN, AUX. Use a unique ID per row and refer to it in Parent ID to describe an assembly. A child must have a valid parent; circular relationships are rejected. Helicopters accept rotor types rather than propellers.
+Component types: Appliance, Engine, Propeller, Main Rotor, Tail Rotor. Positions: LEFT, RIGHT, NUMBER 1, NUMBER 2, MAIN, AUX. Use a unique ID per row and refer to it in Parent ID to describe an assembly. A row without an ID gets one made from its type, part number, name and position (shown as `auto-…` when the template is edited), so it stays the same row when lines are added, removed or reordered in the spreadsheet; changing one of those four cells makes it a new row. A child must have a valid parent; circular relationships are rejected. Helicopters accept rotor types rather than propellers.
 
 Preview / apply to aircraft shows matching aircraft and lets you select rows. Existing template imports and possible matches by type, name, part number and position are blocked. Distinguish multiple similar components by name or position. Include a parent when selecting a new child.
 

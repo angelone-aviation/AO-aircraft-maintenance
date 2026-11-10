@@ -18,6 +18,12 @@ import { auditEntry } from "./changeLog";
 const TEXT_MAX_LENGTH = 150;
 const TEMPLATE_ROWS_MAX = 500;
 const REQUIRED_HEADER_COUNT = 4;
+const GENERATED_ID_PREFIX = "auto-";
+const FNV_BITS = 64;
+const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV_PRIME = 0x100000001b3n;
+const HEX = 16;
+const BITS_PER_HEX_DIGIT = 4;
 
 const text = z.string().trim().min(1).max(TEXT_MAX_LENGTH);
 
@@ -102,7 +108,11 @@ export function validateRows(rows: ComponentTemplate["rows"]) {
 
 /**
  * Reads template rows from CSV text. Column names match ignoring case and
- * repeated spaces, in any order; a row without an ID is numbered from 1.
+ * repeated spaces, in any order. A row without an ID gets one made from its
+ * type, part number, name and position ("auto-<hash>"), so it keeps its ID
+ * when rows are added, removed or reordered: "already applied to this
+ * aircraft" goes by the ID, and a row number would pass a saved row's ID to
+ * whichever row took its place.
  *
  * @param csv - The file's text; a leading byte-order mark is ignored.
  * @returns The rows, checked by {@link validateRows}.
@@ -115,9 +125,10 @@ export function parseComponentTemplateCsv(csv: string) {
     throw new Rejection("CSV must be under 2 MB.");
   const [header, ...data] = readCsvRows(csv.replace(/^﻿/, ""));
   const headers = readTemplateHeaders(header?.cells ?? []);
-  const rows = data.map(({ cells, row }, index) => {
+  const generated = new Map<string, number>();
+  const rows = data.map(({ cells, row }) => {
     try {
-      return parseTemplateRow(cells, headers, index);
+      return parseTemplateRow(cells, headers, generated);
     } catch (e) {
       throw new Rejection(
         `CSV row ${row}: ${e instanceof Error ? e.message : e}`,
@@ -352,12 +363,16 @@ function readTemplateHeaders(cells: string[]) {
   return headers;
 }
 
-function parseTemplateRow(cells: string[], headers: string[], index: number) {
+// `generated` counts the IDs made so far in this file, by content.
+function parseTemplateRow(
+  cells: string[],
+  headers: string[],
+  generated: Map<string, number>,
+) {
   if (cells.length !== headers.length)
     throw new Rejection("Column count does not match header.");
   const get = (h: string) => (cells[headers.indexOf(norm(h))] ?? "").trim();
-  return componentTemplateRowSchema.parse({
-    id: get("ID") || String(index + 1),
+  const row = {
     parentId: get("Parent ID"),
     componentType: get("Component type"),
     ataChapter: get("ATA chapter") || undefined,
@@ -365,7 +380,44 @@ function parseTemplateRow(cells: string[], headers: string[], index: number) {
     model: get("Component Name"),
     manufacturer: get("Manufacturer"),
     installPosition: get("Position") || undefined,
-  });
+  };
+  const id = get("ID") || generateRowId(row, generated);
+  return componentTemplateRowSchema.parse({ id, ...row });
+}
+
+// The fields componentDuplicate compares, so two rows share a generated ID
+// only when applying both would be refused as a possible duplicate anyway;
+// the second and later of them are numbered to keep the file's IDs unique.
+function generateRowId(
+  row: {
+    componentType: string;
+    partNumber: string;
+    model: string;
+    installPosition?: string;
+  },
+  generated: Map<string, number>,
+) {
+  const content = [
+    row.componentType,
+    row.partNumber,
+    row.model,
+    row.installPosition ?? "",
+  ]
+    .map(norm)
+    .join("|");
+  const id = GENERATED_ID_PREFIX + fnv1a64(content);
+  const count = (generated.get(id) ?? 0) + 1;
+  generated.set(id, count);
+  return count === 1 ? id : `${id}-${count}`;
+}
+
+// FNV-1a, 64-bit: the same in every browser and on the server, without the
+// asynchronous Web Crypto digest.
+function fnv1a64(text: string) {
+  let hash = FNV_OFFSET_BASIS;
+  for (const byte of new TextEncoder().encode(text))
+    hash = BigInt.asUintN(FNV_BITS, (hash ^ BigInt(byte)) * FNV_PRIME);
+  return hash.toString(HEX).padStart(FNV_BITS / BITS_PER_HEX_DIGIT, "0");
 }
 
 function findApplicableTemplate(

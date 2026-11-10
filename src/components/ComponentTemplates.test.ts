@@ -342,7 +342,12 @@ describe("template library", () => {
         name: "Kit",
         make: "Cessna",
         model: "206",
-        rows: [expect.objectContaining({ id: "1", model: "New engine" })],
+        rows: [
+          expect.objectContaining({
+            id: expect.stringMatching(/^auto-[0-9a-f]{16}$/),
+            model: "New engine",
+          }),
+        ],
       },
     ]);
     expect(render()).not.toContain("New component template");
