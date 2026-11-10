@@ -293,24 +293,9 @@ function replayAtCompletion(
   before: TrackedRecord[],
   relevant: ManagedRecord[],
 ) {
-  const { s, order, command, target, current, aircraft, now } = c;
-  const clone = structuredClone(s);
+  const { current, aircraft } = c;
   const ids = new Set(before.map((r) => r.uuid));
-  clone.management = [
-    ...(clone.management ?? []).filter((r) => !ids.has(r.uuid)),
-    ...before,
-  ];
-  const atCompletion = aircraftAtCompletion(aircraft, target.closeout.aircraft);
-  const component = before.find((r) => r.kind === "component")!;
-  const single = singleComponentOrder(order, current, target.original, now);
-  clone.taskCards = [];
-  const result = applyWorkOrderComponentWork(
-    clone,
-    single,
-    atCompletion,
-    [{ ...command.choice, version: component.version }],
-    now,
-  )[0];
+  const { clone, result } = replayOnBaseline(c, before, ids);
   const updated = (clone.management ?? [])
     .filter((r) => ids.has(r.uuid))
     .map((r) => ({
@@ -337,6 +322,31 @@ function replayAtCompletion(
     currentAfter,
     movements,
   };
+}
+
+function replayOnBaseline(
+  c: Correcting,
+  before: TrackedRecord[],
+  ids: Set<string>,
+) {
+  const { s, order, command, target, current, aircraft, now } = c;
+  const clone = structuredClone(s);
+  clone.management = [
+    ...(clone.management ?? []).filter((r) => !ids.has(r.uuid)),
+    ...before,
+  ];
+  const atCompletion = aircraftAtCompletion(aircraft, target.closeout.aircraft);
+  const component = before.find((r) => r.kind === "component")!;
+  const single = singleComponentOrder(order, current, target.original, now);
+  clone.taskCards = [];
+  const result = applyWorkOrderComponentWork(
+    clone,
+    single,
+    atCompletion,
+    [{ ...command.choice, version: component.version }],
+    now,
+  )[0];
+  return { clone, result };
 }
 
 // The aircraft's meters and counters as frozen at close-out.
