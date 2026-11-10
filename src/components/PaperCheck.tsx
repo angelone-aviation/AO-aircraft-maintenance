@@ -18,6 +18,8 @@ import { Field, download, errorText } from "./ui";
 const CSV_TYPE = "text/csv";
 const YEAR_MONTH_LENGTH = "YYYY-MM".length;
 
+type PaperCheckFormat = "pdf" | "csv";
+
 /**
  * Button that opens the paper check dialog for the aircraft the user can
  * read: one fixed aircraft, or a choice when none is given.
@@ -66,9 +68,47 @@ function PaperCheckDialog({
 }) {
   const [aircraftUuid, setAircraft] = useState(aircraft[0].uuid);
   const [month, setMonth] = useState(localDate().slice(0, YEAR_MONTH_LENGTH));
+  const { busy, error, save } = usePaperCheckSave(state, aircraftUuid, month);
+  return (
+    <Dialog
+      title="Paper check"
+      subtitle="The month's flights and sign-offs as recorded, with a Checked column to tick against the paper logbook."
+      size="narrow"
+      onClose={onClose}
+    >
+      {aircraft.length > 1 && (
+        <AircraftSelect
+          aircraft={aircraft}
+          value={aircraftUuid}
+          onChange={setAircraft}
+        />
+      )}
+      <Field label="Month">
+        <input
+          type="month"
+          required
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+        />
+      </Field>
+      <SaveButtons busy={busy} disabled={busy || !month} onSave={save} />
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+    </Dialog>
+  );
+}
+
+function usePaperCheckSave(
+  state: Snapshot,
+  aircraftUuid: string,
+  month: string,
+) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function save(format: "pdf" | "csv") {
+  async function save(format: PaperCheckFormat) {
     setBusy(true);
     setError("");
     try {
@@ -79,59 +119,59 @@ function PaperCheckDialog({
       setBusy(false);
     }
   }
+  return { busy, error, save };
+}
+
+function AircraftSelect({
+  aircraft,
+  value,
+  onChange,
+}: {
+  aircraft: Snapshot["aircraft"];
+  value: string;
+  onChange: (uuid: string) => void;
+}) {
   return (
-    <Dialog
-      title="Paper check"
-      subtitle="The month's flights and sign-offs as recorded, with a Checked column to tick against the paper logbook."
-      size="narrow"
-      onClose={onClose}
-    >
-      {aircraft.length > 1 && (
-        <Field label="Aircraft">
-          <select
-            value={aircraftUuid}
-            onChange={(e) => setAircraft(e.target.value)}
-          >
-            {aircraft.map((a) => (
-              <option key={a.uuid} value={a.uuid}>
-                {a.registration}
-              </option>
-            ))}
-          </select>
-        </Field>
-      )}
-      <Field label="Month">
-        <input
-          type="month"
-          required
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-        />
-      </Field>
-      <div className="form-footer">
-        <button
-          type="button"
-          className="button primary"
-          disabled={busy || !month}
-          onClick={() => void save("pdf")}
-        >
-          {busy ? "Building…" : "Save PDF"}
-        </button>
-        <button
-          type="button"
-          className="button"
-          disabled={busy || !month}
-          onClick={() => void save("csv")}
-        >
-          Save CSV
-        </button>
-      </div>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-    </Dialog>
+    <Field label="Aircraft">
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {aircraft.map((a) => (
+          <option key={a.uuid} value={a.uuid}>
+            {a.registration}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function SaveButtons({
+  busy,
+  disabled,
+  onSave,
+}: {
+  busy: boolean;
+  disabled: boolean;
+  onSave: (format: PaperCheckFormat) => Promise<void>;
+}) {
+  return (
+    <div className="form-footer">
+      <button
+        type="button"
+        className="button primary"
+        disabled={disabled}
+        onClick={() => void onSave("pdf")}
+      >
+        {busy ? "Building…" : "Save PDF"}
+      </button>
+      <button
+        type="button"
+        className="button"
+        disabled={disabled}
+        onClick={() => void onSave("csv")}
+      >
+        Save CSV
+      </button>
+    </div>
   );
 }
 
@@ -139,7 +179,7 @@ async function savePaperCheck(
   state: Snapshot,
   aircraftUuid: string,
   month: string,
-  format: "pdf" | "csv",
+  format: PaperCheckFormat,
 ) {
   const report = await import("../data/paperCheckReport");
   const registration =
