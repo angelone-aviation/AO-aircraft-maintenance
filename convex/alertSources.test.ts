@@ -1,7 +1,8 @@
 /**
- * Responsibility: Pins which stored records the server's alert checks read:
- *   AD actions, component limits and a program's own expiring dates reach
- *   the digest and the urgent email of that program's members only.
+ * Responsibility: Pins which stored records the server's alert checks read
+ *   (AD actions, component limits, a program's own expiring dates) and whom
+ *   they reach: that program's members with read permission only. Also an
+ *   unknown scope's recipients and a claim of alerts already sent.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/alerts.ts, convex/urgentAlerts.ts,
  *   convex/expiringItems.ts, tests/fixtures/alertProgram.ts,
