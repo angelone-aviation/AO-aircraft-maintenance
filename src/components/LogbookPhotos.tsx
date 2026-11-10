@@ -39,6 +39,13 @@ export interface LogbookPhotoTarget extends AircraftFileLink {
   aircraftUuid: string;
 }
 
+type PhotoDialogProps = {
+  s: Snapshot;
+  photo: AircraftFile;
+  writer: boolean;
+  onClose: () => void;
+};
+
 /**
  * A record's logbook page photos: the uploaded thumbnails, the ones still
  * waiting on this device, and, for a user who may write them, the control
@@ -93,24 +100,7 @@ export function LogbookPhotoControl({
   target: LogbookPhotoTarget;
   label: string;
 }) {
-  const { attachLogbookPhoto } = useWorkspace();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  async function attach(file?: File) {
-    if (!file) return;
-    setBusy(true);
-    setError("");
-    setMessage("");
-    try {
-      await attachLogbookPhoto(target, file);
-      setMessage(useWorkspace.getState().notice);
-    } catch (e) {
-      setError(errorText(e, "Unable to attach the photo."));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { busy, error, message, attach } = usePhotoAttach(target);
   return (
     <div className="lp-control">
       <label className={"button small lp-button" + (busy ? " lp-busy" : "")}>
@@ -197,6 +187,28 @@ export function PendingThumbnail({ photo }: { photo: PendingLogbookPhoto }) {
   );
 }
 
+function usePhotoAttach(target: LogbookPhotoTarget) {
+  const { attachLogbookPhoto } = useWorkspace();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  async function attach(file?: File) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await attachLogbookPhoto(target, file);
+      setMessage(useWorkspace.getState().notice);
+    } catch (e) {
+      setError(errorText(e, "Unable to attach the photo."));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return { busy, error, message, attach };
+}
+
 function LogbookPhotoThumbnails({
   s,
   photos,
@@ -238,17 +250,7 @@ function LogbookPhotoThumbnails({
 }
 
 // Full size, with the archive form for a writer while connected.
-function PhotoDialog({
-  s,
-  photo,
-  writer,
-  onClose,
-}: {
-  s: Snapshot;
-  photo: AircraftFile;
-  writer: boolean;
-  onClose: () => void;
-}) {
+function PhotoDialog({ s, photo, writer, onClose }: PhotoDialogProps) {
   const { backend, online, connected } = useWorkspace();
   const url = useOpenableUrl(photo);
   const [archiving, setArchiving] = useState(false);
@@ -261,13 +263,7 @@ function PhotoDialog({
       className="lp-dialog"
       onClose={onClose}
     >
-      {photo.type === PDF_TYPE ? (
-        <a className="button" href={url} target="_blank" rel="noreferrer">
-          Open {photo.name}
-        </a>
-      ) : (
-        <img className="lp-full" src={photo.url} alt={photo.name} />
-      )}
+      <PhotoMedia photo={photo} url={url} />
       {writer && backend && online && connected && !archiving && (
         <button
           type="button"
@@ -288,6 +284,16 @@ function PhotoDialog({
         />
       )}
     </Dialog>
+  );
+}
+
+function PhotoMedia({ photo, url }: { photo: AircraftFile; url: string }) {
+  if (photo.type !== PDF_TYPE)
+    return <img className="lp-full" src={photo.url} alt={photo.name} />;
+  return (
+    <a className="button" href={url} target="_blank" rel="noreferrer">
+      Open {photo.name}
+    </a>
   );
 }
 

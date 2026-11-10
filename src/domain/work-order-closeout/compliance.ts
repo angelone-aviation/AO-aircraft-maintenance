@@ -4,10 +4,10 @@
  *   requirements its component work rebased.
  * Layer: Domain. Updates the working snapshot through ../management; no
  *   I/O, no React.
- * Dependencies: ../workOrders (types), ../management, ../components (types),
- *   ../rejection, ./closing.
+ * Dependencies: ../model (types), ../workOrders (types), ../management,
+ *   ../components, ../rejection, ./closing.
  */
-import type { Snapshot } from "../model";
+import type { Inspection, Snapshot } from "../model";
 import type { WorkOrder, WorkTask } from "../workOrders";
 import { applyManagement, inspectionCounters } from "../management";
 import {
@@ -126,11 +126,28 @@ function completeInspectionItem(
     now,
   );
   if ("kind" in next) return undefined;
+  const timeBasis = i.componentUuid ? "TSN" : "aircraft total time";
+  return inspectionCompliance(
+    next,
+    timeBasis,
+    counters,
+    task.description,
+    order,
+  );
+}
+
+function inspectionCompliance(
+  next: Inspection,
+  timeBasis: Compliance[number]["timeBasis"],
+  counters: ReturnType<typeof inspectionCounters>,
+  description: string,
+  order: WorkOrder,
+): Compliance[number] {
   return {
     uuid: next.uuid,
     kind: "inspection",
-    timeBasis: i.componentUuid ? "TSN" : "aircraft total time",
-    description: task.description,
+    timeBasis,
+    description,
     date: order.completionDate,
     ...counters,
     dueSeconds: next.dueSeconds,

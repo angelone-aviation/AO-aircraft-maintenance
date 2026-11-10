@@ -13,6 +13,19 @@ import type { ReactNode } from "react";
 import { IconTile, type IconType, type Tone } from "./design";
 import "../styles/screens/operations.css";
 
+type OpsRowProps = {
+  icon?: IconType;
+  tone?: Tone | "warning";
+  title: ReactNode;
+  sub?: ReactNode;
+  meta?: ReactNode;
+  badge?: ReactNode;
+  actions?: ReactNode;
+  extra?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+};
+
 /**
  * A semantic list of {@link OpsRow}s, so screen readers announce the count
  * and specs can find a record with `getByRole("listitem")`.
@@ -58,18 +71,7 @@ export function OpsRow({
   extra,
   children,
   className,
-}: {
-  icon?: IconType;
-  tone?: Tone | "warning";
-  title: ReactNode;
-  sub?: ReactNode;
-  meta?: ReactNode;
-  badge?: ReactNode;
-  actions?: ReactNode;
-  extra?: ReactNode;
-  children?: ReactNode;
-  className?: string;
-}) {
+}: OpsRowProps) {
   const hasMeta = meta !== undefined && meta !== null && meta !== "";
   return (
     <li className={joinClassNames("ops-row", className)}>

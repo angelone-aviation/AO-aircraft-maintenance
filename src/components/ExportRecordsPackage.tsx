@@ -34,11 +34,27 @@ export function ExportRecordsPackage({
   state: Snapshot;
   aircraftUuid: string;
 }) {
+  const { progress, done, error, exportPackage } = usePackageExport(
+    state,
+    aircraftUuid,
+  );
+  if (!can(state, aircraftUuid, "maintenance")) return null;
+  return (
+    <div>
+      <button className="button" disabled={!!progress} onClick={exportPackage}>
+        {progress ? "Building package…" : "Export records package"}
+      </button>
+      {(progress || done) && <p role="status">{progress || done}</p>}
+      {error && <p role="alert">{error}</p>}
+    </div>
+  );
+}
+
+function usePackageExport(state: Snapshot, aircraftUuid: string) {
   const { backend, online, connected } = useWorkspace();
   const [progress, setProgress] = useState("");
   const [done, setDone] = useState("");
   const [error, setError] = useState("");
-  if (!can(state, aircraftUuid, "maintenance")) return null;
   async function exportPackage() {
     setError("");
     setDone("");
@@ -60,15 +76,7 @@ export function ExportRecordsPackage({
       setProgress("");
     }
   }
-  return (
-    <div>
-      <button className="button" disabled={!!progress} onClick={exportPackage}>
-        {progress ? "Building package…" : "Export records package"}
-      </button>
-      {(progress || done) && <p role="status">{progress || done}</p>}
-      {error && <p role="alert">{error}</p>}
-    </div>
-  );
+  return { progress, done, error, exportPackage };
 }
 
 function describeOutcome(skipped: number): string {

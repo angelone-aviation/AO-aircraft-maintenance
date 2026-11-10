@@ -617,3 +617,32 @@ it("records the close-out: readings, signer, components, compliance and work", (
   });
   expect(closeout.workPerformed).toBe(workPerformedText(w.s, w.order));
 });
+
+it("records an inspection's compliance at the completion readings, with its next due", () => {
+  const w = closeoutWorld();
+  const service = {
+    componentUuid: "engine",
+    version: w.engine.version,
+    action: "service" as const,
+    description: "",
+    reference: "",
+  };
+  const closeout = completeWorkOrder(w.s, w.order, undefined, now, [service]);
+  const task = w.order.tasks.find((t) => t.source.kind === "inspection")!;
+  const done = w.s.inspections.find((i) => i.uuid === task.source.uuid)!;
+  expect(closeout.compliance[0]).toEqual({
+    uuid: done.uuid,
+    kind: "inspection",
+    timeBasis: "aircraft total time",
+    description: task.description,
+    date: "2026-10-02",
+    seconds: totalSeconds(w.a),
+    cycles: w.a.cycles,
+    landings: done.lastLandings,
+    dueSeconds: done.dueSeconds,
+    dueCycles: done.dueCycles,
+    dueLandings: done.dueLandings,
+    dueDate: done.dueDate,
+  });
+  expect(done).toMatchObject({ lastSeconds: totalSeconds(w.a) });
+});

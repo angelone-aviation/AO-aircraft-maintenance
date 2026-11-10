@@ -247,21 +247,7 @@ export function saveChecklist(
 ): ChecklistRecord {
   const { record, baseVersion } = checklistCommandSchema.parse(raw);
   const existing = s.checklists?.find((c) => c.uuid === record.uuid);
-  // Both ends are checked, so a set cannot be moved off or onto an aircraft
-  // the user may not edit.
-  if (
-    !checklistEditable(s, record.aircraftUuid, record.programUuid) ||
-    (existing &&
-      !checklistEditable(s, existing.aircraftUuid, existing.programUuid))
-  )
-    throw new Rejection("Checklist editing permission denied.");
-  // Unreachable while checklistEditable requires the active program for both.
-  if (existing && existing.programUuid !== record.programUuid)
-    throw new Error("A checklist cannot change Flight Program.");
-  if ((existing?.version ?? 0) !== baseVersion)
-    throw new Rejection(
-      "This checklist changed. Reopen it before saving; your draft has not been applied.",
-    );
+  assertSavable(s, record, existing, baseVersion);
   const next = {
     ...record,
     version: baseVersion + 1,
@@ -289,6 +275,29 @@ export function saveChecklist(
     ),
   );
   return next;
+}
+
+function assertSavable(
+  s: Snapshot,
+  record: ChecklistRecord,
+  existing: ChecklistRecord | undefined,
+  baseVersion: number,
+) {
+  // Both ends are checked, so a set cannot be moved off or onto an aircraft
+  // the user may not edit.
+  if (
+    !checklistEditable(s, record.aircraftUuid, record.programUuid) ||
+    (existing &&
+      !checklistEditable(s, existing.aircraftUuid, existing.programUuid))
+  )
+    throw new Rejection("Checklist editing permission denied.");
+  // Unreachable while checklistEditable requires the active program for both.
+  if (existing && existing.programUuid !== record.programUuid)
+    throw new Error("A checklist cannot change Flight Program.");
+  if ((existing?.version ?? 0) !== baseVersion)
+    throw new Rejection(
+      "This checklist changed. Reopen it before saving; your draft has not been applied.",
+    );
 }
 
 function listDocumentIssues(doc: ChecklistDocument): string[] {

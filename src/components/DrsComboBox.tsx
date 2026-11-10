@@ -238,21 +238,13 @@ function SuggestionMenu({
         aria-label={`Suggested ${kind}`}
       >
         {combo.choices.map((o, i) => (
-          // Picks on mouse down with focus kept in the input: its blur would
-          // close the list before a click landed.
-          <div
-            role="option"
-            id={optionId(inputId, i)}
-            aria-selected={combo.active === i}
+          <SuggestionOption
             key={`${o.source}:${o.value}`}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              combo.select(o.value);
-            }}
-          >
-            {o.source === CUSTOM_ENTRY ? `Use “${o.value}”` : o.value}
-            <small>{o.source}</small>
-          </div>
+            id={optionId(inputId, i)}
+            choice={o}
+            selected={combo.active === i}
+            onSelect={combo.select}
+          />
         ))}
       </div>
       {combo.matchCount > MAX_SUGGESTIONS && (
@@ -261,6 +253,35 @@ function SuggestionMenu({
           to narrow the list.
         </small>
       )}
+    </div>
+  );
+}
+
+function SuggestionOption({
+  id,
+  choice,
+  selected,
+  onSelect,
+}: {
+  id: string;
+  choice: Suggestion;
+  selected: boolean;
+  onSelect: (value: string) => void;
+}) {
+  // Picks on mouse down with focus kept in the input: its blur would close
+  // the list before a click landed.
+  return (
+    <div
+      role="option"
+      id={id}
+      aria-selected={selected}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onSelect(choice.value);
+      }}
+    >
+      {choice.source === CUSTOM_ENTRY ? `Use “${choice.value}”` : choice.value}
+      <small>{choice.source}</small>
     </div>
   );
 }

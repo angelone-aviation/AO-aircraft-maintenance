@@ -384,15 +384,7 @@ function FlightCard({ log, flight: f }: FlightProps) {
   const fluids = !!(f.fuel || f.oil?.length || f.checklistRun);
   return (
     <>
-      <div className="rec-flight-card-head">
-        <div>
-          <strong>{aircraft?.registration}</strong>
-          <span className="rec-when">
-            {dateTime(f.startTime)} · {pilotOf(log.s, f)}
-          </span>
-        </div>
-        <FlightStatus flight={f} />
-      </div>
+      <FlightCardHead log={log} flight={f} aircraft={aircraft} />
       <FlightFacts log={log} flight={f} aircraft={aircraft} />
       {!!f.engineStarts?.length && (
         <div className="rec-card-extra rec-starts">
@@ -420,6 +412,24 @@ function FlightCard({ log, flight: f }: FlightProps) {
         />
       )}
     </>
+  );
+}
+
+function FlightCardHead({
+  log,
+  flight: f,
+  aircraft,
+}: FlightProps & { aircraft?: Aircraft }) {
+  return (
+    <div className="rec-flight-card-head">
+      <div>
+        <strong>{aircraft?.registration}</strong>
+        <span className="rec-when">
+          {dateTime(f.startTime)} · {pilotOf(log.s, f)}
+        </span>
+      </div>
+      <FlightStatus flight={f} />
+    </div>
   );
 }
 
@@ -1177,29 +1187,53 @@ export function SyncCenter() {
         actions={<SyncActions own={own} live={live} />}
       />
       <SyncStats s={s!} own={own} photos={photos} />
-      <ListCard className="rec-list-card">
-        <SyncListHead s={s!} count={own.length + photos.length} live={live} />
-        {own.map((q) => (
-          <QueuedEntryRow
-            key={q.operation.uuid}
-            s={s!}
-            entry={q}
-            onEdit={() => setEditing(q)}
-          />
-        ))}
-        {photos.map((p) => (
-          <PendingPhotoRow key={p.key} s={s!} photo={p} />
-        ))}
-        {!own.length && !photos.length && (
-          <EmptyState title="Everything is synchronized">
-            There are no pending entries for this account.
-          </EmptyState>
-        )}
-      </ListCard>
+      <SyncList
+        s={s!}
+        own={own}
+        photos={photos}
+        live={live}
+        onEdit={setEditing}
+      />
       {editing && (
         <RetryDialog s={s!} entry={editing} onClose={() => setEditing(null)} />
       )}
     </>
+  );
+}
+
+function SyncList({
+  s,
+  own,
+  photos,
+  live,
+  onEdit,
+}: {
+  s: Snapshot;
+  own: QueuedEntry[];
+  photos: PendingLogbookPhoto[];
+  live: boolean;
+  onEdit: (entry: QueuedEntry) => void;
+}) {
+  return (
+    <ListCard className="rec-list-card">
+      <SyncListHead s={s} count={own.length + photos.length} live={live} />
+      {own.map((q) => (
+        <QueuedEntryRow
+          key={q.operation.uuid}
+          s={s}
+          entry={q}
+          onEdit={() => onEdit(q)}
+        />
+      ))}
+      {photos.map((p) => (
+        <PendingPhotoRow key={p.key} s={s} photo={p} />
+      ))}
+      {!own.length && !photos.length && (
+        <EmptyState title="Everything is synchronized">
+          There are no pending entries for this account.
+        </EmptyState>
+      )}
+    </ListCard>
   );
 }
 
@@ -1427,13 +1461,12 @@ function PendingPhotoRow({
   s: Snapshot;
   photo: PendingLogbookPhoto;
 }) {
-  const { queue, syncing, discardPhoto } = useWorkspace();
-  const queued = queue.some((q) => q.operation.uuid === photo.linkedUuid);
-  const synced =
-    s.flights.some((f) => f.uuid === photo.linkedUuid) ||
-    (s.workOrders ?? []).some((w) => w.uuid === photo.linkedUuid);
-  const orphan = !queued && !synced;
+  const { queue } = useWorkspace();
+  const orphan = isOrphanPhoto(s, queue, photo);
   const record = photo.linkedKind === "flight" ? "flight" : "work order";
+  const registration =
+    s.aircraft.find((a) => a.uuid === photo.aircraftUuid)?.registration ??
+    photo.aircraftUuid;
   return (
     <div className="rec-entry">
       <ListRow
@@ -1441,10 +1474,7 @@ function PendingPhotoRow({
         tone={photo.error || orphan ? "danger" : "warn"}
         title={
           <>
-            Logbook photo ·{" "}
-            {s.aircraft.find((a) => a.uuid === photo.aircraftUuid)
-              ?.registration ?? photo.aircraftUuid}{" "}
-            · {programName(s, photo.programUuid)}
+            Logbook photo · {registration} · {programName(s, photo.programUuid)}
           </>
         }
         sub={`${photo.name} · for a ${record}`}
@@ -1455,35 +1485,64 @@ function PendingPhotoRow({
           </StatusPill>
         }
         action={
-          (photo.error || orphan) && (
-            <button
-              type="button"
-              className="button small"
-              disabled={syncing}
-              onClick={() => discardPhotoEntry(photo.key, discardPhoto)}
-            >
-              Discard photo
-            </button>
-          )
+          (photo.error || orphan) && <DiscardPhotoButton photoKey={photo.key} />
         }
       />
-      <div className="rec-entry-extra">
-        <PendingThumbnail photo={photo} />
-        {photo.error && (
-          <p role="alert" className="error">
-            {photo.error}
-          </p>
-        )}
-        {!photo.error && !orphan && (
-          <p>Uploads once its {record} has synced.</p>
-        )}
-        {orphan && (
-          <p>
-            Its {record} is not on this device or the server, so the photo
-            cannot be filed.
-          </p>
-        )}
-      </div>
+      <PendingPhotoNotes photo={photo} orphan={orphan} record={record} />
+    </div>
+  );
+}
+
+function isOrphanPhoto(
+  s: Snapshot,
+  queue: QueuedEntry[],
+  photo: PendingLogbookPhoto,
+) {
+  const queued = queue.some((q) => q.operation.uuid === photo.linkedUuid);
+  const synced =
+    s.flights.some((f) => f.uuid === photo.linkedUuid) ||
+    (s.workOrders ?? []).some((w) => w.uuid === photo.linkedUuid);
+  return !queued && !synced;
+}
+
+function DiscardPhotoButton({ photoKey }: { photoKey: string }) {
+  const { syncing, discardPhoto } = useWorkspace();
+  return (
+    <button
+      type="button"
+      className="button small"
+      disabled={syncing}
+      onClick={() => discardPhotoEntry(photoKey, discardPhoto)}
+    >
+      Discard photo
+    </button>
+  );
+}
+
+function PendingPhotoNotes({
+  photo,
+  orphan,
+  record,
+}: {
+  photo: PendingLogbookPhoto;
+  orphan: boolean;
+  record: string;
+}) {
+  return (
+    <div className="rec-entry-extra">
+      <PendingThumbnail photo={photo} />
+      {photo.error && (
+        <p role="alert" className="error">
+          {photo.error}
+        </p>
+      )}
+      {!photo.error && !orphan && <p>Uploads once its {record} has synced.</p>}
+      {orphan && (
+        <p>
+          Its {record} is not on this device or the server, so the photo cannot
+          be filed.
+        </p>
+      )}
     </div>
   );
 }
