@@ -315,3 +315,17 @@ it("records each save in the change log: counts, not the body, and the program",
   expect(s.audit.slice(0, 2)).toEqual([entry(library), entry(saved)]);
   expect(s.audit[0]).not.toHaveProperty("before");
 });
+
+it("refuses to move a set off an aircraft the user may not edit, and changes nothing", () => {
+  const s = memberOf(["flight"]);
+  s.groups[0].aircraftIds = [s.aircraft[1].uuid];
+  const stored = { ...record(), version: 1 };
+  s.checklists = [stored];
+  const auditBefore = s.audit.length;
+  const moved = { ...stored, aircraftUuid: s.aircraft[1].uuid };
+  expect(() => saveChecklist(s, { record: moved, baseVersion: 1 })).toThrow(
+    "Checklist editing permission denied.",
+  );
+  expect(s.checklists).toEqual([stored]);
+  expect(s.audit).toHaveLength(auditBefore);
+});
