@@ -19,6 +19,7 @@ const OVERRIDE_REASON = "Maintenance ferry approved by the director.";
 const AD_NUMBER = "2026-01-01";
 const WORK_ORDER_NUMBER = "WO-STALE-1";
 const PARTS_DELAY = "Awaiting replacement fitting";
+const DEFECT = "Left brake pedal soft on rollout";
 
 test("saving an inspection two people changed shows the differences and keeps mine", async ({
   context,
@@ -193,6 +194,7 @@ test("a failed entry can be edited and retried from the Sync center", async ({
   await page.getByRole("button", { name: "Log a flight", exact: true }).click();
   await page.getByLabel("Ending Hobbs *", { exact: true }).fill("2342.2");
   await page.getByLabel("Flight date & time").fill("2026-01-01T10:00");
+  await page.getByLabel("Discrepancy", { exact: true }).fill(DEFECT);
   await page.getByRole("button", { name: "Save flight", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await context.setOffline(false);
@@ -210,6 +212,9 @@ test("a failed entry can be edited and retried from the Sync center", async ({
   await expect(retry.getByLabel("Ending Hobbs *", { exact: true })).toHaveValue(
     "2342.2",
   );
+  await expect(retry.getByLabel("Discrepancy", { exact: true })).toHaveValue(
+    DEFECT,
+  );
   await retry
     .getByLabel("Administrator dispatch override reason")
     .fill(OVERRIDE_REASON);
@@ -221,6 +226,9 @@ test("a failed entry can be edited and retried from the Sync center", async ({
   await expect(
     page.getByRole("cell", { name: "accepted", exact: true }),
   ).toHaveCount(1);
+  // The retried flight filed the pilot's defect as an open report.
+  await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
+  await expect(page.getByText(DEFECT)).toBeVisible();
 });
 
 async function openDemo(page: Page) {

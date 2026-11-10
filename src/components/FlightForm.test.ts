@@ -98,6 +98,16 @@ it("omits engine start fields for non-turbine aircraft", () => {
   expect(html).not.toContain("-start-egt");
 });
 
+it("prefills the discrepancy a failed entry carried on Edit and retry", () => {
+  const html = form({
+    prefill: { discrepancy: "Left brake pedal soft on rollout" },
+    replaces: crypto.randomUUID(),
+  });
+  expect(html).toMatch(
+    /<textarea name="discrepancy"[^>]*>Left brake pedal soft on rollout<\/textarea>/,
+  );
+});
+
 it("retains the plan link when ending a restored session without the plan object", async () => {
   const planUuid = crypto.randomUUID();
   renderToStaticMarkup(
