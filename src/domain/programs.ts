@@ -29,7 +29,10 @@ import { Rejection } from "./rejection";
 // Inventory records are administrator data: they hold costs, vendors and
 // invoices.
 const INVENTORY_KINDS: readonly string[] = ["stock", "location", "vendor"];
-const INVENTORY_AUDIT_ACTION = /^(stock|location|vendor|inventory)\./;
+// Change-log rows that hold administrator data whatever aircraft they are
+// tagged with: inventory records, and expiring dates (insurance and
+// registration rows name their aircraft and carry the label and the note).
+const ADMIN_AUDIT_ACTION = /^(stock|location|vendor|inventory|expiring-date)\./;
 
 type CostRecord = NonNullable<Snapshot["costs"]>[number];
 type PurchaseOrder = NonNullable<Snapshot["purchaseOrders"]>[number];
@@ -409,10 +412,10 @@ function buildAuditFilter(
 ): (a: AuditEntry) => boolean {
   const { active, admin, ids } = scope;
   const entities = collectVisibleEntities(s, scope);
-  // Older change-log rows about inventory records hold the full record. Rows
-  // are never rewritten (ADR-0005), so hide them from everyone without
-  // program-admin permission, even when they carry an aircraft tag. The
-  // action prefix covers rows whose record is not loaded.
+  // Change-log rows about inventory records and expiring dates hold the full
+  // record. Rows are never rewritten (ADR-0005), so hide them from everyone
+  // without program-admin permission, even when they carry an aircraft tag.
+  // The action prefix covers rows whose record is not loaded.
   const inventoryRecords = new Set(
     (s.management ?? [])
       .filter((r) => INVENTORY_KINDS.includes(r.kind))
@@ -421,8 +424,7 @@ function buildAuditFilter(
   return (a) => {
     if (
       !admin &&
-      (inventoryRecords.has(a.entityUuid) ||
-        INVENTORY_AUDIT_ACTION.test(a.action))
+      (inventoryRecords.has(a.entityUuid) || ADMIN_AUDIT_ACTION.test(a.action))
     )
       return false;
     // A row's program tag records where it was written, not who may read it:

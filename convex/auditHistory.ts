@@ -4,9 +4,10 @@
  *   period of it for Flight Program administrators.
  * Layer: Server. Two public queries; they read only entries the snapshot's
  *   visibility rules let the caller see.
- * Dependencies: convex/programContext, src/domain (programs, auditHistory,
- *   auditSummary, model, and the management, partsRequests, purchaseOrders,
- *   checklists and inspectionTemplates schemas).
+ * Dependencies: convex/programContext, convex/collections, src/domain
+ *   (programs, auditHistory, auditSummary, model, and the management,
+ *   partsRequests, purchaseOrders, checklists and inspectionTemplates
+ *   schemas).
  */
 import { ConvexError, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
@@ -20,8 +21,11 @@ import {
   componentTemplateDocs,
   componentSetupDocs,
   inspectionTemplateDocs,
+  costDocs,
+  expiringItemDocs,
   transferredAuditDocs,
 } from "./programContext";
+import { decode } from "./collections";
 import {
   activeProgram,
   auditVisible,
@@ -174,6 +178,11 @@ async function visibility(ctx: QueryCtx, programUuid?: string) {
       inspectionTemplates: parse(
         await inspectionTemplateDocs(ctx, program),
         inspectionTemplateSchema,
+      ),
+      costs: decode("costs", await costDocs(ctx, program, state.aircraft)),
+      expiringItems: decode(
+        "expiringItems",
+        await expiringItemDocs(ctx, program, state.user.isAdmin),
       ),
     }),
   };
