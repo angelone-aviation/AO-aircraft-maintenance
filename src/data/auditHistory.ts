@@ -62,9 +62,7 @@ function useAuditPages(
   entityUuid?: string,
   aircraftUuid?: string,
 ) {
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [isDone, setDone] = useState(false);
+  const [pages, setPages] = useState<LoadedPages>(NO_PAGES);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const request = useRef(0);
@@ -82,27 +80,43 @@ function useAuditPages(
           numItems: AUDIT_PAGE_SIZE,
         });
         if (id !== request.current) return;
-        setEntries((current) =>
-          from === null ? result.page : [...current, ...result.page],
-        );
-        setCursor(result.continueCursor);
-        setDone(result.isDone);
+        setPages((current) => appendPage(current, from, result));
       } catch (e) {
         if (id !== request.current) return;
         // The server refuses a record without visible entries as it refuses
         // an unknown id (so neither is revealed); a record the user holds
         // open with no entries yet is simply empty.
-        if (from === null && entityUuid && isNotFound(e)) {
-          setEntries([]);
-          setDone(true);
-        } else setError(describeLoadError(e));
+        if (from === null && entityUuid && isNotFound(e))
+          setPages((current) => ({ ...current, entries: [], isDone: true }));
+        else setError(describeLoadError(e));
       } finally {
         if (id === request.current) setLoading(false);
       }
     },
     [backend, entityUuid, aircraftUuid],
   );
-  return { entries, cursor, isDone, loading, error, load };
+  return { ...pages, loading, error, load };
+}
+
+interface LoadedPages {
+  entries: AuditEntry[];
+  cursor: string | null;
+  isDone: boolean;
+}
+
+const NO_PAGES: LoadedPages = { entries: [], cursor: null, isDone: false };
+
+// The first page (no cursor) replaces what was loaded; later pages append.
+function appendPage(
+  current: LoadedPages,
+  from: string | null,
+  result: Awaited<ReturnType<Backend["auditPage"]>>,
+): LoadedPages {
+  return {
+    entries: from === null ? result.page : [...current.entries, ...result.page],
+    cursor: result.continueCursor,
+    isDone: result.isDone,
+  };
 }
 
 function isNotFound(e: unknown): boolean {
