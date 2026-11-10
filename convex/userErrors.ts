@@ -24,6 +24,7 @@ import { validationText } from "../src/domain/validationText";
  *   Any other error passes through unchanged, so production keeps it hidden.
  */
 export function exposeRejections<T>(work: Promise<T>): Promise<T>;
+/** Runs `work` now; a promise it returns has its refusal shown the same way. */
 export function exposeRejections<T>(work: () => T): T;
 export function exposeRejections<T>(work: Promise<T> | (() => T)) {
   try {

@@ -134,6 +134,7 @@ export async function runCommand<C, W, R, Out = void>(
   ctx: MutationCtx,
   command: Command<C, W, R, Out> & { request?: undefined },
 ): Promise<Out>;
+/** A command with a request id resolves to undefined when it is a replay. */
 export async function runCommand<C, W, R, Out = void>(
   ctx: MutationCtx,
   command: Command<C, W, R, Out>,
