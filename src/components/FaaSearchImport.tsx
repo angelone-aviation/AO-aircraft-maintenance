@@ -50,7 +50,7 @@ const DATE_RANGE = [
 type SearchRow = FaaSearchInput["assets"][number];
 // Candidate id → ids of the assets ("" for the airframe) to receive the AD.
 type Selection = Record<string, string[]>;
-type FaaSearch = ReturnType<typeof useFaaSearch>;
+type FaaSearch = Omit<ReturnType<typeof useFaaSearch>, "alertRef">;
 type SearchProps = { search: FaaSearch };
 type AssetProps = SearchProps & { asset: SearchAsset };
 type RowProps = {
@@ -105,7 +105,8 @@ export function FaaSearchImport({ aircraftUuid }: { aircraftUuid: string }) {
 
 function FaaSearchDialog(props: DialogProps) {
   const { snapshot, demo } = useWorkspace();
-  const search = useFaaSearch(props);
+  // The error ref stays out of `search`, so render code never reads a ref.
+  const { alertRef, ...search } = useFaaSearch(props);
   const aircraft = snapshot!.aircraft.find(
     (a) => a.uuid === props.aircraftUuid,
   );
@@ -125,7 +126,7 @@ function FaaSearchDialog(props: DialogProps) {
           FAA.
         </p>
       )}
-      <SearchForm search={search} />
+      <SearchForm search={search} alertRef={alertRef} />
       {search.results && (
         <SearchResults search={search} results={search.results} />
       )}
@@ -197,7 +198,10 @@ function useTask() {
   return { busy, error, setError, run, alertRef };
 }
 
-function SearchForm({ search }: SearchProps) {
+function SearchForm({
+  search,
+  alertRef,
+}: SearchProps & { alertRef: ReturnType<typeof useFaaSearch>["alertRef"] }) {
   const { busy, form } = search;
   return (
     <form
@@ -211,7 +215,7 @@ function SearchForm({ search }: SearchProps) {
       <DocumentFilters search={search} />
       <AdvancedFilters search={search} />
       {search.error && (
-        <p ref={search.alertRef} role="alert">
+        <p ref={alertRef} role="alert">
           {search.error}
         </p>
       )}

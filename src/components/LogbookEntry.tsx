@@ -35,7 +35,7 @@ const CREDENTIAL_LINE = /^Certificate \/ license:.*$/m;
 type Drafts = Partial<Record<LogbookTemplate, string>>;
 type Entry = ReturnType<typeof useLogbookEntry>;
 type Signer = ReturnType<typeof useSigner>;
-type Status = ReturnType<typeof useActionStatus>;
+type Status = Omit<ReturnType<typeof useActionStatus>, "alertRef">;
 type ActionsProps = {
   entry: Entry;
   status: Status;
@@ -93,7 +93,8 @@ function LogbookEntry({
   const { snapshot } = useWorkspace();
   const user = snapshot!.user;
   const entry = useLogbookEntry(order);
-  const status = useActionStatus();
+  // The error ref stays out of `status`, so render code never reads a ref.
+  const { alertRef, ...status } = useActionStatus();
   return (
     <>
       <EntryIntro order={order} />
@@ -110,7 +111,7 @@ function LogbookEntry({
           onChange={(e) => entry.setBody(e.target.value)}
         />
       </Field>
-      <StatusMessages status={status} />
+      <StatusMessages status={status} alertRef={alertRef} />
       <EntryActions
         entry={entry}
         status={status}
@@ -234,11 +235,17 @@ function useActionStatus() {
   return { message, error, busy, run, alertRef };
 }
 
-function StatusMessages({ status }: { status: Status }) {
+function StatusMessages({
+  status,
+  alertRef,
+}: {
+  status: Status;
+  alertRef: ReturnType<typeof useActionStatus>["alertRef"];
+}) {
   return (
     <>
       {status.error && (
-        <p ref={status.alertRef} role="alert" className="error">
+        <p ref={alertRef} role="alert" className="error">
           {status.error}
         </p>
       )}
