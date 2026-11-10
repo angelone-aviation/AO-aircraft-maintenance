@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins configure-auth.mjs's promises: existing signing and
- *   encryption keys are kept, a failed read stops it before any key is made,
- *   and no key is printed.
+ *   encryption keys and an existing site address are kept, a failed read
+ *   stops it before anything is made or changed, and no key is printed.
  * Layer: Test. Runs the script against a fake `npx convex` first on PATH.
  * Dependencies: vitest, scripts/configure-auth.mjs.
  *
@@ -22,6 +22,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const SCRIPT = path.resolve(__dirname, "configure-auth.mjs");
 const SITE_URL = "https://ops.example.org";
+const SITE_URL_NAME = "SITE_URL";
+const LOCAL_SITE_URL = "http://localhost:5173";
+const NO_SITE_URL_IN_SHELL = "";
 const SIGNING_KEY = "JWT_PRIVATE_KEY";
 const ENCRYPTION_KEY = "CREDENTIALS_ENCRYPTION_KEY";
 const NETWORK_FAILURE = "fetch failed: network unreachable";
@@ -121,6 +124,64 @@ describe("configure-auth.mjs", () => {
     expect(run.output).not.toContain(encryptionKey);
   });
 
+  it("keeps an existing site address when SITE_URL is not in the shell", () => {
+    const run = runScript(
+      {
+        stored: [SIGNING_KEY, ENCRYPTION_KEY, SITE_URL_NAME],
+        value: SITE_URL,
+      },
+      NO_SITE_URL_IN_SHELL,
+    );
+
+    expect(run.status).toBe(0);
+    expect(run.calls).toEqual([
+      `env get ${SIGNING_KEY}`,
+      `env get ${ENCRYPTION_KEY}`,
+      `env get ${SITE_URL_NAME}`,
+    ]);
+    expect(run.output).toContain(`Existing site URL kept: ${SITE_URL}.`);
+    expect(run.output).not.toContain(LOCAL_SITE_URL);
+  });
+
+  it("replaces an existing site address when SITE_URL is given", () => {
+    const run = runScript({
+      stored: [SIGNING_KEY, ENCRYPTION_KEY, SITE_URL_NAME],
+      value: "https://old.example.org",
+    });
+
+    expect(run.status).toBe(0);
+    expect(stored(SITE_URL_NAME)).toBe(SITE_URL);
+    expect(run.output).toContain(`Site URL set to ${SITE_URL}.`);
+  });
+
+  it("sets the local default only when no site address is stored", () => {
+    const run = runScript(
+      { stored: [SIGNING_KEY, ENCRYPTION_KEY] },
+      NO_SITE_URL_IN_SHELL,
+    );
+
+    expect(run.status).toBe(0);
+    expect(run.calls.slice(-2)).toEqual([
+      `env get ${SITE_URL_NAME}`,
+      `env set ${SITE_URL_NAME}`,
+    ]);
+    expect(stored(SITE_URL_NAME)).toBe(LOCAL_SITE_URL);
+    expect(run.output).toContain(
+      `Site URL set to ${LOCAL_SITE_URL}, the local default.`,
+    );
+  });
+
+  it("stops without setting a site address when the stored one cannot be read", () => {
+    const run = runScript(
+      { stored: [SIGNING_KEY, ENCRYPTION_KEY], failGet: SITE_URL_NAME },
+      NO_SITE_URL_IN_SHELL,
+    );
+
+    expect(run.status).toBe(1);
+    expect(run.calls).not.toContain(`env set ${SITE_URL_NAME}`);
+    expect(run.output).toContain(NETWORK_FAILURE);
+  });
+
   it("characterizes current behaviour: a stored value of null counts as unset", () => {
     const run = runScript({
       stored: [SIGNING_KEY, ENCRYPTION_KEY],
@@ -141,7 +202,7 @@ const CALLS_WHEN_UNSET = [
   "env set SITE_URL",
 ];
 
-function runScript(deployment: Deployment) {
+function runScript(deployment: Deployment, siteUrlInShell = SITE_URL) {
   const result = spawnSync(process.execPath, [SCRIPT], {
     encoding: "utf8",
     env: {
@@ -151,7 +212,7 @@ function runScript(deployment: Deployment) {
       FAKE_STORED: (deployment.stored ?? []).join(" "),
       FAKE_FAIL_GET: deployment.failGet ?? "",
       FAKE_VALUE: deployment.value ?? "",
-      SITE_URL,
+      SITE_URL: siteUrlInShell,
     },
   });
   return {

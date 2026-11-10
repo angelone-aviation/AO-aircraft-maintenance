@@ -39,3 +39,13 @@ dist-peer-testing/
 /reviews/
 /.local/
 /tests/fixtures/CompReport_N626KB.docx
+
+# Backup restore and key-change work files (docs/runbooks/backup-restore.md):
+# the age private key, the decrypted production environment variables and the
+# copies downloaded from the bucket. The decrypted export is a /*.zip above.
+/key.txt
+/*-key.txt
+/env.txt
+/angelone-env-*.txt
+/*.age
+/*.manifest.json

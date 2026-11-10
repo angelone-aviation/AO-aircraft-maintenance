@@ -1,6 +1,6 @@
 # Release, rollback and website hosting
 
-The website is a static build served by **Cloudflare Workers Static Assets** (no Worker script); the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
+The website is a static build served by **Cloudflare Workers Static Assets** (no Worker script); the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
 
 ## What runs where
 
@@ -15,16 +15,18 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 
 **CI** runs `npm ci`, `npm run check`, the backup job's tests (`npm run test:backup`) and the Playwright suite. The browser tests serve the production build with the production headers (`scripts/serve-dist.mjs` applies `public/_headers` the way Cloudflare does) and fail on any Content-Security-Policy violation. On failure, the run keeps the Playwright report and traces as the `playwright-report` artifact for 14 days.
 
-**Security gates** are two more CI jobs that run alongside it; like every CI job, either one failing also holds back Deploy. **Dependency audit (production)** runs `npm audit --omit=dev --audit-level=high` on `package-lock.json`. When it fails, upgrade the named package in its own change, never with `npm audit fix --force`. **Secret scan (gitleaks)** scans every branch and tag, full history, with gitleaks 8.30.1. Its version and SHA-256 are pinned in `ci.yml`, and Dependabot does not raise them. When it fails, treat the secret as leaked: rotate it first, then remove it from the code. History keeps the old value, so once it no longer works, add its `Fingerprint` (from `gitleaks git --redact -v .`) to `.gitleaksignore` with a `#` line giving the date and reason. Made-up test values go in `.gitleaks.toml`, matched by exact value and path.
+**Security gates** are two more CI jobs that run alongside it; like every CI job, either one failing also holds back Deploy, whether it starts by itself or by hand. **Dependency audit (production)** runs `npm audit --omit=dev --audit-level=high` on `package-lock.json`. When it fails, upgrade the named package in its own change, never with `npm audit fix --force`. **Secret scan (gitleaks)** scans every branch and tag, full history, with gitleaks 8.30.1. Its version and SHA-256 are pinned in `ci.yml`, and Dependabot does not raise them. When it fails, treat the secret as leaked: rotate it first, then remove it from the code. History keeps the old value, so once it no longer works, add its `Fingerprint` (from `gitleaks git --redact -v .`) to `.gitleaksignore` with a `#` line giving the date and reason. Made-up test values go in `.gitleaks.toml`, matched by exact value and path.
 
 **Deploy** (manual runs refuse unless you confirm a backup; auto runs follow a green CI push):
 
-1. runs `npm run check`;
-2. checks `CONVEX_DEPLOY_KEY` is a production key;
-3. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It stops before the push if the build fails, if the Convex URL or the Sentry DSN's host is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`), or if the build left a source map in `dist/` ([monitoring](monitoring.md));
-4. checks the build points at that Convex URL;
-5. publishes `dist/` with `npx wrangler@4.151.3 deploy`, tagging the Cloudflare version with the commit;
-6. if `PRODUCTION_URL` is set, confirms that Cloudflare version tag is active, then checks the live site headers when the runner is not blocked by Cloudflare bot/WAF (a public HTTP 403 from GitHub Actions is treated as a warning once the tag is live).
+1. stops unless its commit is the newest commit on `main`. Deploy only moves production forward: re-running an old CI or Deploy run, or approving a queued run after a newer commit landed, deploys nothing and ends red with "is not the newest commit on main". When two merges land close together, the older one's run ends that way and the newer one's run releases both changes;
+2. on a manual run, stops unless CI passed for that commit (a CI run for the push to `main`, finished green). The only way past is the [emergency override](#emergency-deploy-without-green-ci);
+3. runs `npm run check`;
+4. checks `CONVEX_DEPLOY_KEY` is a production key;
+5. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It stops before the push if the build fails, if the Convex URL or the Sentry DSN's host is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`), or if the build left a source map in `dist/` ([monitoring](monitoring.md));
+6. checks the build points at that Convex URL;
+7. publishes `dist/` with `npx wrangler@4.151.3 deploy`, tagging the Cloudflare version with the commit;
+8. if `PRODUCTION_URL` is set, confirms that Cloudflare version tag is active, then checks the live site headers when the runner is not blocked by Cloudflare bot/WAF (a public HTTP 403 from GitHub Actions is treated as a warning once the tag is live).
 
 The backend goes live a few seconds before the website, so Convex functions must keep working for the previous website version (and for installed apps that have not reloaded yet).
 
@@ -79,27 +81,29 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
 
 ## Release
 
-Before you start:
+Merging a pull request into `main` is the release: CI runs on the merge commit, and when it is green Deploy starts by itself, without asking about a backup. So do this **before you merge**:
 
-- [ ] CI is green on the `main` commit you are releasing.
+- [ ] CI is green on the pull request.
 - [ ] You read what changed. Schema changes must accept the documents already stored (widen, migrate, then tighten in a later release); otherwise the Convex push fails.
 - [ ] You took a Convex backup (dashboard → Backups → **Backup now**, including file storage) and saved the environment variables ([backup and restore](backup-restore.md)).
 
-Then: GitHub → Actions → **Deploy** → **Run workflow** → branch `main`, tick the backup box → **Run workflow**. Approve it if reviewers are required. The run summary shows the commit, the Convex URL and the Cloudflare version tag.
+Then merge and watch **CI** and **Deploy** under Actions. The Deploy run summary shows the commit, the Convex URL and the Cloudflare version tag.
+
+**By hand** (to publish again after a website rollback, after changing a GitHub variable such as `VITE_SENTRY_DSN`, or when an automatic run failed for a reason outside the code): take the backup as above, then GitHub → Actions → **Deploy** → **Run workflow** → branch `main`, tick the backup box, leave the emergency box unticked → **Run workflow**. Approve it if reviewers are required. A manual run releases the newest commit on `main` and refuses while CI for that commit is red or still running.
+
+### Emergency deploy without green CI
+
+The manual run has a second box: **EMERGENCY ONLY: deploy although CI has not passed for this commit** (`deploy_without_green_ci`). Ticking it skips one check, the green CI run. It is for one case: production is broken, the fix is on `main`, and CI cannot go green for a reason unrelated to the fix (GitHub cannot run the browser tests, or the dependency audit fails on an advisory published that day).
+
+- Everything else still applies: `main` only, the newest commit only, the backup box, `npm run check` inside the Deploy run, the Content-Security-Policy and source-map checks, and the smoke check.
+- What is skipped: the browser tests, the backup job's tests, the dependency audit and the secret scan. Read the red CI run first and be sure which job failed and why. Never use it past a failed secret scan.
+- The run prints a warning "Emergency override" in its log. Afterwards get CI green on `main` and note in the pull request or issue why the override was used.
 
 ### After every deploy
 
-Run the one-off commands from the README [Deployment](../../README.md#deployment) section against production. Each is safe to rerun and does nothing once complete:
+There is nothing to run on production after a deploy. It started empty on 2026-11-03, so the README's [one-off steps for deployments with older data](../../README.md#one-off-steps-for-deployments-with-older-data) (`memberships:backfill`) do not apply to it. If a later release needs a one-off command, it will be listed in that README section and named in the pull request; run it with the deploy key in the shell only (`read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY`, then `unset CONVEX_DEPLOY_KEY`).
 
-```sh
-read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY
-npx convex run memberships:backfill
-unset CONVEX_DEPLOY_KEY
-```
-
-Check the README for commands added since this list was written.
-
-Then check the live site:
+Check the live site:
 
 - [ ] Sign in, open the aircraft list, a work order and an uploaded attachment.
 - [ ] Reload a deep link such as `/work-orders`.
@@ -118,13 +122,13 @@ npx wrangler@4.151.3 deployments list
 npx wrangler@4.151.3 rollback <version-id> --message "Reason"
 ```
 
-It takes effect at once. Installed apps see it as an update: the update prompt appears and **Reload** loads the older version. A rollback changes only the website, never Convex, so the older website must still work with the current functions (it normally does, because functions stay compatible with older clients). Run the Deploy workflow again from `main` to go forward.
+It takes effect at once. Installed apps see it as an update: the update prompt appears and **Reload** loads the older version. A rollback changes only the website, never Convex, so the older website must still work with the current functions (it normally does, because functions stay compatible with older clients). To go forward again, run the Deploy workflow by hand from `main`: it publishes the newest commit, whose CI is already green.
 
 Rare edge case: a browser that asked for a script of the old version while it was missing (after a deploy, before the rollback) may have cached the app shell under that script's address and show a broken screen after the rollback. Clearing the site's data in that browser fixes it.
 
 ### Backend: no rollback, fix forward
 
-Convex has no rollback command. To undo a backend change, revert the commit on `main` (pull request, CI) and run **Deploy** again. If the reverted schema no longer matches documents the newer code wrote, the push fails; write a forward fix instead. If data was damaged, restore from a backup as described in [backup and restore](backup-restore.md#real-restore-production). A restore replaces everything written since the backup and must be recorded in the change log by hand.
+Convex has no rollback command, and Deploy cannot be used as one: it refuses any commit that is not the newest on `main`, so re-running an older Deploy or CI run changes nothing. To undo a backend change, revert the commit on `main` with a pull request; when CI is green on the revert, Deploy releases it by itself. If the reverted schema no longer matches documents the newer code wrote, the push fails; write a forward fix instead. If data was damaged, restore from a backup as described in [backup and restore](backup-restore.md#real-restore-production). A restore replaces everything written since the backup and must be recorded in the change log by hand.
 
 Roll the website back first when the problem is in the screens; fix the backend forward when the problem is in the data or functions.
 

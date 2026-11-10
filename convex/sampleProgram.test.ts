@@ -84,8 +84,13 @@ it("creates linked sample records once, without changing real aircraft or admini
     const aircraft = await ctx.db.query("aircraft").collect();
     for (const f of await ctx.db.query("flights").collect()) {
       const a = aircraft.find((a) => a.uuid === f.aircraftUuid)!;
-      expect(a.currentHobbs).toBe(f.hobbsOff);
-      expect(f.hobbsOn).toBe(a.baselineHobbs);
+      // `*Off` is where the flight started and `*On` where it ended
+      // (src/domain/model.ts, Flight).
+      expect(f.hobbsOff).toBe(a.baselineHobbs);
+      expect(f.hobbsOn).toBe(a.currentHobbs);
+      expect(f.tachOff).toBe(a.baselineTach);
+      expect(f.tachOn).toBe(a.currentTach);
+      expect(f.hobbsOn).toBeGreaterThan(f.hobbsOff!);
     }
     const cards = await ctx.db.query("taskCards").collect();
     const orders = await ctx.db.query("workOrders").collect();

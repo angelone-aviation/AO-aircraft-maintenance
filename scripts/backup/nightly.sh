@@ -9,11 +9,13 @@
 # Runbook: docs/runbooks/backup-restore.md. Tests: npm run test:backup.
 
 # Steps:
-#   a. `npx convex export --include-file-storage`, checked with `unzip -t`;
+#   a. `npx convex export --include-file-storage`, checked: a valid ZIP that
+#      includes file storage and at least one user account;
 #   b. encrypted with age to BACKUP_AGE_PUBLIC_KEY;
 #   c. uploaded to R2 under daily/YYYY/MM/DD/ with a manifest, then checked;
 #   d. also uploaded to monthly/YYYY-MM/ when that month has no copy yet;
-#   e. environment variables, encrypted, uploaded to env/ when they changed;
+#   e. environment variables, encrypted, uploaded to env/ when they or the
+#      backup key changed;
 #   f. recorded in the app with `npx convex run backups:recordOffsiteCopy`;
 #   g. turned into the records workbook and uploaded to Dropbox, when set up.
 #
@@ -208,6 +210,15 @@ while IFS= read -r entry; do
 done < <(grep -E '^[A-Za-z0-9_./-]+/documents\.jsonl$' "$work/entries.txt" | LC_ALL=C sort || true)
 app_documents=$(awk -F '\t' '$1 !~ /^_/ { n += $2 } END { print n + 0 }' "$work/tables.tsv")
 ((app_documents > 0)) || fail "The export has no documents in any table; refusing to store it as a backup."
+# A copy that cannot bring back the uploaded files or any account is not a
+# backup. Convex writes _storage/documents.jsonl whenever file storage is
+# included, even with no files, so its absence means the files were left out;
+# and with no user nobody could sign in after a restore. Nothing compares the
+# table counts with earlier nights.
+grep -qxF '_storage/documents.jsonl' "$work/entries.txt" ||
+  fail "The export has no file storage (_storage/documents.jsonl is missing); refusing to store it as a backup."
+user_accounts=$(awk -F '\t' '$1 == "users" { n = $2 } END { print n + 0 }' "$work/tables.tsv")
+((user_accounts > 0)) || fail "The export has no user accounts (users table); refusing to store it as a backup."
 tables_json=$(jq -R -n '[inputs | split("\t") | {key: .[0], value: (.[1] | tonumber)}] | from_entries' <"$work/tables.tsv")
 
 # ---------------------------------------------------------------------------
@@ -270,13 +281,17 @@ if ((monthly_count == 0)); then
 fi
 
 # ---------------------------------------------------------------------------
-# e. Environment variables, only when they changed. The fingerprint lives in
-# state/, which is not locked; env/ is locked forever.
+# e. Environment variables, only when they or the backup key changed. The
+# fingerprint lives in state/, which is not locked; env/ is locked forever.
 
 env_file="$work/env.txt"
 convex env list --include-values >"$env_file" || fail "npx convex env list failed."
 [[ -s "$env_file" ]] || fail "npx convex env list returned no variables."
-env_fingerprint=$(sha256_of "$env_file")
+# The fingerprint covers the recipient too. After the backup key changes, the
+# newest env/ copy must open with the new key even when no variable changed:
+# the old private key may be the one that was lost.
+env_fingerprint=$(printf '%s\n' "$recipient" | cat - "$env_file" | sha256sum)
+env_fingerprint=${env_fingerprint%% *}
 previous_fingerprint=""
 fingerprint_size=$(object_size "$fingerprint_key")
 if [[ -n "$fingerprint_size" ]]; then
@@ -285,7 +300,7 @@ if [[ -n "$fingerprint_size" ]]; then
   previous_fingerprint=$(tr -d '[:space:]' <"$work/previous-fingerprint.txt")
 fi
 if [[ "$previous_fingerprint" == "$env_fingerprint" ]]; then
-  echo "Environment variables are unchanged since the last copy; not uploaded."
+  echo "Environment variables and the backup key are unchanged since the last copy; not uploaded."
   rm -f -- "$env_file"
 else
   age -r "$recipient" -o "$work/env.txt.age" "$env_file" || fail "age could not encrypt the environment variables."
@@ -298,13 +313,15 @@ fi
 
 # ---------------------------------------------------------------------------
 # f. Record the copy in the app (Settings > System and the 36-hour warning).
+# bytes and sha256 describe the encrypted object, the one a person can check
+# in the bucket; the manifest also holds the plaintext ZIP's.
 
 completed_at=$(($(date -u +%s) * 1000))
 record=$(jq -cn \
   --argjson completedAt "$completed_at" \
   --arg objectKey "$daily_key" \
   --argjson bytes "$enc_bytes" \
-  --arg sha256 "$plain_sha" \
+  --arg sha256 "$enc_sha" \
   --arg monthlyKey "$monthly_key" \
   --argjson envUploaded "$env_uploaded" \
   '{completedAt: $completedAt, objectKey: $objectKey, bytes: $bytes, sha256: $sha256}

@@ -6,13 +6,14 @@ The remaining work before Angel One is used for real records. Decisions are reco
 
 - [x] Code moved to the organization repository `angelone-aviation/AO-aircraft-maintenance`.
 - [x] Convex plan: Pro, **one** member, the technical owner ([ADR-0010](adr/0010-one-convex-administrator.md)).
-- [x] Hosting: the website will run on **Cloudflare**; the backend stays on Convex.
+- [x] Hosting: the website runs on **Cloudflare** (`ops.angeloneaviation.org`); the backend stays on Convex.
 - [x] New Convex Pro account created.
 - [x] Old production deployment retired (2026-11-03): deleted, with nothing migrated. It held only test data and still ran the auth library with the critical flaw (security review S1). Production starts fresh on the new Convex Pro account. Still to do if not done yet: remove the old site files from A2 Hosting and revoke any API keys only the old deployment used.
 - [ ] Accounts inventory: fill in [`docs/runbooks/accounts.md`](runbooks/accounts.md) after connecting the new Convex account.
 - [ ] Backups: the nightly backup job is built; finish the setup below.
-- [ ] Release process: CI checks, preview deployments, Cloudflare hosting with security headers, rollback, dependency updates.
-  - [ ] Set up Cloudflare, the Convex deploy key and the GitHub `production` environment, then make the first release, following the [release runbook](runbooks/release.md). CI, the security headers, the manual Deploy workflow, rollback steps and Dependabot are already in the repository; preview deployments are not built yet.
+- [x] Release process: CI checks, Cloudflare hosting with security headers, the Deploy workflow (it starts after a green CI push to `main`, or by hand), rollback steps and Dependabot updates are in the repository and in use ([release runbook](runbooks/release.md)).
+  - [x] Cloudflare, the Convex deploy key and the GitHub `production` environment are set up, and the first release was made on 2026-11-03.
+  - [ ] Preview deployments per change are not built yet ([release runbook](runbooks/release.md#not-set-up-yet)).
 - [ ] Error monitoring: service, alerts and who receives them.
 - [ ] Ownership and runbooks: technical owner, plus onboarding, release and incident-response runbooks.
   - [ ] Fill in the names and places left blank in [incident response](runbooks/incident-response.md) (including who reads accounts@angeloneonline.org, the [`SECURITY.md`](../SECURITY.md) contact) and [break-glass administrator access](runbooks/break-glass-admin.md), and set up the break-glass account.
@@ -22,7 +23,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [x] Architecture cleanups: one command transaction on the server, one flight-submission module.
 - [ ] Google and Microsoft sign-in (built): create the Google Cloud sign-in client and the Microsoft Entra app registration, set their environment variables on production and test each with a real account ([accounts runbook](runbooks/accounts.md#google-and-microsoft-sign-in)).
 - [ ] Replace the placeholder aircraft drawing (`public/branding/cessna-oblique.svg`, see `public/branding/SOURCE.txt`).
-- [ ] Deploy (fresh deployment: run the **First-time setup** workflow, then **Deploy**, following [First-time setup (no terminal)](runbooks/release.md#first-time-setup-no-terminal); the README's one-off data-repair commands are not needed on a fresh deployment).
+- [x] Deploy: the fresh production deployment was set up and first deployed on 2026-11-03 ([First-time setup (no terminal)](runbooks/release.md#first-time-setup-no-terminal)), and every green CI push to `main` has deployed since. The README's one-off data-repair commands are not needed on a fresh deployment.
 - [ ] Upload the reference manuals to the app's Reference library (optimize large PDFs first).
   - [ ] On each hangar tablet and phone, add the app to the Home Screen, use **Keep on this device** for the manuals that crew needs, and confirm they open in airplane mode.
 - [ ] Acceptance testing on real phones and tablets (iOS 16.4 or Chrome 111 and newer), real aircraft data checked against logbooks, and training.

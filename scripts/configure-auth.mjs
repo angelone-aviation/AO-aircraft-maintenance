@@ -6,7 +6,8 @@
  *
  * Safe to repeat: a key that exists is kept, because replacing it would void
  * issued sign-in tokens or make saved credentials unreadable. So a failed read
- * stops the run instead of counting as unset.
+ * stops the run instead of counting as unset. A SITE_URL that exists is kept
+ * too, unless SITE_URL is in the shell.
  */
 import { generateKeyPair, exportPKCS8, exportJWK } from "jose";
 import { spawnSync } from "node:child_process";
@@ -15,13 +16,13 @@ import { randomBytes } from "node:crypto";
 // convex/secrets.ts refuses a credential key of any other length.
 const AES_256_KEY_BYTES = 32;
 
+// Vite's development server (`npm run dev`).
+const LOCAL_SITE_URL = "http://localhost:5173";
+
 await ensureSigningKeys();
 ensureEncryptionKey();
-convex(
-  ["env", "set", "SITE_URL"],
-  process.env.SITE_URL || "http://localhost:5173",
-);
-console.log("Site URL configured. No signing secrets were printed.");
+ensureSiteUrl();
+console.log("No signing secrets were printed.");
 
 async function ensureSigningKeys() {
   if (isSet("JWT_PRIVATE_KEY")) {
@@ -53,11 +54,35 @@ function ensureEncryptionKey() {
   console.log("Credential encryption key configured.");
 }
 
-// For an unset variable the CLI writes nothing to stdout and exits 0; a
-// non-zero exit means the read itself failed, and convex() throws.
+// SITE_URL from the shell always wins. Without it, an address already on the
+// deployment stays: a rerun against production must not swap its address for
+// the local default, which breaks sign-in redirects and the links in emails.
+function ensureSiteUrl() {
+  const requested = process.env.SITE_URL;
+  const existing = requested ? "" : readVariable("SITE_URL");
+  if (existing) {
+    console.log(
+      `Existing site URL kept: ${existing}. To change it, run again with SITE_URL=<address>.`,
+    );
+    return;
+  }
+  convex(["env", "set", "SITE_URL"], requested || LOCAL_SITE_URL);
+  console.log(
+    requested
+      ? `Site URL set to ${requested}.`
+      : `Site URL set to ${LOCAL_SITE_URL}, the local default. For any other site, run again with SITE_URL=<address>.`,
+  );
+}
+
 function isSet(name) {
+  return readVariable(name) !== "";
+}
+
+// Returns "" for an unset variable: the CLI then writes nothing to stdout and
+// exits 0. A non-zero exit means the read itself failed, and convex() throws.
+function readVariable(name) {
   const value = convex(["env", "get", name]).trim();
-  return value !== "" && value !== "null";
+  return value === "null" ? "" : value;
 }
 
 // Values go over stdin, never in arguments, which other processes can read.

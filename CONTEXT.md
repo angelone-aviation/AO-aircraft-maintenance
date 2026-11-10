@@ -32,7 +32,7 @@ flowchart LR
   end
   subgraph GH["GitHub Actions (.github/workflows)"]
     CI["ci.yml: standards, check,<br/>backup tests, e2e"]
-    Deploy["deploy.yml (manual)"]
+    Deploy["deploy.yml: after green CI<br/>on main, or by hand"]
     Nightly["backup.yml 08:41 UTC"]
   end
   R2[("Cloudflare R2<br/>age-encrypted exports")]
@@ -49,6 +49,7 @@ flowchart LR
   Fns --> Spruce
   Fns --> Resend
   Fns --> Push
+  CI -->|green push to main| Deploy
   Deploy -->|convex deploy| Convex
   Deploy -->|wrangler deploy| Static
   Nightly -->|convex export| Convex
@@ -73,7 +74,7 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | `convex/_generated` | Generated | Convex codegen (`api`, `dataModel`) | Be edited by hand |
 | `scripts` | Script | Setup (`configure-auth.mjs`, `bootstrap-admin.mjs`), local smoke test, `serve-dist.mjs`, CSP check, icons; nightly backup and records workbook (`scripts/backup/`) | Print secrets; import `src/data` except test fixtures |
 | `tests`, `*.test.ts` | Test | Playwright specs (`tests/e2e`) and fixtures; vitest and convex-test suites beside the code they test | Ship in the build |
-| `.github` | Tooling | CI, manual deploy, nightly backup, Dependabot | Deploy from CI; hold secrets outside the `production` and `backups` environments |
+| `.github` | Tooling | CI; Deploy, which a green CI push to `main` starts, or a person by hand; first-time setup; nightly backup; Dependabot | Deploy from `ci.yml` (it holds no secrets; `deploy.yml` releases); release a commit that is not the newest on `main`; hold secrets outside the `production` and `backups` environments |
 | `.claude` | Tooling | Standards hooks and settings (owner-only, do not edit); vendored skills (`npx skills update` only) | Be edited by agents |
 | `docs` | Docs | Feature behaviour, ADRs, runbooks, architecture report, research | Contradict an accepted ADR without a new one |
 
@@ -230,7 +231,7 @@ The 34 terms you meet first. Full definitions and words to avoid: [GLOSSARY.md](
 | Add a screen | Lazy route in `src/App.tsx`, navigation in `src/components/AppShell.tsx`, styles in `src/styles/screens/`. |
 | Add an integration key | Seal it with `convex/secrets.ts`, read it in an internal function, use it in an action; see [credential key runbook](docs/runbooks/credentials-key.md). |
 | Change backups or the workbook | `scripts/backup/nightly.sh`, `scripts/backup/recordsWorkbook.ts`, `.github/workflows/backup.yml`; run `npm run test:backup`. |
-| Release or roll back | `.github/workflows/deploy.yml`, [release runbook](docs/runbooks/release.md), README "Deployment" for post-deploy commands. |
+| Release or roll back | `.github/workflows/deploy.yml`, [release runbook](docs/runbooks/release.md), README "Deployment" for one-off steps on deployments with older data. |
 
 ## 8. Conventions and checks
 

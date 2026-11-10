@@ -39,6 +39,9 @@ env_secrets=(fake-jwt-private-key-body-91c2 fake-jwks-value-3e7f fake-credential
 
 age-keygen -o "$tmp/key.txt" 2>/dev/null
 public_key=$(age-keygen -y "$tmp/key.txt")
+# The key the operator changes to ("Changing the backup key" in the runbook).
+age-keygen -o "$tmp/new-key.txt" 2>/dev/null
+new_public_key=$(age-keygen -y "$tmp/new-key.txt")
 
 write_env() { # write_env <credentials key value>
   cat >"$tmp/env.txt" <<EOF
@@ -78,14 +81,21 @@ case "$1" in
       fail) echo "Error: export failed (fake)" >&2; exit 1 ;;
       corrupt) echo "not a zip file" >"$path" ;;
       *)
+        # A real export lists every table, empty ones too, and holds
+        # _storage/documents.jsonl whenever file storage was asked for.
+        mode=${FAKE_EXPORT:-ok}
         src=$(mktemp -d)
         echo "# Convex snapshot (fake)" >"$src/README.md"
-        mkdir -p "$src/_storage"
-        printf '{"_id":"kg2storage%s","sha256":"x","size":5}\n' "$RANDOM" >"$src/_storage/documents.jsonl"
-        printf 'hello' >"$src/_storage/kg2storage"
-        if [[ "${FAKE_EXPORT:-ok}" == ok ]]; then
+        if [[ "$mode" != no-storage ]]; then
+          mkdir -p "$src/_storage"
+          printf '{"_id":"kg2storage%s","sha256":"x","size":5}\n' "$RANDOM" >"$src/_storage/documents.jsonl"
+          printf 'hello' >"$src/_storage/kg2storage"
+        fi
+        if [[ "$mode" != empty ]]; then
           mkdir -p "$src/users" "$src/aircraft"
-          printf '{"_id":"u1","name":"Pilot %s"}\n{"_id":"u2","name":"Mechanic"}\n' "$RANDOM" >"$src/users/documents.jsonl"
+          : >"$src/users/documents.jsonl"
+          [[ "$mode" == no-users ]] ||
+            printf '{"_id":"u1","name":"Pilot %s"}\n{"_id":"u2","name":"Mechanic"}\n' "$RANDOM" >"$src/users/documents.jsonl"
           printf '{"_id":"a1","tail":"N1"}\n{"_id":"a2","tail":"N2"}\n{"_id":"a3","tail":"N3"}\n' >"$src/aircraft/documents.jsonl"
           echo '{"type":"object"}' >"$src/users/generated_schema.jsonl"
         fi
@@ -269,6 +279,8 @@ exited_failed() { [[ "$status" != 0 ]]; }
 output_says() { grep -qF -- "$1" "$out"; }
 nothing_recorded() { [[ "$(records)" == 0 ]]; }
 decrypts_to() { age -d -i "$tmp/key.txt" "$1" | cmp -s - "$2"; }
+opens_with_new_key() { age -d -i "$tmp/new-key.txt" "$1" 2>/dev/null | cmp -s - "$2"; }
+stored_fingerprint() { tr -d '[:space:]' <"$(bucket_dir)/state/env-fingerprint.txt"; }
 sha_of() { sha256sum "$1" | cut -d ' ' -f 1; }
 jq_true() { jq -e "$@" >/dev/null; }
 
@@ -307,13 +319,14 @@ daily_file="$(bucket_dir)/$daily_key"
 check "daily object exists" test -f "$daily_file"
 check "recorded bytes equal the encrypted object's size" test "$(jq .bytes <<<"$rec")" = "$(wc -c <"$daily_file" | tr -d ' ')"
 check "daily object decrypts to a byte-identical copy of the export" decrypts_to "$daily_file" "$state/last-export.zip"
-check "recorded sha256 is the plaintext ZIP's" test "$(jq -r .sha256 <<<"$rec")" = "$(sha_of "$state/last-export.zip")"
+check "recorded sha256 is the encrypted object's, as backups:recordOffsiteCopy documents" \
+  test "$(jq -r .sha256 <<<"$rec")" = "$(sha_of "$daily_file")"
 check "monthly copy is the same encrypted file" cmp -s "$daily_file" "$(bucket_dir)/$monthly_key"
 manifest="${daily_file%.zip.age}.manifest.json"
 check "manifest sits beside the daily object" test -f "$manifest"
 check "manifest sits beside the monthly object" test -f "$(bucket_dir)/${monthly_key%.zip.age}.manifest.json"
 check "manifest records hashes, sizes, commit, CLI version and table counts" jq_true \
-  --arg sha "$(jq -r .sha256 <<<"$rec")" --argjson bytes "$(jq .bytes <<<"$rec")" \
+  --arg sha "$(sha_of "$state/last-export.zip")" --argjson bytes "$(jq .bytes <<<"$rec")" \
   --argjson plainBytes "$(wc -c <"$state/last-export.zip" | tr -d ' ')" --arg encSha "$(sha_of "$daily_file")" '
     .plaintext.sha256 == $sha and .plaintext.bytes == $plainBytes
     and .encrypted.sha256 == $encSha and .encrypted.bytes == $bytes
@@ -323,8 +336,9 @@ check "manifest records hashes, sizes, commit, CLI version and table counts" jq_
 check "exactly one env/ object, named by the run's time" test "$(object_count '^env/angelone-env-[0-9]{8}T[0-9]{6}Z\.txt\.age$')" = 1
 env_object="$(bucket_dir)/$(objects | grep '^env/')"
 check "env/ object decrypts to the environment variables" decrypts_to "$env_object" "$tmp/env.txt"
+first_fingerprint=$(stored_fingerprint)
 check "fingerprint stored in state/, outside the locked prefixes" \
-  test "$(tr -d '[:space:]' <"$(bucket_dir)/state/env-fingerprint.txt")" = "$(sha_of "$tmp/env.txt")"
+  grep -qE '^[0-9a-f]{64}$' <<<"$first_fingerprint"
 check "every stored .age object is encrypted" bash -c \
   'for f in "$1"/daily/*/*/*/*.age "$1"/monthly/*/*.age "$1"/env/*.age; do [[ "$(head -c 21 "$f")" == age-encryption.org/v1 ]] || exit 1; done' _ "$(bucket_dir)"
 check "no plaintext left after exit" no_plaintext_left first
@@ -367,9 +381,28 @@ check "record says envUploaded true" record_matches_contract "$rec" no true
 check "a second env/ object" test "$(object_count '^env/')" = 2
 newest_env="$(bucket_dir)/$(objects | grep '^env/' | tail -n 1)"
 check "the newest env/ object holds the new values" decrypts_to "$newest_env" "$tmp/env.txt"
-check "fingerprint updated" \
-  test "$(tr -d '[:space:]' <"$(bucket_dir)/state/env-fingerprint.txt")" = "$(sha_of "$tmp/env.txt")"
+third_fingerprint=$(stored_fingerprint)
+check "fingerprint updated" test "$third_fingerprint" != "$first_fingerprint"
 check "no secret in the output" no_secrets_in "$out" "$tmp/summary-third.md"
+
+echo "# fourth night, the backup key changed and no variable did"
+run_backup fourth BACKUP_AGE_PUBLIC_KEY="$new_public_key"
+check "exits 0" exited_ok
+rec=$(last_record)
+check "record says envUploaded true" record_matches_contract "$rec" no true
+check "a third env/ object" test "$(object_count '^env/')" = 3
+newest_env="$(bucket_dir)/$(objects | grep '^env/' | tail -n 1)"
+check "the new key opens the newest env/ object" opens_with_new_key "$newest_env" "$tmp/env.txt"
+check "the new key opens the night's export" \
+  opens_with_new_key "$(bucket_dir)/$(jq -r .objectKey <<<"$rec")" "$state/last-export.zip"
+check "fingerprint updated" test "$(stored_fingerprint)" != "$third_fingerprint"
+check "no secret in the output" no_secrets_in "$out" "$tmp/summary-fourth.md"
+
+echo "# fifth night, same new key, same environment"
+run_backup fifth BACKUP_AGE_PUBLIC_KEY="$new_public_key"
+check "exits 0" exited_ok
+check "record says envUploaded false" record_matches_contract "$(last_record)" no false
+check "environment not uploaded again" test "$(object_count '^env/')" = 3
 
 echo "# monthly copy when only an earlier month has one"
 fresh_bucket earlier-month
@@ -413,6 +446,13 @@ failure_case export-corrupt "export that is not a ZIP" FAKE_EXPORT=corrupt
 check "export that is not a ZIP: nothing uploaded" test -z "$(objects)"
 failure_case export-empty "export with no table documents" FAKE_EXPORT=empty
 check "export with no table documents: says so" output_says "no documents"
+check "export with no table documents: nothing uploaded" test -z "$(objects)"
+failure_case export-no-storage "export without file storage" FAKE_EXPORT=no-storage
+check "export without file storage: says so" output_says "no file storage"
+check "export without file storage: nothing uploaded" test -z "$(objects)"
+failure_case export-no-users "export with no user accounts" FAKE_EXPORT=no-users
+check "export with no user accounts: says so" output_says "no user accounts"
+check "export with no user accounts: nothing uploaded" test -z "$(objects)"
 failure_case upload-fails "failed upload" FAKE_FAIL_PUT='^daily/.*\.zip\.age$'
 failure_case upload-short "object smaller than the file after upload" FAKE_TRUNCATE_PUT='^daily/.*\.zip\.age$'
 check "object smaller than the file after upload: says so" output_says "after upload"

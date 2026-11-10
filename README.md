@@ -190,7 +190,7 @@ npm run setup:auth
 npm run setup:admin
 ```
 
-- `setup:auth` generates signing keys on the selected deployment without printing them, preserves an existing key, and sets `SITE_URL` (default `http://localhost:5173`; override with the `SITE_URL` environment variable).
+- `setup:auth` generates signing keys on the selected deployment without printing them and preserves an existing key. It sets `SITE_URL` to the `SITE_URL` environment variable when you give one; without it, an address already on the deployment is kept, and a deployment that has none gets `http://localhost:5173`. It prints which of these it did.
 - It also creates `CREDENTIALS_ENCRYPTION_KEY` (32 random bytes, base64) if the deployment has none. That key encrypts saved Aircraft Spruce, FAA and Geoapify credentials with AES-GCM; saving those credentials fails until it is set. To set it by hand: `openssl rand -base64 32 | npx convex env set CREDENTIALS_ENCRYPTION_KEY`. Never change or delete it in place on a deployment with saved credentials, or administrators must re-enter them; to rotate it, follow [the credential key runbook](docs/runbooks/credentials-key.md). Unencrypted values are refused.
 - `setup:admin` prompts for name, email, and a hidden password (15–128 characters, not a common password). It passes the password to the deployment through a temporary `BOOTSTRAP_ADMIN_PASSWORD` environment variable (over stdin, never in process arguments) and removes it afterward. It only works with an empty user database and invokes an internal function, never a public signup endpoint. Keep credentials private.
 
@@ -200,14 +200,15 @@ npm run setup:admin
 
 Some settings are set on the Convex deployment, not in the app's **Settings** page.
 
-| Setting                                                                                          | What it turns on                                                  | More                                                                             |
-| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `SITE_URL`                                                                                       | Sign-in redirects and the links in emails                         | Set by `npm run setup:auth`                                                      |
-| `CREDENTIALS_ENCRYPTION_KEY`                                                                     | Encryption of saved Aircraft Spruce, FAA and Geoapify credentials | [Credential key runbook](docs/runbooks/credentials-key.md)                       |
-| `RESEND_API_KEY`, `RESEND_FROM`                                                                  | The daily alert digest and urgent alert emails                    | [Alerts](docs/alerts.md)                                                         |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`                                         | Urgent alerts on devices (Web Push)                               | [Monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) |
-| `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`                                                           | The Google sign-in button                                         | [Accounts runbook](docs/runbooks/accounts.md#google-and-microsoft-sign-in)       |
-| `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | The Microsoft sign-in button                                      | [Accounts runbook](docs/runbooks/accounts.md#google-and-microsoft-sign-in)       |
+| Setting                                                                                          | What it turns on                                                                                                                                                       | More                                                                             |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `SITE_URL`                                                                                       | Sign-in redirects and the links in emails                                                                                                                              | Set by `npm run setup:auth`                                                      |
+| `CREDENTIALS_ENCRYPTION_KEY`                                                                     | Encryption of saved Aircraft Spruce, FAA and Geoapify credentials                                                                                                      | [Credential key runbook](docs/runbooks/credentials-key.md)                       |
+| `RESEND_API_KEY`, `RESEND_FROM`                                                                  | The daily alert digest and urgent alert emails                                                                                                                         | [Alerts](docs/alerts.md)                                                         |
+| `RECORDS_TIME_ZONE`                                                                              | The calendar day that alerts use, as an IANA zone name such as `America/Chicago`; the default is `America/New_York`. Set this if the program is not on US Eastern time | [Monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`                                         | Urgent alerts on devices (Web Push)                                                                                                                                    | [Monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) |
+| `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`                                                           | The Google sign-in button                                                                                                                                              | [Accounts runbook](docs/runbooks/accounts.md#google-and-microsoft-sign-in)       |
+| `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | The Microsoft sign-in button                                                                                                                                           | [Accounts runbook](docs/runbooks/accounts.md#google-and-microsoft-sign-in)       |
 
 Each sign-in button appears only when all of its provider's variables are set. In the app, **Settings → System** holds the FAA and Geoapify keys and data backups; **Settings → Flight Program** holds each program's details, labor rate and Aircraft Spruce account.
 
@@ -284,12 +285,12 @@ _Departure: how a change reaches the hangar._
 
 The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.jsonc`, with the security headers in `public/_headers`) and the backend on Convex.
 
-| Step                   | What happens                                                                                                                                             |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                |
-| CI finishes green      | **Deploy** starts by itself: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare |
-| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken                                                                |
-| Every night, 08:41 UTC | **Nightly backup** copies production off-site: encrypted, to Cloudflare R2, plus an optional readable Excel workbook in Dropbox                          |
+| Step                   | What happens                                                                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                                                              |
+| CI finishes green      | **Deploy** starts by itself, if that commit is still the newest on `main`: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare |
+| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                      |
+| Every night, 08:41 UTC | **Nightly backup** copies production off-site: encrypted, to Cloudflare R2, plus an optional readable Excel workbook in Dropbox                                                                        |
 
 - First-time setup (Cloudflare account and API token, domain, Convex deploy key, GitHub secrets and the `production` environment), releasing and rollback are in the [release runbook](docs/runbooks/release.md).
 - Without a terminal, set up a new, empty production deployment with the manual **First-time setup** workflow, once, before the first Deploy: see [First-time setup (no terminal)](docs/runbooks/release.md#first-time-setup-no-terminal).
