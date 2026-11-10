@@ -49,3 +49,5 @@ dist-peer-testing/
 /angelone-env-*.txt
 /*.age
 /*.manifest.json
+docs/qa/bug-hunt-2026-11-10/repro/
+docs/qa/bug-hunt-2026-11-10/repro-adjusted/
