@@ -26,9 +26,13 @@ async function addDate(
   section: "#program" | "#system",
   fields: { label: string; kind: string; expiresOn: string },
 ) {
+  const add =
+    section === "#program"
+      ? "Add program expiring date"
+      : "Add deployment expiring date";
   await page
     .locator(section)
-    .getByRole("button", { name: "Add expiring date", exact: true })
+    .getByRole("button", { name: add, exact: true })
     .click();
   const dialog = page.getByRole("dialog", { name: "Add expiring date" });
   await dialog.getByLabel("What expires").fill(fields.label);
@@ -47,7 +51,7 @@ test("expiring dates are recorded per Flight Program and system-wide, alert unde
   const program = page.locator("#program");
   const system = page.locator("#system");
   await expect(
-    program.getByRole("heading", { level: 3, name: "Expiring dates" }),
+    program.getByRole("heading", { level: 3, name: "Program expiring dates" }),
   ).toBeVisible();
   await expect(program.getByText("No expiring dates recorded.")).toBeVisible();
 
@@ -110,6 +114,9 @@ test("the demo offers no device alerts, since no push service can reach it", asy
 }) => {
   await openSettings(page);
   await expect(page.getByText("Alert this device")).toHaveCount(0);
+  await expect(
+    page.getByText("Not available in the demo: no alerts leave this browser."),
+  ).toBeVisible();
   await expect(
     page.getByRole("switch", { name: "Email me urgent alerts at once" }),
   ).toBeVisible();

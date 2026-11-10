@@ -69,20 +69,24 @@ export function MemberAvatar({
 
 /**
  * A card with an h3 title, optional text, and one download button per CSV
- * table, named "Download <table>.csv".
+ * table, named "Download <file>.csv".
  *
  * @param props.tables - Table names, in button order.
+ * @param props.fileNames - The file name shown for a table; the table name
+ *   when absent.
  * @param props.onDownload - Called with the table whose button was pressed.
  */
 export function CsvExportCard({
   title,
   children,
   tables,
+  fileNames = {},
   onDownload,
 }: {
   title: string;
   children?: ReactNode;
   tables: readonly string[];
+  fileNames?: Partial<Record<string, string>>;
   onDownload: (table: string) => void;
 }) {
   const titleId = useId();
@@ -96,17 +100,20 @@ export function CsvExportCard({
       </div>
       {children && <p className="adm-card-text">{children}</p>}
       <div className="adm-chips">
-        {tables.map((table) => (
-          <button
-            type="button"
-            className="adm-chip"
-            key={table}
-            aria-label={`Download ${table}.csv`}
-            onClick={() => onDownload(table)}
-          >
-            {table}.csv
-          </button>
-        ))}
+        {tables.map((table) => {
+          const file = `${fileNames[table] ?? table}.csv`;
+          return (
+            <button
+              type="button"
+              className="adm-chip"
+              key={table}
+              aria-label={`Download ${file}`}
+              onClick={() => onDownload(table)}
+            >
+              {file}
+            </button>
+          );
+        })}
       </div>
     </section>
   );
@@ -183,7 +190,7 @@ function AdministrationHeader({ roster, enabled, dialogs }: ScreenProps) {
         <>
           <Link className="button adm-secondary" to="/settings" hash="program">
             <Buildings size={18} aria-hidden="true" />
-            Edit Flight Program settings
+            Flight Program settings
           </Link>
           <button
             className="button primary adm-primary"
@@ -438,7 +445,8 @@ function EditButton({ enabled, onClick, children }: ButtonProps) {
 function SettingsMovedNotice() {
   return (
     <NoticeBar icon={GearSix} className="adm-moved rise">
-      Program details, labor rate and exports are in Settings → Flight Program.{" "}
+      Program details, labor rate, expiring dates, Aircraft Spruce account and
+      exports: Settings → Flight Program.{" "}
       <Link to="/settings" hash="program">
         Open Flight Program settings
       </Link>

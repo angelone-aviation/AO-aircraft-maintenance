@@ -782,6 +782,9 @@ table.mx-table {
 .mx-alerts {
   max-width: 860px;
 }
+.mx-alerts-settings {
+  margin: 0 0 16px;
+}
 .mx-alert-group {
   margin-bottom: 20px;
   padding: 10px 26px;

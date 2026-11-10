@@ -292,7 +292,7 @@ function PasswordMethod({ administered }: { administered: boolean }) {
         <small>
           {administered
             ? "Reset by a system administrator."
-            : "Set by your administrator. Ask them to reset it."}
+            : "Set by a system administrator. Ask one to reset it."}
         </small>
       </span>
     </li>

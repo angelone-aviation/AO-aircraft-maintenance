@@ -187,6 +187,21 @@ export const setEmailPreference = mutation({
 });
 
 /**
+ * Whether this deployment can send alert email, so Settings shows the email
+ * switches only where they do something. Reveals configuration only.
+ *
+ * @returns True once RESEND_API_KEY and RESEND_FROM are both set.
+ * @throws As `currentUser`.
+ */
+export const emailEnabled = query({
+  args: {},
+  handler: async (ctx) => {
+    await currentUser(ctx);
+    return mailerSettings() !== undefined;
+  },
+});
+
+/**
  * Every scope the digest and the daily urgent check cover: each Flight
  * Program, then {@link SYSTEM_SCOPE}.
  *

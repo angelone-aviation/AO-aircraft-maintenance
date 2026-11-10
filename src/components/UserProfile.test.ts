@@ -86,13 +86,14 @@ describe("account fields", () => {
     expect(html).toMatch(/> Save user<\/button>/);
   });
 
-  it("gives the signed-in user read-only name and email and alert emails", () => {
+  it("gives the signed-in user read-only name and email, and leaves alert email to Settings", () => {
     const html = render(snapshot.user, true);
     expect(html).toMatch(/readOnly=""[^>]*name="name"/);
     expect(html).toMatch(/type="email" required="" readOnly=""/);
     expect(html).not.toContain('name="admin"');
     expect(html).not.toContain("Flight Program access");
-    expect(html).toContain('name="emailAlerts"');
+    expect(html).not.toContain('name="emailAlerts"');
+    expect(html).toContain("Alert email is chosen under Settings → Alerts.");
     expect(html).toMatch(/> Save certifications<\/button>/);
   });
 });
@@ -141,12 +142,11 @@ describe("saving", () => {
     expect(calls[0][1]).toHaveProperty("certifications", undefined);
   });
 
-  it("changes the signed-in user's alert emails only when the box changed", async () => {
-    snapshot.user = { ...snapshot.user, emailAlerts: false };
+  it("never changes the signed-in user's alert emails from this form", async () => {
+    snapshot.user = { ...snapshot.user, emailAlerts: true };
     render(snapshot.user, true);
     await submit({});
-    expect(calls).toEqual([["done"]]);
     await submit({ emailAlerts: "on" });
-    expect(calls).toContainEqual(["setAlertEmails", true]);
+    expect(calls).toEqual([["done"], ["done"]]);
   });
 });

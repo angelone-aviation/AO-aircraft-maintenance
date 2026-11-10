@@ -5,7 +5,7 @@
  *   records.
  * Dependencies: react, src/data/store.ts, src/data/adReport.ts (on demand),
  *   src/domain/model.ts, src/domain/ownerDue.ts, src/domain/ownerView.ts,
- *   ./AircraftFiles, ./AircraftStatus, ./ExportAircraftStatus, ./ui.
+ *   ./AircraftFiles, ./AircraftStatus, ./ExportAircraftStatus, ./design, ./ui.
  */
 import { useState } from "react";
 import { useWorkspace, previewDemoOwner } from "../data/store";
@@ -21,7 +21,8 @@ import { ownerPortalAircraft } from "../domain/ownerView";
 import { AircraftStatusSummary } from "./AircraftStatus";
 import { ExportAircraftStatus } from "./ExportAircraftStatus";
 import { AircraftForm337 } from "./AircraftFiles";
-import { Badge, Empty, PageTitle, errorText } from "./ui";
+import { Empty, PageTitle, errorText } from "./ui";
+import { StatusPill } from "./design";
 
 const RECENT_WORK_ORDERS = 5;
 const DUE_BADGES = {
@@ -143,9 +144,9 @@ function NextDue({ items }: { items: DueItem[] }) {
                 {i.kind} · {i.remaining}
               </small>
             </div>
-            <Badge tone={DUE_BADGES[i.status].tone}>
+            <StatusPill tone={DUE_BADGES[i.status].tone}>
               {DUE_BADGES[i.status].label}
-            </Badge>
+            </StatusPill>
           </div>
         ))
       ) : (
@@ -170,7 +171,7 @@ function OpenDiscrepancies({ state, aircraft }: AircraftProps) {
             <div className="grow">
               <strong>{d.description}</strong>
             </div>
-            <Badge tone="warning">Open</Badge>
+            <StatusPill tone="warning">Open</StatusPill>
           </div>
         ))
       ) : (

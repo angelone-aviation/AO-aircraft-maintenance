@@ -215,6 +215,31 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Alert email switches: one per line, so each label reads with its own
+   switch. */
+.set-switches {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
+/* Deployment status (System): a feature name and its pill per row */
+.set-status-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.set-status-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  font-size: 15px;
+}
+
 /* Off-site backups status line (System) */
 .set-backup-status {
   display: flex;

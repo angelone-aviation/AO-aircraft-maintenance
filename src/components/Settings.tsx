@@ -1,24 +1,26 @@
 /**
  * Responsibility: The Settings page: how the app behaves, in the My account,
- *   This device, Flight Program and System sections.
+ *   Alerts, This device, Flight Program and System sections.
  * Layer: UI. React components; Administration (Admin.tsx) decides who can do
  *   what.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
- *   src/data (store, deviceManuals, pendingEntries), src/domain (alerts,
- *   certifications, costs, csv, model, offsiteBackups, pilotView, programs),
- *   the panels it embeds (./AddressVerificationSettings, ./AircraftSpruce,
- *   ./DemoBackup, ./DeviceAlerts, ./ExpiringDates, ./FaaKeySettings, ./Fleet,
- *   ./ProgramUsers, ./SignInMethods, ./UserProfile), ./design, ./ui,
+ *   src/data (store, pendingEntries), src/domain (alerts, certifications,
+ *   costs, memberRole, model, programs, signInMethods, taskCards), the panels
+ *   it embeds (./AddressVerificationSettings, ./AircraftSpruce, ./DemoBackup,
+ *   ./DeviceAlerts, ./ExpiringDates, ./FaaKeySettings, ./Fleet,
+ *   ./SettingsExtracts, ./SettingsSystem, ./SignInMethods, ./UserProfile),
+ *   ./SettingsBlock, ./useDeploymentFeatures, ./design, ./ui,
  *   src/styles/screens/settings.css.
  *
- * Every signed-in user except the owner view reaches this page; each section
- * repeats the permission check of the screen its panels came from, so moving
- * a panel here never changes who can use it:
- *   My account, This device — everyone;
+ * Every signed-in user except the owner and board views reaches this page;
+ * each section repeats the permission check of the screen its panels came
+ * from, so moving a panel here never changes who can use it:
+ *   My account, Alerts, This device — everyone;
  *   Flight Program — Flight Program administrators (and system
  *     administrators, for whom programPermission(…, "admin") is true);
  *   System — system administrators only.
- * Sections are deep-linkable: /settings#account, #device, #program, #system.
+ * Sections are deep-linkable: /settings#account, #alerts, #device, #program,
+ * #system.
  */
 import {
   useEffect,
@@ -31,6 +33,8 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   ArrowRight,
   ArrowsClockwise,
+  Bell,
+  Books,
   Buildings,
   CloudCheck,
   DeviceMobile,
@@ -46,13 +50,17 @@ import {
   WifiSlash,
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
-import { formatBytes } from "../data/deviceManuals";
 import { ownEntries } from "../data/pendingEntries";
-import { localDate, type Snapshot } from "../domain/model";
+import { OFFLINE_WINDOW, type Snapshot } from "../domain/model";
 import { activeProgram, programPermission } from "../domain/programs";
-import { isPilotView } from "../domain/pilotView";
-import { wantsAlertEmails, wantsUrgentAlertEmails } from "../domain/alerts";
-import { offsiteFreshness, type OffsiteCopy } from "../domain/offsiteBackups";
+import { memberRoleLabel } from "../domain/memberRole";
+import {
+  ALERT_DIGEST_HOUR_UTC,
+  ALERT_KINDS_SUMMARY,
+  IMMEDIATE_EMAILS_PER_DAY,
+  wantsAlertEmails,
+  wantsUrgentAlertEmails,
+} from "../domain/alerts";
 import {
   certificationLabels,
   normalizeCertifications,
@@ -65,14 +73,14 @@ import {
   parseCents,
 } from "../domain/costs";
 import { CENTS_PER_DOLLAR } from "../domain/costs/units";
-import { toCsv } from "../domain/csv";
-import { AsyncForm, Field, download, errorText, safeHref, value } from "./ui";
+import { certificationsEffect } from "../domain/taskCards";
+import { signInMethodLabels } from "../domain/signInMethods";
+import { AsyncForm, Field, errorText, safeHref, value } from "./ui";
 import {
   IconTile,
   NoticeBar,
   PageHeader,
   Segmented,
-  StatusPill,
   Switch,
   useTheme,
   type IconType,
@@ -82,15 +90,21 @@ import { MyCertifications } from "./UserProfile";
 import { SignInMethodList } from "./SignInMethods";
 import { ProgramDialog } from "./Fleet";
 import { AircraftSpruceAccount } from "./AircraftSpruce";
-import { CsvExportCard } from "./ProgramUsers";
 import { FaaKeySettings } from "./FaaKeySettings";
 import { AddressVerificationSettings } from "./AddressVerificationSettings";
 import { DemoBackup } from "./DemoBackup";
 import { DeviceAlertsBlock } from "./DeviceAlerts";
 import { ExpiringDates } from "./ExpiringDates";
+import { ProgramExtract, SystemExtract } from "./SettingsExtracts";
+import { DeploymentStatus, OffsiteBackups } from "./SettingsSystem";
+import { Block, settingsDateTime } from "./SettingsBlock";
+import {
+  useDeploymentFeatures,
+  type DeploymentFeatures,
+} from "./useDeploymentFeatures";
 import "../styles/screens/settings.css";
 
-type SectionKey = "account" | "device" | "program" | "system";
+type SectionKey = "account" | "alerts" | "device" | "program" | "system";
 const SECTION_META: Record<
   SectionKey,
   { label: string; icon: IconType; description: string }
@@ -99,7 +113,13 @@ const SECTION_META: Record<
     label: "My account",
     icon: UserCircle,
     description:
-      "Who you are signed in as, how you sign in, your certifications and alerts.",
+      "Who you are signed in as, how you sign in and your certifications.",
+  },
+  alerts: {
+    label: "Alerts",
+    icon: Bell,
+    description:
+      "What reaches you under the bell, by email and on this device.",
   },
   device: {
     label: "This device",
@@ -110,46 +130,23 @@ const SECTION_META: Record<
     label: "Flight Program",
     icon: Buildings,
     description:
-      "Details, rates, supplier account and exports for the active Flight Program.",
+      "Details, labor rate, expiring dates, Aircraft Spruce account and exports for the active Flight Program.",
   },
   system: {
     label: "System",
     icon: HardDrives,
     description:
-      "Integration keys shared by every Flight Program, and full data backups.",
+      "What the deployment has turned on, integration keys shared by every Flight Program, the deployment's expiring dates and backups.",
   },
 };
-
-// Same columns and file names as the exports that used to sit on the
-// Flight Program administrator's Administration page and on Administration.
-const PROGRAM_TABLES = [
-  "aircraft",
-  "flights",
-  "discrepancies",
-  "inspections",
-  "inspectionTemplates",
-  "management",
-  "audit",
-] as const;
-const BACKUP_TABLES = [
-  "aircraft",
-  "programs",
-  "flights",
-  "discrepancies",
-  "inspections",
-  "inspectionTemplates",
-  "management",
-  "members",
-  "groups",
-  "audit",
-] as const;
-const CSV_TYPE = "text/csv;charset=utf-8";
+const MS_PER_DAY = 86_400_000;
+const OFFLINE_DAYS = OFFLINE_WINDOW / MS_PER_DAY;
 
 type Program = NonNullable<Snapshot["programs"]>[number];
 
 /**
- * The Settings page: section links, then My account and This device for
- * everyone, Flight Program for its administrators and System for system
+ * The Settings page: section links, then My account, Alerts and This device
+ * for everyone, Flight Program for its administrators and System for system
  * administrators. Opening /settings#<section> scrolls to that section.
  *
  * @returns The page; it needs a loaded snapshot.
@@ -157,6 +154,7 @@ type Program = NonNullable<Snapshot["programs"]>[number];
 export function Settings() {
   const s = useWorkspace((x) => x.snapshot)!;
   const hash = useRouterState({ select: (r) => r.location.hash });
+  const features = useDeploymentFeatures();
   const sections = visibleSections(s);
   // The router scrolls to a hash on navigation, but this screen loads on
   // demand, so a deep link (or a link from another screen) can arrive before
@@ -170,14 +168,15 @@ export function Settings() {
       <PageHeader
         eyebrow="SETTINGS"
         title="Settings"
-        description="Your account, this device and how your Flight Program works."
+        description="Your account, alerts and this device; for administrators, the Flight Program and the system."
       />
       <SectionLinks sections={sections} current={current} />
       <div className="set-sections">
-        <AccountSection />
+        <AccountSection signIn={features.signIn} />
+        <AlertsSection email={features.email} />
         <DeviceSection />
         {sections.includes("program") && <ProgramSection />}
-        {sections.includes("system") && <SystemSection />}
+        {sections.includes("system") && <SystemSection features={features} />}
       </div>
     </div>
   );
@@ -247,42 +246,17 @@ function Section({
   );
 }
 
-/** A titled group of controls inside a section. */
-function Block({
-  title,
-  description,
-  children,
-  className,
-}: {
-  title?: string;
-  description?: ReactNode;
-  children?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={"set-block" + (className ? " " + className : "")}>
-      {title && <h3>{title}</h3>}
-      {description && <p className="set-hint">{description}</p>}
-      {children}
-    </div>
-  );
-}
-
 /* ─────────────────────────── My account ─────────────────────────── */
 
-function AccountSection() {
+function AccountSection({ signIn }: { signIn?: string[] }) {
   const s = useWorkspace((x) => x.snapshot)!;
   return (
     <Section id="account" index={0}>
       <AccountFacts s={s} />
-      <Block
-        title="Sign-in methods"
-        description="Your password always works. A Google or Microsoft account whose verified email matches yours is linked the first time you sign in with it. For two-step verification, sign in with one that has it turned on."
-      >
+      <Block title="Sign-in methods" description={signInHint(signIn)}>
         <SignInMethodList />
       </Block>
       <CertificationsBlock s={s} />
-      <AlertEmailBlock s={s} />
     </Section>
   );
 }
@@ -309,7 +283,7 @@ function AccountFacts({ s }: { s: Snapshot }) {
         <div>
           <dt>Role</dt>
           <dd>
-            {roleOf(s)}
+            {memberRoleLabel(s)}
             {groups.length > 0 && (
               <small>
                 {groups.join(", ")}
@@ -320,7 +294,8 @@ function AccountFacts({ s }: { s: Snapshot }) {
         </div>
       </dl>
       <p className="set-hint">
-        Your name, email and access are set by an administrator.
+        Your name and email are set by a system administrator; your access by
+        your Flight Program administrator.
       </p>
     </Block>
   );
@@ -331,7 +306,7 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
   return (
     <Block
       title="Certifications"
-      description="Used on logbook entries you sign. Certifications do not change what you can do in Angel One."
+      description={`Printed on logbook entries you sign. ${certificationsEffect}`}
     >
       {certifications.length ? (
         <ul className="set-certs">
@@ -363,11 +338,49 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
   );
 }
 
-// The digest switch is the same preference, default and backend call as the
-// checkbox in My certifications (alerts.setEmailPreference); online only,
-// like there. The urgent switch defaults on for administrators and
-// maintenance members (wantsUrgentAlertEmails).
-function AlertEmailBlock({ s }: { s: Snapshot }) {
+/* ───────────────────────────── Alerts ───────────────────────────── */
+
+function AlertsSection({ email }: { email?: boolean }) {
+  return (
+    <Section id="alerts" index={1}>
+      <Block title="Under the bell" description={ALERT_KINDS_SUMMARY}>
+        <div className="set-actions">
+          <Link to="/alerts" className="button small">
+            Open Alerts
+            <ArrowRight size={15} aria-hidden="true" />
+          </Link>
+        </div>
+      </Block>
+      <AlertEmailBlock email={email} />
+      <DeviceAlertsBlock />
+    </Section>
+  );
+}
+
+// The only place alert email is chosen; online only. The urgent switch
+// defaults on for administrators and maintenance members
+// (wantsUrgentAlertEmails). A deployment without email shows why instead.
+function AlertEmailBlock({ email }: { email?: boolean }) {
+  return (
+    <Block
+      title="Alert email"
+      description={`Alerts always appear under the bell. Email can bring them to you too: new alerts for your Flight Program once a day at ${ALERT_DIGEST_HOUR_UTC}:00 UTC, and urgent ones (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) as soon as they arise. Urgent emails stop at ${IMMEDIATE_EMAILS_PER_DAY} a day for the whole deployment; past that they come in the next digest.`}
+    >
+      {email === false ? (
+        <p className="set-empty">
+          Email alerts are not turned on for this deployment. Alerts still
+          appear under the bell; a system administrator can ask whoever deploys
+          Angel One to set up email.
+        </p>
+      ) : (
+        <AlertEmailSwitches />
+      )}
+    </Block>
+  );
+}
+
+function AlertEmailSwitches() {
+  const s = useWorkspace((x) => x.snapshot)!;
   const { backend, online, connected } = useWorkspace();
   const live = online && connected;
   const digest = useEmailChoice(
@@ -379,24 +392,23 @@ function AlertEmailBlock({ s }: { s: Snapshot }) {
     (next) => backend!.setUrgentAlertEmails(next),
   );
   return (
-    <Block
-      title="Alert email"
-      description="Alerts always appear under the bell. Email can bring them to you too: new alerts for your Flight Program once a day, and urgent ones (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) as soon as they arise."
-    >
-      <Switch
-        name="emailAlerts"
-        label="Email me a daily alert digest"
-        checked={digest.checked}
-        disabled={!live || digest.saving}
-        onChange={digest.save}
-      />
-      <Switch
-        name="urgentAlertEmails"
-        label="Email me urgent alerts at once"
-        checked={urgent.checked}
-        disabled={!live || urgent.saving}
-        onChange={urgent.save}
-      />
+    <>
+      <div className="set-switches">
+        <Switch
+          name="emailAlerts"
+          label="Email me a daily alert digest"
+          checked={digest.checked}
+          disabled={!live || digest.saving}
+          onChange={digest.save}
+        />
+        <Switch
+          name="urgentAlertEmails"
+          label="Email me urgent alerts at once"
+          checked={urgent.checked}
+          disabled={!live || urgent.saving}
+          onChange={urgent.save}
+        />
+      </div>
       {!live && (
         <p className="set-hint set-offline">
           <WifiSlash size={16} aria-hidden="true" /> Reconnect to change alert
@@ -408,7 +420,7 @@ function AlertEmailBlock({ s }: { s: Snapshot }) {
           {error}
         </p>
       ))}
-    </Block>
+    </>
   );
 }
 
@@ -445,10 +457,9 @@ function DeviceSection() {
   const queue = useWorkspace((x) => x.queue);
   const pending = ownEntries(queue, s.user.id).length;
   return (
-    <Section id="device" index={1}>
+    <Section id="device" index={2}>
       <ThemeBlock />
-      <DeviceAlertsBlock />
-      <OfflineDataBlock syncedAt={s.syncedAt} pending={pending} />
+      <OfflineDataBlock s={s} pending={pending} />
       <Block className="set-block-note">
         <p className="set-note">
           <Info size={18} weight="duotone" aria-hidden="true" />
@@ -481,18 +492,18 @@ function ThemeBlock() {
   );
 }
 
-function OfflineDataBlock({
-  syncedAt,
-  pending,
-}: {
-  syncedAt: number;
-  pending: number;
-}) {
+function OfflineDataBlock({ s, pending }: { s: Snapshot; pending: number }) {
   return (
     <Block
       title="Offline data"
       description="Flights and discrepancies recorded without a connection wait on this device until they sync."
     >
+      <p className="set-hint">
+        Offline access on this device lasts until{" "}
+        <strong>{settingsDateTime(s.authenticatedAt + OFFLINE_WINDOW)}</strong>{" "}
+        ({OFFLINE_DAYS} days after you signed in). Sign in again online before
+        then to keep working offline.
+      </p>
       <div className="set-offline-row">
         <IconTile
           icon={pending ? ArrowsClockwise : CloudCheck}
@@ -500,7 +511,7 @@ function OfflineDataBlock({
           tone={pending ? "warn" : "good"}
         />
         <p>
-          Last snapshot <strong>{dateTime(syncedAt)}</strong>
+          Last snapshot <strong>{settingsDateTime(s.syncedAt)}</strong>
           <span aria-hidden="true"> · </span>
           <strong>
             {pending} pending {pending === 1 ? "entry" : "entries"}
@@ -511,6 +522,14 @@ function OfflineDataBlock({
           <ArrowRight size={15} aria-hidden="true" />
         </Link>
       </div>
+      <nav aria-label="Kept on this device" className="set-links">
+        <SettingsLink
+          to="/manuals"
+          icon={Books}
+          title="Manuals kept on this device"
+          sub="Reference manuals saved for offline reading, in the Reference library."
+        />
+      </nav>
     </Block>
   );
 }
@@ -523,30 +542,22 @@ function ProgramSection() {
   const programUuid = activeProgram(s);
   const program = s.programs?.find((p) => p.uuid === programUuid);
   return (
-    <Section id="program" index={2}>
+    <Section id="program" index={3}>
       {!program ? (
         <Block>
           <NoticeBar icon={Info} tone="neutral" className="set-inline-notice">
             Choose a Flight Program in the program selector to see its details,
-            labor rate, Aircraft Spruce account and exports.
+            labor rate, expiring dates, Aircraft Spruce account and exports.
           </NoticeBar>
         </Block>
       ) : (
-        <>
-          <ProgramDetails
-            s={s}
-            program={program}
-            onEdit={() => setEditing(true)}
-          />
-          <LaborRateSettings s={s} />
-          <ExpiringDates scope="program" />
-          <div className="set-block set-embed">
-            <AircraftSpruceAccount />
-          </div>
-        </>
+        <ProgramBlocks
+          s={s}
+          program={program}
+          onEdit={() => setEditing(true)}
+        />
       )}
       <RelatedPages />
-      {program && <ProgramExport s={s} program={program} />}
       {editing && program && (
         <ProgramDialog program={program} onClose={() => setEditing(false)} />
       )}
@@ -554,7 +565,39 @@ function ProgramSection() {
   );
 }
 
-// The same rule as Flight Programs' "Edit Flight Program" button.
+function ProgramBlocks({
+  s,
+  program,
+  onEdit,
+}: {
+  s: Snapshot;
+  program: Program;
+  onEdit: () => void;
+}) {
+  return (
+    <>
+      <ProgramDetails s={s} program={program} onEdit={onEdit} />
+      <LaborRateSettings s={s} />
+      <ExpiringDates scope="program" />
+      <div className="set-block set-embed">
+        <AircraftSpruceAccount />
+      </div>
+      <Block title="Saved addresses">
+        <nav aria-label="Shipping addresses" className="set-links">
+          <SettingsLink
+            to="/saved-addresses"
+            icon={MapPin}
+            title="Saved addresses"
+            sub="Shipping and receiving addresses for this Flight Program."
+          />
+        </nav>
+      </Block>
+      <ProgramExtract s={s} programUuid={program.uuid} />
+    </>
+  );
+}
+
+// The same rule as Flight Programs' "Edit Flight Program details" button.
 function ProgramDetails({
   s,
   program,
@@ -580,7 +623,7 @@ function ProgramDetails({
             onClick={onEdit}
           >
             <PencilSimple size={15} aria-hidden="true" />
-            Edit program details
+            Edit Flight Program details
           </button>
         </div>
       )}
@@ -625,12 +668,6 @@ function RelatedPages() {
     <Block title="Related pages">
       <nav aria-label="Flight Program pages" className="set-links">
         <SettingsLink
-          to="/saved-addresses"
-          icon={MapPin}
-          title="Saved addresses"
-          sub="Shipping and receiving addresses for this Flight Program."
-        />
-        <SettingsLink
           to="/admin"
           icon={Users}
           title="Users and access"
@@ -641,34 +678,13 @@ function RelatedPages() {
   );
 }
 
-function ProgramExport({ s, program }: { s: Snapshot; program: Program }) {
-  return (
-    <div className="set-block set-embed">
-      <CsvExportCard
-        title="Export program data"
-        tables={PROGRAM_TABLES}
-        onDownload={(table) =>
-          download(
-            `${program.uuid}-${table}.csv`,
-            tableCsv(s, table as (typeof PROGRAM_TABLES)[number]),
-            CSV_TYPE,
-          )
-        }
-      >
-        CSV exports of this Flight Program&apos;s records in this workspace
-        snapshot.
-      </CsvExportCard>
-    </div>
-  );
-}
-
 function SettingsLink({
   to,
   icon,
   title,
   sub,
 }: {
-  to: "/saved-addresses" | "/admin";
+  to: "/saved-addresses" | "/admin" | "/manuals";
   icon: IconType;
   title: string;
   sub: string;
@@ -685,8 +701,8 @@ function SettingsLink({
   );
 }
 
-/** Moved from Costs: the active program's default labor rate (the backend's
- * settings.laborRate command still requires program-admin permission). */
+/** The active program's default labor rate; the backend's
+ * settings.laborRate command requires program-admin permission. */
 function LaborRateSettings({ s }: { s: Snapshot }) {
   const { backend, online, connected } = useWorkspace();
   const rate = laborRate(s);
@@ -727,10 +743,11 @@ function LaborRateSettings({ s }: { s: Snapshot }) {
 
 /* ───────────────────────────── System ───────────────────────────── */
 
-function SystemSection() {
+function SystemSection({ features }: { features: DeploymentFeatures }) {
   const s = useWorkspace((x) => x.snapshot)!;
   return (
-    <Section id="system" index={3}>
+    <Section id="system" index={4}>
+      <DeploymentStatus features={features} />
       <div className="set-block set-embed">
         <FaaKeySettings level={3} />
       </div>
@@ -739,155 +756,18 @@ function SystemSection() {
       </div>
       <ExpiringDates scope="system" />
       <OffsiteBackups />
-      <BackupExport s={s} />
+      <SystemExtract s={s} />
       <div className="set-block set-embed">
         <DemoBackup />
       </div>
-      <Block title="Set by your deployment">
-        <p className="set-hint">
-          Some settings are configured by whoever deploys Angel One, not in the
-          app: email sending through Resend, the push keys for alerts on devices
-          (VAPID), the site address used in links (SITE_URL) and the credential
-          encryption key. See “Deployment” in the README.
-        </p>
-      </Block>
     </Section>
-  );
-}
-
-function BackupExport({ s }: { s: Snapshot }) {
-  return (
-    <div className="set-block set-embed">
-      <CsvExportCard
-        title="Download data backup"
-        tables={BACKUP_TABLES}
-        onDownload={(table) =>
-          download(
-            `angel-one-${table}-${localDate()}.csv`,
-            tableCsv(s, table as (typeof BACKUP_TABLES)[number]),
-            CSV_TYPE,
-          )
-        }
-      >
-        CSV exports of this workspace snapshot, excluding authentication
-        secrets. Export pending entries separately in Sync center.
-      </CsvExportCard>
-    </div>
-  );
-}
-
-/** The newest nightly off-site backup (ADR-0008), which the backup job
- * records through backups:recordOffsiteCopy. */
-function OffsiteBackups() {
-  const { snapshot, connected, demo } = useWorkspace();
-  const s = snapshot!;
-  const { loaded, failed } = useOffsiteCopy();
-  const freshness = loaded && offsiteFreshness(loaded.copy, loaded.at);
-  return (
-    <Block
-      title="Off-site backups"
-      description="Every night an encrypted copy of all records and files is uploaded to Cloudflare R2. The daily alert email warns system administrators when the newest copy is more than 36 hours old."
-    >
-      {demo ? (
-        <p className="set-empty">
-          Off-site backups run only on the production deployment.
-        </p>
-      ) : freshness ? (
-        <BackupStatus s={s} copy={loaded.copy} freshness={freshness} />
-      ) : (
-        <p className="set-hint">{backupWaitText(failed, connected)}</p>
-      )}
-      <p className="set-hint">
-        Restore steps are in docs/runbooks/backup-restore.md in the Angel One
-        repository.
-      </p>
-    </Block>
-  );
-}
-
-// The newest copy and when it was loaded, so its age is shown as of then.
-// The demo has no backups; a reply after the page closes is dropped.
-function useOffsiteCopy() {
-  const { backend, connected, demo } = useWorkspace();
-  const [loaded, setLoaded] = useState<{
-    copy: OffsiteCopy | null;
-    at: number;
-  }>();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let active = true;
-    if (!demo && backend && connected)
-      backend.latestOffsiteCopy().then(
-        (copy) => {
-          if (!active) return;
-          setLoaded({ copy, at: Date.now() });
-          setFailed(false);
-        },
-        () => {
-          if (active) setFailed(true);
-        },
-      );
-    return () => {
-      active = false;
-    };
-  }, [backend, connected, demo]);
-  return { loaded, failed };
-}
-
-function BackupStatus({
-  s,
-  copy,
-  freshness,
-}: {
-  s: Snapshot;
-  copy: OffsiteCopy | null;
-  freshness: ReturnType<typeof offsiteFreshness>;
-}) {
-  return (
-    <>
-      <div className="set-backup-status">
-        <StatusPill tone={freshness.status === "ok" ? "good" : "warn"}>
-          {freshness.status === "ok" ? "OK" : "Warning"}
-        </StatusPill>
-        <p>{freshness.message}</p>
-      </div>
-      {copy && <BackupFacts copy={copy} />}
-      {!wantsAlertEmails(s.user, s.groups, s.activeProgramUuid) && (
-        <p className="set-hint">
-          Your alert email is off, so backup warnings show only here. Turn on
-          “Email me a daily alert digest” under My account to get them by email.
-        </p>
-      )}
-    </>
-  );
-}
-
-function BackupFacts({ copy }: { copy: OffsiteCopy }) {
-  return (
-    <dl className="set-facts">
-      <div>
-        <dt>Last copy</dt>
-        <dd>{dateTime(copy.completedAt)}</dd>
-      </div>
-      <div>
-        <dt>Size</dt>
-        <dd>{formatBytes(copy.bytes)}</dd>
-      </div>
-      <div>
-        <dt>Last monthly copy</dt>
-        <dd>
-          {copy.monthlyCompletedAt
-            ? dateTime(copy.monthlyCompletedAt)
-            : "None yet"}
-        </dd>
-      </div>
-    </dl>
   );
 }
 
 function visibleSections(s: Snapshot): SectionKey[] {
   return [
     "account",
+    "alerts",
     "device",
     ...(programPermission(s, "admin") ? (["program"] as const) : []),
     ...(s.user.isAdmin ? (["system"] as const) : []),
@@ -908,24 +788,14 @@ function jumpTo(
   document.getElementById(key)?.scrollIntoView();
 }
 
-function dateTime(at: number) {
-  const day = new Date(at).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-  const time = new Date(at).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  return `${day} · ${time}`;
-}
-
-function roleOf(s: Snapshot) {
-  if (s.user.isAdmin) return "System administrator";
-  if (programPermission(s, "admin")) return "Flight Program administrator";
-  return isPilotView(s) ? "Pilot" : "Team member";
+// Only the providers this deployment offers; none means passwords only.
+function signInHint(providers: string[] | undefined) {
+  const always = "Your password always works.";
+  if (!providers) return always;
+  if (!providers.length)
+    return `${always} This deployment signs in with passwords only.`;
+  const names = providers.map((p) => signInMethodLabels[p] ?? p).join(" or ");
+  return `${always} A ${names} account whose verified email matches yours is linked the first time you sign in with it. For two-step verification, sign in with one that has it turned on.`;
 }
 
 function certificationLine(c: Certification) {
@@ -990,19 +860,4 @@ function rateHint(rate: number | undefined) {
   return rate === undefined
     ? "No default rate set."
     : `Current rate ${formatCents(rate)} per hour.`;
-}
-
-function tableCsv(
-  s: Snapshot,
-  table: (typeof PROGRAM_TABLES)[number] | (typeof BACKUP_TABLES)[number],
-) {
-  return toCsv((s[table] ?? []).map((row) => ({ ...row })));
-}
-
-function backupWaitText(failed: boolean, connected: boolean) {
-  if (failed)
-    return "Could not load the off-site backup status. Reconnect and reload.";
-  return connected
-    ? "Checking off-site backups…"
-    : "Reconnect to see the off-site backup status.";
 }

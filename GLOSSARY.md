@@ -30,7 +30,7 @@ Aircraft, locations or components with no owning Flight Program; visible only to
 The screen that decides who can do what: users, permission groups and aircraft access.
 
 **Settings**:
-The screen that changes how the app behaves, from your own account and this device to a Flight Program's details and the system's integration keys, each section shown only to those allowed to change it.
+The screen that changes how the app behaves, from your own account, your alerts and this device to a Flight Program's details and the system's integration keys, each section shown only to those allowed to change it.
 
 ## Aircraft and flying
 

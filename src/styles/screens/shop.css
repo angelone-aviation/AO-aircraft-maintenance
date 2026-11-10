@@ -391,6 +391,9 @@
   -webkit-appearance: none;
   min-width: 0;
   max-width: 100%;
+  /* A percentage width stops the longest option (a long aircraft model)
+     from setting the control's minimum width, which widened the page. */
+  width: 100%;
   min-height: 42px;
   margin: 0;
   padding: 0 20px 0 0;

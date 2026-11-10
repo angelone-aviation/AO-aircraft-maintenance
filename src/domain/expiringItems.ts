@@ -211,7 +211,7 @@ export function faaKeyExpiringItem(
     label: "FAA DRS API key",
     expiresOn: status.expiresOn,
     warnDays: RENEWAL_WARNING_DAYS,
-    note: "Renew it on the FAA website, then update the key under FAA API key and renewal.",
+    note: "Renew it on the FAA website, then a system administrator enters the new key in Settings → System.",
     version: status.version,
   };
 }

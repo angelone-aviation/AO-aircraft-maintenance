@@ -5,7 +5,7 @@
  * Layer: UI. React components; the rules and the status come from
  *   src/domain/expiringItems.ts, writes go through the Backend.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (expiringItems, model, validationText), ./design, ./ui.
+ *   (expiringItems, model, validationText), ./design, ./FaaKeySettings, ./ui.
  */
 import { useMemo, useState } from "react";
 import { CalendarBlank, Plus } from "@phosphor-icons/react";
@@ -24,6 +24,7 @@ import {
 import { localDate, type Snapshot } from "../domain/model";
 import { validationText } from "../domain/validationText";
 import { ListRow, StatusPill, type Tone } from "./design";
+import { FaaKeyUpdateButton } from "./FaaKeySettings";
 import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import { ZodError } from "zod";
 
@@ -41,12 +42,23 @@ const DESCRIPTIONS: Record<ExpiringScope, string> = {
   program:
     "Insurance, registration and other renewals for this Flight Program, with an aircraft where one applies. Program administrators see them; an alert goes out from the warning window and when a date passes.",
 };
+// One page holds both scopes, so the heading and the add button say whose.
+const SCOPE_LABELS: Record<ExpiringScope, { title: string; add: string }> = {
+  system: {
+    title: "Deployment expiring dates",
+    add: "Add deployment expiring date",
+  },
+  program: {
+    title: "Program expiring dates",
+    add: "Add program expiring date",
+  },
+};
 const NOTE_ROWS = 3;
 
 /**
  * The "Expiring dates" block: current dates soonest first, each with its
  * status, and the add, edit and archive controls (online only). The FAA key
- * row is read-only.
+ * row is computed from the key, so it offers the key's own update instead.
  *
  * @param props.scope - "system" for the deployment's dates, "program" for
  *   the active Flight Program's.
@@ -59,7 +71,7 @@ export function ExpiringDates({ scope }: { scope: ExpiringScope }) {
   const [editing, setEditing] = useState<ExpiringItem | "new">();
   return (
     <div className="set-block">
-      <h3>Expiring dates</h3>
+      <h3>{SCOPE_LABELS[scope].title}</h3>
       <p className="set-hint">{DESCRIPTIONS[scope]}</p>
       <ExpiringList s={s} items={items} live={live} onEdit={setEditing} />
       <div className="set-actions">
@@ -70,7 +82,7 @@ export function ExpiringDates({ scope }: { scope: ExpiringScope }) {
           onClick={() => setEditing("new")}
         >
           <Plus size={15} aria-hidden="true" />
-          Add expiring date
+          {SCOPE_LABELS[scope].add}
         </button>
       </div>
       {editing && (
@@ -146,7 +158,7 @@ function ExpiringRow({
   );
 }
 
-// The FAA key row is computed from its own settings, so it has no Edit.
+// The FAA key row is computed from the key, so it updates the key instead.
 function RowAction({
   item,
   live,
@@ -157,9 +169,7 @@ function RowAction({
   onEdit: () => void;
 }) {
   if (item.uuid === FAA_KEY_ITEM_UUID)
-    return (
-      <span className="set-hint">Updated under FAA API key and renewal</span>
-    );
+    return <FaaKeyUpdateButton label="Update key" />;
   return (
     <button
       type="button"

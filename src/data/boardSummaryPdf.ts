@@ -76,7 +76,7 @@ function describeAircraft(line: BoardAircraftLine): string {
   return (
     `${a.registration} (${a.make} ${a.model}): ${aircraftStatusLabels[line.status]}. ` +
     `${line.overdue} overdue, ${line.dueSoon} due soon. ` +
-    `${line.openDiscrepancies} open discrepancies` +
+    `${line.openDiscrepancies} open ${line.openDiscrepancies === 1 ? "discrepancy" : "discrepancies"}` +
     (line.grounding ? ` (${line.grounding} grounding)` : "") +
     `. ${spend}.`
   );

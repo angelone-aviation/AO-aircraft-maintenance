@@ -87,6 +87,20 @@ export const severityLabels: Record<AlertSeverity, string> = {
 /** A certificate alerts from this many days before it expires. */
 export const CERTIFICATE_WARNING_DAYS = 30;
 
+/** What the alerts cover, as the Alerts page and Settings describe them. */
+export const ALERT_KINDS_SUMMARY =
+  "Inspections, ADs and component limits coming due, grounded aircraft, your certificates, FAA documents to review and expiring dates, for the aircraft you can access.";
+
+/** The UTC hour the daily alert digest goes out (convex/crons.ts). */
+export const ALERT_DIGEST_HOUR_UTC = 13;
+
+/**
+ * Immediate emails for urgent alerts allowed per UTC day, for the whole
+ * deployment, so Resend's free 100 a day leaves room for the digest; a capped
+ * alert waits for the next digest (docs/alerts.md).
+ */
+export const IMMEDIATE_EMAILS_PER_DAY = 60;
+
 /**
  * The alerts that reach people at once (GLOSSARY "Urgent alert"): an
  * aircraft that may not fly, a limit already passed, a date already expired.

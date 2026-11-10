@@ -1,6 +1,6 @@
 /**
- * Responsibility: Downloads the full demo data held in this browser as one
- *   JSON file, for moving a demo program to the cloud.
+ * Responsibility: Downloads everything this browser's demo holds as one JSON
+ *   file, for the person who tried the demo to keep.
  * Layer: UI. React component; shown in demo mode only.
  * Dependencies: react, src/domain/model.ts, src/data/store.ts,
  *   src/data/demoBackup.ts, ./ui.tsx.
@@ -18,9 +18,10 @@ const DOWNLOAD_URL_LIFETIME_MS = 60_000;
 type Backup = Awaited<ReturnType<typeof createDemoBackup>>;
 
 /**
- * The "Full demo backup" panel: downloads every saved program, record and
- * uploaded file in this browser, then reports what to resolve before a cloud
- * import. Renders nothing outside demo mode or before a snapshot loads.
+ * The "Download this demo's data" panel: downloads every saved program,
+ * record and uploaded file in this browser, then says what it held. No live
+ * deployment reads the file. Renders nothing outside demo mode or before a
+ * snapshot loads.
  */
 export function DemoBackup() {
   const { demo, snapshot, namespace } = useWorkspace();
@@ -28,19 +29,19 @@ export function DemoBackup() {
   if (!demo || !snapshot) return null;
   return (
     <div className="panel">
-      <h3>Full demo backup for cloud transfer</h3>
-      <p>
-        Download all saved Flight Programs, aircraft, work orders, components,
-        job cards and uploaded files from this browser. Demo users have no login
-        passwords; real accounts will be configured during cloud setup.
+      <h3>Download this demo&apos;s data</h3>
+      <p className="set-hint">
+        Saves everything this browser&apos;s demo holds (Flight Programs,
+        aircraft, work orders, components, job cards and uploaded files) as one
+        JSON file. It cannot be imported into a live deployment.
       </p>
       <button
         type="button"
-        className="button primary"
+        className="button small"
         disabled={busy}
         onClick={() => void download(namespace, snapshot)}
       >
-        {busy ? "Preparing full backup…" : "Download full demo backup"}
+        {busy ? "Preparing the file…" : "Download demo data"}
       </button>
       {message && <p role="status">{message}</p>}
       {error && <p role="alert">{error}</p>}
@@ -76,7 +77,7 @@ function saveBackup(backup: Backup) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `angel-one-demo-backup-${localDate()}.json`;
+  a.download = `angel-one-demo-data-${localDate()}.json`;
   document.body.append(a);
   a.click();
   a.remove();
@@ -91,10 +92,10 @@ function summarizeBackup({
   const components =
     snapshot.management?.filter((r) => r.kind === "component").length ?? 0;
   const pending = pendingOperations.length
-    ? `${pendingOperations.length} pending entries included; resolve these before cloud import. `
+    ? `${pendingOperations.length} pending entries included. `
     : "";
   const missing = missingManualFiles.length
     ? `${missingManualFiles.length} manual files are unavailable in this browser; their metadata is included.`
     : "";
-  return `Backup download started: ${snapshot.aircraft.length} aircraft, ${snapshot.workOrders?.length ?? 0} work orders, ${components} components. ${pending}${missing}`;
+  return `Download started: ${snapshot.aircraft.length} aircraft, ${snapshot.workOrders?.length ?? 0} work orders, ${components} components. ${pending}${missing}`;
 }

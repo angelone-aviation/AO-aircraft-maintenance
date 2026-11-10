@@ -466,7 +466,7 @@ function WorkOrdersHeader({
     <PageHeader
       eyebrow="MAINTENANCE"
       title="Work orders"
-      description="Scoped maintenance work with requested items, job cards, parts and sign-off through closeout."
+      description="Scoped maintenance work with requested items, job cards, parts and signoffs through close-out."
       actions={
         <button
           className="button primary"

@@ -113,7 +113,7 @@ Identities linked from outside the new restriction stop working; remove them for
 
 ### Seeing, removing and auditing linked identities
 
-- Users see their own sign-in methods under **Settings → My account → Sign-in methods**.
+- Users see their own sign-in methods under **Settings → My account → Sign-in methods**, which names only the providers this deployment offers.
 - System administrators see any user's under **Administration → Users → Sign-in methods** (the sign-in icon on the user's row) and can **Remove** a Google or Microsoft account there. Removing it does not change the password or end sessions, and the person can link it again by signing in with it while its verified email still matches. To stop someone signing in at all, disable the user.
 - The change log records, without any token or secret: `user.identity_linked` (provider, email) the first time an identity links; `user.signed_in` (method `password`, `google` or `microsoft-entra-id`) for every successful sign-in; `user.sign_in_refused` (method, reason `no_account`, `disabled`, `ambiguous` or `email_not_verified`, email) for each refused Google or Microsoft attempt, at most 10 per provider account and 300 in all per hour; and `user.identity_removed` (provider, email, link date) with the administrator who removed it.
 - `ambiguous` means two active users share the email. Fix the duplicate before the person tries again.

@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins when the FAA key renewal warning shows and where it
- *   links, who may replace the key, and what a failed replacement shows.
+ * Responsibility: Pins when the FAA key renewal warning shows, where it links
+ *   and for whom, who may replace the key, and what a failed replacement
+ *   shows.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/FaaKeySettings.tsx, react-dom/server,
  *   convex/values (ConvexError).
@@ -131,11 +132,13 @@ describe("FaaRenewalAlert", () => {
     expect(renderAlert(expiringIn(60))).toContain("60 days remaining");
   });
 
-  it("links system administrators to Settings and others to Airworthiness", () => {
+  it("links system administrators to Settings, and tells others who renews it", () => {
     expect(renderAlert(expiringIn(1))).toContain('href="/settings#system"');
-    expect(renderAlert(expiringIn(1), false)).toContain(
-      'href="/airworthiness"',
-    );
+    const member = renderAlert(expiringIn(1), false);
+    expect(member).not.toContain("href=");
+    expect(member).toContain("A system administrator renews it.");
+    expect(member).not.toContain("Renew it");
+    expect(renderAlert(expiringIn(61), false)).toBe("");
   });
 });
 
@@ -147,11 +150,9 @@ describe("FaaKeySettings", () => {
 
   it("offers the replacement only to system administrators", () => {
     expect(renderPanel()).toContain(
-      '<button type="button" class="button">Update FAA API key</button>',
+      '<button type="button" class="button small">Update FAA API key</button>',
     );
-    const other = renderPanel(2, false);
-    expect(other).not.toContain("Update FAA API key");
-    expect(other).toContain("An administrator can update the shared FAA key.");
+    expect(renderPanel(2, false)).not.toContain("Update FAA API key");
   });
 
   it("disables the replacement offline and in demo mode", () => {
@@ -159,7 +160,9 @@ describe("FaaKeySettings", () => {
       expect(renderPanel(2, true, flags)).toContain('disabled="">Update');
     const demo = renderPanel(2, true, { demo: true });
     expect(demo).toContain('disabled="">Update');
-    expect(demo).toContain("not in demo mode");
+    expect(demo).toContain(
+      "Not available in the demo: keys and accounts are saved only on a live deployment.",
+    );
   });
 
   it("shows the server's refusal, and the general advice for anything else", async () => {

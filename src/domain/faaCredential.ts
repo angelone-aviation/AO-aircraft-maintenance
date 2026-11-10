@@ -1,6 +1,6 @@
 /**
- * Responsibility: The FAA DRS API key an administrator saves, and the renewal
- *   reminder for it.
+ * Responsibility: The FAA DRS API key a system administrator saves, and the
+ *   renewal notices about it for administrators and for other members.
  * Layer: Domain. Pure zod schema and functions; no I/O, no React (a `today`
  *   left to its default reads the clock).
  * Dependencies: zod, src/domain/model.ts (localDate).
@@ -14,6 +14,9 @@ import { localDate } from "./model";
  */
 export const RENEWAL_WARNING_DAYS = 60;
 const MS_PER_DAY = 86_400_000;
+
+/** The FAA page where a DRS API key is requested and renewed. */
+export const FAA_DRS_KEY_URL = "https://drs.faa.gov/drs-api";
 
 /**
  * A replacement FAA API key with the expiry date the FAA gave for it.
@@ -64,6 +67,39 @@ export function faaRenewal(
     warning: days <= RENEWAL_WARNING_DAYS,
     message: describeExpiry(status.expiresOn, days),
   };
+}
+
+/**
+ * The FAA key notice for a member who cannot replace the key: the same
+ * warning window as {@link faaRenewal}, naming who renews it instead of
+ * asking the reader to.
+ *
+ * @param status - The stored key's status; undefined when there is none.
+ * @param today - ISO date; the local date by default.
+ * @returns `warning` exactly as {@link faaRenewal} sets it, with the notice.
+ */
+export function faaKeyNoticeForMembers(
+  status: FaaCredentialStatus | undefined,
+  today = localDate(),
+): { warning: boolean; message: string } {
+  return {
+    warning: faaRenewal(status, today).warning,
+    message: memberNotice(status, today),
+  };
+}
+
+function memberNotice(status: FaaCredentialStatus | undefined, today: string) {
+  if (!status?.configured)
+    return "FAA AD checks need an FAA API key. A system administrator adds it.";
+  if (!status.expiresOn)
+    return "The FAA API key's expiration date is not recorded. A system administrator records it.";
+  const days = Math.ceil(
+    (Date.parse(status.expiresOn) - Date.parse(today)) / MS_PER_DAY,
+  );
+  if (days < 0)
+    return `FAA AD checks stopped when the FAA API key expired on ${status.expiresOn}. A system administrator renews it.`;
+  const left = days === 0 ? "today" : `in ${days} day${days === 1 ? "" : "s"}`;
+  return `FAA AD checks stop when the FAA API key expires on ${status.expiresOn} (${left}). A system administrator renews it.`;
 }
 
 function describeExpiry(expiresOn: string, days: number) {

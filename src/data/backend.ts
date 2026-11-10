@@ -676,6 +676,17 @@ export interface Backend {
   /** Turns the signed-in user's alert emails on or off; no change-log row. */
   setAlertEmails(enabled: boolean): Promise<unknown>;
   /**
+   * Whether the deployment can send alert email (Resend is set up). The demo
+   * answers true: it stands in for a deployment with email, and sends none.
+   */
+  alertEmailEnabled(): Promise<boolean>;
+  /**
+   * The Google and Microsoft sign-in the deployment offers.
+   *
+   * @returns The enabled provider ids, Google first; none in the demo.
+   */
+  signInProviders(): Promise<string[]>;
+  /**
    * Turns the signed-in user's immediate emails for urgent alerts (GLOSSARY
    * "Urgent alert") on or off; no change-log row.
    */
@@ -1112,6 +1123,8 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.mutation(api.alerts.setEmailPreference, { enabled }),
     setUrgentAlertEmails: (enabled) =>
       client.mutation(api.urgentAlerts.setUrgentEmailPreference, { enabled }),
+    alertEmailEnabled: () => client.query(api.alerts.emailEnabled, {}),
+    signInProviders: () => client.query(api.identities.providers, {}),
     expiringDate: (command) =>
       client.mutation(api.expiringItems.save, requestedCommand(command)),
     pushPublicKey: () => client.query(api.pushSubscriptions.publicKey, {}),

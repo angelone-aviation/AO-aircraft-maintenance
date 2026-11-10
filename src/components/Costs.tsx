@@ -484,10 +484,10 @@ function NumberCell({
 function LaborRateNotice({ rate }: { rate?: number }) {
   return (
     <NoticeBar icon={GearSix}>
-      Labor rate moved to Settings.{" "}
       {rate === undefined
-        ? "No default rate is set."
+        ? "No default labor rate is set."
         : `Default rate ${formatCents(rate)} per hour.`}{" "}
+      Change it in Settings → Flight Program.{" "}
       <Link to="/settings" hash="program">
         Open Flight Program settings
       </Link>

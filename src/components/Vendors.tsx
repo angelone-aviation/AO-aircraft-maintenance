@@ -285,7 +285,7 @@ function VendorDirectory(
         </EmptyState>
       )}
       <NoticeBar icon={GearSix}>
-        Aircraft Spruce account is in Settings.{" "}
+        The Aircraft Spruce account is linked in Settings → Flight Program.{" "}
         <Link to="/settings" hash="program">
           Open Flight Program settings
         </Link>

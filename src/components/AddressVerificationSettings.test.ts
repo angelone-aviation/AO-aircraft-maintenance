@@ -50,8 +50,10 @@ describe("AddressVerificationSettings", () => {
     expect(render()).toMatch(/<fieldset disabled=""/);
   });
 
-  it("says the key is configured in the connected app in demo mode", () => {
+  it("says the key is saved only on a live deployment in demo mode", () => {
     workspace.demo = true;
-    expect(render()).toContain("not demo mode");
+    expect(render()).toContain(
+      "Not available in the demo: keys and accounts are saved only on a live deployment.",
+    );
   });
 });

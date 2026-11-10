@@ -72,7 +72,7 @@ function PaperCheckDialog({
   return (
     <Dialog
       title="Paper check"
-      subtitle="The month's flights and sign-offs as recorded, with a Checked column to tick against the paper logbook."
+      subtitle="The month's flights and completed work orders as recorded, with a Checked column to tick against the paper logbook."
       size="narrow"
       onClose={onClose}
     >

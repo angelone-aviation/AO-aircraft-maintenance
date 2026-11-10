@@ -414,30 +414,33 @@ function ReadingsTable({ item }: { item: Preview }) {
     item.currentBefore,
     item.currentAfter,
   ];
+  // Five columns: on a phone the table scrolls inside its own box.
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Reading</th>
-          <th>Previously recorded completion</th>
-          <th>Corrected completion</th>
-          <th>Current before</th>
-          <th>Current after</th>
-        </tr>
-      </thead>
-      <tbody>
-        {TRACKED_READINGS.map(([key, label]) => (
-          <tr key={key}>
-            <th>{label}</th>
-            {columns.map((t, i) => (
-              <td key={i}>
-                {key === "cyclesSinceNew" ? t[key] : formatHours(t[key])}
-              </td>
-            ))}
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Reading</th>
+            <th>Previously recorded completion</th>
+            <th>Corrected completion</th>
+            <th>Current before</th>
+            <th>Current after</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {TRACKED_READINGS.map(([key, label]) => (
+            <tr key={key}>
+              <th>{label}</th>
+              {columns.map((t, i) => (
+                <td key={i}>
+                  {key === "cyclesSinceNew" ? t[key] : formatHours(t[key])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -451,24 +454,26 @@ function RequirementLimits({
   return (
     <>
       <h4>Requirement next-due limits</h4>
-      <table>
-        <thead>
-          <tr>
-            <th>Requirement</th>
-            <th>Before</th>
-            <th>After</th>
-          </tr>
-        </thead>
-        <tbody>
-          {after.map((r) => (
-            <tr key={r.uuid}>
-              <th>{r.description}</th>
-              <td>{formatLimits(before.find((b) => b.uuid === r.uuid))}</td>
-              <td>{formatLimits(r)}</td>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Requirement</th>
+              <th>Before</th>
+              <th>After</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {after.map((r) => (
+              <tr key={r.uuid}>
+                <th>{r.description}</th>
+                <td>{formatLimits(before.find((b) => b.uuid === r.uuid))}</td>
+                <td>{formatLimits(r)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

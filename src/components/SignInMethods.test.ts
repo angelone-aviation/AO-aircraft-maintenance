@@ -64,7 +64,7 @@ it("names the provider being opened and disables every button meanwhile", () => 
 
 it("tells users who resets their password", () => {
   expect(renderMethods()).toContain(
-    "Set by your administrator. Ask them to reset it.",
+    "Set by a system administrator. Ask one to reset it.",
   );
   const member = { id: "u1", name: "Pat Doe" } as Member;
   expect(renderMethods(member)).toContain("Reset by a system administrator.");

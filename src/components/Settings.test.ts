@@ -188,6 +188,7 @@ let calls: unknown[][];
 let element: Parameters<typeof renderToStaticMarkup>[0];
 let alertEmails: () => Promise<unknown>;
 let latestCopy: () => Promise<unknown>;
+let features: { email: () => Promise<boolean>; signIn: string[] };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -198,6 +199,7 @@ beforeEach(() => {
   s = demoSnapshot();
   alertEmails = async () => undefined;
   latestCopy = async () => ({ completedAt: NOW - 3_600_000, bytes: 3 << 20 });
+  features = { email: async () => true, signIn: [] };
   ui.workspace = {
     snapshot: s,
     hash: "",
@@ -216,6 +218,9 @@ beforeEach(() => {
       },
       costs: async (command: unknown) => void calls.push(["costs", command]),
       latestOffsiteCopy: () => latestCopy(),
+      alertEmailEnabled: () => features.email(),
+      pushPublicKey: async () => "",
+      signInProviders: async () => features.signIn,
     },
   };
   vi.stubGlobal("document", {
@@ -279,15 +284,17 @@ describe("settings", () => {
   it("shows each section only to those who may use it", () => {
     expect(sections(render(h(Settings)))).toEqual([
       "My account",
+      "Alerts",
       "This device",
       "Flight Program",
       "System",
     ]);
     asMember({ groupIds: ["demo-pilots"] });
-    expect(sections(render())).toEqual(["My account", "This device"]);
+    expect(sections(render())).toEqual(["My account", "Alerts", "This device"]);
     s.groups = s.groups.map((g) => ({ ...g, programAdmin: true }));
     expect(sections(render())).toEqual([
       "My account",
+      "Alerts",
       "This device",
       "Flight Program",
     ]);
@@ -410,6 +417,49 @@ describe("settings", () => {
     expect(ui.fields.get("emailAlerts")!.checked).toBe(false);
   });
 
+  it("says what the deployment has not turned on instead of offering it", async () => {
+    features = { email: async () => false, signIn: [] };
+    render(h(Settings));
+    let html = await runEffects();
+    expect(html).toContain(
+      "Email alerts are not turned on for this deployment.",
+    );
+    expect(ui.fields.has("emailAlerts")).toBe(false);
+    expect(html).toContain("This deployment signs in with passwords only.");
+    expect(html).toMatch(
+      /Alert email \(Resend\)<\/span><span[^>]*>.*Not set up/,
+    );
+    expect(html).toMatch(/Google sign-in<\/span><span[^>]*>.*Not set up/);
+    expect(html).toContain(
+      "Urgent emails stop at 60 a day for the whole deployment",
+    );
+    expect(html).toContain("once a day at 13:00 UTC");
+    ui.states.clear();
+    features = { email: async () => true, signIn: ["google"] };
+    render();
+    html = await runEffects();
+    expect(ui.fields.has("emailAlerts")).toBe(true);
+    expect(html).toContain(
+      "A Google account whose verified email matches yours is linked",
+    );
+    expect(html).not.toContain("Microsoft account");
+    expect(html).toMatch(/Google sign-in<\/span><span[^>]*>.*On<\/span>/);
+  });
+
+  it("shows when offline access on this device ends", () => {
+    s.authenticatedAt = Date.parse("2026-11-03T08:00:00Z");
+    const html = render(h(Settings));
+    const until = new Date(Date.parse("2026-11-10T08:00:00Z"));
+    expect(html).toContain(
+      until.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }),
+    );
+    expect(html).toContain("(7 days after you signed in)");
+  });
+
   it("counts only this user's entries waiting to sync", () => {
     const entry = (authorId: string) => ({ operation: { authorId } });
     ui.workspace.queue = [entry(s.user.id), entry("someone-else")];
@@ -454,15 +504,24 @@ describe("settings", () => {
     render(h(Settings));
     const exports = ui.stubList.filter((x) => x.name === "CsvExportCard");
     for (const card of exports)
-      (card.props.onDownload as (table: string) => void)("aircraft");
-    expect(calls).toEqual([
-      ["download", "demo-program-aircraft.csv", "text/csv;charset=utf-8"],
-      [
-        "download",
-        "angel-one-aircraft-2026-11-04.csv",
-        "text/csv;charset=utf-8",
-      ],
+      for (const table of ["aircraft", "audit"])
+        (card.props.onDownload as (table: string) => void)(table);
+    expect(calls.map((c) => c[1])).toEqual([
+      "demo-program-aircraft.csv",
+      "demo-program-change-log-recent.csv",
+      "angel-one-aircraft-2026-11-04.csv",
+      "angel-one-change-log-recent-2026-11-04.csv",
     ]);
+    expect(calls[0][2]).toBe("text/csv;charset=utf-8");
+    // Each extract says it is partial, with the change log's real size.
+    for (const card of exports) {
+      expect(card.props.title).toBe("CSV extract (partial)");
+      expect(
+        renderToStaticMarkup(h("p", null, card.props.children as never)),
+      ).toContain(
+        `It is not a backup: work orders, job cards, AD compliance, costs, purchasing and files are not included, and the change log holds only the ${s.audit.length} newest entries this device has.`,
+      );
+    }
   });
 
   it("saves the labor rate in cents and shows the current one", async () => {

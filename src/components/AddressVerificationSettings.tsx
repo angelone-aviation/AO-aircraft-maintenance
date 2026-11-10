@@ -3,11 +3,12 @@
  *   shared Geoapify API key that address lookups use.
  * Layer: UI. Reads the key's status and saves a new key through the
  *   workspace backend; the saved key never returns to the browser.
- * Dependencies: react, src/data/store.ts (useWorkspace), src/components/ui.tsx.
+ * Dependencies: react, src/data/store.ts (useWorkspace), ./ui, ./demoNotice.
  */
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../data/store";
 import { AsyncForm, Field } from "./ui";
+import { DEMO_KEYS_UNAVAILABLE } from "./demoNotice";
 
 // The shortest key the server accepts (convex/addressVerification.ts).
 const KEY_MIN_LENGTH = 16;
@@ -53,7 +54,7 @@ export function AddressVerificationSettings() {
           />
         </Field>
       </AsyncForm>
-      {demo && <p>Configure the key in the connected app, not demo mode.</p>}
+      {demo && <p className="set-hint">{DEMO_KEYS_UNAVAILABLE}</p>}
       {settings.notice && <p role="status">{settings.notice}</p>}
     </section>
   );

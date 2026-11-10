@@ -310,6 +310,13 @@ export const inspectorCertificateRequired =
  */
 export const inspectorMaintenanceCertificateRequired =
   "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.";
+/**
+ * What a member's certificates change in the app, in the words Settings and
+ * the My certifications form use; {@link inspectorCertificateProblem} is the
+ * rule it states.
+ */
+export const certificationsEffect =
+  "Recording a job card's inspection signoff needs a numbered mechanic certificate on file, issued on or before the day of the signoff; a pilot certificate is not enough. Certifications grant no other permission.";
 // Free-text certificate types on the older single-license profile fields that
 // name a mechanic (A&P, airframe, powerplant), inspection authorization or
 // repairman certificate. Pilot and unrecognized types (e.g. AME, CRS) do not.

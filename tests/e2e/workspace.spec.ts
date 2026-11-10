@@ -298,5 +298,5 @@ async function saveSyncedFlight(
   await expect(page.getByRole("status")).toContainText(
     "Entry synchronized successfully.",
   );
-  await page.getByRole("button", { name: "Dismiss notification" }).click();
+  await page.getByRole("button", { name: "Dismiss notice" }).click();
 }

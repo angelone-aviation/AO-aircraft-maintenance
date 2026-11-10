@@ -14,6 +14,7 @@ import { Bell, Check, Checks } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { useAlertReads } from "../data/alerts";
 import {
+  ALERT_KINDS_SUMMARY,
   computeAlerts,
   severityLabels,
   type Alert,
@@ -96,7 +97,7 @@ export function AlertsPage() {
       <PageHeader
         eyebrow="ALERTS"
         title="What needs attention."
-        description="Inspections, ADs, component limits, certificates and FAA documents for aircraft you can access."
+        description={ALERT_KINDS_SUMMARY}
         actions={
           <MarkAllReadButton
             keys={alerts.map((a) => a.key)}
@@ -104,6 +105,11 @@ export function AlertsPage() {
           />
         }
       />
+      <p className="mx-alerts-settings">
+        <Link to="/settings" hash="alerts">
+          Email and device alerts are in Settings
+        </Link>
+      </p>
       {error && (
         <p className="error" role="alert">
           {error}

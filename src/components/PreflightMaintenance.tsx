@@ -6,7 +6,8 @@
  *   orders are decided in src/domain.
  * Dependencies: src/domain/model.ts (types), src/domain/management.ts
  *   (inspection counters), src/domain/maintenance.ts (due date and status),
- *   src/domain/workOrders.ts (open work orders).
+ *   src/domain/workOrders.ts (open work orders), src/domain/fleet.ts
+ *   (manual status labels).
  */
 import type {
   Aircraft,
@@ -17,6 +18,7 @@ import type {
 import { inspectionCounters } from "../domain/management";
 import { inspectionDueDate, inspectionStatus } from "../domain/maintenance";
 import { isOpenWorkOrder, type WorkOrder } from "../domain/workOrders";
+import { operationalStatusLabels } from "../domain/fleet";
 
 type InspectionReview = ReturnType<typeof inspectionStatus> & {
   inspection: Inspection;
@@ -137,7 +139,12 @@ function listMetrics(aircraft: Aircraft, summary: MaintenanceSummary) {
   const { discrepancies, orders } = summary;
   const status = aircraft.operationalStatus;
   const metrics: Metric[] = [
-    [status !== "airworthy", "attention", "Aircraft status to review", status],
+    [
+      status !== "airworthy",
+      "attention",
+      "Recorded status (manual)",
+      operationalStatusLabels[status],
+    ],
     [!!overdue, "attention", "Overdue inspections", overdue],
     [!!upcoming, "upcoming", "Due soon", upcoming],
     [!!unknown, "upcoming", "Missing due data", unknown],

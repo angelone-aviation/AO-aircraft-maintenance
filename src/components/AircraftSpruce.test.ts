@@ -266,7 +266,7 @@ describe("AircraftSpruceAccount", () => {
     expect(button("Link Aircraft Spruce account").disabled).toBe(true);
     ui.workspace.demo = true;
     expect(await mount(h(AircraftSpruceAccount))).toContain(
-      "Demo mode does not store credentials.",
+      "Not available in the demo: keys and accounts are saved only on a live deployment.",
     );
     expect(button("Link Aircraft Spruce account").disabled).toBe(true);
   });
