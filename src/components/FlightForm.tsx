@@ -4,8 +4,8 @@
  * Layer: UI. React component; new flights queue in the offline outbox and
  *   reviews save online.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (model, flights, flightPlans, flightReview, flightSession, readings,
- *   aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
+ *   (model, flights, flightPlans, flightReview, flightSession,
+ *   flightSubmission, readings, aircraftStatus), ./FlightFluids, ./FlightParts, ./AircraftStatus,
  *   ./StaleSave, ./design, ./ui.
  */
 import { useId, useState } from "react";
@@ -29,6 +29,7 @@ import {
   REVIEW_REASON_MIN_LENGTH,
 } from "../domain/flightReview";
 import { plannedFlightRules } from "../domain/flightSession";
+import { aircraftAfterPendingFlights } from "../domain/flightSubmission";
 import { SECONDS_PER_HOUR } from "../domain/readings";
 import {
   can,
@@ -42,6 +43,8 @@ import {
   type Aircraft,
   type Flight,
   type FlightInput,
+  type Operation,
+  type QueuedOperation,
   type Snapshot,
 } from "../domain/model";
 import { aircraftStatus, canOverrideDispatch } from "../domain/aircraftStatus";
@@ -168,10 +171,10 @@ export function FlightForm(props: FlightFormProps) {
 }
 
 function useFlightModel(props: FlightFormProps) {
-  const { snapshot, enqueue, replace, backend, online, connected } =
+  const { snapshot, queue, enqueue, replace, backend, online, connected } =
     useWorkspace();
   const s = snapshot!;
-  const draft = useFlightDraft(props, s);
+  const draft = useFlightDraft(props, s, queue);
   return {
     props,
     phase: props.phase ?? "all",
@@ -186,8 +189,16 @@ function useFlightModel(props: FlightFormProps) {
   };
 }
 
-function useFlightDraft(props: FlightFormProps, s: Snapshot) {
-  const choice = useAircraftChoice(props, s);
+function useFlightDraft(
+  props: FlightFormProps,
+  s: Snapshot,
+  queue: QueuedOperation[],
+) {
+  const choice = useAircraftChoice(
+    props,
+    s,
+    queue.map((q) => q.operation),
+  );
   const defaults = props.initial ?? props.prefill;
   const [fluids, setFluids] = useState<Fluids>({
     fuel: defaults?.fuel,
@@ -214,7 +225,11 @@ function useFlightDraft(props: FlightFormProps, s: Snapshot) {
   };
 }
 
-function useAircraftChoice(props: FlightFormProps, s: Snapshot) {
+function useAircraftChoice(
+  props: FlightFormProps,
+  s: Snapshot,
+  pending: Operation[],
+) {
   const { initial, plan } = props;
   const aircrafts = s.aircraft.filter(
     (a) => can(s, a.uuid, "flight") || !!initial,
@@ -227,10 +242,13 @@ function useAircraftChoice(props: FlightFormProps, s: Snapshot) {
       "",
   );
   // Freeze the readings together with their version so a live update cannot
-  // silently change what the pilot verified while this form was open.
-  const [openingReadings] = useState(() => openingReadingsOf(aircrafts));
+  // silently change what the pilot verified while this form was open. A leg
+  // logged behind the user's own unsynced legs starts where they end.
+  const [openingReadings] = useState(() =>
+    openingReadingsOf(aircrafts.map((a) => afterPending(s, a, pending))),
+  );
   const opening = props.openingOverride ?? openingReadings[selected];
-  return { aircrafts, selected, setSelected, opening };
+  return { aircrafts, selected, setSelected, opening, pending };
 }
 
 // What the form shows for the chosen aircraft. A review starts from the
@@ -256,7 +274,10 @@ function flightView(props: FlightFormProps, s: Snapshot, d: Draft) {
     showCyclic: shown.cyclic,
     showFlightTimeLog: shown.flightTimeLog,
     readingsChanged:
-      !initial && aircraft && opening && aircraft.version !== opening.version,
+      !initial &&
+      aircraft &&
+      opening &&
+      afterPending(s, aircraft, d.pending).version !== opening.version,
     engines: aircraft ? flightEnginePositions(aircraft, defaults) : [],
     showLandingSurface: shown.landingSurface,
     gated,
@@ -845,6 +866,10 @@ function typedEndsFrom(aircraftUuid: string, data: FormData): TypedEnds {
       METER_INPUTS.map((name) => [name, value(data, name)]),
     ) as Record<MeterInput, string>,
   };
+}
+
+function afterPending(s: Snapshot, a: Aircraft, pending: Operation[]) {
+  return aircraftAfterPendingFlights(s, a.uuid, pending) ?? a;
 }
 
 function openingReadingsOf(aircrafts: Snapshot["aircraft"]) {

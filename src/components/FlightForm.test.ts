@@ -1,18 +1,21 @@
 /**
  * Responsibility: Pins what the flight form collects in each phase, how it
- *   saves new flights, preflights and reviews, and the dispatch gate.
+ *   saves new flights (behind the user's own unsynced legs too), preflights
+ *   and reviews, and the dispatch gate.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/FlightForm.tsx, src/data/demo.ts
- *   (demoSnapshot), react-dom/server.
+ *   (demoSnapshot), src/domain/model.ts (types), react-dom/server.
  */
 // @vitest-environment node
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
+import type { QueuedOperation } from "../domain/model";
 import { FlightForm } from "./FlightForm";
 let snapshot = demoSnapshot();
 let online = true;
+let queue: QueuedOperation[] = [];
 const enqueue = vi.fn();
 const backend = { review: vi.fn() };
 let submit: ((data: FormData) => Promise<void>) | undefined;
@@ -27,12 +30,20 @@ vi.mock("./ui", async (importOriginal) => {
   };
 });
 vi.mock("../data/store", () => {
-  const state = () => ({ snapshot, enqueue, backend, online, connected: true });
+  const state = () => ({
+    snapshot,
+    queue,
+    enqueue,
+    backend,
+    online,
+    connected: true,
+  });
   return { useWorkspace: Object.assign(state, { getState: state }) };
 });
 beforeEach(() => {
   snapshot = demoSnapshot();
   online = true;
+  queue = [];
   enqueue.mockReset();
   backend.review.mockReset();
 });
@@ -222,6 +233,43 @@ it("queues a new flight against its opening version without legacy oil ends", as
         oil: [{ engine: "single", unit: "US qt", start: 5 }],
       }),
     }),
+  );
+});
+it("opens behind the user's own unsynced leg on its ending readings and version", async () => {
+  const a = snapshot.aircraft[0];
+  a.version = 4;
+  queue = [
+    {
+      queuedAt: 1,
+      operation: {
+        kind: "flight",
+        uuid: "leg-1",
+        authorId: snapshot.user.id,
+        baseVersion: 4,
+        input: {
+          aircraftUuid: a.uuid,
+          pilotId: snapshot.user.id,
+          startTime: "2026-01-01T08:00:00.000Z",
+          hobbsOn: a.currentHobbs + 3600,
+          tachOn: a.currentTach + 3600,
+          landings: 1,
+          cycles: 0,
+          origin: "AAA",
+          destination: "BBB",
+          operation: "Mission",
+          flightRules: "VFR",
+          remarks: "",
+          discrepancy: "",
+        },
+      },
+    },
+  ];
+  const html = form({});
+  expect(html).toContain(((a.currentHobbs + 3600) / 3600).toFixed(1));
+  expect(html).not.toContain("readings changed");
+  await submit!(flightData());
+  expect(enqueue).toHaveBeenCalledWith(
+    expect.objectContaining({ baseVersion: 5 }),
   );
 });
 it("reviews a held flight online only, keeping its stored oil", async () => {

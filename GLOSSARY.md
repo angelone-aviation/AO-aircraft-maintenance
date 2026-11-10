@@ -67,7 +67,7 @@ The check that blocks releasing a grounded aircraft for a flight.
 A recorded, reasoned decision to fly despite the dispatch gate; the reason is kept with the flight.
 
 **Pending entry**:
-A flight or discrepancy recorded offline and waiting in the outbox to sync.
+A flight or discrepancy recorded offline and waiting in the outbox to sync. A user's later pending flight on an aircraft starts from the readings and version their earlier pending flights on it will leave, so the legs sync in order.
 _Avoid_: queued operation (in user-facing text), draft
 
 **Conflict review**:

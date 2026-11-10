@@ -4,14 +4,15 @@
  * Layer: UI. React components; flight rules live in src/domain.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
  *   (flightFluids, model, programs, checklists, guidedFlight, flights,
- *   flightSession, readings, aircraftStatus), ./Checklists, ./FlightFluids,
- *   ./FlightForm, ./FlightParts, ./AircraftStatus, ./design, ./ui.
+ *   flightSession, flightSubmission, readings, aircraftStatus),
+ *   ./Checklists, ./FlightFluids, ./FlightForm, ./FlightParts,
+ *   ./AircraftStatus, ./design, ./ui.
  *
  * Drafts live only in this browser's localStorage, so every storage failure
  * offers an export of the draft rather than losing its readings.
  */
 import { oilLevelLabel } from "../domain/flightFluids";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useWorkspace } from "../data/store";
 import {
   can,
@@ -38,6 +39,7 @@ import {
 } from "../domain/guidedFlight";
 import { flightOptionalEntries, validateFlight } from "../domain/flights";
 import { plannedFlightRules } from "../domain/flightSession";
+import { aircraftAfterPendingFlights } from "../domain/flightSubmission";
 import { SECONDS_PER_HOUR, parseHours, readingText } from "../domain/readings";
 import { ChecklistReader } from "./Checklists";
 import { FlightFluidFields } from "./FlightFluids";
@@ -118,7 +120,7 @@ type EngineStartKey = "durationSeconds" | "maxEgtC";
  */
 export function GuidedFlight(props: GuidedFlightProps) {
   const { snapshot, namespace, queue } = useWorkspace();
-  const s = snapshot!;
+  const s = useMemo(() => withPendingLegs(snapshot!, queue), [snapshot, queue]);
   const drafts = useGuidedDrafts(
     `${DRAFT_KEY_PREFIX}:${namespace}:${s.user.id}:${activeProgram(s)}`,
   );
@@ -1084,6 +1086,19 @@ function exportDraft(d: Drafts) {
     ? JSON.stringify(d.draft, null, 2)
     : localStorage.getItem(d.key);
   if (raw) download("guided-flight-draft.json", raw);
+}
+
+// The aircraft as the user's own unsynced legs will leave them, so a flight
+// started behind them opens on their ending readings and version (decision
+// D7); the outbox chains its version the same way.
+function withPendingLegs(s: Snapshot, queue: QueuedOperation[]): Snapshot {
+  const pending = queue.map((q) => q.operation);
+  return {
+    ...s,
+    aircraft: s.aircraft.map(
+      (a) => aircraftAfterPendingFlights(s, a.uuid, pending) ?? a,
+    ),
+  };
 }
 
 function startDraft(s: Snapshot, setup: Setup, d: Drafts) {

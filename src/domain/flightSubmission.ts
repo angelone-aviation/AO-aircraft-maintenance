@@ -139,6 +139,42 @@ export function submitFlight(
 }
 
 /**
+ * The aircraft as the server will hold it once the user's own unsynced
+ * flights on it are accepted in outbox order. A later leg logged offline
+ * starts from it, so it carries the version and starting readings its
+ * earlier legs will produce and is accepted after them (decision D7). An
+ * earlier leg the server holds or refuses leaves the aircraft a version
+ * short, so every leg chained after it is held too.
+ *
+ * @param s - Snapshot holding the aircraft, the signed-in user and the
+ *   flights the server already has.
+ * @param aircraftUuid - The aircraft.
+ * @param pending - The device's outbox operations, oldest first; failed
+ *   entries count, as they may still be retried.
+ * @returns The stored aircraft advanced by each of the user's pending
+ *   flights on it that the snapshot does not hold yet; undefined for an
+ *   unknown aircraft.
+ */
+export function aircraftAfterPendingFlights(
+  s: Snapshot,
+  aircraftUuid: string,
+  pending: readonly Operation[],
+): Aircraft | undefined {
+  const aircraft = s.aircraft.find((a) => a.uuid === aircraftUuid);
+  if (!aircraft) return undefined;
+  const synced = new Set(s.flights.map((f) => f.uuid));
+  return pending
+    .filter(
+      (op): op is FlightOperation =>
+        op.kind === "flight" &&
+        op.authorId === s.user.id &&
+        op.input.aircraftUuid === aircraftUuid &&
+        !synced.has(op.uuid),
+    )
+    .reduce((current, op) => applyFlight(current, op.input), aircraft);
+}
+
+/**
  * Submits a problem report, optionally linked to a flight.
  *
  * @returns As {@link submitOperation}; always `status: "accepted"`.

@@ -5,8 +5,8 @@
  * Layer: Data. Zustand store over IndexedDB and the Backend; no UI.
  * Dependencies: zustand, convex/values, src/data (local, backend, demo,
  *   demoBackend, deviceManuals, errors, logbookPhotos), src/domain (model,
- *   programs, flights, flightChecklistLink, flightPlans, aircraftStatus,
- *   aircraftFiles, rejection).
+ *   programs, flights, flightChecklistLink, flightPlans, flightSubmission,
+ *   aircraftStatus, aircraftFiles, rejection).
  *
  * Only flights and problem reports queue offline; every other write needs a
  * connection. A logbook page photo is the one exception: it waits on the
@@ -16,6 +16,7 @@
  */
 import { validateChecklistFlight } from "../domain/flightChecklistLink";
 import { validatePlanFlight } from "../domain/flightPlans";
+import { aircraftAfterPendingFlights } from "../domain/flightSubmission";
 import { scopedSnapshot } from "../domain/programs";
 import { create } from "zustand";
 import { ConvexError } from "convex/values";
@@ -324,8 +325,10 @@ export const useWorkspace = create<Workspace>((set, get) => ({
         "Your offline access expired. Reconnect and sign in; pending entries are preserved.",
       );
     assertEntryAllowed(snapshot, operation);
-    if (operation.kind === "flight")
+    if (operation.kind === "flight") {
       assertFlightEntry(snapshot, operation, get().queue);
+      operation = chainAfterPendingFlights(snapshot, operation, get().queue);
+    }
     operation = { ...operation, programUuid: snapshot.activeProgramUuid };
     const entry = { operation, queuedAt: Date.now() };
     await local.persistOperation(namespace, entry);
@@ -577,6 +580,23 @@ function assertPlanFree(queue: QueuedOperation[], planUuid: string) {
 }
 
 type FlightEntry = Extract<Operation, { kind: "flight" }>;
+
+// A leg started from the stored aircraft while this user's earlier legs on it
+// wait in the outbox takes the version they will leave, so the server accepts
+// the legs in order (decision D7). A form that opened on other readings keeps
+// its version, and the server holds it as before.
+function chainAfterPendingFlights(
+  snapshot: Snapshot,
+  operation: FlightEntry,
+  queue: QueuedOperation[],
+): FlightEntry {
+  const { aircraftUuid } = operation.input;
+  const stored = snapshot.aircraft.find((a) => a.uuid === aircraftUuid);
+  if (operation.baseVersion !== stored?.version) return operation;
+  const pending = queue.map((q) => q.operation);
+  const after = aircraftAfterPendingFlights(snapshot, aircraftUuid, pending);
+  return { ...operation, baseVersion: after?.version ?? stored.version };
+}
 
 function buildPendingPhoto(
   snapshot: Snapshot,

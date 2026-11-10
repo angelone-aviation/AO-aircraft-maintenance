@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins submitting outbox entries: checks in the server's order,
- *   held flights, stored changes, change-log entries and refusal classes.
+ *   held flights, stored changes, change-log entries, refusal classes, and
+ *   the aircraft a later offline leg starts from.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/flightSubmission.ts, src/domain/flights.ts,
  *   src/domain/rejection.ts, src/data/demo.ts (fixture).
@@ -10,6 +11,7 @@ import { demoSnapshot } from "../data/demo";
 import type { Flight, Snapshot } from "./model";
 import type { ManagedRecord, Stock } from "./management";
 import {
+  aircraftAfterPendingFlights,
   FlightRejection,
   submitOperation,
   type FlightOperation,
@@ -467,5 +469,74 @@ describe("submitting a problem report", () => {
         options,
       ),
     ).toThrow("Linked flight does not belong to this aircraft.");
+  });
+});
+
+describe("legs logged behind the user's own unsynced legs", () => {
+  const leg = (s: Snapshot, uuid: string, hobbsHours: number, hour: number) =>
+    flight(
+      s,
+      {
+        hobbsOn: s.aircraft[0].currentHobbs + hobbsHours * 3600,
+        tachOn: undefined,
+        startTime: `2026-10-20T0${hour}:00:00Z`,
+      },
+      { uuid },
+    );
+
+  it("start from what the earlier legs leave, and are accepted in order", () => {
+    const s = world();
+    const a = s.aircraft[0];
+    const legs: FlightOperation[] = [];
+    for (const [i, hours] of [1, 2, 3].entries()) {
+      const next = leg(s, `leg-${hours}`, hours, 6 + i);
+      next.baseVersion = aircraftAfterPendingFlights(s, a.uuid, legs)!.version;
+      legs.push(next);
+    }
+    expect(legs.map((l) => l.baseVersion)).toEqual([
+      a.version,
+      a.version + 1,
+      a.version + 2,
+    ]);
+    expect(aircraftAfterPendingFlights(s, a.uuid, legs.slice(0, 2))).toEqual(
+      applyFlight(applyFlight(a, legs[0].input), legs[1].input),
+    );
+    for (const op of legs) {
+      const { status, changes } = submitOperation(s, op, options);
+      expect(status).toBe("accepted");
+      s.aircraft[0] = changes!.aircraft!;
+    }
+    expect(s.aircraft[0].currentHobbs).toBe(a.currentHobbs + 3 * 3600);
+  });
+
+  it("hold the later leg when an earlier one is held", () => {
+    const s = world();
+    const a = s.aircraft[0];
+    const first = leg(s, "leg-1", 1, 6);
+    const second = leg(s, "leg-2", 2, 7);
+    second.baseVersion = aircraftAfterPendingFlights(s, a.uuid, [
+      first,
+    ])!.version;
+    first.baseVersion = a.version - 1;
+    expect(submitOperation(s, first, options).status).toBe("review");
+    expect(submitOperation(s, second, options).changes!.flight).toMatchObject({
+      status: "review",
+      reviewReason: "Aircraft totals changed after this entry was started.",
+    });
+  });
+
+  it("count only the user's pending flights on that aircraft not yet synced", () => {
+    const s = world();
+    const a = s.aircraft[0];
+    const synced = leg(s, "synced", 1, 6);
+    s.flights = [{ uuid: "synced" } as Flight];
+    const other = leg(s, "other", 1, 6);
+    other.authorId = "someone-else";
+    const elsewhere = leg(s, "elsewhere", 1, 6);
+    elsewhere.input.aircraftUuid = s.aircraft[1].uuid;
+    expect(
+      aircraftAfterPendingFlights(s, a.uuid, [synced, other, elsewhere]),
+    ).toBe(a);
+    expect(aircraftAfterPendingFlights(s, "missing", [])).toBeUndefined();
   });
 });
