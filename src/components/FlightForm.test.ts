@@ -17,6 +17,7 @@ let snapshot = demoSnapshot();
 let online = true;
 let queue: QueuedOperation[] = [];
 const enqueue = vi.fn();
+const replace = vi.fn();
 const backend = { review: vi.fn() };
 let submit: ((data: FormData) => Promise<void>) | undefined;
 vi.mock("./ui", async (importOriginal) => {
@@ -34,6 +35,7 @@ vi.mock("../data/store", () => {
     snapshot,
     queue,
     enqueue,
+    replace,
     backend,
     online,
     connected: true,
@@ -45,6 +47,7 @@ beforeEach(() => {
   online = true;
   queue = [];
   enqueue.mockReset();
+  replace.mockReset();
   backend.review.mockReset();
 });
 function render(phase: "preflight" | "end", turbine: boolean, twin = false) {
@@ -298,6 +301,13 @@ it("opens behind the user's own unsynced leg on its ending readings and version"
   await submit!(flightData());
   expect(enqueue).toHaveBeenCalledWith(
     expect.objectContaining({ baseVersion: 5 }),
+  );
+  // Edit and retry of that same entry does not count it as an earlier leg.
+  form({ replaces: "leg-1" });
+  await submit!(flightData());
+  expect(replace).toHaveBeenCalledWith(
+    "leg-1",
+    expect.objectContaining({ baseVersion: 4 }),
   );
 });
 it("reviews a held flight online only, keeping its stored oil", async () => {

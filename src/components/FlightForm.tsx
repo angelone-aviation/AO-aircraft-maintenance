@@ -198,11 +198,11 @@ function useFlightDraft(
   s: Snapshot,
   queue: QueuedOperation[],
 ) {
-  const choice = useAircraftChoice(
-    props,
-    s,
-    queue.map((q) => q.operation),
-  );
+  // The entry an Edit and retry replaces is not an earlier leg of itself.
+  const pending = queue
+    .map((q) => q.operation)
+    .filter((op) => op.uuid !== props.replaces);
+  const choice = useAircraftChoice(props, s, pending);
   const defaults = props.initial ?? props.prefill;
   const [fluids, setFluids] = useState<Fluids>({
     fuel: defaults?.fuel,
