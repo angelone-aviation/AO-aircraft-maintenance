@@ -26,7 +26,7 @@ import {
   weekOf,
   type ForecastItem,
 } from "../domain/forecast";
-import { can, localDate } from "../domain/model";
+import { can, localDate, type Snapshot } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import { download } from "./ui";
 import {
@@ -76,6 +76,33 @@ export function statusTone(item: ForecastItem) {
 }
 
 /**
+ * The aircraft whose forecast the user may read.
+ *
+ * @param s - The snapshot.
+ * @returns The aircraft the user holds read access to, in snapshot order.
+ */
+export function readableAircraft(s: Snapshot) {
+  return s.aircraft.filter((a) => can(s, a.uuid, "read"));
+}
+
+/**
+ * The forecast items the user may read: those of aircraft they can read, and
+ * components held in inventory when they can read the program.
+ *
+ * @param s - The snapshot.
+ * @param today - The day projections count from.
+ * @returns The items in {@link forecast} order.
+ */
+export function readableForecast(s: Snapshot, today: string) {
+  const readable = new Set(readableAircraft(s).map((a) => a.uuid));
+  // Inventory components have no aircraft; program read access shows them.
+  const showInventory = programPermission(s, "read");
+  return forecast(s, today).filter((i) =>
+    i.aircraftUuid ? readable.has(i.aircraftUuid) : showInventory,
+  );
+}
+
+/**
  * The Planning screen: the forecast items the user may read, grouped by the
  * week they are projected to fall due within the chosen horizon, then the
  * items with too little usage to project. Filters by aircraft and item type,
@@ -111,14 +138,9 @@ function usePlanning() {
   const [aircraftFilter, setAircraftFilter] = useState("");
   const [kindFilter, setKindFilter] = useState("");
   const today = localDate();
-  const readable = s!.aircraft.filter((a) => can(s!, a.uuid, "read"));
-  // Inventory components have no aircraft; program read access shows them.
-  const showInventory = programPermission(s!, "read");
-  const items = useMemo(() => forecast(s!, today), [s, today]).filter(
+  const readable = readableAircraft(s!);
+  const items = useMemo(() => readableForecast(s!, today), [s, today]).filter(
     (i) =>
-      (i.aircraftUuid
-        ? readable.some((a) => a.uuid === i.aircraftUuid)
-        : showInventory) &&
       (!aircraftFilter || i.aircraftUuid === aircraftFilter) &&
       (!kindFilter || i.kind === kindFilter),
   );
