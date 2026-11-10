@@ -1,0 +1,31 @@
+/*
+ * Responsibility: The OK-to-fly line on aircraft cards and details.
+ * Layer: UI. Per-feature styles over the design tokens.
+ * Dependencies: src/styles/tokens.css (variables), src/styles/design.css
+ *   (.ds-notice and its tones).
+ */
+.ds-notice.readiness {
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 14.5px;
+  line-height: 1.35;
+}
+.readiness .ds-notice-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+}
+.readiness-verdict {
+  font-size: 16px;
+  font-weight: 700;
+}
+.readiness-more {
+  color: var(--muted);
+}
+/* On a card the line is a full-width strip across the card's top edge. */
+.ds-notice.readiness-strip {
+  border-radius: 0;
+}

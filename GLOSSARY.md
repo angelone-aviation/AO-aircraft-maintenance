@@ -60,6 +60,10 @@ The computed level of an aircraft, airworthy, due soon or grounded, together wit
 **Dispatch gate**:
 The check that blocks releasing a grounded aircraft for a flight.
 
+**OK to fly**:
+The one-line verdict on an aircraft card and detail: "Not OK to fly" exactly when the aircraft is grounded (the dispatch gate would refuse a flight), otherwise "OK to fly", with the single most important reason.
+_Avoid_: cleared, released
+
 **Dispatch override**:
 A recorded, reasoned decision to fly despite the dispatch gate; the reason is kept with the flight.
 

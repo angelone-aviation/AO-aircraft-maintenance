@@ -6,8 +6,8 @@
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
  *   readings, rejection),
- *   ./design and the aircraft, flight, logbook photo, paper check, parts
- *   and FAA components.
+ *   ./design and the aircraft, flight, flight readiness, logbook photo,
+ *   paper check, parts and FAA components.
  */
 import {
   lazy,
@@ -79,6 +79,7 @@ import { FlightForm } from "./FlightForm";
 import { LogbookPhotoPrompt, type LogbookPhotoTarget } from "./LogbookPhotos";
 import { PaperCheckButton } from "./PaperCheck";
 import { AircraftStatusBadge, AircraftStatusReasons } from "./AircraftStatus";
+import { FlightReadinessLine } from "./FlightReadiness";
 import {
   AircraftArt,
   Dialog,
@@ -939,6 +940,7 @@ function AircraftCard(card: CardProps) {
       aria-labelledby={headingId}
       style={{ "--i": index } as CSSProperties}
     >
+      <FlightReadinessLine status={status} className="readiness-strip" />
       <CardHead {...card} headingId={headingId} />
       {(status.reasons.length > 0 || pilotView) && <CardNotes {...card} />}
       <CardMeters aircraft={a} />
@@ -1160,6 +1162,7 @@ function AircraftDetail(detail: DetailProps) {
       header={<DetailHero {...detail} status={status} />}
       footer={<DetailActions {...detail} />}
     >
+      <FlightReadinessLine status={status} />
       <DetailStats aircraft={a} />
       <StatusNotes aircraft={a} status={status} />
       <div className="dash-detail-section dash-detail-inspections">
