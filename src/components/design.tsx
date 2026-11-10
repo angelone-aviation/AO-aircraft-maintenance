@@ -51,7 +51,7 @@ export type IconType = ComponentType<{
  * grounded to danger and scheduled to neutral.
  */
 export type Tone = "good" | "warn" | "danger" | "neutral" | "blue";
-// Badge's "warning" tone means "warn", so Badge tones pass straight through.
+// Older screens name the warn tone "warning"; both are accepted.
 type ToneInput = Tone | "warning";
 type DialogProps = {
   onClose: () => void;

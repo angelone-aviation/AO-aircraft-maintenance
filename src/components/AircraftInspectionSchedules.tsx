@@ -3,15 +3,20 @@
  *   limit, the status and a projected due date, sortable by what remains.
  * Layer: UI. React components; limits and status come from src/domain.
  * Dependencies: src/domain (model, management, maintenance,
- *   componentCalendar, forecast), ./ui.tsx.
+ *   componentCalendar, forecast), ./design.tsx, ./ui.tsx.
  */
 import { useState } from "react";
 import type { Aircraft, Inspection, Snapshot } from "../domain/model";
 import { inspectionCounters } from "../domain/management";
-import { inspectionDueDate, inspectionStatus } from "../domain/maintenance";
+import {
+  inspectionDueDate,
+  inspectionStatus,
+  inspectionStatusLabels,
+} from "../domain/maintenance";
 import { daysPerServiceMonth } from "../domain/componentCalendar";
 import { inspectionProjections } from "../domain/forecast";
-import { Badge, Empty, Field } from "./ui";
+import { StatusPill } from "./design";
+import { Empty, Field } from "./ui";
 
 const REMAINING_BY_SORT = {
   hours: "hoursRemaining",
@@ -20,8 +25,10 @@ const REMAINING_BY_SORT = {
   landings: "landingsRemaining",
 } as const;
 const FIRST_ORDER = { sort: "name", descending: false } as const;
-const STATUS_TONES: Partial<Record<Remaining["status"], "danger" | "warning">> =
-  { overdue: "danger", "due-soon": "warning" };
+const STATUS_TONES: Partial<Record<Remaining["status"], "danger" | "warn">> = {
+  overdue: "danger",
+  "due-soon": "warn",
+};
 
 type Remaining = ReturnType<typeof inspectionStatus>;
 type ScheduleRow = {
@@ -154,7 +161,9 @@ function ScheduleItem({ row }: { row: ScheduleRow }) {
           <small className="block">Remaining units not available</small>
         )}
       </div>
-      <Badge tone={STATUS_TONES[r.status] ?? "neutral"}>{r.status}</Badge>
+      <StatusPill tone={STATUS_TONES[r.status]}>
+        {inspectionStatusLabels[r.status]}
+      </StatusPill>
     </div>
   );
 }

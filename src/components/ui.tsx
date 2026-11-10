@@ -1,8 +1,8 @@
 /**
  * Responsibility: Shared building blocks for forms and pages: the modal, the
  *   async form and delete button, revealing a refused save, labelled fields,
- *   badges, empty states, page titles, safe links, file and blank-CSV
- *   downloads, and the text shown for an error.
+ *   empty states, page titles, safe links, file and blank-CSV downloads, and
+ *   the text shown for an error.
  * Layer: UI. Shared components; no Convex imports.
  * Dependencies: react, @phosphor-icons/react, ./design.tsx, src/data/store.ts,
  *   src/data/errors.ts, src/domain/csv.ts.
@@ -227,26 +227,6 @@ export function Field({
         : children}
       {hint && <small id={id + "-hint"}>{hint}</small>}
     </div>
-  );
-}
-
-/**
- * A status badge. A string child shows with its hyphens as spaces, so a code
- * such as "due-soon" reads "Due Soon" once CSS capitalizes each word.
- *
- * @param props.tone - Defaults to neutral.
- */
-export function Badge({
-  children,
-  tone = "neutral",
-}: {
-  children: ReactNode;
-  tone?: "neutral" | "good" | "warning" | "danger";
-}) {
-  return (
-    <span className={"badge " + tone}>
-      {typeof children === "string" ? children.replace(/-/g, " ") : children}
-    </span>
   );
 }
 

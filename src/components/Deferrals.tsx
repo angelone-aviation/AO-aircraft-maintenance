@@ -4,7 +4,7 @@
  * Layer: UI. React components; deferral rules and expiry live in
  *   src/domain/deferrals.ts.
  * Dependencies: src/data/store.ts, src/domain/deferrals.ts,
- *   src/domain/model.ts, ./ui.tsx.
+ *   src/domain/model.ts, ./design.tsx, ./ui.tsx.
  */
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
@@ -17,7 +17,8 @@ import {
   type Deferral,
 } from "../domain/deferrals";
 import { localDate, type Discrepancy } from "../domain/model";
-import { AsyncForm, Badge, Field, value } from "./ui";
+import { StatusPill } from "./design";
+import { AsyncForm, Field, value } from "./ui";
 
 // The limits deferralInputSchema sets.
 const MEL_ITEM_MAX_LENGTH = 50;
@@ -45,9 +46,9 @@ export function DeferralStatus({ report }: { report: Discrepancy }) {
   return (
     <div className="deferral">
       <p>
-        <Badge tone={deferralTone(open, expired)}>
+        <StatusPill tone={deferralTone(open, expired)}>
           {expired ? "Deferral expired" : "Deferred"}
-        </Badge>{" "}
+        </StatusPill>{" "}
         <strong>{deferralLabel(d)}</strong>
       </p>
       <p className="muted">{deferralNote(d, today, open)}</p>
@@ -124,7 +125,7 @@ function BasisSelect({ value, onChange }: Choice<DeferralBasis>) {
 
 function deferralTone(open: boolean, expired: boolean) {
   if (!open) return "neutral";
-  return expired ? "danger" : "warning";
+  return expired ? "danger" : "warn";
 }
 
 function deferralNote(d: Deferral, today: string, open: boolean) {

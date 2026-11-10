@@ -3,7 +3,7 @@
  *   records each core's shipment and then its vendor credit.
  * Layer: UI. Writes through `backend.purchaseOrder`.
  * Dependencies: react, src/data/store.ts, src/domain/model.ts (localDate),
- *   src/domain/purchaseOrders.ts (core return rows), ./ui.
+ *   src/domain/purchaseOrders.ts (core return rows), ./design, ./ui.
  */
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
@@ -14,10 +14,11 @@ import {
   type POCommand,
   type PurchaseOrder,
 } from "../domain/purchaseOrders";
-import { AsyncForm, Badge, Field, Modal, value } from "./ui";
+import { StatusPill } from "./design";
+import { AsyncForm, Field, Modal, value } from "./ui";
 
 const STATUS_BADGES = {
-  pending: { label: "Pending", tone: "warning" },
+  pending: { label: "Pending", tone: "warn" },
   shipped: { label: "Shipped", tone: "neutral" },
   credited: { label: "Credited", tone: "good" },
 } as const;
@@ -145,12 +146,12 @@ function CoreReturnLine({ row, disabled, onEdit }: RowProps) {
         {row.overdue && (
           <>
             {" "}
-            <Badge tone="danger">Overdue</Badge>
+            <StatusPill tone="danger">Overdue</StatusPill>
           </>
         )}
       </td>
       <td>
-        <Badge tone={badge.tone}>{badge.label}</Badge>
+        <StatusPill tone={badge.tone}>{badge.label}</StatusPill>
         {row.shippedDate && (
           <small className="block">Shipped {row.shippedDate}</small>
         )}

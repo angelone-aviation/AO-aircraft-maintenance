@@ -99,7 +99,9 @@ describe("AircraftInspectionSchedules", () => {
     expect(html).toContain("1.5 hours remaining<");
     expect(html).toContain("0 cycles remaining — due now<");
     expect(html).toContain("3 landings overdue<");
-    expect(html).toContain('<span class="badge danger">overdue</span>');
+    expect(html).toContain(
+      '<span class="ds-pill ds-tone-danger"><span class="ds-pill-dot" aria-hidden="true"></span>Overdue</span>',
+    );
   });
 
   it("says when no limit is known, and when there are no inspections", () => {
@@ -109,9 +111,13 @@ describe("AircraftInspectionSchedules", () => {
     ];
     const html = render();
     expect(html).toContain("Remaining units not available");
-    expect(html).toContain('<span class="badge neutral">unknown</span>');
+    expect(html).toContain(
+      '<span class="ds-pill ds-tone-neutral"><span class="ds-pill-dot" aria-hidden="true"></span>Unknown</span>',
+    );
     expect(html).toContain("Calendar exempt");
-    expect(html).toContain('<span class="badge neutral">scheduled</span>');
+    expect(html).toContain(
+      '<span class="ds-pill ds-tone-neutral"><span class="ds-pill-dot" aria-hidden="true"></span>Scheduled</span>',
+    );
     s.inspections = [];
     expect(render()).toContain("<h3>Inspection information missing</h3>");
   });

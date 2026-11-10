@@ -3,7 +3,7 @@
  *   engine logs, and the trend chart and table with their limit flags.
  * Layer: UI. React components; parsing and limits live in src/domain.
  * Dependencies: react, src/data/store.ts, src/domain/model.ts,
- *   src/domain/readings.ts, src/domain/engineTrends.ts, ./ui.tsx,
+ *   src/domain/readings.ts, src/domain/engineTrends.ts, ./design.tsx, ./ui.tsx,
  *   ./engineTrends.css.
  */
 import "./engineTrends.css";
@@ -27,7 +27,8 @@ import {
   type EngineTrend,
   type EngineTrendData,
 } from "../domain/engineTrends";
-import { AsyncForm, Badge, Empty, Field, Modal, errorText, value } from "./ui";
+import { StatusPill } from "./design";
+import { AsyncForm, Empty, Field, Modal, errorText, value } from "./ui";
 
 const SOURCE_LABELS: Record<EngineSummary["source"], string> = {
   jpi: "JPI EDM",
@@ -470,7 +471,7 @@ function PreviewSummary({
       </p>
       {engineFlags(preview, limits).map((f) => (
         <p key={f}>
-          <Badge tone="danger">Flag</Badge> {f}
+          <StatusPill tone="danger">Flag</StatusPill> {f}
         </p>
       ))}
       <div className="table-wrap">

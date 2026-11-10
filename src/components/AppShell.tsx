@@ -61,9 +61,10 @@ import { ComponentIcon } from "./ComponentIcon";
 import { InspectionIcon } from "./InspectionIcon";
 import { WorkOrderIcon } from "./WorkOrderIcon";
 import { FlightForm } from "./FlightForm";
-import { Badge, Modal, errorText } from "./ui";
+import { Modal, errorText } from "./ui";
 import {
   Dialog,
+  StatusPill,
   Wordmark,
   useBreakpoint,
   useTheme,
@@ -781,7 +782,7 @@ function TopBar({ items, phone }: { items: NavItem[]; phone: boolean }) {
         )}
       </div>
       <div className="topbar-status">
-        {demo && <Badge>LOCAL DEMO</Badge>}
+        {demo && <StatusPill dot={false}>Local demo</StatusPill>}
         {demo && !ownerView && <OwnerPreviewButton />}
         {demo && !ownerView && <BoardPreviewButton />}
         <ConnectionStatus s={s} />

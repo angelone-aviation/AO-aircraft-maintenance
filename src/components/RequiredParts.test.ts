@@ -43,7 +43,7 @@ describe("PartsAvailability", () => {
       h(PartsAvailability, { parts: [neededPart] }),
     );
     expect(html).toBe(
-      '<div class="parts-availability"><span class="badge warning">Parts shortage</span>' +
+      '<div class="parts-availability"><span class="ds-pill ds-tone-warn"><span class="ds-pill-dot" aria-hidden="true"></span>Parts shortage</span>' +
         '<small class="block">FILTER-1 · Main hangar · Need 3 / Available 2 · Short 1 · On order 6 · Shipped 3</small></div>',
     );
   });
@@ -68,7 +68,7 @@ describe("PartsAvailability", () => {
     expect(render([enough])).toContain(">Parts available<");
     expect(render([enough])).not.toContain("Cached stock");
     expect(render([enough, missing])).toContain(
-      '<span class="badge warning">Parts availability unknown</span>',
+      '<span class="ds-pill ds-tone-warn"><span class="ds-pill-dot" aria-hidden="true"></span>Parts availability unknown</span>',
     );
     expect(render([missing])).toContain(
       "Unavailable part · Main hangar · Need 3 / Available unknown · On order 0",
