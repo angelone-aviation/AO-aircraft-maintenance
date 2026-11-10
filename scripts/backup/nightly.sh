@@ -13,7 +13,8 @@
 #   b. encrypted with age to BACKUP_AGE_PUBLIC_KEY;
 #   c. uploaded to R2 under daily/YYYY/MM/DD/ with a manifest, then checked;
 #   d. also uploaded to monthly/YYYY-MM/ when that month has no copy yet;
-#   e. environment variables, encrypted, uploaded to env/ when they changed;
+#   e. environment variables, encrypted, uploaded to env/ when they or the
+#      backup key changed;
 #   f. recorded in the app with `npx convex run backups:recordOffsiteCopy`;
 #   g. turned into the records workbook and uploaded to Dropbox, when set up.
 #
@@ -270,13 +271,17 @@ if ((monthly_count == 0)); then
 fi
 
 # ---------------------------------------------------------------------------
-# e. Environment variables, only when they changed. The fingerprint lives in
-# state/, which is not locked; env/ is locked forever.
+# e. Environment variables, only when they or the backup key changed. The
+# fingerprint lives in state/, which is not locked; env/ is locked forever.
 
 env_file="$work/env.txt"
 convex env list --include-values >"$env_file" || fail "npx convex env list failed."
 [[ -s "$env_file" ]] || fail "npx convex env list returned no variables."
-env_fingerprint=$(sha256_of "$env_file")
+# The fingerprint covers the recipient too. After the backup key changes, the
+# newest env/ copy must open with the new key even when no variable changed:
+# the old private key may be the one that was lost.
+env_fingerprint=$(printf '%s\n' "$recipient" | cat - "$env_file" | sha256sum)
+env_fingerprint=${env_fingerprint%% *}
 previous_fingerprint=""
 fingerprint_size=$(object_size "$fingerprint_key")
 if [[ -n "$fingerprint_size" ]]; then
@@ -285,7 +290,7 @@ if [[ -n "$fingerprint_size" ]]; then
   previous_fingerprint=$(tr -d '[:space:]' <"$work/previous-fingerprint.txt")
 fi
 if [[ "$previous_fingerprint" == "$env_fingerprint" ]]; then
-  echo "Environment variables are unchanged since the last copy; not uploaded."
+  echo "Environment variables and the backup key are unchanged since the last copy; not uploaded."
   rm -f -- "$env_file"
 else
   age -r "$recipient" -o "$work/env.txt.age" "$env_file" || fail "age could not encrypt the environment variables."

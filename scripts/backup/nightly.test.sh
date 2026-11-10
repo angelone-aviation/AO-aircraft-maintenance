@@ -39,6 +39,9 @@ env_secrets=(fake-jwt-private-key-body-91c2 fake-jwks-value-3e7f fake-credential
 
 age-keygen -o "$tmp/key.txt" 2>/dev/null
 public_key=$(age-keygen -y "$tmp/key.txt")
+# The key the operator changes to ("Changing the backup key" in the runbook).
+age-keygen -o "$tmp/new-key.txt" 2>/dev/null
+new_public_key=$(age-keygen -y "$tmp/new-key.txt")
 
 write_env() { # write_env <credentials key value>
   cat >"$tmp/env.txt" <<EOF
@@ -269,6 +272,8 @@ exited_failed() { [[ "$status" != 0 ]]; }
 output_says() { grep -qF -- "$1" "$out"; }
 nothing_recorded() { [[ "$(records)" == 0 ]]; }
 decrypts_to() { age -d -i "$tmp/key.txt" "$1" | cmp -s - "$2"; }
+opens_with_new_key() { age -d -i "$tmp/new-key.txt" "$1" 2>/dev/null | cmp -s - "$2"; }
+stored_fingerprint() { tr -d '[:space:]' <"$(bucket_dir)/state/env-fingerprint.txt"; }
 sha_of() { sha256sum "$1" | cut -d ' ' -f 1; }
 jq_true() { jq -e "$@" >/dev/null; }
 
@@ -323,8 +328,9 @@ check "manifest records hashes, sizes, commit, CLI version and table counts" jq_
 check "exactly one env/ object, named by the run's time" test "$(object_count '^env/angelone-env-[0-9]{8}T[0-9]{6}Z\.txt\.age$')" = 1
 env_object="$(bucket_dir)/$(objects | grep '^env/')"
 check "env/ object decrypts to the environment variables" decrypts_to "$env_object" "$tmp/env.txt"
+first_fingerprint=$(stored_fingerprint)
 check "fingerprint stored in state/, outside the locked prefixes" \
-  test "$(tr -d '[:space:]' <"$(bucket_dir)/state/env-fingerprint.txt")" = "$(sha_of "$tmp/env.txt")"
+  grep -qE '^[0-9a-f]{64}$' <<<"$first_fingerprint"
 check "every stored .age object is encrypted" bash -c \
   'for f in "$1"/daily/*/*/*/*.age "$1"/monthly/*/*.age "$1"/env/*.age; do [[ "$(head -c 21 "$f")" == age-encryption.org/v1 ]] || exit 1; done' _ "$(bucket_dir)"
 check "no plaintext left after exit" no_plaintext_left first
@@ -367,9 +373,28 @@ check "record says envUploaded true" record_matches_contract "$rec" no true
 check "a second env/ object" test "$(object_count '^env/')" = 2
 newest_env="$(bucket_dir)/$(objects | grep '^env/' | tail -n 1)"
 check "the newest env/ object holds the new values" decrypts_to "$newest_env" "$tmp/env.txt"
-check "fingerprint updated" \
-  test "$(tr -d '[:space:]' <"$(bucket_dir)/state/env-fingerprint.txt")" = "$(sha_of "$tmp/env.txt")"
+third_fingerprint=$(stored_fingerprint)
+check "fingerprint updated" test "$third_fingerprint" != "$first_fingerprint"
 check "no secret in the output" no_secrets_in "$out" "$tmp/summary-third.md"
+
+echo "# fourth night, the backup key changed and no variable did"
+run_backup fourth BACKUP_AGE_PUBLIC_KEY="$new_public_key"
+check "exits 0" exited_ok
+rec=$(last_record)
+check "record says envUploaded true" record_matches_contract "$rec" no true
+check "a third env/ object" test "$(object_count '^env/')" = 3
+newest_env="$(bucket_dir)/$(objects | grep '^env/' | tail -n 1)"
+check "the new key opens the newest env/ object" opens_with_new_key "$newest_env" "$tmp/env.txt"
+check "the new key opens the night's export" \
+  opens_with_new_key "$(bucket_dir)/$(jq -r .objectKey <<<"$rec")" "$state/last-export.zip"
+check "fingerprint updated" test "$(stored_fingerprint)" != "$third_fingerprint"
+check "no secret in the output" no_secrets_in "$out" "$tmp/summary-fourth.md"
+
+echo "# fifth night, same new key, same environment"
+run_backup fifth BACKUP_AGE_PUBLIC_KEY="$new_public_key"
+check "exits 0" exited_ok
+check "record says envUploaded false" record_matches_contract "$(last_record)" no false
+check "environment not uploaded again" test "$(object_count '^env/')" = 3
 
 echo "# monthly copy when only an earlier month has one"
 fresh_bucket earlier-month
