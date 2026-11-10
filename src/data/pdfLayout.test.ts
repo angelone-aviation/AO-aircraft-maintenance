@@ -1,66 +1,73 @@
 /**
- * Responsibility: Pins the paragraph layout: page size, fonts, wrapping, the
- *   gap after each paragraph and when a new page starts.
+ * Responsibility: Pins the paragraph layout: page size, the embedded font,
+ *   wrapping, the gap after each paragraph and when a new page starts.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/data/pdfLayout.ts.
+ * Dependencies: src/data/pdfLayout.ts, tests/fixtures/pdfText.
  */
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { paragraphPdf } from "./pdfLayout";
+import { paragraphPdf, type Paragraph } from "./pdfLayout";
+import { dejaVuFont, pdfLines } from "../../tests/fixtures/pdfText";
 
 const A4_MM = { width: 210, height: 297 };
 const POINTS_PER_MM = 72 / 25.4;
 const TEXT_WIDTH_MM = 176;
 const LINE_MM = 6;
 const PARAGRAPH_GAP_MM = 2;
+const font = dejaVuFont();
+const pdf = (paragraphs: Paragraph[]) => paragraphPdf(paragraphs, font);
 
-/** The text and baseline (in points from the page foot) of each line. */
-function lines(output: string) {
-  return [...output.matchAll(/ ([\d.]+) Td\n\((.*)\) Tj/g)].map((m) => ({
-    y: Number(m[1]),
-    text: m[2],
-  }));
+// The baseline of each line, in points from the page foot.
+function baselines(output: string) {
+  return [...output.matchAll(/ ([\d.]+) Td\n/g)].map((m) => Number(m[1]));
 }
 
 it("prints on A4 portrait pages", () => {
-  const size = paragraphPdf([{ text: "x" }]).internal.pageSize;
+  const size = pdf([{ text: "x" }]).internal.pageSize;
   expect(size.getWidth()).toBeCloseTo(A4_MM.width, 1);
   expect(size.getHeight()).toBeCloseTo(A4_MM.height, 1);
 });
 
-it("prints bold paragraphs in 12 pt bold Helvetica and others in 10 pt", () => {
-  const output = paragraphPdf([
+// jsPDF lists its standard fonts in every document; the text uses one font,
+// the embedded one, which the next test proves by reading the text back.
+it("prints in one embedded font, bold paragraphs at 12 pt and others at 10 pt", () => {
+  const output = pdf([
     { text: "Title", bold: true },
     { text: "Body" },
   ]).output();
-  expect(output).toMatch(/\/F2 12 Tf\n[^(]*\(Title\) Tj/);
-  expect(output).toMatch(/\/F1 10 Tf\n[^(]*\(Body\) Tj/);
-  expect(output).toContain("/BaseFont /Helvetica-Bold");
+  expect(output).toContain("/BaseFont /DejaVu");
+  const used = [...output.matchAll(/\/(F\d+) (\d+) Tf/g)];
+  expect(used.map((m) => m[2])).toEqual(["12", "10"]);
+  expect(new Set(used.map((m) => m[1])).size).toBe(1);
 });
 
-it("wraps a long paragraph at the text width and keeps its words in order", () => {
+it("prints text outside Latin-1 as entered and drops control characters", async () => {
+  const doc = pdf([{ text: "Łódź ⅜ ≥ 10 kΩ №5\u0001\tend" }]);
+  expect(await pdfLines(doc)).toEqual(["Łódź ⅜ ≥ 10 kΩ №5 end"]);
+});
+
+it("wraps a long paragraph at the text width and keeps its words in order", async () => {
   const words = Array.from({ length: 80 }, (_, i) => `word${i}`);
-  const doc = paragraphPdf([{ text: words.join(" ") }]);
-  const printed = lines(doc.output());
+  const doc = pdf([{ text: words.join(" ") }]);
+  const printed = await pdfLines(doc);
   expect(printed.length).toBeGreaterThan(1);
-  expect(printed.map((l) => l.text).join(" ")).toBe(words.join(" "));
-  for (const { text } of printed)
+  expect(printed.join(" ")).toBe(words.join(" "));
+  for (const text of printed)
     expect(doc.getTextWidth(text)).toBeLessThanOrEqual(TEXT_WIDTH_MM);
 });
 
 it("spaces lines 6 mm apart and paragraphs 2 mm more", () => {
-  const output = paragraphPdf([
-    { text: "one\ntwo" },
-    { text: "three" },
-  ]).output();
-  const [one, two, three] = lines(output).map((l) => l.y / POINTS_PER_MM);
+  const output = pdf([{ text: "one\ntwo" }, { text: "three" }]).output();
+  const [one, two, three] = baselines(output).map((y) => y / POINTS_PER_MM);
   expect(one - two).toBeCloseTo(LINE_MM, 5);
   expect(two - three).toBeCloseTo(LINE_MM + PARAGRAPH_GAP_MM, 5);
 });
 
 it("starts a new page once 33 one-line paragraphs fill one (Characterizes current behaviour)", () => {
-  const page = (count: number) =>
-    paragraphPdf(Array.from({ length: count }, () => ({ text: "x" })));
-  expect(page(33).getNumberOfPages()).toBe(1);
-  expect(page(34).getNumberOfPages()).toBe(2);
+  const pages = (count: number) =>
+    pdf(
+      Array.from({ length: count }, () => ({ text: "x" })),
+    ).getNumberOfPages();
+  expect(pages(33)).toBe(1);
+  expect(pages(34)).toBe(2);
 });

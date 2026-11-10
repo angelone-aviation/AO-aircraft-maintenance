@@ -2247,7 +2247,7 @@ async function saveRequestPdf(
 ) {
   try {
     const { requestPdf } = await import("../data/partsRequestPdf");
-    requestPdf(request, s, kind).save(filename);
+    (await requestPdf(request, s, kind)).save(filename);
   } catch (e) {
     onError(errorText(e));
   }

@@ -268,7 +268,7 @@ function DownloadButton({
     try {
       // Loaded on demand, so jsPDF stays out of the view until it is used.
       const { boardSummaryPdf } = await import("../data/boardSummaryPdf");
-      boardSummaryPdf(summary).save(`board-summary-${localDate()}.pdf`);
+      (await boardSummaryPdf(summary)).save(`board-summary-${localDate()}.pdf`);
     } catch (e) {
       onError(errorText(e, "Unable to download the board summary."));
     } finally {

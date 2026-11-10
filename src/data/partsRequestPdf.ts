@@ -2,10 +2,11 @@
  * Responsibility: Prints a parts request, repair order or packing slip as a
  *   PDF.
  * Layer: Data. Browser-side PDF document; no React.
- * Dependencies: src/data/pdfLayout.ts, src/domain/partsRequests.ts,
- *   src/domain/model.ts.
+ * Dependencies: src/data/pdfLayout.ts, src/data/pdfFont.ts,
+ *   src/domain/partsRequests.ts, src/domain/model.ts.
  */
 import { paragraphPdf, type Paragraph } from "./pdfLayout";
+import { loadDejaVuFont } from "./pdfFont";
 import {
   requestPurchases,
   type PartsRequest,
@@ -26,9 +27,13 @@ const CENTS_PER_UNIT = 100;
  * @param s - Snapshot holding its purchases and the members who made them.
  * @param kind - "request" for the order; "packing" for a packing slip, which
  *   adds the ship-from and bill-to addresses.
- * @returns The document, ready for `save()`.
+ * @returns The document, ready for `save()`, in DejaVu Sans so any
+ *   character the request holds prints as entered.
+ * @throws {Error} "Unable to load the PDF font. Reconnect and try again." when
+ *   the font request fails with an HTTP error; a network failure rejects with
+ *   fetch's own error.
  */
-export function requestPdf(
+export async function requestPdf(
   r: PartsRequest,
   s: Snapshot,
   kind: "request" | "packing",
@@ -47,7 +52,7 @@ export function requestPdf(
   out.push({
     text: "Prepared / checked by: ____________________    Date: ______________",
   });
-  return paragraphPdf(out);
+  return paragraphPdf(out, await loadDejaVuFont());
 }
 
 function documentTitle(r: PartsRequest, kind: "request" | "packing"): string {

@@ -2246,7 +2246,7 @@ async function printOrder(
   try {
     onError("");
     const { poPdf } = await import("../data/poPdf");
-    const doc = poPdf(po, s);
+    const doc = await poPdf(po, s);
     if (download) doc.save(`${po.number}.pdf`);
     else showPreview(preview, doc.output("blob"));
   } catch (e) {
@@ -2272,7 +2272,9 @@ async function saveRequestPdf(
 ) {
   try {
     const { requestPdf } = await import("../data/partsRequestPdf");
-    requestPdf(request, s, kind).save(`${request.number}-${suffix}.pdf`);
+    (await requestPdf(request, s, kind)).save(
+      `${request.number}-${suffix}.pdf`,
+    );
   } catch (e) {
     onError(errorText(e));
   }

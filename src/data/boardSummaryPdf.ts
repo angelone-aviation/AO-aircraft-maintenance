@@ -3,10 +3,12 @@
  *   status, each aircraft's line, the next 30 days' due items, spend against
  *   budget and the backup line.
  * Layer: Data. Browser-side jsPDF rendering through pdfLayout; no React.
- * Dependencies: ./pdfLayout, src/domain (boardSummary, aircraftStatus, costs).
+ * Dependencies: ./pdfLayout, ./pdfFont, src/domain (boardSummary,
+ *   aircraftStatus, costs).
  */
 import type { jsPDF } from "jspdf";
 import { paragraphPdf, type Paragraph } from "./pdfLayout";
+import { loadDejaVuFont } from "./pdfFont";
 import type { BoardSummary, BoardAircraftLine } from "../domain/boardSummary";
 import { aircraftStatusLabels } from "../domain/aircraftStatus";
 import { formatCents } from "../domain/costs";
@@ -15,10 +17,13 @@ import { formatCents } from "../domain/costs";
  * Lays the board summary out as paragraphs, then as a PDF.
  *
  * @param summary - The summary to print.
- * @returns The document, ready for `save()`.
+ * @returns The document, ready for `save()`, in DejaVu Sans.
+ * @throws {Error} "Unable to load the PDF font. Reconnect and try again." when
+ *   the font request fails with an HTTP error; a network failure rejects with
+ *   fetch's own error.
  */
-export function boardSummaryPdf(summary: BoardSummary): jsPDF {
-  return paragraphPdf(boardSummaryParagraphs(summary));
+export async function boardSummaryPdf(summary: BoardSummary): Promise<jsPDF> {
+  return paragraphPdf(boardSummaryParagraphs(summary), await loadDejaVuFont());
 }
 
 /**
@@ -27,8 +32,7 @@ export function boardSummaryPdf(summary: BoardSummary): jsPDF {
  * the document reports recorded status only.
  *
  * @param summary - The summary to print.
- * @returns Bold headings and plain lines; Helvetica has no box characters, so
- *   lines use plain punctuation.
+ * @returns Bold headings and plain lines, in plain punctuation.
  */
 export function boardSummaryParagraphs(summary: BoardSummary): Paragraph[] {
   const { fleet } = summary;

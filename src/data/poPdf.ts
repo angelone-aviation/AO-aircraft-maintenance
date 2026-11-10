@@ -1,10 +1,11 @@
 /**
  * Responsibility: Prints a purchase order as a PDF to send to the vendor.
  * Layer: Data. Browser-side PDF document; no React.
- * Dependencies: src/data/pdfLayout.ts, src/domain/model.ts,
- *   src/domain/purchaseOrders.ts.
+ * Dependencies: src/data/pdfLayout.ts, src/data/pdfFont.ts,
+ *   src/domain/model.ts, src/domain/purchaseOrders.ts.
  */
 import { paragraphPdf, type Paragraph } from "./pdfLayout";
+import { loadDejaVuFont } from "./pdfFont";
 import { localDate, type Snapshot } from "../domain/model";
 import {
   poStatus,
@@ -25,9 +26,13 @@ type Allocation = NonNullable<POLine["requestAllocations"]>[number];
  * @param po - The purchase order.
  * @param snapshot - Holds the parts requests its lines are allocated to;
  *   without it, allocations are left out.
- * @returns The document, ready for `save()`.
+ * @returns The document, ready for `save()`, in DejaVu Sans so vendor
+ *   names, addresses and descriptions print as entered.
+ * @throws {Error} "Unable to load the PDF font. Reconnect and try again." when
+ *   the font request fails with an HTTP error; a network failure rejects with
+ *   fetch's own error.
  */
-export function poPdf(po: PurchaseOrder, snapshot?: Snapshot) {
+export async function poPdf(po: PurchaseOrder, snapshot?: Snapshot) {
   const out: Paragraph[] = [
     { text: `PURCHASE ORDER ${po.number}`, bold: true },
     {
@@ -49,7 +54,7 @@ export function poPdf(po: PurchaseOrder, snapshot?: Snapshot) {
     { text: `Total ordered: ${formatMoney(po, poTotal(po))}`, bold: true },
     { text: po.notes },
   );
-  return paragraphPdf(out);
+  return paragraphPdf(out, await loadDejaVuFont());
 }
 
 function formatMoney(po: PurchaseOrder, cents: number): string {
