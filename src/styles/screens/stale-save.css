@@ -20,6 +20,8 @@
   vertical-align: top;
   border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
+  /* The global table rule is nowrap; values here must wrap to be read. */
+  white-space: normal;
 }
 .diff-table thead th {
   font-size: 12px;

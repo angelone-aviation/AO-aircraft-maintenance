@@ -63,7 +63,7 @@ export function FaaKeyStatus() {
     ? faaRenewal(s?.faaCredential)
     : faaKeyNoticeForMembers(s?.faaCredential);
   return (
-    <div className="faa-key-status">
+    <div>
       <p role={notice.warning ? "alert" : undefined}>{notice.message}</p>
       {systemAdmin && (
         <p>

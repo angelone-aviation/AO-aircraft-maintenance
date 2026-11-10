@@ -18,6 +18,18 @@
 * {
   box-sizing: border-box;
 }
+/* A long unbroken word in a record (a part number, a name, a pasted
+   reference) wraps inside its box instead of widening the page past a
+   phone's screen and pushing the tab bar off it (finding UI-1). "anywhere",
+   unlike "break-word", also lets flex and grid items shrink below the word;
+   tables keep their own nowrap and scroll inside .table-wrap. */
+body {
+  overflow-wrap: anywhere;
+}
+select,
+input[type="file"] {
+  max-width: 100%;
+}
 button,
 input,
 select,
@@ -457,14 +469,16 @@ main {
   color: #fff;
 }
 
-/* Icon rail (760–1099px) */
+/* Icon rail (760–1099px). Only the links scroll, so "All sections" (the
+   one way to every other page) stays on screen on a phone held sideways. */
 .rail {
   width: 72px;
   flex: none;
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--side);
   display: flex;
   flex-direction: column;
@@ -473,6 +487,7 @@ main {
   transition: background var(--dur-theme);
 }
 .rail-brand {
+  flex: none;
   display: grid;
   place-items: center;
   width: 42px;
@@ -491,8 +506,12 @@ main {
   gap: 4px;
   width: 100%;
   padding: 0 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .rail nav a {
+  flex: none;
   display: grid;
   place-items: center;
   height: 46px;
@@ -512,7 +531,8 @@ main {
   display: inline-flex;
 }
 .rail-more {
-  margin-top: auto;
+  flex: none;
+  margin-top: 8px;
   border: 0;
   background: transparent;
   color: var(--on-navy-muted);
@@ -903,6 +923,22 @@ dialog.ds-dialog.more-sheet {
   padding: 7px 13px;
   font-size: 14.5px;
   border-radius: 9px;
+}
+/* On touch screens every button and segment is at least 44 px tall, the
+   smallest tap target Apple's guidelines allow; a mouse keeps 40 px. */
+@media (pointer: coarse) {
+  .button.small,
+  .text-button,
+  .ds-segmented > button,
+  .ds-segmented > a,
+  .ds-switch,
+  .ds-round-button {
+    min-height: 44px;
+  }
+  .ds-round-button {
+    width: 44px;
+    height: 44px;
+  }
 }
 .button.selected,
 .button[aria-pressed="true"] {
@@ -1466,6 +1502,15 @@ input[type="radio"] {
  * plus 16px of room. */
 .ds-dialog-body:has(> form:last-child > .form-footer) {
   scroll-padding-bottom: calc(1px + 32px + 46px + 16px);
+}
+/* On short screens the dialog scrolls as one (design.css), so its form
+   footers sit at the end of the form instead of covering the fields. The
+   extra .ds-dialog outranks the flight form's own sticky footer. */
+@media (max-height: 500px) {
+  .ds-dialog .ds-dialog-body > form:last-child > .form-footer,
+  .ds-dialog .flight-form > form > .form-footer {
+    position: static;
+  }
 }
 @media (max-width: 759px) {
   .ds-dialog-body > form:last-child > .form-footer {

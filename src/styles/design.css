@@ -738,6 +738,23 @@ html:has(dialog.ds-dialog[open]) {
   }
 }
 
+/* Short screens (a phone held sideways, or an on-screen keyboard that
+   resizes the page): header, body and footer scroll as one, so a pinned
+   header and footer cannot cover the field being typed in. */
+@media (max-height: 500px) {
+  .ds-dialog-panel {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .ds-dialog-body {
+    flex: none;
+    overflow: visible;
+  }
+  .ds-dialog-header p {
+    display: none;
+  }
+}
+
 /* ---------- Aircraft line drawing ---------- */
 .ds-aircraft-art {
   display: block;
