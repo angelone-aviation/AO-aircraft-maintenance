@@ -162,6 +162,8 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
   "pushSubscriptions:publicKey":
     "Returns the deployment's public push key, the same for everyone.",
   "pushSubscriptions:held": "Answers for the caller's own device only.",
+  "alerts:emailEnabled":
+    "Says whether the deployment sends email, the same for everyone.",
 };
 const EXPIRING_UUID = "22222222-2222-4222-8222-222222222222";
 const PUSH_SUBSCRIPTION = {

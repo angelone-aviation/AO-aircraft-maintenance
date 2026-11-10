@@ -34,7 +34,10 @@ vi.mock("../data/store", () => ({
     select ? select(ui.workspace) : ui.workspace,
 }));
 vi.mock("./FaaSearchImport", () => ({ FaaSearchImport: () => null }));
-vi.mock("./FaaKeySettings", () => ({ FaaKeySettings: () => null }));
+vi.mock("./FaaKeySettings", () => ({
+  FaaKeySettings: () => null,
+  FaaKeyStatus: () => null,
+}));
 vi.mock("./ADRegister", () => ({ ADRegister: () => null }));
 vi.mock("./ADWorkOrderButton", () => ({ ADWorkOrderButton: () => null }));
 vi.mock("./ADTrackingFields", () => ({ ADTrackingFields: () => null }));
