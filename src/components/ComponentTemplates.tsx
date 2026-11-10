@@ -196,26 +196,45 @@ export function PendingSetups({
         Serial numbers, installation dates and opening readings are unknown
         until verified. These entries are not yet installed component records.
       </p>
-      <div className="panel table-wrap">
-        <table>
-          <TableHead
-            columns={["Aircraft", "Component", "Part / position", "Parent"]}
-            actions
-          />
-          <tbody>
-            {pending.map((d) => (
-              <PendingRow
-                key={d.uuid}
-                s={s}
-                writable={writable}
-                setup={d}
-                onComplete={() => onComplete(d)}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <PendingTable
+        s={s}
+        writable={writable}
+        pending={pending}
+        onComplete={onComplete}
+      />
     </details>
+  );
+}
+
+function PendingTable({
+  s,
+  writable,
+  pending,
+  onComplete,
+}: WriteProps & {
+  pending: ComponentSetup[];
+  onComplete: (setup: ComponentSetup) => void;
+}) {
+  return (
+    <div className="panel table-wrap">
+      <table>
+        <TableHead
+          columns={["Aircraft", "Component", "Part / position", "Parent"]}
+          actions
+        />
+        <tbody>
+          {pending.map((d) => (
+            <PendingRow
+              key={d.uuid}
+              s={s}
+              writable={writable}
+              setup={d}
+              onComplete={() => onComplete(d)}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

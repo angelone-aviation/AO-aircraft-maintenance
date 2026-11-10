@@ -725,20 +725,36 @@ function DialogInner({
       onPointerDown={dismiss.onPointerDown}
       onClick={dismiss.onClick}
     >
-      <div className="ds-dialog-panel">
-        {props.header ?? (
-          <DialogHeader
-            title={props.title}
-            subtitle={props.subtitle}
-            ids={[titleId, subtitleId]}
-            closeLabel={closeLabel}
-            onClose={dismiss.close}
-          />
-        )}
-        <div className="ds-dialog-body">{props.children}</div>
-        {props.footer && <div className="ds-dialog-footer">{props.footer}</div>}
-      </div>
+      <DialogPanel
+        {...props}
+        ids={[titleId, subtitleId]}
+        closeLabel={closeLabel}
+        onClose={dismiss.close}
+      />
     </dialog>
+  );
+}
+
+function DialogPanel({
+  ids,
+  closeLabel,
+  onClose,
+  ...props
+}: DialogProps & { ids: [string, string]; closeLabel: string }) {
+  return (
+    <div className="ds-dialog-panel">
+      {props.header ?? (
+        <DialogHeader
+          title={props.title}
+          subtitle={props.subtitle}
+          ids={ids}
+          closeLabel={closeLabel}
+          onClose={onClose}
+        />
+      )}
+      <div className="ds-dialog-body">{props.children}</div>
+      {props.footer && <div className="ds-dialog-footer">{props.footer}</div>}
+    </div>
   );
 }
 

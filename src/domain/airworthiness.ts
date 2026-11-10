@@ -8,7 +8,11 @@
  */
 import { z } from "zod";
 import { adAircraftUuid } from "./adOwnership";
-import { effectiveCompliance, lastCompliance } from "./adCompliance";
+import {
+  effectiveCompliance,
+  HOURS_ROUNDING_ALLOWANCE,
+  lastCompliance,
+} from "./adCompliance";
 import {
   can,
   latestLocalDate,
@@ -40,8 +44,6 @@ const SECONDS_PER_HOUR = 3600;
 const MS_PER_DAY = 86_400_000;
 // Days, hours, cycles or landings left at which an action is due soon.
 const DUE_SOON_REMAINING = 30;
-// Allows the 0.1 h rounding shown for current totals.
-const HOURS_ROUNDING_ALLOWANCE = 0.05;
 
 const text = z.string().trim().max(TEXT_MAX_LENGTH);
 const date = z.union([z.iso.date(), z.literal("")]);

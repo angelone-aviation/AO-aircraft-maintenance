@@ -75,7 +75,7 @@ export function numberEntryProblem(inserted: string): string | undefined {
  * Reads hours as typed, with at most one decimal, as whole seconds; commas
  * as {@link plainNumberText} reads them.
  *
- * @param value - The typed hours, such as "1234.5" or "1,234.5".
+ * @param text - The typed hours, such as "1234.5" or "1,234.5".
  * @returns The seconds, or undefined when the value is blank.
  * @throws {Rejection} {@link DECIMAL_COMMA_MESSAGE} for a comma that may be
  *   a decimal comma; "Use positive hours with at most one decimal place."

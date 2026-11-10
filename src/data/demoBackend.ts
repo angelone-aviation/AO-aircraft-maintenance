@@ -21,7 +21,7 @@ import {
 } from "../domain/accountRules";
 import { validateAircraftPhoto } from "../domain/aircraftPhotos";
 import { assertAttachmentRoom, withNewEvidence } from "../domain/attachments";
-import { demoAircraftFiles } from "./demoAircraftFiles";
+import { demoAircraftFiles, readDataUrl } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
 import {
   certificationsSchema,
@@ -311,10 +311,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     attachTaskEvidence: async (taskCardUuid, category, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      const url = await readDataUrl(file);
       await modify((s) => {
         const t = s.taskCards?.find((t) => t.uuid === taskCardUuid);
         if (!t || !taskWritable(s, t))
@@ -456,11 +453,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     attachInventoryFile: async (stockUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      assertFileContents(file.type, bytes.buffer);
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      assertFileContents(file.type, await file.arrayBuffer());
+      const url = await readDataUrl(file);
       await modify((s) => {
         inventoryAttachmentAccess(s, stockUuid);
         assertRoomAmong(
@@ -492,10 +486,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     attachWorkOrderFile: async (workOrderUuid, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      const url = await readDataUrl(file);
       await modify((s) => {
         const w = s.workOrders?.find((w) => w.uuid === workOrderUuid);
         if (!w || !can(s, w.aircraftUuid, "maintenance") || !isOpenWorkOrder(w))
@@ -569,39 +560,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const s = workspace.getState().snapshot!;
       if (!can(s, aircraftUuid, "read"))
         throw Error("Aircraft read permission required.");
-      const limits = s.engineTrendLimits?.find(
-        (l) => l.aircraftUuid === aircraftUuid,
-      );
-      return {
-        trends: (s.engineTrends ?? []).filter(
-          (t) => t.aircraftUuid === aircraftUuid,
-        ),
-        limits: limits
-          ? {
-              chtMaxF: limits.chtMaxF,
-              oilPressureMinPsi: limits.oilPressureMinPsi,
-            }
-          : defaultEngineLimits,
-      };
+      return engineTrendData(s, aircraftUuid);
     },
     engineTrend: (aircraftUuid, command) =>
       modify((s) => {
         if (!can(s, aircraftUuid, "maintenance"))
           throw Error("Aircraft maintenance permission required.");
-        const stored = s.engineTrendLimits?.find(
-          (l) => l.aircraftUuid === aircraftUuid,
-        );
-        const data = {
-          trends: (s.engineTrends ?? []).filter(
-            (t) => t.aircraftUuid === aircraftUuid,
-          ),
-          limits: stored
-            ? {
-                chtMaxF: stored.chtMaxF,
-                oilPressureMinPsi: stored.oilPressureMinPsi,
-              }
-            : defaultEngineLimits,
-        };
+        const data = engineTrendData(s, aircraftUuid);
         const result = applyEngineTrendCommand(data, command, {
           aircraftUuid,
           actorId: s.user.id,
@@ -622,7 +587,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           ];
         audit(
           s,
-          `engineTrend.${command.action === "import" ? "imported" : command.action === "remove" ? "removed" : "limits"}`,
+          ENGINE_TREND_ACTIONS[command.action],
           command.action === "limits" ? aircraftUuid : command.uuid,
           aircraftUuid,
         );
@@ -704,10 +669,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       ),
     attachPOFile: async (poUuid, receiptUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      assertFileContents(file.type, bytes.buffer);
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
+      assertFileContents(file.type, await file.arrayBuffer());
+      const url = await readDataUrl(file);
       await modify((s) => {
         const po = s.purchaseOrders?.find((p) => p.uuid === poUuid);
         if (
@@ -726,7 +689,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           name: file.name,
           type: file.type,
           size: file.size,
-          url: `data:${file.type};base64,${btoa(binary)}`,
+          url,
           uploadedAt: Date.now(),
         };
         s.purchaseOrderFiles = [...(s.purchaseOrderFiles ?? []), f];
@@ -1051,10 +1014,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         .snapshot?.certificationFiles?.find((f) => f.id === id)?.url ?? null,
     uploadCertification: async (userId, kind, file) => {
       validateCertificationFile(file.name, file.type, file.size);
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const url = `data:${file.type};base64,${btoa(binary)}`;
+      const url = await readDataUrl(file);
       await modify((s) => {
         if (userId !== s.user.id && !s.user.isAdmin)
           throw Error("Permission denied.");
@@ -1249,6 +1209,30 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
   };
 }
 // Stands in for the server's per-user, per-program alertReads table.
+const ENGINE_TREND_ACTIONS = {
+  import: "engineTrend.imported",
+  remove: "engineTrend.removed",
+  limits: "engineTrend.limits",
+} as const;
+
+// An aircraft's engine trends and limits, as the server's query returns them.
+function engineTrendData(s: Snapshot, aircraftUuid: string) {
+  const limits = s.engineTrendLimits?.find(
+    (l) => l.aircraftUuid === aircraftUuid,
+  );
+  return {
+    trends: (s.engineTrends ?? []).filter(
+      (t) => t.aircraftUuid === aircraftUuid,
+    ),
+    limits: limits
+      ? {
+          chtMaxF: limits.chtMaxF,
+          oilPressureMinPsi: limits.oilPressureMinPsi,
+        }
+      : defaultEngineLimits,
+  };
+}
+
 function demoAlertReadsKey(
   workspace: DemoWorkspace,
   programUuid: string | undefined,

@@ -231,9 +231,10 @@ export function parseAdjustment(value: string) {
  *   (any case). An aircraft: "Aircraft belongs to another Flight Program.";
  *   "Program not found."; "Use an explicit Flight Program transfer."; "Aircraft
  *   management permission required."; the stale-save message (a
- *   StaleRecordRejection); "Select Helicopter and enter a Collective hourmeter reading to
- *   use it as the time source."; "Select Flight time log and enter its reading
- *   to use it as the time source."; "Registration already exists." (any case);
+ *   StaleRecordRejection); "Select Helicopter and enter a Collective
+ *   hourmeter reading to use it as the time source."; "Select Flight time log
+ *   and enter its reading to use it as the time source."; "Registration
+ *   already exists." (any case);
  *   "Aircraft total time must be nonnegative."; "Aircraft readings would
  *   invalidate an installed component baseline. Review the verified readings."
  * @throws {Error} "Correction would move …" from validateMaintenanceTotals,
@@ -297,23 +298,12 @@ function saveAircraft(s: Snapshot, c: AircraftSave, now: number): FleetChange {
   const before = s.aircraft.find((a) => a.uuid === input.uuid);
   assertSameProgram(s, input, before);
   input.programUuid = before?.programUuid ?? activeProgram(s);
-  if (
-    before
-      ? !can(s, before.uuid, "maintenance")
-      : !programPermission(s, "admin")
-  )
-    throw new Rejection("Aircraft management permission required.");
+  assertMayManageAircraft(s, before);
   if (input.version !== (before?.version ?? 0))
     throw new StaleRecordRejection("aircraft", before?.version ?? 0);
   assertTimeSourceRecorded(input);
   const registration = input.registration.toUpperCase();
-  if (
-    s.aircraft.some(
-      (a) =>
-        a.uuid !== input.uuid && a.registration.toUpperCase() === registration,
-    )
-  )
-    throw new Rejection("Registration already exists.");
+  assertRegistrationFree(s, input.uuid, registration);
   const next = buildAircraft(s, input, registration, before);
   if (!Number.isSafeInteger(totalSeconds(next)) || totalSeconds(next) < 0)
     throw new Rejection("Aircraft total time must be nonnegative.");
@@ -333,6 +323,26 @@ function saveAircraft(s: Snapshot, c: AircraftSave, now: number): FleetChange {
   s.management = records;
   auditAircraftSave(s, c, before, next, components, beforeRecords, now);
   return { aircraft: next, components };
+}
+
+// Editing needs maintenance on the aircraft; adding one needs the program's
+// administrator.
+function assertMayManageAircraft(s: Snapshot, before: Aircraft | undefined) {
+  const allowed = before
+    ? can(s, before.uuid, "maintenance")
+    : programPermission(s, "admin");
+  if (!allowed) throw new Rejection("Aircraft management permission required.");
+}
+
+function assertRegistrationFree(
+  s: Snapshot,
+  uuid: string,
+  registration: string,
+) {
+  const taken = s.aircraft.some(
+    (a) => a.uuid !== uuid && a.registration.toUpperCase() === registration,
+  );
+  if (taken) throw new Rejection("Registration already exists.");
 }
 
 // The free-text address and contact fields stay for older screens and

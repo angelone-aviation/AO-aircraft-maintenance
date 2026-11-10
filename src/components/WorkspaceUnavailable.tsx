@@ -39,16 +39,7 @@ export function WorkspaceUnavailable(props: WorkspaceUnavailableProps) {
   const pending = userId ? ownEntries(queue, userId) : [];
   return (
     <>
-      <h1>Your workspace could not be opened.</h1>
-      <p role="alert">
-        The server could not load your Flight Program&apos;s records just now.
-        Your records are safe: nothing was changed or lost, and entries saved on
-        this device stay queued until the workspace opens.
-      </p>
-      <p>
-        Try again in a few minutes. If this keeps happening, contact your Flight
-        Program administrator and tell them when it started.
-      </p>
+      <UnavailableNotice />
       <button className="button primary" onClick={props.onRetry}>
         Try again
       </button>
@@ -72,6 +63,23 @@ export function WorkspaceUnavailable(props: WorkspaceUnavailableProps) {
       <button className="button" onClick={props.onSignOut}>
         Sign out
       </button>
+    </>
+  );
+}
+
+function UnavailableNotice() {
+  return (
+    <>
+      <h1>Your workspace could not be opened.</h1>
+      <p role="alert">
+        The server could not load your Flight Program&apos;s records just now.
+        Your records are safe: nothing was changed or lost, and entries saved on
+        this device stay queued until the workspace opens.
+      </p>
+      <p>
+        Try again in a few minutes. If this keeps happening, contact your Flight
+        Program administrator and tell them when it started.
+      </p>
     </>
   );
 }

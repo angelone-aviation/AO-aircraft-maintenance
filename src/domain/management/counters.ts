@@ -6,7 +6,7 @@
  * Dependencies: ../adCompliance, ../adOwnership, ../airworthiness (types),
  *   ../components, ../maintenance, ../model, ../rejection, ./schemas.
  */
-import { effectiveCompliance } from "../adCompliance";
+import { effectiveCompliance, HOURS_ROUNDING_ALLOWANCE } from "../adCompliance";
 import { adAircraftUuid } from "../adOwnership";
 import type { AD } from "../airworthiness";
 import {
@@ -27,8 +27,6 @@ import { Rejection } from "../rejection";
 import type { ManagedRecord } from "./schemas";
 
 const SECONDS_PER_HOUR = 3600;
-// Allows the 0.1 h rounding shown for current totals, as AD compliance does.
-const HOURS_ROUNDING_ALLOWANCE = 0.05;
 
 /**
  * The usage an inspection is measured against: the aircraft's, or for a

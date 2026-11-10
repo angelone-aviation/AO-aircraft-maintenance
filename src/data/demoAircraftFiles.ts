@@ -1,10 +1,10 @@
 /**
  * Responsibility: Uploads and archives aircraft record documents (Form 337
  *   copies and logbook page photos) in demo mode, mirroring
- *   convex/aircraftFiles.ts.
+ *   convex/aircraftFiles.ts, and reads any demo upload into a data URL.
  * Layer: Data. Demo adapter helper; files stay in this browser.
- * Dependencies: src/domain/aircraftFiles.ts, src/domain/inventoryAttachments.ts,
- *   src/domain/model.ts (types).
+ * Dependencies: src/domain/aircraftFiles.ts,
+ *   src/domain/inventoryAttachments.ts, src/domain/model.ts (types).
  */
 import type { Snapshot } from "../domain/model";
 import {
@@ -49,11 +49,10 @@ export const demoAircraftFiles = {
    *   photo, the flight or work order it shows.
    * @param file - The uploaded file.
    * @throws {Error} As validateAircraftUpload and assertFileContents for
-   *   the file; the link
-   *   refusals of assertAircraftFileLink; "Aircraft flight permission
-   *   required." or "Aircraft maintenance permission required."; "Flight
-   *   not found." or "Work order not found."; "This aircraft already has
-   *   the maximum of 200 current documents."
+   *   the file; the link refusals of assertAircraftFileLink; "Aircraft
+   *   flight permission required." or "Aircraft maintenance permission
+   *   required."; "Flight not found." or "Work order not found."; "This
+   *   aircraft already has the maximum of 200 current documents."
    */
   async upload(
     modify: Modify,
@@ -66,26 +65,16 @@ export const demoAircraftFiles = {
     assertFileContents(file.type, await file.arrayBuffer());
     assertAircraftFileLink(category, target);
     const url = await readDataUrl(file);
+    const { name, type, size } = file;
+    const details = { category, linkedKind, linkedUuid, name, type, size };
     await modify((s) => {
-      assertAircraftFileWriter(s, aircraftUuid, linkedKind);
-      if (linkedKind && linkedUuid)
-        assertAircraftFileTarget(s, aircraftUuid, { linkedKind, linkedUuid });
-      assertAircraftFileRoom(
-        (s.aircraftFiles ?? []).filter(
-          (f) => f.aircraftUuid === aircraftUuid && isCurrentAircraftFile(f),
-        ).length,
-      );
+      assertUploadAllowed(s, target);
       s.aircraftFiles = [
         ...(s.aircraftFiles ?? []),
         {
           uuid: crypto.randomUUID(),
           aircraftUuid,
-          category,
-          linkedKind,
-          linkedUuid,
-          name: file.name,
-          type: file.type,
-          size: file.size,
+          ...details,
           uploadedAt: Date.now(),
           url,
         },
@@ -97,14 +86,7 @@ export const demoAircraftFiles = {
         aircraftUuid,
         undefined,
         undefined,
-        {
-          category,
-          linkedKind,
-          linkedUuid,
-          name: file.name,
-          type: file.type,
-          size: file.size,
-        },
+        details,
       );
     });
   },
@@ -147,7 +129,25 @@ export const demoAircraftFiles = {
   },
 };
 
-async function readDataUrl(file: File): Promise<string> {
+// The checks convex/aircraftFiles.ts makes against the stored records.
+function assertUploadAllowed(s: Snapshot, target: DemoAircraftFileTarget) {
+  const { aircraftUuid, linkedKind, linkedUuid } = target;
+  assertAircraftFileWriter(s, aircraftUuid, linkedKind);
+  if (linkedKind && linkedUuid)
+    assertAircraftFileTarget(s, aircraftUuid, { linkedKind, linkedUuid });
+  assertAircraftFileRoom(
+    (s.aircraftFiles ?? []).filter(
+      (f) => f.aircraftUuid === aircraftUuid && isCurrentAircraftFile(f),
+    ).length,
+  );
+}
+
+/**
+ * Reads a file into a data URL, the form the demo keeps uploaded files in.
+ *
+ * @returns `data:<type>;base64,<bytes>`, with the file's declared type.
+ */
+export async function readDataUrl(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);

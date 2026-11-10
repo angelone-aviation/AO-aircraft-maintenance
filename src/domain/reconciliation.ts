@@ -192,37 +192,11 @@ export function paperCheck(
 export function paperCheckRecords(check: PaperCheck): Record<string, string>[] {
   const meter = check.header.meter;
   const record = (fields: Record<string, string>) => ({
-    Section: "",
-    Date: "",
-    Pilot: "",
-    [`${meter} start`]: "",
-    [`${meter} end`]: "",
-    Hours: "",
-    Landings: "",
-    "Oil added": "",
-    Status: "",
-    "Work order": "",
-    "Signed by": "",
-    Photo: "",
-    Checked: "",
-    Flights: "",
+    ...blankRecord(meter),
     ...fields,
   });
   return [
-    ...check.flights.map((r) =>
-      record({
-        Section: "Flight",
-        Date: r.date,
-        Pilot: r.pilot,
-        [`${meter} start`]: r.meterStart,
-        [`${meter} end`]: r.meterEnd,
-        Hours: r.hours,
-        Landings: r.landings,
-        "Oil added": r.oilAdded,
-        Status: r.status,
-        Photo: r.photo,
-      }),
-    ),
+    ...check.flights.map((r) => record(flightFields(r, meter))),
     ...check.work.map((r) =>
       record({
         Section: "Work order",
@@ -332,4 +306,42 @@ function hasPhoto(
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// Every column of the CSV, empty, in its order.
+function blankRecord(meter: string): Record<string, string> {
+  return {
+    Section: "",
+    Date: "",
+    Pilot: "",
+    [`${meter} start`]: "",
+    [`${meter} end`]: "",
+    Hours: "",
+    Landings: "",
+    "Oil added": "",
+    Status: "",
+    "Work order": "",
+    "Signed by": "",
+    Photo: "",
+    Checked: "",
+    Flights: "",
+  };
+}
+
+function flightFields(
+  r: PaperCheckFlightRow,
+  meter: string,
+): Record<string, string> {
+  return {
+    Section: "Flight",
+    Date: r.date,
+    Pilot: r.pilot,
+    [`${meter} start`]: r.meterStart,
+    [`${meter} end`]: r.meterEnd,
+    Hours: r.hours,
+    Landings: r.landings,
+    "Oil added": r.oilAdded,
+    Status: r.status,
+    Photo: r.photo,
+  };
 }

@@ -2,10 +2,10 @@
  * Responsibility: A component's shop service and baseline correction, with
  *   the requirements, inspections and movement entry that follow it.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ../adCompliance, ../components, ../model, ../rejection,
- *   ./schemas, ./context.
+ * Dependencies: ../adCompliance, ../components, ../components/usage,
+ *   ../model, ../rejection, ./schemas, ./context.
  */
-import { effectiveCompliance } from "../adCompliance";
+import { effectiveCompliance, HOURS_ROUNDING_ALLOWANCE } from "../adCompliance";
 import {
   componentTotals,
   moveRequirement,
@@ -32,8 +32,6 @@ type ComponentCommand = CommandOf<"component.service" | "component.baseline">;
 
 const MIN_BASELINE_REASON_LENGTH = 10;
 const SECONDS_PER_HOUR = 3600;
-// Allows the 0.1 h rounding shown for current totals, as AD compliance does.
-const HOURS_ROUNDING_ALLOWANCE = 0.05;
 
 const MOVEMENT_ACTIONS: Partial<Record<string, ComponentMovement["action"]>> = {
   install: "INSTALL",
@@ -221,11 +219,14 @@ function assertAfterRecordedCompliance(
   totals: () => Totals,
 ) {
   for (const r of s.management ?? [])
-    if (r.kind === "componentRequirement" && r.componentUuid === next.uuid)
-      if (precedesRequirement(r, totals))
-        throw new Rejection(
-          `Baseline would precede the last compliance of requirement "${r.description}".`,
-        );
+    if (
+      r.kind === "componentRequirement" &&
+      r.componentUuid === next.uuid &&
+      precedesRequirement(r, totals)
+    )
+      throw new Rejection(
+        `Baseline would precede the last compliance of requirement "${r.description}".`,
+      );
   for (const r of s.airworthiness ?? [])
     if (r.componentUuid === next.uuid && precedesAD(r, next, totals))
       throw new Rejection(

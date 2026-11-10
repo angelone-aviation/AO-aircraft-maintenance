@@ -9,7 +9,7 @@
  * copy keeps the badge accurate offline until the backend answers. A mark
  * lasts as long as its alert: when the alert clears, the mark is forgotten.
  */
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 import * as local from "./local";
 import { useWorkspace } from "./store";
 import { errorText } from "./errors";
@@ -61,61 +61,78 @@ export const useAlertReads = create<AlertReads>((set, get) => ({
   error: "",
   synced: false,
   unsaved: [],
-  async load() {
-    const scope = currentScope();
-    const { backend, snapshot } = useWorkspace.getState();
-    if (!scope || !backend || !snapshot) return;
-    if (scope !== get().scope) {
-      set({ scope, keys: [], error: "", synced: false, unsaved: [] });
-      const cached = await local.readFavorites(scope).catch(() => undefined);
-      if (get().scope !== scope) return;
-      set({ keys: [...new Set([...get().keys, ...(cached ?? [])])] });
-    }
-    try {
-      const remote = await backend.alertReads(snapshot.activeProgramUuid);
-      if (get().scope !== scope) return;
-      const keys = [...new Set([...remote, ...get().unsaved])];
-      set({ keys, synced: true });
-      await cacheReads(scope, keys);
-    } catch (error) {
-      if (get().scope === scope)
-        set({ error: errorText(error, "Unable to load read alerts.") });
-    }
-  },
-  async markRead(keys, all = false) {
-    const { scope } = get();
-    const { backend, snapshot } = useWorkspace.getState();
-    if (!scope || scope !== currentScope() || !backend || !snapshot) return;
-    const next = [...new Set(all ? keys : [...get().keys, ...keys])];
-    set({ keys: next, error: "", unsaved: union(get().unsaved, keys) });
-    await cacheReads(scope, next);
-    try {
-      await backend.markAlertsRead(snapshot.activeProgramUuid, keys, all);
-      if (get().scope === scope)
-        set({ unsaved: get().unsaved.filter((k) => !keys.includes(k)) });
-    } catch (error) {
-      set({ error: errorText(error, "Unable to save read alerts.") });
-    }
-  },
-  async forgetCleared(current) {
-    const { scope, synced, keys } = get();
-    const { backend, snapshot } = useWorkspace.getState();
-    if (!synced || scope !== currentScope() || !backend || !snapshot) return;
-    const cleared = keys.filter((k) => !current.includes(k));
-    if (!cleared.length) return;
-    const kept = keys.filter((k) => current.includes(k));
-    set({
-      keys: kept,
-      unsaved: get().unsaved.filter((k) => current.includes(k)),
-    });
-    await cacheReads(scope, kept);
-    await backend
-      .forgetAlertReads(snapshot.activeProgramUuid, cleared)
-      // Expected offline or between sessions, and harmless: the server
-      // forgets the marks of cleared alerts at its own next check.
-      .catch(() => undefined);
-  },
+  load: () => loadReads({ set, get }),
+  markRead: (keys, all = false) => saveReads({ set, get }, keys, all),
+  forgetCleared: (current) => forgetClearedReads({ set, get }, current),
 }));
+
+type Store = {
+  set: StoreApi<AlertReads>["setState"];
+  get: StoreApi<AlertReads>["getState"];
+};
+
+async function loadReads(store: Store) {
+  const { set, get } = store;
+  const scope = currentScope();
+  const { backend, snapshot } = useWorkspace.getState();
+  if (!scope || !backend || !snapshot) return;
+  if (scope !== get().scope && !(await switchScope(store, scope))) return;
+  try {
+    const remote = await backend.alertReads(snapshot.activeProgramUuid);
+    if (get().scope !== scope) return;
+    const keys = [...new Set([...remote, ...get().unsaved])];
+    set({ keys, synced: true });
+    await cacheReads(scope, keys);
+  } catch (error) {
+    if (get().scope === scope)
+      set({ error: errorText(error, "Unable to load read alerts.") });
+  }
+}
+
+// Starts the scope from the device copy; false when the user left the scope
+// while it was read.
+async function switchScope({ set, get }: Store, scope: string) {
+  set({ scope, keys: [], error: "", synced: false, unsaved: [] });
+  const cached = await local.readFavorites(scope).catch(() => undefined);
+  if (get().scope !== scope) return false;
+  set({ keys: [...new Set([...get().keys, ...(cached ?? [])])] });
+  return true;
+}
+
+async function saveReads({ set, get }: Store, keys: string[], all: boolean) {
+  const { scope } = get();
+  const { backend, snapshot } = useWorkspace.getState();
+  if (!scope || scope !== currentScope() || !backend || !snapshot) return;
+  const next = [...new Set(all ? keys : [...get().keys, ...keys])];
+  set({ keys: next, error: "", unsaved: union(get().unsaved, keys) });
+  await cacheReads(scope, next);
+  try {
+    await backend.markAlertsRead(snapshot.activeProgramUuid, keys, all);
+    if (get().scope === scope)
+      set({ unsaved: get().unsaved.filter((k) => !keys.includes(k)) });
+  } catch (error) {
+    set({ error: errorText(error, "Unable to save read alerts.") });
+  }
+}
+
+async function forgetClearedReads({ set, get }: Store, current: string[]) {
+  const { scope, synced, keys } = get();
+  const { backend, snapshot } = useWorkspace.getState();
+  if (!synced || scope !== currentScope() || !backend || !snapshot) return;
+  const cleared = keys.filter((k) => !current.includes(k));
+  if (!cleared.length) return;
+  const kept = keys.filter((k) => current.includes(k));
+  set({
+    keys: kept,
+    unsaved: get().unsaved.filter((k) => current.includes(k)),
+  });
+  await cacheReads(scope, kept);
+  await backend
+    .forgetAlertReads(snapshot.activeProgramUuid, cleared)
+    // Expected offline or between sessions, and harmless: the server
+    // forgets the marks of cleared alerts at its own next check.
+    .catch(() => undefined);
+}
 
 const union = (a: string[], b: string[]) => [...new Set([...a, ...b])];
 

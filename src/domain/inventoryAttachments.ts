@@ -1,6 +1,7 @@
 /**
  * Responsibility: Files attached to inventory items: the attachment record,
- *   the file rule, and who may manage an item's attachments.
+ *   the file rules (name, size and first bytes), and who may manage an
+ *   item's attachments.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts (types), programs.ts, rejection.ts.
  */

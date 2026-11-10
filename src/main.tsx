@@ -42,7 +42,6 @@ import {
   deviceClockBehind,
   offlineValid,
   OFFLINE_WINDOW,
-  type Snapshot,
 } from "./domain/model";
 import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
@@ -391,18 +390,7 @@ function AccessExpired({ onExit }: { onExit: () => void }) {
   return (
     <Welcome>
       <h1>Time to reconnect.</h1>
-      {snapshot && deviceClockBehind(snapshot) ? (
-        <p>
-          This device&apos;s clock is behind the time you signed in. Set the
-          date and time to update automatically, then reopen the app. Pending
-          entries are preserved.
-        </p>
-      ) : (
-        <p>
-          Your seven-day offline access has expired. Pending entries are
-          preserved. Sign in again to continue.
-        </p>
-      )}
+      <ExpiredReason clockBehind={!!snapshot && deviceClockBehind(snapshot)} />
       <button className="button primary" onClick={onExit}>
         Return to sign in
       </button>
@@ -428,6 +416,22 @@ function AccessExpired({ onExit }: { onExit: () => void }) {
         Offline access lasts {OFFLINE_WINDOW / DAY_MS} days from authentication.
       </small>
     </Welcome>
+  );
+}
+function ExpiredReason({ clockBehind }: { clockBehind: boolean }) {
+  if (clockBehind)
+    return (
+      <p>
+        This device&apos;s clock is behind the time you signed in. Set the date
+        and time to update automatically, then reopen the app. Pending entries
+        are preserved.
+      </p>
+    );
+  return (
+    <p>
+      Your seven-day offline access has expired. Pending entries are preserved.
+      Sign in again to continue.
+    </p>
   );
 }
 function exportPendingEntries(queue: Workspace["queue"], userId: string) {

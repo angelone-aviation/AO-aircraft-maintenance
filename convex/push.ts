@@ -1,6 +1,7 @@
 /**
  * Responsibility: Delivers urgent alerts to members' devices through their
- *   push services, and drops subscriptions those services report gone.
+ *   push services, retries members no device accepted, and drops
+ *   subscriptions those services report gone or keep refusing.
  * Layer: Server. A Node action scheduled by the urgent-alert sender; the
  *   message and the dedup claim come from elsewhere.
  * Dependencies: convex/values, ./_generated, ./urgentAlerts (job type and
@@ -187,7 +188,6 @@ async function removeDevice(
   return "removed";
 }
 
-// Logs name the user id, never the endpoint or the message.
 function logFailure(device: Doc<"pushSubscriptions">, error: unknown) {
   console.error(
     "Push message not sent",

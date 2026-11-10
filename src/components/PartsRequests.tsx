@@ -46,6 +46,7 @@ import {
   type RequestSource,
   type PartsRequest,
   type RequestLine,
+  type RequestCommand,
 } from "../domain/partsRequests";
 import type { PODraft } from "../domain/purchaseOrders";
 import { REQUEST_STATUSES, requestPODraft } from "../domain/partsRequestRules";
@@ -1648,18 +1649,7 @@ function ReservationForm({ request: r, line }: ReservationFormProps) {
       submitLabel={RESERVATION_LABELS[operation]}
       disabled={!online || !connected}
       onSubmit={async () => {
-        await backend!.partsRequest({
-          kind: operation,
-          requestUuid: crypto.randomUUID(),
-          uuid: r.uuid,
-          version: r.version,
-          lineUuid: line.uuid,
-          stockUuid,
-          quantity,
-          alternateConfirmed: alternate,
-          // Costs count an issued part on this date in every time zone.
-          date: operation === "issue" ? localDate() : undefined,
-        });
+        await backend!.partsRequest(reservationCommand(form, alternate));
       }}
     >
       <ReservationFields
@@ -1671,6 +1661,24 @@ function ReservationForm({ request: r, line }: ReservationFormProps) {
       )}
     </AsyncForm>
   );
+}
+
+function reservationCommand(
+  { r, line, operation, stockUuid, quantity }: ReservationState,
+  alternateConfirmed: boolean,
+): RequestCommand {
+  return {
+    kind: operation,
+    requestUuid: crypto.randomUUID(),
+    uuid: r.uuid,
+    version: r.version,
+    lineUuid: line.uuid,
+    stockUuid,
+    quantity,
+    alternateConfirmed,
+    // Costs count an issued part on this date in every time zone.
+    date: operation === "issue" ? localDate() : undefined,
+  };
 }
 
 type ReservationState = {

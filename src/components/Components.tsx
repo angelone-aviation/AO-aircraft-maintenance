@@ -1845,17 +1845,7 @@ function LandingLimits({ tracked, record }: LimitProps) {
         when moving the component to another aircraft.
       </p>
       <div className="form-grid">
-        <Field label="Landing limit basis">
-          <select
-            name="landingLimitMode"
-            defaultValue={record?.landingLimitMode ?? "FROM_LAST_COMPLIED"}
-          >
-            <option value="FROM_LAST_COMPLIED">
-              Landings after last compliance
-            </option>
-            <option value="ABSOLUTE">Absolute aircraft landings</option>
-          </select>
-        </Field>
+        <LandingLimitBasis record={record} />
         <NumberField
           name="intervalLandings"
           label="Landing limit / interval"
@@ -1876,6 +1866,22 @@ function LandingLimits({ tracked, record }: LimitProps) {
         />
       </div>
     </TrackedFieldset>
+  );
+}
+
+function LandingLimitBasis({ record }: Pick<LimitProps, "record">) {
+  return (
+    <Field label="Landing limit basis">
+      <select
+        name="landingLimitMode"
+        defaultValue={record?.landingLimitMode ?? "FROM_LAST_COMPLIED"}
+      >
+        <option value="FROM_LAST_COMPLIED">
+          Landings after last compliance
+        </option>
+        <option value="ABSOLUTE">Absolute aircraft landings</option>
+      </select>
+    </Field>
   );
 }
 

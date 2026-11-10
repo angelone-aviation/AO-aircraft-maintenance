@@ -901,46 +901,38 @@ interface Attaching {
 // order's and the PO's files all point at the stored file the manual holds.
 async function attachDocuments(ctx: MutationCtx, at: Attaching) {
   const { file, n } = at;
-  const { storageId, size } = file;
   const name = `SAMPLE-training-document-${n}.pdf`;
   const type = "application/pdf";
   const uploadedAt = Date.now();
+  const stored = {
+    storageId: file.storageId,
+    name,
+    size: file.size,
+    uploadedAt,
+  };
   const { wo, card, po } = await findSampleLinks(ctx, at);
   await insertManual(ctx, at, name, uploadedAt);
   await ctx.db.insert("taskEvidence", {
+    ...stored,
     taskCardUuid: card.uuid,
     aircraftUuid: card.aircraftUuid,
-    storageId,
-    name,
-    size,
-    uploadedAt,
     category: "supporting-document",
   });
   await ctx.db.insert("inventoryFiles", {
+    ...stored,
     stockUuid: `sample-stock-${n}`,
-    storageId,
-    name,
     type,
-    size,
-    uploadedAt,
   });
-  const order = {
+  await ctx.db.insert("workOrderFiles", {
+    ...stored,
     workOrderUuid: wo.uuid,
     aircraftUuid: wo.aircraftUuid,
-    storageId,
-    name,
-    size,
-    uploadedAt,
-  };
-  await ctx.db.insert("workOrderFiles", order);
+  });
   await ctx.db.insert("poFiles", {
+    ...stored,
     poUuid: po.uuid,
     programUuid: PROGRAM,
-    storageId,
-    name,
     type,
-    size,
-    uploadedAt,
   });
 }
 

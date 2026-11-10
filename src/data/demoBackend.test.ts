@@ -1296,3 +1296,29 @@ it("serves each open work order once when a recurring parts list is saved", asyn
     s.audit.filter((a) => a.action === "partsRequest.recurring"),
   ).toHaveLength(1);
 });
+
+it("saves engine limits per aircraft and audits engineTrend.limits on the aircraft, as the server does", async () => {
+  const { backend, stored } = await demo("demo-engine-limits");
+  const aircraftUuid = (await stored()).aircraft[0].uuid;
+  expect(await backend.engineTrends(aircraftUuid)).toEqual({
+    trends: [],
+    limits: { chtMaxF: 435, oilPressureMinPsi: 25 },
+  });
+  await backend.engineTrend(aircraftUuid, {
+    action: "limits",
+    limits: { chtMaxF: 420, oilPressureMinPsi: 30 },
+  });
+  const s = await stored();
+  expect(s.engineTrendLimits).toEqual([
+    { chtMaxF: 420, oilPressureMinPsi: 30, aircraftUuid },
+  ]);
+  expect(s.audit[0]).toMatchObject({
+    action: "engineTrend.limits",
+    entityUuid: aircraftUuid,
+    aircraftUuid,
+  });
+  expect((await backend.engineTrends(aircraftUuid)).limits).toEqual({
+    chtMaxF: 420,
+    oilPressureMinPsi: 30,
+  });
+});
