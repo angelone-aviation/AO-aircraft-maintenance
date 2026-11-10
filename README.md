@@ -8,13 +8,13 @@ Angel One keeps the maintenance and status records a 14 CFR Part 91 operator mus
   <img src="docs/previews/desktop.png" alt="The Overview on a desktop: three fictional demo aircraft with their status, hours and next inspection due" width="880">
 </p>
 
-| At a glance       |                                                                                                                                                                            |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                                                      |
-| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                                                |
-| **Status**        | Deployed. Final go-live checks are under way and real records begin at launch, planned for 13 November 2026 (as of 9 November 2026). See [Project status](#project-status) |
-| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                                                  |
-| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                                       |
+| At a glance       |                                                                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                                                       |
+| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                                                 |
+| **Status**        | Deployed. Final go-live checks are under way and real records begin at launch, planned for 13 November 2026 (as of 10 November 2026). See [Project status](#project-status) |
+| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                                                   |
+| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                                        |
 
 > [!IMPORTANT]
 > Angel One generates logbook entry wording and is the system of record for **status records**. It is not the signed maintenance record ([ADR-0004](docs/adr/0004-logbook-generator-and-status-record-system.md)).
@@ -73,7 +73,7 @@ _The walk-around: every part looked at in turn, grouped by who uses it._
 - **Flight Programs, permission groups and users** ([Flight Program access](docs/flight-program-access.md), [aircraft and programs](docs/aircraft-programs.md)).
 - **Alerts** under the bell, a daily email digest, urgent alerts by email and on devices, and expiring dates such as insurance or a service key ([alerts](docs/alerts.md)).
 - **Forecasting and planning** of what falls due across the fleet.
-- **Conflict review** for flights that collide, and a review step when two people change the same record ([offline entries and colliding changes](docs/offline.md)).
+- **Conflict review** for flights that collide or run longer than 24 hours, and a review step when two people change the same record: **Keep mine** applies only the fields you changed on top of the other person's save ([offline entries and colliding changes](docs/offline.md)).
 - **Change history**: an append-only change log with a weekly summary ([change history](docs/change-history.md)).
 - **Paper check**: a monthly list to tick against the paper logbooks ([paper check](docs/reconciliation.md)).
 - **Records package**: the complete record set for one aircraft as one ZIP file ([records package](docs/records-export.md)).
@@ -83,6 +83,7 @@ _The walk-around: every part looked at in turn, grouped by who uses it._
 
 - **Owner portal**: a reduced, read-only view of the aircraft an owner group names ([Flight Program access](docs/flight-program-access.md)).
 - **Board view**: a read-only fleet summary with a PDF to take to the meeting ([board view](docs/board-view.md)).
+- A member who holds both an owner group and a board group sees those two views side by side, never the full workspace.
 
 <details>
 <summary><strong>Details worth knowing before you enter data</strong></summary>
@@ -90,8 +91,9 @@ _The walk-around: every part looked at in turn, grouped by who uses it._
 - There is no legacy operational data to import. Create aircraft with verified opening Hobbs and tach readings, total-time adjustments, cycles and landings, then create users and permission groups. The PHP source in `legecy php_project/` remains a reference for business behavior.
 - The flight form shows read-only **Starting Hobbs** and **Starting tach** for pilot verification, with separate ending-reading inputs. Starting readings stay paired with the aircraft version when the form opens. Historical flights display their recorded starting readings, not today's counters. The flight log includes all four start and end values. Offline starting readings use the cached record; conflicts still require review.
 - Aircraft total time uses the selected Hobbs or tach meter plus **Total time adjustment**.
+- Number and money fields refuse a decimal comma ("2342,5" or "45,50") with a message beside the field, so a slip cannot be saved as a value ten or a hundred times too large.
 - Flight Programs have an editable directory with name, address, email, contact name and website.
-- While paper logbooks run beside the app, the monthly [paper check](docs/reconciliation.md) lists each aircraft's flights and sign-offs to tick against the paper.
+- While paper logbooks run beside the app, the monthly [paper check](docs/reconciliation.md) lists each aircraft's flights and completed work orders to tick against the paper.
 
 </details>
 
@@ -273,7 +275,7 @@ npm run test:e2e
 | `npm run test:backup`     | The nightly backup job, without credentials                             |
 | `npm run format:check`    | Formatting of application-owned files                                   |
 
-- **Browser tests** run against the production build, served with the production security headers (`scripts/serve-dist.mjs`); any Content-Security-Policy violation fails the run. Run `npm run build` after changes. They cover offline reload/sync, conflict review, expiry, mobile navigation, administration, read-only starting meter verification, inspection completion, component service, and inventory movements. The optional live-browser test runs when `.env.local-admin.json` exists and a local Convex backend is running.
+- **Browser tests** run against the production build, served with the production security headers (`scripts/serve-dist.mjs`); any Content-Security-Policy violation fails the run. Run `npm run build` after changes. They cover offline reload/sync, conflict review, expiry, mobile navigation, administration, read-only starting meter verification, inspection completion, component service, and inventory movements. `tests/e2e/responsive.spec.ts` visits every page at phone and tablet sizes in both themes and fails on any sideways page scroll. The optional live-browser test runs when `.env.local-admin.json` exists and a local Convex backend is running.
 - **Local backend test.** With `npm run dev:local` running, `npm run test:local` tests actual authentication and database behavior. It refuses non-local URLs. It provisions development-only records and tests login, aircraft creation, idempotent sync, discrepancy resolution, review, and blocked public writes.
 - **Manuals.** Reference manuals are not stored in the repository; upload them to the app's Reference library. The manual-upload browser test uses a small sample PDF, or the full Cessna 441 manual when a local copy named `16802162-Cessna_441_Maintenance_Manual_D2518-15-13_Mm.pdf` sits in the repository root (it is git-ignored).
 - **Browser libraries.** The Dev Container includes Chromium runtime libraries after a rebuild. On a Linux host, install Playwright system dependencies with `npx playwright install-deps chromium` using administrator privileges.
@@ -327,6 +329,8 @@ _En route: keeping it flying._
 **Deployed, with real records beginning at launch.** The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, switching on error monitoring, and acceptance testing on actual pilot and mechanic devices.
 
 - **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code. A [second review](docs/security/review-2026-11-04.md) on 2026-11-04 found nothing Critical or High; its fixes are merged and its open items are listed there. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+- **Bug hunts**: two full rounds of testing before launch, on [3 November](docs/qa/bug-hunt-2026-11-03/README.md) and [10 November](docs/qa/bug-hunt-2026-11-10/README.md). Each lists every finding, its fix or the decision it waits on, and a script that reproduces it.
+- **Known limit**: the workspace loads a Flight Program's whole history in one request, and Convex caps each request at 16 MiB read. At about 300 flights a year per aircraft on six aircraft, administrators and pilots reach that cap after about two years of records. If the load fails, the app shows a page saying so instead of a blank screen. Loading older history page by page is planned; the measurements and the design are in the [10 November bug hunt](docs/qa/bug-hunt-2026-11-10/README.md).
 - **Recurring tasks**: the quarterly and yearly upkeep is in the [recurring tasks table](docs/go-live-checklist.md#recurring-tasks).
 
 ### Runbooks
@@ -356,6 +360,7 @@ _The chart table: where everything is written down._
 | What is left before and after launch | [Go-live checklist](docs/go-live-checklist.md)                                                                                     |
 | How to operate production            | [`docs/runbooks/`](docs/runbooks/), listed under [Runbooks](#runbooks)                                                             |
 | Security reviews and reporting       | [2 Nov review](docs/security/review-2026-11-02.md), [4 Nov review](docs/security/review-2026-11-04.md), [SECURITY.md](SECURITY.md) |
+| Bug hunts and how to reproduce them  | [3 Nov](docs/qa/bug-hunt-2026-11-03/README.md) and [10 Nov](docs/qa/bug-hunt-2026-11-10/README.md)                                 |
 | The agreed scope and original brief  | [First delivery](docs/first-delivery.md) and [requirements.md](requirements.md)                                                    |
 | A sample program to explore          | [Hosted sample aviation program](docs/sample-program.md)                                                                           |
 
