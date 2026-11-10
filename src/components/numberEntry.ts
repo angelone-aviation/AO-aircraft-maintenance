@@ -5,10 +5,10 @@
  * Layer: UI. One document-wide listener; no React, no rules of its own.
  * Dependencies: src/domain/readings.ts (numberEntryProblem).
  *
- * A number input never shows code its comma: the browser keeps "2342,5" as
- * 23425, so no parser downstream can tell, and an aircraft's totals were
- * rewritten that way. The keystroke is the only place it can be seen, and
- * one listener covers every number field in the app.
+ * A number input never reveals a typed comma to code: the browser keeps
+ * "2342,5" as 23425, so no parser downstream can tell, and an aircraft's
+ * totals were rewritten that way. The keystroke is the only place it can be
+ * seen, and one listener covers every number field in the app.
  */
 import { numberEntryProblem } from "../domain/readings";
 

@@ -289,19 +289,7 @@ function ActorTable({
       <div className="rec-table-scroll">
         <table className="rec-table rec-summary-table">
           <caption className="rec-cap">Changes by person</caption>
-          <thead>
-            <tr>
-              <th scope="col">Person</th>
-              {FAMILY_ORDER.map((f) => (
-                <th key={f} scope="col" className="rec-num">
-                  {FAMILY_LABELS[f]}
-                </th>
-              ))}
-              <th scope="col" className="rec-num">
-                Total
-              </th>
-            </tr>
-          </thead>
+          <ActorHeader />
           <tbody>
             {summary.actors.map((actor) => (
               <ActorRow key={actor.actorId} s={s} actor={actor} />
@@ -310,6 +298,24 @@ function ActorTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function ActorHeader() {
+  return (
+    <thead>
+      <tr>
+        <th scope="col">Person</th>
+        {FAMILY_ORDER.map((f) => (
+          <th key={f} scope="col" className="rec-num">
+            {FAMILY_LABELS[f]}
+          </th>
+        ))}
+        <th scope="col" className="rec-num">
+          Total
+        </th>
+      </tr>
+    </thead>
   );
 }
 
