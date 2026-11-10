@@ -153,13 +153,7 @@ export function TaskCards() {
         </p>
       )}
       <CardRows s={s} rows={rows} onSelect={setSelected} />
-      {selected && (
-        <TaskCardDialog
-          selection={selected}
-          onSelect={setSelected}
-          onClose={() => setSelected(undefined)}
-        />
-      )}
+      <SelectionDialog selected={selected} onSelect={setSelected} />
     </>
   );
 }
@@ -203,13 +197,7 @@ export function WorkItemJobCards(props: {
       ) : (
         <p className="muted">No job cards linked to this item.</p>
       )}
-      {selected && (
-        <TaskCardDialog
-          selection={selected}
-          onSelect={setSelected}
-          onClose={() => setSelected(undefined)}
-        />
-      )}
+      <SelectionDialog selected={selected} onSelect={setSelected} />
     </details>
   );
 }
@@ -259,13 +247,7 @@ export function LinkedTaskCards(props: {
           onClose={() => setOpen(false)}
         />
       )}
-      {selected && (
-        <TaskCardDialog
-          selection={selected}
-          onSelect={setSelected}
-          onClose={() => setSelected(undefined)}
-        />
-      )}
+      <SelectionDialog selected={selected} onSelect={setSelected} />
     </>
   );
 }
@@ -582,11 +564,6 @@ function SummarySignoffButtons(props: {
 }) {
   const { card, snapshot } = props;
   const { busy, error } = props.state;
-  const sameSigner = card.technicianSignoff?.userId === snapshot?.user.id;
-  // Why this user cannot sign as inspector, if they cannot.
-  const certificateProblem = snapshot
-    ? inspectorCertificateProblem(snapshot.user, localDate())
-    : inspectorCertificateRequired;
   const offered =
     snapshot && signoffsOfferedInList(card, snapshot.user, localDate());
   const blocked = !props.state.writable || !!busy;
@@ -604,7 +581,7 @@ function SummarySignoffButtons(props: {
         signer="Inspection"
         state={{ signing: busy === "inspection", signed: !!inspection }}
         disabled={blocked || !offered?.inspection}
-        title={inspectionTitle(card, certificateProblem, sameSigner)}
+        title={summaryInspectionTitle(card, snapshot)}
         onClick={() => props.onSign("inspection")}
       />
       {error && (
@@ -876,6 +853,24 @@ function AddExistingCard(props: { view: LinkedView; available: TaskCard[] }) {
         </select>
       </Field>
     </AsyncForm>
+  );
+}
+
+// The job card dialog for the card or new-card defaults being edited, if any.
+function SelectionDialog({
+  selected,
+  onSelect,
+}: {
+  selected?: Selection;
+  onSelect: (selection?: Selection) => void;
+}) {
+  if (!selected) return null;
+  return (
+    <TaskCardDialog
+      selection={selected}
+      onSelect={onSelect}
+      onClose={() => onSelect(undefined)}
+    />
   );
 }
 
@@ -1915,6 +1910,15 @@ function signedBy(sig: NonNullable<TaskCard["technicianSignoff"]>) {
 
 function signatureText(sig: TaskCard["technicianSignoff"]) {
   return sig ? signedBy(sig) : "Not signed";
+}
+
+function summaryInspectionTitle(card: TaskCard, snapshot: Snapshot | null) {
+  // Why this user cannot sign as inspector, if they cannot.
+  const certificateProblem = snapshot
+    ? inspectorCertificateProblem(snapshot.user, localDate())
+    : inspectorCertificateRequired;
+  const sameSigner = card.technicianSignoff?.userId === snapshot?.user.id;
+  return inspectionTitle(card, certificateProblem, sameSigner);
 }
 
 function inspectionTitle(
