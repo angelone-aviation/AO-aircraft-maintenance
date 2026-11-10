@@ -6,7 +6,7 @@
  * Dependencies: convex/access, convex/programContext, convex/userErrors,
  *   src/domain (programs, savedAddresses, management).
  */
-import { writeAudit } from "./access";
+import { audit } from "./access";
 import { query, mutation, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
@@ -47,7 +47,7 @@ export const list = query({
     const admin = programPermission(s, "admin");
     return {
       entries: entries
-        .map(({ _id, _creationTime, nameKey: _nameKey, ...entry }) => entry)
+        .map(toSavedAddress)
         .sort((a, b) => a.name.localeCompare(b.name)),
       locations: records
         .filter((r) => r.programUuid === programUuid && r.kind === "location")
@@ -58,7 +58,8 @@ export const list = query({
 
 /**
  * Adds or edits a saved address as its next version, stored confirmed; audits
- * `address.saved`.
+ * `address.saved` with the address before (for an edit) and after, which
+ * program administrators read in Change history.
  *
  * @param programUuid - The caller's active Flight Program.
  * @param payload - JSON, as `savedAddressInput`; `version` is the one edited.
@@ -82,17 +83,26 @@ export const save = mutation({
     if (stored.previous)
       await ctx.db.replace(stored.previous._id, { ...saved, nameKey });
     else await ctx.db.insert("savedAddresses", { ...saved, nameKey });
-    await writeAudit(ctx, {
-      uuid: crypto.randomUUID(),
-      at: Date.now(),
-      actorId: s.user.id,
+    // The stored row is replaced, so the change log is the only place the
+    // earlier ship-to details survive.
+    await audit(ctx, s.user.id, "address.saved", input.uuid, {
       programUuid: args.programUuid,
-      action: "address.saved",
-      entityUuid: input.uuid,
+      before: stored.previous ? toSavedAddress(stored.previous) : undefined,
+      after: saved,
     });
     return saved;
   },
 });
+
+// The record without Convex's fields and the name lookup key.
+function toSavedAddress({
+  _id,
+  _creationTime,
+  nameKey: _nameKey,
+  ...entry
+}: Doc<"savedAddresses">) {
+  return entry;
+}
 
 function toLocationChoice(
   record: Doc<"management">,

@@ -188,6 +188,19 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     };
     s.audit.unshift(entry);
   }
+  // Rows about a program's groups, memberships and addresses name the
+  // program, as the server's do: the history filter reads that tag.
+  function auditProgramRow(
+    s: Snapshot,
+    action: string,
+    entityUuid: string,
+    programUuid: string | undefined,
+    values: { before?: unknown; after?: unknown } = {},
+  ) {
+    s.audit.unshift(
+      auditEntry(s, { action, entityUuid, programUuid, ...values }),
+    );
+  }
   // Writes a checked manual change and its change-log row, as the server does.
   function saveManualChange<T>(
     s: Snapshot,
@@ -647,6 +660,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           ...(s.savedAddresses ?? []).filter((a) => a.uuid !== saved.uuid),
           saved,
         ];
+        auditProgramRow(s, "address.saved", saved.uuid, programUuid, {
+          before: stored.previous ?? undefined,
+          after: saved,
+        });
       });
       return saved;
     },
@@ -853,7 +870,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         ];
         if (user.id === s.user.id)
           s.user = { ...s.user, groupIds: user.groupIds };
-        audit(s, "user.program_access_changed", user.id);
+        auditProgramRow(s, "user.program_access_changed", user.id, programUuid);
       }),
     addExistingProgramUser: async (email, programUuid, groupIds) => {
       await modify((s) => {
@@ -873,7 +890,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         user.groupIds = [...new Set([...user.groupIds, ...groupIds])];
         if (user.id === s.user.id)
           s.user = { ...s.user, groupIds: user.groupIds };
-        audit(s, "user.program_access_added", user.id);
+        auditProgramRow(s, "user.program_access_added", user.id, programUuid);
       });
       return ADD_EXISTING_RESULT;
     },
@@ -911,7 +928,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           activeProgramUuid: programUuid,
           groupIds,
         });
-        audit(s, "user.created", id);
+        auditProgramRow(s, "user.created", id, programUuid);
       });
       return id;
     },
@@ -1137,7 +1154,9 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       modify((s) => {
         const before = s.groups.find((g) => g.id === id);
         deletePermissionGroup(s, id, expected);
-        audit(s, "group.deleted", id, undefined, undefined, before);
+        auditProgramRow(s, "group.deleted", id, before?.programUuid, {
+          before,
+        });
       }),
     saveGroup: ({ allAircraft, ...group }) =>
       modify((s) => {
@@ -1163,15 +1182,10 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           ? s.groups.map((g) => (g.id === next.id ? next : g))
           : [...s.groups, next];
         // As convex/admin.ts records it, with the aircraft-access choice.
-        audit(
-          s,
-          "group.saved",
-          next.id,
-          undefined,
-          undefined,
+        auditProgramRow(s, "group.saved", next.id, next.programUuid, {
           before,
-          allAircraft === undefined ? next : { ...next, allAircraft },
-        );
+          after: allAircraft === undefined ? next : { ...next, allAircraft },
+        });
       }),
     resetPassword: async () => {
       throw new Error(

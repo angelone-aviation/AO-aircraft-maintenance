@@ -6,4 +6,4 @@ Parts requests, repair requests and purchase orders use compact address selector
 
 Each address has a descriptive address name and a recipient/contact name, together with shipping and contact details. Incomplete inventory addresses open in the same window for completion. Saving confirms the entered address details. External address lookup remains available in the address window where configured.
 
-Requests and purchase orders retain a copy of the selected address. Editing the directory later does not rewrite existing documents. Full addresses remain available in the address window and printed documents, without cluttering the request or order forms.
+Requests and purchase orders retain a copy of the selected address. Editing the directory later does not rewrite existing documents. Each save writes an `address.saved` change-log entry with the address before and after, which Flight Program administrators read in Change history. Full addresses remain available in the address window and printed documents, without cluttering the request or order forms.

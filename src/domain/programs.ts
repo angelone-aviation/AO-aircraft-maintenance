@@ -33,6 +33,19 @@ const INVENTORY_KINDS: readonly string[] = ["stock", "location", "vendor"];
 // tagged with: inventory records, and expiring dates (insurance and
 // registration rows name their aircraft and carry the label and the note).
 const ADMIN_AUDIT_ACTION = /^(stock|location|vendor|inventory|expiring-date)\./;
+// Rows about who may use a program and where it ships to. Their records (a
+// group, a membership, a saved address) are not in the snapshot's record
+// lists and never transfer, so the row's tag names the program whose
+// administrators may read it. Named one by one: a new action stays hidden
+// until someone decides who reads it.
+const PROGRAM_ADMIN_AUDIT_ACTIONS: readonly string[] = [
+  "group.saved",
+  "group.deleted",
+  "user.created",
+  "user.program_access_added",
+  "user.program_access_changed",
+  "address.saved",
+];
 
 type CostRecord = NonNullable<Snapshot["costs"]>[number];
 type PurchaseOrder = NonNullable<Snapshot["purchaseOrders"]>[number];
@@ -427,9 +440,12 @@ function buildAuditFilter(
       (inventoryRecords.has(a.entityUuid) || ADMIN_AUDIT_ACTION.test(a.action))
     )
       return false;
-    // A row's program tag records where it was written, not who may read it:
-    // transfers never re-tag rows (ADR-0005), so a row follows the current
-    // owner of its record or aircraft, like rows without a tag already do.
+    if (a.programUuid && PROGRAM_ADMIN_AUDIT_ACTIONS.includes(a.action))
+      return admin && a.programUuid === active;
+    // Any other row's program tag records where it was written, not who may
+    // read it: transfers never re-tag rows (ADR-0005), so a row follows the
+    // current owner of its record or aircraft, like rows without a tag
+    // already do.
     if (a.programUuid)
       return (
         entities.has(a.entityUuid) ||
