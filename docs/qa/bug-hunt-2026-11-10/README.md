@@ -17,7 +17,7 @@ Severity scale, as on 3 Nov: **Critical** means wrong safety data, data loss or 
 
 How the statuses are counted:
 
-- **Fixed** items are on `main`. Each code fix has a regression test that failed before it; AC-7 changed a document only. The UI-13 fix is on its own branch, and its commit hash is still to be filled in.
+- **Fixed** items are on `main`. Each code fix has a regression test that failed before it; AC-7 changed a document only.
 - **Fixed in part** is counted as Fixed: AC-5, AC-11, NA-19, SE-8, SE-15 and UI-11. Each open part is listed under [Decisions for Aaron](#decisions-for-aaron) or in the to-do list.
 - **SZ-1** is counted as a Decision. Its fixes cut the cost of loading the workspace, but the size limit still stands.
 - **Not done:** UI-12, the quantity and cost fields in purchasing. It needs a change to those inputs of its own.
@@ -26,17 +26,17 @@ How the statuses are counted:
 
 All nine fix batches, the three clean-up branches and the NB-15 follow-up, `d620018`, are merged on `main`. Nothing is pushed yet.
 
-| Check                     | Result on `main`                                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `npm run check`           | Passed: 3,976 tests in 371 files, with typecheck, lint and build. Run before the NB-15 and UI-13 commits |
-| `npm run check:standards` | All clear: 356 files                                                                                     |
-| `npm run test:e2e`        | Passed: 160 tests, 4 skipped. The 4 need a real local backend, as before                                 |
-| `npm run test:backup`     | Passed                                                                                                   |
-| Secret scan               | No leaks found                                                                                           |
-| `npm audit --omit=dev`    | 0 vulnerabilities                                                                                        |
-| Every repro script re-run | 132 findings: see the table below                                                                        |
+| Check                     | Result on `main`                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| `npm run check`           | Passed: 3,978 tests in 371 files, with typecheck, lint and build, on the final code |
+| `npm run check:standards` | All clear: 370 files                                                                |
+| `npm run test:e2e`        | Passed: 167 tests, 4 skipped. The 4 need a real local backend, as before            |
+| `npm run test:backup`     | Passed                                                                              |
+| Secret scan               | No leaks found                                                                      |
+| `npm audit --omit=dev`    | 0 vulnerabilities                                                                   |
+| Every repro script re-run | 132 findings: see the table below                                                   |
 
-The repros were re-run on `main` at `883bd34`. UI-1, UI-2, UI-5, UI-6 and NB-15 were checked again on the final `main`.
+The repros were re-run on `main` at `883bd34`. UI-1, UI-2, UI-5, UI-6, UI-13 and NB-15 were checked again on the final code.
 
 | Repro result                                                      | Findings |
 | ----------------------------------------------------------------- | -------- |
@@ -46,7 +46,7 @@ The repros were re-run on `main` at `883bd34`. UI-1, UI-2, UI-5, UI-6 and NB-15 
 | ERROR: the script could not reach its own check after a later fix | 9        |
 | Not re-run: SZ-1 and SZ-2                                         | 2        |
 | No repro script                                                   | 13       |
-| UI-13: reproduced before its fix, to re-run with the fix commit   | 1        |
+| UI-13: re-run with its fix, NOT REPRODUCED                        | 1        |
 | **Total**                                                         | **132**  |
 
 - **NOT REPRODUCED** includes AC-12 and NA-20, which other scripts exercise. Four scripts were adjusted as their fix reports describe: a real push host for three push scripts, real JPEG bytes for NA-4, a file-storage listing for OP-1 and the agreed expectation for PT-7. The adjusted copies are in `repro-adjusted/<area>/`.
@@ -238,21 +238,21 @@ Each table lists every finding in the area by severity. The full steps, expected
 
 ### Interface
 
-| ID    | Severity | Finding                                                                         | Status                                              | Repro re-run                                                        |
-| ----- | -------- | ------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
-| UI-3  | High     | A decimal comma in Ending Hobbs is saved as a 21,000-hour flight                | Fixed `9b972bb`; aircraft form limit is D1          | NOT REPRODUCED                                                      |
-| UI-8  | High     | The server accepts a flight with an ending Hobbs 10 times too high              | Fixed `1e60a89`; confirm the limit in D1            | NOT REPRODUCED                                                      |
-| UI-9  | High     | Number fields drop a decimal comma; the aircraft form saves 10x                 | Fixed `9b972bb`; aircraft form limit is D1          | NOT REPRODUCED                                                      |
-| UI-1  | Medium   | A 45-character word widens five screens past a phone                            | Fixed `7f88050`                                     | NOT REPRODUCED                                                      |
-| UI-4  | Medium   | Escape or Back closes a filled-in form without asking                           | Fixed `a98820d`; confirm in D25                     | NOT REPRODUCED                                                      |
-| UI-10 | Medium   | Money fields store a decimal comma 100 times too large                          | Fixed `9b972bb`                                     | NOT REPRODUCED                                                      |
-| UI-13 | Medium   | After a refused save, the message hides under the Save footer and focus is lost | Fixed, commit pending                               | REPRODUCED on `883bd34`, before the fix; re-run with the fix commit |
-| UI-2  | Low      | Inventory location select has no accessible name                                | Fixed `84d75ec`                                     | NOT REPRODUCED                                                      |
-| UI-5  | Low      | Screen text uses words the glossary avoids for alerts; "1 open discrepancies"   | Fixed `281b5d5` `b0d222a`                           | NOT REPRODUCED; text search, the old script timed out               |
-| UI-6  | Low      | Sidebar brand link name does not match its visible text                         | Fixed `b0d222a`                                     | NOT REPRODUCED                                                      |
-| UI-7  | Low      | An empty record history showed as a red error                                   | Fixed `78c1a78`                                     | NOT REPRODUCED                                                      |
-| UI-11 | Low      | Fuel and oil fields store whatever the control holds                            | Fixed in part `9b972bb`; fuel and oil limits are D1 | NOT REPRODUCED; the fuel and oil limits are not tested              |
-| UI-12 | Low      | Quantity and cost fields cannot be emptied and turn -5 into 5                   | Not done: purchasing inputs need their own change   | REPRODUCED (expected: not done)                                     |
+| ID    | Severity | Finding                                                                         | Status                                              | Repro re-run                                                   |
+| ----- | -------- | ------------------------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------- |
+| UI-3  | High     | A decimal comma in Ending Hobbs is saved as a 21,000-hour flight                | Fixed `9b972bb`; aircraft form limit is D1          | NOT REPRODUCED                                                 |
+| UI-8  | High     | The server accepts a flight with an ending Hobbs 10 times too high              | Fixed `1e60a89`; confirm the limit in D1            | NOT REPRODUCED                                                 |
+| UI-9  | High     | Number fields drop a decimal comma; the aircraft form saves 10x                 | Fixed `9b972bb`; aircraft form limit is D1          | NOT REPRODUCED                                                 |
+| UI-1  | Medium   | A 45-character word widens five screens past a phone                            | Fixed `7f88050`                                     | NOT REPRODUCED                                                 |
+| UI-4  | Medium   | Escape or Back closes a filled-in form without asking                           | Fixed `a98820d`; confirm in D25                     | NOT REPRODUCED                                                 |
+| UI-10 | Medium   | Money fields store a decimal comma 100 times too large                          | Fixed `9b972bb`                                     | NOT REPRODUCED                                                 |
+| UI-13 | Medium   | After a refused save, the message hides under the Save footer and focus is lost | Fixed 8e2c752                                       | NOT REPRODUCED with the fix; REPRODUCED on `883bd34` before it |
+| UI-2  | Low      | Inventory location select has no accessible name                                | Fixed `84d75ec`                                     | NOT REPRODUCED                                                 |
+| UI-5  | Low      | Screen text uses words the glossary avoids for alerts; "1 open discrepancies"   | Fixed `281b5d5` `b0d222a`                           | NOT REPRODUCED; text search, the old script timed out          |
+| UI-6  | Low      | Sidebar brand link name does not match its visible text                         | Fixed `b0d222a`                                     | NOT REPRODUCED                                                 |
+| UI-7  | Low      | An empty record history showed as a red error                                   | Fixed `78c1a78`                                     | NOT REPRODUCED                                                 |
+| UI-11 | Low      | Fuel and oil fields store whatever the control holds                            | Fixed in part `9b972bb`; fuel and oil limits are D1 | NOT REPRODUCED; the fuel and oil limits are not tested         |
+| UI-12 | Low      | Quantity and cost fields cannot be emptied and turn -5 into 5                   | Not done: purchasing inputs need their own change   | REPRODUCED (expected: not done)                                |
 
 ### Operations
 
