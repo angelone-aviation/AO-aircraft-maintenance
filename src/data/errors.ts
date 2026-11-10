@@ -22,6 +22,19 @@ const DEFAULT_ERROR_TEXT =
   "Something went wrong. Try again, and tell an administrator if it keeps happening.";
 
 /**
+ * Shown when a part of the app loaded on demand (the PDF and records export
+ * tools) could not be fetched: offline before it was ever used on this
+ * device, or after an update replaced it.
+ */
+export const MODULE_LOAD_ERROR_TEXT =
+  "This part of the app could not be loaded on this device. Connect to the internet and try again; once it has been used online, it also works offline.";
+
+// How Chromium, Firefox and Safari word a failed import(), and Vite's failed
+// preload of a lazy module's stylesheet.
+const MODULE_LOAD_FAILURE =
+  /dynamically imported module|Importing a module script failed|Unable to preload CSS/;
+
+/**
  * The text to show a user for a failed command, load or sync: the refusal or
  * validation messages, never the Convex client's wrapper or zod's JSON.
  *
@@ -29,7 +42,9 @@ const DEFAULT_ERROR_TEXT =
  * @returns A ConvexError's `data` when it is a string, or `data.message` when
  *   that is; a ZodError's {@link validationText};
  *   otherwise the fallback for a "[CONVEX …]" message, a ZodError without
- *   issues or a value that is not an Error; otherwise the Error's own message.
+ *   issues or a value that is not an Error; {@link MODULE_LOAD_ERROR_TEXT}
+ *   for a module the browser could not load; otherwise the Error's own
+ *   message.
  */
 export function errorText(
   error: unknown,
@@ -41,6 +56,7 @@ export function errorText(
   // the same zod/v4 ZodError; its instanceof checks zod's traits, not a class.
   if (error instanceof ZodError) return validationText(error) || fallback;
   if (!(error instanceof Error)) return fallback;
+  if (MODULE_LOAD_FAILURE.test(error.message)) return MODULE_LOAD_ERROR_TEXT;
   return error.message.startsWith(CONVEX_FAILURE_PREFIX)
     ? fallback
     : error.message;
