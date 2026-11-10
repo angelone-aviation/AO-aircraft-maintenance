@@ -6,7 +6,7 @@
  *   workspace backend.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts,
  *   src/domain/programs.ts, src/domain/aircraftSpruce.ts, ./ui.tsx,
- *   ./demoNotice.
+ *   ./SettingsBlock.tsx, ./demoNotice.
  */
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -26,7 +26,12 @@ import {
   type SpruceOrderSnapshot,
   type SpruceOrderRow,
 } from "../domain/aircraftSpruce";
-import { AsyncForm, Field, errorText, safeHref } from "./ui";
+import { AsyncForm, Field, Modal, errorText, safeHref } from "./ui";
+import {
+  IntegrationRow,
+  UpdateButton,
+  type IntegrationStatus,
+} from "./SettingsBlock";
 
 const CREDENTIAL_FIELDS = [
   {
@@ -140,60 +145,61 @@ function Account({ programUuid }: { programUuid: string }) {
   const [editing, setEditing] = useState(false);
   const { status, notice } = account;
   const disabled = !online || !connected || demo || account.busy;
+  return (
+    <IntegrationRow
+      name="Aircraft Spruce account"
+      status={accountStatus(status)}
+      summary={accountSummary(status)}
+      action={
+        <UpdateButton
+          label="Update Aircraft Spruce account"
+          disabled={disabled || !status}
+          onClick={() => setEditing(true)}
+        />
+      }
+    >
+      <AccountNotes account={account} disabled={disabled} />
+      <AccountFooter demo={demo} notice={notice} />
+      {editing && (
+        <LinkDialog
+          programUuid={programUuid}
+          account={account}
+          disabled={disabled || !status}
+          onClose={() => setEditing(false)}
+        />
+      )}
+    </IntegrationRow>
+  );
+}
+
+function LinkDialog({
+  programUuid,
+  account,
+  disabled,
+  onClose,
+}: {
+  programUuid: string;
+  account: SpruceAccount;
+  disabled: boolean;
+  onClose: () => void;
+}) {
   const linked = async () => {
-    setEditing(false);
+    onClose();
     await account.reload();
     account.setNotice(
       "Account linked. Refresh the catalog to search products.",
     );
   };
   return (
-    <section className="panel">
-      <AccountSummary status={status} />
-      {!editing && (
-        <LinkButton
-          status={status}
-          disabled={disabled || !status}
-          onClick={() => setEditing(true)}
-        />
-      )}
-      {editing && (
-        <LinkForm
-          programUuid={programUuid}
-          status={status}
-          disabled={disabled || !status}
-          onClose={() => setEditing(false)}
-          onLinked={linked}
-        />
-      )}
-      {status?.configured && !editing && (
-        <AccountActions account={account} disabled={disabled} />
-      )}
-      <AccountFooter demo={demo} notice={notice} />
-    </section>
-  );
-}
-
-function LinkButton({
-  status,
-  disabled,
-  onClick,
-}: {
-  status?: SpruceStatus;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="button"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {status?.configured
-        ? "Replace Aircraft Spruce account"
-        : "Link Aircraft Spruce account"}
-    </button>
+    <Modal title="Update Aircraft Spruce account" onClose={onClose}>
+      <LinkForm
+        programUuid={programUuid}
+        status={account.status}
+        disabled={disabled}
+        onClose={onClose}
+        onLinked={linked}
+      />
+    </Modal>
   );
 }
 
@@ -263,19 +269,36 @@ function useSpruceStatus(programUuid: string) {
   return { status, setStatus, notice, setNotice };
 }
 
-function AccountSummary({ status }: { status?: SpruceStatus }) {
+function accountStatus(status?: SpruceStatus): IntegrationStatus {
+  if (!status) return { tone: "neutral", label: "Unknown" };
+  return status.configured
+    ? { tone: "good", label: "Linked" }
+    : { tone: "warn", label: "Not linked" };
+}
+
+function accountSummary(status?: SpruceStatus) {
+  if (!status?.configured) return "No account linked.";
+  const linked = `Account linked · catalog currency ${status.currency}`;
+  if (!status.catalogAt) return linked;
+  const count = status.catalogCount?.toLocaleString();
+  const at = new Date(status.catalogAt).toLocaleString();
+  return `${linked} · ${count} products · refreshed ${at}`;
+}
+
+function AccountNotes({
+  account,
+  disabled,
+}: {
+  account: SpruceAccount;
+  disabled: boolean;
+}) {
+  const { status } = account;
   return (
     <>
-      <h3>Aircraft Spruce account</h3>
-      <p>
+      <p className="set-hint">
         This connection belongs to the current Flight Program. Account
         credentials are stored on the server and are never included in offline
         data.
-      </p>
-      <p>
-        {status?.configured
-          ? `Account linked · catalog currency ${status.currency}`
-          : "No account linked."}
       </p>
       {status?.configured && !status.catalogAt && (
         <p>
@@ -283,11 +306,8 @@ function AccountSummary({ status }: { status?: SpruceStatus }) {
           before searching for parts.
         </p>
       )}
-      {status?.catalogAt && (
-        <p>
-          {status.catalogCount?.toLocaleString()} products · refreshed{" "}
-          {new Date(status.catalogAt).toLocaleString()}
-        </p>
+      {status?.configured && (
+        <AccountActions account={account} disabled={disabled} />
       )}
     </>
   );

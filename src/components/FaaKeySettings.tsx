@@ -5,7 +5,8 @@
  * Layer: UI. React components; they never see a stored key, only the status
  *   the snapshot carries.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts,
- *   src/domain/faaCredential.ts, src/domain/model.ts, ./demoNotice, ./ui.
+ *   src/domain/faaCredential.ts, src/domain/model.ts, ./demoNotice, ./ui,
+ *   ./SettingsBlock.
  *
  * The key is edited in one place, Settings → System (system administrators
  * only); everyone else reads its status and who renews it.
@@ -18,10 +19,16 @@ import {
   faaKeyNoticeForMembers,
   faaRenewal,
   RENEWAL_WARNING_DAYS,
+  type FaaCredentialStatus,
 } from "../domain/faaCredential";
 import { localDate } from "../domain/model";
 import { DEMO_KEYS_UNAVAILABLE } from "./demoNotice";
 import { Field, Modal, errorText, useRevealError } from "./ui";
+import {
+  IntegrationRow,
+  UpdateButton,
+  type IntegrationStatus,
+} from "./SettingsBlock";
 
 const DAY_MS = 86_400_000;
 
@@ -77,21 +84,28 @@ export function FaaKeyStatus() {
 }
 
 /**
- * The FAA key panel in Settings → System: renewal status, where to renew,
- * and the replacement button. Replacing is unavailable offline and in the
- * demo.
+ * The FAA key panel in Settings → System: the key's status and renewal, where
+ * to renew, and the Update… button. Replacing is unavailable offline and in
+ * the demo.
  *
  * @param props.level - The heading level: 3 when nested under a heading of
  *   its own (Settings → System), 2 by default.
  */
 export function FaaKeySettings({ level = 2 }: { level?: 2 | 3 }) {
-  const Heading = level === 3 ? "h3" : "h2";
   const { snapshot: s, demo } = useWorkspace();
   const reminder = faaRenewal(s?.faaCredential);
   return (
-    <section className="panel">
-      <Heading>FAA API key and renewal</Heading>
-      <p role={reminder.warning ? "alert" : undefined}>{reminder.message}</p>
+    <IntegrationRow
+      name="FAA API key and renewal"
+      heading={level === 3 ? "h3" : "h2"}
+      status={faaKeyStatus(s?.faaCredential)}
+      summary={
+        <span role={reminder.warning ? "alert" : undefined}>
+          {reminder.message}
+        </span>
+      }
+      action={<FaaKeyUpdateButton label="Update FAA API key" compact />}
+    >
       <p className="set-hint">
         From {RENEWAL_WARNING_DAYS} days before the key expires, system
         administrators get an alert under the bell and in the daily email, and
@@ -103,9 +117,8 @@ export function FaaKeySettings({ level = 2 }: { level?: 2 | 3 }) {
           Request / renew key at FAA
         </a>
       </p>
-      <FaaKeyUpdateButton label="Update FAA API key" />
       {demo && <p className="set-hint">{DEMO_KEYS_UNAVAILABLE}</p>}
-    </section>
+    </IntegrationRow>
   );
 }
 
@@ -113,24 +126,38 @@ export function FaaKeySettings({ level = 2 }: { level?: 2 | 3 }) {
  * The button that opens the FAA key replacement dialog, with the notice
  * shown once a replacement is saved. Only system administrators get it.
  *
- * @param props.label - The button's text, which is also its accessible name.
+ * @param props.label - The button's accessible name, and its text unless
+ *   `compact`.
+ * @param props.compact - Shows "Update…", as in an integration row.
  * @returns Nothing for anyone but a system administrator.
  */
-export function FaaKeyUpdateButton({ label }: { label: string }) {
+export function FaaKeyUpdateButton({
+  label,
+  compact = false,
+}: {
+  label: string;
+  compact?: boolean;
+}) {
   const { snapshot: s, online, connected, demo } = useWorkspace();
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState("");
   if (!s?.user.isAdmin) return null;
+  const disabled = demo || !online || !connected;
+  const show = () => setOpen(true);
   return (
     <>
-      <button
-        type="button"
-        className="button small"
-        disabled={demo || !online || !connected}
-        onClick={() => setOpen(true)}
-      >
-        {label}
-      </button>
+      {compact ? (
+        <UpdateButton label={label} disabled={disabled} onClick={show} />
+      ) : (
+        <button
+          type="button"
+          className="button small"
+          disabled={disabled}
+          onClick={show}
+        >
+          {label}
+        </button>
+      )}
       {notice && <p role="status">{notice}</p>}
       {open && (
         <ReplaceKeyDialog
@@ -234,6 +261,20 @@ function KeyFields({
       </Field>
     </>
   );
+}
+
+// A key stays valid through its expiration date, so it reads expired from
+// the next day, as calendar limits do (GLOSSARY "Overdue").
+function faaKeyStatus(
+  status: FaaCredentialStatus | undefined,
+  today = localDate(),
+): IntegrationStatus {
+  if (!status?.configured) return { tone: "warn", label: "Not set up" };
+  if (!status.expiresOn) return { tone: "warn", label: "No expiry date" };
+  if (status.expiresOn < today) return { tone: "danger", label: "Expired" };
+  return faaRenewal(status, today).warning
+    ? { tone: "warn", label: "Renew soon" }
+    : { tone: "good", label: "Active" };
 }
 
 function useKeyReplacement(onSaved: () => void) {

@@ -23,7 +23,7 @@ test("program vendor settings explain the live connection and prevent saving cre
   ).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: "Link Aircraft Spruce account",
+      name: "Update Aircraft Spruce account",
       exact: true,
     }),
   ).toBeDisabled();

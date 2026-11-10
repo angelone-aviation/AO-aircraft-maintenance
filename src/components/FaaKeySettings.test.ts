@@ -160,9 +160,27 @@ describe("FaaKeySettings", () => {
 
   it("offers the replacement only to system administrators", () => {
     expect(renderPanel()).toContain(
-      '<button type="button" class="button small">Update FAA API key</button>',
+      '<button type="button" class="button small" aria-label="Update FAA API key">Update…</button>',
     );
     expect(renderPanel(2, false)).not.toContain("Update FAA API key");
+  });
+
+  it("names the key's state in its pill: a key is valid through its expiry date", () => {
+    const pill = (faaCredential?: FaaCredentialStatus) => {
+      workspace.state = {
+        snapshot: { faaCredential, user: { isAdmin: true } },
+        ...ONLINE,
+      };
+      return renderAgain().match(/<\/span>([^<]+)<\/span>/)?.[1];
+    };
+    expect(pill(expiringIn(61))).toBe("Active");
+    expect(pill(expiringIn(60))).toBe("Renew soon");
+    expect(pill(expiringIn(0))).toBe("Renew soon");
+    expect(pill(expiringIn(-1))).toBe("Expired");
+    expect(pill({ configured: true, expiresOn: "", version: 1 })).toBe(
+      "No expiry date",
+    );
+    expect(pill(undefined)).toBe("Not set up");
   });
 
   it("disables the replacement offline and in demo mode", () => {

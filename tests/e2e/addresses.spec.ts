@@ -116,8 +116,8 @@ test("location addresses retain separate contact fields and autofill PO shipping
   await expect(
     page.getByRole("heading", { name: "Address verification", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Geoapify API key")).toHaveAttribute(
-    "type",
-    "password",
-  );
+  // The key is entered in the Update… dialog, which the demo cannot open.
+  await expect(
+    page.getByRole("button", { name: "Update Geoapify API key" }),
+  ).toBeDisabled();
 });

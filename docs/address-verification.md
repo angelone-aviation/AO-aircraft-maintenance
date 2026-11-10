@@ -8,7 +8,7 @@ Selecting an inventory location autofills the PO shipping address and its separa
 
 1. Create a free account at <https://myprojects.geoapify.com/> and create a project/API key.
 2. In Angel One, open **Settings → System → Address verification** (system administrators only).
-3. Enter the key in the password field and select **Validate and save API key**. Only global administrators can configure it. The backend checks the key against a public sample address before replacing the previous key. Keys are never included in workspace snapshots, returned to the browser, or written to audit entries.
+3. Select **Update…** (its status pill says **On**, **Not set up** or **Unknown**), enter the key in the password field and select **Validate and save API key**. Only global administrators can configure it. The backend checks the key against a public sample address before replacing the previous key. Keys are never included in workspace snapshots, returned to the browser, or written to audit entries.
 4. In any address section, enter the street and country and select **Look up address**. Review the returned candidates, select **Use suggested address** where a building/address match is available, review suite and contact details, then **Check & confirm address**.
 
 Only street, city, state/province, postal code and country are sent to Geoapify. Organization, recipient, suite, email and phone are not sent. Suggestions never silently replace the entered address. Street-only and city-only results are displayed as partial matches and cannot be applied as a full suggested address. A failure or no match leaves the entered address intact.
