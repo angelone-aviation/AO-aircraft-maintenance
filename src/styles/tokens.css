@@ -1,63 +1,92 @@
 /*
- * Responsibility: Design tokens (colour, typography, spacing, radii, motion),
- *   shared keyframes and base typography for every screen.
+ * Responsibility: Design tokens (colour, typography, spacing, radii, shadows,
+ *   motion), shared keyframes, motion utilities and base typography.
  * Layer: UI. Global rules only: custom properties, keyframes, html and body,
- *   and a few helpers (.rise, .num, .eyebrow); no screen styles.
- * Dependencies: @fontsource/outfit (weights 300–700).
+ *   and a few helpers (.rise, .lift, .num, .eyebrow); no screen styles.
+ * Dependencies: @fontsource/outfit (weights 300–600).
  *
  * Light is the default; the `.dark` class on <html> switches the palette
  * (useTheme in src/components/design.tsx). Outfit is self-hosted so the
- * offline PWA never fetches fonts at runtime.
+ * offline PWA never fetches fonts at runtime. One accent (cobalt) does all
+ * the pointing; green, amber and red mean status and nothing else.
  */
 @import "@fontsource/outfit/300.css";
 @import "@fontsource/outfit/400.css";
 @import "@fontsource/outfit/500.css";
 @import "@fontsource/outfit/600.css";
-@import "@fontsource/outfit/700.css";
 
 :root {
-  /* Colour: light */
-  --bg: #f3f4f8;
+  /* Colour: light. Page and cards are both white; a hairline and a soft
+   * shadow separate them. */
+  --bg: #ffffff;
   --surface: #ffffff;
-  --surface2: #eef0f6;
-  --border: #e1e4ee;
-  --text: #0b1434;
-  --muted: #4f586f;
-  --faint: #646c82; /* brief #7c849b: darkened for 4.5:1 on --bg/--surface2 */
-  --navy: #0b1434;
-  --side: #0b1434;
-  --blue: #1830f8;
-  --blue-ink: #1226c9;
-  --blue-soft: #e8ebff;
-  --good: #13773a; /* brief #15803d: 4.44:1 on --good-bg */
-  --good-bg: #dff7e6;
-  --warn: #b45309; /* brief #d97706: 2.9:1 on --warn-bg */
+  --surface2: #f5f7fa;
+  --field: var(--surface2);
+  --border: #eceff4;
+  --line: var(--border);
+  --text: #141c33;
+  --muted: #626c85;
+  --faint: #626c85;
+  --blue: #2563eb;
+  --blue-ink: #1d4ed8;
+  --blue-soft: #eef4ff;
+  --tint: var(--blue-soft);
+  --blue-fill: #2563eb;
+  --on-blue: #ffffff;
+  --blue-on-soft: #1d4ed8;
+  --good: #0b6e55;
+  --good-bg: #e3f6ee;
+  --warn: #8f5200;
   --warn-bg: #fff3d6;
-  --danger: #c81e1e; /* brief #dc2626: 4.0:1 on --danger-bg */
-  --danger-bg: #ffe3e3;
-  --shadow:
-    0 1px 2px rgba(11, 20, 52, 0.05), 0 8px 24px -12px rgba(11, 20, 52, 0.12);
+  --danger: #b42318;
+  --danger-bg: #fdeae7;
+  --switch-off: #d5dae3;
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px rgba(16, 24, 40, 0.05);
   --shadow-lift:
-    0 2px 4px rgba(11, 20, 52, 0.06), 0 20px 40px -18px rgba(11, 20, 52, 0.25);
-  --scrim: rgba(7, 11, 28, 0.55);
+    0 2px 6px rgba(16, 24, 40, 0.04), 0 18px 40px rgba(16, 24, 40, 0.08);
+  --shadow-btn:
+    0 1px 2px rgba(16, 24, 40, 0.08), 0 6px 16px rgba(37, 99, 235, 0.22);
+  --shadow-overlay: 0 30px 80px rgba(10, 15, 40, 0.3);
+  --shadow-art: drop-shadow(0 1px 1px rgba(16, 24, 40, 0.22))
+    drop-shadow(0 8px 9px rgba(16, 24, 40, 0.14));
+  --scrim: rgba(15, 20, 40, 0.36);
 
-  /* Brand accents fixed in both themes (navy surfaces) */
-  --brand-blue: #1830f8;
-  --on-navy-icon: #8a97ff;
-  --on-navy-icon-active: #9aa6ff;
-  --on-navy-muted: #8c97bf;
-  --on-navy-text: #c3cae0;
+  /* Charts: cobalt first, then a lighter and a darker blue and two greys.
+   * Status colours are for data that is a status (chartData.ts). */
+  --chart-1: #2563eb;
+  --chart-2: #93b4f8;
+  --chart-3: #1e3a8a;
+  --chart-4: #c3cad8;
+  --chart-5: #7c869e;
+  --chart-grid: var(--border);
+  --chart-axis: var(--muted);
+  --chart-cursor: rgba(37, 99, 235, 0.06);
+
+  /* Legacy: dark panels on screens not yet moved to the white language.
+   * Shared code no longer uses them; remove once no screen does. */
+  --navy: #141c33;
+  --brand-blue: var(--blue-fill);
+  --on-navy-icon: #8fb0ff;
+  --on-navy-icon-active: #a9c4ff;
+  --on-navy-muted: #9aa5c4;
+  --on-navy-text: #c8d0e4;
 
   /* Typography */
   --font:
     Outfit, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --fs-eyebrow: 11.5px;
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fs-eyebrow: 12px;
   --fs-meta: 13.5px;
   --fs-body: 16px;
-  --fs-h1: clamp(30px, 3.6vw, 44px);
-  --fs-h1-hero: clamp(32px, 4.2vw, 52px);
-  --fs-h2: 23px;
-  --fs-kpi: 42px;
+  --fs-sub: 17px;
+  --fs-h1: clamp(30px, 3.4vw, 44px);
+  --fs-h1-hero: var(--fs-h1);
+  --fs-h2: 20px;
+  --fs-kpi: 36px;
 
   /* Spacing (8pt rhythm) */
   --space-1: 4px;
@@ -68,70 +97,74 @@
   --space-6: 24px;
   --space-7: 32px;
   --space-8: 40px;
-  --page-pad-top: clamp(24px, 3.5vw, 48px);
-  --page-pad-x: clamp(20px, 3.5vw, 44px);
-  --page-gap: clamp(26px, 3.5vw, 44px);
+  --page-pad-top: clamp(24px, 3.2vw, 40px);
+  --page-pad-x: clamp(18px, 3.4vw, 44px);
+  --page-gap: clamp(28px, 3vw, 38px);
+  --card-pad: 24px;
 
   /* Radii */
-  --radius-card: 14px;
-  --radius-card-lg: 16px;
-  --radius-control: 10px;
+  --radius-card: 20px;
+  --radius-card-lg: 20px;
+  --radius-control: 12px;
   --radius-tile: 12px;
   --radius-pill: 999px;
-  --radius-modal: 16px;
-  --radius-sheet: 18px;
+  --radius-modal: 24px;
+  --radius-sheet: 26px;
 
   /* Motion */
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --dur-fast: 0.2s;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 0.18s;
   --dur: 0.25s;
+  --dur-slow: 0.35s;
   --dur-theme: 0.35s;
+  --dur-bar: 0.7s;
+  --lift-card: -3px;
+  --lift-button: -2px;
 
   color-scheme: light;
 }
 
+/* Dark: the same language on a near-black blue-grey page. Cards sit one step
+ * lighter, cobalt lightens where it is text, and status keeps its meaning. */
 :root.dark,
 .dark {
-  --bg: #0c1222;
-  --surface: #131a30;
-  --surface2: #1b2340;
-  --border: #28324f;
-  --text: #f1f3fa;
-  --muted: #b4bbd1;
-  --faint: #828ba8;
-  --side: #080d1b;
-  --blue: #6b7cff;
-  --blue-ink: #9aa6ff;
-  --blue-soft: #1f2a5c;
-  --good: #4ade80;
-  --good-bg: #0f3a22;
-  --warn: #fbbf24;
-  --warn-bg: #3f2d0a;
-  --danger: #f87171;
-  --danger-bg: #471515;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
-  --shadow-lift:
-    0 2px 4px rgba(0, 0, 0, 0.4), 0 20px 44px -16px rgba(0, 0, 0, 0.7);
-  --scrim: rgba(3, 6, 16, 0.7);
+  --bg: #0b1020;
+  --surface: #121930;
+  --surface2: #1a2238;
+  --border: #242d47;
+  --text: #eef1f8;
+  --muted: #a6b0c8;
+  --faint: #a6b0c8;
+  --blue: #7aa2ff;
+  --blue-ink: #9dbbff;
+  --blue-soft: #1a2a52;
+  --blue-on-soft: #a9c4ff;
+  --good: #5fd3a8;
+  --good-bg: #0f2f27;
+  --warn: #f5c065;
+  --warn-bg: #3a2a08;
+  --danger: #ff9488;
+  --danger-bg: #421814;
+  --switch-off: #3a4563;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.35), 0 20px 44px rgba(0, 0, 0, 0.45);
+  --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(37, 99, 235, 0.3);
+  --shadow-overlay: 0 30px 80px rgba(0, 0, 0, 0.6);
+  --shadow-art: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 8px 10px rgba(0, 0, 0, 0.4));
+  --scrim: rgba(3, 6, 16, 0.66);
+  --chart-1: #5b8cff;
+  --chart-2: #2c4a94;
+  --chart-3: #a9c4ff;
+  --chart-4: #4a5573;
+  --chart-5: #8a94ad;
+  --chart-cursor: rgba(122, 162, 255, 0.08);
   color-scheme: dark;
 }
 
-/* Fills that carry white text (primary buttons, badges, active tab icon).
- * Light: the brand blue. Dark: --blue (#6b7cff) only reaches 3.5:1 under
- * white text, so fills use a deeper blue there. */
-:root {
-  --blue-fill: #1830f8;
-  --on-blue: #ffffff;
-  /* Blue text on a --blue-soft surface */
-  --blue-on-soft: var(--blue);
-}
-:root.dark,
-.dark {
-  --blue-fill: #4d5ef0;
-  --blue-on-soft: #9aa6ff;
-}
-
-/* Motion keyframes */
+/* Keyframes. Entry motion only runs through the gated rules below or under a
+ * builder's own (hover: hover) and (pointer: fine) query. */
 @keyframes rise {
   from {
     opacity: 0;
@@ -147,10 +180,20 @@
     width: 0;
   }
 }
+@keyframes grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
 @keyframes pop {
   from {
     opacity: 0;
-    transform: translateY(14px) scale(0.98);
+    transform: translateY(20px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -173,22 +216,24 @@
     opacity: 1;
   }
 }
-@keyframes drift {
-  0% {
-    transform: translate(0, 0);
-  }
-  50% {
-    transform: translate(-14px, 8px);
-  }
-  100% {
-    transform: translate(0, 0);
-  }
-}
 
-/* Entrance helper: add class="rise" (and optionally style={{"--i": n}} for a
- * 60ms stagger) to any block. */
-.rise {
-  animation: rise 0.5s calc(var(--i, 0) * 60ms) var(--ease) both;
+/* Motion utilities, for mouse-and-keyboard screens only: touch screens get
+ * the content at once and no hover states that stick after a tap.
+ *   .rise  entrance; style={{"--i": n}} staggers by 60ms.
+ *   .lift  hover lift for a raised card.  */
+@media (hover: hover) and (pointer: fine) {
+  .rise {
+    animation: rise 0.5s calc(var(--i, 0) * 60ms) var(--ease) both;
+  }
+  .lift {
+    transition:
+      transform var(--dur-slow) var(--ease),
+      box-shadow var(--dur-slow);
+  }
+  .lift:hover {
+    transform: translateY(var(--lift-card));
+    box-shadow: var(--shadow-lift);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -205,7 +250,7 @@
 html {
   font-family: var(--font);
   font-size: 16px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -226,8 +271,8 @@ body {
 }
 .eyebrow {
   font-size: var(--fs-eyebrow);
-  letter-spacing: 2.2px;
-  font-weight: 600;
+  letter-spacing: 0.16em;
+  font-weight: var(--fw-medium);
   text-transform: uppercase;
-  color: var(--blue);
+  color: var(--blue-ink);
 }

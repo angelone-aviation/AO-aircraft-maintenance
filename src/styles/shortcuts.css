@@ -30,7 +30,8 @@
   border-radius: 6px;
   background: var(--bg);
   color: var(--text);
-  font: 600 13px/1.4 var(--font);
+  font: 500 13px/1.4 var(--font);
+  box-shadow: var(--shadow-xs);
   text-align: center;
 }
 .shortcut-hint kbd {

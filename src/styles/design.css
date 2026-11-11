@@ -1,9 +1,14 @@
 /*
  * Responsibility: Styles the shared building blocks in
- *   src/components/design.tsx.
+ *   src/components/design.tsx and the shared layout classes screens compose
+ *   (cards, rows, chips, facts, links, section headings).
  * Layer: UI. Design-system styles; every selector is scoped by a `ds-` class
  *   so screen styles never collide with them.
- * Dependencies: src/styles/tokens.css (tokens and keyframes).
+ * Dependencies: src/styles/tokens.css (tokens, keyframes, motion utilities).
+ *
+ * Hover lifts and entrances sit inside (hover: hover) and (pointer: fine),
+ * so touch screens show content at once; tokens.css stops all motion for
+ * people who ask for less of it.
  */
 
 /* ---------- Page header ---------- */
@@ -12,37 +17,31 @@
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px 24px;
+  gap: 20px;
   margin-bottom: var(--page-gap);
-  animation: rise 0.5s var(--ease) both;
 }
 .ds-page-header > div:first-child {
   min-width: 0;
 }
 .ds-page-header .eyebrow {
-  margin: 0 0 8px;
+  margin: 0 0 12px;
 }
 .ds-page-header h1 {
   margin: 0;
-  font-weight: 500;
+  font-weight: var(--fw-semibold);
   font-size: var(--fs-h1);
-  line-height: 1.05;
-  letter-spacing: -1.3px;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
   text-wrap: balance;
-}
-.ds-page-header.hero h1 {
-  font-size: var(--fs-h1-hero);
-  line-height: 1.02;
-  letter-spacing: -1.6px;
 }
 .ds-accent {
   color: var(--blue);
-  font-weight: 300;
 }
 .ds-page-header .ds-page-description {
   margin: 12px 0 0;
   color: var(--muted);
-  font-size: 16px;
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-light);
   line-height: 1.5;
   max-width: 60ch;
   text-wrap: pretty;
@@ -50,29 +49,84 @@
 .ds-page-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px 18px;
   align-items: center;
+}
+
+/* ---------- Section heading ---------- */
+.ds-section {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  align-content: start;
+  margin-bottom: var(--page-gap);
+}
+.ds-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.ds-section-head h2 {
+  margin: 0;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+}
+.ds-section-note {
+  font-size: var(--fs-meta);
+  color: var(--muted);
+}
+.ds-section-end {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+/* ---------- Link ---------- */
+.ds-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--blue-ink);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.ds-link:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ---------- Status pill ---------- */
 .ds-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
+  gap: 5px;
+  padding: 4px 10px;
   border-radius: var(--radius-pill);
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   line-height: 1.3;
   white-space: nowrap;
   background: var(--surface2);
   color: var(--muted);
 }
 .ds-pill-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: currentColor;
+  flex: none;
+}
+.ds-pill > svg {
   flex: none;
 }
 .ds-tone-good.ds-pill {
@@ -92,56 +146,61 @@
   color: var(--blue-on-soft);
 }
 
-/* ---------- Icon tile ---------- */
+/* ---------- Icon tile: a bare Phosphor icon in its tone ---------- */
 .ds-icon-tile {
   display: grid;
   place-items: center;
   flex: none;
-  width: var(--tile, 44px);
-  height: var(--tile, 44px);
-  border-radius: var(--radius-tile);
-  background: var(--blue-soft);
-  color: var(--blue-on-soft);
-}
-.ds-icon-tile.sm {
-  --tile: 34px;
-  border-radius: 10px;
-}
-.ds-icon-tile.md {
-  --tile: 40px;
-  border-radius: 10px;
+  color: var(--blue-ink);
 }
 .ds-tone-good.ds-icon-tile {
-  background: var(--good-bg);
   color: var(--good);
 }
 .ds-tone-warn.ds-icon-tile {
-  background: var(--warn-bg);
   color: var(--warn);
 }
 .ds-tone-danger.ds-icon-tile {
-  background: var(--danger-bg);
   color: var(--danger);
 }
 .ds-tone-neutral.ds-icon-tile {
-  background: var(--surface2);
   color: var(--muted);
 }
 
-/* ---------- KPI strip / stats strip ---------- */
-.ds-kpi-strip,
-.ds-stats-strip {
-  display: grid;
-  gap: 1px;
+/* ---------- Card ---------- */
+.ds-card,
+.ds-kpi-tile,
+.ds-stat-tile,
+.ds-list-card,
+.ds-rows {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  overflow: hidden;
-  animation: rise 0.5s 0.06s var(--ease) both;
+  box-shadow: var(--shadow);
+  min-width: 0;
+  transition:
+    background-color var(--dur-theme),
+    border-color var(--dur-theme);
+}
+.ds-card {
+  padding: var(--card-pad);
+}
+.ds-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+/* ---------- KPI strip / stats strip: one card per figure ---------- */
+.ds-kpi-strip,
+.ds-stats-strip {
+  display: grid;
+  gap: 18px;
 }
 .ds-kpi-strip {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-bottom: clamp(32px, 4vw, 52px);
+  margin-bottom: var(--page-gap);
 }
 @media (min-width: 1100px) {
   .ds-kpi-strip {
@@ -150,37 +209,28 @@
 }
 .ds-stats-strip {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  border-radius: 12px;
   margin-bottom: 22px;
 }
-.ds-kpi-tile,
-.ds-stat-tile {
-  background: var(--surface);
-  outline: 1px solid var(--border);
-  min-width: 0;
-  transition: background var(--dur-theme);
-}
 .ds-kpi-tile {
-  padding: 24px 26px;
-  display: flex;
-  flex-direction: column;
+  padding: 22px 24px;
+  display: grid;
   gap: 10px;
+  align-content: start;
 }
 .ds-kpi-label {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   color: var(--muted);
   font-size: 14px;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 .ds-kpi-value {
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   font-size: var(--fs-kpi);
   line-height: 1;
-  letter-spacing: -1px;
+  letter-spacing: -0.02em;
   color: var(--text);
 }
 .ds-kpi-value.ds-tone-warn {
@@ -197,14 +247,15 @@
 }
 .ds-kpi-foot {
   font-size: 13px;
-  color: var(--faint);
+  font-weight: var(--fw-light);
+  color: var(--muted);
 }
 .ds-stat-tile {
-  padding: 20px 24px;
+  padding: 18px 22px;
 }
 .ds-stat-label {
   display: block;
-  font-size: 13.5px;
+  font-size: var(--fs-meta);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -213,62 +264,151 @@
 .ds-stat-value {
   display: block;
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
-  font-size: 30px;
+  font-weight: var(--fw-medium);
+  font-size: 28px;
   line-height: 1.1;
-  letter-spacing: -0.8px;
+  letter-spacing: -0.02em;
   margin-top: 4px;
   white-space: nowrap;
 }
 @media (max-width: 759px) {
+  .ds-kpi-strip,
+  .ds-stats-strip {
+    gap: 12px;
+  }
   .ds-kpi-tile {
     padding: 18px;
   }
   .ds-kpi-value {
-    font-size: 34px;
-  }
-  .ds-kpi-label {
-    font-size: 13.5px;
+    font-size: 32px;
   }
 }
 
-/* ---------- Card / list card / list row ---------- */
-.ds-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 24px 26px;
-  transition: background var(--dur-theme);
+/* ---------- Facts: label over value, in equal columns ---------- */
+.ds-facts {
+  display: grid;
+  grid-template-columns: repeat(var(--facts, 3), minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 16px 0;
+  border-block: 1px solid var(--border);
 }
+.ds-facts.bare {
+  padding: 0;
+  border: 0;
+}
+.ds-facts dt {
+  font-size: 12.5px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
+}
+.ds-facts dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Rows: airy lines in one card ----------
+ * A screen sets --cols on .ds-row for its desktop columns and restacks the
+ * cells with its own grid areas below 760px, where the header row hides. */
+.ds-rows {
+  overflow: hidden;
+}
+.ds-row {
+  display: grid;
+  grid-template-columns: var(--cols, minmax(0, 1fr) auto);
+  gap: 6px 20px;
+  align-items: center;
+  width: 100%;
+  padding: 17px 24px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.4;
+  text-align: left;
+}
+.ds-row:last-child {
+  border-bottom: 0;
+}
+.ds-row b,
+.ds-row strong {
+  font-weight: var(--fw-medium);
+}
+.ds-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: var(--fw-light);
+}
+.ds-row-head {
+  padding-block: 13px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ds-row-end {
+  justify-self: end;
+  text-align: right;
+}
+:is(button, a).ds-row:hover,
+button.ds-list-row:hover {
+  background: color-mix(in srgb, var(--surface2) 60%, transparent);
+}
+.ds-rows-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 24px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+@media (max-width: 759px) {
+  .ds-row-head {
+    display: none;
+  }
+  .ds-row,
+  .ds-rows-foot {
+    padding-inline: 18px;
+  }
+  .ds-row {
+    padding-block: 15px;
+  }
+}
+
+/* ---------- List card / list row (ListCard, ListRow) ---------- */
 .ds-list-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 8px 26px;
-  transition: background var(--dur-theme);
-  animation: rise 0.5s 0.1s var(--ease) both;
+  overflow: hidden;
 }
 .ds-list-card > h2 {
-  margin: 18px 0 6px;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  margin: 0;
+  padding: 22px 24px 8px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .ds-list-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
-  gap: 14px 20px;
+  gap: 10px 20px;
   align-items: center;
-  padding: 20px 0;
+  padding: 17px 24px;
+  border: 0;
   border-top: 1px solid var(--border);
   color: inherit;
   text-align: left;
   width: 100%;
   background: transparent;
-  border-left: 0;
-  border-right: 0;
-  border-bottom: 0;
   font: inherit;
+  transition: background-color var(--dur-fast);
 }
 .ds-list-card > .ds-list-row:first-child,
 .ds-list-card > h2 + .ds-list-row {
@@ -276,10 +416,6 @@
 }
 button.ds-list-row {
   cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease);
-}
-button.ds-list-row:hover {
-  transform: translateX(3px);
 }
 .ds-list-lead {
   display: flex;
@@ -292,15 +428,16 @@ button.ds-list-row:hover {
 }
 .ds-list-title {
   display: block;
-  font-size: 16.5px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ds-list-sub {
   display: block;
-  font-size: 14px;
+  font-size: 13.5px;
+  font-weight: var(--fw-light);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -309,7 +446,7 @@ button.ds-list-row:hover {
 .ds-list-meta {
   font-variant-numeric: tabular-nums;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 .ds-list-badge {
@@ -318,7 +455,7 @@ button.ds-list-row:hover {
 .ds-list-action {
   justify-self: end;
   display: flex;
-  gap: 8px;
+  gap: 8px 16px;
   align-items: center;
 }
 .ds-list-row:not(:has(.ds-list-meta)) {
@@ -338,13 +475,15 @@ button.ds-list-row:hover {
   }
 }
 @media (max-width: 759px) {
-  .ds-list-card {
-    padding: 4px 18px;
+  .ds-list-card > h2 {
+    padding-inline: 18px;
+  }
+  .ds-list-row {
+    padding: 15px 18px;
   }
   .ds-list-row,
   .ds-list-row:not(:has(.ds-list-meta)) {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
   }
   .ds-list-action {
     justify-self: start;
@@ -355,9 +494,9 @@ button.ds-list-row:hover {
 /* ---------- Progress track ---------- */
 .ds-progress {
   position: relative;
-  height: 6px;
+  height: 5px;
   border-radius: 3px;
-  background: var(--border);
+  background: var(--surface2);
 }
 .ds-progress.thin {
   height: 4px;
@@ -366,7 +505,7 @@ button.ds-list-row:hover {
   height: 100%;
   border-radius: inherit;
   background: var(--blue);
-  animation: grow 1.1s var(--ease) both;
+  transition: width var(--dur-bar) var(--ease);
 }
 .ds-progress-marker {
   position: absolute;
@@ -377,7 +516,7 @@ button.ds-list-row:hover {
   background: var(--surface);
   border: 3px solid var(--blue);
   transform: translate(-50%, -50%);
-  box-shadow: 0 1px 4px rgba(11, 20, 52, 0.25);
+  box-shadow: var(--shadow-xs);
 }
 .ds-tone-good > .ds-progress-fill {
   background: var(--good);
@@ -402,9 +541,9 @@ button.ds-list-row:hover {
 .ds-switch {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-height: 40px;
-  color: var(--muted);
+  color: var(--text);
   font-size: 15px;
   cursor: pointer;
   position: relative;
@@ -414,8 +553,8 @@ button.ds-list-row:hover {
   position: absolute;
   z-index: 1; /* the real control sits above the drawn track */
   opacity: 0;
-  width: 38px;
-  height: 22px;
+  width: 46px;
+  height: 28px;
   margin: 0;
   cursor: pointer;
 }
@@ -423,29 +562,29 @@ button.ds-list-row:hover {
   position: relative;
   flex: none;
   pointer-events: none;
-  width: 38px;
-  height: 22px;
-  border-radius: 11px;
-  background: var(--border);
-  transition: background var(--dur) ease;
+  width: 46px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--switch-off);
+  transition: background-color var(--dur) ease;
 }
 .ds-switch-track::after {
   content: "";
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  transition: transform var(--dur) var(--ease);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.25);
+  transition: transform var(--dur-slow) var(--ease);
 }
 .ds-switch input:checked + .ds-switch-track {
   background: var(--blue-fill);
 }
 .ds-switch input:checked + .ds-switch-track::after {
-  transform: translateX(16px);
+  transform: translateX(18px);
 }
 .ds-switch input:focus-visible + .ds-switch-track {
   outline: 3px solid var(--blue);
@@ -458,52 +597,69 @@ button.ds-list-row:hover {
   cursor: not-allowed;
 }
 
-/* ---------- Segmented tabs ---------- */
-.ds-segmented {
-  display: inline-flex;
-  gap: 2px;
-  background: var(--surface2);
-  padding: 4px;
-  border-radius: var(--radius-pill);
+/* ---------- Chips: Segmented, FilterChips and the older .tabs ----------
+ * One row of pill buttons; the chosen one is filled cobalt. The row scrolls
+ * sideways inside itself rather than widening a phone's page, and its
+ * padding keeps the chips' shadows and focus rings from being clipped. */
+.ds-segmented,
+.ds-chips,
+.tabs {
+  display: flex;
+  gap: 8px;
   max-width: 100%;
+  margin: -4px;
+  padding: 4px 4px 6px;
   overflow-x: auto;
   scrollbar-width: none;
 }
-.ds-segmented > button,
-.ds-segmented > a {
+.ds-chips.wrap {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.ds-segmented > :is(button, a),
+.ds-chip,
+.tabs :is(button, a) {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 7px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  padding: 8px 16px;
   min-height: 40px;
-  font: inherit;
-  font-size: 14.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  background: transparent;
+  padding: 8px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
   color: var(--muted);
+  box-shadow: var(--shadow-xs);
+  font: inherit;
+  font-size: var(--fs-meta);
+  white-space: nowrap;
   cursor: pointer;
   transition:
-    background var(--dur-fast),
-    color var(--dur-fast);
+    background-color var(--dur-slow),
+    color var(--dur-slow),
+    border-color var(--dur-slow);
 }
-.ds-segmented > button:hover,
-.ds-segmented > a:hover {
+.ds-segmented > :is(button, a):hover,
+.ds-chip:hover,
+.tabs :is(button, a):hover {
   color: var(--text);
 }
-.ds-segmented > [aria-pressed="true"],
-.ds-segmented > [aria-current="page"],
-.ds-segmented > [aria-selected="true"] {
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 1px 3px rgba(11, 20, 52, 0.12);
+.ds-segmented > :is([aria-pressed="true"], [aria-current="page"]),
+.ds-segmented > [aria-selected="true"],
+.ds-chip:is([aria-pressed="true"], [aria-current="page"]),
+.ds-chip[aria-selected="true"],
+.tabs :is(.active, [aria-pressed="true"], [aria-current="page"]),
+.tabs [aria-selected="true"] {
+  background: var(--blue-fill);
+  border-color: var(--blue-fill);
+  color: var(--on-blue);
+  font-weight: var(--fw-medium);
+  box-shadow: var(--shadow);
 }
 .ds-seg-count {
   font-variant-numeric: tabular-nums;
-  font-size: 11.5px;
-  color: var(--faint);
+  font-size: 12.5px;
+  opacity: 0.75;
 }
 
 /* ---------- Notice bar ---------- */
@@ -512,7 +668,7 @@ button.ds-list-row:hover {
   align-items: flex-start;
   gap: 12px;
   padding: 14px 18px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--blue-soft);
   color: var(--text);
   font-size: 14.5px;
@@ -532,7 +688,7 @@ button.ds-list-row:hover {
  * on every tone; global `a` styles are colourless. */
 .ds-notice-body a {
   color: var(--blue-on-soft);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -564,18 +720,19 @@ button.ds-list-row:hover {
 /* ---------- Empty state ---------- */
 .ds-empty {
   margin: 0 0 28px;
-  padding: 28px 24px;
+  padding: 30px 24px;
   border: 1px dashed var(--border);
   border-radius: var(--radius-card);
   color: var(--muted);
   text-align: center;
   font-size: 15px;
+  font-weight: var(--fw-light);
 }
 .ds-empty h3 {
   margin: 0 0 6px;
   color: var(--text);
   font-size: 17px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .ds-empty p {
   margin: 0;
@@ -586,7 +743,7 @@ button.ds-list-row:hover {
   justify-content: center;
 }
 
-/* ---------- Round icon button (dialog close, sheets) ---------- */
+/* ---------- Round icon button (dialog close, sheets, steppers) ---------- */
 .ds-round-button {
   display: grid;
   place-items: center;
@@ -596,13 +753,17 @@ button.ds-list-row:hover {
   border-radius: 50%;
   border: 0;
   background: var(--surface2);
-  color: var(--text);
+  color: var(--muted);
   cursor: pointer;
-  transition: background var(--dur-fast);
+  transition:
+    background-color var(--dur-fast),
+    color var(--dur-fast);
 }
 .ds-round-button:hover {
   background: var(--blue-soft);
+  color: var(--blue-on-soft);
 }
+/* Legacy: for the dark panels of screens not yet moved to white. */
 .ds-round-button.on-navy {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
@@ -623,13 +784,11 @@ dialog.ds-dialog {
   padding: 24px;
   border: 0;
   background: var(--scrim);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   display: grid;
   place-items: center;
   overflow: hidden;
   color: var(--text);
-  animation: fade 0.25s both;
+  animation: fade 0.2s both;
 }
 dialog.ds-dialog:not([open]) {
   display: none;
@@ -650,8 +809,8 @@ html:has(dialog.ds-dialog[open]) {
   background: var(--surface);
   color: var(--text);
   border-radius: var(--radius-modal);
-  box-shadow: 0 30px 80px -20px rgba(7, 11, 28, 0.5);
-  animation: pop 0.35s var(--ease) both;
+  box-shadow: var(--shadow-overlay);
+  animation: pop 0.4s var(--ease) both;
   text-align: left;
 }
 .ds-dialog.narrow .ds-dialog-panel {
@@ -666,29 +825,29 @@ html:has(dialog.ds-dialog[open]) {
 }
 .ds-dialog-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 24px 28px 18px;
-  border-bottom: 1px solid var(--border);
+  padding: 26px 28px 10px;
 }
 .ds-dialog-header h2 {
   margin: 0;
-  font-weight: 600;
-  font-size: 24px;
-  letter-spacing: -0.6px;
-  line-height: 1.2;
+  font-weight: var(--fw-semibold);
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 .ds-dialog-header p {
   margin: 4px 0 0;
   font-size: 14px;
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .ds-dialog-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 26px 28px 30px;
+  padding: 14px 28px 30px;
   overscroll-behavior: contain;
 }
 .ds-dialog-footer {
@@ -712,26 +871,16 @@ html:has(dialog.ds-dialog[open]) {
     width: 100%;
     max-height: 92vh;
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-    animation: sheet 0.4s var(--ease) both;
-  }
-  .ds-dialog-panel::before {
-    content: "";
-    display: block;
-    width: 40px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--border);
-    margin: 10px auto 0;
-    flex: none;
+    animation: sheet 0.35s var(--ease) both;
   }
   .ds-dialog-header {
-    padding: 14px 18px 14px;
+    padding: 20px 18px 8px;
   }
   .ds-dialog-header h2 {
     font-size: 21px;
   }
   .ds-dialog-body {
-    padding: 20px 18px calc(24px + env(safe-area-inset-bottom));
+    padding: 12px 18px calc(24px + env(safe-area-inset-bottom));
   }
   .ds-dialog-footer {
     padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
@@ -790,11 +939,10 @@ html:has(dialog.ds-dialog[open]) {
 .ds-skeleton-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-4);
+  gap: 18px;
 }
 .ds-skeleton-card {
   height: 148px;
-  border: 1px solid var(--border);
   border-radius: var(--radius-card);
 }
 .ds-skeleton.section .ds-skeleton-card {
@@ -806,17 +954,14 @@ html:has(dialog.ds-dialog[open]) {
   }
 }
 
-/* ---------- Aircraft line drawing ---------- */
+/* ---------- Aircraft picture ---------- */
 .ds-aircraft-art {
   display: block;
+  max-width: 100%;
   height: auto;
-  filter: invert(1);
-  opacity: var(--art-opacity, 0.34);
+  filter: var(--shadow-art);
   pointer-events: none;
   user-select: none;
-}
-.ds-aircraft-art.drift {
-  animation: drift 16s ease-in-out infinite;
 }
 
 /* ---------- Wordmark ---------- */
@@ -840,14 +985,14 @@ html:has(dialog.ds-dialog[open]) {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px 14px;
+  gap: 12px;
   margin-bottom: 22px;
 }
 .ds-toolbar > .ds-toolbar-end {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-left: auto;
 }
 
@@ -855,20 +1000,20 @@ html:has(dialog.ds-dialog[open]) {
 .ds-search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
-  border-radius: 9px;
+  border-radius: 13px;
+  box-shadow: var(--shadow-xs);
   padding: 0 14px;
-  min-height: 42px;
-  color: var(--faint);
+  min-height: 46px;
+  color: var(--muted);
   flex: 0 1 260px;
   min-width: 150px;
-  transition: border-color var(--dur-fast);
 }
-.ds-search:hover,
 .ds-search:focus-within {
-  border-color: var(--blue);
+  outline: 3px solid var(--blue);
+  outline-offset: 1px;
 }
 .ds-search input {
   border: 0;
@@ -881,4 +1026,22 @@ html:has(dialog.ds-dialog[open]) {
   color: var(--text);
   padding: 0;
   min-height: 40px;
+}
+
+/* ---------- Motion for mouse-and-keyboard screens ---------- */
+@media (hover: hover) and (pointer: fine) {
+  .ds-page-header {
+    animation: rise 0.5s var(--ease) both;
+  }
+  .ds-kpi-strip,
+  .ds-stats-strip {
+    animation: rise 0.5s 0.06s var(--ease) both;
+  }
+  .ds-list-card,
+  .ds-rows {
+    animation: rise 0.5s 0.1s var(--ease) both;
+  }
+  .ds-progress-fill {
+    animation: grow var(--dur-bar) var(--ease) both;
+  }
 }

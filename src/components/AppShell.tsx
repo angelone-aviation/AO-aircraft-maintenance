@@ -1,7 +1,7 @@
 /**
- * Responsibility: The application shell: grouped sidebar (≥1100px), icon rail
- *   (760–1099px), phone top bar and bottom tab bar (<760px), the "All
- *   sections" sheet, the top bar and the footer.
+ * Responsibility: The application shell: white grouped sidebar (≥1100px),
+ *   icon rail (760–1099px), phone top bar and bottom tab bar (<760px), the
+ *   "All sections" sheet, the top bar and the footer.
  * Layer: UI. React components around the routed screens.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, pendingEntries), src/domain (pilotView, ownerView,
@@ -416,12 +416,12 @@ function useClosedGroups() {
   return { closed, toggle };
 }
 
-function ProgramSwitcher({ tone }: { tone: "navy" | "surface" }) {
+function ProgramSwitcher() {
   const s = useWorkspace((x) => x.snapshot)!;
   const online = useWorkspace((x) => x.online);
   const connected = useWorkspace((x) => x.connected);
   return (
-    <label className={"program-switcher " + tone}>
+    <label className="program-switcher">
       <Buildings size={20} weight="duotone" aria-hidden="true" />
       <span className="program-switcher-text">
         <span className="program-switcher-label" aria-hidden="true">
@@ -583,10 +583,10 @@ function Sidebar({ items, exit }: { items: NavItem[]; exit: () => void }) {
         className="brand"
         aria-label="Angel One aircraft operations: overview"
       >
-        <Wordmark variant="white" width={156} />
+        <Wordmark width={148} />
         <small>AIRCRAFT OPERATIONS</small>
       </Link>
-      <ProgramSwitcher tone="navy" />
+      <ProgramSwitcher />
       <nav aria-label="Main">
         {NAV_GROUPS.map((g) => (
           <SidebarGroup
@@ -749,7 +749,7 @@ function MoreSheet({
       className="more-sheet"
       closeLabel="Close"
     >
-      <ProgramSwitcher tone="surface" />
+      <ProgramSwitcher />
       {NAV_GROUPS.map((g) => (
         <SheetGroup
           key={g.key}

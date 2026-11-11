@@ -68,19 +68,19 @@ p {
 }
 h1 {
   font-size: var(--fs-h1);
-  letter-spacing: -1.3px;
-  font-weight: 500;
-  line-height: 1.05;
+  letter-spacing: -0.025em;
+  font-weight: 600;
+  line-height: 1.08;
 }
 h2 {
-  font-size: 21px;
-  letter-spacing: -0.3px;
+  font-size: var(--fs-h2);
+  letter-spacing: -0.01em;
   font-weight: 500;
   line-height: 1.25;
 }
 h3 {
   font-size: 17px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.3;
 }
 small {
@@ -103,8 +103,8 @@ textarea::placeholder {
   color: var(--faint);
 }
 select option {
-  color: #0b1434;
-  background: #fff;
+  color: var(--text);
+  background: var(--surface);
 }
 .sr-only {
   position: absolute;
@@ -162,12 +162,11 @@ summary {
 main {
   flex: 1;
   width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: var(--page-pad-top) var(--page-pad-x) clamp(40px, 5vw, 72px);
+  max-width: 1320px;
+  padding: var(--page-pad-top) var(--page-pad-x) clamp(40px, 5vw, 64px);
 }
 
-/* Sidebar (≥1100px) */
+/* Sidebar (≥1100px): white, grouped links, the active one tinted cobalt */
 .sidebar {
   width: 264px;
   flex: none;
@@ -175,64 +174,46 @@ main {
   top: 0;
   height: 100vh;
   overflow-y: auto;
-  background: var(--side);
-  color: #d9deef;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 26px 16px 0;
+  padding: 28px 16px 0;
   /* Links reached with Tab scroll into view above the sticky profile footer
    * (97px with its My certifications / Settings row), not under it. */
   scroll-padding-bottom: calc(97px + 16px);
-  transition: background var(--dur-theme);
+  /* No theme fade on the shell: its surfaces switch with the click. */
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 .sidebar .brand {
   display: block;
-  margin: 0 8px 22px;
+  margin: 0 10px 22px;
   color: inherit;
 }
 .sidebar .brand small {
   display: block;
-  margin-top: 6px;
-  font-size: 10.5px;
-  letter-spacing: 2.2px;
-  font-weight: 500;
-  color: var(--on-navy-muted);
+  margin-top: 8px;
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: 0.22em;
+  color: var(--muted);
 }
 .program-switcher {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin: 0 0 22px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast),
-    background var(--dur-fast);
-}
-.program-switcher.navy {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-.program-switcher.navy:hover,
-.program-switcher.navy:focus-within {
-  border-color: rgba(109, 125, 255, 0.8);
-  background: rgba(255, 255, 255, 0.09);
-}
-.program-switcher.navy > svg:first-child {
-  color: var(--on-navy-icon);
-}
-.program-switcher.surface {
-  background: var(--surface2);
+  padding: 12px 14px;
   border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
   color: var(--text);
-  margin-bottom: 14px;
+  cursor: pointer;
 }
-.program-switcher.surface > svg:first-child {
-  color: var(--blue);
+.program-switcher > svg:first-child {
+  flex: none;
+  color: var(--blue-ink);
 }
 .program-switcher-text {
   flex: 1;
@@ -241,13 +222,9 @@ main {
   flex-direction: column;
 }
 .program-switcher-label {
-  font-size: 10.5px;
-  letter-spacing: 1.6px;
-  font-weight: 600;
-  color: var(--on-navy-muted);
-}
-.program-switcher.surface .program-switcher-label {
-  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
 }
 .program-switcher select {
   appearance: none;
@@ -255,7 +232,7 @@ main {
   background: transparent;
   color: inherit;
   font-weight: 500;
-  font-size: 15px;
+  font-size: 14.5px;
   outline: 0;
   cursor: pointer;
   padding: 0;
@@ -274,10 +251,10 @@ main {
 }
 .program-caret {
   flex: none;
-  opacity: 0.7;
+  color: var(--muted);
 }
 .nav-group {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .nav-group-toggle {
   width: 100%;
@@ -286,18 +263,17 @@ main {
   justify-content: space-between;
   border: 0;
   background: transparent;
-  color: var(--on-navy-muted);
-  padding: 10px 12px 8px;
+  color: var(--muted);
+  padding: 10px 14px 6px;
   min-height: 36px;
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 2px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  border-radius: 6px;
+  border-radius: 8px;
   transition: color var(--dur-fast);
 }
 .nav-group-toggle:hover {
-  color: #c3cbe8;
+  color: var(--text);
 }
 .nav-group-toggle svg {
   transition: transform 0.3s var(--ease);
@@ -321,25 +297,24 @@ main {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 .sidebar nav a {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 10px 12px;
-  min-height: 42px;
-  border-radius: 8px;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 44px;
+  border-radius: 12px;
   font-size: 15px;
-  font-weight: 400;
-  color: var(--on-navy-text);
+  line-height: 1.25;
+  color: var(--muted);
   transition:
-    background var(--dur-fast),
+    background-color var(--dur-fast),
     color var(--dur-fast);
 }
 .sidebar nav a .nav-icon {
   display: inline-flex;
-  color: var(--on-navy-muted);
 }
 .sidebar nav a .nav-text {
   flex: 1;
@@ -348,23 +323,19 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sidebar nav a:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
+.sidebar nav a:hover,
+.rail nav a:hover,
+.rail-more:hover {
+  background: var(--surface2);
+  color: var(--text);
 }
-.sidebar nav a.active {
-  background: rgba(24, 48, 248, 0.38);
-  color: #fff;
-  font-weight: 600;
-}
-.sidebar nav a.active .nav-icon {
-  color: var(--on-navy-icon-active);
-}
-/* Focus on navy: the global --blue ring is only 2.4:1 on the light theme's
- * navy sidebar and rail; the on-navy accent is about 8:1 in both themes. */
-:is(.sidebar, .rail) :focus-visible,
-.program-switcher.navy:has(select:focus-visible) {
-  outline-color: var(--on-navy-icon-active);
+.sidebar nav a.active,
+.rail nav a.active {
+  background: var(--blue-soft);
+  color: var(--blue-on-soft);
+  font-weight: 500;
+  /* Like the rest of the shell, the active link changes theme at once. */
+  transition: none;
 }
 /* The collapsible link groups clip their overflow for the open/close
  * animation, so a sidebar link's ring is drawn just inside the link. */
@@ -372,38 +343,44 @@ main {
   outline-offset: -3px;
 }
 .nav-count {
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--brand-blue);
-  color: #fff;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
   border-radius: 10px;
-  padding: 1px 7px;
+  background: var(--blue-fill);
+  color: var(--on-blue);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  font-weight: 500;
 }
 .profile {
   display: flex;
   align-items: center;
   gap: 10px;
+  line-height: 1.3;
 }
 .sidebar .profile {
   margin-top: auto;
   position: sticky;
   bottom: 0;
-  background: var(--side);
+  background: var(--surface);
   padding: 14px 0 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--border);
 }
 .avatar {
   flex: none;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--brand-blue);
-  color: #fff;
+  background: var(--blue-fill);
+  color: var(--on-blue);
+  box-shadow: var(--shadow);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .profile-text {
   flex: 1;
@@ -412,7 +389,7 @@ main {
 .profile-text strong {
   display: block;
   font-size: 14.5px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -426,24 +403,11 @@ main {
   min-height: 40px;
   margin: -8px 0 -10px;
 }
-.sidebar .profile-text strong {
-  color: #fff;
-}
-.sidebar .profile-text small {
-  color: var(--on-navy-muted);
-}
-.sidebar .profile-text .text-button {
-  color: var(--on-navy-icon-active);
-}
 .sidebar .profile .icon-button {
-  color: var(--on-navy-muted);
-}
-.sidebar .profile .icon-button:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
 }
 /* "My certifications" and "Settings" share a row under the name, aligned
- * with it (36px avatar + 10px gap). */
+ * with it (38px avatar + 10px gap). */
 .profile-sidebar {
   flex-wrap: wrap;
   row-gap: 0;
@@ -453,20 +417,14 @@ main {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0 16px;
-  padding-left: 46px;
+  gap: 0 14px;
+  padding-left: 48px;
   margin: -8px 0 -10px;
 }
 .profile-links .text-button {
   font-size: 12.5px;
   min-height: 40px;
   gap: 5px;
-}
-.sidebar .profile-links .text-button {
-  color: var(--on-navy-icon-active);
-}
-.sidebar .profile-links .text-button:hover:not(:disabled) {
-  color: #fff;
 }
 
 /* Icon rail (760–1099px). Only the links scroll, so "All sections" (the
@@ -479,12 +437,12 @@ main {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-  background: var(--side);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 18px 0;
-  transition: background var(--dur-theme);
 }
 .rail-brand {
   flex: none;
@@ -492,11 +450,12 @@ main {
   place-items: center;
   width: 42px;
   height: 42px;
-  border-radius: 12px;
-  background: var(--brand-blue);
-  color: #fff;
+  border-radius: 13px;
+  background: var(--blue-fill);
+  color: var(--on-blue);
+  box-shadow: var(--shadow-btn);
   margin-bottom: 18px;
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1;
 }
@@ -515,17 +474,11 @@ main {
   display: grid;
   place-items: center;
   height: 46px;
-  border-radius: 10px;
-  color: #9aa3c8;
-  transition: background var(--dur-fast);
-}
-.rail nav a:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
-.rail nav a.active {
-  background: rgba(24, 48, 248, 0.42);
-  color: #fff;
+  border-radius: 12px;
+  color: var(--muted);
+  transition:
+    background-color var(--dur-fast),
+    color var(--dur-fast);
 }
 .rail nav a .nav-icon {
   display: inline-flex;
@@ -535,22 +488,18 @@ main {
   margin-top: 8px;
   border: 0;
   background: transparent;
-  color: var(--on-navy-muted);
+  color: var(--muted);
   width: 46px;
   height: 46px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border-radius: 12px;
   transition:
-    background var(--dur-fast),
+    background-color var(--dur-fast),
     color var(--dur-fast);
 }
-.rail-more:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
 
-/* Top bar */
+/* Top bar. 64px tall: the outbox line and several screens stick below it. */
 .topbar {
   position: sticky;
   top: 0;
@@ -560,19 +509,16 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 clamp(16px, 3vw, 36px);
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  padding: 0 var(--page-pad-x);
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
-  transition: background var(--dur-theme);
 }
 .topbar-title {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  font-size: 15px;
+  font-size: 14.5px;
   color: var(--muted);
 }
 .topbar-title > span {
@@ -588,20 +534,24 @@ main {
 .topbar-status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: none;
 }
-.topbar-status > .ds-pill {
-  margin-right: 4px;
+.topbar-status > .ds-pill,
+.connection {
+  padding: 5px 11px;
+}
+.topbar-status .icon-button {
+  color: var(--muted);
 }
 .connection {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13.5px;
+  gap: 6px;
+  font-size: 12.5px;
   font-weight: 500;
+  line-height: 1.3;
   color: var(--good);
-  padding: 7px 12px;
   border-radius: var(--radius-pill);
   background: var(--good-bg);
   white-space: nowrap;
@@ -622,8 +572,8 @@ main {
 }
 .alert-count {
   position: absolute;
-  top: 6px;
-  right: 7px;
+  top: 5px;
+  right: 5px;
   min-width: 17px;
   height: 17px;
   padding: 0 4px;
@@ -631,7 +581,7 @@ main {
   background: var(--blue-fill);
   color: var(--on-blue);
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 17px;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -639,13 +589,13 @@ main {
 
 /* Footer */
 .app-footer {
-  padding: 18px clamp(16px, 3vw, 36px);
+  padding: 18px var(--page-pad-x);
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px 16px;
   font-size: 13px;
-  color: var(--faint);
+  color: var(--muted);
   border-top: 1px solid var(--border);
 }
 .app-footer em {
@@ -665,13 +615,12 @@ main {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  align-items: end;
+  align-items: stretch;
+  gap: 4px;
   padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--surface);
   border-top: 1px solid var(--border);
-  transition: background var(--dur-theme);
+  box-shadow: 0 -6px 18px rgba(16, 24, 40, 0.05);
 }
 .tabbar > a,
 .tabbar > button {
@@ -679,49 +628,44 @@ main {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 56px;
+  gap: 3px;
+  min-width: 0;
+  min-height: 54px;
   border: 0;
   background: transparent;
-  border-radius: 10px;
+  border-radius: 13px;
   color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 0;
-  transition: color var(--dur-fast);
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 6px 2px;
+  transition:
+    background-color var(--dur-fast),
+    color var(--dur-fast);
 }
 .tabbar .tab-icon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  transition:
-    transform var(--dur) var(--ease),
-    background var(--dur);
 }
 .tabbar > a.active {
-  color: var(--blue);
-}
-.tabbar > a.active .tab-icon {
   background: var(--blue-soft);
   color: var(--blue-on-soft);
+  font-weight: 500;
 }
 .tabbar > .tab-log {
   color: var(--text);
 }
 .tabbar > .tab-log .tab-icon {
-  width: 50px;
-  height: 50px;
+  width: 46px;
+  height: 46px;
   border-radius: 15px;
   background: var(--blue-fill);
   color: var(--on-blue);
-  transform: translateY(-10px);
-  margin-bottom: -10px;
-  box-shadow: 0 10px 24px -8px rgba(24, 48, 248, 0.7);
+  transform: translateY(-12px);
+  margin-bottom: -12px;
+  box-shadow: var(--shadow-btn);
 }
 
-/* "All sections" sheet: always a bottom sheet */
+/* "All sections" sheet: always a bottom sheet of plain rows */
 dialog.ds-dialog.more-sheet {
   padding: 0;
   place-items: end stretch;
@@ -731,67 +675,55 @@ dialog.ds-dialog.more-sheet {
   max-width: none;
   max-height: 84vh;
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-  box-shadow: 0 -20px 60px rgba(7, 11, 28, 0.35);
-  animation: sheet 0.38s var(--ease) both;
-}
-.more-sheet .ds-dialog-panel::before {
-  content: "";
-  display: block;
-  width: 40px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border);
-  margin: 10px auto 0;
-  flex: none;
+  animation: sheet 0.35s var(--ease) both;
 }
 .more-sheet .ds-dialog-header {
-  border-bottom: 0;
-  padding: 12px 16px 8px;
-}
-.more-sheet .ds-dialog-header h2 {
-  font-size: 22px;
-  letter-spacing: -0.3px;
+  align-items: center;
+  padding: 22px 24px 10px;
 }
 .more-sheet .ds-dialog-body {
-  padding: 0 16px calc(20px + env(safe-area-inset-bottom));
+  padding: 4px 24px calc(22px + env(safe-area-inset-bottom));
+}
+.more-sheet .program-switcher {
+  margin-bottom: 18px;
 }
 .sheet-group {
-  margin-bottom: 14px;
+  margin-bottom: 18px;
 }
 .sheet-group h3 {
-  margin: 0 0 6px;
-  padding: 0 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 2px;
-  color: var(--faint);
+  margin: 0;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: var(--muted);
   text-transform: uppercase;
 }
 .sheet-group nav {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0 28px;
 }
 .sheet-group nav a {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--surface2);
+  gap: 16px;
+  min-height: 56px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
   color: var(--text);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 500;
-  min-height: 48px;
-  transition: background var(--dur-fast);
+  transition: color var(--dur-fast);
 }
-.sheet-group nav a:hover,
 .sheet-group nav a.active {
-  background: var(--blue-soft);
+  color: var(--blue-ink);
 }
 .sheet-group nav a .nav-icon {
   display: inline-flex;
-  color: var(--blue-on-soft);
+  color: var(--muted);
+}
+.sheet-group nav a.active .nav-icon {
+  color: inherit;
 }
 .sheet-group nav a .nav-text {
   flex: 1;
@@ -800,18 +732,8 @@ dialog.ds-dialog.more-sheet {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sheet-group .nav-count {
-  background: var(--blue-fill);
-}
 .profile-sheet {
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.profile-sheet .avatar {
-  background: var(--blue-fill);
-}
-.profile-sheet .profile-text strong {
-  font-size: 15px;
+  padding-top: 4px;
 }
 
 /* Shell breakpoints */
@@ -819,9 +741,6 @@ dialog.ds-dialog.more-sheet {
   padding-bottom: calc(82px + env(safe-area-inset-bottom));
 }
 @media (max-width: 759px) {
-  .topbar {
-    padding: 0 12px 0 16px;
-  }
   .topbar-status {
     gap: 2px;
   }
@@ -847,69 +766,76 @@ dialog.ds-dialog.more-sheet {
     font-size: 12.5px;
   }
 }
+/* Hover lifts for mouse-and-keyboard screens (tokens.css stops them under
+ * prefers-reduced-motion). Touch screens get no lift that sticks after a
+ * tap. */
+@media (hover: hover) and (pointer: fine) {
+  .sheet-group nav a:hover {
+    color: var(--blue-ink);
+  }
+  .button {
+    transition:
+      transform var(--dur-slow) var(--ease),
+      filter var(--dur-fast),
+      border-color var(--dur-fast),
+      background-color var(--dur-fast),
+      box-shadow var(--dur-fast);
+  }
+  .button:hover:not(:disabled) {
+    transform: translateY(var(--lift-button));
+  }
+  .button:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
 
 /* ================= Global primitives ================= */
-.page-title {
-  /* Legacy PageTitle now renders PageHeader (.ds-page-header). */
-}
 .demo-banner {
   margin: calc(var(--page-pad-top) * -0.5) 0 18px;
   font-size: 13px;
-  color: var(--faint);
+  color: var(--muted);
   text-align: right;
 }
 
-/* Buttons */
+/* Buttons: .button alone is the ghost; one .primary per card or row */
 .button {
   display: inline-flex;
   gap: 8px;
   align-items: center;
   justify-content: center;
   min-height: 46px;
-  padding: 10px 16px;
+  padding: 11px 20px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-control);
+  border-radius: 13px;
   background: var(--surface);
   color: var(--text);
+  box-shadow: var(--shadow);
   font-size: 15px;
   font-weight: 500;
   line-height: 1.25;
   white-space: nowrap;
   text-decoration: none;
-  transition:
-    border-color var(--dur-fast),
-    background var(--dur-fast),
-    transform var(--dur-fast),
-    filter var(--dur-fast),
-    box-shadow var(--dur-fast);
 }
-.button:hover:not(:disabled) {
-  border-color: var(--blue);
+.button:disabled {
+  box-shadow: none;
 }
 .button.primary {
   background: var(--blue-fill);
   border-color: transparent;
   color: var(--on-blue);
-  font-weight: 600;
-  box-shadow: 0 8px 20px -10px rgba(24, 48, 248, 0.7);
+  box-shadow: var(--shadow-btn);
 }
 .button.primary:hover:not(:disabled) {
-  filter: brightness(0.92);
-  transform: translateY(-1px);
-  border-color: transparent;
-  box-shadow: 0 12px 24px -10px rgba(24, 48, 248, 0.8);
-}
-.button.primary:active:not(:disabled) {
-  transform: none;
+  filter: brightness(1.05);
 }
 .button.soft {
   background: var(--blue-soft);
   border-color: transparent;
   color: var(--blue-on-soft);
-  font-weight: 600;
+  box-shadow: none;
 }
-.button.soft:hover:not(:disabled) {
-  border-color: var(--blue);
+.button:not(.primary):hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--border));
 }
 .button.danger {
   color: var(--danger);
@@ -918,17 +844,26 @@ dialog.ds-dialog.more-sheet {
   border-color: var(--danger);
   background: var(--danger-bg);
 }
+/* Narrower side padding on phones, so a row of two buttons still fits a
+   360px screen with larger text. */
+@media (max-width: 759px) {
+  .button {
+    padding-inline: 16px;
+  }
+}
 .button.small {
   min-height: 40px;
-  padding: 7px 13px;
-  font-size: 14.5px;
-  border-radius: 9px;
+  padding: 8px 15px;
+  font-size: 14px;
+  border-radius: 11px;
 }
 /* On touch screens every button and segment is at least 44 px tall, the
    smallest tap target Apple's guidelines allow; a mouse keeps 40 px. */
 @media (pointer: coarse) {
   .button.small,
   .text-button,
+  .ds-link,
+  .ds-chip,
   .ds-segmented > button,
   .ds-segmented > a,
   .ds-switch,
@@ -957,11 +892,12 @@ dialog.ds-dialog.more-sheet {
   background: transparent;
   color: var(--text);
   transition:
-    background var(--dur-fast),
+    background-color var(--dur-fast),
     color var(--dur-fast);
 }
 .icon-button:hover:not(:disabled) {
   background: var(--surface2);
+  color: var(--text);
 }
 .text-button {
   display: inline-flex;
@@ -971,14 +907,12 @@ dialog.ds-dialog.more-sheet {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--blue);
-  font-size: 15px;
-  font-weight: 600;
+  color: var(--blue-ink);
+  font-size: 14.5px;
+  font-weight: 500;
   line-height: 1.3;
-  transition: color var(--dur-fast);
 }
 .text-button:hover:not(:disabled) {
-  color: var(--blue-ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -988,9 +922,12 @@ dialog.ds-dialog.more-sheet {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: 24px 26px;
+  box-shadow: var(--shadow);
+  padding: var(--card-pad);
   margin-bottom: 22px;
-  transition: background var(--dur-theme);
+  transition:
+    background-color var(--dur-theme),
+    border-color var(--dur-theme);
 }
 .panel > h2:first-child {
   margin-bottom: 14px;
@@ -1018,7 +955,7 @@ dialog.ds-dialog.more-sheet {
   gap: 12px;
   padding: 8px 8px 8px 18px;
   margin-bottom: 22px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--blue-soft);
   color: var(--text);
   font-size: 14.5px;
@@ -1032,7 +969,7 @@ dialog.ds-dialog.more-sheet {
 .callout {
   padding: 14px 18px;
   margin: 0 0 20px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--warn-bg);
   color: var(--text);
   font-size: 14.5px;
@@ -1041,10 +978,10 @@ dialog.ds-dialog.more-sheet {
 .error {
   padding: 12px 16px;
   margin: 16px 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--danger-bg);
   color: var(--danger);
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -1055,64 +992,26 @@ span.error {
 }
 .empty {
   margin: 0 0 24px;
-  padding: 32px 24px;
+  padding: 30px 24px;
   border: 1px dashed var(--border);
   border-radius: var(--radius-card);
   text-align: center;
   color: var(--muted);
+  font-weight: 300;
 }
 .empty h3 {
   margin-bottom: 6px;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
 }
 .empty p {
   font-size: 15px;
 }
 
-/* Tabs: segmented pill track */
+/* Tabs: a chip row, styled with Segmented in src/styles/design.css. The
+   margin is the row's -4px bleed plus 22px of room below. */
 .tabs {
-  display: inline-flex;
-  gap: 2px;
-  max-width: 100%;
-  margin-bottom: 22px;
-  padding: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--surface2);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tabs button,
-.tabs a {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 40px;
-  padding: 8px 16px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--muted);
-  font-size: 14.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  transition:
-    background var(--dur-fast),
-    color var(--dur-fast);
-}
-.tabs button:hover,
-.tabs a:hover {
-  color: var(--text);
-}
-.tabs button.active,
-.tabs a.active,
-.tabs [aria-pressed="true"],
-.tabs [aria-selected="true"],
-.tabs [aria-current="page"] {
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 500;
-  box-shadow: 0 1px 3px rgba(11, 20, 52, 0.12);
+  margin-bottom: 18px;
 }
 
 /* Tables */
@@ -1132,22 +1031,22 @@ table {
   font-variant-numeric: tabular-nums;
 }
 th {
-  padding: 16px 22px;
+  padding: 13px 24px;
   border-bottom: 1px solid var(--border);
   background: transparent;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 td {
-  padding: 18px 22px;
+  padding: 17px 24px;
   border-bottom: 1px solid var(--border);
   font-size: 15px;
 }
 tbody tr {
-  transition: background var(--dur-fast);
+  transition: background-color var(--dur-fast);
 }
 tbody tr:hover {
   background: color-mix(in srgb, var(--surface2) 60%, transparent);
@@ -1156,12 +1055,13 @@ tr:last-child td {
   border-bottom: 0;
 }
 td strong {
-  font-weight: 600;
+  font-weight: 500;
 }
 td small {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 13px;
+  font-weight: 300;
 }
 td .button {
   margin: 3px 0;
@@ -1180,7 +1080,7 @@ fieldset {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 20px;
+  gap: 0 16px;
 }
 @media (max-width: 759px) {
   .form-grid {
@@ -1191,35 +1091,35 @@ fieldset {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 18px;
-  font-size: 14px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
   color: var(--muted);
-}
-.field > label {
-  font-weight: 500;
 }
 .field small {
   font-size: 12.5px;
-  color: var(--faint);
+  font-weight: 300;
+  color: var(--muted);
 }
 .field
   input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"]),
 .field select,
-.field textarea {
+.field textarea,
+.ds-select {
   width: 100%;
   min-width: 0;
   min-height: 48px;
-  padding: 10px 14px;
+  padding: 10px 13px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  background: var(--bg);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-xs);
   color: var(--text);
   font-size: 16px;
   outline: 0;
   transition:
     border-color var(--dur-fast),
     box-shadow var(--dur-fast),
-    background var(--dur-theme);
+    background-color var(--dur-theme);
 }
 .field select {
   padding-right: 36px;
@@ -1230,17 +1130,19 @@ fieldset {
 }
 .field input:focus-visible,
 .field select:focus-visible,
-.field textarea:focus-visible {
+.field textarea:focus-visible,
+.ds-select:focus-visible {
   outline: 0;
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px var(--blue-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 28%, transparent);
 }
 .field input:disabled,
 .field input[readonly],
 .field select:disabled,
 .field textarea:disabled,
 .field textarea[readonly] {
-  background: var(--surface2);
+  background-color: var(--surface2);
+  box-shadow: none;
   color: var(--muted);
 }
 .field input[type="file"] {
@@ -1283,8 +1185,9 @@ fieldset {
 }
 input[type="checkbox"],
 input[type="radio"] {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  flex: none;
   accent-color: var(--blue-fill);
 }
 
@@ -1295,11 +1198,11 @@ input[type="radio"] {
   align-items: center;
   flex-wrap: wrap;
   gap: 12px 16px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 .section-heading h2 {
-  font-size: 26px;
-  letter-spacing: -0.6px;
+  font-size: var(--fs-h2);
+  letter-spacing: -0.01em;
 }
 .section-heading .muted {
   margin-top: 6px;
@@ -1311,23 +1214,23 @@ input[type="radio"] {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 .search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 42px;
+  gap: 10px;
+  min-height: 46px;
   padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 13px;
   background: var(--surface);
-  color: var(--faint);
-  transition: border-color var(--dur-fast);
+  box-shadow: var(--shadow-xs);
+  color: var(--muted);
 }
-.search:hover,
 .search:focus-within {
-  border-color: var(--blue);
+  outline: 3px solid var(--blue);
+  outline-offset: 1px;
 }
 .search input {
   width: 180px;
@@ -1343,7 +1246,7 @@ input[type="radio"] {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 18px 0;
+  padding: 17px 0;
   border-bottom: 1px solid var(--border);
 }
 .list-row:last-child {
@@ -1351,12 +1254,13 @@ input[type="radio"] {
 }
 .list-row strong {
   font-size: 15.5px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .list-row small {
   display: block;
   margin-top: 2px;
-  font-size: 13.5px;
+  font-size: 13px;
+  font-weight: 300;
 }
 .list-row p {
   margin-top: 2px;
@@ -1371,47 +1275,37 @@ input[type="radio"] {
   flex: none;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-tile);
-  background: var(--blue-soft);
-  color: var(--blue-on-soft);
+  color: var(--blue-ink);
 }
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  margin-bottom: clamp(32px, 4vw, 52px);
+  gap: 18px;
+  margin-bottom: var(--page-gap);
+}
+.stat {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 22px 24px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  overflow: hidden;
-}
-.stat {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 24px 26px;
-  background: var(--surface);
-  outline: 1px solid var(--border);
+  box-shadow: var(--shadow);
   min-width: 0;
 }
 .stat-label {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   color: var(--muted);
   font-size: 14px;
+  line-height: 1.35;
 }
 .stat-label span {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: var(--blue-soft);
-  color: var(--blue-on-soft);
+  color: var(--blue-ink);
   flex: none;
 }
 .stat > strong {
@@ -1420,16 +1314,17 @@ input[type="radio"] {
   font-size: var(--fs-kpi);
   font-weight: 500;
   line-height: 1;
-  letter-spacing: -1px;
+  letter-spacing: -0.02em;
 }
 .stat small {
   display: block;
   font-size: 13px;
-  color: var(--faint);
+  font-weight: 300;
 }
 @media (max-width: 1099px) {
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 }
 
@@ -1440,11 +1335,11 @@ input[type="radio"] {
 }
 .ds-dialog-body h3 {
   margin: 26px 0 12px;
-  font-size: 12px;
-  letter-spacing: 1.8px;
-  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  font-weight: 400;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 .ds-dialog-body > h3:first-child,
 .ds-dialog-body form > fieldset > h3:first-child {
@@ -1510,13 +1405,13 @@ input[type="radio"] {
   justify-content: center;
   flex-direction: column;
   gap: 18px;
-  background: var(--navy);
-  color: #c3cae0;
+  background: var(--bg);
+  color: var(--muted);
   font-size: 16px;
+  font-weight: 300;
 }
 .loading svg {
-  color: var(--on-navy-icon);
-  animation: drift 4s ease-in-out infinite;
+  color: var(--blue);
 }
 .spin {
   animation: spin 1.4s linear infinite;
@@ -2794,11 +2689,5 @@ ul.job-card-summary-list {
   *::backdrop {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
-  }
-  .topbar {
-    background: var(--bg);
-  }
-  .tabbar {
-    background: var(--surface);
   }
 }

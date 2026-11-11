@@ -17,16 +17,16 @@
   display: inline-block;
   flex: none;
   width: 72px;
-  height: 6px;
+  height: 5px;
   border-radius: 3px;
-  background: var(--border);
+  background: var(--surface2);
   overflow: hidden;
 }
 .remaining-meter-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--good);
+  background: var(--blue);
 }
 .remaining-due-soon .remaining-meter-fill {
   background: var(--warn);
@@ -38,5 +38,5 @@
 .remaining-meter-word {
   color: var(--danger);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 600;
 }
