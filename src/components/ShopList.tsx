@@ -1,8 +1,8 @@
 /**
  * Responsibility: Building blocks for the shop screens: a table card, a list
- *   lead, a filter select and a stat tile.
+ *   lead, a filter select, a stat tile and a status pill with an icon.
  * Layer: UI. Presentational components; no state or data access.
- * Dependencies: src/components/design.tsx (IconTile, tone and icon types),
+ * Dependencies: src/components/design.tsx (IconTile, StatusPill, types),
  *   @phosphor-icons/react, src/styles/screens/shop.css.
  *
  * These screens keep semantic <table>s, because their rows and cells are what
@@ -10,8 +10,15 @@
  * table cards. Candidates for promotion into src/components/design.tsx.
  */
 import type { ReactNode } from "react";
-import { CaretDown } from "@phosphor-icons/react";
-import { IconTile, type IconType, type Tone } from "./design";
+import {
+  CaretDown,
+  CheckCircle,
+  Circle,
+  Info,
+  WarningCircle,
+  WarningOctagon,
+} from "@phosphor-icons/react";
+import { IconTile, StatusPill, type IconType, type Tone } from "./design";
 import "../styles/screens/shop.css";
 
 /**
@@ -159,6 +166,37 @@ export function ShopStat({
       </strong>
       {foot && <span className="shop-stat-foot">{foot}</span>}
     </div>
+  );
+}
+
+// A status needs a word and an icon, never colour alone; each tone has one.
+const PILL_ICON: Record<Tone, IconType> = {
+  good: CheckCircle,
+  warn: WarningCircle,
+  danger: WarningOctagon,
+  blue: Info,
+  neutral: Circle,
+};
+
+/**
+ * A status pill whose icon follows its tone.
+ *
+ * @param props.tone - "warning" is read as "warn"; neutral when omitted.
+ * @returns A {@link StatusPill} with a check, caution, stop, info or ring
+ *   icon before the words.
+ */
+export function ShopPill({
+  tone = "neutral",
+  children,
+}: {
+  tone?: Tone | "warning";
+  children: ReactNode;
+}) {
+  const resolved = tone === "warning" ? "warn" : tone;
+  return (
+    <StatusPill tone={resolved} icon={PILL_ICON[resolved]}>
+      {children}
+    </StatusPill>
   );
 }
 

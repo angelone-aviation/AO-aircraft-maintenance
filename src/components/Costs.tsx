@@ -44,10 +44,15 @@ import {
   PageHeader,
   ProgressTrack,
   StatsStrip,
-  StatusPill,
   Toolbar,
 } from "./design";
-import { ShopLead, ShopSelect, ShopStat, ShopTableCard } from "./ShopList";
+import {
+  ShopLead,
+  ShopPill,
+  ShopSelect,
+  ShopStat,
+  ShopTableCard,
+} from "./ShopList";
 import { CostCharts } from "./CostCharts";
 import { WorkOrderStatusPill } from "./WorkOrderList";
 import "./costs.css";
@@ -500,14 +505,14 @@ function LaborRateNotice({ rate }: { rate?: number }) {
 function BudgetPill({ status }: { status: BudgetStatus }) {
   if (status.over)
     return (
-      <StatusPill tone="danger">
+      <ShopPill tone="danger">
         Over budget by {formatCents(-status.remainingCents!)}
-      </StatusPill>
+      </ShopPill>
     );
   return (
-    <StatusPill tone="good">
+    <ShopPill tone="good">
       {formatCents(status.remainingCents!)} remaining
-    </StatusPill>
+    </ShopPill>
   );
 }
 

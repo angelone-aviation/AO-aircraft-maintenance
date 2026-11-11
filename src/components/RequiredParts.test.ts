@@ -32,6 +32,10 @@ beforeEach(() => {
   ui.workspace = { snapshot: s, online: true, connected: true };
 });
 
+// A pill's icon is an svg; its path data is Phosphor's, not this suite's.
+const withoutIconPaths = (html: string) =>
+  html.replace(/<svg[^>]*>.*?<\/svg>/g, "<svg/>");
+
 describe("PartsAvailability", () => {
   it("lists each part's need, stock and purchasing against the lot", () => {
     s.partsOnOrder = [
@@ -39,11 +43,11 @@ describe("PartsAvailability", () => {
       { stockUuid: "parts-stock", quantity: 2, shipped: 2 },
       { stockUuid: "remote-stock", quantity: 9, shipped: 9 },
     ];
-    const html = renderToStaticMarkup(
-      h(PartsAvailability, { parts: [neededPart] }),
+    const html = withoutIconPaths(
+      renderToStaticMarkup(h(PartsAvailability, { parts: [neededPart] })),
     );
     expect(html).toBe(
-      '<div class="parts-availability"><span class="ds-pill ds-tone-warn"><span class="ds-pill-dot" aria-hidden="true"></span>Parts shortage</span>' +
+      '<div class="parts-availability"><span class="ds-pill ds-tone-warn"><svg/>Parts shortage</span>' +
         '<small class="block">FILTER-1 · Main hangar · Need 3 / Available 2 · Short 1 · On order 6 · Shipped 3</small></div>',
     );
   });
@@ -64,11 +68,13 @@ describe("PartsAvailability", () => {
     const enough = { ...neededPart, quantity: 2 };
     const missing = { ...neededPart, stockUuid: "missing" };
     const render = (parts: (typeof neededPart)[]) =>
-      renderToStaticMarkup(h(PartsAvailability, { parts }));
-    expect(render([enough])).toContain(">Parts available<");
+      withoutIconPaths(renderToStaticMarkup(h(PartsAvailability, { parts })));
+    expect(render([enough])).toContain(
+      '<span class="ds-pill ds-tone-good"><svg/>Parts available</span>',
+    );
     expect(render([enough])).not.toContain("Cached stock");
     expect(render([enough, missing])).toContain(
-      '<span class="ds-pill ds-tone-warn"><span class="ds-pill-dot" aria-hidden="true"></span>Parts availability unknown</span>',
+      '<span class="ds-pill ds-tone-warn"><svg/>Parts availability unknown</span>',
     );
     expect(render([missing])).toContain(
       "Unavailable part · Main hangar · Need 3 / Available unknown · On order 0",

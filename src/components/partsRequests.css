@@ -12,15 +12,16 @@
   margin: 12px 0;
 }
 .request-line {
-  padding: 16px;
+  padding: 18px;
   margin: 16px 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tile);
+  border-radius: var(--radius-control);
   background: var(--surface2);
   color: var(--text);
 }
 .request-line h3 {
   margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
 }
 .request-availability {
   margin: 12px 0;
@@ -32,9 +33,6 @@
 }
 .parts-requests table {
   width: 100%;
-}
-.parts-requests tbody tr:nth-child(odd) {
-  background: color-mix(in srgb, var(--surface2) 55%, transparent);
 }
 .parts-requests td {
   vertical-align: top;

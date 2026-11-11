@@ -29,10 +29,9 @@ import {
   NoticeBar,
   PageHeader,
   SearchField,
-  StatusPill,
   Toolbar,
 } from "./design";
-import { ShopLead, ShopTableCard } from "./ShopList";
+import { ShopLead, ShopPill, ShopTableCard } from "./ShopList";
 import { MapPin, Plus, WarningCircle } from "@phosphor-icons/react";
 
 // Sent after every save, so each open picker and directory reloads.
@@ -498,7 +497,8 @@ function DirectoryHeader({
     <>
       <PageHeader
         eyebrow="PURCHASING"
-        title="Saved addresses"
+        title="Saved"
+        accent="addresses"
         description="Ship-to, return and billing addresses for requests and purchase orders, shared only with this Flight Program's users."
         actions={
           <button className="button primary" disabled={offline} onClick={onAdd}>
@@ -597,7 +597,7 @@ function AddressRow({ entry: e, offline, onEdit }: RowProps) {
       <td className="shop-actions-cell">
         <span className="shop-actions">
           {!e.address.confirmed && (
-            <StatusPill tone="warn">Not confirmed</StatusPill>
+            <ShopPill tone="warn">Not confirmed</ShopPill>
           )}
           <button className="button small" disabled={offline} onClick={onEdit}>
             Edit address

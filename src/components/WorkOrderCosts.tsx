@@ -2,7 +2,7 @@
  * Responsibility: A work order's labor, parts and other costs panel.
  * Layer: UI. React components; cost rules live in src/domain/costs.ts.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (model, programs, workOrders, costs), ./design, ./ui, ./costs.css.
+ *   (model, programs, workOrders, costs), ./ShopList, ./ui, ./costs.css.
  */
 import { useState } from "react";
 import { Trash } from "@phosphor-icons/react";
@@ -22,7 +22,7 @@ import {
   workOrderCosts,
   type CostCommand,
 } from "../domain/costs";
-import { StatusPill } from "./design";
+import { ShopPill } from "./ShopList";
 import { AsyncForm, Field, errorText, value } from "./ui";
 import "./costs.css";
 
@@ -285,7 +285,7 @@ function PartRow({
       <td>{p.quantity}</td>
       <td>
         {p.unitCents === undefined ? (
-          <StatusPill tone="warn">No unit cost</StatusPill>
+          <ShopPill tone="warn">No unit cost</ShopPill>
         ) : (
           <>
             {formatCents(p.unitCents)}

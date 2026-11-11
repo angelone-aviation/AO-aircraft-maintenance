@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins the markup contract of the shop-screen building
- *   blocks: accessible names, optional parts, tones and the select's change.
+ *   blocks: accessible names, optional parts, tones, pill icons and the
+ *   select's change.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/ShopList.tsx, react-dom/server.
  */
@@ -14,7 +15,13 @@ import {
 } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ShopLead, ShopSelect, ShopStat, ShopTableCard } from "./ShopList";
+import {
+  ShopLead,
+  ShopPill,
+  ShopSelect,
+  ShopStat,
+  ShopTableCard,
+} from "./ShopList";
 
 const Icon = () => createElement("svg");
 const html = (element: ReactElement) => renderToStaticMarkup(element);
@@ -104,6 +111,18 @@ describe("ShopStat", () => {
     );
     expect(toned).toContain('class="ds-stat-value shop-tone-warn"');
     expect(toned).toContain('<span class="shop-stat-foot">since May</span>');
+  });
+});
+
+describe("ShopPill", () => {
+  it("puts an icon before the words, in the pill's tone", () => {
+    const pill = (tone?: "good" | "warning") =>
+      html(createElement(ShopPill, { tone, children: "Draft" }));
+    expect(pill("good")).toMatch(
+      /^<span class="ds-pill ds-tone-good"><svg[^>]*aria-hidden="true">.*<\/svg>Draft<\/span>$/,
+    );
+    expect(pill("warning")).toContain('class="ds-pill ds-tone-warn"');
+    expect(pill()).toContain('class="ds-pill ds-tone-neutral"><svg');
   });
 });
 

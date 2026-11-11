@@ -59,7 +59,7 @@ import {
   StatusPill,
   Toolbar,
 } from "./design";
-import { ShopLead, ShopSelect, ShopTableCard } from "./ShopList";
+import { ShopLead, ShopPill, ShopSelect, ShopTableCard } from "./ShopList";
 import {
   Airplane,
   ArrowsLeftRight,
@@ -214,7 +214,8 @@ function RequestWorkspace({
       {page && (
         <PageHeader
           eyebrow="MAINTENANCE"
-          title="Parts & repair requests"
+          title="Parts &"
+          accent="repair requests"
           description="What mechanics need, what's been ordered, and what's out for repair. Request, reserve and issue parts, or track a component through repair and return."
           actions={newRequest}
         />
@@ -484,7 +485,7 @@ function RequestRow({
         <small>{r.engineer}</small>
       </td>
       <td data-label="Status">
-        <StatusPill tone={requestTone(state)}>{state}</StatusPill>
+        <ShopPill tone={requestTone(state)}>{state}</ShopPill>
       </td>
     </tr>
   );
@@ -544,12 +545,11 @@ function RequestPartsCell({ request: r }: { request: PartsRequest }) {
 function RequestPriorityCell({ request: r }: { request: PartsRequest }) {
   return (
     <td data-label="Priority">
-      <StatusPill
-        tone={r.priority === "P1 AOG" ? "danger" : "neutral"}
-        dot={r.priority === "P1 AOG"}
-      >
-        {r.priority}
-      </StatusPill>
+      {r.priority === "P1 AOG" ? (
+        <ShopPill tone="danger">{r.priority}</ShopPill>
+      ) : (
+        <StatusPill dot={false}>{r.priority}</StatusPill>
+      )}
       <small>{r.requiredBy || r.timeframe || "No date specified"}</small>
     </td>
   );

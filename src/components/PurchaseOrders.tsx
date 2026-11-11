@@ -65,10 +65,15 @@ import {
   SearchField,
   StatTile,
   StatsStrip,
-  StatusPill,
   Toolbar,
 } from "./design";
-import { ShopLead, ShopSelect, ShopStat, ShopTableCard } from "./ShopList";
+import {
+  ShopLead,
+  ShopPill,
+  ShopSelect,
+  ShopStat,
+  ShopTableCard,
+} from "./ShopList";
 import {
   Funnel,
   Plus,
@@ -425,7 +430,8 @@ function OrdersHeader({
   return (
     <PageHeader
       eyebrow="PURCHASING"
-      title="Purchase orders"
+      title="Purchase"
+      accent="orders"
       description="Orders to vendors, from draft to receipt: track shipments, receive parts into inventory and follow core returns."
       actions={
         <>
@@ -570,7 +576,7 @@ function OrderRow({
       </td>
       <td data-label="Vendor">{p.vendor}</td>
       <td data-label="Status">
-        <StatusPill tone={tone}>{label}</StatusPill>
+        <ShopPill tone={tone}>{label}</ShopPill>
       </td>
       <OrderRowFigures po={p} />
     </tr>
