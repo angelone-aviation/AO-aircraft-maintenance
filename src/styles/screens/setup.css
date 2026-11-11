@@ -3,40 +3,51 @@
  *   page's setup chips.
  * Layer: UI. Every selector is scoped by a `setup-` class, so nothing here
  *   restyles another screen.
- * Dependencies: src/styles/tokens.css (colours, radii), src/styles/design.css.
+ * Dependencies: src/styles/tokens.css (colours, radii, motion),
+ *   src/styles/design.css, src/styles.css (.panel, .button).
  */
 
-/* ---------- Steps ---------- */
+/* ---------- Steps: numbered chips; the current one is filled ---------- */
 .setup-steps {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 0 0 18px;
+  margin: 0 0 22px;
   padding: 0;
   list-style: none;
-  counter-reset: none;
 }
 .setup-step {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-height: 40px;
-  padding: 6px 12px 6px 6px;
+  padding: 6px 15px 6px 7px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--surface);
-  color: inherit;
+  box-shadow: var(--shadow-xs);
+  color: var(--muted);
   font: inherit;
+  font-size: var(--fs-meta);
   cursor: pointer;
+  transition:
+    background-color var(--dur-slow),
+    color var(--dur-slow),
+    border-color var(--dur-slow);
+}
+.setup-step:hover:not(:disabled) {
+  color: var(--text);
 }
 .setup-step:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 .setup-step.current {
-  border-color: var(--accent, var(--primary));
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--accent, var(--primary)) 25%, transparent);
+  border-color: var(--blue-fill);
+  background: var(--blue-fill);
+  box-shadow: var(--shadow);
+  color: var(--on-blue);
+  font-weight: var(--fw-medium);
 }
 .setup-step-number {
   display: inline-grid;
@@ -44,18 +55,27 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: var(--accent, var(--primary));
-  color: var(--on-accent, #fff);
-  font-size: 0.85rem;
-  font-weight: 600;
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+.setup-step.current .setup-step-number {
+  background: var(--on-blue);
+  color: var(--blue-ink);
 }
 .setup-step small {
-  color: var(--muted);
+  color: inherit;
+  font-weight: var(--fw-light);
 }
 
 /* ---------- Panels ---------- */
 .setup-panel > h2 {
   margin-top: 0;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .setup-actions {
   display: flex;
@@ -73,8 +93,8 @@
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: 22px;
+  padding-top: 18px;
   border-top: 1px solid var(--border);
 }
 .setup-nav .button:only-child {
@@ -83,16 +103,21 @@
 .setup-facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
-  margin: 0 0 14px;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 16px 0;
+  border-block: 1px solid var(--border);
 }
 .setup-facts dt {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 12.5px;
+  font-weight: var(--fw-light);
 }
 .setup-facts dd {
   margin: 2px 0 0;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
 }
 .setup-list {
   margin: 0 0 12px;
@@ -115,22 +140,26 @@
 .setup-errors,
 .setup-warnings {
   margin: 14px 0;
-  padding: 10px 14px;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--border);
+  padding: 14px 18px;
+  border-radius: var(--radius-control);
 }
 .setup-errors {
-  border-color: var(--danger);
-  background: var(--danger-bg, transparent);
+  background: var(--danger-bg);
 }
 .setup-warnings {
-  border-color: var(--warn);
-  background: var(--warn-bg, transparent);
+  background: var(--warn-bg);
 }
 .setup-errors h3,
 .setup-warnings h3 {
   margin: 0 0 6px;
-  font-size: 1rem;
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+}
+.setup-errors h3 {
+  color: var(--danger);
+}
+.setup-warnings h3 {
+  color: var(--warn);
 }
 .setup-errors ul,
 .setup-warnings ul {
@@ -148,11 +177,15 @@
   display: grid;
   grid-template-columns: 6.5rem 1fr;
   gap: 4px 12px;
-  padding: 8px 0;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
-.setup-progress li > span:first-child {
-  font-weight: 600;
+.setup-progress li:last-child {
+  border-bottom: 0;
+}
+.setup-progress li > span:first-child,
+.setup-progress li > strong {
+  font-weight: var(--fw-medium);
 }
 .setup-progress li p {
   grid-column: 1 / -1;
@@ -176,12 +209,12 @@
   display: inline-flex;
   align-items: center;
   min-height: 28px;
-  padding: 2px 10px;
-  border: 1px solid var(--warn);
+  padding: 2px 11px;
   border-radius: var(--radius-pill);
-  background: var(--warn-bg, transparent);
-  color: inherit;
-  font-size: 0.85rem;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
   text-decoration: none;
 }
 .setup-chip:hover {
