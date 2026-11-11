@@ -3,13 +3,13 @@
  *   Components, Inventory and Alerts.
  * Layer: UI. Every selector is scoped by an `mx-` class, so nothing here
  *   restyles another screen.
- * Dependencies: src/styles/tokens.css (colours, radii, motion, `rise`),
- *   src/styles/design.css (ds-* building blocks).
+ * Dependencies: src/styles/tokens.css (colours, radii, motion, `rise`,
+ *   `grow`), src/styles/design.css (ds-* building blocks).
  *
- * Record lists (inspections, inventory, components) keep real <table>
- * markup for assistive technology and the existing tests, and lay each row
- * out as a CSS-grid card. The header row is visually hidden; each fact cell
- * carries its own visible caption (.mx-fact-label, aria-hidden).
+ * Record lists keep real <table> markup for assistive technology and the
+ * existing tests, and lay each row out with CSS grid. Inspections show their
+ * header row on desktop; inventory and component rows keep it hidden and
+ * caption each fact cell instead (.mx-fact-label, aria-hidden).
  */
 
 /* ---------- Shared helpers ---------- */
@@ -366,6 +366,13 @@ table.mx-insp-table {
     grid-template-columns: minmax(0, 1fr);
     gap: 14px;
     padding: 18px;
+  }
+  .mx-insp-actions > .ds-pill {
+    margin-right: 0;
+  }
+  .mx-insp-row > .mx-insp-tools {
+    gap: 0 18px;
+    margin-top: -6px;
   }
 }
 
