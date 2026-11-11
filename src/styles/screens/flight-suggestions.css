@@ -2,15 +2,16 @@
  * Responsibility: The flight form's "Same as last flight" row.
  * Layer: UI. Per-feature styles over the design tokens.
  * Dependencies: src/styles/tokens.css (variables), src/styles/design.css
- *   (.button).
+ *   (.ds-link).
  */
 .flight-repeat {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 12px;
+  gap: 0 14px;
 }
 .flight-repeat > small {
   color: var(--muted);
   font-size: 13px;
+  font-weight: var(--fw-light);
 }
