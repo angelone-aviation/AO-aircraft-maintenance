@@ -1,12 +1,14 @@
 /**
  * Responsibility: The Flight Program administration screen (its users,
  *   permission groups and aircraft, and the forms that change them), plus the
- *   member avatar and CSV export card other screens reuse.
+ *   member avatar, list column header and CSV export card other screens
+ *   reuse.
  * Layer: UI. React components; the server enforces every permission shown.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/domain (model, programs, groupAircraft,
  *   accountRules), ./DeleteGroupButton, ./PermissionGroupForm, ./Fleet, ./ui,
- *   ./design, src/styles/screens/admin.css.
+ *   ./design, src/styles/screens/admin.css (and settings.css for the CSV
+ *   export card, which only Settings shows).
  */
 import { DeleteGroupButton } from "./DeleteGroupButton";
 import { Link } from "@tanstack/react-router";
@@ -68,6 +70,32 @@ export function MemberAvatar({
 }
 
 /**
+ * The small uppercase column header of a users or aircraft list card, shown
+ * on wide screens only. Decorative: each row already says what it holds.
+ *
+ * @param props.lead - Heads the name column.
+ * @param props.status - Heads the status pill column.
+ * @param props.actions - Heads the row buttons, at the right.
+ */
+export function ListHead({
+  lead,
+  status,
+  actions,
+}: {
+  lead: string;
+  status?: string;
+  actions?: string;
+}) {
+  return (
+    <div className="adm-row-head" aria-hidden="true">
+      <span>{lead}</span>
+      {status && <span className="adm-badge">{status}</span>}
+      {actions && <span className="adm-head-actions">{actions}</span>}
+    </div>
+  );
+}
+
+/**
  * A card with an h3 title, optional text, and one download button per CSV
  * table, named "Download <file>.csv".
  *
@@ -91,21 +119,19 @@ export function CsvExportCard({
 }) {
   const titleId = useId();
   return (
-    <section className="adm-card adm-backup rise" aria-labelledby={titleId}>
-      <div className="adm-card-head">
-        <span className="adm-card-icon">
-          <DownloadSimple size={20} aria-hidden="true" />
-        </span>
+    <section className="set-extract" aria-labelledby={titleId}>
+      <div className="set-extract-head">
+        <DownloadSimple size={20} aria-hidden="true" />
         <h3 id={titleId}>{title}</h3>
       </div>
-      {children && <p className="adm-card-text">{children}</p>}
-      <div className="adm-chips">
+      {children && <p className="set-extract-text">{children}</p>}
+      <div className="ds-chips wrap">
         {tables.map((table) => {
           const file = `${fileNames[table] ?? table}.csv`;
           return (
             <button
               type="button"
-              className="adm-chip"
+              className="ds-chip"
               key={table}
               aria-label={`Download ${file}`}
               onClick={() => onDownload(table)}
@@ -255,6 +281,7 @@ function UsersSection({ roster, enabled, dialogs }: ScreenProps) {
       )}
       {members.length > 0 && (
         <div className="adm-list">
+          <ListHead lead="User" status="Status" actions="Actions" />
           {members.map((m) => (
             <MemberRow key={m.id} member={m} groups={groups}>
               <EditButton
@@ -383,6 +410,7 @@ function AircraftSection({ roster, enabled, dialogs }: ScreenProps) {
     <AdminSection title="Aircraft" count={aircraft.length} action={action}>
       {aircraft.length > 0 && (
         <div className="adm-list">
+          <ListHead lead="Aircraft" actions="Actions" />
           {aircraft.map((a) => (
             <div className="adm-row list-row" key={a.uuid}>
               <div className="adm-lead">
