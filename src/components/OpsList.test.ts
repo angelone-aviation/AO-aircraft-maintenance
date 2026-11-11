@@ -77,7 +77,7 @@ describe("OpsMeters", () => {
       createElement(OpsMeters, { items: [["Hobbs", "1,204.3"]] }),
     );
     expect(meters).toBe(
-      '<dl class="ops-meters"><div><dt>Hobbs<span class="ops-sr-only">: </span>' +
+      '<dl class="ops-meters"><div><dt>Hobbs<span class="sr-only">: </span>' +
         "</dt><dd>1,204.3</dd></div></dl>",
     );
   });

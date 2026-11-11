@@ -2,14 +2,15 @@
  * Responsibility: Building blocks for the operations screens: a record list
  *   and its rows, label/value meters and a filter select.
  * Layer: UI. Presentational components; no state or data access.
- * Dependencies: src/components/design.tsx (IconTile, tone and icon types),
- *   src/styles/screens/operations.css.
+ * Dependencies: @phosphor-icons/react, src/components/design.tsx (IconTile,
+ *   tone and icon types), src/styles/screens/operations.css.
  *
  * They mirror the design's ListRow and toolbar look but add what these
  * screens need and its contract lacks: a semantic list, a details block and
  * a row of secondary actions.
  */
 import type { ReactNode } from "react";
+import { CaretDown } from "@phosphor-icons/react";
 import { IconTile, type IconType, type Tone } from "./design";
 import "../styles/screens/operations.css";
 
@@ -116,7 +117,7 @@ export function OpsMeters({
         <div key={label}>
           <dt>
             {label}
-            <span className="ops-sr-only">: </span>
+            <span className="sr-only">: </span>
           </dt>
           <dd>{value}</dd>
         </div>
@@ -126,7 +127,7 @@ export function OpsMeters({
 }
 
 /**
- * Filter select with an optional leading icon and a drawn caret.
+ * Filter select with an optional leading icon and a caret icon.
  *
  * @param props.label - The select's accessible name (`aria-label`), so
  *   `getByLabel(label)` finds it; no visible label is drawn.
@@ -161,7 +162,7 @@ export function OpsSelect({
       >
         {children}
       </select>
-      <span className="ops-select-caret" aria-hidden="true" />
+      <CaretDown className="ops-select-caret" size={14} aria-hidden="true" />
     </label>
   );
 }

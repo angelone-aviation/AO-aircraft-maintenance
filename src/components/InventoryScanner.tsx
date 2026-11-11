@@ -3,7 +3,8 @@
  *   a typed code, and opens the matching stock item or component.
  * Layer: UI. React components; codes resolve through src/domain.
  * Dependencies: react-dom, @tanstack/react-router, jsqr (loaded on demand),
- *   src/data/store.ts, src/domain/inventoryScan.ts, ./ui.tsx, ./design.tsx.
+ *   src/data/store.ts, src/domain/inventoryScan.ts, ./ui.tsx, ./design.tsx,
+ *   src/styles/screens/operations.css.
  */
 import {
   useEffect,
@@ -243,7 +244,6 @@ function CameraPreview({
 }) {
   return (
     <div className="ops-camera" data-state={cameraState(cameraIssue, live)}>
-      <span className="ops-camera-grid" aria-hidden="true" />
       {!cameraIssue && scanning && (
         <video
           ref={video}
