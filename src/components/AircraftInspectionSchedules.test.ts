@@ -99,8 +99,9 @@ describe("AircraftInspectionSchedules", () => {
     expect(html).toContain("1.5 hours remaining<");
     expect(html).toContain("0 cycles remaining — due now<");
     expect(html).toContain("3 landings overdue<");
-    expect(html).toContain(
-      '<span class="ds-pill ds-tone-danger"><span class="ds-pill-dot" aria-hidden="true"></span>Overdue</span>',
+    // The pill carries an icon beside its word, hidden from screen readers.
+    expect(html).toMatch(
+      /<span class="ds-pill ds-tone-danger"><svg[^>]*aria-hidden="true"><path[^>]*><\/path><\/svg>Overdue<\/span>/,
     );
   });
 
