@@ -6,8 +6,9 @@
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
  *   (deleteInspectionTemplates, programs, inspectionTemplates, manuals,
  *   model), ./TaskCsvImport, ./ActivateTemplate, ./ScheduleTracking,
- *   ./ManagementShared, ./Manuals, ./ui.
+ *   ./ManagementShared, ./Manuals, ./ui, ./design.
  */
+import { EmptyState } from "./design";
 import {
   MAX_TEMPLATES_PER_DELETION,
   templateDeletionPreview,
@@ -171,10 +172,9 @@ export function InspectionTemplates() {
         <DeleteTemplatesDialog {...props} preview={screen.deletePreview} />
       )}
       {!records.length && (
-        <p>
-          No templates found. Create a template or import interval data from
-          CSV.
-        </p>
+        <EmptyState title="No templates found">
+          Create a template or import interval data from CSV.
+        </EmptyState>
       )}
       <TemplateGroups {...props} />
       {screen.activating && (
