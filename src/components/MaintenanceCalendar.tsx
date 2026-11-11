@@ -59,7 +59,8 @@ export function MaintenanceCalendar() {
     <div className="mcal ops-page">
       <PageHeader
         eyebrow="MAINTENANCE"
-        title="Maintenance calendar"
+        title="Maintenance"
+        accent="calendar"
         description="What falls due across the fleet, by day. Dates for hours, cycles and landings are projected from recent flights."
       />
       <CalendarToolbar calendar={calendar} />

@@ -2,10 +2,11 @@
  * Responsibility: Layout of the maintenance calendar: the month toolbar, the
  *   seven-column month grid, the phone agenda and the undated side list.
  * Layer: UI. Every selector is scoped by an `mcal-` class.
- * Dependencies: src/styles/tokens.css (colours, radii, both themes),
+ * Dependencies: src/styles/tokens.css (colours, radii, shadows, motion),
  *   src/styles.css (.sr-only, .icon-button, .button).
  *
- * Item tones carry a left rule and a word ("Overdue"), never colour alone.
+ * An item's tint follows its status; an overdue item also says "Overdue",
+ * so the status never rests on colour alone.
  */
 .mcal-toolbar {
   justify-content: space-between;
@@ -14,70 +15,103 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   /* Larger text zooms the page, so on a 360px phone Today must be able to
      drop below the month rather than push the page sideways. */
   min-width: 0;
 }
+.mcal-nav > .icon-button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--muted);
+}
 .mcal-month {
-  min-width: 10ch;
-  margin: 0 4px;
-  font-size: 1.15rem;
+  min-width: 9.5em;
+  margin: 0;
+  font-size: 21px;
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
   text-align: center;
 }
 .mcal-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
   align-items: start;
-  gap: 20px;
+  gap: 24px;
 }
 .mcal-grid {
   width: 100%;
   table-layout: fixed;
-  border-collapse: collapse;
-  background: var(--surface);
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 .mcal-grid th {
-  padding: 8px 6px;
+  padding: 14px 12px;
+  border: 0;
+  background: none;
   color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0.08em;
   text-align: left;
+  text-transform: uppercase;
 }
 .mcal-grid abbr {
   text-decoration: none;
 }
 .mcal-day {
-  height: 108px;
+  height: 104px;
   white-space: normal;
-  padding: 6px;
+  padding: 10px 12px;
   vertical-align: top;
-  border: 1px solid var(--border);
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+.mcal-day:first-child {
+  border-left: 0;
 }
 .mcal-day.outside {
-  background: var(--surface2);
-}
-.mcal-day.outside .mcal-date {
-  color: var(--faint);
-}
-.mcal-day.today {
-  box-shadow: inset 0 0 0 2px var(--blue);
+  background: color-mix(in srgb, var(--surface2) 55%, transparent);
 }
 .mcal-date {
   display: block;
-  margin-bottom: 4px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 20px;
 }
+.mcal-day.outside .mcal-date {
+  color: var(--muted);
+  font-weight: var(--fw-light);
+}
+/* Today is a filled disc; the cell also carries aria-current and a hidden
+ * ", today". */
 .mcal-day.today .mcal-date {
-  color: var(--blue);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px 0 2px -6px;
+  border-radius: 50%;
+  background: var(--blue-fill);
+  box-shadow: var(--shadow-btn);
+  color: var(--on-blue);
+  font-weight: var(--fw-medium);
 }
 .mcal-items {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -86,15 +120,20 @@
   display: grid;
   min-width: 0;
   gap: 1px;
-  padding: 4px 6px;
-  border-left: 3px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface2);
-  color: var(--text);
-  font-size: 0.78rem;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: var(--blue-soft);
+  color: var(--blue-on-soft);
+  font-size: 12px;
   line-height: 1.3;
   text-decoration: none;
   overflow-wrap: anywhere;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast);
+}
+.mcal-item strong {
+  font-weight: var(--fw-medium);
 }
 .mcal-item:hover strong {
   text-decoration: underline;
@@ -104,32 +143,40 @@
   outline-offset: 1px;
 }
 .mcal-tone-warning {
-  border-left-color: var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 .mcal-tone-danger {
-  border-left-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 .mcal-overdue {
-  color: var(--danger);
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
 }
-.mcal-note,
+.mcal-note {
+  font-weight: var(--fw-regular);
+}
 .mcal-help {
+  margin: 0 0 12px;
   color: var(--muted);
-}
-.mcal-help {
-  margin: 0 0 10px;
-  font-size: 0.85rem;
+  font-size: 13.5px;
+  font-weight: var(--fw-light);
 }
 .mcal-undated {
-  padding: 14px;
+  padding: var(--card-pad);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .mcal-undated h2 {
   margin: 0 0 6px;
-  font-size: 1rem;
+  font-size: 17px;
+  font-weight: var(--fw-medium);
+}
+.mcal-undated .mcal-item {
+  padding: 9px 12px;
+  font-size: 13.5px;
 }
 .mcal-agenda {
   display: grid;
@@ -138,20 +185,44 @@
   padding: 0;
   list-style: none;
 }
+.mcal-agenda-day {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
 .mcal-agenda-day h3 {
-  margin: 0 0 6px;
-  font-size: 0.95rem;
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: var(--fw-medium);
 }
 .mcal-agenda .mcal-item {
-  font-size: 0.9rem;
-  padding: 8px 10px;
+  padding: 10px 12px;
+  font-size: 14px;
 }
 .mcal-today {
-  color: var(--blue);
+  color: var(--blue-ink);
+}
+@media (hover: hover) and (pointer: fine) {
+  .mcal-grid,
+  .mcal-undated {
+    animation: rise 0.5s 0.1s var(--ease) both;
+  }
+  .mcal-item:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-xs);
+  }
 }
 
 @media (max-width: 1099px) {
   .mcal-body {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 759px) {
+  .mcal-month {
+    min-width: 7.6em;
+    font-size: 19px;
   }
 }
