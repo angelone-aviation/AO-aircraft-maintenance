@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the checklists screen: FMD import and lossless export,
- *   offline checks and skips, editing, the searchable library, and the guided
- *   flight's checklist and aircraft choice.
+ *   offline checks and skips, the set's progress ring, editing, the
+ *   searchable library, and the guided flight's checklist and aircraft choice.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test, node:fs, node:path, src/data/fmd,
  *   src/domain/checklists.
@@ -183,6 +183,38 @@ test("creates editable groups and items and rejects damaged imports without losi
   await expect(
     page.getByRole("checkbox", { name: "Documents Checked" }),
   ).toBeVisible();
+});
+
+test("draws the whole set's progress as a ring that follows each check and skip", async ({
+  page,
+}) => {
+  await importN377YB(page);
+  await saveChecklist(page.getByRole("dialog"));
+  const reader = page.getByRole("region", { name: "Interactive checklist" });
+  const ring = reader.getByRole("figure", {
+    name: "Checklist set progress",
+    exact: true,
+  });
+  await expect(ring.locator(".recharts-surface")).toBeVisible();
+  const legend = ring.getByRole("listitem");
+  await expect(legend).toHaveText([
+    "Checked00%",
+    "Skipped00%",
+    "Not checked401100%",
+  ]);
+  await expect(ring).toContainText("0of 401 checked");
+  await reader
+    .getByRole("button", { name: "Check next item", exact: true })
+    .click();
+  await reader
+    .getByRole("button", { name: "Skip next item", exact: true })
+    .click();
+  await expect(legend.locator("b")).toHaveText(["1", "1", "399"]);
+  await expect(ring).toContainText("1of 401 checked");
+  // A phone has no room for the ring; its legend stays as the numbers.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(ring.locator(".ds-donut-ring")).toBeHidden();
+  await expect(legend.first()).toBeVisible();
 });
 
 test("switches through the searchable checklist library without losing checks", async ({

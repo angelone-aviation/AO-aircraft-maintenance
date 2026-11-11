@@ -112,6 +112,8 @@ vi.mock("./design", async (importOriginal) => {
   };
 });
 vi.mock("./OpsList", () => ({ OpsSelect: stub("OpsSelect") }));
+// The ring's own module draws through a class the tracker cannot call.
+vi.mock("./charts", () => ({ Donut: stub("Donut") }));
 vi.mock("../data/fmd", () => ({
   importFmd: async () => {
     if (ui.imported instanceof Error) throw ui.imported;
@@ -263,7 +265,8 @@ describe("ChecklistReader", () => {
     expect(html).toContain("Next: Mags");
     expect(html).toContain("Flight Program library");
     expect(html).toContain("This entry contains additional source actions");
-    expect(html).toContain("<small>1/2 </small>");
+    expect(html).toContain("<small>1/2</small>");
+    expect(html).not.toContain("complete</span>");
   });
 
   it("checks, skips and completes the list, storing each change", () => {
@@ -318,6 +321,29 @@ describe("ChecklistReader", () => {
     expect(render(reader({ initialList: "l2", onEdit: () => {} }))).toContain(
       "<span>2 / 2</span>",
     );
+  });
+
+  it("shows the whole set's marks in the ring, not only the open list's", () => {
+    storage.set(KEY, JSON.stringify({ i1: "checked", i3: "skipped" }));
+    render(reader());
+    const ring = ui.stubs.get("Donut")!;
+    expect(ring.label).toBe("Checklist set progress");
+    expect(ring.slices).toEqual([
+      { label: "Checked", value: 1, tone: "good" },
+      { label: "Skipped", value: 1, tone: "warn" },
+      { label: "Not checked", value: 1, tone: "5" },
+    ]);
+    click("Check next item");
+    expect(
+      (ui.stubs.get("Donut")!.slices as { value: number }[])[0].value,
+    ).toBe(2);
+  });
+
+  it("marks a finished section in the list of sections", () => {
+    storage.set(KEY, JSON.stringify({ i1: "checked", i2: "checked" }));
+    const html = render(reader());
+    expect(html).toContain("<small>2/2</small>");
+    expect(html).toContain('<span class="sr-only"> complete</span>');
   });
 
   it("reports progress to its owner instead of storing it", () => {
