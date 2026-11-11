@@ -2,8 +2,8 @@
  * Responsibility: Shows a PDF one page at a time on a canvas, with page
  *   navigation, zoom and the page's text.
  * Layer: UI. React component; loads PDF.js on demand through src/data.
- * Dependencies: react, pdfjs-dist (types, version), src/data/pdfRuntime.ts,
- *   ./ui.tsx, ./pdfReader.css.
+ * Dependencies: react, @phosphor-icons/react, pdfjs-dist (types, version),
+ *   src/data/pdfRuntime.ts, ./ui.tsx, ./pdfReader.css.
  *
  * Pages are rendered here because native iPad PDF embeds ignore #page.
  */
@@ -15,6 +15,7 @@ import type {
   RenderTask,
 } from "pdfjs-dist";
 import { version as pdfVersion } from "pdfjs-dist/package.json";
+import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { errorText } from "./ui";
 import "./pdfReader.css";
 
@@ -334,20 +335,20 @@ function PdfToolbar({ controls, pageCount }: ToolbarProps) {
     <div className="pdf-reader-toolbar">
       <button
         type="button"
-        className="button"
+        className="button small"
         disabled={pageCount === undefined || page <= 1}
         onClick={() => navigate(page - 1)}
       >
-        Previous page
+        <CaretLeft size={16} aria-hidden="true" /> Previous page
       </button>
       <PageForm controls={controls} pageCount={pageCount} />
       <button
         type="button"
-        className="button"
+        className="button small"
         disabled={pageCount === undefined || page >= pageCount}
         onClick={() => navigate(page + 1)}
       >
-        Next page
+        Next page <CaretRight size={16} aria-hidden="true" />
       </button>
       <ZoomSelect controls={controls} />
     </div>
@@ -377,7 +378,7 @@ function PageForm({ controls, pageCount }: ToolbarProps) {
         />
       </label>
       <span>of {pageCount?.toLocaleString() ?? "…"}</span>
-      <button className="button" disabled={pageCount === undefined}>
+      <button className="button small" disabled={pageCount === undefined}>
         Go
       </button>
     </form>
@@ -390,6 +391,7 @@ function ZoomSelect({ controls }: { controls: PageControls }) {
       Zoom{" "}
       <select
         aria-label="PDF zoom"
+        className="ds-select"
         value={controls.zoom}
         onChange={(e) => controls.setZoom(Number(e.target.value))}
       >

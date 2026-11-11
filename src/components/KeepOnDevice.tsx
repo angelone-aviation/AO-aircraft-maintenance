@@ -6,7 +6,7 @@
  * Dependencies: react, zustand, @phosphor-icons/react, src/data/store.ts,
  *   src/data/backend.ts (types), src/data/deviceManuals.ts,
  *   src/data/pdfOffline.ts, src/domain/manuals.ts (types), ./design.tsx,
- *   ./ui.tsx.
+ *   ./ui.tsx, ./manuals.css.
  *
  * The library, the viewer and any open reference share the state, so a
  * download started in one place shows its progress everywhere and keeps
@@ -18,6 +18,8 @@ import {
   CheckCircle,
   CloudArrowDown,
   HardDrives,
+  ShieldCheck,
+  Warning,
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { Backend } from "../data/backend";
@@ -39,6 +41,7 @@ import {
 import { warmPdfViewer } from "../data/pdfOffline";
 import { ListRow, NoticeBar, ProgressTrack, StatusPill } from "./design";
 import { errorText } from "./ui";
+import "./manuals.css";
 
 // Progress re-renders every open view, so it is published at most this often
 // (the final chunk always is).
@@ -230,12 +233,12 @@ function DownloadProgress({
   download: Download;
 }) {
   return (
-    <span className="shop-keep-progress">
+    <span className="manual-keep-progress">
       <ProgressTrack
         value={download.received / download.total}
         label={`Keeping ${manual.title} on this device`}
       />
-      <span className="shop-keep-note">
+      <span className="manual-keep-note">
         {formatBytes(download.received)} of {formatBytes(download.total)}
       </span>
     </span>
@@ -286,7 +289,7 @@ export function KeepManualButton({ manual }: { manual: Manual }) {
 export function KeepManualError({ manual }: { manual: Manual }) {
   const { error } = useKeptManual(manual.uuid);
   return error ? (
-    <p className="shop-keep-error" role="alert">
+    <p className="manual-keep-error" role="alert">
       <WarningCircle size={16} weight="bold" aria-hidden="true" />
       {error}
     </p>
@@ -303,8 +306,10 @@ export function KeepManualStatus({ manual }: { manual: Manual }) {
   return download ? (
     <DownloadProgress manual={manual} download={download} />
   ) : kept ? (
-    <span className="shop-keep-status">
-      <StatusPill tone="good">On this device</StatusPill>
+    <span className="manual-keep-status">
+      <StatusPill tone="good" icon={CheckCircle}>
+        On this device
+      </StatusPill>
     </span>
   ) : null;
 }
@@ -329,7 +334,7 @@ export function KeepManualPanel({
   if (!keptManualsSupported()) return null;
   const size = formatBytes(manual.size);
   return (
-    <section className="shop-keep-panel" aria-label="This device">
+    <section className="manual-keep-panel" aria-label="This device">
       <ListRow
         icon={kept ? CheckCircle : HardDrives}
         tone={kept ? "good" : "blue"}
@@ -367,7 +372,7 @@ export function KeptManualsSummary() {
       : undefined;
   return (
     <section
-      className="ds-list-card shop-keep-summary"
+      className="ds-list-card manual-keep-summary"
       aria-label="Manuals on this device"
     >
       <ListRow
@@ -381,9 +386,11 @@ export function KeptManualsSummary() {
         meta={left === undefined ? undefined : `${formatBytes(left)} left`}
         badge={
           storage.persisted ? (
-            <StatusPill tone="good">Protected from clean-up</StatusPill>
+            <StatusPill tone="good" icon={ShieldCheck}>
+              Protected from clean-up
+            </StatusPill>
           ) : manuals.length ? (
-            <StatusPill tone="warn">
+            <StatusPill tone="warn" icon={Warning}>
               May be cleared if storage runs low
             </StatusPill>
           ) : undefined

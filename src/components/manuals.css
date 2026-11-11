@@ -1,0 +1,137 @@
+/*
+ * Responsibility: Styles what only the reference manuals have: a manual's
+ *   row actions, the viewer's file links and the "Keep on this device"
+ *   status, progress, panel and storage summary.
+ * Layer: UI. Component styles, imported by the components that use them.
+ * Dependencies: src/styles/tokens.css, src/styles/design.css (ds-list-row,
+ *   ds-progress), src/styles.css (.button).
+ *
+ * The library's table itself is the shared shop table (ShopList.tsx).
+ */
+
+/* One primary (Open manual) leads; the rest wrap after it. */
+.manual-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  /* As wide as its buttons up to two rows' worth; the cell around it shrinks
+   * to fit, which would otherwise stack them one to a line. */
+  width: max-content;
+  max-width: 460px;
+  margin-left: auto;
+}
+.manual-actions > :is(.button, a.button) {
+  margin: 0;
+}
+/* The actions cell shrinks to its buttons, leaving the width to the title. */
+.shop-manuals td:has(> .manual-actions) {
+  width: 1%;
+}
+.manual-viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.manual-viewer-actions > .button {
+  margin: 0;
+}
+
+.manual-keep-status,
+.manual-keep-progress {
+  display: flex;
+  margin-top: 8px;
+}
+.manual-keep-progress {
+  flex-direction: column;
+  gap: 6px;
+  min-width: 120px;
+}
+.manual-keep-progress > .ds-progress {
+  width: 100%;
+}
+/* Bytes arrive in steps, so the bar follows them without the entry sweep. */
+.manual-keep-progress > .ds-progress > .ds-progress-fill {
+  animation: none;
+  transition: width 0.2s linear;
+}
+.manual-keep-note {
+  margin: 0;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.manual-keep-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-basis: 100%;
+  margin: 10px 0 0;
+  font-size: var(--fs-meta);
+  line-height: 1.4;
+  color: var(--danger);
+  text-align: left;
+  white-space: normal;
+}
+.manual-keep-error > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.manual-keep-panel,
+.manual-keep-summary {
+  margin-bottom: 18px;
+}
+.manual-keep-panel {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+.manual-keep-panel > .ds-list-row {
+  border-top: 0;
+  padding-bottom: 0;
+}
+.manual-keep-panel .ds-list-sub,
+.manual-keep-summary .ds-list-sub {
+  white-space: normal;
+}
+/* Under the row's text: the row's 24px padding, the 22px icon and its 14px
+ * gap. */
+.manual-keep-panel > .manual-keep-progress,
+.manual-keep-panel > .manual-keep-error {
+  margin: 0 24px 0 60px;
+}
+.manual-keep-panel > .manual-keep-progress {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 759px) {
+  .manual-actions {
+    justify-content: flex-start;
+    width: auto;
+    max-width: none;
+  }
+  .manual-actions > :is(.button, a.button) {
+    flex: 1 1 150px;
+  }
+  .shop-manuals td:has(> .manual-actions) {
+    width: auto;
+  }
+  /* Stack the button under the text, as other list rows do on phones. */
+  section.manual-keep-panel > .ds-list-row:not(:has(.ds-list-meta)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .manual-keep-panel > .manual-keep-progress,
+  .manual-keep-panel > .manual-keep-error {
+    margin-inline: 18px;
+  }
+}

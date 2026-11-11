@@ -7,7 +7,7 @@
  *   @phosphor-icons/react, src/data/store.ts, src/data/deviceManuals.ts,
  *   src/data/manualPdf.ts (lazy), src/domain (model, manuals), ./PdfReader,
  *   ./MaintenanceCsvImport, ./ManualDiscovery, ./KeepOnDevice, ./ui,
- *   ./design, ./ShopList.
+ *   ./design, ./ShopList, ./manuals.css.
  */
 import { PdfReader } from "./PdfReader";
 import { MaintenanceCsvImportButton } from "./MaintenanceCsvImport";
@@ -48,6 +48,7 @@ import {
   UploadSimple,
   WarningCircle,
 } from "@phosphor-icons/react";
+import "./manuals.css";
 
 // The lengths manualInputSchema, manualReferenceSchema and
 // manualApplicabilitySchema allow.
@@ -546,9 +547,9 @@ function ManualRow(props: RowProps) {
 
 function ManualActions({ s, manual: m, keeping, writable, onEdit }: RowProps) {
   return (
-    <span className="shop-actions shop-manual-actions">
+    <span className="manual-actions">
       <Link
-        className="button small"
+        className="button small primary"
         to="/manuals/$manualUuid"
         params={{ manualUuid: m.uuid }}
         search={{ page: 1 }}
@@ -927,7 +928,7 @@ function ManualPdf({
 }) {
   return (
     <>
-      <div className="shop-viewer-actions">
+      <div className="manual-viewer-actions">
         <a
           className="button small"
           href={`${file.url}#page=${page}`}
