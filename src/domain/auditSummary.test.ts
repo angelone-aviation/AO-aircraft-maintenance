@@ -12,6 +12,7 @@ import {
   actionFamily,
   auditSummaryCsvRows,
   FAMILY_ORDER,
+  familyShares,
   summarizeAudit,
   summaryPeriod,
   withLocalBounds,
@@ -213,5 +214,40 @@ describe("local day bounds", () => {
       fromMs: Date.parse("2026-10-31T04:00:00Z"),
       toMs: Date.parse("2026-11-01T04:00:00Z"),
     });
+  });
+});
+
+describe("familyShares", () => {
+  const counts = (
+    some: Partial<Record<(typeof FAMILY_ORDER)[number], number>>,
+  ) =>
+    ({
+      ...Object.fromEntries(FAMILY_ORDER.map((f) => [f, 0])),
+      ...some,
+    }) as Record<(typeof FAMILY_ORDER)[number], number>;
+
+  it("lists families with entries, most first, ties in table order", () => {
+    expect(familyShares(counts({ parts: 2, flights: 2, ads: 5 }))).toEqual([
+      { label: "ADs", value: 5 },
+      { label: "Flights and discrepancies", value: 2 },
+      { label: "Parts and purchasing", value: 2 },
+    ]);
+    expect(familyShares(counts({}))).toEqual([]);
+  });
+
+  it("adds the smallest up into Everything else beyond the limit", () => {
+    const shares = familyShares(
+      counts({
+        flights: 9,
+        maintenance: 7,
+        ads: 5,
+        workOrders: 3,
+        parts: 2,
+        other: 1,
+      }),
+    );
+    expect(shares).toHaveLength(5);
+    expect(shares.at(-1)).toEqual({ label: "Everything else", value: 3 });
+    expect(shares.reduce((sum, s) => sum + s.value, 0)).toBe(27);
   });
 });
