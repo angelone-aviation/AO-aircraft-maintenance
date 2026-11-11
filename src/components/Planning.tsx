@@ -3,8 +3,8 @@
  *   and ADs across the fleet, projected from recent utilization.
  * Layer: UI. Read-only; projections come from src/domain/forecast.ts.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (csv, forecast, model, programs), ./ui, ./design, ./OpsList,
- *   ./planning.css.
+ *   (csv, forecast, maintenanceCharts, model, programs), ./ui, ./design,
+ *   ./charts, ./OpsList, ./planning.css.
  */
 import "./planning.css";
 import { useMemo, useState } from "react";
@@ -26,13 +26,16 @@ import {
   weekOf,
   type ForecastItem,
 } from "../domain/forecast";
+import { WORKLOAD_MONTHS, monthlyWorkload } from "../domain/maintenanceCharts";
 import { can, localDate, type Snapshot } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import { download } from "./ui";
+import { BarChart, type ChartSeries } from "./charts";
 import {
   EmptyState,
   ListCard,
   PageHeader,
+  SectionHeading,
   StatsStrip,
   StatTile,
   StatusPill,
@@ -52,6 +55,12 @@ const KIND_ICONS = {
   component: Fan,
   ad: ShieldCheck,
 } as const;
+// Blues and a grey: the kinds are categories, not statuses.
+const WORKLOAD_SERIES: (ChartSeries & { key: ForecastItem["kind"] })[] = [
+  { key: "inspection", label: "Inspections", tone: "1" },
+  { key: "component", label: "Component requirements", tone: "2" },
+  { key: "ad", label: "Airworthiness directives", tone: "4" },
+];
 const BASIS_LABELS = {
   hours: "Hours",
   cycles: "Cycles",
@@ -127,6 +136,7 @@ export function Planning() {
         history when that is too thin). They are estimates for planning, not
         compliance records.
       </p>
+      <PlanningWorkload plan={plan} />
       <PlanningWeeks plan={plan} />
     </div>
   );
@@ -154,6 +164,7 @@ function usePlanning() {
     setAircraftFilter,
     kindFilter,
     setKindFilter,
+    workload: monthlyWorkload(items, today),
     planned: items.filter((i) => i.projection && i.projection.date <= end),
     unprojected: items.filter((i) => !i.projection),
     registration: (i: ForecastItem) =>
@@ -245,6 +256,37 @@ function PlanningStats({ plan: { planned, unprojected, horizon } }: PlanProps) {
       <StatTile label="Insufficient data" value={unprojected.length} />
     </StatsStrip>
   );
+}
+
+// Looks past the horizon: the filtered items due in each of the next twelve
+// months, whatever horizon the list below shows.
+function PlanningWorkload({ plan }: PlanProps) {
+  const series = WORKLOAD_SERIES.filter(
+    (kind) => !plan.kindFilter || kind.key === plan.kindFilter,
+  );
+  return (
+    <section className="ds-section planning-workload no-print">
+      <SectionHeading
+        title="Projected workload"
+        note={`Items due per month, next ${WORKLOAD_MONTHS} months`}
+      />
+      <div className="ds-card">
+        <BarChart
+          label={`Items projected to fall due in each of the next ${WORKLOAD_MONTHS} months`}
+          categoryLabel="Month"
+          rows={plan.workload}
+          series={series}
+          format={wholeCount}
+          stacked
+        />
+      </div>
+    </section>
+  );
+}
+
+// Counts are whole, so the axis leaves its in-between ticks unlabelled.
+function wholeCount(count: number) {
+  return Number.isInteger(count) ? count.toLocaleString("en-US") : "";
 }
 
 function PlanningWeeks({ plan }: PlanProps) {
