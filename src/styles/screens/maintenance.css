@@ -371,7 +371,7 @@ table.mx-insp-table {
 
 /* ---------- Record rows (inventory, components) ---------- */
 .mx-records-card.ds-list-card {
-  padding: 4px 26px;
+  padding: 2px 24px;
 }
 table.mx-records {
   display: block;
@@ -414,7 +414,7 @@ table.mx-records {
 }
 .mx-main-title {
   font-size: 16.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
@@ -425,7 +425,7 @@ table.mx-records {
 }
 .mx-main-note {
   font-size: 13px;
-  color: var(--faint);
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .mx-records td.mx-fact,
@@ -437,16 +437,16 @@ table.mx-records {
 }
 .mx-fact-label {
   margin-bottom: 2px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
+  font-size: 11.5px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0.08em;
   line-height: 1.3;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 .mx-fact-value {
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   line-height: 1.35;
   color: var(--text);
   overflow-wrap: anywhere;
@@ -475,7 +475,7 @@ table.mx-records {
 }
 .mx-qty > strong {
   font-size: 24px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   line-height: 1.1;
   letter-spacing: -0.5px;
   font-variant-numeric: tabular-nums;
@@ -621,12 +621,11 @@ table.mx-records {
 /* Component groups: one collapsible card per aircraft / inventory. */
 .mx-comp-group.component-group {
   margin: 0 0 20px;
-  padding: 0 26px;
+  padding: 0 24px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  animation: rise 0.5s 0.1s var(--ease) both;
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
 }
 .mx-comp-group > .mx-group-summary {
   display: flex;
@@ -637,7 +636,7 @@ table.mx-records {
   list-style: none;
   color: var(--text);
   font-size: 15px;
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   cursor: pointer;
 }
 .mx-comp-group > .mx-group-summary::-webkit-details-marker {
@@ -647,19 +646,19 @@ table.mx-records {
   border-bottom: 1px solid var(--border);
 }
 .mx-group-title {
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .mx-group-count {
   font-size: 13px;
-  color: var(--faint);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .mx-group-caret {
   margin-left: auto;
-  color: var(--faint);
-  transition: transform 0.32s var(--ease);
+  color: var(--muted);
+  transition: transform var(--dur-slow) var(--ease);
 }
 .mx-comp-group:not([open]) .mx-group-caret {
   transform: rotate(-90deg);
@@ -682,9 +681,9 @@ table.mx-records {
 }
 .mx-section-title {
   margin: 0 0 18px;
-  font-size: 23px;
-  font-weight: 500;
-  letter-spacing: -0.5px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .mx-location-grid {
   display: grid;
@@ -700,7 +699,7 @@ table.mx-records {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
 }
 .mx-location-card > .button {
   grid-column: 2;
@@ -709,7 +708,7 @@ table.mx-records {
 .mx-location-text h3 {
   margin: 0 0 4px;
   font-size: 17px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .mx-location-text p {
   margin: 0;
@@ -738,7 +737,7 @@ table.mx-records {
 .mx-detail-list dd {
   margin: 0;
   color: var(--text);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   overflow-wrap: anywhere;
 }
 .mx-dialog-actions {
@@ -755,7 +754,7 @@ table.mx-records {
   margin: 0 0 12px;
   color: var(--text);
   font-size: 17px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   letter-spacing: -0.2px;
 }
 .mx-dialog-empty {
@@ -766,7 +765,7 @@ table.mx-records {
 .mx-table-card {
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
 }
 table.mx-table {
   width: 100%;
@@ -778,10 +777,10 @@ table.mx-table {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
   background: transparent;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.08em;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
@@ -804,7 +803,7 @@ table.mx-table {
 .mx-table-title {
   display: block;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .mx-table-note {
   display: block;
@@ -831,6 +830,22 @@ table.mx-table {
   }
   .mx-detail-list dd {
     margin-bottom: 10px;
+  }
+}
+
+/* ---------- Motion (mouse-and-keyboard screens only) ---------- */
+@media (hover: hover) and (pointer: fine) {
+  .mx-comp-group.component-group {
+    animation: rise 0.5s 0.1s var(--ease) both;
+  }
+  .mx-location-card {
+    transition:
+      transform var(--dur-slow) var(--ease),
+      box-shadow var(--dur-slow);
+  }
+  .mx-location-card:hover {
+    transform: translateY(var(--lift-card));
+    box-shadow: var(--shadow-lift);
   }
 }
 

@@ -102,6 +102,7 @@ import {
 import {
   AirplaneTilt,
   CaretDown,
+  CheckCircle,
   Copy,
   Cube,
   Engine,
@@ -2540,18 +2541,23 @@ function PlacementCell({
           ? (c.installPosition ?? "Not recorded")
           : componentStorage(s, c)}
       </span>
-      <StatusPill className="mx-fact-pill" dot={false} tone={pill.tone}>
+      <StatusPill className="mx-fact-pill" icon={pill.icon} tone={pill.tone}>
         {pill.label}
       </StatusPill>
     </td>
   );
 }
 
-function placementPill(c: Component): { tone: Tone; label: string } {
-  if (c.installed) return { tone: "good", label: "Installed" };
+function placementPill(c: Component): {
+  tone: Tone;
+  label: string;
+  icon: IconType;
+} {
+  if (c.installed)
+    return { tone: "good", label: "Installed", icon: CheckCircle };
   return c.outForRepair
-    ? { tone: "warn", label: "Out for repair" }
-    : { tone: "neutral", label: "In storage" };
+    ? { tone: "warn", label: "Out for repair", icon: Wrench }
+    : { tone: "neutral", label: "In storage", icon: Warehouse };
 }
 
 function ReadingsCell({ c, t }: { c: Component; t: Totals }) {
@@ -2643,7 +2649,7 @@ function NearestRemaining({
         <div className="mx-fact-value mx-num">{cycles} cycles</div>
       )}
       {pastDue && (
-        <StatusPill className="mx-fact-pill" tone="danger" dot={false}>
+        <StatusPill className="mx-fact-pill" tone="danger" icon={Warning}>
           Past due
         </StatusPill>
       )}
