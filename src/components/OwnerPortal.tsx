@@ -105,19 +105,7 @@ function OwnerAircraft({ state, aircraft: a }: AircraftProps) {
       className="ds-card owner-aircraft"
       aria-labelledby={`owner-${a.uuid}`}
     >
-      <div className="owner-head">
-        <div className="owner-id">
-          <h2 id={`owner-${a.uuid}`}>{a.registration}</h2>
-          <p className="muted">
-            {a.make} {a.model} · Serial {a.serial}
-          </p>
-          <AircraftStatusSummary
-            aircraftUuid={a.uuid}
-            registration={a.registration}
-          />
-        </div>
-        <AircraftArt width={OWNER_ART_WIDTH} className="owner-art" />
-      </div>
+      <OwnerHead aircraft={a} />
       <Facts
         facts={[
           {
@@ -139,6 +127,24 @@ function OwnerAircraft({ state, aircraft: a }: AircraftProps) {
         <ADReportButton state={state} aircraft={a} />
       </div>
     </section>
+  );
+}
+
+function OwnerHead({ aircraft: a }: { aircraft: Aircraft }) {
+  return (
+    <div className="owner-head">
+      <div className="owner-id">
+        <h2 id={`owner-${a.uuid}`}>{a.registration}</h2>
+        <p className="muted">
+          {a.make} {a.model} · Serial {a.serial}
+        </p>
+        <AircraftStatusSummary
+          aircraftUuid={a.uuid}
+          registration={a.registration}
+        />
+      </div>
+      <AircraftArt width={OWNER_ART_WIDTH} className="owner-art" />
+    </div>
   );
 }
 

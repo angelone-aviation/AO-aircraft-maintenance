@@ -1,13 +1,15 @@
 /**
- * Responsibility: The fleet dashboard: KPIs, aircraft cards with their next
- *   inspection, the maintenance outlook and the aircraft detail dialog.
+ * Responsibility: The Overview: KPIs, aircraft cards with their next
+ *   inspection, the flight-hour and readiness charts, the maintenance outlook
+ *   and the aircraft detail dialog.
  * Layer: UI. Screen over the workspace snapshot; status rules live in
  *   src/domain.
  * Dependencies: src/data/store.ts, src/domain (model, dueItems, maintenance,
  *   aircraftStatus, management, partsPlanning, requiredParts, pilotView,
- *   overview, readings, rejection, remainingMeters),
- *   ./design, ./TermTip and the aircraft, flight, flight readiness, logbook
- *   photo, paper check, parts, remaining meter and FAA components.
+ *   overview, readings, rejection, remainingMeters, flightHours, deferrals),
+ *   ./design, ./OverviewCharts, ./TermTip and the aircraft, flight, flight
+ *   readiness, logbook photo, paper check, parts, remaining meter and FAA
+ *   components.
  */
 import {
   lazy,

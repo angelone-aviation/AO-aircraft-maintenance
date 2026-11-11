@@ -142,16 +142,7 @@ function FleetTiles({ summary }: { summary: BoardSummary }) {
         valueTone={fleet["due-soon"] ? "warn" : undefined}
         footnote="Aircraft with an item coming due"
       />
-      {setup > 0 && (
-        <KpiTile
-          label="Setup incomplete"
-          value={setup}
-          icon={ClipboardText}
-          tone="warn"
-          valueTone="warn"
-          footnote="Records still being loaded; not shown as airworthy"
-        />
-      )}
+      {setup > 0 && <SetupTile count={setup} />}
       <KpiTile
         label="Grounded"
         value={fleet.grounded}
@@ -169,6 +160,19 @@ function FleetTiles({ summary }: { summary: BoardSummary }) {
         footnote="Inspections, component limits and ADs past their limit"
       />
     </KpiStrip>
+  );
+}
+
+function SetupTile({ count }: { count: number }) {
+  return (
+    <KpiTile
+      label="Setup incomplete"
+      value={count}
+      icon={ClipboardText}
+      tone="warn"
+      valueTone="warn"
+      footnote="Records still being loaded; not shown as airworthy"
+    />
   );
 }
 

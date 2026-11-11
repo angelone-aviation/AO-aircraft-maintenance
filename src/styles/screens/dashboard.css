@@ -179,6 +179,8 @@
 /* Next-due line: what is next, how much is left, and where the limit is. */
 .dash-timeline {
   display: grid;
+  /* A long reference shrinks and ends in an ellipsis. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   font-size: 14px;
 }
