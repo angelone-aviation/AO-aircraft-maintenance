@@ -835,87 +835,62 @@ table.mx-table {
 }
 
 /* ---------- Alerts ---------- */
-.mx-alerts {
-  max-width: 860px;
-}
 .mx-alerts-settings {
   margin: 0 0 16px;
 }
-.mx-alert-group {
-  margin-bottom: 20px;
-  padding: 10px 26px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  animation: rise 0.5s 0.08s var(--ease) both;
-  transition: background var(--dur-theme);
+.mx-alerts-settings a {
+  font-size: 14px;
+  color: var(--blue-ink);
+  font-weight: var(--fw-medium);
 }
-.mx-alert-group-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 0 12px;
+.mx-alert-group.ds-section {
+  margin-bottom: 28px;
 }
-.mx-alert-group-head h2 {
-  margin: 0;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+.mx-alert-row.ds-row {
+  --cols: auto minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  transition: background-color var(--dur);
+}
+/* Unread rows carry a tint and a dot; the row's hidden "Unread:" prefix
+ * says the same to a screen reader. */
+.mx-alert-row:not(.is-read) {
+  background: color-mix(in srgb, var(--blue-soft) 60%, transparent);
+}
+.mx-alert-icon {
   color: var(--mx-tone, var(--muted));
 }
-.mx-alert-count {
-  font-size: 13px;
-  color: var(--faint);
-  font-variant-numeric: tabular-nums;
-}
-.mx-alert-row {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-  gap: 14px 16px;
-  align-items: center;
-  padding: 20px 0;
-  border-top: 1px solid var(--border);
-}
-.mx-alert-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--mx-tone, var(--muted));
-  box-shadow: 0 0 0 4px var(--mx-tone-bg, var(--surface2));
-  transition:
-    background var(--dur),
-    box-shadow var(--dur);
-}
-.mx-alert-row.is-read .mx-alert-dot {
-  background: var(--border);
-  box-shadow: none;
+.mx-tone-neutral .mx-alert-icon {
+  color: var(--blue);
 }
 .mx-alert-text strong {
   display: block;
-  font-size: 16.5px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 15.5px;
+  line-height: 1.4;
 }
 .mx-alert-text p {
   margin: 2px 0 0;
-  font-size: 14.5px;
+  font-size: 13.5px;
+  font-weight: var(--fw-light);
   color: var(--muted);
   text-wrap: pretty;
 }
-/* Read rows step back through weight and colour rather than opacity, so
- * their text keeps 4.5:1 contrast in both themes. */
+/* Read rows step back through weight rather than opacity, so their text
+ * keeps 4.5:1 contrast in both themes. */
 .mx-alert-row.is-read .mx-alert-text strong {
-  font-weight: 500;
-  color: var(--muted);
-}
-.mx-alert-row.is-read .mx-alert-text p {
-  color: var(--faint);
+  font-weight: var(--fw-regular);
 }
 .mx-alert-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.mx-alert-unread {
+  order: 3;
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--blue);
 }
 .mx-alert-mark {
   display: grid;
@@ -923,27 +898,24 @@ table.mx-table {
   width: 40px;
   height: 40px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 50%;
   background: transparent;
   color: var(--muted);
   transition:
-    background var(--dur-fast),
+    background-color var(--dur-fast),
     color var(--dur-fast);
 }
 .mx-alert-mark:hover {
-  background: var(--surface2);
+  background: var(--surface);
   color: var(--text);
 }
 @media (max-width: 759px) {
-  .mx-alert-group {
-    padding: 6px 18px;
-  }
-  .mx-alert-row {
-    grid-template-columns: 12px minmax(0, 1fr);
+  .mx-alert-row.ds-row {
+    --cols: auto minmax(0, 1fr);
     align-items: start;
   }
-  .mx-alert-dot {
-    margin-top: 8px;
+  .mx-alert-icon {
+    margin-top: 2px;
   }
   .mx-alert-actions {
     grid-column: 2;
