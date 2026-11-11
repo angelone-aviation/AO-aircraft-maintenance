@@ -12,21 +12,21 @@
 import {
   lazy,
   Suspense,
+  useMemo,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import { Link } from "@tanstack/react-router";
 import {
+  AirplaneTakeoff,
   AirplaneTilt,
-  ArrowUpRight,
   BookOpen,
   ClipboardText,
   Clock,
   HourglassMedium,
   Info,
   Package,
-  Plus,
   Star,
   Warning,
   WarningCircle,
@@ -37,7 +37,6 @@ import { useWorkspace } from "../data/store";
 import { isPilotView } from "../domain/pilotView";
 import { overviewSections, type OverviewSection } from "../domain/overview";
 import {
-  aircraftStatusLabels,
   shownAircraftStatus,
   type ShownAircraftStatus,
 } from "../domain/aircraftStatus";
@@ -56,6 +55,7 @@ import {
   type InspectionLimit,
 } from "../domain/maintenance";
 import { deferralExpired } from "../domain/deferrals";
+import { flownByWeek, flownSeconds } from "../domain/flightHours";
 import { limitMeter } from "../domain/remainingMeters";
 import { maintenancePartsPlans, type PartsPlan } from "../domain/partsPlanning";
 import { partsNeedAttention } from "../domain/requiredParts";
@@ -89,6 +89,11 @@ import {
 } from "./AircraftStatus";
 import { FlightReadinessLine } from "./FlightReadiness";
 import {
+  AircraftHoursTrend,
+  FleetReadinessChart,
+  HoursFlownChart,
+} from "./OverviewCharts";
+import {
   AircraftArt,
   Dialog,
   EmptyState,
@@ -101,8 +106,8 @@ import {
   ProgressTrack,
   RoundButton,
   SearchField,
+  SectionHeading,
   StatusPill,
-  Toolbar,
   type IconType,
   type Tone,
 } from "./design";
@@ -114,6 +119,7 @@ const ADAlerts = lazy(() =>
 );
 
 const DAY_MS = 86_400_000;
+const DETAIL_ART_WIDTH = 260;
 const SCHEDULE_TONES: Record<ScheduleState, Tone> = {
   overdue: "danger",
   "due-soon": "warn",
@@ -154,6 +160,8 @@ interface CardProps {
   status: ShownAircraftStatus;
   next: NextDue;
   pilotView: boolean;
+  /** Meter seconds of accepted flights since Monday. */
+  weekSeconds: number;
   favorite: boolean;
   onFavorite: () => void;
   onView: () => void;
@@ -244,10 +252,15 @@ function DashboardSection({
     case "kpis":
       return <FleetKpis s={s} fleet={fleet} pilotView={pilotView} />;
     case "fleet":
-      return <FleetSection d={d} />;
+      return (
+        <>
+          <FleetSection d={d} />
+          <FleetCharts s={s} fleet={fleet} />
+        </>
+      );
     case "adAlerts":
       return (
-        <section className="dash-panel dash-ads">
+        <section className="ds-card dash-ads">
           <Suspense fallback={<Skeleton shape="section" />}>
             <ADAlerts />
           </Suspense>
@@ -265,6 +278,10 @@ function DashboardSection({
 function useDashboard() {
   const { snapshot, favorites, toggleFavorite } = useWorkspace();
   const s = snapshot!;
+  const today = localDate();
+  // Typing in the search box re-renders the page; the due items and the
+  // charts' data only change with the snapshot or the date.
+  const fleet = useMemo(() => fleetOf(s, today), [s, today]);
   // flight: null while closed, "" when no aircraft is chosen yet.
   const [search, setSearch] = useState(""),
     [onlyFavorites, setOnlyFavorites] = useState(false),
@@ -276,7 +293,7 @@ function useDashboard() {
     favorites,
     toggleFavorite,
     pilotView: isPilotView(s),
-    fleet: fleetOf(s),
+    fleet,
     search,
     setSearch,
     onlyFavorites,
@@ -290,10 +307,12 @@ function useDashboard() {
   };
 }
 
-function fleetOf(s: Snapshot) {
-  const today = localDate();
+function fleetOf(s: Snapshot, today: string) {
   const due = dueItems(s, undefined, today);
   const schedules = inspectionSchedules(s, due, today);
+  const statuses = new Map(
+    s.aircraft.map((a) => [a.uuid, shownAircraftStatus(s, a.uuid)]),
+  );
   return {
     today,
     schedules,
@@ -303,6 +322,9 @@ function fleetOf(s: Snapshot) {
       .filter((x) => x.status === "overdue" || x.status === "due-soon")
       .sort(compareInspectionUrgency),
     open: s.discrepancies.filter((d) => d.status === "open"),
+    statuses,
+    statusList: [...statuses.values()],
+    thisWeek: flownByWeek(s, today, 1)[0],
     partsPlans: maintenancePartsPlans(s),
     expiredComponents: expiredComponents(s, due),
   };
@@ -382,7 +404,7 @@ function DashboardHeader({
             className="button primary dash-log-cta"
             onClick={onLog}
           >
-            <Plus size={18} weight="bold" aria-hidden="true" /> Log a flight
+            <AirplaneTakeoff size={18} aria-hidden="true" /> Log a flight
           </button>
         )
       }
@@ -461,15 +483,18 @@ function ReviewKpi({ s }: { s: Snapshot }) {
 function FleetSection({ d }: { d: DashboardState }) {
   const aircrafts = visibleAircraft(d);
   return (
-    <>
-      <Toolbar className="dash-toolbar" end={<FleetFilters d={d} />}>
-        <h2 className="dash-section-title">
-          Aircraft{" "}
-          <span className="dash-count">
-            {String(aircrafts.length).padStart(2, "0")}
-          </span>
-        </h2>
-      </Toolbar>
+    <section className="ds-section dash-fleet">
+      <SectionHeading
+        title={
+          <>
+            Aircraft{" "}
+            <span className="dash-count">
+              {String(aircrafts.length).padStart(2, "0")}
+            </span>
+          </>
+        }
+        end={<FleetFilters d={d} />}
+      />
       {aircrafts.length > 0 ? (
         <div className="dash-grid">
           {aircrafts.map((a, index) => (
@@ -479,7 +504,17 @@ function FleetSection({ d }: { d: DashboardState }) {
       ) : (
         <NoAircraft d={d} />
       )}
-    </>
+    </section>
+  );
+}
+
+function FleetCharts({ s, fleet }: FleetProps) {
+  if (!s.aircraft.length) return null;
+  return (
+    <div className="dash-charts">
+      <HoursFlownChart s={s} today={fleet.today} />
+      <FleetReadinessChart statuses={fleet.statusList} />
+    </div>
   );
 }
 
@@ -499,7 +534,7 @@ function FleetFilters({ d }: { d: DashboardState }) {
     <>
       <button
         type="button"
-        className="dash-fav-toggle"
+        className="ds-chip"
         aria-pressed={d.onlyFavorites}
         onClick={() => d.setOnlyFavorites(!d.onlyFavorites)}
       >
@@ -511,7 +546,6 @@ function FleetFilters({ d }: { d: DashboardState }) {
         Favorites
       </button>
       <SearchField
-        className="dash-search"
         label="Search aircraft"
         value={d.search}
         onChange={d.setSearch}
@@ -526,7 +560,8 @@ function cardProps(d: DashboardState, a: Aircraft, index: number): CardProps {
     index,
     aircraft: a,
     s,
-    status: shownAircraftStatus(s, a.uuid),
+    status: fleet.statuses.get(a.uuid) ?? shownAircraftStatus(s, a.uuid),
+    weekSeconds: flownSeconds(fleet.thisWeek, a.uuid),
     next: nextDue(fleet.schedules.get(a.uuid) ?? [], a, fleet.today),
     pilotView,
     favorite: d.favorites.includes(a.uuid),
@@ -592,36 +627,34 @@ function MaintenanceOutlook({ s, fleet }: FleetProps) {
   const count = due.length + open.length + otherPlans.length;
   const registration = (uuid: string) => registrationOf(s, uuid);
   return (
-    <section className="dash-panel dash-outlook">
-      <OutlookHead count={count} anyDue={due.length > 0} />
-      {due.map((x) => (
-        <InspectionOutlook
-          key={x.i.uuid}
-          schedule={x}
-          registration={registration(x.i.aircraftUuid)}
-          today={today}
-        />
-      ))}
-      {open.map((d) => (
-        <DiscrepancyOutlook
-          key={d.uuid}
-          report={d}
-          registration={registration(d.aircraftUuid)}
-          today={today}
-        />
-      ))}
-      {otherPlans.map((p) => (
-        <OutlookRow
-          key={p.uuid}
-          to="/components"
-          icon={Package}
-          tone="warn"
-          title={p.label}
-          sub={registration(p.aircraftUuid)}
-        >
-          <PartsAvailability parts={p.parts} />
-        </OutlookRow>
-      ))}
+    <section className="ds-section dash-outlook">
+      <OutlookHead count={count} />
+      <div className="ds-rows">
+        {!due.length && <OutlookEmpty />}
+        {due.map((x) => (
+          <InspectionOutlook
+            key={x.i.uuid}
+            schedule={x}
+            registration={registration(x.i.aircraftUuid)}
+            today={today}
+          />
+        ))}
+        {open.map((d) => (
+          <DiscrepancyOutlook
+            key={d.uuid}
+            report={d}
+            registration={registration(d.aircraftUuid)}
+            today={today}
+          />
+        ))}
+        {otherPlans.map((p) => (
+          <PartsOutlook
+            key={p.uuid}
+            plan={p}
+            registration={registration(p.aircraftUuid)}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -639,22 +672,47 @@ function otherUpcomingPlans({ partsPlans, due, open }: Fleet) {
 const registrationOf = (s: Snapshot, uuid: string) =>
   s.aircraft.find((a) => a.uuid === uuid)?.registration ?? "Unknown aircraft";
 
-function OutlookHead({ count, anyDue }: { count: number; anyDue: boolean }) {
+function OutlookHead({ count }: { count: number }) {
   return (
-    <>
-      <div className="dash-panel-head">
-        <h2>Maintenance outlook</h2>
+    <SectionHeading
+      title="Maintenance outlook"
+      end={
         <StatusPill tone={count ? "warn" : "neutral"} dot={false}>
           {count} {count === 1 ? "item" : "items"}
         </StatusPill>
-      </div>
-      {!anyDue && (
-        <div className="dash-outlook-empty">
-          <strong>No approaching inspections</strong>
-          <span>Missing schedules remain unverified.</span>
-        </div>
-      )}
-    </>
+      }
+    />
+  );
+}
+
+function OutlookEmpty() {
+  return (
+    <div className="ds-row dash-outlook-empty">
+      <span>
+        <strong>No approaching inspections</strong>
+        <small>Missing schedules remain unverified.</small>
+      </span>
+    </div>
+  );
+}
+
+function PartsOutlook({
+  plan,
+  registration,
+}: {
+  plan: PartsPlan;
+  registration: string;
+}) {
+  return (
+    <OutlookRow
+      to="/components"
+      icon={Package}
+      tone="warn"
+      title={plan.label}
+      sub={registration}
+    >
+      <PartsAvailability parts={plan.parts} />
+    </OutlookRow>
   );
 }
 
@@ -748,7 +806,7 @@ function OutlookRow({
   children?: ReactNode;
 }) {
   return (
-    <Link to={to} className="dash-outlook-row">
+    <Link to={to} className="ds-row dash-outlook-row">
       <IconTile icon={icon} tone={tone} />
       <span className="dash-outlook-text">
         <strong className="dash-outlook-title">{title}</strong>
@@ -764,23 +822,21 @@ function OutlookRow({
 
 function RecordsCallout() {
   return (
-    <section className="dash-callout">
-      <div className="dash-callout-text">
-        <p className="eyebrow">BEFORE YOUR NEXT FLIGHT</p>
-        <h2>
-          Good records.
-          <br />
-          Better decisions.
-        </h2>
-        <p className="dash-callout-body">
-          Log each flight, report what you find, and keep your team informed —
-          even when you’re away from a connection.
-        </p>
-        <p className="dash-callout-foot">
-          Dashboard indicators summarize recorded data. Missing information
-          never implies aircraft readiness.
-        </p>
-      </div>
+    <section className="ds-card dash-callout">
+      <p className="eyebrow">BEFORE YOUR NEXT FLIGHT</p>
+      <h2>
+        Good records.
+        <br />
+        Better decisions.
+      </h2>
+      <p className="dash-callout-body">
+        Log each flight, report what you find, and keep your team informed —
+        even when you’re away from a connection.
+      </p>
+      <p className="dash-callout-foot">
+        Dashboard indicators summarize recorded data. Missing information never
+        implies aircraft readiness.
+      </p>
     </section>
   );
 }
@@ -993,68 +1049,63 @@ function AircraftCard(card: CardProps) {
   const headingId = `dash-reg-${a.uuid}`;
   return (
     <article
-      className="dash-card"
+      className="ds-card rise lift dash-card"
       aria-labelledby={headingId}
       style={{ "--i": index } as CSSProperties}
     >
-      <FlightReadinessLine status={status} className="readiness-strip" />
-      <CardHead {...card} headingId={headingId} />
-      {(status.reasons.length > 0 || pilotView) && <CardNotes {...card} />}
-      <CardMeters aircraft={a} />
+      <CardHead aircraft={a} headingId={headingId} />
+      <CardFlags {...card} />
+      <FlightReadinessLine status={status} stacked />
+      {(status.reasons.length > 1 || pilotView || card.componentWarning) && (
+        <CardNotes {...card} />
+      )}
+      <CardMeters aircraft={a} weekSeconds={card.weekSeconds} />
       <CardTimeline next={card.next} />
       {card.partsAttention && (
-        <div className="dash-card-parts">
-          <StatusPill tone="warn">Parts need attention</StatusPill>
-        </div>
+        <StatusPill tone="warn" icon={Package} className="dash-card-parts">
+          Parts need attention
+        </StatusPill>
       )}
       <CardActions {...card} />
     </article>
   );
 }
 
+// An uploaded photo takes the place of the stock aircraft picture.
 function CardHead({
   aircraft: a,
-  status,
-  favorite,
-  onFavorite,
   headingId,
-}: CardProps & { headingId: string }) {
+}: {
+  aircraft: Aircraft;
+  headingId: string;
+}) {
   return (
     <header className="dash-card-head">
       <div className="dash-card-id">
-        {a.photoUrl && (
-          <img
-            className="dash-card-photo"
-            src={a.photoUrl}
-            alt={`${a.registration} aircraft`}
-            loading="lazy"
-          />
-        )}
         <h3 id={headingId}>{a.registration}</h3>
+        <p className="dash-card-model">
+          {a.make} {a.model}
+          <span className="dash-card-program">
+            {" · "}
+            {a.program || "No program assigned"}
+          </span>
+        </p>
       </div>
-      <CardFlags
-        aircraft={a}
-        status={status}
-        favorite={favorite}
-        onFavorite={onFavorite}
-      />
-      <p className="dash-card-model">
-        {a.make} {a.model}
-        <span className="dash-card-program">
-          {" · "}
-          {a.program || "No program assigned"}
-        </span>
-      </p>
+      {a.photoUrl ? (
+        <img
+          className="dash-card-photo"
+          src={a.photoUrl}
+          alt={`${a.registration} aircraft`}
+          loading="lazy"
+        />
+      ) : (
+        <AircraftArt className="dash-card-art" />
+      )}
     </header>
   );
 }
 
-function CardFlags({
-  aircraft: a,
-  status,
-  favorite,
-  onFavorite,
-}: Pick<CardProps, "aircraft" | "status" | "favorite" | "onFavorite">) {
+function CardFlags({ aircraft: a, status, favorite, onFavorite }: CardProps) {
   return (
     <div className="dash-card-flags">
       <AircraftStatusBadge status={status} />
@@ -1066,7 +1117,7 @@ function CardFlags({
         onClick={onFavorite}
       >
         <Star
-          size={20}
+          size={19}
           weight={favorite ? "fill" : "regular"}
           aria-hidden="true"
         />
@@ -1075,6 +1126,8 @@ function CardFlags({
   );
 }
 
+// The OK-to-fly line already gives a single reason in full, so the list
+// shows only when there are more.
 function CardNotes({
   aircraft: a,
   status,
@@ -1084,45 +1137,47 @@ function CardNotes({
   return (
     <div className="dash-card-notes">
       {pilotView && (
-        <StatusPill tone={operationalTone(a)}>
+        <StatusPill tone={operationalTone(a)} icon={Info}>
           Profile status: {a.operationalStatus}
         </StatusPill>
       )}
       {componentWarning && (
         <p className="dash-card-warning">
-          <Warning size={16} weight="bold" aria-hidden="true" />
+          <Warning size={16} aria-hidden="true" />
           Component service limits need maintenance review.
         </p>
       )}
-      <AircraftStatusReasons
-        status={status}
-        label={`${a.registration} status reasons`}
-      />
+      {status.reasons.length > 1 && (
+        <AircraftStatusReasons
+          status={status}
+          label={`${a.registration} status reasons`}
+        />
+      )}
     </div>
   );
 }
 
-function CardMeters({ aircraft: a }: { aircraft: Aircraft }) {
+function CardMeters({
+  aircraft: a,
+  weekSeconds,
+}: {
+  aircraft: Aircraft;
+  weekSeconds: number;
+}) {
   const total = readTotalSeconds(a);
   return (
-    <dl className="dash-meters">
-      <div>
-        <dt>Total</dt>
-        <dd>
-          {total === undefined ? (
-            "Not recorded"
-          ) : (
-            <>
-              {hours(total)}
-              <span className="dash-unit"> h</span>
-            </>
-          )}
-        </dd>
-      </div>
+    <dl className="ds-facts dash-meters">
+      <Meter term="Total">
+        {total === undefined ? "Not recorded" : <HoursValue seconds={total} />}
+      </Meter>
       <Meter term="Hobbs">{tenths(a.currentHobbs)}</Meter>
       <Meter term="Tach">{tenths(a.currentTach)}</Meter>
       <Meter term="Landings">{a.landings.toLocaleString()}</Meter>
       {a.turbine && <Meter term="Cycles">{a.cycles.toLocaleString()}</Meter>}
+      <Meter term="This week">
+        {tenths(weekSeconds)}
+        <span className="dash-unit"> h</span>
+      </Meter>
     </dl>
   );
 }
@@ -1162,7 +1217,6 @@ function CardTimeline({ next }: { next: NextDue }) {
         <ProgressTrack
           value={pct / 100}
           tone={next.tone}
-          marker
           label={`${next.reference}: ${pct}% of the interval used`}
         />
       )}
@@ -1180,63 +1234,55 @@ function CardTimeline({ next }: { next: NextDue }) {
 
 function CardActions({ aircraft: a, s, pilotView, onView, onLog }: CardProps) {
   return (
-    <div className="dash-card-actions">
-      <div className="dash-card-links">
-        <button
-          type="button"
-          className="text-button dash-link"
-          onClick={onView}
-        >
-          View aircraft <ArrowUpRight size={15} aria-hidden="true" />
+    <div className="ds-card-foot dash-card-actions">
+      {can(s, a.uuid, "flight") && (
+        <button type="button" className="button primary small" onClick={onLog}>
+          <AirplaneTakeoff size={16} aria-hidden="true" /> Log flight
         </button>
+      )}
+      <div className="dash-card-links">
         {pilotView && can(s, a.uuid, "discrepancy") && (
-          <Link className="text-button dash-link" to="/discrepancies">
+          <Link className="ds-link" to="/discrepancies">
             Report a problem
           </Link>
         )}
-      </div>
-      {can(s, a.uuid, "flight") && (
-        <button
-          type="button"
-          className="button primary small dash-card-log"
-          onClick={onLog}
-        >
-          <Plus size={15} weight="bold" aria-hidden="true" /> Log flight
+        <button type="button" className="ds-link" onClick={onView}>
+          View aircraft <ArrowRight size={15} aria-hidden="true" />
         </button>
-      )}
+      </div>
     </div>
   );
 }
 
 function AircraftDetail(detail: DetailProps) {
-  const { aircraft: a, s, pilotView } = detail;
+  const { aircraft: a, s } = detail;
   const status = shownAircraftStatus(s, a.uuid);
   return (
     <Dialog
       title={a.registration}
+      size="wide"
       onClose={detail.onClose}
       className="dash-detail"
-      header={<DetailHero {...detail} status={status} />}
+      header={
+        <RoundButton
+          label="Close dialog"
+          onClick={detail.onClose}
+          className="dash-detail-close"
+        />
+      }
       footer={<DetailActions {...detail} />}
     >
-      <FlightReadinessLine status={status} />
+      <DetailHero aircraft={a} status={status} />
       <DetailStats aircraft={a} />
-      <StatusNotes aircraft={a} status={status} />
-      <div className="dash-detail-section dash-detail-inspections">
-        <AircraftInspectionSchedules key={a.uuid} aircraft={a} state={s} />
-        {!pilotView && (
-          <Link to="/inspections" className="dash-detail-manage">
-            Manage <ArrowRight size={14} aria-hidden="true" />
-          </Link>
-        )}
+      <div className="dash-detail-cols">
+        <div className="dash-detail-col dash-detail-side">
+          <StatusNotes aircraft={a} status={status} />
+          <DetailHours {...detail} />
+        </div>
+        <div className="dash-detail-col">
+          <DetailRecords {...detail} />
+        </div>
       </div>
-      <div className="dash-detail-section dash-detail-ads">
-        <Suspense fallback={<Skeleton shape="section" />}>
-          <ADAlerts aircraftUuid={a.uuid} />
-        </Suspense>
-      </div>
-      <AircraftForm337 state={s} aircraft={a} />
-      {!pilotView && <DetailParts {...detail} />}
     </Dialog>
   );
 }
@@ -1244,28 +1290,23 @@ function AircraftDetail(detail: DetailProps) {
 function DetailHero({
   aircraft: a,
   status,
-  onClose,
-}: DetailProps & { status: ShownAircraftStatus }) {
+}: {
+  aircraft: Aircraft;
+  status: ShownAircraftStatus;
+}) {
   return (
     <div className="dash-detail-hero">
-      <AircraftArt className="dash-detail-art" />
-      <RoundButton
-        label="Close dialog"
-        onNavy
-        onClick={onClose}
-        className="dash-detail-close"
-      />
-      <span
-        className={"dash-detail-pill dash-dot-" + STATUS_TONE[status.level]}
-      >
-        <span className="dash-detail-dot" aria-hidden="true" />
-        {aircraftStatusLabels[status.level]}
-      </span>
-      <h2>{a.registration}</h2>
-      <p className="dash-detail-sub">
-        {a.make} {a.model} · Serial {a.serial} ·{" "}
-        {a.program || "No program assigned"}
-      </p>
+      <div className="dash-detail-id">
+        <p className="eyebrow">AIRCRAFT</p>
+        <h2>{a.registration}</h2>
+        <p className="dash-detail-sub">
+          {a.make} {a.model} · Serial {a.serial} ·{" "}
+          {a.program || "No program assigned"}
+        </p>
+        <AircraftStatusBadge status={status} className="dash-detail-pill" />
+        <FlightReadinessLine status={status} />
+      </div>
+      <AircraftArt width={DETAIL_ART_WIDTH} className="dash-detail-art" />
     </div>
   );
 }
@@ -1283,7 +1324,7 @@ function DetailActions({ aircraft: a, s, onLog }: DetailProps) {
       </Link>
       {can(s, a.uuid, "flight") && (
         <button type="button" className="button primary" onClick={onLog}>
-          <Plus size={18} weight="bold" aria-hidden="true" /> Log flight
+          <AirplaneTakeoff size={18} aria-hidden="true" /> Log flight
         </button>
       )}
     </div>
@@ -1292,7 +1333,7 @@ function DetailActions({ aircraft: a, s, onLog }: DetailProps) {
 
 function DetailStats({ aircraft: a }: { aircraft: Aircraft }) {
   return (
-    <dl className="dash-detail-stats">
+    <dl className="ds-card ds-facts bare dash-detail-stats">
       <HoursStat
         term={
           a.helicopter ? (
@@ -1317,10 +1358,7 @@ function DetailStats({ aircraft: a }: { aircraft: Aircraft }) {
         <HoursStat term="Collective hourmeter" seconds={a.currentCyclicHobbs} />
       )}
       <Meter term="Landings">{a.landings.toLocaleString()}</Meter>
-      <div>
-        <dt>Tracking meter</dt>
-        <dd className="dash-detail-text">{aircraftMeterLabels[a.meter]}</dd>
-      </div>
+      <Meter term="Tracking meter">{aircraftMeterLabels[a.meter]}</Meter>
     </dl>
   );
 }
@@ -1352,9 +1390,7 @@ function StatusNotes({
   const tone = STATUS_TONE[status.level];
   return (
     <section className="dash-detail-section" aria-labelledby="dash-notes">
-      <h3 className="dash-detail-label" id="dash-notes">
-        Status notes
-      </h3>
+      <h3 id="dash-notes">Status notes</h3>
       <ul className="dash-notes" aria-label={`${a.registration} status notes`}>
         {status.reasons.map((r) => (
           <li
@@ -1378,6 +1414,38 @@ function StatusNotes({
   );
 }
 
+function DetailHours({ aircraft: a, s }: DetailProps) {
+  return (
+    <section className="dash-detail-section" aria-labelledby="dash-hours">
+      <h3 id="dash-hours">Hours flown</h3>
+      <AircraftHoursTrend aircraft={a} s={s} today={localDate()} />
+    </section>
+  );
+}
+
+function DetailRecords(detail: DetailProps) {
+  const { aircraft: a, s, pilotView } = detail;
+  return (
+    <>
+      <div className="dash-detail-section dash-detail-inspections">
+        <AircraftInspectionSchedules key={a.uuid} aircraft={a} state={s} />
+        {!pilotView && (
+          <Link to="/inspections" className="ds-link dash-detail-manage">
+            Manage <ArrowRight size={14} aria-hidden="true" />
+          </Link>
+        )}
+      </div>
+      <div className="dash-detail-section dash-detail-ads">
+        <Suspense fallback={<Skeleton shape="section" />}>
+          <ADAlerts aircraftUuid={a.uuid} />
+        </Suspense>
+      </div>
+      <AircraftForm337 state={s} aircraft={a} />
+      {!pilotView && <DetailParts {...detail} />}
+    </>
+  );
+}
+
 function DetailParts({ aircraft: a, partsPlans }: DetailProps) {
   const plans = partsPlans.filter((p) => p.aircraftUuid === a.uuid);
   return (
@@ -1385,9 +1453,7 @@ function DetailParts({ aircraft: a, partsPlans }: DetailProps) {
       className="dash-detail-section"
       aria-labelledby="dash-detail-parts"
     >
-      <h3 className="dash-detail-label" id="dash-detail-parts">
-        Maintenance parts availability
-      </h3>
+      <h3 id="dash-detail-parts">Maintenance parts availability</h3>
       {plans.length ? (
         plans.map((p) => (
           <div className="dash-detail-part" key={p.uuid}>
