@@ -267,6 +267,10 @@ Raised by the audit; not batches. Update as batches find more.
     - `filesByRecord` reads evidence and work-order files stored without an aircraft once more on every snapshot, across programs. Remove that read once `attachments:backfillAircraft` has run on every deployment.
     - `adAircraftUuid` (`src/domain/adOwnership.ts`) and `partsInventory` (`src/domain/requiredParts.ts`) still scan the managed records once per AD or record while the snapshot is scoped.
     - The board view reads every job card so its cost totals can price parts issued against them; a stored per-work-order cost total would remove that read.
+70. **Shared design layer, left after the redesign foundation (2026-11-11):**
+    - `src/components/design.tsx` is about 1,250 lines with two responsibilities: presentational building blocks, and the dialog with its discard guard and history blocker. The dialog (`Dialog`, `DialogFrame`, `markFormFilled`, `setDialogHistory` and their hooks) passes the deletion test as its own module, `dialog.tsx`, re-exported from `design.tsx` so imports stay as they are.
+    - `--navy`, `--brand-blue`, the `--on-navy-*` tokens (`src/styles/tokens.css`) and `RoundButton`'s `onNavy` are kept only for the dark panels of screens not yet moved to the white language (`dashboard.css`, `operations.css`, `checklists.css`). Remove them when no screen sheet uses them.
+    - `.tabs`, `.search`, `.stats`/`.stat`, `.row-icon` and `.empty` in `src/styles.css` duplicate `Segmented`, `SearchField`, `KpiStrip`, `IconTile` and `EmptyState`; move their callers to the components and delete the classes.
 
 ## Tier 1: foundation and leaf modules
 
