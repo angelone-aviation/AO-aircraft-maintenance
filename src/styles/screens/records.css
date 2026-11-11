@@ -1,8 +1,10 @@
 /*
  * Responsibility: Styles the Records screens in src/components/Records.tsx
- *   (Flight log, Discrepancies, Sync center, Change history) and their dialogs.
+ *   (Flight log, Discrepancies, Sync center, Change history), the weekly
+ *   summary and their dialogs.
  * Layer: UI. Screen styles; every selector is scoped by a `rec-` class.
- * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`).
+ * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`),
+ *   src/styles.css (table, .button).
  */
 
 /* Status words are stored lower-case ("accepted", "open"); show them
@@ -27,10 +29,6 @@
   color: var(--text);
   font-size: 14px;
   line-height: 1.3;
-  transition: transform var(--dur-fast) var(--ease);
-}
-.rec-sync-chip:hover {
-  transform: translateY(-1px);
 }
 .rec-sync-chip > svg {
   color: var(--blue-on-soft);
@@ -41,7 +39,7 @@
   align-items: center;
   gap: 4px;
   color: var(--blue-on-soft);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 .rec-chips {
@@ -55,40 +53,76 @@
   z-index: 1;
 }
 .ds-pill.rec-count {
-  font-size: 14px;
-  padding: 7px 13px;
+  font-size: 13.5px;
+  padding: 6px 12px;
 }
-
-/* ---------- Change history: weekly summary ---------- */
-.rec-period {
-  display: flex;
+/* Wide enough for the placeholder that lists what the search matches. */
+.rec-search {
+  flex-basis: 340px;
+}
+.rec-select {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  min-height: 46px;
+  max-width: 100%;
+  padding: 0 6px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--muted);
 }
-.rec-period label {
-  color: var(--faint);
-  font-size: 13px;
+.rec-select:focus-within {
+  outline: 3px solid var(--blue);
+  outline-offset: 1px;
 }
-.rec-summary-table {
-  min-width: 720px;
+.rec-select > label {
+  font-size: 14px;
+  font-weight: var(--fw-light);
+  white-space: nowrap;
 }
-.rec-summary-table th[scope="row"] {
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
+.rec-select > select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 42px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
   font-size: 15px;
+  text-overflow: ellipsis;
+}
+.rec-select > select option {
+  background: var(--surface);
   color: var(--text);
 }
 
-/* ---------- Flight log: table card (≥760px) ---------- */
-.rec-table-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  transition: background var(--dur-theme);
+/* ---------- Flight log: weekly charts (not mounted on phones) ---------- */
+.rec-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 22px;
 }
+.rec-charts > .ds-card,
+.rec-family-bar {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.rec-family-bar {
+  margin: 18px 0 22px;
+}
+
+/* ---------- Tables in a card: flight log (≥760px), weekly summary ---------- */
+.rec-table-card {
+  margin-bottom: 22px;
+}
+/* A program with every optional meter has more columns than the card is
+ * wide; they scroll inside the card, never the page. */
 .rec-table-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -97,50 +131,33 @@
   outline: 3px solid var(--blue);
   outline-offset: -3px;
 }
-.rec-table {
-  border-collapse: collapse;
-  width: 100%;
-  min-width: 900px;
-  text-align: left;
-  white-space: nowrap;
-}
-.rec-table th {
-  padding: 16px 22px;
-  background: transparent;
-  border-bottom: 1px solid var(--border);
-  color: var(--faint);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  vertical-align: bottom;
-}
+.rec-table th,
 .rec-table td {
-  padding: 18px 22px;
-  border-top: 1px solid var(--border);
-  border-bottom: 0;
-  color: var(--text);
-  font-size: 15px;
-  line-height: 1.4;
+  padding-inline: 8px;
   vertical-align: top;
 }
-.rec-table tbody tr:first-child td {
-  border-top: 0;
+.rec-table th {
+  vertical-align: bottom;
 }
-.rec-table tbody tr {
-  transition: background var(--dur-fast);
+/* A long heading over short values wraps instead of widening the table. */
+.rec-table th.rec-wrap {
+  min-width: 84px;
+  white-space: normal;
 }
-.rec-table tbody tr:hover {
-  background: var(--surface2);
+.rec-table :is(th, td):first-child {
+  padding-left: 24px;
+}
+.rec-table :is(th, td):last-child {
+  padding-right: 24px;
+}
+.rec-table td {
+  font-size: 14.5px;
+  line-height: 1.4;
 }
 .rec-table .rec-num {
   text-align: right;
-  font-variant-numeric: tabular-nums;
 }
-.rec-table td.rec-num {
-  font-size: 14.5px;
-}
-/* Status and Correct / Review stay in view while the wide table scrolls
+/* Status and Correct / Review stay in view while a wide table scrolls
  * sideways; the action column has a fixed width so Status can sit beside it. */
 .rec-table .rec-status,
 .rec-table .rec-actions {
@@ -148,55 +165,47 @@
   right: 0;
   z-index: 1;
   background: var(--surface);
-  transition: background var(--dur-fast);
-}
-.rec-table .rec-status {
-  box-shadow: inset 1px 0 0 var(--border);
 }
 .rec-table .rec-status.before-actions {
-  right: 124px;
+  right: 104px;
 }
 .rec-table .rec-actions {
-  width: 124px;
-  min-width: 124px;
-  max-width: 124px;
-  padding-left: 12px;
+  width: 104px;
+  min-width: 84px;
+  max-width: 104px;
   text-align: right;
 }
-.rec-table tbody tr:hover .rec-status,
-.rec-table tbody tr:hover .rec-actions {
-  background: var(--surface2);
+.rec-table tbody tr:hover :is(.rec-status, .rec-actions) {
+  background: color-mix(in srgb, var(--surface2) 60%, var(--surface));
+}
+.rec-table td .button {
+  margin: 0;
 }
 .rec-reg {
   display: block;
-  font-size: 16.5px;
-  font-weight: 600;
+  font-size: 15.5px;
+  font-weight: var(--fw-medium);
 }
-.rec-when {
-  display: block;
-  margin-top: 2px;
-  font-size: 13.5px;
-  color: var(--muted);
-}
+.rec-when,
 .rec-from {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
-  color: var(--faint);
+  font-size: 12.5px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
 }
 .rec-route {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 14.5px;
-  font-variant-numeric: tabular-nums;
 }
 .rec-route > svg {
-  color: var(--faint);
+  color: var(--muted);
   flex: none;
 }
 .rec-unset {
-  color: var(--faint);
+  color: var(--muted);
+  font-weight: var(--fw-light);
 }
 .rec-starts > div + div {
   margin-top: 4px;
@@ -208,12 +217,11 @@
 }
 .rec-fluids {
   white-space: normal;
-  min-width: 220px;
-  max-width: 300px;
+  max-width: 280px;
 }
 .rec-fluids strong {
   display: block;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .rec-fluids small {
   display: block;
@@ -225,23 +233,79 @@
 .rec-fluids > div + small {
   margin-top: 8px;
 }
-
-/* ---------- Flight log: stacked cards (<760px) ---------- */
-.rec-flight-cards {
+/* In a table row the photo control reads as a link, so the row keeps one
+ * button: Correct or Review. */
+.rec-photos .lp-button.button {
+  min-height: 0;
+  width: 124px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--blue-ink);
+  font-size: 13.5px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  transform: none;
+}
+.rec-photos .lp-button.button:hover {
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.rec-summary-table {
+  min-width: 720px;
+}
+/* Family names are long; wrapped headings keep eight columns in the card. */
+.rec-summary-table thead th {
+  white-space: normal;
+}
+.rec-summary-table tbody tr:last-child th {
+  border-bottom: 0;
+}
+/* .rec-cap makes its element inline-block, which would drop the caption
+ * between the head and the body. */
+.rec-summary-table caption {
+  display: table-caption;
+  padding: 20px 24px 6px;
+  color: var(--text);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+  text-align: left;
+}
+.rec-summary-table th[scope="row"] {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.rec-period {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rec-period label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- Flight log: restacked rows in one card (<760px) ---------- */
+.rec-flight-cards {
+  margin-bottom: 22px;
 }
 .rec-flight-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  display: grid;
+  gap: 14px;
   min-width: 0;
-  transition: background var(--dur-theme);
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.rec-flight-card:last-child {
+  border-bottom: 0;
 }
 .rec-flight-card-head {
   display: flex;
@@ -254,119 +318,105 @@
 }
 .rec-flight-card-head strong {
   display: block;
-  font-size: 19px;
-  font-weight: 600;
-  line-height: 1.25;
+  font-size: 17px;
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
 }
 .rec-facts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 12px 10px;
+  gap: 12px 14px;
   margin: 0;
-  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 .rec-facts > div {
   min-width: 0;
 }
-.rec-facts dt {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 1.3px;
-  text-transform: uppercase;
-  color: var(--faint);
+.rec-facts dt,
+.rec-card-extra > h3 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
 }
 .rec-facts dd {
   margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: var(--fw-medium);
   overflow-wrap: anywhere;
 }
 .rec-card-extra {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
-.rec-card-extra > h3 {
-  margin: 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 1.3px;
-  text-transform: uppercase;
-  color: var(--faint);
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 .rec-card-extra .rec-fluids {
   max-width: none;
-  min-width: 0;
 }
 .rec-card-action.button {
-  width: 100%;
+  justify-self: start;
   min-height: 44px;
+  min-width: 120px;
 }
 
-/* ---------- Discrepancies ---------- */
-.rec-disc-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
-  gap: 24px;
-  margin-bottom: 24px;
+/* ---------- Discrepancies: rows in one card ---------- */
+.rec-reports {
+  margin-bottom: 22px;
 }
-.rec-disc-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  min-width: 0;
-  transition: background var(--dur-theme);
+.rec-report-row {
+  --cols: minmax(0, 1.5fr) minmax(0, 0.9fr) 132px 348px;
+  align-items: start;
 }
-.rec-disc-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+/* A report is one line plus what it carries beneath; the hairline belongs
+ * to the report, not to its first line. */
+.rec-report {
+  border-bottom: 1px solid var(--border);
 }
-.rec-disc-id {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.rec-report:last-child {
+  border-bottom: 0;
+}
+.rec-report > .ds-row {
+  border-bottom: 0;
+}
+.rec-report-problem,
+.rec-report-by {
   min-width: 0;
 }
-.rec-disc-id strong {
-  display: block;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.25;
-}
-.rec-disc-id span {
-  font-size: 13.5px;
-  color: var(--muted);
+.rec-disc-text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .rec-disc-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.rec-disc-text {
-  margin: 4px 0 0;
-  font-size: 16.5px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  text-wrap: pretty;
+.rec-disc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
-.rec-disc-meta {
-  margin: -6px 0 0;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
-  color: var(--faint);
+.rec-disc-actions > .button {
+  white-space: nowrap;
+}
+.rec-report-extra {
+  display: grid;
+  gap: 12px;
+  padding: 0 24px 18px;
+  min-width: 0;
+}
+.rec-report-extra:empty {
+  display: none;
 }
 .rec-note-block {
-  padding: 16px 18px;
+  max-width: 76ch;
+  padding: 14px 16px;
   border-radius: var(--radius-control);
   color: var(--text);
   font-size: 14.5px;
@@ -388,6 +438,9 @@
 .rec-resolution p {
   white-space: pre-wrap;
 }
+.rec-resolution small {
+  color: var(--text);
+}
 .rec-deferral {
   background: var(--warn-bg);
 }
@@ -395,17 +448,17 @@
   margin-top: 6px;
 }
 .rec-deferral .muted {
-  color: var(--muted);
+  color: var(--text);
 }
 .rec-note-label {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: var(--good);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .rec-disc-tools {
@@ -417,30 +470,18 @@
 .rec-disc-tools:empty {
   display: none;
 }
-.rec-disc-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: auto;
-  padding-top: 4px;
-}
-.rec-disc-actions > .button {
-  flex: 1 1 200px;
-  min-height: 46px;
-  white-space: nowrap;
-}
-.rec-disc-actions > .rec-resolve {
-  flex-basis: 180px;
-}
 
-/* ---------- Generic list screens (Sync center, Change history) ---------- */
+/* ---------- Sync center and Change history lists ---------- */
 .rec-stat-date {
   display: block;
   margin-top: 4px;
   color: var(--muted);
   font-size: 13.5px;
-  font-weight: 400;
+  font-weight: var(--fw-light);
   letter-spacing: 0;
+}
+.rec-list-card {
+  margin-bottom: 22px;
 }
 .rec-list-head {
   display: flex;
@@ -448,23 +489,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px 16px;
-  padding: 18px 0 4px;
+  padding: 22px 24px 4px;
 }
 .rec-list-head h2 {
   margin: 0;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .rec-list-note {
-  margin: 0 0 14px;
+  margin: 0;
+  padding: 0 24px 18px;
   color: var(--muted);
   font-size: 14px;
+  font-weight: var(--fw-light);
   line-height: 1.5;
-  max-width: 72ch;
-}
-.rec-list-note:last-child {
-  margin-bottom: 18px;
+  max-width: 76ch;
 }
 .rec-entry {
   border-top: 1px solid var(--border);
@@ -487,17 +527,23 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+.rec-entry .ds-list-meta {
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: var(--fw-light);
+}
 .rec-entry-actions {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 8px;
 }
+/* Indented to the row's text, past its 24px icon and 14px gap. */
 .rec-entry-extra {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 0 0 12px 58px;
+  padding: 0 24px 14px 62px;
   font-size: 14.5px;
   color: var(--muted);
   min-width: 0;
@@ -520,9 +566,9 @@
   display: inline-flex;
   align-items: center;
   min-height: 40px;
-  color: var(--blue);
+  color: var(--blue-ink);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   cursor: pointer;
 }
 .rec-entry-extra pre {
@@ -544,67 +590,24 @@
 }
 .rec-audit-values h4 {
   margin: 8px 0 4px;
-  color: var(--faint);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-.rec-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  max-width: 100%;
-  padding: 0 6px 0 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-  color: var(--faint);
-  transition: border-color var(--dur-fast);
-}
-.rec-select:hover,
-.rec-select:focus-within {
-  border-color: var(--blue);
-}
-.rec-select > label {
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.rec-select > select {
-  min-width: 0;
-  max-width: 100%;
-  min-height: 42px;
-  padding: 0 6px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 15px;
-  text-overflow: ellipsis;
-}
-/* Wide enough for the placeholder that lists what the search matches. */
-.rec-search {
-  flex-basis: 340px;
-}
-.rec-select > select option {
-  background: var(--surface);
-  color: var(--text);
-}
-.rec-list-status {
-  padding: 12px 0;
-  color: var(--muted);
 }
 .rec-pager {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 10px;
-  padding: 18px 0 20px;
+  gap: 10px 16px;
+  padding: 4px 24px 22px;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.rec-list-card > .rec-pager {
+  padding-top: 16px;
   border-top: 1px solid var(--border);
 }
 .rec-pager:empty {
@@ -613,8 +616,10 @@
 .rec-pager > p {
   margin: 0;
 }
+/* Inside a list card the card is the frame; the empty state needs none. */
 .rec-list-card .ds-empty {
-  margin: 18px 0 22px;
+  margin: 0;
+  border: 0;
 }
 
 /* ---------- Dialog content ---------- */
@@ -624,28 +629,81 @@
 }
 .rec-dialog .ds-dialog-body h3 {
   margin: 26px 0 12px;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.8px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-@media (max-width: 759px) {
-  .rec-disc-card {
-    padding: 20px;
-    gap: 16px;
+/* Hover motion for mouse-and-keyboard screens only (SPEC rule 11);
+ * tokens.css stops it under prefers-reduced-motion. */
+@media (hover: hover) and (pointer: fine) {
+  .rec-sync-chip {
+    transition: transform var(--dur-fast) var(--ease);
   }
-  .rec-disc-text {
-    font-size: 16px;
+  .rec-sync-chip:hover {
+    transform: translateY(-1px);
+  }
+}
+
+/* Below this the two action buttons leave the problem too little room. */
+@media (max-width: 1279px) {
+  .rec-report-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "problem status"
+      "by by"
+      "actions actions";
+    gap: 10px 16px;
+  }
+  .rec-report-problem {
+    grid-area: problem;
+  }
+  .rec-report-by {
+    grid-area: by;
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+  .rec-report-by > small {
+    display: inline;
+  }
+  .rec-report-by > small::before {
+    content: " · ";
+  }
+  .rec-report-row > .rec-disc-pills {
+    grid-area: status;
+    justify-content: flex-end;
+  }
+  .rec-disc-actions {
+    grid-area: actions;
+    justify-content: flex-start;
+  }
+  .rec-reports > .ds-row-head {
+    display: none;
+  }
+}
+@media (max-width: 759px) {
+  .rec-report-extra {
+    padding-inline: 18px;
+  }
+  .rec-disc-actions > .button {
+    flex: 1 1 160px;
+    min-height: 44px;
+  }
+  .rec-list-head,
+  .rec-list-note,
+  .rec-pager {
+    padding-inline: 18px;
   }
   .rec-entry-extra {
-    padding-left: 0;
+    padding-inline: 18px;
   }
   .rec-audit-values {
     grid-template-columns: minmax(0, 1fr);
   }
-  .rec-select {
+  .rec-select,
+  .rec-sync-chip {
     width: 100%;
   }
   .rec-search {
@@ -653,8 +711,5 @@
   }
   .rec-select > select {
     flex: 1;
-  }
-  .rec-sync-chip {
-    width: 100%;
   }
 }

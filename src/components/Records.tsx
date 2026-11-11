@@ -5,9 +5,9 @@
  * Dependencies: src/data (store, auditHistory, pendingEntries,
  *   logbookPhotos), src/domain (model, programs, pilotView, flights,
  *   flightLog, listSearch, flightFluids, deferrals, auditHistory), ./design,
- *   ./ui, ./TermTip,
- *   ./ExportRecordsPackage, ./AuditSummary and the flight, logbook photo,
- *   paper check, deferral, parts, task card and work order components.
+ *   ./ui, ./TermTip, ./FlightLogCharts, ./ExportRecordsPackage,
+ *   ./AuditSummary and the flight, logbook photo, paper check, deferral,
+ *   parts, task card and work order components.
  */
 import "../styles/screens/records.css";
 import { isPilotView } from "../domain/pilotView";
@@ -18,13 +18,7 @@ import { LinkedTaskCards } from "./TaskCards";
 import { AddToWorkOrder } from "./WorkOrders";
 import { WeeklySummary } from "./AuditSummary";
 import { programPermission } from "../domain/programs";
-import {
-  useId,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Airplane,
@@ -52,7 +46,9 @@ import {
   UserPlus,
   Users,
   Warning,
+  WarningCircle,
   WifiSlash,
+  XCircle,
 } from "@phosphor-icons/react";
 import { useWorkspace, type Workspace } from "../data/store";
 import { useAuditHistory } from "../data/auditHistory";
@@ -89,7 +85,6 @@ import { AsyncForm, Field, download, value } from "./ui";
 import {
   Dialog,
   EmptyState,
-  IconTile,
   ListCard,
   ListRow,
   NoticeBar,
@@ -106,6 +101,7 @@ import {
   type Tone,
 } from "./design";
 import { FlightForm } from "./FlightForm";
+import { FlightLogCharts } from "./FlightLogCharts";
 import { FlightSessions } from "./FlightSession";
 import { DeferralStatus, DeferDiscrepancyForm } from "./Deferrals";
 import { FlightLogImportButton } from "./FlightLogImport";
@@ -120,9 +116,6 @@ import { TermTip } from "./TermTip";
 
 const FLIGHT_PHOTO_LABEL = "Add a photo of the logbook line";
 
-// Cards and rows enter one after another; the cap lets long lists settle
-// quickly.
-const STAGGER_CAP = 8;
 const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   hour: "2-digit",
   minute: "2-digit",
@@ -139,10 +132,10 @@ const FLIGHT_FILTERS: { value: FlightStatusFilter; label: string }[] = [
   { value: "review", label: "Needs review" },
   { value: "rejected", label: "Rejected" },
 ];
-const FLIGHT_TONES: Record<Flight["status"], Tone> = {
-  accepted: "good",
-  review: "warn",
-  rejected: "neutral",
+const FLIGHT_LOOKS: Record<Flight["status"], { tone: Tone; icon: IconType }> = {
+  accepted: { tone: "good", icon: CheckCircle },
+  review: { tone: "warn", icon: WarningCircle },
+  rejected: { tone: "neutral", icon: XCircle },
 };
 const ENGINE_LABELS: Record<EngineStart["engine"], string> = {
   single: "Engine",
@@ -203,8 +196,6 @@ interface ReportActions {
 type ReportProps = { s: Snapshot; report: Discrepancy };
 type QueuedEntry = Workspace["queue"][number];
 
-const stagger = (i: number) =>
-  ({ "--i": Math.min(i, STAGGER_CAP) + 1 }) as CSSProperties;
 const shortDate = (at: number | string) =>
   new Date(at).toLocaleDateString(undefined, {
     day: "numeric",
@@ -219,10 +210,11 @@ const dateTime = (at: number | string) =>
  * an aircraft and a status, with a link to the Sync center while the user's
  * flights wait on this device.
  *
- * @returns Cards on a phone, otherwise a table, of the first 50 matching
- *   flights; Show more adds 50 at a time, and changing a filter starts again
- *   at 50. The status counts cover every flight matching the search and
- *   aircraft. The collective, flight time log, cycles and engine start
+ * @returns Stacked rows on a phone, otherwise a table, of the first 50
+ *   matching flights; Show more adds 50 at a time, and changing a filter
+ *   starts again at 50. The status counts cover every flight matching the
+ *   search and aircraft. Above a phone's width, two charts show the matching
+ *   flights' Hobbs hours and count by week. The collective, flight time log, cycles and engine start
  *   readings show only when an aircraft or a matching flight has them. Each
  *   flight shows its logbook page photos and, with flight permission, the
  *   control to add one; a flight just saved is offered one at the top.
@@ -231,7 +223,7 @@ const dateTime = (at: number | string) =>
  */
 export function Flights() {
   const { snapshot: s, queue, online, connected } = useWorkspace();
-  const breakpoint = useBreakpoint();
+  const phone = useBreakpoint() === "phone";
   const [modal, setModal] = useState<"new" | Flight | null>(null),
     [saved, setSaved] = useState<LogbookPhotoTarget | null>(null);
   const view = useFlightLogView(s!);
@@ -257,7 +249,8 @@ export function Flights() {
         pending={pendingFlightCount(s!, queue)}
         view={view}
       />
-      <FlightList log={log} phone={breakpoint === "phone"} />
+      {!phone && <FlightLogCharts flights={view.rows.flights} />}
+      <FlightList log={log} phone={phone} />
       <ShowMoreFlights view={view} />
       {modal && (
         <FlightDialog
@@ -337,7 +330,8 @@ function FlightLogHeader({ s, onNew }: { s: Snapshot; onNew: () => void }) {
   return (
     <PageHeader
       eyebrow="FLIGHT OPERATIONS"
-      title="Flight log"
+      title="Flight"
+      accent="log"
       description="Every flight recorded. Every change accounted for."
       actions={
         <>
@@ -422,13 +416,9 @@ function FlightList({ log, phone }: { log: FlightLog; phone: boolean }) {
     );
   if (!phone) return <FlightTable log={log} />;
   return (
-    <div className="rec-flight-cards">
-      {log.flights.map((f, i) => (
-        <article
-          className="rec-flight-card rise"
-          style={stagger(i)}
-          key={f.uuid}
-        >
+    <div className="ds-rows rec-flight-cards rise">
+      {log.flights.map((f) => (
+        <article className="rec-flight-card" key={f.uuid}>
           <FlightCard log={log} flight={f} />
         </article>
       ))}
@@ -491,7 +481,7 @@ function FlightCard({ log, flight: f }: FlightProps) {
         <CorrectButton
           flight={f}
           correct={log.correct}
-          className="button rec-card-action"
+          className="button small rec-card-action"
         />
       )}
     </>
@@ -557,7 +547,7 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
 
 function FlightTable({ log }: { log: FlightLog }) {
   return (
-    <section className="rec-table-card rise" style={stagger(1)}>
+    <section className="ds-rows rec-table-card rise">
       <div className="rec-table-scroll">
         <table className="rec-table">
           <FlightTableHead log={log} />
@@ -592,7 +582,9 @@ function FlightTableHead({ log }: { log: FlightLog }) {
           {columns.cycles ? "Landings / cycles" : "Landings"}
         </NumberHeading>
         {columns.engineStarts && <th scope="col">Engine starts</th>}
-        <th scope="col">Fuel / oil / checklist</th>
+        <th scope="col" className="rec-wrap">
+          Fuel / oil / checklist
+        </th>
         <th scope="col">Logbook page</th>
         <th scope="col" className={statusClass(log)}>
           Status
@@ -757,7 +749,7 @@ function FlightDialog({
 
 function FlightStatus({ flight }: { flight: Flight }) {
   return (
-    <StatusPill tone={FLIGHT_TONES[flight.status]}>
+    <StatusPill {...FLIGHT_LOOKS[flight.status]}>
       <span className="rec-cap">{flightStatusLabels[flight.status]}</span>
     </StatusPill>
   );
@@ -823,7 +815,7 @@ function EngineStarts({ flight: f }: { flight: Flight }) {
  * description, resolution and reporter, under counts of every open,
  * deferred and grounding report.
  *
- * @returns The report cards. Reporting a problem queues it on this device,
+ * @returns The reports as rows in one card, restacked on a phone. Reporting a problem queues it on this device,
  *   so it works offline; deferring and recording a resolution need a
  *   connection and the resolve permission. Pilot view leaves out the parts,
  *   task card and work order tools.
@@ -926,14 +918,14 @@ function DiscrepancyToolbar({
         onChange={onSearch}
       />
       <div className="rec-chips">
-        <StatusPill tone="warn" className="rec-count">
+        <StatusPill tone="warn" icon={WarningCircle} className="rec-count">
           {open.length} open
         </StatusPill>
         <StatusPill tone="neutral" dot={false} className="rec-count">
           <TermTip term="deferral">{`${deferred} deferred`}</TermTip>
         </StatusPill>
         {grounding > 0 && (
-          <StatusPill tone="danger" className="rec-count">
+          <StatusPill tone="danger" icon={XCircle} className="rec-count">
             {grounding} grounding
           </StatusPill>
         )}
@@ -960,9 +952,14 @@ function ReportList({
     .sort((a, b) => b.createdAt - a.createdAt);
   if (!reports.length) return <NoReports anyListed={listed.length > 0} />;
   return (
-    <div className="rec-disc-grid">
-      {reports.map((d, i) => (
-        <article className="rec-disc-card rise" style={stagger(i)} key={d.uuid}>
+    <div className="ds-rows rec-reports rise">
+      <div className="ds-row ds-row-head rec-report-row" aria-hidden="true">
+        <span>Problem</span>
+        <span>Reported</span>
+        <span>Status</span>
+      </div>
+      {reports.map((d) => (
+        <article className="rec-report" key={d.uuid}>
           <ReportCard
             s={s}
             report={d}
@@ -987,74 +984,85 @@ function NoReports({ anyListed }: { anyListed: boolean }) {
   );
 }
 
+// The row's own line, then whatever the report carries beneath it: its
+// deferral, its resolution and the maintenance tools.
 function ReportCard({
   s,
   report: d,
   pilotView,
   actions,
 }: ReportProps & { pilotView: boolean; actions: ReportActions }) {
-  const reporter = s.members.find((m) => m.id === d.authorId)?.name;
   const resolvable = d.status === "open" && can(s, d.aircraftUuid, "resolve");
   return (
     <>
-      <ReportHead s={s} report={d} />
-      <p className="rec-disc-text">{d.description}</p>
-      <p className="rec-disc-meta">
-        {reporter ? `Reported by ${reporter} · ` : "Reported "}
-        {shortDate(d.createdAt)}
-      </p>
-      {d.deferral && (
-        <div className="rec-note-block rec-deferral">
-          <DeferralStatus report={d} />
+      <div className="ds-row rec-report-row">
+        <ReportProblem s={s} report={d} />
+        <ReportedBy s={s} report={d} />
+        <ReportStatus report={d} />
+        {resolvable && <ReportButtons report={d} actions={actions} />}
+      </div>
+      {(d.deferral || d.resolution || !pilotView) && (
+        <div className="rec-report-extra">
+          {d.deferral && (
+            <div className="rec-note-block rec-deferral">
+              <DeferralStatus report={d} />
+            </div>
+          )}
+          {d.resolution && <ResolutionNote s={s} report={d} />}
+          {!pilotView && <MaintenanceTools report={d} />}
         </div>
       )}
-      {d.resolution && <ResolutionNote s={s} report={d} />}
-      {!pilotView && <MaintenanceTools report={d} />}
-      {resolvable && <ReportButtons report={d} actions={actions} />}
     </>
   );
 }
 
-function ReportHead({ s, report: d }: ReportProps) {
-  const isOpen = d.status === "open";
-  const grounds = isGroundingReport(d);
+function ReportProblem({ s, report: d }: ReportProps) {
   return (
-    <div className="rec-disc-head">
-      <div className="rec-disc-id">
-        <IconTile
-          icon={isOpen ? Warning : CheckCircle}
-          tone={reportTone(isOpen, grounds)}
-          size="md"
-        />
-        <div>
-          <strong>
-            {s.aircraft.find((a) => a.uuid === d.aircraftUuid)?.registration}
-          </strong>
-          <span>
-            {d.flightUuid ? "Linked to a flight" : "Ground / standalone report"}
-          </span>
-        </div>
-      </div>
-      <div className="rec-disc-pills">
-        {grounds && <StatusPill tone="danger">Grounds aircraft</StatusPill>}
-        <StatusPill tone={isOpen ? "warn" : "good"} dot={false}>
-          <span className="rec-cap">{d.status}</span>
-        </StatusPill>
-      </div>
+    <div className="rec-report-problem">
+      <p className="rec-disc-text">{d.description}</p>
+      <small>
+        {s.aircraft.find((a) => a.uuid === d.aircraftUuid)?.registration}
+        {" · "}
+        {d.flightUuid ? "Linked to a flight" : "Ground / standalone report"}
+      </small>
     </div>
   );
 }
 
-function reportTone(isOpen: boolean, grounds: boolean): Tone {
-  if (!isOpen) return "good";
-  return grounds ? "danger" : "warn";
+function ReportedBy({ s, report: d }: ReportProps) {
+  const reporter = s.members.find((m) => m.id === d.authorId)?.name;
+  return (
+    <div className="rec-report-by">
+      {reporter ? `Reported by ${reporter}` : "Reported"}
+      <small>{shortDate(d.createdAt)}</small>
+    </div>
+  );
+}
+
+function ReportStatus({ report: d }: { report: Discrepancy }) {
+  const isOpen = d.status === "open";
+  return (
+    <div className="rec-disc-pills">
+      <StatusPill
+        tone={isOpen ? "warn" : "good"}
+        icon={isOpen ? WarningCircle : CheckCircle}
+      >
+        <span className="rec-cap">{d.status}</span>
+      </StatusPill>
+      {isGroundingReport(d) && (
+        <StatusPill tone="danger" icon={XCircle}>
+          Grounds aircraft
+        </StatusPill>
+      )}
+    </div>
+  );
 }
 
 function ResolutionNote({ s, report: d }: ReportProps) {
   return (
     <div className="rec-note-block rec-resolution">
       <strong className="rec-note-label">
-        <CheckCircle size={16} weight="bold" aria-hidden="true" />
+        <CheckCircle size={16} aria-hidden="true" />
         Resolution
       </strong>
       <p>{d.resolution}</p>
@@ -1095,20 +1103,20 @@ function ReportButtons({
       {!d.deferral && (
         <button
           type="button"
-          className="button"
+          className="button small"
           disabled={actions.disabled}
           onClick={() => actions.onDefer(d.uuid)}
         >
-          <ClockCountdown size={17} aria-hidden="true" /> Defer (MEL / 91.213)
+          <ClockCountdown size={16} aria-hidden="true" /> Defer (MEL / 91.213)
         </button>
       )}
       <button
         type="button"
-        className="button soft rec-resolve"
+        className="button small primary"
         disabled={actions.disabled}
         onClick={() => actions.onResolve(d.uuid)}
       >
-        <Check size={17} weight="bold" aria-hidden="true" /> Record resolution
+        <Check size={16} weight="bold" aria-hidden="true" /> Record resolution
       </button>
     </div>
   );
@@ -1293,7 +1301,8 @@ export function SyncCenter() {
     <>
       <PageHeader
         eyebrow="DEVICE"
-        title="Sync center"
+        title="Sync"
+        accent="center"
         description="Entries recorded on this device wait here until the server acknowledges them."
         actions={<SyncActions own={own} live={live} />}
       />
@@ -1729,7 +1738,8 @@ export function History() {
     <>
       <PageHeader
         eyebrow="AUDIT"
-        title="Change history"
+        title="Change"
+        accent="history"
         description="An append-only record of submissions, corrections, and administrative changes."
         actions={
           admin && (

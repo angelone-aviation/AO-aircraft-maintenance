@@ -1,12 +1,13 @@
 /**
  * Responsibility: The Weekly summary tab of Change history: a period picker,
- *   the per-actor table by action family, the notable events with links to
- *   their screens, and the CSV export.
+ *   the period's changes by kind of work as one bar, the per-actor table by
+ *   action family, the notable events with links to their screens, and the
+ *   CSV export.
  * Layer: UI. React components; the summary itself comes from the backend
  *   (src/domain/auditSummary on the server or in the demo).
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/domain (auditSummary, auditHistory, csv, model),
- *   ./design, ./ui.
+ *   ./design, ./charts, ./ui.
  */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -15,6 +16,7 @@ import { useWorkspace } from "../data/store";
 import type { Backend } from "../data/backend";
 import {
   auditSummaryCsvRows,
+  familyShares,
   FAMILY_LABELS,
   FAMILY_ORDER,
   summaryPeriod,
@@ -32,11 +34,13 @@ import {
   ListCard,
   ListRow,
   NoticeBar,
+  SectionHeading,
   Segmented,
   StatusPill,
   Toolbar,
   type Tone,
 } from "./design";
+import { StackedBar } from "./charts";
 import { download } from "./ui";
 
 const CSV_TYPE = "text/csv;charset=utf-8";
@@ -265,9 +269,25 @@ function SummaryBody({
           administrators review them under Unassigned records.
         </p>
       )}
+      <FamilyBar summary={summary} />
       <ActorTable s={s} summary={summary} />
       <NotableList s={s} events={summary.notable} />
     </>
+  );
+}
+
+// The same counts as the table's column totals, so nothing here is new.
+function FamilyBar({ summary }: { summary: AuditSummaryResult["summary"] }) {
+  const shares = familyShares(summary.families);
+  if (!shares.length) return null;
+  return (
+    <section className="ds-card rec-family-bar rise">
+      <SectionHeading
+        title="Changes by kind of work"
+        note={`${summary.period.from} to ${summary.period.to}`}
+      />
+      <StackedBar label="Changes by kind of work" segments={shares} />
+    </section>
   );
 }
 
@@ -285,7 +305,7 @@ function ActorTable({
       </EmptyState>
     );
   return (
-    <div className="rec-table-card">
+    <div className="ds-rows rec-table-card">
       <div className="rec-table-scroll">
         <table className="rec-table rec-summary-table">
           <caption className="rec-cap">Changes by person</caption>
