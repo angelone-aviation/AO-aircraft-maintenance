@@ -1,185 +1,232 @@
 /*
- * Responsibility: Styles the airworthiness directive register, one collapsible
- *   group per aircraft or component, and the AD tool panels beside it.
- * Layer: UI. Component styles, imported by the components that use them.
- * Dependencies: src/styles/tokens.css.
+ * Responsibility: Styles the airworthiness directive register: one
+ *   collapsible card per airframe or component, each AD a row in it.
+ * Layer: UI. Every selector is scoped by an `ad-` class.
+ * Dependencies: src/styles/tokens.css (colours, radii, shadows, motion),
+ *   src/styles/screens/maintenance.css (.mx-fact-label).
  */
 .ad-register {
   display: grid;
-  gap: 10px;
-  margin: 16px 0;
+  gap: 16px;
+  margin: 20px 0;
 }
 .ad-register-group {
+  margin: 0;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  overflow: hidden;
+  border-radius: var(--radius-card);
   background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
 .ad-register-group > summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
-  padding: 11px 14px;
-  background: var(--blue-soft);
-  color: var(--blue-on-soft);
+  gap: 6px 12px;
+  min-height: 44px;
+  padding: 18px 24px;
+  list-style: none;
+  color: var(--text);
   cursor: pointer;
 }
-.ad-register-group > summary::before {
-  content: "▸";
+.ad-register-group > summary::-webkit-details-marker {
+  display: none;
 }
-.ad-register-group[open] > summary::before {
-  content: "▾";
+.ad-register-group > summary strong {
+  font-size: 16.5px;
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
 }
-.ad-register-group > summary span {
-  font-size: 12px;
+.ad-register-group > summary > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: var(--fw-light);
 }
 .ad-register-group > summary b {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
   margin-left: auto;
-  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-regular);
 }
-.ad-register-scroll {
-  overflow-x: auto;
+.ad-register-caret {
+  flex: none;
+  color: var(--muted);
+  transition: transform var(--dur-slow) var(--ease);
 }
-.ad-register-group > summary .ad-review-count {
-  display: inline-block;
-  margin-left: 10px;
-  padding: 3px 7px;
-  border-radius: 4px;
+.ad-register-group:not([open]) .ad-register-caret {
+  transform: rotate(-90deg);
+}
+/* A count of zero is the good outcome; anything waiting is amber. Each pill
+ * says what it counts, so the colour only repeats the words. */
+.ad-review-count {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
   background: var(--good-bg);
   color: var(--good);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
 }
-.ad-register-group > summary .ad-review-count.pending {
+.ad-review-count.pending {
   background: var(--warn-bg);
   color: var(--warn);
 }
-.ad-register table {
-  width: 100%;
-  min-width: 950px;
-  border-collapse: collapse;
-  margin: 0;
+.ad-register-table {
+  border-top: 1px solid var(--border);
+}
+.ad-register-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.7fr) 96px 96px minmax(0, 0.9fr)
+    minmax(0, 1fr);
+  gap: 8px 20px;
+  align-items: center;
+  padding: 17px 24px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+.ad-register-table > :last-child > .ad-register-row:last-child {
+  border-bottom: 0;
+}
+.ad-register-head > .ad-register-row {
+  padding-block: 13px;
+  color: var(--muted);
   font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.ad-register th {
-  background: var(--surface2);
-  color: var(--text);
-  padding: 8px;
-  white-space: nowrap;
-  border-bottom: 2px solid var(--border);
+.ad-register-head [role="columnheader"]:last-child {
+  text-align: right;
 }
-.ad-register td {
-  padding: 7px 8px;
-  border: 1px solid var(--border);
-  vertical-align: top;
-}
-.ad-register tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--surface2) 45%, var(--surface));
-}
-.ad-register tbody tr:hover {
-  background: var(--surface2);
+.ad-register-row > [role="cell"] {
+  min-width: 0;
 }
 .ad-register-subject {
-  width: 36%;
-  min-width: 220px;
+  display: block;
+  font-size: 15.5px;
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
 }
 .ad-register small {
   display: block;
   margin-top: 3px;
   color: var(--muted);
+  font-size: 13px;
+  font-weight: var(--fw-light);
+  overflow-wrap: anywhere;
 }
-.ad-register button {
-  min-height: 28px;
-  padding: 3px 7px;
-  font-size: 12px;
-  margin: 0 3px 3px 0;
-}
-.ad-register .ad-register-link {
-  color: var(--blue);
-  text-decoration: underline;
-  font-weight: 700;
-  border: 0;
-  background: none;
-  padding: 0;
-  white-space: nowrap;
-}
-.ad-register a {
-  color: var(--blue);
-  white-space: nowrap;
-}
-.ad-tools {
-  margin: 10px 0;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-}
-.ad-tools > summary {
-  cursor: pointer;
-  font-weight: 600;
-  padding: 6px 0;
-}
-@media (max-width: 650px) {
-  .ad-register-group > summary {
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .ad-register-group > summary strong {
-    flex: 1;
-  }
-}
-.ad-register-toolbar {
+.ad-register-meta {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  gap: 8px;
-  margin: 14px 0;
+  align-items: center;
+  gap: 2px 14px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
 }
-.ad-register-toolbar > label {
-  flex: 1 1 260px;
-  max-width: 360px;
-}
-.ad-register-toolbar button,
-.ad-register-toolbar > details > summary,
-.ad-register td button:not(.ad-register-link) {
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface);
-  color: var(--text);
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1.5;
+.ad-register-link,
+.ad-register-meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue-ink);
+  font-size: 13.5px;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
 }
-.ad-register-toolbar button:disabled,
-.ad-register td button:disabled {
-  opacity: 0.5;
-  cursor: default;
+.ad-register-link:hover,
+.ad-register-meta a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
-.ad-register caption {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
+.ad-register-date {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.ad-register-group > summary::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg);
-  flex-shrink: 0;
+.ad-register-date > .mx-fact-label {
+  display: none;
 }
-.ad-register-group[open] > summary::before {
-  content: "";
-  transform: rotate(45deg);
+.ad-register-status > .ds-pill {
+  max-width: 100%;
+  white-space: normal;
 }
-.ad-register td:last-child {
-  min-width: 100px;
+.ad-register-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
-.ad-register small.ad-stale-limit,
-.ad-stale-limit {
+.ad-stale-limit,
+.ad-register small.ad-stale-limit {
   color: var(--warn);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
+}
+@media (hover: hover) and (pointer: fine) {
+  .ad-register-group {
+    animation: rise 0.5s 0.1s var(--ease) both;
+  }
+  .ad-register-group > summary,
+  .ad-register-row {
+    transition: background-color var(--dur-fast);
+  }
+  .ad-register-group > summary:hover,
+  [role="rowgroup"]:not(.ad-register-head) > .ad-register-row:hover {
+    background: color-mix(in srgb, var(--surface2) 50%, transparent);
+  }
+}
+/* Below the desktop width a row restacks: the directive, its status, the two
+ * dates side by side with their own captions, then the actions. The header
+ * row stays for screen readers only. */
+@media (max-width: 1099px) {
+  .ad-register-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .ad-register-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "main main"
+      "status status"
+      "issued effective"
+      "actions actions";
+    gap: 12px 20px;
+  }
+  .ad-register-main {
+    grid-area: main;
+  }
+  .ad-register-status {
+    grid-area: status;
+  }
+  .ad-register-actions {
+    grid-area: actions;
+    justify-content: flex-start;
+  }
+  .ad-register-date > .mx-fact-label {
+    display: block;
+  }
+}
+@media (max-width: 759px) {
+  .ad-register-group > summary,
+  .ad-register-row {
+    padding-inline: 18px;
+  }
+  .ad-register-group > summary b {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
 }
