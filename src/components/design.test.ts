@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AircraftArt,
   Dialog,
+  Facts,
   ListRow,
   ProgressTrack,
   SearchField,
@@ -20,7 +21,6 @@ import {
   Skeleton,
   StatusPill,
   Wordmark,
-  aircraftArtKind,
   initTheme,
   setTheme,
 } from "./design";
@@ -61,22 +61,39 @@ describe("design markup", () => {
     ).toHaveLength(1);
   });
 
-  it("draws an aircraft by its make and model, ignoring case", () => {
-    expect(aircraftArtKind("Cessna", "182 Skylane")).toBe("high-wing");
-    expect(aircraftArtKind("CESSNA", "U206G Stationair")).toBe("high-wing");
-    expect(aircraftArtKind("Cessna", "208B Grand Caravan EX")).toBe("caravan");
-    expect(aircraftArtKind("Textron", "caravan")).toBe("caravan");
-    expect(aircraftArtKind("Cessna", "441 Conquest II")).toBe("twin");
-    expect(aircraftArtKind("Cessna", "CONQUEST")).toBe("twin");
-    expect(aircraftArtKind("Piper", "PA-39 Twin Comanche")).toBe("twin");
-    expect(aircraftArtKind("Piper", "PA-28 Cherokee")).toBe("generic");
-    expect(aircraftArtKind("", "")).toBe("generic");
-    const art = (aircraft?: { make: string; model: string }) =>
-      html(h(AircraftArt, { aircraft })).match(/src="([^"]+)"/)?.[1];
-    expect(art({ make: "Cessna", model: "208 Caravan" })).toBe(
-      "/branding/aircraft-caravan.svg",
+  it("shows the one aircraft picture, sized, lazy and hidden from readers", () => {
+    expect(html(h(AircraftArt, {}))).toBe(
+      '<img src="/branding/aircraft.webp" alt="" aria-hidden="true"' +
+        ' loading="lazy" decoding="async" width="128" height="50"' +
+        ' class="ds-aircraft-art"/>',
     );
-    expect(art()).toBe("/branding/cessna-oblique.svg");
+    expect(html(h(AircraftArt, { width: 300, className: "hero" }))).toContain(
+      'width="300" height="117" class="ds-aircraft-art hero"',
+    );
+  });
+
+  it("gives a status pill an icon in place of its dot", () => {
+    const Icon = () => h("svg", { "data-icon": true });
+    const pill = html(
+      h(StatusPill, { tone: "good", icon: Icon, children: "Airworthy" }),
+    );
+    expect(pill).toContain("<svg data-icon");
+    expect(pill).not.toContain("ds-pill-dot");
+  });
+
+  it("lists facts as labelled values, one column each by default", () => {
+    const facts = [
+      { label: "Hobbs", value: "2,341.2" },
+      { label: "Landings", value: "2,194" },
+    ];
+    expect(html(h(Facts, { facts }))).toBe(
+      '<dl class="ds-facts" style="--facts:2">' +
+        "<div><dt>Hobbs</dt><dd>2,341.2</dd></div>" +
+        "<div><dt>Landings</dt><dd>2,194</dd></div></dl>",
+    );
+    expect(html(h(Facts, { facts, columns: 4, bare: true }))).toContain(
+      'class="ds-facts bare" style="--facts:4"',
+    );
   });
 
   it("uses a search field's label as its placeholder unless one is given", () => {

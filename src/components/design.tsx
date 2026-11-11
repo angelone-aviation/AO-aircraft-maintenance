@@ -8,6 +8,7 @@
  * Screens build from these and from the global primitives in src/styles.css
  * (.button, .panel, .field, tables), styled by the tokens in
  * src/styles/tokens.css; restyling either per screen breaks the shared look.
+ * Charts live in ./charts.tsx.
  */
 import {
   useCallback,
@@ -36,7 +37,11 @@ const WORDMARK_SRC = {
   white: "/branding/angelone-white.png",
 } as const;
 const WORDMARK_WIDTH = 156;
-const CALLOUT_ART = "/branding/cessna-oblique.svg";
+const AIRCRAFT_SRC = "/branding/aircraft.webp";
+// The picture's pixel size; the img reserves its box before it loads.
+const AIRCRAFT_PIXELS = { width: 640, height: 250 } as const;
+const AIRCRAFT_WIDTH = 128;
+const PILL_ICON_SIZE = 14;
 // Enough cards to fill a desktop row and hint at more below.
 const SKELETON_PAGE_CARDS = 4;
 
@@ -151,12 +156,13 @@ export function useTheme() {
 /* ───────────────────────────── Layout ──────────────────────────── */
 
 /**
- * A page's heading block: eyebrow, h1, description, and actions on the right
- * that wrap on phones.
+ * A page's heading block: small uppercase eyebrow, large h1, light
+ * description, and actions on the right that wrap on phones.
  *
  * @param props.accent - A second clause in blue inside the same h1: "Your
  *   fleet," and "at a glance." read "Your fleet, at a glance.".
- * @param props.hero - The dashboard-size heading.
+ * @param props.hero - Kept for older callers; every page heading is now the
+ *   same size.
  */
 export function PageHeader({
   eyebrow,
@@ -192,6 +198,32 @@ export function PageHeader({
       </div>
       {actions && <div className="ds-page-actions">{actions}</div>}
     </header>
+  );
+}
+
+/**
+ * A section's heading row: an h2, a muted note beside it, and links or
+ * buttons at the right.
+ *
+ * @param props.note - Such as "3 of 4 OK to fly".
+ */
+export function SectionHeading({
+  title,
+  note,
+  end,
+  className,
+}: {
+  title: ReactNode;
+  note?: ReactNode;
+  end?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cx("ds-section-head", className)}>
+      <h2>{title}</h2>
+      {note && <span className="ds-section-note">{note}</span>}
+      {end && <div className="ds-section-end">{end}</div>}
+    </div>
   );
 }
 
@@ -250,32 +282,74 @@ export function SearchField({
 /* ───────────────────────── Status / data ───────────────────────── */
 
 /**
- * A status pill with a coloured dot.
+ * A status pill: a word with an icon or a coloured dot, so status never
+ * rests on colour alone.
  *
  * @param props.tone - Defaults to neutral.
+ * @param props.icon - Shown in place of the dot.
  * @param props.dot - False leaves the dot out.
  */
 export function StatusPill({
   tone: t,
+  icon: Icon,
   dot = true,
   children,
   className,
 }: {
   tone?: ToneInput;
+  icon?: IconType;
   dot?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <span className={cx("ds-pill", "ds-tone-" + tone(t), className)}>
-      {dot && <span className="ds-pill-dot" aria-hidden="true" />}
+      {Icon && <Icon size={PILL_ICON_SIZE} aria-hidden="true" />}
+      {!Icon && dot && <span className="ds-pill-dot" aria-hidden="true" />}
       {children}
     </span>
   );
 }
 
+/** One label and value in a {@link Facts} list. */
+export type Fact = { label: string; value: ReactNode };
+
 /**
- * A rounded tinted tile holding an icon; decorative, so hidden from screen
+ * Label-over-value figures in equal columns, such as Hobbs, Landings and
+ * This week on an aircraft card.
+ *
+ * @param props.columns - Defaults to one column per fact.
+ * @param props.bare - Leaves out the rules above and below.
+ * @returns A description list, in the order given.
+ */
+export function Facts({
+  facts,
+  columns = facts.length,
+  bare = false,
+  className,
+}: {
+  facts: Fact[];
+  columns?: number;
+  bare?: boolean;
+  className?: string;
+}) {
+  return (
+    <dl
+      className={cx("ds-facts", bare && "bare", className)}
+      style={{ "--facts": columns } as CSSProperties}
+    >
+      {facts.map((fact) => (
+        <div key={fact.label}>
+          <dt>{fact.label}</dt>
+          <dd>{fact.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * A Phosphor icon in a tone's colour; decorative, so hidden from screen
  * readers.
  *
  * @param props.tone - Defaults to blue.
@@ -311,8 +385,8 @@ export function IconTile({
 }
 
 /**
- * One bordered strip of KpiTiles: two by two, or `columns` across (default
- * 4) from 1100px wide.
+ * A row of KpiTile cards: two by two, or `columns` across (default 4) from
+ * 1100px wide.
  */
 export function KpiStrip({
   columns = 4,
@@ -334,10 +408,10 @@ export function KpiStrip({
 }
 
 /**
- * A key figure: label, large tabular value, and an optional icon tile and
- * footnote.
+ * A key figure on its own card: label, large tabular value, and an optional
+ * icon and footnote.
  *
- * @param props.tone - The icon tile's tone; defaults to blue.
+ * @param props.tone - The icon's tone; defaults to blue.
  * @param props.valueTone - Colours the value, such as warn for inspections
  *   coming due or danger for open discrepancies.
  */
@@ -375,7 +449,7 @@ export function KpiTile({
   );
 }
 
-/** A strip of StatTiles that fits as many across as there is room for. */
+/** A row of StatTile cards that fits as many across as there is room for. */
 export function StatsStrip({
   children,
   className,
@@ -471,7 +545,7 @@ export function Skeleton({ shape = "page" }: { shape?: "page" | "section" }) {
   );
 }
 
-/** A padded card of ListRows, with an optional h2 title. */
+/** A card of ListRows, with an optional h2 title. */
 export function ListCard({
   title,
   children,
@@ -490,7 +564,7 @@ export function ListCard({
 }
 
 /**
- * A list row: icon tile, title over a muted sub-line, then meta, badge and
+ * A list row: icon, title over a muted sub-line, then meta, badge and
  * action columns that stack on narrower screens.
  *
  * @param props.meta - Left out when undefined, null or "" (0 still shows).
@@ -625,7 +699,7 @@ export type SegmentedOption = {
 };
 
 /**
- * A pill track of buttons that picks one value.
+ * A row of chip buttons that picks one value; the chosen chip is filled.
  *
  * @param props.label - The group's accessible name.
  * @param props.mode - Marks the chosen button aria-pressed ("pressed", the
@@ -672,7 +746,7 @@ export function Segmented({
  *
  * @param props.label - Its accessible name.
  * @param props.icon - Defaults to X.
- * @param props.onNavy - Colours it for a navy background.
+ * @param props.onNavy - Legacy: colours it for a dark panel.
  */
 export function RoundButton({
   label,
@@ -834,53 +908,35 @@ export function Wordmark({
 }
 
 /**
- * The inverted aircraft line drawing for navy panels; decorative, and never
- * placed behind text.
+ * The aircraft picture the owner supplied, shown small on a white card with a
+ * fine drop shadow; the same picture for every aircraft. Decorative, so
+ * hidden from screen readers, and loaded only when it nears the screen.
  *
- * @param props.aircraft - Draws its type, as {@link aircraftArtKind} picks
- *   it; without one, the Cessna 172 drawing of the Overview callout.
- * @param props.drift - Lets it drift slowly.
+ * @param props.width - In CSS pixels; defaults to 128. The height follows
+ *   the picture's proportions, and the picture never outgrows its container.
  */
 export function AircraftArt({
-  aircraft,
+  width = AIRCRAFT_WIDTH,
   className,
-  opacity = 0.34,
-  drift = false,
 }: {
-  aircraft?: { make: string; model: string };
+  width?: number;
   className?: string;
-  opacity?: number;
-  drift?: boolean;
 }) {
-  const src = aircraft
-    ? `/branding/aircraft-${aircraftArtKind(aircraft.make, aircraft.model)}.svg`
-    : CALLOUT_ART;
+  const height = Math.round(
+    (width * AIRCRAFT_PIXELS.height) / AIRCRAFT_PIXELS.width,
+  );
   return (
     <img
-      src={src}
+      src={AIRCRAFT_SRC}
       alt=""
       aria-hidden="true"
-      className={cx("ds-aircraft-art", drift && "drift", className)}
-      style={{ "--art-opacity": opacity } as CSSProperties}
+      loading="lazy"
+      decoding="async"
+      width={width}
+      height={height}
+      className={cx("ds-aircraft-art", className)}
     />
   );
-}
-
-/** Which line drawing an aircraft gets; generic when its type is not known. */
-export type AircraftArtKind = "high-wing" | "caravan" | "twin" | "generic";
-
-/**
- * Picks an aircraft's line drawing from its make and model alone, ignoring
- * case: Caravan or 208, then Conquest, 441 or twin, then 182 or 206.
- *
- * @returns The drawing's kind; "generic" for any other aircraft.
- */
-export function aircraftArtKind(make: string, model: string): AircraftArtKind {
-  const type = `${make} ${model}`;
-  if (/caravan|208/i.test(type)) return "caravan";
-  if (/conquest|441|twin/i.test(type)) return "twin";
-  if (/182|206/.test(type)) return "high-wing";
-  return "generic";
 }
 
 type WordmarkProps = {

@@ -781,7 +781,6 @@ function RecordsCallout() {
           never implies aircraft readiness.
         </p>
       </div>
-      <AircraftArt drift className="dash-callout-art" opacity={0.78} />
     </section>
   );
 }
@@ -1249,7 +1248,7 @@ function DetailHero({
 }: DetailProps & { status: ShownAircraftStatus }) {
   return (
     <div className="dash-detail-hero">
-      <AircraftArt aircraft={a} opacity={0.28} className="dash-detail-art" />
+      <AircraftArt className="dash-detail-art" />
       <RoundButton
         label="Close dialog"
         onNavy

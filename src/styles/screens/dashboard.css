@@ -560,17 +560,6 @@
   font-size: 12.5px;
   color: var(--on-navy-muted);
 }
-.ds-aircraft-art.dash-callout-art {
-  justify-self: end;
-  align-self: end;
-  width: 100%;
-  max-width: 360px;
-  margin-right: -12px;
-  margin-bottom: -8px;
-  /* invert + shadow must stay on one filter; a second filter would drop invert. */
-  filter: invert(1) drop-shadow(0 12px 28px rgba(0, 0, 0, 0.35));
-}
-
 /* ---------- Aircraft status pieces (AircraftStatus.tsx) ---------- */
 .dash-status-summary {
   display: grid;
@@ -999,8 +988,5 @@
   .dash-star:hover,
   .dash .dash-outlook-row:hover {
     transform: none;
-  }
-  .dash-callout-art {
-    animation: none;
   }
 }

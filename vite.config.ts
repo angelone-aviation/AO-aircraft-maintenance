@@ -103,7 +103,7 @@ export default defineConfig({
         ],
       },
       injectManifest: {
-        globPatterns: ["**/*.{js,mjs,css,html,png,svg,woff2,ttf,wasm}"],
+        globPatterns: ["**/*.{js,mjs,css,html,png,webp,svg,woff2,ttf,wasm}"],
         // Keep the install download small on older phones: the PDF viewer,
         // PDF export and the print font are cached the first time they are
         // used online instead of at install (src/sw.ts). Screens and the QR
