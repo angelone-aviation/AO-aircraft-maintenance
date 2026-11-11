@@ -28,12 +28,16 @@ const note = (html: string) => html.match(/<small>.*<\/small>/)?.[0];
 
 describe("DrsComboBox", () => {
   it("renders a closed combobox input that controls its list", () => {
-    expect(render({ id: "make", name: "make", required: true })).toBe(
+    const html = render({ id: "make", name: "make", required: true });
+    const input =
       '<div class="drs-combobox"><div class="drs-combobox-input">' +
-        '<input id="make" role="combobox" aria-autocomplete="list"' +
-        ' aria-expanded="false" aria-controls="make-list" autoComplete="off"' +
-        ' required="" maxLength="150" name="make" value=""/>' +
-        '<span aria-hidden="true"></span></div></div>',
+      '<input id="make" role="combobox" aria-autocomplete="list"' +
+      ' aria-expanded="false" aria-controls="make-list" autoComplete="off"' +
+      ' required="" maxLength="150" name="make" value=""/>';
+    expect(html.startsWith(input)).toBe(true);
+    // Only the decorative caret follows the input, hidden from readers.
+    expect(html.slice(input.length)).toMatch(
+      /^<svg[^>]*class="drs-combobox-caret"[^>]*aria-hidden="true"[^>]*>(?:(?!<svg).)*<\/svg><\/div><\/div>$/,
     );
   });
 

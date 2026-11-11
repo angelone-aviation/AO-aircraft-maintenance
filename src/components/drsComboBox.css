@@ -2,7 +2,7 @@
  * Responsibility: Styles the FAA DRS make and model combobox: its input, the
  *   source note under it and the suggestion menu.
  * Layer: UI. Component styles, imported by the components that use them.
- * Dependencies: src/styles/tokens.css.
+ * Dependencies: src/styles/tokens.css (colours, radii, shadows).
  */
 .drs-combobox {
   position: relative;
@@ -13,17 +13,13 @@
 }
 .drs-combobox-input input {
   width: 100%;
-  padding-right: 28px;
+  padding-right: 34px;
 }
-.drs-combobox-input > span {
+.drs-combobox-caret {
   position: absolute;
-  right: 12px;
-  top: 16px;
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
   pointer-events: none;
   color: var(--muted);
 }
@@ -31,25 +27,27 @@
   display: block;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: var(--fw-light);
 }
 .drs-combobox-menu {
   position: absolute;
   z-index: 30;
-  top: 100%;
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 5px;
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
 }
 .drs-combobox [role="listbox"] {
   max-height: 240px;
   overflow-y: auto;
 }
 .drs-combobox [role="option"] {
-  padding: 8px 10px;
+  padding: 10px 14px;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
@@ -61,10 +59,12 @@
 .drs-combobox [role="option"] small {
   display: block;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 12px;
+  font-weight: var(--fw-light);
 }
 .drs-combobox-hint {
   display: block;
-  padding: 8px;
+  padding: 10px 14px;
   color: var(--muted);
+  font-size: 13.5px;
 }
