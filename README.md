@@ -134,14 +134,14 @@ flowchart TB
   Nightly --> R2
 ```
 
-| Part         | Built with                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------------------------ |
-| App          | React, Vite, TanStack Router and Zustand; a PWA with a service worker and an offline copy in IndexedDB       |
-| Shared rules | TypeScript domain modules and zod schemas in `src/domain`, used by both the browser and the server           |
-| Backend      | Convex: database, file storage, functions, scheduled jobs and Convex Auth                                    |
-| Hosting      | Cloudflare Workers Static Assets, configured in `wrangler.jsonc`, with security headers in `public/_headers` |
-| Checks       | TypeScript, oxlint, Vitest and Playwright                                                                    |
-| Pipeline     | GitHub Actions: CI, Deploy, Nightly backup and First-time setup                                              |
+| Part         | Built with                                                                                                                                         |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App          | React, Vite, TanStack Router and Zustand; charts by Recharts (MIT), loaded on demand; a PWA with a service worker and an offline copy in IndexedDB |
+| Shared rules | TypeScript domain modules and zod schemas in `src/domain`, used by both the browser and the server                                                 |
+| Backend      | Convex: database, file storage, functions, scheduled jobs and Convex Auth                                                                          |
+| Hosting      | Cloudflare Workers Static Assets, configured in `wrangler.jsonc`, with security headers in `public/_headers`                                       |
+| Checks       | TypeScript, oxlint, Vitest and Playwright                                                                                                          |
+| Pipeline     | GitHub Actions: CI, Deploy, Nightly backup and First-time setup                                                                                    |
 
 The browser talks only to the website and Convex. Every outside service is called from Convex.
 

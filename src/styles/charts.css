@@ -1,0 +1,272 @@
+/*
+ * Responsibility: Styles the shared charts in src/components/charts.tsx:
+ *   frame, legend, tooltip card, fallback table, sparkline, donut, meter and
+ *   stacked bar.
+ * Layer: UI. Design-system styles; every selector is scoped by a `ds-` class.
+ * Dependencies: src/styles/tokens.css (--chart-* colours, shadows, motion).
+ */
+.ds-chart {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+}
+.ds-chart-plot {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+/* The library outlines the plot it believes is focused; the charts are not
+ * focusable, so nothing is lost. */
+.ds-chart-plot :focus {
+  outline: 0;
+}
+.ds-chart-loading {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+  animation: ds-pulse 1.4s ease-in-out infinite;
+}
+.ds-chart-loading.round {
+  border-radius: 50%;
+}
+
+/* Legend */
+.ds-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+.ds-chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ds-chart-legend.values {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  font-size: 14px;
+}
+.ds-chart-legend.values li > span {
+  flex: 1;
+  min-width: 0;
+}
+.ds-chart-legend.values b {
+  color: var(--text);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+.ds-chart-legend.values small {
+  min-width: 3.4em;
+  text-align: right;
+  font-weight: var(--fw-light);
+  font-variant-numeric: tabular-nums;
+}
+.ds-chart-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--swatch);
+}
+
+/* Tooltip: a small card */
+.ds-chart-tip {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.ds-chart-tip strong {
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+.ds-chart-tip span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ds-chart-tip i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.ds-chart-tip b {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The data as a table, shown when the plot cannot load */
+.ds-chart-table {
+  font-size: 14px;
+}
+.ds-chart-table :is(th, td) {
+  padding: 8px 12px 8px 0;
+}
+.ds-chart-table tbody th {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Sparkline */
+.ds-spark {
+  display: inline-block;
+  width: 96px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+/* Donut: ring beside its legend, stacked when there is no room */
+.ds-donut {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 20px 28px;
+  align-items: center;
+}
+.ds-donut-ring {
+  position: relative;
+  flex: none;
+}
+.ds-donut-ring .ds-chart-plot {
+  height: 100%;
+}
+.ds-donut-center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+  font-size: 26px;
+  font-weight: var(--fw-medium);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.ds-donut-center small {
+  display: block;
+  font-size: 12px;
+  font-weight: var(--fw-light);
+  letter-spacing: 0;
+}
+
+/* Meter */
+.ds-meter {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+}
+.ds-meter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.ds-meter-head b {
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ds-meter-track,
+.ds-stack-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--surface2);
+  overflow: hidden;
+}
+.ds-meter-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width var(--dur-bar) var(--ease);
+}
+.ds-meter small {
+  font-size: 12.5px;
+  font-weight: var(--fw-light);
+}
+.ds-meter-good .ds-meter-head b {
+  color: var(--good);
+}
+.ds-meter-warn .ds-meter-head b {
+  color: var(--warn);
+}
+.ds-meter-warn .ds-meter-track i {
+  background: var(--warn);
+}
+.ds-meter-danger .ds-meter-head b {
+  color: var(--danger);
+}
+/* A spent limit keeps an empty track with a red outline, so the meter reads
+ * as used up rather than missing. */
+.ds-meter-danger .ds-meter-track {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+.ds-meter-danger .ds-meter-track i {
+  background: var(--danger);
+}
+
+/* Stacked bar */
+.ds-stack-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 5px;
+}
+.ds-stack-bar i {
+  display: block;
+  min-width: 0;
+  height: 100%;
+}
+
+@media (max-width: 759px) {
+  .ds-chart.hide-phone {
+    display: none;
+  }
+  .ds-donut {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+  .ds-donut .ds-chart-legend {
+    width: 100%;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .ds-meter-track i {
+    animation: grow var(--dur-bar) var(--ease) both;
+  }
+  .ds-stack-bar {
+    animation: ds-stack-in var(--dur-bar) var(--ease) both;
+  }
+}
+@keyframes ds-stack-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
