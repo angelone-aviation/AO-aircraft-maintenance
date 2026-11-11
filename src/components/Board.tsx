@@ -12,10 +12,13 @@
 import { useState } from "react";
 import {
   AirplaneTilt,
+  CalendarCheck,
   ClipboardText,
   HourglassMedium,
   Prohibit,
+  Question,
   WarningCircle,
+  XCircle,
 } from "@phosphor-icons/react";
 import { previewDemoBoard, useWorkspace } from "../data/store";
 import { localDate, type Snapshot } from "../domain/model";
@@ -38,10 +41,11 @@ import {
   NoticeBar,
   PageHeader,
   StatusPill,
+  type IconType,
   type Tone,
 } from "./design";
 import { errorText } from "./ui";
-import { STATUS_TONE } from "./AircraftStatus";
+import { STATUS_ICON, STATUS_TONE } from "./AircraftStatus";
 import "../styles/screens/board.css";
 
 const DUE_TONES: Record<BoardDueLine["status"], Tone> = {
@@ -49,6 +53,12 @@ const DUE_TONES: Record<BoardDueLine["status"], Tone> = {
   "due-soon": "warn",
   unknown: "neutral",
   ok: "blue",
+};
+const DUE_ICONS: Record<BoardDueLine["status"], IconType> = {
+  overdue: XCircle,
+  "due-soon": WarningCircle,
+  unknown: Question,
+  ok: CalendarCheck,
 };
 const DUE_LABELS: Record<BoardDueLine["status"], string> = {
   overdue: "Overdue",
@@ -96,7 +106,7 @@ export function Board() {
       <AircraftLines lines={summary.aircraft} />
       <UpcomingDue items={summary.upcoming} />
       <BackupLine s={s} summary={summary} demo={demo} />
-      <p className="muted">
+      <p className="board-foot">
         Recorded status only. Missing information never implies aircraft
         readiness; this is not a maintenance release.
       </p>
@@ -172,7 +182,10 @@ function AircraftLines({ lines }: { lines: BoardAircraftLine[] }) {
           sub={`${line.aircraft.make} ${line.aircraft.model} · ${line.overdue} overdue · ${line.dueSoon} due soon · ${describeDiscrepancies(line)}`}
           meta={describeSpend(line)}
           badge={
-            <StatusPill tone={STATUS_TONE[line.status]}>
+            <StatusPill
+              tone={STATUS_TONE[line.status]}
+              icon={STATUS_ICON[line.status]}
+            >
               {aircraftStatusLabels[line.status]}
             </StatusPill>
           }
@@ -209,7 +222,7 @@ function UpcomingDue({ items }: { items: BoardDueLine[] }) {
           title={`${i.registration} · ${i.label}`}
           sub={`${i.kind} · ${i.remaining}`}
           badge={
-            <StatusPill tone={DUE_TONES[i.status]}>
+            <StatusPill tone={DUE_TONES[i.status]} icon={DUE_ICONS[i.status]}>
               {DUE_LABELS[i.status]}
             </StatusPill>
           }
