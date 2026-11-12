@@ -5,10 +5,15 @@
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
  *   (aircraftStatus, addresses, programs, programTransfers, model, fleet,
  *   readings, aircraftSetup), ./Costs, ./AircraftStatus, ./AircraftPhoto,
- *   ./Components, ./ui and others.
+ *   ./Components, ./design, ./OpsList, ./ui and others,
+ *   src/styles/screens/fleet.css.
  */
 import { AircraftCostSummary } from "./Costs";
-import { AircraftStatusReasons, STATUS_TONE } from "./AircraftStatus";
+import {
+  AircraftStatusReasons,
+  STATUS_ICON,
+  STATUS_TONE,
+} from "./AircraftStatus";
 import {
   aircraftStatusLabels,
   shownAircraftStatus,
@@ -49,14 +54,15 @@ import { SETUP_GAPS, setupStatus } from "../domain/aircraftSetup";
 import { AsyncForm, Field, Modal, value, safeHref } from "./ui";
 import { History } from "./ManagementShared";
 import {
-  AirplaneTilt,
   ArrowsLeftRight,
   Buildings,
+  CheckCircle,
   ListChecks,
   Plus,
   WifiSlash,
 } from "@phosphor-icons/react";
 import {
+  AircraftArt,
   EmptyState,
   IconTile,
   ListCard,
@@ -67,6 +73,9 @@ import {
   Toolbar,
 } from "./design";
 import { OpsList, OpsMeters, OpsRow } from "./OpsList";
+import "../styles/screens/fleet.css";
+
+const ROW_ART_WIDTH = 96;
 
 const TEXT_FIELDS = [
   ["registration", "Registration"],
@@ -880,13 +889,13 @@ function AircraftRow(props: RowProps) {
   const tone = STATUS_TONE[status.level];
   return (
     <OpsRow
-      icon={AirplaneTilt}
+      icon={RowPicture}
       tone={tone}
       title={a.registration}
       sub={<AircraftSub a={a} />}
       meta={<AircraftTotal a={a} />}
       badge={
-        <StatusPill tone={tone}>
+        <StatusPill tone={tone} icon={STATUS_ICON[status.level]}>
           {aircraftStatusLabels[status.level]}
         </StatusPill>
       }
@@ -911,6 +920,11 @@ function AircraftRow(props: RowProps) {
       />
     </OpsRow>
   );
+}
+
+// The aircraft picture, in the row's icon place.
+function RowPicture() {
+  return <AircraftArt width={ROW_ART_WIDTH} className="fleet-art" />;
 }
 
 // Each gap in the aircraft's setup opens the wizard at the step that fills
@@ -1128,7 +1142,13 @@ function ProgramRow({
       tone={active ? "good" : "blue"}
       title={p.name}
       sub={p.address || "No address recorded"}
-      badge={active ? <StatusPill tone="good">Active</StatusPill> : undefined}
+      badge={
+        active ? (
+          <StatusPill tone="good" icon={CheckCircle}>
+            Active
+          </StatusPill>
+        ) : undefined
+      }
       actions={
         canEditProgram(s, active) && (
           <button
