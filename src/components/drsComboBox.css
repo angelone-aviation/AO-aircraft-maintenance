@@ -2,7 +2,7 @@
  * Responsibility: Styles the FAA DRS make and model combobox: its input, the
  *   source note under it and the suggestion menu.
  * Layer: UI. Component styles, imported by the components that use them.
- * Dependencies: src/styles/tokens.css (colours, radii, shadows).
+ * Dependencies: src/styles/tokens.css (colours, radii, shadows, motion).
  */
 .drs-combobox {
   position: relative;
@@ -41,6 +41,10 @@
   border-radius: var(--radius-control);
   box-shadow: var(--shadow-overlay);
   overflow: hidden;
+  /* Grows from the field it suggests for; tokens.css stops it under
+   * prefers-reduced-motion. */
+  transform-origin: top center;
+  animation: drop var(--dur-fast) var(--ease) both;
 }
 .drs-combobox [role="listbox"] {
   max-height: 240px;

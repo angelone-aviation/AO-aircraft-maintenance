@@ -7,7 +7,7 @@
  *   src/data (store, pendingEntries), src/domain (pilotView, ownerView,
  *   boardView, memberRole, programs, model), ./Alerts, ./UserProfile,
  *   ./FlightForm,
- *   ./OutboxLine, ./KeyboardShortcuts, ./ui, ./design.
+ *   ./OutboxLine, ./KeyboardShortcuts, ./ui, ./design, ./motion.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, rootRouteId, useRouterState } from "@tanstack/react-router";
@@ -78,6 +78,7 @@ import {
   useTheme,
   type IconType,
 } from "./design";
+import { useChangeCount } from "./motion";
 
 type GroupKey = "fly" | "maintain" | "manage";
 type NavItem = {
@@ -300,6 +301,8 @@ function useNavigation() {
  */
 function ThemeToggle({ className = "icon-button" }: { className?: string }) {
   const { theme, toggle } = useTheme();
+  // The new icon zooms in after a switch, not when the page first draws.
+  const swapped = useChangeCount(theme) > 0 ? "swapped" : undefined;
   return (
     <button
       type="button"
@@ -310,9 +313,9 @@ function ThemeToggle({ className = "icon-button" }: { className?: string }) {
       onClick={toggle}
     >
       {theme === "dark" ? (
-        <Sun size={22} aria-hidden="true" />
+        <Sun size={22} className={swapped} aria-hidden="true" />
       ) : (
-        <Moon size={22} aria-hidden="true" />
+        <Moon size={22} className={swapped} aria-hidden="true" />
       )}
     </button>
   );

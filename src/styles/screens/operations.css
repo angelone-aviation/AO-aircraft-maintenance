@@ -769,7 +769,8 @@
   border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: var(--shadow-lift);
-  animation: pop var(--dur) var(--ease) both;
+  transform-origin: top right;
+  animation: drop var(--dur-fast) var(--ease) both;
 }
 .ops-more-menu .button {
   justify-content: flex-start;

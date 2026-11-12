@@ -51,6 +51,19 @@
 .term-tip-pop:popover-open {
   display: grid;
   gap: 6px;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+/* It fades in from just above the term and goes at once, so a closed tip
+ * never lingers over what the reader looks at next (transitions.dev
+ * tooltip, re-timed). Only opacity and transform move: placeNearTerm
+ * measures its size as it opens. */
+@starting-style {
+  .term-tip-pop:popover-open {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 .term-tip-title {
   font-weight: 600;
