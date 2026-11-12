@@ -1,16 +1,23 @@
 /**
  * Responsibility: Pins the flight log's rows: what the search matches, the
- *   aircraft and status filters, newest-first order and the status counts.
+ *   aircraft and status filters, newest-first order, the status counts and
+ *   the weekly hours and flights behind the log's charts.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/flightLog.ts, src/data/demo.ts (seed).
  */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
-import { flightLogRows, type FlightLogFilters } from "./flightLog";
+import {
+  FLIGHT_ACTIVITY_WEEKS,
+  flightLogRows,
+  weeklyFlightActivity,
+  type FlightLogFilters,
+} from "./flightLog";
 import type { Flight } from "./model";
 
 const DEMO = demoSnapshot();
 const [N206, N208] = DEMO.aircraft;
+const HOUR_SECONDS = 3600;
 const ALL: FlightLogFilters = { search: "", aircraftUuid: "", status: "all" };
 
 describe("flightLogRows", () => {
@@ -80,6 +87,58 @@ describe("flightLogRows", () => {
     expect(counts).toEqual({ all: 3, accepted: 1, review: 1, rejected: 1 });
   });
 });
+
+// Local times with no zone, so the weeks are the same wherever this runs.
+describe("weeklyFlightActivity", () => {
+  it("returns no weeks for no flights", () => {
+    expect(weeklyFlightActivity([])).toEqual([]);
+  });
+
+  it("sums Hobbs hours and counts flights by Monday-first week, oldest first", () => {
+    const weeks = weeklyFlightActivity(
+      [
+        // Sunday 8 Nov 2026 belongs to the week of Monday 2 Nov.
+        flight("sun", { startTime: "2026-11-08T23:30", ...hobbs(10, 11.2) }),
+        flight("mon", { startTime: "2026-11-02T00:10", ...hobbs(8, 8.7) }),
+        flight("next", { startTime: "2026-11-09T09:00", ...hobbs(11.2, 13.3) }),
+      ],
+      3,
+    );
+    expect(weeks).toEqual([
+      { label: "Oct 26", hours: 0, flights: 0 },
+      { label: "Nov 2", hours: 1.9, flights: 2 },
+      { label: "Nov 9", hours: 2.1, flights: 1 },
+    ]);
+  });
+
+  it("counts a flight missing a reading with no hours, and leaves out flights before the first week", () => {
+    const weeks = weeklyFlightActivity(
+      [
+        flight("new", { startTime: "2026-11-10T09:00", hobbsOn: 5 }),
+        flight("old", { startTime: "2026-10-01T09:00", ...hobbs(1, 4) }),
+      ],
+      2,
+    );
+    expect(weeks).toEqual([
+      { label: "Nov 2", hours: 0, flights: 0 },
+      { label: "Nov 9", hours: 0, flights: 1 },
+    ]);
+  });
+
+  it("keeps weeks on local Mondays across a daylight-saving change", () => {
+    const weeks = weeklyFlightActivity([
+      flight("spring", { startTime: "2026-03-20T12:00", ...hobbs(1, 2) }),
+    ]);
+    expect(weeks).toHaveLength(FLIGHT_ACTIVITY_WEEKS);
+    expect(weeks.at(-1)).toEqual({ label: "Mar 16", hours: 1, flights: 1 });
+    expect(weeks[0].label).toBe("Dec 29");
+  });
+});
+
+// Readings in hours, stored in seconds as the app stores them.
+function hobbs(off: number, on: number) {
+  return { hobbsOff: off * HOUR_SECONDS, hobbsOn: on * HOUR_SECONDS };
+}
 
 // Sorted by uuid: these tests pin what matches, not the order.
 function search(s: ReturnType<typeof withFlights>, text: string) {

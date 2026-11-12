@@ -22,8 +22,10 @@ test("flight log filters by status, links pending entries to Sync center and sta
   await expect(
     filters.getByRole("button", { name: "All flights", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("tbody tr")).toHaveCount(1);
-  await expect(page.locator("tbody tr")).toContainText("KSEA");
+  // The flight table: the weekly charts above it have data tables too.
+  const rows = page.locator(".rec-table tbody tr");
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("KSEA");
   await filters
     .getByRole("button", { name: "Needs review", exact: true })
     .click();

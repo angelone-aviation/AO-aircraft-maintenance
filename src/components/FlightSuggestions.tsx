@@ -54,7 +54,7 @@ export function SameAsLastFlight({
     <div className="flight-repeat">
       <button
         type="button"
-        className="button small"
+        className="ds-link"
         aria-describedby={hintId}
         onClick={apply}
       >

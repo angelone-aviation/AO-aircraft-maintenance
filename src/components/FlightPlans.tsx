@@ -193,7 +193,8 @@ function PlansHeader({
   return (
     <PageHeader
       eyebrow="FLIGHT OPERATIONS"
-      title="Flight plans"
+      title="Flight"
+      accent="plans"
       description="Upload an ICAO PDF, review the plan, and check maintenance across the aircraft’s queue."
       actions={
         <label className="button primary ops-file-button">

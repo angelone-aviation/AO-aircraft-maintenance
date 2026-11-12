@@ -1,7 +1,8 @@
 /**
  * Responsibility: The weekly summary of the change log for Flight Program
  *   administrators: action families, per-actor counts over a period, the
- *   notable events worth a second look, and the CSV rows of the table.
+ *   notable events worth a second look, the CSV rows of the table, and the
+ *   families as parts of a whole for the summary's bar.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model (types, localDate).
  *
@@ -239,6 +240,41 @@ export function auditSummaryCsvRows(
   if (countsRefusals)
     rows.push({ Actor: "Refused sign-ins", Total: summary.refusedSignIns });
   return rows;
+}
+
+/** One part of the summary's "changes by kind of work" bar. */
+export interface FamilyShare {
+  label: string;
+  value: number;
+}
+
+/** The parts the bar can tell apart: the chart palette has five colours. */
+export const MAX_FAMILY_SHARES = 5;
+const REST_LABEL = "Everything else";
+
+/**
+ * The period's entries by kind of work, as parts of one bar.
+ *
+ * @param families - The summary's count per family.
+ * @param max - The most parts to return.
+ * @returns Families with at least one entry, most first and ties in table
+ *   order. When more than `max` have entries, the smallest are added up
+ *   into a last part labelled "Everything else", so the values still sum
+ *   to the families' total.
+ */
+export function familyShares(
+  families: Readonly<Record<ActionFamily, number>>,
+  max = MAX_FAMILY_SHARES,
+): FamilyShare[] {
+  const parts = FAMILY_ORDER.filter((f) => families[f] > 0)
+    .map((f) => ({ label: FAMILY_LABELS[f], value: families[f] }))
+    .sort((a, b) => b.value - a.value);
+  if (parts.length <= max) return parts;
+  const rest = parts.slice(max - 1);
+  return [
+    ...parts.slice(0, max - 1),
+    { label: REST_LABEL, value: rest.reduce((sum, p) => sum + p.value, 0) },
+  ];
 }
 
 function isInPeriod(at: number, period: SummaryPeriod): boolean {

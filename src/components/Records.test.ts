@@ -190,7 +190,10 @@ describe("Flights search and paging", () => {
     setWorkspace(withFlights(...days.map((day) => flight(day, day))));
     const focusLater = vi.fn();
     vi.stubGlobal("requestAnimationFrame", focusLater);
-    const rows = (html: string) => html.match(/<tr>/g)!.length - 1;
+    // The flight table only: the weekly charts above it carry data tables
+    // of their own.
+    const rows = (html: string) =>
+      html.split('class="rec-table"')[1].match(/<tr>/g)!.length - 1;
     expect(rows(render(Flights))).toBe(50);
     expect(render(Flights)).toContain("Showing 50 of 120 flights");
     handler("button Show more")();
