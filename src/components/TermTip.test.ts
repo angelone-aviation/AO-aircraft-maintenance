@@ -21,11 +21,11 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 const COMPONENTS = join(import.meta.dirname, ".");
 // The screens Aaron named: aircraft detail (on the dashboard), flight form,
-// discrepancies (in Records) and airworthiness.
+// discrepancies and airworthiness.
 const KEY_SCREENS = [
   "Dashboard.tsx",
   "FlightForm.tsx",
-  "Records.tsx",
+  "Discrepancies.tsx",
   "Airworthiness.tsx",
 ];
 
