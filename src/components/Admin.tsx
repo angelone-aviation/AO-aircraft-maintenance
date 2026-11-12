@@ -4,21 +4,24 @@
  * Layer: UI. React components; the server enforces every permission shown.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/data/backend.ts (types), src/domain (programs,
- *   groupAircraft, model, groupAccessReview, accountRules),
+ *   groupAircraft, model, groupAccessReview, accountRules, usersByGroup),
  *   ./DeleteGroupButton, ./PermissionGroupForm, ./GroupAccessReview,
- *   ./ProgramUsers, ./UserProfile, ./Fleet, ./SignInMethods, ./ui, ./design,
+ *   ./ProgramUsers, ./UserProfile, ./Fleet, ./SignInMethods, ./charts, ./ui,
+ *   ./design,
  *   src/styles/screens/admin.css.
  */
 import { DeleteGroupButton } from "./DeleteGroupButton";
 import { Link } from "@tanstack/react-router";
 import { GroupForm } from "./PermissionGroupForm";
 import { GroupAccessNotice, useGroupAccessReview } from "./GroupAccessReview";
-import { MemberAvatar, ProgramUsers } from "./ProgramUsers";
+import { ListHead, MemberAvatar, ProgramUsers } from "./ProgramUsers";
+import { BarChart } from "./charts";
+import { usersByGroup } from "../domain/usersByGroup";
 import { programPermission } from "../domain/programs";
 import { groupAircraftLabel } from "../domain/groupAircraft";
 import { UserProfileForm } from "./UserProfile";
 import { AircraftForm } from "./Fleet";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AirplaneTilt,
   FolderLock,
@@ -52,6 +55,7 @@ import {
   IconTile,
   NoticeBar,
   PageHeader,
+  SectionHeading,
   Segmented,
   StatusPill,
 } from "./design";
@@ -80,6 +84,12 @@ const TABS = [
   { value: "groups", label: "Permission groups", icon: FolderLock },
   { value: "aircraft", label: "Aircraft", icon: AirplaneTilt },
 ];
+const USER_SERIES = [{ key: "users", label: "Active users" }];
+const CHART_HEIGHT = 180;
+// People come in whole numbers: an axis tick between two counts shows no
+// label.
+const wholeUsers = (count: number) =>
+  Number.isInteger(count) ? String(count) : "";
 // The header's add button: its label and the dialog it opens, by tab.
 const ADD: Record<AdminTab, { label: string; dialog: NewDialog }> = {
   users: { label: "Add user", dialog: "user" },
@@ -116,6 +126,7 @@ export function Administration() {
         onAdd={() => setDialog(ADD[tab].dialog)}
       />
       {tab === "users" && <UserList s={s} {...actions} onEdit={setDialog} />}
+      {tab === "users" && <UsersByGroup s={s} />}
       {tab === "groups" && (
         <GroupAccessNotice
           {...access}
@@ -291,6 +302,7 @@ function AdminNotices({ enabled, demo }: { enabled: boolean; demo: boolean }) {
 function UserList({ s, ...actions }: UserActions & { s: Snapshot }) {
   return (
     <section className="adm-list rise" aria-label="Users">
+      <ListHead lead="User" status="Status" actions="Actions" />
       {s.members.map((user) => (
         <div className="adm-row list-row" key={user.id}>
           <UserIdentity user={user} groups={s.groups} />
@@ -298,6 +310,38 @@ function UserList({ s, ...actions }: UserActions & { s: Snapshot }) {
           <UserButtons user={user} {...actions} />
         </div>
       ))}
+    </section>
+  );
+}
+
+// Shown once any group exists. admin.css hides it on a phone, where each
+// user's row already names their groups.
+function UsersByGroup({ s }: { s: Snapshot }) {
+  const rows = useMemo(
+    () =>
+      usersByGroup(s.members, s.groups, s.programs).map((g) => ({
+        label: g.label,
+        values: { users: g.users },
+      })),
+    [s.members, s.groups, s.programs],
+  );
+  if (!rows.length) return null;
+  return (
+    <section className="ds-section adm-chart rise">
+      <SectionHeading
+        title="Users by permission group"
+        note="Active accounts; a user in two groups counts in both"
+      />
+      <div className="ds-card">
+        <BarChart
+          label="Active users by permission group"
+          categoryLabel="Permission group"
+          rows={rows}
+          series={USER_SERIES}
+          format={wholeUsers}
+          height={CHART_HEIGHT}
+        />
+      </div>
     </section>
   );
 }
@@ -443,6 +487,7 @@ function AircraftList({ aircraft }: { aircraft: Aircraft[] }) {
     );
   return (
     <section className="adm-list rise" aria-label="Aircraft">
+      <ListHead lead="Aircraft" status="Tracking" />
       {aircraft.map((a) => (
         <div className="adm-row list-row" key={a.uuid}>
           <div className="adm-lead">

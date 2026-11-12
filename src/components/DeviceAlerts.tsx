@@ -3,7 +3,7 @@
  *   on or off (Web Push), or says why this device cannot have them.
  * Layer: UI. React component over src/data/pushDevice.ts and the Backend.
  * Dependencies: react, @phosphor-icons/react, src/data (store, pushDevice,
- *   backend types), ./design, ./ui.
+ *   backend types), ./design, ./SettingsBlock, ./ui.
  */
 import { useEffect, useState } from "react";
 import { WifiSlash } from "@phosphor-icons/react";
@@ -17,6 +17,7 @@ import {
 } from "../data/pushDevice";
 import { useWorkspace } from "../data/store";
 import { Switch } from "./design";
+import { Block } from "./SettingsBlock";
 import { errorText } from "./ui";
 
 type PushDevice = ReturnType<typeof usePushDevice>;
@@ -34,17 +35,11 @@ export function DeviceAlertsBlock() {
   const device = usePushDevice(backend, demo);
   const reason = unavailableReason(demo, device);
   return (
-    <div className="set-block">
-      <h3>Alerts on this device</h3>
-      <p className="set-hint">
-        Urgent alerts (a grounded aircraft, an overdue inspection or AD, a
-        component past its limit, an expired date) open on this device as soon
-        as they arise, even while the app is closed. Everything else stays under
-        the bell, and in the daily email if you get it.
-      </p>
-      {reason ? (
-        <p className="set-empty">{reason}</p>
-      ) : (
+    <Block
+      title="Alerts on this device"
+      description="Urgent alerts (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) open on this device as soon as they arise, even while the app is closed. Everything else stays under the bell, and in the daily email if you get it."
+      side={
+        !reason &&
         device.available && (
           <Switch
             label="Alert this device"
@@ -53,7 +48,9 @@ export function DeviceAlertsBlock() {
             onChange={(next) => void device.toggle(next)}
           />
         )
-      )}
+      }
+    >
+      {reason && <p className="set-empty">{reason}</p>}
       {!live && !reason && (
         <p className="set-hint set-offline">
           <WifiSlash size={16} aria-hidden="true" /> Reconnect to change this.
@@ -64,7 +61,7 @@ export function DeviceAlertsBlock() {
           {device.error}
         </p>
       )}
-    </div>
+    </Block>
   );
 }
 

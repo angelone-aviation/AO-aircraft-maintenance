@@ -61,9 +61,8 @@ export function LargeTextBlock() {
     <Block
       title="Text size"
       description="Makes text, buttons and fields about a fifth larger on this device, for easier reading and for tapping with gloves."
-    >
-      <Switch checked={on} onChange={setLargeText} label="Larger text" />
-    </Block>
+      side={<Switch checked={on} onChange={setLargeText} label="Larger text" />}
+    />
   );
 }
 

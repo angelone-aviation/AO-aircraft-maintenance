@@ -15,23 +15,33 @@ export type IntegrationStatus = { tone: Tone; label: string };
  * A titled group of controls inside a Settings section.
  *
  * @param props.title - The block's h3; none when absent.
- * @param props.description - Grey help text under the title.
+ * @param props.description - Light help text under the title.
+ * @param props.side - The block's one control (a switch, chips or a ghost
+ *   button), at the right of the title on wide screens and under it on a
+ *   phone.
  */
 export function Block({
   title,
   description,
+  side,
   children,
   className,
 }: {
   title?: string;
   description?: ReactNode;
+  side?: ReactNode;
   children?: ReactNode;
   className?: string;
 }) {
   return (
     <div className={"set-block" + (className ? " " + className : "")}>
-      {title && <h3>{title}</h3>}
-      {description && <p className="set-hint">{description}</p>}
+      {(title || description) && (
+        <div className="set-block-text">
+          {title && <h3>{title}</h3>}
+          {description && <p className="set-hint">{description}</p>}
+        </div>
+      )}
+      {side && <div className="set-block-side">{side}</div>}
       {children}
     </div>
   );

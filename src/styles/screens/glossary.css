@@ -2,7 +2,7 @@
  * Responsibility: The Glossary page's layout: search row, letter jump bar and
  *   the A to Z term list.
  * Layer: UI. Styles for src/components/Glossary.tsx.
- * Dependencies: src/styles/tokens.css (colours, radii, type sizes).
+ * Dependencies: src/styles/tokens.css (colours, radii, shadows, type sizes).
  *
  * Headings and terms keep clear of the sticky top bar (64px) and the letter
  * bar when the page jumps to them.
@@ -24,47 +24,55 @@
   margin: 0;
   color: var(--muted);
   font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
 }
+/* Letter chips: sticky under the top bar, on the page's own white. */
 .glossary-letters {
   position: sticky;
   top: 64px;
   z-index: 5;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 8px 0;
-  margin-bottom: 8px;
+  gap: 6px;
+  padding: 10px 0;
+  margin-bottom: 4px;
   background: var(--bg);
 }
 .glossary-letters a {
   display: inline-grid;
   place-items: center;
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: var(--radius-control);
-  background: var(--surface);
+  min-width: 38px;
+  min-height: 38px;
   border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
   color: var(--blue-ink);
-  font-weight: 600;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
   text-decoration: none;
 }
 .glossary-letters a:hover {
   background: var(--blue-soft);
+  border-color: var(--blue-soft);
 }
 .glossary-group h2 {
   scroll-margin-top: 150px;
-  margin: 28px 0 8px;
-  font-size: 22px;
+  margin: var(--space-7) 0 var(--space-3);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .glossary-group dl {
   margin: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 .glossary-term {
-  padding: 14px 18px;
+  padding: 17px var(--card-pad);
   border-top: 1px solid var(--border);
 }
 .glossary-term:first-child {
@@ -75,19 +83,26 @@
 }
 .glossary-term dt {
   scroll-margin-top: 150px;
-  font-weight: 700;
-  font-size: 17px;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
 }
 .glossary-long {
   display: block;
-  font-weight: 500;
   font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .glossary-term dd {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 15px;
   line-height: 1.55;
 }
 .glossary-term dd a {
   color: var(--blue-ink);
+}
+@media (max-width: 759px) {
+  .glossary-term {
+    padding: 15px 18px;
+  }
 }

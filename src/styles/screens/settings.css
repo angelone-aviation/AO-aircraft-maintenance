@@ -3,15 +3,15 @@
  * Layer: UI. Every selector is scoped by a `set-` class, so nothing here
  *   restyles another screen.
  * Dependencies: src/styles/tokens.css (colours, radii, spacing, motion),
- *   src/styles/design.css (ds-*), src/styles.css (.panel, .button),
- *   src/styles/screens/admin.css (.adm-card).
+ *   src/styles/design.css (ds-*), src/styles.css (.panel, .button).
  *
- * Each section is one surface card (h2 header + blocks divided by
- * hairlines). Panels moved here from other screens (FAA key, address
- * verification, Aircraft Spruce, CSV exports, demo backup) keep their own
+ * Each section is a heading over one card of airy blocks divided by
+ * hairlines. A block is a title with a light description; its one control
+ * (a switch, chips, a ghost button) sits at the right and drops under the
+ * text on a phone. Panels moved here from other screens (FAA key, address
+ * verification, Aircraft Spruce, CSV extracts, demo backup) keep their own
  * markup; inside `.set-embed` their card chrome is dropped so they read as
- * blocks of the section card. Breakpoints: ≥1100 desktop, 760–1099 tablet,
- * <760 phone.
+ * blocks of the section card. Phone is below 760px.
  */
 
 .set-page {
@@ -19,131 +19,153 @@
   max-width: 1040px;
 }
 
-/* ---------- In-page section list (anchor links on the segmented track) ---------- */
+/* ---------- In-page section list (anchor chips) ---------- */
 .set-jump {
   --i: 0;
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-7);
 }
 .set-jump > a[aria-current="location"] {
-  background: var(--surface);
-  color: var(--text);
+  background: var(--blue-fill);
+  border-color: var(--blue-fill);
+  color: var(--on-blue);
+  font-weight: var(--fw-medium);
   box-shadow: var(--shadow);
 }
 .set-jump > a > svg {
   flex: none;
 }
 
-/* ---------- Section cards ---------- */
+/* ---------- Sections: a heading over one card ---------- */
 .set-sections {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--page-gap);
 }
 .set-section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  /* Clear the sticky 64px top bar when a #hash scrolls a section into view. */
+  scroll-margin-top: calc(64px + var(--space-4));
+}
+.set-section-head h2 {
+  margin: 0;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.set-section-head p {
+  margin: 2px 0 0;
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+.set-card {
   min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-card-lg);
-  /* Clear the sticky 64px top bar when a #hash scrolls a section into view. */
-  scroll-margin-top: calc(64px + var(--space-4));
-  transition: background var(--dur-theme);
-}
-.set-section-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: var(--space-6) 26px 22px;
-}
-.set-section-head h2 {
-  margin: 0 0 var(--space-1);
-  font-size: var(--fs-h2);
-  font-weight: 500;
-  letter-spacing: -0.4px;
-  line-height: 1.2;
-}
-.set-section-head p {
-  margin: 0;
-  max-width: 70ch;
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.55;
-  text-wrap: pretty;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  transition:
+    background-color var(--dur-theme),
+    border-color var(--dur-theme);
 }
 
 /* ---------- Blocks ---------- */
 .set-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px var(--space-6);
+  align-items: center;
   min-width: 0;
-  padding: 22px 26px var(--space-6);
+  padding: 20px var(--card-pad);
   border-top: 1px solid var(--border);
+}
+.set-block:first-child {
+  border-top: 0;
 }
 .set-block:empty {
   display: none;
 }
+/* Everything but the title and its one control spans the card. */
 .set-block > * {
+  grid-column: 1 / -1;
+  min-width: 0;
   margin: 0;
 }
-.set-block > * + * {
-  margin-top: 14px;
+.set-block > .set-block-text:has(+ .set-block-side) {
+  grid-column: 1;
 }
-.set-block > h3 {
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.3;
+.set-block > .set-block-side {
+  grid-column: 2;
+  display: flex;
+  justify-content: flex-end;
 }
-.set-block > h3 + .set-hint {
-  margin-top: var(--space-1);
+.set-block-text > * {
+  margin: 0;
+}
+.set-block h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
+}
+.set-block-text > h3 + .set-hint {
+  margin-top: 3px;
 }
 .set-hint {
   max-width: 70ch;
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   line-height: 1.55;
   text-wrap: pretty;
 }
 .set-empty {
   color: var(--muted);
-  font-size: 15px;
+  font-size: 14.5px;
 }
 .set-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
-.set-actions .button > svg,
-.set-offline-row .button > svg {
+.set-block .button > svg {
   flex: none;
 }
 
-/* Name / value pairs (account, program details) */
-.set-facts {
-  display: grid;
+/* A switch at the right of its row: words first, then the track. */
+.set-block-side .ds-switch,
+.set-switches .ds-switch {
+  flex-direction: row-reverse;
+  justify-content: space-between;
+}
+
+/* Name / value pairs (account, program details, backups) */
+.set-facts.ds-facts {
   grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: 18px var(--space-6);
 }
 .set-facts > div {
   min-width: 0;
 }
-.set-facts dt {
-  font-size: var(--fs-eyebrow);
-  font-weight: 600;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: var(--faint);
-}
 .set-facts dd {
-  margin: var(--space-1) 0 0;
   font-size: 16px;
   line-height: 1.45;
-  color: var(--text);
   overflow-wrap: anywhere;
 }
 .set-facts dd small {
   display: block;
   margin-top: 2px;
-  font-size: 13.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .set-facts dd a {
-  color: var(--blue);
+  color: var(--blue-ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -170,16 +192,17 @@
 .set-certs strong {
   display: block;
   font-size: 15.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .set-certs small {
   display: block;
-  font-size: 13.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 
-/* Alert email */
+/* "Reconnect to change…" line */
 .set-offline {
   display: flex;
   align-items: center;
@@ -189,9 +212,15 @@
   flex: none;
 }
 
-/* Theme segmented control */
+/* Theme chips. The chip row's own scroll padding would clip the last chip
+   against the card's edge; two chips never need to scroll. */
+.set-theme.ds-segmented {
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
 .set-theme > button {
-  min-width: 112px;
+  min-width: 104px;
   justify-content: center;
 }
 
@@ -211,22 +240,27 @@
 }
 .set-offline-row strong {
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 
-/* Alert email switches: one per line, so each label reads with its own
-   switch. */
+/* Alert email switches: one airy line each, the words at the left and the
+   switch at the right. */
 .set-switches {
   display: grid;
-  justify-items: start;
-  gap: var(--space-2);
+}
+.set-switches .ds-switch {
+  display: flex;
+  min-height: 52px;
+  border-top: 1px solid var(--border);
+}
+.set-switches .ds-switch:first-child {
+  border-top: 0;
 }
 
-/* Deployment status (System): a feature name and its pill per row */
+/* Deployment status (System): a feature name and its pill per line */
 .set-status-list {
   display: grid;
-  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -237,7 +271,13 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-3);
+  min-height: 48px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
   font-size: 15px;
+}
+.set-status-list > li:first-child {
+  border-top: 0;
 }
 
 /* Off-site backups status line (System) */
@@ -254,26 +294,25 @@
   flex: 1 1 240px;
   min-width: 0;
   margin: 0;
-  font-size: 15.5px;
+  font-size: 15px;
   line-height: 1.5;
   color: var(--text);
 }
 
 /* Device-only note: a quiet footer band on the section card */
 .set-block-note {
-  padding-top: 18px;
-  padding-bottom: 20px;
+  padding-block: 16px;
   background: var(--surface2);
-  border-radius: 0 0 calc(var(--radius-card-lg) - 1px)
-    calc(var(--radius-card-lg) - 1px);
-  transition: background var(--dur-theme);
+  border-radius: 0 0 calc(var(--radius-card) - 1px)
+    calc(var(--radius-card) - 1px);
+  transition: background-color var(--dur-theme);
 }
 .set-note {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: var(--fs-meta);
   line-height: 1.55;
 }
 .set-note > svg {
@@ -287,7 +326,7 @@
   margin: 0;
 }
 
-/* Related pages */
+/* Links to other pages: full-width lines with a caret */
 .set-links {
   display: grid;
 }
@@ -295,8 +334,8 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  min-height: 64px;
-  padding: 10px 0;
+  min-height: 56px;
+  padding: 8px 0;
   border-top: 1px solid var(--border);
   color: var(--text);
 }
@@ -314,27 +353,33 @@
 .set-link-text strong {
   display: block;
   font-size: 15.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .set-link-text small {
   display: block;
-  font-size: 14px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .set-link-caret {
   flex: none;
-  color: var(--faint);
-  transition:
-    color var(--dur-fast),
-    transform var(--dur-fast) var(--ease);
+  color: var(--muted);
 }
+.set-link:hover strong,
 .set-link:hover .set-link-caret,
 .set-link:focus-visible .set-link-caret {
-  color: var(--blue);
-  transform: translateX(3px);
+  color: var(--blue-ink);
 }
-.set-link:hover strong {
-  color: var(--blue);
+@media (hover: hover) and (pointer: fine) {
+  .set-link-caret {
+    transition:
+      color var(--dur-fast),
+      transform var(--dur-fast) var(--ease);
+  }
+  .set-link:hover .set-link-caret,
+  .set-link:focus-visible .set-link-caret {
+    transform: translateX(3px);
+  }
 }
 
 /* Labor rate form */
@@ -356,7 +401,7 @@
   display: none;
 }
 .set-embed > .panel,
-.set-embed > .adm-card {
+.set-embed > .set-extract {
   margin: 0;
   padding: 0;
   background: none;
@@ -372,18 +417,19 @@
   margin-top: 12px;
 }
 .set-embed > .panel > h3 + p {
-  margin-top: var(--space-1);
+  margin-top: 3px;
 }
 .set-embed > .panel > p:not(.error):not(.callout):not([role="alert"]) {
   max-width: 75ch;
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   line-height: 1.55;
 }
 .set-embed > .panel > a,
 .set-embed > .panel > p > a {
-  color: var(--blue);
-  font-weight: 500;
+  color: var(--blue-ink);
+  font-weight: var(--fw-medium);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -402,20 +448,41 @@
   padding-top: var(--space-2);
   margin-top: 0;
 }
-.set-embed .adm-card-head {
-  margin-bottom: var(--space-1);
+
+/* CSV extract (CsvExportCard in ProgramUsers.tsx): a title with its
+   download icon, the limits of the extract, then one chip per file. */
+.set-extract-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.set-embed .adm-card-head h3 {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0;
+.set-extract-head > svg {
+  flex: none;
+  color: var(--blue);
 }
-.set-embed .adm-card-text {
-  margin-bottom: 14px;
-  font-size: 14.5px;
+.set-extract-text {
+  margin: 3px 0 14px;
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+/* A long file name wraps inside its chip instead of widening a phone. */
+.set-extract .ds-chip {
+  flex: 0 1 auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Expiring dates: list rows inside a block, the first flush with the hint. */
+.set-dates > .ds-list-row {
+  padding-inline: 0;
+}
 .set-dates > .ds-list-row:first-child {
   border-top: 0;
   padding-top: 6px;
@@ -423,67 +490,6 @@
 .set-dates .ds-list-action {
   display: flex;
   align-items: center;
-}
-
-/* ---------- Tablet (760–1099px) ---------- */
-@media (max-width: 1099px) {
-  .set-page {
-    max-width: none;
-  }
-}
-
-/* ---------- Phone (<760px) ---------- */
-@media (max-width: 759px) {
-  /* Every section stays one tap away: two columns, no sideways scroll. */
-  .set-jump.ds-segmented {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-    border-radius: var(--radius-tile);
-  }
-  .set-jump > a {
-    justify-content: center;
-    gap: 6px;
-    padding-inline: 10px;
-    border-radius: calc(var(--radius-tile) - 4px);
-  }
-  .set-sections {
-    gap: var(--space-4);
-  }
-  .set-section-head {
-    padding: 20px 18px 18px;
-  }
-  .set-section-head h2 {
-    font-size: 21px;
-  }
-  .set-block {
-    padding: 18px 18px 20px;
-  }
-  .set-theme.ds-segmented {
-    display: flex;
-  }
-  .set-theme > button {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-  .set-offline-row .button {
-    width: 100%;
-  }
-  .set-form {
-    max-width: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .set-section,
-  .set-block-note,
-  .set-link-caret {
-    transition: none;
-  }
-  .set-link:hover .set-link-caret,
-  .set-link:focus-visible .set-link-caret {
-    transform: none;
-  }
 }
 
 /* ---------- Integration row (SettingsBlock IntegrationRow) ---------- */
@@ -502,12 +508,16 @@
 .set-integration-text > h2,
 .set-integration-text > h3 {
   margin: 0;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
 }
 .set-integration-summary {
-  margin: var(--space-1) 0 0;
+  margin: 3px 0 0;
   max-width: 75ch;
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   line-height: 1.55;
 }
 .set-integration-row > .ds-pill,
@@ -518,4 +528,56 @@
 .set-integration-row > p {
   flex-basis: 100%;
   margin: 0;
+}
+
+/* ---------- Tablet and below ---------- */
+@media (max-width: 1099px) {
+  .set-page {
+    max-width: none;
+  }
+}
+
+/* ---------- Phone (<760px) ---------- */
+@media (max-width: 759px) {
+  /* Every section stays one tap away: two columns, no sideways scroll. */
+  .set-jump.ds-segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .set-jump > a {
+    justify-content: center;
+    gap: 6px;
+    padding-inline: 10px;
+  }
+  .set-block {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px;
+  }
+  /* The control drops to the foot of the block and starts at the left; a
+     switch keeps its words at the left and its track at the right edge. */
+  .set-block > .set-block-text:has(+ .set-block-side),
+  .set-block > .set-block-side {
+    grid-column: 1;
+  }
+  .set-block > .set-block-side {
+    order: 1;
+    justify-content: flex-start;
+  }
+  .set-block-side .ds-switch {
+    display: flex;
+    flex: 1;
+  }
+  .set-theme.ds-segmented {
+    flex: 1;
+  }
+  .set-theme > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .set-offline-row .button {
+    width: 100%;
+  }
+  .set-form {
+    max-width: none;
+  }
 }

@@ -6,10 +6,11 @@
  * Dependencies: src/styles/tokens.css (colours, radii, motion),
  *   src/styles/design.css (ds-*), src/styles.css (.button, .list-row).
  *
- * Rows and group cards also carry the legacy `list-row` class as a test
- * hook, so the selectors below pair it with an `adm-` class to override the
- * global `.list-row` layout. Buttons keep the global `.button` look; only
- * layout and geometry are set here.
+ * Users, permission groups and aircraft are each airy rows in one card.
+ * Rows also carry the legacy `list-row` class as a test hook, so the
+ * selectors below pair it with an `adm-` class to override the global
+ * `.list-row` layout. Buttons keep the global `.button` look; only layout
+ * and geometry are set here.
  */
 
 .adm-page {
@@ -23,38 +24,58 @@
   flex: none;
 }
 
-/* ---------- Segmented tabs ---------- */
+/* ---------- Tabs (chips) ---------- */
 .adm-tabs {
   --i: 1;
   margin-bottom: 22px;
 }
 
-/* ---------- List card + rows (users, aircraft) ---------- */
+/* ---------- List card + rows (users, aircraft) ----------
+ * The card owns three columns (who or what, status, actions) and every row
+ * is a subgrid of them, so the small column header lines up with rows whose
+ * buttons differ in width. */
 .adm-list {
   --i: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: 8px 26px;
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
+  transition:
+    background-color var(--dur-theme),
+    border-color var(--dur-theme);
 }
+.adm-row-head,
 .adm-row.list-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-auto-flow: column;
-  grid-auto-columns: auto;
-  gap: 16px 20px;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  column-gap: 20px;
   align-items: center;
   margin: 0;
-  padding: 20px 0;
+  padding: 17px var(--card-pad);
   border: 0;
   border-top: 1px solid var(--border);
 }
-.adm-row.list-row:first-child {
+.adm-list > :first-child {
   border-top: 0;
+}
+.adm-row-head {
+  padding-block: 13px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.adm-head-actions {
+  grid-column: 3;
+  text-align: right;
 }
 .adm-lead {
   display: flex;
+  grid-column: 1;
   align-items: center;
   gap: 14px;
   min-width: 0;
@@ -64,10 +85,9 @@
 }
 .adm-row .adm-name {
   display: block;
-  font-size: 16.5px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
   line-height: 1.35;
-  letter-spacing: 0;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -76,7 +96,8 @@
 .adm-sub {
   display: block;
   margin-top: 2px;
-  font-size: 14px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   line-height: 1.45;
   color: var(--muted);
   white-space: nowrap;
@@ -84,6 +105,7 @@
   text-overflow: ellipsis;
 }
 .adm-badge {
+  grid-column: 2;
   justify-self: start;
 }
 
@@ -98,18 +120,19 @@
   background: var(--surface2);
   color: var(--text);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   letter-spacing: 0.3px;
-  transition: background var(--dur-theme);
+  transition: background-color var(--dur-theme);
 }
 .adm-avatar-admin {
   background: var(--blue-fill);
   color: var(--on-blue);
 }
 
-/* Row and card actions */
+/* Row actions */
 .adm-actions {
   display: flex;
+  grid-column: 3;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
@@ -125,163 +148,107 @@
   min-height: 40px;
   padding: 0;
 }
-/* "Delete group" (DeleteGroupButton) keeps its text-button look; give it a
- * full-size hit target beside the outline buttons. */
+/* "Delete group" (DeleteGroupButton) keeps its link look; give it a
+ * full-size hit target beside the ghost buttons. */
 .adm-actions .text-button {
   min-height: 40px;
   padding-inline: 10px;
 }
 
-/* ---------- Permission group cards ---------- */
+/* ---------- Permission groups: rows in one card ---------- */
 .adm-groups {
   --i: 2;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
-  gap: 18px;
-}
-.adm-group.list-row {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  margin: 0;
-  padding: 20px;
+  overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
+  transition:
+    background-color var(--dur-theme),
+    border-color var(--dur-theme);
+}
+.adm-group.list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 20px;
+  align-items: center;
+  margin: 0;
+  padding: 17px var(--card-pad);
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.adm-group.list-row:first-child {
+  border-top: 0;
 }
 .adm-group-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 .adm-group .adm-group-name {
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.3;
-  letter-spacing: 0;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
   color: var(--text);
   overflow-wrap: anywhere;
 }
 .adm-group .adm-group-meta {
+  grid-column: 1;
   margin: 0;
-  font-size: 14.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   line-height: 1.5;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .adm-group-actions {
-  justify-content: flex-start;
-  margin-top: auto;
-  padding-top: 4px;
+  grid-area: 1 / 2 / span 2;
+}
+
+/* ---------- Users by permission group (chart) ---------- */
+/* The one column may shrink, or the plot's own width would widen the page
+ * on a tablet. */
+.adm-chart {
+  --i: 3;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: var(--page-gap);
+  margin-bottom: 0;
+}
+/* The chart's visually hidden data table is a <table>, which cannot be
+ * narrower than its longest word: a long group name would widen the page.
+ * Clip it to the figure. */
+.adm-chart .ds-chart {
+  position: relative;
+  overflow: hidden;
 }
 
 /* ---------- Titled sections (Flight Program administrator view) ---------- */
 .adm-section {
   --i: 2;
-  margin-bottom: 36px;
+  margin-bottom: var(--page-gap);
 }
 .adm-section-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 12px;
+  align-items: baseline;
+  gap: 6px 12px;
   margin-bottom: 16px;
 }
 .adm-section-head h2 {
   margin: 0;
-  font-size: 23px;
-  font-weight: 500;
-  letter-spacing: -0.4px;
-  line-height: 1.2;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
 }
 .adm-count {
-  font-size: 13px;
-  color: var(--faint);
+  font-size: var(--fs-meta);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .adm-section-action {
   margin-left: auto;
-}
-
-/* ---------- Backup / export card (CsvExportCard) ----------
- * Rendered inside Settings → Flight Program and Settings → System, where
- * settings.css drops the card chrome. */
-.adm-card {
-  --i: 3;
-  margin-top: 24px;
-  padding: 26px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  transition: background var(--dur-theme);
-}
-.adm-section + .adm-card {
-  margin-top: 0;
-}
-.adm-card-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-.adm-card-icon {
-  display: inline-flex;
-  color: var(--blue);
-}
-.adm-card-head h3 {
-  margin: 0;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
-  line-height: 1.3;
-}
-.adm-card-text {
-  margin: 0 0 16px;
-  max-width: 70ch;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--muted);
-  text-wrap: pretty;
-}
-.adm-card-head + .adm-chips {
-  margin-top: 16px;
-}
-.adm-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.adm-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 40px;
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.3;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast),
-    background var(--dur-fast),
-    color var(--dur-fast);
-}
-.adm-chip:hover {
-  border-color: var(--blue);
-  background: var(--blue-soft);
-  color: var(--blue-on-soft);
-}
-.adm-chip:focus-visible {
-  outline: 3px solid var(--blue);
-  outline-offset: 2px;
 }
 
 /* ---------- Groups whose aircraft access needs checking ----------
@@ -349,6 +316,9 @@
 .adm-section + .adm-moved {
   margin-top: 0;
 }
+.adm-chart + .adm-moved {
+  margin-top: var(--page-gap);
+}
 
 /* ---------- Forms inside the administration dialogs ---------- */
 .adm-form-program,
@@ -361,7 +331,7 @@
 .adm-checks > legend {
   margin-bottom: 4px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   color: var(--text);
 }
 .adm-checks > .checkbox,
@@ -382,14 +352,27 @@
     gap: 6px;
     padding-inline: 10px;
   }
+  /* Each row restacks: who, then status, then the buttons. */
   .adm-list {
-    padding: 4px 18px;
+    display: block;
   }
-  .adm-row.list-row {
-    grid-auto-flow: row;
+  .adm-row-head {
+    display: none;
+  }
+  .adm-row.list-row,
+  .adm-group.list-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
-    padding: 18px 0;
+    padding: 16px 18px;
+  }
+  .adm-list > .adm-row-head + .adm-row {
+    border-top: 0;
+  }
+  .adm-lead,
+  .adm-badge,
+  .adm-actions,
+  .adm-group-actions {
+    grid-area: auto;
   }
   .adm-actions {
     justify-content: flex-start;
@@ -405,21 +388,14 @@
   .adm-sub > .adm-sep {
     display: none;
   }
-  .adm-group.list-row,
-  .adm-card {
-    padding: 20px 18px;
+  .adm-group.list-row {
+    gap: 6px;
   }
-  .adm-section-head h2 {
-    font-size: 21px;
+  .adm-group-actions {
+    margin-top: 6px;
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .adm-list,
-  .adm-group.list-row,
-  .adm-card,
-  .adm-avatar,
-  .adm-chip {
-    transition: none;
+  /* No room for the chart; each user's row already names their groups. */
+  .adm-chart {
+    display: none;
   }
 }

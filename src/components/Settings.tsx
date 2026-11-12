@@ -77,6 +77,7 @@ import { certificationsEffect } from "../domain/taskCards";
 import { signInMethodLabels } from "../domain/signInMethods";
 import { AsyncForm, Field, errorText, safeHref, value } from "./ui";
 import {
+  Facts,
   IconTile,
   NoticeBar,
   PageHeader,
@@ -217,7 +218,8 @@ function SectionLinks({
   );
 }
 
-/** One settings section: a card whose h2 names it, deep-linkable by id. */
+/** One settings section: an h2 over one card of blocks, deep-linkable by
+ * id. */
 function Section({
   id,
   index,
@@ -227,7 +229,7 @@ function Section({
   index: number;
   children: ReactNode;
 }) {
-  const { label, icon, description } = SECTION_META[id];
+  const { label, description } = SECTION_META[id];
   return (
     <section
       id={id}
@@ -236,13 +238,10 @@ function Section({
       aria-labelledby={`${id}-title`}
     >
       <header className="set-section-head">
-        <IconTile icon={icon} size="md" />
-        <div>
-          <h2 id={`${id}-title`}>{label}</h2>
-          <p>{description}</p>
-        </div>
+        <h2 id={`${id}-title`}>{label}</h2>
+        <p>{description}</p>
       </header>
-      {children}
+      <div className="set-card">{children}</div>
     </section>
   );
 }
@@ -272,28 +271,28 @@ function AccountFacts({ s }: { s: Snapshot }) {
     .map((g) => g.name);
   return (
     <Block>
-      <dl className="set-facts">
-        <div>
-          <dt>Name</dt>
-          <dd>{s.user.name}</dd>
-        </div>
-        <div>
-          <dt>Email</dt>
-          <dd>{s.user.email}</dd>
-        </div>
-        <div>
-          <dt>Role</dt>
-          <dd>
-            {memberRoleLabel(s)}
-            {groups.length > 0 && (
-              <small>
-                {groups.join(", ")}
-                {program ? ` · ${program.name}` : ""}
-              </small>
-            )}
-          </dd>
-        </div>
-      </dl>
+      <Facts
+        bare
+        className="set-facts"
+        facts={[
+          { label: "Name", value: s.user.name },
+          { label: "Email", value: s.user.email },
+          {
+            label: "Role",
+            value: (
+              <>
+                {memberRoleLabel(s)}
+                {groups.length > 0 && (
+                  <small>
+                    {groups.join(", ")}
+                    {program ? ` · ${program.name}` : ""}
+                  </small>
+                )}
+              </>
+            ),
+          },
+        ]}
+      />
       <p className="set-hint">
         Your name and email are set by a system administrator; your access by
         your Flight Program administrator.
@@ -308,6 +307,17 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
     <Block
       title="Certifications"
       description={`Printed on logbook entries you sign. ${certificationsEffect}`}
+      side={
+        <MyCertifications
+          className="button small"
+          label={
+            <>
+              <PencilSimple size={15} aria-hidden="true" />
+              Edit my certifications
+            </>
+          }
+        />
+      }
     >
       {certifications.length ? (
         <ul className="set-certs">
@@ -324,17 +334,6 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
       ) : (
         <p className="set-empty">{legacyLicense(s.user)}</p>
       )}
-      <div className="set-actions">
-        <MyCertifications
-          className="button small"
-          label={
-            <>
-              <PencilSimple size={15} aria-hidden="true" />
-              Edit my certifications
-            </>
-          }
-        />
-      </div>
     </Block>
   );
 }
@@ -344,14 +343,16 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
 function AlertsSection({ email }: { email?: boolean }) {
   return (
     <Section id="alerts" index={1}>
-      <Block title="Under the bell" description={ALERT_KINDS_SUMMARY}>
-        <div className="set-actions">
+      <Block
+        title="Under the bell"
+        description={ALERT_KINDS_SUMMARY}
+        side={
           <Link to="/alerts" className="button small">
             Open Alerts
             <ArrowRight size={15} aria-hidden="true" />
           </Link>
-        </div>
-      </Block>
+        }
+      />
       <AlertEmailBlock email={email} />
       <DeviceAlertsBlock />
     </Section>
@@ -479,18 +480,19 @@ function ThemeBlock() {
     <Block
       title="Theme"
       description="Applies to this device. The sun and moon button in the top bar switches it too."
-    >
-      <Segmented
-        label="Theme"
-        className="set-theme"
-        options={[
-          { value: "light", label: "Light", icon: Sun },
-          { value: "dark", label: "Dark", icon: Moon },
-        ]}
-        value={theme}
-        onChange={(t) => setTheme(t as Theme)}
-      />
-    </Block>
+      side={
+        <Segmented
+          label="Theme"
+          className="set-theme"
+          options={[
+            { value: "light", label: "Light", icon: Sun },
+            { value: "dark", label: "Dark", icon: Moon },
+          ]}
+          value={theme}
+          onChange={(t) => setTheme(t as Theme)}
+        />
+      }
+    />
   );
 }
 
@@ -614,10 +616,10 @@ function ProgramDetails({
     s.user.isAdmin ||
     (program.uuid === s.activeProgramUuid && programPermission(s, "admin"));
   return (
-    <Block title="Program details">
-      <ProgramFacts program={program} />
-      {canEdit && (
-        <div className="set-actions">
+    <Block
+      title="Program details"
+      side={
+        canEdit && (
           <button
             type="button"
             className="button small"
@@ -627,8 +629,10 @@ function ProgramDetails({
             <PencilSimple size={15} aria-hidden="true" />
             Edit Flight Program details
           </button>
-        </div>
-      )}
+        )
+      }
+    >
+      <ProgramFacts program={program} />
     </Block>
   );
 }
@@ -636,32 +640,31 @@ function ProgramDetails({
 function ProgramFacts({ program }: { program: Program }) {
   const website = safeHref(program.website);
   return (
-    <dl className="set-facts">
-      <div>
-        <dt>Name</dt>
-        <dd>{program.name}</dd>
-      </div>
-      <div>
-        <dt>Address</dt>
-        <dd>{factLines(postalLines(program), "No address recorded")}</dd>
-      </div>
-      <div>
-        <dt>Contact</dt>
-        <dd>{factLines(contactLines(program), "No contact recorded")}</dd>
-      </div>
-      <div>
-        <dt>Website</dt>
-        <dd>
-          {website ? (
+    <Facts
+      bare
+      className="set-facts"
+      facts={[
+        { label: "Name", value: program.name },
+        {
+          label: "Address",
+          value: factLines(postalLines(program), "No address recorded"),
+        },
+        {
+          label: "Contact",
+          value: factLines(contactLines(program), "No contact recorded"),
+        },
+        {
+          label: "Website",
+          value: website ? (
             <a href={website} target="_blank" rel="noreferrer">
               {program.website}
             </a>
           ) : (
             "No website recorded"
-          )}
-        </dd>
-      </div>
-    </dl>
+          ),
+        },
+      ]}
+    />
   );
 }
 
@@ -710,11 +713,13 @@ function LaborRateSettings({ s }: { s: Snapshot }) {
   const rate = laborRate(s);
   return (
     <section className="set-block" aria-labelledby="labor-rate-heading">
-      <h3 id="labor-rate-heading">Default labor rate</h3>
-      <p className="set-hint">
-        Applied to labor that maintenance users record. Existing entries keep
-        the rate they were recorded with.
-      </p>
+      <div className="set-block-text">
+        <h3 id="labor-rate-heading">Default labor rate</h3>
+        <p className="set-hint">
+          Applied to labor that maintenance users record. Existing entries keep
+          the rate they were recorded with.
+        </p>
+      </div>
       <div className="set-form">
         <AsyncForm
           key={rate}

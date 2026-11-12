@@ -1,12 +1,180 @@
 /*
- * Responsibility: Styles for sign-in methods: the Google and Microsoft
- *   buttons and notice on the sign-in screen, and a user's sign-in methods
- *   in Settings → My account and Administration.
- * Layer: UI. Every selector is scoped by an `sgn-` class, so nothing here
- *   restyles another screen.
- * Dependencies: src/styles/tokens.css (colours, spacing), src/styles.css
- *   (.button, .welcome-divider).
+ * Responsibility: Styles for the signed-out screens (the welcome card that
+ *   holds sign-in, first-run setup, access expired and failures) and for
+ *   sign-in methods: the Google and Microsoft buttons and notice, and a
+ *   user's sign-in methods in Settings → My account and Administration.
+ * Layer: UI. Selectors are scoped by `welcome-`, `forgot-`, `setup-box` or
+ *   `sgn-` classes, so nothing here restyles a workspace screen.
+ * Dependencies: src/styles/tokens.css (colours, shadows, radii, motion),
+ *   src/styles.css (.button, .field).
+ *
+ * The welcome screen is the white page with the wordmark and one card: no
+ * picture behind it.
  */
+
+/* ---------- Welcome card (src/main.tsx) ---------- */
+.welcome {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: clamp(20px, 4vw, 48px) clamp(16px, 4vw, 48px) 72px;
+  background: var(--bg);
+}
+/* The card is the page's <main>: flex, max-width and margin undo the app
+   shell's rules for main. */
+.welcome-card {
+  flex: none;
+  width: min(460px, 100%);
+  max-width: none;
+  margin: 0;
+  padding: clamp(24px, 4vw, 40px);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lift);
+}
+@media (hover: hover) and (pointer: fine) {
+  .welcome-card {
+    animation: rise var(--dur-slow) var(--ease) both;
+  }
+}
+.welcome-card > .ds-wordmark {
+  margin: 0 0 26px;
+}
+.welcome-card h1 {
+  font-weight: var(--fw-semibold);
+  font-size: clamp(28px, 3vw, 34px);
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+}
+.welcome-card > h1 + p {
+  margin: 8px 0 22px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: var(--fw-light);
+}
+.welcome-card > p {
+  font-size: 15.5px;
+  color: var(--muted);
+}
+.welcome-card > * + * {
+  margin-top: 14px;
+}
+.welcome-card > .ds-wordmark + h1 {
+  margin-top: 0;
+}
+.welcome-card form {
+  width: 100%;
+}
+.welcome-card .field {
+  margin-bottom: 16px;
+}
+.welcome-card .field input {
+  min-height: 50px;
+  font-size: 17px;
+}
+.welcome-card .form-footer {
+  border: 0;
+  padding: 0;
+  margin-top: 6px;
+}
+.welcome-card .button {
+  width: 100%;
+}
+.welcome-card .button.primary {
+  min-height: 52px;
+  font-size: 17px;
+}
+.welcome-card > .button:not(.primary) {
+  min-height: 48px;
+  font-size: 16px;
+}
+.welcome-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.forgot-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  min-height: 0;
+  color: var(--blue-ink);
+  font-weight: var(--fw-medium);
+  font-size: 14px;
+}
+.forgot-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.forgot-help {
+  margin: -6px 0 14px;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+}
+/* !important: `.welcome-card > * + *` above would otherwise win. */
+.welcome-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 14px !important;
+  color: var(--muted);
+  font-size: 13px;
+}
+.welcome-divider::before,
+.welcome-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.welcome-card .welcome-footnote {
+  margin-top: 18px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
+  color: var(--muted);
+  text-align: center;
+}
+.welcome-card .callout {
+  margin: 14px 0 0;
+}
+.setup-box {
+  background: var(--surface2);
+  border-radius: var(--radius-control);
+  padding: 16px 18px;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+.setup-box strong {
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+.setup-box p {
+  margin-top: 6px;
+}
+.welcome-bottom {
+  position: absolute;
+  bottom: 18px;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0 16px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  text-align: center;
+}
+@media (max-width: 759px) {
+  .welcome {
+    padding-top: 72px;
+  }
+}
 
 /* ---------- Sign-in screen ---------- */
 .sgn-sso {
@@ -23,7 +191,7 @@
   min-height: 48px;
   gap: 12px;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .sgn-mark {
   flex: none;
@@ -76,11 +244,12 @@
 .sgn-method-text strong {
   display: block;
   font-size: 15.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .sgn-method-text small {
   display: block;
-  font-size: 13.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -94,7 +263,8 @@
   gap: var(--space-2);
   margin: 10px 0 0;
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
 }
 .sgn-empty > svg {
   flex: none;

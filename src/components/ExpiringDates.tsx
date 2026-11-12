@@ -5,7 +5,8 @@
  * Layer: UI. React components; the rules and the status come from
  *   src/domain/expiringItems.ts, writes go through the Backend.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
- *   (expiringItems, model, validationText), ./design, ./FaaKeySettings, ./ui.
+ *   (expiringItems, model, validationText), ./design, ./FaaKeySettings,
+ *   ./SettingsBlock, ./ui.
  */
 import { useMemo, useState } from "react";
 import { CalendarBlank, Plus } from "@phosphor-icons/react";
@@ -25,6 +26,7 @@ import { localDate, type Snapshot } from "../domain/model";
 import { validationText } from "../domain/validationText";
 import { ListRow, StatusPill, type Tone } from "./design";
 import { FaaKeyUpdateButton } from "./FaaKeySettings";
+import { Block } from "./SettingsBlock";
 import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import { ZodError } from "zod";
 
@@ -70,11 +72,10 @@ export function ExpiringDates({ scope }: { scope: ExpiringScope }) {
   const items = useMemo(() => listExpiringItems(s, scope), [s, scope]);
   const [editing, setEditing] = useState<ExpiringItem | "new">();
   return (
-    <div className="set-block">
-      <h3>{SCOPE_LABELS[scope].title}</h3>
-      <p className="set-hint">{DESCRIPTIONS[scope]}</p>
-      <ExpiringList s={s} items={items} live={live} onEdit={setEditing} />
-      <div className="set-actions">
+    <Block
+      title={SCOPE_LABELS[scope].title}
+      description={DESCRIPTIONS[scope]}
+      side={
         <button
           type="button"
           className="button small"
@@ -84,7 +85,9 @@ export function ExpiringDates({ scope }: { scope: ExpiringScope }) {
           <Plus size={15} aria-hidden="true" />
           {SCOPE_LABELS[scope].add}
         </button>
-      </div>
+      }
+    >
+      <ExpiringList s={s} items={items} live={live} onEdit={setEditing} />
       {editing && (
         <ExpiringDateDialog
           s={s}
@@ -93,7 +96,7 @@ export function ExpiringDates({ scope }: { scope: ExpiringScope }) {
           onClose={() => setEditing(undefined)}
         />
       )}
-    </div>
+    </Block>
   );
 }
 

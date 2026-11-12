@@ -118,7 +118,9 @@ vi.mock("./Fleet", () => ({ AircraftForm: stub("AircraftForm") }));
 vi.mock("./ProgramUsers", () => ({
   ProgramUsers: stub("ProgramUsers"),
   MemberAvatar: stub("MemberAvatar"),
+  ListHead: stub("ListHead"),
 }));
+vi.mock("./charts", () => ({ BarChart: stub("BarChart") }));
 vi.mock("./SignInMethods", () => ({
   SignInMethodList: stub("SignInMethodList"),
 }));
@@ -217,6 +219,26 @@ function group(fields: Partial<Group>): Group {
     ...fields,
   };
 }
+
+describe("users by permission group chart", () => {
+  it("charts active users per group on the Users tab only", () => {
+    s.groups.push(group({ id: "empty", name: "Board" }));
+    expect(render()).toContain("Users by permission group");
+    expect(ui.stubs.get("BarChart")).toMatchObject({
+      label: "Active users by permission group",
+      rows: [
+        { label: "Pilots", values: { users: 1 } },
+        { label: "Board", values: { users: 0 } },
+      ],
+    });
+    expect(tab("aircraft")).not.toContain("Users by permission group");
+  });
+
+  it("shows no chart when there are no permission groups", () => {
+    s.groups = [];
+    expect(render()).not.toContain("Users by permission group");
+  });
+});
 
 describe("access", () => {
   it("shows program users to a program administrator, or refuses", () => {
