@@ -67,22 +67,31 @@ function findSelect(label: ReactElement<{ children: ReactNode }>) {
 describe("RowsTable", () => {
   const table = () =>
     renderToStaticMarkup(
-      createElement(
-        RowsTable,
-        {
-          label: "Templates",
-          columns: ["Name", "Interval", "Actions"],
-          cols: "1fr 1fr auto",
-          hiddenColumns: ["Actions"],
-        },
-        createElement(
-          RowsRow,
-          null,
-          createElement(RowsCell, { kind: "main" }, "Phase 2"),
-          createElement(RowsCell, { caption: "Interval" }, "100 hours"),
-          createElement(RowsCell, { kind: "actions" }, "Edit"),
-        ),
-      ),
+      createElement(RowsTable, {
+        label: "Templates",
+        columns: ["Name", "Interval", "Actions"],
+        cols: "1fr 1fr auto",
+        hiddenColumns: ["Actions"],
+        children: createElement(RowsRow, {
+          children: [
+            createElement(RowsCell, {
+              key: 1,
+              kind: "main",
+              children: "Phase 2",
+            }),
+            createElement(RowsCell, {
+              key: 2,
+              caption: "Interval",
+              children: "100 hours",
+            }),
+            createElement(RowsCell, {
+              key: 3,
+              kind: "actions",
+              children: "Edit",
+            }),
+          ],
+        }),
+      }),
     );
 
   it("is a named table whose rows share the desktop columns", () => {

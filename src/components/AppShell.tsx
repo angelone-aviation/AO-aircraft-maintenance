@@ -6,7 +6,7 @@
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, pendingEntries), src/domain (pilotView, ownerView,
  *   boardView, memberRole, programs, model), ./Alerts, ./UserProfile,
- *   ./ComponentIcon, ./InspectionIcon, ./WorkOrderIcon, ./FlightForm,
+ *   ./FlightForm,
  *   ./OutboxLine, ./KeyboardShortcuts, ./ui, ./design.
  */
 import { useEffect, useState, type ReactNode } from "react";
@@ -24,7 +24,9 @@ import {
   CalendarDots,
   Cards,
   CaretDown,
+  ClipboardText,
   ClockCounterClockwise,
+  Cube,
   CurrencyCircleDollar,
   GearSix,
   List,
@@ -44,6 +46,7 @@ import {
   Sun,
   Users,
   Warning,
+  Wrench,
 } from "@phosphor-icons/react";
 import { ownEntries } from "../data/pendingEntries";
 import {
@@ -59,9 +62,6 @@ import { programPermission } from "../domain/programs";
 import { can, type Snapshot } from "../domain/model";
 import { AlertBell, useUnreadAlertCount } from "./Alerts";
 import { MyCertifications } from "./UserProfile";
-import { ComponentIcon } from "./ComponentIcon";
-import { InspectionIcon } from "./InspectionIcon";
-import { WorkOrderIcon } from "./WorkOrderIcon";
 import { FlightForm } from "./FlightForm";
 import { OutboxLine } from "./OutboxLine";
 import {
@@ -130,7 +130,7 @@ const WORKSPACE_LINKS: WorkspaceLink[] = [
   {
     path: "/inspections",
     label: "Inspections",
-    icon: InspectionIcon,
+    icon: ClipboardText,
     group: "maintain",
   },
   {
@@ -154,7 +154,7 @@ const WORKSPACE_LINKS: WorkspaceLink[] = [
   {
     path: "/work-orders",
     label: "Work orders",
-    icon: WorkOrderIcon,
+    icon: Wrench,
     group: "maintain",
   },
   // Readable by every workspace member, like Work orders; creating,
@@ -169,7 +169,7 @@ const WORKSPACE_LINKS: WorkspaceLink[] = [
   {
     path: "/components",
     label: "Components",
-    icon: ComponentIcon,
+    icon: Cube,
     group: "maintain",
   },
   { path: "/scan", label: "Scan label", icon: Scan, group: "maintain" },
