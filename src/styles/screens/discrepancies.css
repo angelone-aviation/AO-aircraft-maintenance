@@ -1,0 +1,300 @@
+/*
+ * Responsibility: Styles the Discrepancies screen in
+ *   src/components/Discrepancies.tsx: summary, filters and report rows.
+ * Layer: UI. Screen styles; every selector is scoped by a `disc-` class.
+ * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`),
+ *   src/styles.css (.button, .deferral, .parts-availability).
+ */
+
+/* ---------- Summary and filters ---------- */
+.disc-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.disc-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.disc-stat-label > svg {
+  flex: none;
+  color: var(--muted);
+}
+.disc-stat-label.is-warn > svg {
+  color: var(--warn);
+}
+.disc-stat-label.is-danger > svg {
+  color: var(--danger);
+}
+.disc-stat-label.is-good > svg {
+  color: var(--good);
+}
+/* Two short chips: never scroll them. The shared row's max-width meets its
+ * own negative margin and clipped the last chip by a few pixels. */
+.disc-toolbar .ds-segmented {
+  max-width: none;
+}
+/* Labels such as "Resolved this month" wrap instead of being cut off. */
+.disc-stats .ds-stat-label {
+  white-space: normal;
+}
+/* Wide enough for the placeholder that lists what the search matches. */
+.disc-search {
+  flex-basis: 340px;
+}
+
+/* ---------- Report rows ----------
+ * Each report is one grid; its cells move between three layouts by width:
+ * four columns under the header, two columns, then one stacked column. */
+.disc-reports {
+  margin-bottom: 22px;
+}
+/* The action column has a fixed width so the separate header row lines up
+ * with the rows, which hold a button there. */
+.disc-head,
+.disc-report {
+  --cols: minmax(0, 2.2fr) minmax(0, 1.1fr) minmax(0, 1fr) 172px;
+  column-gap: 24px;
+}
+.disc-report {
+  grid-template-areas:
+    "problem by status primary"
+    "details details details details"
+    "tools tools tools tools";
+  align-items: start;
+  row-gap: 14px;
+  padding-block: 20px;
+}
+/* A grounding report keeps its word and icon; the rule at its edge only
+ * helps the eye find it in a long list. */
+.disc-report:is(.is-grounding, .is-expired) {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.disc-problem {
+  grid-area: problem;
+  min-width: 0;
+}
+.disc-text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.disc-by {
+  grid-area: by;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.disc-status {
+  grid-area: status;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.disc-primary {
+  grid-area: primary;
+  justify-self: end;
+}
+
+/* ---------- What a report carries ---------- */
+.disc-details {
+  grid-area: details;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  max-width: 76ch;
+}
+.disc-details:empty,
+.disc-tools:empty {
+  display: none;
+}
+.disc-note {
+  padding: 14px 16px;
+  border-radius: var(--radius-control);
+  background: var(--surface2);
+  font-size: 14.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.disc-note p {
+  margin: 0;
+}
+.ds-row .disc-note small {
+  display: block;
+  margin-top: 6px;
+}
+.disc-resolution p {
+  white-space: pre-wrap;
+}
+.disc-note-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--good);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* The shared deferral box is amber with muted text, below 4.5:1; here it
+ * sits on the neutral note instead. */
+.disc-deferral .deferral {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-size: inherit;
+}
+.disc-deferral .deferral p {
+  margin: 0 0 4px;
+}
+.disc-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 10px;
+  margin: 0;
+  color: var(--muted);
+}
+
+/* ---------- Secondary tools: quiet text buttons in one wrapping row ------
+ * The tools are other components' `.button.small`; here they read as links
+ * so each report shows one filled button. */
+.disc-tools {
+  grid-area: tools;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-left: -10px;
+}
+.disc-tools .button.small {
+  min-height: 36px;
+  padding: 6px 10px;
+  border-color: transparent;
+  border-radius: 10px;
+  background: none;
+  box-shadow: none;
+  color: var(--blue-ink);
+  font-size: 13.5px;
+}
+.disc-tools .button.small:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--blue-soft);
+}
+.disc-more {
+  grid-area: tools;
+}
+.disc-more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  border-radius: 10px;
+  color: var(--blue-ink);
+  font-size: 14.5px;
+  font-weight: var(--fw-medium);
+  list-style: none;
+  cursor: pointer;
+}
+.disc-more > summary::-webkit-details-marker {
+  display: none;
+}
+.disc-more[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.disc-more > .disc-tools {
+  margin-top: 4px;
+}
+
+/* ---------- Wide screens: the column header names the cells ---------- */
+@media (min-width: 1100px) {
+  .disc-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .disc-by-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* ---------- Tablets and phones ---------- */
+@media (max-width: 1099px) {
+  .disc-head {
+    display: none;
+  }
+  .disc-report {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "problem status"
+      "by primary"
+      "details details"
+      "tools tools";
+  }
+  .disc-by {
+    align-self: center;
+    color: var(--muted);
+    font-size: var(--fs-meta);
+  }
+  .ds-row .disc-by > small {
+    display: inline;
+    font-size: inherit;
+  }
+  .disc-by > small::before {
+    content: " · ";
+  }
+  .disc-status {
+    justify-items: end;
+    text-align: right;
+  }
+}
+@media (max-width: 759px) {
+  .disc-search {
+    flex-basis: 100%;
+  }
+  .disc-toolbar > .ds-toolbar-end {
+    margin-left: 0;
+  }
+  .disc-report {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "status"
+      "problem"
+      "by"
+      "details"
+      "primary"
+      "tools";
+    row-gap: 12px;
+  }
+  .disc-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    text-align: left;
+  }
+  .ds-row .disc-status > small {
+    margin: 0;
+  }
+  .disc-primary {
+    justify-self: stretch;
+  }
+  .disc-primary > .button {
+    width: 100%;
+  }
+}
+/* Phones and touch screens: every tool keeps a 44px tap target. */
+@media (max-width: 759px), (pointer: coarse) {
+  .disc-primary > .button,
+  .disc-tools .button.small {
+    min-height: 44px;
+  }
+}

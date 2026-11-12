@@ -1,21 +1,16 @@
 /**
- * Responsibility: The flight log, discrepancy reports, Sync center and change
- *   history screens.
+ * Responsibility: The flight log, Sync center and change history screens.
  * Layer: UI. Screens over the workspace snapshot; holds no business rules.
  * Dependencies: src/data (store, auditHistory, pendingEntries,
- *   logbookPhotos), src/domain (model, programs, pilotView, flights,
- *   flightLog, listSearch, flightFluids, deferrals, auditHistory), ./design,
- *   ./ui, ./TermTip, ./FlightLogCharts, ./ExportRecordsPackage,
- *   ./AuditSummary and the flight, logbook photo, paper check, deferral,
- *   parts, task card and work order components.
+ *   logbookPhotos), src/domain (model, programs, flights, flightLog,
+ *   flightFluids, auditHistory), ./design, ./ui, ./recordDates,
+ *   ./Discrepancies (the report dialog), and the flight, logbook photo,
+ *   paper check, chart, summary and records package components.
  */
 import "../styles/screens/records.css";
-import { isPilotView } from "../domain/pilotView";
-import { RequestPartsButton } from "./PartsRequests";
+import { ReportDialog } from "./Discrepancies";
+import { dateTime, shortDate, TIME_OPTIONS } from "./recordDates";
 import { FlightFluidSummary } from "./FlightFluids";
-import { DiscrepancyParts } from "./RequiredParts";
-import { LinkedTaskCards } from "./TaskCards";
-import { AddToWorkOrder } from "./WorkOrders";
 import { WeeklySummary } from "./AuditSummary";
 import { programPermission } from "../domain/programs";
 import { useId, useRef, useState, type ReactNode } from "react";
@@ -29,10 +24,8 @@ import {
   Books,
   Buildings,
   Camera,
-  Check,
   CheckCircle,
   ClipboardText,
-  ClockCountdown,
   ClockCounterClockwise,
   CurrencyCircleDollar,
   DownloadSimple,
@@ -57,7 +50,6 @@ import {
   ownPendingPhotos,
   type PendingLogbookPhoto,
 } from "../data/logbookPhotos";
-import { isGroundingReport, MAX_RESOLUTION_LENGTH } from "../domain/deferrals";
 import { previousFlights } from "../domain/flightFluids";
 import { auditActionLabel } from "../domain/auditHistory";
 import { flightStatusLabels } from "../domain/flights";
@@ -67,21 +59,18 @@ import {
   type FlightLogFilters,
   type FlightStatusFilter,
 } from "../domain/flightLog";
-import { discrepancyMatches } from "../domain/listSearch";
 import { HistoryPager } from "./ManagementShared";
 import { ExportRecordsPackage } from "./ExportRecordsPackage";
 import {
   can,
   hours,
-  NOTE_MAX_LENGTH,
   type Aircraft,
   type AuditEntry,
-  type Discrepancy,
   type EngineStart,
   type Flight,
   type Snapshot,
 } from "../domain/model";
-import { AsyncForm, Field, download, value } from "./ui";
+import { download } from "./ui";
 import {
   Dialog,
   EmptyState,
@@ -94,7 +83,6 @@ import {
   StatTile,
   StatsStrip,
   StatusPill,
-  Switch,
   Toolbar,
   useBreakpoint,
   type IconType,
@@ -103,7 +91,6 @@ import {
 import { FlightForm } from "./FlightForm";
 import { FlightLogCharts } from "./FlightLogCharts";
 import { FlightSessions } from "./FlightSession";
-import { DeferralStatus, DeferDiscrepancyForm } from "./Deferrals";
 import { FlightLogImportButton } from "./FlightLogImport";
 import {
   LogbookPhotoPrompt,
@@ -112,15 +99,9 @@ import {
   type LogbookPhotoTarget,
 } from "./LogbookPhotos";
 import { PaperCheckButton } from "./PaperCheck";
-import { TermTip } from "./TermTip";
 
 const FLIGHT_PHOTO_LABEL = "Add a photo of the logbook line";
 
-const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-};
 const NO_FLIGHT_FILTERS: FlightLogFilters = {
   search: "",
   aircraftUuid: "",
@@ -188,22 +169,7 @@ interface CorrectAction {
 }
 type FlightProps = { log: FlightLog; flight: Flight };
 type FlightLogView = ReturnType<typeof useFlightLogView>;
-interface ReportActions {
-  disabled: boolean;
-  onDefer: (uuid: string) => void;
-  onResolve: (uuid: string) => void;
-}
-type ReportProps = { s: Snapshot; report: Discrepancy };
 type QueuedEntry = Workspace["queue"][number];
-
-const shortDate = (at: number | string) =>
-  new Date(at).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-const dateTime = (at: number | string) =>
-  `${shortDate(at)} · ${new Date(at).toLocaleTimeString(undefined, TIME_OPTIONS)}`;
 
 /**
  * The flight log: the program's flights, newest first, narrowed by a search,
@@ -806,473 +772,6 @@ function EngineStarts({ flight: f }: { flight: Flight }) {
         </div>
       ))}
     </>
-  );
-}
-
-/**
- * Discrepancy reports, newest first: the open ones, or all of them with
- * "Include resolved reports", narrowed by a search of registration,
- * description, resolution and reporter, under counts of every open,
- * deferred and grounding report.
- *
- * @returns The reports as rows in one card, restacked on a phone. Reporting a problem queues it on this device,
- *   so it works offline; deferring and recording a resolution need a
- *   connection and the resolve permission. Pilot view leaves out the parts,
- *   task card and work order tools.
- */
-export function Discrepancies() {
-  const { snapshot: s, online, connected } = useWorkspace();
-  const [adding, setAdding] = useState(false),
-    [resolve, setResolve] = useState<string | null>(null),
-    [defer, setDefer] = useState<string | null>(null),
-    [showResolved, setShowResolved] = useState(false),
-    [search, setSearch] = useState("");
-  const available = s!.aircraft.filter((a) => can(s!, a.uuid, "discrepancy"));
-  const actions = {
-    disabled: !online || !connected,
-    onDefer: setDefer,
-    onResolve: setResolve,
-  };
-  return (
-    <>
-      <DiscrepancyHeader
-        canReport={!!available.length}
-        onReport={() => setAdding(true)}
-      />
-      <DiscrepancyToolbar
-        s={s!}
-        search={search}
-        onSearch={setSearch}
-        showResolved={showResolved}
-        onShowResolved={setShowResolved}
-      />
-      <ReportList s={s!} filters={{ search, showResolved }} actions={actions} />
-      {adding && (
-        <ReportDialog aircraft={available} onClose={() => setAdding(false)} />
-      )}
-      {defer && <DeferDialog uuid={defer} onClose={() => setDefer(null)} />}
-      {resolve && (
-        <ResolveDialog uuid={resolve} onClose={() => setResolve(null)} />
-      )}
-    </>
-  );
-}
-
-function DiscrepancyHeader({
-  canReport,
-  onReport,
-}: {
-  canReport: boolean;
-  onReport: () => void;
-}) {
-  return (
-    <PageHeader
-      eyebrow="MAINTENANCE REPORTS"
-      title="Discrepancies"
-      description="Report a problem from the air or on the ground. Keep the resolution on record."
-      actions={
-        canReport && (
-          <button type="button" className="button primary" onClick={onReport}>
-            <Warning size={18} weight="bold" aria-hidden="true" /> Report a
-            problem
-          </button>
-        )
-      }
-    />
-  );
-}
-
-function DiscrepancyToolbar({
-  s,
-  search,
-  onSearch,
-  showResolved,
-  onShowResolved,
-}: {
-  s: Snapshot;
-  search: string;
-  onSearch: (search: string) => void;
-  showResolved: boolean;
-  onShowResolved: (show: boolean) => void;
-}) {
-  const open = s.discrepancies.filter((d) => d.status === "open");
-  const deferred = open.filter((d) => d.deferral).length;
-  const grounding = open.filter(isGroundingReport).length;
-  return (
-    <Toolbar
-      className="rise"
-      end={
-        <Switch
-          className="rec-switch"
-          checked={showResolved}
-          onChange={onShowResolved}
-          label="Include resolved reports"
-        />
-      }
-    >
-      <SearchField
-        className="rec-search"
-        label="Search reports"
-        placeholder="Aircraft, description, resolution or reporter"
-        value={search}
-        onChange={onSearch}
-      />
-      <div className="rec-chips">
-        <StatusPill tone="warn" icon={WarningCircle} className="rec-count">
-          {open.length} open
-        </StatusPill>
-        <StatusPill tone="neutral" dot={false} className="rec-count">
-          <TermTip term="deferral">{`${deferred} deferred`}</TermTip>
-        </StatusPill>
-        {grounding > 0 && (
-          <StatusPill tone="danger" icon={XCircle} className="rec-count">
-            {grounding} grounding
-          </StatusPill>
-        )}
-      </div>
-    </Toolbar>
-  );
-}
-
-function ReportList({
-  s,
-  filters: { search, showResolved },
-  actions,
-}: {
-  s: Snapshot;
-  filters: { search: string; showResolved: boolean };
-  actions: ReportActions;
-}) {
-  const pilotView = isPilotView(s);
-  const listed = s.discrepancies.filter(
-    (d) => showResolved || d.status === "open",
-  );
-  const reports = listed
-    .filter((d) => discrepancyMatches(s, d, search))
-    .sort((a, b) => b.createdAt - a.createdAt);
-  if (!reports.length) return <NoReports anyListed={listed.length > 0} />;
-  return (
-    <div className="ds-rows rec-reports rise">
-      <div className="ds-row ds-row-head rec-report-row" aria-hidden="true">
-        <span>Problem</span>
-        <span>Reported</span>
-        <span>Status</span>
-      </div>
-      {reports.map((d) => (
-        <article className="rec-report" key={d.uuid}>
-          <ReportCard
-            s={s}
-            report={d}
-            pilotView={pilotView}
-            actions={actions}
-          />
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function NoReports({ anyListed }: { anyListed: boolean }) {
-  if (anyListed)
-    return (
-      <EmptyState title="No matching reports">Try another search.</EmptyState>
-    );
-  return (
-    <EmptyState title="No open reports">
-      New discrepancies will appear here.
-    </EmptyState>
-  );
-}
-
-// The row's own line, then whatever the report carries beneath it: its
-// deferral, its resolution and the maintenance tools.
-function ReportCard({
-  s,
-  report: d,
-  pilotView,
-  actions,
-}: ReportProps & { pilotView: boolean; actions: ReportActions }) {
-  const resolvable = d.status === "open" && can(s, d.aircraftUuid, "resolve");
-  return (
-    <>
-      <div className="ds-row rec-report-row">
-        <ReportProblem s={s} report={d} />
-        <ReportedBy s={s} report={d} />
-        <ReportStatus report={d} />
-        {resolvable && <ReportButtons report={d} actions={actions} />}
-      </div>
-      {(d.deferral || d.resolution || !pilotView) && (
-        <div className="rec-report-extra">
-          {d.deferral && (
-            <div className="rec-note-block rec-deferral">
-              <DeferralStatus report={d} />
-            </div>
-          )}
-          {d.resolution && <ResolutionNote s={s} report={d} />}
-          {!pilotView && <MaintenanceTools report={d} />}
-        </div>
-      )}
-    </>
-  );
-}
-
-function ReportProblem({ s, report: d }: ReportProps) {
-  return (
-    <div className="rec-report-problem">
-      <p className="rec-disc-text">{d.description}</p>
-      <small>
-        {s.aircraft.find((a) => a.uuid === d.aircraftUuid)?.registration}
-        {" · "}
-        {d.flightUuid ? "Linked to a flight" : "Ground / standalone report"}
-      </small>
-    </div>
-  );
-}
-
-function ReportedBy({ s, report: d }: ReportProps) {
-  const reporter = s.members.find((m) => m.id === d.authorId)?.name;
-  return (
-    <div className="rec-report-by">
-      {reporter ? `Reported by ${reporter}` : "Reported"}
-      <small>{shortDate(d.createdAt)}</small>
-    </div>
-  );
-}
-
-function ReportStatus({ report: d }: { report: Discrepancy }) {
-  const isOpen = d.status === "open";
-  return (
-    <div className="rec-disc-pills">
-      <StatusPill
-        tone={isOpen ? "warn" : "good"}
-        icon={isOpen ? WarningCircle : CheckCircle}
-      >
-        <span className="rec-cap">{d.status}</span>
-      </StatusPill>
-      {isGroundingReport(d) && (
-        <StatusPill tone="danger" icon={XCircle}>
-          Grounds aircraft
-        </StatusPill>
-      )}
-    </div>
-  );
-}
-
-function ResolutionNote({ s, report: d }: ReportProps) {
-  return (
-    <div className="rec-note-block rec-resolution">
-      <strong className="rec-note-label">
-        <CheckCircle size={16} aria-hidden="true" />
-        Resolution
-      </strong>
-      <p>{d.resolution}</p>
-      <small>
-        {s.members.find((m) => m.id === d.resolvedBy)?.name ??
-          "Maintenance user"}{" "}
-        · {dateTime(d.resolvedAt!)}
-      </small>
-    </div>
-  );
-}
-
-function MaintenanceTools({ report: d }: { report: Discrepancy }) {
-  const link = { kind: "discrepancy", uuid: d.uuid } as const;
-  return (
-    <>
-      <DiscrepancyParts report={d} />
-      <div className="rec-disc-tools">
-        <RequestPartsButton source={{ ...link, workOrderUuid: "" }} />
-        <LinkedTaskCards aircraftUuid={d.aircraftUuid} link={link} />
-        {d.status === "open" && (
-          <AddToWorkOrder aircraftUuid={d.aircraftUuid} source={link} />
-        )}
-      </div>
-    </>
-  );
-}
-
-function ReportButtons({
-  report: d,
-  actions,
-}: {
-  report: Discrepancy;
-  actions: ReportActions;
-}) {
-  return (
-    <div className="rec-disc-actions">
-      {!d.deferral && (
-        <button
-          type="button"
-          className="button small"
-          disabled={actions.disabled}
-          onClick={() => actions.onDefer(d.uuid)}
-        >
-          <ClockCountdown size={16} aria-hidden="true" /> Defer (MEL / 91.213)
-        </button>
-      )}
-      <button
-        type="button"
-        className="button small primary"
-        disabled={actions.disabled}
-        onClick={() => actions.onResolve(d.uuid)}
-      >
-        <Check size={16} weight="bold" aria-hidden="true" /> Record resolution
-      </button>
-    </div>
-  );
-}
-
-// `initial` prefills the fields and `replaces` names the failed outbox entry
-// the new report takes the place of (Edit and retry).
-function ReportDialog({
-  aircraft,
-  initial,
-  replaces,
-  onClose,
-}: {
-  aircraft: Aircraft[];
-  initial?: ReportDraft;
-  replaces?: string;
-  onClose: () => void;
-}) {
-  const { snapshot: s, online, enqueue, replace } = useWorkspace();
-  return (
-    <Dialog
-      className="rec-dialog"
-      size="narrow"
-      title={replaces ? "Edit and retry report" : "Report a problem"}
-      dismissOnScrim={false}
-      onClose={onClose}
-    >
-      <AsyncForm
-        submitLabel="Save report"
-        onSubmit={async (data) => {
-          const report = reportOperation(s!, data);
-          if (replaces) await replace(replaces, report);
-          else await enqueue(report);
-          onClose();
-        }}
-      >
-        <ReportFields aircraft={aircraft} initial={initial} />
-        {!online && (
-          <p className="callout">
-            This report will be saved on this device and synced when connected.
-          </p>
-        )}
-      </AsyncForm>
-    </Dialog>
-  );
-}
-
-function reportOperation(s: Snapshot, data: FormData) {
-  return {
-    kind: "discrepancy" as const,
-    uuid: crypto.randomUUID(),
-    authorId: s.user.id,
-    aircraftUuid: value(data, "aircraft"),
-    description: value(data, "description"),
-    grounding: data.get("grounding") === "on",
-  };
-}
-
-type ReportDraft = Pick<
-  Extract<QueuedEntry["operation"], { kind: "discrepancy" }>,
-  "aircraftUuid" | "description" | "grounding"
->;
-
-function ReportFields({
-  aircraft,
-  initial,
-}: {
-  aircraft: Aircraft[];
-  initial?: ReportDraft;
-}) {
-  return (
-    <>
-      <Field label="Aircraft">
-        <select name="aircraft" defaultValue={initial?.aircraftUuid}>
-          {aircraft.map((a) => (
-            <option key={a.uuid} value={a.uuid}>
-              {a.registration}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="What did you observe?">
-        <textarea
-          name="description"
-          rows={5}
-          maxLength={NOTE_MAX_LENGTH}
-          required
-          defaultValue={initial?.description}
-          placeholder="Describe the problem and where you noticed it."
-        />
-      </Field>
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          name="grounding"
-          defaultChecked={initial?.grounding}
-        />{" "}
-        Aircraft not airworthy until resolved
-      </label>
-    </>
-  );
-}
-
-function DeferDialog({ uuid, onClose }: { uuid: string; onClose: () => void }) {
-  return (
-    <Dialog
-      className="rec-dialog"
-      title="Defer discrepancy"
-      dismissOnScrim={false}
-      onClose={onClose}
-    >
-      <p className="term-tip-line">
-        Defer under an <TermTip term="mel" /> item or 14 CFR 91.213(d).
-      </p>
-      <DeferDiscrepancyForm uuid={uuid} onDone={onClose} />
-    </Dialog>
-  );
-}
-
-function ResolveDialog({
-  uuid,
-  onClose,
-}: {
-  uuid: string;
-  onClose: () => void;
-}) {
-  const { backend, online, connected } = useWorkspace();
-  return (
-    <Dialog
-      className="rec-dialog"
-      size="narrow"
-      title="Record maintenance resolution"
-      dismissOnScrim={false}
-      onClose={onClose}
-    >
-      <AsyncForm
-        submitLabel="Mark resolved"
-        disabled={!online || !connected}
-        onSubmit={async (data) => {
-          await backend!.resolve(uuid, value(data, "resolution"));
-          onClose();
-        }}
-      >
-        <Field label="What fixed the problem?">
-          <textarea
-            name="resolution"
-            rows={5}
-            maxLength={MAX_RESOLUTION_LENGTH}
-            required
-          />
-        </Field>
-        <p className="muted">
-          Your name, the time, and this explanation will remain in the history.
-        </p>
-      </AsyncForm>
-    </Dialog>
   );
 }
 

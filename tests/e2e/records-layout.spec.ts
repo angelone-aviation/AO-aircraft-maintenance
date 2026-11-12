@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the record lists' layout: flight-log status filters,
  *   pending flights linked to the Sync center, cards on phones, and the
- *   discrepancy counts, resolved switch and change-history aircraft filter.
+ *   discrepancy counts, resolved filter and change-history aircraft filter.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  */
@@ -72,26 +72,29 @@ test("flight log filters by status, links pending entries to Sync center and sta
   ).toBeLessThanOrEqual(PHONE.width);
 });
 
-test("discrepancy counts, resolved switch and history filter follow recorded data", async ({
+test("discrepancy counts, resolved filter and history filter follow recorded data", async ({
   page,
 }) => {
   await demo(page);
   await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
-  await expect(page.getByText("1 open", { exact: true })).toBeVisible();
-  await expect(page.getByText("0 deferred", { exact: true })).toBeVisible();
-  const resolved = page.getByRole("switch", {
-    name: "Include resolved reports",
-  });
-  await expect(resolved).not.toBeChecked();
+  await expect(figure(page, "Open")).toHaveText("1");
+  await expect(figure(page, "Deferred")).toHaveText("0");
+  await expect(figure(page, "Resolved this month")).toHaveText("0");
+  const show = page.getByRole("group", { name: "Show", exact: true });
+  const open = show.getByRole("button", { name: "Open", exact: true });
+  const all = show.getByRole("button", { name: "All", exact: true });
+  await expect(open).toHaveAttribute("aria-pressed", "true");
+  await expect(all).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Record resolution" }).click();
   await page
     .getByLabel("What fixed the problem?")
     .fill("Reseated the landing light connector.");
   await page.getByRole("button", { name: "Mark resolved" }).click();
-  await expect(page.getByText("0 open", { exact: true })).toBeVisible();
+  await expect(figure(page, "Open")).toHaveText("0");
+  await expect(figure(page, "Resolved this month")).toHaveText("1");
   await expect(page.getByText("No open reports")).toBeVisible();
-  await resolved.check();
-  await expect(resolved).toBeChecked();
+  await all.click();
+  await expect(all).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByText("Reseated the landing light connector.", { exact: true }),
   ).toBeVisible();
@@ -108,6 +111,14 @@ test("discrepancy counts, resolved switch and history filter follow recorded dat
   await aircraft.selectOption({ label: "N208MA" });
   await expect(reason).toBeVisible();
 });
+
+/** The value of the Discrepancies summary figure with this label. */
+function figure(page: Page, label: string) {
+  return page
+    .locator(".disc-stats .ds-stat-tile")
+    .filter({ hasText: label })
+    .locator(".ds-stat-value");
+}
 
 /** Opens the demo with the service worker controlling the page. */
 async function demo(page: Page) {

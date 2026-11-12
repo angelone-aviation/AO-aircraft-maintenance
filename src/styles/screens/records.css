@@ -1,7 +1,7 @@
 /*
  * Responsibility: Styles the Records screens in src/components/Records.tsx
- *   (Flight log, Discrepancies, Sync center, Change history), the weekly
- *   summary and their dialogs.
+ *   (Flight log, Sync center, Change history), the weekly summary and their
+ *   dialogs.
  * Layer: UI. Screen styles; every selector is scoped by a `rec-` class.
  * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`),
  *   src/styles.css (table, .button).
@@ -41,20 +41,6 @@
   color: var(--blue-on-soft);
   font-weight: var(--fw-medium);
   white-space: nowrap;
-}
-.rec-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-/* The shared switch paints its track over the hidden checkbox; lift the
- * checkbox so pointer clicks land on the control itself. */
-.ds-switch.rec-switch input {
-  z-index: 1;
-}
-.ds-pill.rec-count {
-  font-size: 13.5px;
-  padding: 6px 12px;
 }
 /* Wide enough for the placeholder that lists what the search matches. */
 .rec-search {
@@ -361,118 +347,6 @@
   min-width: 120px;
 }
 
-/* ---------- Discrepancies: rows in one card ---------- */
-.rec-reports {
-  margin-bottom: 22px;
-}
-.rec-report-row {
-  --cols: minmax(0, 1.5fr) minmax(0, 0.9fr) 132px 364px;
-  align-items: start;
-}
-/* A report is one line plus what it carries beneath; the hairline belongs
- * to the report, not to its first line. */
-.rec-report {
-  border-bottom: 1px solid var(--border);
-}
-.rec-report:last-child {
-  border-bottom: 0;
-}
-.rec-report > .ds-row {
-  border-bottom: 0;
-}
-.rec-report-problem,
-.rec-report-by {
-  min-width: 0;
-}
-.rec-disc-text {
-  margin: 0;
-  font-size: 16px;
-  font-weight: var(--fw-medium);
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  text-wrap: pretty;
-}
-.rec-disc-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.rec-disc-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.rec-disc-actions > .button {
-  white-space: nowrap;
-}
-.rec-report-extra {
-  display: grid;
-  gap: 12px;
-  padding: 0 24px 18px;
-  min-width: 0;
-}
-.rec-report-extra:empty {
-  display: none;
-}
-.rec-note-block {
-  max-width: 76ch;
-  padding: 14px 16px;
-  border-radius: var(--radius-control);
-  color: var(--text);
-  font-size: 14.5px;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-.rec-note-block p {
-  margin: 0;
-}
-.rec-note-block small {
-  display: block;
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.rec-resolution {
-  background: var(--good-bg);
-}
-.rec-resolution p {
-  white-space: pre-wrap;
-}
-.rec-resolution small {
-  color: var(--text);
-}
-.rec-deferral {
-  background: var(--warn-bg);
-}
-.rec-deferral p + p {
-  margin-top: 6px;
-}
-.rec-deferral .muted {
-  color: var(--text);
-}
-.rec-note-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-  color: var(--good);
-  font-size: 12px;
-  font-weight: var(--fw-medium);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.rec-disc-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.rec-disc-tools:empty {
-  display: none;
-}
-
 /* ---------- Sync center and Change history lists ---------- */
 .rec-stat-date {
   display: block;
@@ -649,50 +523,7 @@
   }
 }
 
-/* Below this the two action buttons leave the problem too little room. */
-@media (max-width: 1279px) {
-  .rec-report-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "problem status"
-      "by by"
-      "actions actions";
-    gap: 10px 16px;
-  }
-  .rec-report-problem {
-    grid-area: problem;
-  }
-  .rec-report-by {
-    grid-area: by;
-    color: var(--muted);
-    font-size: 13.5px;
-  }
-  .rec-report-by > small {
-    display: inline;
-  }
-  .rec-report-by > small::before {
-    content: " · ";
-  }
-  .rec-report-row > .rec-disc-pills {
-    grid-area: status;
-    justify-content: flex-end;
-  }
-  .rec-disc-actions {
-    grid-area: actions;
-    justify-content: flex-start;
-  }
-  .rec-reports > .ds-row-head {
-    display: none;
-  }
-}
 @media (max-width: 759px) {
-  .rec-report-extra {
-    padding-inline: 18px;
-  }
-  .rec-disc-actions > .button {
-    flex: 1 1 160px;
-    min-height: 44px;
-  }
   .rec-list-head,
   .rec-list-note,
   .rec-pager {
