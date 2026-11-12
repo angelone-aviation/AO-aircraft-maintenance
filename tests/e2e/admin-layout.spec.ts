@@ -85,8 +85,13 @@ test("administration tabs fit a phone without horizontal scrolling", async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openAdmin(page);
-  const box = await page
-    .getByRole("group", { name: "Administration sections" })
+  const tabs = page.getByRole("group", { name: "Administration sections" });
+  // The tabs rise into place on desktop-class pointers; measuring mid-motion
+  // reads a fractional height (39.99997px in CI), so wait for it to settle.
+  await tabs.evaluate((el) =>
+    Promise.all(el.getAnimations().map((a) => a.finished)),
+  );
+  const box = await tabs
     .getByRole("button", { name: "Aircraft", exact: true })
     .boundingBox();
   expect(box).not.toBeNull();
