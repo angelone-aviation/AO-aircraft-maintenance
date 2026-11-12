@@ -255,11 +255,13 @@
   text-underline-offset: 3px;
 }
 .rec-summary-table {
-  min-width: 720px;
+  min-width: 860px;
 }
 /* Family names are long; wrapped headings keep eight columns in the card. */
 .rec-summary-table thead th {
   white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .rec-summary-table tbody tr:last-child th {
   border-bottom: 0;
@@ -364,7 +366,7 @@
   margin-bottom: 22px;
 }
 .rec-report-row {
-  --cols: minmax(0, 1.5fr) minmax(0, 0.9fr) 132px 348px;
+  --cols: minmax(0, 1.5fr) minmax(0, 0.9fr) 132px 364px;
   align-items: start;
 }
 /* A report is one line plus what it carries beneath; the hairline belongs
