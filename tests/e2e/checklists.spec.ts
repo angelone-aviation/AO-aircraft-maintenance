@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins the checklists screen: FMD import and lossless export,
- *   offline checks and skips, the set's progress ring, editing, the
+ *   offline checks and skips, the set's progress meter, editing, the
  *   searchable library, and the guided flight's checklist and aircraft choice.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test, node:fs, node:path, src/data/fmd,
@@ -185,36 +185,36 @@ test("creates editable groups and items and rejects damaged imports without losi
   ).toBeVisible();
 });
 
-test("draws the whole set's progress as a ring that follows each check and skip", async ({
+test("meters the whole set's progress without loading the chart library", async ({
   page,
 }) => {
+  const chartRequests: string[] = [];
+  page.on("request", (r) => {
+    if (/chartsPlot/.test(r.url())) chartRequests.push(r.url());
+  });
   await importN377YB(page);
   await saveChecklist(page.getByRole("dialog"));
   const reader = page.getByRole("region", { name: "Interactive checklist" });
-  const ring = reader.getByRole("figure", {
+  const meter = reader.getByRole("meter", {
     name: "Checklist set progress",
     exact: true,
   });
-  await expect(ring.locator(".recharts-surface")).toBeVisible();
-  const legend = ring.getByRole("listitem");
-  await expect(legend).toHaveText([
-    "Checked00%",
-    "Skipped00%",
-    "Not checked401100%",
-  ]);
-  await expect(ring).toContainText("0of 401 checked");
+  await expect(meter).toHaveAttribute("aria-valuetext", "0 of 401 done");
+  await expect(
+    reader.getByText("0 of 401 done", { exact: true }),
+  ).toBeVisible();
   await reader
     .getByRole("button", { name: "Check next item", exact: true })
     .click();
   await reader
     .getByRole("button", { name: "Skip next item", exact: true })
     .click();
-  await expect(legend.locator("b")).toHaveText(["1", "1", "399"]);
-  await expect(ring).toContainText("1of 401 checked");
-  // A phone has no room for the ring; its legend stays as the numbers.
+  await expect(meter).toHaveAttribute("aria-valuetext", "1 of 401 done");
+  await expect(reader.locator(".checklist-meter")).toContainText("1 skipped");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(ring.locator(".ds-donut-ring")).toBeHidden();
-  await expect(legend.first()).toBeVisible();
+  await expect(meter).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  expect(chartRequests).toEqual([]);
 });
 
 test("switches through the searchable checklist library without losing checks", async ({

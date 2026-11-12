@@ -4,7 +4,7 @@
  * Layer: UI. Checklists page styles; no behaviour.
  * Dependencies: src/styles/tokens.css (colours, radii, shadows, motion),
  *   src/styles/design.css (ds-chips, ds-search), src/styles/charts.css
- *   (ds-donut), src/styles.css (.button).
+ *   (ds-meter), src/styles.css (.button).
  *
  * Built to be read at arm's length on a phone in a cockpit: every entry is
  * a full-width target at least 64px tall, and its state is an icon and a
@@ -78,9 +78,8 @@
   gap: 8px;
   margin-top: 18px;
 }
-/* The ring keeps its legend narrow so the title has the room. */
-.checklist-ring .ds-chart-legend {
-  min-width: 190px;
+.checklist-meter {
+  width: 300px;
 }
 
 .checklist-categories.ds-chips {
@@ -551,28 +550,14 @@
 
 /* ───────────────────────────── Breakpoints ───────────────────────────── */
 
-/* Tablets and phones: the ring gives way to its legend, set in a line. */
+/* Tablets and phones: the set's meter runs the card's width under the
+ * title. */
 @media (max-width: 1099px) {
   .checklist-head {
     grid-template-columns: minmax(0, 1fr);
   }
-  .checklist-ring.ds-donut {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .checklist-ring .ds-donut-ring {
-    display: none;
-  }
-  .checklist-ring .ds-chart-legend.values {
-    display: flex;
-    gap: 6px 20px;
-    min-width: 0;
-    font-size: var(--fs-meta);
-  }
-  .checklist-ring .ds-chart-legend.values li > span {
-    flex: none;
-  }
-  .checklist-ring .ds-chart-legend.values small {
-    display: none;
+  .checklist-meter {
+    width: auto;
   }
   .checklist-workspace {
     grid-template-columns: 230px minmax(0, 1fr);

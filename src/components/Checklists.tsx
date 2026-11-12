@@ -47,13 +47,8 @@ import {
 import type { Snapshot } from "../domain/model";
 import { importFmd, exportFmd } from "../data/fmd";
 import { ChecklistEditor } from "./ChecklistEditor";
-import { Donut } from "./charts";
-import {
-  setTotals,
-  totalsSlices,
-  type Progress,
-  type SetTotals,
-} from "./checklistProgress";
+import { Meter } from "./charts";
+import { setTotals, type Progress, type SetTotals } from "./checklistProgress";
 import {
   EmptyState,
   IconTile,
@@ -342,25 +337,23 @@ function ReaderHead({
           <ExportButton record={record} onError={onError} />
         </div>
       </div>
-      <SetRing totals={totals} />
+      <SetMeter totals={totals} />
     </header>
   );
 }
 
-// The whole set's marks as a ring; the legend beside it carries the numbers.
-function SetRing({ totals }: { totals: SetTotals }) {
+// The whole set's marks as a plain bar: a cockpit phone should not fetch
+// the chart library for one figure.
+function SetMeter({ totals }: { totals: SetTotals }) {
   if (!totals.total) return null;
   return (
-    <Donut
-      className="checklist-ring"
+    <Meter
+      className="checklist-meter"
       label="Checklist set progress"
-      slices={totalsSlices(totals)}
-      center={
-        <>
-          {totals.checked}
-          <small>of {totals.total} checked</small>
-        </>
-      }
+      value={totals.checked}
+      max={totals.total}
+      valueText={`${totals.checked} of ${totals.total} done`}
+      note={totals.skipped ? `${totals.skipped} skipped` : undefined}
     />
   );
 }
