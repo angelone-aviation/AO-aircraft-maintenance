@@ -44,7 +44,14 @@ test("charts the hours of an accepted flight and the fleet's readiness", async (
   const readiness = page.getByRole("figure", { name: READINESS });
   await expect(readiness.locator(".recharts-surface")).toBeVisible();
   await expect(readiness).toContainText("of 3 OK to fly");
-  await expect(readiness).toContainText("Setup incomplete");
+  // Grounded stays in the legend at 0 but draws nothing in the ring.
+  await expect(readiness.getByRole("listitem")).toHaveText([
+    /^Airworthy1\s*33.3%$/,
+    /^Due soon1\s*33.3%$/,
+    /^Setup incomplete1\s*33.3%$/,
+    /^Grounded0\s*0%$/,
+  ]);
+  await expect(readiness.locator(".recharts-pie-sector")).toHaveCount(3);
 
   await page
     .getByRole("article", { name: "N206MA" })

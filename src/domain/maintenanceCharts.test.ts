@@ -28,13 +28,13 @@ const item = (
 });
 
 describe("inspectionStatusSlices", () => {
-  it("counts each status, most urgent first, in its status colour", () => {
+  it("counts each status, most urgent first; Scheduled takes cobalt", () => {
     expect(
       inspectionStatusSlices(["scheduled", "overdue", "scheduled", "due-soon"]),
     ).toEqual([
       { label: "Overdue", value: 1, tone: "danger" },
       { label: "Due soon", value: 1, tone: "warn" },
-      { label: "Scheduled", value: 2, tone: "good" },
+      { label: "Scheduled", value: 2, tone: "1" },
     ]);
   });
 

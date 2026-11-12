@@ -30,6 +30,13 @@ test("Inspections shows how many listed schedules hold each status", async ({
     /^Scheduled2\s*50%$/,
   ]);
   await expect(chart.locator(".recharts-surface")).toBeVisible();
+  // Overdue is 0: listed above, but no sliver in the ring.
+  await expect(chart.locator(".recharts-pie-sector")).toHaveCount(2);
+  // On track is the accent, not the green of airworthy.
+  await expect(legend.nth(2).locator(".ds-chart-swatch")).toHaveCSS(
+    "background-color",
+    "rgb(37, 99, 235)",
+  );
 
   await page.getByLabel("Aircraft", { exact: true }).selectOption({
     label: "N208MA",
