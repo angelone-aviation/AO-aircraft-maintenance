@@ -1,21 +1,125 @@
 /*
- * Responsibility: Styles the board view (route "/board"): the status tiles
- *   and the aircraft and due lists.
- * Layer: UI. Screen styles; every selector is scoped by a `board-` class.
+ * Responsibility: Styles the two read-only views: the board view (route
+ *   "/board") and the owner portal's aircraft cards.
+ * Layer: UI. Screen styles; every selector is scoped by a `board-` or
+ *   `owner-` class.
  * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`).
  */
 
 .board {
   min-width: 0;
 }
-.board-kpis {
-  margin-bottom: 20px;
-}
+.board-kpis,
 .board-aircraft,
 .board-due {
-  margin-bottom: 20px;
+  margin-bottom: var(--page-gap);
 }
 /* Spend lines are long; keep them on one line where there is room. */
 .board-aircraft .ds-list-meta {
   font-variant-numeric: tabular-nums;
+}
+.board-foot,
+.owner > .muted {
+  max-width: 70ch;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
+  color: var(--muted);
+}
+
+/* ---------- Owner portal (OwnerPortal.tsx): one card per aircraft ---------- */
+.owner {
+  min-width: 0;
+}
+.owner-aircraft {
+  display: grid;
+  gap: 24px;
+  margin-bottom: var(--page-gap);
+  padding: 30px 34px;
+}
+.owner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 28px;
+}
+.owner-id {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  min-width: 0;
+}
+.owner-id h2 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 36px);
+  font-weight: var(--fw-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.owner-id > .muted {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: var(--fw-light);
+}
+.owner-art {
+  flex: none;
+  height: auto;
+}
+.owner-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 26px 32px;
+  align-items: start;
+}
+.owner-lists h3,
+.owner-aircraft h3.dash-detail-label {
+  margin: 0 0 8px;
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+}
+.owner-lists .muted {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: var(--fw-light);
+}
+.owner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  line-height: 1.4;
+}
+.owner-row strong {
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+.owner-row small {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
+}
+.owner-row > .ds-pill {
+  flex: none;
+}
+.owner-reports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+@media (max-width: 759px) {
+  .owner-aircraft {
+    padding: 22px 20px;
+  }
+  .owner-head {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+  }
+  .owner-art {
+    width: 160px;
+  }
 }

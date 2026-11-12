@@ -3,10 +3,12 @@
  *   limit, the status and a projected due date, sortable by what remains.
  * Layer: UI. React components; limits and status come from src/domain.
  * Dependencies: src/domain (model, management, maintenance,
- *   componentCalendar, forecast, remainingMeters), ./RemainingMeter,
+ *   componentCalendar, forecast, remainingMeters), @phosphor-icons/react,
+ *   ./RemainingMeter,
  *   ./design.tsx, ./ui.tsx.
  */
 import { useState } from "react";
+import { WarningCircle, XCircle } from "@phosphor-icons/react";
 import type { Aircraft, Inspection, Snapshot } from "../domain/model";
 import { inspectionCounters } from "../domain/management";
 import {
@@ -21,7 +23,7 @@ import {
   type RemainingMeter as Meter,
 } from "../domain/remainingMeters";
 import { RemainingMeter } from "./RemainingMeter";
-import { StatusPill } from "./design";
+import { StatusPill, type IconType } from "./design";
 import { Empty, Field } from "./ui";
 
 const REMAINING_BY_SORT = {
@@ -36,6 +38,10 @@ const STATUS_TONES: Partial<Record<Remaining["status"], "danger" | "warn">> = {
   "due-soon": "warn",
 };
 
+const STATUS_ICONS: Partial<Record<Remaining["status"], IconType>> = {
+  overdue: XCircle,
+  "due-soon": WarningCircle,
+};
 type Remaining = ReturnType<typeof inspectionStatus>;
 type ScheduleRow = {
   inspection: Inspection;
@@ -67,9 +73,13 @@ export function AircraftInspectionSchedules({
     <section aria-label="Inspection schedules">
       <h3>Inspection schedules</h3>
       <ScheduleSortFields order={order} onOrder={setOrder} />
-      {rows.map((row) => (
-        <ScheduleItem key={row.inspection.uuid} row={row} />
-      ))}
+      {rows.length > 0 && (
+        <div className="ds-rows">
+          {rows.map((row) => (
+            <ScheduleItem key={row.inspection.uuid} row={row} />
+          ))}
+        </div>
+      )}
       {!rows.length && <Empty title="Inspection information missing" />}
     </section>
   );
@@ -155,8 +165,8 @@ function ScheduleSortFields({
 function ScheduleItem({ row }: { row: ScheduleRow }) {
   const { inspection: i, remaining: r, projected } = row;
   return (
-    <div className="list-row">
-      <div className="grow">
+    <div className="ds-row">
+      <div>
         <strong>{scheduleName(row)}</strong>
         <RemainingLimits row={row} />
         {i.calendarExempt && <small className="block">Calendar exempt</small>}
@@ -167,7 +177,7 @@ function ScheduleItem({ row }: { row: ScheduleRow }) {
           <small className="block">Remaining units not available</small>
         )}
       </div>
-      <StatusPill tone={STATUS_TONES[r.status]}>
+      <StatusPill tone={STATUS_TONES[r.status]} icon={STATUS_ICONS[r.status]}>
         {inspectionStatusLabels[r.status]}
       </StatusPill>
     </div>

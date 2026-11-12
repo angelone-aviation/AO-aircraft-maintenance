@@ -3,9 +3,10 @@
  *   the dispatch gate that stops a flight on a grounded aircraft.
  * Layer: UI. React components; the status and the gate's rules come from the
  *   domain.
- * Dependencies: src/data/store.ts, src/domain/aircraftStatus.ts, ./ui.tsx,
- *   ./design.tsx.
+ * Dependencies: @phosphor-icons/react, src/data/store.ts,
+ *   src/domain/aircraftStatus.ts, ./ui.tsx, ./design.tsx.
  */
+import { CheckCircle, WarningCircle, XCircle } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import {
   aircraftStatus,
@@ -18,7 +19,7 @@ import {
 } from "../domain/aircraftStatus";
 import type { Snapshot } from "../domain/model";
 import { Field } from "./ui";
-import { StatusPill } from "./design";
+import { StatusPill, type IconType } from "./design";
 import "../styles/screens/dashboard.css";
 
 // The same limit as dispatchGate's, which src/domain/aircraftStatus.ts does
@@ -36,17 +37,34 @@ export const STATUS_TONE = {
   grounded: "danger",
 } as const satisfies Record<ShownStatusLevel, string>;
 
+/** The icon that says each level beside its word, so no status rests on
+ * colour. */
+export const STATUS_ICON: Record<ShownStatusLevel, IconType> = {
+  airworthy: CheckCircle,
+  "due-soon": WarningCircle,
+  "setup-incomplete": WarningCircle,
+  grounded: XCircle,
+};
+
 /**
- * A pill naming the status level: Airworthy, Due soon, Setup incomplete or
- * Grounded.
+ * A pill naming the status level, with its icon: Airworthy, Due soon, Setup
+ * incomplete or Grounded.
+ *
+ * @param props.className - Placement class from the screen.
  */
 export function AircraftStatusBadge({
   status,
+  className,
 }: {
   status: ShownAircraftStatus;
+  className?: string;
 }) {
   return (
-    <StatusPill tone={STATUS_TONE[status.level]}>
+    <StatusPill
+      tone={STATUS_TONE[status.level]}
+      icon={STATUS_ICON[status.level]}
+      className={className}
+    >
       {aircraftStatusLabels[status.level]}
     </StatusPill>
   );

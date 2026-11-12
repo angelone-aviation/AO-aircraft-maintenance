@@ -1,6 +1,7 @@
 /*
- * Responsibility: Styles the Dashboard (route "/"), its aircraft detail dialog
- *   and the aircraft status and files pieces it shares with other screens.
+ * Responsibility: Styles the Overview (route "/"), its charts and aircraft
+ *   detail dialog, and the aircraft status and files pieces it shares with
+ *   other screens.
  * Layer: UI. Screen styles; every selector is scoped by a `dash-` class.
  * Dependencies: src/styles/tokens.css, src/styles/design.css (`ds-*`).
  *
@@ -14,6 +15,12 @@
 /* Tucked under the header; lower in a mechanic's order it keeps its gap. */
 .ds-page-header + .dash-notice {
   margin-top: calc(var(--page-gap) * -0.4);
+}
+.dash > .dash-ads,
+.dash > .dash-charts,
+.dash > .dash-bottom,
+.dash > .callout {
+  margin-bottom: var(--page-gap);
 }
 
 /* ---------- Header call to action ---------- */
@@ -31,173 +38,112 @@
   }
 }
 
-/* ---------- Aircraft toolbar ---------- */
-.dash-toolbar {
-  margin-bottom: 20px;
-  animation: rise 0.5s 0.12s var(--ease) both;
-}
-.dash-section-title {
-  margin: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-weight: 500;
-  font-size: 26px;
-  line-height: 1.2;
-  letter-spacing: -0.6px;
+/* ---------- Aircraft section heading and filters ---------- */
+.dash-fleet > .ds-section-head {
+  align-items: center;
 }
 .dash-count {
+  margin-left: 4px;
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-regular);
   letter-spacing: 0;
-  color: var(--faint);
+  color: var(--muted);
 }
-.dash-toolbar > .ds-toolbar-end {
-  flex: 1 1 auto;
+.dash-fleet .ds-section-end {
   flex-wrap: nowrap;
-  justify-content: flex-end;
   min-width: 0;
 }
-.dash-fav-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex: none;
-  min-height: 42px;
-  padding: 9px 14px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--muted);
-  font: inherit;
-  font-size: 14.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast),
-    color var(--dur-fast),
-    background var(--dur-fast);
-}
-.dash-fav-toggle:hover {
-  border-color: var(--blue);
-  color: var(--text);
-}
-.dash-fav-toggle[aria-pressed="true"] {
-  border-color: var(--blue);
-  background: var(--blue-soft);
-  color: var(--blue-on-soft);
-}
 @media (max-width: 759px) {
-  .dash-toolbar > .ds-toolbar-end {
-    flex-basis: 100%;
+  .dash-fleet .ds-section-end {
+    flex: 1 1 100%;
   }
-  .dash-toolbar .dash-search {
+  .dash-fleet .ds-search {
     flex: 1 1 auto;
+    min-width: 0;
   }
 }
 
-/* ---------- Aircraft cards (option 3a) ---------- */
+/* ---------- Aircraft cards ---------- */
 .dash-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
-  gap: 24px;
-  margin-bottom: clamp(32px, 4vw, 52px);
-}
-.dash-empty {
-  margin-bottom: clamp(32px, 4vw, 52px);
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 22px;
 }
 .dash-card {
-  --delay: calc(0.16s + var(--i, 0) * 70ms);
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card-lg);
-  box-shadow: var(--shadow);
-  animation: rise 0.55s var(--delay) var(--ease) both;
-  transition:
-    transform var(--dur) var(--ease),
-    box-shadow var(--dur),
-    background var(--dur-theme);
-}
-.dash-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lift);
+  gap: 18px;
+  /* A filled end state would pin `transform` and stop the hover lift. */
+  animation-fill-mode: backwards;
 }
 .dash-card-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  column-gap: 12px;
-  padding: 24px 24px 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 .dash-card-id {
-  display: flex;
-  align-items: center;
-  gap: 14px;
   min-width: 0;
-}
-.dash-card-photo {
-  flex: none;
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  object-fit: cover;
-  background: var(--surface2);
 }
 .dash-card h3 {
   margin: 0;
-  font-weight: 600;
-  font-size: 36px;
-  line-height: 1;
-  letter-spacing: -1.4px;
+  font-weight: var(--fw-semibold);
+  font-size: 23px;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
   overflow-wrap: anywhere;
 }
 .dash-card-model {
-  grid-column: 1 / -1;
-  margin: 8px 0 0;
-  font-size: 14.5px;
+  margin: 5px 0 0;
+  font-size: 14px;
+  font-weight: var(--fw-light);
   line-height: 1.4;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-.dash-card-program {
-  color: var(--faint);
-  white-space: nowrap;
+.dash-card-art {
+  flex: none;
+  width: 128px;
+  height: auto;
+  margin-top: 2px;
+}
+.dash-card-photo {
+  flex: none;
+  width: 96px;
+  height: 64px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
+  object-fit: cover;
+  background: var(--surface2);
 }
 .dash-card-flags {
   display: flex;
   align-items: center;
-  gap: 2px;
-  flex: none;
-  margin-top: -4px;
+  justify-content: space-between;
+  gap: 8px;
 }
 .dash-star {
   display: grid;
   place-items: center;
   width: 40px;
   height: 40px;
-  margin-right: -8px;
+  margin: -6px -10px -6px 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: var(--faint);
+  color: color-mix(in srgb, var(--muted) 55%, transparent);
   cursor: pointer;
   transition:
     color var(--dur-fast),
-    transform var(--dur-fast),
-    background var(--dur-fast);
+    background-color var(--dur-fast);
 }
 .dash-star:hover {
-  color: var(--warn);
+  color: var(--text);
   background: var(--surface2);
-  transform: scale(1.08);
 }
+/* Selected is said by aria-pressed and the filled star, not the colour. */
 .dash-star[aria-pressed="true"] {
   color: var(--warn);
 }
@@ -205,98 +151,63 @@
   display: grid;
   justify-items: start;
   gap: 8px;
-  margin: 16px 24px 0;
 }
 .dash-card-warning {
   display: flex;
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: var(--fs-meta);
   color: var(--warn);
 }
 .dash-card-warning > svg {
   flex: none;
 }
-
-/* Meters row: TOTAL · HOBBS · TACH · LANDINGS (· CYCLES) */
 .dash-meters {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 14px 16px;
-  margin: 0;
-  padding: 26px 24px 0;
-  font-variant-numeric: tabular-nums;
+  --facts: 3;
 }
-.dash-meters > div {
-  min-width: 0;
-}
-.dash-meters dt,
-.dash-detail-stats dt {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-.dash-meters dd {
-  margin: 6px 0 0;
-  font-size: 19px;
-  font-weight: 500;
-  letter-spacing: -0.2px;
+.dash-meters dd,
+.dash-detail-stats dd {
   white-space: nowrap;
 }
 .dash-unit {
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--faint);
+  font-size: 12.5px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
 }
 
-/* Next-due timeline */
+/* Next-due line: what is next, how much is left, and where the limit is. */
 .dash-timeline {
-  margin: 26px 24px 0;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface2) 45%, var(--surface));
-  transition: background var(--dur-theme);
+  display: grid;
+  /* A long reference shrinks and ends in an ellipsis. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  font-size: 14px;
 }
 .dash-timeline-row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 10px;
-  font-size: 13.5px;
 }
 .dash-timeline-ref {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
 }
 .dash-timeline-value {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
-}
-.dash-timeline .ds-progress {
-  margin-top: 14px;
-}
-.dash-timeline .ds-progress-fill {
-  animation-delay: var(--delay);
 }
 .dash-timeline-marks {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 12px;
   font-size: 12.5px;
+  font-weight: var(--fw-light);
   font-variant-numeric: tabular-nums;
-  color: var(--faint);
+  color: var(--muted);
 }
 .dash-timeline-due {
   margin-left: auto;
@@ -317,64 +228,70 @@
   color: var(--muted);
 }
 .dash-card-parts {
-  margin: 14px 24px 0;
+  align-self: flex-start;
 }
-
-/* Card actions */
 .dash-card-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
   margin-top: auto;
-  padding: 22px 24px 24px;
 }
 .dash-card-links {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 0 18px;
-}
-.dash .dash-link {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 40px;
-  padding: 0;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--text);
-  text-decoration: none;
-  transition: color var(--dur-fast);
-}
-.dash .dash-link:hover {
-  color: var(--blue);
-  text-decoration: none;
-}
-.dash .dash-card-log {
-  min-height: 40px;
+  gap: 0 16px;
+  margin-left: auto;
 }
 
-/* ---------- Airworthiness directives panel (ADAlerts markup) ---------- */
-.dash-panel {
+/* ---------- Charts: hours flown and fleet readiness ---------- */
+.dash-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
+  gap: 22px;
+}
+.dash-chart {
+  display: grid;
+  align-content: start;
+  gap: 16px;
   min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  transition: background var(--dur-theme);
 }
-.dash-ads {
-  margin-bottom: 24px;
-  padding: 20px 26px;
+.dash-chart-total {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
 }
+.dash-chart-empty {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
+}
+/* The readiness card is narrow: the ring sits above its legend. */
+.dash-chart-readiness .ds-donut {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+}
+.dash-chart-readiness .ds-chart-legend {
+  width: 100%;
+}
+@media (max-width: 999px) {
+  .dash-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Each card already says its aircraft's status, so phones skip the donut. */
+@media (max-width: 759px) {
+  .dash-chart-readiness {
+    display: none;
+  }
+}
+
+/* ---------- Airworthiness directives card (ADAlerts markup) ---------- */
 .dash-ads > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 16px;
   font-size: 15px;
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .dash-ads > div > * {
@@ -383,9 +300,9 @@
 .dash-ads > div > h3 {
   grid-column: 1;
   margin: 0 0 6px;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 .dash-ads > div > a:last-child {
@@ -395,114 +312,83 @@
   margin-bottom: 6px;
 }
 .dash-ads a,
-.dash-detail-ads a,
-.dash-detail-manage {
-  color: var(--blue);
-  font-weight: 600;
+.dash-detail-ads a {
+  color: var(--blue-ink);
+  font-weight: var(--fw-medium);
   font-size: 14px;
 }
 .dash-ads a:hover,
-.dash-detail-ads a:hover,
-.dash-detail-manage:hover {
-  color: var(--blue-ink);
+.dash-detail-ads a:hover {
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .dash-ads .list-row,
 .dash-detail-ads .list-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
+  gap: 14px;
+  padding: 13px 0;
   border-top: 1px solid var(--border);
   border-bottom: 0;
   color: var(--text);
+  font-weight: var(--fw-regular);
+}
+.dash-ads .list-row strong,
+.dash-detail-ads .list-row strong {
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+}
+.dash-detail-ads .list-row small {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
 }
 .dash .dash-ads > div > p {
   margin: 2px 0;
 }
-.dash > .callout {
-  margin-bottom: 24px;
-}
 
-/* ---------- Bottom row: maintenance outlook + navy callout ---------- */
+/* ---------- Bottom row: maintenance outlook beside the records card ---------- */
 .dash-bottom {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
-  gap: 24px;
-  animation: rise 0.55s 0.3s var(--ease) both;
+  gap: 22px;
+  align-items: start;
 }
-/* A mechanic's outlook leads the page, above the other sections. */
-.dash-bottom:not(:last-child) {
-  margin-bottom: 24px;
+.dash-bottom > .ds-section {
+  margin-bottom: 0;
 }
-.dash-outlook {
-  padding: 26px 26px 12px;
-}
-.dash-panel-head {
-  display: flex;
+.dash-outlook > .ds-section-head {
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.dash-panel-head h2 {
-  margin: 0;
-  font-weight: 500;
-  font-size: 23px;
-  letter-spacing: -0.4px;
-}
-.dash-outlook-empty {
-  display: grid;
-  gap: 2px;
-  padding: 18px 0;
-  border-top: 1px solid var(--border);
-  font-size: 14px;
-  color: var(--muted);
-}
-.dash-outlook-empty strong {
-  font-size: 15.5px;
-  font-weight: 600;
-  color: var(--text);
 }
 .dash .dash-outlook-row {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 0;
-  border-top: 1px solid var(--border);
-  color: inherit;
+  --cols: auto minmax(0, 1fr) auto;
+  gap: 6px 16px;
   text-decoration: none;
-  transition: transform var(--dur-fast) var(--ease);
-}
-.dash .dash-outlook-row:hover {
-  transform: translateX(3px);
 }
 .dash-outlook-text {
   min-width: 0;
 }
-.dash-outlook-title {
+.dash-outlook-title,
+.dash-outlook-sub {
   display: block;
-  font-size: 15.5px;
-  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .dash-outlook-sub {
-  display: block;
-  margin-top: 1px;
-  font-size: 14px;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: var(--fw-light);
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .dash-outlook-value {
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
+}
+.dash-outlook .remaining-meter {
+  margin-top: 8px;
 }
 .dash-outlook .parts-availability,
 .dash-detail-part .parts-availability {
@@ -513,53 +399,43 @@
   font-size: 13px;
   color: var(--muted);
 }
-
 .dash-callout {
-  position: relative;
   display: grid;
-  grid-template-columns: minmax(min(200px, 100%), 1fr) minmax(0, 34%);
-  align-items: center;
-  gap: 22px;
-  min-height: 280px;
+  align-content: center;
+  justify-items: start;
+  gap: 14px;
+  /* Lines up with the outlook's card, below its heading. */
   padding: 30px;
-  overflow: hidden;
-  border-radius: var(--radius-card);
-  background: var(--navy);
-  color: #dfe4f5;
 }
-.dark .dash-callout {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
-}
-.dash-callout-text {
-  min-width: 0;
-}
-.dash-callout .eyebrow {
-  margin: 0 0 10px;
-  color: var(--on-navy-icon);
+.dash-callout .eyebrow,
+.dash-detail-hero .eyebrow {
+  margin: 0;
 }
 .dash-callout h2 {
   margin: 0;
-  font-weight: 500;
-  font-size: 32px;
-  line-height: 1.08;
-  letter-spacing: -1px;
-  color: #fff;
+  font-weight: var(--fw-semibold);
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   text-wrap: balance;
 }
 .dash-callout-body {
-  max-width: 36ch;
-  margin: 14px 0 0;
-  font-size: 15px;
-  font-weight: 300;
-  color: #b4bcdc;
+  max-width: 40ch;
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
   text-wrap: pretty;
 }
-.dash-callout-foot {
-  max-width: 40ch;
-  margin: 16px 0 0;
-  font-size: 12.5px;
-  color: var(--on-navy-muted);
+.dash-callout-foot,
+.dash-detail-foot {
+  max-width: 48ch;
+  margin: 0;
+  font-size: 13px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
 }
+
 /* ---------- Aircraft status pieces (AircraftStatus.tsx) ---------- */
 .dash-status-summary {
   display: grid;
@@ -572,7 +448,8 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 13.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   line-height: 1.4;
   color: var(--muted);
 }
@@ -585,133 +462,107 @@
   position: absolute;
   left: 2px;
   top: 0.5em;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
   opacity: 0.6;
 }
 .dash-dispatch-gate .dash-status-reasons {
   margin: 4px 0 8px;
+  font-weight: var(--fw-regular);
   color: inherit;
 }
 
 /* ---------- Aircraft detail dialog ---------- */
-.dash-detail-hero {
-  position: relative;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: flex-start;
-  min-height: 220px;
-  padding: 22px 24px 20px;
-  overflow: hidden;
-  background: var(--navy);
-  color: #fff;
-}
-.dark .dash-detail-hero {
-  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.07);
-}
-.dash-detail-art {
+.dash-detail .dash-detail-close {
   position: absolute;
-  top: 12px;
-  right: 68px;
-  width: min(40%, 180px);
-  max-height: 120px;
-  object-fit: contain;
-}
-.dash-detail-hero .dash-detail-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-}
-.dash-detail-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.dash-detail-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #f3c660;
-}
-.dash-dot-good .dash-detail-dot {
-  background: #62d69c;
-}
-.dash-dot-danger .dash-detail-dot {
-  background: #ff948a;
-}
-.dash-detail-hero h2 {
-  position: relative;
-  margin: 12px 0 0;
-  font-weight: 600;
-  font-size: 40px;
-  line-height: 1;
-  letter-spacing: -1.4px;
-  color: #fff;
-}
-.dash-detail-sub {
-  position: relative;
-  margin: 6px 0 0;
-  font-size: 15px;
-  color: #b4bcdc;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
 }
 .dash-detail .ds-dialog-body {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 22px;
+  padding-top: 28px;
 }
-.dash-detail-stats {
+/* The hero is the top of the white dialog itself, not a card inside it. */
+.dash-detail-hero {
+  flex: none;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 10px;
-  margin: 0;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 28px;
+  padding: 6px 48px 6px 6px;
 }
-.dash-detail-stats > div {
+.dash-detail-id {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
   min-width: 0;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--surface2);
 }
-.dash-detail-stats dd {
-  margin: 3px 0 0;
-  font-variant-numeric: tabular-nums;
-  font-size: 20px;
-  font-weight: 500;
-  white-space: nowrap;
+.dash-detail-hero h2 {
+  margin: 0;
+  font-weight: var(--fw-semibold);
+  font-size: clamp(32px, 4vw, 42px);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
 }
-.dash-detail-stats dd.dash-detail-text {
-  margin-top: 5px;
-  font-size: 17px;
-  white-space: normal;
+.dash-detail-sub {
+  margin: 0;
+  font-size: 16px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
+}
+.dash-detail-art {
+  justify-self: center;
+  height: auto;
+}
+.dash-detail .dash-detail-stats {
+  flex: none;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 18px 20px;
+  padding: 22px 28px;
+  border: 1px solid var(--border);
+}
+.dash-detail-cols {
+  display: grid;
+  gap: 30px 34px;
+}
+.dash-detail-col {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  min-width: 0;
+}
+@media (min-width: 1000px) {
+  .dash-detail-cols {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  /* Read first on a phone, the notes sit beside the records when wide. */
+  .dash-detail-side {
+    order: 1;
+  }
 }
 .dash-detail-section {
   position: relative;
   min-width: 0;
 }
-.dash-detail-label,
-.dash-detail-section > section > h3,
-.dash-detail-section > div > h3 {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.8px;
-  text-transform: uppercase;
-  color: var(--faint);
+/* Two classes: styles.css sets small uppercase labels on dialog h3s. */
+.dash-detail .dash-detail-section h3 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+  text-transform: none;
 }
 .dash-notes {
   display: grid;
-  gap: 8px;
-  margin: 0;
+  margin: 0 0 12px;
   padding: 0;
   list-style: none;
 }
@@ -719,83 +570,57 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--surface2);
-  color: var(--text);
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
   font-size: 15px;
-  font-weight: 500;
+}
+.dash-note:last-child {
+  border-bottom: 1px solid var(--border);
 }
 .dash-note > svg {
   flex: none;
+  color: var(--muted);
 }
-.dash-note.good {
-  background: var(--good-bg);
+.dash-note.good > svg {
   color: var(--good);
 }
-.dash-note.warn {
-  background: var(--warn-bg);
+.dash-note.warn > svg {
   color: var(--warn);
 }
-.dash-note.danger {
-  background: var(--danger-bg);
+.dash-note.danger > svg {
   color: var(--danger);
-}
-.dash-detail-foot {
-  margin: 10px 0 0;
-  font-size: 13.5px;
-  color: var(--faint);
 }
 .dash-detail-manage {
   position: absolute;
-  top: -11px;
+  top: -9px;
   right: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 40px;
 }
-.dash-detail-inspections .list-row,
-.dash-detail-ads .list-row {
-  gap: 14px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 0;
+.dash-detail-inspections .ds-rows {
+  margin-top: 4px;
 }
-.dash-detail-section .list-row strong,
-.dash-ads .list-row strong {
-  font-size: 15.5px;
-  font-weight: 600;
-}
-.dash-detail-section .list-row small {
-  margin-top: 2px;
-  font-size: 14px;
-  color: var(--muted);
+.dash-detail-inspections .ds-row {
+  align-items: start;
 }
 .dash-detail-ads > div > p,
 .dash-detail-inspections .ds-empty,
-.dash-detail-inspections .empty {
+.dash-detail-inspections .empty,
+.dash-detail-empty {
+  margin: 0;
   font-size: 15px;
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .dash-detail-ads > div > p {
-  margin: 0 0 6px;
+  margin-bottom: 6px;
 }
 .dash-detail-part {
-  padding: 14px 16px;
-  margin-bottom: 8px;
-  border-radius: 10px;
-  background: var(--surface2);
+  padding: 13px 0;
+  border-top: 1px solid var(--border);
 }
 .dash-detail-part > strong {
   display: block;
   font-size: 15px;
-  font-weight: 600;
-}
-.dash-detail-empty {
-  margin: 0;
-  font-size: 15px;
-  color: var(--muted);
+  font-weight: var(--fw-medium);
 }
 .dash-detail-actions {
   display: flex;
@@ -819,7 +644,6 @@
 }
 .dash-files-list {
   display: grid;
-  gap: 8px;
   margin: 0 0 12px;
   padding: 0;
   list-style: none;
@@ -829,9 +653,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: var(--surface2);
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
   color: var(--text);
 }
 .dash-file > svg {
@@ -846,11 +669,12 @@
   display: block;
   overflow-wrap: anywhere;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .dash-file-text small {
   display: block;
-  font-size: 13.5px;
+  font-size: 13px;
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .dash-file-actions {
@@ -860,6 +684,7 @@
   gap: 6px 14px;
 }
 .dash-files-upload {
+  margin-top: 12px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -877,7 +702,7 @@
 }
 .dash-file-archive label {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .dash-file-archive input {
   min-height: 40px;
@@ -911,24 +736,22 @@
   pointer-events: none;
 }
 @media (max-width: 759px) {
-  /* Bottom sheet: keep the grab handle visible on the navy header. */
-  .dash-detail .ds-dialog-panel::before {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    z-index: 1;
-    transform: translateX(-50%);
-    background: rgba(255, 255, 255, 0.35);
+  .dash-detail .ds-dialog-body {
+    gap: 18px;
+    padding-top: 20px;
   }
+  /* The picture leads, as on the cards; the close button keeps its corner. */
   .dash-detail-hero {
-    min-height: 196px;
-    padding: 22px 18px 18px;
-  }
-  .dash-detail-hero h2 {
-    font-size: 34px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
   }
   .dash-detail-art {
-    right: 60px;
+    order: -1;
+    width: 180px;
+  }
+  .dash-detail .dash-detail-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 18px 20px;
   }
   .dash-detail-export {
     margin-right: 0;
@@ -940,35 +763,6 @@
   .dash-detail-export .button {
     width: 100%;
   }
-}
-
-@media (max-width: 759px) {
-  .dash-card-head,
-  .dash-card-actions {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
-  .dash-meters {
-    padding: 22px 20px 0;
-    gap: 12px;
-  }
-  .dash-timeline {
-    margin: 22px 20px 0;
-  }
-  .dash-card-notes,
-  .dash-card-parts {
-    margin-left: 20px;
-    margin-right: 20px;
-  }
-  .dash-card h3 {
-    font-size: 32px;
-  }
-  .dash-outlook {
-    padding: 22px 18px 8px;
-  }
-  .dash-ads {
-    padding: 18px;
-  }
   .dash-ads > div > a:last-child {
     grid-column: 1 / -1;
     grid-row: auto;
@@ -976,17 +770,9 @@
     margin: 6px 0 0;
   }
   .dash-callout {
-    padding: 26px 22px;
+    padding: 24px 20px;
   }
   .dash-callout h2 {
-    font-size: 28px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dash-card:hover,
-  .dash-star:hover,
-  .dash .dash-outlook-row:hover {
-    transform: none;
+    font-size: 25px;
   }
 }

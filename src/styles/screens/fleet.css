@@ -1,0 +1,16 @@
+/*
+ * Responsibility: The aircraft picture in each row of the Aircraft page
+ *   (route "/aircraft").
+ * Layer: UI. Screen styles; every selector is scoped by a `fleet-` class.
+ * Dependencies: src/styles/tokens.css; the rows themselves are styled by
+ *   src/styles/screens/operations.css.
+ */
+.fleet-art {
+  height: auto;
+}
+/* A phone row has no room for the picture beside the registration. */
+@media (max-width: 479px) {
+  .fleet-art {
+    width: 64px;
+  }
+}
