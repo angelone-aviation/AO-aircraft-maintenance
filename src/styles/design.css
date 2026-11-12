@@ -639,9 +639,13 @@ button.ds-list-row {
     color var(--dur-slow),
     border-color var(--dur-slow);
 }
-.ds-segmented > :is(button, a):hover,
-.ds-chip:hover,
-.tabs :is(button, a):hover {
+/* Not the chosen chip: ink on its cobalt fill would fall below 4.5:1. */
+:is(.ds-segmented > :is(button, a), .ds-chip, .tabs :is(button, a)):hover:not(
+    .active,
+    [aria-pressed="true"],
+    [aria-current="page"],
+    [aria-selected="true"]
+  ) {
   color: var(--text);
 }
 .ds-segmented > :is([aria-pressed="true"], [aria-current="page"]),

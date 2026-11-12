@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the shell's and the shared dialog's interface: nested
  *   Escape, focus kept clear of sticky footers, focus-ring contrast, the Job
- *   cards link, the sections sheet, and the theme before first paint.
+ *   cards link, the sections sheet, the theme before first paint, and the
+ *   chosen chip's label under the pointer.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  *
@@ -20,6 +21,8 @@ const SIDEBAR_TAB_LIMIT = 40;
 // against adjacent colours (SC 1.4.11).
 const FOCUS_RING_MIN_WIDTH_PX = 2;
 const FOCUS_RING_MIN_CONTRAST = 3;
+// WCAG 2.2 text contrast (SC 1.4.3).
+const TEXT_MIN_CONTRAST = 4.5;
 
 const pilot = {
   id: "pilot-only",
@@ -188,6 +191,32 @@ test("sidebar links draw an unclipped focus ring with 3:1 contrast in both theme
         contrast(ring.color, over(ring.link, ring.sidebar)),
       ).toBeGreaterThanOrEqual(FOCUS_RING_MIN_CONTRAST);
     }
+  }
+});
+
+test("the chosen chip keeps a readable label under the pointer", async ({
+  page,
+}) => {
+  await page.setViewportSize(DESKTOP);
+  // With and without the sliding pill, which reduced motion turns off.
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    await page.emulateMedia({ reducedMotion });
+    await demo(page, "/flights");
+    const chosen = page
+      .getByRole("group", { name: "Flight status" })
+      .getByRole("button", { name: "All flights", exact: true });
+    await chosen.hover();
+    const colours = await chosen.evaluate((b) => ({
+      text: getComputedStyle(b).color,
+      fill: getComputedStyle(b.parentElement!.firstElementChild!)
+        .backgroundColor,
+      own: getComputedStyle(b).backgroundColor,
+    }));
+    const fill =
+      colours.own === "rgba(0, 0, 0, 0)" ? colours.fill : colours.own;
+    expect(contrast(colours.text, fill)).toBeGreaterThanOrEqual(
+      TEXT_MIN_CONTRAST,
+    );
   }
 });
 
