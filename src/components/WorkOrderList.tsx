@@ -40,13 +40,16 @@ type Status = WorkOrder["status"];
 type Progress = ReturnType<typeof workOrderProgress>;
 
 // Amber marks an order that waits on someone else; green only a finished one.
+// The chart instead keeps amber for parts delay alone and draws awaiting
+// approval in the deep blue: two amber bands side by side would read as one.
+// Every chart fill reaches 3:1 on the card in both themes.
 const STATUS_LOOK: Record<
   Status,
   { tone: Tone; icon: IconType; chart: ChartTone }
 > = {
-  open: { tone: "neutral", icon: ClipboardText, chart: "4" },
+  open: { tone: "neutral", icon: ClipboardText, chart: "slate" },
   "in-progress": { tone: "blue", icon: Wrench, chart: "1" },
-  "awaiting-approval": { tone: "warn", icon: Hourglass, chart: "2" },
+  "awaiting-approval": { tone: "warn", icon: Hourglass, chart: "3" },
   "parts-delay": { tone: "warn", icon: Package, chart: "warn" },
   completed: { tone: "good", icon: CheckCircle, chart: "good" },
   cancelled: { tone: "neutral", icon: Prohibit, chart: "5" },

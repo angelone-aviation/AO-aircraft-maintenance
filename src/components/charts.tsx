@@ -21,6 +21,7 @@ import {
 import {
   chartColor,
   chartTable,
+  drawnSlices,
   meterPercent,
   plotRows,
   shares,
@@ -172,7 +173,8 @@ export function Sparkline({
  * A ring showing parts of a whole, beside a legend that lists every part
  * with its value and share.
  *
- * @param props.slices - Drawn clockwise from the top in this order.
+ * @param props.slices - Drawn clockwise from the top in this order; parts
+ *   of zero keep their legend line but draw nothing.
  * @param props.center - Shown inside the ring, such as the total.
  * @returns A figure named by `label`; the legend is its text alternative.
  */
@@ -273,7 +275,7 @@ export function Meter({
  * every part with its value and share.
  *
  * @param props.segments - Left to right in this order; parts of zero keep
- *   their legend line.
+ *   their legend line but draw nothing.
  * @returns A figure named by `label`; the legend is its text alternative.
  */
 export function StackedBar({
@@ -287,17 +289,15 @@ export function StackedBar({
   format?: ChartFormat;
   className?: string;
 }) {
-  const widths = shares(segments.map((s) => s.value));
+  const drawn = drawnSlices(segments);
+  const widths = shares(drawn.map((s) => s.value));
   return (
     <figure className={cx("ds-chart ds-stack", className)} aria-label={label}>
       <div className="ds-stack-bar" aria-hidden="true">
-        {segments.map((segment, i) => (
+        {drawn.map((segment, i) => (
           <i
             key={segment.label}
-            style={{
-              width: widths[i] + "%",
-              background: chartColor(segment.tone, i),
-            }}
+            style={{ width: widths[i] + "%", background: segment.color }}
           />
         ))}
       </div>

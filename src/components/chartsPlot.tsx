@@ -26,6 +26,7 @@ import {
 } from "recharts";
 import {
   chartColor,
+  drawnSlices,
   type ChartFormat,
   type ChartSeries,
   type ChartSlice,
@@ -53,7 +54,10 @@ const MAX_BAR_WIDTH = 36;
 const BAR_TOP_RADIUS: [number, number, number, number] = [6, 6, 0, 0];
 const LINE_WIDTH = 2;
 const LINE_INSET = 14;
-const DONUT_HOLE = "68%";
+// A slim ring keeps the bright status fills calm beside the legend.
+const DONUT_HOLE = "74%";
+// Card-coloured gaps part the segments, so neighbours need no contrast.
+const DONUT_GAP = 2;
 // 12 o'clock, clockwise: how people read a share ring.
 const DONUT_START_DEG = 90;
 const DONUT_END_DEG = -270;
@@ -146,7 +150,10 @@ export function LinePlot({
   );
 }
 
-/** A ring of shares, read clockwise from 12 o'clock in the order given. */
+/**
+ * A ring of shares, read clockwise from 12 o'clock in the order given; a
+ * share of 0 draws nothing.
+ */
 export function DonutPlot({
   slices,
   format,
@@ -154,10 +161,9 @@ export function DonutPlot({
   slices: readonly ChartSlice[];
   format: ChartFormat;
 }) {
-  const data = slices.map((slice, i) => ({
-    label: slice.label,
-    value: Math.max(0, slice.value),
-    fill: chartColor(slice.tone, i),
+  const data = drawnSlices(slices).map(({ color, ...slice }) => ({
+    ...slice,
+    fill: color,
   }));
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -172,7 +178,7 @@ export function DonutPlot({
           startAngle={DONUT_START_DEG}
           endAngle={DONUT_END_DEG}
           stroke="var(--surface)"
-          strokeWidth={2}
+          strokeWidth={DONUT_GAP}
           isAnimationActive={entryMotionAllowed()}
           animationDuration={ENTRY_MS}
         />

@@ -19,7 +19,8 @@ export type InspectionStatusName = ReturnType<
 export interface StatusSlice {
   label: string;
   value: number;
-  tone: "danger" | "warn" | "good" | "5";
+  /** A chart tone (src/components/chartData.ts): "1" is cobalt, "5" grey. */
+  tone: "danger" | "warn" | "1" | "5";
 }
 
 /** One month of the workload chart: its items by kind. */
@@ -34,11 +35,13 @@ export interface WorkloadMonth {
 /** How far ahead the Planning workload chart looks. */
 export const WORKLOAD_MONTHS = 12;
 
-// Most urgent first. "Unknown" is not a status colour, so it takes a grey.
+// Most urgent first. A scheduled inspection is merely on track, not a
+// sign-off, so it takes the accent rather than the green of airworthy; and
+// "Unknown" is no status at all, so it takes a grey.
 const STATUS_ORDER = [
   ["overdue", "danger"],
   ["due-soon", "warn"],
-  ["scheduled", "good"],
+  ["scheduled", "1"],
   ["unknown", "5"],
 ] as const;
 

@@ -121,10 +121,25 @@ describe("StackedBar", () => {
     );
     expect(page).toContain(
       '<div class="ds-stack-bar" aria-hidden="true">' +
-        '<i style="width:75%;background:var(--good)"></i>' +
-        '<i style="width:25%;background:var(--danger)"></i></div>',
+        '<i style="width:75%;background:var(--chart-good)"></i>' +
+        '<i style="width:25%;background:var(--chart-danger)"></i></div>',
     );
     expect(page).toContain("<span>Grounded</span><b>1</b><small>25%</small>");
+  });
+
+  it("draws no segment for a part of zero but keeps its legend line", () => {
+    const page = html(
+      h(StackedBar, {
+        label: "Fleet status",
+        segments: [{ label: "Due soon", value: 0, tone: "warn" }, ...PARTS],
+      }),
+    );
+    expect(page).toContain(
+      '<div class="ds-stack-bar" aria-hidden="true">' +
+        '<i style="width:75%;background:var(--chart-good)"></i>' +
+        '<i style="width:25%;background:var(--chart-danger)"></i></div>',
+    );
+    expect(page).toContain("<span>Due soon</span><b>0</b><small>0%</small>");
   });
 });
 

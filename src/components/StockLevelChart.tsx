@@ -31,7 +31,9 @@ export function StockLevelChart({ stock }: { stock: Stock[] }) {
       <StackedBar
         label="Stock items by level"
         segments={[
-          { label: "In stock", value: inStock, tone: "good" },
+          // A lot in stock is simply fine, not airworthy or done, so it
+          // takes the accent; only Reorder wears a status colour.
+          { label: "In stock", value: inStock, tone: "1" },
           { label: "Reorder", value: reorder, tone: "warn" },
         ]}
       />

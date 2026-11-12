@@ -33,13 +33,17 @@ const TREND_HEIGHT = 150;
 const FLEET_SERIES: ChartSeries[] = [{ key: "fleet", label: "All aircraft" }];
 const TREND_SERIES: ChartSeries[] = [{ key: "hours", label: "Hours flown" }];
 // Setup incomplete is drawn grey beside the amber of due soon: two amber
-// slices side by side would read as one.
+// slices side by side would read as one. It takes the darker grey, which
+// keeps 3:1 against the card like the status fills.
 const LEVEL_SLICES: readonly [ShownStatusLevel, ChartTone][] = [
   ["airworthy", "good"],
   ["due-soon", "warn"],
-  ["setup-incomplete", "4"],
+  ["setup-incomplete", "5"],
   ["grounded", "danger"],
 ];
+// Setup incomplete is a passing stage, not a readiness level: it is listed
+// only while an aircraft is in it. The other levels are listed even at 0.
+const OPTIONAL_LEVEL: ShownStatusLevel = "setup-incomplete";
 
 const toHours = (seconds: number) =>
   Math.round((seconds / SECONDS_PER_HOUR) * 10) / 10;
@@ -87,7 +91,8 @@ export function HoursFlownChart({ s, today }: { s: Snapshot; today: string }) {
  * that are OK to fly (every level but Grounded).
  *
  * @param props.statuses - Each aircraft's status as shown on its card.
- * @returns A card; levels with no aircraft are left out of the donut.
+ * @returns A card. Airworthy, due soon and grounded are always in the
+ *   legend, even at zero; setup incomplete only when an aircraft is.
  */
 export function FleetReadinessChart({
   statuses,
@@ -177,11 +182,15 @@ function weeklyChart(s: Snapshot, today: string) {
 }
 
 function levelSlices(statuses: readonly ShownAircraftStatus[]) {
-  return LEVEL_SLICES.map(([level, tone]) => ({
+  const count = (level: ShownStatusLevel) =>
+    statuses.filter((status) => status.level === level).length;
+  return LEVEL_SLICES.filter(
+    ([level]) => level !== OPTIONAL_LEVEL || count(level) > 0,
+  ).map(([level, tone]) => ({
     label: aircraftStatusLabels[level],
-    value: statuses.filter((status) => status.level === level).length,
+    value: count(level),
     tone,
-  })).filter((slice) => slice.value > 0);
+  }));
 }
 
 /** "9 Nov" for 2026-11-09. */

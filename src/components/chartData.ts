@@ -8,11 +8,13 @@
 
 /**
  * A series colour: "1" to "5" are the chart palette (cobalt first, then
- * lighter and darker blues and two greys); good, warn and danger are the
- * status colours, for data that is a status and nothing else.
+ * lighter and darker blues and two greys); slate, good, warn and danger are
+ * the status fills, for data that is a status and nothing else. A status
+ * that only means "on track" takes cobalt ("1"), one not yet started takes
+ * slate; green is for airworthy or done.
  */
 export type ChartTone =
-  "1" | "2" | "3" | "4" | "5" | "good" | "warn" | "danger";
+  "1" | "2" | "3" | "4" | "5" | "slate" | "good" | "warn" | "danger";
 
 /** One measured thing across the chart, such as "Flight hours". */
 export type ChartSeries = { key: string; label: string; tone?: ChartTone };
@@ -33,9 +35,10 @@ const TONE_COLOR: Record<ChartTone, string> = {
   "3": "var(--chart-3)",
   "4": "var(--chart-4)",
   "5": "var(--chart-5)",
-  good: "var(--good)",
-  warn: "var(--warn)",
-  danger: "var(--danger)",
+  slate: "var(--chart-slate)",
+  good: "var(--chart-good)",
+  warn: "var(--chart-warn)",
+  danger: "var(--chart-danger)",
 };
 const PERCENT = 100;
 // Shares are shown to a tenth of a percent.
@@ -51,6 +54,26 @@ const SHARE_PRECISION = 10;
  */
 export function chartColor(tone: ChartTone | undefined, index: number): string {
   return TONE_COLOR[tone ?? PALETTE[index % PALETTE.length]];
+}
+
+/**
+ * The parts of a whole that a ring or bar draws, each with its colour.
+ *
+ * @param slices - In drawing order; a part without a tone takes its
+ *   position's palette colour, as in the legend.
+ * @returns The parts above 0, in order. A part of 0 keeps its legend line but
+ *   draws nothing, not even a gap.
+ */
+export function drawnSlices(
+  slices: readonly ChartSlice[],
+): { label: string; value: number; color: string }[] {
+  return slices
+    .map((slice, i) => ({
+      label: slice.label,
+      value: finite(slice.value),
+      color: chartColor(slice.tone, i),
+    }))
+    .filter((slice) => slice.value > 0);
 }
 
 /**
