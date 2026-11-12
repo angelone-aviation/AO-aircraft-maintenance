@@ -357,16 +357,19 @@ it("emails an aircraft grounded by an expired deferral, and nothing for a resolv
 });
 
 it("judges calendar limits on the records time zone's date, not the UTC date", async () => {
+  // The clock is set before the seed: a convex-test function never runs
+  // earlier than the deployment's last write, so a seed written at the real
+  // time would hold every check at that time instead.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  // 20:00 on the due date in New York is already 11 Nov in UTC. GLOSSARY
+  // "Overdue": a calendar limit is overdue from the day after its due date.
+  vi.setSystemTime(new Date("2026-11-11T01:00:00Z"));
   const { t } = await seedAlertProgram();
   await t.run(async (ctx) => {
     for (const i of await ctx.db.query("inspections").collect())
       await ctx.db.patch(i._id, { dueDate: "2026-11-10" });
   });
   const request = stubResend();
-  vi.useFakeTimers({ toFake: ["Date"] });
-  // 20:00 on the due date in New York is already 11 Nov in UTC. GLOSSARY
-  // "Overdue": a calendar limit is overdue from the day after its due date.
-  vi.setSystemTime(new Date("2026-11-11T01:00:00Z"));
   expect(await sendImmediate(t)).toMatchObject({ sent: 0 });
   const digests = await t.action(internal.alerts.sendDigests, {});
   expect(digests).toMatchObject({ sent: 2 });
@@ -484,16 +487,17 @@ it("makes a returning alert unread again, and keeps the marks of alerts that las
 });
 
 it("keeps a read mark for an alert a device ahead of the records date already shows", async () => {
+  // Set before the seed, as in the records time zone test above.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  // 10 Nov in New York, already 11 Nov in Auckland, where the inspection
+  // reads overdue.
+  vi.setSystemTime(new Date("2026-11-10T15:00:00Z"));
   const { t, a } = await seedAlertProgram();
   await t.run(async (ctx) => {
     for (const i of await ctx.db.query("inspections").collect())
       await ctx.db.patch(i._id, { dueDate: "2026-11-10" });
   });
   stubResend();
-  vi.useFakeTimers({ toFake: ["Date"] });
-  // 10 Nov in New York, already 11 Nov in Auckland, where the inspection
-  // reads overdue.
-  vi.setSystemTime(new Date("2026-11-10T15:00:00Z"));
   const snapshot = await a.query(api.operations.snapshot, {});
   const overdue = computeAlerts(snapshot!, "2026-11-11")
     .filter((x) => x.kind === "inspection-overdue")
