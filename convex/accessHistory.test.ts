@@ -6,7 +6,8 @@
  * Layer: Test. convex-test suite; never shipped.
  * Dependencies: convex/admin.ts, convex/programUsers.ts,
  *   convex/groupDeletion.ts, convex/identities.ts, convex/auditHistory.ts,
- *   convex/operations.ts, tests/fixtures/alertProgram.ts.
+ *   convex/operations.ts, convex/recordsDate.ts,
+ *   tests/fixtures/alertProgram.ts.
  *
  * Every row is written by the mutation that writes it in production, so the
  * tests fail when a writer and the history filter stop agreeing.
@@ -14,6 +15,7 @@
 import { expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { recordsDate } from "./recordsDate";
 import {
   DEMO_PROGRAM,
   OTHER_PROGRAM,
@@ -29,7 +31,9 @@ const ACCESS_ACTIONS = [
 ];
 type Client = AlertWorld["a"];
 
-const today = () => new Date().toISOString().slice(0, 10);
+// A summary without day bounds counts days in the records time zone, where
+// it is still yesterday for the first hours of each UTC day.
+const today = () => recordsDate();
 
 async function systemAdmin({ t }: AlertWorld, activeProgramUuid: string) {
   const subject = await t.run(async (ctx) => {

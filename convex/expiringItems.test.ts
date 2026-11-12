@@ -4,11 +4,12 @@
  *   and who reads their change-log rows.
  * Layer: Test. convex-test suite; never shipped.
  * Dependencies: convex/expiringItems.ts, convex/operations.ts,
- *   convex/auditHistory.ts, convex/schema.ts, src/domain/auditHistory.ts,
- *   tests/fixtures/alertProgram.ts.
+ *   convex/auditHistory.ts, convex/recordsDate.ts, convex/schema.ts,
+ *   src/domain/auditHistory.ts, tests/fixtures/alertProgram.ts.
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
+import { recordsDate } from "./recordsDate";
 import {
   DEMO_PROGRAM,
   OTHER_PROGRAM,
@@ -178,7 +179,9 @@ it("refuses a stale version, a malformed command, and replays a request id once"
 });
 
 const firstPage = { ...inProgram, cursor: null, numItems: 50 };
-const today = () => new Date().toISOString().slice(0, 10);
+// A summary without day bounds counts days in the records time zone, where
+// it is still yesterday for the first hours of each UTC day.
+const today = () => recordsDate();
 
 it("keeps an aircraft's expiring date out of the change log of members without administrator permission", async () => {
   const world = await seedAlertProgram();
