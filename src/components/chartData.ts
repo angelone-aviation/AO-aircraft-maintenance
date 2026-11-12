@@ -8,12 +8,13 @@
 
 /**
  * A series colour: "1" to "5" are the chart palette (cobalt first, then
- * lighter and darker blues and two greys); good, warn and danger are the
- * status fills, for data that is a status and nothing else. A status that
- * only means "on track" takes cobalt ("1"); green is for airworthy or done.
+ * lighter and darker blues and two greys); slate, good, warn and danger are
+ * the status fills, for data that is a status and nothing else. A status
+ * that only means "on track" takes cobalt ("1"), one not yet started takes
+ * slate; green is for airworthy or done.
  */
 export type ChartTone =
-  "1" | "2" | "3" | "4" | "5" | "good" | "warn" | "danger";
+  "1" | "2" | "3" | "4" | "5" | "slate" | "good" | "warn" | "danger";
 
 /** One measured thing across the chart, such as "Flight hours". */
 export type ChartSeries = { key: string; label: string; tone?: ChartTone };
@@ -34,6 +35,7 @@ const TONE_COLOR: Record<ChartTone, string> = {
   "3": "var(--chart-3)",
   "4": "var(--chart-4)",
   "5": "var(--chart-5)",
+  slate: "var(--chart-slate)",
   good: "var(--chart-good)",
   warn: "var(--chart-warn)",
   danger: "var(--chart-danger)",

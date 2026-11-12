@@ -61,6 +61,9 @@
   --chart-3: #1e3a8a;
   --chart-4: #c3cad8;
   --chart-5: #7c869e;
+  /* A blue-grey for a status that has not started, apart from the plain
+   * greys that mean "no status" or "cancelled". */
+  --chart-slate: #56688f;
   --chart-good: #0e9f6e;
   --chart-warn: #d97706;
   --chart-danger: #e5484d;
@@ -167,6 +170,7 @@
   --chart-3: #a9c4ff;
   --chart-4: #4a5573;
   --chart-5: #8a94ad;
+  --chart-slate: #8ea2cf;
   --chart-good: #2ebd85;
   --chart-warn: #f5a524;
   --chart-danger: #ff6369;

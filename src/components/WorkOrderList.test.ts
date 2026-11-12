@@ -119,6 +119,28 @@ describe("WorkOrderStatusChart", () => {
     expect(text(html)).not.toContain("Cancelled");
   });
 
+  it("fills each status with its own chart tone, in status order", () => {
+    const statuses: WorkOrder["status"][] = [
+      "cancelled",
+      "completed",
+      "parts-delay",
+      "awaiting-approval",
+      "in-progress",
+      "open",
+    ];
+    const orders = statuses.map((status) => order([], { status }));
+    const html = renderToStaticMarkup(h(WorkOrderStatusChart, { orders }));
+    const bar = html.match(/<div class="ds-stack-bar"[^]*?<\/div>/)![0];
+    expect(bar.match(/var\(--chart-[a-z0-9]+\)/g)).toEqual([
+      "var(--chart-slate)",
+      "var(--chart-1)",
+      "var(--chart-3)",
+      "var(--chart-warn)",
+      "var(--chart-good)",
+      "var(--chart-5)",
+    ]);
+  });
+
   it("renders nothing without work orders", () => {
     expect(renderToStaticMarkup(h(WorkOrderStatusChart, { orders: [] }))).toBe(
       "",

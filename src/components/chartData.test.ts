@@ -39,6 +39,7 @@ describe("chartColor", () => {
 
   // The status text colours are too dark to fill a ring or a bar.
   it("fills status data with the chart status tokens, not the text ones", () => {
+    expect(chartColor("slate", 0)).toBe("var(--chart-slate)");
     expect(chartColor("good", 0)).toBe("var(--chart-good)");
     expect(chartColor("warn", 0)).toBe("var(--chart-warn)");
     expect(chartColor("danger", 0)).toBe("var(--chart-danger)");
