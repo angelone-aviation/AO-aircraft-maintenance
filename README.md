@@ -143,8 +143,6 @@ flowchart TB
 | Checks       | TypeScript, oxlint, Vitest and Playwright                                                                                                          |
 | Pipeline     | GitHub Actions: CI, Deploy, Nightly backup and First-time setup                                                                                    |
 
-UI transitions adapted from transitions.dev (free recipes), used under the Transitions.dev licence.
-
 The browser talks only to the website and Convex. Every outside service is called from Convex.
 
 For the full system map, the layers and the rules between them, read [CONTEXT.md](CONTEXT.md). The standing decisions are in [`docs/adr/`](docs/adr/) and the [architecture report](docs/architecture/README.md) has the detail.
