@@ -3,13 +3,13 @@
  *   Components, Inventory and Alerts.
  * Layer: UI. Every selector is scoped by an `mx-` class, so nothing here
  *   restyles another screen.
- * Dependencies: src/styles/tokens.css (colours, radii, motion, `rise`),
- *   src/styles/design.css (ds-* building blocks).
+ * Dependencies: src/styles/tokens.css (colours, radii, motion, `rise`,
+ *   `grow`), src/styles/design.css (ds-* building blocks).
  *
- * Record lists (inspections, inventory, components) keep real <table>
- * markup for assistive technology and the existing tests, and lay each row
- * out as a CSS-grid card. The header row is visually hidden; each fact cell
- * carries its own visible caption (.mx-fact-label, aria-hidden).
+ * Record lists keep real <table> markup for assistive technology and the
+ * existing tests, and lay each row out with CSS grid. Inspections show their
+ * header row on desktop; inventory and component rows keep it hidden and
+ * caption each fact cell instead (.mx-fact-label, aria-hidden).
  */
 
 /* ---------- Shared helpers ---------- */
@@ -43,7 +43,6 @@
 /* ---------- Filter row ---------- */
 .mx-filters.ds-toolbar {
   justify-content: flex-start;
-  animation: rise 0.5s 0.06s var(--ease) both;
 }
 .mx-select {
   position: relative;
@@ -52,16 +51,15 @@
   gap: 8px;
   max-width: 100%;
   min-height: 44px;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--surface);
+  box-shadow: var(--shadow-xs);
   color: var(--muted);
   font-size: 14.5px;
   cursor: pointer;
-  transition:
-    border-color var(--dur-fast),
-    background var(--dur-theme);
+  transition: border-color var(--dur-fast);
 }
 .mx-select:hover,
 .mx-select:focus-within {
@@ -84,7 +82,7 @@
   color: var(--text);
   font: inherit;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--fw-regular);
   text-overflow: ellipsis;
   cursor: pointer;
 }
@@ -97,8 +95,8 @@
 }
 .mx-select-caret {
   position: absolute;
-  right: 12px;
-  color: var(--faint);
+  right: 14px;
+  color: var(--muted);
   pointer-events: none;
 }
 .mx-search.ds-search {
@@ -133,48 +131,67 @@
   }
 }
 
-/* ---------- Inspections: one card per schedule ---------- */
+/* ---------- Inspections: status share ---------- */
+.mx-insp-summary {
+  max-width: 480px;
+  margin-bottom: 24px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .mx-insp-summary {
+    animation: rise 0.5s 0.08s var(--ease) both;
+  }
+}
+/* The donut is left out on phones, where each row already says its status. */
+@media (max-width: 759px) {
+  .mx-insp-summary {
+    display: none;
+  }
+}
+
+/* ---------- Inspections: one row per schedule, in one card ---------- */
 table.mx-insp-table {
+  --cols: minmax(0, 1.2fr) minmax(0, 1.2fr) 336px;
   display: block;
   width: 100%;
   white-space: normal;
   border-collapse: separate;
 }
-/* Rows share their column tracks (subgrid), so the due and action columns
- * line up from card to card. */
-.mx-insp-table > tbody {
-  --mx-insp-cols: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+.mx-insp-table > :is(thead, tbody) {
+  display: block;
+}
+/* Same look as .ds-row-head, which cannot be used here: it leaves the
+ * accessibility tree on phones, and this header must stay readable there. */
+.mx-insp-head > tr {
   display: grid;
-  grid-template-columns: var(--mx-insp-cols);
-  gap: 14px 24px;
+  grid-template-columns: var(--cols);
+  gap: 0 24px;
+  padding: 13px 24px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mx-insp-head > tr > th {
+  font-weight: var(--fw-regular);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-align: left;
 }
 .mx-insp-row {
-  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: var(--mx-insp-cols);
-  gap: 18px 24px;
+  grid-template-columns: var(--cols);
+  gap: 12px 24px;
   align-items: center;
-  padding: 22px 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  animation: rise 0.45s calc(0.08s + var(--i, 0) * 50ms) var(--ease) both;
-  transition:
-    background var(--dur-theme),
-    transform var(--dur-fast) var(--ease);
+  padding: 20px 24px;
+  border-top: 1px solid var(--border);
 }
-.mx-insp-row:hover {
-  transform: translateX(2px);
-}
-@media (prefers-reduced-motion: reduce) {
-  .mx-insp-row:hover {
-    transform: none;
-  }
-}
-@supports (grid-template-columns: subgrid) {
-  .mx-insp-row {
-    grid-template-columns: subgrid;
-  }
+.mx-insp-row:first-child {
+  border-top: 0;
 }
 .mx-insp-row > td {
   display: block;
@@ -183,11 +200,6 @@ table.mx-insp-table {
   border: 0;
   font-size: 15px;
 }
-.mx-insp-row > .mx-insp-main {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
 .mx-insp-text {
   display: flex;
   flex-direction: column;
@@ -195,19 +207,16 @@ table.mx-insp-table {
   min-width: 0;
 }
 .mx-insp-title {
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
-.mx-insp-sub {
-  font-size: 14px;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
+.mx-insp-sub,
 .mx-insp-note {
   font-size: 13px;
-  color: var(--faint);
+  font-weight: var(--fw-light);
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .mx-insp-note:empty {
@@ -216,38 +225,49 @@ table.mx-insp-table {
 .mx-insp-row > .mx-insp-due {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
 }
+/* The amount left and the due value share a line; the meter runs the full
+ * width under them. RemainingMeter's wrapper is flattened so its amount,
+ * track and "Overdue" word become cells of this grid. */
 .mx-due-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "left word what"
+    "bar bar bar";
   align-items: baseline;
-  column-gap: 12px;
+  gap: 7px 10px;
   font-size: 14px;
 }
+.mx-due-line > .remaining-meter {
+  display: contents;
+}
 .mx-due-what {
+  grid-area: what;
   min-width: 0;
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-.mx-due-basis {
-  display: block;
-  font-size: 12.5px;
-  color: var(--faint);
-}
-.mx-due-left {
-  color: var(--muted);
-  font-weight: 600;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   text-align: right;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
-/* Caps the meter column so the meter wraps under the amount instead of
-   squeezing the due value on phones. */
-.mx-due-line > .remaining-meter {
-  max-width: 11rem;
-  justify-content: flex-end;
+.mx-due-line > .mx-due-what:only-child {
+  grid-area: left;
+  text-align: left;
+}
+.mx-due-basis {
+  font-weight: var(--fw-light);
+}
+.mx-due-basis::before {
+  content: "· ";
+}
+.mx-due-left {
+  grid-area: left;
+  color: var(--muted);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .mx-due-left.lead {
   color: var(--text);
@@ -255,6 +275,14 @@ table.mx-insp-table {
 .mx-due-left.lead.mx-tone-warn,
 .mx-due-left.lead.mx-tone-danger {
   color: var(--mx-tone);
+}
+.mx-due-line .remaining-meter-track {
+  grid-area: bar;
+  display: block;
+  width: 100%;
+}
+.mx-due-line .remaining-meter-word {
+  grid-area: word;
 }
 .mx-insp-row > .mx-insp-actions {
   display: flex;
@@ -264,60 +292,93 @@ table.mx-insp-table {
   gap: 8px;
 }
 .mx-insp-actions > .ds-pill {
-  margin-right: 2px;
+  margin-right: 6px;
 }
-/* Secondary parts and work actions sit in a quieter card footer band. */
+/* Parts and work actions are a quiet line of links under the row, so the
+ * row keeps one filled button. */
 .mx-insp-row > .mx-insp-tools {
   grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 0 -24px -22px;
-  padding: 14px 24px;
-  border-top: 1px solid var(--border);
-  border-radius: 0 0 calc(var(--radius-card) - 1px)
-    calc(var(--radius-card) - 1px);
-  background: color-mix(in srgb, var(--surface2) 45%, var(--surface));
+  gap: 2px 20px;
+  margin-top: -6px;
 }
 .mx-insp-row > .mx-insp-tools:empty {
   display: none;
 }
+.mx-insp-row > .mx-insp-tools > .button {
+  min-height: 40px;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--blue-ink);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+}
+.mx-insp-row > .mx-insp-tools > .button:hover:not(:disabled) {
+  transform: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .mx-insp-tools > .parts-availability {
   flex: 1 1 100%;
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 13px;
   color: var(--muted);
 }
+@media (hover: hover) and (pointer: fine) {
+  .mx-insp-row {
+    transition: background-color var(--dur-fast);
+  }
+  .mx-insp-row:hover {
+    background: color-mix(in srgb, var(--surface2) 45%, transparent);
+  }
+  .mx-due-line .remaining-meter-fill {
+    animation: grow var(--dur-bar) var(--ease) both;
+  }
+}
+/* Below the desktop width the column header no longer lines up with the
+ * restacked cells, so it goes back to being read but not seen. */
 @media (max-width: 1099px) {
-  .mx-insp-table > tbody {
-    --mx-insp-cols: minmax(0, 1fr) minmax(0, 1fr);
+  .mx-insp-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .mx-insp-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   .mx-insp-row > .mx-insp-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
   }
+  .mx-insp-row > .mx-insp-tools {
+    margin-top: 0;
+  }
 }
 @media (max-width: 759px) {
-  .mx-insp-table > tbody {
-    --mx-insp-cols: minmax(0, 1fr);
-  }
   .mx-insp-row {
-    gap: 16px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
     padding: 18px;
   }
-  .mx-insp-row > .mx-insp-tools {
-    margin: 0 -18px -18px;
-    padding: 12px 18px;
+  .mx-insp-actions > .ds-pill {
+    margin-right: 0;
   }
-  .mx-insp-row > .mx-insp-main {
-    align-items: flex-start;
+  .mx-insp-row > .mx-insp-tools {
+    gap: 0 18px;
+    margin-top: -6px;
   }
 }
 
 /* ---------- Record rows (inventory, components) ---------- */
 .mx-records-card.ds-list-card {
-  padding: 4px 26px;
+  padding: 2px 24px;
 }
 table.mx-records {
   display: block;
@@ -360,7 +421,7 @@ table.mx-records {
 }
 .mx-main-title {
   font-size: 16.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
@@ -371,7 +432,7 @@ table.mx-records {
 }
 .mx-main-note {
   font-size: 13px;
-  color: var(--faint);
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .mx-records td.mx-fact,
@@ -383,16 +444,16 @@ table.mx-records {
 }
 .mx-fact-label {
   margin-bottom: 2px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
+  font-size: 11.5px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0.08em;
   line-height: 1.3;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 .mx-fact-value {
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   line-height: 1.35;
   color: var(--text);
   overflow-wrap: anywhere;
@@ -421,7 +482,7 @@ table.mx-records {
 }
 .mx-qty > strong {
   font-size: 24px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   line-height: 1.1;
   letter-spacing: -0.5px;
   font-variant-numeric: tabular-nums;
@@ -567,12 +628,11 @@ table.mx-records {
 /* Component groups: one collapsible card per aircraft / inventory. */
 .mx-comp-group.component-group {
   margin: 0 0 20px;
-  padding: 0 26px;
+  padding: 0 24px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  animation: rise 0.5s 0.1s var(--ease) both;
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
 }
 .mx-comp-group > .mx-group-summary {
   display: flex;
@@ -583,7 +643,7 @@ table.mx-records {
   list-style: none;
   color: var(--text);
   font-size: 15px;
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   cursor: pointer;
 }
 .mx-comp-group > .mx-group-summary::-webkit-details-marker {
@@ -593,19 +653,19 @@ table.mx-records {
   border-bottom: 1px solid var(--border);
 }
 .mx-group-title {
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .mx-group-count {
   font-size: 13px;
-  color: var(--faint);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .mx-group-caret {
   margin-left: auto;
-  color: var(--faint);
-  transition: transform 0.32s var(--ease);
+  color: var(--muted);
+  transition: transform var(--dur-slow) var(--ease);
 }
 .mx-comp-group:not([open]) .mx-group-caret {
   transform: rotate(-90deg);
@@ -628,9 +688,9 @@ table.mx-records {
 }
 .mx-section-title {
   margin: 0 0 18px;
-  font-size: 23px;
-  font-weight: 500;
-  letter-spacing: -0.5px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .mx-location-grid {
   display: grid;
@@ -646,7 +706,7 @@ table.mx-records {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
 }
 .mx-location-card > .button {
   grid-column: 2;
@@ -655,7 +715,7 @@ table.mx-records {
 .mx-location-text h3 {
   margin: 0 0 4px;
   font-size: 17px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .mx-location-text p {
   margin: 0;
@@ -684,7 +744,7 @@ table.mx-records {
 .mx-detail-list dd {
   margin: 0;
   color: var(--text);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   overflow-wrap: anywhere;
 }
 .mx-dialog-actions {
@@ -701,7 +761,7 @@ table.mx-records {
   margin: 0 0 12px;
   color: var(--text);
   font-size: 17px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   letter-spacing: -0.2px;
 }
 .mx-dialog-empty {
@@ -712,7 +772,7 @@ table.mx-records {
 .mx-table-card {
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
 }
 table.mx-table {
   width: 100%;
@@ -724,10 +784,10 @@ table.mx-table {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
   background: transparent;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.08em;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
@@ -750,7 +810,7 @@ table.mx-table {
 .mx-table-title {
   display: block;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .mx-table-note {
   display: block;
@@ -780,88 +840,316 @@ table.mx-table {
   }
 }
 
-/* ---------- Alerts ---------- */
-.mx-alerts {
-  max-width: 860px;
+/* ---------- Motion (mouse-and-keyboard screens only) ---------- */
+@media (hover: hover) and (pointer: fine) {
+  .mx-comp-group.component-group {
+    animation: rise 0.5s 0.1s var(--ease) both;
+  }
+  .mx-location-card {
+    transition:
+      transform var(--dur-slow) var(--ease),
+      box-shadow var(--dur-slow);
+  }
+  .mx-location-card:hover {
+    transform: translateY(var(--lift-card));
+    box-shadow: var(--shadow-lift);
+  }
 }
+
+/* ---------- Rows table (RowsTable): templates and imports ---------- */
+.mx-rt {
+  margin: 0 0 24px;
+}
+.mx-rt-row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 8px 20px;
+  align-items: center;
+  padding: 17px 24px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.mx-rt > :last-child > .mx-rt-row:last-child {
+  border-bottom: 0;
+}
+.mx-rt-head > .mx-rt-row {
+  padding-block: 13px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mx-rt-row > [role="cell"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mx-rt-row > [role="cell"] > .mx-fact-label {
+  display: none;
+}
+.mx-rt-main {
+  font-size: 15.5px;
+  font-weight: var(--fw-medium);
+}
+.mx-rt-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: var(--fw-light);
+}
+.mx-rt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mx-rt-actions > small {
+  flex-basis: 100%;
+  text-align: right;
+}
+.mx-rt-check > input {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+.mx-rt-row details {
+  margin: 0;
+}
+.mx-rt-row summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--blue-ink);
+  font-size: 13.5px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .mx-rt-row {
+    transition: background-color var(--dur-fast);
+  }
+  [role="rowgroup"]:not(.mx-rt-head) > .mx-rt-row:hover {
+    background: color-mix(in srgb, var(--surface2) 50%, transparent);
+  }
+}
+/* Restacked: the main cell and the actions take the full width, the other
+ * cells pair up under their own captions, and a leading checkbox sits in
+ * the row's left margin. The header row stays for screen readers only. */
+@media (max-width: 1099px) {
+  .mx-rt-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .mx-rt-row {
+    position: relative;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 12px 20px;
+  }
+  .mx-rt-main,
+  .mx-rt-actions {
+    grid-column: 1 / -1;
+  }
+  .mx-rt-actions {
+    justify-content: flex-start;
+  }
+  .mx-rt-actions > small {
+    text-align: left;
+  }
+  .mx-rt-row > [role="cell"] > .mx-fact-label {
+    display: block;
+  }
+  .mx-rt-row:has(> .mx-rt-check) {
+    padding-left: 58px;
+  }
+  .mx-rt-check {
+    position: absolute;
+    top: 19px;
+    left: 22px;
+  }
+  .mx-rt-row > [role="cell"]:empty {
+    display: none;
+  }
+}
+@media (max-width: 759px) {
+  .mx-rt-row {
+    padding-inline: 18px;
+  }
+  .mx-rt-row:has(> .mx-rt-check) {
+    padding-left: 52px;
+  }
+  .mx-rt-check {
+    left: 18px;
+  }
+}
+
+/* ---------- Template screens ---------- */
+.mx-tpl-group {
+  margin-bottom: 8px;
+}
+.mx-tpl-group > h3 {
+  margin: 0 0 14px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.mx-tpl-select {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 24px;
+}
+.mx-tpl-select > p {
+  margin: 0;
+}
+.mx-tpl-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.mx-tpl-buttons + .mx-rt {
+  margin-top: 16px;
+}
+.mx-tpl-intro {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 14.5px;
+  font-weight: var(--fw-light);
+  line-height: 1.55;
+}
+.mx-tpl-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 14.5px;
+}
+.mx-tpl-confirm > input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+}
+.mx-tpl-cards {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+.mx-tpl-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 20px;
+  align-items: center;
+}
+.mx-tpl-card strong {
+  display: block;
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+.mx-tpl-card small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13.5px;
+  font-weight: var(--fw-light);
+  overflow-wrap: anywhere;
+}
+.mx-pending {
+  margin: 0;
+}
+.mx-pending > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  list-style: none;
+  color: var(--text);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
+  cursor: pointer;
+}
+.mx-pending > summary::-webkit-details-marker {
+  display: none;
+}
+.mx-pending-caret {
+  flex: none;
+  color: var(--muted);
+  transition: transform var(--dur-slow) var(--ease);
+}
+.mx-pending:not([open]) .mx-pending-caret {
+  transform: rotate(-90deg);
+}
+@media (max-width: 759px) {
+  .mx-tpl-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Alerts ---------- */
 .mx-alerts-settings {
   margin: 0 0 16px;
 }
-.mx-alert-group {
-  margin-bottom: 20px;
-  padding: 10px 26px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  animation: rise 0.5s 0.08s var(--ease) both;
-  transition: background var(--dur-theme);
+.mx-alerts-settings a {
+  font-size: 14px;
+  color: var(--blue-ink);
+  font-weight: var(--fw-medium);
 }
-.mx-alert-group-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 0 12px;
+.mx-alert-group.ds-section {
+  margin-bottom: 28px;
 }
-.mx-alert-group-head h2 {
-  margin: 0;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+.mx-alert-row.ds-row {
+  --cols: auto minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  transition: background-color var(--dur);
+}
+/* Unread rows carry a tint and a dot; the row's hidden "Unread:" prefix
+ * says the same to a screen reader. */
+.mx-alert-row:not(.is-read) {
+  background: color-mix(in srgb, var(--blue-soft) 60%, transparent);
+}
+.mx-alert-icon {
   color: var(--mx-tone, var(--muted));
 }
-.mx-alert-count {
-  font-size: 13px;
-  color: var(--faint);
-  font-variant-numeric: tabular-nums;
-}
-.mx-alert-row {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-  gap: 14px 16px;
-  align-items: center;
-  padding: 20px 0;
-  border-top: 1px solid var(--border);
-}
-.mx-alert-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--mx-tone, var(--muted));
-  box-shadow: 0 0 0 4px var(--mx-tone-bg, var(--surface2));
-  transition:
-    background var(--dur),
-    box-shadow var(--dur);
-}
-.mx-alert-row.is-read .mx-alert-dot {
-  background: var(--border);
-  box-shadow: none;
+.mx-tone-neutral .mx-alert-icon {
+  color: var(--blue);
 }
 .mx-alert-text strong {
   display: block;
-  font-size: 16.5px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 15.5px;
+  line-height: 1.4;
 }
 .mx-alert-text p {
   margin: 2px 0 0;
-  font-size: 14.5px;
+  font-size: 13.5px;
+  font-weight: var(--fw-light);
   color: var(--muted);
   text-wrap: pretty;
 }
-/* Read rows step back through weight and colour rather than opacity, so
- * their text keeps 4.5:1 contrast in both themes. */
+/* Read rows step back through weight rather than opacity, so their text
+ * keeps 4.5:1 contrast in both themes. */
 .mx-alert-row.is-read .mx-alert-text strong {
-  font-weight: 500;
-  color: var(--muted);
-}
-.mx-alert-row.is-read .mx-alert-text p {
-  color: var(--faint);
+  font-weight: var(--fw-regular);
 }
 .mx-alert-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.mx-alert-unread {
+  order: 3;
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--blue);
 }
 .mx-alert-mark {
   display: grid;
@@ -869,27 +1157,24 @@ table.mx-table {
   width: 40px;
   height: 40px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 50%;
   background: transparent;
   color: var(--muted);
   transition:
-    background var(--dur-fast),
+    background-color var(--dur-fast),
     color var(--dur-fast);
 }
 .mx-alert-mark:hover {
-  background: var(--surface2);
+  background: var(--surface);
   color: var(--text);
 }
 @media (max-width: 759px) {
-  .mx-alert-group {
-    padding: 6px 18px;
-  }
-  .mx-alert-row {
-    grid-template-columns: 12px minmax(0, 1fr);
+  .mx-alert-row.ds-row {
+    --cols: auto minmax(0, 1fr);
     align-items: start;
   }
-  .mx-alert-dot {
-    margin-top: 8px;
+  .mx-alert-icon {
+    margin-top: 2px;
   }
   .mx-alert-actions {
     grid-column: 2;

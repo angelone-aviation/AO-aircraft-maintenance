@@ -1,6 +1,7 @@
 /*
  * Responsibility: Print layout for the Planning screen: only the forecast
- *   prints, without the app shell or the screen controls (.no-print).
+ *   prints, without the app shell or the screen controls (.no-print); and
+ *   the fit of the workload chart.
  * Layer: UI. Print-only; the screen styles are the shared `ops-*` rules in
  *   src/styles/screens/operations.css.
  * Dependencies: src/styles/tokens.css, src/styles.css (shell),
@@ -9,6 +10,14 @@
  * A dark theme prints with the light palette, on white with darker borders,
  * so text stays dark on paper.
  */
+/* The chart's screen-reader table is absolutely placed and a table ignores
+ * the 1px width that hides it, so it reached past a phone's edge and let the
+ * page scroll sideways. Clipping it to the chart keeps it readable and the
+ * page still. */
+.planning-workload .ds-chart {
+  position: relative;
+  overflow: hidden;
+}
 @media print {
   .sidebar,
   .rail,

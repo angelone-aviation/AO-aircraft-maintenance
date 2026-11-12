@@ -6,8 +6,17 @@
  * Dependencies: react, @tanstack/react-router, src/data/store.ts, src/domain
  *   (deleteInspectionTemplates, programs, inspectionTemplates, manuals,
  *   model), ./TaskCsvImport, ./ActivateTemplate, ./ScheduleTracking,
- *   ./ManagementShared, ./Manuals, ./ui.
+ *   ./ManagementShared, ./Manuals, ./MaintenanceUi, ./ui, ./design.
  */
+import { CheckCircle, Funnel, Info } from "@phosphor-icons/react";
+import {
+  EmptyState,
+  NoticeBar,
+  PageHeader,
+  SearchField,
+  Toolbar,
+} from "./design";
+import { IconSelect, RowsCell, RowsRow, RowsTable } from "./MaintenanceUi";
 import {
   MAX_TEMPLATES_PER_DELETION,
   templateDeletionPreview,
@@ -39,7 +48,6 @@ import {
   AsyncForm,
   Field,
   Modal,
-  PageTitle,
   downloadBlankCsv,
   errorText,
   value,
@@ -171,10 +179,9 @@ export function InspectionTemplates() {
         <DeleteTemplatesDialog {...props} preview={screen.deletePreview} />
       )}
       {!records.length && (
-        <p>
-          No templates found. Create a template or import interval data from
-          CSV.
-        </p>
+        <EmptyState title="No templates found">
+          Create a template or import interval data from CSV.
+        </EmptyState>
       )}
       <TemplateGroups {...props} />
       {screen.activating && (
@@ -549,11 +556,12 @@ function searchText({ name, group, applicability: a }: InspectionTemplate) {
 
 function TemplatesTitle(props: ScreenProps) {
   return (
-    <PageTitle
+    <PageHeader
       eyebrow="MAINTENANCE"
-      title="Inspection templates"
+      title="Inspection"
+      accent="templates"
       description="Reusable inspection and component requirements, grouped by model. Intervals only; no compliance history."
-      action={<TemplateActions {...props} />}
+      actions={<TemplateActions {...props} />}
     />
   );
 }
@@ -569,7 +577,7 @@ function TemplateActions({ s, screen, writable }: ScreenProps) {
     screen.setImporting(true);
   };
   return (
-    <div className="management-actions">
+    <>
       <Link to="/inspections" className="button">
         Back to inspections
       </Link>
@@ -591,7 +599,7 @@ function TemplateActions({ s, screen, writable }: ScreenProps) {
       >
         New template
       </button>
-    </div>
+    </>
   );
 }
 
@@ -599,45 +607,49 @@ function SavedNotice({ screen }: { screen: Screen }) {
   const { notice, createdKind } = screen;
   if (!notice) return null;
   return (
-    <p role="status">
+    <NoticeBar tone="good" icon={CheckCircle} role="status">
       {notice}{" "}
       {createdKind && (
         <Link to={createdKind === "aircraft" ? "/inspections" : "/components"}>
           Open {createdKind === "aircraft" ? "Inspections" : "Components"}
         </Link>
       )}
-    </p>
+    </NoticeBar>
   );
 }
 
 function TemplateFilters({ screen }: { screen: Screen }) {
   return (
-    <div className="management-toolbar">
-      <Field label="Search templates">
-        <input
-          value={screen.filter}
-          onChange={(e) => screen.setFilter(e.target.value)}
-        />
-      </Field>
-      <Field label="Template type">
-        <select
-          value={screen.kind}
-          onChange={(e) => screen.setKind(e.target.value)}
-        >
-          <option value="">All models</option>
-          <option value="aircraft">Aircraft types</option>
-          <option value="component">Component models</option>
-        </select>
-      </Field>
-      <label>
-        <input
-          type="checkbox"
-          checked={screen.archived}
-          onChange={(e) => screen.setArchived(e.target.checked)}
-        />{" "}
-        Show archived
-      </label>
-    </div>
+    <Toolbar
+      className="mx-filters"
+      end={
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={screen.archived}
+            onChange={(e) => screen.setArchived(e.target.checked)}
+          />{" "}
+          Show archived
+        </label>
+      }
+    >
+      <SearchField
+        className="mx-search"
+        label="Search templates"
+        value={screen.filter}
+        onChange={screen.setFilter}
+      />
+      <IconSelect
+        icon={Funnel}
+        label="Template type"
+        value={screen.kind}
+        onChange={screen.setKind}
+      >
+        <option value="">All models</option>
+        <option value="aircraft">Aircraft types</option>
+        <option value="component">Component models</option>
+      </IconSelect>
+    </Toolbar>
   );
 }
 
@@ -652,12 +664,12 @@ function DeleteSelection({ s, screen, writable, records }: ScreenProps) {
     }
   };
   return (
-    <div className="callout">
+    <div className="ds-card mx-tpl-select">
       <p>
         Select templates to delete. {deleteIds.length} selected (maximum{" "}
         {MAX_TEMPLATES_PER_DELETION}).
       </p>
-      <div className="management-actions">
+      <div className="mx-tpl-buttons">
         <SelectVisibleButton {...{ screen, writable, records }} />
         <button className="button" onClick={() => screen.setDeleteIds([])}>
           Clear selection
@@ -792,32 +804,37 @@ function AssociatedCards({
   );
 }
 
+const TEMPLATE_COLUMNS = [
+  "Template",
+  "Intervals / limits",
+  "Conditions",
+  "Tasks / source",
+  "Actions",
+];
+const TEMPLATE_COLS =
+  "minmax(0, 1.1fr) minmax(0, 0.95fr) minmax(0, 0.8fr) minmax(0, 0.6fr) minmax(0, 1.65fr)";
+const SELECT_COL = "28px ";
+
 function TemplateGroups(props: ScreenProps) {
   const groups = Map.groupBy(props.records, templateGroupLabel);
+  const { deleting } = props.screen;
   return [...groups]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([label, entries]) => (
-      <section key={label}>
+      <section className="mx-tpl-group" key={label}>
         <h3>{label}</h3>
-        <div className="panel table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {props.screen.deleting && <th>Select</th>}
-                <th>Actions</th>
-                <th>Template</th>
-                <th>Intervals / limits</th>
-                <th>Conditions</th>
-                <th>Tasks / source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((t) => (
-                <TemplateRow key={t.uuid} template={t} {...props} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RowsTable
+          label={`${label} templates`}
+          columns={
+            deleting ? ["Select", ...TEMPLATE_COLUMNS] : TEMPLATE_COLUMNS
+          }
+          cols={(deleting ? SELECT_COL : "") + TEMPLATE_COLS}
+          hiddenColumns={["Select", "Actions"]}
+        >
+          {entries.map((t) => (
+            <TemplateRow key={t.uuid} template={t} {...props} />
+          ))}
+        </RowsTable>
       </section>
     ));
 }
@@ -834,29 +851,29 @@ function TemplateRow({
   writable,
 }: ScreenProps & { template: InspectionTemplate }) {
   return (
-    <tr>
+    <RowsRow>
       {screen.deleting && <SelectCell template={t} {...{ screen, writable }} />}
-      <TemplateRowActions template={t} {...{ screen, writable }} />
-      <td>
+      <RowsCell kind="main">
         {t.name}
         {t.archived && " (archived)"}
         <small className="block">{t.requirementType}</small>
-      </td>
-      <td>
+      </RowsCell>
+      <RowsCell caption="Intervals / limits">
         <TemplateIntervals record={t} />
-      </td>
-      <td>
+      </RowsCell>
+      <RowsCell caption="Conditions">
         {t.conditions}
         <details>
           <summary>Description</summary>
           {t.description}
         </details>
-      </td>
-      <td>
+      </RowsCell>
+      <RowsCell caption="Tasks / source">
         {t.tasks.length} tasks
         <ManualLink reference={t.manualReference} />
-      </td>
-    </tr>
+      </RowsCell>
+      <TemplateRowActions template={t} {...{ screen, writable }} />
+    </RowsRow>
   );
 }
 
@@ -868,12 +885,12 @@ function TemplateRowActions({
   template: InspectionTemplate;
 }) {
   return (
-    <td>
-      <button className="button" onClick={() => screen.setSelected(t)}>
+    <RowsCell kind="actions">
+      <button className="button small" onClick={() => screen.setSelected(t)}>
         {writable ? "Edit template" : "View template"}
       </button>
       <button
-        className="button"
+        className="button small"
         disabled={!writable || t.archived}
         onClick={() => screen.setActivating(t)}
       >
@@ -881,7 +898,7 @@ function TemplateRowActions({
           ? "Create inspection"
           : "Create component requirement"}
       </button>
-    </td>
+    </RowsCell>
   );
 }
 
@@ -896,7 +913,7 @@ function SelectCell({
   const checked = screen.deleteIds.includes(t.uuid);
   const full = screen.deleteIds.length >= MAX_TEMPLATES_PER_DELETION;
   return (
-    <td>
+    <RowsCell kind="check">
       <input
         type="checkbox"
         aria-label={`Select template ${t.name}`}
@@ -910,7 +927,7 @@ function SelectCell({
           )
         }
       />
-    </td>
+    </RowsCell>
   );
 }
 
@@ -1000,15 +1017,15 @@ function ImportDialog(props: ScreenProps) {
 function ImportGuidance() {
   return (
     <>
-      <p className="notice">
+      <NoticeBar icon={Info}>
         <strong>Manufacturer and model must match the aircraft profile.</strong>{" "}
         Use the same manufacturer name and model recorded under Aircraft. For
         example, “Cessna” will not match “Cessna Aircraft Company”. If they do
         not match, the aircraft will not appear when you create an inspection
         from the imported template. Component templates must match the target
         component’s manufacturer and model instead.
-      </p>
-      <p>
+      </NoticeBar>
+      <p className="mx-tpl-intro">
         Choose a model and group for this batch. Download the interval-only
         format, or upload the C441 status export. For that export, SVC LIFE
         HRS/LAND is treated as hours and SVC LIFE MONTHS as months. Convert
@@ -1067,13 +1084,13 @@ function ImportPreview({ backend, screen, writable }: ScreenProps) {
       disabled={!writable || !preview.some((r) => r.selected && r.template)}
       onSubmit={submit}
     >
-      <p>
+      <p className="mx-tpl-intro">
         {preview.length} rows · {preview.length - errors} valid · {errors}{" "}
         errors. Rows marked not applicable or unused start unselected. Review
         intervals and notes before saving.
       </p>
       <PreviewTable screen={screen} />
-      <label>
+      <label className="mx-tpl-confirm">
         <input type="checkbox" required /> I reviewed the model, interval units
         and selected requirements.
       </label>
@@ -1081,40 +1098,39 @@ function ImportPreview({ backend, screen, writable }: ScreenProps) {
   );
 }
 
+const PREVIEW_COLUMNS = ["Include", "Name", "Intervals", "Notes / errors"];
+
 function PreviewTable({ screen }: { screen: Screen }) {
   const { preview, setPreview } = screen;
   const include = (i: number, selected: boolean) =>
     setPreview(preview.map((v, j) => (j === i ? { ...v, selected } : v)));
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Include</th>
-            <th>Name</th>
-            <th>Intervals</th>
-            <th>Notes / errors</th>
-          </tr>
-        </thead>
-        <tbody>
-          {preview.map((r, i) => (
-            <tr key={r.row}>
-              <td>
-                <input
-                  aria-label={`Include row ${r.row}`}
-                  type="checkbox"
-                  checked={r.selected}
-                  disabled={!r.template}
-                  onChange={(e) => include(i, e.target.checked)}
-                />
-              </td>
-              <td>{r.template?.name ?? `Row ${r.row}`}</td>
-              <td>{r.template && <TemplateIntervals record={r.template} />}</td>
-              <td>{r.template?.conditions || r.error}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <RowsTable
+      label="Templates to import"
+      columns={PREVIEW_COLUMNS}
+      cols="28px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr)"
+      hiddenColumns={["Include"]}
+    >
+      {preview.map((r, i) => (
+        <RowsRow key={r.row}>
+          <RowsCell kind="check">
+            <input
+              aria-label={`Include row ${r.row}`}
+              type="checkbox"
+              checked={r.selected}
+              disabled={!r.template}
+              onChange={(e) => include(i, e.target.checked)}
+            />
+          </RowsCell>
+          <RowsCell kind="main">{r.template?.name ?? `Row ${r.row}`}</RowsCell>
+          <RowsCell caption="Intervals">
+            {r.template && <TemplateIntervals record={r.template} />}
+          </RowsCell>
+          <RowsCell caption="Notes / errors">
+            {r.template?.conditions || r.error}
+          </RowsCell>
+        </RowsRow>
+      ))}
+    </RowsTable>
   );
 }

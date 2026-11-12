@@ -2,8 +2,9 @@
  * Responsibility: Make and model field that suggests FAA DRS names and the
  *   names already recorded on the program's aircraft and components.
  * Layer: UI. Reads the workspace snapshot; writes nothing.
- * Dependencies: src/data/drsCatalog.json (DRS names), src/data/store.ts
- *   (useWorkspace), src/domain/model.ts (Snapshot type), drsComboBox.css.
+ * Dependencies: @phosphor-icons/react, src/data/drsCatalog.json (DRS
+ *   names), src/data/store.ts (useWorkspace), src/domain/model.ts (Snapshot
+ *   type), drsComboBox.css.
  *
  * Any text is accepted: a name outside the DRS list can still be saved and
  * searched, and the field says so.
@@ -16,12 +17,14 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from "react";
+import { CaretDown } from "@phosphor-icons/react";
 import catalog from "../data/drsCatalog.json";
 import { useWorkspace } from "../data/store";
 import type { Snapshot } from "../domain/model";
 import "./drsComboBox.css";
 
 const MAX_SUGGESTIONS = 40;
+const CARET_SIZE = 14;
 const CUSTOM_ENTRY = "Use custom entry";
 
 type SuggestionKind = "makes" | "models";
@@ -83,7 +86,11 @@ export function DrsComboBox(props: DrsComboBoxProps) {
           maxLength={props.maxLength ?? 150}
           {...combo.handlers}
         />
-        <span aria-hidden="true" />
+        <CaretDown
+          className="drs-combobox-caret"
+          size={CARET_SIZE}
+          aria-hidden="true"
+        />
       </div>
       {combo.text && <SourceNote exact={combo.exact} />}
       {combo.open && (

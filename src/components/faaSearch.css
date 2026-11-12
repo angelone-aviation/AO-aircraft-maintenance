@@ -1,19 +1,19 @@
 /*
  * Responsibility: Styles the FAA AD search form and its result groups.
  * Layer: UI. Component styles, imported by the components that use them.
- * Dependencies: src/styles/tokens.css.
+ * Dependencies: src/styles/tokens.css (colours, radii, weights).
  */
 .faa-search-form fieldset,
 .faa-search-results fieldset {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 14px;
-  margin: 14px 0;
+  border-radius: var(--radius-control);
+  padding: 16px 18px;
+  margin: 16px 0;
 }
 .faa-search-form legend,
 .faa-search-results legend {
   padding: 0 6px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .faa-search-form fieldset > label,
 .faa-search-results fieldset > label {
@@ -28,6 +28,9 @@
 }
 .faa-search-results fieldset > a {
   display: inline-block;
-  text-decoration: underline;
   margin: 8px 16px 8px 0;
+  color: var(--blue-ink);
+  font-weight: var(--fw-medium);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }

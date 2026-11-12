@@ -419,7 +419,8 @@ function ADHeader({ ad }: ADProps) {
   return (
     <PageHeader
       eyebrow="COMPLIANCE"
-      title="Airworthiness directives"
+      title="Airworthiness"
+      accent="directives"
       description={
         <>
           <TermTip term="faa" /> directives (<TermTip term="ad">ADs</TermTip>)

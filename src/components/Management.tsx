@@ -9,9 +9,8 @@
  *   inventoryAttachments, remainingMeters, rejection), ./ManagementShared
  *   and sibling screens' parts (Components, PartsRequests, PurchaseOrders,
  *   TaskCards, WorkOrders, Manuals, RequiredParts, Inventory*,
- *   StockLevelChart),
- *   ./RemainingMeter, ./ui,
- *   ./design.
+ *   StockLevelChart), ./RemainingMeter, ./ui, ./design, ./charts, and
+ *   src/domain/maintenanceCharts.ts.
  *
  * Record lists keep real <table> markup restyled as CSS-grid cards, with
  * explicit table roles because some browsers drop table semantics when display
@@ -98,6 +97,8 @@ import {
   type RemainingMeter as RemainingMeterValue,
 } from "../domain/remainingMeters";
 import { RemainingMeter } from "./RemainingMeter";
+import { inspectionStatusSlices } from "../domain/maintenanceCharts";
+import { Donut } from "./charts";
 import { AsyncForm, Field, Modal, errorText, value } from "./ui";
 import {
   useStaleSave,
@@ -203,7 +204,10 @@ export function Inspections() {
       <InspectionFilters s={s} screen={screen} />
       {!writable && <CachedNotice />}
       {list.length ? (
-        <InspectionTable {...props} list={list} />
+        <>
+          <InspectionStatusChart s={s} list={list} />
+          <InspectionTable {...props} list={list} />
+        </>
       ) : (
         <EmptyState title="No inspection schedules">
           Create a schedule after an aircraft is configured.
@@ -289,26 +293,18 @@ function remainingLabel(value: number, basis: Basis) {
   return `${text} ${value < 0 ? "overdue" : "remaining"}`;
 }
 
-type Look = { label: string; tone: Tone; tile: Tone; icon: IconType };
+type Look = { label: string; tone: Tone; icon: IconType };
 
 function inspectionLook(
   status: ReturnType<typeof inspectionStatus>["status"],
   archived?: boolean,
 ): Look {
-  if (archived)
-    return {
-      label: "Archived",
-      tone: "neutral",
-      tile: "neutral",
-      icon: Archive,
-    };
+  if (archived) return { label: "Archived", tone: "neutral", icon: Archive };
   const label = inspectionStatusLabels[status];
-  if (status === "overdue")
-    return { label, tone: "danger", tile: "danger", icon: Warning };
-  if (status === "due-soon")
-    return { label, tone: "warn", tile: "warn", icon: Clock };
+  if (status === "overdue") return { label, tone: "danger", icon: Warning };
+  if (status === "due-soon") return { label, tone: "warn", icon: Clock };
   const icon = status === "scheduled" ? CalendarCheck : CalendarBlank;
-  return { label, tone: "neutral", tile: "neutral", icon };
+  return { label, tone: "neutral", icon };
 }
 
 const inspectionSource = (uuid: string) => ({
@@ -488,11 +484,46 @@ function SortSelect({ screen }: { screen: InspectionScreen }) {
   );
 }
 
+// The share of the listed schedules in each status. Archived schedules have
+// no live status, so they are left out; every count is also on its row.
+function InspectionStatusChart({
+  s,
+  list,
+}: {
+  s: Snapshot;
+  list: Inspection[];
+}) {
+  const live = list.filter((i) => !i.archived);
+  if (!live.length) return null;
+  const slices = inspectionStatusSlices(
+    live.map((i) => measureInspection(s, i).status.status),
+  );
+  return (
+    <section className="mx-insp-summary ds-card" aria-label="Status summary">
+      <Donut
+        label="Inspection schedules by status"
+        slices={slices}
+        center={
+          <>
+            {live.length}
+            <small>{live.length === 1 ? "schedule" : "schedules"}</small>
+          </>
+        }
+        hideOnPhone
+      />
+    </section>
+  );
+}
+
 function InspectionTable(props: InspectionProps & { list: Inspection[] }) {
   const projected = inspectionProjections(props.s);
   return (
-    <table className="mx-insp-table" role="table" aria-label="Inspections">
-      <thead className="sr-only" role="rowgroup">
+    <table
+      className="mx-insp-table ds-rows"
+      role="table"
+      aria-label="Inspections"
+    >
+      <thead className="mx-insp-head" role="rowgroup">
         <tr role="row">
           <th role="columnheader" scope="col">
             Inspection
@@ -503,7 +534,7 @@ function InspectionTable(props: InspectionProps & { list: Inspection[] }) {
           <th role="columnheader" scope="col">
             Status and actions
           </th>
-          <th role="columnheader" scope="col">
+          <th role="columnheader" scope="col" className="sr-only">
             Parts and work
           </th>
         </tr>
@@ -547,11 +578,7 @@ function InspectionRow({
   projected: Projections;
 }) {
   const { s, inspection: i } = props;
-  const a = s.aircraft.find((a) => a.uuid === i.aircraftUuid)!;
-  const counters = readCounters(i, a, s.management);
-  const status = counters
-    ? inspectionStatus(i, a, undefined, counters)
-    : UNMEASURED;
+  const { aircraft: a, status } = measureInspection(s, i);
   const look = inspectionLook(status.status, i.archived);
   const row = { ...props, aircraft: a, look };
   return (
@@ -560,12 +587,21 @@ function InspectionRow({
       className="mx-insp-row"
       style={{ "--i": Math.min(index, MAX_STAGGERED_ROWS) } as CSSProperties}
     >
-      <InspectionMainCell inspection={i} aircraft={a} look={look} />
+      <InspectionMainCell inspection={i} aircraft={a} />
       <DueCell {...row} status={status} projected={projected} />
       <InspectionActionsCell {...row} />
       <InspectionToolsCell inspection={i} aircraft={a} />
     </tr>
   );
+}
+
+function measureInspection(s: Snapshot, i: Inspection) {
+  const aircraft = s.aircraft.find((a) => a.uuid === i.aircraftUuid)!;
+  const counters = readCounters(i, aircraft, s.management);
+  const status = counters
+    ? inspectionStatus(i, aircraft, undefined, counters)
+    : UNMEASURED;
+  return { aircraft, status };
 }
 
 // An aircraft whose meter has no reading (only damaged data: the aircraft
@@ -589,11 +625,9 @@ function readCounters(
 function InspectionMainCell({
   inspection: i,
   aircraft: a,
-  look,
-}: Pick<RowProps, "inspection" | "aircraft" | "look">) {
+}: Pick<RowProps, "inspection" | "aircraft">) {
   return (
     <td role="cell" className="mx-insp-main">
-      <IconTile icon={look.icon} tone={look.tile} />
       <span className="mx-insp-text">
         <strong className="mx-insp-title">
           {i.reference || i.description}
@@ -777,9 +811,11 @@ function InspectionActionsCell({
   aircraft: a,
   look,
 }: RowProps) {
+  // One filled button per row, and only where the work is pressing.
+  const urgent = look.tone === "danger" || look.tone === "warn";
   return (
     <td role="cell" className="mx-insp-actions">
-      <StatusPill tone={look.tone} dot={false}>
+      <StatusPill tone={look.tone} icon={look.icon}>
         {look.label}
       </StatusPill>
       <button className="button small" onClick={() => screen.open(i, false)}>
@@ -787,7 +823,7 @@ function InspectionActionsCell({
       </button>
       {!i.archived && can(s, a.uuid, "maintenance") && (
         <button
-          className="button soft small"
+          className={"button small" + (urgent ? " primary" : "")}
           disabled={!writable}
           onClick={() => screen.open(i, true)}
         >

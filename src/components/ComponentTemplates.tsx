@@ -5,8 +5,12 @@
  * Layer: UI. React components; template rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, src/data/store.ts,
  *   src/data/backend.ts (types), src/domain (model, programs, components,
- *   componentTemplates, csv, maintenanceCsv), ./Components, ./ui.
+ *   componentTemplates, csv, maintenanceCsv), @phosphor-icons/react,
+ *   ./Components, ./MaintenanceUi, ./design, ./ui.
  */
+import { CaretDown } from "@phosphor-icons/react";
+import { PageHeader } from "./design";
+import { RowsCell, RowsRow, RowsTable } from "./MaintenanceUi";
 import { Link } from "@tanstack/react-router";
 import { Fragment, useState } from "react";
 import { useWorkspace } from "../data/store";
@@ -27,15 +31,7 @@ import { toCsv } from "../domain/csv";
 import { decodeCsvFile } from "../domain/maintenanceCsv";
 import { type Component } from "../domain/components";
 import { ComponentForm } from "./Components";
-import {
-  Modal,
-  Field,
-  AsyncForm,
-  PageTitle,
-  value,
-  download,
-  errorText,
-} from "./ui";
+import { Modal, Field, AsyncForm, value, download, errorText } from "./ui";
 
 // parseComponentTemplateCsv's limit, checked first so a larger file is never
 // read.
@@ -100,7 +96,7 @@ export function ComponentTemplatesPanel() {
   const writable = online && connected;
   return (
     <>
-      <div className="management-toolbar">
+      <div className="ds-toolbar">
         <button className="button" onClick={() => setLibrary(true)}>
           Component templates
         </button>
@@ -124,11 +120,12 @@ export function ComponentTemplatesPanel() {
 export function ImportedComponents() {
   return (
     <>
-      <PageTitle
+      <PageHeader
         eyebrow="MAINTENANCE"
-        title="Imported components"
+        title="Imported"
+        accent="components"
         description="Import component templates and complete verified setup before tracking components."
-        action={
+        actions={
           <Link className="button" to="/components">
             Back to components
           </Link>
@@ -188,11 +185,16 @@ export function PendingSetups({
   );
   if (!pending.length) return null;
   return (
-    <details open>
+    <details className="mx-pending" open>
       <summary>
+        <CaretDown
+          className="mx-pending-caret"
+          size={CARET_SIZE}
+          aria-hidden="true"
+        />
         Setup incomplete — {pending.length} recommended components
       </summary>
-      <p>
+      <p className="mx-tpl-intro">
         Serial numbers, installation dates and opening readings are unknown
         until verified. These entries are not yet installed component records.
       </p>
@@ -206,6 +208,23 @@ export function PendingSetups({
   );
 }
 
+const PENDING_COLUMNS = [
+  "Component",
+  "Aircraft",
+  "Part / position",
+  "Parent",
+  "Actions",
+];
+const PREVIEW_COLUMNS = [
+  "Select",
+  "Name / type",
+  "ATA",
+  "Part / position",
+  "Parent ID",
+  "Review",
+];
+const CARET_SIZE = 18;
+
 function PendingTable({
   s,
   writable,
@@ -216,25 +235,22 @@ function PendingTable({
   onComplete: (setup: ComponentSetup) => void;
 }) {
   return (
-    <div className="panel table-wrap">
-      <table>
-        <TableHead
-          columns={["Aircraft", "Component", "Part / position", "Parent"]}
-          actions
+    <RowsTable
+      label="Components with setup incomplete"
+      columns={PENDING_COLUMNS}
+      cols="minmax(0, 1.3fr) minmax(0, 0.7fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr)"
+      hiddenColumns={["Actions"]}
+    >
+      {pending.map((d) => (
+        <PendingRow
+          key={d.uuid}
+          s={s}
+          writable={writable}
+          setup={d}
+          onComplete={() => onComplete(d)}
         />
-        <tbody>
-          {pending.map((d) => (
-            <PendingRow
-              key={d.uuid}
-              s={s}
-              writable={writable}
-              setup={d}
-              onComplete={() => onComplete(d)}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+      ))}
+    </RowsTable>
   );
 }
 
@@ -249,21 +265,23 @@ function PendingRow({
     (p) => p.uuid === d.parentComponentUuid,
   );
   return (
-    <tr>
-      <td>{s.aircraft.find((a) => a.uuid === d.aircraftUuid)?.registration}</td>
-      <td>
+    <RowsRow>
+      <RowsCell kind="main">
         {d.row.model}
         <small className="block">
           {d.row.componentType} · Setup incomplete
         </small>
-      </td>
-      <td>
+      </RowsCell>
+      <RowsCell caption="Aircraft">
+        {s.aircraft.find((a) => a.uuid === d.aircraftUuid)?.registration}
+      </RowsCell>
+      <RowsCell caption="Part / position">
         {d.row.partNumber || "—"} · {d.row.installPosition || "Not specified"}
-      </td>
-      <td>{parentSetup?.row.model || "—"}</td>
-      <td>
+      </RowsCell>
+      <RowsCell caption="Parent">{parentSetup?.row.model || "—"}</RowsCell>
+      <RowsCell kind="actions">
         <button
-          className="button"
+          className="button small"
           disabled={
             !writable || !ready || !can(s, d.aircraftUuid, "maintenance")
           }
@@ -272,8 +290,8 @@ function PendingRow({
           Complete setup
         </button>
         {!ready && <small className="block">Complete parent first</small>}
-      </td>
-    </tr>
+      </RowsCell>
+    </RowsRow>
   );
 }
 
@@ -326,48 +344,56 @@ function LibraryWindow({
 }) {
   return (
     <Modal title="Component templates" onClose={onClose}>
-      <p>
+      <p className="mx-tpl-intro">
         Create reusable recommended-component lists for an aircraft make and
         model. Importing adds entries to Setup incomplete for verification.
       </p>
-      <button className="button" onClick={downloadSample}>
-        Download CSV columns
-      </button>{" "}
-      <button
-        className="button primary"
-        disabled={!card.editable}
-        onClick={() => card.onEdit("new")}
-      >
-        New template / import CSV
-      </button>
-      {templates.map((t) => (
-        <TemplateCard key={t.uuid} template={t} {...card} />
-      ))}
+      <div className="mx-tpl-buttons">
+        <button className="button" onClick={downloadSample}>
+          Download CSV columns
+        </button>
+        <button
+          className="button primary"
+          disabled={!card.editable}
+          onClick={() => card.onEdit("new")}
+        >
+          New template / import CSV
+        </button>
+      </div>
+      <div className="mx-tpl-cards">
+        {templates.map((t) => (
+          <TemplateCard key={t.uuid} template={t} {...card} />
+        ))}
+      </div>
     </Modal>
   );
 }
 
 function TemplateCard({ template: t, writable, editable, ...on }: CardProps) {
   return (
-    <div className="panel">
-      <strong>{t.name}</strong>
-      <p>
-        {t.make} · {t.model} · {t.rows.length} components
-      </p>
-      <button
-        className="button"
-        disabled={!editable}
-        onClick={() => on.onEdit(t)}
-      >
-        Edit template
-      </button>{" "}
-      <button
-        className="button"
-        disabled={!writable}
-        onClick={() => on.onPreview(t)}
-      >
-        Preview / apply to aircraft
-      </button>
+    <div className="ds-card mx-tpl-card">
+      <div>
+        <strong>{t.name}</strong>
+        <small>
+          {t.make} · {t.model} · {t.rows.length} components
+        </small>
+      </div>
+      <div className="mx-tpl-buttons">
+        <button
+          className="button small"
+          disabled={!editable}
+          onClick={() => on.onEdit(t)}
+        >
+          Edit template
+        </button>
+        <button
+          className="button small"
+          disabled={!writable}
+          onClick={() => on.onPreview(t)}
+        >
+          Preview / apply to aircraft
+        </button>
+      </div>
     </div>
   );
 }
@@ -506,13 +532,13 @@ function Suggestions({ id, values }: { id: string; values: string[] }) {
 function CsvHelp() {
   return (
     <>
-      <p>
+      <p className="mx-tpl-intro">
         Make and model must match the aircraft profile. Required columns:
         Component type, ATA chapter, Part number, Component Name. Optional:
         Manufacturer, Position, ID, Parent ID. Use unique IDs to connect child
         parts to a parent row.
       </p>
-      <p>
+      <p className="mx-tpl-intro">
         Types: Appliance, Engine, Propeller, Main Rotor, Tail Rotor. Positions:
         LEFT, RIGHT, NUMBER 1, NUMBER 2, MAIN, AUX. ATA chapter and part number
         cells may be blank.
@@ -630,10 +656,10 @@ function SelectionButtons({
   onSelect,
 }: Selection & { s: Snapshot }) {
   return (
-    <>
+    <div className="mx-tpl-buttons">
       <button
         type="button"
-        className="button"
+        className="button small"
         disabled={!aircraftId}
         onClick={() =>
           onSelect(
@@ -644,38 +670,35 @@ function SelectionButtons({
         }
       >
         Select new entries
-      </button>{" "}
-      <button type="button" className="button" onClick={() => onSelect([])}>
+      </button>
+      <button
+        type="button"
+        className="button small"
+        onClick={() => onSelect([])}
+      >
         Clear selection
       </button>
-    </>
+    </div>
   );
 }
 
 function PreviewTable({ s, ...selection }: Selection & { s: Snapshot }) {
   return (
-    <table>
-      <TableHead
-        columns={[
-          "Select",
-          "Name / type",
-          "ATA",
-          "Part / position",
-          "Parent ID",
-          "Review",
-        ]}
-      />
-      <tbody>
-        {selection.template.rows.map((r) => (
-          <PreviewRow
-            key={r.id}
-            row={r}
-            duplicate={componentDuplicate(s, selection.aircraftId, r)}
-            {...selection}
-          />
-        ))}
-      </tbody>
-    </table>
+    <RowsTable
+      label="Template components"
+      columns={PREVIEW_COLUMNS}
+      cols="28px minmax(0, 1.3fr) 56px minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1.2fr)"
+      hiddenColumns={["Select"]}
+    >
+      {selection.template.rows.map((r) => (
+        <PreviewRow
+          key={r.id}
+          row={r}
+          duplicate={componentDuplicate(s, selection.aircraftId, r)}
+          {...selection}
+        />
+      ))}
+    </RowsTable>
   );
 }
 
@@ -687,8 +710,8 @@ function PreviewRow({
   onSelect,
 }: Selection & { row: TemplateRow; duplicate: boolean }) {
   return (
-    <tr>
-      <td>
+    <RowsRow>
+      <RowsCell kind="check">
         <input
           aria-label={`Select ${r.model}`}
           type="checkbox"
@@ -696,50 +719,27 @@ function PreviewRow({
           checked={selected.includes(r.id)}
           onChange={(e) => onSelect(toggled(selected, r.id, e.target.checked))}
         />
-      </td>
-      <td>
+      </RowsCell>
+      <RowsCell kind="main">
         {r.model}
         <small className="block">{r.componentType}</small>
-      </td>
-      <td>{r.ataChapter || "—"}</td>
-      <td>
+      </RowsCell>
+      <RowsCell caption="ATA">{r.ataChapter || "—"}</RowsCell>
+      <RowsCell caption="Part / position">
         {r.partNumber || "—"} · {r.installPosition || "—"}
-      </td>
-      <td>{r.parentId || "—"}</td>
-      <td>
+      </RowsCell>
+      <RowsCell caption="Parent ID">{r.parentId || "—"}</RowsCell>
+      <RowsCell caption="Review">
         {duplicate
           ? "Already imported / possible duplicate"
           : "Serial and readings left blank"}
-      </td>
-    </tr>
+      </RowsCell>
+    </RowsRow>
   );
 }
 
 function toggled(selected: string[], id: string, checked: boolean) {
   return checked ? [...selected, id] : selected.filter((x) => x !== id);
-}
-
-function TableHead({
-  columns,
-  actions = false,
-}: {
-  columns: string[];
-  actions?: boolean;
-}) {
-  return (
-    <thead>
-      <tr>
-        {columns.map((c) => (
-          <th key={c}>{c}</th>
-        ))}
-        {actions && (
-          <th>
-            <span className="sr-only">Actions</span>
-          </th>
-        )}
-      </tr>
-    </thead>
-  );
 }
 
 /**

@@ -328,7 +328,10 @@ describe("inspections on an aircraft without a meter reading", () => {
     const html = inspections();
     expect(titles(html)).toEqual(["100-hour inspection"]);
     expect(html).toMatch(/class="mx-due-what">Due [\d,.]+ h </);
-    expect(html).toContain('<span class="ds-pill ds-tone-neutral">Unknown<');
+    // The pill carries the status icon ahead of its word.
+    expect(html).toMatch(
+      /<span class="ds-pill ds-tone-neutral"><svg[^>]*aria-hidden="true">(?:(?!<\/svg>).)*<\/svg>Unknown</,
+    );
     expect(html).not.toContain("mx-due-left");
   });
 

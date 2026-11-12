@@ -10,7 +10,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell, Check, Checks } from "@phosphor-icons/react";
+import { Bell, Check, Checks, Warning } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { useAlertReads } from "../data/alerts";
 import {
@@ -32,6 +32,12 @@ const SEVERITY_TONES = {
   warning: "warning",
   info: "neutral",
 } as const satisfies Record<AlertSeverity, string>;
+const SEVERITY_ICONS = {
+  danger: Warning,
+  warning: Bell,
+  info: Bell,
+} as const satisfies Record<AlertSeverity, unknown>;
+const ROW_ICON_SIZE = 20;
 // Above this the badge reads "99+", keeping it to three characters.
 const BADGE_MAX = 99;
 const ACTION_ICON_SIZE = 18;
@@ -100,7 +106,8 @@ export function AlertsPage() {
     <div className="mx-alerts">
       <PageHeader
         eyebrow="ALERTS"
-        title="What needs attention."
+        title="What needs"
+        accent="attention."
         description={ALERT_KINDS_SUMMARY}
         actions={
           <MarkAllReadButton
@@ -220,24 +227,28 @@ function AlertGroup({
   const headingId = `mx-alerts-${severity}`;
   return (
     <section
-      className={"mx-alert-group mx-tone-" + SEVERITY_TONES[severity]}
+      className={
+        "mx-alert-group ds-section mx-tone-" + SEVERITY_TONES[severity]
+      }
       aria-labelledby={headingId}
     >
-      <header className="mx-alert-group-head">
+      <header className="ds-section-head">
         <h2 id={headingId}>{severityLabels[severity]}</h2>
-        <span className="mx-alert-count">
+        <span className="ds-section-note">
           {rows.length}
           <span className="sr-only"> alerts</span>
         </span>
       </header>
-      {rows.map((a) => (
-        <AlertRow
-          key={a.key}
-          alert={a}
-          read={isRead(a.key)}
-          onMarkRead={() => onMarkRead(a.key)}
-        />
-      ))}
+      <div className="ds-rows">
+        {rows.map((a) => (
+          <AlertRow
+            key={a.key}
+            alert={a}
+            read={isRead(a.key)}
+            onMarkRead={() => onMarkRead(a.key)}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -251,9 +262,10 @@ function AlertRow({
   read: boolean;
   onMarkRead: () => void;
 }) {
+  const Icon = SEVERITY_ICONS[a.severity];
   return (
-    <div className={"mx-alert-row" + (read ? " is-read" : "")}>
-      <span className="mx-alert-dot" aria-hidden="true" />
+    <div className={"mx-alert-row ds-row" + (read ? " is-read" : "")}>
+      <Icon className="mx-alert-icon" size={ROW_ICON_SIZE} aria-hidden="true" />
       <div className="mx-alert-text">
         <strong>
           <span className="sr-only">{read ? "Read: " : "Unread: "}</span>
@@ -265,6 +277,7 @@ function AlertRow({
         <Link to={a.link} className="button small">
           Open
         </Link>
+        {!read && <span className="mx-alert-unread" aria-hidden="true" />}
         {!read && (
           <button
             type="button"

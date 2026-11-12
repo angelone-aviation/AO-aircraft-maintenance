@@ -2,9 +2,24 @@
  * Responsibility: The AD register: an aircraft's airworthiness directives
  *   grouped into the airframe and each component, one table row per AD.
  * Layer: UI. React component; actions are handed to the parent screen.
- * Dependencies: src/domain/airworthiness.ts, src/domain/adWorkOrders.ts,
- *   src/domain/model.ts (types), ./adRegister.css, ./ADWorkOrderButton, ./ui.
+ * Dependencies: @phosphor-icons/react, src/domain/airworthiness.ts,
+ *   src/domain/adWorkOrders.ts, src/domain/model.ts (types),
+ *   ./adRegister.css, ./ADWorkOrderButton, ./MaintenanceUi, ./design, ./ui.
+ *
+ * Each group is a table built from ARIA roles on plain elements, so its rows
+ * can restack on a phone without losing the table a screen reader hears.
  */
+import {
+  ArrowSquareOut,
+  CalendarCheck,
+  CaretDown,
+  CheckCircle,
+  Clock,
+  MinusCircle,
+  Question,
+  Warning,
+  WarningCircle,
+} from "@phosphor-icons/react";
 import type { AD, StaleInitialLimit } from "../domain/airworthiness";
 import {
   adStatus,
@@ -15,7 +30,26 @@ import { OPEN_AD_STATUSES } from "../domain/adWorkOrders";
 import type { Snapshot } from "../domain/model";
 import "./adRegister.css";
 import { ADWorkOrderButton } from "./ADWorkOrderButton";
+import { FactLabel } from "./MaintenanceUi";
+import { StatusPill, type IconType, type Tone } from "./design";
 import { safeHref } from "./ui";
+
+const COLUMNS = ["Directive", "Issued", "Effective", "Status", "Actions"];
+// Statuses not listed here (closed applicability, a removed component) are
+// settled and read as neutral.
+const STATUS_LOOKS: Record<string, { tone: Tone; icon: IconType }> = {
+  Overdue: { tone: "danger", icon: Warning },
+  "Due soon": { tone: "warn", icon: Clock },
+  "Needs review": { tone: "warn", icon: WarningCircle },
+  "Counter unavailable": { tone: "neutral", icon: Question },
+  "Due not set": { tone: "neutral", icon: Question },
+  Scheduled: { tone: "blue", icon: CalendarCheck },
+  Complied: { tone: "good", icon: CheckCircle },
+  "Previously Complied With (PCW)": { tone: "good", icon: CheckCircle },
+};
+const SETTLED_LOOK = { tone: "neutral", icon: MinusCircle } as const;
+const CARET_SIZE = 18;
+const LINK_ICON_SIZE = 14;
 
 type RegisterProps = {
   records: AD[];
@@ -90,6 +124,11 @@ function ADGroup(
   return (
     <details className="ad-register-group" open={props.open || undefined}>
       <summary>
+        <CaretDown
+          className="ad-register-caret"
+          size={CARET_SIZE}
+          aria-hidden="true"
+        />
         <strong>{title}</strong>
         <span>{detail}</span>
         <b>
@@ -120,29 +159,25 @@ function ADTable(
   },
 ) {
   return (
-    <div className="ad-register-scroll">
-      <table>
-        <caption className="sr-only">
-          {props.title} airworthiness directives
-        </caption>
-        <thead>
-          <tr>
-            <th>AD number</th>
-            <th>View</th>
-            <th>Rec.</th>
-            <th>Subject</th>
-            <th>Issued</th>
-            <th>Effective</th>
-            <th>Applicability / status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.entries.map((r) => (
-            <ADRow key={r.uuid} {...props} record={r} />
+    <div
+      className="ad-register-table"
+      role="table"
+      aria-label={`${props.title} airworthiness directives`}
+    >
+      <div role="rowgroup" className="ad-register-head">
+        <div role="row" className="ad-register-row">
+          {COLUMNS.map((column) => (
+            <span role="columnheader" key={column}>
+              {column}
+            </span>
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
+      <div role="rowgroup">
+        {props.entries.map((r) => (
+          <ADRow key={r.uuid} {...props} record={r} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -152,37 +187,50 @@ function ADRow(props: RowProps) {
   const status = adStatus(props.state, r);
   const stale = staleInitialLimits(r);
   return (
-    <tr>
-      <td>
-        <button
-          className="ad-register-link"
-          onClick={() => props.onView(r)}
-          aria-label={`View AD ${r.source.number}`}
-        >
-          {r.source.number}
-        </button>
-      </td>
-      <td>
-        {safeHref(r.source.url) ? (
-          <a href={safeHref(r.source.url)} target="_blank" rel="noreferrer">
-            FAA ↗
-          </a>
-        ) : (
-          "—"
-        )}
-      </td>
-      <td>{r.source.recurring}</td>
-      <td className="ad-register-subject">
+    <div role="row" className="ad-register-row">
+      <ADMainCell {...props} />
+      <div role="cell" className="ad-register-date">
+        <FactLabel>Issued</FactLabel>
+        {r.source.issued || "—"}
+      </div>
+      <div role="cell" className="ad-register-date">
+        <FactLabel>Effective</FactLabel>
+        {r.source.effective || "—"}
+      </div>
+      <ADStatusCell record={r} status={status} stale={stale} />
+      <ADActions {...props} status={status} stale={stale} />
+    </div>
+  );
+}
+
+function ADMainCell({ record: r, onView }: RowProps) {
+  const url = safeHref(r.source.url);
+  return (
+    <div role="cell" className="ad-register-main">
+      <span className="ad-register-subject">
         {r.source.subject}
         {r.source.supersededBy && (
           <small>Superseded by: {r.source.supersededBy}</small>
         )}
-      </td>
-      <td>{r.source.issued || "—"}</td>
-      <td>{r.source.effective || "—"}</td>
-      <ADStatusCell record={r} status={status} stale={stale} />
-      <ADActions {...props} status={status} stale={stale} />
-    </tr>
+      </span>
+      <span className="ad-register-meta">
+        <button
+          className="ad-register-link"
+          onClick={() => onView(r)}
+          aria-label={`View AD ${r.source.number}`}
+        >
+          {r.source.number}
+        </button>
+        {url && (
+          <a href={url} target="_blank" rel="noreferrer">
+            FAA
+            <ArrowSquareOut size={LINK_ICON_SIZE} aria-hidden="true" />
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        )}
+        <span>Recurring: {r.source.recurring}</span>
+      </span>
+    </div>
   );
 }
 
@@ -192,16 +240,19 @@ function ADStatusCell(props: {
   stale: StaleInitialLimit[];
 }) {
   const { record: r, status } = props;
+  const look = STATUS_LOOKS[status] ?? SETTLED_LOOK;
   return (
-    <td>
-      <strong>{status}</strong>
+    <div role="cell" className="ad-register-status">
+      <StatusPill tone={look.tone} icon={look.icon}>
+        {status}
+      </StatusPill>
       {r.applicability !== status && <small>{r.applicability}</small>}
       {props.stale.map((limit) => (
         <small className="ad-stale-limit" key={limit.taskUuid}>
           {staleInitialLimitNotice(r, limit)}
         </small>
       ))}
-    </td>
+    </div>
   );
 }
 
@@ -210,8 +261,9 @@ function ADActions(
 ) {
   const { record: r, editable } = props;
   return (
-    <td>
+    <div role="cell" className="ad-register-actions">
       <button
+        className="button small"
         disabled={!editable}
         onClick={() => props.onEdit(r)}
         aria-label="Review / edit AD"
@@ -219,6 +271,7 @@ function ADActions(
         Edit
       </button>
       <button
+        className="button small"
         onClick={() => props.onView(r)}
         aria-label={`Details for AD ${r.source.number}`}
       >
@@ -226,6 +279,7 @@ function ADActions(
       </button>
       {props.stale.map((limit) => (
         <button
+          className="button small"
           key={limit.taskUuid}
           disabled={!editable}
           onClick={() => props.onClearInitialLimit(r, limit)}
@@ -237,7 +291,7 @@ function ADActions(
       {OPEN_AD_STATUSES.includes(props.status) && (
         <ADWorkOrderButton state={props.state} record={r} />
       )}
-    </td>
+    </div>
   );
 }
 

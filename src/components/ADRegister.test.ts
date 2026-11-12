@@ -110,7 +110,8 @@ describe("ADRegister", () => {
   });
 
   it("disables Edit and Clear initial limit unless editable", () => {
-    const disabled = /<button disabled="" aria-label="(Review|Clear)/g;
+    const disabled =
+      /<button class="button small" disabled="" aria-label="(Review|Clear)/g;
     expect(render([stale]).match(disabled)).toBeNull();
     expect(render([stale], false).match(disabled)).toHaveLength(2);
   });
