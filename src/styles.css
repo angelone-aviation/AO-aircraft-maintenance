@@ -276,7 +276,7 @@ main {
   color: var(--text);
 }
 .nav-group-toggle svg {
-  transition: transform var(--dur) var(--ease);
+  transition: transform 0.3s var(--ease);
 }
 .nav-group.closed .nav-group-toggle svg {
   transform: rotate(-90deg);
@@ -285,14 +285,12 @@ main {
   display: grid;
   grid-template-rows: 1fr;
   transition:
-    grid-template-rows var(--dur) var(--ease),
-    visibility var(--dur);
+    grid-template-rows 0.32s var(--ease),
+    visibility 0.32s;
 }
-/* Folding away is quicker than opening, and the links fade as they go. */
 .nav-group.closed .nav-group-items {
   grid-template-rows: 0fr;
   visibility: hidden;
-  transition-duration: var(--dur-exit);
 }
 .nav-group-items > div {
   overflow: hidden;
@@ -300,11 +298,6 @@ main {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  transition: opacity var(--dur) var(--ease);
-}
-.nav-group.closed .nav-group-items > div {
-  opacity: 0;
-  transition-duration: var(--dur-exit);
 }
 .sidebar nav a {
   display: flex;
@@ -682,7 +675,7 @@ dialog.ds-dialog.more-sheet {
   max-width: none;
   max-height: 84vh;
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-  animation: sheet var(--dur) var(--ease) both;
+  animation: sheet 0.35s var(--ease) both;
 }
 .more-sheet .ds-dialog-header {
   align-items: center;
@@ -793,33 +786,6 @@ dialog.ds-dialog.more-sheet {
   }
   .button:active:not(:disabled) {
     transform: scale(0.97);
-  }
-  /* Changes worth a glance: a new alert count, the theme icon, the update
-   * notice, and a refused save, which nudges its error once. */
-  .alert-count,
-  .icon-button > svg.swapped {
-    animation: zoom var(--dur) var(--ease) both;
-  }
-  .notice.app-update {
-    animation: rise var(--dur) var(--ease) both;
-  }
-  form .error[role="alert"] {
-    animation: nudge var(--dur) ease-out;
-  }
-  /* A work order task opens and folds instead of jumping. */
-  .work-order-task-details {
-    interpolate-size: allow-keywords;
-  }
-  .work-order-task-details::details-content {
-    block-size: 0;
-    overflow: clip;
-    transition:
-      block-size var(--dur-exit) var(--ease),
-      content-visibility var(--dur-exit) allow-discrete;
-  }
-  .work-order-task-details[open]::details-content {
-    block-size: auto;
-    transition-duration: var(--dur);
   }
 }
 

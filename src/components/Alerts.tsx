@@ -81,8 +81,7 @@ export function AlertBell() {
     >
       <Bell size={22} aria-hidden="true" />
       {unread > 0 && (
-        // Keyed by the count, so a new alert replays the badge's entrance.
-        <span key={unread} className="alert-count" aria-hidden="true">
+        <span className="alert-count" aria-hidden="true">
           {unread > BADGE_MAX ? `${BADGE_MAX}+` : unread}
         </span>
       )}
