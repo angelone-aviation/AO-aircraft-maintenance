@@ -65,6 +65,7 @@ export function FlightLogCharts({ flights }: { flights: readonly Flight[] }) {
           categoryLabel={WEEK_LABEL}
           rows={rows}
           series={FLIGHTS_SERIES}
+          wholeNumbers
           height={CHART_HEIGHT}
         />
       </div>

@@ -6,10 +6,14 @@
  * Dependencies: src/styles/tokens.css (--chart-* colours, shadows, motion).
  */
 .ds-chart {
+  /* The visually hidden data table cannot shrink below its longest word, so
+     it is clipped to the figure or it would widen a phone page. */
+  position: relative;
   display: grid;
   gap: 12px;
   min-width: 0;
   margin: 0;
+  overflow: hidden;
 }
 .ds-chart-plot {
   position: relative;

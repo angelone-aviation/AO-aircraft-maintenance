@@ -36,6 +36,8 @@ export type PlotProps = {
   rows: Record<string, string | number>[];
   series: readonly ChartSeries[];
   format: ChartFormat;
+  /** Keeps axis ticks to whole numbers, for counts. */
+  wholeNumbers?: boolean;
 };
 
 // SPEC rule 11: entry motion only for a mouse, and never against the
@@ -66,6 +68,7 @@ export function BarPlot({
   rows,
   series,
   format,
+  wholeNumbers,
   stacked,
 }: PlotProps & { stacked: boolean }) {
   const animate = entryMotionAllowed();
@@ -73,7 +76,7 @@ export function BarPlot({
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={rows} margin={PLOT_MARGIN} accessibilityLayer={false}>
-        {axes(format)}
+        {axes(format, 0, wholeNumbers)}
         <Tooltip
           content={tipContent(format)}
           cursor={{ fill: "var(--chart-cursor)" }}
@@ -106,6 +109,7 @@ export function LinePlot({
   rows,
   series,
   format,
+  wholeNumbers,
   bare,
 }: PlotProps & { bare: boolean }) {
   const animate = entryMotionAllowed();
@@ -116,7 +120,7 @@ export function LinePlot({
         margin={bare ? SPARK_MARGIN : PLOT_MARGIN}
         accessibilityLayer={false}
       >
-        {!bare && axes(format, LINE_INSET)}
+        {!bare && axes(format, LINE_INSET, wholeNumbers)}
         {!bare && (
           <Tooltip
             content={tipContent(format)}
@@ -178,7 +182,7 @@ export function DonutPlot({
 }
 
 // `inset` keeps a line chart's first and last labels inside the plot.
-function axes(format: ChartFormat, inset = 0): ReactNode {
+function axes(format: ChartFormat, inset = 0, wholeNumbers = false): ReactNode {
   return (
     <>
       <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
@@ -195,6 +199,7 @@ function axes(format: ChartFormat, inset = 0): ReactNode {
         axisLine={false}
         tickLine={false}
         tickFormatter={format}
+        allowDecimals={!wholeNumbers}
         width={Y_AXIS_WIDTH}
       />
     </>

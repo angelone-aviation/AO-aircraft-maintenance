@@ -339,6 +339,7 @@ function UsersByGroup({ s }: { s: Snapshot }) {
           rows={rows}
           series={USER_SERIES}
           format={wholeUsers}
+          wholeNumbers
           height={CHART_HEIGHT}
         />
       </div>

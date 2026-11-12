@@ -65,6 +65,8 @@ export type AxisChartProps = {
   format?: ChartFormat;
   /** The plot's height in CSS pixels; defaults to 220. */
   height?: number;
+  /** Keeps axis ticks to whole numbers; set it when the values are counts. */
+  wholeNumbers?: boolean;
   /** Hides the whole chart below 760px, for a chart a phone has no room for. */
   hideOnPhone?: boolean;
   className?: string;
@@ -89,6 +91,7 @@ export function BarChart({
         rows={plotRows(props.rows, props.series)}
         series={props.series}
         format={format}
+        wholeNumbers={props.wholeNumbers}
         stacked={stacked}
       />
     </AxisChart>
@@ -109,6 +112,7 @@ export function LineChart(props: AxisChartProps) {
         rows={plotRows(props.rows, props.series)}
         series={props.series}
         format={format}
+        wholeNumbers={props.wholeNumbers}
         bare={false}
       />
     </AxisChart>
