@@ -3,7 +3,7 @@
  *   records each core's shipment and then its vendor credit.
  * Layer: UI. Writes through `backend.purchaseOrder`.
  * Dependencies: react, src/data/store.ts, src/domain/model.ts (localDate),
- *   src/domain/purchaseOrders.ts (core return rows), ./design, ./ui.
+ *   src/domain/purchaseOrders.ts (core return rows), ./ShopList, ./ui.
  */
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
@@ -14,7 +14,7 @@ import {
   type POCommand,
   type PurchaseOrder,
 } from "../domain/purchaseOrders";
-import { StatusPill } from "./design";
+import { ShopPill } from "./ShopList";
 import { AsyncForm, Field, Modal, value } from "./ui";
 
 const STATUS_BADGES = {
@@ -146,12 +146,12 @@ function CoreReturnLine({ row, disabled, onEdit }: RowProps) {
         {row.overdue && (
           <>
             {" "}
-            <StatusPill tone="danger">Overdue</StatusPill>
+            <ShopPill tone="danger">Overdue</ShopPill>
           </>
         )}
       </td>
       <td>
-        <StatusPill tone={badge.tone}>{badge.label}</StatusPill>
+        <ShopPill tone={badge.tone}>{badge.label}</ShopPill>
         {row.shippedDate && (
           <small className="block">Shipped {row.shippedDate}</small>
         )}

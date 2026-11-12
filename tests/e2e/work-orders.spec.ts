@@ -42,7 +42,7 @@ test("opens an order, adds an inspection, tracks tasks, attaches a record and cl
     .click();
   await expect(dialog).not.toBeVisible();
   const row = orderRow(page, "WO-BROWSER-1");
-  await expect(row).toContainText("0 / 1");
+  await expect(row).toContainText("0 of 1 task");
   await page.getByRole("link", { name: "Inspections", exact: true }).click();
   await page
     .getByRole("button", { name: "Add to work order", exact: true })
@@ -54,7 +54,7 @@ test("opens an order, adds an inspection, tracks tasks, attaches a record and cl
   await closeDialog(dialog);
   await expect(dialog).not.toBeVisible();
   await page.getByRole("link", { name: "Work orders", exact: true }).click();
-  await expect(row).toContainText("0 / 2");
+  await expect(row).toContainText("0 of 2 tasks");
   await page.reload();
   await row.getByRole("button", { name: "Details", exact: true }).click();
   await expandTask(dialog, 1);
@@ -69,8 +69,8 @@ test("opens an order, adds an inspection, tracks tasks, attaches a record and cl
   await closeOrder(page, dialog);
   await expect(row).toHaveCount(0);
   await page.getByLabel("Include closed work orders").check();
-  await expect(row).toContainText("completed");
-  await expect(row).toContainText("2 / 2");
+  await expect(row.locator(".shop-order-status")).toHaveText("Completed");
+  await expect(row).toContainText("2 of 2 tasks");
   await row.getByRole("button", { name: "Details", exact: true }).click();
   await expect(saveOrderButton(dialog)).toBeDisabled();
   await expect(
@@ -122,7 +122,7 @@ test("selects component times and adds component service and discrepancy records
   await addItemFromPicker(picker);
   await page.getByRole("link", { name: "Work orders", exact: true }).click();
   const row = orderRow(page, "WO-COMPONENT");
-  await expect(row).toContainText("0 / 2");
+  await expect(row).toContainText("0 of 2 tasks");
   await expect(
     row.getByRole("cell").nth(OUTSTANDING_DISCREPANCIES_COLUMN),
   ).toHaveText("1");

@@ -3,7 +3,8 @@
  *   period report, budgets and CSV export, and an aircraft's cost summary.
  * Layer: UI. React components; cost rules live in src/domain/costs.ts.
  * Dependencies: @tanstack/react-router, src/data/store.ts, src/domain (model,
- *   programs, csv, costs), ./ui.tsx, ./design.tsx, ./ShopList.tsx.
+ *   programs, csv, costs), ./ui.tsx, ./design.tsx, ./ShopList.tsx,
+ *   ./CostCharts.tsx, ./WorkOrderList.tsx.
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -43,10 +44,17 @@ import {
   PageHeader,
   ProgressTrack,
   StatsStrip,
-  StatusPill,
   Toolbar,
 } from "./design";
-import { ShopLead, ShopSelect, ShopStat, ShopTableCard } from "./ShopList";
+import {
+  ShopLead,
+  ShopPill,
+  ShopSelect,
+  ShopStat,
+  ShopTableCard,
+} from "./ShopList";
+import { CostCharts } from "./CostCharts";
+import { WorkOrderStatusPill } from "./WorkOrderList";
 import "./costs.css";
 
 // The budget years budgetSchema accepts.
@@ -353,6 +361,7 @@ function CostReport({
   return (
     <>
       <CostStats report={report} />
+      <CostCharts s={s} report={report} />
       <ShopTableCard
         label="Work-order costs"
         className="shop-compact"
@@ -447,9 +456,7 @@ function CostRow({ line: { order, costs } }: { line: CostLine }) {
         {order.dateOpened}
       </td>
       <td data-label="Status">
-        <StatusPill tone={completed ? "good" : "neutral"}>
-          <span className="shop-cap">{order.status.replace(/-/g, " ")}</span>
-        </StatusPill>
+        <WorkOrderStatusPill status={order.status} />
       </td>
       <NumberCell label="Labor h">
         {formatLaborHours(costs.laborSeconds)}
@@ -498,14 +505,14 @@ function LaborRateNotice({ rate }: { rate?: number }) {
 function BudgetPill({ status }: { status: BudgetStatus }) {
   if (status.over)
     return (
-      <StatusPill tone="danger">
+      <ShopPill tone="danger">
         Over budget by {formatCents(-status.remainingCents!)}
-      </StatusPill>
+      </ShopPill>
     );
   return (
-    <StatusPill tone="good">
+    <ShopPill tone="good">
       {formatCents(status.remainingCents!)} remaining
-    </StatusPill>
+    </ShopPill>
   );
 }
 

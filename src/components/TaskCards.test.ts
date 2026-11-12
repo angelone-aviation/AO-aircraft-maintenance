@@ -220,7 +220,10 @@ it("lists cached cards offline but offers no new card", () => {
   workspace.online = false;
   const html = render(TaskCards, {}, [undefined, "", "", "", "zone"]);
   expect(html).toContain("Cached job cards are available.");
-  expect(html).toMatch(/disabled="">New job card/);
+  // The button's plus icon sits between the tag and its words.
+  expect(html).toMatch(
+    /disabled=""><svg[^>]*><path[^>]*><\/path><\/svg>New job card/,
+  );
 });
 
 it("lists and offers cards by the kind of linked record", () => {

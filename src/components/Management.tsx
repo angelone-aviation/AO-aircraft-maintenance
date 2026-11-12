@@ -8,7 +8,8 @@
  *   shelfLife, componentInventory, partsPlanning, ata, programs, addresses,
  *   inventoryAttachments, remainingMeters, rejection), ./ManagementShared
  *   and sibling screens' parts (Components, PartsRequests, PurchaseOrders,
- *   TaskCards, WorkOrders, Manuals, RequiredParts, Inventory*),
+ *   TaskCards, WorkOrders, Manuals, RequiredParts, Inventory*,
+ *   StockLevelChart),
  *   ./RemainingMeter, ./ui,
  *   ./design.
  *
@@ -24,6 +25,7 @@ import { RequestPartsButton } from "./PartsRequests";
 import { InspectionPOButton } from "./PurchaseOrders";
 import { InventoryPrintButtons } from "./InventoryPrinting";
 import { ScanButton } from "./InventoryScanner";
+import { StockLevelChart } from "./StockLevelChart";
 import {
   EXPIRING_SOON_DAYS,
   matchesShelfLife,
@@ -258,6 +260,7 @@ export function Inventory() {
         <LinkedItemNotice {...props} />
       )}
       <InventoryStats stock={stock} />
+      <StockLevelChart stock={stock.stock} />
       <InventoryFilters view={view} />
       <InventoryList {...props} stock={stock} />
       <StorageLocations locations={stock.locations} view={view} />

@@ -3,7 +3,7 @@
  *   availability, the Parts requests section, and reading a form's parts.
  * Layer: UI. React components; availability rules live in src/domain.
  * Dependencies: react, src/data/store.ts, src/domain (partsPlanning,
- *   partsRequests, model, requiredParts), ./design, ./PartsRequests (lazy).
+ *   partsRequests, model, requiredParts), ./ShopList, ./PartsRequests (lazy).
  */
 import { requestedParts } from "../domain/partsPlanning";
 import type { RequestSource } from "../domain/partsRequests";
@@ -15,7 +15,7 @@ import {
   requiredPartsSchema,
   type RequiredPart,
 } from "../domain/requiredParts";
-import { StatusPill } from "./design";
+import { ShopPill } from "./ShopList";
 // Loaded on demand: the requests workspace pulls in purchase orders, vendors
 // and addresses, which the dashboard's parts summary does not need at startup.
 const RequestPartsButton = lazy(() =>
@@ -62,9 +62,9 @@ export function PartsAvailability({
   const short = rows.some((p) => (p.shortage ?? 0) > 0);
   return (
     <div className="parts-availability">
-      <StatusPill tone={unknown || short ? "warn" : "good"}>
+      <ShopPill tone={unknown || short ? "warn" : "good"}>
         {availabilityLabel(unknown, short)}
-      </StatusPill>
+      </ShopPill>
       {(!online || !connected) && (
         <small className="block">
           Cached stock quantities — reconnect to verify.

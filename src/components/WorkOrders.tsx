@@ -8,7 +8,8 @@
  *   ./RequestedComponentMovement, ./TaskCards, ./WorkOrderCosts,
  *   ./WorkOrderComponentWork, ./WorkOrderRevisions, ./ReleaseStatements,
  *   ./LogbookEntry, ./LogbookSample, ./LogbookWording,
- *   ./ComponentCloseoutCorrection, ./ShopList, ./design, ./ui.
+ *   ./ComponentCloseoutCorrection, ./ShopList, ./WorkOrderList, ./design,
+ *   ./ui.
  */
 import { RequestPartsButton } from "./PartsRequests";
 import { localDate } from "../domain/model";
@@ -39,7 +40,7 @@ import {
   LinkedTaskCards,
   WorkItemJobCards,
 } from "./TaskCards";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
 import type { Backend } from "../data/backend";
@@ -63,7 +64,6 @@ import {
   unusedWorkSources,
   workOrderCounts,
   workOrderFieldsSchema,
-  workOrderProgress,
   workOrdersTaking,
   workOrderStatuses,
   validateWorkOrderFile,
@@ -95,26 +95,15 @@ import {
   EmptyState,
   NoticeBar,
   PageHeader,
-  ProgressTrack,
   SearchField,
   StatTile,
   StatsStrip,
-  StatusPill,
   Switch,
   Toolbar,
 } from "./design";
-import { ShopLead, ShopSelect, ShopTableCard } from "./ShopList";
-import {
-  Airplane,
-  CheckCircle,
-  ClipboardText,
-  Hourglass,
-  Package,
-  Plus,
-  Prohibit,
-  WifiSlash,
-  Wrench,
-} from "@phosphor-icons/react";
+import { ShopSelect } from "./ShopList";
+import { WorkOrderCards, WorkOrderStatusChart } from "./WorkOrderList";
+import { Airplane, Plus, WifiSlash } from "@phosphor-icons/react";
 
 const CLOSE_WARNING =
   "Closing this work order is permanent. You will no longer be able to modify the work order or its job cards. You can still view tasks and attachments.";
@@ -213,10 +202,11 @@ export function WorkOrders() {
     <>
       <WorkOrdersHeader s={s} enabled={enabled} onOpen={setSelected} />
       <WorkOrderCounts scoped={scoped} />
+      <WorkOrderStatusChart orders={scoped} />
       <WorkOrderFilters s={s} filter={filter} />
       {!enabled && <OfflineNotice />}
       {list.length ? (
-        <WorkOrderTable s={s} list={list} onSelect={setSelected} />
+        <WorkOrderCards s={s} list={list} onSelect={setSelected} />
       ) : (
         <NoWorkOrders anyInScope={!!scoped.length} anyListed={!!shown.length} />
       )}
@@ -442,23 +432,6 @@ function PreparationRunning({ order }: { order: WorkOrder }) {
   );
 }
 
-function statusTone(status: WorkOrder["status"]): "good" | "warn" | "neutral" {
-  if (status === "completed") return "good";
-  if (["open", "parts-delay", "awaiting-approval"].includes(status))
-    return "warn";
-  return "neutral";
-}
-
-const statusIcon = (status: WorkOrder["status"]) =>
-  ({
-    open: ClipboardText,
-    "in-progress": Wrench,
-    "awaiting-approval": Hourglass,
-    "parts-delay": Package,
-    completed: CheckCircle,
-    cancelled: Prohibit,
-  })[status];
-
 function OfflineNotice() {
   return (
     <NoticeBar tone="warn" icon={WifiSlash}>
@@ -480,7 +453,8 @@ function WorkOrdersHeader({
   return (
     <PageHeader
       eyebrow="MAINTENANCE"
-      title="Work orders"
+      title="Work"
+      accent="orders"
       description="Scoped maintenance work with requested items, job cards, parts and signoffs through close-out."
       actions={
         <button
@@ -545,152 +519,6 @@ function WorkOrderFilters({
         ))}
       </ShopSelect>
     </Toolbar>
-  );
-}
-
-function WorkOrderTable({
-  s,
-  list,
-  onSelect,
-}: {
-  s: Snapshot;
-  list: WorkOrder[];
-  onSelect: (order: WorkOrder) => void;
-}) {
-  return (
-    <ShopTableCard label="Work orders" className="shop-compact" stack>
-      <table
-        className="shop-table"
-        style={{ "--shop-table-min": "880px" } as CSSProperties}
-      >
-        <thead>
-          <tr>
-            <th>Work order</th>
-            <th>Opened / status</th>
-            <th>Supervisor</th>
-            <th className="shop-num">Requested work</th>
-            <th className="shop-num">Open discrepancies</th>
-            <th className="shop-num">Parts delays</th>
-            <th className="shop-num">Job cards</th>
-            <th>
-              <span className="sr-only">Actions</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((w) => (
-            <WorkOrderRow key={w.uuid} s={s} order={w} onSelect={onSelect} />
-          ))}
-        </tbody>
-      </table>
-    </ShopTableCard>
-  );
-}
-
-function WorkOrderRow({
-  s,
-  order: w,
-  onSelect,
-}: {
-  s: Snapshot;
-  order: WorkOrder;
-  onSelect: (order: WorkOrder) => void;
-}) {
-  const progress = workOrderProgress(s, w);
-  const tone = statusTone(w.status);
-  return (
-    <tr>
-      <LeadCell order={w} tone={tone} />
-      <OpenedCell order={w} tone={tone} />
-      <td data-label="Supervisor">
-        {w.supervisor || "Unassigned"}
-        <small className="shop-priority">{w.priority}</small>
-      </td>
-      <RequestedWorkCell progress={progress} good={tone === "good"} />
-      <CountCell label="Discrepancies" tone="shop-count-danger">
-        {progress.outstandingDiscrepancies}
-      </CountCell>
-      <CountCell label="Parts delays" tone="shop-count-warn">
-        {progress.partsDelays}
-      </CountCell>
-      <td className="shop-num" data-label="Job cards">
-        {progress.taskCardsCompleted} / {progress.taskCardsTotal}
-      </td>
-      <td className="shop-actions-cell">
-        <button className="button small" onClick={() => onSelect(w)}>
-          Details
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-type CellProps = { order: WorkOrder; tone: ReturnType<typeof statusTone> };
-
-function LeadCell({ order: w, tone }: CellProps) {
-  return (
-    <td className="shop-wide">
-      <ShopLead
-        icon={statusIcon(w.status)}
-        tone={tone}
-        title={w.number}
-        sub={w.aircraft.registration}
-      />
-    </td>
-  );
-}
-
-function OpenedCell({ order: w, tone }: CellProps) {
-  return (
-    <td data-label="Opened">
-      <span className="shop-nowrap">{w.dateOpened}</span>
-      <span className="shop-sub">
-        <StatusPill tone={tone}>
-          <span className="shop-cap">{w.status.replace(/-/g, " ")}</span>
-        </StatusPill>
-      </span>
-    </td>
-  );
-}
-
-function RequestedWorkCell({
-  progress,
-  good,
-}: {
-  progress: ReturnType<typeof workOrderProgress>;
-  good: boolean;
-}) {
-  const { completed, total } = progress;
-  return (
-    <td className="shop-num" data-label="Requested work">
-      <span className="shop-wo-progress">
-        <span>
-          {completed} / {total}
-        </span>
-        <ProgressTrack
-          thin
-          tone={good ? "good" : "blue"}
-          value={total ? completed / total : 0}
-        />
-      </span>
-    </td>
-  );
-}
-
-// A count of zero is muted; any other count takes the given tone.
-function CountCell({
-  label,
-  tone,
-  children: count,
-}: {
-  label: string;
-  tone: string;
-  children: number;
-}) {
-  return (
-    <td className="shop-num" data-label={label}>
-      <span className={count ? tone : "shop-zero"}>{count}</span>
-    </td>
   );
 }
 

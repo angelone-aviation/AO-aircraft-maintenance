@@ -6,7 +6,8 @@
  *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
  *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders,
  *   listSearch), ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording,
- *   ./TaskCsvImport, ./Manuals, ./design (SearchField), ./ui.
+ *   ./TaskCsvImport, ./Manuals, ./design, ./ShopList, ./ui,
+ *   @phosphor-icons/react.
  *
  * A template holds instructions only: results, parts and signoffs go on the
  * job card a work order copies from it.
@@ -28,7 +29,21 @@ import type { Stock } from "../domain/management";
 import { expiredForUse, usableQuantity } from "../domain/shelfLife";
 import { taskCardMatchesWorkItem } from "../domain/workOrderCards";
 import { taskCardMatches } from "../domain/listSearch";
-import { SearchField } from "./design";
+import {
+  EmptyState,
+  NoticeBar,
+  PageHeader,
+  SearchField,
+  Toolbar,
+} from "./design";
+import { ShopSelect, ShopTableCard } from "./ShopList";
+import {
+  Airplane,
+  Funnel,
+  Plus,
+  SortAscending,
+  WifiSlash,
+} from "@phosphor-icons/react";
 import type { WorkOrder, WorkTask } from "../domain/workOrders";
 import { TaskCsvImportButton } from "./TaskCsvImport";
 import { ManualReferenceFields } from "./Manuals";
@@ -70,10 +85,8 @@ import {
 import {
   AsyncForm,
   DeleteFileButton,
-  Empty,
   Field,
   Modal,
-  PageTitle,
   errorText,
   value,
 } from "./ui";
@@ -136,8 +149,7 @@ export function TaskCards() {
   return (
     <>
       <JobCardsTitle s={s} live={live} onCreate={() => setSelected({})} />
-      <TaskCsvImportButton />
-      <div className="management-toolbar">
+      <Toolbar className="shop-toolbar">
         <SearchField
           label="Search job cards"
           placeholder="Card, title, aircraft or work order"
@@ -145,13 +157,21 @@ export function TaskCards() {
           onChange={filters.setSearch}
         />
         <CardFilters s={s} filters={filters} />
-        <CardOrderSelect value={orderBy} onChange={setOrderBy} />
-      </div>
+        <ShopSelect
+          label="Order by"
+          icon={SortAscending}
+          value={orderBy}
+          onChange={(v) => setOrderBy(v as CardOrder)}
+        >
+          <option value="zone">Order by zone</option>
+          <option value="number">Order by card number</option>
+        </ShopSelect>
+      </Toolbar>
       {!live && (
-        <p className="notice">
+        <NoticeBar tone="warn" icon={WifiSlash}>
           Cached job cards are available. Reconnect to edit, sign or upload
           evidence.
-        </p>
+        </NoticeBar>
       )}
       <CardRows
         s={s}
@@ -295,21 +315,26 @@ function JobCardsTitle(props: {
 }) {
   const { s } = props;
   return (
-    <PageTitle
+    <PageHeader
       eyebrow="MAINTENANCE"
-      title="Job cards"
+      title="Job"
+      accent="cards"
       description="Instructions, notes, work results, parts and signoffs for individual maintenance tasks."
-      action={
-        <button
-          className="button primary"
-          disabled={
-            !props.live ||
-            !s.aircraft.some((a) => can(s, a.uuid, "maintenance"))
-          }
-          onClick={props.onCreate}
-        >
-          New job card
-        </button>
+      actions={
+        <>
+          <TaskCsvImportButton />
+          <button
+            className="button primary"
+            disabled={
+              !props.live ||
+              !s.aircraft.some((a) => can(s, a.uuid, "maintenance"))
+            }
+            onClick={props.onCreate}
+          >
+            <Plus size={18} weight="bold" aria-hidden="true" />
+            New job card
+          </button>
+        </>
       }
     />
   );
@@ -325,30 +350,33 @@ function useCardFilters(): FilterState {
 function CardFilters({ s, filters: f }: { s: Snapshot; filters: FilterState }) {
   return (
     <>
-      <Field label="Aircraft">
-        <select
-          value={f.aircraft}
-          onChange={(e) => f.setAircraft(e.target.value)}
-        >
-          <option value="">All aircraft</option>
-          {s.aircraft.map((a) => (
-            <option key={a.uuid} value={a.uuid}>
-              {a.registration}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Task status filter">
-        <select value={f.status} onChange={(e) => f.setStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="template">Reusable templates</option>
-          {taskCardStatuses.map((v) => (
-            <option key={v} value={v}>
-              {label(v)}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <ShopSelect
+        label="Aircraft"
+        icon={Airplane}
+        value={f.aircraft}
+        onChange={f.setAircraft}
+      >
+        <option value="">All aircraft</option>
+        {s.aircraft.map((a) => (
+          <option key={a.uuid} value={a.uuid}>
+            {a.registration}
+          </option>
+        ))}
+      </ShopSelect>
+      <ShopSelect
+        label="Task status filter"
+        icon={Funnel}
+        value={f.status}
+        onChange={f.setStatus}
+      >
+        <option value="">All statuses</option>
+        <option value="template">Reusable templates</option>
+        {taskCardStatuses.map((v) => (
+          <option key={v} value={v}>
+            {label(v)}
+          </option>
+        ))}
+      </ShopSelect>
     </>
   );
 }
@@ -365,23 +393,19 @@ function CardRows({
   if (!props.rows.length)
     // Without rows the table would still scroll sideways at narrow widths
     // with nothing focusable in it, so show only the empty state.
-    return (
-      <div className="panel">
-        {anyCards ? (
-          <Empty title="No matching job cards">
-            Try another search, aircraft or status.
-          </Empty>
-        ) : (
-          <Empty title="No job cards">
-            Create a card here or add one from an inspection, service
-            requirement or discrepancy.
-          </Empty>
-        )}
-      </div>
+    return anyCards ? (
+      <EmptyState title="No matching job cards">
+        Try another search, aircraft or status.
+      </EmptyState>
+    ) : (
+      <EmptyState title="No job cards">
+        Create a card here or add one from an inspection, service requirement or
+        discrepancy.
+      </EmptyState>
     );
   return (
-    <div className="panel table-wrap">
-      <table className="job-card-summary-table">
+    <ShopTableCard label="Job cards" className="shop-jobs" stack>
+      <table className="shop-table">
         <thead>
           <tr>
             <th>Task status</th>
@@ -397,7 +421,7 @@ function CardRows({
           ))}
         </tbody>
       </table>
-    </div>
+    </ShopTableCard>
   );
 }
 
@@ -409,13 +433,13 @@ function CardRow(props: {
   const { s, card: t } = props;
   return (
     <tr>
-      <td>
+      <td className="shop-wide" data-label="Task status">
         <JobCardStatus card={t} />
       </td>
-      <td>
+      <td className="shop-wide">
         <button
           type="button"
-          className="text-button"
+          className="shop-title-button"
           aria-label={`Details for ${t.cardNumber}`}
           onClick={() => props.onSelect({ uuid: t.uuid })}
         >
@@ -423,14 +447,15 @@ function CardRow(props: {
         </button>
         <CardPreview card={t} />
       </td>
-      <td>
+      <td data-label="Aircraft / work order">
         {s.aircraft.find((a) => a.uuid === t.aircraftUuid)?.registration}
-        <br />
-        {s.workOrders?.find((w) => w.uuid === t.workOrderUuid)?.number ??
-          "Unassigned"}
+        <small>
+          {s.workOrders?.find((w) => w.uuid === t.workOrderUuid)?.number ??
+            "Unassigned"}
+        </small>
       </td>
-      <td>{ataLabel(t.ataChapter)}</td>
-      <td>
+      <td data-label="ATA chapter">{ataLabel(t.ataChapter)}</td>
+      <td className="shop-wide" data-label="Signoffs">
         <JobCardSignoffs card={t} />
       </td>
     </tr>

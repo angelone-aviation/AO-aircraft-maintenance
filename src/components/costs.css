@@ -14,23 +14,20 @@
   margin: 0 0 16px;
 }
 .cost-totals div {
-  border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  padding: 10px 12px;
-  background: var(--surface);
+  padding: 12px 14px;
+  background: var(--surface2);
   color: var(--text);
 }
 .cost-totals dt {
-  font-size: 11px;
-  letter-spacing: 1.2px;
-  font-weight: 600;
-  text-transform: uppercase;
+  font-size: 12.5px;
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .cost-totals dd {
-  margin: 4px 0 0;
-  font-size: 16px;
-  font-weight: 500;
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 .unit-cost-editor {

@@ -112,7 +112,7 @@ test("adds scheduled AD actions from the register and details without duplicates
   await page.goto("/work-orders");
   const order = page.getByRole("row").filter({ hasText: "WO-AD-ACTIONS" });
   // The first requested work and the two AD actions, none completed.
-  await expect(order).toContainText("0 / 3");
+  await expect(order).toContainText("0 of 3 tasks");
   await order.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.getByRole("dialog").last()).toContainText(
     "AD 2026-10-28: Inspect forward fittings",
