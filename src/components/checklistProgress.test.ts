@@ -1,12 +1,12 @@
 /**
- * Responsibility: Pins the checklist set totals and their ring slices.
+ * Responsibility: Pins the checklist set totals.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/checklistProgress.ts,
  *   src/domain/checklists.ts (types).
  */
 import { describe, expect, it } from "vitest";
 import type { ChecklistDocument } from "../domain/checklists";
-import { setTotals, totalsSlices, type SetTotals } from "./checklistProgress";
+import { setTotals } from "./checklistProgress";
 
 function set(): ChecklistDocument {
   const list = (objectId: string, ids: string[]) => ({
@@ -33,14 +33,6 @@ function set(): ChecklistDocument {
   } as ChecklistDocument;
 }
 
-const totals = (fields: Partial<SetTotals>): SetTotals => ({
-  checked: 0,
-  skipped: 0,
-  open: 0,
-  total: 0,
-  ...fields,
-});
-
 describe("setTotals", () => {
   it("counts checks in every category and list, leaving comments out", () => {
     expect(setTotals(set(), {})).toEqual({
@@ -65,15 +57,5 @@ describe("setTotals", () => {
       open: 2,
       total: 5,
     });
-  });
-});
-
-describe("totalsSlices", () => {
-  it("lists checked, skipped and not checked in that order", () => {
-    expect(totalsSlices(totals({ checked: 2, skipped: 1, open: 3 }))).toEqual([
-      { label: "Checked", value: 2, tone: "good" },
-      { label: "Skipped", value: 1, tone: "warn" },
-      { label: "Not checked", value: 3, tone: "5" },
-    ]);
   });
 });

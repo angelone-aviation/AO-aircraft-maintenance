@@ -112,8 +112,7 @@ vi.mock("./design", async (importOriginal) => {
   };
 });
 vi.mock("./OpsList", () => ({ OpsSelect: stub("OpsSelect") }));
-// The ring's own module draws through a class the tracker cannot call.
-vi.mock("./charts", () => ({ Donut: stub("Donut") }));
+vi.mock("./charts", () => ({ Meter: stub("Meter") }));
 vi.mock("../data/fmd", () => ({
   importFmd: async () => {
     if (ui.imported instanceof Error) throw ui.imported;
@@ -323,20 +322,23 @@ describe("ChecklistReader", () => {
     );
   });
 
-  it("shows the whole set's marks in the ring, not only the open list's", () => {
+  it("meters the whole set's marks, not only the open list's", () => {
     storage.set(KEY, JSON.stringify({ i1: "checked", i3: "skipped" }));
     render(reader());
-    const ring = ui.stubs.get("Donut")!;
-    expect(ring.label).toBe("Checklist set progress");
-    expect(ring.slices).toEqual([
-      { label: "Checked", value: 1, tone: "good" },
-      { label: "Skipped", value: 1, tone: "warn" },
-      { label: "Not checked", value: 1, tone: "5" },
-    ]);
+    expect(ui.stubs.get("Meter")).toMatchObject({
+      label: "Checklist set progress",
+      value: 1,
+      max: 3,
+      valueText: "1 of 3 done",
+      note: "1 skipped",
+    });
     click("Check next item");
-    expect(
-      (ui.stubs.get("Donut")!.slices as { value: number }[])[0].value,
-    ).toBe(2);
+    expect(ui.stubs.get("Meter")).toMatchObject({
+      value: 2,
+      valueText: "2 of 3 done",
+    });
+    click("Reset all checklists");
+    expect(ui.stubs.get("Meter")!.note).toBeUndefined();
   });
 
   it("marks a finished section in the list of sections", () => {
