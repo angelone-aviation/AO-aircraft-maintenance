@@ -53,12 +53,17 @@
   --scrim: rgba(15, 20, 40, 0.36);
 
   /* Charts: cobalt first, then a lighter and a darker blue and two greys.
-   * Status colours are for data that is a status (chartData.ts). */
+   * Status data fills with the --chart-good/warn/danger hues, not the dark
+   * status text colours, which read as mud in a large ring. Each reaches 3:1
+   * on the card (WCAG 1.4.11); 2px card-coloured gaps part the segments. */
   --chart-1: #2563eb;
   --chart-2: #93b4f8;
   --chart-3: #1e3a8a;
   --chart-4: #c3cad8;
   --chart-5: #7c869e;
+  --chart-good: #0e9f6e;
+  --chart-warn: #d97706;
+  --chart-danger: #e5484d;
   --chart-grid: var(--border);
   --chart-axis: var(--muted);
   --chart-cursor: rgba(37, 99, 235, 0.06);
@@ -162,6 +167,9 @@
   --chart-3: #a9c4ff;
   --chart-4: #4a5573;
   --chart-5: #8a94ad;
+  --chart-good: #2ebd85;
+  --chart-warn: #f5a524;
+  --chart-danger: #ff6369;
   --chart-cursor: rgba(122, 162, 255, 0.08);
   color-scheme: dark;
 }

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   chartColor,
   chartTable,
+  drawnSlices,
   meterPercent,
   plotRows,
   shares,
@@ -30,10 +31,34 @@ const oneDecimal = (n: number) => n.toFixed(1);
 
 describe("chartColor", () => {
   it("uses a tone when given and otherwise cycles the five-colour palette", () => {
-    expect(chartColor("warn", 0)).toBe("var(--warn)");
+    expect(chartColor("2", 0)).toBe("var(--chart-2)");
     expect(chartColor(undefined, 0)).toBe("var(--chart-1)");
     expect(chartColor(undefined, 4)).toBe("var(--chart-5)");
     expect(chartColor(undefined, 5)).toBe("var(--chart-1)");
+  });
+
+  // The status text colours are too dark to fill a ring or a bar.
+  it("fills status data with the chart status tokens, not the text ones", () => {
+    expect(chartColor("good", 0)).toBe("var(--chart-good)");
+    expect(chartColor("warn", 0)).toBe("var(--chart-warn)");
+    expect(chartColor("danger", 0)).toBe("var(--chart-danger)");
+  });
+});
+
+describe("drawnSlices", () => {
+  it("drops parts of zero or less, keeping each part's colour by position", () => {
+    expect(
+      drawnSlices([
+        { label: "Overdue", value: 0, tone: "danger" },
+        { label: "Labor", value: 2 },
+        { label: "Lost", value: -1 },
+        { label: "Parts", value: Number.NaN },
+        { label: "Other", value: 3 },
+      ]),
+    ).toEqual([
+      { label: "Labor", value: 2, color: "var(--chart-2)" },
+      { label: "Other", value: 3, color: "var(--chart-5)" },
+    ]);
   });
 });
 
