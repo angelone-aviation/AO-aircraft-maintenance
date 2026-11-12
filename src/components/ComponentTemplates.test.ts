@@ -249,6 +249,10 @@ function component(uuid: string, aircraftUuid: string, installed: boolean) {
   } as unknown as NonNullable<Snapshot["management"]>[number];
 }
 
+// A captioned cell: the caption is hidden from readers, who hear the column.
+const cell = (caption: string, text: string) =>
+  `<div role="cell"><span class="mx-fact-label" aria-hidden="true">${caption}</span>${text}</div>`;
+
 describe("Setup incomplete", () => {
   it("lists setups with no component yet, a child waiting for its parent", () => {
     const parent = setup(ENGINE);
@@ -258,9 +262,9 @@ describe("Setup incomplete", () => {
     s.management = [component(done.uuid, "demo-206", true)];
     const html = render();
     expect(html).toContain("Setup incomplete — 2 recommended components");
-    expect(html).toContain("<td>E123 · MAIN</td>");
-    expect(html).toContain("<td>A123 · Not specified</td>");
-    expect(html).toContain("<td>Template engine</td>");
+    expect(html).toContain(cell("Part / position", "E123 · MAIN"));
+    expect(html).toContain(cell("Part / position", "A123 · Not specified"));
+    expect(html).toContain(cell("Parent", "Template engine"));
     expect(disabled("Complete setup")).toEqual([false, true]);
     expect(html.match(/Complete parent first/g)).toHaveLength(1);
     ui.workspace.online = false;
