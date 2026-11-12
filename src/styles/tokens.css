@@ -118,9 +118,6 @@
   --dur-slow: 0.35s;
   --dur-theme: 0.35s;
   --dur-bar: 0.7s;
-  /* Closing is quicker than opening, so a closed dialog or menu never
-   * lingers on screen (after the transitions.dev timings). */
-  --dur-exit: 0.15s;
   --lift-card: -3px;
   --lift-button: -2px;
 
@@ -166,10 +163,8 @@
   color-scheme: dark;
 }
 
-/* Keyframes. Dialogs, sheets and menus may move on any screen, briefly
- * (--dur or less), because the motion shows what opened or closed. All other
- * entry motion runs only through the gated rules below or under a builder's
- * own (hover: hover) and (pointer: fine) query. */
+/* Keyframes. Entry motion only runs through the gated rules below or under a
+ * builder's own (hover: hover) and (pointer: fine) query. */
 @keyframes rise {
   from {
     opacity: 0;
@@ -188,7 +183,7 @@
 @keyframes pop {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.97);
+    transform: translateY(20px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -209,32 +204,6 @@
   }
   to {
     opacity: 1;
-  }
-}
-/* A menu grows from its trigger; set transform-origin on the menu. */
-@keyframes drop {
-  from {
-    opacity: 0;
-    transform: scale(0.97);
-  }
-}
-/* A small badge or icon arriving in place: the alert count, the theme icon. */
-@keyframes zoom {
-  from {
-    opacity: 0;
-    transform: scale(0.6);
-  }
-}
-/* A refused save: one short sideways nudge, never more than 3px. */
-@keyframes nudge {
-  25% {
-    transform: translateX(3px);
-  }
-  50% {
-    transform: translateX(-3px);
-  }
-  75% {
-    transform: translateX(1px);
   }
 }
 
