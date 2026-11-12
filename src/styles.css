@@ -253,8 +253,16 @@ main {
   flex: none;
   color: var(--muted);
 }
+/* Group headings read as section labels, not links: a hairline divides each
+   group from the one above, and the label takes the eyebrow style used on
+   page headers (small, spaced capitals in the text-safe blue, weight 600). */
 .nav-group {
   margin-bottom: 8px;
+}
+.nav-group + .nav-group {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 .nav-group-toggle {
   width: 100%;
@@ -263,11 +271,12 @@ main {
   justify-content: space-between;
   border: 0;
   background: transparent;
-  color: var(--muted);
-  padding: 10px 14px 6px;
+  color: var(--blue-ink);
+  padding: 10px 14px 8px;
   min-height: 36px;
   font-size: 11px;
-  letter-spacing: 0.14em;
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   border-radius: 8px;
   transition: color var(--dur-fast);
@@ -276,6 +285,7 @@ main {
   color: var(--text);
 }
 .nav-group-toggle svg {
+  color: var(--muted);
   transition: transform 0.3s var(--ease);
 }
 .nav-group.closed .nav-group-toggle svg {
