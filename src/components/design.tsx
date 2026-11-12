@@ -3,7 +3,8 @@
  *   and data display, loading placeholders, controls, dialogs, brand images,
  *   breakpoint and theme.
  * Layer: UI. Presentational React components and hooks; no workspace data.
- * Dependencies: react, @phosphor-icons/react, src/styles/design.css.
+ * Dependencies: react, @phosphor-icons/react, ./motion.ts,
+ *   src/styles/design.css.
  *
  * Screens build from these and from the global primitives in src/styles.css
  * (.button, .panel, .field, tables), styled by the tokens in
@@ -25,6 +26,7 @@ import {
   type SyntheticEvent,
 } from "react";
 import { MagnifyingGlass, X, type IconWeight } from "@phosphor-icons/react";
+import { useChangeCount, useExitEcho, useSlidingPill } from "./motion";
 import "../styles/design.css";
 
 const DESKTOP_QUERY = "(min-width: 1100px)";
@@ -411,6 +413,8 @@ export function KpiStrip({
  * A key figure on its own card: label, large tabular value, and an optional
  * icon and footnote.
  *
+ * @param props.value - Text or a number rises in briefly when it changes
+ *   after the first render, on mouse-and-keyboard screens.
  * @param props.tone - The icon's tone; defaults to blue.
  * @param props.valueTone - Colours the value, such as warn for inspections
  *   coming due or danger for open discrepancies.
@@ -430,6 +434,7 @@ export function KpiTile({
   valueTone?: ToneInput;
   footnote?: ReactNode;
 }) {
+  const changes = useChangeCount(typeof value === "object" ? undefined : value);
   return (
     <div className="ds-kpi-tile">
       <div className="ds-kpi-label">
@@ -437,8 +442,10 @@ export function KpiTile({
         {icon && <IconTile icon={icon} tone={t ?? "blue"} size="sm" />}
       </div>
       <strong
+        key={changes}
         className={cx(
           "ds-kpi-value",
+          changes > 0 && "changed",
           valueTone && "ds-tone-" + tone(valueTone),
         )}
       >
@@ -699,7 +706,8 @@ export type SegmentedOption = {
 };
 
 /**
- * A row of chip buttons that picks one value; the chosen chip is filled.
+ * A row of chip buttons that picks one value; the chosen chip is filled. On
+ * mouse-and-keyboard screens the fill slides over from the previous choice.
  *
  * @param props.label - The group's accessible name.
  * @param props.mode - Marks the chosen button aria-pressed ("pressed", the
@@ -722,12 +730,16 @@ export function Segmented({
   mode?: "pressed" | "current";
   className?: string;
 }) {
+  const row = useRef<HTMLDivElement>(null);
+  useSlidingPill(row);
   return (
     <div
+      ref={row}
       className={cx("ds-segmented", className)}
       role="group"
       aria-label={label}
     >
+      <span className="ds-seg-pill" aria-hidden="true" />
       {options.map((o) => (
         <SegmentButton
           key={o.value}
@@ -778,7 +790,8 @@ export function RoundButton({
 /**
  * A modal dialog on the native <dialog>, named by its title: focus stays
  * inside while it is open and returns to the opener when it closes. It is a
- * centred panel from 760px wide and a bottom sheet below.
+ * centred panel from 760px wide and a bottom sheet below. Closing removes
+ * it at once; only an empty, inert picture of it fades out after.
  *
  * @param props.open - False renders nothing; defaults to true.
  * @param props.onClose - Called by Escape (the top-most dialog only), the
@@ -817,6 +830,7 @@ function DialogInner({
   const titleId = useId();
   const subtitleId = useId();
   useModal(ref);
+  useExitEcho(ref);
   // The scrim click is a pointer convenience; Escape (onCancel) and the
   // close button are the keyboard paths.
   return (

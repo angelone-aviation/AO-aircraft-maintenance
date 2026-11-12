@@ -665,6 +665,53 @@ button.ds-list-row {
   font-size: 12.5px;
   opacity: 0.75;
 }
+/* Sliding pill (useSlidingPill in motion.ts, mouse-and-keyboard screens):
+ * one cobalt pill glides to the chosen chip. Each chip paints its white fill
+ * on a ::before under the pill and its label over it, so the pill shows
+ * through as it passes. */
+.ds-segmented {
+  position: relative;
+}
+.ds-seg-pill {
+  display: none;
+}
+.ds-segmented[data-sliding] {
+  isolation: isolate;
+}
+.ds-segmented[data-sliding] > .ds-seg-pill {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius-pill);
+  background: var(--blue-fill);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  transition:
+    transform var(--dur) var(--ease),
+    width var(--dur) var(--ease);
+}
+.ds-segmented[data-sliding] > :is(button, a) {
+  position: relative;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transition: color var(--dur);
+}
+.ds-segmented[data-sliding] > :is(button, a)::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border: 1px solid var(--border);
+  border-radius: inherit;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+.ds-segmented[data-sliding]
+  > :is([aria-pressed="true"], [aria-current="page"])::before {
+  display: none;
+}
 
 /* ---------- Notice bar ---------- */
 .ds-notice {
@@ -792,7 +839,7 @@ dialog.ds-dialog {
   place-items: center;
   overflow: hidden;
   color: var(--text);
-  animation: fade 0.2s both;
+  animation: fade var(--dur-fast) both;
 }
 dialog.ds-dialog:not([open]) {
   display: none;
@@ -814,7 +861,7 @@ html:has(dialog.ds-dialog[open]) {
   color: var(--text);
   border-radius: var(--radius-modal);
   box-shadow: var(--shadow-overlay);
-  animation: pop 0.4s var(--ease) both;
+  animation: pop var(--dur) var(--ease) both;
   text-align: left;
 }
 .ds-dialog.narrow .ds-dialog-panel {
@@ -875,7 +922,7 @@ html:has(dialog.ds-dialog[open]) {
     width: 100%;
     max-height: 92vh;
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-    animation: sheet 0.35s var(--ease) both;
+    animation: sheet var(--dur) var(--ease) both;
   }
   .ds-dialog-header {
     padding: 20px 18px 8px;
@@ -889,6 +936,34 @@ html:has(dialog.ds-dialog[open]) {
   .ds-dialog-footer {
     padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
   }
+}
+
+/* The closing echo (useExitEcho in design.tsx): an empty, inert copy of the
+ * scrim and panel that fades out after the real dialog has gone. It sits in
+ * the top layer as a manual popover, so it also covers a parent dialog. */
+.ds-dialog-echo {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: var(--scrim);
+  pointer-events: none;
+  animation: fade var(--dur-exit) ease-in reverse both;
+}
+.ds-dialog-echo > div {
+  position: absolute;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  animation: pop var(--dur-exit) ease-in reverse both;
+}
+.ds-dialog-echo.sheet > div {
+  animation-name: sheet;
 }
 
 /* Short screens (a phone held sideways, or an on-screen keyboard that
@@ -1047,5 +1122,16 @@ html:has(dialog.ds-dialog[open]) {
   }
   .ds-progress-fill {
     animation: grow var(--dur-bar) var(--ease) both;
+  }
+  /* A figure that changes after the first render (KpiTile) rises in. */
+  .ds-kpi-value.changed {
+    animation: rise var(--dur) var(--ease) both;
+  }
+  /* Announced notices arrive like a toast; a success tick follows. */
+  .ds-notice:is([role="status"], [role="alert"]) {
+    animation: rise var(--dur) var(--ease) both;
+  }
+  .ds-notice.ds-tone-good > .ds-notice-icon {
+    animation: zoom var(--dur) 0.08s var(--ease) both;
   }
 }
