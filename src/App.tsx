@@ -110,7 +110,9 @@ const Flights = lazy(() =>
   import("./components/Records").then((m) => ({ default: m.Flights })),
 );
 const Discrepancies = lazy(() =>
-  import("./components/Records").then((m) => ({ default: m.Discrepancies })),
+  import("./components/Discrepancies").then((m) => ({
+    default: m.Discrepancies,
+  })),
 );
 const SyncCenter = lazy(() =>
   import("./components/Records").then((m) => ({ default: m.SyncCenter })),

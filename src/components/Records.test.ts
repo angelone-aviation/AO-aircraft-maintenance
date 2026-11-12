@@ -4,7 +4,8 @@
  *   the report search and counts, the Sync center's entries and discard,
  *   and the history filter.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/components/Records.tsx, src/data/demo.ts, react-dom/server.
+ * Dependencies: src/components/Records.tsx, Discrepancies.tsx,
+ *   src/data/demo.ts, react-dom/server.
  *
  * Child screens and dialogs are stubbed; their own suites and tests/e2e
  * cover them.
@@ -15,7 +16,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { Discrepancy, Flight, Snapshot } from "../domain/model";
-import { Discrepancies, Flights, History, SyncCenter } from "./Records";
+import type { WorkOrder } from "../domain/workOrders";
+import { Discrepancies } from "./Discrepancies";
+import { Flights, History, SyncCenter } from "./Records";
 
 type Props = Record<string, unknown> & { children?: ReactNode };
 type Handler = (...args: unknown[]) => unknown;
@@ -81,7 +84,7 @@ vi.mock("react", async (original) => {
   };
 });
 // Vitest compiles JSX for development, through jsxDEV. Handlers are kept by
-// element and label, e.g. "button Correct" or "Switch Include resolved…".
+// element and label, e.g. "button Correct" or "Segmented Show".
 vi.mock("react/jsx-dev-runtime", async (original) => {
   const runtime = await original<typeof import("react/jsx-dev-runtime")>();
   const jsxDEV: typeof runtime.jsxDEV = (type, props, ...rest) => {
@@ -254,16 +257,18 @@ describe("Discrepancies", () => {
       html.indexOf("Report old"),
     );
     expect(html).not.toContain("Report fixed");
-    handler("Switch Include resolved reports")(true);
+    handler("Segmented Show")("all");
     expect(render(Discrepancies)).toContain("Report fixed");
+    handler("Segmented Show")("open");
+    expect(render(Discrepancies)).not.toContain("Report fixed");
   });
 
   it("counts a deferred report as deferred, not grounding", () => {
     setWorkspace({ ...ADMIN, discrepancies: REPORTS });
     const html = render(Discrepancies);
-    expect(html).toContain("3 open");
-    expect(html).toContain("1 deferred");
-    expect(html).toContain("1 grounding");
+    expect(figure(html, "Open")).toBe("3");
+    expect(figure(html, "Deferred")).toBe("1");
+    expect(figure(html, "Grounding")).toBe("1");
   });
 });
 
@@ -275,7 +280,7 @@ describe("Discrepancy search", () => {
     const html = render(Discrepancies);
     expect(html).toContain("Report grounds");
     expect(html).not.toContain("Report old");
-    expect(html).toContain("3 open");
+    expect(figure(html, "Open")).toBe("3");
     handler("SearchField Search reports")("no such report");
     expect(render(Discrepancies)).toContain("No matching reports");
   });
@@ -296,6 +301,40 @@ describe("Discrepancy actions", () => {
     const pilot = render(Discrepancies);
     expect(pilot).not.toContain("Record resolution");
     expect(pilot).not.toContain("PARTS");
+  });
+
+  it("names each report's standing, with a deferral's expiry", () => {
+    const expiring = { deferral: { expiresOn: "2099-01-31" } };
+    setWorkspace({
+      ...ADMIN,
+      discrepancies: [
+        report("open", 1),
+        report("grounds", 2, { grounding: true }),
+        report("deferred", 3, { grounding: true, ...expiring }),
+      ],
+    });
+    const html = render(Discrepancies);
+    expect(html).toMatch(/is-deferred.*>Deferred<.*Expires 2099-01-31/s);
+    expect(html).toMatch(/is-grounding.*>Grounds aircraft</s);
+    expect(html).toMatch(/is-open.*>Open</s);
+  });
+
+  it("links the work orders covering a report, except in pilot view", () => {
+    const order = {
+      uuid: "order",
+      number: "WO-7",
+      dateOpened: "2026-01-01",
+      tasks: [{ source: { kind: "discrepancy", uuid: "open" } }],
+    } as unknown as WorkOrder;
+    const s = {
+      ...ADMIN,
+      discrepancies: [report("open", 1, { deferral: {} })],
+      workOrders: [order],
+    };
+    setWorkspace(s);
+    expect(render(Discrepancies)).toContain("Work order WO-7");
+    setWorkspace(asPilot(s));
+    expect(render(Discrepancies)).not.toContain("Work order WO-7");
   });
 
   it("queues a report on the device, also offline", async () => {
@@ -373,6 +412,14 @@ function handler(start: string) {
   const found = [...ui.handlers].find(([key]) => key.startsWith(start));
   if (!found) throw new Error(`No handler for ${start}`);
   return found[1];
+}
+
+// The value of the summary figure whose label first appears in the page.
+function figure(html: string, label: string) {
+  const found = new RegExp(`${label}<.*?ds-stat-value">(\\d+)<`, "s").exec(
+    html,
+  );
+  return found?.[1];
 }
 
 function render(screen: () => ReactNode) {

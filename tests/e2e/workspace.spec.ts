@@ -124,7 +124,10 @@ test("mobile navigation, favorites and discrepancy resolution work", async ({
     .getByLabel("What fixed the problem?")
     .fill("Cleaned and secured the light connector.");
   await page.getByRole("button", { name: "Mark resolved" }).click();
-  await page.getByLabel("Include resolved reports").check();
+  await page
+    .getByRole("group", { name: "Show", exact: true })
+    .getByRole("button", { name: "All", exact: true })
+    .click();
   await expect(
     page.getByText("Cleaned and secured the light connector."),
   ).toBeVisible();

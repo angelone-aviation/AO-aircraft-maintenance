@@ -89,7 +89,12 @@ test("discrepancy search narrows the reports and keeps the counts", async ({
   await search.fill("N206");
   await expect(report).toHaveCount(0);
   await expect(page.getByText("No matching reports")).toBeVisible();
-  await expect(page.getByText("1 open", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator(".disc-stats .ds-stat-tile")
+      .filter({ hasText: "Open" })
+      .locator(".ds-stat-value"),
+  ).toHaveText("1");
 });
 
 /** The flight log's status choice with this label. */
