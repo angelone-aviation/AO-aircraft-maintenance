@@ -207,13 +207,20 @@
 }
 
 /* ---------- Users by permission group (chart) ---------- */
+/* The one column may shrink, or the plot's own width would widen the page
+ * on a tablet. */
 .adm-chart {
   --i: 3;
+  grid-template-columns: minmax(0, 1fr);
   margin-top: var(--page-gap);
   margin-bottom: 0;
 }
-.adm-chart > .ds-card {
-  min-width: 0;
+/* The chart's visually hidden data table is a <table>, which cannot be
+ * narrower than its longest word: a long group name would widen the page.
+ * Clip it to the figure. */
+.adm-chart .ds-chart {
+  position: relative;
+  overflow: hidden;
 }
 
 /* ---------- Titled sections (Flight Program administrator view) ---------- */

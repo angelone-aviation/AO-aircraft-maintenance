@@ -212,7 +212,13 @@
   flex: none;
 }
 
-/* Theme chips */
+/* Theme chips. The chip row's own scroll padding would clip the last chip
+   against the card's edge; two chips never need to scroll. */
+.set-theme.ds-segmented {
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
 .set-theme > button {
   min-width: 104px;
   justify-content: center;
@@ -463,9 +469,14 @@
   line-height: 1.55;
   text-wrap: pretty;
 }
+/* A long file name wraps inside its chip instead of widening a phone. */
 .set-extract .ds-chip {
+  flex: 0 1 auto;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Expiring dates: list rows inside a block, the first flush with the hint. */
@@ -542,13 +553,14 @@
     grid-template-columns: minmax(0, 1fr);
     padding: 18px;
   }
-  /* The control drops under its text and starts at the left; a switch
-     keeps its words at the left and its track at the right edge. */
+  /* The control drops to the foot of the block and starts at the left; a
+     switch keeps its words at the left and its track at the right edge. */
   .set-block > .set-block-text:has(+ .set-block-side),
   .set-block > .set-block-side {
     grid-column: 1;
   }
   .set-block > .set-block-side {
+    order: 1;
     justify-content: flex-start;
   }
   .set-block-side .ds-switch {
