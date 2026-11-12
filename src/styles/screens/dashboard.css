@@ -684,6 +684,7 @@
   gap: 6px 14px;
 }
 .dash-files-upload {
+  margin-top: 12px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
