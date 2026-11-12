@@ -5,16 +5,16 @@
 Angel One keeps the maintenance and status records a 14 CFR Part 91 operator must hold for its aircraft, and runs the daily work that produces them: flight logging, discrepancies, inspections, work orders, parts and airworthiness directives. Everything is scoped by **Flight Program** with permission groups, and pilots can log flights and report discrepancies with no signal.
 
 <p align="center">
-  <img src="docs/previews/desktop.png" alt="The Overview on a desktop: three fictional demo aircraft with their status, hours and next inspection due" width="880">
+  <img src="docs/previews/desktop.png" alt="The Overview on a desktop: the grouped sidebar, the fleet counts and three fictional demo aircraft with their status, hours and next inspection due" width="880">
 </p>
 
-| At a glance       |                                                                                                                                                                             |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                                                       |
-| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                                                 |
-| **Status**        | Deployed. Final go-live checks are under way and real records begin at launch, planned for 13 November 2026 (as of 10 November 2026). See [Project status](#project-status) |
-| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                                                   |
-| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                                        |
+| At a glance       |                                                                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                                      |
+| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                                |
+| **Status**        | Deployed. The redesign was pushed on 12 November 2026 and is releasing; real records begin when the program decides. See [Project status](#project-status) |
+| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                                  |
+| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                       |
 
 > [!IMPORTANT]
 > Angel One generates logbook entry wording and is the system of record for **status records**. It is not the signed maintenance record ([ADR-0004](docs/adr/0004-logbook-generator-and-status-record-system.md)).
@@ -41,7 +41,7 @@ Angel One keeps the maintenance and status records a 14 CFR Part 91 operator mus
 _The walk-around: every part looked at in turn, grouped by who uses it._
 
 <p align="center">
-  <img src="docs/previews/mobile.png" alt="The Overview on a phone, with the fleet counts and the Log flight button" width="260">
+  <img src="docs/previews/mobile.png" alt="The Overview on a phone, with the fleet counts and the bottom tab bar around the Log flight button" width="260">
   &nbsp;&nbsp;&nbsp;
   <img src="docs/previews/flight-entry.png" alt="The Log a flight form on a phone" width="260">
 </p>
@@ -49,7 +49,7 @@ _The walk-around: every part looked at in turn, grouped by who uses it._
 ### Pilots
 
 - **Log a flight** on a phone, online or offline. The form shows the starting Hobbs and tach for the pilot to verify, and pending entries sync by themselves ([offline entries](docs/offline.md)).
-- **Report a discrepancy** from the same place, also offline.
+- **Report a discrepancy** from the same place, also offline. The **Discrepancies** screen has its own place under Fly: counts of open, grounding, deferred and resolved-this-month reports, search with Open and All filters, and one **Record resolution** button per report, with a link to the work order that covers it.
 - **See whether the aircraft may fly**: aircraft status, a dispatch gate and MEL deferrals (terms in the [glossary](GLOSSARY.md)).
 - **Checklists and flight plans**: imported ForeFlight checklists and ICAO flight plan PDFs read in the browser ([checklists](docs/checklists.md), [flight plans](docs/flight-plans.md), [flight log options](docs/flight-log-options.md)).
 - **Photograph the paper logbook line** for a flight ([logbook page photos](docs/logbook-photos.md)).
@@ -84,6 +84,13 @@ _The walk-around: every part looked at in turn, grouped by who uses it._
 - **Owner portal**: a reduced, read-only view of the aircraft an owner group names ([Flight Program access](docs/flight-program-access.md)).
 - **Board view**: a read-only fleet summary with a PDF to take to the meeting ([board view](docs/board-view.md)).
 - A member who holds both an owner group and a board group sees those two views side by side, never the full workspace.
+
+### The look
+
+- **One design across the app**: white pages and cards, the Outfit font, one cobalt accent (#2563EB), and status colours kept for status only (green for airworthy, amber for due soon, red for grounded or overdue), always with a word and an icon.
+- **Navigation**: a white sidebar on desktops grouped under Fly, Maintain and Manage, an icon rail on tablets, and a bottom tab bar with **Log flight** and a **More** sheet on phones. Lists restack on phones instead of scrolling sideways.
+- **Charts** for fleet readiness and hours flown, inspections, the flight log, work orders, stock levels, costs and more, each with a text alternative.
+- **The owner's Cessna picture** on every aircraft card, and icons from Phosphor. Motion is subtle and stops when the device asks for reduced motion.
 
 <details>
 <summary><strong>Details worth knowing before you enter data</strong></summary>
@@ -134,14 +141,14 @@ flowchart TB
   Nightly --> R2
 ```
 
-| Part         | Built with                                                                                                                                         |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App          | React, Vite, TanStack Router and Zustand; charts by Recharts (MIT), loaded on demand; a PWA with a service worker and an offline copy in IndexedDB |
-| Shared rules | TypeScript domain modules and zod schemas in `src/domain`, used by both the browser and the server                                                 |
-| Backend      | Convex: database, file storage, functions, scheduled jobs and Convex Auth                                                                          |
-| Hosting      | Cloudflare Workers Static Assets, configured in `wrangler.jsonc`, with security headers in `public/_headers`                                       |
-| Checks       | TypeScript, oxlint, Vitest and Playwright                                                                                                          |
-| Pipeline     | GitHub Actions: CI, Deploy, Nightly backup and First-time setup                                                                                    |
+| Part         | Built with                                                                                                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App          | React, Vite, TanStack Router and Zustand; charts by Recharts (MIT), loaded only when a chart is shown; icons by Phosphor (MIT); a PWA with a service worker and an offline copy in IndexedDB |
+| Shared rules | TypeScript domain modules and zod schemas in `src/domain`, used by both the browser and the server                                                                                           |
+| Backend      | Convex: database, file storage, functions, scheduled jobs and Convex Auth                                                                                                                    |
+| Hosting      | Cloudflare Workers Static Assets, configured in `wrangler.jsonc`, with security headers in `public/_headers`                                                                                 |
+| Checks       | TypeScript, oxlint, Vitest and Playwright                                                                                                                                                    |
+| Pipeline     | GitHub Actions: CI, Deploy, Nightly backup and First-time setup                                                                                                                              |
 
 The browser talks only to the website and Convex. Every outside service is called from Convex.
 
@@ -327,10 +334,10 @@ _En route: keeping it flying._
 
 ### Project status
 
-**Deployed, with real records beginning at launch.** The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, switching on error monitoring, and acceptance testing on actual pilot and mechanic devices.
+**Deployed, with real records beginning when the program decides.** There is no launch date. The redesign (a new look, grouped navigation, charts and a rebuilt Discrepancies screen, with the same data, permissions and server calls) was pushed to `main` on 12 November 2026 and is releasing through CI and Deploy. The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, switching on error monitoring, and acceptance testing on actual pilot and mechanic devices.
 
 - **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code. A [second review](docs/security/review-2026-11-04.md) on 2026-11-04 found nothing Critical or High; its fixes are merged and its open items are listed there. To report a vulnerability, see [SECURITY.md](SECURITY.md).
-- **Bug hunts**: two full rounds of testing before launch, on [3 November](docs/qa/bug-hunt-2026-11-03/README.md) and [10 November](docs/qa/bug-hunt-2026-11-10/README.md). Each lists every finding, its fix or the decision it waits on, and a script that reproduces it.
+- **Bug hunts**: two full rounds of testing before real records begin, on [3 November](docs/qa/bug-hunt-2026-11-03/README.md) and [10 November](docs/qa/bug-hunt-2026-11-10/README.md). Each lists every finding, its fix or the decision it waits on, and a script that reproduces it.
 - **Known limit**: the workspace loads a Flight Program's whole history in one request, and Convex caps each request at 16 MiB read. At about 300 flights a year per aircraft on six aircraft, administrators and pilots reach that cap after about two years of records. If the load fails, the app shows a page saying so instead of a blank screen. Loading older history page by page is planned; the measurements and the design are in the [10 November bug hunt](docs/qa/bug-hunt-2026-11-10/README.md).
 - **Recurring tasks**: the quarterly and yearly upkeep is in the [recurring tasks table](docs/go-live-checklist.md#recurring-tasks).
 
@@ -352,18 +359,18 @@ _En route: keeping it flying._
 
 _The chart table: where everything is written down._
 
-| Looking for                          | Start at                                                                                                                           |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| What a word means                    | [GLOSSARY.md](GLOSSARY.md)                                                                                                         |
-| How a feature behaves                | [`docs/`](docs/), one page per feature; the tour in [What it does](#what-it-does) links to each                                    |
-| Why something was decided            | [`docs/adr/`](docs/adr/), one record per standing decision                                                                         |
-| How the system fits together         | [CONTEXT.md](CONTEXT.md) and the [architecture report](docs/architecture/README.md)                                                |
-| What is left before and after launch | [Go-live checklist](docs/go-live-checklist.md)                                                                                     |
-| How to operate production            | [`docs/runbooks/`](docs/runbooks/), listed under [Runbooks](#runbooks)                                                             |
-| Security reviews and reporting       | [2 Nov review](docs/security/review-2026-11-02.md), [4 Nov review](docs/security/review-2026-11-04.md), [SECURITY.md](SECURITY.md) |
-| Bug hunts and how to reproduce them  | [3 Nov](docs/qa/bug-hunt-2026-11-03/README.md) and [10 Nov](docs/qa/bug-hunt-2026-11-10/README.md)                                 |
-| The agreed scope and original brief  | [First delivery](docs/first-delivery.md) and [requirements.md](requirements.md)                                                    |
-| A sample program to explore          | [Hosted sample aviation program](docs/sample-program.md)                                                                           |
+| Looking for                           | Start at                                                                                                                           |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| What a word means                     | [GLOSSARY.md](GLOSSARY.md)                                                                                                         |
+| How a feature behaves                 | [`docs/`](docs/), one page per feature; the tour in [What it does](#what-it-does) links to each                                    |
+| Why something was decided             | [`docs/adr/`](docs/adr/), one record per standing decision                                                                         |
+| How the system fits together          | [CONTEXT.md](CONTEXT.md) and the [architecture report](docs/architecture/README.md)                                                |
+| What is left before and after go-live | [Go-live checklist](docs/go-live-checklist.md)                                                                                     |
+| How to operate production             | [`docs/runbooks/`](docs/runbooks/), listed under [Runbooks](#runbooks)                                                             |
+| Security reviews and reporting        | [2 Nov review](docs/security/review-2026-11-02.md), [4 Nov review](docs/security/review-2026-11-04.md), [SECURITY.md](SECURITY.md) |
+| Bug hunts and how to reproduce them   | [3 Nov](docs/qa/bug-hunt-2026-11-03/README.md) and [10 Nov](docs/qa/bug-hunt-2026-11-10/README.md)                                 |
+| The agreed scope and original brief   | [First delivery](docs/first-delivery.md) and [requirements.md](requirements.md)                                                    |
+| A sample program to explore           | [Hosted sample aviation program](docs/sample-program.md)                                                                           |
 
 ## Repository layout
 
