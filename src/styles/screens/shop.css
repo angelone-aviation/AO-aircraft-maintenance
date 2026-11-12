@@ -40,6 +40,12 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+}
+/* A long label wraps inside the card with larger text on a narrow phone. */
+.shop-table-head-actions > .button {
+  max-width: 100%;
+  white-space: normal;
 }
 .shop-table-scroll {
   overflow-x: auto;
@@ -1066,9 +1072,6 @@
 }
 
 /* ---------- Job cards ---------- */
-.shop-jobs table.shop-table {
-  --shop-table-min: 900px;
-}
 .shop-jobs .shop-title-button {
   display: inline;
   min-height: 0;

@@ -117,7 +117,7 @@ describe("ShopStat", () => {
 describe("ShopPill", () => {
   it("puts an icon before the words, in the pill's tone", () => {
     const pill = (tone?: "good" | "warning") =>
-      html(createElement(ShopPill, { tone, children: "Draft" }));
+      html(ShopPill({ tone, children: "Draft" }));
     expect(pill("good")).toMatch(
       /^<span class="ds-pill ds-tone-good"><svg[^>]*aria-hidden="true">.*<\/svg>Draft<\/span>$/,
     );
