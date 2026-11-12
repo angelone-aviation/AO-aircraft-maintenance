@@ -3,7 +3,7 @@
  *   checklists and entries, edited as a draft and saved as one new revision.
  * Layer: UI. React component; the set saves through the workspace backend.
  * Dependencies: react, src/data/store.ts, src/domain/checklists.ts,
- *   src/domain/model.ts (Snapshot), ./ui.
+ *   src/domain/model.ts (Snapshot), ./ui, ./checklists.css.
  */
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../data/store";
@@ -17,6 +17,7 @@ import {
 } from "../domain/checklists";
 import type { Snapshot } from "../domain/model";
 import { AsyncForm, Field, Modal } from "./ui";
+import "./checklists.css";
 
 /** fmdSchema allows one category of each type. */
 const CATEGORY_TYPES = ["normal", "abnormal", "emergency"] as const;
@@ -154,7 +155,7 @@ function useLeaveWarning(dirty: boolean) {
 function DraftCounts({ document }: { document: ChecklistDocument }) {
   const counts = checklistCounts(document);
   return (
-    <p>
+    <p className="checklist-editor-counts">
       {counts.lists} checklists · {counts.entries} entries · {counts.checks}{" "}
       checkable items. Changes are saved together. Saving a new revision starts
       fresh personal checkmarks.

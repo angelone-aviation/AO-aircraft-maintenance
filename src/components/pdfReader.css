@@ -2,17 +2,28 @@
  * Responsibility: Styles the in-app PDF reader: the page and zoom toolbar, the
  *   scrolling page viewport and the page-text disclosure.
  * Layer: UI. Component styles, imported by the components that use them.
- * Dependencies: src/styles/tokens.css.
+ * Dependencies: src/styles/tokens.css, src/styles.css (.button, .ds-select).
+ *
+ * The reader is one card: the toolbar across the top, the page on a field
+ * fill under it, and the notes in the card's foot.
  */
 .pdf-reader {
   min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .pdf-reader-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px 0;
+  gap: 10px 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--muted);
 }
 .pdf-reader-toolbar form,
 .pdf-reader-toolbar label {
@@ -21,12 +32,32 @@
   gap: 8px;
   margin: 0;
 }
-.pdf-reader-toolbar input {
-  width: 90px;
-  min-width: 0;
+/* Zoom sits at the far end where there is room for it. */
+.pdf-reader-toolbar > label {
+  margin-left: auto;
 }
-.pdf-reader-toolbar select {
+.pdf-reader-toolbar input {
+  width: 84px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--text);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.pdf-reader-toolbar input:focus-visible {
+  outline: 0;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 28%, transparent);
+}
+.pdf-reader-toolbar select.ds-select {
   width: auto;
+  min-height: 40px;
+  padding: 6px 34px 6px 12px;
 }
 .pdf-reader-viewport {
   width: 100%;
@@ -34,28 +65,56 @@
   min-height: 200px;
   overflow: auto;
   background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  /* PdfReader.tsx subtracts this padding when it fits a page to the width. */
   padding: 12px;
   box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
 }
+.pdf-reader-viewport > p[role="status"] {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+/* A PDF page is paper: white in both themes, lifted off the fill. */
 .pdf-reader-surface canvas {
   display: block;
   background: white;
   margin: 0 auto;
+  box-shadow: var(--shadow);
 }
 .pdf-reader-text {
-  margin-top: 12px;
+  margin: 0;
+  padding: 6px 18px;
+  border-top: 1px solid var(--border);
+}
+.pdf-reader-text > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--blue-ink);
 }
 .pdf-reader-text p {
+  margin: 0 0 12px;
   white-space: pre-wrap;
+  font-weight: var(--fw-light);
+  line-height: 1.55;
 }
-@media (max-width: 600px) {
+.pdf-reader > .muted {
+  margin: 0;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: var(--fw-light);
+}
+@media (max-width: 759px) {
   .pdf-reader-toolbar {
     gap: 8px;
+    padding: 12px;
   }
   .pdf-reader-toolbar form {
     flex-wrap: wrap;
+  }
+  .pdf-reader-toolbar > label {
+    margin-left: 0;
   }
 }

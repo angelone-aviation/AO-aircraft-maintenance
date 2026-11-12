@@ -1,17 +1,15 @@
 /*
  * Responsibility: Styles for the operations screens: Aircraft, Flight
- *   Programs, Flight plans, Checklists, Planning, Airworthiness directives
- *   and Scan label.
+ *   Programs, Flight plans, Planning, Airworthiness directives and Scan label.
  * Layer: UI. Every selector is scoped by an `ops-` class, so nothing here
  *   restyles another screen.
- * Dependencies: src/styles/tokens.css (colours, radii, motion),
+ * Dependencies: src/styles/tokens.css (colours, radii, shadows, motion),
  *   src/styles/design.css (ds-* building blocks).
  *
  * Rules that restyle shared markup (.panel, .button.primary, .error,
  * .dash-status-reasons) carry one more class than the rule they replace, so
- * they win regardless of stylesheet order. Colours are tokens so both themes
- * follow, except the camera panel, which is navy in both themes, and the
- * print border.
+ * they win regardless of stylesheet order. Every colour is a token, so both
+ * themes follow; the one literal is the print border.
  */
 
 /* ───────────────────────────── Shared bits ───────────────────────────── */
@@ -19,25 +17,15 @@
 .ops-page {
   min-width: 0;
 }
-.ops-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
 .ops-count {
   margin: 0;
-  color: var(--faint);
-  font-size: 14px;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
 }
 .ops-count strong {
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 .ops-help {
@@ -47,13 +35,13 @@
   margin: 0 0 22px;
   color: var(--muted);
   font-size: 14.5px;
+  font-weight: var(--fw-light);
   line-height: 1.55;
   max-width: 80ch;
 }
 .ops-help > svg {
   flex: none;
   margin-top: 2px;
-  color: var(--faint);
 }
 .ops-filters {
   display: flex;
@@ -65,7 +53,7 @@
 .ops-header-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
 }
 /* Four stat tiles: 4-up from tablet width, 2×2 on phones (never 3 + 1). */
@@ -76,9 +64,7 @@
   .ops-stats.ds-stats-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-/* Phones: filters and search take the full row instead of floating right. */
-@media (max-width: 759px) {
+  /* Filters and search take the full row instead of floating right. */
   .ops-page .ds-toolbar > .ds-toolbar-end {
     margin-left: 0;
     width: 100%;
@@ -96,19 +82,21 @@
   }
 }
 
-/* Filter select with a leading icon (toolbars). */
+/* Filter select with a leading icon: the shared field look around a bare
+ * select, with the caret icon laid over its right edge. */
 .ops-select {
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: 46px;
   max-width: 100%;
-  padding: 0 36px 0 14px;
+  padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface);
-  color: var(--faint);
+  color: var(--muted);
+  box-shadow: var(--shadow-xs);
   transition:
     border-color var(--dur-fast),
     box-shadow var(--dur-fast);
@@ -116,11 +104,8 @@
 .ops-select > svg {
   flex: none;
 }
-.ops-select:hover,
 .ops-select:focus-within {
   border-color: var(--blue);
-}
-.ops-select:focus-within {
   box-shadow: 0 0 0 3px var(--blue-soft);
 }
 .ops-select select {
@@ -130,12 +115,14 @@
   background: transparent;
   font: inherit;
   font-size: 15px;
-  font-weight: 500;
   color: var(--text);
-  min-height: 42px;
+  min-height: 44px;
   min-width: 0;
   max-width: 100%;
-  padding: 0;
+  /* Room for the caret, which sits inside the select's own box so a tap on
+   * it opens the list. */
+  padding: 0 26px 0 0;
+  margin-right: -4px;
   outline: 0;
   cursor: pointer;
   text-overflow: ellipsis;
@@ -147,15 +134,11 @@
   background: var(--surface);
   color: var(--text);
 }
-.ops-select-caret {
+.ops-select > .ops-select-caret {
   position: absolute;
-  right: 15px;
+  right: 12px;
   top: 50%;
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid var(--faint);
-  border-bottom: 2px solid var(--faint);
-  transform: translateY(-70%) rotate(45deg);
+  transform: translateY(-50%);
   pointer-events: none;
 }
 
@@ -182,15 +165,14 @@
   pointer-events: none;
 }
 
-/* Surface card with an icon header (transfer, monitoring…). */
+/* Card with a heading and a lead paragraph (transfer, monitoring…). */
 .ops-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: 24px 26px;
-  margin-top: 24px;
-  transition: background var(--dur-theme);
-  animation: rise 0.5s 0.12s var(--ease) both;
+  box-shadow: var(--shadow);
+  padding: var(--card-pad);
+  margin-top: var(--page-gap);
 }
 .ops-card-head {
   display: flex;
@@ -200,15 +182,16 @@
 }
 .ops-card-head h2 {
   margin: 0 0 6px;
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
   line-height: 1.25;
 }
 .ops-card-head p {
   margin: 0;
   color: var(--muted);
   font-size: 15px;
+  font-weight: var(--fw-light);
   line-height: 1.55;
   max-width: 75ch;
 }
@@ -230,24 +213,11 @@
     "details details details"
     "extra extra extra";
   align-items: center;
-  padding: 20px 0;
+  padding: 20px 24px;
   border-top: 1px solid var(--border);
-  animation: rise 0.45s var(--ease) both;
 }
 .ops-list > .ops-row:first-child {
   border-top: 0;
-}
-.ops-row:nth-child(2) {
-  animation-delay: 0.05s;
-}
-.ops-row:nth-child(3) {
-  animation-delay: 0.1s;
-}
-.ops-row:nth-child(4) {
-  animation-delay: 0.15s;
-}
-.ops-row:nth-child(n + 5) {
-  animation-delay: 0.2s;
 }
 .ops-row-lead {
   grid-area: lead;
@@ -262,7 +232,7 @@
 .ops-row-title {
   display: block;
   font-size: 16.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
@@ -271,7 +241,8 @@
 .ops-row-sub {
   display: block;
   margin-top: 1px;
-  font-size: 14px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -289,7 +260,7 @@
 .ops-row-meta {
   font-variant-numeric: tabular-nums;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   color: var(--text);
 }
@@ -302,10 +273,12 @@
   gap: 8px;
   margin-left: 20px;
 }
+/* Details and secondary actions line up under the title: the icon is 22px
+ * wide and the lead's gap is 14px. */
 .ops-row-details {
   grid-area: details;
   min-width: 0;
-  margin: 14px 0 0 58px;
+  margin: 16px 0 0 36px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -323,7 +296,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 14px 0 0 58px;
+  margin: 16px 0 0 36px;
+}
+.ops-row:not(:has(.ds-icon-tile)) > :is(.ops-row-details, .ops-row-extra) {
+  margin-left: 0;
 }
 .ops-row-extra .button,
 .ops-row-actions .button {
@@ -331,42 +307,41 @@
 }
 .ops-row-note {
   margin: 0;
-  color: var(--faint);
-  font-size: 13.5px;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   line-height: 1.5;
   max-width: 90ch;
 }
 
-/* Meter-style label/value pairs */
+/* Label over value pairs, like the shared facts list. */
 .ops-meters {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 28px;
+  gap: 12px 32px;
   margin: 0;
 }
 .ops-meters > div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 .ops-meters dt {
-  font-size: 11px;
-  letter-spacing: 1.4px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--faint);
+  font-size: 13px;
+  font-weight: var(--fw-light);
+  color: var(--muted);
 }
 .ops-meters dd {
   margin: 0;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
   color: var(--text);
   overflow-wrap: anywhere;
 }
 .ops-meters dd a {
-  color: var(--blue);
+  color: var(--blue-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -382,7 +357,7 @@
   }
   .ops-row-actions {
     align-self: start;
-    margin-top: 14px;
+    margin-top: 16px;
   }
   .ops-row:not(:has(> .ops-row-status)) > .ops-row-actions {
     grid-area: status;
@@ -399,17 +374,13 @@
       "details"
       "actions"
       "extra";
+    padding: 18px;
   }
-  .ops-row-status,
-  .ops-row-actions,
-  .ops-row-details,
-  .ops-row-extra {
+  .ops-row > :is(.ops-row-status, .ops-row-actions),
+  .ops-row > :is(.ops-row-details, .ops-row-extra) {
     margin: 12px 0 0;
   }
-  .ops-row-title {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
+  .ops-row-title,
   .ops-row-sub {
     white-space: normal;
     overflow-wrap: anywhere;
@@ -418,11 +389,11 @@
   .ops-row-actions {
     justify-content: flex-start;
   }
-  .ops-row-actions ~ .ops-row-extra {
+  .ops-row > .ops-row-actions ~ .ops-row-extra {
     margin-top: 8px;
   }
   .ops-meters {
-    gap: 10px 22px;
+    gap: 10px 24px;
   }
 }
 
@@ -442,9 +413,9 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
   margin: 0 0 24px;
   overflow: hidden;
-  transition: background var(--dur-theme);
 }
 .ops-plan-head {
   display: flex;
@@ -452,7 +423,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px 24px;
-  padding: 20px 24px;
+  padding: 22px 24px;
   border-bottom: 1px solid var(--border);
 }
 .ops-plan-title {
@@ -463,15 +434,15 @@
 }
 .ops-plan-head h2 {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.5px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 .ops-plan-head h2 small {
   margin-left: 6px;
   font-size: 14.5px;
-  font-weight: 400;
+  font-weight: var(--fw-light);
   letter-spacing: 0;
   color: var(--muted);
 }
@@ -480,12 +451,13 @@
   flex-wrap: wrap;
   gap: 6px 18px;
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .ops-plan-summary strong {
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 .ops-table-wrap {
@@ -499,25 +471,30 @@
   font-size: 15px;
 }
 .ops-table-wrap > table.ops-table th {
-  padding: 14px 18px;
+  padding: 13px 18px;
   font-size: 12px;
-  letter-spacing: 1.4px;
-  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-weight: var(--fw-regular);
   text-transform: uppercase;
   text-align: left;
   vertical-align: bottom;
-  color: var(--faint);
-  background: color-mix(in srgb, var(--surface2) 45%, var(--surface));
+  color: var(--muted);
+  background: transparent;
   border-bottom: 1px solid var(--border);
 }
 .ops-table-wrap > table.ops-table td {
-  padding: 18px;
+  padding: 17px 18px;
   vertical-align: top;
   font-size: 15px;
   color: var(--text);
   border-top: 1px solid var(--border);
   border-bottom: 0;
-  transition: background var(--dur-fast);
+}
+.ops-table-wrap > table.ops-table :is(th, td):first-child {
+  padding-left: 24px;
+}
+.ops-table-wrap > table.ops-table :is(th, td):last-child {
+  padding-right: 24px;
 }
 .ops-table-wrap > table.ops-table tbody tr {
   background: var(--surface);
@@ -525,21 +502,17 @@
 .ops-table-wrap > table.ops-table tbody tr:first-child td {
   border-top: 0;
 }
-@media (hover: hover) {
-  .ops-table-wrap > table.ops-table tbody tr:hover td {
-    background: color-mix(in srgb, var(--surface2) 55%, var(--surface));
-  }
-}
 .ops-cell-main {
   display: block;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 .ops-cell-sub {
   display: block;
   margin-top: 2px;
-  font-size: 13.5px;
+  font-size: 13px;
+  font-weight: var(--fw-light);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -562,8 +535,7 @@
   min-width: 170px;
   max-width: 240px;
 }
-.ops-plan-route,
-.ops-plan-flags {
+.ops-plan-route {
   margin: 6px 0 0;
 }
 .ops-plan-flags {
@@ -574,9 +546,9 @@
   display: inline-flex;
   align-items: center;
   min-height: 32px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--blue);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  color: var(--blue-ink);
   cursor: pointer;
 }
 .ops-plan-flags > summary {
@@ -589,14 +561,15 @@
   display: block;
   max-width: 300px;
   margin-top: 4px;
-  font-size: 13.5px;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .ops-plan-flags ul {
   margin: 8px 0 0;
   padding-left: 18px;
-  font-size: 13.5px;
+  font-size: var(--fs-meta);
   color: var(--muted);
   max-width: 320px;
   white-space: normal;
@@ -637,7 +610,8 @@
     border-top: 0;
   }
   .ops-table-wrap > table.ops-table td,
-  .ops-table-wrap > table.ops-table td:first-child {
+  .ops-table-wrap > table.ops-table td:first-child,
+  .ops-table-wrap > table.ops-table td:last-child {
     display: block;
     position: static;
     min-width: 0;
@@ -650,11 +624,10 @@
     content: attr(data-label);
     display: block;
     margin-bottom: 4px;
-    font-size: 11px;
-    letter-spacing: 1.4px;
-    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--faint);
+    color: var(--muted);
   }
   .ops-table-wrap > table.ops-table td.ops-col-flags,
   .ops-table-wrap > table.ops-table td.ops-col-actions {
@@ -666,11 +639,6 @@
   .ops-cell-actions {
     max-width: none;
     min-width: 0;
-  }
-  @media (hover: hover) {
-    .ops-table-wrap > table.ops-table tbody tr:hover td {
-      background: transparent;
-    }
   }
 }
 @container ops-plan (max-width: 560px) {
@@ -696,7 +664,7 @@
   align-items: center;
   min-height: 44px;
   font-size: 14.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   color: var(--muted);
   cursor: pointer;
 }
@@ -733,14 +701,16 @@
 .ops-week > h2 {
   font-variant-numeric: tabular-nums;
 }
-.ops-week-note {
-  margin: 0 0 4px;
+.ops-help.ops-week-note {
+  margin: 0;
+  padding: 4px 24px 20px;
 }
 @media print {
   .ops-week,
   .ops-row,
   .ops-card {
     animation: none;
+    box-shadow: none;
     break-inside: avoid;
   }
   .ops-week {
@@ -751,7 +721,8 @@
 /* ─────────────────────── Airworthiness directives ────────────────────── */
 
 /* The FAA search button is a shared component that renders a primary
- * button; on this screen it is the secondary header action. */
+ * button; on this screen it is the secondary header action, so it takes the
+ * ghost look and the header keeps one primary. */
 .ops-ad-faa {
   display: contents;
 }
@@ -759,11 +730,10 @@
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  box-shadow: none;
+  box-shadow: var(--shadow);
 }
 .ops-ad-faa > .button.primary:hover:not(:disabled) {
-  background: var(--surface);
-  border-color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--border));
   filter: none;
 }
 .ops-ad-faa > p[role="status"] {
@@ -789,7 +759,7 @@
 .ops-more-menu {
   position: absolute;
   right: 0;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   z-index: 20;
   display: grid;
   gap: 6px;
@@ -797,13 +767,14 @@
   padding: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: var(--shadow-lift);
-  animation: pop 0.25s var(--ease) both;
+  animation: pop var(--dur) var(--ease) both;
 }
 .ops-more-menu .button {
   justify-content: flex-start;
   width: 100%;
+  box-shadow: none;
 }
 @media (max-width: 759px) {
   .ops-more-menu {
@@ -818,20 +789,21 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
 }
 .ops-page .ops-disclosure > summary {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 60px;
-  padding: 12px 20px;
+  min-height: 62px;
+  padding: 12px 24px;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   color: var(--text);
   cursor: pointer;
   list-style: none;
   border-radius: var(--radius-card);
+  transition: background-color var(--dur-fast);
 }
 .ops-page .ops-disclosure > summary::-webkit-details-marker {
   display: none;
@@ -842,13 +814,13 @@
 }
 @media (hover: hover) {
   .ops-page .ops-disclosure > summary:hover {
-    background: color-mix(in srgb, var(--surface2) 50%, var(--surface));
+    background: color-mix(in srgb, var(--surface2) 60%, transparent);
   }
 }
 .ops-disclosure-caret {
   margin-left: auto;
   flex: none;
-  color: var(--faint);
+  color: var(--muted);
   transition: transform var(--dur) var(--ease);
 }
 .ops-disclosure[open] .ops-disclosure-caret {
@@ -867,19 +839,20 @@
 .ops-disclosure-body > .panel > h2,
 .ops-monitoring > h2 {
   margin: 0 0 8px;
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
+  font-size: 18px;
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .ops-disclosure-body p,
 .ops-monitoring p {
   margin: 0 0 10px;
   color: var(--muted);
   font-size: 15px;
+  font-weight: var(--fw-light);
   line-height: 1.55;
 }
 .ops-disclosure-body a {
-  color: var(--blue);
+  color: var(--blue-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -893,7 +866,7 @@
   display: flex;
   align-items: center;
   font-size: 14.5px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   color: var(--text);
 }
 .ops-monitoring > .button {
@@ -903,66 +876,30 @@
   margin-right: 8px;
 }
 
-/* ───────────────────────────── Checklists ────────────────────────────── */
-/* The reader's own classes are styled in src/components/checklists.css. */
-
-.ops-checklist-banner-text {
-  min-width: 0;
-}
-.ops-checklist-banner-actions {
-  flex: none;
-}
-.ops-checklist-library > h3 {
-  margin: 8px 6px 12px;
-}
-.ops-checklist-library .ds-search,
-.ops-checklist-library .ops-select {
-  display: flex;
-  width: 100%;
-  margin-bottom: 10px;
-}
-.ops-checklist-library .ops-select select {
-  flex: 1;
-}
-.ops-checklist-library-empty {
-  margin: 12px 6px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
 /* ───────────────────────────── Scan label ────────────────────────────── */
 
 .ops-scan {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 16px;
+  gap: 18px;
   align-items: stretch;
-  animation: rise 0.5s 0.05s var(--ease) both;
 }
+/* The camera panel is a quiet field until the camera is live; then the
+ * picture fills it and the hint sits on a solid pill, readable over any
+ * picture in either theme. */
 .ops-camera {
   position: relative;
   isolation: isolate;
   display: grid;
   place-items: center;
-  min-height: 260px;
+  min-height: 280px;
   padding: 24px;
   overflow: hidden;
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  background: var(--navy);
-  color: #fff;
+  background: var(--surface2);
+  color: var(--text);
   text-align: center;
-}
-.dark .ops-camera {
-  box-shadow: inset 0 0 0 1px var(--border);
-}
-.ops-camera-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 24px 24px;
-  pointer-events: none;
 }
 .ops-camera-video {
   position: absolute;
@@ -971,13 +908,20 @@
   height: 100%;
   object-fit: cover;
 }
+/* The aiming frame: where to hold the label. */
 .ops-viewfinder {
   position: absolute;
-  inset: 24%;
+  inset: 22%;
   z-index: 1;
-  border: 2px dashed rgba(138, 151, 255, 0.7);
-  border-radius: 14px;
+  border: 2px solid var(--blue);
+  border-radius: 16px;
+  opacity: 0.55;
   pointer-events: none;
+}
+.ops-camera[data-state="live"] .ops-viewfinder {
+  border-color: var(--on-blue);
+  box-shadow: var(--shadow-lift);
+  opacity: 0.9;
 }
 .ops-camera-message {
   position: relative;
@@ -989,62 +933,62 @@
   max-width: 34ch;
 }
 .ops-camera-message > svg {
-  color: var(--on-navy-icon-active);
+  color: var(--blue);
 }
 .ops-camera-message strong {
   font-size: 17px;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .ops-camera-message p {
   margin: 0;
   font-size: 14px;
+  font-weight: var(--fw-light);
   line-height: 1.5;
-  color: #b4bcdc;
+  color: var(--muted);
 }
 .ops-camera[data-state="live"] .ops-camera-message {
   align-self: end;
   max-width: none;
   padding: 8px 16px;
   border-radius: var(--radius-pill);
-  background: rgba(11, 20, 52, 0.72);
-  backdrop-filter: blur(6px);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .ops-camera[data-state="live"] .ops-camera-message > svg,
 .ops-camera[data-state="live"] .ops-camera-message strong {
   display: none;
 }
 .ops-camera[data-state="live"] .ops-camera-message p {
-  color: #fff;
+  color: var(--text);
+  font-weight: var(--fw-regular);
 }
 .ops-camera[data-state="issue"] .ops-viewfinder {
   display: none;
 }
 .ops-camera[data-state="issue"] .ops-camera-message > svg {
-  color: #ff948a;
-}
-.ops-camera[data-state="issue"] .ops-camera-message p {
-  color: #dfe3f2;
+  color: var(--muted);
 }
 .ops-manual {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
-  padding: 22px;
+  padding: var(--card-pad);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  transition: background var(--dur-theme);
+  box-shadow: var(--shadow);
 }
 .ops-manual h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.01em;
 }
 .ops-manual > p {
   margin: 0;
   font-size: 14.5px;
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .ops-manual > .error {
@@ -1054,12 +998,13 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 50px;
+  min-height: 52px;
   padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  background: var(--bg);
-  color: var(--faint);
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: var(--shadow-xs);
   transition:
     border-color var(--dur-fast),
     box-shadow var(--dur-fast);
@@ -1074,11 +1019,12 @@
 .ops-code-field input {
   width: 100%;
   min-width: 0;
-  min-height: 48px;
+  min-height: 50px;
   padding: 0;
   border: 0;
   outline: 0;
   background: transparent;
+  box-shadow: none;
   font: inherit;
   font-size: 17px;
   font-variant-numeric: tabular-nums;
@@ -1088,14 +1034,13 @@
   outline: 0;
 }
 .ops-code-field input::placeholder {
-  color: var(--faint);
+  color: var(--muted);
   opacity: 1;
 }
 .ops-manual > .button {
   width: 100%;
-  min-height: 48px;
-  justify-content: center;
-  font-size: 16px;
+  min-height: 50px;
+  margin-top: auto;
 }
 @media (max-width: 759px) {
   .ops-scan {
@@ -1103,5 +1048,28 @@
   }
   .ops-camera {
     min-height: 240px;
+  }
+}
+
+/* ─────────────────────────────── Motion ──────────────────────────────── */
+
+/* Entry and hover motion only where there is a pointer to hover with
+ * (SPEC rule 11); tokens.css stops it under prefers-reduced-motion. Rows
+ * inside a list card ride in with the card, which already rises. */
+@media (hover: hover) and (pointer: fine) {
+  .ops-card,
+  .ops-scan {
+    animation: rise 0.5s 0.1s var(--ease) both;
+  }
+  .ops-table-wrap > table.ops-table td {
+    transition: background-color var(--dur-fast);
+  }
+  .ops-table-wrap > table.ops-table tbody tr:hover td {
+    background: color-mix(in srgb, var(--surface2) 60%, transparent);
+  }
+  @container ops-plan (max-width: 979px) {
+    .ops-table-wrap > table.ops-table tbody tr:hover td {
+      background: transparent;
+    }
   }
 }

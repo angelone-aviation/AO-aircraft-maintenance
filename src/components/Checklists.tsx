@@ -5,7 +5,7 @@
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
  *   src/data/fmd.ts, src/domain/checklists.ts, src/domain/model.ts (types),
  *   src/domain/programs.ts, ./GuidedFlight, ./ChecklistEditor, ./OpsList,
- *   ./design, ./ui, ./checklists.css, src/styles/screens/operations.css.
+ *   ./checklistProgress, ./charts, ./design, ./ui, ./checklists.css.
  */
 import { GuidedFlight } from "./GuidedFlight";
 import {
@@ -21,11 +21,16 @@ import {
   CaretLeft,
   CaretRight,
   Check,
+  CheckCircle,
+  Circle,
   DownloadSimple,
   ListChecks,
   PencilSimple,
   Plus,
+  Siren,
+  SkipForward,
   UploadSimple,
+  Warning,
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
 import { activeProgram } from "../domain/programs";
@@ -42,17 +47,34 @@ import {
 import type { Snapshot } from "../domain/model";
 import { importFmd, exportFmd } from "../data/fmd";
 import { ChecklistEditor } from "./ChecklistEditor";
-import { EmptyState, IconTile, PageHeader, SearchField } from "./design";
+import { Donut } from "./charts";
+import {
+  setTotals,
+  totalsSlices,
+  type Progress,
+  type SetTotals,
+} from "./checklistProgress";
+import {
+  EmptyState,
+  IconTile,
+  PageHeader,
+  SearchField,
+  type IconType,
+} from "./design";
 import { OpsSelect } from "./OpsList";
 import { download, errorText } from "./ui";
 import "./checklists.css";
-import "../styles/screens/operations.css";
 
 // importFmd's limit, checked before the file is read.
 const FMD_MAX_BYTES = 2 * 1024 * 1024;
 
-/** A user's marks on a checklist set's entries, by entry objectId. */
-export type Progress = Record<string, "checked" | "skipped">;
+export type { Progress };
+// Categories come from the .fmd file; one it does not name takes the list icon.
+const CATEGORY_ICONS: Record<string, IconType> = {
+  normal: ListChecks,
+  abnormal: Warning,
+  emergency: Siren,
+};
 type Mark = Progress[string];
 type Category = ChecklistDocument["payload"]["groups"][number];
 type ReaderProps = {
@@ -87,7 +109,11 @@ export function ChecklistReader(props: ReaderProps) {
   const r = useReader(props);
   return (
     <section className="checklist-reader" aria-label="Interactive checklist">
-      <ReaderBanner {...props} onError={r.setError} />
+      <ReaderHead
+        {...props}
+        totals={setTotals(props.record.document, r.progress)}
+        onError={r.setError}
+      />
       <CategoryTabs r={r} />
       {r.error && (
         <p role="alert" className="error">
@@ -133,7 +159,7 @@ export function Checklists() {
   const current = readable.find((r) => r.uuid === view.selected) ?? readable[0];
   const writable = online && connected && canCreateChecklist(s, program);
   return (
-    <div className="ops-page ops-checklists">
+    <div className="checklists-page">
       <ChecklistActions writable={writable} onDraft={draft} />
       <GuidedFlight
         selectedChecklist={current}
@@ -286,19 +312,20 @@ function toggled(progress: Progress, id: string, mark: Mark): Progress {
   return next;
 }
 
-function ReaderBanner({
+function ReaderHead({
   record,
   library,
   onBrowse,
   onEdit,
+  totals,
   onError,
-}: ReaderProps & { onError: (error: string) => void }) {
+}: ReaderProps & { totals: SetTotals; onError: (error: string) => void }) {
   return (
-    <header className="checklist-banner">
-      <div className="ops-checklist-banner-text">
+    <header className="checklist-head">
+      <div className="checklist-head-text">
         {onBrowse && (
           <button
-            className="button checklist-library-back"
+            className="button small checklist-library-back"
             onClick={onBrowse}
             aria-expanded={!!library}
           >
@@ -306,16 +333,35 @@ function ReaderBanner({
           </button>
         )}
         <BannerTitle record={record} />
+        <div className="checklist-head-actions">
+          {onEdit && (
+            <button className="button small" onClick={onEdit}>
+              <PencilSimple size={17} aria-hidden="true" /> Edit checklist
+            </button>
+          )}
+          <ExportButton record={record} onError={onError} />
+        </div>
       </div>
-      <div className="management-actions ops-checklist-banner-actions">
-        {onEdit && (
-          <button className="button" onClick={onEdit}>
-            <PencilSimple size={17} aria-hidden="true" /> Edit checklist
-          </button>
-        )}
-        <ExportButton record={record} onError={onError} />
-      </div>
+      <SetRing totals={totals} />
     </header>
+  );
+}
+
+// The whole set's marks as a ring; the legend beside it carries the numbers.
+function SetRing({ totals }: { totals: SetTotals }) {
+  if (!totals.total) return null;
+  return (
+    <Donut
+      className="checklist-ring"
+      label="Checklist set progress"
+      slices={totalsSlices(totals)}
+      center={
+        <>
+          {totals.checked}
+          <small>of {totals.total} checked</small>
+        </>
+      }
+    />
   );
 }
 
@@ -355,7 +401,7 @@ function ExportButton({
     }
   };
   return (
-    <button className="button" disabled={busy} onClick={run}>
+    <button className="button small" disabled={busy} onClick={run}>
       <DownloadSimple size={17} aria-hidden="true" /> Export .fmd
     </button>
   );
@@ -369,19 +415,32 @@ async function downloadFmd(checklist: ChecklistDocument) {
 
 function CategoryTabs({ r }: { r: Reader }) {
   return (
-    <div className="checklist-categories" aria-label="Checklist categories">
+    <div
+      className="ds-chips checklist-categories"
+      role="group"
+      aria-label="Checklist categories"
+    >
       {r.categories.map((c) => (
-        <button
-          key={c.objectId}
-          className={`checklist-category ${c.groupType}`}
-          aria-pressed={c.objectId === r.categoryId}
-          onClick={() => r.chooseCategory(c)}
-        >
-          {c.groupType}
-          <span>{c.items.reduce((n, g) => n + g.items.length, 0)}</span>
-        </button>
+        <CategoryChip key={c.objectId} r={r} category={c} />
       ))}
     </div>
+  );
+}
+
+function CategoryChip({ r, category: c }: { r: Reader; category: Category }) {
+  const Icon = CATEGORY_ICONS[c.groupType] ?? ListChecks;
+  return (
+    <button
+      className="ds-chip checklist-category"
+      aria-pressed={c.objectId === r.categoryId}
+      onClick={() => r.chooseCategory(c)}
+    >
+      <Icon size={16} aria-hidden="true" />
+      {c.groupType}
+      <span className="ds-seg-count">
+        {c.items.reduce((n, g) => n + g.items.length, 0)}
+      </span>
+    </button>
   );
 }
 
@@ -425,10 +484,19 @@ function SectionButton({ r, list: l }: { r: Reader; list: ChecklistList }) {
     >
       <span>{l.title || "Untitled checklist"}</span>
       <small>
-        {complete}/{checks.length}{" "}
-        {checks.length > 0 && complete === checks.length ? "✓" : ""}
+        {complete}/{checks.length}
       </small>
+      {checks.length > 0 && complete === checks.length && <SectionDone />}
     </button>
+  );
+}
+
+function SectionDone() {
+  return (
+    <>
+      <CheckCircle size={17} weight="fill" aria-hidden="true" />
+      <span className="sr-only"> complete</span>
+    </>
   );
 }
 
@@ -525,9 +593,11 @@ function ChecklistNote({ item }: { item: ChecklistItem }) {
 
 function ChecklistCheck({ r, item }: { r: Reader; item: ChecklistItem }) {
   const mark = r.progress[item.objectId];
-  const next = r.nextItem?.objectId === item.objectId ? "next-item" : "";
+  const isNext = r.nextItem?.objectId === item.objectId;
   return (
-    <div className={`checklist-check ${mark ?? "pending"} ${next}`}>
+    <div
+      className={`checklist-check ${mark ?? "pending"} ${isNext ? "next-item" : ""}`}
+    >
       <button
         className="checklist-check-button"
         role="checkbox"
@@ -536,14 +606,38 @@ function ChecklistCheck({ r, item }: { r: Reader; item: ChecklistItem }) {
       >
         <span className="checklist-box" aria-hidden="true">
           {mark === "checked" ? (
-            <Check size={18} weight="bold" aria-hidden="true" />
+            <CheckCircle size={28} weight="fill" aria-hidden="true" />
           ) : (
-            ""
+            <Circle size={28} aria-hidden="true" />
           )}
         </span>
         <CheckText item={item} />
       </button>
-      <SkipButton r={r} item={item} />
+      <div className="checklist-check-side">
+        <CheckState mark={mark} isNext={isNext} />
+        <SkipButton r={r} item={item} />
+      </div>
+      <CheckNotes item={item} />
+    </div>
+  );
+}
+
+// The entry's state as a word beside its icon. Hidden from screen readers,
+// which hear it from the checkbox and the Skip button; a skipped entry's
+// word is on that button.
+function CheckState({ mark, isNext }: { mark?: Mark; isNext: boolean }) {
+  if (mark === "skipped") return null;
+  const word = mark === "checked" ? "Done" : isNext ? "Next" : "To do";
+  return (
+    <span className="checklist-state" aria-hidden="true">
+      {word}
+    </span>
+  );
+}
+
+function CheckNotes({ item }: { item: ChecklistItem }) {
+  return (
+    <>
       {item.note && <p className="checklist-item-note">{item.note}</p>}
       {!!item.actions?.length && (
         <p className="checklist-item-note">
@@ -551,7 +645,7 @@ function ChecklistCheck({ r, item }: { r: Reader; item: ChecklistItem }) {
           export but are not executed here.
         </p>
       )}
-    </div>
+    </>
   );
 }
 
@@ -580,6 +674,7 @@ function SkipButton({ r, item }: { r: Reader; item: ChecklistItem }) {
       aria-pressed={skipped}
       onClick={() => r.toggle(item.objectId, "skipped")}
     >
+      {skipped && <SkipForward size={16} weight="fill" aria-hidden="true" />}
       {skipped ? "Skipped" : "Skip"}
     </button>
   );
@@ -599,7 +694,7 @@ function ListPager({ r: { lists, index, setList } }: { r: Reader }) {
         {index + 1} / {lists.length}
       </span>
       <button
-        className="button primary"
+        className="button soft"
         disabled={index >= lists.length - 1}
         onClick={() => setList(lists[index + 1].objectId)}
       >
@@ -837,7 +932,7 @@ function ChecklistLibrary({
 }) {
   const shown = libraryRecords(s, view.filter, view.search);
   return (
-    <div className="checklist-library-list ops-checklist-library">
+    <div className="checklist-library-list">
       <h3>Checklists</h3>
       <SearchField
         label="Search checklists"
@@ -856,7 +951,7 @@ function ChecklistLibrary({
         />
       ))}
       {!shown.length && (
-        <p className="ops-checklist-library-empty">No matching checklists.</p>
+        <p className="checklist-library-empty">No matching checklists.</p>
       )}
     </div>
   );
