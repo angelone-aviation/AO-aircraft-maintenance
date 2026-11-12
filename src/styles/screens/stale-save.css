@@ -15,7 +15,7 @@
 }
 .diff-table th,
 .diff-table td {
-  padding: 8px 10px;
+  padding: 10px 12px;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border);
@@ -25,25 +25,29 @@
 }
 .diff-table thead th {
   font-size: 12px;
+  font-weight: var(--fw-regular);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   color: var(--muted);
 }
 .diff-table tbody th {
-  font-weight: 600;
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
   width: 34%;
 }
 .diff-changed-by {
   display: block;
-  font-weight: 400;
+  font-weight: var(--fw-light);
   color: var(--muted);
 }
 .stale-save-blocked {
   margin: 12px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--danger);
-  border-radius: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius-control);
+  background: var(--danger-bg);
 }
 .stale-save-blocked p {
   margin: 0 0 6px;
