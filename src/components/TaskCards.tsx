@@ -6,7 +6,7 @@
  *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
  *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders,
  *   listSearch), ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording,
- *   ./TaskCsvImport, ./Manuals, ./design, ./ShopList, ./ui,
+ *   ./TaskCsvImport, ./Manuals, ./NumberInput, ./design, ./ShopList, ./ui,
  *   @phosphor-icons/react.
  *
  * A template holds instructions only: results, parts and signoffs go on the
@@ -90,6 +90,7 @@ import {
   errorText,
   value,
 } from "./ui";
+import { NumberInput } from "./NumberInput";
 
 // A longer description shows its first 157 characters and an ellipsis.
 const PREVIEW_MAX_LENGTH = 160;
@@ -1614,14 +1615,11 @@ function PartDetails({ e, part, index }: PartProps) {
         </Field>
       ))}
       <Field label={`Part ${index + 1} quantity`}>
-        <input
-          type="number"
+        <NumberInput
           min="0.000001"
           step="any"
           value={part.quantity}
-          onChange={(event) =>
-            updatePart(e, part.uuid, { quantity: Number(event.target.value) })
-          }
+          onValue={(quantity) => updatePart(e, part.uuid, { quantity })}
         />
       </Field>
     </>

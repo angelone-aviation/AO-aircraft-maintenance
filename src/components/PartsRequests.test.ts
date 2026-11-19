@@ -236,10 +236,12 @@ function click(text: string) {
   return render();
 }
 
+// A NumberInput reports the typed number through onValue.
 function change(label: string, value: unknown) {
   const field = ui.fields.get(label);
   if (!field) throw Error(`No field "${label}"`);
-  field.onChange({ target: { value, checked: value } });
+  if (typeof field.onValue === "function") field.onValue(Number(value));
+  else field.onChange({ target: { value, checked: value } });
   return render();
 }
 
