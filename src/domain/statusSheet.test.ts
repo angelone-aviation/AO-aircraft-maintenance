@@ -2,8 +2,9 @@
  * Responsibility: Pins the status sheet content: header, section order,
  *   placeholder rows, sort orders, which records are listed, component
  *   fallbacks, the failure on an uncomputable inspection, a total it cannot
- *   read, the notes under each table, and that the sheet's status and marks
- *   agree with aircraftStatus in every grounding state.
+ *   read, the notes under each table, each status cell's tone, and that the
+ *   sheet's status and marks agree with aircraftStatus in every grounding
+ *   state.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/statusSheet.ts, aircraftStatus.ts,
  *   airworthiness.ts, components.ts, model.ts, rejection.ts,
@@ -564,6 +565,61 @@ it("lists each installed component's limits in component order and reviews one i
   ]);
   expect(rows[1].slice(2, 4)).toEqual([DUE_FLEET_TODAY, "0 days"]);
   expect(rows[4].slice(2)).toEqual(["Review", "Review", "Review"]);
+});
+
+it("tones each status cell by its status value, not its words", () => {
+  const { s, a } = dueFleet();
+  // Their status cannot be computed, which fails the whole sheet.
+  s.inspections = s.inspections.filter(
+    (i) => !["i-calendar-unread", "i-missing"].includes(i.uuid),
+  );
+  s.discrepancies = [
+    report(a, { uuid: "grounds", grounding: true }),
+    report(a, { uuid: "soon", deferral: melDeferral("2026-11-01") }),
+    report(a, { uuid: "later", deferral: melDeferral("2026-12-01") }),
+  ];
+  const result = statusSheet(s, a.uuid, DUE_FLEET_TODAY);
+  const toned = (id: StatusSectionId) => {
+    const x = result.sections.find((y) => y.id === id)!;
+    return x.rows.map((r, i) => [r[x.statusColumn!], x.tones![i]]);
+  };
+  expect(toned("overview")).toEqual([["Grounded", "danger"]]);
+  expect(toned("limits")).toEqual(
+    expect.arrayContaining([
+      ["Due now (overdue)", "danger"],
+      ["Due soon", "caution"],
+      ["Review", "caution"],
+      ["Tracked", undefined],
+      ["Set landing baseline", undefined],
+    ]),
+  );
+  expect(toned("inspections")).toEqual(
+    expect.arrayContaining([
+      ["overdue", "danger"],
+      ["due-soon", "caution"],
+      ["scheduled", undefined],
+    ]),
+  );
+  expect(toned("airworthiness")).toEqual(
+    expect.arrayContaining([
+      ["Overdue", "danger"],
+      ["Due soon", "caution"],
+      ["Needs review", "caution"],
+      ["Counter unavailable", undefined],
+      ["Not applicable", undefined],
+      ["Complied", undefined],
+    ]),
+  );
+  expect(toned("discrepancies")).toEqual([
+    ["Open: grounds the aircraft", "danger"],
+    ["Open: deferral expires soon", "caution"],
+    ["Open: deferred", undefined],
+  ]);
+  const plain = ["components", "form337"].map((id) =>
+    result.sections.find((x) => x.id === id)!,
+  );
+  for (const x of plain)
+    expect([x.statusColumn, x.tones]).toEqual([undefined, undefined]);
 });
 
 it("prints the next due of an AD action that has a limit but no repeat interval", () => {

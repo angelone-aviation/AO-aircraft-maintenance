@@ -2,22 +2,32 @@
  * Responsibility: Pins how the AD register groups and counts an aircraft's
  *   ADs, and which row actions it offers.
  * Layer: Test. Vitest suite; never shipped in the build.
- * Dependencies: src/components/ADRegister.tsx, src/domain/airworthiness.ts
- *   (blankAD, blankADTask), src/data/demo.ts (demoSnapshot), react-dom/server.
+ * Dependencies: src/components/ADRegister.tsx, src/domain/airworthiness.ts,
+ *   src/domain/adWorkOrders.ts, src/data/demo.ts (demoSnapshot),
+ *   react-dom/server.
  */
 // @vitest-environment node
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
-import { blankAD, blankADTask, type AD } from "../domain/airworthiness";
+import { adWorkOrderTasks } from "../domain/adWorkOrders";
+import {
+  adStatus,
+  blankAD,
+  blankADTask,
+  type AD,
+} from "../domain/airworthiness";
 import type { Snapshot } from "../domain/model";
 import { ADRegister } from "./ADRegister";
 
-// The real button needs the workspace; this stub marks where it would show.
+// The real button needs the workspace; this stub marks where it would show,
+// by the domain rule the real one renders by.
 vi.mock("./ADWorkOrderButton", () => ({
-  ADWorkOrderButton: ({ record }: { record: AD }) =>
-    createElement("i", { "data-work-order": record.uuid }),
+  ADWorkOrderButton: ({ state, record }: { state: Snapshot; record: AD }) =>
+    adWorkOrderTasks(state, record).length
+      ? createElement("i", { "data-work-order": record.uuid })
+      : null,
 }));
 
 const base = demoSnapshot();
@@ -97,16 +107,39 @@ describe("ADRegister", () => {
     expect(html).toContain("One-time limits to check: 1");
   });
 
-  it("offers a work order only while an AD is Scheduled, Due soon or Overdue", () => {
+  it("offers a work order whenever one of a tracked AD's actions is open, whatever the AD's status", () => {
+    // A second action whose own status outranks the open one's in adStatus.
+    const twoActions = (
+      uuid: string,
+      dueDate: string,
+      other: Partial<AD["tasks"][number]>,
+    ) => {
+      const r = decided(uuid, dueDate, { componentUuid: "engine" });
+      r.tasks = [
+        { ...blankADTask(), uuid: `${uuid}-other`, ...other },
+        ...r.tasks,
+      ];
+      return r;
+    };
+    const unset = twoActions("unset", "2099-01-01", {});
+    const counter = twoActions("counter", soon, { dueHours: 100 });
+    expect([unset, counter].map((r) => adStatus(state, r))).toEqual([
+      "Due not set",
+      "Counter unavailable",
+    ]);
     const html = render([
       decided("overdue", "2020-01-01"),
       decided("soon", soon),
       decided("scheduled", "2099-01-01"),
+      unset,
+      counter,
       decided("excluded", "2020-01-01", { applicability: "Not applicable" }),
       ad("review"),
     ]);
     const offered = [...html.matchAll(/data-work-order="([^"]+)"/g)];
-    expect(offered.map((m) => m[1])).toEqual(["overdue", "soon", "scheduled"]);
+    expect(offered.map((m) => m[1]).sort()).toEqual(
+      ["counter", "overdue", "scheduled", "soon", "unset"].sort(),
+    );
   });
 
   it("disables Edit and Clear initial limit unless editable", () => {

@@ -152,13 +152,15 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           # The map check runs here, not in "Verify the build", so a bad build
-          # stops before Convex is changed.
+          # stops before Convex is changed. So does pinning the built CSP to
+          # this deployment's hosts (security review C3).
           BUILD: |
             set -eu
             node scripts/check-csp-origin.mjs "$VITE_CONVEX_URL"
             node scripts/check-csp-origin.mjs --sentry-dsn "$VITE_SENTRY_DSN"
             rm -rf dist
             npm run build
+            node scripts/pin-csp-origin.mjs "$VITE_CONVEX_URL"
             maps=$(find dist -name '*.map')
             if [ -n "$maps" ]; then
               echo "::error::Source maps must never be published: $maps"

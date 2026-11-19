@@ -21,9 +21,8 @@ const FOOTER_BASELINE_MM = 287;
  * Renders logbook-entry text as a paginated A4 document, numbered "Page n of
  * N" at the foot of each page.
  *
- * @param text - The entry text. Carriage returns and control characters other
- *   than tab and newline are dropped; long lines wrap. jsPDF leaves out the
- *   rest of a line after a tab.
+ * @param text - The entry text. A tab prints as one space; carriage returns
+ *   and other control characters except newline are dropped; long lines wrap.
  * @returns The document, ready for `save()`.
  * @throws {Error} "Unable to load the PDF font. Reconnect and try again." when
  *   the font request fails with an HTTP error; a network failure rejects with
@@ -45,8 +44,11 @@ export async function logbookPdf(text: string): Promise<jsPDF> {
   return pdf;
 }
 
+// jsPDF leaves out the rest of a line after a tab, so a tab becomes a space,
+// as in the other PDFs (pdfLayout.ts, tablePdf.ts).
 function stripControlCharacters(text: string): string {
   return text
+    .replace(/\t/g, " ")
     .replace(/\r/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
 }

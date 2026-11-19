@@ -1,6 +1,6 @@
 # Release, rollback and website hosting
 
-The website is a static build served by **Cloudflare Workers Static Assets** (no Worker script); the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
+The website is a static build served by **Cloudflare Workers Static Assets**, with one small Worker (`worker/assets.ts`) that runs only when no file matches a request; the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
 
 ## What runs where
 
@@ -23,7 +23,7 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 2. on a manual run, stops unless CI passed for that commit (a CI run for the push to `main`, finished green). The only way past is the [emergency override](#emergency-deploy-without-green-ci);
 3. runs `npm run check`;
 4. checks `CONVEX_DEPLOY_KEY` is a production key;
-5. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It stops before the push if the build fails, if the Convex URL or the Sentry DSN's host is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`), or if the build left a source map in `dist/` ([monitoring](monitoring.md));
+5. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It then narrows the built Content-Security-Policy in `dist/_headers` to that deployment's own `<name>.convex.cloud` and `<name>.convex.site` hosts (`scripts/pin-csp-origin.mjs`). It stops before the push if the build fails, if the Convex URL or the Sentry DSN's host is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`), if the policy cannot be pinned, or if the build left a source map in `dist/` ([monitoring](monitoring.md));
 6. checks the build points at that Convex URL;
 7. publishes `dist/` with `npx wrangler@4.151.3 deploy`, tagging the Cloudflare version with the commit;
 8. if `PRODUCTION_URL` is set, confirms that Cloudflare version tag is active, then checks the live site headers when the runner is not blocked by Cloudflare bot/WAF (a public HTTP 403 from GitHub Actions is treated as a warning once the tag is live).
@@ -66,7 +66,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
    ```
 
    `SITE_URL` must be the website's address exactly (no trailing slash): sign-in redirects and email links use it. Create the first administrator with `npm run setup:admin` the same way, only on an empty database. See [Connect Convex and create accounts](../../README.md#connect-convex-and-create-accounts). Without a terminal, use [First-time setup (no terminal)](#first-time-setup-no-terminal) instead.
-3. If you give the Convex deployment a custom domain, add it to `connect-src` (and `img-src`) in `public/_headers` first; the deploy refuses a Convex URL the policy does not allow.
+3. If you give the Convex deployment a custom domain, add it to `connect-src` (and `img-src`) in `public/_headers` first; the deploy refuses a Convex URL the policy does not allow. Change `scripts/pin-csp-origin.mjs` too: it pins only a `<name>.convex.cloud` URL and stops the deploy for any other.
 
 ### GitHub
 
@@ -138,13 +138,13 @@ Roll the website back first when the problem is in the screens; fix the backend 
 
 | Header | Value and reason |
 |---|---|
-| Content-Security-Policy | `default-src 'self'`. `script-src 'self' 'wasm-unsafe-eval'`: only the app's own files; WebAssembly for the PDF.js image decoders and PostScript functions. No inline scripts and no `eval`. `style-src 'self' 'unsafe-inline'`: inline styles in the print labels. `connect-src` adds `blob:` (offline manuals and downloads) and the Convex hosts (`https://*.convex.cloud`, `wss://*.convex.cloud`, `https://*.convex.site`); Geoapify, FAA and Aircraft Spruce calls run on Convex, not in the browser. `img-src` adds `data:`, `blob:` and Convex file storage. `worker-src 'self' blob:` for the service worker and the PDF.js worker. `frame-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`. |
+| Content-Security-Policy | `default-src 'self'`. `script-src 'self' 'wasm-unsafe-eval'`: only the app's own files; WebAssembly for the PDF.js image decoders and PostScript functions. No inline scripts and no `eval`. `style-src 'self' 'unsafe-inline'`: inline styles in the print labels. `connect-src` adds `blob:` (offline manuals and downloads) and the Convex hosts; Geoapify, FAA and Aircraft Spruce calls run on Convex, not in the browser. `img-src` adds `data:`, `blob:` and Convex file storage. `public/_headers` allows any Convex deployment (`https://*.convex.cloud`, `wss://*.convex.cloud`, `https://*.convex.site`) for local, demo and browser-test builds; Deploy rewrites the published copy to production's own hosts (`scripts/pin-csp-origin.mjs`), so the live site can reach no other deployment. `worker-src 'self' blob:` for the service worker and the PDF.js worker. `frame-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`. |
 | Strict-Transport-Security | Two years, subdomains included (see above about `preload`). |
 | X-Content-Type-Options | `nosniff`. |
 | Referrer-Policy | `strict-origin-when-cross-origin`. |
 | Permissions-Policy | Camera for the app itself (QR scanner); microphone, location, payment and other device access off. |
 | Cross-Origin-Opener-Policy | `same-origin`. |
-| Cache-Control | `no-cache` for `/`, `/index.html`, `/sw.js` and `/manifest.webmanifest`, so releases and rollbacks reach installed apps; one year, `immutable`, for the content-hashed files in `/assets/`. Everything else gets Cloudflare's default (revalidate every time). |
+| Cache-Control | `no-cache` for `/`, `/index.html`, `/sw.js` and `/manifest.webmanifest`, so releases and rollbacks reach installed apps; one year, `immutable`, for the content-hashed files in `/assets/`. Everything else gets Cloudflare's default (revalidate every time). A file under `/assets/` that is not in the build (a tab still on an older release asking for a removed bundle) is answered `404 Not found` with `no-store` by the Worker, because `_headers` rules apply only to files that exist; page navigations to app routes still get `index.html`. |
 
 Two code changes keep the app inside this policy: PDF.js 6 no longer uses `eval` (its `isEvalSupported` option was removed), and the browser build loads zod in "jitless" mode (`src/cspSafeZod.ts`, wired in `vite.config.ts`) so it does not probe `new Function`.
 

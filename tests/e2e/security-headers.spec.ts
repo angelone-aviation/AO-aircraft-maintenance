@@ -80,6 +80,10 @@ test("hashed assets are cached for good; the shell and worker are revalidated", 
   }
   const theme = await request.get("/theme-init.js");
   expect(theme.headers()["cache-control"]).not.toContain("immutable");
+  // A bundle an older release named is gone: a real 404, never cached.
+  const removed = await request.get("/assets/index-removed.js");
+  expect(removed.status()).toBe(404);
+  expect(removed.headers()["cache-control"]).toBe("no-store");
 });
 
 test("security.txt names the security contact and has not expired", async ({

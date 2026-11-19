@@ -20,8 +20,8 @@ import { Rejection } from "./rejection";
 import { auditEntry } from "./changeLog";
 
 /**
- * The longest transfer reason the transfer form accepts, as other change-log
- * reasons allow. {@link transferProgram} does not refuse a longer one.
+ * The longest transfer reason, as other change-log reasons allow; the form
+ * caps it and {@link transferProgram} refuses a longer one.
  */
 export const TRANSFER_REASON_MAX_LENGTH = 2000;
 
@@ -54,7 +54,8 @@ interface Moving {
  *   the record, its checklists, setups, expiring dates, components and their
  *   child records, or a location's stock. Moved inspections are not listed.
  * @throws {Rejection} When the user is not an active system administrator,
- *   the reason is blank, the destination is missing or is the active program,
+ *   the reason is blank or longer than {@link TRANSFER_REASON_MAX_LENGTH}
+ *   ("Keep the transfer reason to 2000 characters or fewer."), the destination is missing or is the active program,
  *   the record is not in the active program, or open parts requests, an
  *   installed component, linked inspections, tracked components, reserved
  *   stock, open purchase-order lines, or a component's repair (out for
@@ -68,6 +69,10 @@ export function transferProgram(s: Snapshot, input: ProgramTransfer) {
     );
   if (!input.reason.trim())
     throw new Rejection("A transfer reason is required.");
+  if (input.reason.length > TRANSFER_REASON_MAX_LENGTH)
+    throw new Rejection(
+      `Keep the transfer reason to ${TRANSFER_REASON_MAX_LENGTH} characters or fewer.`,
+    );
   const destination = s.programs?.find((p) => p.uuid === input.destination);
   if (!destination)
     throw new Rejection("Destination Flight Program not found.");

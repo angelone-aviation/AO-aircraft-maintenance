@@ -271,31 +271,32 @@ describe("imports", () => {
 });
 
 describe("FAA monitoring", () => {
-  it("calls results stale after two days and blocks a new check for five minutes", () => {
-    const monitor = (lastSuccess: number, lastAttempt: number) => ({
+  it("calls results stale after two days and offers a check when the server allows one", () => {
+    const monitor = (lastSuccess: number, lastAttempt: number, runId = "") => ({
       aircraftUuid: N206.uuid,
       terms: [],
       enabled: true,
       candidates: [],
       lastSuccess,
       lastAttempt,
-      runId: "run",
+      runId,
       error: "",
       checkedTerms: [],
     });
-    const html = (lastSuccess: number, lastAttempt: number) => {
+    const html = (lastSuccess: number, lastAttempt: number, runId = "") => {
       setWorkspace({
         ...withADs([]),
-        faaMonitors: [monitor(lastSuccess, lastAttempt)],
+        faaMonitors: [monitor(lastSuccess, lastAttempt, runId)],
       } as Snapshot);
       return render(Airworthiness);
     };
     expect(html(NOW - 47 * HOUR_MS, NOW)).not.toContain("Results are stale");
     expect(html(NOW - 49 * HOUR_MS, NOW)).toContain("Results are stale");
-    expect(html(NOW, NOW - 4 * 60_000)).toMatch(/disabled="">Check FAA now/);
-    expect(html(NOW, NOW - 6 * 60_000)).not.toMatch(
-      /disabled="">Check FAA now/,
-    );
+    const blocked = /disabled="">Check FAA now/;
+    expect(html(NOW, NOW - 59_000)).toMatch(blocked);
+    expect(html(NOW, NOW - 59_000, "run")).toMatch(blocked);
+    expect(html(NOW, NOW - 60_000)).not.toMatch(blocked);
+    expect(html(NOW, NOW - 60_000, "run")).not.toMatch(blocked);
   });
 });
 

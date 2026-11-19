@@ -143,7 +143,7 @@ test("creates a linked job card with notes, execution, parts, evidence and signo
     editor.getByRole("button", { name: "Inspection signoff", exact: true }),
   ).toBeDisabled();
   await expect(
-    editor.getByText(/must be signed by a different person/),
+    editor.getByText(/must be by a different person than the technician/),
   ).toBeVisible();
   await editor
     .getByLabel("Task status", { exact: true })

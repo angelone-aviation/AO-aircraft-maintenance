@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins the logbook PDF: lines per page, page-number footers,
- *   dropped control characters and the font-load error.
+ *   tabs and dropped control characters, and the font-load error.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/data/logbookPdf.ts, pdfjs-dist,
  *   public/fonts/DejaVuSans.ttf (fixture).
@@ -67,9 +67,9 @@ it("drops carriage returns and control characters", async () => {
   ]);
 });
 
-it("Characterizes current behaviour: jsPDF drops the rest of a line after a tab", async () => {
+it("prints a tab as a space, keeping the rest of the line", async () => {
   expect(await pageTexts("Torque\t25 in-lb\nSafety wired")).toEqual([
-    ["Torque", "Safety wired", "Page 1 of 1"],
+    ["Torque 25 in-lb", "Safety wired", "Page 1 of 1"],
   ]);
 });
 

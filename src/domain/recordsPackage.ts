@@ -22,7 +22,11 @@ import type {
   Snapshot,
 } from "./model";
 import { can } from "./model";
-import { statusSheet, type StatusSectionId } from "./statusSheet";
+import {
+  statusSheet,
+  type StatusSection,
+  type StatusSectionId,
+} from "./statusSheet";
 import { auditActionLabel } from "./auditHistory";
 import { logbookRecordText } from "./logbook";
 import { adAircraftUuid } from "./adOwnership";
@@ -93,6 +97,10 @@ export interface RecordsSection {
    * change log: also in the notes, first in the CSV and in the README.
    */
   warning?: string;
+  /** As {@link StatusSection}: the status column of a status sheet table. */
+  statusColumn?: number;
+  /** As {@link StatusSection}: each row's tone in a status sheet table. */
+  tones?: StatusSection["tones"];
 }
 
 /** A stored file the package copies in, fetched by its URL. */

@@ -48,6 +48,7 @@ import {
   type CostRecord,
 } from "../../src/domain/costs";
 import {
+  adLevel,
   dueItems,
   requirementLevel,
   type AdDue,
@@ -1084,12 +1085,6 @@ const AD_COLUMNS: Column[] = [
   { header: "Next due at (h)", width: 11, fmt: "hours" },
   { header: "Recurring", width: 18, fmt: "wrap" },
 ];
-const OK_AD_STATUSES = [
-  "Scheduled",
-  "Complied",
-  "Previously Complied With (PCW)",
-];
-
 function adRow(r: AD, { s, names, clock, today }: Context): Row {
   const c = names.component(r.componentUuid);
   const status = valueOr(() => adStatus(s, r, today), "Unknown");
@@ -1120,7 +1115,7 @@ function adRow(r: AD, { s, names, clock, today }: Context): Row {
       dueHours.length ? Math.min(...dueHours) : undefined,
       lines(r.source.recurring, ...intervals),
     ],
-    tone: adTone(status),
+    tone: LEVEL_TONE[adLevel(status)],
     statusColumn: 5,
   };
 }
@@ -1157,12 +1152,6 @@ function adIntervals(r: AD) {
 
 function every(n: number | null | undefined, unit: string, digits = 0) {
   return n ? `every ${n.toFixed(digits)} ${unit}` : "";
-}
-
-function adTone(status: string): Tone | undefined {
-  if (status === "Overdue") return "bad";
-  if (status === "Due soon") return "warn";
-  return OK_AD_STATUSES.includes(status) ? "good" : undefined;
 }
 
 function componentSheet(ctx: Context): SheetSpec {

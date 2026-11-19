@@ -12,7 +12,7 @@
  */
 import { ConvexError, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   checkContext,
   managementDocs,
@@ -70,20 +70,23 @@ type Source = (below: number | undefined) => Promise<Doc<"audit">[]>;
 type Scan = {
   visible: Doc<"audit">[];
   exhausted: boolean;
-  floor: number | undefined;
+  // The row the scan stopped at, which the caller may not be able to see.
+  floor: Doc<"audit"> | undefined;
 };
 
 /**
  * Pages the change log newest first: one record's entries, one aircraft's, or
  * the whole program's (its own index, each visible aircraft's, and the rows
- * transfers brought in). Hidden entries never fill a page or decide `isDone`
- * (S12); only a page cut short by the scan budget takes its cursor from one.
+ * transfers brought in). Hidden entries never fill a page, decide `isDone`
+ * or show in a cursor (S12): a page cut short by the scan budget resumes
+ * from the row the scan stopped at, named by its opaque id, not its time.
  *
  * @param programUuid - The caller's active Flight Program.
  * @param entityUuid - Only this record's entries.
  * @param aircraftUuid - Only this aircraft's entries; with `entityUuid`, the
  *   record's entries on this aircraft.
- * @param cursor - The previous page's `continueCursor`, or null.
+ * @param cursor - The previous page's `continueCursor`, or null: a time, or
+ *   after a page cut short, the id of the row to resume below.
  * @param numItems - Page size, as `clampAuditPageSize`.
  * @returns Entries without Convex fields; `isDone` once no visible entry is
  *   left. The page is short and not done after 4,000 entries are scanned.
@@ -103,7 +106,7 @@ export const page = query({
   handler: async (ctx, args): Promise<AuditPage> => {
     const { state, canSee } = await visibility(ctx, args.programUuid);
     const n = clampAuditPageSize(args.numItems);
-    const before = parseCursor(args.cursor);
+    const before = await readCursor(ctx, args.cursor);
     await assertFilterVisible(ctx, canSee, args);
     const sources = selectSources(ctx, state, canSee, args, n);
     const shown = (d: Doc<"audit">) =>
@@ -237,11 +240,19 @@ function isNear(ms: number, utcMidnight: number): boolean {
   return Number.isFinite(ms) && Math.abs(ms - utcMidnight) <= MAX_UTC_OFFSET_MS;
 }
 
-function parseCursor(cursor: string | null): number | undefined {
-  const before = cursor === null ? undefined : Number(cursor);
-  if (before !== undefined && !Number.isFinite(before))
-    throw new Error("Invalid history cursor.");
-  return before;
+// A cursor is a creation time, or the id of the audit row a page cut short
+// stopped at; only the server can turn that id into the time to resume from.
+async function readCursor(
+  ctx: QueryCtx,
+  cursor: string | null,
+): Promise<number | undefined> {
+  if (cursor === null) return undefined;
+  const before = Number(cursor);
+  if (Number.isFinite(before)) return before;
+  const id = ctx.db.normalizeId("audit", cursor);
+  const resume = id && (await ctx.db.get(id));
+  if (!resume) throw new Error("Invalid history cursor.");
+  return resume._creationTime;
 }
 
 // Refused with the same answer as an unknown id; at most the record's newest
@@ -314,16 +325,16 @@ async function scanVisible(
   before: number | undefined,
 ): Promise<Scan> {
   const visible: Doc<"audit">[] = [];
-  let floor = before,
+  let floor: Doc<"audit"> | undefined,
     exhausted = false,
     scanned = 0;
   while (!exhausted && visible.length <= n && scanned < SCAN_BUDGET) {
-    const batches = await Promise.all(sources.map((s) => s(floor)));
+    const below = floor?._creationTime ?? before;
+    const batches = await Promise.all(sources.map((s) => s(below)));
     scanned += batches.reduce((sum, b) => sum + b.length, 0);
-    const edge = findCompleteEdge(batches, n);
-    exhausted = edge === undefined;
-    visible.push(...mergeCompleteRows(batches, edge).filter(shown));
-    floor = edge;
+    floor = findCompleteEdge(batches, n);
+    exhausted = floor === undefined;
+    visible.push(...mergeCompleteRows(batches, floor).filter(shown));
   }
   return { visible, exhausted, floor };
 }
@@ -347,7 +358,7 @@ async function scanPeriod(
     const edge = findCompleteEdge(batches, MAX_AUDIT_PAGE_SIZE);
     rows.push(...mergeCompleteRows(batches, edge).filter(canSee));
     if (edge === undefined) break;
-    floor = edge;
+    floor = edge._creationTime;
   }
   return { rows, truncated: false };
 }
@@ -357,19 +368,17 @@ async function scanPeriod(
 function findCompleteEdge(
   batches: Doc<"audit">[][],
   n: number,
-): number | undefined {
-  const full = batches.filter((b) => b.length === n);
-  return full.length
-    ? Math.max(...full.map((b) => b.at(-1)!._creationTime))
-    : undefined;
+): Doc<"audit"> | undefined {
+  const lasts = batches.filter((b) => b.length === n).map((b) => b.at(-1)!);
+  return lasts.sort((a, b) => b._creationTime - a._creationTime)[0];
 }
 
 function mergeCompleteRows(
   batches: Doc<"audit">[][],
-  edge: number | undefined,
+  edge: Doc<"audit"> | undefined,
 ): Doc<"audit">[] {
   return [...new Map(batches.flat().map((d) => [d._id, d])).values()]
-    .filter((d) => edge === undefined || d._creationTime >= edge)
+    .filter((d) => !edge || d._creationTime >= edge._creationTime)
     .sort((a, b) => b._creationTime - a._creationTime);
 }
 
@@ -384,12 +393,17 @@ function buildPage(
     page: batch.map(({ _id, _creationTime, ...entry }): AuditEntry => entry),
     isDone,
     // Short and not done means the scan budget ran out: resume there.
-    continueCursor: String(
+    continueCursor:
       !isDone && batch.length < n
-        ? scan.floor
-        : (batch.at(-1)?._creationTime ?? before ?? 0),
-    ),
+        ? resumeId(scan.floor)
+        : String(batch.at(-1)?._creationTime ?? before ?? 0),
   };
+}
+
+// A scan stops short only while a full batch remains, so it has a floor.
+function resumeId(floor: Doc<"audit"> | undefined): Id<"audit"> {
+  if (!floor) throw new Error("A history page cut short has no resume row.");
+  return floor._id;
 }
 
 // The ISO date after `date`.
