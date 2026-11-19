@@ -15,7 +15,8 @@
  * upload still in flight.
  */
 import { makeFunctionReference } from "convex/server";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { DAY } from "./rateLimits";
 import { storageReferenced } from "./storageReferences";
 
@@ -38,33 +39,87 @@ export const SWEEP_FILES = makeFunctionReference<"mutation">(
 );
 
 /**
+ * How far the sweep has checked: the newest creation time, and every file
+ * checked at exactly that time.
+ */
+export interface SweepCursor {
+  checkedThrough: number;
+  checkedIds: Id<"_storage">[];
+}
+
+const START: SweepCursor = { checkedThrough: 0, checkedIds: [] };
+
+/**
  * Checks the next files that are more than {@link UNREFERENCED_FILE_AGE} old,
  * oldest first, and deletes each that no table in `STORAGE_REFERENCES` refers
  * to: a record, attachment, manual, photo, Form 337 copy or upload ticket.
  * Runs apart from the manual-ticket clean-up, so a failure in one never stops
- * the other. Deletes from file storage and saves how far it got in the
- * fileSweep row, so the next run starts after that file.
+ * the other. Saves its cursor in the fileSweep row, so the next run starts
+ * after the last file checked.
  */
 export const sweepFiles = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const place = await ctx.db.query("fileSweep").first();
-    const files = await ctx.db.system
+    const row = await ctx.db.query("fileSweep").first();
+    const cursor = row ?? START;
+    const candidates = await ctx.db.system
       .query("_storage")
       .withIndex("by_creation_time", (q) =>
         q
-          .gt("_creationTime", place?.checkedThrough ?? 0)
+          .gte("_creationTime", cursor.checkedThrough)
           .lt("_creationTime", Date.now() - UNREFERENCED_FILE_AGE),
       )
-      .take(FILES_PER_RUN);
-    for (const file of files)
+      .take(FILES_PER_RUN + cursor.checkedIds.length);
+    const { page, next } = pageAfter(candidates, cursor, FILES_PER_RUN);
+    for (const file of page)
       if (!(await storageReferenced(ctx, file._id)))
         await ctx.storage.delete(file._id);
-    const last = files.at(-1);
-    if (!last) return;
-    if (place)
-      await ctx.db.patch(place._id, { checkedThrough: last._creationTime });
-    else
-      await ctx.db.insert("fileSweep", { checkedThrough: last._creationTime });
+    if (page.length) await saveCursor(ctx, row, next);
   },
 });
+
+/**
+ * The next files to check and the cursor to save after them. Files the cursor
+ * already holds are skipped, so a page edge inside a group of files that
+ * share a creation time loses none of them.
+ *
+ * @param candidates - Files from the cursor's time on, inclusive, oldest
+ *   first: read `limit` plus the cursor's ids, so `limit` remain to check.
+ * @param cursor - Where the last run stopped.
+ * @param limit - The most files to return.
+ * @returns At most `limit` files in order, and the cursor after the last of
+ *   them; with none, the same cursor.
+ */
+export function pageAfter<
+  T extends { _id: Id<"_storage">; _creationTime: number },
+>(
+  candidates: T[],
+  cursor: SweepCursor,
+  limit: number,
+): { page: T[]; next: SweepCursor } {
+  const checked = new Set(cursor.checkedIds);
+  const page = candidates.filter((f) => !checked.has(f._id)).slice(0, limit);
+  const last = page.at(-1);
+  if (!last) return { page, next: cursor };
+  const atLast = page
+    .filter((f) => f._creationTime === last._creationTime)
+    .map((f) => f._id);
+  const carried =
+    last._creationTime === cursor.checkedThrough ? cursor.checkedIds : [];
+  return {
+    page,
+    next: {
+      checkedThrough: last._creationTime,
+      checkedIds: [...carried, ...atLast],
+    },
+  };
+}
+
+async function saveCursor(
+  ctx: MutationCtx,
+  row: Doc<"fileSweep"> | null,
+  next: SweepCursor,
+): Promise<void> {
+  if (row) await ctx.db.patch(row._id, next);
+  else await ctx.db.insert("fileSweep", next);
+}

@@ -2,18 +2,25 @@
  * Responsibility: Pins the hourly clean-up of stored files nothing refers
  *   to: the age a file must reach, that a file any record refers to is never
  *   deleted, that every storage id in the schema is in the reference list,
- *   and the bounded batch that resumes where the last run stopped.
+ *   and the bounded batch that resumes where the last run stopped, a page
+ *   edge between files of equal creation time included.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/fileSweep, convex/crons, convex/storageReferences,
  *   convex/schema.
  */
 import { convexTest } from "convex-test";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import schema from "./schema";
 import type { Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import crons from "./crons";
-import { FILES_PER_RUN, SWEEP_FILES, UNREFERENCED_FILE_AGE } from "./fileSweep";
+import {
+  FILES_PER_RUN,
+  pageAfter,
+  SWEEP_FILES,
+  UNREFERENCED_FILE_AGE,
+  type SweepCursor,
+} from "./fileSweep";
 import { STORAGE_REFERENCES } from "./storageReferences";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -97,15 +104,75 @@ it(`checks at most ${FILES_PER_RUN} files a run and resumes after the last one c
   const orphan = await store("orphan");
   await cleanUpAfter(2 * DAY);
   expect(await exists(orphan)).toBe(true);
+  const last = await t.run(
+    async (ctx) => (await ctx.db.system.get(filed.at(-1)!))!,
+  );
+  expect(
+    await t.run(async (ctx) => await ctx.db.query("fileSweep").unique()),
+  ).toMatchObject({
+    checkedThrough: last._creationTime,
+    checkedIds: [last._id],
+  });
   await cleanUpAfter(HOUR);
   expect(await exists(orphan)).toBe(false);
   for (const id of filed) expect(await exists(id)).toBe(true);
 });
 
+describe("the page after the cursor", () => {
+  const file = (id: string, at: number) => ({
+    _id: id as Id<"_storage">,
+    _creationTime: at,
+  });
+  const ids = (files: { _id: string }[]) => files.map((f) => f._id);
+  const start = { checkedThrough: 0, checkedIds: [] };
+
+  it("picks up the rest of a group of files that share a creation time across a page edge", () => {
+    const files = [file("a", 1), file("b", 2), file("c", 2), file("d", 3)];
+    const first = pageAfter(files, start, 2);
+    expect(ids(first.page)).toEqual(["a", "b"]);
+    expect(first.next).toEqual({ checkedThrough: 2, checkedIds: ["b"] });
+    // Read again from time 2 on, inclusive: a cursor of time alone would
+    // skip "c" for good.
+    const second = pageAfter(files.slice(1), first.next, 2);
+    expect(ids(second.page)).toEqual(["c", "d"]);
+    expect(second.next).toEqual({ checkedThrough: 3, checkedIds: ["d"] });
+  });
+
+  it("keeps every id checked at one time across several pages", () => {
+    const files = [file("b", 2), file("c", 2), file("e", 2)];
+    let cursor: SweepCursor = start;
+    const pages: string[][] = [];
+    for (let run = 0; run < 3; run++) {
+      const { page, next } = pageAfter(files, cursor, 1);
+      pages.push(ids(page));
+      cursor = next;
+    }
+    expect(pages).toEqual([["b"], ["c"], ["e"]]);
+    expect(cursor).toEqual({ checkedThrough: 2, checkedIds: ["b", "c", "e"] });
+  });
+
+  it("returns no page and the same cursor once every candidate is checked", () => {
+    const cursor = { checkedThrough: 2, checkedIds: ["b" as Id<"_storage">] };
+    expect(pageAfter([file("b", 2)], cursor, 5)).toEqual({
+      page: [],
+      next: cursor,
+    });
+  });
+});
+
+// The sweep's own cursor holds ids of files it has checked: positions, not
+// references.
+const NOT_REFERENCES = ["fileSweep.checkedIds[]"];
+
 it("finds every storage id in the schema, nested ones included, in the reference list", () => {
-  const found = Object.entries(schema.tables).flatMap(([table, def]) =>
-    storagePaths((def as unknown as { validator: Validator }).validator, table),
-  );
+  const found = Object.entries(schema.tables)
+    .flatMap(([table, def]) =>
+      storagePaths(
+        (def as unknown as { validator: Validator }).validator,
+        table,
+      ),
+    )
+    .filter((path) => !NOT_REFERENCES.includes(path));
   expect(found.sort()).toEqual(
     STORAGE_REFERENCES.map((r) => `${r.table}.${r.field}`).sort(),
   );

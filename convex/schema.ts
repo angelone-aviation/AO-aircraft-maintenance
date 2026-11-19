@@ -350,9 +350,14 @@ export default defineSchema({
     windowStart: v.number(),
     count: v.number(),
   }).index("key", ["key"]),
-  // The one row of the hourly clean-up of unreferenced files
-  // (convex/fileSweep.ts): the creation time of the newest file it checked.
-  fileSweep: defineTable({ checkedThrough: v.number() }),
+  // The one row of the hourly sweep of unreferenced files
+  // (convex/fileSweep.ts): the creation time of the newest file it checked,
+  // and the files checked at exactly that time. These ids are positions, not
+  // references, so they are not in convex/storageReferences.ts.
+  fileSweep: defineTable({
+    checkedThrough: v.number(),
+    checkedIds: v.array(v.id("_storage")),
+  }),
   // The one Geoapify row: the sealed API key, and the UTC day's lookup count
   // that caps lookups for the whole deployment.
   addressVerificationSettings: defineTable({
