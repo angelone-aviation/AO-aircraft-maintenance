@@ -56,7 +56,9 @@ import { auditEntry } from "../domain/changeLog";
 import { reviewFlight } from "../domain/flightReview";
 import { saveChecklist } from "../domain/checklists";
 import {
+  FILE_SIGNATURE_LENGTH,
   inventoryAttachmentAccess,
+  matchesFileType,
   validateInventoryFile,
   assertFileContents,
 } from "../domain/inventoryAttachments";
@@ -266,6 +268,9 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const input = manualInputSchema.parse(raw);
       validateManualFile(file);
       if (file.size !== input.size) throw new Error("File size changed.");
+      const head = await file.slice(0, FILE_SIGNATURE_LENGTH).arrayBuffer();
+      if (!matchesFileType("application/pdf", head))
+        throw new Error("Uploaded file is not a PDF.");
       const uuid = crypto.randomUUID();
       const current = workspace.getState();
       if (

@@ -383,12 +383,17 @@ it("claims only the blob uploaded for its own ticket and never deletes blobs it 
   const own = await store(pdf);
   await finish(ticket, own);
 
-  // Declared bytes that are not a PDF: rejected but left for the sweep.
+  // Declared bytes that are not a PDF: refused, and the claimed blob deleted
+  // with its ticket at once.
   const disguisedBlob = new Blob(["NOT-A-PDF-" + "x".repeat(pdf.size - 10)]);
   const disguisedTicket = await begin(disguisedBlob);
   const disguised = await store(disguisedBlob);
-  await expect(finish(disguisedTicket, disguised)).rejects.toThrow("not a PDF");
-  expect(await exists(disguised)).toBe(true);
+  await expect(finish(disguisedTicket, disguised)).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Uploaded file is not a PDF.",
+  });
+  expect(await exists(disguised)).toBe(false);
+  expect(await t.run((ctx) => ctx.db.get(disguisedTicket))).toBeNull();
   // An upload whose browser never called finishUpload.
   const abandonedTicket = await begin(pdf);
   const abandoned = await store(pdf);

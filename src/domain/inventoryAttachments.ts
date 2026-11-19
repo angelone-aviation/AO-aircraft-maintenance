@@ -109,16 +109,30 @@ export function validateInventoryFile(
  *   or any other type.
  */
 export function assertFileContents(type: string, bytes: ArrayBuffer) {
+  if (!matchesFileType(type, bytes))
+    throw new Rejection(
+      "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+    );
+}
+
+/**
+ * The test {@link assertFileContents} applies, for a caller that refuses a
+ * mismatch in its own words.
+ *
+ * @param type - The declared MIME type.
+ * @param bytes - The file, or at least its first
+ *   {@link FILE_SIGNATURE_LENGTH} bytes.
+ * @returns True when the first bytes are one of the type's signatures; false
+ *   for a mismatch, a file too short to tell, or any other type.
+ */
+export function matchesFileType(type: string, bytes: ArrayBuffer): boolean {
   const head = new Uint8Array(
     bytes,
     0,
     Math.min(bytes.byteLength, FILE_SIGNATURE_LENGTH),
   );
   const signatures = FILE_SIGNATURES.get(type) ?? [];
-  if (!signatures.some((signature) => startsWith(head, signature)))
-    throw new Rejection(
-      "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
-    );
+  return signatures.some((signature) => startsWith(head, signature));
 }
 
 // A file shorter than the signature fails: its missing bytes read undefined.

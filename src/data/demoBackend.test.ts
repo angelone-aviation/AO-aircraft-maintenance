@@ -903,6 +903,20 @@ const MANUAL: Manual = {
   uploadedBy: "demo-admin",
 };
 
+it("refuses a manual whose first bytes are not a PDF's, keeping nothing, as the server does", async () => {
+  const { backend, stored } = await demo("demo-manual-disguised");
+  const before = await stored();
+  const body = "<html>....";
+  const disguised = new File([body], "handbook.pdf", {
+    type: "application/pdf",
+  });
+  const { uuid: _uuid, uploadedAt: _at, uploadedBy: _by, ...input } = MANUAL;
+  await expect(
+    backend.uploadManual({ ...input, size: body.length }, disguised),
+  ).rejects.toThrow("Uploaded file is not a PDF.");
+  expect(await stored()).toEqual(before);
+});
+
 it("audits a manual edit with the six editable fields before, as the server does", async () => {
   const { backend, stored } = await demo("demo-manual-edit", (seed) => {
     seed.manuals = [MANUAL];

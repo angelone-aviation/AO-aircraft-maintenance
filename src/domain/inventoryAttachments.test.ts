@@ -12,6 +12,7 @@ import {
   MAX_ACTION_FILE_BYTES,
   assertFileContents,
   inventoryAttachmentAccess,
+  matchesFileType,
   validateInventoryFile,
 } from "./inventoryAttachments";
 import { Rejection } from "./rejection";
@@ -67,6 +68,12 @@ describe("attachment contents", () => {
       expect(matches(type, bytes(0, 0, 0, 24, "ftyphei"))).toBe(false);
     }
     expect(matches("image/jpeg", iso("heic"))).toBe(false);
+  });
+
+  it("answers the same question as a predicate, for callers with their own refusal", () => {
+    expect(matchesFileType("application/pdf", bytes("%PDF-1.7"))).toBe(true);
+    expect(matchesFileType("application/pdf", bytes("<html>"))).toBe(false);
+    expect(matchesFileType("image/svg+xml", bytes("<svg"))).toBe(false);
   });
 
   it("needs exactly the first FILE_SIGNATURE_LENGTH bytes to tell the longest types", () => {
