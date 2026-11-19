@@ -1,7 +1,7 @@
 /**
  * Responsibility: Files attached to inventory items: the attachment record,
  *   the file rules (name and size), who may manage an item's attachments,
- *   and the first-bytes check every upload path shares.
+ *   and the first-bytes check that uploads share.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts (types), programs.ts, rejection.ts.
  */
@@ -36,7 +36,8 @@ const HEIF_SIGNATURES = [
   "msf1",
 ].map((brand): Signature => [...ANY_SIZE, ...ascii(`ftyp${brand}`)]);
 
-// The accepted first bytes of each type. Only license copies take HEIC.
+// The accepted first bytes of each type. A caller's own type check decides
+// which types it takes, so HEIC is here without photos accepting it.
 const FILE_SIGNATURES = new Map<string, Signature[]>([
   ["application/pdf", [ascii("%PDF-")]],
   ["image/jpeg", [[0xff, 0xd8, 0xff]]],
@@ -99,7 +100,7 @@ export function validateInventoryFile(
 /**
  * Checks that a file's first bytes are those of its declared type, so a file
  * renamed past a type and name check (an SVG or web page named as an image or
- * PDF, a HEIC photo named as a JPEG) is refused. Every upload path runs it.
+ * PDF, a HEIC photo named as a JPEG) is refused.
  *
  * @param type - The declared MIME type: PDF, JPEG, PNG, WebP, HEIC or HEIF.
  * @param bytes - The file, or at least its first
