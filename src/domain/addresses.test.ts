@@ -241,9 +241,7 @@ describe("addressIssues: order and schema messages", () => {
     });
     expect(issues).toHaveLength(2);
     expect(issues[0]).toMatch(String(FIELD_MAX_LENGTH));
-    expect(issues[1]).toBe(
-      "Enter a valid phone number, including area/country code.",
-    );
+    expect(issues[1]).toBe("Enter a valid phone number of at least 7 digits.");
   });
 });
 

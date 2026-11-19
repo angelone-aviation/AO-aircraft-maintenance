@@ -21,6 +21,8 @@ const STREET_MAX_LENGTH = 2000;
 const COMBINED_MAX_LENGTH = 1900;
 
 // Plausibility floor (a 7-digit local number); it does not prove an area code.
+// Stored addresses parse with this rule, so raising it would make records
+// unreadable; the refusal asks for no more than it checks.
 const PHONE_MIN_DIGITS = 7;
 
 // Loose whitelist: "x", "e" and "t" may appear anywhere, so "ext" passes.
@@ -89,7 +91,7 @@ export const addressSchema = z
     phone: addressField
       .refine(
         (value) => !value || isPlausiblePhoneNumber(value),
-        "Enter a valid phone number, including area/country code.",
+        `Enter a valid phone number of at least ${PHONE_MIN_DIGITS} digits.`,
       )
       .default(""),
     confirmed: z.boolean().default(false),
