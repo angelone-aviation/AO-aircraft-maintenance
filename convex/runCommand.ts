@@ -452,8 +452,8 @@ const HYDRATORS: Record<Need, Hydrator> = {
       docs.inspectionTemplates,
     );
   },
-  costs: async (ctx, { program, aircraft }, { docs, snapshot }) => {
-    docs.costs = await costDocs(ctx, program, aircraft);
+  costs: async (ctx, { program }, { docs, snapshot }) => {
+    docs.costs = await costDocs(ctx, program);
     snapshot.costs = decode("costs", docs.costs);
   },
   // The deployment's own dates load only for a system administrator.

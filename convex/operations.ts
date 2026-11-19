@@ -412,7 +412,7 @@ async function boardCostRecords(
       "partsRequests",
       await partsRequestDocs(ctx, program),
     ),
-    costs: decode("costs", await costDocs(ctx, program, aircraft)),
+    costs: decode("costs", await costDocs(ctx, program)),
   };
 }
 
@@ -439,7 +439,7 @@ async function fullSnapshot(
     management: decode("management", management),
     audit: await auditDocs(ctx, program, aircraft),
     // scopedSnapshot strips rates and money for non-administrators.
-    costs: decode("costs", await costDocs(ctx, program, aircraft)),
+    costs: decode("costs", await costDocs(ctx, program)),
     expiringItems: decode(
       "expiringItems",
       await expiringItemDocs(ctx, program, user.isAdmin === true),

@@ -278,29 +278,21 @@ export const componentSetupDocs = (ctx: Ctx, programUuid?: string) =>
     : Promise.resolve([]);
 
 /**
- * The aircraft's cost records, plus the program's settings row (stored with
- * aircraftUuid "").
+ * The program's cost records, then its settings row (stored with
+ * aircraftUuid ""); none without a program. Read by program, not by
+ * aircraft, because records stay with the program that paid when an
+ * aircraft moves (decision D14).
  */
-export async function costDocs(
-  ctx: Ctx,
-  programUuid: string | undefined,
-  aircraft: AircraftRefs,
-) {
-  const rows = await perAircraft(aircraft, (id) =>
-    ctx.db
-      .query("costs")
-      .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
-      .collect(),
-  );
-  const settings = programUuid
-    ? await ctx.db
-        .query("costs")
-        .withIndex("program", (q) =>
-          q.eq("programUuid", programUuid).eq("aircraftUuid", ""),
-        )
-        .collect()
-    : [];
-  return [...rows, ...settings];
+export async function costDocs(ctx: Ctx, programUuid: string | undefined) {
+  if (!programUuid) return [];
+  const rows = await ctx.db
+    .query("costs")
+    .withIndex("program", (q) => q.eq("programUuid", programUuid))
+    .collect();
+  return [
+    ...rows.filter((r) => r.aircraftUuid),
+    ...rows.filter((r) => !r.aircraftUuid),
+  ];
 }
 
 /**
