@@ -1107,8 +1107,8 @@ function InspectionNotices({ form }: { form: InspectionCandidate }) {
   );
 }
 
-// The record and request ids are fixed for the form's life, so a retried
-// save after a lost reply is recognised rather than recorded twice.
+// The record id is fixed for the form's life, so a retried save after a lost
+// reply names the same inspection; the request id follows the command.
 function useInspectionCandidate(
   row: ManualCandidate,
   scope: ManualApplicability,
@@ -1125,14 +1125,14 @@ function useInspectionCandidate(
     row.sourceKey + (scheduleMode === "initial" ? ":initial" : "");
   const [preview, setPreview] = useState(INSPECTION_PREVIEW_PROMPT);
   const [uuid] = useState(() => crypto.randomUUID());
-  const [requestUuid] = useState(() => crypto.randomUUID());
+  const requestUuidFor = useRequestUuid();
   const duplicate = s.inspections.some(
     (i) => i.aircraftUuid === target && i.sourceKey === sourceKey,
   );
   return {
     ...{ writable, execute, aircraft, target, setTarget, hasInitial },
     ...{ scheduleMode, setScheduleMode, sourceKey, preview, setPreview },
-    ...{ uuid, requestUuid, duplicate },
+    ...{ uuid, requestUuidFor, duplicate },
   };
 }
 
@@ -1174,11 +1174,24 @@ function inspectionCommand(
   form: InspectionCandidate,
 ): ManagementCommand {
   assertInspectionTarget(form);
-  return {
-    action: "inspection.save",
-    requestUuid: form.requestUuid,
+  const command = {
+    action: "inspection.save" as const,
     reason: "Inspection reviewed and created from manual search.",
     record: inspectionRecord(d, form),
+  };
+  return { ...command, requestUuid: form.requestUuidFor(command) };
+}
+
+// An identical retry after a lost reply keeps its request id, so the server
+// replays it rather than recording it twice; an edited save is a new request
+// and gets a new id, as the server refuses a reused one (roadmap LO-1).
+function useRequestUuid() {
+  const last = useRef({ command: "", uuid: "" });
+  return (command: object) => {
+    const text = JSON.stringify(command);
+    if (last.current.command !== text)
+      last.current = { command: text, uuid: crypto.randomUUID() };
+    return last.current.uuid;
   };
 }
 
