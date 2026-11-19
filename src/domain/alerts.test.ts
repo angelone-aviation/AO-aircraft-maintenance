@@ -584,13 +584,14 @@ describe("expiring-date alerts", () => {
 });
 
 describe("urgent alerts", () => {
-  it("are the grounded, overdue, past-due and expired kinds", () => {
+  it("are the grounded, overdue, past-due, expired and report-backlog kinds", () => {
     expect([...URGENT_ALERT_KINDS].sort()).toEqual([
       "ad-overdue",
       "aircraft-grounded",
       "component-past-due",
       "date-expired",
       "inspection-overdue",
+      "report-backlog",
     ]);
     const { s } = dueFleet();
     const all = allAlerts(s, DUE_FLEET_TODAY);

@@ -1,6 +1,7 @@
 /**
- * Responsibility: How much one member has open in problem reports, and the
- *   per-member limit on filing more (decision D2).
+ * Responsibility: How much one member has open in problem reports, the
+ *   per-member limit on filing more, and when that backlog is high enough
+ *   to alert administrators (decision D2).
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./programs.
  *
@@ -32,6 +33,14 @@ export const MAX_OPEN_REPORTS_PER_MEMBER = 200;
  * whole 16 MiB. A long real report is about 1 KB, so this is hundreds of them.
  */
 export const MAX_OPEN_REPORT_BYTES_PER_MEMBER = 512 * 1024;
+
+/**
+ * The share of either limit at which the program's administrators are
+ * alerted: 100 reports or 256 KiB, already more than half the model fleet's
+ * year from one member. SE-13's rate reaches it in seconds, and a genuine
+ * reporter there still has room, so it is early enough to act either way.
+ */
+export const REPORT_BACKLOG_ALERT_SHARE = 0.5;
 
 /** What a member sees when a new report would pass their limit. */
 export const REPORT_LIMIT_REFUSAL =
@@ -86,6 +95,26 @@ export function passesReportLimit(
     count + 1 > MAX_OPEN_REPORTS_PER_MEMBER ||
     bytes + textBytes(description) > MAX_OPEN_REPORT_BYTES_PER_MEMBER
   );
+}
+
+/**
+ * The members whose open backlog has reached {@link REPORT_BACKLOG_ALERT_SHARE}
+ * of either limit in the active Flight Program.
+ *
+ * @param s - A snapshot holding the program's open reports.
+ * @returns One backlog per such member, in the order their reports appear.
+ */
+export function highReportBacklogs(s: Snapshot): ReportBacklog[] {
+  const authors = new Set(
+    s.discrepancies.filter((d) => isOpenBacklog(s, d)).map((d) => d.authorId),
+  );
+  return [...authors]
+    .map((authorId) => reportBacklog(s, authorId))
+    .filter(
+      ({ count, bytes }) =>
+        count >= MAX_OPEN_REPORTS_PER_MEMBER * REPORT_BACKLOG_ALERT_SHARE ||
+        bytes >= MAX_OPEN_REPORT_BYTES_PER_MEMBER * REPORT_BACKLOG_ALERT_SHARE,
+    );
 }
 
 // Bytes, not characters, because the read limit counts bytes: a description

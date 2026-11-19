@@ -1,10 +1,10 @@
 /**
  * Responsibility: Pins one member's open problem-report backlog: what counts,
- *   the per-member limit on new reports (decision D2) and what it never
- *   blocks.
+ *   the per-member limit on new reports and what it never blocks, and the
+ *   alert its administrators get first (decision D2).
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/reportBacklog.ts, flightSubmission.ts,
- *   deferrals.ts, model.ts, src/data/demo.ts (fixture).
+ *   deferrals.ts, alerts.ts, model.ts, src/data/demo.ts (fixture).
  */
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
@@ -22,6 +22,7 @@ import {
   type FlightOperation,
 } from "./flightSubmission";
 import { deferDiscrepancy, resolveDiscrepancy } from "./deferrals";
+import { computeAlerts, urgentAlerts } from "./alerts";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const OPTIONS = { now: NOW, today: "2026-10-20" };
@@ -175,5 +176,64 @@ describe("the per-member limit on new reports (D2)", () => {
       NOW,
     );
     expect(deferred.deferral).toBeDefined();
+  });
+});
+
+describe("the alert administrators get first (D2)", () => {
+  const TODAY = "2026-10-20";
+  const ALERT_REPORTS = MAX_OPEN_REPORTS_PER_MEMBER / 2;
+  const backlogAlerts = (s: Snapshot) =>
+    computeAlerts(s, TODAY).filter((a) => a.kind === "report-backlog");
+  // A pilot's reports, read by the demo program's administrator.
+  function filedByPilot(...descriptions: string[]) {
+    const s = withReports(...descriptions);
+    const pilot = s.members.find((m) => !m.isAdmin)!;
+    for (const d of s.discrepancies) d.authorId = pilot.id;
+    return { s, pilot };
+  }
+
+  it(`alerts at half the count limit, ${ALERT_REPORTS} open reports, at once`, () => {
+    const { s, pilot } = filedByPilot(...Array(ALERT_REPORTS).fill("Short"));
+    const alerts = backlogAlerts(s);
+    expect(alerts).toEqual([
+      {
+        key: `report-backlog|${pilot.id}`,
+        kind: "report-backlog",
+        severity: "danger",
+        title: `${pilot.name} has ${ALERT_REPORTS} open problem reports`,
+        detail: expect.stringContaining(
+          `New reports from them are refused past ${MAX_OPEN_REPORTS_PER_MEMBER}`,
+        ),
+        entityUuid: pilot.id,
+        link: "/discrepancies",
+      },
+    ]);
+    expect(urgentAlerts(alerts)).toEqual(alerts);
+    s.discrepancies.pop();
+    expect(backlogAlerts(s)).toEqual([]);
+  });
+  it("alerts at half the text limit, and keeps one key as the backlog grows", () => {
+    const half = MAX_OPEN_REPORT_BYTES_PER_MEMBER / 2;
+    const { s } = filedByPilot("x".repeat(half - 1));
+    expect(backlogAlerts(s)).toEqual([]);
+    s.discrepancies.push({
+      ...s.discrepancies[0],
+      uuid: "more",
+      description: "x",
+    });
+    const [first] = backlogAlerts(s);
+    s.discrepancies.push({ ...s.discrepancies[0], uuid: "even-more" });
+    expect(backlogAlerts(s)[0].key).toBe(first.key);
+  });
+  it("is for the program's administrators only, and clears once reports are deferred", () => {
+    const { s, pilot } = filedByPilot(...Array(ALERT_REPORTS).fill("Short"));
+    const asPilot = { ...s, user: pilot };
+    expect(backlogAlerts(asPilot)).toEqual([]);
+    s.discrepancies[0].deferral = {
+      type: "91.213d",
+      placard: "INOP",
+      notHazard: true,
+    } as never;
+    expect(backlogAlerts(s)).toEqual([]);
   });
 });
