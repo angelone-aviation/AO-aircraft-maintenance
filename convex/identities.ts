@@ -20,7 +20,7 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { admin, audit, currentUser } from "./access";
-import { consume, HOUR } from "./rateLimits";
+import { consumeAll, HOUR, type Allowance } from "./rateLimits";
 import { enabledSsoProviders } from "./ssoProviders";
 import {
   isSsoProvider,
@@ -179,7 +179,7 @@ export async function userForIdentity(
  * Logs a sign-in the route caught {@link userForIdentity} refusing: audits
  * `user.sign_in_refused` as "system", under the refused user or else
  * `<provider>:<providerAccountId>`. Past 10 an hour for one identity, or 300
- * for the deployment, it only warns on the console.
+ * for the deployment, it only warns on the console, and spends neither cap.
  *
  * @param provider - The sign-in provider's id.
  * @param providerAccountId - The provider's account id for the person.
@@ -197,19 +197,11 @@ export const recordRefusal = internalMutation({
   },
   handler: async (ctx, args) => {
     try {
-      await consume(
-        ctx,
-        `sso-refused:${args.provider}:${args.providerAccountId}`,
-        REFUSALS_PER_IDENTITY_PER_HOUR,
-        HOUR,
-        "",
-      );
-      await consume(ctx, "sso-refused", REFUSALS_PER_HOUR, HOUR, "");
-    } catch {
+      await consumeAll(ctx, refusalAllowances(args));
+    } catch (error) {
+      if (!(error instanceof ConvexError)) throw error;
       // Over a cap: the sign-in is refused either way; only the entry is lost.
-      console.warn(
-        `Refused ${args.provider} sign-in not logged: over the cap.`,
-      );
+      console.warn(`Refused ${args.provider} sign-in not logged: ${error.data}`);
       return;
     }
     await audit(
@@ -227,6 +219,28 @@ export const recordRefusal = internalMutation({
     );
   },
 });
+
+// Both caps are checked before either is spent (roadmap Finding 18), so an
+// entry the deployment cap drops does not use up the identity's allowance.
+function refusalAllowances(args: {
+  provider: string;
+  providerAccountId: string;
+}): Allowance[] {
+  return [
+    {
+      key: `sso-refused:${args.provider}:${args.providerAccountId}`,
+      limit: REFUSALS_PER_IDENTITY_PER_HOUR,
+      windowMs: HOUR,
+      message: "over this identity's cap.",
+    },
+    {
+      key: "sso-refused",
+      limit: REFUSALS_PER_HOUR,
+      windowMs: HOUR,
+      message: "over the deployment's cap.",
+    },
+  ];
+}
 
 async function listLinkedIdentities(
   ctx: QueryCtx,
