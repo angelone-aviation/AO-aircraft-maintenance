@@ -1,10 +1,11 @@
 /**
  * Responsibility: The deployment's HTTP routes: Convex Auth's, with the Google
- *   and Microsoft callback wrapped to record and explain a refused sign-in.
+ *   and Microsoft callback wrapped to record and explain a refused sign-in,
+ *   and the short-lived file links.
  * Layer: Server. Convex HTTP router; who may sign in is decided in
- *   convex/identities.
+ *   convex/identities, who may open a file in convex/fileLinks.
  * Dependencies: convex/server, ./_generated, ./auth, ./identities,
- *   src/domain/signInMethods.
+ *   ./fileLinks, src/domain/signInMethods.
  */
 import {
   httpRouter,
@@ -16,6 +17,7 @@ import { httpAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { auth } from "./auth";
 import { refusalOf } from "./identities";
+import { FILE_LINK_PATH, serve } from "./fileLinks";
 import {
   SIGN_IN_ERROR_PARAM,
   SIGN_IN_PROVIDER_PARAM,
@@ -24,9 +26,10 @@ import {
 } from "../src/domain/signInMethods";
 import type { Id } from "./_generated/dataModel";
 
-/** The HTTP routes Convex serves: the sign-in routes of Convex Auth. */
+/** The HTTP routes Convex serves: Convex Auth's sign-in and file links. */
 const http = httpRouter();
 auth.addHttpRoutes(withSignInLog(http));
+http.route({ pathPrefix: FILE_LINK_PATH, method: "GET", handler: serve });
 export default http;
 
 // The library's Google and Microsoft callback route turns every failure into

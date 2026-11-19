@@ -17,7 +17,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [ ] Error monitoring: service, alerts and who receives them.
 - [ ] Ownership and runbooks: technical owner, plus onboarding, release and incident-response runbooks.
   - [ ] Fill in the names and places left blank in [incident response](runbooks/incident-response.md) (including who reads accounts@angeloneonline.org, the [`SECURITY.md`](../SECURITY.md) contact) and [break-glass administrator access](runbooks/break-glass-admin.md), and set up the break-glass account.
-- [ ] Data on shared or lost devices: offline copy, sign-out, device unlock.
+- [ ] Data on shared or lost devices: offline copy, sign-out, device unlock. Decided 2026-11-19: the seven-day offline copy stays as it is, signing out clears the device after warning about unsynced work ([signing out](offline.md#signing-out-and-shared-devices)), and phones and tablets need a screen lock. Still to do: tell users about the screen lock, and finish [file links that expire](file-links.md#what-is-left).
 - [x] Per-aircraft records export (FAA inspection access and aircraft sale): [records package](records-export.md).
 - [x] FAA scope changes: inspection sign-off certificate, "Performed by" line, Form 337 attachments.
 - [x] Architecture cleanups: one command transaction on the server, one flight-submission module.
