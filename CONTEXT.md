@@ -78,7 +78,7 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | `.claude` | Tooling | Standards hooks and settings (owner-only, do not edit); vendored skills (`npx skills update` only) | Be edited by agents |
 | `docs` | Docs | Feature behaviour, ADRs, runbooks, architecture report, research | Contradict an accepted ADR without a new one |
 
-Also at the root: `public/` (headers, icons, fonts), `wrangler.jsonc` (Cloudflare site), `legecy php_project/` (retired PHP system, reference only).
+Also at the root: `public/` (headers, icons, fonts), `wrangler.jsonc` (Cloudflare site), `worker/` (the Worker that answers requests no built file matches: a 404 for a missing bundle, else the app shell), `legecy php_project/` (retired PHP system, reference only).
 
 ## 4. Data flow
 

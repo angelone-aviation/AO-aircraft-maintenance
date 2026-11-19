@@ -21,6 +21,7 @@
     "playwright.config.ts",
     "tests",
     "scripts/*.ts",
-    "scripts/backup/*.ts"
+    "scripts/backup/*.ts",
+    "worker"
   ]
 }

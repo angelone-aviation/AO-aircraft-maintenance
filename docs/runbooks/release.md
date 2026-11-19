@@ -1,6 +1,6 @@
 # Release, rollback and website hosting
 
-The website is a static build served by **Cloudflare Workers Static Assets** (no Worker script); the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
+The website is a static build served by **Cloudflare Workers Static Assets**, with one small Worker (`worker/assets.ts`) that runs only when no file matches a request; the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
 
 ## What runs where
 
@@ -144,7 +144,7 @@ Roll the website back first when the problem is in the screens; fix the backend 
 | Referrer-Policy | `strict-origin-when-cross-origin`. |
 | Permissions-Policy | Camera for the app itself (QR scanner); microphone, location, payment and other device access off. |
 | Cross-Origin-Opener-Policy | `same-origin`. |
-| Cache-Control | `no-cache` for `/`, `/index.html`, `/sw.js` and `/manifest.webmanifest`, so releases and rollbacks reach installed apps; one year, `immutable`, for the content-hashed files in `/assets/`. Everything else gets Cloudflare's default (revalidate every time). |
+| Cache-Control | `no-cache` for `/`, `/index.html`, `/sw.js` and `/manifest.webmanifest`, so releases and rollbacks reach installed apps; one year, `immutable`, for the content-hashed files in `/assets/`. Everything else gets Cloudflare's default (revalidate every time). A file under `/assets/` that is not in the build (a tab still on an older release asking for a removed bundle) is answered `404 Not found` with `no-store` by the Worker, because `_headers` rules apply only to files that exist; page navigations to app routes still get `index.html`. |
 
 Two code changes keep the app inside this policy: PDF.js 6 no longer uses `eval` (its `isEvalSupported` option was removed), and the browser build loads zod in "jitless" mode (`src/cspSafeZod.ts`, wired in `vite.config.ts`) so it does not probe `new Function`.
 
