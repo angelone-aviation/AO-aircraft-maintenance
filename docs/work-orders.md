@@ -14,7 +14,7 @@ Use **Move up** and **Move down** on requested-work tasks to change their order,
 
 Track each task as requested, in progress, delayed for parts, completed or cancelled, with work notes and parts-delay details. The list displays completed/total task counts, linked discrepancies that remain open in the discrepancy register, and the number of tasks delayed for parts. Order status is controlled independently. Marking an individual task complete does not update compliance. Completing the whole work order records compliance for its completed inspections and routine component inspection requirements. Discrepancy resolution remains separate. Component repair and overhaul selections are applied when closing the order.
 
-Upload maintenance records as PDF, JPEG or PNG attachments, up to 7 MB each, after opening the order. Attachments remain available with closed orders.
+Upload maintenance records as PDF, JPEG or PNG attachments, up to 7 MiB each, after opening the order. Attachments remain available with closed orders.
 
 To complete an order, complete or cancel every task and supply a completion date, release outcome and final review. Confirm the completion aircraft total time, Hobbs, tach and cycles. Readings must fall between the opening snapshot and current totals; backdated closeout requires explicit readings. Completion cannot predate a completed job card.
 

@@ -160,7 +160,7 @@ async function planLogbookFile(
     !file.size ||
     file.size > LOGBOOK_MAX_MEGABYTES * BYTES_PER_MEGABYTE
   )
-    throw new Error(`Choose a logbook CSV up to ${LOGBOOK_MAX_MEGABYTES} MB.`);
+    throw new Error(`Choose a logbook CSV up to ${LOGBOOK_MAX_MEGABYTES} MiB.`);
   const parsed = parseLogbook(
     new TextDecoder().decode(await file.arrayBuffer()),
   );

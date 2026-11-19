@@ -106,7 +106,7 @@ describe("parseHours", () => {
     for (const value of ["1.25", " 1", "-1", "1e3"])
       expectRejection(
         () => parseHours(value),
-        "Use positive hours with at most one decimal place.",
+        "Use hours of 0 or more, with at most one decimal place.",
       );
     expectRejection(
       () => parseHours("9".repeat(16)),

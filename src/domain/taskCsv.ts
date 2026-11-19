@@ -50,14 +50,14 @@ const normalized = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
  *
  * @param text - The file's text.
  * @returns One task per data row, in file order.
- * @throws {Rejection} For an over-2 MB, empty or wrongly headed file, or as
+ * @throws {Rejection} For an over-2 MiB, empty or wrongly headed file, or as
  *   "CSV row N: …" for a bad row, PDF page, or missing or repeated item code
  *   (compared ignoring case and spacing); a task field that fails its schema
  *   gives that schema's {@link validationText}.
  */
 export function parseTaskCsv(text: string): TemplateTask[] {
   if (new TextEncoder().encode(text).length > CSV_MAX_BYTES)
-    throw new Rejection("Choose a CSV up to 2 MB.");
+    throw new Rejection("Choose a CSV up to 2 MiB.");
   const [rawHeader, ...rows] = readCsvRows(text);
   const header = rawHeader?.cells.map((h) => h.trim());
   if (!header || !rows.length)

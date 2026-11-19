@@ -87,7 +87,7 @@ describe("parseInspectionSetupCsv", () => {
     );
     expect(() =>
       parseInspectionSetupCsv(inspectionCsv.replace("2300.5", "2300.55")),
-    ).toThrow(/^Row 3: Use positive hours with at most one decimal place\./);
+    ).toThrow(/^Row 3: Use hours of 0 or more, with at most one decimal place\./);
     expect(() =>
       parseInspectionSetupCsv(inspectionCsv.replace(",,12,", ",,twelve,")),
     ).toThrow(/^Row 2: Use whole numbers/);
@@ -139,8 +139,11 @@ describe("parseAdSetupCsv", () => {
       parseAdSetupCsv(adCsv.replace(",2300,,yes,", ",2300,,maybe,")),
     ).toThrow("Row 2: recurring must be yes, no or blank.");
     expect(() => parseAdSetupCsv(adCsv.replace("2200", "2200h"))).toThrow(
-      /^Row 2: Use positive hours/,
+      "Row 2: Use hours of 0 or more, such as 1234.5.",
     );
+    expect(parseAdSetupCsv(adCsv.replace("2200", "0"))[0]).toMatchObject({
+      complianceHours: 0,
+    });
   });
 });
 

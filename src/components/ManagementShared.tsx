@@ -61,7 +61,7 @@ export const num = (d: FormData, k: string) =>
  * Reads an hours field as seconds.
  *
  * @returns The seconds, or undefined when the field is blank.
- * @throws Error "Use positive hours with at most one decimal place." or
+ * @throws Error "Use hours of 0 or more, with at most one decimal place." or
  *   "Meter reading is too large." from parseHours.
  */
 export const secs = (d: FormData, k: string) => parseHours(value(d, k));

@@ -83,7 +83,7 @@ describe("attachment files", () => {
       expect(() => validateInventoryFile(name, type, 1)).toThrow(Rejection);
       expect(() => validateInventoryFile(name, type, 1)).toThrow(wrongFile);
     }
-    const wrongSize = Error("Attachments must be between 1 byte and 7 MB.");
+    const wrongSize = Error("Attachments must be between 1 byte and 7 MiB.");
     for (const size of [0, 1.5, MAX_ACTION_FILE_BYTES + 1]) {
       expect(() =>
         validateInventoryFile("a.pdf", "application/pdf", size),

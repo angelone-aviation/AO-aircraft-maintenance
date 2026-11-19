@@ -178,7 +178,7 @@ export const finishUpload = internalMutation({
  * @param name - The file name shown on the order.
  * @param type - The file's MIME type.
  * @param bytes - The file.
- * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", before
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MiB.", before
  *   any permission check; as {@link finishUpload}.
  */
 export const upload = action({

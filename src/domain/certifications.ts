@@ -19,7 +19,6 @@ const CERTIFICATE_NUMBER_MAX_LENGTH = 100;
 // and zod checks the cap first.
 const DUPLICATE_KIND = "Each certification may be selected only once.";
 const LICENSE_COPY_NAME_MAX_LENGTH = 200;
-// 5 MiB, although the refusal says "5 MB".
 const LICENSE_COPY_MAX_BYTES = 5 * 1024 * 1024;
 // A Map, not an object literal: the type is user input, and "constructor"
 // would find an inherited property instead of no entry.
@@ -243,7 +242,7 @@ export function memberLicense(
  * @param size - The file size in bytes.
  * @throws {Rejection} "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license
  *   copy." for any other file; "License copies must be between 1 byte and 5
- *   MB." outside 1 byte to 5 MiB.
+ *   MiB." for any other size.
  */
 export function validateCertificationFile(
   name: string,
@@ -260,7 +259,7 @@ export function validateCertificationFile(
       "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
     );
   if (!Number.isSafeInteger(size) || size <= 0 || size > LICENSE_COPY_MAX_BYTES)
-    throw new Rejection("License copies must be between 1 byte and 5 MB.");
+    throw new Rejection("License copies must be between 1 byte and 5 MiB.");
 }
 
 function isRating(c: Certification): c is Certification & { kind: RatingKind } {

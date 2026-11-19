@@ -222,7 +222,7 @@ export function assertRecordsExporter(s: Snapshot, aircraftUuid: string) {
  * @param files - The package's files in order.
  * @param limit - The most bytes to take; {@link MAX_PACKAGE_FILE_BYTES}.
  * @returns The files to fetch, and the skipped ones with the reason
- *   "Over the 150 MB package limit".
+ *   "Over the 150 MiB package limit".
  */
 export function planPackageFiles(
   files: PackageFile[],
@@ -231,7 +231,7 @@ export function planPackageFiles(
   const included: PackageFile[] = [];
   const skipped: SkippedFile[] = [];
   let total = 0;
-  const reason = `Over the ${limit / MEGABYTE} MB package limit`;
+  const reason = `Over the ${limit / MEGABYTE} MiB package limit`;
   for (const file of files) {
     if (total + file.size > limit) {
       skipped.push({ file, reason });

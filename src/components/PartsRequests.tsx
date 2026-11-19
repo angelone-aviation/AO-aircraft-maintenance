@@ -7,8 +7,8 @@
  *   partsRequestPdf on demand), src/domain (model, vendors, management,
  *   components, addresses, programs, requiredParts, shelfLife, partsRequests,
  *   partsRequestRules, purchaseOrders (types), aircraftSpruce, costs/units),
- *   ./Vendors, ./AircraftSpruce, ./SavedAddresses, ./PurchaseOrders, ./ui,
- *   ./design, ./ShopList, CSS.
+ *   ./Vendors, ./AircraftSpruce, ./SavedAddresses, ./PurchaseOrders,
+ *   ./NumberInput, ./ui, ./design, ./ShopList, CSS.
  */
 import { VendorPicker, newVendor } from "./Vendors";
 import { localDate } from "../domain/model";
@@ -52,6 +52,7 @@ import type { PODraft } from "../domain/purchaseOrders";
 import { REQUEST_STATUSES, requestPODraft } from "../domain/partsRequestRules";
 import { POEditor, PODetail } from "./PurchaseOrders";
 import { AsyncForm, Field, Modal, errorText } from "./ui";
+import { NumberInput } from "./NumberInput";
 import {
   EmptyState,
   PageHeader,
@@ -1053,14 +1054,13 @@ function LineQuantityFields({ editor, line: l }: LineProps) {
   return (
     <>
       <Field label="Quantity">
-        <input
-          type="number"
+        <NumberInput
           min={1}
           step={1}
           required
           value={l.quantity}
           readOnly={editor.draft.mode === "repair"}
-          onChange={(e) => set({ quantity: Number(e.target.value) })}
+          onValue={(quantity) => set({ quantity })}
         />
       </Field>
       <Field label="IPC / manual reference">
@@ -1090,17 +1090,12 @@ function RepairWorkFields({ editor, line: l }: LineProps) {
         </select>
       </Field>
       <Field label={`Quoted cost (${editor.draft.currency})`}>
-        <input
-          type="number"
+        <NumberInput
           min={0}
           step="0.01"
           value={l.quotedCents / CENTS_PER_DOLLAR}
-          onChange={(e) =>
-            set({
-              quotedCents: Math.round(
-                Number(e.target.value) * CENTS_PER_DOLLAR,
-              ),
-            })
+          onValue={(amount) =>
+            set({ quotedCents: Math.round(amount * CENTS_PER_DOLLAR) })
           }
         />
       </Field>
@@ -1745,13 +1740,12 @@ function QuantityField({
 }) {
   return (
     <Field label="Quantity">
-      <input
+      <NumberInput
         required
-        type="number"
         min={1}
         step={1}
         value={quantity}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onValue={onChange}
       />
     </Field>
   );

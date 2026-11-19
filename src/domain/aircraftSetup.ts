@@ -264,7 +264,7 @@ const adRowSchema = z.object({
  * @param csv - The file's text; a leading byte-order mark is ignored.
  * @returns The rows in file order; the header row alone gives [].
  * @throws {Rejection} "Use columns: …" for other headers; the
- *   {@link readCsvRows} limits (2 MB, 2,000 rows); or "Row <n>: <reason>" for
+ *   {@link readCsvRows} limits (2 MiB, 2,000 rows); or "Row <n>: <reason>" for
  *   a blank name, an interval or count that is not a positive whole number,
  *   hours that are not in tenths, or a date that is not YYYY-MM-DD.
  */
@@ -508,7 +508,7 @@ function readCount(value: string): number | undefined {
 function readDecimal(value: string): number | undefined {
   if (!value) return undefined;
   if (!/^\d+(\.\d+)?$/.test(value))
-    throw new Rejection("Use positive hours such as 1234.5.");
+    throw new Rejection("Use hours of 0 or more, such as 1234.5.");
   return Number(value);
 }
 

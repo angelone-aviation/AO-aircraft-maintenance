@@ -73,8 +73,8 @@ export function parseADTables(tables: string[][][]): ADImport {
  * @param file - The uploaded report.
  * @returns As {@link parseADTables}.
  * @throws {Error} "Choose a .docx Word document. Save older .doc files as
- *   .docx first."; "Report must be smaller than 10 MB." (10 MiB); "Document
- *   is invalid or its contents exceed 20 MB." without a document part under
+ *   .docx first."; "Report must be smaller than 10 MiB."; "Document
+ *   is invalid or its contents exceed 20 MiB." without a document part under
  *   20 MiB unzipped; "Unable to read Word document XML."; fflate's error for
  *   a file that is not a zip; and as {@link parseADTables}.
  */
@@ -84,7 +84,7 @@ export async function importADDocx(file: File): Promise<ADImport> {
       "Choose a .docx Word document. Save older .doc files as .docx first.",
     );
   if (file.size > MAX_REPORT_BYTES)
-    throw Error("Report must be smaller than 10 MB.");
+    throw Error("Report must be smaller than 10 MiB.");
   const doc = await readDocumentXml(file);
   return parseADTables(readTables(doc));
 }
@@ -174,7 +174,7 @@ async function readDocumentXml(file: File): Promise<Document> {
       e.name === DOCUMENT_XML && e.originalSize < MAX_DOCUMENT_XML_BYTES,
   });
   if (!zip[DOCUMENT_XML])
-    throw Error("Document is invalid or its contents exceed 20 MB.");
+    throw Error("Document is invalid or its contents exceed 20 MiB.");
   const doc = new DOMParser().parseFromString(
     strFromU8(zip[DOCUMENT_XML]),
     "application/xml",
@@ -184,20 +184,33 @@ async function readDocumentXml(file: File): Promise<Document> {
   return doc;
 }
 
-// A row also holds its properties (w:trPr), so only its w:tc children are
-// cells; a cell's text is its text runs joined by spaces.
+// A table's rows are its own w:tr children and a cell's text is its own text
+// runs, joined by spaces: a table nested in a cell is read once, as a table of
+// its own. A row also holds its properties (w:trPr), so only its w:tc
+// children are cells.
 function readTables(doc: Document): string[][][] {
   return Array.from(doc.getElementsByTagNameNS(WORDPROCESSINGML, "tbl")).map(
     (t) =>
-      Array.from(t.getElementsByTagNameNS(WORDPROCESSINGML, "tr")).map((r) =>
-        Array.from(r.children)
-          .filter((c) => c.localName === "tc")
-          .map((c) =>
-            Array.from(c.getElementsByTagNameNS(WORDPROCESSINGML, "t"))
-              .map((t) => t.textContent)
-              .join(" ")
-              .trim(),
-          ),
+      childrenNamed(t, "tr").map((r) =>
+        childrenNamed(r, "tc").map((c) =>
+          ownTextRuns(c)
+            .map((run) => run.textContent)
+            .join(" ")
+            .trim(),
+        ),
       ),
   );
+}
+
+function childrenNamed(parent: Element, localName: string): Element[] {
+  return Array.from(parent.children).filter((c) => c.localName === localName);
+}
+
+function ownTextRuns(parent: Element): Element[] {
+  return Array.from(parent.children).flatMap((child) => {
+    if (child.localName === "tbl") return [];
+    const isRun =
+      child.localName === "t" && child.namespaceURI === WORDPROCESSINGML;
+    return isRun ? [child] : ownTextRuns(child);
+  });
 }

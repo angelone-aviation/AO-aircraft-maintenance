@@ -11,7 +11,7 @@ import { exportFmd, importFmd } from "./fmd";
 import { emptyChecklist } from "../domain/checklists";
 
 const SIZE_ERROR =
-  "Invalid FMD file size. Choose a ForeFlight .fmd checklist under 2 MB.";
+  "Invalid FMD file size. Choose a ForeFlight .fmd checklist under 2 MiB.";
 const HTTPS_ERROR = "FMD import/export requires HTTPS or localhost.";
 const MAX_BYTES = 2 * 1024 * 1024;
 

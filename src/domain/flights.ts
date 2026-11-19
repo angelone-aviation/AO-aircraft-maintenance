@@ -524,6 +524,11 @@ function formatReading(k: ReadingField, v: number | undefined): string {
     : hours(v);
 }
 
+// A start time may carry an offset ("21:30-05:00"), and the text it goes into
+// says UTC, so it is converted rather than printed as written.
 function formatUtcMinute(iso: string): string {
-  return iso.slice(0, ISO_MINUTE_LENGTH).replace("T", " ");
+  return new Date(iso)
+    .toISOString()
+    .slice(0, ISO_MINUTE_LENGTH)
+    .replace("T", " ");
 }

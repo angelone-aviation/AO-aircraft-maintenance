@@ -10,11 +10,15 @@
 import { z } from "zod";
 import { Rejection } from "./rejection";
 
-const FIELD_MAX_LENGTH = 300;
+/** The most characters an address field other than the street may store. */
+export const ADDRESS_FIELD_MAX_LENGTH = 300;
 
-// Longer than other fields: blankAddress() puts a whole legacy address here.
-// COMBINED_MAX_LENGTH caps it near 1,890 in practice.
-const STREET_MAX_LENGTH = 2000;
+/**
+ * The most characters the street line may store. Longer than other fields:
+ * blankAddress() puts a whole legacy address here. COMBINED_MAX_LENGTH caps
+ * it near 1,890 in practice.
+ */
+export const ADDRESS_STREET_MAX_LENGTH = 2000;
 
 // formatAddress() output is stored in 2,000-character fields (PO shipTo,
 // vendorContact); this leaves room for its labels.
@@ -63,7 +67,7 @@ const REQUIRED_FIELDS = [
   ["phone", "Phone"],
 ] as const;
 
-const addressField = z.string().trim().max(FIELD_MAX_LENGTH);
+const addressField = z.string().trim().max(ADDRESS_FIELD_MAX_LENGTH);
 
 /**
  * A structured address and its receiving contact, as stored on records. Trims
@@ -78,7 +82,7 @@ export const addressSchema = z
   .object({
     addressName: addressField.optional(),
     organization: addressField.default(""),
-    street: z.string().trim().max(STREET_MAX_LENGTH).default(""),
+    street: z.string().trim().max(ADDRESS_STREET_MAX_LENGTH).default(""),
     street2: addressField.default(""),
     city: addressField.default(""),
     region: addressField.default(""),
@@ -164,7 +168,7 @@ export function formatAddress(address: Address): string {
  * the US ZIP and Canadian postal formats, and every schema rule.
  *
  * @param address - Address to check, as typed or as stored. Postal formats are
- *   checked on the value as given, untrimmed.
+ *   checked on the trimmed value.
  * @returns User-facing messages, each once: required fields (in form order),
  *   region, postal code, then schema messages. Empty if the address is usable.
  */
@@ -236,23 +240,20 @@ function listRegionIssues(address: Address, country: string): string[] {
   return address.region.trim() ? [] : ["State / province is required."];
 }
 
+// Checked trimmed, as addressSchema will store it, so a stray space does not
+// block confirming an address that would save cleanly.
 function listPostalCodeIssues(address: Address, country: string): string[] {
   const issues: string[] = [];
-  if (
-    !NO_POSTAL_CODE_COUNTRY_NAMES.includes(country) &&
-    !address.postalCode.trim()
-  )
+  const postalCode = address.postalCode.trim();
+  if (!NO_POSTAL_CODE_COUNTRY_NAMES.includes(country) && !postalCode)
     issues.push(
       "ZIP / postal code is required (enter N/A where no postal code is used).",
     );
-  if (
-    US_COUNTRY_NAMES.includes(country) &&
-    !US_ZIP_CODE.test(address.postalCode)
-  )
+  if (US_COUNTRY_NAMES.includes(country) && !US_ZIP_CODE.test(postalCode))
     issues.push("US ZIP code must be 5 digits or ZIP+4.");
   if (
     CANADA_COUNTRY_NAMES.includes(country) &&
-    !CANADIAN_POSTAL_CODE.test(address.postalCode)
+    !CANADIAN_POSTAL_CODE.test(postalCode)
   )
     issues.push("Canadian postal code must use the format A1A 1A1.");
   return issues;

@@ -377,7 +377,7 @@ describe("ReferenceLibrary", () => {
   it("uploads a manual for the chosen aircraft with its applicability", async () => {
     render(h(ReferenceLibrary, {}));
     const html = click("Upload manual");
-    expect(html).toContain("PDF up to 200 MB.");
+    expect(html).toContain("PDF up to 200 MiB.");
     const save = ui.forms.get("Save manual")!.onSubmit as (
       d: FormData,
     ) => Promise<void>;

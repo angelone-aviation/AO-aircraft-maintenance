@@ -99,9 +99,9 @@ export const finishUpload = internalMutation({
  * @param programUuid - The caller's active Flight Program.
  * @param name - The file name; its extension must match `type`.
  * @param type - PDF, JPEG, PNG or WebP.
- * @param bytes - The file, at most 7 MB.
+ * @param bytes - The file, at most 7 MiB.
  * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file." or
- *   "Attachments must be between 1 byte and 7 MB.", checked first; then
+ *   "Attachments must be between 1 byte and 7 MiB.", checked first; then
  *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG or
  *   WebP file." when the first bytes are not the declared type's; the
  *   {@link finishUpload} refusals, after which the stored file is deleted.

@@ -264,7 +264,7 @@ it("shows refusals from functions outside runCommand to the client", async () =>
         }),
     ],
     [
-      "Choose a PDF up to 200 MB.",
+      "Choose a PDF up to 200 MiB.",
       () =>
         maintainer.mutation(api.manuals.beginUpload, {
           payload: JSON.stringify(manual),

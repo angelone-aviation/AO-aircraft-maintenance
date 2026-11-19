@@ -49,7 +49,8 @@ type DrsComboBoxProps = {
 /**
  * Make or model field with a WAI-ARIA combobox list of FAA DRS names and
  * names recorded in the program, then the typed text as a custom entry. A
- * note under the field names where the current text comes from.
+ * note under the field names where the current text comes from. Escape
+ * closes an open list; with the list closed, it closes an enclosing dialog.
  *
  * @param props.kind - Whether to suggest makes or models.
  * @param props.value - Controlled text; without it the field keeps its own,
@@ -149,7 +150,9 @@ function handleKeyDown(
     return;
   }
   if (key === "Escape") {
-    // Closes the list only, not an enclosing dialog.
+    // An open list takes the first Escape, so the enclosing dialog stays
+    // open; with the list closed, Escape reaches the dialog and closes it.
+    if (!list.open) return;
     event.preventDefault();
     event.stopPropagation();
     list.setOpen(false);

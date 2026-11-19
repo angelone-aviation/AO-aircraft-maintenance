@@ -103,11 +103,11 @@ describe("FlightLogImportButton", () => {
     expect(render()).toBe("");
   });
 
-  it("refuses an empty file or one over 5 MB", async () => {
+  it("refuses an empty file or one over 5 MiB", async () => {
     const tooLarge = "x".repeat(5 * 1024 * 1024 + 1);
     for (const contents of ["", tooLarge])
       await expect(preview(contents)).rejects.toThrow(
-        "Choose a logbook CSV up to 5 MB.",
+        "Choose a logbook CSV up to 5 MiB.",
       );
   });
 

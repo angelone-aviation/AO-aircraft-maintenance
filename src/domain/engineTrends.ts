@@ -13,7 +13,7 @@ import { latestLocalDate } from "./model";
 import { Rejection } from "./rejection";
 import { requestUuidField } from "./commandRequest";
 
-/** Largest engine-data file accepted, in megabytes. */
+/** Largest engine-data file accepted, in MiB. */
 export const ENGINE_FILE_MAX_MEGABYTES = 7;
 
 /** A CHT spread across cylinders above this, in °F, is flagged. */
@@ -250,7 +250,7 @@ export function parseExportTime(text: string) {
  * @param fileName - The file's name, kept to 200 characters.
  * @returns The summary, readings rounded to tenths; its date is the first
  *   dated row's, and its duration runs from the first to the last timed row.
- * @throws {Rejection} For a file over 7 MB, no engine columns, no date column
+ * @throws {Rejection} For a file over 7 MiB, no engine columns, no date column
  *   or dated row, a date in the future, or no sample with the engine running;
  *   also as {@link readCsvRows}.
  * @throws {z.ZodError} When the summary fails the schema (over 7 days long).
@@ -258,7 +258,7 @@ export function parseExportTime(text: string) {
 export function parseEngineLog(text: string, fileName: string): EngineSummary {
   if (text.length > ENGINE_FILE_MAX_BYTES)
     throw new Rejection(
-      `Engine data files must be at most ${ENGINE_FILE_MAX_MEGABYTES} MB.`,
+      `Engine data files must be at most ${ENGINE_FILE_MAX_MEGABYTES} MiB.`,
     );
   const { body, airframeInfo, unitsRow } = stripCommentLines(text);
   const rows = readCsvRows(body, {
@@ -427,7 +427,7 @@ interface SampleTotals {
 }
 
 // A longer cell names no channel or date column, so it is not read at all:
-// the header search reads every cell of the first 20 rows of a 7 MB file.
+// the header search reads every cell of the first 20 rows of a 7 MiB file.
 function normalizeHeader(header: string) {
   if (header.length > HEADER_CELL_MAX) return "";
   return splitUnitMarks(header.toLowerCase()).name.replace(/[^a-z0-9]/g, "");

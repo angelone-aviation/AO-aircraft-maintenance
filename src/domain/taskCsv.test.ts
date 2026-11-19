@@ -187,7 +187,7 @@ const COLUMNS =
 
 it("refuses a file or row it cannot read, naming the row", () => {
   const cases: [string, string][] = [
-    ["é".repeat(1024 * 1024 + 1), "Choose a CSV up to 2 MB."],
+    ["é".repeat(1024 * 1024 + 1), "Choose a CSV up to 2 MiB."],
     [HEADER, "Choose a CSV with headers and task rows."],
     [`Task,${HEADER}\nA1`, "Duplicate CSV headers are not allowed."],
     [`${HEADER},Notes\nA1,Inspect,,,,`, COLUMNS],
@@ -225,7 +225,7 @@ it("refuses a file or row it cannot read, naming the row", () => {
 
 it("measures the CSV limit in UTF-8 bytes when parsing, in characters in a request", () => {
   const atLimit = "é".repeat(CSV_MAX_BYTES / 2);
-  const size = "Choose a CSV up to 2 MB.";
+  const size = "Choose a CSV up to 2 MiB.";
   expect(() => parseTaskCsv(atLimit)).not.toThrow(size);
   expect(() => parseTaskCsv(atLimit + "x")).toThrow(size);
   const field = taskCsvImportSchema.shape.csv;

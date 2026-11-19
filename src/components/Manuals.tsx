@@ -802,7 +802,7 @@ function UploadFields({
   return (
     <>
       <p>
-        PDF up to {MAX_MANUAL_BYTES / BYTES_PER_MEGABYTE} MB. Each upload is
+        PDF up to {MAX_MANUAL_BYTES / BYTES_PER_MEGABYTE} MiB. Each upload is
         saved separately to preserve references to earlier revisions.
       </p>
       {!aircraftUuid && (

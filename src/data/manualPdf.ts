@@ -25,7 +25,7 @@ type LoadingTask = ReturnType<typeof getDocument>;
  * @param file - The uploaded PDF.
  * @returns Its page count.
  * @throws {Error} As `validateManualFile` for a file that is not a PDF up to
- *   200 MB; "Upload a PDF that opens without a password." for an encrypted
+ *   200 MiB; "Upload a PDF that opens without a password." for an encrypted
  *   one; PDF.js's error for an unreadable one.
  */
 export async function inspectManualPdf(file: File) {
