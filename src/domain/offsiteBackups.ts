@@ -10,8 +10,12 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const DAYS_FROM = 2 * DAY;
 
-/** How old the newest copy may be before system administrators are warned. */
-export const OFFSITE_STALE_AFTER_MS = 36 * HOUR;
+/**
+ * How old the newest copy may be before system administrators are warned:
+ * one nightly period plus slack for GitHub's late starts, so a missed night
+ * is reported at the next day's digest (decision D10).
+ */
+export const OFFSITE_STALE_AFTER_MS = 26 * HOUR;
 
 /** The newest recorded off-site copy, as system administrators see it. */
 export interface OffsiteCopy {
@@ -38,13 +42,13 @@ export interface OffsiteFreshness {
 }
 
 /**
- * Rates the newest off-site copy against the 36-hour limit, and words its age
+ * Rates the newest off-site copy against the 26-hour limit, and words its age
  * in whole minutes, hours (under two days) or days, rounded down.
  *
  * @param latest - The newest recorded copy, or null/undefined before the first.
  * @param now - The current time (epoch ms). A copy stamped later, by a backup
  *   job whose clock runs ahead, counts as just made.
- * @returns `none` before the first copy; `ok` up to and including 36 hours;
+ * @returns `none` before the first copy; `ok` up to and including 26 hours;
  *   `stale` after that, with a message pointing to the backup job.
  */
 export function offsiteFreshness(

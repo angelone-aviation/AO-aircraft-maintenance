@@ -4,16 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite",
     "dev:backend": "convex dev",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host 0.0.0.0",
+    "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "lint": "oxlint src convex tests scripts worker",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
-    "dev:demo": "VITE_DEMO_MODE=true vite --host 0.0.0.0",
+    "dev:demo": "VITE_DEMO_MODE=true vite",
     "dev:local": "CONVEX_AGENT_MODE=anonymous convex dev --local-backend-version precompiled-2026-09-28-5c7cb5b",
     "setup:auth": "node scripts/configure-auth.mjs",
     "setup:admin": "node scripts/bootstrap-admin.mjs",
@@ -57,6 +57,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
     "convex-test": "^0.0.66",
+    "esbuild": "0.27.0",
     "exceljs": "4.4.0",
     "fake-indexeddb": "^6.2.7",
     "jose": "^6.2.15",
@@ -70,7 +71,8 @@
     "workbox-expiration": "^7.4.1",
     "workbox-precaching": "^7.4.1",
     "workbox-routing": "^7.4.1",
-    "workbox-strategies": "^7.4.1"
+    "workbox-strategies": "^7.4.1",
+    "wrangler": "4.153.0"
   },
   "engines": {
     "node": ">=22.12.0"

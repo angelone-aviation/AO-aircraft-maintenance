@@ -32,7 +32,7 @@ import {
   plainErrors,
   errorsOf,
   validationErrors,
-  allErrors,
+  hideErrors,
   requestOf,
   requestUuidIn,
   RECORD_TAKEN,
@@ -638,17 +638,38 @@ it("shows a zod refusal from parse or apply only to a command that opts in", asy
   expect(await f.flightPlans()).toEqual([]);
 });
 
-it("gives a zod refusal's issue text under validationErrors and allErrors only", () => {
+it("gives a zod refusal's issue text under validationErrors only", () => {
   const refused = z
     .object({ name: z.string().min(1, "Enter a name."), code: z.number() })
     .safeParse({ name: "", code: "x" }).error!;
   const text = "Enter a name.\nInvalid input: expected number, received string";
   expect(validationErrors(refused)).toBe(text);
-  expect(allErrors(refused)).toBe(text);
   expect(plainErrors(refused)).toBeUndefined();
   expect(validationErrors(new ZodError([]))).toBeUndefined();
   expect(validationErrors(new Error("Plan overlaps."))).toBeUndefined();
-  expect(allErrors(new Error("Plan overlaps."))).toBe("Plan overlaps.");
+});
+
+// Finding E-16: a runtime or parser error's own text is not for users, and
+// can quote the payload, so the log gets its class and place, never its text.
+it("shows the safe message for any error under hideErrors, logging no error text", () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const hide = hideErrors("Could not save.");
+  let fault: unknown;
+  try {
+    JSON.parse('{ "name": "Jane Pilot"');
+  } catch (error) {
+    fault = error;
+  }
+  expect(hide(fault)).toBe("Could not save.");
+  expect(hide(new TypeError("payload.rows is undefined"))).toBe(
+    "Could not save.",
+  );
+  expect(hide("thrown text")).toBe("Could not save.");
+  const logged = JSON.stringify(log.mock.calls);
+  expect(logged).toContain("SyntaxError");
+  expect(logged).toContain("TypeError");
+  expect(logged).not.toMatch(/Jane Pilot|payload\.rows|thrown text/);
+  log.mockRestore();
 });
 
 // Cost records: one the command changes, one it leaves as stored, one it

@@ -90,14 +90,14 @@ export const list = query({
  *
  * @param id - The copy.
  * @returns A URL to download it, or null when its stored file is gone.
- * @throws {ConvexError} "License copy not found."; as {@link list}.
+ * @throws {Error} The session refusal of `currentUser`, first.
+ * @throws {ConvexError} "License copy not found.", also for another
+ *   member's copy unless the caller is a system administrator.
  */
 export const fileUrl = query({
   args: { id: v.id("certificationFiles") },
   handler: async (ctx, { id }) => {
-    const file = await ctx.db.get(id);
-    if (!file) throw new ConvexError("License copy not found.");
-    await authorize(ctx, file.userId);
+    const { file } = await readableCopy(ctx, id);
     return ctx.storage.getUrl(file.storageId);
   },
 });
@@ -200,14 +200,14 @@ export const upload = action({
  * "user.license_copy_deleted".
  *
  * @param id - The copy.
- * @throws {ConvexError} "License copy not found."; as {@link list}.
+ * @throws {Error} The session refusal of `currentUser`, first.
+ * @throws {ConvexError} "License copy not found.", also for another
+ *   member's copy unless the caller is a system administrator.
  */
 export const remove = mutation({
   args: { id: v.id("certificationFiles") },
   handler: async (ctx, { id }) => {
-    const file = await ctx.db.get(id);
-    if (!file) throw new ConvexError("License copy not found.");
-    const { actor } = await authorize(ctx, file.userId);
+    const { actor, file } = await readableCopy(ctx, id);
     await ctx.storage.delete(file.storageId);
     await ctx.db.delete(id);
     await audit(ctx, actor._id, "user.license_copy_deleted", file.userId);
@@ -223,6 +223,19 @@ async function authorize(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
   const user = await ctx.db.get(userId);
   if (!user) throw new ConvexError("User not found.");
   return { actor, user };
+}
+
+// The session comes first, and another member's copy is refused as a missing
+// one, so an id never tells that the copy exists (security review T4).
+async function readableCopy(
+  ctx: QueryCtx | MutationCtx,
+  id: Id<"certificationFiles">,
+) {
+  const actor = await currentUser(ctx);
+  const file = await ctx.db.get(id);
+  if (!file || (file.userId !== actor._id && !actor.isAdmin))
+    throw new ConvexError("License copy not found.");
+  return { actor, file };
 }
 
 function holdsCertification(user: Doc<"users">, kind: string): boolean {

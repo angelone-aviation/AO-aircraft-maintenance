@@ -1,14 +1,22 @@
 /**
  * Responsibility: Pins the rate-limit counter: epoch-aligned windows, a
- *   refusal that records nothing, multi-use costs, and refunds that stay in
- *   their window and never go below zero.
+ *   refusal that records nothing, multi-use costs, several allowances spent
+ *   together or not at all, refunds that stay in their window and never go
+ *   below zero, and a program's share of a shared allowance.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/rateLimits.ts, convex/schema.ts.
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import schema from "./schema";
-import { consume, DAY, HOUR, refund } from "./rateLimits";
+import {
+  consume,
+  consumeAll,
+  DAY,
+  HOUR,
+  programShare,
+  refund,
+} from "./rateLimits";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -55,6 +63,25 @@ it("counts a multi-use call whole, and refuses it whole when it would pass the l
   expect((await w.rows())[0].count).toBe(5);
 });
 
+it("spends several allowances together, or none when any would pass its limit", async () => {
+  const t = convexTest(schema, modules);
+  const user = { key: "user", limit: 1, windowMs: DAY, message: "User cap." };
+  const all = { key: "all", limit: 2, windowMs: DAY, message: "All cap." };
+  const counts = async () =>
+    (await t.run((ctx) => ctx.db.query("rateLimits").collect())).map(
+      (r) => `${r.key}=${r.count}`,
+    );
+  await t.run((ctx) => consumeAll(ctx, [user, all]));
+  await expect(t.run((ctx) => consumeAll(ctx, [user, all]))).rejects.toThrow(
+    "User cap.",
+  );
+  await t.run((ctx) => consumeAll(ctx, [{ ...user, key: "other" }, all]));
+  await expect(
+    t.run((ctx) => consumeAll(ctx, [{ ...user, key: "third" }, all])),
+  ).rejects.toThrow("All cap.");
+  expect(await counts()).toEqual(["user=1", "all=2", "other=1"]);
+});
+
 it("starts a DAY window at 00:00 UTC, whatever time the first use came", async () => {
   const w = world();
   await w.use(1);
@@ -97,4 +124,11 @@ it("judges the refund's window by the length the caller passes", async () => {
   // The DAY window began at midnight; the HOUR window now began at 23:00.
   await w.giveBack(1, HOUR);
   expect((await w.rows())[0].count).toBe(2);
+});
+
+it("splits an allowance equally between programs, rounding down, never below the floor", () => {
+  expect(programShare(2900, 0, 100)).toBe(2900);
+  expect(programShare(2900, 1, 100)).toBe(2900);
+  expect(programShare(2900, 3, 100)).toBe(966);
+  expect(programShare(2900, 30, 100)).toBe(100);
 });

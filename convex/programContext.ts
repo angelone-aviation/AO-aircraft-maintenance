@@ -108,24 +108,19 @@ export async function perAircraft<T>(
 }
 
 /**
- * The program's records, plus legacy rows stored without a program: the
- * domain derives their program from their location, component or aircraft
- * (recordProgram).
+ * The program's inventory and component records. Rows stored without a
+ * program are the unassigned records, which only a system administrator
+ * reads, working in no program; no program's read set holds them (security
+ * review T7). Every save stamps the record's program, and a transfer moves
+ * it, so a program's own records always carry its uuid.
  *
- * @param programUuid - The program; undefined reads only the rows without one.
+ * @param programUuid - The program; undefined reads the unassigned rows.
  */
-export async function managementDocs(ctx: Ctx, programUuid?: string) {
-  const docs = await ctx.db
+export const managementDocs = (ctx: Ctx, programUuid?: string) =>
+  ctx.db
     .query("management")
     .withIndex("program", (q) => q.eq("programUuid", programUuid))
     .collect();
-  if (programUuid === undefined) return docs;
-  const legacy = await ctx.db
-    .query("management")
-    .withIndex("program", (q) => q.eq("programUuid", undefined))
-    .collect();
-  return [...docs, ...legacy];
-}
 
 /**
  * The aircraft's inspections, plus those of removed components, which travel

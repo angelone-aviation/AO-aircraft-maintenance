@@ -4,7 +4,7 @@
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/identities, convex/rateLimits, convex/schema.
  */
-import { convexTest } from "convex-test";
+import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConvexError } from "convex/values";
 import schema from "./schema";
@@ -70,14 +70,7 @@ it("logs at most 300 refusals an hour for the deployment", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-03T10:30:00Z"));
   const t = convexTest(schema, modules);
-  const now = Date.now();
-  await t.run((ctx) =>
-    ctx.db.insert("rateLimits", {
-      key: "sso-refused",
-      windowStart: now - (now % HOUR),
-      count: 300,
-    }),
-  );
+  await fillAllowance(t, "sso-refused", 300);
   const log = vi.spyOn(console, "warn").mockImplementation(() => {});
   await t.mutation(internal.identities.recordRefusal, {
     provider: "microsoft-entra-id",
@@ -87,16 +80,56 @@ it("logs at most 300 refusals an hour for the deployment", async () => {
   expect(await t.run((ctx) => ctx.db.query("audit").collect())).toEqual([]);
   expect(log).toHaveBeenCalledTimes(1);
   log.mockRestore();
-  // Characterizes current behaviour (roadmap Finding 18): the identity's own
-  // count is still spent when the deployment cap refuses.
-  expect(
-    await t.run((ctx) =>
-      ctx.db
-        .query("rateLimits")
-        .withIndex("key", (q) =>
-          q.eq("key", "sso-refused:microsoft-entra-id:456"),
-        )
-        .unique(),
-    ),
-  ).toMatchObject({ count: 1 });
 });
+
+// Roadmap Finding 18: a refusal one cap drops must not spend the other's
+// allowance, or an identity stops being logged earlier than its cap says.
+it("spends neither cap on a refusal that one of them drops", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-03T10:30:00Z"));
+  const t = convexTest(schema, modules);
+  const identity = "sso-refused:google:789";
+  const refusal = {
+    provider: "google",
+    providerAccountId: "789",
+    reason: "no_account",
+  };
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  await fillAllowance(t, "sso-refused", 300);
+  await t.mutation(internal.identities.recordRefusal, refusal);
+  expect(await countOf(t, identity)).toBe(0);
+  await fillAllowance(t, "sso-refused", 0);
+  await fillAllowance(t, identity, 10);
+  await t.mutation(internal.identities.recordRefusal, refusal);
+  expect(await countOf(t, "sso-refused")).toBe(0);
+  expect(log).toHaveBeenCalledTimes(2);
+  log.mockRestore();
+});
+
+// Sets a rate-limit key's count for the current hour.
+async function fillAllowance(
+  t: TestConvex<typeof schema>,
+  key: string,
+  count: number,
+) {
+  const now = Date.now();
+  const windowStart = now - (now % HOUR);
+  await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("rateLimits")
+      .withIndex("key", (q) => q.eq("key", key))
+      .unique();
+    if (row) await ctx.db.patch(row._id, { windowStart, count });
+    else await ctx.db.insert("rateLimits", { key, windowStart, count });
+  });
+}
+
+async function countOf(t: TestConvex<typeof schema>, key: string) {
+  const row = await t.run((ctx) =>
+    ctx.db
+      .query("rateLimits")
+      .withIndex("key", (q) => q.eq("key", key))
+      .unique(),
+  );
+  return row?.count ?? 0;
+}

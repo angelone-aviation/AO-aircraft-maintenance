@@ -30,7 +30,10 @@
  * Before Batch 292 it said "Select at least one group with read access." and
  * "Select groups within this Flight Program.", and saved a group with a name
  * over 100 characters, write permissions without read, or no Flight Program,
- * untrimmed and with repeats.
+ * untrimmed and with repeats. Before Finding 59's fix it logged no FAA
+ * command or program selection, said "Permission denied." and had no monitor
+ * cap, let anyone create an account unnormalized, kept unknown group ids,
+ * said "PO access denied." and logged evidence without the card.
  */
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
@@ -57,7 +60,7 @@ import { poSchema } from "../domain/purchaseOrders";
 import type { Manual } from "../domain/manuals";
 import type { Group } from "../domain/model";
 import { addressSchema } from "../domain/addresses";
-import type { FaaMonitor } from "../domain/faa";
+import { MAX_ENABLED_FAA_MONITORS, type FaaMonitor } from "../domain/faa";
 import type { Backend } from "./backend";
 import { taskCardCommand } from "../../tests/fixtures/taskCards";
 import { templateDeletionFixture } from "../../tests/fixtures/templateDeletion";
@@ -773,8 +776,12 @@ it("files evidence on a signed job card: every signoff cleared, at a new version
     action: "taskCard.evidence",
     entityUuid: card.uuid,
     aircraftUuid: card.aircraftUuid,
-    before: undefined,
-    after: JSON.stringify({ name: "scan.pdf", category: "parts-traceability" }),
+    before: JSON.stringify(card),
+    after: JSON.stringify({
+      ...s.taskCards![0],
+      evidenceName: "scan.pdf",
+      category: "parts-traceability",
+    }),
   });
 });
 
@@ -1038,7 +1045,72 @@ it("configures an FAA monitor as the server does: the run and its error reset", 
   ]);
 });
 
+// Roadmap Finding 59: the demo logged no FAA command or program selection,
+// worded the permission refusal its own way and had no monitor cap.
+it("audits an FAA command and a program selection as the server does", async () => {
+  const { backend, stored } = await demo("demo-faa-audit");
+  const command = {
+    kind: "configure" as const,
+    aircraftUuid: MONITOR.aircraftUuid,
+    enabled: true,
+    terms: ["IO-540"],
+  };
+  await backend.faaCommand(command);
+  await backend.selectProgram(PROGRAM);
+  const [selected, configured] = (await stored()).audit;
+  expect(configured).toMatchObject({
+    action: "faa.configure",
+    entityUuid: MONITOR.aircraftUuid,
+    aircraftUuid: MONITOR.aircraftUuid,
+    programUuid: PROGRAM,
+    after: JSON.stringify(command),
+  });
+  expect(selected).toMatchObject({
+    action: "program.selected",
+    entityUuid: PROGRAM,
+    programUuid: PROGRAM,
+  });
+});
+
+it("refuses a 26th monitored aircraft with the server's cap", async () => {
+  const { backend, stored } = await demo("demo-faa-cap", (seed) => {
+    const [first] = seed.aircraft;
+    for (let i = 0; i < MAX_ENABLED_FAA_MONITORS; i++) {
+      seed.aircraft.push({ ...first, uuid: `other-${i}` });
+      (seed.faaMonitors ??= []).push({
+        ...MONITOR,
+        aircraftUuid: `other-${i}`,
+        enabled: true,
+      });
+    }
+  });
+  const before = await stored();
+  const error = await backend
+    .faaCommand({
+      kind: "configure",
+      aircraftUuid: MONITOR.aircraftUuid,
+      enabled: true,
+      terms: [],
+    })
+    .catch((e) => e);
+  expect(error).toBeInstanceOf(Rejection);
+  expect(error).toMatchObject({
+    message: `A Flight Program can monitor at most ${MAX_ENABLED_FAA_MONITORS} aircraft daily. Turn off monitoring on another aircraft first.`,
+  });
+  expect(await stored()).toEqual(before);
+});
+
 it.each<[string, (backend: Backend) => Promise<unknown>]>([
+  [
+    "Aircraft maintenance permission required.",
+    (backend) =>
+      backend.faaCommand({
+        kind: "configure",
+        aircraftUuid: "unknown-aircraft",
+        enabled: true,
+        terms: [],
+      }),
+  ],
   [
     "Candidate not found.",
     (backend) =>
@@ -1066,6 +1138,66 @@ it.each<[string, (backend: Backend) => Promise<unknown>]>([
     expect(await stored()).toEqual(before);
   },
 );
+
+it.each<[string, (s: Snapshot) => void, string]>([
+  [
+    "Inventory administrator access required.",
+    (s) => {
+      withRecords(s);
+      s.user = { ...s.user, isAdmin: false, groupIds: [] };
+    },
+    "po",
+  ],
+  ["PO not found.", withRecords, "no-such-po"],
+])(
+  "refuses a purchase-order file with the server's %s",
+  async (message, edit, poUuid) => {
+    const { backend, stored } = await demo(`demo-po-file-${poUuid}`, edit);
+    const before = await stored();
+    const error = await backend
+      .attachPOFile(poUuid, undefined, pdf())
+      .catch((e) => e);
+    expect(error).toMatchObject({ message });
+    expect(await stored()).toEqual(before);
+  },
+);
+
+it("creates an account as the server does: administrators only, email and name normalized", async () => {
+  const password = "a-long-demo-password-1";
+  const { backend, stored } = await demo("demo-create-user");
+  const id = await backend.createUser(
+    " New@Example.TEST ",
+    " New User ",
+    password,
+  );
+  expect((await stored()).members.find((m) => m.id === id)).toMatchObject({
+    email: "new@example.test",
+    name: "New User",
+  });
+  const member = await demo("demo-create-user-member", (seed) => {
+    seed.user = { ...seed.user, isAdmin: false };
+  });
+  const before = await member.stored();
+  const error = await member.backend
+    .createUser("other@example.test", "Other", password)
+    .catch((e) => e);
+  expect(error).toMatchObject({
+    message: "Administrator permission required.",
+  });
+  expect(await member.stored()).toEqual(before);
+});
+
+it("refuses a group id no group has, as the server does", async () => {
+  const { backend, stored } = await demo("demo-unknown-group");
+  const before = await stored();
+  const pilot = before.members.find((m) => !m.isAdmin)!;
+  const error = await backend
+    .updateUser({ ...pilot, groupIds: [...pilot.groupIds, "no-such-group"] })
+    .catch((e) => e);
+  expect(error).toBeInstanceOf(Rejection);
+  expect(error).toMatchObject({ message: "Group not found." });
+  expect(await stored()).toEqual(before);
+});
 
 // The seed plus a write-only group in the program and a group elsewhere.
 function withGroups(s: Snapshot) {

@@ -8,7 +8,9 @@
 import { describe, expect, it } from "vitest";
 import {
   assertAccessGroups,
+  assertAccountAdministrator,
   assertGrantsRead,
+  assertKnownGroups,
   assertProgramGroups,
   grantsRead,
   isProgramMember,
@@ -153,6 +155,29 @@ describe("member access refusals", () => {
     expectRejection(
       () => assertAccessGroups(GROUPS, ["writers"]),
       "Select a group with read access.",
+    );
+  });
+});
+
+describe("account administration refusals", () => {
+  const user = { id: "u", name: "U", email: "", groupIds: [] };
+  it("admits only an active system administrator", () => {
+    assertAccountAdministrator({ ...user, active: true, isAdmin: true });
+    for (const flags of [
+      { active: false, isAdmin: true },
+      { active: true, isAdmin: false },
+    ])
+      expectRejection(
+        () => assertAccountAdministrator({ ...user, ...flags }),
+        "Administrator permission required.",
+      );
+  });
+
+  it("refuses a group id no group has, in any program", () => {
+    assertKnownGroups(GROUPS, ["elsewhere", "observers"]);
+    expectRejection(
+      () => assertKnownGroups(GROUPS, ["observers", "gone"]),
+      "Group not found.",
     );
   });
 });

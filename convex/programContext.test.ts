@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the Flight Program context check and what the scoped
- *   loaders add beyond their index: legacy, removed-component and settings
- *   rows, and the History list's limit and order.
+ *   loaders read beyond their index: unassigned, removed-component and
+ *   settings rows, and the History list's limit and order.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/programContext.ts, convex/schema.ts, src/data/demo.ts
  *   (fixture).
@@ -127,7 +127,10 @@ it("refuses a missing session with a plain Error", async () => {
   expect(error).not.toBeInstanceOf(ConvexError);
 });
 
-it("adds legacy records without a program, and reads only those without one", async () => {
+// Security review T7: rows saved without a program are the unassigned
+// records, which only a system administrator reads (by working in no
+// program); no program's read set holds them.
+it("reads only the program's records, and without a program only the unassigned ones", async () => {
   const f = await fixture();
   const uuids = await f.t.run(async (ctx) => {
     for (const [uuid, programUuid] of [
@@ -145,7 +148,7 @@ it("adds legacy records without a program, and reads only those without one", as
       (await managementDocs(ctx, program)).map((d) => d.uuid);
     return { program: await of(PROGRAM), none: await of(undefined) };
   });
-  expect(uuids).toEqual({ program: ["mine", "legacy"], none: ["legacy"] });
+  expect(uuids).toEqual({ program: ["mine"], none: ["legacy"] });
 });
 
 it("adds each inspection of a removed component once", async () => {
