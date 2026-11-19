@@ -4,8 +4,11 @@
  * Layer: UI. React components; reads and writes through the workspace backend.
  * Dependencies: react, react-dom, @phosphor-icons/react, src/data/store.ts,
  *   src/data/backend.ts (types), src/domain/addresses.ts,
- *   src/domain/savedAddresses.ts (types), ./AddressFields.tsx, ./ShopList.tsx,
- *   ./design.tsx, ./ui.tsx.
+ *   src/domain/programs.ts, src/domain/savedAddresses.ts (types),
+ *   ./AddressFields.tsx, ./ShopList.tsx, ./design.tsx, ./ui.tsx.
+ *
+ * Only Flight Program administrators may save an address (the server refuses
+ * anyone else), so only they are offered Add new address.
  */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -17,6 +20,7 @@ import {
   formatAddress,
   type Address,
 } from "../domain/addresses";
+import { programPermission } from "../domain/programs";
 import type {
   AddressChoices,
   SavedAddress,
@@ -55,12 +59,20 @@ type Picker = ReturnType<typeof usePicker>;
 type PickerView = ReturnType<typeof pickerView>;
 type PartProps = { p: Picker; view: PickerView };
 type RowProps = { entry: SavedAddress; offline: boolean; onEdit: () => void };
+type DirectoryHeaderProps = {
+  offline: boolean;
+  canAdd: boolean;
+  onAdd: () => void;
+  search: string;
+  onSearch: (search: string) => void;
+};
 
 /**
  * An address field filled from the active Flight Program's saved addresses
  * or, with `inventoryLocationName`, from that location's address. A new or
  * reviewed address is saved to the program, which confirms it, before it is
- * used. Choosing or saving needs a connection.
+ * used. Choosing or saving needs a connection; Add new address is offered to
+ * Flight Program administrators only.
  *
  * @param props.value - The document's address; `legacy` is its text from
  *   before addresses were structured.
@@ -82,8 +94,9 @@ export function SavedAddressPicker(props: PickerProps) {
 
 /**
  * The Purchasing page of the active Flight Program's saved addresses: search
- * by name, recipient or city, and add or edit an address. Unconfirmed
- * addresses are marked; editing needs a connection.
+ * by name, recipient or city, and add (Flight Program administrators only)
+ * or edit an address. Unconfirmed addresses are marked; editing needs a
+ * connection.
  */
 export function SavedAddresses() {
   const { snapshot: s } = useWorkspace();
@@ -242,16 +255,17 @@ function DraftFields({
 }
 
 function AddressPicker(props: PickerProps & { programUuid: string }) {
-  const { connected, online } = useWorkspace();
+  const { connected, online, snapshot } = useWorkspace();
   const { programUuid, inventoryLocationName, onChange } = props;
   const p = usePicker(programUuid, inventoryLocationName, onChange);
   const view = pickerView(p.choices, props, !online || !connected);
+  const canAdd = programPermission(snapshot!, "admin");
   return (
     <section className="panel">
       <strong>{props.label}</strong>
       {inventoryLocationName && <SourceField p={p} view={view} />}
-      <SavedField p={p} view={view} />
-      <PickerButtons p={p} view={view} />
+      <SavedField p={p} view={view} canAdd={canAdd} />
+      <PickerButtons p={p} view={view} canAdd={canAdd} />
       {view.unconfirmed && (
         <p>Review and save this address to confirm it before issuing the PO.</p>
       )}
@@ -371,7 +385,7 @@ function SourceField({ p, view }: PartProps) {
   );
 }
 
-function SavedField({ p, view }: PartProps) {
+function SavedField({ p, view, canAdd }: PartProps & { canAdd: boolean }) {
   const { value, matched, hasCurrent } = view;
   return (
     <Field label={`${view.label} — Saved address`}>
@@ -395,24 +409,26 @@ function SavedField({ p, view }: PartProps) {
             {e.name} — {e.address.contactName}
           </option>
         ))}
-        <option value={NEW_CHOICE}>+ Add new address</option>
+        {canAdd && <option value={NEW_CHOICE}>+ Add new address</option>}
       </select>
     </Field>
   );
 }
 
-function PickerButtons({ p, view }: PartProps) {
+function PickerButtons({ p, view, canAdd }: PartProps & { canAdd: boolean }) {
   const { value, matched, legacy } = view;
   return (
     <>
-      <button
-        type="button"
-        className="button small"
-        disabled={view.offline}
-        onClick={() => p.setEdit(newSavedAddress())}
-      >
-        Add new address
-      </button>
+      {canAdd && (
+        <button
+          type="button"
+          className="button small"
+          disabled={view.offline}
+          onClick={() => p.setEdit(newSavedAddress())}
+        >
+          Add new address
+        </button>
+      )}
       {view.hasCurrent && (
         <button
           type="button"
@@ -436,7 +452,8 @@ function PickerButtons({ p, view }: PartProps) {
 }
 
 function Directory({ programUuid }: { programUuid: string }) {
-  const { online, connected } = useWorkspace();
+  const { online, connected, snapshot } = useWorkspace();
+  const canAdd = programPermission(snapshot!, "admin");
   const { choices, addSaved, error } = useAddressChoices(programUuid);
   const [search, setSearch] = useState("");
   const [edit, setEdit] = useState<SavedAddressInput>();
@@ -446,6 +463,7 @@ function Directory({ programUuid }: { programUuid: string }) {
     <>
       <DirectoryHeader
         offline={offline}
+        canAdd={canAdd}
         onAdd={() => setEdit(newSavedAddress())}
         search={search}
         onSearch={setSearch}
@@ -458,6 +476,7 @@ function Directory({ programUuid }: { programUuid: string }) {
       <AddressTable
         shown={shown}
         any={choices.entries.length > 0}
+        canAdd={canAdd}
         offline={offline}
         onEdit={setEdit}
       />
@@ -484,15 +503,11 @@ function matchesSearch(e: SavedAddress, search: string) {
 
 function DirectoryHeader({
   offline,
+  canAdd,
   onAdd,
   search,
   onSearch,
-}: {
-  offline: boolean;
-  onAdd: () => void;
-  search: string;
-  onSearch: (search: string) => void;
-}) {
+}: DirectoryHeaderProps) {
   return (
     <>
       <PageHeader
@@ -501,10 +516,16 @@ function DirectoryHeader({
         accent="addresses"
         description="Ship-to, return and billing addresses for requests and purchase orders, shared only with this Flight Program's users."
         actions={
-          <button className="button primary" disabled={offline} onClick={onAdd}>
-            <Plus size={18} weight="bold" aria-hidden="true" />
-            Add new address
-          </button>
+          canAdd && (
+            <button
+              className="button primary"
+              disabled={offline}
+              onClick={onAdd}
+            >
+              <Plus size={18} weight="bold" aria-hidden="true" />
+              Add new address
+            </button>
+          )
         }
       />
       <Toolbar className="shop-toolbar">
@@ -522,15 +543,17 @@ function DirectoryHeader({
 function AddressTable({
   shown,
   any,
+  canAdd,
   offline,
   onEdit,
 }: {
   shown: SavedAddress[];
   any: boolean;
+  canAdd: boolean;
   offline: boolean;
   onEdit: (entry: SavedAddress) => void;
 }) {
-  if (!shown.length) return <NoAddresses any={any} />;
+  if (!shown.length) return <NoAddresses any={any} canAdd={canAdd} />;
   return (
     <ShopTableCard label="Saved addresses" className="shop-list-look" stack>
       <table className="shop-table">
@@ -559,14 +582,19 @@ function AddressTable({
   );
 }
 
-function NoAddresses({ any }: { any: boolean }) {
+function NoAddresses({ any, canAdd }: { any: boolean; canAdd: boolean }) {
   return (
     <EmptyState title={any ? "No addresses match" : "No saved addresses yet"}>
-      {any
-        ? "No saved address matches the search."
-        : "Add one here or from a request or PO."}
+      {noAddressesHint(any, canAdd)}
     </EmptyState>
   );
+}
+
+function noAddressesHint(any: boolean, canAdd: boolean) {
+  if (any) return "No saved address matches the search.";
+  return canAdd
+    ? "Add one here or from a request or PO."
+    : "A Flight Program administrator adds them here or from a request or PO.";
 }
 
 function AddressRow({ entry: e, offline, onEdit }: RowProps) {
