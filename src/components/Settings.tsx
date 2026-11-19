@@ -366,7 +366,7 @@ function AlertEmailBlock({ email }: { email?: boolean }) {
   return (
     <Block
       title="Alert email"
-      description={`Alerts always appear under the bell. Email can bring them to you too: new alerts for your Flight Program once a day at ${ALERT_DIGEST_HOUR_UTC}:00 UTC, and urgent ones (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) as soon as they arise. Urgent emails stop at ${IMMEDIATE_EMAILS_PER_DAY} a day for the whole deployment; past that they come in the next digest.`}
+      description={`Alerts always appear under the bell. Email can bring them to you too: new alerts for your Flight Program once a day at ${ALERT_DIGEST_HOUR_UTC}:00 UTC, and urgent ones (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) as soon as they arise. Urgent emails stop at ${IMMEDIATE_EMAILS_PER_DAY} a day for the whole deployment, shared equally between its Flight Programs; past that they come in the next digest.`}
     >
       {email === false ? (
         <p className="set-empty">

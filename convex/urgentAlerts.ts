@@ -1,16 +1,19 @@
 /**
  * Responsibility: Urgent alerts (GLOSSARY "Urgent alert") reaching people at
- *   once: who gets them by email or on a device, the daily email cap, and
- *   the claim that stops the same alert going out twice.
+ *   once: who gets them by email or on a device, the daily email cap and
+ *   each program's share of it, and the claim that stops the same alert
+ *   going out twice.
  * Layer: Server. Internal functions scheduled after the mutations that can
  *   create an urgent state, plus the member's email choice; the alert rules
  *   and the messages are the domain's.
  * Dependencies: convex/values, ./_generated, ./access, ./alerts, ./mailer,
- *   ./rateLimits, src/domain (alerts, alertDigest).
+ *   ./memberships, ./rateLimits, src/domain (alerts, alertDigest).
  *
  * Resend's free tier sends 100 emails a day. Immediate emails stop at
  * IMMEDIATE_EMAILS_PER_DAY so the digest always fits; a capped alert waits
- * for the digest (docs/runbooks/monitoring.md).
+ * for the digest (docs/runbooks/monitoring.md). Each program spends only its
+ * share of them (immediateEmailShare); the deployment's own dates and the
+ * share warning draw on the total alone.
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -37,19 +40,37 @@ import {
   type AlertSources,
 } from "./alerts";
 import { createMailer, mailerSettings } from "./mailer";
+import { programUsers } from "./memberships";
 import { consume, DAY, HOUR, MINUTE, refund } from "./rateLimits";
 import {
   IMMEDIATE_EMAILS_PER_DAY,
+  immediateEmailShare,
   urgentAlerts,
   wantsUrgentAlertEmails,
   type Alert,
 } from "../src/domain/alerts";
-import { urgentEmail, urgentPushPayload } from "../src/domain/alertDigest";
+import {
+  shareReachedEmail,
+  urgentEmail,
+  urgentPushPayload,
+} from "../src/domain/alertDigest";
 
 export { IMMEDIATE_EMAILS_PER_DAY };
 
 /** The rate-limit key the cap counts under. */
 export const IMMEDIATE_CAP_KEY = "alerts:immediate";
+
+/**
+ * The rate-limit key a Flight Program's share of the cap counts under.
+ *
+ * @returns `alerts:immediate:<programUuid>`.
+ */
+export const immediateShareKey = (programUuid: string) =>
+  `${IMMEDIATE_CAP_KEY}:${programUuid}`;
+
+// Counts the share warnings sent, so a program's warning goes once a day.
+const shareWarnedKey = (programUuid: string) =>
+  `alerts:share-warned:${programUuid}`;
 
 const CAPPED = "Daily limit of immediate alert emails reached.";
 const MAX_CLAIM_KEYS = 500;
@@ -152,14 +173,16 @@ export const urgentRecipients = internalQuery({
 /**
  * Claims alerts for one channel before they are sent, so two checks running
  * at once cannot both send them. An immediate email claim also spends one of
- * the day's {@link IMMEDIATE_EMAILS_PER_DAY}. A claim lasts until
+ * the day's {@link IMMEDIATE_EMAILS_PER_DAY} and, for a Flight Program, one
+ * of its share; the first claim a program's share refuses each day schedules
+ * {@link sendShareWarning}. A claim lasts until
  * `alerts.forgetCleared` finds its alert gone; nothing is forgotten here,
  * because the caller may have computed its alerts from older records.
  *
  * @param keys - The alerts about to be sent.
  * @returns The keys newly claimed (none when every key was already sent on
- *   the channel), and `capped` when the day's emails are spent, in which
- *   case nothing is claimed.
+ *   the channel), and `capped` when the day's emails or the program's share
+ *   are spent, in which case nothing is claimed.
  */
 export const claimDeliveries = internalMutation({
   args: {
@@ -175,7 +198,10 @@ export const claimDeliveries = internalMutation({
       (key) => !sent.has(key),
     );
     if (!claimed.length) return { claimed, capped: false };
-    if (channel === "immediate" && !(await reserveImmediateEmail(ctx)))
+    if (
+      channel === "immediate" &&
+      !(await reserveImmediateEmail(ctx, programUuid))
+    )
       return { claimed: [], capped: true };
     const sentAt = Date.now();
     for (const key of claimed)
@@ -192,8 +218,9 @@ export const claimDeliveries = internalMutation({
 
 /**
  * Releases a claim whose send failed, so the alerts go out on a later check.
- * A refused immediate email also gives back its share of the day's
- * {@link IMMEDIATE_EMAILS_PER_DAY}, which counts only emails sent.
+ * A refused immediate email also gives back its place in the day's
+ * {@link IMMEDIATE_EMAILS_PER_DAY} and in its program's share, which count
+ * only emails sent.
  *
  * @param keys - The claimed keys to forget.
  */
@@ -208,8 +235,97 @@ export const releaseDeliveries = internalMutation({
     const rows = await deliveryRows(ctx, userId, programUuid, channel);
     for (const row of rows)
       if (keys.includes(row.key)) await ctx.db.delete(row._id);
-    if (channel === "immediate") await refund(ctx, IMMEDIATE_CAP_KEY, DAY);
+    if (channel === "immediate") await refundImmediateEmail(ctx, programUuid);
   },
+});
+
+/**
+ * Warns the system administrators that a Flight Program's share of the day's
+ * immediate emails held one back, by the urgent email switch Settings shows
+ * each of them. Each warning is an immediate email of the deployment's total,
+ * never of a program's share: one the total refuses is counted, not sent, and
+ * one the provider refuses is given back.
+ *
+ * @param programUuid - The program whose share is spent.
+ * @param share - That share, as the claim computed it.
+ * @returns How many warnings were sent and failed, and how many the total
+ *   held back.
+ */
+export const sendShareWarning = internalAction({
+  args: { programUuid: v.string(), share: v.number() },
+  handler: async (ctx, { programUuid, share }) => {
+    const settings = mailerSettings();
+    if (!settings) return { sent: 0, failed: 0, capped: 0 };
+    const { programName, admins } = await ctx.runQuery(
+      internal.urgentAlerts.shareWarningRecipients,
+      { programUuid },
+    );
+    const mail = createMailer(settings);
+    const email = shareReachedEmail(programName, share, {
+      siteUrl: mail.siteUrl,
+    });
+    let capped = 0;
+    for (const admin of admins) {
+      if (!(await ctx.runMutation(internal.urgentAlerts.reserveWarning, {}))) {
+        capped++;
+        continue;
+      }
+      const sent = await mail.send(
+        admin.email,
+        email,
+        "Email share warning not sent",
+        admin.userId,
+      );
+      if (!sent)
+        await ctx.runMutation(internal.urgentAlerts.releaseWarning, {});
+    }
+    return { ...mail.counts, capped };
+  },
+});
+
+/**
+ * Who {@link sendShareWarning} emails: active system administrators with an
+ * address whose urgent email switch is on, as for the deployment's own dates.
+ *
+ * @param programUuid - The program whose share is spent.
+ * @returns The program's name and each administrator's id and address.
+ */
+export const shareWarningRecipients = internalQuery({
+  args: { programUuid: v.string() },
+  handler: async (ctx, { programUuid }) => {
+    const audience = await alertAudience(ctx, SYSTEM_SCOPE);
+    const admins = audience.users.filter(
+      (u) =>
+        u.email &&
+        wantsUrgentAlertEmails(
+          member(u),
+          audience.groups,
+          emailChoice(SYSTEM_SCOPE, u, audience),
+        ),
+    );
+    return {
+      programName: (await scopeName(ctx, programUuid)) ?? "A Flight Program",
+      admins: admins.map((u) => ({ userId: u._id, email: u.email ?? "" })),
+    };
+  },
+});
+
+/**
+ * Spends one of the day's {@link IMMEDIATE_EMAILS_PER_DAY} on a share
+ * warning.
+ *
+ * @returns False, spending nothing, once the day's emails are spent.
+ */
+export const reserveWarning = internalMutation({
+  args: {},
+  handler: (ctx) =>
+    reserveDaily(ctx, IMMEDIATE_CAP_KEY, IMMEDIATE_EMAILS_PER_DAY),
+});
+
+/** Gives back a share warning's email the provider refused. */
+export const releaseWarning = internalMutation({
+  args: {},
+  handler: (ctx) => refund(ctx, IMMEDIATE_CAP_KEY, DAY),
 });
 
 /**
@@ -324,23 +440,69 @@ function hasVapidKeys() {
   );
 }
 
-// Spends one email of the day; false, not a throw, once they are spent.
-async function reserveImmediateEmail(ctx: MutationCtx) {
+// Spends one email of the program's share and one of the day's total; false,
+// spending neither, once either is spent. The deployment's own dates draw on
+// the total alone.
+async function reserveImmediateEmail(ctx: MutationCtx, scope: string) {
+  const share =
+    scope === SYSTEM_SCOPE
+      ? undefined
+      : immediateEmailShare(await activeProgramCount(ctx));
+  const shareKey = immediateShareKey(scope);
+  if (share !== undefined && !(await reserveDaily(ctx, shareKey, share))) {
+    await warnShareReached(ctx, scope, share);
+    return false;
+  }
+  if (await reserveDaily(ctx, IMMEDIATE_CAP_KEY, IMMEDIATE_EMAILS_PER_DAY))
+    return true;
+  if (share !== undefined) await refund(ctx, shareKey, DAY);
+  return false;
+}
+
+async function refundImmediateEmail(ctx: MutationCtx, scope: string) {
+  await refund(ctx, IMMEDIATE_CAP_KEY, DAY);
+  if (scope !== SYSTEM_SCOPE) await refund(ctx, immediateShareKey(scope), DAY);
+}
+
+// Spends one use of a daily allowance; false, not a throw, once it is spent.
+async function reserveDaily(ctx: MutationCtx, key: string, limit: number) {
   try {
-    await consume(
-      ctx,
-      IMMEDIATE_CAP_KEY,
-      IMMEDIATE_EMAILS_PER_DAY,
-      DAY,
-      CAPPED,
-    );
+    await consume(ctx, key, limit, DAY, CAPPED);
     return true;
   } catch (error) {
-    // The cap is an expected outcome, not a fault: the alert waits for the
-    // digest.
+    // A spent allowance is an expected outcome, not a fault: a capped alert
+    // waits for the digest, and a day's share warning goes only once.
     if (error instanceof ConvexError) return false;
     throw error;
   }
+}
+
+// A program counts once an active member holds one of its groups: only they
+// can be emailed, and an empty program's share would sit unused.
+async function activeProgramCount(ctx: QueryCtx) {
+  let count = 0;
+  for (const program of await ctx.db.query("programs").collect())
+    if ((await programUsers(ctx, program.uuid)).some((u) => u.active)) count++;
+  return count;
+}
+
+// The first email a program's share holds back each day warns the system
+// administrators; the share is otherwise silent but for the check's count.
+async function warnShareReached(
+  ctx: MutationCtx,
+  programUuid: string,
+  share: number,
+) {
+  if (!(await reserveDaily(ctx, shareWarnedKey(programUuid), 1))) return;
+  console.warn(
+    "A Flight Program reached its share of immediate alert emails",
+    programUuid,
+    share,
+  );
+  await ctx.scheduler.runAfter(0, internal.urgentAlerts.sendShareWarning, {
+    programUuid,
+    share,
+  });
 }
 
 async function scopeName(ctx: QueryCtx, scope: string) {
