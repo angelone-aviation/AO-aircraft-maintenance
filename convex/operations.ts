@@ -4,9 +4,9 @@
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
- *   ./urgentAlerts, ./memberships, ./validators, src/domain (model, programs,
- *   flightSubmission, flightReview, ownerView, boardView, deferrals,
- *   requiredParts, rejection, aircraftStatus).
+ *   ./urgentAlerts, ./memberships, ./validators, ./recordsDate, src/domain
+ *   (model, programs, flightSubmission, flightReview, ownerView, boardView,
+ *   deferrals, requiredParts, rejection, aircraftStatus).
  */
 import { v } from "convex/values";
 import {
@@ -46,6 +46,7 @@ import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
 import { faaCredentialStatus } from "./faaCredentials";
 import { scheduleUrgentAlerts } from "./urgentAlerts";
+import { recordsDate } from "./recordsDate";
 import { programUsers } from "./memberships";
 import { flightFields, operationValidator } from "./validators";
 import {
@@ -115,7 +116,9 @@ export const snapshot = query({
     if (!isOwnerView(state) && !isBoardView(state))
       return workspaceSnapshot(ctx, identity, state);
     const records = await reducedViewRecords(ctx, identity, state);
-    return addReducedViewExtras(ctx, scopedSnapshot(records));
+    // The board's "this year" and "this quarter" turn over at the program's
+    // midnight, not the server's UTC one.
+    return addReducedViewExtras(ctx, scopedSnapshot(records, recordsDate()));
   },
 });
 

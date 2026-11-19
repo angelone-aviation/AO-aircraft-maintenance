@@ -36,6 +36,7 @@ import {
   Bell,
   Books,
   Buildings,
+  CircleHalf,
   CloudCheck,
   DeviceMobile,
   HardDrives,
@@ -85,7 +86,7 @@ import {
   Switch,
   useTheme,
   type IconType,
-  type Theme,
+  type ThemeChoice,
 } from "./design";
 import { MyCertifications } from "./UserProfile";
 import { SignInMethodList } from "./SignInMethods";
@@ -475,11 +476,11 @@ function DeviceSection() {
 }
 
 function ThemeBlock() {
-  const { theme, setTheme } = useTheme();
+  const { choice, setTheme } = useTheme();
   return (
     <Block
       title="Theme"
-      description="Applies to this device. The sun and moon button in the top bar switches it too."
+      description="Applies to this device. Match this device follows its light or dark setting as it changes. The sun and moon button in the top bar picks Light or Dark."
       side={
         <Segmented
           label="Theme"
@@ -487,9 +488,10 @@ function ThemeBlock() {
           options={[
             { value: "light", label: "Light", icon: Sun },
             { value: "dark", label: "Dark", icon: Moon },
+            { value: "system", label: "Match this device", icon: CircleHalf },
           ]}
-          value={theme}
-          onChange={(t) => setTheme(t as Theme)}
+          value={choice}
+          onChange={(t) => setTheme(t as ThemeChoice)}
         />
       }
     />

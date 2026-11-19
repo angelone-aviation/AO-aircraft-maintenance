@@ -6,8 +6,9 @@
  *
  * Safe to repeat: a key that exists is kept, because replacing it would void
  * issued sign-in tokens or make saved credentials unreadable. So a failed read
- * stops the run instead of counting as unset. A SITE_URL that exists is kept
- * too, unless SITE_URL is in the shell.
+ * stops the run instead of counting as unset. The signing keys count as
+ * existing only as a pair: JWT_PRIVATE_KEY and JWKS both set. A SITE_URL that
+ * exists is kept too, unless SITE_URL is in the shell.
  */
 import { generateKeyPair, exportPKCS8, exportJWK } from "jose";
 import { spawnSync } from "node:child_process";
@@ -24,9 +25,12 @@ ensureEncryptionKey();
 ensureSiteUrl();
 console.log("No signing secrets were printed.");
 
+// Half a pair (a run that stopped between the two writes) signs tokens
+// nothing can verify, so no working session depends on it: make a new pair.
 async function ensureSigningKeys() {
-  if (isSet("JWT_PRIVATE_KEY")) {
-    console.log("Existing signing key retained.");
+  const hasPrivateKey = isSet("JWT_PRIVATE_KEY");
+  if (hasPrivateKey && isSet("JWKS")) {
+    console.log("Existing signing keys retained.");
     return;
   }
   const { privateKey, publicKey } = await generateKeyPair("RS256", {
@@ -39,7 +43,11 @@ async function ensureSigningKeys() {
     ["env", "set", "JWKS"],
     JSON.stringify({ keys: [{ use: "sig", ...publicJwk }] }),
   );
-  console.log("Convex Auth signing keys configured.");
+  console.log(
+    hasPrivateKey
+      ? "The signing key had no JWKS, so a new key pair was configured."
+      : "Convex Auth signing keys configured.",
+  );
 }
 
 function ensureEncryptionKey() {

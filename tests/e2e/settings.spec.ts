@@ -257,6 +257,47 @@ test("the theme chosen in Settings persists across reload", async ({
   ).toHaveAttribute("aria-pressed", "true");
 });
 
+test("Match this device follows the device's light or dark setting live (B9)", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() => {
+    sessionStorage.setItem("angel-one-demo", "true");
+    if (!sessionStorage.getItem("theme-seeded")) {
+      localStorage.setItem("angelone-theme", "dark");
+      sessionStorage.setItem("theme-seeded", "true");
+    }
+  });
+  await page.goto("/settings#device");
+  await expectSettings(page);
+  const html = page.locator("html");
+  const theme = page.getByRole("group", { name: "Theme", exact: true });
+  const matchDevice = theme.getByRole("button", {
+    name: "Match this device",
+    exact: true,
+  });
+  await expect(html).toHaveClass(/\bdark\b/);
+  await matchDevice.click();
+  await expect(matchDevice).toHaveAttribute("aria-pressed", "true");
+  await expect(html).not.toHaveClass(/\bdark\b/);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(html).toHaveClass(/\bdark\b/);
+  expect(
+    await page.evaluate(() => localStorage.getItem("angelone-theme")),
+  ).toBe("system");
+  await page.reload();
+  await expectSettings(page);
+  await expect(matchDevice).toHaveAttribute("aria-pressed", "true");
+  await expect(html).toHaveClass(/\bdark\b/);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(html).not.toHaveClass(/\bdark\b/);
+  // A chosen theme stays put when the device changes.
+  await theme.getByRole("button", { name: "Dark", exact: true }).click();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(html).toHaveClass(/\bdark\b/);
+});
+
 test("a labor rate saved in Settings shows on Costs", async ({ page }) => {
   await openDemo(page, "/settings#program");
   await expectSettings(page);

@@ -336,7 +336,10 @@ test.describe("theme before first paint (ui-2)", () => {
   /** Records whether <html> is dark when the parser inserts <body>. The app's
    * module script runs only after parsing, so a theme it applies paints at
    * least one frame in the wrong palette. */
-  async function recordThemeAtBody(page: Page, saved?: "dark" | "light") {
+  async function recordThemeAtBody(
+    page: Page,
+    saved?: "dark" | "light" | "system",
+  ) {
     await page.addInitScript((theme) => {
       sessionStorage.setItem("angel-one-demo", "true");
       if (theme && !sessionStorage.getItem("theme-seeded")) {
@@ -406,6 +409,18 @@ test.describe("theme before first paint (ui-2)", () => {
     await page.reload();
     await ready(page);
     expect(await darkAtBody(page)).toBe(false);
+    await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
+  });
+
+  test("a saved Match this device applies the device's dark setting before the body (B9)", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await recordThemeAtBody(page, "system");
+    await page.goto("/");
+    await ready(page);
+    expect(await darkAtBody(page)).toBe(true);
+    await page.emulateMedia({ colorScheme: "light" });
     await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
   });
 });

@@ -1,7 +1,8 @@
 /**
- * Responsibility: Pins configure-auth.mjs's promises: existing signing and
- *   encryption keys and an existing site address are kept, a failed read
- *   stops it before anything is made or changed, and no key is printed.
+ * Responsibility: Pins configure-auth.mjs's promises: an existing signing
+ *   key pair (both halves), encryption key and site address are kept, half a
+ *   pair is made again, a failed read stops it before anything is made or
+ *   changed, and no key is printed.
  * Layer: Test. Runs the script against a fake `npx convex` first on PATH.
  * Dependencies: vitest, scripts/configure-auth.mjs.
  *
@@ -26,6 +27,7 @@ const SITE_URL_NAME = "SITE_URL";
 const LOCAL_SITE_URL = "http://localhost:5173";
 const NO_SITE_URL_IN_SHELL = "";
 const SIGNING_KEY = "JWT_PRIVATE_KEY";
+const PUBLIC_KEYS = "JWKS";
 const ENCRYPTION_KEY = "CREDENTIALS_ENCRYPTION_KEY";
 const NETWORK_FAILURE = "fetch failed: network unreachable";
 
@@ -76,31 +78,44 @@ describe("configure-auth.mjs", () => {
     expect(run.output).toContain(NETWORK_FAILURE);
   });
 
+  it("stops before making keys when the public keys cannot be read", () => {
+    const run = runScript({ stored: [SIGNING_KEY], failGet: PUBLIC_KEYS });
+
+    expect(run.status).toBe(1);
+    expect(run.calls).toEqual([
+      `env get ${SIGNING_KEY}`,
+      `env get ${PUBLIC_KEYS}`,
+    ]);
+    expect(run.output).toContain(NETWORK_FAILURE);
+  });
+
   it("stops before making a key when the encryption key cannot be read", () => {
     const run = runScript({
-      stored: [SIGNING_KEY],
+      stored: [SIGNING_KEY, PUBLIC_KEYS],
       failGet: ENCRYPTION_KEY,
     });
 
     expect(run.status).toBe(1);
     expect(run.calls).toEqual([
       `env get ${SIGNING_KEY}`,
+      `env get ${PUBLIC_KEYS}`,
       `env get ${ENCRYPTION_KEY}`,
     ]);
     expect(run.output).toContain(NETWORK_FAILURE);
   });
 
   it("keeps existing keys and sets only the site address", () => {
-    const run = runScript({ stored: [SIGNING_KEY, ENCRYPTION_KEY] });
+    const run = runScript({ stored: KEYS });
 
     expect(run.status).toBe(0);
     expect(run.calls).toEqual([
       `env get ${SIGNING_KEY}`,
+      `env get ${PUBLIC_KEYS}`,
       `env get ${ENCRYPTION_KEY}`,
       "env set SITE_URL",
     ]);
     expect(stored("SITE_URL")).toBe(SITE_URL);
-    expect(run.output).toContain("Existing signing key retained.");
+    expect(run.output).toContain("Existing signing keys retained.");
     expect(run.output).toContain(
       "Existing credential encryption key retained.",
     );
@@ -124,18 +139,47 @@ describe("configure-auth.mjs", () => {
     expect(run.output).not.toContain(encryptionKey);
   });
 
+  it("makes a new pair when the private key is stored without its public keys", () => {
+    const run = runScript({ stored: [SIGNING_KEY, ENCRYPTION_KEY] });
+
+    expect(run.status).toBe(0);
+    expect(run.calls).toEqual([
+      `env get ${SIGNING_KEY}`,
+      `env get ${PUBLIC_KEYS}`,
+      `env set ${SIGNING_KEY}`,
+      `env set ${PUBLIC_KEYS}`,
+      `env get ${ENCRYPTION_KEY}`,
+      "env set SITE_URL",
+    ]);
+    expect(stored(SIGNING_KEY)).toMatch(/^-----BEGIN PRIVATE KEY----- \S/);
+    expect(JSON.parse(stored(PUBLIC_KEYS)).keys).toHaveLength(1);
+    expect(run.output).toContain(
+      "The signing key had no JWKS, so a new key pair was configured.",
+    );
+  });
+
+  it("makes a new pair when the public keys are stored without the private key", () => {
+    const run = runScript({ stored: [PUBLIC_KEYS, ENCRYPTION_KEY] });
+
+    expect(run.status).toBe(0);
+    expect(run.calls.slice(0, 3)).toEqual([
+      `env get ${SIGNING_KEY}`,
+      `env set ${SIGNING_KEY}`,
+      `env set ${PUBLIC_KEYS}`,
+    ]);
+    expect(run.output).toContain("Convex Auth signing keys configured.");
+  });
+
   it("keeps an existing site address when SITE_URL is not in the shell", () => {
     const run = runScript(
-      {
-        stored: [SIGNING_KEY, ENCRYPTION_KEY, SITE_URL_NAME],
-        value: SITE_URL,
-      },
+      { stored: [...KEYS, SITE_URL_NAME], value: SITE_URL },
       NO_SITE_URL_IN_SHELL,
     );
 
     expect(run.status).toBe(0);
     expect(run.calls).toEqual([
       `env get ${SIGNING_KEY}`,
+      `env get ${PUBLIC_KEYS}`,
       `env get ${ENCRYPTION_KEY}`,
       `env get ${SITE_URL_NAME}`,
     ]);
@@ -145,7 +189,7 @@ describe("configure-auth.mjs", () => {
 
   it("replaces an existing site address when SITE_URL is given", () => {
     const run = runScript({
-      stored: [SIGNING_KEY, ENCRYPTION_KEY, SITE_URL_NAME],
+      stored: [...KEYS, SITE_URL_NAME],
       value: "https://old.example.org",
     });
 
@@ -155,10 +199,7 @@ describe("configure-auth.mjs", () => {
   });
 
   it("sets the local default only when no site address is stored", () => {
-    const run = runScript(
-      { stored: [SIGNING_KEY, ENCRYPTION_KEY] },
-      NO_SITE_URL_IN_SHELL,
-    );
+    const run = runScript({ stored: KEYS }, NO_SITE_URL_IN_SHELL);
 
     expect(run.status).toBe(0);
     expect(run.calls.slice(-2)).toEqual([
@@ -173,7 +214,7 @@ describe("configure-auth.mjs", () => {
 
   it("stops without setting a site address when the stored one cannot be read", () => {
     const run = runScript(
-      { stored: [SIGNING_KEY, ENCRYPTION_KEY], failGet: SITE_URL_NAME },
+      { stored: KEYS, failGet: SITE_URL_NAME },
       NO_SITE_URL_IN_SHELL,
     );
 
@@ -192,6 +233,8 @@ describe("configure-auth.mjs", () => {
     expect(run.calls).toEqual(CALLS_WHEN_UNSET);
   });
 });
+
+const KEYS = [SIGNING_KEY, PUBLIC_KEYS, ENCRYPTION_KEY];
 
 const CALLS_WHEN_UNSET = [
   `env get ${SIGNING_KEY}`,

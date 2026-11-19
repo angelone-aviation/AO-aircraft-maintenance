@@ -305,6 +305,57 @@ describe("SavedAddresses", () => {
   });
 });
 
+describe("for a member who is not an administrator (AC-7)", () => {
+  // The server refuses their saves ("Flight Program administrator
+  // required."), so neither view offers a new address.
+  beforeEach(() => {
+    const technicians = {
+      id: "technicians",
+      name: "Technicians",
+      programUuid: s.activeProgramUuid,
+      aircraftIds: [],
+      permissions: ["read", "discrepancy", "resolve", "maintenance"],
+    };
+    ui.workspace.snapshot = {
+      ...s,
+      groups: [...s.groups, technicians],
+      user: { ...s.user, isAdmin: false, groupIds: [technicians.id] },
+    };
+  });
+
+  it("the picker lists the saved addresses without Add new address", async () => {
+    const html = await mount(picker({}));
+    expect(html).toContain("Main hangar — Receiving");
+    expect(html).not.toContain("Add new address");
+    expect(html).not.toContain(`value="__new"`);
+  });
+
+  it("the directory lists the addresses without Add new address", async () => {
+    expect(await mount(h(SavedAddresses))).toContain("Main hangar");
+    expect(render(h(SavedAddresses))).not.toContain("Add new address");
+    ui.states = [];
+    loaded = { entries: [], locations: [] };
+    expect(await mount(h(SavedAddresses))).toContain(
+      "A Flight Program administrator adds them here or from a request or PO.",
+    );
+  });
+});
+
+describe("for an administrator", () => {
+  it("both views offer Add new address", async () => {
+    const pickerHtml = await mount(picker({}));
+    expect(pickerHtml).toContain(
+      `<option value="__new">+ Add new address</option>`,
+    );
+    expect(pickerHtml).toMatch(/<button[^>]*>Add new address<\/button>/);
+    ui.states = [];
+    loaded = { entries: [], locations: [] };
+    const directory = await mount(h(SavedAddresses));
+    expect(directory).toContain("Add new address");
+    expect(directory).toContain("Add one here or from a request or PO.");
+  });
+});
+
 describe("both views", () => {
   it.each([
     ["picker", () => picker({})],

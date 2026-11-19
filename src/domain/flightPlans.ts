@@ -5,7 +5,7 @@
  * Layer: Domain. Zod schema, rules and an applier on a working snapshot; no
  *   I/O, no React.
  * Dependencies: zod, src/domain/model.ts, dueItems.ts, rejection.ts,
- *   changeLog.ts.
+ *   changeLog.ts, fleet.ts.
  */
 import { z } from "zod";
 import {
@@ -18,6 +18,7 @@ import {
 import { dueItems, type MaintenanceDue, type RequirementDue } from "./dueItems";
 import { Rejection } from "./rejection";
 import { auditEntry } from "./changeLog";
+import { operationalStatusLabels } from "./fleet";
 
 const MINUTE_SECONDS = 60;
 const MINUTE_MS = 60_000;
@@ -319,8 +320,12 @@ function listFlags(
     flags.push(
       "Logged flight awaiting review; estimate remains in projection until accepted.",
     );
+  // The status entered on the aircraft record, named apart from the computed
+  // aircraft status (GLOSSARY), which the due items below decide.
   if (projected.operationalStatus !== "airworthy")
-    flags.push(`Aircraft status: ${projected.operationalStatus}`);
+    flags.push(
+      `Profile status: ${operationalStatusLabels[projected.operationalStatus]}`,
+    );
   for (const d of s.discrepancies)
     if (d.aircraftUuid === projected.uuid && d.status === "open")
       flags.push(`Open discrepancy: ${d.description}`);

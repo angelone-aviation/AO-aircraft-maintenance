@@ -301,10 +301,12 @@ export const auditVisible = (s: Snapshot) => visibleScope(s).canSeeAudit;
  * (reducedSnapshot): the owner portal, the board view, or both.
  *
  * @param s - The full snapshot; it is not changed.
+ * @param today - The date the board view's year and quarter are taken from;
+ *   this device's date by default. The server passes its records date.
  * @returns The scoped snapshot, with `activeProgramUuid` and
  *   `programScopeVersion` set.
  */
-export function scopedSnapshot(s: Snapshot): Snapshot {
+export function scopedSnapshot(s: Snapshot, today?: string): Snapshot {
   const scope = visibleScope(s);
   // The spread order sets the key order of fields the full snapshot lacks.
   const scoped: Snapshot = {
@@ -315,7 +317,7 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
     ...scopeMaintenance(s, scope),
     ...scopePeople(s, scope),
   };
-  return reducedSnapshot(scoped) ?? scoped;
+  return reducedSnapshot(scoped, today) ?? scoped;
 }
 
 // Shared by the snapshot and the paginated history so both apply the same

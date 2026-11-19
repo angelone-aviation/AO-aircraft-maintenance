@@ -30,6 +30,7 @@ import "../styles/design.css";
 const DESKTOP_QUERY = "(min-width: 1100px)";
 const PHONE_QUERY = "(max-width: 759px)";
 const THEME_KEY = "angelone-theme";
+const SYSTEM_DARK_QUERY = "(prefers-color-scheme: dark)";
 // tokens.css turns every transition off under this class on <html>.
 const THEME_SWITCHING_CLASS = "theme-switching";
 const INLINE_ICON_SIZE = 18;
@@ -103,57 +104,74 @@ export function useBreakpoint(): Breakpoint {
 
 /** The colour theme; dark puts `.dark` on <html>. */
 export type Theme = "light" | "dark";
+/**
+ * The theme a person chose on this device: light, dark, or "system", which
+ * follows the device's light or dark setting as it changes.
+ */
+export type ThemeChoice = Theme | "system";
 const themeListeners = new Set<() => void>();
+let currentChoice: ThemeChoice =
+  typeof window === "undefined" ? "system" : storedChoice();
 let currentTheme: Theme =
-  typeof window === "undefined" ? "light" : storedTheme();
+  typeof window === "undefined" ? "light" : resolveTheme(currentChoice);
+let systemQuery: MediaQueryList | undefined;
 
 /**
- * Applies the saved theme, or else the system preference, to <html>. Call it
- * before the first render so the page does not flash the wrong theme.
+ * Applies the saved theme choice to <html> (nothing saved follows the
+ * device) and keeps following the device's setting while the choice is
+ * "system". Call it before the first render so the page does not flash the
+ * wrong theme.
  */
 export function initTheme() {
-  currentTheme = storedTheme();
-  applyTheme(currentTheme);
+  currentChoice = storedChoice();
+  showTheme();
+  followSystemTheme();
 }
 
 /**
- * Switches the theme for every useTheme caller and saves it on the device
- * (localStorage "angelone-theme").
+ * Switches the theme for every useTheme caller and saves the choice on the
+ * device (localStorage "angelone-theme": "light", "dark" or "system").
  *
- * @param theme - Applied at once, every colour in the same frame; when storage
- *   is blocked it lasts this visit.
+ * @param choice - Applied at once, every colour in the same frame; when
+ *   storage is blocked it lasts this visit.
  */
-export function setTheme(theme: Theme) {
-  currentTheme = theme;
-  applyThemeAtOnce(theme);
+export function setTheme(choice: ThemeChoice) {
+  currentChoice = choice;
   try {
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem(THEME_KEY, choice);
   } catch {
     // Not persisted when storage is unavailable; the choice lasts this visit.
   }
-  themeListeners.forEach((l) => l());
+  showTheme();
 }
 
 /**
  * The current theme and ways to change it.
  *
- * @returns `theme` ("light" when server rendered), `toggle` between light
- *   and dark, and `setTheme`.
+ * @returns `theme`, the one shown ("light" when server rendered); `choice`,
+ *   the one chosen ("system" when server rendered); `toggle` between light
+ *   and dark, which chooses the opposite of the theme shown; and `setTheme`.
  */
 export function useTheme() {
+  const subscribe = useCallback((l: () => void) => {
+    themeListeners.add(l);
+    return () => themeListeners.delete(l);
+  }, []);
   const theme = useSyncExternalStore(
-    (l) => {
-      themeListeners.add(l);
-      return () => themeListeners.delete(l);
-    },
+    subscribe,
     () => currentTheme,
     () => "light" as Theme,
+  );
+  const choice = useSyncExternalStore(
+    subscribe,
+    () => currentChoice,
+    () => "system" as ThemeChoice,
   );
   const toggle = useCallback(
     () => setTheme(currentTheme === "dark" ? "light" : "dark"),
     [],
   );
-  return { theme, toggle, setTheme };
+  return { theme, choice, toggle, setTheme };
 }
 
 /* ───────────────────────────── Layout ──────────────────────────── */
@@ -971,21 +989,44 @@ function subscribeBreakpoint(notify: () => void) {
   return () => queries.forEach((q) => q.removeEventListener("change", notify));
 }
 
-function storedTheme(): Theme {
+// "system", nothing saved and blocked storage all follow the device, as in
+// public/theme-init.js, which applies the choice before the app loads.
+function storedChoice(): ThemeChoice {
   try {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === "dark" || saved === "light") return saved;
   } catch {
-    // Storage blocked: fall through to the system preference.
+    // Storage blocked: follow the device.
   }
+  return "system";
+}
+
+function resolveTheme(choice: ThemeChoice): Theme {
+  if (choice !== "system") return choice;
+  return matchSystemDark()?.matches ? "dark" : "light";
+}
+
+function matchSystemDark(): MediaQueryList | undefined {
   try {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return window.matchMedia(SYSTEM_DARK_QUERY);
   } catch {
-    // No matchMedia to ask: light.
-    return "light";
+    // No matchMedia to ask: the light theme.
+    return undefined;
   }
+}
+
+function showTheme() {
+  currentTheme = resolveTheme(currentChoice);
+  applyThemeAtOnce(currentTheme);
+  themeListeners.forEach((l) => l());
+}
+
+// A light or dark choice resolves to itself, so only "system" changes on
+// the event. One listener at a time: a second initTheme moves it.
+function followSystemTheme() {
+  systemQuery?.removeEventListener("change", showTheme);
+  systemQuery = matchSystemDark();
+  systemQuery?.addEventListener("change", showTheme);
 }
 
 function applyTheme(theme: Theme) {

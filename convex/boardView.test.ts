@@ -1,15 +1,16 @@
 /**
  * Responsibility: Pins the board view on the server: the snapshot a board
  *   member gets (totals and status inputs, no rates, flights, change log,
- *   people or typed text), the backup time it carries, and that every call
- *   but the snapshot is refused as read-only.
+ *   people or typed text), its cost periods in the records time zone, the
+ *   backup time it carries, and that every call but the snapshot is refused
+ *   as read-only.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/operations, convex/costs, convex/workOrders,
  *   convex/auditHistory, convex/alerts, src/data/demo, src/domain
  *   (airworthiness, boardView), tests/fixtures.
  */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -154,6 +155,31 @@ it("gives a board member totals and status inputs, never rates, flights, the cha
   const adminView = (await admin.query(api.operations.snapshot, {}))!;
   expect(adminView.boardCosts).toBeUndefined();
   expect(adminView.costs?.length).toBeGreaterThan(0);
+});
+
+it("takes the board's current year and quarter from the records time zone (PT-7)", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  // 21:00 on 31 Dec 2026 in New York, the default records time zone, on a
+  // server whose own clock reads UTC: already 1 Jan 2027 there.
+  vi.setSystemTime(new Date("2027-01-01T02:00:00Z"));
+  vi.stubEnv("TZ", "UTC");
+  try {
+    const { board } = await fixture();
+    const totals = async () =>
+      (await board.query(api.operations.snapshot, {}))!.boardCosts![0];
+    expect(await totals()).toMatchObject({
+      year: 2026,
+      quarterLabel: "Q4 2026",
+    });
+    vi.stubEnv("RECORDS_TIME_ZONE", "Pacific/Auckland");
+    expect(await totals()).toMatchObject({
+      year: 2027,
+      quarterLabel: "Q1 2027",
+    });
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  }
 });
 
 it("carries the newest off-site backup's time to the board", async () => {

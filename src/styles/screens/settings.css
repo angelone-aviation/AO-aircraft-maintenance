@@ -567,12 +567,15 @@
     display: flex;
     flex: 1;
   }
+  /* Three choices do not fit one row at 360px: Match this device wraps to a
+     row of its own rather than clipping its label. */
   .set-theme.ds-segmented {
     flex: 1;
+    flex-wrap: wrap;
   }
   .set-theme > button {
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: center;
   }
   .set-offline-row .button {
     width: 100%;

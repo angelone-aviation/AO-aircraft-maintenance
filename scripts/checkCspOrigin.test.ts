@@ -1,7 +1,7 @@
 /**
- * Responsibility: Pins check-csp-origin.mjs's rules: https only, the three
- *   Convex sources, the Sentry DSN's one, exact and `*.` hosts, and the
- *   refusal messages.
+ * Responsibility: Pins check-csp-origin.mjs's rules: https on its default
+ *   port only, the three Convex sources, the Sentry DSN's one, exact and `*.`
+ *   hosts, and the refusal messages.
  * Layer: Test. Runs a copy of the script beside a temporary public/_headers.
  * Dependencies: vitest, scripts/check-csp-origin.mjs, public/_headers.
  *
@@ -98,6 +98,20 @@ describe("check-csp-origin.mjs", () => {
     );
   });
 
+  it("refuses a URL with a port, which sources without one never cover (OP-12)", () => {
+    const run = check(`${DEPLOYMENT}:8443`, CONVEX_POLICY);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toBe(
+      `${DEPLOYMENT}:8443 must use the default https port (443): ` +
+        "the policy's sources name no port.\n",
+    );
+  });
+
+  it("passes the default port written out", () => {
+    expect(check(`${DEPLOYMENT}:443`, CONVEX_POLICY).status).toBe(0);
+  });
+
   it("refuses a value that is not a URL", () => {
     const run = check("not a url", CONVEX_POLICY);
 
@@ -137,6 +151,16 @@ describe("check-csp-origin.mjs --sentry-dsn", () => {
         `connect-src ${SENTRY_HOST}. ` +
         "Add it to the Content-Security-Policy before deploying.\n",
     );
+  });
+
+  it("refuses a DSN whose ingest host has a port", () => {
+    const run = checkDsn(
+      "https://publickey@o1.ingest.us.sentry.io:8443/1",
+      "connect-src 'self' https://*.ingest.us.sentry.io",
+    );
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`${SENTRY_HOST}:8443 must use the default`);
   });
 
   it("passes an empty DSN, because error reporting is then off", () => {
