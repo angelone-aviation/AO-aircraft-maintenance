@@ -918,6 +918,7 @@ function buildReview(flight: Doc<"flights">, aircraftUuid: string) {
   const { destination, operation, flightRules, remarks, discrepancy } = flight;
   return stampB({
     uuid: flight.uuid,
+    requestUuid: crypto.randomUUID(),
     decision: "reject" as const,
     reason: "Not our flight.",
     input: {
