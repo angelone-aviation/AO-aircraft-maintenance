@@ -353,7 +353,7 @@ describe("CSV import", () => {
   it("refuses an empty or oversized file", async () => {
     act("Import template CSV");
     const preview = ui.forms.get("Preview templates")!;
-    const message = "Choose a UTF-8 CSV up to 2 MB.";
+    const message = "Choose a UTF-8 CSV up to 2 MiB.";
     await expect(preview(formData([]))).rejects.toThrow(message);
     const empty = new File([], "empty.csv");
     await expect(preview(formData([["csv", empty]]))).rejects.toThrow(message);

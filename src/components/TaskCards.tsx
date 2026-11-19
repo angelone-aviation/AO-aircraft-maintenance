@@ -1863,7 +1863,7 @@ function EvidenceUpload(props: {
           ))}
         </select>
       </Field>
-      <Field label="Evidence file" hint="PDF, JPEG or PNG, up to 7 MB">
+      <Field label="Evidence file" hint="PDF, JPEG or PNG, up to 7 MiB">
         <input
           type="file"
           accept=".pdf,.jpg,.jpeg,.png"

@@ -694,14 +694,14 @@ describe("planPackageFiles", () => {
     );
     expect(plan.included.map((f) => f.path)).toEqual(["a", "b", "d"]);
     expect(plan.skipped).toEqual([
-      { file: file("c", 50 * MB), reason: "Over the 150 MB package limit" },
+      { file: file("c", 50 * MB), reason: "Over the 150 MiB package limit" },
     ]);
   });
 
-  it("defaults to 150 MB", () => {
+  it("defaults to 150 MiB", () => {
     expect(MAX_PACKAGE_FILE_BYTES).toBe(157_286_400);
     const plan = planPackageFiles([file("big", MAX_PACKAGE_FILE_BYTES + 1)]);
-    expect(plan.skipped[0].reason).toBe("Over the 150 MB package limit");
+    expect(plan.skipped[0].reason).toBe("Over the 150 MiB package limit");
   });
 });
 

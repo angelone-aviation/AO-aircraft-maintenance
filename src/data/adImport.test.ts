@@ -107,14 +107,14 @@ it("refuses other files before reading them", async () => {
   );
   const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "big.docx");
   await expect(importADDocx(big)).rejects.toThrow(
-    "Report must be smaller than 10 MB.",
+    "Report must be smaller than 10 MiB.",
   );
   const empty = new File(
     [zipSync({ "word/x.xml": strToU8("<x/>") })],
     "a.docx",
   );
   await expect(importADDocx(empty)).rejects.toThrow(
-    "Document is invalid or its contents exceed 20 MB.",
+    "Document is invalid or its contents exceed 20 MiB.",
   );
 });
 

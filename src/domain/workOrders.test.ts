@@ -260,7 +260,7 @@ describe("work orders", () => {
     ).not.toThrow();
     expect(() =>
       validateWorkOrderFile("record.pdf", "application/pdf", 8 * 1024 * 1024),
-    ).toThrow("7 MB");
+    ).toThrow("7 MiB");
   });
   it("adds an inspection as a requested task without changing the order", () => {
     const s = demoSnapshot();

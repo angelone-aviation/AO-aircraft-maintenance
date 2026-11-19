@@ -635,7 +635,7 @@ function LicenseCopyInput({
   return (
     <Field
       label={`${label} license copies`}
-      hint="PDF, JPEG, PNG, WebP, HEIC or HEIF; up to 5 MB each. Uploaded when you save."
+      hint="PDF, JPEG, PNG, WebP, HEIC or HEIF; up to 5 MiB each. Uploaded when you save."
     >
       <input
         type="file"

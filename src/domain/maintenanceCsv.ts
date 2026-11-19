@@ -14,7 +14,7 @@ const NUMBER_MAX = 1000000;
 const INSPECTION_TEXT_MAX = 2000;
 const COMPONENT_TEXT_MAX = 10000;
 
-/** The largest CSV file {@link readCsvRows} reads by default, in megabytes. */
+/** The largest CSV file {@link readCsvRows} reads by default, in MiB. */
 export const CSV_MAX_MEGABYTES = 2;
 
 /**
@@ -155,11 +155,11 @@ export function readCsv(text: string): string[][] {
  * breaks inside quoted fields, CRLF or LF line ends, and a leading BOM.
  *
  * @param text - The file's text.
- * @param limits - Largest file in megabytes (default 2), and most records
+ * @param limits - Largest file in MiB (default 2), and most records
  *   after the header row (default 2,000).
  * @returns The non-blank records, header first, each with its 1-based
  *   spreadsheet row; blank rows are skipped but still counted.
- * @throws {Rejection} "CSV files must be at most N MB.", "Use at most N
+ * @throws {Rejection} "CSV files must be at most N MiB.", "Use at most N
  *   records per CSV file.", or a message naming a misplaced or unclosed quote.
  */
 export function readCsvRows(
@@ -167,7 +167,7 @@ export function readCsvRows(
   { maxMegabytes = CSV_MAX_MEGABYTES, maxRecords = 2000 } = {},
 ): { cells: string[]; row: number }[] {
   if (text.length > maxMegabytes * 1024 * 1024)
-    throw new Rejection(`CSV files must be at most ${maxMegabytes} MB.`);
+    throw new Rejection(`CSV files must be at most ${maxMegabytes} MiB.`);
   const body = text.replace(/^﻿/, "");
   const reader = new CsvReader(maxRecords);
   for (let i = 0; i < body.length; i++) i = reader.read(body, i);

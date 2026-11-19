@@ -264,7 +264,7 @@ const adRowSchema = z.object({
  * @param csv - The file's text; a leading byte-order mark is ignored.
  * @returns The rows in file order; the header row alone gives [].
  * @throws {Rejection} "Use columns: …" for other headers; the
- *   {@link readCsvRows} limits (2 MB, 2,000 rows); or "Row <n>: <reason>" for
+ *   {@link readCsvRows} limits (2 MiB, 2,000 rows); or "Row <n>: <reason>" for
  *   a blank name, an interval or count that is not a positive whole number,
  *   hours that are not in tenths, or a date that is not YYYY-MM-DD.
  */

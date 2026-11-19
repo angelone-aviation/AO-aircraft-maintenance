@@ -189,7 +189,7 @@ it("refuses user mistakes as a Rejection and a repeated uuid as a fault", () => 
       [{ ...sample(), name: "Big", tasks: bigTasks }],
       "A template with its tasks must fit within 800 KB. Split the checklist into smaller templates.",
     ],
-    [batch, "Save templates in batches up to 2 MB."],
+    [batch, "Save templates in batches up to 2 MiB."],
   ] as const) {
     const error = refusal([...records]);
     expect(error).toBeInstanceOf(Rejection);

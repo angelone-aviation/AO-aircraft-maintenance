@@ -24,7 +24,7 @@ import {
 } from "./model";
 import { Rejection } from "./rejection";
 
-/** The largest logbook file accepted, in megabytes. */
+/** The largest logbook file accepted, in MiB. */
 export const LOGBOOK_MAX_MEGABYTES = 5;
 const LOGBOOK_MAX_RECORDS = 20_000;
 const HEADER_SEARCH_ROWS = 20;
@@ -158,7 +158,7 @@ interface Planner {
  *   a row that cannot be read carries `error` instead.
  * @throws {Rejection} "Unrecognized logbook file. Export the logbook as CSV
  *   from ForeFlight or Garmin Pilot." when no date and aircraft header is
- *   found; and as readCsvRows, over 5 MB or 20,000 records.
+ *   found; and as readCsvRows, over 5 MiB or 20,000 records.
  */
 export function parseLogbook(text: string): {
   format: LogbookFormat;

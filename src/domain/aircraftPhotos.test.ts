@@ -8,7 +8,7 @@ import { validateAircraftPhoto } from "./aircraftPhotos";
 import { Rejection } from "./rejection";
 
 const FIVE_MIB = 5 * 1024 * 1024;
-const TOO_LARGE = Error("Aircraft photos must be no larger than 5 MB.");
+const TOO_LARGE = Error("Aircraft photos must be no larger than 5 MiB.");
 
 it.each(["image/jpeg", "image/png", "image/webp"])("accepts %s", (type) => {
   expect(() => validateAircraftPhoto(type, FIVE_MIB)).not.toThrow();

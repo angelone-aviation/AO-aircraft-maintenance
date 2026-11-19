@@ -157,7 +157,7 @@ export const finishUpload = internalMutation({
  * Uploads one evidence file to a job card. The file is stored first and
  * deleted again if the card refuses it.
  *
- * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", before
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MiB.", before
  *   any permission check; the refusals of checkUpload and finishUpload.
  */
 export const upload = action({

@@ -133,11 +133,11 @@ it("reads columns in any order and case, gives rows without an ID one made from 
   ).toThrow("The first four are required.");
   expect(() =>
     parseComponentTemplateCsv(csv + "x".repeat(2 * 1024 * 1024)),
-  ).toThrow("CSV must be under 2 MB.");
+  ).toThrow("CSV must be under 2 MiB.");
 });
 it("measures the CSV limit in UTF-8 bytes, up to and including it", () => {
   const atLimit = "é".repeat(CSV_MAX_BYTES / 2);
-  const size = "CSV must be under 2 MB.";
+  const size = "CSV must be under 2 MiB.";
   expect(() => parseComponentTemplateCsv(atLimit)).not.toThrow(size);
   expect(() => parseComponentTemplateCsv(atLimit + "x")).toThrow(size);
 });

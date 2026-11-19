@@ -13,7 +13,7 @@ The supplied `sample task csv.csv` is supported directly. It contains 14 Phase 2
 Item code,Task,Zone,Manual reference,PDF page
 ```
 
-An optional `Applicability` column is supported. Use UTF-8 CSV with normal quoting for commas, quotes and multiline text. Each row needs a unique item code and nonempty task instruction. Zone/reference/page fields may be blank if unknown; if a source PDF is selected, every row requires a valid page within that PDF. The upload limit is 2 MB / 2,000 task rows. The downloadable format has the same five columns as the sample.
+An optional `Applicability` column is supported. Use UTF-8 CSV with normal quoting for commas, quotes and multiline text. Each row needs a unique item code and nonempty task instruction. Zone/reference/page fields may be blank if unknown; if a source PDF is selected, every row requires a valid page within that PDF. The upload limit is 2 MiB / 2,000 task rows. The downloadable format has the same five columns as the sample.
 
 The existing `tasks.csv` format from the maintenance CSV workflow is also accepted. In this whole-file workflow, the chosen destination replaces the CSV’s parent IDs and parent types. They are not used to route individual rows. No database IDs need to be added to the sample format.
 

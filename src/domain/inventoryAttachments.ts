@@ -38,8 +38,8 @@ const FILE_SIGNATURES = new Map<string, (number | null)[]>([
  * Attachment bytes travel as a Convex action argument (`v.bytes()`), not
  * through an upload URL, so a file must fit within Convex's function-argument
  * size limit with room for encoding and the other arguments. Inventory, PO,
- * work-order and job-card attachments share this limit and the docs state it
- * as 7 MB (it is 7 MiB). Larger files need the upload-ticket flow manuals use.
+ * work-order and job-card attachments share this limit, 7 MiB. Larger files
+ * need the upload-ticket flow manuals use.
  */
 export const MAX_ACTION_FILE_BYTES = 7 * 1024 * 1024;
 
@@ -62,7 +62,7 @@ export interface InventoryAttachment {
  * @param type - A PDF, JPEG, PNG or WebP MIME type.
  * @param size - The size in bytes, 1 to {@link MAX_ACTION_FILE_BYTES}.
  * @throws {Rejection} "Choose a PDF, JPEG, PNG or WebP file." for a bad name
- *   or type; "Attachments must be between 1 byte and 7 MB." for a bad size.
+ *   or type; "Attachments must be between 1 byte and 7 MiB." for a bad size.
  */
 export function validateInventoryFile(
   name: string,
@@ -76,7 +76,7 @@ export function validateInventoryFile(
   )
     throw new Rejection("Choose a PDF, JPEG, PNG or WebP file.");
   if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_ACTION_FILE_BYTES)
-    throw new Rejection("Attachments must be between 1 byte and 7 MB.");
+    throw new Rejection("Attachments must be between 1 byte and 7 MiB.");
 }
 
 /**

@@ -440,7 +440,7 @@ async function readEngineLog(d: FormData) {
     file.size > ENGINE_FILE_MAX_BYTES
   )
     throw new Error(
-      `Choose an engine monitor CSV up to ${ENGINE_FILE_MAX_MEGABYTES} MB.`,
+      `Choose an engine monitor CSV up to ${ENGINE_FILE_MAX_MEGABYTES} MiB.`,
     );
   // Garmin logs may hold Latin-1 degree signs; decode leniently.
   const text = new TextDecoder().decode(await file.arrayBuffer());

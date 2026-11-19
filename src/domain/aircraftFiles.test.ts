@@ -68,7 +68,7 @@ function photo(over: Partial<AircraftFile>): AircraftFile {
   };
 }
 
-it("accepts the shared attachment types up to 7 MB", () => {
+it("accepts the shared attachment types up to 7 MiB", () => {
   for (const [name, type] of [
     ["337.pdf", "application/pdf"],
     ["337.jpg", "image/jpeg"],
@@ -83,7 +83,7 @@ it("accepts the shared attachment types up to 7 MB", () => {
   );
   expect(() =>
     validateAircraftFile("337.pdf", "application/pdf", 7 * 1024 * 1024 + 1),
-  ).toThrow("7 MB");
+  ).toThrow("7 MiB");
   expect(() => assertAircraftFileRoom(MAX_AIRCRAFT_FILES - 1)).not.toThrow();
   expect(() => assertAircraftFileRoom(MAX_AIRCRAFT_FILES)).toThrow("maximum");
 });
@@ -203,7 +203,7 @@ it("refuses HEIC photos by type or name and otherwise applies the Form 337 check
   );
   expect(() =>
     validateLogbookPhoto("page.jpg", "image/jpeg", 7 * 1024 * 1024 + 1),
-  ).toThrow("7 MB");
+  ).toThrow("7 MiB");
   expect(() =>
     validateAircraftUpload("logbook-page", "x.heic", "image/heic", 10),
   ).toThrow(Rejection);

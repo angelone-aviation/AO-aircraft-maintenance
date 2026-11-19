@@ -279,7 +279,7 @@ describe("export dates, times and file rules", () => {
     for (const [text, message] of [
       [
         "x".repeat(7 * 1024 * 1024 + 1),
-        "Engine data files must be at most 7 MB.",
+        "Engine data files must be at most 7 MiB.",
       ],
       ["Date,Altitude\n2026-01-01,5000", "Unrecognized engine data file."],
       [

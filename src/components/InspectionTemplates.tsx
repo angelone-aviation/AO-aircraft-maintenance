@@ -1053,7 +1053,7 @@ async function readTemplateCsv(d: FormData) {
     !file.size ||
     file.size > TEMPLATE_CSV_MAX_BYTES
   )
-    throw new Error("Choose a UTF-8 CSV up to 2 MB.");
+    throw new Error("Choose a UTF-8 CSV up to 2 MiB.");
   const scope = {
     kind: value(d, "kind") as ManualApplicability["kind"],
     manufacturer: value(d, "manufacturer"),

@@ -457,7 +457,7 @@ async function readTaskFile(
 ) {
   // The file's bytes, the unit parseTaskCsv checks again after decoding.
   if (!(file instanceof File) || !file.size || file.size > CSV_MAX_BYTES)
-    throw new Error("Choose a UTF-8 CSV up to 2 MB.");
+    throw new Error("Choose a UTF-8 CSV up to 2 MiB.");
   const csv = new TextDecoder("utf-8", { fatal: true }).decode(
     await file.arrayBuffer(),
   );

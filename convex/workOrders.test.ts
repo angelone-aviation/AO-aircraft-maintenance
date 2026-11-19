@@ -881,7 +881,7 @@ it("shows the work order's own refusals to the user as ConvexErrors", async () =
     ),
   ).toMatchObject({
     name: "ConvexError",
-    data: "Choose a PDF, JPEG or PNG file up to 7 MB.",
+    data: "Choose a PDF, JPEG or PNG file up to 7 MiB.",
   });
 });
 

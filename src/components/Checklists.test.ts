@@ -428,7 +428,7 @@ describe("Checklists", () => {
       });
     await change(new File(["x"], "notes.txt"));
     expect(render()).toContain(
-      '<p class="error" role="alert">Choose a ForeFlight .fmd checklist under 2 MB.</p>',
+      '<p class="error" role="alert">Choose a ForeFlight .fmd checklist under 2 MiB.</p>',
     );
     ui.imported = Error("Unable to read this FMD file.");
     await change(new File(["x"], "a.fmd"));

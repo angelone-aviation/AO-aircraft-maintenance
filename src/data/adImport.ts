@@ -73,8 +73,8 @@ export function parseADTables(tables: string[][][]): ADImport {
  * @param file - The uploaded report.
  * @returns As {@link parseADTables}.
  * @throws {Error} "Choose a .docx Word document. Save older .doc files as
- *   .docx first."; "Report must be smaller than 10 MB." (10 MiB); "Document
- *   is invalid or its contents exceed 20 MB." without a document part under
+ *   .docx first."; "Report must be smaller than 10 MiB."; "Document
+ *   is invalid or its contents exceed 20 MiB." without a document part under
  *   20 MiB unzipped; "Unable to read Word document XML."; fflate's error for
  *   a file that is not a zip; and as {@link parseADTables}.
  */
@@ -84,7 +84,7 @@ export async function importADDocx(file: File): Promise<ADImport> {
       "Choose a .docx Word document. Save older .doc files as .docx first.",
     );
   if (file.size > MAX_REPORT_BYTES)
-    throw Error("Report must be smaller than 10 MB.");
+    throw Error("Report must be smaller than 10 MiB.");
   const doc = await readDocumentXml(file);
   return parseADTables(readTables(doc));
 }
@@ -174,7 +174,7 @@ async function readDocumentXml(file: File): Promise<Document> {
       e.name === DOCUMENT_XML && e.originalSize < MAX_DOCUMENT_XML_BYTES,
   });
   if (!zip[DOCUMENT_XML])
-    throw Error("Document is invalid or its contents exceed 20 MB.");
+    throw Error("Document is invalid or its contents exceed 20 MiB.");
   const doc = new DOMParser().parseFromString(
     strFromU8(zip[DOCUMENT_XML]),
     "application/xml",

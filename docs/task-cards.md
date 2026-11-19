@@ -10,7 +10,7 @@ The editor includes ATA chapter, description, maintenance-data references, appli
 
 Execution records include findings, actual work, additional measurements, actual labor and completion date. Parts-used rows record part number/description, positive quantity, serial or lot and removed/installed component details. Choose **Non-stock item** for manual entry, or **Inventory stock** and select a storage location and stock item. Stock selection uses your existing inventory access, fills the part number and description and must belong to the aircraft’s Flight Program. Each stock item shows its available quantity (on hand less reservations), as in parts requests. Lots past their shelf life are marked **Expired** and cannot be linked; a lot linked before it expired stays on the card. A part already recorded keeps its part number if the stock item's part number is corrected later; only a newly entered number must match the stock item. Linking records the source; issue quantities separately through **Inventory → Move stock**. Component installation changes also remain separate.
 
-Save a draft before uploading evidence. PDF, JPEG and PNG files up to 7 MB can be categorized as photos, supporting documents or parts traceability. Evidence is stored with the card and remains readable after completion.
+Save a draft before uploading evidence. PDF, JPEG and PNG files up to 7 MiB can be categorized as photos, supporting documents or parts traceability. Evidence is stored with the card and remains readable after completion.
 
 Statuses are draft, ready, in progress, awaiting parts, awaiting inspection, completed and canceled. To complete a card:
 

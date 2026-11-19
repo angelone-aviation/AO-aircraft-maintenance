@@ -633,7 +633,7 @@ export interface WorkOrderAttachment {
  * PDF, JPEG or PNG of 1 byte to {@link MAX_ACTION_FILE_BYTES}, with a
  * non-blank name of at most 255 characters.
  *
- * @throws {Rejection} "Choose a PDF, JPEG or PNG file up to 7 MB."
+ * @throws {Rejection} "Choose a PDF, JPEG or PNG file up to 7 MiB."
  */
 export function validateWorkOrderFile(
   name: string,
@@ -647,7 +647,7 @@ export function validateWorkOrderFile(
     size <= 0 ||
     size > MAX_ACTION_FILE_BYTES
   )
-    throw new Rejection("Choose a PDF, JPEG or PNG file up to 7 MB.");
+    throw new Rejection("Choose a PDF, JPEG or PNG file up to 7 MiB.");
 }
 
 function adSources(s: Snapshot, aircraftUuid: string): OfferedWork[] {

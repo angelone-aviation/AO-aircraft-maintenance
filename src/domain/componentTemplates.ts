@@ -116,13 +116,13 @@ export function validateRows(rows: ComponentTemplate["rows"]) {
  *
  * @param csv - The file's text; a leading byte-order mark is ignored.
  * @returns The rows, checked by {@link validateRows}.
- * @throws {Rejection} "CSV must be under 2 MB.", "Use columns: …", "CSV row
+ * @throws {Rejection} "CSV must be under 2 MiB.", "Use columns: …", "CSV row
  *   <n>: <reason>", "Use 1–500 component rows." or a {@link validateRows}
  *   message.
  */
 export function parseComponentTemplateCsv(csv: string) {
   if (new TextEncoder().encode(csv).length > CSV_MAX_BYTES)
-    throw new Rejection("CSV must be under 2 MB.");
+    throw new Rejection("CSV must be under 2 MiB.");
   const [header, ...data] = readCsvRows(csv.replace(/^﻿/, ""));
   const headers = readTemplateHeaders(header?.cells ?? []);
   const generated = new Map<string, number>();
