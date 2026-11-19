@@ -55,12 +55,19 @@ it("leaves damaged rows out and lists them in collection, then row, order", asyn
     management: stock,
   });
   expect(damaged).toEqual([
-    { collection: "management", payload: { kind: "text", text: "{" } },
+    {
+      collection: "management",
+      payload: { kind: "text", text: "{" },
+      issues: [],
+    },
     {
       collection: "management",
       payload: { kind: "json", value: { kind: "stock" } },
+      issues: expect.arrayContaining([
+        { path: ["uuid"], message: expect.any(String) },
+      ]),
     },
-    { collection: "airworthiness", payload: { kind: "missing" } },
+    { collection: "airworthiness", payload: { kind: "missing" }, issues: [] },
   ]);
   expect(snapshot.management).toHaveLength(stock.length - 2);
   expect(snapshot.management!.map((r) => r.uuid)).not.toContain(lost[0]);

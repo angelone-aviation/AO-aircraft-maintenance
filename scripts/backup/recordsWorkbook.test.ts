@@ -664,15 +664,30 @@ describe("records workbook", () => {
     ws.eachRow((row, n) => {
       if (n > 2) listed.push([1, 2, 3].map((c) => text(row.getCell(c).value)));
     });
-    const MISMATCH = "Does not match the app's current format.";
-    expect(listed.map(([type, note]) => [type, note])).toEqual([
-      ["Inventory and component", "Not JSON; shown as the stored text."],
-      ["Inventory and component", MISMATCH],
-      ["AD", MISMATCH],
-      ["Work order", MISMATCH],
-      ["Job card", "The row has no payload."],
-      ["Purchase order", MISMATCH],
+    expect(listed.map(([type]) => type)).toEqual([
+      "Inventory and component",
+      "Inventory and component",
+      "AD",
+      "Work order",
+      "Job card",
+      "Purchase order",
     ]);
+    // Each note names the field that no longer matches, and why.
+    const mismatch = (field: string) =>
+      new RegExp(
+        `^Does not match the app's current format: ${field}: [^;]+\\.$`,
+      );
+    expect(listed[0][1]).toBe("Not JSON; shown as the stored text.");
+    expect(listed[1][1]).toMatch(mismatch("Name"));
+    expect(listed[2][1]).toMatch(mismatch("Tasks"));
+    expect(listed[3][1]).toMatch(mismatch("Date opened"));
+    expect(listed[4][1]).toBe("The row has no payload.");
+    expect(listed[5][1]).toMatch(mismatch("Lines"));
+    const records: string[] = [];
+    read
+      .getWorksheet("Change history")!
+      .eachRow((row) => records.push(text(row.getCell(5).value)));
+    expect(records).toContain("Work order WO-2026-0007 (damaged record)");
     expect(listed[0][2]).toBe(
       '{"kind":"stock","file":"[file]","link":"[link removed]',
     );
