@@ -39,18 +39,23 @@ type QrDecoder = (typeof import("jsqr"))["default"];
 
 /**
  * The camera QR scanner with a typed-code fallback. A recognized code opens
- * its stock item or component; an unrecognized one shows why. The camera stops
- * after the first scanned code that opens an item.
+ * its stock item or component; an unrecognized one shows why, beside the
+ * camera or under the typed code it came from. The camera stops after the
+ * first code it reads, whether or not that code opens an item.
  *
  * @param props.onOpened - Called just before navigating to an opened item.
  */
 export function InventoryScanner({ onOpened }: { onOpened?: () => void }) {
-  const { issue, openCode } = useCodeOpener(onOpened);
+  const openCode = useCodeOpener(onOpened);
+  const [typedIssue, setTypedIssue] = useState("");
   const camera = useCameraScan(openCode);
   return (
     <div className="inventory-scanner ops-scan">
       <CameraPreview {...camera} />
-      <ManualCodeForm issue={issue} onCode={openCode} />
+      <ManualCodeForm
+        issue={typedIssue}
+        onCode={(code) => setTypedIssue(openCode(code))}
+      />
     </div>
   );
 }
@@ -88,34 +93,31 @@ export function ScanPage() {
   );
 }
 
+// Opens the item a code names; returns why it could not, or "" once opened.
 function useCodeOpener(onOpened?: () => void) {
   const s = useWorkspace((state) => state.snapshot);
   const navigate = useNavigate();
-  const [issue, setIssue] = useState("");
-  // True when the code opened an item, so the camera loop knows to stop.
-  const openCode = (raw: string) => {
+  return (raw: string) => {
     try {
       const target = resolveInventoryCode(s!, raw);
-      setIssue("");
       onOpened?.();
       void navigate(
         target.kind === "stock"
           ? { to: "/inventory", search: { item: target.uuid } }
           : { to: "/components", search: { item: target.uuid } },
       );
-      return true;
+      return "";
     } catch (error) {
       // resolveInventoryCode refuses a code that matches no item, or several.
-      setIssue(errorText(error, "This code was not recognized."));
-      return false;
+      return errorText(error, "This code was not recognized.");
     }
   };
-  return { issue, openCode };
 }
 
-function useCameraScan(openCode: (raw: string) => boolean) {
+function useCameraScan(openCode: (raw: string) => string) {
   const video = useRef<HTMLVideoElement>(null);
   const [cameraIssue, setCameraIssue] = useState("");
+  const [scanIssue, setScanIssue] = useState("");
   const [scanning, setScanning] = useState(true);
   // Presentation only: true once the camera feed is playing in the preview.
   const [live, setLive] = useState(false);
@@ -126,7 +128,7 @@ function useCameraScan(openCode: (raw: string) => boolean) {
   });
   useEffect(() => {
     if (!scanning) return;
-    const session: ScanSession = { stopped: false, lastCode: "" };
+    const session: ScanSession = { stopped: false };
     const stop = () => {
       session.stopped = true;
       window.clearInterval(session.timer);
@@ -138,21 +140,23 @@ function useCameraScan(openCode: (raw: string) => boolean) {
       setLive,
       setCameraIssue,
       onCode: (code) => {
-        if (!open.current(code)) return;
         stop();
         setScanning(false);
+        setScanIssue(open.current(code));
       },
     });
     return stop;
   }, [scanning]);
-  return { video, cameraIssue, scanning, live };
+  const scanAgain = () => {
+    setScanIssue("");
+    setScanning(true);
+  };
+  return { video, cameraIssue, scanIssue, scanning, live, scanAgain };
 }
 
-// One camera start: the effect's cleanup or an opened code stops it.
+// One camera start: the effect's cleanup or the first code read stops it.
 interface ScanSession {
   stopped: boolean;
-  // A code is resolved again only after a different one was read.
-  lastCode: string;
   stream?: MediaStream;
   timer?: number;
 }
@@ -194,9 +198,7 @@ async function startCamera(
     const readCode = createFrameReader(video, jsQR);
     session.timer = window.setInterval(() => {
       const code = readCode();
-      if (!code || code === session.lastCode) return;
-      session.lastCode = code;
-      on.onCode(code);
+      if (code) on.onCode(code);
     }, SCAN_INTERVAL_MS);
   } catch (error) {
     if (!session.stopped) on.setCameraIssue(describeCameraError(error));
@@ -231,17 +233,16 @@ function describeCameraError(error: unknown) {
   return "The camera could not be started. Enter the code manually.";
 }
 
+type CameraScan = ReturnType<typeof useCameraScan>;
+
 function CameraPreview({
   video,
   cameraIssue,
+  scanIssue,
   scanning,
   live,
-}: {
-  video: VideoRef;
-  cameraIssue: string;
-  scanning: boolean;
-  live: boolean;
-}) {
+  scanAgain,
+}: CameraScan) {
   return (
     <div className="ops-camera" data-state={cameraState(cameraIssue, live)}>
       {!cameraIssue && scanning && (
@@ -255,7 +256,16 @@ function CameraPreview({
       )}
       <span className="ops-viewfinder" aria-hidden="true" />
       <div className="ops-camera-message">
-        <CameraMessage cameraIssue={cameraIssue} scanning={scanning} />
+        <CameraMessage
+          cameraIssue={cameraIssue}
+          scanIssue={scanIssue}
+          scanning={scanning}
+        />
+        {!cameraIssue && !scanning && (
+          <button type="button" className="button" onClick={scanAgain}>
+            <Camera size={18} aria-hidden="true" /> Scan again
+          </button>
+        )}
       </div>
     </div>
   );
@@ -268,17 +278,23 @@ function cameraState(cameraIssue: string, live: boolean) {
 
 function CameraMessage({
   cameraIssue,
+  scanIssue,
   scanning,
-}: {
-  cameraIssue: string;
-  scanning: boolean;
-}) {
+}: Pick<CameraScan, "cameraIssue" | "scanIssue" | "scanning">) {
   if (cameraIssue)
     return (
       <>
         <CameraSlash size={32} weight="duotone" aria-hidden="true" />
         <strong>Camera unavailable</strong>
         <p role="alert">{cameraIssue}</p>
+      </>
+    );
+  if (scanIssue)
+    return (
+      <>
+        <Camera size={32} weight="duotone" aria-hidden="true" />
+        <strong>Label not opened</strong>
+        <p role="alert">{scanIssue}</p>
       </>
     );
   if (!scanning)
