@@ -15,6 +15,10 @@ export const FILE_LINK_TTL_MS = 5 * 60 * 1000;
 /** The most links one request asks for: a screen of thumbnails. */
 export const MAX_FILE_LINKS = 50;
 
+/** The refusal for a member who is only on a board: their view has no file. */
+export const NO_FILES_IN_BOARD_VIEW =
+  "Files are not available in the board view.";
+
 /** The kinds of stored file a link opens. */
 export const FILE_KINDS = [
   "aircraftFile",

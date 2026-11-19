@@ -3,13 +3,15 @@
  *   adapters, and the Convex adapter that sends each call to one server
  *   function.
  * Layer: Data. A thin client over convex/_generated/api; no rules, no UI.
- * Dependencies: convex/react, convex/_generated (api, dataModel),
- *   src/data/store, src/domain (command, input and record types), zod (types).
+ * Dependencies: convex/react, convex/server (makeFunctionReference),
+ *   convex/_generated (api, dataModel), src/data/store, src/domain (command,
+ *   input and record types), zod (types).
  *
  * The server re-checks every argument. Ids arrive from the server snapshot as
  * strings; the `Id` casts are safe because Convex checks each id's table.
  */
 import type { ConvexReactClient } from "convex/react";
+import { makeFunctionReference } from "convex/server";
 import type { z } from "zod";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -48,6 +50,7 @@ import type {
 import type { FaaCommand } from "../domain/faa";
 import type { faaCredentialInput } from "../domain/faaCredential";
 import type { FaaSearchInput, FaaSearchResult } from "../domain/faaSearch";
+import type { FileLink, FileRef } from "../domain/fileLinks";
 import type { FleetCommand } from "../domain/fleet";
 import type { PlanCommand } from "../domain/flightPlans";
 import type { GroupAccessReport } from "../domain/groupAccessReview";
@@ -477,6 +480,19 @@ export interface Backend {
    * @param reason - Why it is archived.
    */
   archiveAircraftFile(id: string, reason: string): Promise<unknown>;
+  /**
+   * Links to stored files the signed-in member's view lists, each working for
+   * five minutes and never stored (docs/file-links.md). The demo answers with
+   * the copies it keeps in the browser.
+   *
+   * @param files - At most 50 files.
+   * @returns One entry per file, in order: its link, or null when the member
+   *   may not open it or it is gone.
+   * @throws {ConvexError} "Files are not available in the board view." for a
+   *   member who is only on a board; "Flight Program changed. Reopen the form
+   *   in the correct program."
+   */
+  fileLinks(files: FileRef[]): Promise<(FileLink | null)[]>;
 
   /**
    * Makes a Flight Program the caller's active one.
@@ -983,6 +999,7 @@ function bindAircraftCalls(client: ConvexReactClient) {
         api.aircraftFiles.archive,
         inProgram({ id: id as Id<"aircraftFiles">, reason }),
       ),
+    fileLinks: (files) => client.mutation(FILE_LINKS, inProgram({ files })),
   } satisfies Partial<Backend>;
 }
 
@@ -1179,6 +1196,14 @@ async function hashFileBase64(file: File): Promise<string> {
   for (const byte of hash) binary += String.fromCharCode(byte);
   return btoa(binary);
 }
+
+// By name, as api.fileLinks.links will name it once convex/_generated is next
+// regenerated against a deployment.
+const FILE_LINKS = makeFunctionReference<
+  "mutation",
+  { programUuid?: string; files: FileRef[] },
+  (FileLink | null)[]
+>("fileLinks:links");
 
 function readActiveProgram(): string | undefined {
   return useWorkspace.getState().snapshot?.activeProgramUuid;

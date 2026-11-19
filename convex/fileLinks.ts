@@ -29,11 +29,11 @@ import { isCurrentAircraftFile } from "../src/domain/aircraftFiles";
 import {
   FILE_KINDS,
   MAX_FILE_LINKS,
+  NO_FILES_IN_BOARD_VIEW,
   type FileLink,
   type FileRef,
 } from "../src/domain/fileLinks";
 
-const BOARD = "Files are not available in the board view.";
 // Upload paths that keep no type of their own are served as a download.
 const UNKNOWN_TYPE = "application/octet-stream";
 const PHOTO_NAME = "aircraft-photo";
@@ -111,7 +111,7 @@ async function readerOf(ctx: MutationCtx, programUuid?: string) {
       "Flight Program changed. Reopen the form in the correct program.",
     );
   const owner = isOwnerView(state);
-  if (isBoardView(state) && !owner) throw new ConvexError(BOARD);
+  if (isBoardView(state) && !owner) throw new ConvexError(NO_FILES_IN_BOARD_VIEW);
   return { state, scoped: scopedSnapshot(state), owner };
 }
 

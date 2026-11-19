@@ -560,6 +560,16 @@ const CASES: Case[] = [
     args: { id: "file-1", reason: "Superseded", programUuid: ACTIVE_PROGRAM },
   },
   {
+    method: "fileLinks",
+    call: (b) => b.fileLinks([{ kind: "aircraftPhoto", id: "demo-206" }]),
+    kind: "mutation",
+    name: "fileLinks:links",
+    args: {
+      files: [{ kind: "aircraftPhoto", id: "demo-206" }],
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
     method: "selectProgram",
     call: (b) => b.selectProgram(OTHER_PROGRAM),
     kind: "mutation",
