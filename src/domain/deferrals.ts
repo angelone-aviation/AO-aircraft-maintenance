@@ -6,7 +6,14 @@
  * Dependencies: zod, ./model, ./changeLog, ./commandRequest, ./rejection.
  */
 import { z } from "zod";
-import { can, isLocalToday, type Discrepancy, type Snapshot } from "./model";
+import {
+  can,
+  isLocalToday,
+  latestLocalDate,
+  localDate,
+  type Discrepancy,
+  type Snapshot,
+} from "./model";
 import { auditEntry } from "./changeLog";
 import { requestUuidField } from "./commandRequest";
 import { Rejection } from "./rejection";
@@ -77,10 +84,13 @@ export const deferralInputSchema = z
 export type DeferralInput = z.infer<typeof deferralInputSchema>;
 
 /**
- * A recorded deferral: the input, who deferred it and when, and its expiry
- * date (MEL deferrals only).
+ * A recorded deferral: the input, the day the defect was found, who deferred
+ * it and when, and its expiry date (MEL deferrals only). Deferrals recorded
+ * before the found date was asked have no `foundOn`; {@link defectFoundOn}
+ * reads theirs as the report's date.
  */
 export type Deferral = DeferralInput & {
+  foundOn?: string;
   deferredOn: string;
   deferredAt: number;
   deferredBy: string;
@@ -89,13 +99,14 @@ export type Deferral = DeferralInput & {
 };
 
 /**
- * A request to defer one discrepancy, dated the day it is made, with its
- * request id when the client sends one.
+ * A request to defer one discrepancy, dated the day it is made, with the day
+ * the defect was found and its request id when the client sends one.
  *
  * @throws {z.ZodError} From `parse()` on an invalid field or deferral.
  */
 export const deferCommandSchema = z.strictObject({
   uuid: z.string().min(1),
+  foundOn: z.iso.date(),
   deferredOn: z.iso.date(),
   deferral: deferralInputSchema,
   ...requestUuidField,
@@ -120,22 +131,39 @@ export function isGroundingReport(
 }
 
 /**
- * Works out when a deferral expires.
+ * Works out when a deferral expires. The interval runs from the day the
+ * defect was found, not the day it was deferred, so a late deferral does not
+ * lengthen the time the aircraft may fly with the item open.
  *
  * @param input - The deferral; category A must carry its days.
- * @param deferredOn - The deferral date (YYYY-MM-DD).
- * @returns The deferral date plus the category's days for an MEL item, or
+ * @param foundOn - The day the defect was found (YYYY-MM-DD).
+ * @returns The found date plus the category's days for an MEL item, or
  *   undefined for 91.213(d), which does not expire.
  */
 export function deferralExpiry(
   input: DeferralInput,
-  deferredOn: string,
+  foundOn: string,
 ): string | undefined {
   if (input.type !== "mel") return undefined;
   return addDays(
-    deferredOn,
+    foundOn,
     input.category === "A" ? input.days! : MEL_CATEGORY_DAYS[input.category],
   );
+}
+
+/**
+ * The day a report's defect was found: the date its deferral records, else
+ * the report's own date in the runtime's time zone. That is the defer form's
+ * default, and the reading for deferrals recorded before the date was asked,
+ * whose expiry still counts from their deferral date.
+ *
+ * @param report - The report, with its deferral if it has one.
+ * @returns The date as YYYY-MM-DD.
+ */
+export function defectFoundOn(
+  report: Pick<Discrepancy, "createdAt" | "deferral">,
+): string {
+  return report.deferral?.foundOn ?? localDate(report.createdAt);
 }
 
 /**
@@ -194,7 +222,8 @@ export function deferralLabel(d: Deferral) {
  * @throws {Rejection} "Report not found.", "You do not have permission for
  *   this aircraft." (needs `resolve`), "Only open discrepancies can be
  *   deferred.", "This discrepancy is already deferred.", "The deferral date
- *   must be today."; {z.ZodError} for a bad command.
+ *   must be today.", "The defect cannot have been found after it was
+ *   reported."; {z.ZodError} for a bad command.
  */
 export function deferDiscrepancy(
   s: Snapshot,
@@ -208,13 +237,20 @@ export function deferDiscrepancy(
   if (d.deferral) throw new Rejection("This discrepancy is already deferred.");
   if (!isLocalToday(command.deferredOn, now))
     throw new Rejection("The deferral date must be today.");
+  // The server knows only the report's instant, not the reporter's zone, so
+  // the bound is the latest date it was anywhere when the report was made.
+  if (command.foundOn > latestLocalDate(d.createdAt))
+    throw new Rejection(
+      "The defect cannot have been found after it was reported.",
+    );
   const deferral: Deferral = {
     ...command.deferral,
+    foundOn: command.foundOn,
     deferredOn: command.deferredOn,
     deferredAt: now,
     deferredBy: s.user.id,
     deferredByName: s.user.name,
-    expiresOn: deferralExpiry(command.deferral, command.deferredOn),
+    expiresOn: deferralExpiry(command.deferral, command.foundOn),
   };
   recordReportChange(s, d, "deferred", deferral.placard, deferral, now);
   return { ...d, deferral };

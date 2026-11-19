@@ -22,6 +22,7 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
 async function fixture() {
   const t = convexTest(schema, modules);
   const a = demoSnapshot().aircraft[0];
@@ -810,10 +811,13 @@ describe("discrepancy resolution", () => {
           .unique(),
       );
     const stored = await report();
+    // MX-3: the repair interval counts from the day the defect was found.
+    const foundOn = localDate(Date.now() - 2 * DAY_MS);
     await admin.mutation(api.operations.deferDiscrepancy, {
       programUuid: "demo-program",
       payload: JSON.stringify({
         uuid,
+        foundOn,
         deferredOn: localDate(),
         deferral: {
           type: "mel",
@@ -824,6 +828,10 @@ describe("discrepancy resolution", () => {
       }),
     });
     const deferred = await report();
+    expect(deferred!.deferral).toMatchObject({
+      foundOn,
+      expiresOn: localDate(Date.parse(foundOn + "T12:00:00") + 3 * DAY_MS),
+    });
     const rows = await t.run(async (ctx) =>
       (await ctx.db.query("audit").collect()).filter(
         (r) => r.action === "discrepancy.deferred",
@@ -847,6 +855,7 @@ describe("discrepancy resolution", () => {
           melItem: "24-1",
           category: "B",
           placard: "ALT INOP",
+          foundOn,
           deferredOn: localDate(),
           deferredAt: deferred!.deferral!.deferredAt,
           deferredBy: ids.admin,
@@ -919,6 +928,7 @@ describe("discrepancy resolution", () => {
     const requestUuid = crypto.randomUUID();
     const command = (placard: string) => ({
       uuid,
+      foundOn: localDate(),
       deferredOn: localDate(),
       deferral: { type: "91.213d", placard, notHazard: true },
       requestUuid,

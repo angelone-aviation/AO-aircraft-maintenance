@@ -121,6 +121,7 @@ it("defers and audits it as the server does: the program, the placard, the defer
   const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
   await backend.deferDiscrepancy({
     uuid: REPORT,
+    foundOn: localDate(before!.createdAt),
     deferredOn: localDate(),
     deferral: { type: "91.213d", placard: " LDG LT INOP ", notHazard: true },
   });
@@ -132,6 +133,7 @@ it("defers and audits it as the server does: the program, the placard, the defer
       type: "91.213d",
       placard: "LDG LT INOP",
       notHazard: true,
+      foundOn: localDate(before!.createdAt),
       deferredOn: localDate(),
       deferredAt: expect.any(Number),
       deferredBy: s.user.id,

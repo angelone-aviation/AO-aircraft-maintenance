@@ -84,6 +84,7 @@ describe("requestUuidField", () => {
     };
     const deferral = {
       uuid: "report-1",
+      foundOn: "2026-01-01",
       deferredOn: "2026-01-01",
       deferral: { type: "91.213d", placard: "INOP", notHazard: true },
       requestUuid: REQUEST_UUID,

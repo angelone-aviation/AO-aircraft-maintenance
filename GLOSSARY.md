@@ -54,7 +54,7 @@ A reported defect on an aircraft, open until resolved or deferred.
 _Avoid_: squawk, issue, defect (in records)
 
 **Deferral**:
-Postponement of a discrepancy under a Minimum Equipment List (MEL) item and category, with placard text and a repair deadline.
+Postponement of a discrepancy under a Minimum Equipment List (MEL) item and category, with placard text and a repair deadline counted from the day the defect was found, not the day it was deferred.
 
 **Aircraft status**:
 The computed level of an aircraft, airworthy, due soon or grounded, together with the reasons that produced it. Screens show **Setup incomplete** in place of airworthy or due soon while the aircraft's setup has gaps.
