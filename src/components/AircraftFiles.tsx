@@ -3,8 +3,9 @@
  *   uploading and archiving them with a reason.
  * Layer: UI. React components; writes through the workspace backend.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
- *   src/data/backend.ts (types), src/domain/model.ts, src/domain/aircraftFiles.ts, ./design.tsx,
- *   ./ui.tsx, src/styles/screens/dashboard.css.
+ *   src/data/backend.ts (types), src/domain/model.ts,
+ *   src/domain/aircraftFiles.ts, ./FileLink.tsx, ./design.tsx, ./ui.tsx,
+ *   src/styles/screens/dashboard.css.
  *
  * Copies are never deleted (ADR-0004): archiving hides one from the current
  * list and keeps its stored file.
@@ -19,6 +20,7 @@ import {
   validateAircraftFile,
   type AircraftFile,
 } from "../domain/aircraftFiles";
+import { useFileLink, type ShownLink } from "./FileLink";
 import { Switch } from "./design";
 import { errorText, useRevealError } from "./ui";
 import "../styles/screens/dashboard.css";
@@ -185,14 +187,17 @@ function Form337Row({
   file: AircraftFile;
   onArchive?: Archiver;
 }) {
-  const url = useOpenableUrl(file);
+  const link = useFileLink(
+    { kind: "aircraftFile", id: file.uuid },
+    { keepFresh: true },
+  );
   const [archiving, setArchiving] = useState(false);
   return (
     <li className="dash-file">
       <FileText size={20} aria-hidden="true" />
       <FileDetails file={file} />
       <span className="dash-file-actions">
-        <OpenLink url={url} name={file.name} />
+        <OpenLink link={link} name={file.name} />
         {onArchive && !archiving && (
           <button
             type="button"
@@ -215,29 +220,6 @@ function Form337Row({
   );
 }
 
-/**
- * A URL that opens a stored file in a new tab. Demo data URLs become blob
- * URLs, since browsers block top-level data URL navigation.
- *
- * @param file - The file, with its stored `url` and MIME `type`.
- * @returns The URL to open, or "" until a data URL has been converted.
- */
-export function useOpenableUrl(file: Pick<AircraftFile, "url" | "type">) {
-  const [url, setUrl] = useState(file.url.startsWith("data:") ? "" : file.url);
-  useEffect(() => {
-    if (!file.url.startsWith("data:")) {
-      setUrl(file.url);
-      return;
-    }
-    const encoded = file.url.slice(file.url.indexOf(",") + 1);
-    const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
-    const local = URL.createObjectURL(new Blob([bytes], { type: file.type }));
-    setUrl(local);
-    return () => URL.revokeObjectURL(local);
-  }, [file.url, file.type]);
-  return url;
-}
-
 function FileDetails({ file }: { file: AircraftFile }) {
   return (
     <span className="dash-file-text">
@@ -256,12 +238,21 @@ function FileDetails({ file }: { file: AircraftFile }) {
   );
 }
 
-function OpenLink({ url, name }: { url: string; name: string }) {
-  if (!url) return <small>Reconnect to open.</small>;
+/**
+ * Opens a stored file in a new tab through its link, or says why it cannot
+ * yet.
+ *
+ * @param props.link - The file's link, from useFileLink.
+ * @param props.name - The file's name, in the accessible name ("Open <name>").
+ */
+export function OpenLink({ link, name }: { link: ShownLink; name: string }) {
+  if (link.status === "offline") return <small>Reconnect to open.</small>;
+  if (link.status === "unavailable") return <small>Cannot be opened.</small>;
+  if (!link.url) return <small>Opening…</small>;
   return (
     <a
       className="button small"
-      href={url}
+      href={link.url}
       target="_blank"
       rel="noreferrer"
       aria-label={`Open ${name}`}

@@ -14,6 +14,7 @@ import type { Backend } from "./backend";
 import { demoSnapshot } from "./demo";
 import { exportRecordsPackage } from "./recordsPackage";
 import type { AuditPageRequest } from "../domain/auditHistory";
+import type { FileRef } from "../domain/fileLinks";
 import type { AuditEntry } from "../domain/model";
 
 const NOW = new Date("2026-06-15T09:30:00Z");
@@ -45,6 +46,17 @@ function fakeBackend(entries: AuditEntry[], calls: number[] = []): Backend {
       };
     },
   } as unknown as Backend;
+}
+
+// Links as the server issues them, one entry per file asked for: the URL
+// in `urls`, or null for a file not listed there.
+function linksTo(urls: Record<string, string>, asked: string[][] = []) {
+  return async (refs: FileRef[]) => {
+    asked.push(refs.map((r) => r.id));
+    return refs.map((r) =>
+      urls[r.id] ? { url: urls[r.id], expiresAt: NOW.getTime() } : null,
+    );
+  };
 }
 
 function entry(i: number, aircraftUuid: string): AuditEntry {
@@ -82,6 +94,7 @@ describe("exportRecordsPackage", () => {
       snapshot: s,
       aircraftUuid: a.uuid,
       backend: fakeBackend([entry(1, a.uuid)]),
+      fileLinks: linksTo({ f1: "data:application/pdf;base64,aGVsbG8=" }),
       now: NOW,
       onProgress: (m) => messages.push(m),
     });
@@ -142,6 +155,7 @@ describe("exportRecordsPackage", () => {
       snapshot: s,
       aircraftUuid: a.uuid,
       backend: fakeBackend(entries, calls),
+      fileLinks: null,
       now: NOW,
     });
     expect(calls).toEqual([PAGE, PAGE, PAGE]);
@@ -163,6 +177,7 @@ describe("exportRecordsPackage", () => {
       snapshot: s,
       aircraftUuid: a.uuid,
       backend: null,
+      fileLinks: null,
       now: NOW,
     });
     const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
@@ -194,6 +209,7 @@ describe("exportRecordsPackage", () => {
       snapshot: s,
       aircraftUuid: a.uuid,
       backend,
+      fileLinks: null,
       now: NOW,
     });
     const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
@@ -213,6 +229,7 @@ describe("exportRecordsPackage", () => {
         snapshot: s,
         aircraftUuid: s.aircraft[0].uuid,
         backend: fakeBackend([], calls),
+        fileLinks: null,
         now: NOW,
       }),
     ).rejects.toThrow(
@@ -235,33 +252,64 @@ describe("exportRecordsPackage", () => {
       uploadedAt: Date.parse("2026-03-01T12:00:00Z"),
       url,
     });
+    s.aircraftFiles = [copy("ok", ""), copy("gone", ""), copy("hidden", "")];
+    const asked: string[][] = [];
+    const result = await exportRecordsPackage({
+      snapshot: s,
+      aircraftUuid: a.uuid,
+      backend: null,
+      fileLinks: linksTo(
+        { ok: "https://files.test/ok", gone: "https://files.test/gone" },
+        asked,
+      ),
+      now: NOW,
+    });
+    // Each link is asked for just before its download: a package of many
+    // files outlasts a link's five minutes.
+    expect(asked).toEqual([["ok"], ["gone"], ["hidden"]]);
+    const skipped = (id: string) => ({
+      file: {
+        path: `form-337/2026-03-01-${id}.pdf`,
+        file: { kind: "aircraftFile", id },
+        size: 3,
+        description: "Form 337 copy",
+      },
+      reason: "Could not be downloaded",
+    });
+    expect(result.skipped).toEqual([skipped("gone"), skipped("hidden")]);
+    const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
+    expect([...files["form-337/2026-03-01-ok.pdf"]]).toEqual([1, 2, 3]);
+    expect(files["form-337/2026-03-01-gone.pdf"]).toBeUndefined();
+    expect(strFromU8(files["README.txt"])).toMatch(
+      /SKIPPED FILES\nform-337\/2026-03-01-gone\.pdf - Form 337 copy: Could not be downloaded\.\n/,
+    );
+  });
+
+  it("lists every file as not downloaded when it cannot ask for links", async () => {
+    stubFetch({});
+    const s = demoSnapshot();
+    const a = s.aircraft[0];
     s.aircraftFiles = [
-      copy("ok", "https://files.test/ok"),
-      copy("gone", "https://files.test/gone"),
+      {
+        uuid: "f1",
+        aircraftUuid: a.uuid,
+        category: "form-337",
+        name: "Repair.pdf",
+        type: "application/pdf",
+        size: 5,
+        uploadedAt: Date.parse("2026-03-01T12:00:00Z"),
+      },
     ];
     const result = await exportRecordsPackage({
       snapshot: s,
       aircraftUuid: a.uuid,
       backend: null,
+      fileLinks: null,
       now: NOW,
     });
-    expect(result.skipped).toEqual([
-      {
-        file: {
-          path: "form-337/2026-03-01-gone.pdf",
-          url: "https://files.test/gone",
-          size: 3,
-          description: "Form 337 copy",
-        },
-        reason: "Could not be downloaded",
-      },
+    expect(result.skipped.map((f) => [f.file.path, f.reason])).toEqual([
+      ["form-337/2026-03-01-Repair.pdf", "Could not be downloaded"],
     ]);
-    const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
-    expect([...files["form-337/2026-03-01-ok.pdf"]]).toEqual([1, 2, 3]);
-    expect(files["form-337/2026-03-01-gone.pdf"]).toBeUndefined();
-    expect(strFromU8(files["README.txt"])).toMatch(
-      /SKIPPED FILES\nform-337\/2026-03-01-gone\.pdf - Form 337 copy: Could not be downloaded\.\n$/,
-    );
   });
 
   it("fails when the font cannot be loaded", async () => {
@@ -272,6 +320,7 @@ describe("exportRecordsPackage", () => {
         snapshot: s,
         aircraftUuid: s.aircraft[0].uuid,
         backend: null,
+        fileLinks: null,
         now: NOW,
       }),
     ).rejects.toThrow("Unable to load the PDF font. Reconnect and try again.");

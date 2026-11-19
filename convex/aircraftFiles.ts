@@ -66,7 +66,8 @@ type Target = {
  *
  * @param ctx - Query context.
  * @param s - The reader's scoped snapshot.
- * @returns Each file with a storage URL, or "" when the blob is missing.
+ * @returns Each file's details, never a link: files open through
+ *   convex/fileLinks.ts, since a storage URL would open them for anyone.
  */
 export async function aircraftFileList(
   ctx: QueryCtx,
@@ -79,7 +80,7 @@ export async function aircraftFileList(
         .query("aircraftFiles")
         .withIndex("aircraft", (q) => q.eq("aircraftUuid", a.uuid))
         .collect();
-      return Promise.all(files.map((f) => toAircraftFile(ctx, f)));
+      return files.map(toAircraftFile);
     }),
   );
   return lists.flat();
@@ -312,10 +313,7 @@ async function countCurrentFiles(
   return current.length;
 }
 
-async function toAircraftFile(
-  ctx: QueryCtx,
-  f: Doc<"aircraftFiles">,
-): Promise<AircraftFile> {
+function toAircraftFile(f: Doc<"aircraftFiles">): AircraftFile {
   return {
     uuid: f._id,
     aircraftUuid: f.aircraftUuid,
@@ -329,6 +327,5 @@ async function toAircraftFile(
     archivedAt: f.archivedAt,
     archivedBy: f.archivedBy,
     archiveReason: f.archiveReason,
-    url: (await ctx.storage.getUrl(f.storageId)) ?? "",
   };
 }

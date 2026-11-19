@@ -18,7 +18,10 @@ let workspace = {
   online: true,
   connected: true,
 };
-vi.mock("../data/store", () => ({ useWorkspace: () => workspace }));
+vi.mock("../data/store", () => ({
+  useWorkspace: (select?: (state: typeof workspace) => unknown) =>
+    select ? select(workspace) : workspace,
+}));
 
 const copy = (n: number, extra: Partial<AircraftFile> = {}): AircraftFile => ({
   uuid: `f${n}`,
@@ -68,7 +71,9 @@ describe("AircraftForm337", () => {
 
   it("gives readers no upload or archive controls", () => {
     const html = render([copy(1)], null);
-    expect(html).toContain('aria-label="Open copy-1.pdf"');
+    // Open appears once the file's link arrives (tests/e2e covers it).
+    expect(html).toContain("Opening…");
+    expect(render([copy(1)], null, false)).toContain("Reconnect to open.");
     expect(html).not.toContain("Upload Form 337 copy");
     expect(html).not.toContain("Archive copy-1.pdf");
   });
