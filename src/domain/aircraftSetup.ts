@@ -508,7 +508,7 @@ function readCount(value: string): number | undefined {
 function readDecimal(value: string): number | undefined {
   if (!value) return undefined;
   if (!/^\d+(\.\d+)?$/.test(value))
-    throw new Rejection("Use positive hours such as 1234.5.");
+    throw new Rejection("Use hours of 0 or more, such as 1234.5.");
   return Number(value);
 }
 

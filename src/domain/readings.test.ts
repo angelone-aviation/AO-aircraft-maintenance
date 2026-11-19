@@ -21,7 +21,7 @@ import {
   readingText,
 } from "./readings";
 
-const ONE_DECIMAL = "Use positive hours with at most one decimal place.";
+const ONE_DECIMAL = "Use hours of 0 or more, with at most one decimal place.";
 
 describe("parseHours", () => {
   it.each([
@@ -59,7 +59,7 @@ describe("parseHours", () => {
     ]);
   });
 
-  it("characterizes current behaviour: zero passes, though the message says positive", () => {
+  it("accepts zero, as its refusal says", () => {
     expect(parseHours("0")).toBe(0);
   });
 
