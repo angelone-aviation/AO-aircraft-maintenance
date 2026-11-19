@@ -207,11 +207,12 @@ export const TRACKED_APPLICABILITY: readonly AD["applicability"][] = [
 ];
 
 /**
- * The {@link adStatus} values the dashboard's AD alerts panel leaves out:
- * complied, closed, removed with its component, or not due soon yet. It
- * still lists "Needs review", "Due not set" and "Counter unavailable".
+ * The {@link adStatus} values that need no one's attention: complied, closed,
+ * removed with its component, or not due soon yet. The dashboard's AD panel
+ * lists every other AD and the alerts mention it; "Needs review", "Due not
+ * set" and "Counter unavailable" are among those.
  */
-export const DASHBOARD_SETTLED_AD_STATUSES: readonly string[] = [
+export const SETTLED_AD_STATUSES: readonly string[] = [
   "Complied",
   "Previously Complied With (PCW)",
   "Not applicable",

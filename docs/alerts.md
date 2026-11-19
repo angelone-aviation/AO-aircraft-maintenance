@@ -1,6 +1,6 @@
 # Alerts, urgent alerts and expiring dates
 
-Alerts tell a member what needs attention in their Flight Program: inspections, ADs and component limits coming due or passed, grounded aircraft, their own certificates, FAA documents to review, and expiring dates. They appear under the bell in the header and on the **Alerts** page for everyone who can read the aircraft concerned, including in demo mode. The rules live in `src/domain/alerts.ts`; the bell and the page compute alerts from the workspace snapshot, so they work offline from the last snapshot. The page's search narrows the list by alert title, detail or aircraft registration; **Mark all read** still marks every current alert.
+Alerts tell a member what needs attention in their Flight Program: inspections, ADs and component limits coming due or passed, ADs to review, grounded aircraft, their own certificates, FAA documents to review, and expiring dates. They appear under the bell in the header and on the **Alerts** page for everyone who can read the aircraft concerned, including in demo mode. The rules live in `src/domain/alerts.ts`; the bell and the page compute alerts from the workspace snapshot, so they work offline from the last snapshot. The page's search narrows the list by alert title, detail or aircraft registration; **Mark all read** still marks every current alert.
 
 Each alert has a key that changes when its substance changes (the record, the due point). Read marks and sent emails are kept by key, so a changed alert is unread again and is emailed again.
 
@@ -14,6 +14,8 @@ A key does not change when a state ends and starts again: an aircraft marked gro
 | Daily digest email   | Every alert not yet emailed in a digest, grouped by severity, at most 50 listed | Members whose **Email me a daily alert digest** is on (default on for Flight Program administrators)                                   | 13:00 UTC                                                           |
 | Urgent alert email   | New **urgent alerts** not yet emailed on any channel, at most 10 listed         | Members whose **Email me urgent alerts at once** is on (default on for program administrators and members with maintenance permission) | Right after the change that caused them, and after the daily digest |
 | Alert on this device | The same new urgent alerts as a push message, one card per program              | Devices a member switched on under **Settings → Alerts → Alert this device**                                                      | Right after the change, with the urgent email                       |
+
+**ADs** alert by the same rule as the Overview's AD panel (`SETTLED_AD_STATUSES`): every AD the panel lists is mentioned. Each overdue or due-soon action alerts, even while the AD needs review; an AD the panel lists with no such action, one that needs review, has no due point set or whose counter cannot be read, gets one **For review** alert naming its status.
 
 **Urgent alerts** are the kinds that need action now: an aircraft grounded, an inspection or AD overdue, a component past its limit, a date expired (`URGENT_ALERT_KINDS`). Everything else waits for the digest.
 

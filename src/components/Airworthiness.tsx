@@ -37,7 +37,7 @@ import { can } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import {
   AD_RECURRING_CHOICES,
-  DASHBOARD_SETTLED_AD_STATUSES,
+  SETTLED_AD_STATUSES,
   REASON_MAX_LENGTH,
   REQUIRED_COMPLIANCE_FIELDS,
   adAircraftUuid,
@@ -172,7 +172,7 @@ export function ADAlerts({ aircraftUuid }: { aircraftUuid?: string }) {
   const rows = (s.airworthiness ?? []).filter(
     (r) =>
       (!aircraftUuid || adAircraftUuid(s, r) === aircraftUuid) &&
-      !DASHBOARD_SETTLED_AD_STATUSES.includes(adStatus(s, r)),
+      !SETTLED_AD_STATUSES.includes(adStatus(s, r)),
   );
   const pending = pendingFaaReviews(s, aircraftUuid);
   return (

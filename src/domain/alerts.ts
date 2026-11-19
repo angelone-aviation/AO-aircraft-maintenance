@@ -7,7 +7,7 @@
  *   ./airworthiness (types).
  */
 import { aircraftStatus } from "./aircraftStatus";
-import type { AD, ADTask } from "./airworthiness";
+import { SETTLED_AD_STATUSES, type AD, type ADTask } from "./airworthiness";
 import { certificationLabels, normalizeCertifications } from "./certifications";
 import {
   requirementDueDate,
@@ -45,6 +45,7 @@ export type AlertKind =
   | "inspection-overdue"
   | "ad-due-soon"
   | "ad-overdue"
+  | "ad-review"
   | "component-due-soon"
   | "component-past-due"
   | "certificate-expiring"
@@ -89,7 +90,7 @@ export const CERTIFICATE_WARNING_DAYS = 30;
 
 /** What the alerts cover, as the Alerts page and Settings describe them. */
 export const ALERT_KINDS_SUMMARY =
-  "Inspections, ADs and component limits coming due, grounded aircraft, your certificates, FAA documents to review and expiring dates, for the aircraft you can access.";
+  "Inspections, ADs and component limits coming due, ADs to review, grounded aircraft, your certificates, FAA documents to review and expiring dates, for the aircraft you can access.";
 
 /** The UTC hour the daily alert digest goes out (convex/crons.ts). */
 export const ALERT_DIGEST_HOUR_UTC = 13;
@@ -112,20 +113,6 @@ export const URGENT_ALERT_KINDS: readonly AlertKind[] = [
   "ad-overdue",
   "component-past-due",
   "date-expired",
-];
-
-/**
- * The AD statuses whose actions never alert. Any other AD alerts on each
- * overdue or due-soon action, even while it needs review; an AD with none
- * (complied, scheduled, no due limit) has nothing to alert on. The
- * dashboard's AD panel lists more (`DASHBOARD_SETTLED_AD_STATUSES`) until T13
- * settles the difference.
- */
-export const ALERTS_SKIPPED_AD_STATUSES: readonly string[] = [
-  "Not applicable",
-  "Superseded",
-  "Removed component",
-  "Previously Complied With (PCW)",
 ];
 
 const SEVERITY_RANK: Record<AlertSeverity, number> = {
@@ -313,13 +300,32 @@ function inspectionAlert(
   };
 }
 
+// An AD the dashboard lists alerts on each overdue or due-soon action, even
+// while it needs review; without one, it asks for review once.
 function adAlerts(s: Snapshot, due: MaintenanceDue[]): Alert[] {
   return due.flatMap((item): Alert[] => {
     if (item.kind !== "ad" || !item.aircraft) return [];
     if (!can(s, item.aircraft.uuid, "read")) return [];
-    if (ALERTS_SKIPPED_AD_STATUSES.includes(item.status)) return [];
-    return adTaskAlerts(item, item.aircraft);
+    if (SETTLED_AD_STATUSES.includes(item.status)) return [];
+    const actions = adTaskAlerts(item, item.aircraft);
+    return actions.length ? actions : [adReviewAlert(item, item.aircraft)];
   });
+}
+
+function adReviewAlert({ ad: r, status }: AdDue, a: Aircraft): Alert {
+  return {
+    key: alertKey("ad-review", r.uuid, status),
+    kind: "ad-review",
+    severity: "info",
+    title: `AD ${r.source.number}: ${status}`,
+    detail: joinDetail(
+      a.registration,
+      r.source.subject.slice(0, AD_DETAIL_MAX_LENGTH),
+    ),
+    aircraftUuid: a.uuid,
+    entityUuid: r.uuid,
+    link: "/airworthiness",
+  };
 }
 
 function adTaskAlerts(item: AdDue, a: Aircraft): Alert[] {
