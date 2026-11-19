@@ -1,0 +1,189 @@
+{
+ "snapshot.admin": {
+  "1": {
+   "bytes": 7433387,
+   "documents": 6099,
+   "indexRanges": 1018
+  },
+  "2": {
+   "bytes": 12446538,
+   "documents": 10179,
+   "indexRanges": 1018
+  },
+  "3": {
+   "bytes": 17457940,
+   "documents": 14259,
+   "indexRanges": 1018
+  }
+ },
+ "snapshot.pilot": {
+  "1": {
+   "bytes": 7394635,
+   "documents": 5947,
+   "indexRanges": 103
+  },
+  "2": {
+   "bytes": 12370778,
+   "documents": 9883,
+   "indexRanges": 103
+  },
+  "3": {
+   "bytes": 17345172,
+   "documents": 13819,
+   "indexRanges": 103
+  }
+ },
+ "snapshot.owner": {
+  "1": {
+   "bytes": 1060739,
+   "documents": 1711,
+   "indexRanges": 40
+  },
+  "2": {
+   "bytes": 1197803,
+   "documents": 1963,
+   "indexRanges": 40
+  },
+  "3": {
+   "bytes": 1334867,
+   "documents": 2215,
+   "indexRanges": 40
+  }
+ },
+ "snapshot.board": {
+  "1": {
+   "bytes": 4532826,
+   "documents": 3046,
+   "indexRanges": 59
+  },
+  "2": {
+   "bytes": 8141256,
+   "documents": 4630,
+   "indexRanges": 59
+  },
+  "3": {
+   "bytes": 11749686,
+   "documents": 6214,
+   "indexRanges": 59
+  }
+ },
+ "workOrder.save": {
+  "1": {
+   "bytes": 4471837,
+   "documents": 2970,
+   "indexRanges": 47
+  },
+  "2": {
+   "bytes": 8017843,
+   "documents": 4476,
+   "indexRanges": 47
+  },
+  "3": {
+   "bytes": 11563849,
+   "documents": 5982,
+   "indexRanges": 47
+  }
+ },
+ "taskCard.save": {
+  "1": {
+   "bytes": 4015771,
+   "documents": 2546,
+   "indexRanges": 38
+  },
+  "2": {
+   "bytes": 7299697,
+   "documents": 3872,
+   "indexRanges": 38
+  },
+  "3": {
+   "bytes": 10583623,
+   "documents": 5198,
+   "indexRanges": 38
+  }
+ },
+ "taskCard.evidence": {
+  "1": {
+   "bytes": 4013367,
+   "documents": 2547,
+   "indexRanges": 39
+  },
+  "2": {
+   "bytes": 7297293,
+   "documents": 3873,
+   "indexRanges": 39
+  },
+  "3": {
+   "bytes": 10581219,
+   "documents": 5199,
+   "indexRanges": 39
+  }
+ },
+ "partsRequest.save": {
+  "1": {
+   "bytes": 4587115,
+   "documents": 3086,
+   "indexRanges": 46
+  },
+  "2": {
+   "bytes": 8250641,
+   "documents": 4712,
+   "indexRanges": 46
+  },
+  "3": {
+   "bytes": 11914167,
+   "documents": 6338,
+   "indexRanges": 46
+  }
+ },
+ "cost.partUnitCost": {
+  "1": {
+   "bytes": 1504793,
+   "documents": 1476,
+   "indexRanges": 24
+  },
+  "2": {
+   "bytes": 2339134,
+   "documents": 1908,
+   "indexRanges": 24
+  },
+  "3": {
+   "bytes": 3173475,
+   "documents": 2340,
+   "indexRanges": 24
+  }
+ },
+ "purchaseOrder.save": {
+  "1": {
+   "bytes": 1173696,
+   "documents": 1592,
+   "indexRanges": 28
+  },
+  "2": {
+   "bytes": 1612780,
+   "documents": 1964,
+   "indexRanges": 28
+  },
+  "3": {
+   "bytes": 2051864,
+   "documents": 2336,
+   "indexRanges": 28
+  }
+ },
+ "auditHistory.weeklySummary": {
+  "1": {
+   "bytes": 1092841,
+   "documents": 1414,
+   "indexRanges": 36
+  },
+  "2": {
+   "bytes": 1517297,
+   "documents": 1786,
+   "indexRanges": 36
+  },
+  "3": {
+   "bytes": 1941753,
+   "documents": 2158,
+   "indexRanges": 36
+  }
+ }
+}
