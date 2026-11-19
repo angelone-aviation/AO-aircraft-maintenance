@@ -525,7 +525,8 @@ function visibleAircraft(d: DashboardState) {
   return d.s.aircraft.filter(
     (a) =>
       (!d.onlyFavorites || d.favorites.includes(a.uuid)) &&
-      (a.registration + " " + a.model + " " + a.program)
+      [a.registration, a.make, a.model, a.program]
+        .join(" ")
         .toLowerCase()
         .includes(query),
   );
