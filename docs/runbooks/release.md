@@ -25,7 +25,7 @@ The website is a static build served by **Cloudflare Workers Static Assets** (no
 4. checks `CONVEX_DEPLOY_KEY` is a production key;
 5. runs `npx convex deploy`, which builds the site with the production `VITE_CONVEX_URL` (demo mode off) and then pushes the functions and schema. It stops before the push if the build fails, if the Convex URL or the Sentry DSN's host is not allowed by the Content-Security-Policy (`scripts/check-csp-origin.mjs`), or if the build left a source map in `dist/` ([monitoring](monitoring.md));
 6. checks the build points at that Convex URL;
-7. publishes `dist/` with `npx wrangler@4.151.3 deploy`, tagging the Cloudflare version with the commit;
+7. publishes `dist/` with `npx --no-install wrangler deploy`, the wrangler `npm ci` installed from `package-lock.json`, tagging the Cloudflare version with the commit;
 8. if `PRODUCTION_URL` is set, confirms that Cloudflare version tag is active, then checks the live site headers when the runner is not blocked by Cloudflare bot/WAF (a public HTTP 403 from GitHub Actions is treated as a warning once the tag is live).
 
 The backend goes live a few seconds before the website, so Convex functions must keep working for the previous website version (and for installed apps that have not reloaded yet).
@@ -115,11 +115,11 @@ Check the live site:
 
 ### Website: instant
 
-Cloudflare keeps the last 100 versions. Dashboard → Workers & Pages → **angel-one** → **Deployments** → choose the version (its tag is the commit) → **Rollback**. Or, with the API token in the shell:
+Cloudflare keeps the last 100 versions. Dashboard → Workers & Pages → **angel-one** → **Deployments** → choose the version (its tag is the commit) → **Rollback**. Or, with the API token in the shell, in a checkout after `npm ci` (so `npx` runs the wrangler `package-lock.json` pins):
 
 ```sh
-npx wrangler@4.151.3 deployments list
-npx wrangler@4.151.3 rollback <version-id> --message "Reason"
+npx wrangler deployments list
+npx wrangler rollback <version-id> --message "Reason"
 ```
 
 It takes effect at once. Installed apps see it as an update: the update prompt appears and **Reload** loads the older version. A rollback changes only the website, never Convex, so the older website must still work with the current functions (it normally does, because functions stay compatible with older clients). To go forward again, run the Deploy workflow by hand from `main`: it publishes the newest commit, whose CI is already green.
@@ -153,12 +153,11 @@ To change the policy, edit `public/_headers`, update `tests/e2e/security-headers
 ```sh
 npm run build
 node scripts/serve-dist.mjs            # http://127.0.0.1:4173, Cloudflare-like
-npx wrangler@4.151.3 dev               # Cloudflare's own runtime, on this computer
+npx wrangler dev                       # Cloudflare's own runtime, on this computer
 ```
 
-`npx wrangler@4.151.3 deploy --dry-run` checks `wrangler.jsonc` without credentials.
+`npx wrangler deploy --dry-run` checks `wrangler.jsonc` without credentials.
 
 ## Not set up yet
 
 - **Previews per change** ([ADR-0007](../adr/0007-convex-pro-single-seat.md)): Convex preview deployments plus Cloudflare Worker Previews. `preview_urls` is off in `wrangler.jsonc` until then. Previews are public by default.
-- **Wrangler version**: the workflows run a pinned `wrangler` through `npx`, which Dependabot does not update. Raise `WRANGLER_VERSION` in `deploy.yml` and the version in this runbook together.

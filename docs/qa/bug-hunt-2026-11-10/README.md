@@ -269,7 +269,7 @@ Each table lists every finding in the area by severity. The full steps, expected
 | OP-9  | Low      | Release runbook and README disagreed on memberships:backfill          | Fixed `283c70c`                       | No repro script; doc only                                 |
 | OP-10 | Info     | The nightly job accepted an export without files or users             | Fixed `b45447c`                       | NOT REPRODUCED                                            |
 | OP-11 | Info     | The recorded backup hash was the plaintext ZIP's                      | Fixed `b45447c`                       | No repro script; backup job test                          |
-| OP-12 | Info     | Deploy resolves wrangler's dependencies outside the lockfile          | Decision D24                          | No repro script; open decision                            |
+| OP-12 | Info     | Deploy resolves wrangler's dependencies outside the lockfile          | Fixed: locked devDependencies (D24)   | No repro script; open decision                            |
 
 ### Size
 
