@@ -50,8 +50,12 @@ _Avoid_: onboarding, initial load, migration
 A logged flight with starting and ending meter readings; the unit of usage that advances aircraft counters.
 
 **Discrepancy**:
-A reported defect on an aircraft, open until resolved or deferred.
+A reported defect on an aircraft, open until resolved or deferred. A problem report raises one.
 _Avoid_: squawk, issue, defect (in records)
+
+**Problem report**:
+How a pilot or other member raises a discrepancy: **Report a problem**, or the flight form's "Any problem observed during this flight?". Once saved, the report is the discrepancy, so the two words name one record: the screens say "problem" for the act of reporting and "discrepancy" for the record (the Discrepancies list, the Sync center, deferrals and work orders). A report made without a connection is a pending entry until it syncs.
+_Avoid_: squawk, issue, defect report
 
 **Deferral**:
 Postponement of a discrepancy under a Minimum Equipment List (MEL) item and category, with placard text and a repair deadline.
