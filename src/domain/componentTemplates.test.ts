@@ -164,6 +164,13 @@ it("saves a template with a new version and refuses a stale one", () => {
   expect(stale).toThrow(Rejection);
   expect(stale).toThrow(STALE_RECORD_MESSAGE);
 });
+it("refuses a template of another Flight Program", () => {
+  const { s, t } = fixture();
+  s.componentTemplates = [{ ...t, programUuid: "other" }];
+  expect(() => saveComponentTemplate(s, { ...t, name: "Renamed" })).toThrow(
+    new Rejection("Template belongs to another Flight Program."),
+  );
+});
 it("records a save with the template before and after, and each setup added", () => {
   const { s, a, t, input } = fixture();
   const logged = s.audit.length;

@@ -152,7 +152,7 @@ export function parseComponentTemplateCsv(csv: string) {
  * @returns The template as saved, with its version incremented.
  * @throws {z.ZodError} On an invalid payload.
  * @throws {Rejection} "Maintenance permission is required.", "Template
- *   belongs to another program.", "Select a Flight Program." or a
+ *   belongs to another Flight Program.", "Select a Flight Program." or a
  *   {@link validateRows} message; a StaleRecordRejection for a stale version.
  */
 export function saveComponentTemplate(s: Snapshot, raw: unknown) {
@@ -165,7 +165,7 @@ export function saveComponentTemplate(s: Snapshot, raw: unknown) {
     (old && !ownsActive(s, old.programUuid)) ||
     (input.programUuid && !ownsActive(s, input.programUuid))
   )
-    throw new Rejection("Template belongs to another program.");
+    throw new Rejection("Template belongs to another Flight Program.");
   if ((old?.version ?? 0) !== input.version)
     throw new StaleRecordRejection("componentTemplate", old?.version ?? 0);
   const programUuid = activeProgram(s);
