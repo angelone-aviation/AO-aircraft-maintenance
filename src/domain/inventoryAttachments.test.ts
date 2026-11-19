@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import {
+  FILE_SIGNATURE_LENGTH,
   MAX_ACTION_FILE_BYTES,
   assertFileContents,
   inventoryAttachmentAccess,
@@ -52,6 +53,34 @@ describe("attachment contents", () => {
       false,
     );
     expect(matches("image/svg+xml", bytes("<svg"))).toBe(false);
+  });
+
+  it("accepts a HEIC or HEIF image by its HEIF brand and refuses other ISO media files", () => {
+    const iso = (brand: string) => bytes(0, 0, 0, 24, "ftyp", brand);
+    for (const type of ["image/heic", "image/heif"]) {
+      expect(matches(type, iso("heic"))).toBe(true);
+      expect(matches(type, iso("mif1"))).toBe(true);
+      expect(matches(type, iso("isom"))).toBe(false);
+      expect(matches(type, bytes(0xff, 0xd8, 0xff, 0xe1, "JFIF0000"))).toBe(
+        false,
+      );
+      expect(matches(type, bytes(0, 0, 0, 24, "ftyphei"))).toBe(false);
+    }
+    expect(matches("image/jpeg", iso("heic"))).toBe(false);
+  });
+
+  it("needs exactly the first FILE_SIGNATURE_LENGTH bytes to tell the longest types", () => {
+    const webp = bytes("RIFF", 1, 2, 3, 4, "WEBPVP8 ");
+    const heic = bytes(0, 0, 0, 24, "ftypheicmif1");
+    for (const [type, file] of [
+      ["image/webp", webp],
+      ["image/heic", heic],
+    ] as const) {
+      expect(matches(type, file.slice(0, FILE_SIGNATURE_LENGTH))).toBe(true);
+      expect(matches(type, file.slice(0, FILE_SIGNATURE_LENGTH - 1))).toBe(
+        false,
+      );
+    }
   });
 });
 

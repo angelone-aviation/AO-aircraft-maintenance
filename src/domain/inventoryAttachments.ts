@@ -1,7 +1,7 @@
 /**
  * Responsibility: Files attached to inventory items: the attachment record,
- *   the file rules (name, size and first bytes), and who may manage an
- *   item's attachments.
+ *   the file rules (name and size), who may manage an item's attachments,
+ *   and the first-bytes check every upload path shares.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: src/domain/model.ts (types), programs.ts, rejection.ts.
  */
@@ -18,21 +18,38 @@ const ATTACHMENT_NAME_PATTERNS = new Map<string, RegExp>([
   ["image/webp", /\.webp$/i],
 ]);
 
-// The first bytes of each accepted type; null stands for any byte (a WebP
-// file's RIFF chunk size).
-const FILE_SIGNATURES = new Map<string, (number | null)[]>([
-  ["application/pdf", [...new TextEncoder().encode("%PDF-")]],
-  ["image/jpeg", [0xff, 0xd8, 0xff]],
-  ["image/png", [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
-  [
-    "image/webp",
-    [
-      ...new TextEncoder().encode("RIFF"),
-      ...[null, null, null, null],
-      ...new TextEncoder().encode("WEBP"),
-    ],
-  ],
+// A file's first bytes; null stands for any byte (a chunk or box size).
+type Signature = (number | null)[];
+const ascii = (text: string) => [...new TextEncoder().encode(text)];
+const ANY_SIZE = [null, null, null, null];
+
+// HEIC and HEIF are ISO media files: a box size, "ftyp", then a brand. iPhones
+// write "heic"; other cameras and converters use the rest of the HEIF family.
+const HEIF_SIGNATURES = [
+  "heic",
+  "heix",
+  "heim",
+  "heis",
+  "hevc",
+  "hevx",
+  "mif1",
+  "msf1",
+].map((brand): Signature => [...ANY_SIZE, ...ascii(`ftyp${brand}`)]);
+
+// The accepted first bytes of each type. Only license copies take HEIC.
+const FILE_SIGNATURES = new Map<string, Signature[]>([
+  ["application/pdf", [ascii("%PDF-")]],
+  ["image/jpeg", [[0xff, 0xd8, 0xff]]],
+  ["image/png", [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]]],
+  ["image/webp", [[...ascii("RIFF"), ...ANY_SIZE, ...ascii("WEBP")]]],
+  ["image/heic", HEIF_SIGNATURES],
+  ["image/heif", HEIF_SIGNATURES],
 ]);
+
+/** How many leading bytes {@link assertFileContents} needs to tell a type. */
+export const FILE_SIGNATURE_LENGTH = Math.max(
+  ...[...FILE_SIGNATURES.values()].flat().map((s) => s.length),
+);
 
 /**
  * Attachment bytes travel as a Convex action argument (`v.bytes()`), not
@@ -81,29 +98,32 @@ export function validateInventoryFile(
 
 /**
  * Checks that a file's first bytes are those of its declared type, so a file
- * renamed past {@link validateInventoryFile} (an SVG or web page named as an
- * image or PDF, a HEIC photo named as a JPEG) is refused.
+ * renamed past a type and name check (an SVG or web page named as an image or
+ * PDF, a HEIC photo named as a JPEG) is refused. Every upload path runs it.
  *
- * @param type - The declared MIME type.
- * @param bytes - The file, or at least its first 12 bytes.
+ * @param type - The declared MIME type: PDF, JPEG, PNG, WebP, HEIC or HEIF.
+ * @param bytes - The file, or at least its first
+ *   {@link FILE_SIGNATURE_LENGTH} bytes.
  * @throws {Rejection} "This file's contents do not match its type. Choose a
  *   PDF, JPEG, PNG or WebP file." for a mismatch, a file too short to tell,
- *   or a type {@link validateInventoryFile} refuses.
+ *   or any other type.
  */
 export function assertFileContents(type: string, bytes: ArrayBuffer) {
-  const signature = FILE_SIGNATURES.get(type) ?? [];
   const head = new Uint8Array(
     bytes,
     0,
-    Math.min(bytes.byteLength, signature.length),
+    Math.min(bytes.byteLength, FILE_SIGNATURE_LENGTH),
   );
-  if (
-    !signature.length ||
-    signature.some((b, i) => b !== null && head[i] !== b)
-  )
+  const signatures = FILE_SIGNATURES.get(type) ?? [];
+  if (!signatures.some((signature) => startsWith(head, signature)))
     throw new Rejection(
       "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
     );
+}
+
+// A file shorter than the signature fails: its missing bytes read undefined.
+function startsWith(head: Uint8Array, signature: Signature): boolean {
+  return signature.every((b, i) => b === null || head[i] === b);
 }
 
 /**
