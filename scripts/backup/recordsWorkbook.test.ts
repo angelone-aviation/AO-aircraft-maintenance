@@ -752,6 +752,33 @@ describe("records workbook", () => {
     expect(text(seatRail.cells.Status.value)).toBe("Overdue");
   });
 
+  it("colours ADs that no longer apply green, as the domain judges them in order", async () => {
+    const files = unzipSync(fixture.zip);
+    for (const [number, applicability] of [
+      ["2025-DEMO-12", "Not applicable"],
+      ["2024-DEMO-03", "Superseded"],
+    ])
+      editFirst(
+        files,
+        "airworthiness",
+        (d) =>
+          (d.payload = JSON.stringify({
+            ...JSON.parse(String(d.payload)),
+            applicability,
+          })),
+        (d) => JSON.parse(String(d.payload)).source.number === number,
+      );
+    const { read } = await buildFrom(files, "closed-ads");
+    const status = (number: string) =>
+      rows("Airworthiness directives", read).find(
+        (r) => text(r.cells["AD number"].value) === `AD ${number}`,
+      )!.cells.Status;
+    expect(text(status("2025-DEMO-12").value)).toBe("Not applicable");
+    expect(fill(status("2025-DEMO-12"))).toBe(GREEN);
+    expect(text(status("2024-DEMO-03").value)).toBe("Superseded");
+    expect(fill(status("2024-DEMO-03"))).toBe(GREEN);
+  });
+
   it("builds for an aircraft without a meter reading: its AD actions read Counter unavailable, a passed due date still overdue", async () => {
     const withoutReading = () => {
       const files = unzipSync(fixture.zip);

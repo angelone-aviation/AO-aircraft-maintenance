@@ -28,7 +28,7 @@ import {
   type RecordsSectionId,
 } from "./recordsPackage";
 import { Rejection } from "./rejection";
-import { statusSheet } from "./statusSheet";
+import { statusSheet, type StatusSection } from "./statusSheet";
 import { saveWorkOrder, workOrderFieldsSchema } from "./workOrders";
 
 const TODAY = "2026-06-15";
@@ -146,8 +146,11 @@ describe("buildRecordsPackage", () => {
       ["changeLog", "change-log.csv"],
     ]);
     const status = statusSheet(s, s.aircraft[0].uuid, TODAY);
-    expect(pkg.sections.slice(0, 7).map((x) => x.rows)).toEqual(
-      status.sections.map((x) => x.rows),
+    const kept = (
+      x: Pick<StatusSection, "rows" | "statusColumn" | "tones">,
+    ) => [x.rows, x.statusColumn, x.tones];
+    expect(pkg.sections.slice(0, 7).map(kept)).toEqual(
+      status.sections.map(kept),
     );
     for (const x of pkg.sections) {
       expect(new Set(x.columns).size).toBe(x.columns.length);
