@@ -4,7 +4,8 @@
  * Layer: Server. A public action and mutation over internal steps; the
  *   program's inventory administrators only, and every change is audited.
  * Dependencies: convex/programContext, convex/attachments, convex/access,
- *   convex/userErrors, src/domain (management, inventoryAttachments, programs).
+ *   convex/userErrors, convex/runCommand (types), src/domain (management,
+ *   inventoryAttachments, programs, rejection).
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -30,7 +31,9 @@ import {
   validateInventoryFile,
   assertFileContents,
 } from "../src/domain/inventoryAttachments";
-import { recordProgram } from "../src/domain/programs";
+import { activeProgram, recordProgram } from "../src/domain/programs";
+import { Rejection } from "../src/domain/rejection";
+import type { ProgramContext } from "./runCommand";
 
 const scope = { stockUuid: v.string(), programUuid: v.optional(v.string()) };
 
@@ -134,18 +137,19 @@ export const upload = action({
  *
  * @param id - The attachment.
  * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} "Attachment not found.", checked first; the
- *   {@link checkUpload} refusals for the attachment's item.
+ * @throws As `checkContext`, first.
+ * @throws {ConvexError} "Attachment not found.", also for a file on an item
+ *   the caller does not administer or of another program.
  */
 export const remove = mutation({
   args: { id: v.id("inventoryFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
+    const state = await checkContext(ctx, args.programUuid);
     const file = await ctx.db.get(args.id);
-    if (!file) throw new ConvexError("Attachment not found.");
-    const owner = await authorizeItemAdmin(ctx, {
-      stockUuid: file.stockUuid,
-      programUuid: args.programUuid,
-    });
+    const owner = file && (await findItemAdmin(ctx, state, file.stockUuid));
+    // One refusal for a file that is gone or out of the caller's sight, so an
+    // id never tells that another program's item exists (review T4).
+    if (!file || !owner) throw new ConvexError("Attachment not found.");
     await ctx.db.delete(file._id);
     await deleteBlobIfUnused(ctx, file.storageId);
     await audit(
@@ -167,12 +171,33 @@ async function authorizeItemAdmin(
   args: { stockUuid: string; programUuid?: string },
 ) {
   const state = await checkContext(ctx, args.programUuid);
-  const management = (await managementDocs(ctx, args.programUuid)).map((d) =>
-    recordSchema.parse(JSON.parse(d.payload)),
-  );
-  const snapshot = { ...state, management };
+  const snapshot = await withRecords(ctx, state);
   const stock = exposeRejections(() =>
     inventoryAttachmentAccess(snapshot, args.stockUuid),
   );
   return { user: state.user, programUuid: recordProgram(snapshot, stock) };
+}
+
+// The caller and the item's program when they administer the item; null for
+// any item they may not manage, missing or another program's.
+async function findItemAdmin(
+  ctx: QueryCtx | MutationCtx,
+  state: ProgramContext,
+  stockUuid: string,
+) {
+  const snapshot = await withRecords(ctx, state);
+  try {
+    const stock = inventoryAttachmentAccess(snapshot, stockUuid);
+    return { user: state.user, programUuid: recordProgram(snapshot, stock) };
+  } catch (error) {
+    // The domain's one refusal for an item the caller may not manage.
+    if (error instanceof Rejection) return null;
+    throw error;
+  }
+}
+
+async function withRecords(ctx: QueryCtx | MutationCtx, state: ProgramContext) {
+  const docs = await managementDocs(ctx, activeProgram(state));
+  const management = docs.map((d) => recordSchema.parse(JSON.parse(d.payload)));
+  return { ...state, management };
 }

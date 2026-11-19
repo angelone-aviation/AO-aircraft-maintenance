@@ -149,12 +149,13 @@ it("saves independent certifications, protects copies and allows the owner to ma
   await expect(
     other.query(api.certifications.list, { userId: users.owner.id }),
   ).rejects.toThrow(/account owner/);
+  // Another member's copy reads as missing, so its id confirms nothing (T4).
   await expect(
     other.query(api.certifications.fileUrl, { id: files[0].id }),
-  ).rejects.toThrow(/account owner/);
+  ).rejects.toThrow("License copy not found.");
   await expect(
     other.mutation(api.certifications.remove, { id: files[0].id }),
-  ).rejects.toThrow(/account owner/);
+  ).rejects.toThrow("License copy not found.");
   expect(
     await admin.query(api.certifications.fileUrl, { id: files[0].id }),
   ).toBeTruthy();

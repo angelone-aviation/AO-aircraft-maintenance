@@ -123,13 +123,15 @@ const fileArgs = {
  * Checks, before an attachment is stored, that the caller may add one.
  *
  * @returns The caller's user id.
- * @throws {ConvexError} As `checkContext` and `authorized`; "Work order not
- *   found."; "This work order is closed."
+ * @throws {ConvexError} As `checkContext`; "Work order not found.", also
+ *   for one the caller cannot read; as `authorized`; "This work order is
+ *   closed."
  */
 export const checkUpload = internalQuery({
   args: fileArgs,
   handler: async (ctx, args) =>
-    (await openWorkOrder(ctx, args.programUuid, args, NOT_FOUND)).user._id,
+    (await openWorkOrder(ctx, args.programUuid, async () => args, NOT_FOUND))
+      .user._id,
 });
 
 /**
@@ -149,7 +151,7 @@ export const finishUpload = internalMutation({
     const { doc, user } = await openWorkOrder(
       ctx,
       args.programUuid,
-      args,
+      async () => args,
       NOT_FOUND,
     );
     assertAttachmentRoom(
@@ -208,8 +210,9 @@ export const upload = action({
  * nothing else refers to it; audits "workOrder.attachment_removed".
  *
  * @param id - The attachment.
- * @throws {ConvexError} As `checkContext` and `authorized`; "Attachment not
- *   found."; "This work order is closed."
+ * @throws {ConvexError} As `checkContext`; "Attachment not found.", also on
+ *   a work order the caller cannot read; as `authorized`; "This work order
+ *   is closed."
  */
 export const removeFile = mutation({
   args: { id: v.id("workOrderFiles"), programUuid: v.optional(v.string()) },
@@ -217,7 +220,7 @@ export const removeFile = mutation({
     const { target, doc, user } = await openWorkOrder(
       ctx,
       args.programUuid,
-      await ctx.db.get(args.id),
+      () => ctx.db.get(args.id),
       "Attachment not found.",
     );
     await ctx.db.delete(target._id);
@@ -372,15 +375,20 @@ function findWorkOrder(ctx: QueryCtx | MutationCtx, uuid: string) {
 // then that the order exists, then maintenance access to its aircraft, then
 // that the order is open. The program comes first, so a caller outside it
 // learns nothing about the record.
+// The session and program come first, and a work order the caller cannot read
+// gets the same refusal as a missing one, so an id or uuid never tells that
+// another program's work order exists (security review T4).
 async function openWorkOrder<T extends { workOrderUuid: string }>(
   ctx: QueryCtx | MutationCtx,
   programUuid: string | undefined,
-  target: T | null,
+  find: () => Promise<T | null>,
   missing: string,
 ) {
   const state = await checkContext(ctx, programUuid);
+  const target = await find();
   const doc = target && (await findWorkOrder(ctx, target.workOrderUuid));
-  if (!target || !doc) throw new ConvexError(missing);
+  if (!target || !doc || !can(state, doc.aircraftUuid, "read"))
+    throw new ConvexError(missing);
   const user = await authorized(ctx, doc.aircraftUuid, "maintenance", state);
   if (!isOpenWorkOrder(workOrderSchema.parse(JSON.parse(doc.payload))))
     throw new ConvexError("This work order is closed.");

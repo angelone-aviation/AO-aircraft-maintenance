@@ -154,19 +154,24 @@ export const upload = action({
  *
  * @param id - The attachment.
  * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} "Attachment not found.", checked first; the
- *   {@link check} refusals; "Attachments can be deleted only while the PO is a
- *   draft."
+ * @throws As `checkContext`, first.
+ * @throws {ConvexError} "Attachment not found.", also for a file the caller
+ *   does not administer or of another program's order; "Attachments can be
+ *   deleted only while the PO is a draft."
  */
 export const remove = mutation({
   args: { id: v.id("poFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
+    const s = await checkContext(ctx, args.programUuid);
     const file = await ctx.db.get(args.id);
-    if (!file) throw new ConvexError("Attachment not found.");
-    const { po, s } = await authorizePoAdmin(ctx, {
-      poUuid: file.poUuid,
-      programUuid: args.programUuid,
-    });
+    const doc =
+      file && programPermission(s, "admin")
+        ? await findProgramPo(ctx, file.poUuid, args.programUuid)
+        : null;
+    // One refusal for a file that is gone or out of the caller's sight, so an
+    // id never tells that another program's file exists (review T4).
+    if (!file || !doc) throw new ConvexError("Attachment not found.");
+    const po = poSchema.parse(JSON.parse(doc.payload));
     if (!poAttachmentRemovable(po))
       throw new ConvexError(
         "Attachments can be deleted only while the PO is a draft.",
@@ -187,14 +192,23 @@ async function authorizePoAdmin(
   const s = await checkContext(ctx, args.programUuid);
   if (!programPermission(s, "admin"))
     throw new ConvexError("Inventory administrator access required.");
-  const doc = await ctx.db
-    .query("purchaseOrders")
-    .withIndex("uuid", (q) => q.eq("uuid", args.poUuid))
-    .unique();
-  if (!doc || doc.programUuid !== args.programUuid)
-    throw new ConvexError("PO not found.");
+  const doc = await findProgramPo(ctx, args.poUuid, args.programUuid);
+  if (!doc) throw new ConvexError("PO not found.");
   const po = poSchema.parse(JSON.parse(doc.payload));
   const receipt = po.receipts.find((r) => r.uuid === args.receiptUuid);
   if (args.receiptUuid && !receipt) throw new ConvexError("Receipt not found.");
   return { po, receipt, s };
+}
+
+// The purchase order, when it belongs to the program; null otherwise.
+async function findProgramPo(
+  ctx: QueryCtx | MutationCtx,
+  poUuid: string,
+  programUuid: string | undefined,
+) {
+  const doc = await ctx.db
+    .query("purchaseOrders")
+    .withIndex("uuid", (q) => q.eq("uuid", poUuid))
+    .unique();
+  return doc?.programUuid === programUuid ? doc : null;
 }
