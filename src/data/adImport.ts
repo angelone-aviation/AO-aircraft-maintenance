@@ -184,20 +184,33 @@ async function readDocumentXml(file: File): Promise<Document> {
   return doc;
 }
 
-// A row also holds its properties (w:trPr), so only its w:tc children are
-// cells; a cell's text is its text runs joined by spaces.
+// A table's rows are its own w:tr children and a cell's text is its own text
+// runs, joined by spaces: a table nested in a cell is read once, as a table of
+// its own. A row also holds its properties (w:trPr), so only its w:tc
+// children are cells.
 function readTables(doc: Document): string[][][] {
   return Array.from(doc.getElementsByTagNameNS(WORDPROCESSINGML, "tbl")).map(
     (t) =>
-      Array.from(t.getElementsByTagNameNS(WORDPROCESSINGML, "tr")).map((r) =>
-        Array.from(r.children)
-          .filter((c) => c.localName === "tc")
-          .map((c) =>
-            Array.from(c.getElementsByTagNameNS(WORDPROCESSINGML, "t"))
-              .map((t) => t.textContent)
-              .join(" ")
-              .trim(),
-          ),
+      childrenNamed(t, "tr").map((r) =>
+        childrenNamed(r, "tc").map((c) =>
+          ownTextRuns(c)
+            .map((run) => run.textContent)
+            .join(" ")
+            .trim(),
+        ),
       ),
   );
+}
+
+function childrenNamed(parent: Element, localName: string): Element[] {
+  return Array.from(parent.children).filter((c) => c.localName === localName);
+}
+
+function ownTextRuns(parent: Element): Element[] {
+  return Array.from(parent.children).flatMap((child) => {
+    if (child.localName === "tbl") return [];
+    const isRun =
+      child.localName === "t" && child.namespaceURI === WORDPROCESSINGML;
+    return isRun ? [child] : ownTextRuns(child);
+  });
 }
