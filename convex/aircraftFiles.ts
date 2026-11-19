@@ -36,7 +36,7 @@ import {
   assertAircraftFileLink,
   assertAircraftFileRoom,
   assertAircraftFileWriter,
-  MAX_AIRCRAFT_FILES,
+  MAX_CURRENT_AIRCRAFT_FILES,
   validateAircraftUpload,
   type AircraftFile,
   type AircraftFileCategory,
@@ -115,7 +115,8 @@ export const checkUpload = internalQuery({
  * @param storageId - The stored file; the caller deletes it on a refusal.
  * @param size - Its size; the other arguments are {@link upload}'s.
  * @throws {ConvexError} The {@link checkUpload} refusals; the file refusals;
- *   "This aircraft already has the maximum of 200 current documents."
+ *   "This aircraft already has the maximum of 200 current Form 337 copies."
+ *   or "... of 500 current logbook page photos." for the upload's category.
  */
 export const finishUpload = internalMutation({
   args: {
@@ -129,7 +130,10 @@ export const finishUpload = internalMutation({
     const owner = await authorizeFileWriter(ctx, args);
     await exposeRejections(async () => {
       validateAircraftUpload(args.category, args.name, args.type, args.size);
-      assertAircraftFileRoom(await countCurrentFiles(ctx, args.aircraftUuid));
+      assertAircraftFileRoom(
+        args.category,
+        await countCurrentFiles(ctx, args.aircraftUuid, args.category),
+      );
     });
     const { programUuid: _program, ...fields } = args;
     await ctx.db.insert("aircraftFiles", { ...fields, uploadedAt: Date.now() });
@@ -299,16 +303,23 @@ async function assertLinkedRecord(
     );
 }
 
-// Reads at most the cap, so the check stays cheap on a full aircraft.
+// Reads at most the category's cap, so the check stays cheap on a full
+// aircraft.
 async function countCurrentFiles(
   ctx: MutationCtx,
   aircraftUuid: string,
+  category: AircraftFileCategory,
 ): Promise<number> {
   const current = await ctx.db
     .query("aircraftFiles")
     .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
-    .filter((q) => q.eq(q.field("archivedAt"), undefined))
-    .take(MAX_AIRCRAFT_FILES);
+    .filter((q) =>
+      q.and(
+        q.eq(q.field("category"), category),
+        q.eq(q.field("archivedAt"), undefined),
+      ),
+    )
+    .take(MAX_CURRENT_AIRCRAFT_FILES[category]);
   return current.length;
 }
 

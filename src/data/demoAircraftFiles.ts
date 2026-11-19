@@ -51,8 +51,8 @@ export const demoAircraftFiles = {
    * @throws {Error} As validateAircraftUpload and assertFileContents for
    *   the file; the link refusals of assertAircraftFileLink; "Aircraft
    *   flight permission required." or "Aircraft maintenance permission
-   *   required."; "Flight not found." or "Work order not found."; "This
-   *   aircraft already has the maximum of 200 current documents."
+   *   required."; "Flight not found." or "Work order not found."; the
+   *   category's cap refusal from assertAircraftFileRoom.
    */
   async upload(
     modify: Modify,
@@ -131,13 +131,17 @@ export const demoAircraftFiles = {
 
 // The checks convex/aircraftFiles.ts makes against the stored records.
 function assertUploadAllowed(s: Snapshot, target: DemoAircraftFileTarget) {
-  const { aircraftUuid, linkedKind, linkedUuid } = target;
+  const { aircraftUuid, category, linkedKind, linkedUuid } = target;
   assertAircraftFileWriter(s, aircraftUuid, linkedKind);
   if (linkedKind && linkedUuid)
     assertAircraftFileTarget(s, aircraftUuid, { linkedKind, linkedUuid });
   assertAircraftFileRoom(
+    category,
     (s.aircraftFiles ?? []).filter(
-      (f) => f.aircraftUuid === aircraftUuid && isCurrentAircraftFile(f),
+      (f) =>
+        f.aircraftUuid === aircraftUuid &&
+        f.category === category &&
+        isCurrentAircraftFile(f),
     ).length,
   );
 }
