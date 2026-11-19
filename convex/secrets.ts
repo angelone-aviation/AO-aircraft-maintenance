@@ -1,6 +1,7 @@
 /**
  * Responsibility: Seals and opens third-party credentials at rest with
- *   AES-256-GCM under keys held in the Convex environment.
+ *   AES-256-GCM under keys held in the Convex environment, and derives the
+ *   key that signs file links from them.
  * Layer: Server. Seal in actions before the commit mutation; open only in
  *   actions that call the provider.
  * Dependencies: convex/values (ConvexError).
@@ -25,6 +26,9 @@ const KEY_ID = /^[a-z0-9]{1,16}$/;
 const AES_256_KEY_BYTES = 32;
 // 96 bits, the IV length GCM is designed for (NIST SP 800-38D).
 const GCM_IV_BYTES = 12;
+// Signed into every file link issued: changing it ends them all.
+const FILE_LINK_LABEL = "angel-one:file-links:v1";
+const HMAC_SHA256 = { name: "HMAC", hash: "SHA-256" };
 
 /** The row and field a credential is stored in, which sealing binds it to. */
 export type SecretContext = {
@@ -113,6 +117,37 @@ export async function openSecret(
   return decrypt(keyId, iv, data, bindContext(keyId, context));
 }
 
+/**
+ * The key that signs short-lived file links (docs/file-links.md): an HMAC of
+ * a fixed label under a credential key, so links need no secret of their own
+ * and the derived key can never decrypt a credential.
+ *
+ * @param keyId - The credential key to derive from, as named in a link.
+ * @returns A non-extractable HMAC-SHA256 key for signing and verifying.
+ * @throws {ConvexError} "Credential encryption key <id> is not configured (see
+ *   docs/runbooks/credentials-key.md)." for an unset key; "… must be 32
+ *   random bytes, base64-encoded."; or a CREDENTIALS_ENCRYPTION_KEYS format
+ *   error.
+ */
+export async function fileLinkKey(keyId: string): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey(
+    "raw",
+    readKey(keyId, "sign"),
+    HMAC_SHA256,
+    false,
+    ["sign"],
+  );
+  const derived = await crypto.subtle.sign(
+    "HMAC",
+    base,
+    new TextEncoder().encode(FILE_LINK_LABEL),
+  );
+  return crypto.subtle.importKey("raw", derived, HMAC_SHA256, false, [
+    "sign",
+    "verify",
+  ]);
+}
+
 const toBase64 = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes));
 const fromBase64 = (text: string): Uint8Array<ArrayBuffer> =>
@@ -139,6 +174,15 @@ async function importKey(
   id: string,
   usage: "encrypt" | "decrypt",
 ): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", readKey(id, usage), "AES-GCM", false, [
+    usage,
+  ]);
+}
+
+function readKey(
+  id: string,
+  usage: "encrypt" | "decrypt" | "sign",
+): Uint8Array<ArrayBuffer> {
   const raw = readKeyring().get(id);
   if (!raw)
     throw new ConvexError(
@@ -151,7 +195,7 @@ async function importKey(
     throw new ConvexError(
       `Credential encryption key ${id} must be 32 random bytes, base64-encoded.`,
     );
-  return crypto.subtle.importKey("raw", bytes, "AES-GCM", false, [usage]);
+  return bytes;
 }
 
 // Every stored v2 value was sealed with exactly this encoding; any change
