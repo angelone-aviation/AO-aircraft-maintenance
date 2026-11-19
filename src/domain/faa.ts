@@ -4,15 +4,24 @@
  *   result pages.
  * Layer: Domain. Zod schemas and pure functions; no I/O. The DRS requests are
  *   made in convex/faaDrs.ts.
- * Dependencies: zod, ./airworthiness, ./model, ./rejection.
+ * Dependencies: zod, ./airworthiness, ./changeLog, ./model, ./programs,
+ *   ./rejection.
  */
 import { z } from "zod";
 import { adSourceSchema, type ADSource } from "./airworthiness";
-import type { Snapshot } from "./model";
+import { auditEntry } from "./changeLog";
+import { can, type AuditEntry, type Snapshot } from "./model";
+import { activeProgram } from "./programs";
 import { Rejection } from "./rejection";
 
 /** The UTC hour the daily FAA AD check runs (convex/crons.ts). */
 export const FAA_CHECK_HOUR_UTC = 10;
+
+/**
+ * How many aircraft one Flight Program may monitor daily: the daily checks
+ * share the program's FAA allowance with interactive searches.
+ */
+export const MAX_ENABLED_FAA_MONITORS = 25;
 
 /** A DRS document type: final-rule ADs (ADFRAWD) or emergency ADs (ADFREAD). */
 export type DrsType = "ADFRAWD" | "ADFREAD";
@@ -157,6 +166,49 @@ export function applyFaaCommand(
   if (monitorAttemptedWithin(monitor, MANUAL_CHECK_INTERVAL_MS, now))
     throw new Rejection("Wait one minute before checking again.");
   return startFaaRun(monitor, now);
+}
+
+/** A monitor command's outcome: the monitor to store and its change-log row. */
+export interface FaaCommandResult {
+  monitor: FaaMonitor;
+  entry: AuditEntry;
+}
+
+/**
+ * Runs a monitor command for the signed-in user, as both adapters do: the
+ * aircraft must be one they maintain, and enabling its monitor must leave
+ * the program monitoring at most {@link MAX_ENABLED_FAA_MONITORS} aircraft.
+ *
+ * @param s - The snapshot: the user, the program's aircraft and monitors.
+ * @param cmd - The command.
+ * @param now - The current time, in ms.
+ * @returns The changed monitor, as {@link applyFaaCommand}, and the
+ *   "faa.<kind>" entry naming the aircraft, its program and the command.
+ * @throws {Rejection} "Aircraft maintenance permission required."; "A Flight
+ *   Program can monitor at most 25 aircraft daily. Turn off monitoring on
+ *   another aircraft first."; as {@link applyFaaCommand}.
+ */
+export function runFaaCommand(
+  s: Snapshot,
+  cmd: FaaCommand,
+  now: number,
+): FaaCommandResult {
+  if (!can(s, cmd.aircraftUuid, "maintenance"))
+    throw new Rejection("Aircraft maintenance permission required.");
+  const monitor =
+    s.faaMonitors?.find((m) => m.aircraftUuid === cmd.aircraftUuid) ??
+    emptyMonitor(cmd.aircraftUuid);
+  if (cmd.kind === "configure" && cmd.enabled && !monitor.enabled)
+    assertMonitorCapacity(s);
+  return {
+    monitor: applyFaaCommand(monitor, cmd, now),
+    entry: auditEntry(s, {
+      action: `faa.${cmd.kind}`,
+      entityUuid: cmd.aircraftUuid,
+      aircraftUuid: cmd.aircraftUuid,
+      after: cmd,
+    }),
+  };
 }
 
 /**
@@ -391,4 +443,18 @@ function isSameDocument(prior: FaaCandidate, c: FaaCandidate) {
     JSON.stringify(prior.source) === JSON.stringify(c.source) &&
     prior.status === c.status
   );
+}
+
+function assertMonitorCapacity(s: Snapshot) {
+  const program = activeProgram(s);
+  const fleet = new Set(
+    s.aircraft.filter((a) => a.programUuid === program).map((a) => a.uuid),
+  );
+  const enabled = (s.faaMonitors ?? []).filter(
+    (m) => m.enabled && fleet.has(m.aircraftUuid),
+  ).length;
+  if (enabled >= MAX_ENABLED_FAA_MONITORS)
+    throw new Rejection(
+      `A Flight Program can monitor at most ${MAX_ENABLED_FAA_MONITORS} aircraft daily. Turn off monitoring on another aircraft first.`,
+    );
 }

@@ -8,7 +8,7 @@
  * Shared by the Convex functions and the offline demo adapter so both refuse
  * and answer account-administration requests the same way (issue #29).
  */
-import type { Group, Permission } from "./model";
+import type { Group, Member, Permission } from "./model";
 import {
   assertGroupAircraftChoice,
   assertGroupProgramFixed,
@@ -110,6 +110,31 @@ export function programGroupIds(
       "Select a permission group; Observers read-only access is unavailable.",
     );
   return [...groupIds, observers.id];
+}
+
+/**
+ * Refuses account administration to anyone but an active system
+ * administrator.
+ *
+ * @throws {Rejection} "Administrator permission required."
+ */
+export function assertAccountAdministrator(user: Member): void {
+  if (!user.active || !user.isAdmin)
+    throw new Rejection("Administrator permission required.");
+}
+
+/**
+ * Refuses a group id that no group has.
+ *
+ * @param groups - Every group the account could be given.
+ * @throws {Rejection} "Group not found."
+ */
+export function assertKnownGroups(
+  groups: Pick<Group, "id">[],
+  groupIds: string[],
+): void {
+  if (groupIds.some((id) => !groups.some((g) => g.id === id)))
+    throw new Rejection("Group not found.");
 }
 
 /**

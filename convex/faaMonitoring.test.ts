@@ -13,7 +13,7 @@ import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { emptyMonitor } from "../src/domain/faa";
-import { MAX_ENABLED_FAA_MONITORS } from "./faa";
+import { MAX_ENABLED_FAA_MONITORS } from "../src/domain/faa";
 import { FAA_GLOBAL_DAILY } from "./faaSearch";
 import { FAA_SECRET } from "./faaCredentials";
 import { sealSecret } from "./secrets";

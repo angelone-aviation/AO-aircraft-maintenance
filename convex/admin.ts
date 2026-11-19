@@ -41,6 +41,7 @@ import { forgetDevices } from "./pushSubscriptions";
 import { permission } from "./validators";
 import {
   ACCOUNT_NAME_MAX_LENGTH,
+  assertKnownGroups,
   EMAIL_UNAVAILABLE,
   normalizeAccount,
   normalizeGroup,
@@ -484,8 +485,7 @@ async function chooseGroups(
 ) {
   const groups = await ctx.db.query("groups").collect();
   const groupIds = [...new Set(chosen)];
-  if (groupIds.some((id) => !groups.some((g) => g._id === id)))
-    throw new ConvexError("Group not found.");
+  exposeRejections(() => assertKnownGroups(groups.map(group), groupIds));
   if (programUuids === undefined) return groupIds;
   const programs = await ctx.db.query("programs").collect();
   if (programUuids.some((uuid) => !programs.some((p) => p.uuid === uuid)))

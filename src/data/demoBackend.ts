@@ -12,6 +12,8 @@ import {
 import {
   ADD_EXISTING_RESULT,
   EMAIL_UNAVAILABLE,
+  assertAccountAdministrator,
+  assertKnownGroups,
   assertAccessGroups,
   assertGrantsRead,
   assertProgramGroups,
@@ -48,7 +50,8 @@ import {
   poAttachmentRemovable,
 } from "../domain/purchaseOrders";
 import { applyCostCommand } from "../domain/costs";
-import { applyFaaCommand, emptyMonitor, faaCommandSchema } from "../domain/faa";
+import { faaCommandSchema, runFaaCommand } from "../domain/faa";
+import { selectProgram } from "../domain/programSelection";
 import { applyADCommand } from "../domain/airworthiness";
 import { deleteInspectionTemplates } from "../domain/deleteInspectionTemplates";
 import { submitOperation } from "../domain/flightSubmission";
@@ -91,7 +94,6 @@ import { saveFlightPlan } from "../domain/flightPlans";
 import { transferProgram } from "../domain/programTransfers";
 import {
   activeProgram,
-  assertProgramSelectable,
   scopedSnapshot,
   auditVisible,
   programPermission,
@@ -332,18 +334,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
             url,
           },
         ];
-        s.taskCards = s.taskCards!.map((card) =>
-          card === t ? withNewEvidence(t, now) : card,
-        );
-        audit(
-          s,
-          "taskCard.evidence",
-          t.uuid,
-          t.aircraftUuid,
-          undefined,
-          undefined,
-          { name: file.name, category },
-        );
+        const next = withNewEvidence(t, now);
+        s.taskCards = s.taskCards!.map((card) => (card === t ? next : card));
+        audit(s, "taskCard.evidence", t.uuid, t.aircraftUuid, undefined, t, {
+          ...next,
+          evidenceName: file.name,
+          category,
+        });
       });
     },
     removeTaskEvidence: (id) =>
@@ -532,21 +529,18 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     faaCommand: (command) =>
       modify((s) => {
         const cmd = faaCommandSchema.parse(command);
-        if (!can(s, cmd.aircraftUuid, "maintenance"))
-          throw Error("Permission denied.");
+        const { monitor, entry } = runFaaCommand(s, cmd, Date.now());
         if (cmd.kind === "check")
           throw Error(
             "Live FAA checks require a connected backend; demo mode cannot check the FAA.",
           );
-        const m =
-          s.faaMonitors?.find((x) => x.aircraftUuid === cmd.aircraftUuid) ??
-          emptyMonitor(cmd.aircraftUuid);
         s.faaMonitors = [
           ...(s.faaMonitors ?? []).filter(
-            (x) => x.aircraftUuid !== m.aircraftUuid,
+            (x) => x.aircraftUuid !== monitor.aircraftUuid,
           ),
-          applyFaaCommand(m, cmd, Date.now()),
+          monitor,
         ];
+        s.audit.unshift(entry);
       }),
     saveAD: (command) =>
       modify((s) => {
@@ -672,13 +666,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       assertFileContents(file.type, await file.arrayBuffer());
       const url = await readDataUrl(file);
       await modify((s) => {
+        if (!programPermission(s, "admin"))
+          throw Error("Inventory administrator access required.");
         const po = s.purchaseOrders?.find((p) => p.uuid === poUuid);
-        if (
-          !po ||
-          !programPermission(s, "admin") ||
-          po.programUuid !== activeProgram(s)
-        )
-          throw Error("PO access denied.");
+        if (!po || po.programUuid !== activeProgram(s))
+          throw Error("PO not found.");
         const receipt = po.receipts.find((r) => r.uuid === receiptUuid);
         if (receiptUuid && !receipt) throw Error("Receipt not found.");
         assertRoomAmong(s.purchaseOrderFiles, (f) => f.poUuid === po.uuid);
@@ -721,8 +713,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     transferProgram: (input) => modify((s) => transferProgram(s, input)),
     selectProgram: (programUuid) =>
       modify((s) => {
-        assertProgramSelectable(s, programUuid);
-        s.user.activeProgramUuid = programUuid;
+        s.audit.unshift(selectProgram(s, programUuid));
       }),
     fleet: (command) =>
       modify((s) => {
@@ -932,17 +923,15 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       ),
     archiveAircraftFile: (id, reason) =>
       demoAircraftFiles.archive(modify, audit, id, reason),
-    createUser: async (email, name, password) => {
+    createUser: async (rawEmail, rawName, password) => {
       const id = crypto.randomUUID();
       const { passwordProblem } = await import("../domain/passwordRules");
       await modify((s) => {
+        assertAccountAdministrator(s.user);
+        const { email, name } = normalizeAccount(rawEmail, rawName);
         const problem = passwordProblem(password, email);
         if (problem) throw new Error(problem);
-        if (
-          s.members.some(
-            (m) => m.email.toLowerCase() === email.trim().toLowerCase(),
-          )
-        )
+        if (s.members.some((m) => m.email.toLowerCase() === email))
           throw new Error(EMAIL_UNAVAILABLE);
         const user = {
           id,
@@ -1054,6 +1043,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           certificateType: previous?.certificateType,
         });
         if (!s.user.isAdmin) throw Error("Administrator permission required.");
+        assertKnownGroups(s.groups, user.groupIds);
         if (input.certifications !== undefined) {
           user.certifications = certificationsSchema.parse(
             input.certifications,
