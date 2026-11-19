@@ -164,7 +164,7 @@ export function formatAddress(address: Address): string {
  * the US ZIP and Canadian postal formats, and every schema rule.
  *
  * @param address - Address to check, as typed or as stored. Postal formats are
- *   checked on the value as given, untrimmed.
+ *   checked on the trimmed value.
  * @returns User-facing messages, each once: required fields (in form order),
  *   region, postal code, then schema messages. Empty if the address is usable.
  */
@@ -236,23 +236,20 @@ function listRegionIssues(address: Address, country: string): string[] {
   return address.region.trim() ? [] : ["State / province is required."];
 }
 
+// Checked trimmed, as addressSchema will store it, so a stray space does not
+// block confirming an address that would save cleanly.
 function listPostalCodeIssues(address: Address, country: string): string[] {
   const issues: string[] = [];
-  if (
-    !NO_POSTAL_CODE_COUNTRY_NAMES.includes(country) &&
-    !address.postalCode.trim()
-  )
+  const postalCode = address.postalCode.trim();
+  if (!NO_POSTAL_CODE_COUNTRY_NAMES.includes(country) && !postalCode)
     issues.push(
       "ZIP / postal code is required (enter N/A where no postal code is used).",
     );
-  if (
-    US_COUNTRY_NAMES.includes(country) &&
-    !US_ZIP_CODE.test(address.postalCode)
-  )
+  if (US_COUNTRY_NAMES.includes(country) && !US_ZIP_CODE.test(postalCode))
     issues.push("US ZIP code must be 5 digits or ZIP+4.");
   if (
     CANADA_COUNTRY_NAMES.includes(country) &&
-    !CANADIAN_POSTAL_CODE.test(address.postalCode)
+    !CANADIAN_POSTAL_CODE.test(postalCode)
   )
     issues.push("Canadian postal code must use the format A1A 1A1.");
   return issues;

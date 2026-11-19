@@ -179,13 +179,12 @@ describe("addressIssues: required fields and regions", () => {
 });
 
 describe("addressIssues: postal codes", () => {
-  it("accepts a ZIP or ZIP+4 and checks the raw, untrimmed value", () => {
+  it("accepts a ZIP or ZIP+4, checked as the schema will store it, trimmed", () => {
     expect(addressIssues({ ...address(), postalCode: "20500-0003" })).toEqual(
       [],
     );
-    // Characterizes current behaviour: "Check & confirm address" checks the
-    // value before the schema trims it, so a leading space blocks confirming.
-    expect(addressIssues({ ...address(), postalCode: " 20500" })).toEqual([
+    expect(addressIssues({ ...address(), postalCode: " 20500 " })).toEqual([]);
+    expect(addressIssues({ ...address(), postalCode: "2050 0" })).toEqual([
       "US ZIP code must be 5 digits or ZIP+4.",
     ]);
     // Characterizes current behaviour: a missing US ZIP is also malformed.
@@ -196,7 +195,7 @@ describe("addressIssues: postal codes", () => {
   });
   it("checks Canadian postal codes as A1A 1A1, with or without the space", () => {
     const canadian = { ...address(), city: "Ottawa", region: "ON" };
-    for (const postalCode of ["K1A 0B1", "k1a0b1"]) {
+    for (const postalCode of ["K1A 0B1", "k1a0b1", " K1A 0B1 "]) {
       expect(
         addressIssues({ ...canadian, country: "Canada", postalCode }),
       ).toEqual([]);
