@@ -16,7 +16,7 @@ The server sends board members a whitelist built in `boardSnapshot` (`src/domain
 
 - aircraft identity and counters, and what decides their status: unarchived inspections, installed components with their requirements, ADs with their due limits and compliance dates and counters, open discrepancies with their grounding flag and deferral type, category and expiry;
 - completed work orders as number, dates and scope line;
-- cost **totals** per aircraft (this quarter, this year, the year's budget), never cost records: no rates, labor lines, part prices, vendors or invoices;
+- cost **totals** per aircraft (this quarter, this year, the year's budget), never cost records: no rates, labor lines, part prices, vendors or invoices. "This quarter" and "this year" are taken from the date in the records time zone (`RECORDS_TIME_ZONE`, US Eastern by default), so they turn over at the program's midnight, not the server's UTC one;
 - the time of the newest off-site backup;
 - the member's own record and groups.
 
