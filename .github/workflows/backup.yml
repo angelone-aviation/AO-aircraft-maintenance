@@ -9,7 +9,7 @@
 #
 # A failed run emails the person who last changed the schedule below (see the
 # runbook), and Better Stack alerts when the heartbeat is missed. The app also
-# warns when the newest copy is older than 36 hours.
+# warns when the newest copy is older than 26 hours.
 name: Nightly backup
 
 on:
