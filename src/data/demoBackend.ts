@@ -311,6 +311,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     attachTaskEvidence: async (taskCardUuid, category, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
+      assertFileContents(file.type, await file.arrayBuffer());
       const url = await readDataUrl(file);
       await modify((s) => {
         const t = s.taskCards?.find((t) => t.uuid === taskCardUuid);
@@ -486,6 +487,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     attachWorkOrderFile: async (workOrderUuid, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
+      assertFileContents(file.type, await file.arrayBuffer());
       const url = await readDataUrl(file);
       await modify((s) => {
         const w = s.workOrders?.find((w) => w.uuid === workOrderUuid);
@@ -901,6 +903,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     uploadAircraftPhoto: async (aircraftUuid, file) => {
       validateAircraftPhoto(file.type, file.size);
+      assertFileContents(file.type, await file.arrayBuffer());
       const photoUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
@@ -1014,6 +1017,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         .snapshot?.certificationFiles?.find((f) => f.id === id)?.url ?? null,
     uploadCertification: async (userId, kind, file) => {
       validateCertificationFile(file.name, file.type, file.size);
+      assertFileContents(file.type, await file.arrayBuffer());
       const url = await readDataUrl(file);
       await modify((s) => {
         if (userId !== s.user.id && !s.user.isAdmin)

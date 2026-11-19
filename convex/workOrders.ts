@@ -4,8 +4,8 @@
  * Layer: Server. One runCommand mutation, the rules being the domain's; the
  *   attachment functions check access themselves. Every change is audited.
  * Dependencies: convex (runCommand, programContext, access, attachments,
- *   management, recurringParts, workOrderCopies, userErrors), src/domain
- *   (workOrders, model, changeLog).
+ *   management, recurringParts, workOrderCopies, urgentAlerts, userErrors),
+ *   src/domain (workOrders, model, changeLog, inventoryAttachments).
  */
 import { prepareRecurringParts } from "./recurringParts";
 import { ConvexError, v } from "convex/values";
@@ -50,6 +50,7 @@ import {
   type WorkOrder,
   type WorkOrderCommand,
 } from "../src/domain/workOrders";
+import { assertFileContents } from "../src/domain/inventoryAttachments";
 import { exposeRejections } from "./userErrors";
 import { scheduleUrgentAlerts } from "./urgentAlerts";
 
@@ -178,15 +179,18 @@ export const finishUpload = internalMutation({
  * @param name - The file name shown on the order.
  * @param type - The file's MIME type.
  * @param bytes - The file.
- * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", before
- *   any permission check; as {@link finishUpload}.
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", then
+ *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG or
+ *   WebP file." when the first bytes are not the declared type's, both before
+ *   any permission check and storing nothing; as {@link finishUpload}.
  */
 export const upload = action({
   args: { ...fileArgs, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
-    exposeRejections(() =>
-      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength),
-    );
+    exposeRejections(() => {
+      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength);
+      assertFileContents(args.type, args.bytes);
+    });
     const order = {
       workOrderUuid: args.workOrderUuid,
       programUuid: args.programUuid,

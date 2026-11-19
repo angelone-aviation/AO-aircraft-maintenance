@@ -842,6 +842,47 @@ it.each<
   },
 );
 
+it.each<[string, (backend: Backend, s: Snapshot, file: File) => unknown]>([
+  [
+    "job-card evidence",
+    (backend, s, file) =>
+      backend.attachTaskEvidence(s.taskCards![0].uuid, "photo", file),
+  ],
+  [
+    "a work-order attachment",
+    (backend, s, file) =>
+      backend.attachWorkOrderFile(s.workOrders![0].uuid, file),
+  ],
+  [
+    "an aircraft photo",
+    (backend, s, file) => backend.uploadAircraftPhoto(s.aircraft[0].uuid, file),
+  ],
+  [
+    "a license copy",
+    (backend, s, file) => backend.uploadCertification(s.user.id, "pilot", file),
+  ],
+])(
+  "refuses %s whose first bytes are not its declared type, as the server does",
+  async (upload, attach) => {
+    const { backend, stored } = await demo(`demo-renamed-${upload}`, (seed) =>
+      withRecords(seed),
+    );
+    const before = await stored();
+    const renamed = new File(["<html><body>x</body></html>"], "IMG_1.jpg", {
+      type: "image/jpeg",
+    });
+    const error = await Promise.resolve(attach(backend, before, renamed)).catch(
+      (e) => e,
+    );
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({
+      message:
+        "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+    });
+    expect(await stored()).toEqual(before);
+  },
+);
+
 const MANUAL: Manual = {
   uuid: "manual",
   aircraftUuid: "demo-206",
