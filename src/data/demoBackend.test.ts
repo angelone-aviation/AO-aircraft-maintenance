@@ -740,6 +740,48 @@ function withRecords(s: Snapshot) {
   ];
 }
 
+it("logs a receipt's file on the order and on each item it received, as the server does (T3)", async () => {
+  const { backend, stored } = await demo("demo-po-file", (seed) => {
+    withRecords(seed);
+    seed.purchaseOrders![0].receipts = [
+      {
+        uuid: "receipt",
+        date: "2026-01-01",
+        invoice: "",
+        notes: "",
+        actorId: seed.user.id,
+        lines: [
+          {
+            lineUuid: "line",
+            quantity: 1,
+            condition: "new",
+            itemUuids: ["tire-lot"],
+            serials: [],
+          },
+        ],
+      },
+    ];
+  });
+  await backend.attachPOFile("po", "receipt", pdf());
+  const file = { name: "scan.pdf", size: pdf().size };
+  expect((await stored()).audit.slice(0, 2).reverse()).toMatchObject([
+    {
+      action: "purchaseOrder.attachment",
+      entityUuid: "po",
+      programUuid: "demo-program",
+      reason: "Receipt attachment uploaded",
+      after: JSON.stringify({ ...file, receiptUuid: "receipt" }),
+    },
+    {
+      action: "inventory.attachment",
+      entityUuid: "tire-lot",
+      programUuid: "demo-program",
+      reason: "Receipt attachment from PO-1",
+      after: JSON.stringify(file),
+    },
+  ]);
+});
+
 it("files evidence on a signed job card: every signoff cleared, at a new version", async () => {
   const { backend, stored } = await demo("demo-evidence", (seed) => {
     withRecords(seed);
