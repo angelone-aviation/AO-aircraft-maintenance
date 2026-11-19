@@ -154,7 +154,7 @@ const FILE_LINKS = makeFunctionReference<
 
 // Public functions that reach no Flight Program record, and why.
 const NOT_PROGRAM_SCOPED: Record<string, string> = {
-  "fileLinks:serve":
+  "fileTokens:serve":
     "Serves only a file named by a signed link that fileLinks:links issued; the issuing call is attacked.",
   "identities:providers": "Lists the enabled sign-in buttons, before sign-in.",
   "auth:signIn": "Convex Auth's sign-in; the caller has no session yet.",

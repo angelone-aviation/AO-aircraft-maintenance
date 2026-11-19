@@ -3,8 +3,9 @@
  *   documents each reader's snapshot lists, refused without a session or in
  *   another program, and served only while signed, unexpired and unaltered.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/fileLinks, convex/operations (snapshot), convex/schema,
- *   convex/_generated, src/data/demo (fixture).
+ * Dependencies: convex/fileLinks, convex/fileTokens, convex/operations
+ *   (snapshot), convex/schema, convex/_generated, src/domain/fileLinks,
+ *   src/data/demo (fixture).
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,12 +14,12 @@ import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
+import { issueFileLink } from "./fileTokens";
 import {
   FILE_LINK_TTL_MS,
   MAX_FILE_LINKS,
-  issueFileLink,
   type FileLink,
-} from "./fileLinks";
+} from "../src/domain/fileLinks";
 
 const modules = import.meta.glob([
   "./**/*.ts",

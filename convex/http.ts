@@ -3,9 +3,9 @@
  *   and Microsoft callback wrapped to record and explain a refused sign-in,
  *   and the short-lived file links.
  * Layer: Server. Convex HTTP router; who may sign in is decided in
- *   convex/identities, who may open a file in convex/fileLinks.
+ *   convex/identities, who may receive a file link in convex/fileLinks.
  * Dependencies: convex/server, ./_generated, ./auth, ./identities,
- *   ./fileLinks, src/domain/signInMethods.
+ *   ./fileTokens, src/domain/signInMethods.
  */
 import {
   httpRouter,
@@ -17,7 +17,7 @@ import { httpAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { auth } from "./auth";
 import { refusalOf } from "./identities";
-import { FILE_LINK_PATH, serve } from "./fileLinks";
+import { FILE_LINK_PATH, serve } from "./fileTokens";
 import {
   SIGN_IN_ERROR_PARAM,
   SIGN_IN_PROVIDER_PARAM,

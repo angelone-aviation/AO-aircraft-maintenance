@@ -8,7 +8,7 @@ Every stored file (Form 337 copies, logbook page photos, aircraft photos, work o
 
 ## The rule
 
-- A file opens only for a signed-in member who may see the record it belongs to, judged by the same rule that lists it today. Owners keep exactly their current Form 337 copies and their aircraft's photo; board members keep receiving no files, and asking for a link refuses them.
+- A file opens only for a signed-in member who may see the record it belongs to, judged by the same rule that lists it today. Owners keep exactly their current Form 337 copies and their aircraft's photo, also when they sit on a board too; board-only members keep receiving no files, and asking for a link refuses them.
 - A link handed to the browser stops working five minutes after it is issued.
 - The snapshot, and so the device's offline copy, holds no file links at all: only each file's id, name, type, size and dates.
 - The demo keeps its fictional files in the browser and works offline as before. Manuals kept on the device still open offline.
@@ -23,9 +23,9 @@ browser ──GET <deployment>.convex.site/files/v1/<token>──► HTTP action
                                               verify signature and expiry, stream the blob
 ```
 
-1. **Issue.** `fileLinks.links` (`convex/fileLinks.ts`) is a mutation, not a query: a query's result is cached and pushed again on any change, so a time-limited link would be served stale. It needs an active session and the active `programUuid`, but not `checkContext`, which refuses owners outright; board members, whose view holds no files, are refused. It takes at most 50 references, each a file kind and its id. For each one it loads the record, applies the rule the snapshot uses to list it, and returns a link, or null when the caller may not see the file or it is gone (the two look alike, so a refusal reveals nothing). It writes nothing and needs no audit entry.
+1. **Issue.** `fileLinks.links` (`convex/fileLinks.ts`) is a mutation, not a query: a query's result is cached and pushed again on any change, so a time-limited link would be served stale. It needs an active session and the active `programUuid`, but not `checkContext`, which refuses owners outright; a member who is only on a board, whose view holds no files, is refused. It takes at most 50 references, each a file kind and its id. For each one it loads the record and applies the rule the snapshot query uses to list it: an owner portal adds only the aircraft photo and current Form 337 copies, and a workspace lists the files of every work order, job card and stock record that `scopedSnapshot` keeps, which the check finds by handing `scopedSnapshot` the caller's context with just that record. It returns a link, or null when the caller may not see the file or it is gone (the two look alike, so a refusal reveals nothing). It writes nothing and needs no audit entry.
 2. **Token.** `v1.<keyId>.<payload>.<signature>`. The payload is base64url JSON of the storage id, the expiry time (issue time plus `FILE_LINK_TTL_MS`, five minutes), the content type and the file name. The signature is HMAC-SHA256 over everything before it, under a key derived from the credential key named by `keyId` (`fileLinkKey` in `convex/secrets.ts`: HMAC of the fixed label `angel-one:file-links:v1` under the 32-byte credential key). Every deployment already holds that key, so no new secret has to be set before release; the derived key never leaves the server and cannot decrypt a credential. Rotating the credential key (its runbook) only ends links issued in the last five minutes.
-3. **Serve.** `GET /files/v1/<token>` on the deployment's `.convex.site` origin checks the signature with `crypto.subtle.verify` (constant time) and the expiry, then streams the blob. An altered, foreign or expired token gets 403 with "This link has expired. Open the file again from Angel One."; a deleted file gets 404. Responses carry `Cache-Control: private, no-store` (the browser keeps no copy), `X-Content-Type-Options: nosniff`, and `Access-Control-Allow-Origin: *` so the app can `fetch` the bytes (the records package, the PDF reader, keeping a manual): the token is the only credential, so allowing every origin adds nothing. PDF, JPEG, PNG and WebP open inline under their own name; any other type is sent as a download, so nothing can run as a page on the deployment's origin.
+3. **Serve.** `GET /files/v1/<token>` (`convex/fileTokens.ts`, which also signs) on the deployment's `.convex.site` origin checks the signature with `crypto.subtle.verify` (constant time) and the expiry, then streams the blob. An altered, foreign or expired token gets 403 with "This link has expired. Open the file again from Angel One."; a deleted file gets 404. Responses carry `Cache-Control: private, no-store` (the browser keeps no copy), `X-Content-Type-Options: nosniff`, and `Access-Control-Allow-Origin: *` so the app can `fetch` the bytes (the records package, the PDF reader, keeping a manual): the token is the only credential, so allowing every origin adds nothing. PDF, JPEG, PNG and WebP open inline under their own name; any other type is sent as a download, so nothing can run as a page on the deployment's origin.
 4. **Show.** A thumbnail or Open button asks for its link when it is shown or pressed and asks again before the link expires while it stays on screen. Offline, files other than kept manuals show "Reconnect to open", as uploads already do.
 
 ## Content-Security-Policy (`public/_headers`)
@@ -40,16 +40,16 @@ browser ──GET <deployment>.convex.site/files/v1/<token>──► HTTP action
 
 The issuing rule for each kind is the one its listing applies today, so nobody gains or loses a file.
 
-| Kind                | Listed today by                           | Opens for                                                                                            |
-| ------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `aircraftFile`      | `aircraftFileList`, `ownerPortalFiles`    | Workspace readers of the aircraft; owners: current Form 337 copies of their aircraft; board: refused |
-| `aircraftPhoto`     | `withPhotoUrls` in `convex/operations.ts` | Workspace readers of the aircraft; owners of the aircraft; board: refused                            |
-| `workOrderFile`     | `workOrderAttachments`                    | Readers of the work order in the scoped snapshot                                                     |
-| `taskEvidence`      | `taskEvidence`                            | Readers of the job card or archived task card                                                        |
-| `inventoryFile`     | `inventoryAttachments`                    | Flight Program administrators                                                                        |
-| `poFile`            | `purchaseOrders.files`                    | Inventory administrators of the order's program                                                      |
-| `manual`            | `manuals.open`                            | Readers of the manual's aircraft                                                                     |
-| `certificationFile` | `certifications.fileUrl`                  | The member, and administrators who manage them                                                       |
+| Kind                | Listed today by                           | Opens for                                                                                                 |
+| ------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `aircraftFile`      | `aircraftFileList`, `ownerPortalFiles`    | Workspace readers of the aircraft; owners: current Form 337 copies of their aircraft; board only: refused |
+| `aircraftPhoto`     | `withPhotoUrls` in `convex/operations.ts` | Workspace readers of the aircraft; owners of the aircraft; board: refused                                 |
+| `workOrderFile`     | `workOrderAttachments`                    | Readers of the work order in the scoped snapshot                                                          |
+| `taskEvidence`      | `taskEvidence`                            | Readers of the job card or archived task card                                                             |
+| `inventoryFile`     | `inventoryAttachments`                    | Flight Program administrators                                                                             |
+| `poFile`            | `purchaseOrders.files`                    | Inventory administrators of the order's program                                                           |
+| `manual`            | `manuals.open`                            | Readers of the manual's aircraft                                                                          |
+| `certificationFile` | `certifications.fileUrl`                  | The member, and administrators who manage them                                                            |
 
 ## What changes for users
 
