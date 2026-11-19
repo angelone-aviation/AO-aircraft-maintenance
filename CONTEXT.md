@@ -57,7 +57,7 @@ flowchart LR
   Nightly --> Dropbox
 ```
 
-The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and `*.convex.cloud`/`*.convex.site`. The one planned exception is Sentry error reporting, off until a DSN and its ingest host are added ([monitoring runbook](docs/runbooks/monitoring.md)). Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
+The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and the production deployment's own `.convex.cloud`/`.convex.site` hosts (written into the published `_headers` at deploy; local and demo builds allow any `*.convex.cloud`/`*.convex.site`). The one planned exception is Sentry error reporting, off until a DSN and its ingest host are added ([monitoring runbook](docs/runbooks/monitoring.md)). Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
 
 ## 3. Code layers and directory ownership
 
@@ -72,7 +72,7 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | `src/data` | Data | Workspace store and outbox (`store.ts`); `Backend` interface and Convex adapter (`backend.ts`); demo adapter (`demoBackend.ts`) and seed (`demo.ts`); IndexedDB (`local.ts`); kept manuals (`deviceManuals.ts`); PDFs and reports (`*Pdf.ts`, `adReport.ts`, `aircraftStatusReport.ts`); file importers (`adImport.ts`, `fmd.ts`) | Render UI or import `src/components`; decide a permission the server does not also decide |
 | `convex` | Server | Schema, auth, every public function, permission checks (`access.ts`, `programContext.ts`), the command transaction (`runCommand.ts`), the audit writer, crons, auth HTTP routes, integrations, credential encryption (`secrets.ts`) | Import `src/data` or `src/components` outside tests; return a secret; insert into `audit` except through `writeAudit` |
 | `convex/_generated` | Generated | Convex codegen (`api`, `dataModel`) | Be edited by hand |
-| `scripts` | Script | Setup (`configure-auth.mjs`, `bootstrap-admin.mjs`), local smoke test, `serve-dist.mjs`, CSP check, icons; nightly backup and records workbook (`scripts/backup/`) | Print secrets; import `src/data` except test fixtures |
+| `scripts` | Script | Setup (`configure-auth.mjs`, `bootstrap-admin.mjs`), local smoke test, `serve-dist.mjs`, CSP check and deploy-time CSP pin, icons; nightly backup and records workbook (`scripts/backup/`) | Print secrets; import `src/data` except test fixtures |
 | `tests`, `*.test.ts` | Test | Playwright specs (`tests/e2e`) and fixtures; vitest and convex-test suites beside the code they test | Ship in the build |
 | `.github` | Tooling | CI; Deploy, which a green CI push to `main` starts, or a person by hand; first-time setup; nightly backup; Dependabot | Deploy from `ci.yml` (it holds no secrets; `deploy.yml` releases); release a commit that is not the newest on `main`; hold secrets outside the `production` and `backups` environments |
 | `.claude` | Tooling | Standards hooks and settings (owner-only, do not edit); vendored skills (`npx skills update` only) | Be edited by agents |
