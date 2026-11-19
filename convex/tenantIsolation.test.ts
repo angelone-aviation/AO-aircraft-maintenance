@@ -14,6 +14,7 @@ import { convexTest, type TestConvex } from "convex-test";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   getFunctionName,
+  makeFunctionReference,
   type FunctionArgs,
   type FunctionReference,
   type StorageActionWriter,
@@ -145,8 +146,16 @@ interface Attempt {
   returns: (value: unknown) => Case;
 }
 
+// By name until convex/_generated is next regenerated against a deployment.
+const FILE_LINKS = makeFunctionReference<
+  "mutation",
+  { programUuid?: string; files: { kind: "aircraftFile"; id: string }[] }
+>("fileLinks:links");
+
 // Public functions that reach no Flight Program record, and why.
 const NOT_PROGRAM_SCOPED: Record<string, string> = {
+  "fileLinks:serve":
+    "Serves only a file named by a signed link that fileLinks:links issued; the issuing call is attacked.",
   "identities:providers": "Lists the enabled sign-in buttons, before sign-in.",
   "auth:signIn": "Convex Auth's sign-in; the caller has no session yet.",
   "auth:signOut": "Convex Auth; ends the caller's own session.",
@@ -461,6 +470,9 @@ const CASES: Case[] = [
   callMutation(api.aircraftFiles.archive, "A's Form 337", (a) =>
     stampB({ id: a.row.aircraftFiles._id, reason: "Superseded." }),
   ).refuses(MAINTENANCE),
+  callMutation(FILE_LINKS, "a link to A's Form 337", (a) =>
+    stampB({ files: [{ kind: "aircraftFile", id: a.row.aircraftFiles._id }] }),
+  ).returns([null]),
   callAction(api.aircraftFiles.upload, "a Form 337 on A's aircraft", (a) =>
     stampB({
       aircraftUuid: a.row.aircraft.uuid,

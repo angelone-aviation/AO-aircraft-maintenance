@@ -144,13 +144,12 @@ describe("issuing links", () => {
   it("issues a link for exactly the files each reader's snapshot lists", async () => {
     const { files, as } = await fixture();
     const all = Object.values(files);
-    const expected: Record<Role, Id<"aircraftFiles">[]> = {
+    const expected: Record<Exclude<Role, "board">, Id<"aircraftFiles">[]> = {
       reader: [files.current, files.archived, files.photo],
       owner: [files.current],
-      board: [],
       admin: [files.current, files.archived, files.photo, files.other],
     };
-    for (const role of Object.keys(expected) as Role[]) {
+    for (const role of Object.keys(expected) as (keyof typeof expected)[]) {
       const snapshot = await as(role).query(api.operations.snapshot, {});
       const listed = (snapshot?.aircraftFiles ?? []).map((f) => f.uuid);
       expect(listed.sort(), role).toEqual([...expected[role]].sort());
@@ -176,6 +175,18 @@ describe("issuing links", () => {
     expect(link!.url).toMatch(
       /^https:\/\/test\.convex\.site\/files\/v1\/v1\.k1\.[\w-]+\.[\w-]+$/,
     );
+  });
+
+  it("refuses board members, whose view lists no files", async () => {
+    const { files, as } = await fixture();
+    const board = await as("board").query(api.operations.snapshot, {});
+    expect(board?.aircraftFiles ?? []).toEqual([]);
+    await expect(
+      as("board").mutation(links, {
+        programUuid: PROGRAM,
+        files: refs([files.current]),
+      }),
+    ).rejects.toThrow("Files are not available in the board view.");
   });
 
   it("refuses callers without a session, in another program, or asking for too many", async () => {

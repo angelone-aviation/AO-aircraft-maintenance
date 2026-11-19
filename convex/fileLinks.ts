@@ -31,6 +31,7 @@ export const FILE_LINK_PATH = "/files/v1/";
 const TOKEN_VERSION = "v1";
 const EXPIRED = "This link has expired. Open the file again from Angel One.";
 const GONE = "This file is no longer available.";
+const BOARD = "Files are not available in the board view.";
 // Types a browser shows without running anything; others are downloads, so
 // nothing uploaded can run as a page on the deployment's origin.
 const INLINE_TYPES = new Set([
@@ -56,8 +57,8 @@ export interface LinkedFile {
 /**
  * Issues links to the aircraft documents (Form 337 copies, logbook page
  * photos) the caller's snapshot lists: every copy for workspace readers of
- * the aircraft, current Form 337 copies for its owners, none for board
- * members. Writes nothing.
+ * the aircraft, current Form 337 copies for its owners. Board members, whose
+ * view holds no files, are refused. Writes nothing.
  *
  * @param programUuid - The caller's active Flight Program.
  * @param files - At most {@link MAX_FILE_LINKS} aircraft file ids.
@@ -66,7 +67,8 @@ export interface LinkedFile {
  *   it is gone (alike, so a refusal reveals nothing).
  * @throws {Error} "An active account and session are required."
  * @throws {ConvexError} "Ask for at most 50 files at a time."; "Flight
- *   Program changed. Reopen the form in the correct program."
+ *   Program changed. Reopen the form in the correct program."; "Files are
+ *   not available in the board view."
  */
 export const links = mutation({
   args: {
@@ -152,14 +154,15 @@ interface TokenPayload {
   n: string;
 }
 
-// The snapshot query's scoping of the caller. Owners and board members pass,
-// unlike checkContext: they may open what their view lists.
+// The snapshot query's scoping of the caller. Owners pass, unlike
+// checkContext: they may open the copies their portal lists.
 async function readerSnapshot(ctx: MutationCtx, programUuid?: string) {
   const state = await context(ctx);
   if (activeProgram(state) !== programUuid)
     throw new ConvexError(
       "Flight Program changed. Reopen the form in the correct program.",
     );
+  if (isBoardView(state)) throw new ConvexError(BOARD);
   return scopedSnapshot(state);
 }
 
@@ -178,7 +181,6 @@ async function listedAircraftFile(
 // The snapshot's rule for one file (aircraftFileList, then ownerPortalFiles
 // for owners), without listing them all.
 function listsAircraftFile(s: Snapshot, file: Doc<"aircraftFiles">) {
-  if (isBoardView(s)) return false;
   const owner = isOwnerView(s);
   const aircraft = owner ? ownerPortalAircraft(s) : s.aircraft;
   if (!aircraft.some((a) => a.uuid === file.aircraftUuid)) return false;
