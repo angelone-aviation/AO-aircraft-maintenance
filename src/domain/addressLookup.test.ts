@@ -65,16 +65,16 @@ describe("lookupInput", () => {
         street: "s".repeat(2001),
         city: "c".repeat(301),
         region: "r".repeat(301),
-        postalCode: "9".repeat(101),
-        country: "C".repeat(151),
+        postalCode: "9".repeat(301),
+        country: "C".repeat(301),
       }),
     ).toBe(
       [
         "Street address is too long to look up (up to 2,000 characters).",
         "City is too long to look up (up to 300 characters).",
         "State / province is too long to look up (up to 300 characters).",
-        "ZIP / postal code is too long to look up (up to 100 characters).",
-        "Country is too long to look up (up to 150 characters).",
+        "ZIP / postal code is too long to look up (up to 300 characters).",
+        "Country is too long to look up (up to 300 characters).",
       ].join("\n"),
     );
     expect(
@@ -82,29 +82,22 @@ describe("lookupInput", () => {
         street: "s".repeat(2000),
         city: "c".repeat(300),
         region: "r".repeat(300),
+        postalCode: "9".repeat(300),
+        country: "C".repeat(300),
       }),
     ).toBe("");
   });
-  it("caps postal code and country below what an address stores", () => {
-    // Characterizes current behaviour (roadmap Finding 8): an address the app
-    // has saved can still fail the lookup.
-    const long = { postalCode: "9".repeat(101), country: "C".repeat(151) };
-    expect(addressSchema.safeParse({ ...address(), ...long }).success).toBe(
+  it("looks up any address the app can store", () => {
+    const longest = {
+      street: "s".repeat(1000),
+      city: "c".repeat(150),
+      postalCode: "9".repeat(300),
+      country: "C".repeat(300),
+    };
+    expect(addressSchema.safeParse({ ...address(), ...longest }).success).toBe(
       true,
     );
-    expect(() =>
-      lookupInput({ ...address(), postalCode: long.postalCode }),
-    ).toThrow(z.ZodError);
-    expect(() => lookupInput({ ...address(), country: long.country })).toThrow(
-      z.ZodError,
-    );
-    expect(() =>
-      lookupInput({
-        ...address(),
-        postalCode: "9".repeat(100),
-        country: "C".repeat(150),
-      }),
-    ).not.toThrow();
+    expect(() => lookupInput({ ...address(), ...longest })).not.toThrow();
   });
 });
 
