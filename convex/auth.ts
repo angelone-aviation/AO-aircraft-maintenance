@@ -110,17 +110,22 @@ export const libraryStore = library.store;
  * `user.signed_in` change-log entry naming the method for every successful
  * sign-in (ADR-0009). Token refreshes are not logged.
  *
- * A disabled account's password is checked as a wrong one, so its failure
- * count and timing never confirm it (security review A8).
+ * Two library flows are guarded first. A disabled account's password is
+ * checked as a wrong one, so its failure count and timing never confirm it
+ * (security review A8). A refresh token whose two halves name different
+ * sessions, or a token that no longer exists, is answered as invalid without
+ * the library deleting the session it names (A9).
  *
  * @param args - The library's request; libraryStore checks it.
  * @returns What libraryStore returns; null, as for a wrong code, for a code
- *   exchange that names an email or phone.
+ *   exchange that names an email or phone; null, as for an invalid token, for
+ *   a refresh token that is not a stored one of the session it names.
  */
 export const store = internalMutation({
   args: { args: v.any() },
   handler: async (ctx, { args }): Promise<unknown> => {
     if (namesEmailOrPhone(args)) return null;
+    if (await namesAnotherSession(ctx, args)) return null;
     const method = await signInMethod(ctx, args);
     const secret = await unmatchableSecretIfDisabled(ctx, args);
     const request =
@@ -142,9 +147,13 @@ export const store = internalMutation({
 type StoreRequest = {
   type?: unknown;
   params?: { code?: unknown; email?: unknown; phone?: unknown };
+  refreshToken?: unknown;
   provider?: unknown;
   account?: { id?: unknown; secret?: unknown };
 };
+
+// The library joins a refresh token's id and its session's id with this.
+const REFRESH_TOKEN_DIVIDER = "|";
 
 // The library counts a failed code exchange under the email or phone it
 // names, storing a new authRateLimits row for each value, before any sign-in.
@@ -180,6 +189,27 @@ async function signInMethod(
     .withIndex("code", (q) => q.eq("code", hash))
     .unique();
   return code?.provider;
+}
+
+// The library deletes the session a refresh token names whenever the token is
+// not one of that session's live tokens, so a forged pairing of any token id
+// with another person's session id would sign them out. Only a token stored
+// for that session may reach it; an expired one still ends its own session.
+async function namesAnotherSession(
+  ctx: MutationCtx,
+  args: StoreRequest,
+): Promise<boolean> {
+  if (args?.type !== "refreshSession" || typeof args.refreshToken !== "string")
+    return false;
+  const [tokenPart, sessionPart] = args.refreshToken.split(
+    REFRESH_TOKEN_DIVIDER,
+  );
+  const tokenId = ctx.db.normalizeId("authRefreshTokens", tokenPart ?? "");
+  const sessionId = ctx.db.normalizeId("authSessions", sessionPart ?? "");
+  // The library answers an unreadable token as invalid without writing.
+  if (!tokenId || !sessionId) return false;
+  const token = await ctx.db.get(tokenId);
+  return token?.sessionId !== sessionId;
 }
 
 // A disabled account's sign-in goes to the library with a password no hash

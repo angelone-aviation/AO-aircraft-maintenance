@@ -2,8 +2,8 @@
  * Responsibility: Pins that sign-in refusals stay plain Errors, which
  *   production hides alike, so their class reveals nothing about an account;
  *   that a disabled account's password is checked as a wrong one; that every
- *   password flow but sign-in is closed; and that sign-out ends the session
- *   on the server.
+ *   password flow but sign-in is closed; that sign-out ends the session on
+ *   the server; and that a forged refresh token signs no one out.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: @convex-dev/auth, jose, convex (auth, admin, identities,
  *   schema).
@@ -199,6 +199,37 @@ it("counts a disabled account's correct password as a failed sign-in", async () 
   expect(sessions).toEqual([]);
 });
 
+// Security review A9: the library deletes the session a refresh token names
+// whenever the token is not a live one of that session, so pairing any
+// refresh token id with someone else's session id signed them out.
+it("signs no one out for a refresh token naming another session", async () => {
+  const t = convexTest(schema, modules);
+  for (const email of ["victim@example.test", "other@example.test"])
+    await createPilot(t, email, true);
+  const victim = await refreshTokenOf(t, "victim@example.test");
+  const other = await refreshTokenOf(t, "other@example.test");
+  const [otherToken, otherSession] = other.split("|");
+  const [, victimSession] = victim.split("|");
+  const gone = await t.run(async (ctx) => {
+    const sessionId = ctx.db.normalizeId("authSessions", otherSession)!;
+    const id = await ctx.db.insert("authRefreshTokens", {
+      sessionId,
+      expirationTime: Date.now() + 86_400_000,
+    });
+    await ctx.db.delete(id);
+    return id;
+  });
+  for (const forged of [
+    `${otherToken}|${victimSession}`,
+    `${gone}|${victimSession}`,
+  ])
+    expect(await t.action(api.auth.signIn, { refreshToken: forged })).toEqual({
+      tokens: null,
+    });
+  const refreshed = await t.action(api.auth.signIn, { refreshToken: victim });
+  expect(refreshed.tokens?.refreshToken).toMatch(`|${victimSession}`);
+});
+
 async function createPilot(
   t: ReturnType<typeof convexTest>,
   email: string,
@@ -225,4 +256,9 @@ function passwordSignIn(
     provider: "password",
     params: { flow: "signIn", email, password },
   });
+}
+
+async function refreshTokenOf(t: ReturnType<typeof convexTest>, email: string) {
+  const { tokens } = await passwordSignIn(t, email, PASSWORD);
+  return tokens!.refreshToken;
 }
