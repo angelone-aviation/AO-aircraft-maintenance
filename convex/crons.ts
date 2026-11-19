@@ -1,7 +1,8 @@
 /**
  * Responsibility: Schedules the deployment's recurring jobs: the FAA AD check,
- *   expired manual-upload cleanup, the maintenance alert email digest and the
- *   urgent alert check that follows it.
+ *   the upload clean-up (expired manual-upload tickets and stored files
+ *   nothing refers to), the maintenance alert email digest and the urgent
+ *   alert check that follows it.
  * Layer: Server. Schedules only; each job is an internal function elsewhere.
  * Dependencies: convex/server (cronJobs), convex/_generated/api,
  *   src/domain (alerts, faa: the hours screens also quote).
@@ -19,7 +20,7 @@ crons.daily(
   {},
 );
 crons.hourly(
-  "Expired manual upload cleanup",
+  "Upload cleanup",
   { minuteUTC: 15 },
   internal.manuals.cleanupUploads,
   {},

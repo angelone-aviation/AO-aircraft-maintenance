@@ -4,8 +4,9 @@
  * Layer: Server. Read-only query helper.
  * Dependencies: convex/_generated (server, dataModel).
  *
- * manuals.test.ts checks the list against the schema, so a new file table
- * cannot be missed by code that deletes blobs no record refers to.
+ * fileSweep.test.ts checks the list against the schema, nested fields
+ * included, so a new file field cannot be missed by code that deletes blobs
+ * no record refers to.
  */
 import type { QueryCtx } from "./_generated/server";
 import type { Id, TableNames } from "./_generated/dataModel";

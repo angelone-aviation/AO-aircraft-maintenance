@@ -350,6 +350,9 @@ export default defineSchema({
     windowStart: v.number(),
     count: v.number(),
   }).index("key", ["key"]),
+  // The one row of the hourly clean-up of unreferenced files
+  // (convex/fileSweep.ts): the creation time of the newest file it checked.
+  fileSweep: defineTable({ checkedThrough: v.number() }),
   // The one Geoapify row: the sealed API key, and the UTC day's lookup count
   // that caps lookups for the whole deployment.
   addressVerificationSettings: defineTable({

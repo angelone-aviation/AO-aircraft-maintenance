@@ -1,10 +1,10 @@
 /**
  * Responsibility: Pins manual uploads and edits: the ticket handshake, which
- *   blobs a ticket may claim or the sweep may delete, access, rate limits, and
- *   that the storage-reference list covers the schema.
+ *   blobs a ticket may claim or the hourly clean-up may delete, access and
+ *   rate limits.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/manuals, convex/storageReferences, convex/schema,
- *   src/data/demo, tests/fixtures/taskCards.
+ * Dependencies: convex/manuals, convex/schema, src/data/demo,
+ *   tests/fixtures/taskCards.
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi } from "vitest";
@@ -13,7 +13,6 @@ import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
 import { MANUAL_UPLOADS_PER_HOUR } from "./manuals";
-import { STORAGE_REFERENCES } from "./storageReferences";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 const modules = import.meta.glob([
@@ -338,9 +337,19 @@ it("edits reference metadata while preserving file identity and validates access
     (await t.run((ctx) => ctx.db.get(before._id)))?.applicability,
   ).toBeUndefined();
 });
-it("claims only the blob uploaded for its own ticket and never deletes blobs it did not create", async () => {
+it("claims only the blob uploaded for its own ticket and deletes only blobs no record refers to", async () => {
   const { t, tech } = await fixture();
   const store = (blob: Blob) => t.run((ctx) => storePdf(ctx, blob));
+  const attach = (storageId: Id<"_storage">) =>
+    t.run((ctx) =>
+      ctx.db.insert("workOrderFiles", {
+        workOrderUuid: "wo",
+        storageId,
+        name: "evidence.pdf",
+        size: pdf.size,
+        uploadedAt: 1,
+      }),
+    );
   const exists = (id: Id<"_storage">) =>
     t.run(async (ctx) => !!(await ctx.storage.getUrl(id)));
   const finish = (ticket: Id<"manualUploads">, storageId: Id<"_storage">) =>
@@ -357,8 +366,10 @@ it("claims only the blob uploaded for its own ticket and never deletes blobs it 
         programUuid: "demo-program",
       })
     ).ticket;
-  // Another record's identical PDF, stored before the ticket was issued.
+  // Another record's identical PDF, stored before the ticket was issued; a
+  // ticket issued in the blob's own millisecond could claim it.
   const earlier = await store(pdf);
+  await new Promise((resolve) => setTimeout(resolve, 2));
   const ticket = await begin(pdf);
   await expect(finish(ticket, earlier)).rejects.toThrow("does not match");
   // Someone else's newer PDF of the same size is not this ticket's upload.
@@ -368,20 +379,15 @@ it("claims only the blob uploaded for its own ticket and never deletes blobs it 
   await expect(finish(ticket, foreign)).rejects.toThrow("does not match");
   // A newer identical blob already referenced by another record is never claimed.
   const attached = await store(pdf);
-  await t.run((ctx) =>
-    ctx.db.insert("workOrderFiles", {
-      workOrderUuid: "wo",
-      storageId: attached,
-      name: "evidence.pdf",
-      size: pdf.size,
-      uploadedAt: 1,
-    }),
-  );
+  await attach(attached);
   await expect(finish(ticket, attached)).rejects.toThrow("does not match");
   for (const id of [earlier, foreign, attached])
     expect(await exists(id)).toBe(true);
   const own = await store(pdf);
   await finish(ticket, own);
+  // The earlier and the foreign PDF each belong to a record by the sweep.
+  await attach(earlier);
+  await attach(foreign);
 
   // Declared bytes that are not a PDF: refused, and the claimed blob deleted
   // with its ticket at once.
@@ -394,7 +400,8 @@ it("claims only the blob uploaded for its own ticket and never deletes blobs it 
   });
   expect(await exists(disguised)).toBe(false);
   expect(await t.run((ctx) => ctx.db.get(disguisedTicket))).toBeNull();
-  // An upload whose browser never called finishUpload.
+  // An upload whose browser never called finishUpload, and one whose bytes
+  // matched no ticket (T2).
   const abandonedTicket = await begin(pdf);
   const abandoned = await store(pdf);
   const unrelated = await store(
@@ -415,8 +422,10 @@ it("claims only the blob uploaded for its own ticket and never deletes blobs it 
   expect(await exists(abandoned)).toBe(false);
   expect(await t.run((ctx) => ctx.db.get(abandonedTicket))).toBeNull();
   expect(await t.run((ctx) => ctx.db.get(disguisedTicket))).toBeNull();
-  // Saved, attached, earlier and unrelated blobs are untouched.
-  for (const id of [own, attached, earlier, foreign, unrelated])
+  // A day old with nothing referring to it, the unrelated upload goes too.
+  expect(await exists(unrelated)).toBe(false);
+  // Blobs a manual or a record refers to are untouched.
+  for (const id of [own, attached, earlier, foreign])
     expect(await exists(id)).toBe(true);
 });
 it("keeps a matching blob that another record refers to when sweeping its ticket", async () => {
@@ -475,23 +484,6 @@ it("rate-limits upload tickets per user", async () => {
     /Too many manual uploads/,
   );
 });
-it("checks every storage reference in the schema before deleting a blob", () => {
-  const fields = Object.entries(schema.tables).flatMap(([table, def]) =>
-    Object.entries(
-      (
-        def as unknown as {
-          validator: { fields: Record<string, { tableName?: string }> };
-        }
-      ).validator.fields,
-    )
-      .filter(([, f]) => f.tableName === "_storage")
-      .map(([field]) => `${table}.${field}`),
-  );
-  expect(fields.sort()).toEqual(
-    STORAGE_REFERENCES.map((r) => `${r.table}.${r.field}`).sort(),
-  );
-});
-
 it("audits each manual change with what it changed, and refuses as ConvexError, access before the payload", async () => {
   const { t, tech, reader } = await fixture();
   const uuid = crypto.randomUUID();
