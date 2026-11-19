@@ -154,9 +154,22 @@ export function applyFaaCommand(
       error: "Settings changed. Run a check to verify coverage.",
     };
   if (cmd.kind === "review") return reviewCandidate(monitor, cmd, now);
-  if (monitorAttemptedWithin(monitor, MANUAL_CHECK_INTERVAL_MS, now))
+  if (faaCheckWaitMs(monitor, now) > 0)
     throw new Rejection("Wait one minute before checking again.");
   return startFaaRun(monitor, now);
+}
+
+/**
+ * How long until a manual check may start: one minute after the last
+ * attempt, whether or not that check has finished.
+ *
+ * @param monitor - The aircraft's monitor.
+ * @param now - The current time, in ms.
+ * @returns The wait in ms; 0 when a check may start now.
+ */
+export function faaCheckWaitMs(monitor: FaaMonitor, now: number): number {
+  if (!monitor.lastAttempt) return 0;
+  return Math.max(0, monitor.lastAttempt + MANUAL_CHECK_INTERVAL_MS - now);
 }
 
 /**

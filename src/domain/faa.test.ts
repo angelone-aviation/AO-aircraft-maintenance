@@ -20,6 +20,7 @@ import {
   mergeCandidates,
   parseDrsPage,
   monitorAttemptedWithin,
+  faaCheckWaitMs,
   startFaaRun,
   type FaaCandidate,
   type FaaMonitor,
@@ -259,6 +260,16 @@ describe("monitor commands", () => {
       applyFaaCommand(monitor({ lastAttempt: NOW - MINUTE + 1 }), check, NOW);
     expect(recent).toThrow(Rejection);
     expect(recent).toThrow(Error("Wait one minute before checking again."));
+  });
+
+  it("waits a minute after the last attempt for a manual check, finished or not", () => {
+    expect(faaCheckWaitMs(monitor(), NOW)).toBe(0);
+    expect(
+      faaCheckWaitMs(monitor({ lastAttempt: NOW - MINUTE + 1 }), NOW),
+    ).toBe(1);
+    expect(
+      faaCheckWaitMs(monitor({ lastAttempt: NOW - MINUTE, runId: "run" }), NOW),
+    ).toBe(0);
   });
 
   it("tells whether the last check started within an interval", () => {
