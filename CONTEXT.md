@@ -21,7 +21,7 @@ flowchart LR
     Fns["queries, mutations, actions"]
     DB[("database<br/>schema.ts")]
     Files[("file storage<br/>manuals, attachments, Form 337s")]
-    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>urgent alert check 13:10 UTC<br/>upload cleanup hourly"]
+    Crons["crons.ts<br/>FAA AD check 10:00 UTC<br/>alert digest 13:00 UTC<br/>urgent alert check 13:10 UTC<br/>upload cleanup hourly<br/>sign-in records cleanup Sundays 07:20 UTC"]
   end
   subgraph Ext["Outside services (Convex actions only)"]
     FAA["FAA DRS API"]
