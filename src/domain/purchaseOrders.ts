@@ -23,7 +23,7 @@ import {
   type RequestPurchase,
 } from "./partsRequests";
 import { z } from "zod";
-import { latestLocalDate, type Snapshot } from "./model";
+import { earliestLocalDate, latestLocalDate, type Snapshot } from "./model";
 import { SECONDS_PER_HOUR } from "./readings";
 import { activeProgram, programPermission, recordProgram } from "./programs";
 import { applyManagement, type Stock } from "./management";
@@ -795,6 +795,14 @@ function moveOrder(
     throw new Rejection("Issue the order before shipping or receiving.");
   if (c.date > latestLocalDate(ctx.now))
     throw new Rejection("Shipment and receipt dates cannot be in the future.");
+  // The order's day in the furthest-behind zone, so a receipt dated the day
+  // the order was issued is accepted wherever the user is. Orders stored
+  // before issuedAt existed are dated from when they were made.
+  if (
+    c.kind === "receive" &&
+    c.date < earliestLocalDate(p.issuedAt ?? p.createdAt)
+  )
+    throw new Rejection("Receipt date cannot precede the order date.");
   assertUnique(c.lines.map((l) => l.lineUuid));
   for (const x of c.lines) checkBalance(p, c.kind, x);
   if (c.kind === "ship") shipOrder(ctx, p, c);
