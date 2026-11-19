@@ -9,7 +9,8 @@
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
  *   checklists, taskCards, flightPlans, deleteInspectionTemplates,
- *   workOrders, purchaseOrders, manuals, addresses, faa), tests/fixtures.
+ *   workOrders, purchaseOrders, manuals, addresses, faa, reportBacklog),
+ *   convex/values (ConvexError), tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -45,8 +46,13 @@ import {
   blankADTask,
   type AD,
 } from "../domain/airworthiness";
+import { ConvexError } from "convex/values";
 import { Rejection } from "../domain/rejection";
 import { MAX_ATTACHMENTS } from "../domain/attachments";
+import {
+  MAX_OPEN_REPORTS_PER_MEMBER,
+  REPORT_LIMIT_REFUSAL,
+} from "../domain/reportBacklog";
 import { saveTaskCard } from "../domain/taskCards";
 import { emptyChecklist } from "../domain/checklists";
 import type { FlightPlan } from "../domain/flightPlans";
@@ -536,6 +542,38 @@ it("logs a submitted flight and problem report under the aircraft's program, as 
   const logged = { programUuid: "demo-program", aircraftUuid: a.uuid };
   expect(flight).toMatchObject({ ...logged, action: "flight.created" });
   expect(report).toMatchObject({ ...logged, action: "discrepancy.created" });
+});
+
+it("refuses a report past the member's open-report limit as a ConvexError, as the server does (D2)", async () => {
+  const { backend, stored } = await demo("demo-report-limit", (seed) => {
+    seed.discrepancies = Array.from(
+      { length: MAX_OPEN_REPORTS_PER_MEMBER },
+      (_, i) => ({
+        uuid: `open-${i}`,
+        aircraftUuid: seed.aircraft[0].uuid,
+        description: "Short",
+        status: "open" as const,
+        authorId: seed.user.id,
+        createdAt: 0,
+      }),
+    );
+  });
+  const { user, aircraft } = await stored();
+  const refused = await backend
+    .submit({
+      programUuid: "demo-program",
+      uuid: crypto.randomUUID(),
+      authorId: user.id,
+      kind: "discrepancy",
+      aircraftUuid: aircraft[0].uuid,
+      description: "One more",
+    })
+    .catch((e) => e);
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({ data: REPORT_LIMIT_REFUSAL });
+  expect((await stored()).discrepancies).toHaveLength(
+    MAX_OPEN_REPORTS_PER_MEMBER,
+  );
 });
 
 // The server receives FlightForm's cleared fields absent; the demo, undefined.

@@ -16,6 +16,10 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import { demoSnapshot } from "../src/data/demo";
 import { localDate, type FlightInput } from "../src/domain/model";
+import {
+  MAX_OPEN_REPORTS_PER_MEMBER,
+  REPORT_LIMIT_REFUSAL,
+} from "../src/domain/reportBacklog";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -111,6 +115,60 @@ async function fixture() {
   });
   return { t, pilot, admin, outsider, ids, a, input, op };
 }
+describe("the per-member open-report limit (D2)", () => {
+  it("refuses a synced report or a flight's report past it, never a resend, and frees room on a resolution", async () => {
+    const { t, pilot, admin, ids, a, op } = await fixture();
+    await t.run(async (ctx) => {
+      // Half on an aircraft the pilot cannot see: the limit is the
+      // program's whole workspace, not the pilot's view of it.
+      for (let i = 0; i < MAX_OPEN_REPORTS_PER_MEMBER; i++)
+        await ctx.db.insert("discrepancies", {
+          uuid: `open-${i}`,
+          aircraftUuid: i % 2 ? a.uuid : "secret-aircraft",
+          description: "Short",
+          status: "open",
+          authorId: ids.user,
+          createdAt: 0,
+        });
+    });
+    const report = {
+      programUuid: "demo-program",
+      kind: "discrepancy" as const,
+      uuid: crypto.randomUUID(),
+      authorId: ids.user,
+      aircraftUuid: a.uuid,
+      description: "One more",
+    };
+    const submit = (operation: unknown) =>
+      pilot.mutation(api.operations.submit, { operation } as never);
+    const reports = () =>
+      t.run(
+        async (ctx) => (await ctx.db.query("discrepancies").collect()).length,
+      );
+    // A ConvexError, so the Sync center keeps the entry with this message.
+    await expect(submit(report)).rejects.toMatchObject({
+      name: "ConvexError",
+      data: REPORT_LIMIT_REFUSAL,
+    });
+    expect(await reports()).toBe(MAX_OPEN_REPORTS_PER_MEMBER);
+    await admin.mutation(api.operations.resolveDiscrepancy, {
+      programUuid: "demo-program",
+      uuid: "open-1",
+      resolution: "Fixed",
+    });
+    expect(await submit(report)).toEqual({ status: "accepted" });
+    expect(await submit(report)).toEqual({ status: "accepted" });
+    const flight = op();
+    await expect(
+      submit({
+        ...flight,
+        input: { ...flight.input, discrepancy: "Brake soft" },
+      }),
+    ).rejects.toMatchObject({ data: REPORT_LIMIT_REFUSAL });
+    expect(await submit(flight)).toEqual({ status: "accepted" });
+  });
+});
+
 describe("server authorization", () => {
   it("rejects anonymous writes and aircraft access outside the user group", async () => {
     const { t, pilot, outsider, op } = await fixture();

@@ -178,6 +178,17 @@ export const discrepancyDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
       .collect(),
   );
 
+/**
+ * A member's open problem reports, on every aircraft they were filed on: what
+ * their open-report limit counts before they file another (decision D2). The
+ * limit keeps this read small; the domain keeps the active program's.
+ */
+export const openReportDocs = (ctx: Ctx, authorId: string) =>
+  ctx.db
+    .query("discrepancies")
+    .withIndex("author", (q) => q.eq("authorId", authorId).eq("status", "open"))
+    .collect();
+
 /** The aircraft's job cards. */
 export const taskCardDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
   perAircraft(aircraft, (id) =>

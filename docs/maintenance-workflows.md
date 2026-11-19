@@ -8,6 +8,8 @@ System administrators can manage every module; Flight Program administrators man
 
 All maintenance and inventory mutations require a live authenticated connection. Authorized cached records remain readable offline within the existing login lease. Only flights and discrepancy additions enter the offline outbox.
 
+One member may have at most 200 open problem reports in a Flight Program, holding at most 512 KiB of text (`src/domain/reportBacklog.ts`). Deferred and resolved reports do not count. A new report past either limit, from **Report a problem** or a flight's discrepancy field, is refused with "You have too many open problem reports. Ask an administrator to resolve or defer some of your open reports, then send this one again."; an offline entry stays in the Sync center with that message until it is retried or edited. Resolving and deferring are never limited. The limits sit far above real use and exist because the workspace loads every report in one read that Convex caps at 16 MiB: without them one member could lock everyone out of the program (bug hunt SE-13, decision D2).
+
 ## Inspections
 
 Create an aircraft schedule with a reference, description, and optional required-parts/supplies notes. Usage may follow the aircraft or one of its serialized components. Each recurrence can use hours, cycles, months, or a combination. Supply last-compliance values for each recurring interval; calendar deadlines fall on the last day of the target month. One-time due values are available when that limit has no recurrence.
