@@ -77,8 +77,6 @@
  ],
  "inspections": [
   {
-   "_creationTime": 1793707200000.004,
-   "_id": "000000000000000010004inspections",
    "aircraftUuid": "demo-206",
    "description": "Airframe and engine inspection",
    "dueSeconds": 8460000,
@@ -86,8 +84,6 @@
    "uuid": "demo-insp-1"
   },
   {
-   "_creationTime": 1793707200000.005,
-   "_id": "000000000000000010005inspections",
    "aircraftUuid": "demo-206",
    "description": "Calendar inspection",
    "dueDate": "2027-01-26",
