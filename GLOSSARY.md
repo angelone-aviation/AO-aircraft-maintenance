@@ -122,18 +122,16 @@ _Avoid_: WO (in prose), job, ticket
 One line of a work order: a discrepancy, inspection, component requirement, AD action or free text.
 _Avoid_: task (bare), item
 
-**Task template**:
-Reusable instructions, notes and required parts attached to an inspection, component requirement or discrepancy.
-_Avoid_: task card (for the template)
-
-**Task card**:
-The executable card where findings, actual work, parts used, evidence and signoffs are recorded (`TC-YYYY-NNNN`).
-
 **Job card**:
-A task card copied into, and owned by, one work order. Later template edits do not change it.
+The executable card where findings, actual work, parts used, evidence and signoffs are recorded (`TC-YYYY-NNNN`). A job card in a work order is the order's own copy of a job card template, and later template edits do not change it; a job card can also stand on its own.
+_Avoid_: task card
+
+**Job card template**:
+A job card kept on an inspection, component requirement or discrepancy, outside any work order, as reusable instructions, notes and required parts. It is never worked or signed: adding its source to a work order copies it into the order as a job card.
+_Avoid_: task template, task card
 
 **Signoff**:
-A named person's recorded completion of a required step on a task card. Required signoffs gate completion.
+A named person's recorded completion of a required step on a job card. Required signoffs gate completion.
 _Avoid_: approval, sign-off, check-off
 
 **Independent inspector**:
