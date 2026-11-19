@@ -85,7 +85,13 @@ export function SignOutDialog(props: {
       size="narrow"
       dismissOnScrim={false}
       onClose={props.onStay}
-      footer={<SignOutActions leaving={leaving} {...props} onLeave={leave} />}
+      footer={
+        <SignOutActions
+          leaving={leaving}
+          onStay={props.onStay}
+          onLeave={leave}
+        />
+      }
     >
       <p>
         Signing out deletes {them} from this device. {they} not reached the
