@@ -673,11 +673,22 @@ const CASES: Case[] = [
     args: { phrases: ["Performed"] },
   },
   {
-    method: "saveLicense",
-    call: (b) => b.saveLicense("1234567", "Mechanic"),
+    method: "certificatesAwaitingApproval",
+    call: (b) => b.certificatesAwaitingApproval(),
+    kind: "query",
+    name: "certifications:awaitingApproval",
+    args: { programUuid: ACTIVE_PROGRAM },
+  },
+  {
+    method: "approveCertificate",
+    call: (b) => b.approveCertificate("user-1", opaque()),
     kind: "mutation",
-    name: "admin:saveLicense",
-    args: { licenseNumber: "1234567", certificateType: "Mechanic" },
+    name: "certifications:approve",
+    args: {
+      userId: "user-1",
+      programUuid: ACTIVE_PROGRAM,
+      certificate: PAYLOAD,
+    },
   },
   {
     method: "saveCertifications",

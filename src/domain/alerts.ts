@@ -102,6 +102,9 @@ export const ALERT_DIGEST_HOUR_UTC = 13;
  */
 export const IMMEDIATE_EMAILS_PER_DAY = 60;
 
+/** No Flight Program's share of the day's immediate emails is smaller. */
+export const IMMEDIATE_EMAIL_SHARE_FLOOR = 10;
+
 /**
  * The alerts that reach people at once (GLOSSARY "Urgent alert"): an
  * aircraft that may not fly, a limit already passed, a date already expired.
@@ -231,6 +234,30 @@ export function wantsUrgentAlertEmails(
  */
 export function urgentAlerts<T extends Pick<Alert, "kind">>(alerts: T[]): T[] {
   return alerts.filter((a) => URGENT_ALERT_KINDS.includes(a.kind));
+}
+
+/**
+ * How many immediate emails one Flight Program may send in a UTC day: the
+ * deployment's {@link IMMEDIATE_EMAILS_PER_DAY} split equally between the
+ * programs with an active member, never below
+ * {@link IMMEDIATE_EMAIL_SHARE_FLOOR}.
+ *
+ * @param activePrograms - Programs where an active member holds a group.
+ * @returns The program's share; the whole total for one program or none.
+ */
+export function immediateEmailShare(activePrograms: number): number {
+  // One program's flood (an administrator re-saving a past date 60 times,
+  // SE-3) must not hold back another program's "is grounded" email until
+  // the next digest. An equal split is the plainest fair rule, since every
+  // program's members count alike. The floor leaves room for one bad event
+  // among a program's administrators and maintenance members once many
+  // programs share the total: past six programs the shares add up to more
+  // than the total, which still caps them all together, so a share bounds
+  // what one program can take rather than promising it.
+  const equal = Math.floor(
+    IMMEDIATE_EMAILS_PER_DAY / Math.max(1, activePrograms),
+  );
+  return Math.max(IMMEDIATE_EMAIL_SHARE_FLOOR, equal);
 }
 
 const alertKey = (kind: AlertKind, ...parts: unknown[]) =>

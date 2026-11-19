@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins members' certifications and license copies: who may
- *   read and change them, the derived license fields, uploads tied to a saved
- *   certification, refusals and audit entries.
+ *   read and change them, approval before a certificate counts, the derived
+ *   license fields, uploads tied to a saved certification, refusals and
+ *   audit entries with before and after.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/certifications, convex/admin, convex/operations
  *   (snapshot), src/data/demo.
@@ -18,6 +19,8 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+// The fixture's administrator works in the first program by default.
+const PROGRAM = demoSnapshot().programs![0].uuid;
 async function fixture() {
   const t = convexTest(schema, modules),
     demo = demoSnapshot();
@@ -125,9 +128,16 @@ it("saves independent certifications, protects copies and allows the owner to ma
     groupIds: [],
     certificationsPayload: JSON.stringify(certifications),
   });
-  expect(
-    (await t.run((ctx) => ctx.db.get(users.owner.id)))!.licenseNumber,
-  ).toBe("M-123");
+  const licenseNumber = async () =>
+    (await t.run((ctx) => ctx.db.get(users.owner.id)))!.licenseNumber;
+  // Filed by an administrator, it still waits for an approval.
+  expect(await licenseNumber()).toBe("");
+  await admin.mutation(api.certifications.approve, {
+    userId: users.owner.id,
+    programUuid: PROGRAM,
+    certificate: JSON.stringify(certifications[0]),
+  });
+  expect(await licenseNumber()).toBe("M-123");
   await expect(
     other.mutation(api.certifications.save, {
       userId: users.owner.id,
@@ -213,7 +223,7 @@ it("audits each change against the member, by whoever made it, and deletes remov
     payload: JSON.stringify(mechanic),
   });
   expect(await t.run((ctx) => ctx.db.get(userId))).toMatchObject({
-    licenseNumber: "M-1",
+    licenseNumber: "",
   });
   const id = await admin.action(api.certifications.upload, { userId, ...pdf });
   await admin.mutation(api.certifications.remove, {
@@ -225,7 +235,7 @@ it("audits each change against the member, by whoever made it, and deletes remov
   const rows = await t.run((ctx) => ctx.db.query("audit").collect());
   expect(rows.map((r) => [r.action, r.entityUuid, r.actorId])).toEqual(
     [
-      "user.certifications_updated",
+      "user.certification_filed",
       "user.license_copy_uploaded",
       "user.license_copy_deleted",
     ].map((action) => [action, userId, users.admin.id]),
@@ -333,4 +343,141 @@ it("deletes the stored copy when its certification is unselected during the uplo
       (blob) => blob._id,
     ),
   ).toEqual([storageId]);
+});
+
+const APPROVER_ONLY =
+  /Only a system administrator, or a Flight Program administrator of the member's program, may approve their certificates, and nobody their own\./;
+const filed = { kind: "mechanic", number: "M-1", issuedOn: "2020-01-01" };
+const stored = (t: Awaited<ReturnType<typeof fixture>>["t"], id: Id<"users">) =>
+  t.run(async (ctx) => (await ctx.db.get(id))!);
+const changeLog = (t: Awaited<ReturnType<typeof fixture>>["t"]) =>
+  t.run(async (ctx) =>
+    (await ctx.db.query("audit").collect())
+      .filter((r) => r.action.startsWith("user.certification_"))
+      .map((r) => ({
+        action: r.action,
+        before: r.before && JSON.parse(r.before),
+        after: r.after && JSON.parse(r.after),
+      })),
+  );
+
+it("keeps a member's own certificate pending until another administrator approves it, logging every change", async () => {
+  const { t, users, admin, owner, other } = await fixture();
+  const userId = users.owner.id;
+  const save = (certifications: object[]) =>
+    owner.mutation(api.certifications.save, {
+      userId,
+      payload: JSON.stringify(certifications),
+    });
+  const approve = (client: typeof admin, certificate: object) =>
+    client.mutation(api.certifications.approve, {
+      userId,
+      programUuid: PROGRAM,
+      certificate: JSON.stringify(certificate),
+    });
+  await save([{ ...filed, pending: false }]);
+  expect(await stored(t, userId)).toMatchObject({
+    certifications: [{ ...filed, pending: true }],
+    licenseNumber: "",
+  });
+  await expect(approve(owner, filed)).rejects.toThrow();
+  await expect(approve(other, filed)).rejects.toThrow();
+  await expect(approve(admin, { ...filed, number: "M-9" })).rejects.toThrow(
+    "This certificate changed since you opened it. Review it again.",
+  );
+  await approve(admin, filed);
+  expect(await stored(t, userId)).toMatchObject({
+    certifications: [filed],
+    licenseNumber: "M-1",
+  });
+  await expect(approve(admin, filed)).rejects.toThrow(
+    "This certificate is not waiting for approval.",
+  );
+  await save([{ ...filed, number: "M-2" }]);
+  expect((await stored(t, userId)).licenseNumber).toBe("");
+  await save([]);
+  const edited = { ...filed, number: "M-2", pending: true };
+  expect(await changeLog(t)).toEqual([
+    {
+      action: "user.certification_filed",
+      before: null,
+      after: { ...filed, pending: true },
+    },
+    {
+      action: "user.certification_approved",
+      before: { ...filed, pending: true },
+      after: filed,
+    },
+    { action: "user.certification_edited", before: filed, after: edited },
+    { action: "user.certification_removed", before: edited, after: null },
+  ]);
+});
+
+it("refuses a system administrator approving their own certificate", async () => {
+  const { t, users, admin } = await fixture();
+  await admin.mutation(api.certifications.save, {
+    userId: users.admin.id,
+    payload: JSON.stringify([filed]),
+  });
+  await expect(
+    admin.mutation(api.certifications.approve, {
+      userId: users.admin.id,
+      programUuid: PROGRAM,
+      certificate: JSON.stringify(filed),
+    }),
+  ).rejects.toThrow(APPROVER_ONLY);
+  expect(
+    await admin.query(api.certifications.awaitingApproval, {
+      programUuid: PROGRAM,
+    }),
+  ).toEqual([]);
+  expect((await stored(t, users.admin.id)).certifications).toEqual([
+    { ...filed, pending: true },
+  ]);
+});
+
+it("lets a Flight Program administrator review and approve their own program's members only", async () => {
+  const { t, users, owner, other } = await fixture();
+  const program = PROGRAM;
+  await t.run(async (ctx) => {
+    const group = (name: string, programUuid: string, programAdmin: boolean) =>
+      ctx.db.insert("groups", {
+        programUuid,
+        name,
+        programAdmin,
+        aircraftIds: [],
+        permissions: ["read"],
+      });
+    const managers = await group("Managers", program, true);
+    const crew = await group("Crew", program, false);
+    const peru = await group("Peru crew", "peru", false);
+    await ctx.db.patch(users.other.id, {
+      groupIds: [managers],
+      activeProgramUuid: program,
+    });
+    await ctx.db.patch(users.owner.id, { groupIds: [crew] });
+    await ctx.db.patch(users.admin.id, { groupIds: [peru], isAdmin: false });
+  });
+  await t.mutation(internal.memberships.backfill, {});
+  for (const id of [users.owner.id, users.admin.id])
+    await t.run((ctx) =>
+      ctx.db.patch(id, { certifications: [{ ...filed, pending: true }] }),
+    );
+  expect(
+    await other.query(api.certifications.awaitingApproval, {
+      programUuid: program,
+    }),
+  ).toEqual([{ userId: users.owner.id, name: "owner", certificate: filed }]);
+  const approve = (userId: Id<"users">) =>
+    other.mutation(api.certifications.approve, {
+      userId,
+      programUuid: program,
+      certificate: JSON.stringify(filed),
+    });
+  await expect(approve(users.admin.id)).rejects.toThrow(APPROVER_ONLY);
+  await approve(users.owner.id);
+  expect((await stored(t, users.owner.id)).certifications).toEqual([filed]);
+  await expect(
+    owner.query(api.certifications.awaitingApproval, { programUuid: program }),
+  ).resolves.toEqual([]);
 });

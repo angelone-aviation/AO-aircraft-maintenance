@@ -1,9 +1,11 @@
 /**
  * Responsibility: Pins who gets the owner portal, the read-only rule for owner
- *   groups, and what the owner snapshot keeps and clears.
+ *   groups, and what the owner snapshot keeps and clears, compliance fields
+ *   named one by one and no internal user id among them.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/ownerView.ts, ./model, ./programs, ./components,
- *   ./ownerDue, ./rejection, src/data/demo.ts (seed), tests/fixtures.
+ *   ./airworthiness, ./management, ./ownerDue, ./rejection, src/data/demo.ts
+ *   (seed), tests/fixtures.
  */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot, withDemoUser } from "../data/demo";
@@ -14,7 +16,16 @@ import { scopedSnapshot } from "./programs";
 import type { WorkOrder } from "./workOrders";
 import type { ManagedRecord } from "./management";
 import { requirementSchema } from "./components";
-import { isOwnerView, validateOwnerGroup } from "./ownerView";
+import {
+  adComplianceSchema,
+  adSchema,
+  adSourceSchema,
+  adTaskSchema,
+  blankAD,
+  type AD,
+} from "./airworthiness";
+import { inspectionSchema } from "./management";
+import { isOwnerView, OWNER_FIELDS, validateOwnerGroup } from "./ownerView";
 import { ownerDueItems } from "./ownerDue";
 import { Rejection } from "./rejection";
 
@@ -254,6 +265,8 @@ describe("owner view", () => {
       grounding: true,
       deferral,
     }));
+    // The deferring person's name stays; their internal user id does not.
+    const ownerDeferral = { ...deferral, deferredBy: "" };
     s.management = [...(s.management ?? []), engineRequirement()];
     const inspection = { ...s.inspections[0], aircraftUuid: owned };
     s.inspections = [
@@ -262,7 +275,7 @@ describe("owner view", () => {
     ];
     const o = scopedSnapshot(s);
     expect(o.discrepancies[0]).toEqual(
-      expect.objectContaining({ grounding: true, deferral }),
+      expect.objectContaining({ grounding: true, deferral: ownerDeferral }),
     );
     expect(o.management?.map((r) => r.kind)).toEqual([
       "component",
@@ -374,5 +387,122 @@ describe("owner view", () => {
     );
     expect(admin.user.isAdmin).toBe(true);
     expect(admin.aircraft).toHaveLength(3);
+  });
+});
+
+// What owners never read, by record: parts and materials, and the internal
+// user id of whoever recorded a compliance or set a calendar exemption. A
+// schema key in neither this list nor OWNER_FIELDS fails the test, so a new
+// field is decided on before it can reach an owner.
+const OWNER_WITHHELD = {
+  inspection: ["requiredParts", "materials", "calendarExemptChangedBy"],
+  ad: ["source", "sourceHistory", "tasks", "history"],
+  adSource: [],
+  adTask: [],
+  adCompliance: ["recordedBy"],
+} satisfies Record<keyof typeof OWNER_FIELDS, string[]>;
+
+const OWNER_SCHEMAS = {
+  inspection: inspectionSchema,
+  ad: adSchema,
+  adSource: adSourceSchema,
+  adTask: adTaskSchema,
+  adCompliance: adComplianceSchema,
+} satisfies Record<keyof typeof OWNER_FIELDS, { shape: object }>;
+
+const TASK = "11111111-1111-4111-8111-111111111111";
+
+// An AD on the owned aircraft with one compliance entry and its correction.
+function compliedAd(): AD {
+  const blank = blankAD(owned);
+  const entry = {
+    uuid: "22222222-2222-4222-8222-222222222222",
+    taskUuid: TASK,
+    date: "2026-01-02",
+    hours: 1200,
+    cycles: null,
+    method: "Inspected per AD",
+    serviceBulletin: "SB 12",
+    terminatedBy: "",
+    workOrderUuid: "",
+    mechanic: "Pat Lee",
+    certificate: "A&P 1234567",
+    evidence: "Logbook p. 12",
+    recordedAt: 5,
+    recordedBy: "demo-admin",
+  };
+  return adSchema.parse({
+    ...blank,
+    version: 1,
+    source: { ...blank.source, number: "2020-01-01", subject: "Fuel cap" },
+    applicability: "Applicable",
+    reason: "Serial in range",
+    tasks: [{ ...blankTask(), uuid: TASK, description: "Inspect the cap" }],
+    history: [
+      entry,
+      {
+        ...entry,
+        uuid: "33333333-3333-4333-8333-333333333333",
+        recordedBy: "demo-pilot",
+        corrects: entry.uuid,
+        correctionReason: "Wrong date",
+      },
+    ],
+  });
+}
+
+function blankTask() {
+  return {
+    dueDate: "",
+    dueHours: null,
+    dueCycles: null,
+    intervalDays: null,
+    intervalHours: null,
+    intervalCycles: null,
+    workOrderUuid: "",
+  };
+}
+
+describe("the owner's compliance fields", () => {
+  it.each(Object.keys(OWNER_SCHEMAS) as (keyof typeof OWNER_SCHEMAS)[])(
+    "decides every %s field: passed by name or withheld",
+    (record) => {
+      const passed: readonly string[] = OWNER_FIELDS[record];
+      const withheld: readonly string[] = OWNER_WITHHELD[record];
+      expect(passed.filter((k) => withheld.includes(k))).toEqual([]);
+      expect([...passed, ...withheld].sort()).toEqual(
+        Object.keys(OWNER_SCHEMAS[record].shape).sort(),
+      );
+    },
+  );
+
+  it("keeps names and certificate numbers, and never sends another member's user id", () => {
+    const s = ownerState();
+    const ad = compliedAd();
+    s.airworthiness = [ad];
+    s.inspections = s.inspections.map((i) => ({
+      ...i,
+      calendarExempt: true,
+      calendarExemptReason: "Stored aircraft",
+      calendarExemptChangedAt: 1,
+      calendarExemptChangedBy: "demo-admin",
+    }));
+    const o = scopedSnapshot(s);
+    const sent = JSON.stringify(o);
+    const others = s.members.filter((m) => m.id !== "owner");
+    expect(others.length).toBeGreaterThan(0);
+    for (const m of others) expect(sent).not.toContain(m.id);
+    const [kept] = o.airworthiness!;
+    expect(kept.history).toEqual(
+      ad.history.map((h) => ({ ...h, recordedBy: "" })),
+    );
+    expect(kept).toEqual({ ...ad, history: kept.history });
+    const inspection = o.inspections[0];
+    expect(inspection).toMatchObject({
+      calendarExempt: true,
+      calendarExemptReason: "Stored aircraft",
+      calendarExemptChangedAt: 1,
+    });
+    expect(inspection).not.toHaveProperty("calendarExemptChangedBy");
   });
 });

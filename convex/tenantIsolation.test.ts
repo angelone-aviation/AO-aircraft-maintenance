@@ -98,6 +98,8 @@ const INVENTORY_ADMIN =
   "Inventory administrator access to this item is required.";
 const LICENSE_OWNER =
   "Only the account owner or an administrator may access license records.";
+const APPROVER_ONLY =
+  "Only a system administrator, or a Flight Program administrator of the member's program, may approve their certificates, and nobody their own.";
 const STALE_PROGRAM =
   "Flight Program changed. Reopen the form in the correct program.";
 const ADMIN = "Administrator permission required.";
@@ -158,7 +160,6 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
   "auth:isAuthenticated": "Convex Auth; answers for the caller's own session.",
   "identities:mine": "Lists the caller's own linked identities.",
   "operations:signedInUser": "Returns the caller's own user id.",
-  "admin:saveLicense": "Writes the caller's own license fields.",
   "admin:saveLogbookPhrases": "Writes the caller's own logbook phrases.",
   "admin:saveReleaseStatements": "Writes the caller's own release statements.",
   "alerts:setEmailPreference": "Writes the caller's own alert-email choice.",
@@ -643,6 +644,19 @@ const CASES: Case[] = [
     kind: "ap",
     ...PDF_FILE,
   })).refuses(LICENSE_OWNER),
+  callMutation(api.certifications.approve, "Alice's certificate", (a) =>
+    stampB({
+      userId: a.alice,
+      certificate: JSON.stringify({
+        kind: "mechanic",
+        number: "1",
+        issuedOn: "",
+      }),
+    }),
+  ).refuses(APPROVER_ONLY),
+  callQuery(api.certifications.awaitingApproval, "Alice's certificates", () =>
+    stampB({}),
+  ).returns([]),
   callMutation(api.admin.updateUser, "itself, into A", (a, me) => ({
     id: me,
     active: true,
