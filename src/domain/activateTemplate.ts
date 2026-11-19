@@ -3,8 +3,8 @@
  *   one aircraft or component, with draft task cards for its tasks.
  * Layer: Domain. Zod schema, rules and one applier; no I/O, no React.
  * Dependencies: zod, ./inspectionTemplates, ./model, ./programs,
- *   ./manualDiscovery, ./management, ./maintenance, ./components/calendar,
- *   ./taskCards, ./rejection.
+ *   ./manualDiscovery, ./management, ./maintenance, ./components,
+ *   ./components/calendar, ./taskCards, ./rejection.
  */
 import { z } from "zod";
 import {
@@ -12,7 +12,7 @@ import {
   taskApplicabilityText,
   type InspectionTemplate,
 } from "./inspectionTemplates";
-import type { Component } from "./components";
+import { REQUIREMENT_WARNING_DEFAULTS, type Component } from "./components";
 import { can, type Snapshot } from "./model";
 import { ownsActive } from "./programs";
 import { matchesAircraft, matchesComponent } from "./manualDiscovery";
@@ -24,11 +24,6 @@ import { Rejection, StaleRecordRejection } from "./rejection";
 
 const HOUR_SECONDS = 3600;
 const MONTHS_PER_YEAR = 12;
-// The warning window given to a component requirement made from a template:
-// one month, ten hours or ten cycles before it falls due.
-const REQUIREMENT_WARNING_MONTHS = 1;
-const REQUIREMENT_WARNING_SECONDS = 10 * HOUR_SECONDS;
-const REQUIREMENT_WARNING_CYCLES = 10;
 
 /** The longest description a schedule made from a template may carry. */
 export const TEMPLATE_DESCRIPTION_MAX_LENGTH = 2000;
@@ -356,9 +351,7 @@ function requirementCommand(a: Activation, componentUuid: string) {
       timeBasis: t.timeBasis,
       timeLimitMode: limitMode(limits.absoluteHours),
       cycleLimitMode: limitMode(limits.absoluteCycles),
-      warningCalendarMonths: REQUIREMENT_WARNING_MONTHS,
-      warningSeconds: REQUIREMENT_WARNING_SECONDS,
-      warningCycles: REQUIREMENT_WARNING_CYCLES,
+      ...REQUIREMENT_WARNING_DEFAULTS,
     },
   };
 }

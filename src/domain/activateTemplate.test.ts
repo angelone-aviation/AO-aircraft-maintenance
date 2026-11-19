@@ -20,7 +20,7 @@ import {
   templateSourceKey,
   type ActivateTemplateInput,
 } from "./activateTemplate";
-import type { Component } from "./components";
+import { REQUIREMENT_WARNING_DEFAULTS, type Component } from "./components";
 import { Rejection } from "./rejection";
 function fixture() {
   const s = demoSnapshot(),
@@ -180,7 +180,7 @@ it("refuses a component schedule once the template scheduled that aircraft (char
     "This template schedule already exists for the selected target.",
   );
 });
-it("gives template requirements a warning window and their limit modes", () => {
+it("gives template requirements the default warning window and their limit modes", () => {
   const { s, t, input } = fixture();
   const c = pump(t.programUuid, input.targetUuid);
   s.management = [c];
@@ -201,9 +201,7 @@ it("gives template requirements a warning window and their limit modes", () => {
     intervalSeconds: 100 * 3600,
     timeLimitMode: "ABSOLUTE",
     cycleLimitMode: "FROM_LAST_COMPLIED",
-    warningCalendarMonths: 1,
-    warningSeconds: 10 * 3600,
-    warningCycles: 10,
+    ...REQUIREMENT_WARNING_DEFAULTS,
   });
 });
 it("schedules a yearly template in months", () => {
