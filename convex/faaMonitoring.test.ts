@@ -14,7 +14,7 @@ import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { emptyMonitor } from "../src/domain/faa";
 import { MAX_ENABLED_FAA_MONITORS } from "./faa";
-import { FAA_PROGRAM_DAILY } from "./faaSearch";
+import { FAA_GLOBAL_DAILY } from "./faaSearch";
 import { FAA_SECRET } from "./faaCredentials";
 import { sealSecret } from "./secrets";
 const modules = import.meta.glob([
@@ -174,13 +174,14 @@ it("charges monitoring runs to the program and global FAA allowances", async () 
       "faa:program:demo-program": 2,
       "faa:global": 2,
     });
-    // An exhausted program allowance stops the run before calling the FAA.
+    // An exhausted program allowance stops the run before calling the FAA;
+    // the only program's share is the whole day.
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("rateLimits")
         .withIndex("key", (q) => q.eq("key", "faa:program:demo-program"))
         .unique();
-      await ctx.db.patch(row!._id, { count: FAA_PROGRAM_DAILY - 1 });
+      await ctx.db.patch(row!._id, { count: FAA_GLOBAL_DAILY - 1 });
       const doc = (await ctx.db.get(id))!;
       await ctx.db.patch(id, {
         payload: JSON.stringify({ ...JSON.parse(doc.payload), runId: "b" }),
