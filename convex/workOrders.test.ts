@@ -14,6 +14,7 @@ import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
 import { MAX_ATTACHMENTS } from "./attachments";
 import { workOrderFieldsSchema } from "../src/domain/workOrders";
@@ -308,9 +309,23 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
       lastDate: "2025-01-01",
     });
   });
-  await tech.mutation(api.admin.saveLicense, {
-    licenseNumber: "CERT-42",
-    certificateType: "A&P",
+  // An approved certificate on file, as an administrator leaves it.
+  await t.run(async (ctx) => {
+    const id = (await tech.query(
+      api.operations.signedInUser,
+      {},
+    )) as Id<"users">;
+    await ctx.db.patch(id, {
+      certifications: [
+        {
+          kind: "mechanic",
+          number: "CERT-42",
+          issuedOn: "",
+          airframe: true,
+          powerplant: true,
+        },
+      ],
+    });
   });
   const { newWorkTask, workOrderFieldsSchema } =
     await import("../src/domain/workOrders");

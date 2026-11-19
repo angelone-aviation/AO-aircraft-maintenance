@@ -1,12 +1,17 @@
 /**
  * Responsibility: Pins user access and certifications in Administration:
  *   program access through group selections alone, certifications and
- *   license copies kept on edit, and saved personal certifications in the
+ *   license copies kept on edit, an administrator approving a member's
+ *   certificate, and only approved personal certifications in the
  *   work-order logbook preview.
  * Layer: Test. Playwright spec against the demo in a production build.
- * Dependencies: @playwright/test.
+ * Dependencies: @playwright/test, tests/fixtures/demoCertificates.
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import { approveOwnCertificatesInStore } from "../fixtures/demoCertificates";
+
+const WAITING =
+  "Waiting for an administrator's approval. Until then it does not print on entries or allow the inspection signoff.";
 
 test("program group selections grant and retain access without separate program checkboxes", async ({
   page,
@@ -99,13 +104,58 @@ test("saved personal certifications fill the work-order logbook preview", async 
     .getByRole("button", { name: "Save certifications", exact: true })
     .click();
   await expect(profile).not.toBeVisible();
-  await page
-    .getByRole("button", { name: "Open work order", exact: true })
-    .click();
-  const order = page.getByRole("dialog");
-  await expect(order.getByLabel("Sample log book entry text")).toHaveValue(
+  const preview = async () => {
+    await page
+      .getByRole("button", { name: "Open work order", exact: true })
+      .click();
+    return page.getByRole("dialog").getByLabel("Sample log book entry text");
+  };
+  // Filed by its holder, the certificate prints only once approved.
+  await expect(await preview()).not.toHaveValue(/AP-12345/);
+  await approveOwnCertificatesInStore(page);
+  await page.reload();
+  await expect(await preview()).toHaveValue(
     /Certificate \/ license: A&P IA AP-12345/,
   );
+});
+
+test("an administrator approves a member's certificate from Administration", async ({
+  page,
+}) => {
+  await openDemo(page, "/admin");
+  const jordan = page.locator(".list-row").filter({ hasText: "Jordan Lee" });
+  await jordan
+    .getByRole("button", { name: "Edit access", exact: true })
+    .click();
+  let dialog = page.getByRole("dialog");
+  await dialog
+    .getByRole("checkbox", { name: "Certified mechanic", exact: true })
+    .check();
+  await dialog
+    .getByLabel("Certified mechanic certificate number", { exact: true })
+    .fill("M-777");
+  await dialog.getByRole("button", { name: "Save user", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const notice = page.getByText("1 certificate waits for your approval");
+  await expect(notice).toBeVisible();
+  await expect(page.getByText("No. M-777")).toBeVisible();
+  await jordan
+    .getByRole("button", { name: "Edit access", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(WAITING)).toBeVisible();
+  await dialog.getByRole("button", { name: "Close dialog" }).click();
+  await page
+    .getByRole("button", {
+      name: "Approve Jordan Lee's Certified mechanic certificate",
+      exact: true,
+    })
+    .click();
+  await expect(notice).toHaveCount(0);
+  await jordan
+    .getByRole("button", { name: "Edit access", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByText(WAITING)).toHaveCount(0);
 });
 
 async function openDemo(page: Page, path: string) {

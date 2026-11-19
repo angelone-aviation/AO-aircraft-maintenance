@@ -1,22 +1,18 @@
 /**
  * Responsibility: Administration: accounts and permission groups, and each
- *   user's own license and logbook wording.
+ *   user's own logbook wording.
  * Layer: Server. Public actions and mutations over internal steps; every
  *   change is audited.
- * Dependencies: @convex-dev/auth/server, convex (access, programContext,
- *   memberships, accountGuards, pushSubscriptions, validators, userErrors),
- *   src/domain
- *   (certifications, releaseStatements, logbookWording, logbook, programs,
- *   accountRules).
+ * Dependencies: @convex-dev/auth/server, convex (access, certifications,
+ *   programContext, memberships, accountGuards, pushSubscriptions,
+ *   validators, userErrors), src/domain (certifications, releaseStatements,
+ *   logbookWording, programs, accountRules).
  */
-import {
-  certificationsSchema,
-  memberLicense,
-} from "../src/domain/certifications";
+import { certificationsSchema } from "../src/domain/certifications";
 import { releaseStatementsSchema } from "../src/domain/releaseStatements";
 import { logbookPhrasesSchema } from "../src/domain/logbookWording";
-import { licenseSchema } from "../src/domain/logbook";
 import { currentUser, group } from "./access";
+import { recordCertifications } from "./certifications";
 import { context } from "./programContext";
 import { activeProgram, programPermission } from "../src/domain/programs";
 import {
@@ -289,7 +285,9 @@ export const recordPasswordReset = internalMutation({
  * Flight Programs, name and certifications. A selected program where no
  * chosen group grants read access adds its Observers group. Audits
  * "user.permissions_changed"; disabling ends every session and forgets the
- * account's alerted devices.
+ * account's alerted devices. Certifications are filed as the member's own
+ * save files them (`recordCertifications`): a new or changed one waits for
+ * approval.
  *
  * @param programUuids - The programs the groups must belong to, when given.
  * @param certificationsPayload - JSON, as `certificationsSchema`.
@@ -331,9 +329,6 @@ export const updateUser = mutation({
       isAdmin: args.isAdmin,
       groupIds,
       ...(name === undefined ? {} : { name }),
-      ...(certifications === undefined
-        ? {}
-        : { certifications, ...memberLicense({ certifications }) }),
     });
     await syncMemberships(ctx, args.id);
     await audit(ctx, actor._id, "user.permissions_changed", args.id, {
@@ -342,7 +337,7 @@ export const updateUser = mutation({
     });
     if (!args.active) await endDisabledSessions(ctx, actor._id, before);
     if (certifications !== undefined)
-      await audit(ctx, actor._id, "user.certifications_updated", args.id);
+      await recordCertifications(ctx, actor._id, before, certifications);
   },
 });
 
@@ -387,25 +382,6 @@ export const saveGroup = mutation({
           : { ...fields, allAircraft: args.allAircraft },
     });
     return id;
-  },
-});
-
-/**
- * Saves the caller's own license number and certificate type; audits
- * "user.license_updated".
- *
- * @throws As `currentUser`.
- * @throws {ConvexError} The issue text of fields `licenseSchema` refuses.
- */
-export const saveLicense = mutation({
-  args: { licenseNumber: v.string(), certificateType: v.string() },
-  handler: async (ctx, args) => {
-    const user = await currentUser(ctx);
-    const fields = exposeRejections(() => licenseSchema.parse(args));
-    await ctx.db.patch(user._id, fields);
-    await audit(ctx, user._id, "user.license_updated", user._id, {
-      after: fields,
-    });
   },
 });
 

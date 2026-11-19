@@ -6,6 +6,10 @@
  *
  * Airframe, powerplant and IA were once separate records; they are now
  * ratings on the one mechanic certificate, and old rows are folded into it.
+ * A certificate its holder filed or changed is `pending` until an
+ * administrator approves it (certificateApproval.ts), and only an approved
+ * one is cited on entries; certificates stored before approvals existed
+ * carry no flag and count as approved.
  */
 import { z } from "zod";
 import { localDate, type Member } from "./model";
@@ -74,7 +78,8 @@ const legacyQualificationSchema = z.object({
 });
 
 /**
- * One certificate. Dates are ISO dates or "".
+ * One certificate. Dates are ISO dates or "". `pending` is true while an
+ * administrator has not approved it as filed or last changed.
  *
  * @throws {z.ZodError} From `parse()` on an invalid field, including
  *   "Certificate number is too long (up to 100 characters)." and "Renewal
@@ -97,6 +102,7 @@ export const certificationSchema = z
     powerplant: z.boolean().optional(),
     ia: z.boolean().optional(),
     legacyQualifications: z.array(legacyQualificationSchema).optional(),
+    pending: z.boolean().optional(),
   })
   .refine((c) => !c.issuedOn || !c.renewalDate || c.renewalDate >= c.issuedOn, {
     message: "Renewal date must be on or after the issue date.",
@@ -180,9 +186,9 @@ export interface CertificationFile {
 }
 
 /**
- * The certificates a member can cite on an entry dated `asOf`: those with a
- * number, issued on or before it or with no issue date. Expiry dates are not
- * applied.
+ * The certificates a member can cite on an entry dated `asOf`: approved ones
+ * with a number, issued on or before it or with no issue date. Expiry dates
+ * are not applied.
  *
  * @param user - The member; their certificates are folded first.
  * @param asOf - The entry's local date; today by default.
@@ -194,8 +200,8 @@ export function certificateOptions(
   user: Pick<Member, "certifications">,
   asOf = localDate(),
 ) {
-  return normalizeCertifications(user.certifications ?? [])
-    .filter((c) => c.number && (!c.issuedOn || c.issuedOn <= asOf))
+  return filedCertificates(user, asOf)
+    .filter((c) => !c.pending)
     .map((c) => ({
       key: c.kind as string,
       licenseNumber: c.number,
@@ -204,6 +210,23 @@ export function certificateOptions(
           ? mechanicCertificateType(c)
           : certificateTypes[c.kind],
     }));
+}
+
+/**
+ * The numbered certificates a member holds on `asOf`, approved or not: those
+ * issued on or before it or with no issue date.
+ *
+ * @param user - The member; their certificates are folded first.
+ * @param asOf - A local date; today by default.
+ * @returns The certificates, in folded order.
+ */
+export function filedCertificates(
+  user: Pick<Member, "certifications">,
+  asOf = localDate(),
+): Certification[] {
+  return normalizeCertifications(user.certifications ?? []).filter(
+    (c) => c.number && (!c.issuedOn || c.issuedOn <= asOf),
+  );
 }
 
 /**
@@ -232,6 +255,29 @@ export function memberLicense(
     licenseNumber: chosen?.licenseNumber ?? "",
     certificateType: chosen?.certificateType ?? "",
   };
+}
+
+/**
+ * One certificate in a line of plain words, as Settings and the approval list
+ * show it: the number, a mechanic's ratings and IA renewal or a pilot's
+ * expiry, and "Waiting for approval" while it is pending.
+ *
+ * @returns The parts joined with " · "; "Number not recorded" for no number.
+ */
+export function certificateSummary(c: Certification): string {
+  const number = c.number ? `No. ${c.number}` : "Number not recorded";
+  const details =
+    c.kind === "mechanic"
+      ? [
+          [c.airframe && "Airframe", c.powerplant && "Powerplant", c.ia && "IA"]
+            .filter(Boolean)
+            .join(", "),
+          c.ia && c.renewalDate && `IA renewal ${c.renewalDate}`,
+        ]
+      : [c.expiresOn && `Expires ${c.expiresOn}`];
+  return [number, ...details, c.pending && "Waiting for approval"]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**

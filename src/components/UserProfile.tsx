@@ -517,6 +517,12 @@ function CertificationPanel({
           {label}
         </label>
       </legend>
+      {row?.pending && (
+        <p className="notice">
+          Waiting for an administrator&apos;s approval. Until then it does not
+          print on entries or allow the inspection signoff.
+        </p>
+      )}
       {row && (
         <>
           <CertificateFields

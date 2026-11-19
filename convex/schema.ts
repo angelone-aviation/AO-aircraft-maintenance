@@ -133,6 +133,7 @@ export default defineSchema({
           airframe: v.optional(v.boolean()),
           powerplant: v.optional(v.boolean()),
           ia: v.optional(v.boolean()),
+          pending: v.optional(v.boolean()),
           legacyQualifications: v.optional(
             v.array(
               v.object({

@@ -5,11 +5,11 @@
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/data/backend.ts (types), src/domain (programs,
  *   groupAircraft, model, groupAccessReview, accountRules, usersByGroup),
- *   ./DeleteGroupButton, ./PermissionGroupForm, ./GroupAccessReview,
- *   ./ProgramUsers, ./UserProfile, ./Fleet, ./SignInMethods, ./charts, ./ui,
- *   ./design,
- *   src/styles/screens/admin.css.
+ *   ./CertificateApprovals, ./DeleteGroupButton, ./PermissionGroupForm,
+ *   ./GroupAccessReview, ./ProgramUsers, ./UserProfile, ./Fleet,
+ *   ./SignInMethods, ./charts, ./ui, ./design, src/styles/screens/admin.css.
  */
+import { CertificateApprovals } from "./CertificateApprovals";
 import { DeleteGroupButton } from "./DeleteGroupButton";
 import { Link } from "@tanstack/react-router";
 import { GroupForm } from "./PermissionGroupForm";
@@ -125,6 +125,7 @@ export function Administration() {
         onTab={setTab}
         onAdd={() => setDialog(ADD[tab].dialog)}
       />
+      {tab === "users" && <CertificateApprovals />}
       {tab === "users" && <UserList s={s} {...actions} onEdit={setDialog} />}
       {tab === "users" && <UsersByGroup s={s} />}
       {tab === "groups" && (

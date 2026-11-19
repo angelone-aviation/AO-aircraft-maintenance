@@ -1,18 +1,23 @@
 /**
  * Responsibility: Pins job cards: a linked card's notes, evidence, parts and
- *   signoffs; inspector signoff only with a maintenance certificate on file;
+ *   signoffs; inspector signoff only with an approved maintenance
+ *   certificate on file;
  *   the stock picker's usable quantities and expired lots; and no
  *   unreachable scrolling region on an empty list.
  * Layer: Test. Playwright spec against the demo in a production build.
- * Dependencies: @playwright/test, node:path, src/domain/model (localDate).
+ * Dependencies: @playwright/test, node:path, src/domain/model (localDate),
+ *   tests/fixtures/demoCertificates.
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
 import { localDate } from "../../src/domain/model";
+import { approveOwnCertificatesInStore } from "../fixtures/demoCertificates";
 
 const DAY_MS = 86400000;
 const INSPECTOR_HINT =
   "Add your certificate type and number under My certifications to sign as inspector.";
+const PENDING_HINT =
+  "Your mechanic certificate is waiting for a Flight Program administrator or system administrator to approve it; you can sign as inspector once it is approved.";
 
 test("creates a linked job card with notes, execution, parts, evidence and signoffs", async ({
   page,
@@ -268,6 +273,11 @@ test("inspection signoff waits for a certificate on file, technician signoff doe
     .getByRole("button", { name: "Save certifications", exact: true })
     .click();
   await expect(profile).toHaveCount(0);
+  // Filed by its holder, the certificate waits for another administrator.
+  await expect(compact).toBeDisabled();
+  await expect(compact).toHaveAttribute("title", PENDING_HINT);
+  await approveOwnCertificatesInStore(page);
+  await page.reload();
   await expect(compact).toBeEnabled();
   await row
     .getByRole("button", { name: "Details for TC-INSPECT", exact: true })

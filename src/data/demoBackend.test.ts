@@ -3,8 +3,9 @@
  *   and parts, checklist, job-card and flight-plan saves, template deletion,
  *   component templates, flight review, AD changes, attachments, manual
  *   edits, saved addresses, FAA monitor commands, program selection,
- *   membership and group saves, and recurring parts lists against the
- *   server's rules: the same refusals, stored records and change-log rows.
+ *   membership and group saves, recurring parts lists, and certificate
+ *   filing and approval against the server's rules: the same refusals,
+ *   stored records and change-log rows.
  * Layer: Test. Vitest suite with fake IndexedDB; never shipped in the build.
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
@@ -1321,4 +1322,44 @@ it("saves engine limits per aircraft and audits engineTrend.limits on the aircra
     chtMaxF: 420,
     oilPressureMinPsi: 30,
   });
+});
+
+it("files a certificate as pending and approves it as the server does, never the approver's own", async () => {
+  const { backend, stored } = await demo("demo-certificates");
+  const filed = { kind: "mechanic" as const, number: "M-1", issuedOn: "" };
+  await backend.saveCertifications("demo-pilot", [filed]);
+  await backend.saveCertifications("demo-admin", [filed]);
+  const pilotOf = (s: Snapshot) =>
+    s.members.find((m) => m.id === "demo-pilot")!;
+  expect(pilotOf(await stored()).certifications).toEqual([
+    { ...filed, pending: true },
+  ]);
+  expect(await backend.certificatesAwaitingApproval()).toEqual([
+    { userId: "demo-pilot", name: "Jordan Lee", certificate: filed },
+  ]);
+  await expect(backend.approveCertificate("demo-admin", filed)).rejects.toThrow(
+    /nobody their own/,
+  );
+  await backend.approveCertificate("demo-pilot", filed);
+  const s = await stored();
+  expect(pilotOf(s)).toMatchObject({
+    certifications: [filed],
+    licenseNumber: "M-1",
+  });
+  expect(
+    s.audit
+      .filter((a) => a.entityUuid === "demo-pilot")
+      .map((a) => [a.action, a.before, a.after]),
+  ).toEqual([
+    [
+      "user.certification_approved",
+      JSON.stringify({ ...filed, pending: true }),
+      JSON.stringify(filed),
+    ],
+    [
+      "user.certification_filed",
+      "null",
+      JSON.stringify({ ...filed, pending: true }),
+    ],
+  ]);
 });

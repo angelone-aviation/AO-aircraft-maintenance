@@ -14,7 +14,11 @@ import { recordProgram } from "./programs";
 import { manualReferenceSchema, validateManualReference } from "./manuals";
 import { z } from "zod";
 import { can, latestLocalDate, type Member, type Snapshot } from "./model";
-import { certificateOptions, memberLicense } from "./certifications";
+import {
+  certificateOptions,
+  filedCertificates,
+  memberLicense,
+} from "./certifications";
 import { ataChapterSchema } from "./ata";
 import { isOpenWorkOrder } from "./workOrders";
 import { expiredForUse } from "./shelfLife";
@@ -311,12 +315,18 @@ export const inspectorCertificateRequired =
 export const inspectorMaintenanceCertificateRequired =
   "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.";
 /**
+ * The refusal shown to an inspector whose mechanic certificate waits for an
+ * administrator's approval.
+ */
+export const inspectorCertificatePending =
+  "Your mechanic certificate is waiting for a Flight Program administrator or system administrator to approve it; you can sign as inspector once it is approved.";
+/**
  * What a member's certificates change in the app, in the words Settings and
  * the My certifications form use; {@link inspectorCertificateProblem} is the
  * rule it states.
  */
 export const certificationsEffect =
-  "Recording a job card's inspection signoff needs a numbered mechanic certificate on file, issued on or before the day of the signoff; a pilot certificate is not enough. Certifications grant no other permission.";
+  "Recording a job card's inspection signoff needs a numbered mechanic certificate, approved by a Flight Program administrator or system administrator and issued on or before the day of the signoff; a pilot certificate is not enough. A certificate you file or change waits for that approval before it prints on entries or allows the signoff. Certifications grant no other permission.";
 // Free-text certificate types on the older single-license profile fields that
 // name a mechanic (A&P, airframe, powerplant), inspection authorization or
 // repairman certificate. Pilot and unrecognized types (e.g. AME, CRS) do not.
@@ -334,13 +344,15 @@ type SignoffState = Pick<
 /**
  * Why `user` cannot record an inspection signoff, or undefined if they can.
  * The inspection signoff is the 14 CFR 43.7 person's signature, so it needs
- * a numbered maintenance certificate on file (ADR-0004); a pilot certificate
+ * a numbered maintenance certificate on file (ADR-0004), approved by an
+ * administrator rather than only filed by its holder; a pilot certificate
  * is not enough. Technician signoffs stay open: 43.3(d) lets supervised
  * uncertificated workers perform work.
  *
  * @param asOf - The local date the certificate must be held on.
- * @returns {@link inspectorMaintenanceCertificateRequired} when a certificate
- *   on file is not a maintenance one, else
+ * @returns {@link inspectorCertificatePending} when the mechanic certificate
+ *   waits for approval; {@link inspectorMaintenanceCertificateRequired} when
+ *   a certificate filed is not a maintenance one; else
  *   {@link inspectorCertificateRequired}.
  */
 export function inspectorCertificateProblem(
@@ -354,8 +366,11 @@ export function inspectorCertificateProblem(
       : // Airframe, powerplant and IA records are folded into "mechanic".
         certificateOptions(user, asOf).some((c) => c.key === "mechanic");
   if (eligible) return undefined;
+  const filed = filedCertificates(user, asOf);
+  if (filed.some((c) => c.kind === "mechanic" && c.pending))
+    return inspectorCertificatePending;
   const { licenseNumber, certificateType } = memberLicense(user, asOf);
-  return licenseNumber.trim() && certificateType.trim()
+  return filed.length || (licenseNumber.trim() && certificateType.trim())
     ? inspectorMaintenanceCertificateRequired
     : inspectorCertificateRequired;
 }

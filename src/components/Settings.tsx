@@ -62,9 +62,9 @@ import {
   wantsUrgentAlertEmails,
 } from "../domain/alerts";
 import {
+  certificateSummary,
   certificationLabels,
   normalizeCertifications,
-  type Certification,
 } from "../domain/certifications";
 import {
   formatCents,
@@ -326,7 +326,7 @@ function CertificationsBlock({ s }: { s: Snapshot }) {
               <IconTile icon={IdentificationCard} size="sm" />
               <span>
                 <strong>{certificationLabels[c.kind]}</strong>
-                <small>{certificationLine(c)}</small>
+                <small>{certificateSummary(c)}</small>
               </span>
             </li>
           ))}
@@ -803,27 +803,6 @@ function signInHint(providers: string[] | undefined) {
     return `${always} This deployment signs in with passwords only.`;
   const names = providers.map((p) => signInMethodLabels[p] ?? p).join(" or ");
   return `${always} A ${names} account whose verified email matches yours is linked the first time you sign in with it. For two-step verification, sign in with one that has it turned on.`;
-}
-
-function certificationLine(c: Certification) {
-  const number = c.number ? `No. ${c.number}` : "Number not recorded";
-  if (c.kind === "mechanic") {
-    const ratings = [
-      c.airframe && "Airframe",
-      c.powerplant && "Powerplant",
-      c.ia && "IA",
-    ].filter(Boolean);
-    return [
-      number,
-      ratings.join(", "),
-      c.ia && c.renewalDate && `IA renewal ${c.renewalDate}`,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-  }
-  return [number, c.expiresOn && `Expires ${c.expiresOn}`]
-    .filter(Boolean)
-    .join(" · ");
 }
 
 // A profile from before certifications were recorded keeps its license.

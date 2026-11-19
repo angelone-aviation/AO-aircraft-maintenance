@@ -101,7 +101,7 @@ test("copies job card templates into an order, permits execution only on copies 
   await expect(
     logbook.getByRole("button", { name: "Save as PDF", exact: true }),
   ).toBeDisabled();
-  await saveLicenseToProfile(logbook);
+  await enterLicense(logbook);
   const text = logbook.getByLabel("Logbook entry text", { exact: true });
   // Included cards contribute their log book line, actual work and signoff.
   await expect(text).toHaveValue(
@@ -284,15 +284,16 @@ async function closeOrderAfterConfirming(page: Page, details: Locator) {
   await expect(details).not.toBeVisible();
 }
 
-async function saveLicenseToProfile(logbook: Locator) {
+// The demo administrator has no approved certificate on file, so the entry
+// is signed with a certificate typed for it.
+async function enterLicense(logbook: Locator) {
+  await expect(
+    logbook.getByText(
+      "A certificate you file under My certifications fills in here once an administrator has approved it.",
+    ),
+  ).toBeVisible();
   await logbook.getByLabel("License / certificate number").fill("CERT-12345");
   await logbook.getByLabel("Certificate type", { exact: true }).fill("A&P");
-  await logbook
-    .getByRole("button", { name: "Save license to my profile", exact: true })
-    .click();
-  await expect(logbook.getByRole("status")).toHaveText(
-    "License saved to your profile.",
-  );
 }
 
 /**
