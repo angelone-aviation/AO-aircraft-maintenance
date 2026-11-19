@@ -231,8 +231,11 @@ describe("theme", () => {
       matchMedia: () => ({ matches: systemDark }),
     });
     vi.stubGlobal("document", {
-      documentElement: { classList: { toggle: dark } },
+      documentElement: {
+        classList: { toggle: dark, add: vi.fn(), remove: vi.fn() },
+      },
     });
+    vi.stubGlobal("getComputedStyle", () => ({ getPropertyValue: () => "" }));
     return { stored, dark };
   };
 
