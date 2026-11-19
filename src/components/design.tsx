@@ -30,6 +30,8 @@ import "../styles/design.css";
 const DESKTOP_QUERY = "(min-width: 1100px)";
 const PHONE_QUERY = "(max-width: 759px)";
 const THEME_KEY = "angelone-theme";
+// tokens.css turns every transition off under this class on <html>.
+const THEME_SWITCHING_CLASS = "theme-switching";
 const INLINE_ICON_SIZE = 18;
 const TILE_ICON_SIZES = { lg: 22, md: 20, sm: 18 } as const;
 const WORDMARK_SRC = {
@@ -118,11 +120,12 @@ export function initTheme() {
  * Switches the theme for every useTheme caller and saves it on the device
  * (localStorage "angelone-theme").
  *
- * @param theme - Applied at once; when storage is blocked it lasts this visit.
+ * @param theme - Applied at once, every colour in the same frame; when storage
+ *   is blocked it lasts this visit.
  */
 export function setTheme(theme: Theme) {
   currentTheme = theme;
-  applyTheme(theme);
+  applyThemeAtOnce(theme);
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch {
@@ -988,6 +991,19 @@ function storedTheme(): Theme {
 function applyTheme(theme: Theme) {
   if (typeof document !== "undefined")
     document.documentElement.classList.toggle("dark", theme === "dark");
+}
+
+// Surfaces with a colour transition (cards, the page, controls) would fade
+// while the shell switches at once, mixing light and dark for a moment.
+// Reading a computed style makes the browser apply the new colours while
+// transitions are off, so removing the class afterwards starts none.
+function applyThemeAtOnce(theme: Theme) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  root.classList.add(THEME_SWITCHING_CLASS);
+  applyTheme(theme);
+  getComputedStyle(root).getPropertyValue("color");
+  root.classList.remove(THEME_SWITCHING_CLASS);
 }
 
 // The fill's width in percent: clamped to 0–100 (NaN reads as 0) and rounded

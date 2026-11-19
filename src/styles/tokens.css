@@ -248,6 +248,15 @@
   }
 }
 
+/* For the instant of a theme switch (setTheme in design.tsx): every colour
+ * changes in the same frame instead of some surfaces fading. */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
 /* Base typography */
 html {
   font-family: var(--font);
