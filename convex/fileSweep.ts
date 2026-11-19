@@ -5,11 +5,12 @@
  * Dependencies: convex/_generated/server, ./rateLimits, ./storageReferences.
  *
  * Each file is checked once, in the first run after it turns a day old. Every
- * path that removes a record deletes its file once nothing else refers to it,
- * so a file nothing refers to was orphaned at upload: a link upload whose
- * bytes matched no ticket (T2), or an action stopped between storing a file
- * and filing it. A day is far past the longest wait between the two (the
- * one-hour upload ticket), so a run never takes an upload still in flight.
+ * path that deletes a row naming a file also deletes the file once nothing
+ * else refers to it, so a file nothing refers to was orphaned at upload: a
+ * link upload whose bytes matched no ticket (T2), or an action stopped
+ * between storing a file and filing it. A day is far past the longest wait
+ * between the two (the one-hour upload ticket), so a run never takes an
+ * upload still in flight.
  */
 import type { MutationCtx } from "./_generated/server";
 import { DAY } from "./rateLimits";
@@ -19,8 +20,9 @@ import { storageReferenced } from "./storageReferences";
 export const UNREFERENCED_FILE_AGE = DAY;
 
 /**
- * Files checked per run. Each costs one lookup per storage table, so a run
- * stays far inside a mutation's read limits; run hourly, 2,400 a day.
+ * Files checked per run. Each costs one lookup per storage table, about 1,000
+ * a run, which keeps one mutation's reads small; run hourly, it checks 2,400
+ * files a day.
  */
 export const FILES_PER_RUN = 100;
 
