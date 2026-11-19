@@ -32,6 +32,8 @@ import {
   validateInventoryFile,
 } from "../src/domain/inventoryAttachments";
 
+const PO_ADMIN_ONLY = "Inventory administrator access required.";
+
 const scope = {
   poUuid: v.string(),
   receiptUuid: v.optional(v.string()),
@@ -155,21 +157,20 @@ export const upload = action({
  * @param id - The attachment.
  * @param programUuid - The caller's active Flight Program.
  * @throws As `checkContext`, first.
- * @throws {ConvexError} "Attachment not found.", also for a file the caller
- *   does not administer or of another program's order; "Attachments can be
- *   deleted only while the PO is a draft."
+ * @throws {ConvexError} "Inventory administrator access required.", whatever
+ *   the id; "Attachment not found.", also for another program's file;
+ *   "Attachments can be deleted only while the PO is a draft."
  */
 export const remove = mutation({
   args: { id: v.id("poFiles"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const s = await checkContext(ctx, args.programUuid);
+    if (!programPermission(s, "admin")) throw new ConvexError(PO_ADMIN_ONLY);
     const file = await ctx.db.get(args.id);
     const doc =
-      file && programPermission(s, "admin")
-        ? await findProgramPo(ctx, file.poUuid, args.programUuid)
-        : null;
-    // One refusal for a file that is gone or out of the caller's sight, so an
-    // id never tells that another program's file exists (review T4).
+      file && (await findProgramPo(ctx, file.poUuid, args.programUuid));
+    // One refusal for a file that is gone or another program's, so an id
+    // never tells that another program's file exists (review T4).
     if (!file || !doc) throw new ConvexError("Attachment not found.");
     const po = poSchema.parse(JSON.parse(doc.payload));
     if (!poAttachmentRemovable(po))
@@ -190,8 +191,7 @@ async function authorizePoAdmin(
   args: { poUuid: string; receiptUuid?: string; programUuid?: string },
 ) {
   const s = await checkContext(ctx, args.programUuid);
-  if (!programPermission(s, "admin"))
-    throw new ConvexError("Inventory administrator access required.");
+  if (!programPermission(s, "admin")) throw new ConvexError(PO_ADMIN_ONLY);
   const doc = await findProgramPo(ctx, args.poUuid, args.programUuid);
   if (!doc) throw new ConvexError("PO not found.");
   const po = poSchema.parse(JSON.parse(doc.payload));
