@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins which Google and Microsoft sign-in buttons show and how
- *   they read, and the first render of a user's sign-in methods.
+ *   they read, each provider's mark, and the first render of a user's sign-in
+ *   methods.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/SignInMethods.tsx, react-dom/server.
  */
@@ -9,7 +10,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import type { Member } from "../domain/model";
-import { SignInMethodList, SsoButtonList } from "./SignInMethods";
+import { ProviderMark, SignInMethodList, SsoButtonList } from "./SignInMethods";
 
 const workspace = vi.hoisted(() => ({ state: {} as Record<string, unknown> }));
 vi.mock("../data/store", () => ({ useWorkspace: () => workspace.state }));
@@ -73,4 +74,17 @@ it("tells users who resets their password", () => {
 it("asks to reconnect before linked accounts can load", () => {
   expect(renderMethods()).toContain("Reconnect to see linked");
   expect(renderMethods(undefined, true)).not.toContain("Reconnect");
+});
+
+it("marks Google and Microsoft with their own logos and any other provider neutrally", () => {
+  const mark = (provider: string) =>
+    renderToStaticMarkup(createElement(ProviderMark, { provider }));
+  const MICROSOFT_RED = "#F25022";
+  const GOOGLE_BLUE = "#4285F4";
+  expect(mark("google")).toContain(GOOGLE_BLUE);
+  expect(mark("microsoft-entra-id")).toContain(MICROSOFT_RED);
+  const other = mark("github");
+  expect(other).toMatch(/^<svg[^>]*class="sgn-mark"[^>]*aria-hidden="true"/);
+  expect(other).not.toContain(MICROSOFT_RED);
+  expect(other).not.toContain(GOOGLE_BLUE);
 });
