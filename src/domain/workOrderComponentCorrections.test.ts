@@ -157,6 +157,24 @@ it("restores overhaul baseline and requirements, resets repair at completion, an
     before.timeSinceRepair! + 7200,
   );
 });
+it.each([
+  ["Brushes replaced", "", "Brushes replaced. Corrected"],
+  ["Brushes replaced.", "", "Brushes replaced. Corrected"],
+  ["Brushes replaced", "AMM 24-30", "Brushes replaced IAW AMM 24-30. Corrected"],
+])(
+  "ends the addendum's work description %j (reference %j) with one full stop",
+  (description, reference, expected) => {
+    const { s, closed } = setup();
+    const cmd = command(s, closed);
+    const { addendum } = previewComponentCorrection(
+      s,
+      closed,
+      { ...cmd, choice: { ...cmd.choice, description, reference } },
+      now + 1000,
+    ).correction;
+    expect(addendum).toContain(`corrected to Repaired. ${expected}`);
+  },
+);
 it.each(["service", "repair", "overhaul", "both"] as const)(
   "corrects %s to another action without changing lifetime usage",
   (action) => {
