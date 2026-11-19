@@ -96,8 +96,9 @@ const library = convexAuth({
  * and sign-out actions, and whether the caller is signed in.
  *
  * @throws {Error} From `signIn`: "Accounts are managed by your
- *   administrator." for a sign-up or reset; "Invalid credentials" for a
- *   disabled account.
+ *   administrator." for a sign-up or reset; for a disabled account, the
+ *   library's wrong-password refusal to a password sign-in, else "Invalid
+ *   credentials".
  */
 export const { auth, signIn, signOut, isAuthenticated } = library;
 
@@ -109,6 +110,9 @@ export const libraryStore = library.store;
  * `user.signed_in` change-log entry naming the method for every successful
  * sign-in (ADR-0009). Token refreshes are not logged.
  *
+ * A disabled account's password is checked as a wrong one, so its failure
+ * count and timing never confirm it (security review A8).
+ *
  * @param args - The library's request; libraryStore checks it.
  * @returns What libraryStore returns; null, as for a wrong code, for a code
  *   exchange that names an email or phone.
@@ -118,7 +122,14 @@ export const store = internalMutation({
   handler: async (ctx, { args }): Promise<unknown> => {
     if (namesEmailOrPhone(args)) return null;
     const method = await signInMethod(ctx, args);
-    const result = await ctx.runMutation(internal.auth.libraryStore, { args });
+    const secret = await unmatchableSecretIfDisabled(ctx, args);
+    const request =
+      secret === undefined
+        ? args
+        : { ...args, account: { ...args.account, secret } };
+    const result = await ctx.runMutation(internal.auth.libraryStore, {
+      args: request,
+    });
     const signedIn = result as { userId?: Id<"users">; sessionId?: string };
     if (method && signedIn?.userId && signedIn.sessionId)
       await audit(ctx, signedIn.userId, "user.signed_in", signedIn.userId, {
@@ -131,6 +142,8 @@ export const store = internalMutation({
 type StoreRequest = {
   type?: unknown;
   params?: { code?: unknown; email?: unknown; phone?: unknown };
+  provider?: unknown;
+  account?: { id?: unknown; secret?: unknown };
 };
 
 // The library counts a failed code exchange under the email or phone it
@@ -167,4 +180,30 @@ async function signInMethod(
     .withIndex("code", (q) => q.eq("code", hash))
     .unique();
   return code?.provider;
+}
+
+// A disabled account's sign-in goes to the library with a password no hash
+// can match, so it costs the same scrypt check and counts the same failure
+// as a wrong password; beforeSessionCreation still refuses it either way.
+async function unmatchableSecretIfDisabled(
+  ctx: MutationCtx,
+  args: StoreRequest,
+): Promise<string | undefined> {
+  const { provider, account } = args ?? {};
+  const id = account?.id;
+  if (
+    args?.type !== "retrieveAccountWithCredentials" ||
+    typeof provider !== "string" ||
+    typeof id !== "string" ||
+    typeof account?.secret !== "string"
+  )
+    return undefined;
+  const stored = await ctx.db
+    .query("authAccounts")
+    .withIndex("providerAndAccountId", (q) =>
+      q.eq("provider", provider).eq("providerAccountId", id),
+    )
+    .unique();
+  const user = stored && (await ctx.db.get(stored.userId));
+  return user && user.active !== true ? crypto.randomUUID() : undefined;
 }

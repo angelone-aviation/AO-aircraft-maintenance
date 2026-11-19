@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins that sign-in refusals stay plain Errors, which
  *   production hides alike, so their class reveals nothing about an account;
- *   that every password flow but sign-in is closed; and that sign-out ends
- *   the session on the server.
+ *   that a disabled account's password is checked as a wrong one; that every
+ *   password flow but sign-in is closed; and that sign-out ends the session
+ *   on the server.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: @convex-dev/auth, jose, convex (auth, admin, identities,
  *   schema).
@@ -15,6 +16,7 @@ import { createAccount } from "@convex-dev/auth/server";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { MAX_FAILED_SIGN_INS_PER_HOUR } from "./auth";
 
 // Provisioning hashes real passwords (scrypt); allow for a busy machine.
 vi.setConfig({ testTimeout: 30_000 });
@@ -87,7 +89,8 @@ it("refuses sign-up, a disabled account and a wrong password, none as a ConvexEr
   expect(signUp).toMatchObject({
     message: "Accounts are managed by your administrator.",
   });
-  expect(off).toMatchObject({ message: "Invalid credentials" });
+  // A disabled account is answered exactly as a wrong password (A8).
+  expect(off).toMatchObject({ message: (wrong as Error).message });
   for (const error of [signUp, off, wrong]) {
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(ConvexError);
@@ -171,3 +174,55 @@ it("stores nothing for a code exchange naming an email or phone, which no sign-i
     await t.run((ctx) => ctx.db.query("authRateLimits").collect()),
   ).toEqual([]);
 });
+
+// Security review A8: the library clears a correct password's failure count
+// before the disabled account is refused, so the lockout, and the extra
+// session step's timing, confirmed the password.
+it("counts a disabled account's correct password as a failed sign-in", async () => {
+  const t = convexTest(schema, modules);
+  const user = await createPilot(t, "off@example.test", false);
+  for (const password of [`${PASSWORD}x`, PASSWORD])
+    expect(
+      await refusal(passwordSignIn(t, "off@example.test", password)),
+    ).toBeInstanceOf(Error);
+  const limits = await t.run((ctx) => ctx.db.query("authRateLimits").collect());
+  expect(limits).toHaveLength(1);
+  expect(limits[0].attemptsLeft).toBeLessThan(
+    MAX_FAILED_SIGN_INS_PER_HOUR - 1.5,
+  );
+  const sessions = await t.run((ctx) =>
+    ctx.db
+      .query("authSessions")
+      .withIndex("userId", (q) => q.eq("userId", user))
+      .collect(),
+  );
+  expect(sessions).toEqual([]);
+});
+
+async function createPilot(
+  t: ReturnType<typeof convexTest>,
+  email: string,
+  active: boolean,
+) {
+  return t.action(
+    async (ctx) =>
+      (
+        await createAccount(ctx, {
+          provider: "password",
+          account: { id: email, secret: PASSWORD },
+          profile: { email, active, isAdmin: false, groupIds: [] },
+        })
+      ).user._id,
+  );
+}
+
+function passwordSignIn(
+  t: ReturnType<typeof convexTest>,
+  email: string,
+  password: string,
+) {
+  return t.action(api.auth.signIn, {
+    provider: "password",
+    params: { flow: "signIn", email, password },
+  });
+}
