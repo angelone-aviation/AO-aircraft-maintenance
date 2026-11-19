@@ -4,16 +4,16 @@
  *   deleted, that every storage id in the schema is in the reference list,
  *   and the bounded batch that resumes where the last run stopped.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/fileSweep, convex/manuals (cleanupUploads),
- *   convex/storageReferences, convex/schema.
+ * Dependencies: convex/fileSweep, convex/crons, convex/storageReferences,
+ *   convex/schema.
  */
 import { convexTest } from "convex-test";
 import { afterEach, expect, it, vi } from "vitest";
 import schema from "./schema";
-import { internal } from "./_generated/api";
 import type { Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
-import { FILES_PER_RUN, UNREFERENCED_FILE_AGE } from "./fileSweep";
+import crons from "./crons";
+import { FILES_PER_RUN, SWEEP_FILES, UNREFERENCED_FILE_AGE } from "./fileSweep";
 import { STORAGE_REFERENCES } from "./storageReferences";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -28,11 +28,11 @@ afterEach(() => vi.useRealTimers());
 
 function setup() {
   const t = convexTest(schema, modules);
-  // Runs the clean-up as the hourly job does, `ms` later than the last run.
+  // Runs the sweep as its hourly job does, `ms` later than the last run.
   const cleanUpAfter = async (ms: number) => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + ms);
-    await t.mutation(internal.manuals.cleanupUploads, {});
+    await t.mutation(SWEEP_FILES, {});
   };
   const exists = (id: Id<"_storage">) =>
     t.run(async (ctx) => !!(await ctx.db.system.get(id)));
@@ -40,6 +40,14 @@ function setup() {
     t.run((ctx) => ctx.storage.store(new Blob([text])));
   return { t, cleanUpAfter, exists, store };
 }
+
+it("runs as an hourly job of its own, apart from the manual-ticket clean-up", () => {
+  const jobs = Object.values(
+    (crons as unknown as { crons: Record<string, { name: string }> }).crons,
+  ).map((job) => job.name);
+  expect(jobs).toContain("fileSweep:sweepFiles");
+  expect(jobs).toContain("manuals:cleanupUploads");
+});
 
 it("deletes a stored file nothing refers to once it is more than a day old", async () => {
   const { cleanUpAfter, exists, store } = setup();

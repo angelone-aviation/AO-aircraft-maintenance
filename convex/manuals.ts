@@ -1,12 +1,11 @@
 /**
  * Responsibility: Reference manuals stored as PDFs per aircraft: the upload
- *   handshake, opening them, editing their details, and the hourly upload
- *   clean-up (abandoned tickets, and unreferenced files through fileSweep).
+ *   handshake, opening them, editing their details, sweeping abandoned uploads.
  * Layer: Server. Public mutations, an action and a query, internal upload
  *   steps and an hourly sweep; maintenance permission writes, read opens.
  * Dependencies: convex/programContext, convex/access, convex/rateLimits,
- *   convex/storageReferences, convex/fileSweep, convex/userErrors,
- *   src/domain/manuals, src/domain/model, src/domain/inventoryAttachments.
+ *   convex/storageReferences, convex/userErrors, src/domain/manuals,
+ *   src/domain/model, src/domain/inventoryAttachments.
  *
  * The browser uploads the PDF straight to storage between beginUpload and
  * finishUpload, so a blob is bound to a ticket only when its bytes, size, type
@@ -27,7 +26,6 @@ import { checkContext } from "./programContext";
 import { audit } from "./access";
 import { consume, DAY, HOUR } from "./rateLimits";
 import { storageReferenced } from "./storageReferences";
-import { sweepUnreferencedFiles } from "./fileSweep";
 import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
 import {
@@ -133,8 +131,8 @@ export const beginUpload = mutation({
  * Binds an uploaded blob to the caller's ticket: only one uploaded during the
  * ticket's lifetime, with exactly the declared bytes, size and type, that no
  * other record refers to. A blob that fails is never deleted here, since it
- * may belong to someone else; {@link cleanupUploads} removes it once it is a
- * day old if nothing refers to it by then.
+ * may belong to someone else; the hourly file sweep (convex/fileSweep.ts)
+ * removes it once it is a day old if nothing refers to it by then.
  *
  * @param ticket - The caller's unexpired ticket.
  * @param storageId - The uploaded blob.
@@ -236,12 +234,10 @@ export const finishUpload = action({
 });
 
 /**
- * The hourly upload clean-up. Removes up to 50 tickets older than
- * {@link UPLOAD_SWEEP_AGE}, with the blobs uploaded for them that no record
- * refers to: the one bound at claim, and any with the declared bytes uploaded
- * while the ticket was valid (the browser stopped before finishUpload). Then
- * deletes the next stored files nothing refers to that are a day old, from
- * any upload path (`sweepUnreferencedFiles`).
+ * Removes up to 50 tickets older than {@link UPLOAD_SWEEP_AGE}, with the
+ * blobs uploaded for them that no record refers to: the one bound at claim,
+ * and any with the declared bytes uploaded while the ticket was valid (the
+ * browser stopped before finishUpload).
  */
 export const cleanupUploads = internalMutation({
   args: {},
@@ -257,7 +253,6 @@ export const cleanupUploads = internalMutation({
         await deleteBlobIfUnreferenced(ctx, id, ticket._id);
       await ctx.db.delete(ticket._id);
     }
-    await sweepUnreferencedFiles(ctx);
   },
 });
 

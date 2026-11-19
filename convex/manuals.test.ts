@@ -337,7 +337,7 @@ it("edits reference metadata while preserving file identity and validates access
     (await t.run((ctx) => ctx.db.get(before._id)))?.applicability,
   ).toBeUndefined();
 });
-it("claims only the blob uploaded for its own ticket and deletes only blobs no record refers to", async () => {
+it("claims only the blob uploaded for its own ticket and never deletes blobs it did not create", async () => {
   const { t, tech } = await fixture();
   const store = (blob: Blob) => t.run((ctx) => storePdf(ctx, blob));
   const attach = (storageId: Id<"_storage">) =>
@@ -401,7 +401,7 @@ it("claims only the blob uploaded for its own ticket and deletes only blobs no r
   expect(await exists(disguised)).toBe(false);
   expect(await t.run((ctx) => ctx.db.get(disguisedTicket))).toBeNull();
   // An upload whose browser never called finishUpload, and one whose bytes
-  // matched no ticket (T2).
+  // matched no ticket.
   const abandonedTicket = await begin(pdf);
   const abandoned = await store(pdf);
   const unrelated = await store(
@@ -422,10 +422,10 @@ it("claims only the blob uploaded for its own ticket and deletes only blobs no r
   expect(await exists(abandoned)).toBe(false);
   expect(await t.run((ctx) => ctx.db.get(abandonedTicket))).toBeNull();
   expect(await t.run((ctx) => ctx.db.get(disguisedTicket))).toBeNull();
-  // A day old with nothing referring to it, the unrelated upload goes too.
-  expect(await exists(unrelated)).toBe(false);
-  // Blobs a manual or a record refers to are untouched.
-  for (const id of [own, attached, earlier, foreign])
+  // The ticket clean-up deletes only its tickets' blobs: the unrelated upload
+  // is left to the file sweep (fileSweep.test.ts), and blobs a manual or a
+  // record refers to are untouched.
+  for (const id of [own, attached, earlier, foreign, unrelated])
     expect(await exists(id)).toBe(true);
 });
 it("keeps a matching blob that another record refers to when sweeping its ticket", async () => {
