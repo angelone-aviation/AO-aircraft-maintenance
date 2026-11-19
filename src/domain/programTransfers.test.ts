@@ -455,21 +455,29 @@ it("caps a transfer reason where other change-log reasons stop", () => {
   expect(save("x".repeat(TRANSFER_REASON_MAX_LENGTH + 1))).toBe(false);
 });
 
-// Characterizes current behaviour: only the transfer form caps the reason.
-it("records a transfer reason longer than the form allows", () => {
+it("refuses a transfer reason longer than the form allows, changing nothing", () => {
   const s = demoSnapshot();
   s.programs = [
     ...s.programs!,
     { ...s.programs![0], uuid: "other", name: "Other" },
   ];
   s.user.activeProgramUuid = "demo-program";
-  const reason = "x".repeat(TRANSFER_REASON_MAX_LENGTH + 1);
-  transferProgram(s, {
-    kind: "aircraft",
-    uuid: s.aircraft[0].uuid,
-    destination: "other",
-    reason,
-  });
+  const move = (reason: string) =>
+    transferProgram(s, {
+      kind: "aircraft",
+      uuid: s.aircraft[0].uuid,
+      destination: "other",
+      reason,
+    });
+  const before = structuredClone(s);
+  const tooLong = () => move("x".repeat(TRANSFER_REASON_MAX_LENGTH + 1));
+  expect(tooLong).toThrow(Rejection);
+  expect(tooLong).toThrow(
+    Error("Keep the transfer reason to 2000 characters or fewer."),
+  );
+  expect(s).toEqual(before);
+  const reason = "x".repeat(TRANSFER_REASON_MAX_LENGTH);
+  move(reason);
   expect(s.audit[0]).toMatchObject({ action: "program.transferred", reason });
 });
 
