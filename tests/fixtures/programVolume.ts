@@ -1,7 +1,7 @@
 /**
  * Responsibility: Seeds a convex-test database with one Flight Program at the
- *   size test's one-year volume, as the app stores it, and one account per
- *   kind of view.
+ *   size test's volume for one or more fleet-years, as the app stores it, and
+ *   one account per kind of view.
  * Layer: Test. Fixture for convex-test suites; never shipped in the build.
  * Dependencies: convex/_generated (types), convex/collections.ts (codec),
  *   src/data/demo.ts, src/domain stored-record schemas and builders.
@@ -11,6 +11,8 @@
  * plans, 30 parts requests, 20 purchase orders; 100 components, 30
  * inspections and 40 ADs per aircraft; 300 stock records), with shorter
  * text. Everything is derived from counters, so two runs store the same rows.
+ * Earlier years repeat the newest year's records a year apart, all closed,
+ * after it in each table, so the one-year database is unchanged.
  */
 import type { MutationCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -46,7 +48,30 @@ export const VOLUME = {
 } as const;
 
 const DAY = 86_400_000;
+const YEAR = 365 * DAY;
 const HOUR = 3600;
+// The parts requests' fixed fields; zod writes them in schema order.
+const REQUEST_TEXT = {
+  mode: "parts",
+  date: "2026-10-24",
+  engineer: "Mechanic",
+  base: "Test Field",
+  priority: "P2 Routine",
+  requiredBy: "2026-11-01",
+  timeframe: "",
+  vendor: "Example Aviation Supply",
+  vendorAddress: "1 Supply Road",
+  currency: "USD",
+  shipTo: "Hangar 4",
+  billTo: "Hangar 4",
+  shipFrom: "",
+  aircraftYear: "2006",
+  notes: "",
+  shippingInstructions: "Ground",
+  returnInstructions: "",
+  programUuid: VOLUME_PROGRAM,
+  cancelled: false,
+};
 const STEPS = [
   "Remove cowlings and inspect for cracks, chafing and missing fasteners.",
   "Inspect lines and hoses for leaks, chafing and security.",
@@ -77,19 +102,32 @@ export interface VolumeCounts {
 type Row = Record<string, unknown>;
 
 /**
- * Seeds the program, its aircraft and one year of records, files on some job
- * cards, work orders and stock, and the four accounts.
+ * Seeds the program, its aircraft and `years` years of records, files on some
+ * job cards, work orders and stock, and the four accounts. Only the newest
+ * year holds an open work order and open problem reports; earlier years hold
+ * the same records a whole year apart, closed.
  *
- * @param at - The newest record's time; records reach back one year from it.
+ * @param at - The newest record's time; records reach back `years` years.
+ * @param years - Fleet-years of records, a whole number from 1.
  * @returns The accounts' convex-test identity subjects and the counts.
+ * @throws {RangeError} When `years` is not a whole number of at least 1.
  */
-export async function seedProgramVolume(ctx: MutationCtx, at: number) {
+export async function seedProgramVolume(
+  ctx: MutationCtx,
+  at: number,
+  years = 1,
+) {
+  if (!Number.isInteger(years) || years < 1)
+    throw new RangeError(
+      `Volume years must be a whole number from 1: ${years}`,
+    );
   const gen = new Generator(at);
   const ids = await seedPeople(ctx);
   gen.users = ids.users;
   await ctx.db.insert("programs", demoSnapshot().programs![0]);
   const blob = await ctx.storage.store(new Blob(["%PDF-1.4 evidence"]));
   const tables = gen.program(blob);
+  for (let back = 1; back < years; back++) gen.pastYear(tables, back, blob);
   for (const [table, rows] of Object.entries(tables))
     for (const row of rows) await ctx.db.insert(table as "audit", row as never);
   return {
@@ -191,7 +229,9 @@ function demoAircraft(n: number) {
 
 type Aircraft = ReturnType<typeof demoAircraft>;
 
-// Builds the rows; `uuid()` draws from one counter so runs match.
+// Builds the rows; `uuid()` draws from one counter so runs match. An earlier
+// year has its own generator, uuid prefix and number suffix, so its uuids and
+// record numbers never repeat the newest year's.
 class Generator {
   users: Record<keyof VolumeAccounts, string> = {
     admin: "",
@@ -203,11 +243,15 @@ class Generator {
   private next = 0;
   private stock: { uuid: string; locationUuid: string; partNumber: string }[] =
     [];
+  private readonly suffix: string;
 
   constructor(
     private readonly end: number,
     private readonly prefix = "0",
-  ) {}
+    private readonly yearsBack = 0,
+  ) {
+    this.suffix = yearsBack ? `-${yearsBack}y` : "";
+  }
 
   uuid() {
     const hex = (this.next++).toString(16).padStart(8, "0");
@@ -243,6 +287,25 @@ class Generator {
     };
   }
 
+  // Adds the year `yearsBack` years before this generator's: the flights,
+  // maintenance and purchasing, not the fleet's components, inspections, ADs
+  // or stock, which a fleet holds once.
+  pastYear(t: Record<string, Row[]>, yearsBack: number, blob: Id<"_storage">) {
+    const past = new Generator(
+      this.end - yearsBack * YEAR,
+      String(yearsBack),
+      yearsBack,
+    );
+    past.users = this.users;
+    past.stock = this.stock;
+    for (let n = 0; n < VOLUME.aircraft; n++) {
+      const aircraft = demoAircraft(n);
+      past.flightsOf(t, aircraft);
+      past.maintenanceOf(t, aircraft, blob);
+      past.purchasingOf(t, aircraft);
+    }
+  }
+
   private programRecords(t: Record<string, Row[]>, blob: Id<"_storage">) {
     const locations = Array.from({ length: VOLUME.locations }, (_, i) =>
       this.managed(t, {
@@ -255,6 +318,26 @@ class Generator {
         contact: "stores@example.test",
       }),
     );
+    this.stockAt(t, locations, blob);
+    t.costs.push(
+      encode(
+        "costs",
+        costRecordSchema.parse({
+          version: 1,
+          uuid: this.uuid(),
+          programUuid: VOLUME_PROGRAM,
+          kind: "settings",
+          laborRateCents: 9500,
+        }),
+      ),
+    );
+  }
+
+  private stockAt(
+    t: Record<string, Row[]>,
+    locations: { uuid: string }[],
+    blob: Id<"_storage">,
+  ) {
     for (let i = 0; i < VOLUME.stock; i++) {
       const stock = {
         uuid: this.uuid(),
@@ -286,18 +369,6 @@ class Generator {
           uploadedAt: this.end - DAY,
         });
     }
-    t.costs.push(
-      encode(
-        "costs",
-        costRecordSchema.parse({
-          version: 1,
-          uuid: this.uuid(),
-          programUuid: VOLUME_PROGRAM,
-          kind: "settings",
-          laborRateCents: 9500,
-        }),
-      ),
-    );
   }
 
   private managed(t: Record<string, Row[]>, raw: Row) {
@@ -335,7 +406,9 @@ class Generator {
   }
 
   private flight(a: Aircraft, i: number, start: number) {
-    const hobbsOff = a.currentHobbs + i * HOUR;
+    // An earlier year's flights end where the next year's begin.
+    const hobbsOff =
+      a.currentHobbs + (i - this.yearsBack * VOLUME.flights) * HOUR;
     return {
       uuid: this.uuid(),
       aircraftUuid: a.uuid,
@@ -391,7 +464,8 @@ class Generator {
   }
 
   private report(a: Aircraft, flight: { uuid: string }, i: number) {
-    const open = i >= VOLUME.flights - 3 * VOLUME.reportEvery;
+    const open =
+      this.yearsBack === 0 && i >= VOLUME.flights - 3 * VOLUME.reportEvery;
     return {
       uuid: this.uuid(),
       aircraftUuid: a.uuid,
@@ -416,7 +490,7 @@ class Generator {
     blob: Id<"_storage">,
   ) {
     for (let w = 0; w < VOLUME.workOrders; w++) {
-      const open = w === VOLUME.workOrders - 1;
+      const open = this.yearsBack === 0 && w === VOLUME.workOrders - 1;
       const order = this.workOrder(a, w, !open);
       t.workOrders.push(encode("workOrders", order));
       this.audit(t, a, "workOrder.save", order.uuid, order.recordedAt, order);
@@ -460,7 +534,7 @@ class Generator {
       createdBy: this.users.admin,
       createdAt: at,
       updatedAt: at,
-      cardNumber: `JC-${n}`,
+      cardNumber: `JC-${n}${this.suffix}`,
       title: "Engine compartment inspection",
       workOrderUuid,
       description: "Inspect the engine compartment for leaks and security.",
@@ -501,7 +575,7 @@ class Generator {
     return workOrderSchema.parse({
       uuid: this.uuid(),
       version: completed ? 6 : 4,
-      number: `WO-${a.serial}-${w}`,
+      number: `WO-${a.serial}-${w}${this.suffix}`,
       aircraftUuid: a.uuid,
       dateOpened: new Date(opened).toISOString().slice(0, 10),
       supervisor: "Chief inspector",
@@ -687,26 +761,10 @@ class Generator {
     const at = this.end - 10 * DAY;
     const line = this.uuid();
     return partsRequestSchema.parse({
+      ...REQUEST_TEXT,
       uuid: this.uuid(),
       version: 3,
       source: { kind: "stock", uuid: stock.uuid, workOrderUuid: "" },
-      mode: "parts",
-      date: "2026-10-24",
-      engineer: "Mechanic",
-      base: "Test Field",
-      priority: "P2 Routine",
-      requiredBy: "2026-11-01",
-      timeframe: "",
-      vendor: "Example Aviation Supply",
-      vendorAddress: "1 Supply Road",
-      currency: "USD",
-      shipTo: "Hangar 4",
-      billTo: "Hangar 4",
-      shipFrom: "",
-      aircraftYear: "2006",
-      notes: "",
-      shippingInstructions: "Ground",
-      returnInstructions: "",
       lines: [
         {
           uuid: line,
@@ -716,17 +774,15 @@ class Generator {
           quotedCents: 2495,
         },
       ],
-      programUuid: VOLUME_PROGRAM,
       aircraftUuid: a.uuid,
       sourceLabel: stock.partNumber,
       aircraftRegistration: a.registration,
       aircraftSerial: a.serial,
       aircraftModel: a.model,
-      number: `PR-${a.serial}-${line.slice(-4)}`,
+      number: `PR-${a.serial}-${line.slice(-4)}${this.suffix}`,
       requesterId: this.users.admin,
       createdAt: at,
       updatedAt: at,
-      cancelled: false,
       reservations: [],
       issues: [
         {
@@ -747,7 +803,7 @@ class Generator {
       uuid: this.uuid(),
       version: 2,
       programUuid: VOLUME_PROGRAM,
-      number: `PO-${a.serial}-${this.next}`,
+      number: `PO-${a.serial}-${this.next}${this.suffix}`,
       vendor: "Example Aviation Supply",
       vendorContact: "orders@example.test",
       shipTo: "Hangar 4",
