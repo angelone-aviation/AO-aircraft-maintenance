@@ -745,6 +745,10 @@ dialog.ds-dialog.more-sheet {
 .profile-sheet {
   padding-top: 4px;
 }
+.sheet-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
 
 /* Shell breakpoints */
 .app-layout.phone .main-area {
