@@ -1,0 +1,81 @@
+# Components
+
+A **component** is one serialized, life-tracked part: an engine, a propeller,
+a pump. It is either installed on an aircraft at a position or held in
+inventory. **Components** is under **Maintain**.
+
+Changes need maintenance permission on the aircraft and a connection.
+
+![The Components list](images/components.png)
+
+## The list
+
+Components are grouped by aircraft, then in inventory. Each row shows the part
+and serial number, position or location, readings (TSN, TSO, TSR, cycles) and
+the nearest service limit.
+
+| Button                      | Does                                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **New component**           | Adds a component (new components are received into inventory)                                                          |
+| **Imported components**     | Components added from templates that still need their serial and readings                                              |
+| **Scan**                    | Opens a component from its printed label ([Scan label](#scan-label))                                                   |
+| **Details**                 | The component's record                                                                                                 |
+| **Add Service/Inspections** | Adds a service requirement                                                                                             |
+| **Parts / repair requests** | Requests parts, or sends the component for repair ([how](Inventory-and-Parts-Requests.md#send-a-component-for-repair)) |
+
+## A component's record
+
+**Details** shows identity, location, attachments, service requirements,
+movement and baseline history, and record history.
+
+| Button                         | Does                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| **Edit component**             | Identity and location details                                                        |
+| **Set baseline**               | Verified opening readings                                                            |
+| **Move / service**             | Records a service event; needs **Work performed / reason**                           |
+| **Add service requirement**    | A life limit, overhaul or inspection, by hours, cycles, landings or calendar         |
+| **Add trackable parts**        | Parts tracked under this component                                                   |
+| **Print Tag**, **Print Label** | Stickers for the part ([Inventory](Inventory-and-Parts-Requests.md#labels-and-tags)) |
+| **Upload attachment**          | Photos, invoices, certificates; PDF, JPEG, PNG or WebP, up to 7 MiB                  |
+
+## Install or remove a component
+
+Installs and removals are planned on a work order and applied at close-out.
+
+1. On the work order, choose **Install/remove component** under Requested
+   work. Or use **Inventory → Install / service** for a part in stock.
+2. Choose the component, and the position or the storage location.
+3. Save the work order.
+4. Close the work order with verified readings
+   ([Work orders](Work-Orders.md#close-out)).
+
+Planning a movement does not reserve the component. Removal freezes its hours
+and cycles; calendar limits keep running in storage. On installation, its
+requirements and inspections follow it to the new aircraft.
+
+## Limits and statuses
+
+| Label          | Means                                                                           |
+| -------------- | ------------------------------------------------------------------------------- |
+| Due now        | A usage limit at exactly 0 remaining; overdue, grounds the aircraft             |
+| Past due       | Beyond a usage limit; overdue, grounds the aircraft                             |
+| Review         | A limit the app cannot read (for example, the part does not track that counter) |
+| Out for repair | Sent to a vendor; cannot be installed or edited until it returns                |
+
+Repair resets TSR, overhaul resets TSO; lifetime totals never reset. That is
+chosen at close-out ([Work orders](Work-Orders.md#close-out)).
+
+## Rules
+
+- **Set baseline** is refused if the new totals fall below the last
+  compliance recorded on one of the component's inspections, requirements or
+  ADs. The message names the record; correct it first.
+- Components are never deleted. Their history stays with the serial number.
+- A component that changed since you opened it, or moved after a backdated
+  close-out, needs review before close-out.
+
+## Scan label
+
+**Scan label** (under Maintain) opens a part or component from its printed QR
+label with the device's camera. Without a camera, type the label link, serial
+number or part number and choose **Open item**.
