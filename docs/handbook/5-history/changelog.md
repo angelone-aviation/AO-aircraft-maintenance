@@ -3,12 +3,31 @@
 What changed, and when. Newest first. Each line gives the finding's id, what changed in plain words, and the commit.
 
 - **Sources:** `git log`, the status columns of the [4 Nov security review](../../security/review-2026-11-04.md), the [2 Nov review](../../security/review-2026-11-02.md), the [10 Nov bug hunt](../../qa/bug-hunt-2026-11-10/README.md) and [REFACTOR_ROADMAP.md](../../../REFACTOR_ROADMAP.md). Nothing is listed that can't be traced to one of them.
-- **Ids:** OD, RM, LO and E are the bug register's; T, A, S, C and P the security reviews'; AC, FL, MX, NA, NB, OP, PT, SE, SZ and UI the 10 Nov bug hunt's; B, C (stale screens) its stale-screen audit's; D1–D25 the hunt's decisions ([decisions](decisions.md)).
+- **Ids:**
+  - RM-n is finding n in [REFACTOR_ROADMAP.md](../../../REFACTOR_ROADMAP.md#findings). OD (its owner decisions, findings 62 and 67), LO (its leftovers, finding 68) and E are from the working bug register, which is not in the repository; the roadmap names each one's commit beside its finding.
+  - T, A, S, C and P are the security reviews'. In release 2, S0–S8 are the history-paging plan's stages, not security findings.
+  - AC, FL, MX, NA, NB, OP, PT, SE, SZ and UI are the 10 Nov bug hunt's; B and C (stale screens) its stale-screen audit's; D1–D25 the hunt's decisions ([decisions](decisions.md)).
 - The local history starts on 12 Nov 2026 (`fcadec0`), so earlier commits named in the docs can't be opened here. For work before then, read the bug hunts' and reviews' status columns.
 
-## Release 5 — documentation and password-only sign-in
+## 20 Nov 2026 at a glance
 
-On `release/docs`; not in production yet.
+The day's four releases and its one incident, in UTC (03.15 means 03:15). Each release time is when its Deploy run finished on GitHub Actions; the incident's times are approximate.
+
+```mermaid
+timeline
+    title 20 November 2026, times in UTC
+    03.15 : Release 1 in production : The combined bug fixes
+    14.30 : Release 2 in production : History paging
+    17.25 : Release 3 in production : Purchasing window, lighter saves, Summary
+    19.30 : Incident starts : Cloudflare's Git build publishes a site with no backend address
+    20.02 : Release 4 in production : Backups without encryption : Incident ends
+    20.15 : Aaron disconnects Cloudflare's Git build
+    Not yet : Release 5 : Documentation, password-only sign-in, build guard
+```
+
+## Release 5: documentation and password-only sign-in
+
+Not in production yet. It reached `main` at `8b40038` at about 21:05 UTC on 20 Nov; Deploy publishes it when CI on that commit is green.
 
 | Change                                                                                                                                                                     | Commit                                                                      |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -17,16 +36,16 @@ On `release/docs`; not in production yet.
 | The set-up-from-scratch guide                                                                                                                                              | `0b7986d`, `25ea0a9`                                                        |
 | The code structure guide                                                                                                                                                   | `5f608e3`, `6b8d8ad`                                                        |
 | The glossary checked against the code, carried in full in the handbook                                                                                                     | `17ea698`                                                                   |
-| Tests: a broken relative link or anchor in tracked Markdown fails; the two glossary copies must match                                                                      | `486912a`, `17ea698`                                                        |
-| The two job card texts: the completion date is needed to sign, and a new card saves first (wording and structure only; no behaviour change)                                | `3e4c3a9`                                                                   |
+| Tests: a broken relative link or anchor in tracked Markdown fails; the two glossary copies must match; CI checks the docs' formatting                                      | `486912a`, `17ea698`, `b85017e`                                             |
+| The two job card texts: the completion date is needed to sign, and a new card saves first (text only; no behaviour change)                                                 | `3e4c3a9`                                                                   |
 | Doc fixes: the docs brought in line with the code and the 19–20 Nov changes, Prettier on the docs, the browser tests run without `.env.local`                              | `1c297b5`, `0756c4c`, `3659378`                                             |
-| The final review's fixes: the completion-date hint names the technician and inspection signoffs, "Aaron" for the person, the risk register by risk, encryption stated once | this release                                                                |
-| A production build refuses to run in Cloudflare's Git builder (Workers Builds)                                                                                             | this release                                                                |
-| Google and Microsoft sign-in removed ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)); everyone signs in with a password; findings A3 and A10 closed    | `89555e7`, `130a257`, `c965324`, `f51c49d`, `02fdf85`, `93dd5d0`            |
+| The final review's fixes: the completion-date hint names the technician and inspection signoffs, "Aaron" for the person, the risk register by risk, encryption stated once | `6a55e24`, `e27a691`, `8b40038`                                             |
+| A production build refuses to run in Cloudflare's Git builder (Workers Builds)                                                                                             | `341e7b6`                                                                   |
+| Google and Microsoft sign-in removed ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)); everyone signs in with a password; findings A3 and A10 closed    | `89555e7`, `130a257`, `c965324`, `f51c49d`, `da62e48`, `02fdf85`, `93dd5d0` |
 
-## 20 Nov 2026, release 4 — backups without encryption (ADR-0014), `8df41a2`
+## 20 Nov 2026, release 4: backups without encryption
 
-Released to production at `8df41a2`. Aaron decided that day that backups run without encryption ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)).
+Released to production at `8df41a2` (about 20:00 UTC). Aaron decided that day that backups run without encryption ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)).
 
 | Change                                                                                                                                   | Commit               |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
@@ -40,11 +59,15 @@ Released to production at `8df41a2`. Aaron decided that day that backups run wit
 
 ### Incident: "Configuration error" after the merge
 
-For about 30 minutes, at about 19:30–20:02 UTC on 20 Nov 2026, right after `8df41a2` reached `main`, production showed "Configuration error … VITE_CONVEX_URL is missing" with the unpinned CSP. Cloudflare's own Git build (Workers Builds) almost certainly built and published the repository without the backend address before the Deploy workflow published the release. A production build now refuses to run there (release 5), and the Git build must stay disconnected ([release runbook](../../runbooks/release.md#cloudflare), [risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
+For about 30 minutes, at about 19:30–20:02 UTC on 20 Nov 2026, right after `8df41a2` reached `main`, production showed "Configuration error … VITE_CONVEX_URL is missing" with the unpinned CSP.
+
+- **Cause:** Cloudflare's own Git build (Workers Builds) had been connected by mistake. It built the repository without the backend address and published it before the Deploy workflow did.
+- **End:** Deploy published release 4 at 20:02 UTC. Until then nobody could sign in or sync.
+- **Fix:** Aaron disconnected the Git build at about 20:15 UTC. From release 5 a production build refuses to run there. The Git build must stay disconnected ([release runbook](../../runbooks/release.md#cloudflare), [risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
 
 ## 20 Nov 2026, release 3: the purchasing window, lighter saves and the Weekly summary
 
-Released to production at `e99058c` (about 17:00 UTC). Aaron's answers that day: A, A, A, A ([decisions](decisions.md#20-nov-2026)).
+Released to production at `e99058c` (about 17:25 UTC). Aaron's answers that day: A, A, A, A ([decisions](decisions.md#20-nov-2026)).
 
 | Change                                                                                                              | Commit                                     |
 | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
@@ -59,7 +82,7 @@ Released to production at `e99058c` (about 17:00 UTC). Aaron's answers that day:
 
 ## 20 Nov 2026, release 2: history paging
 
-Released to production at `12bc9af` (about 08:40 UTC), with the catch-up migrations run afterwards. Plan stages S0–S8 ([history paging](../../history-paging.md), [ADR-0013](../../adr/0013-history-retention-window.md)).
+Released to production at `12bc9af` (about 14:30 UTC), with the catch-up migrations run afterwards. Plan stages S0–S8 ([history paging](../../history-paging.md), [ADR-0013](../../adr/0013-history-retention-window.md)).
 
 | Stage      | Change                                                                                                                                                     | Commit                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -82,7 +105,7 @@ Released to production at `12bc9af` (about 08:40 UTC), with the catch-up migrati
 
 ## 20 Nov 2026, release 1: the combined bug-fix release
 
-Released to production at `b5f2f56` (about 02:20 UTC): every open register bug, the 10 Nov bug hunt's 19 open findings, the open security findings, and the 19 Nov decisions. Ten branches were joined ([list below](#branches-joined)).
+Released to production at `0651e97` (about 03:15 UTC): every open register bug, the 10 Nov bug hunt's 19 open findings, the open security findings, and the 19 Nov decisions. Ten branches were joined ([list below](#branches-joined)).
 
 ### Bug register
 
@@ -145,7 +168,7 @@ Released to production at `b5f2f56` (about 02:20 UTC): every open register bug, 
 | FL-5  | A flight on an aircraft grounded mid-flight is held, not refused (settled 10 Nov)                                                              | D6       | [offline](../../offline.md#flights-held-for-review)              |
 | NA-15 | A newly set-up aircraft reads Setup incomplete (decided 10 Nov)                                                                                | D5       | [glossary](../../../GLOSSARY.md)                                 |
 
-Bug-hunt findings fixed in part before, finished here:
+Bug-hunt and stale-screen findings fixed in part or left open before, finished here:
 
 | Id          | Fix                                                                           | Commit                          |
 | ----------- | ----------------------------------------------------------------------------- | ------------------------------- |
@@ -154,10 +177,6 @@ Bug-hunt findings fixed in part before, finished here:
 | SE-15       | Changing the FAA key's renewal date schedules the system alert check          | `82987da`                       |
 | AC-7        | Only administrators are offered saving an address                             | `c701917`, `481f95e`, `3dacd1a` |
 | UI-12       | Purchasing quantity and cost fields keep typed text                           | `1e56398`                       |
-| PT-7        | The board view takes its year and quarter from the records time zone          | `3589a76`                       |
-| MX-9        | The flight plan queue names the profile status as such                        | `b7398e8`                       |
-| OP-3        | `setup:auth` keeps signing keys only as a complete pair                       | `a63d451`                       |
-| OP-12       | The release CSP check refuses a Convex URL with a port                        | `5e65c35`                       |
 | B7 (D20)    | Owners and board members are told where their settings went                   | `36d1c16`                       |
 | B9          | Theme offers "Match this device"                                              | `224c24f`                       |
 | C5 (D21)    | The glossary and docs say "job card"                                          | `5d340c5`, `b0c6465`            |
@@ -183,17 +202,23 @@ Bug-hunt findings fixed in part before, finished here:
 | S10           | Sign-out clears the device (with SE-7)                                                                                                                                                                         | `c743aa6`, `a23267b`                                  |
 | Upload checks | The file-contents check covers work-order, job-card, photo and license uploads, HEIC license copies, PDFs with leading bytes, and names each upload's own types; a manual that is not a PDF is deleted at once | `e6c928e`, `589ba16`, `8eed677`, `730b68e`, `50e05c2` |
 | Flight review | Every flight review needs a request id, so it is never applied twice                                                                                                                                           | `c37bf0c`                                             |
-| P4            | CodeQL default set-up on (19 Nov, a GitHub setting)                                                                                                                                                            | —                                                     |
+| C1, C4        | Cloudflare's "Add security headers" transform and Bot Fight Mode turned off (19 Nov, Cloudflare settings)                                                                                                      | —                                                     |
+| P4            | CodeQL default set-up recorded as turned on (19 Nov, a GitHub setting). On 20 Nov GitHub reported it not configured ([risks R13](../4-money-and-risk/risks.md#r13-public-repository))                          | —                                                     |
 
 ### Other changes in the release
 
-| Change                                                                                      | Commit               |
-| ------------------------------------------------------------------------------------------- | -------------------- |
-| The theme switches in one frame instead of fading part of the page                          | `89d96fe`            |
-| A held flight's offset start shows in UTC in its review                                     | `468d37a`            |
-| The size-test scripts kept in the repository                                                | `01b680b`            |
-| Headers on the Dockerfile, `_headers` and `wrangler.jsonc` for the stricter standards check | `dca6fca`            |
-| Status tables updated with each fix                                                         | `4625c7e`, `b5f2f56` |
+| Change                                                                                                                  | Commit               |
+| ----------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| The theme switches in one frame instead of fading part of the page                                                      | `89d96fe`            |
+| The board view takes its year and quarter from the records time zone (follows PT-7)                                     | `3589a76`            |
+| The flight plan queue says "Profile status", not "Aircraft status", for the status typed on the aircraft (follows MX-9) | `b7398e8`            |
+| `setup:auth` keeps signing keys only as a complete pair                                                                 | `a63d451`            |
+| The release CSP check refuses a Convex URL with a port                                                                  | `5e65c35`            |
+| A held flight's offset start shows in UTC in its review                                                                 | `468d37a`            |
+| The size-test scripts kept in the repository                                                                            | `01b680b`            |
+| Headers on the Dockerfile, `_headers` and `wrangler.jsonc` for the stricter standards check                             | `dca6fca`            |
+| Status tables updated with each fix                                                                                     | `4625c7e`, `b5f2f56` |
+| The secret scan allows the file-link tests' made-up key; CI had failed on `b5f2f56` without it                          | `0651e97`            |
 
 ### Branches joined
 
