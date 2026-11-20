@@ -8,17 +8,17 @@ work offline from the copy on the device.
 
 ## What raises an alert
 
-| Alert                                                                          | Who gets it                                                                | Urgent |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | ------ |
-| Inspection, AD or component limit due soon                                     | Members who can read the aircraft                                          |        |
-| Inspection or AD overdue, component past its limit                             | Members who can read the aircraft                                          | Yes    |
-| Aircraft grounded                                                              | Members who can read the aircraft                                          | Yes    |
-| AD to review                                                                   | Members who can read the aircraft                                          |        |
-| FAA documents to review                                                        | Members who can read the aircraft                                          |        |
-| Your own certificate (pilot medical or certificate expiration, 30 days before) | You                                                                        |        |
-| Expiring date coming due                                                       | Program dates: program administrators; system dates: system administrators |        |
-| Expiring date passed                                                           | Same                                                                       | Yes    |
-| One member's open problem reports reach half their limit                       | The program's administrators                                               | Yes    |
+| Alert                                                                        | Who gets it                                                                | Urgent |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------ |
+| Inspection, AD or component limit due soon                                   | Members who can read the aircraft                                          |        |
+| Inspection or AD overdue, component past its limit                           | Members who can read the aircraft                                          | Yes    |
+| Aircraft grounded                                                            | Members who can read the aircraft                                          | Yes    |
+| AD to review                                                                 | Members who can read the aircraft                                          |        |
+| FAA documents to review                                                      | Members who can read the aircraft                                          |        |
+| Your own certificate, medical or IA renewal: expiring in 30 days, or expired | You                                                                        |        |
+| Expiring date coming due                                                     | Program dates: program administrators; system dates: system administrators |        |
+| Expiring date passed                                                         | Same                                                                       | Yes    |
+| One member's open problem reports reach half their limit                     | The program's administrators                                               | Yes    |
 
 ## Use the Alerts page
 
@@ -32,7 +32,17 @@ again. An alert that ends and later comes back is new again.
 
 ## Email and device alerts
 
-Set them in **Settings → Alerts**.
+Set them in **Settings → Alerts**. How one alert reaches you:
+
+```mermaid
+flowchart TD
+  A[Something needs attention] --> B[Alert under the bell and on the Alerts page]
+  B --> C{Urgent?}
+  C -->|Yes| D[Email at once, if you have it on]
+  C -->|Yes| E[Message on each device you switched on]
+  C -->|No| F[Daily email digest, if you have it on]
+  D -->|Past 60 urgent emails that day| F
+```
 
 | Channel                            | What arrives                              | When                                  | On by default for              |
 | ---------------------------------- | ----------------------------------------- | ------------------------------------- | ------------------------------ |
@@ -48,8 +58,9 @@ Device alerts:
 
 - On iPhone and iPad, add the app to the Home Screen first (iOS 16.4 or later).
 - Supported browsers: Chrome, Edge, Firefox and Safari. Others get "This
-  browser's alert service is not supported. Use Chrome, Edge, Firefox or
-  Safari."
+  browser cannot receive alerts. Use a current Chrome, Edge, Firefox or
+  Safari." or "This browser's alert service is not supported. Use Chrome,
+  Edge, Firefox or Safari."
 - Signing out releases the device. The next person to switch it on takes it
   over.
 - The demo sends no alerts.

@@ -1,7 +1,19 @@
 # Troubleshooting
 
 Find the message you see, then follow the fix. Messages are quoted as the app
-shows them.
+shows them. Where to start:
+
+```mermaid
+flowchart TD
+  A[Something is not working] --> B{Does the top bar say Offline?}
+  B -->|Yes| C[Connect. Flights and problem reports still save and send later.]
+  B -->|No| D{Is there a message?}
+  D -->|Yes| E[Find it on this page and follow the fix]
+  D -->|No| F[Reload the page]
+  E --> G{Fixed?}
+  F --> G
+  G -->|No| H[Export pending entries in Sync center, then tell your Flight Program administrator]
+```
 
 ## Signing in
 
@@ -20,6 +32,18 @@ shows them.
 | **Something went wrong.**                                                                                                                              | Reload the page                                                                                                                                                                     |
 | "This part of the app could not be loaded on this device. Connect to the internet and try again; once it has been used online, it also works offline." | Connect once, open that screen, then it works offline too                                                                                                                           |
 | "A new version is ready. Save any open form first."                                                                                                    | Save your form, then **Reload now**                                                                                                                                                 |
+
+### Configuration error
+
+"This build has no backend configured (VITE_CONVEX_URL is missing), so sign-in
+and synchronization are unavailable. Contact your administrator."
+
+The website was published wrongly. Nothing on your device is lost.
+
+1. Reload the page.
+2. If the message stays, tell your administrator.
+3. Do not clear the browser's data. Entries waiting on the device send once
+   the site is fixed.
 
 ## Logging a flight
 
