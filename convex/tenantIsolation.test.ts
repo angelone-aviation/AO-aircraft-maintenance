@@ -178,6 +178,24 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
   "alerts:emailEnabled":
     "Says whether the deployment sends email, the same for everyone.",
 };
+const HISTORY_LISTS = [
+  api.history.flights,
+  api.history.discrepancies,
+  api.history.workOrders,
+];
+const EMPTY_HISTORY_PAGE = {
+  records: {
+    flights: [],
+    discrepancies: [],
+    workOrders: [],
+    taskCards: [],
+    archivedTaskCards: [],
+    costs: [],
+  },
+  members: [],
+  isDone: true,
+  continueCursor: null,
+};
 const EXPIRING_UUID = "22222222-2222-4222-8222-222222222222";
 const PUSH_SUBSCRIPTION = {
   endpoint: "https://fcm.googleapis.com/fcm/send/b-device",
@@ -534,6 +552,23 @@ const CASES: Case[] = [
   callQuery(api.auditHistory.summary, "its own week", () =>
     stampB({ from: "2026-01-01", to: "2026-12-31" }),
   ).returns(expect.objectContaining({ truncated: false })),
+  ...HISTORY_LISTS.flatMap((list) => [
+    callQuery(list, "A's aircraft", (a) =>
+      stampB({ aircraftUuid: a.row.aircraft.uuid, cursor: null, numItems: 50 }),
+    ).refuses(HISTORY_NOT_FOUND),
+    callQuery(list, "its own older history", () =>
+      stampB({ cursor: null, numItems: 50 }),
+    ).returns(EMPTY_HISTORY_PAGE),
+  ]),
+  callQuery(api.history.workOrder, "A's work order", (a) =>
+    stampB({ uuid: a.row.workOrders.uuid }),
+  ).refuses(HISTORY_NOT_FOUND),
+  callQuery(api.history.flightsInRange, "A's aircraft", (a) =>
+    stampB({ aircraftUuid: a.row.aircraft.uuid, from: 0, to: Date.now() }),
+  ).refuses(HISTORY_NOT_FOUND),
+  callQuery(api.history.flightsInRange, "its own aircraft", () =>
+    stampB({ aircraftUuid: B_AIRCRAFT, from: 0, to: Date.now() }),
+  ).returns({ flights: [], members: [] }),
   callQuery(api.alerts.readKeys, "program A", () => IN_A).refuses(
     STALE_PROGRAM,
   ),
