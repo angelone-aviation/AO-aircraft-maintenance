@@ -2,7 +2,7 @@
 
 The workspace keeps a retention window of history; older flights, problem reports and work orders load page by page ([ADR-0013](adr/0013-history-retention-window.md), decision D3, finding SZ-1). This page holds the window's rule, the read counts it is measured against, and every lookup by uuid the window can break, with what each one should do.
 
-Status, 20 Nov 2026: the rule exists in the domain and is tested (`src/domain/retention.ts`), the baseline is recorded (`convex/historyCost.test.ts`), and every row the window will index carries its derived columns, with a backfill for older rows (S2, below). Nothing reads the columns or calls the rule yet; the workspace still loads full history.
+Status, 20 Nov 2026: the rule exists in the domain and is tested (`src/domain/retention.ts`), the baseline is recorded (`convex/historyCost.test.ts`), every row the window will index carries its derived columns, with a backfill for older rows (S2, below), and the saves load a bounded working set instead of whole history, with numbering read from `recordNumbers` (S3, below). Nothing calls the rule yet; the workspace still loads full history.
 
 ## The window
 
@@ -39,6 +39,8 @@ What the workspace snapshot and the saves that load whole history read today, me
 | Purchase order save     | 1,592 / 1,964 / 2,336      | 1.14 / 1.59 / 2.03   | 27           |
 | Weekly summary, 7 days  | 1,414 / 1,786 / 2,158      | 1.07 / 1.49 / 1.92   | 29           |
 
+The saves' rows are the baseline from before S3; [Bounded saves](#bounded-saves-s3) has their reads since.
+
 - The administrator's and pilot's snapshots pass Convex's 16 MiB read limit at three years, as the size test found.
 - Index ranges do not grow: every loader reads one range per aircraft or program. Bytes are the limit history reaches.
 - S2's derived columns (below) add 1–4% to the bytes each read counts; documents and index ranges did not change.
@@ -48,20 +50,20 @@ What the workspace snapshot and the saves that load whole history read today, me
 
 The window's queries need indexes on fields that live inside a record's JSON payload, so each row copies those fields into columns of its own. `encode` in `convex/collections.ts` sets them on every write of a payload row, and `flightColumns` on every write of a flight's start; decoding never returns them, so the workspace, the change log and the readable records copy are unchanged. Every column is optional, so rows written before S2 stay valid until the backfill fills them. Nothing reads a column or a new table until S3.
 
-| Table              | Derived columns                                                                                                                                                                                                                                 | New indexes                                                                                       |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Flights            | `startedAt`: the start time in milliseconds, since the stored text keeps the pilot's offset and does not sort by instant                                                                                                                        | `[aircraftUuid, startedAt]`, `[aircraftUuid, submittedAt]`, `[aircraftUuid, status]`              |
-| Problem reports    | None: the fields are columns already                                                                                                                                                                                                            | `[aircraftUuid, status, createdAt]`, `[aircraftUuid, resolvedAt]`                                 |
-| Work orders        | `status`; `completionDate`; `numberKey` (the number in lower case, as the uniqueness check compares it); once closed, `closedAt`: the later of the close-out and the completion date's UTC midnight, absent for an order cancelled with neither | `[aircraftUuid, status, completionDate]`, `[aircraftUuid, closedAt]`, `[aircraftUuid, numberKey]` |
-| Job cards          | `workOrderUuid`; `numberKey`; once closed, `closedAt`: the card's last update, since a closed card takes no more edits                                                                                                                          | `[workOrderUuid]`, `[aircraftUuid, closedAt]`, `[aircraftUuid, numberKey]`                        |
-| Archived job cards | `workOrderUuid`; `numberKey`                                                                                                                                                                                                                    | `[workOrderUuid]`, `[aircraftUuid, numberKey]`                                                    |
-| Cost records       | `kind`; a work order's record also `workOrderUuid`                                                                                                                                                                                              | `[programUuid, kind]`, `[workOrderUuid]`                                                          |
-| Parts requests     | `sourceWorkOrderUuid` and `sourceUuid` from the request's source; `numberValue` (the sequence the next number continues)                                                                                                                        | `[sourceWorkOrderUuid]`, `[sourceUuid]`, `[programUuid, numberValue]`                             |
-| Purchase orders    | `numberValue`                                                                                                                                                                                                                                   | `[programUuid, numberValue]`                                                                      |
+| Table              | Derived columns                                                                                                                                                                                                                                 | New indexes                                                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Flights            | `startedAt`: the start time in milliseconds, since the stored text keeps the pilot's offset and does not sort by instant                                                                                                                        | `[aircraftUuid, startedAt]`, `[aircraftUuid, submittedAt]`, `[aircraftUuid, status]`                             |
+| Problem reports    | None: the fields are columns already                                                                                                                                                                                                            | `[aircraftUuid, status, createdAt]`, `[aircraftUuid, resolvedAt]`                                                |
+| Work orders        | `status`; `completionDate`; `numberKey` (the number in lower case, as the uniqueness check compares it); once closed, `closedAt`: the later of the close-out and the completion date's UTC midnight, absent for an order cancelled with neither | `[aircraftUuid, status, completionDate]`, `[aircraftUuid, closedAt]`, `[aircraftUuid, numberKey]`                |
+| Job cards          | `workOrderUuid`; `numberKey`; once closed, `closedAt`: the card's last update, since a closed card takes no more edits                                                                                                                          | `[workOrderUuid]`, `[aircraftUuid, workOrderUuid]` (S3), `[aircraftUuid, closedAt]`, `[aircraftUuid, numberKey]` |
+| Archived job cards | `workOrderUuid`; `numberKey`                                                                                                                                                                                                                    | `[workOrderUuid]`, `[aircraftUuid, numberKey]`                                                                   |
+| Cost records       | `kind`; a work order's record also `workOrderUuid`                                                                                                                                                                                              | `[programUuid, kind]`, `[workOrderUuid]`                                                                         |
+| Parts requests     | `sourceWorkOrderUuid` and `sourceUuid` from the request's source; `numberValue` (the sequence the next number continues)                                                                                                                        | `[sourceWorkOrderUuid]`, `[sourceUuid]`, `[programUuid, numberValue]`                                            |
+| Purchase orders    | `numberValue`                                                                                                                                                                                                                                   | `[programUuid, numberValue]`                                                                                     |
 
-Two tables are declared, empty until S3 and S4 fill them. Neither holds records: both are rebuilt from the records, and neither writes the change log.
+Two tables are declared: S3 fills the first, S4 the second. Neither holds records: both are rebuilt from the records, and neither writes the change log.
 
-- `recordNumbers`: every work order and job card number by aircraft (`aircraftUuid`, `kind`, `key`, `uuid`), indexed by `[aircraftUuid, kind, key]` and by `uuid`. Keyed by aircraft, the numbers move with an aircraft's records.
+- `recordNumbers`: every work order and live job card number by aircraft (`aircraftUuid`, `kind`, `key`, `uuid`), indexed by `[aircraftUuid, kind, key]` and by `uuid`. Keyed by aircraft, the numbers move with an aircraft's records.
 - `costLedger`: work-order spending by day (`programUuid`, `aircraftUuid`, `workOrderUuid`, `date`, `laborSeconds`, `laborCents`, `partsCents`, `otherCents`), indexed by `[programUuid, aircraftUuid, date]` and by `workOrderUuid`. Where an issued part's price comes from is decision D13's, so S2 assumes nothing about `partsCents`.
 
 Writes that bypassed `encode` now go through it: job-card evidence (`convex/taskCards.ts`), template copies and their progress (`convex/workOrderCopies.ts`), task-file imports (`convex/taskImports.ts`), recurring parts requests (`convex/recurringParts.ts`), purchase-order receipts' request updates (`convex/purchaseOrders.ts`) and the sample program (`convex/sampleProgram.ts`). Flight submissions and reviews (`convex/operations.ts`), the sample program and the load test's generator set `startedAt`. Every flight read decodes the row first (`decodeFlight`), so the column never reaches a screen or a change-log entry.
@@ -75,6 +77,58 @@ npx convex run migrations:backfillHistoryColumns
 ```
 
 It fills the columns table by table, 100 rows per transaction, writes no change-log row and changes no record. It answers `{ missing, tables }`: how many rows lacked their columns, now filled, in all and by table. Run it again until `missing` is 0. It is safe to rerun and beside live traffic, since every write since S2 sets the columns; a run cut short (an action's 10-minute limit) keeps what it filled, and the next run fills the rest. A payload its schema refuses stops it with "Cannot derive the columns of <table> row <uuid>.", after the pages before it are filled.
+
+## Bounded saves (S3)
+
+Each save loads only what its domain rules read; the appliers in `src/domain` are unchanged. The bounded reads live in `convex/workingSet.ts`, each within the caller's Flight Program, and return rows in the order a whole-history load does (by aircraft, then creation time), so a rule that takes the first match finds the same record. Inspections, component and inventory records, ADs, checklists and templates still load whole.
+
+| Save                                         | What it reads of history                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Work order (`convex/workOrders.ts`)          | The order by uuid; its job cards (`[workOrderUuid]`); the program's cards on no work order, templates among them (`[aircraftUuid, workOrderUuid]`); the aircraft's open problem reports, the work items it offers.                                                                                                                       |
+| Component correction                         | Also every order closed out since the corrected one (`[aircraftUuid, closedAt]`) and every order without a closing time, which covers rows written before the column. Past 200 later close-outs it refuses with "Manual review required: later component maintenance or movement exists. …" rather than check a partial history.         |
+| Template copy (`convex/workOrderCopies.ts`)  | The aircraft's cards on no work order, and the order's own cards.                                                                                                                                                                                                                                                                        |
+| Recurring parts (`convex/recurringParts.ts`) | Requests raised on the order (`[sourceWorkOrderUuid]`) or on its items' records, the lists among them (`[sourceUuid]`), and the program's highest-numbered request (`[programUuid, numberValue]`).                                                                                                                                       |
+| Job card (`convex/taskCards.ts`)             | The card by uuid; the work orders and problem reports its fields, its link or the stored card name; those orders' cards; the cards on no work order of its aircraft (the CSV import check); its prerequisites and theirs, by uuid, until none is missing.                                                                                |
+| Job card evidence                            | The card and its work order.                                                                                                                                                                                                                                                                                                             |
+| Parts request (`convex/partsRequests.ts`)    | The work order, job card (live or archived) and problem report its draft and stored request name; the order owning that card; those orders' cards, archived cards and cost records, on which D13 prices issues; the program's open work orders, which a saved recurring list serves. Parts requests and purchase orders load whole (H5). |
+| Cost (`convex/costs.ts`)                     | The program's budgets and labor rate and the order's cost records; a part's unit cost also the order's live and archived cards and the requests raised on the order or on those cards.                                                                                                                                                   |
+| Purchase order (`convex/purchaseOrders.ts`)  | The work orders its draft lines, or the lines of the orders it names, point to. Parts requests and purchase orders load whole (H5).                                                                                                                                                                                                      |
+| AD (`convex/airworthiness.ts`)               | The work orders its actions or compliance entry name.                                                                                                                                                                                                                                                                                    |
+| Weekly summary (`convex/auditHistory.ts`)    | The cost records, parts requests and purchase orders that change-log rows the visibility rule still hides name, by uuid, round by round: those records only widen what the rule shows. Past 100 records looked up, the period is reported cut short, as past 4,000 rows. History's pages keep the full load.                             |
+
+What they read at the size test's volume (`convex/__golden__/historyCost.json`), before S3 and since:
+
+| Read                    | Documents, 1 / 3 years, before | Documents, 1 / 3 years, since | MiB, 1 / 3 years, before | MiB, 1 / 3 years, since | Index ranges, since |
+| ----------------------- | ------------------------------ | ----------------------------- | ------------------------ | ----------------------- | ------------------- |
+| Work order save         | 2,970 / 5,982                  | 1,485 / 1,485                 | 4.38 / 11.37             | 0.94 / 0.94             | 50                  |
+| Job card save           | 2,546 / 5,198                  | 1,239 / 1,239                 | 3.93 / 10.39             | 0.75 / 0.75             | 36                  |
+| Job card evidence check | 2,547 / 5,199                  | 16 / 16                       | 3.92 / 10.39             | 0.01 / 0.01             | 15                  |
+| Parts request save      | 3,086 / 6,338                  | 1,766 / 2,366                 | 4.49 / 11.71             | 1.27 / 2.03             | 35                  |
+| Part unit cost          | 1,476 / 2,340                  | 1,059 / 1,059                 | 1.47 / 3.13              | 0.68 / 0.68             | 35                  |
+| Purchase order save     | 1,592 / 2,336                  | 1,520 / 2,120                 | 1.14 / 2.03              | 1.08 / 1.84             | 21                  |
+| Weekly summary, 7 days  | 1,414 / 2,158                  | 1,038 / 1,038                 | 1.07 / 1.92              | 0.63 / 0.63             | 26                  |
+
+- Five reads are flat: the same at one, two and three fleet-years, which `historyCost.test.ts` holds to within 10% of year 1.
+- The parts request and purchase order saves grow by exactly the requests and orders a year adds (300 at this volume, about 0.4 MiB), since H5 keeps those complete; nothing else they read grows.
+- `convex/boundedSaves.test.ts` runs each save, and a new order and card numbered blank and a work item with a template and a recurring list, at one and three fleet-years, and expects the same result and the same rows written.
+
+### Numbering
+
+A work order or job card save numbers from `recordNumbers` (`convex/recordNumbers.ts`) instead of every record: the rows equal to the number the command or the record names, and those starting with the year's prefix (`workOrderNumberPrefix`, `cardNumberPrefix`). The domain keeps its rules (the first free number, unique ignoring case, live cards only) and takes the numbers as an option; the demo reads its snapshot. `writeChanged` and the direct inserts (template copies, task-file imports, the sample program) write a record's row, and deleting a job card (archiving it with a removed item, or deleting its template) drops it. Parts request and purchase order numbers continue from the highest `numberValue`, which one index row gives; they need no number rows.
+
+### Before deploying S3
+
+Bounded saves find rows by their derived columns, so on a deployment holding rows from before S2, `migrations:backfillHistoryColumns` must report 0 before S3 serves saves. A row without its columns is invisible to them: a work order could close with an open job card that lacks its `workOrderUuid`. Component corrections are the exception, reading orders without a closing time too.
+
+### Rebuilding the number rows
+
+After deploying S3, after restoring any backup, and after loading the load test's generated history:
+
+```bash
+npx convex run migrations:rebuildRecordNumbers
+```
+
+It writes each work order's and live job card's missing or stale row, then deletes rows no live record holds, 100 rows per transaction, and answers `{ missing, tables }`: rows written or deleted, in all and by table paged (`recordNumbers` counts the deleted). Run it until `missing` is 0; until then a blank number can repeat one an older record holds. It writes no record and no change-log row, and is safe beside live traffic. A payload its schema refuses stops it with "Cannot derive the columns of <table> row <uuid>.".
 
 ## Lookups by uuid the window can break
 
@@ -121,7 +175,7 @@ One assumption holds throughout: a record a screen shows from a history page is 
 
 ### Saves: domain rules on the server's load (S3)
 
-These run inside the server's saves, which load full history today, and in the demo, which keeps the full snapshot and is not affected. The last column says what S3's bounded load must include.
+These run inside the server's saves, and in the demo, which keeps the full snapshot and is not affected. The last column says what S3's bounded load must include; [Bounded saves](#bounded-saves-s3) says what it does. The cost record before a change (`costs/commands.ts:240`) is loaded with its order since S3.
 
 | Where                                             | What it looks up                                  | What should happen                                                                                                                                       |
 | ------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -140,13 +194,13 @@ These run inside the server's saves, which load full history today, and in the d
 
 ### Server functions (S3 and S4)
 
-| Where                        | What it looks up                                                     | What should happen                                                           |
-| ---------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `convex/workOrders.ts:245`   | A work order's aircraft, among every order of the program            | Load on demand: use the order `findWorkOrder` already read by uuid (`:236`). |
-| `convex/taskCards.ts:105`    | The job card an evidence upload is checked against, among every card | Load on demand: by uuid.                                                     |
-| `convex/taskCards.ts:128`    | The job card an upload is filed on                                   | Load on demand: by uuid.                                                     |
-| `convex/taskCards.ts:206`    | The job card evidence is removed from                                | Load on demand: by uuid.                                                     |
-| `convex/auditHistory.ts:199` | Every cost record, for History's visibility rule                     | Load on demand (S4), as `src/domain/programs.ts:493`.                        |
+| Where                        | What it looks up                                                     | What should happen                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `convex/workOrders.ts:245`   | A work order's aircraft, among every order of the program            | Load on demand: use the order `findWorkOrder` already read by uuid (`:236`).                                                               |
+| `convex/taskCards.ts:105`    | The job card an evidence upload is checked against, among every card | Load on demand: by uuid.                                                                                                                   |
+| `convex/taskCards.ts:128`    | The job card an upload is filed on                                   | Load on demand: by uuid.                                                                                                                   |
+| `convex/taskCards.ts:206`    | The job card evidence is removed from                                | Load on demand: by uuid.                                                                                                                   |
+| `convex/auditHistory.ts:199` | Every cost record, for History's visibility rule                     | Load on demand (S4), as `src/domain/programs.ts:493`. The Weekly summary reads them by uuid since S3 (H6); History's pages still read all. |
 
 ### Numbering, by number rather than uuid (S3)
 
@@ -155,7 +209,7 @@ These run inside the server's saves, which load full history today, and in the d
 | `src/domain/workOrders.ts:929` | The program's work-order numbers, for uniqueness and the next free `WO-YYYY-NNNN` | Refuse a number the load cannot vouch for until `recordNumbers` exists: once older orders leave the load, a number can repeat silently. |
 | `src/domain/taskCards.ts:1075` | The program's job card numbers                                                    | As above.                                                                                                                               |
 
-Parts request and purchase order numbers scan collections that stay complete, so they are not affected.
+Parts request and purchase order numbers scan collections that stay complete, so they are not affected. Since S3 both rows read `recordNumbers` ([Numbering](#numbering)).
 
 ### Not affected
 
@@ -193,3 +247,10 @@ Not lookups by uuid, but lists and totals that shrink with the window, for S6 an
 - **An archived job card has no `archivedAt`.** A card is archived unchanged, and only its work order dates the removal (`archivedTasks[].removedAt`), so the card has no archive time to copy. It pages with its work order, which needs only `workOrderUuid`.
 - **Later events on a closed work order have no column.** The window keeps a closed order revised, corrected or with an item removed in the last 90 days, but `closedAt` dates only the closing. S7 needs another derived column for those events (another backfill), or such an order drops out of the workspace.
 - **The paging order has no index yet.** `historyPage` pages flights by start time as recorded (the text) and work orders by `recordedAt`, equal keys by uuid; the new indexes order flights by `startedAt`, no column holds a work order's `recordedAt`, and Convex breaks index ties by creation time. S5 either pages by the indexed fields, with the oracle changed to match, or adds indexes on `startTime` (no backfill) and a `recordedAt` column (a backfill).
+- **Parts requests and purchase orders still load whole in their own saves (S3).** H5 keeps them complete, and those saves read them for request ids, open repairs and purchase allocations, which no index covers. Bounded otherwise, the two saves grow by the requests and orders a year adds: about 0.4 MiB a year at the size test's volume, about 8.5 MiB at 20 years, inside Convex's 16 MiB but not the plan's four times headroom. Paging them waits on H5.
+- **`recordNumbers` numbers work orders and job cards only.** Parts request and purchase order numbers continue from the highest number, which S2's `[programUuid, numberValue]` index gives in one row; a table would add writes and nothing else. The plan's numbering for all four needs it only for the first two.
+- **`recordNumbers` overlaps S2's `numberKey` indexes.** `[aircraftUuid, numberKey]` on work orders and job cards could check one number's uniqueness, but the next free number scans a year's numbers, and Convex reads whole documents: a year of job cards is about 1,000 documents, against 1,000 small number rows.
+- **S3 adds an index.** S2 indexed job cards by `[workOrderUuid]` alone, which finds the cards on no work order of every program; `[aircraftUuid, workOrderUuid]` finds an aircraft's.
+- **Saves need S2's backfill finished.** The plan runs it after S2; if S2 and S3 deploy together, saves must wait for it ([Before deploying S3](#before-deploying-s3)).
+- **A correction refuses past 200 later close-outs, and the Weekly summary past 100 looked-up records.** Both are bounds the plan did not set; each refuses or reports the period cut short rather than read without limit.
+- **The AD save is bounded too.** The brief listed seven saves; the lookup table above lists the AD save's work order check with them.
