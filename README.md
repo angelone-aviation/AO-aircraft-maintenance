@@ -332,7 +332,7 @@ Until it runs, those older files still show: the workspace snapshot reads them t
 
 History paging (stages S2 to S7) adds three one-off steps. Run them in this order after deploying it, and again after restoring any backup, each until it reports 0:
 
-1. `migrations:backfillHistoryColumns`, the derived columns, S7's `changedAt` and `latestAt` among them, and each job-card evidence file's work order and inventory file's program;
+1. `migrations:backfillHistoryColumns`, the derived columns, S7's `changedAt` and `latestAt` among them, each job-card evidence file's work order and inventory file's program, and the parts requests' and purchase orders' lookup keys (H5);
 2. `migrations:rebuildRecordNumbers`, the number rows;
 3. `migrations:rebuildCostLedger`, the cost ledger; then check that `npx convex run migrations:reconcileCostLedger` answers `differing: 0` and logs no "The cost ledger differs from its records."
 
@@ -342,7 +342,7 @@ After deploying the version that adds the history window's derived columns (hist
 npx convex run migrations:backfillHistoryColumns
 ```
 
-Saves read the columns from stage S3, so on a deployment holding rows from before S2, the backfill must reach 0 before S3 serves saves: a bounded save does not see a row without its columns. Since S7 the workspace reads the window through them too; until the count reaches 0 it reads the rows without them as well, so it loads more, never less, and the history pages refuse until then. Details: [history paging](docs/history-paging.md#before-deploying-s7).
+Saves read the columns from stage S3, so on a deployment holding rows from before S2, the backfill must reach 0 before S3 serves saves: a bounded save does not see a row without its columns. Since H5 the parts-request and purchase-order saves find other requests and orders by their lookup keys, which the same backfill fills: until it reaches 0 they can miss a reused request id, an open repair or an allocation on a record written before the keys. Since S7 the workspace reads the window through them too; until the count reaches 0 it reads the rows without them as well, so it loads more, never less, and the history pages refuse until then. Details: [history paging](docs/history-paging.md#before-deploying-s7).
 
 After deploying stage S3, and again after restoring any backup, rebuild the work order and job card number rows that numbering reads. It writes no change-log row and changes no record; it answers how many rows it wrote or deleted. Run it until that count is 0:
 
