@@ -5,7 +5,7 @@
  *   password flow but sign-in is closed; that sign-out ends the session on
  *   the server; and that a forged refresh token signs no one out.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: @convex-dev/auth, jose, convex (auth, admin, identities,
+ * Dependencies: @convex-dev/auth, jose, convex (auth, admin, operations,
  *   schema).
  */
 import { convexTest } from "convex-test";
@@ -152,13 +152,11 @@ it("closes every password flow but sign-in, and sign-out ends the session on the
   const asPilot = t.withIdentity({
     subject: `${user}|${before.sessions[0]._id}`,
   });
-  expect(await asPilot.query(api.identities.mine, {})).toEqual([]);
+  expect(await asPilot.query(api.operations.signedInUser, {})).toBe(user);
   await asPilot.action(api.auth.signOut, {});
   expect(await rows()).toEqual({ users: 1, sessions: [], tokens: 0 });
   // The signed-out token is refused even before it expires.
-  await expect(asPilot.query(api.identities.mine, {})).rejects.toThrow(
-    "An active account and session are required.",
-  );
+  expect(await asPilot.query(api.operations.signedInUser, {})).toBeNull();
 });
 
 it("stores nothing for a code exchange naming an email or phone, which no sign-in method uses", async () => {

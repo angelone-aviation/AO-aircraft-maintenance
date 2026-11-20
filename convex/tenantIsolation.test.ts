@@ -161,11 +161,9 @@ interface Attempt {
 const NOT_PROGRAM_SCOPED: Record<string, string> = {
   "fileTokens:serve":
     "Serves only a file named by a signed link that fileLinks:links issued; the issuing call is attacked.",
-  "identities:providers": "Lists the enabled sign-in buttons, before sign-in.",
   "auth:signIn": "Convex Auth's sign-in; the caller has no session yet.",
   "auth:signOut": "Convex Auth; ends the caller's own session.",
   "auth:isAuthenticated": "Convex Auth; answers for the caller's own session.",
-  "identities:mine": "Lists the caller's own linked identities.",
   "operations:signedInUser": "Returns the caller's own user id.",
   "admin:saveLogbookPhrases": "Writes the caller's own logbook phrases.",
   "admin:saveReleaseStatements": "Writes the caller's own release statements.",
@@ -775,13 +773,6 @@ const CASES: Case[] = [
     id: a.alice,
     password: NEW_ACCOUNT.password,
   })).refuses(ADMIN),
-  callQuery(api.identities.forUser, "Alice's sign-ins", (a) => ({
-    userId: a.alice,
-  })).refuses(ADMIN),
-  callMutation(api.identities.remove, "Alice's Google sign-in", (a) => ({
-    userId: a.alice,
-    id: a.row.authAccounts._id,
-  })).refuses(ADMIN),
   callMutation(api.defaultGroups.initialize, "program A", () => IN_A).refuses(
     ADMIN,
   ),
@@ -1332,8 +1323,6 @@ async function addFilesOfA(
   });
   const storageId = await storePdf(ctx);
   await ctx.db.insert("aircraftPhotos", { aircraftUuid, storageId });
-  const google = { provider: "google", providerAccountId: "alice" };
-  await ctx.db.insert("authAccounts", { userId: alice, ...google });
   const name = ADDRESS.organization;
   await ctx.db.insert(
     "savedAddresses",

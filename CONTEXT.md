@@ -17,7 +17,7 @@ flowchart LR
     Static["dist/ (Vite build)<br/>public/_headers: CSP, HSTS"]
   end
   subgraph Convex["Convex deployment (convex/)"]
-    Auth["Convex Auth<br/>password; Google, Microsoft optional"]
+    Auth["Convex Auth<br/>password"]
     Fns["queries, mutations, actions"]
     DB[("database<br/>schema.ts")]
     Files[("file storage<br/>manuals, attachments, Form 337s")]
@@ -166,7 +166,7 @@ rg -n "convex/|@convex-dev" src/components                                      
 Invariants:
 
 1. **Business rules live once, in `src/domain`.** Both adapters and the server call the same functions; components shape forms into commands and display results.
-2. **The server enforces every permission.** Every public query, mutation and action reaches `checkContext`, `authorized`, `admin`, `currentUser` or `activeIdentity` (directly, through `runCommand`, or through a file-local helper such as `access()` or `authorize()`); actions first call an internal function that checks. Apart from the Convex Auth library's sign-in endpoints, the public functions without a check are `identities.providers`, which lists the enabled sign-in buttons, and `pushSubscriptions.publicKey`, which returns the deployment's VAPID public key (public by design: every browser that subscribes receives it; it also tells a caller whether push is configured, nothing more). The HTTP route `/files/v1/<token>` (`convex/fileTokens.ts` `serve`, registered in `convex/http.ts`) takes no session either: its signed, five-minute token is the credential, issued only by `fileLinks.links` after the snapshot's own listing rule ([file links](docs/file-links.md)). Client checks (`can()` in `enqueue`, hidden navigation) are convenience only. `checkContext` also rejects a stale `programUuid` and every call from an owner view (owners read only the snapshot).
+2. **The server enforces every permission.** Every public query, mutation and action reaches `checkContext`, `authorized`, `admin`, `currentUser` or `activeIdentity` (directly, through `runCommand`, or through a file-local helper such as `access()` or `authorize()`); actions first call an internal function that checks. Apart from the Convex Auth library's sign-in endpoints, the only public function without a check is `pushSubscriptions.publicKey`, which returns the deployment's VAPID public key (public by design: every browser that subscribes receives it; it also tells a caller whether push is configured, nothing more). The HTTP route `/files/v1/<token>` (`convex/fileTokens.ts` `serve`, registered in `convex/http.ts`) takes no session either: its signed, five-minute token is the credential, issued only by `fileLinks.links` after the snapshot's own listing rule ([file links](docs/file-links.md)). Client checks (`can()` in `enqueue`, hidden navigation) are convenience only. `checkContext` also rejects a stale `programUuid` and every call from an owner view (owners read only the snapshot).
 3. **The change log is append-only.** `writeAudit` (`convex/access.ts`) is the only insert into `audit`, and no code patches or deletes a row. A transfer adds `transferredAudit` links instead of re-tagging rows. Corrections append a new entry with a reason. Protection beyond the code: [ADR-0005](docs/adr/0005-audit-log-protection-by-access-and-backups.md), [ADR-0010](docs/adr/0010-one-convex-administrator.md).
 4. **The demo adapter goes through the same domain rules.** `demoBackend` calls the same appliers and `submitOperation`; a rejected demo outbox entry is rethrown as `ConvexError` so the Sync center treats it like a server rejection.
 5. **No secrets reach the browser.** The bundle reads only `VITE_CONVEX_URL`, `VITE_DEMO_MODE`, `VITE_ALLOW_DEMO`, and the public Sentry DSN and release (`VITE_SENTRY_DSN`, `VITE_SENTRY_RELEASE`). Integration keys live in Convex environment variables or in rows sealed with AES-GCM (`convex/secrets.ts`, `CREDENTIALS_ENCRYPTION_KEY`), are decrypted only inside server actions, and status queries say whether a key is configured, never what it is. The key that signs file links is derived from the credential key on the server (`fileLinkKey`) and never leaves it.
@@ -177,7 +177,7 @@ Current violations and exceptions (2026-11-03). Record fixes in `REFACTOR_ROADMA
 
 - Domain modules that do network I/O: none since Batches 322 and 323. The Geoapify request lives in `convex/addressVerification.ts` and the FAA DRS requests in `convex/faaDrs.ts`; `src/domain` keeps only the pure parsing and merging.
 - Rules written twice, once per adapter (invariants 1 and 4), and drifted: none known. The FAA monitor command (`runFaaCommand`), program selection (`selectProgram`) and the account checks the demo skipped moved into `src/domain` (roadmap Finding 59, 2026-11-19); flight review and discrepancy resolve were fixed by T11 and T2 (Batches 267–269, 297–300).
-- UI importing Convex directly: `src/components/SignInMethods.tsx:14-17` (`useQuery(api.identities.providers)` at :89, `useAuthActions` at :90; a pre-workspace sign-in screen like `main.tsx`). Screens and the outbox share one message helper, `errorText` in `src/data/errors.ts` (Batches 324, 418, 419); `Components.tsx:465` and `Management.tsx:1119` still show `error.message`.
+- UI importing Convex directly: none in `src/components` since the Google and Microsoft sign-in screen went (ADR-0015); `main.tsx` is the entry point allowed above. Screens and the outbox share one message helper, `errorText` in `src/data/errors.ts` (Batches 324, 418, 419); `Components.tsx:465` and `Management.tsx:1119` still show `error.message`.
 - Form-to-command shaping stays in components, for example the close-out readings in `WorkOrders.tsx`; ADR-0006 moves only those readings into the domain, after launch.
 - Minor: `src/data/auditHistory.ts:1` is a React hook in the data layer; `src/data/store.ts:64-68` hard-codes draft-key prefixes owned by `GuidedFlight.tsx:55`, `FlightSession.tsx:49` and `Checklists.tsx:77`.
 
@@ -255,7 +255,7 @@ Decisions ([docs/adr/](docs/adr/)):
 
 | ADR | Decision |
 |---|---|
-| [0001](docs/adr/0001-sso-in-app-not-cloudflare-access.md) | Access control stays in the app; Cloudflare Access is not the gate. |
+| [0001](docs/adr/0001-sso-in-app-not-cloudflare-access.md) | Access control stays in the app; Cloudflare Access is not the gate. Superseded in part by 0015. |
 | [0002](docs/adr/0002-administrator-provisioned-accounts.md) | Administrators provision accounts; no public sign-up or self-service reset. |
 | [0003](docs/adr/0003-server-writes-through-one-command-transaction.md) | Server writes go through one command transaction (`runCommand`). |
 | [0004](docs/adr/0004-logbook-generator-and-status-record-system.md) | Logbook-entry generator and status-record system, not the signed record. |
@@ -263,9 +263,10 @@ Decisions ([docs/adr/](docs/adr/)):
 | [0006](docs/adr/0006-architecture-cleanup-priorities-before-launch.md) | Which architecture cleanups happen before launch. |
 | [0007](docs/adr/0007-convex-pro-single-seat.md) | Convex Pro, one seat, one project. |
 | [0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md) | Daily off-site backups, 90 days, monthly forever. |
-| [0009](docs/adr/0009-password-for-everyone-plus-google-and-microsoft.md) | Everyone keeps a password; Google and Microsoft alongside. |
+| [0009](docs/adr/0009-password-for-everyone-plus-google-and-microsoft.md) | Everyone keeps a password; Google and Microsoft alongside. Superseded in part by 0015: password rules and sign-in log stand. |
 | [0010](docs/adr/0010-one-convex-administrator.md) | One Convex administrator. |
 | [0011](docs/adr/0011-readable-records-copy-in-dropbox.md) | Readable records copy in Dropbox. |
 | [0012](docs/adr/0012-urgent-alerts-by-web-push-and-immediate-email.md) | Urgent alerts reach people by Web Push and an immediate email; expiring dates are records. |
 | [0013](docs/adr/0013-history-retention-window.md) | The workspace keeps a retention window of history; older records load page by page. |
 | [0014](docs/adr/0014-backups-stored-unencrypted.md) | Off-site backups are stored unencrypted (Aaron, 20 Nov 2026) unless a backup key is set; the environment variables are then not saved. |
+| [0015](docs/adr/0015-remove-google-and-microsoft-sign-in.md) | Google and Microsoft sign-in removed; everyone signs in with a password. |

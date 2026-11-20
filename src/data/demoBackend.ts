@@ -1259,11 +1259,6 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         "The local demo has no real accounts or passwords. Configure Convex to manage credentials.",
       );
     },
-    // Demo users cannot sign in, so none has a linked Google or Microsoft account.
-    linkedIdentities: async () => [],
-    removeIdentity: async () => {
-      throw new Error("The local demo has no linked sign-in accounts.");
-    },
     alertReads: async (programUuid) =>
       (await local.readFavorites(demoAlertReadsKey(workspace, programUuid))) ??
       [],
@@ -1304,7 +1299,6 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     // The demo shows the alert email switches a deployment with email shows;
     // like everything else in the demo, it sends nothing.
     alertEmailEnabled: async () => true,
-    signInProviders: async () => [],
     setAlertEmails: (emailAlerts) =>
       modify((s) => {
         s.user = { ...s.user, emailAlerts };

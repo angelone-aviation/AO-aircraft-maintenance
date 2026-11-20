@@ -6,14 +6,16 @@
  *   refused sign-ins counted only where they are read, and the flag set when
  *   the scan or lookup budget cuts the period short.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/auditHistory, convex/collections, src/data/demo,
+ * Dependencies: convex/access (audit), convex/auditHistory,
+ *   convex/collections, src/data/demo,
  *   src/domain (auditSummary, purchaseOrders, partsRequests, costs,
  *   management).
  */
 import { convexTest } from "convex-test";
 import { afterEach, it, expect, vi } from "vitest";
 import schema from "./schema";
-import { api, internal } from "./_generated/api";
+import { api } from "./_generated/api";
+import { audit } from "./access";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { summary } from "./auditHistory";
 import { demoSnapshot } from "../src/data/demo";
@@ -292,12 +294,17 @@ it("counts refused sign-ins for a system administrator in Unassigned records onl
       return `${userId}|${session}`;
     });
   await t.run((ctx) => ctx.db.insert("programs", demoSnapshot().programs![0]));
-  await t.mutation(internal.identities.recordRefusal, {
-    provider: "google",
-    providerAccountId: "1234567890",
-    email: "stranger@example.test",
-    reason: "no_account",
-  });
+  // A refused sign-in as the removed Google sign-in logged it (ADR-0015):
+  // older entries like it stay in the change log.
+  await t.run((ctx) =>
+    audit(ctx, "system", "user.sign_in_refused", "google:1234567890", {
+      after: {
+        method: "google",
+        reason: "no_account",
+        email: "stranger@example.test",
+      },
+    }),
+  );
   const unassigned = t.withIdentity({ subject: await subject("") });
   const result = await unassigned.query(api.auditHistory.summary, WEEK);
   expect(result.accountWide).toBe(true);

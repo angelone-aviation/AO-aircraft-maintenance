@@ -21,9 +21,11 @@ import { DAY } from "./rateLimits";
 export const CLEANUP_PAGE_SIZE = 200;
 
 /**
- * How old an unredeemed sign-in verifier must be to go. The library's OAuth
- * state cookies last 15 minutes (`@convex-dev/auth` server/oauth/checks.js
- * and cookies.js), so a verifier a day old can no longer complete a sign-in.
+ * How old an unredeemed sign-in verifier must be to go. Only the library's
+ * OAuth sign-in creates verifiers, which no method here uses since ADR-0015;
+ * the sweep stays for rows an earlier version left. Its state cookies last 15
+ * minutes (`@convex-dev/auth` server/oauth/checks.js and cookies.js), so a
+ * verifier a day old can no longer complete a sign-in.
  */
 export const VERIFIER_MAX_AGE_MS = DAY;
 
