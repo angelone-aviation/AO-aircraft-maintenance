@@ -3,9 +3,10 @@
  *   size test's volume for one or more fleet-years, as the app stores it, and
  *   one account per kind of view.
  * Layer: Test. Fixture for convex-test suites; never shipped in the build.
- * Dependencies: convex/_generated (types), convex/collections.ts (codec),
- *   convex/recordNumbers.ts, convex/costLedger.ts, src/data/demo.ts,
- *   src/domain stored-record schemas and builders.
+ * Dependencies: convex-test, convex/_generated and convex/schema (types),
+ *   convex/collections.ts (codec), convex/recordNumbers.ts,
+ *   convex/costLedger.ts, src/data/demo.ts, src/domain stored-record schemas
+ *   and builders.
  *
  * Volumes follow the size test's profile (per aircraft per year: 300
  * flights, 12 work orders of 15 job cards, 30 problem reports, 60 flight
@@ -15,7 +16,9 @@
  * Earlier years repeat the newest year's records a year apart, all closed,
  * after it in each table, so the one-year database is unchanged.
  */
+import type { TestConvex } from "convex-test";
 import type { MutationCtx } from "../../convex/_generated/server";
+import type schema from "../../convex/schema";
 import type { Id } from "../../convex/_generated/dataModel";
 import { decode, encode, type StoredRow } from "../../convex/collections";
 import { recordNumberOf } from "../../convex/recordNumbers";
@@ -115,17 +118,60 @@ type Row = Record<string, unknown>;
  * @returns The accounts' convex-test identity subjects and the counts.
  * @throws {RangeError} When `years` is not a whole number of at least 1.
  */
-export async function seedProgramVolume(
+export function seedProgramVolume(ctx: MutationCtx, at: number, years = 1) {
+  return seedVolume(ctx, at, years, Date.now() + DAY);
+}
+
+/**
+ * Seeds as {@link seedProgramVolume}, but creates each change-log row at its
+ * own `at`, as the app writes it, so a read by creation time (the Weekly
+ * summary's) finds a period's rows. convex-test pins the clock for a whole
+ * transaction and never dates a row before an earlier one, so the rest is
+ * seeded first, before the oldest row, then the rows one transaction per
+ * time.
+ *
+ * @param setClock - Sets the test's clock, such as `vi.setSystemTime`; it is
+ *   back at the time of the call when this resolves.
+ * @returns As {@link seedProgramVolume}.
+ * @throws {RangeError} As {@link seedProgramVolume}.
+ */
+export async function seedProgramVolumeOverTime(
+  t: TestConvex<typeof schema>,
+  at: number,
+  years: number,
+  setClock: (ms: number) => void,
+) {
+  const now = Date.now();
+  const audit: Row[] = [];
+  setClock(at - (years + 1) * YEAR);
+  const seeded = await t.run((ctx) =>
+    seedVolume(ctx, at, years, now + DAY, audit),
+  );
+  for (const [time, rows] of groupByTime(audit)) {
+    setClock(time);
+    await t.run(async (ctx) => {
+      for (const row of rows) await ctx.db.insert("audit", row as never);
+    });
+  }
+  setClock(now);
+  return seeded;
+}
+
+// Seeds the volume; with `deferredAudit`, the change-log rows go there to be
+// inserted later instead of into the database.
+async function seedVolume(
   ctx: MutationCtx,
   at: number,
-  years = 1,
+  years: number,
+  sessionsEnd: number,
+  deferredAudit?: Row[],
 ) {
   if (!Number.isInteger(years) || years < 1)
     throw new RangeError(
       `Volume years must be a whole number from 1: ${years}`,
     );
   const gen = new Generator(at);
-  const ids = await seedPeople(ctx);
+  const ids = await seedPeople(ctx, sessionsEnd);
   gen.users = ids.users;
   await ctx.db.insert("programs", demoSnapshot().programs![0]);
   const blob = await ctx.storage.store(new Blob(["%PDF-1.4 evidence"]));
@@ -133,6 +179,7 @@ export async function seedProgramVolume(
   for (let back = 1; back < years; back++) gen.pastYear(tables, back, blob);
   tables.recordNumbers = numberRows(tables);
   tables.costLedger = ledgerRows(tables);
+  if (deferredAudit) deferredAudit.push(...tables.audit.splice(0));
   for (const [table, rows] of Object.entries(tables))
     for (const row of rows) await ctx.db.insert(table as "audit", row as never);
   return {
@@ -209,6 +256,17 @@ function ledgerRows(tables: Record<string, Row[]>) {
   );
 }
 
+// The change-log rows by `at`, oldest first.
+function groupByTime(rows: Row[]): [number, Row[]][] {
+  const byTime = new Map<number, Row[]>();
+  for (const row of rows) {
+    const time = Number(row.at);
+    byTime.set(time, byTime.get(time) ?? []);
+    byTime.get(time)!.push(row);
+  }
+  return [...byTime].sort(([a], [b]) => a - b);
+}
+
 // The number rows the app writes beside each work order and job card.
 function numberRows(tables: Record<string, Row[]>) {
   const rows = (collection: "workOrders" | "taskCards") =>
@@ -218,7 +276,7 @@ function numberRows(tables: Record<string, Row[]>) {
   return [...rows("workOrders"), ...rows("taskCards")] as Row[];
 }
 
-async function seedPeople(ctx: MutationCtx) {
+async function seedPeople(ctx: MutationCtx, sessionsEnd: number) {
   const [first, second] = [demoAircraft(0).uuid, demoAircraft(1).uuid];
   const group = (name: string, extra: Row) =>
     ctx.db.insert("groups", {
@@ -235,10 +293,10 @@ async function seedPeople(ctx: MutationCtx) {
   const owners = await group("Owners", { owner: true, aircraftIds: [first] });
   const board = await group("Board", { board: true });
   const users = {
-    admin: await account(ctx, "Administrator", true, []),
-    pilot: await account(ctx, "Pilot", false, [pilots]),
-    owner: await account(ctx, "Owner", false, [owners]),
-    board: await account(ctx, "Board member", false, [board]),
+    admin: await account(ctx, "Administrator", true, [], sessionsEnd),
+    pilot: await account(ctx, "Pilot", false, [pilots], sessionsEnd),
+    owner: await account(ctx, "Owner", false, [owners], sessionsEnd),
+    board: await account(ctx, "Board member", false, [board], sessionsEnd),
   };
   return {
     users: Object.fromEntries(
@@ -255,6 +313,7 @@ async function account(
   name: string,
   isAdmin: boolean,
   groupIds: Id<"groups">[],
+  sessionEnd: number,
 ) {
   const id = await ctx.db.insert("users", {
     name,
@@ -266,7 +325,7 @@ async function account(
   });
   const session = await ctx.db.insert("authSessions", {
     userId: id,
-    expirationTime: Date.now() + DAY,
+    expirationTime: sessionEnd,
   });
   return { id: id as string, subject: `${id}|${session}` };
 }
