@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins work orders in the domain: saving, adding work items,
- *   which orders take an item, counts, field limits, access and attachment
- *   rules, and every refusal's message and class.
+ *   which orders take an item, counts, field limits, the retired final review
+ *   field, access and attachment rules, and every refusal's message and class.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/workOrders.ts, ./model, ./programs, ./rejection,
  *   ./taskCards, ./workOrderComponentWork (types), tests/fixtures (work
@@ -16,7 +16,9 @@ import {
   newWorkTask,
   unusedWorkSources,
   workOrderCounts,
+  workOrderCommandSchema,
   workOrderFieldsSchema,
+  workOrderSchema,
   workOrdersTaking,
   workSources,
   workOrderProgress,
@@ -192,7 +194,6 @@ describe("work orders", () => {
           status: "completed",
           completionDate: "2026-10-01",
           releaseOutcome: "Released",
-          finalReview: "",
         },
       },
       now,
@@ -421,6 +422,17 @@ describe("work order counts and limits", () => {
       parses({ supervisor: longest(WORK_ORDER_TEXT_MAX_LENGTH + 1) }),
     ).toBe(false);
   });
+
+  it("reads and accepts the retired final review field, then drops it", () => {
+    const order = saveWorkOrder(demoSnapshot(), workOrderCommand(), now);
+    const stored = { ...order, finalReview: "Written before 2026-11-20" };
+    expect(workOrderSchema.parse(stored)).toEqual(order);
+    const { fields, ...command } = workOrderCommand();
+    const queued = { ...command, fields: { ...fields, finalReview: "" } };
+    expect(workOrderCommandSchema.parse(queued)).not.toHaveProperty(
+      "fields.finalReview",
+    );
+  });
 });
 
 describe("saveWorkOrder refusals", () => {
@@ -474,7 +486,6 @@ describe("saveWorkOrder refusals", () => {
         supervisor: order.supervisor,
         scope: order.scope,
         releaseOutcome: order.releaseOutcome,
-        finalReview: order.finalReview,
         workPerformed: order.closeout!.workPerformed,
       },
     };
@@ -581,7 +592,6 @@ describe("saveWorkOrder refusals", () => {
           supervisor: "",
           scope: "",
           releaseOutcome: "",
-          finalReview: "",
           workPerformed: "",
         },
       }),

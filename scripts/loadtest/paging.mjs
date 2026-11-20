@@ -221,7 +221,7 @@ function saveNewOrder({ aircraftUuid }) {
     number: "", aircraftUuid, dateOpened: dateOf(Date.now()),
     supervisor: "Casey Wrench", scope: "Size test work order.",
     priority: "routine", status: "open", completionDate: "",
-    releaseOutcome: "", finalReview: "",
+    releaseOutcome: "",
   };
   const tasks = [{
     uuid: randomUUID(), source: { kind: "manual", uuid: "manual" },

@@ -390,7 +390,6 @@ it("closes an order with atomic compliance persistence and a frozen logbook snap
       status: "completed",
       completionDate: today(),
       releaseOutcome: "Recorded disposition",
-      finalReview: "Reviewed",
     },
     tasks: order.tasks.map((item) => ({ ...item, status: "completed" })),
   };
@@ -515,7 +514,6 @@ it("commits component resets and movement history with closeout and rejects repe
       status: "completed",
       completionDate: today(),
       releaseOutcome: "Reviewed",
-      finalReview: "Reviewed",
     },
     componentWork: [
       {
@@ -588,7 +586,6 @@ it("persists closed-order revisions and their reasons without changing inspectio
       status: "completed",
       completionDate: today(),
       releaseOutcome: "Original",
-      finalReview: "Reviewed",
     },
   });
   const original = await tech.query(api.operations.snapshot, {});
@@ -601,7 +598,6 @@ it("persists closed-order revisions and their reasons without changing inspectio
       supervisor: "Tech",
       scope: "Corrected scope",
       releaseOutcome: "Corrected release",
-      finalReview: "Reviewed correction",
       workPerformed: "Corrected wording",
     },
   };
@@ -653,7 +649,6 @@ it("atomically corrects component tracking, retains original movements and audit
       status: "completed",
       completionDate: today(),
       releaseOutcome: "Reviewed",
-      finalReview: "Reviewed",
     },
     componentWork: [
       {
@@ -885,7 +880,6 @@ it("shows the work order's own refusals to the user as ConvexErrors", async () =
       supervisor: "Tech",
       scope: "Corrected scope",
       releaseOutcome: "",
-      finalReview: "",
       workPerformed: "",
     },
   };
@@ -1124,7 +1118,6 @@ describe("a component correction and the close-outs after it", () => {
         status: "completed",
         completionDate: today(),
         releaseOutcome: "Reviewed",
-        finalReview: "Reviewed",
       },
       componentWork: [
         {

@@ -65,7 +65,6 @@ function close(s: ReturnType<typeof demoSnapshot>, order: WorkOrder) {
         status: "completed",
         completionDate: "2026-10-02",
         releaseOutcome: "Approved for return to service.",
-        finalReview: "Reviewed",
       },
       tasks: [],
     },

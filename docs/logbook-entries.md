@@ -36,7 +36,7 @@ Open work orders show a **Sample log book entry** below closeout fields. Task in
 
 ## Reusable release statements
 
-In the work order’s **Closeout and final review**, select a **Release statement** to fill the editable **Release outcome**. The live sample updates immediately and the saved wording is included in the generated log book entry. Nothing is selected automatically. Five starter choices cover the manufacturer’s inspection program, maintenance return to service, a 100-hour airworthy finding, an annual inspection with discrepancies, and alteration/repair return to service. The starter annual-discrepancy text retains October 2, 2026; adjust its date for the actual record.
+In the work order’s **Closeout**, select a **Release statement** to fill the editable **Release outcome**. The live sample updates immediately and the saved wording is included in the generated log book entry. Nothing is selected automatically. Five starter choices cover the manufacturer’s inspection program, maintenance return to service, a 100-hour airworthy finding, an annual inspection with discrepancies, and alteration/repair return to service. The starter annual-discrepancy text retains October 2, 2026; adjust its date for the actual record.
 
 **Manage release statements** lets you name, edit, add or remove reusable statements and save the list to your account. Editing the list does not rewrite an existing work order’s release outcome. Save the work order to keep its selected or edited statement. Completed orders retain their recorded wording.
 

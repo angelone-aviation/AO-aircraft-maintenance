@@ -85,7 +85,7 @@ flowchart LR
   Items --> Cards["Job cards copied<br/>from templates,<br/>as drafts"]
   Cards --> Work["Each card worked<br/>and signed off<br/>(next diagram)"]
   Work --> Done["Every task and card<br/>completed or cancelled"]
-  Done --> Close["Close-out:<br/>readings, release outcome,<br/>final review"]
+  Done --> Close["Close-out:<br/>readings and<br/>release outcome"]
   Close --> Log["Generate logbook entry<br/>(unsigned, for signature)"]
 ```
 
@@ -93,7 +93,7 @@ flowchart LR
 - **Job cards.** Adding an inspection, component requirement or problem report copies its job card templates into the order as independent draft cards ([job cards](../../task-cards.md)).
 - **Signoffs.** Technician signoff first. Where the card requires an inspection signoff, it follows, by a different person, who needs an approved **Certified mechanic** certificate (14 CFR 43.7). Signoffs are internal work tracking, not return to service ([ADR-0004](../../adr/0004-logbook-generator-and-status-record-system.md)).
 - **Certificates.** A certificate a user files or changes waits for an administrator's approval. Nobody approves their own, administrators included ([user certifications](../../user-certifications.md)).
-- **Close-out.** Every task completed or cancelled, a completion date, a release outcome, a final review, and confirmed readings. Close-out records inspection compliance and resets component counters only where chosen, in one transaction. A closed order is read-only.
+- **Close-out.** Every task completed or cancelled, a completion date, a release outcome and confirmed readings. Close-out records inspection compliance and resets component counters only where chosen, in one transaction. A closed order is read-only.
 - **Logbook entry.** **Generate logbook entry** writes 43.9/43.11 wording with a separate "Performed by" line, as editable text or an unsigned PDF ([logbook entries](../../logbook-entries.md)). The signed logbook stays the record.
 
 A job card, from draft to completed ([job cards](../../task-cards.md)):

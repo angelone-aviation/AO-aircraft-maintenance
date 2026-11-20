@@ -191,7 +191,6 @@ function fleet(): Snapshot {
       status: "completed",
       completionDate,
       releaseOutcome: "",
-      finalReview: "",
       recordedAt: Date.parse(completionDate),
       createdBy: "demo-admin",
       aircraft: {

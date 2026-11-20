@@ -359,7 +359,6 @@ function toOwnerWorkOrder(w: WorkOrder): WorkOrder {
     scope: w.scope,
     supervisor: "",
     releaseOutcome: "",
-    finalReview: "",
     createdBy: "",
     componentReadings: [],
     tasks: [],

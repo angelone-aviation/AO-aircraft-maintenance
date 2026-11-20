@@ -236,7 +236,7 @@ async function measureSaves() {
   const tag = `${step}-${Date.now() % 100000}`;
   const order = {
     action: "save", uuid: randomUUID(), version: 0, requestUuid: randomUUID(),
-    fields: { number: `WO-SIZE-${tag}`, aircraftUuid, dateOpened: new Date().toISOString().slice(0, 10), supervisor: "Casey Wrench", scope: "Size test work order.", priority: "routine", status: "open", completionDate: "", releaseOutcome: "", finalReview: "" },
+    fields: { number: `WO-SIZE-${tag}`, aircraftUuid, dateOpened: new Date().toISOString().slice(0, 10), supervisor: "Casey Wrench", scope: "Size test work order.", priority: "routine", status: "open", completionDate: "", releaseOutcome: "" },
     componentUuids: [],
     tasks: [{ uuid: randomUUID(), source: { kind: "manual", uuid: "manual" }, description: "Size test task", status: "requested", notes: "", partsDelay: "" }],
   };

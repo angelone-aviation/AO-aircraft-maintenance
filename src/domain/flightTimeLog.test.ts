@@ -153,7 +153,6 @@ it("uses flight time log hours for installed components and freezes flight time 
       status: "completed" as const,
       completionDate: "2026-10-02",
       releaseOutcome: "Reviewed",
-      finalReview: "Reviewed",
     },
     componentWork: [
       {

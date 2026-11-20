@@ -738,7 +738,6 @@ class Generator {
         ? new Date(opened + 5 * DAY).toISOString().slice(0, 10)
         : "",
       releaseOutcome: completed ? "Approved for return to service." : "",
-      finalReview: "",
       recordedAt: opened,
       createdBy: this.users.admin,
       aircraft: reading,

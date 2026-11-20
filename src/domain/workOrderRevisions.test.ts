@@ -41,14 +41,13 @@ function setup() {
         status: "completed",
         completionDate: "2026-10-02",
         releaseOutcome: "Original release",
-        finalReview: "Original review",
       },
     },
     NOW,
   );
   return { s, order };
 }
-/** A revise command with new release, review and work-performed text. */
+/** A revise command with new release and work-performed text. */
 function revision(
   order: WorkOrder,
 ): Extract<WorkOrderCommand, { action: "revise" }> {
@@ -61,7 +60,6 @@ function revision(
       supervisor: order.supervisor,
       scope: order.scope,
       releaseOutcome: "Corrected release",
-      finalReview: "Corrected review",
       workPerformed: "Corrected work performed",
     },
   };
@@ -132,18 +130,14 @@ it("rejects revisions on open work orders", () => {
   expect(() => saveWorkOrder(s, revision(order), NOW)).toThrow("Only closed");
 });
 
-it("allows completed work order corrections without a final review but still requires a release statement", () => {
+it("requires a release statement on a completed work order correction", () => {
   const { s, order } = setup();
   const command = revision(order);
-  command.fields.finalReview = "";
   command.fields.releaseOutcome = "";
   expect(() => saveWorkOrder(s, command, NOW)).toThrow(
     "requires a release statement",
   );
   command.fields.releaseOutcome = "Corrected release";
   const revised = saveWorkOrder(s, command, NOW);
-  expect(revised.finalReview).toBe("");
-  expect(JSON.parse(revised.revisions![0].previousRecord).finalReview).toBe(
-    "Original review",
-  );
+  expect(revised.releaseOutcome).toBe("Corrected release");
 });

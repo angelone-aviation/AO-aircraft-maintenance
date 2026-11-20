@@ -76,7 +76,6 @@ function closedOrder(count = 0) {
         status: "completed",
         completionDate: "2026-10-02",
         releaseOutcome: "Original release",
-        finalReview: "Original review",
       },
     },
     NOW,
@@ -96,7 +95,6 @@ function revise(order: WorkOrder, reason: string): WorkOrderCommand {
       supervisor: `Supervisor after ${reason}`,
       scope: order.scope,
       releaseOutcome: "Corrected release",
-      finalReview: order.finalReview,
       workPerformed: `Work after ${reason}`,
     },
   };
@@ -130,7 +128,7 @@ describe("WorkOrderRevisions", () => {
     expect(render(order)).toContain('disabled="">Revise work order');
   });
 
-  it("sends the revised record with its reason and the final review unchanged", async () => {
+  it("sends the revised record with its reason", async () => {
     const order = closedOrder();
     expect(render(order, true)).toMatch(/name="releaseOutcome" required=""/);
     const data = new FormData();
@@ -148,7 +146,6 @@ describe("WorkOrderRevisions", () => {
           supervisor: "New supervisor",
           scope: "New scope",
           releaseOutcome: "New releaseOutcome",
-          finalReview: "Original review",
           workPerformed: "New wording",
         },
       },

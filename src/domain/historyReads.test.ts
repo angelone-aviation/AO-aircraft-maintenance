@@ -255,7 +255,6 @@ function workOrder(name: string): WorkOrder {
     status: "completed",
     completionDate: "2024-01-10",
     releaseOutcome: "Approved for return to service.",
-    finalReview: "",
     recordedAt: T0,
     createdBy: "admin",
     aircraft: {

@@ -461,7 +461,6 @@ function completedOrder(number: string, completedAt: number) {
     status: "completed",
     completionDate,
     releaseOutcome: "",
-    finalReview: "",
     recordedAt: completedAt,
     createdBy: "demo-admin",
     aircraft: {

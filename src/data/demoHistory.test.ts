@@ -228,7 +228,6 @@ function order(
     status: "completed",
     completionDate,
     releaseOutcome: "Approved for return to service.",
-    finalReview: "",
     recordedAt: OLD - 30 * DAY,
     createdBy: "demo-admin",
     aircraft: {

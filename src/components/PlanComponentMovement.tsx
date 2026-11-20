@@ -149,7 +149,6 @@ function newOrderFields(c: Component, aircraftUuid: string): WorkOrderFields {
     status: "open",
     completionDate: "",
     releaseOutcome: "",
-    finalReview: "",
   };
 }
 

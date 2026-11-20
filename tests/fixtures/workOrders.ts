@@ -34,7 +34,6 @@ export function workOrderCommand(): Extract<
     status: "open",
     completionDate: "",
     releaseOutcome: "",
-    finalReview: "",
   };
   return {
     action: "save",
