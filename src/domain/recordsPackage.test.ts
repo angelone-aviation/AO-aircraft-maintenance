@@ -24,6 +24,7 @@ import {
   recordsPackageName,
   recordsReadme,
   type ChangeLogRows,
+  type HistoryCoverage,
   type PackageFile,
   type RecordsSectionId,
 } from "./recordsPackage";
@@ -663,6 +664,40 @@ describe("buildRecordsPackage", () => {
     }).sections.at(-1)!;
     expect(capped.warning).toBe(
       "Partial change log: the newest 2 entries. The change log is longer than one package reads, so older entries are not included.",
+    );
+  });
+
+  it("marks flights, discrepancies and work orders partial when made offline (H4)", () => {
+    const s = demoSnapshot();
+    const sections = (history?: HistoryCoverage) =>
+      buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, EMPTY_LOG, history)
+        .sections;
+    const history = (pkg: ReturnType<typeof sections>) =>
+      pkg.filter((x) =>
+        ["flights", "discrepancies", "workOrders"].includes(x.id),
+      );
+    for (const x of history(sections())) expect(x.warning).toBeUndefined();
+    const offline = history(sections({ complete: false, fromDevice: true }));
+    expect(offline.map((x) => x.warning)).toEqual([
+      "Partial flights: only the last 6 months kept on the exporting device, which was offline. Angel One holds the complete history; export again while connected to include it.",
+      "Partial discrepancies: only the open ones and the last 3 months kept on the exporting device, which was offline. Angel One holds the complete history; export again while connected to include it.",
+      "Partial work orders: only the open ones, the latest five completed and the last 3 months kept on the exporting device, which was offline. Angel One holds the complete history; export again while connected to include it.",
+    ]);
+    expect(offline[0].notes[0]).toBe(offline[0].warning);
+    const readme = recordsReadme(
+      buildRecordsPackage(s, s.aircraft[0].uuid, TODAY, EMPTY_LOG, {
+        complete: false,
+        fromDevice: true,
+      }),
+      { at: "x", by: "y" },
+      [],
+    );
+    expect(readme).toContain(
+      "the change log lists every change; this package's copy of the records is partial (see WARNINGS).",
+    );
+    const capped = history(sections({ complete: false }));
+    expect(capped[0].warning).toBe(
+      "Partial flights: the history is longer than one package reads, so the oldest records may be missing.",
     );
   });
 

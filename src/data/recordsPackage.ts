@@ -1,11 +1,11 @@
 /**
  * Responsibility: Assembles one aircraft's records package as a ZIP: loads
- *   the whole change log, prints the tables as records.pdf, writes one CSV
- *   per table, copies the aircraft's stored files within the size limit and
- *   writes the README.
+ *   the whole change log and the aircraft's whole history, prints the tables
+ *   as records.pdf, writes one CSV per table, copies the aircraft's stored
+ *   files within the size limit and writes the README.
  * Layer: Data. Browser-only: fetches files and the font; no React.
  * Dependencies: fflate, src/data (backend types, tablePdf, pdfFont,
- *   aircraftStatusReport), src/domain (recordsPackage, auditHistory, csv,
+ *   aircraftStatusReport, historyLoads), src/domain (recordsPackage, auditHistory, csv,
  *   model, statusSheet, fileLinks types).
  *
  * The signed logbook entries remain the maintenance record (ADR-0004); this
@@ -15,6 +15,7 @@ import { strToU8, zipSync, type Zippable } from "fflate";
 import type { Backend } from "./backend";
 import { STATUS_COLUMN_SHARES } from "./aircraftStatusReport";
 import { loadDejaVuFont } from "./pdfFont";
+import { loadAircraftHistory } from "./historyLoads";
 import { tablePdf, type PageOrientation, type PdfTable } from "./tablePdf";
 import { toCsv } from "../domain/csv";
 import { MAX_AUDIT_PAGE_SIZE } from "../domain/auditHistory";
@@ -28,6 +29,7 @@ import {
   recordsPackageName,
   recordsReadme,
   type ChangeLogRows,
+  type HistoryCoverage,
   type PackageFile,
   type RecordsPackage,
   type RecordsSection,
@@ -93,7 +95,10 @@ const SECTION_LAYOUT: Record<RecordsSectionId, Layout> = {
 export interface RecordsPackageRequest {
   snapshot: Snapshot;
   aircraftUuid: string;
-  /** The backend to page the change log from; null reads the snapshot's. */
+  /**
+   * The backend to page the change log and older history from; null reads
+   * the snapshot's, and the package says it is partial (H4).
+   */
   backend: Backend | null;
   /**
    * Asks for stored files' links, as Backend.fileLinks; null when none can be
@@ -116,9 +121,11 @@ export interface RecordsPackageResult {
 
 /**
  * Builds the records package for one aircraft. The change log is paged from
- * the backend until exhausted (or {@link MAX_CHANGE_LOG_PAGES}); without a
- * backend the snapshot's recent entries stand in and the README says the log
- * is partial. Files are fetched one at a time; one that fails to download is
+ * the backend until exhausted (or {@link MAX_CHANGE_LOG_PAGES}), and so are
+ * the flights, discrepancies and work orders older than the workspace keeps,
+ * with older work orders' attachments (H4); without a backend the
+ * snapshot's records stand in and the README says the log and the history
+ * are partial. Files are fetched one at a time; one that fails to download is
  * skipped and listed in README.txt rather than failing the package.
  *
  * @param request - The snapshot, aircraft, backend and progress callback.
@@ -138,7 +145,14 @@ export async function exportRecordsPackage(
   const today = localDate(now.getTime());
   progress("Loading the change log…");
   const changeLog = await loadChangeLog(request, progress);
-  const pkg = buildRecordsPackage(snapshot, aircraftUuid, today, changeLog);
+  const history = await loadHistory(request, progress);
+  const pkg = buildRecordsPackage(
+    history.snapshot,
+    aircraftUuid,
+    today,
+    changeLog,
+    history.coverage,
+  );
   progress("Printing records.pdf…");
   const pdf = await printTables(pkg, now);
   const plan = planPackageFiles(pkg.files);
@@ -197,6 +211,19 @@ async function loadChangeLog(
     cursor = result.continueCursor;
   }
   return { entries, complete: false };
+}
+
+async function loadHistory(
+  { backend, snapshot, aircraftUuid }: RecordsPackageRequest,
+  progress: (message: string) => void,
+): Promise<{ snapshot: Snapshot; coverage: HistoryCoverage }> {
+  if (!backend)
+    return { snapshot, coverage: { complete: false, fromDevice: true } };
+  progress("Loading older records…");
+  const full = await loadAircraftHistory(backend, snapshot, aircraftUuid, (n) =>
+    progress(`Loading older records… ${n} loaded`),
+  );
+  return { snapshot: full.snapshot, coverage: { complete: full.complete } };
 }
 
 async function printTables(

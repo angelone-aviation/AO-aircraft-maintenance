@@ -14,6 +14,11 @@ import type { Backend } from "./backend";
 import { demoSnapshot } from "./demo";
 import { exportRecordsPackage } from "./recordsPackage";
 import type { AuditPageRequest } from "../domain/auditHistory";
+import {
+  emptyHistoryRecords,
+  type HistoryPageRequest,
+  type HistoryRecords,
+} from "../domain/retention";
 import type { FileRef } from "../domain/fileLinks";
 import type { AuditEntry } from "../domain/model";
 
@@ -33,8 +38,21 @@ function stubFetch(files: Record<string, Uint8Array | number>) {
   });
 }
 
-function fakeBackend(entries: AuditEntry[], calls: number[] = []): Backend {
+function fakeBackend(
+  entries: AuditEntry[],
+  calls: number[] = [],
+  older: HistoryRecords = emptyHistoryRecords(),
+): Backend {
   return {
+    historyPage: async ({ kind }: HistoryPageRequest) => ({
+      records: { ...emptyHistoryRecords(), [kind]: older[kind] },
+      members: [],
+      isDone: true,
+      continueCursor: null,
+    }),
+    workOrderHistory: async () => {
+      throw new Error("History not found.");
+    },
     auditPage: async ({ cursor, numItems }: AuditPageRequest) => {
       calls.push(numItems);
       const start = Number(cursor ?? 0);
@@ -188,7 +206,38 @@ describe("exportRecordsPackage", () => {
     );
     const readme = strFromU8(files["README.txt"]);
     expect(readme).toContain("Change log (1 row), partial: see WARNINGS.");
-    expect(readme).toContain("\nWARNINGS\nPartial change log: 1 entry");
+    expect(readme).toContain("\nWARNINGS\nPartial flights: only the last 6");
+    expect(readme).toContain("\nPartial change log: 1 entry");
+    expect(strFromU8(files["flights.csv"]).split("\r\n")[1]).toMatch(
+      /^"Partial flights: only the last 6 months kept on the exporting device/,
+    );
+  });
+
+  it("pages the aircraft's older history into the package while connected (H4)", async () => {
+    stubFetch({});
+    const s = demoSnapshot();
+    const a = s.aircraft[0];
+    const older = emptyHistoryRecords();
+    older.flights = [
+      {
+        ...{ uuid: "old", aircraftUuid: a.uuid, authorId: "demo-admin" },
+        ...{ pilotId: "demo-admin", submittedAt: 0, status: "accepted" },
+        ...{ startTime: "2019-04-02T15:00:00Z", landings: 1, cycles: 0 },
+        ...{ origin: "KOLD", destination: "KBFI", operation: "Mission" },
+        ...{ flightRules: "VFR", remarks: "", discrepancy: "" },
+      },
+    ];
+    const result = await exportRecordsPackage({
+      snapshot: s,
+      aircraftUuid: a.uuid,
+      backend: fakeBackend([], [], older),
+      fileLinks: null,
+      now: NOW,
+    });
+    const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
+    const flights = strFromU8(files["flights.csv"]);
+    expect(flights).toContain("KOLD");
+    expect(flights).not.toContain("Partial flights");
   });
 
   it("says a change log cut at the page limit is partial, without asking to reconnect", async () => {

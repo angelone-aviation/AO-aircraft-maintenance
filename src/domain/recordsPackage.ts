@@ -7,7 +7,7 @@
  * Layer: Domain. Pure functions; no I/O and no layout.
  * Dependencies: src/domain (statusSheet, model, auditHistory, logbook,
  *   adCompliance, adOwnership, components, aircraftFiles, flights, rejection,
- *   fileLinks, workOrders and airworthiness types).
+ *   retention, fileLinks, workOrders and airworthiness types).
  *
  * The package serves FAA inspection access (14 CFR 91.417(c)) and transfer
  * with the aircraft at sale (91.419), as ADR-0004 decided. It copies what is
@@ -43,6 +43,7 @@ import { isCurrentAircraftFile, type AircraftFile } from "./aircraftFiles";
 import { flightStatusLabels } from "./flights";
 import type { WorkOrder } from "./workOrders";
 import { Rejection } from "./rejection";
+import { historyWindowMonths } from "./retention";
 
 const SECONDS_PER_HOUR = 3600;
 const BYTES_PER_KB = 1024;
@@ -135,6 +136,19 @@ export interface ChangeLogRows {
   fromDevice?: boolean;
 }
 
+/**
+ * Whether the flights, discrepancies and work orders are every one the
+ * aircraft has (H4: the package pages the full history while connected).
+ */
+export interface HistoryCoverage {
+  complete: boolean;
+  /**
+   * Read offline from the device's workspace, which keeps only recent
+   * history (ADR-0013); an incomplete history without it was cut short.
+   */
+  fromDevice?: boolean;
+}
+
 /** What one aircraft's records package holds, before files are fetched. */
 export interface RecordsPackage {
   aircraft: {
@@ -155,6 +169,8 @@ export interface RecordsPackage {
  * @param aircraftUuid - The aircraft.
  * @param today - Local `YYYY-MM-DD` that due dates are counted from.
  * @param changeLog - The aircraft's change log, oldest or newest first.
+ * @param history - Whether `s` holds the aircraft's whole history; when not,
+ *   the flights, discrepancies and work orders tables carry a warning.
  * @returns The seven {@link statusSheet} sections, then flights oldest first,
  *   every discrepancy oldest first, work orders by date opened, AD
  *   compliance entries by AD number in history order (corrections included),
@@ -171,6 +187,7 @@ export function buildRecordsPackage(
   aircraftUuid: string,
   today: string,
   changeLog: ChangeLogRows,
+  history: HistoryCoverage = { complete: true },
 ): RecordsPackage {
   const a = s.aircraft.find((x) => x.uuid === aircraftUuid);
   if (!a) throw new Rejection("Aircraft not found.");
@@ -188,9 +205,11 @@ export function buildRecordsPackage(
         id: `status.${x.id}` as const,
         file: STATUS_FILES[x.id],
       })),
-      flightsSection(s, a),
-      discrepanciesSection(s, a),
-      workOrdersSection(s, orders),
+      ...withHistoryWarnings(history, [
+        flightsSection(s, a),
+        discrepanciesSection(s, a),
+        workOrdersSection(s, orders),
+      ]),
       adComplianceSection(s, a, orders),
       componentsSection(components, a, today),
       requirementsSection(s, components, a, today),
@@ -287,7 +306,7 @@ export function recordsReadme(
     `Flight Program: ${aircraft.program}`,
     `Generated: ${generated.at} by ${generated.by}`,
     "",
-    `The records Angel One holds for this aircraft, for inspection under 14 CFR 91.417(c) or transfer with the aircraft under 14 CFR 91.419. Angel One is the system of record for the six status records of 91.417(a)(2); the signed entries in the aircraft's logbooks remain the maintenance record. Values are as recorded when the package was generated. Corrections are appended in Angel One with a reason and never edited into history, so ${warnings.length ? "Angel One's change log lists every change; this package's copy of it is partial (see WARNINGS)." : "the change log lists every change."}`,
+    `The records Angel One holds for this aircraft, for inspection under 14 CFR 91.417(c) or transfer with the aircraft under 14 CFR 91.419. Angel One is the system of record for the six status records of 91.417(a)(2); the signed entries in the aircraft's logbooks remain the maintenance record. Values are as recorded when the package was generated. Corrections are appended in Angel One with a reason and never edited into history, so ${completeness(pkg, warnings)}`,
     "",
     ...(warnings.length ? ["WARNINGS", ...warnings, ""] : []),
     "FILES",
@@ -918,6 +937,39 @@ function changeLogSection(s: Snapshot, log: ChangeLogRows): RecordsSection {
     ],
     warning,
   };
+}
+
+// The README's word on what is partial: the change log's copy, or the
+// records' tables (H4), or nothing.
+function completeness(pkg: RecordsPackage, warnings: string[]): string {
+  if (!warnings.length) return "the change log lists every change.";
+  return pkg.sections.some((x) => x.id === "changeLog" && x.warning)
+    ? "Angel One's change log lists every change; this package's copy of it is partial (see WARNINGS)."
+    : "the change log lists every change; this package's copy of the records is partial (see WARNINGS).";
+}
+
+// What the device's workspace keeps of each list (ADR-0013), for the warning
+// of a package made offline.
+const KEPT_ON_DEVICE: Partial<Record<RecordsSectionId, string>> = {
+  flights: `the last ${historyWindowMonths("flights")} months`,
+  discrepancies: `the open ones and the last ${historyWindowMonths("discrepancies")} months`,
+  workOrders: `the open ones, the latest five completed and the last ${historyWindowMonths("workOrders")} months`,
+};
+
+// Says plainly what an incomplete history leaves out, and what to do; the
+// warning leads the section's notes, as the change log's does.
+function withHistoryWarnings(
+  history: HistoryCoverage,
+  sections: RecordsSection[],
+): RecordsSection[] {
+  if (history.complete) return sections;
+  return sections.map((x) => {
+    const partial = `Partial ${x.title.toLowerCase()}:`;
+    const warning = history.fromDevice
+      ? `${partial} only ${KEPT_ON_DEVICE[x.id]} kept on the exporting device, which was offline. Angel One holds the complete history; export again while connected to include it.`
+      : `${partial} the history is longer than one package reads, so the oldest records may be missing.`;
+    return { ...x, warning, notes: [warning, ...x.notes] };
+  });
 }
 
 // Says plainly what an incomplete change log leaves out, and what to do.
