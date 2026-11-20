@@ -42,6 +42,27 @@ python3 -I scripts/loadtest/table.py "$LOADTEST_DIR"
 | `rerun.sh --wipe-local-database` | A clean pass of years 1 to 3 on a fresh local database. It deletes this checkout's local Convex data first, so it asks for the flag |
 | `gen/bench.ts` | The CPU floor of the snapshot's own decoding for N years, in plain Node (bundle it as `gen/run.sh` does `gen.ts`) |
 | `usage.py <results folder>` | Per-step usage summary from the backend log; `table.py` uses it |
+| `paging.sh --wipe-local-database 1 3 10 20` | The history-paging sweep on a fresh local database ([above](#the-history-paging-sweep)) |
+| `paging.mjs --step yNN` | The windowed workspace, bounded saves, numbering and history queries per role, with index ranges |
+| `release.mjs --step yNN` | History paging's release steps after an import, each until 0 |
+| `pagingTable.mjs` | The history-paging sweep's pass/fail table |
+| `logUsage.mjs` | Shared by `measure.mjs` and `paging.mjs`: each call's usage, index ranges and limit bytes from the backend's log |
+
+## The history-paging sweep
+
+`paging.sh` measures the windowed workspace (ADR-0013) on a fresh local database, as stage S8 of [history paging](../../docs/history-paging.md) did. With the local backend stopped:
+
+```sh
+export LOADTEST_DIR=/path/outside/the/repo/loadtest
+bash scripts/loadtest/paging.sh --wipe-local-database 1 3 10 20
+node scripts/loadtest/pagingTable.mjs
+```
+
+It seeds, generates and loads as above, and after each step's import runs the release steps (`release.mjs`: `backfillHistoryColumns`, `rebuildRecordNumbers` and `rebuildCostLedger` until each reports 0, then `reconcileCostLedger`), then `paging.mjs` and `measure.mjs --no-export`. `paging.mjs` measures, as an administrator, a mechanic, a pilot of two aircraft, an owner and a board member: the snapshot; the bounded saves (work order, job card, evidence, parts request with its reserve and issue, part unit cost, purchase order, AD, Weekly summary), the new work order, job card, parts request and purchase order each numbered on save; and `history.flights`, `discrepancies` and `workOrders` first and halfway back (a cursor at that position), `history.workOrder` and `history.records` on the oldest loaded year, `history.flightsInRange` and `history.costReport`. `pagingTable.mjs` prints each operation per step as MiB read, index ranges and user time against the plan's bar (4 MiB, 1,000 ranges, 250 ms), and each role's snapshot against the first step.
+
+### Index ranges
+
+The backend's usage log has no index-range count, but its limit warnings do ("Many reads in a single function execution (actual: N, limit: 4096)", likewise bytes read as the 16 MiB limit counts them). `paging.sh` starts the backend for the measured steps with `FUNCTION_LIMIT_WARNING_RATIO` set below any real count, so every call logs them, and `logUsage.mjs` reads them per call. The warnings also go to the Convex CLI's standard output, which breaks `npm run setup:auth` and `convex data`, so the setup runs before the backend is restarted with them; `release.mjs` drops them from what it parses.
 
 ## The sweep
 
@@ -57,7 +78,7 @@ Limits tested, per query or mutation ([Convex limits](https://docs.convex.dev/pr
 | `accounts.json` | The seeded program, aircraft and users, with their generated passwords; readable by its owner only, never commit or share it |
 | `data/` | `fixed/`, `yNN/` and `state.json` from the generator; `loaded.json` and `live.json` kept by the scripts |
 | `results/server.jsonl`, `results/browser.jsonl` | One measurement per line |
-| `results/logs-yNN.jsonl` | The backend's log stream during a step |
+| `results/logs-yNN.jsonl`, `results/logs-paging-yNN.jsonl` | The backend's log stream during a step of `measure.mjs` and of `paging.mjs` |
 | `shots/`, `exports/`, `backend.log`, `browser-profile/` | Screenshots, the first step's export, `rerun.sh`'s backend output, `returning.mjs`'s browser profile |
 
 A result line:

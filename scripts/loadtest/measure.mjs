@@ -4,19 +4,16 @@
  *   a new and a held flight, new saves, a full export, and the backend's own
  *   usage figures for each.
  * Layer: Script. Load test only; refuses any backend but a local one.
- * Dependencies: ./common.mjs, ./guard.mjs, node:child_process, node:crypto,
+ * Dependencies: ./common.mjs, ./guard.mjs, ./logUsage.mjs, node:crypto,
  *   node:fs.
  *
  *   node scripts/loadtest/measure.mjs --step y03 [--no-export]
  * Appends to DATA_DIR/results/server.jsonl. DATA_DIR/data/live.json follows
  * the aircraft the measurements change, so a later step's flights fit.
  */
-import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  openSync,
-  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -28,21 +25,15 @@ import {
   DATA_DIR,
   errorText,
   readJson,
-  REPO_ROOT,
   signIn,
   spawnConvex,
 } from "./common.mjs";
 import { localBackendUrl } from "./guard.mjs";
+import { recordUsage, startUsageLog } from "./logUsage.mjs";
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const ERROR_LIMIT = 1200;
-const LOG_LINE_LIMIT = 400;
-// The log stream needs a moment to connect, and to flush after the last call.
-const LOG_STREAM_WARMUP_MS = 4000;
-const LOG_STREAM_DRAIN_MS = 3000;
-// Log timestamps are whole milliseconds on another clock read.
-const LOG_MATCH_SLACK_MS = 50;
 // 1.2 hours: a typical leg, in meter seconds.
 const FLIGHT_SECONDS = 4320;
 const FLIGHT_STARTED_AGO_MS = 120_000;
@@ -61,7 +52,7 @@ const live = existsSync(LIVE_FILE) ? readJson(LIVE_FILE) : endState();
 const PROGRAM = accounts.programUuid;
 // Each timed call's window, to find its executions in the backend's log.
 const windows = [];
-const logs = await startLogStream();
+const logs = await startUsageLog(step);
 const clients = await signInRoles();
 
 const adminSnapshot = await measureSnapshots();
@@ -70,7 +61,7 @@ await measureNewFlight();
 await measureHeldFlightReview();
 await measureSaves();
 if (!process.argv.includes("--no-export")) measureExport();
-await recordUsage();
+await recordUsage(logs, step, windows);
 process.exit(0);
 
 function user(role) {
@@ -83,15 +74,6 @@ function endState() {
 
 function saveLive() {
   writeFileSync(LIVE_FILE, JSON.stringify(live, null, 1));
-}
-
-// Exact usage per execution comes from the backend's own log stream.
-async function startLogStream() {
-  mkdirSync(`${DATA_DIR}/results`, { recursive: true });
-  const out = openSync(`${DATA_DIR}/results/logs-${step}.jsonl`, "w");
-  const stream = spawn("npx", ["convex", "logs", "--jsonl"], { cwd: REPO_ROOT, stdio: ["ignore", out, "ignore"], detached: true });
-  await new Promise((resolve) => setTimeout(resolve, LOG_STREAM_WARMUP_MS));
-  return stream;
 }
 
 async function signInRoles() {
@@ -238,7 +220,7 @@ async function measureHeldFlightReview() {
 
 async function reviewHeldFlight(aircraft, current, operation, input) {
   const reason = "Paper log checked against the tech log (size test).";
-  const result = await timed(() => clients.admin.mutation(api.operations.reviewFlight, { programUuid: PROGRAM, uuid: operation.uuid, decision: "accept", reason, input }), 1, "operations:reviewFlight");
+  const result = await timed(() => clients.admin.mutation(api.operations.reviewFlight, { programUuid: PROGRAM, requestUuid: randomUUID(), uuid: operation.uuid, decision: "accept", reason, input }), 1, "operations:reviewFlight");
   if (result.ok) {
     current.version += 1;
     current.reviewed = (current.reviewed ?? 0) + 1;
@@ -286,58 +268,4 @@ function measureExport() {
   const failure = (result.stderr || result.stdout).slice(-600);
   record("convex export", "cli", { ok, ms: [Date.now() - started], bytes: ok ? statSync(file).size : null, error: ok ? null : failure });
   if (ok && step !== "y01") rmSync(file, { force: true });
-}
-
-// Exact usage of each uncached execution, from the backend log stream.
-async function recordUsage() {
-  await new Promise((resolve) => setTimeout(resolve, LOG_STREAM_DRAIN_MS));
-  stopLogStream();
-  const entries = readLogEntries();
-  for (const window of windows) {
-    const hits = executionsIn(entries, window);
-    if (hits.length) recordExecution(window, hits);
-  }
-}
-
-function stopLogStream() {
-  try {
-    process.kill(-logs.pid);
-  } catch (error) {
-    // The group is gone when the stream already exited; stop the child alone.
-    console.warn("Log stream group:", errorText(error, LOG_LINE_LIMIT));
-    logs.kill();
-  }
-}
-
-function readLogEntries() {
-  const parse = (line) => {
-    try {
-      return [JSON.parse(line)];
-    } catch {
-      // The last line is cut off when the stream is stopped mid-write.
-      return [];
-    }
-  };
-  return readFileSync(`${DATA_DIR}/results/logs-${step}.jsonl`, "utf8")
-    .split("\n").filter(Boolean).flatMap(parse)
-    .filter((e) => e.kind === "Completion" && !e.cachedResult);
-}
-
-function executionsIn(entries, window) {
-  const within = (e) => e.executionTimestamp * 1000 >= window.t0 - LOG_MATCH_SLACK_MS && e.executionTimestamp * 1000 <= window.t1 + LOG_MATCH_SLACK_MS;
-  return entries.filter((e) => e.identifier === window.fn && within(e));
-}
-
-// The execution that read the most bytes stands for the call.
-function recordExecution(window, hits) {
-  const worst = hits.sort((a, b) => b.usageStats.databaseReadBytes - a.usageStats.databaseReadBytes)[0];
-  const usage = worst.usageStats;
-  const logLines = (worst.logLines ?? []).map((l) => (typeof l === "string" ? l : JSON.stringify(l)).slice(0, LOG_LINE_LIMIT));
-  const extra = {
-    of: window.name, executions: hits.length, readDocuments: usage.databaseReadDocuments, readBytes: usage.databaseReadBytes,
-    writeDocuments: usage.databaseWriteDocuments, writeBytes: usage.databaseWriteBytes, userExecutionMs: Math.round(worst.userExecutionTime * 1000),
-    returnBytes: worst.returnBytes, memoryUsedMb: usage.memoryUsedMb, logLines, error: worst.error ? String(worst.error).slice(0, LOG_LINE_LIMIT) : null,
-  };
-  appendResult({ step, area: "server", name: "usage", role: window.role, ok: worst.error == null, extra, at: new Date().toISOString() });
-  console.log(step, "usage", window.name, window.role, JSON.stringify(extra).slice(0, 500));
 }

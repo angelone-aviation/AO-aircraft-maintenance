@@ -22,6 +22,8 @@ const EMAIL_TAG_BYTES = 3;
 const TACH_BEHIND_HOURS = 80;
 const ALL_PERMISSIONS = ["read", "flight", "discrepancy", "resolve", "maintenance"];
 const OWNED_AIRCRAFT_COUNT = 2;
+// The history-paging measurements' pilot reads two of the six aircraft.
+const PARTIAL_PILOT_AIRCRAFT = 2;
 // Readings at the START of the 20-year timeline: these become the baselines.
 const FLEET = [
   ["N501LT", "Cessna", "208B Grand Caravan", "208B5001", 2200, true],
@@ -35,6 +37,7 @@ const USERS = [
   ["pilot", "Pat Pilot", "pilots"],
   ["pilot2", "Robin Aviator", "pilots"],
   ["pilot3", "Jesse Flyer", "pilots"],
+  ["pilotTwo", "Alex Twoship", "pilotsTwo"],
   ["mechanic", "Casey Wrench", "mechanics"],
   ["mechanic2", "Riley Inspector", "mechanics"],
   ["owner", "Sam Owner", "owners"],
@@ -98,6 +101,12 @@ async function addGroups() {
   return {
     admins: await group("LT program administrators", ALL_PERMISSIONS, { programAdmin: true }),
     pilots: await group("LT pilots", ["read", "flight", "discrepancy"]),
+    pilotsTwo: await client.mutation(api.admin.saveGroup, {
+      programUuid,
+      name: "LT pilots, two aircraft",
+      aircraftIds: aircraft.slice(0, PARTIAL_PILOT_AIRCRAFT).map((a) => a.uuid),
+      permissions: ["read", "flight", "discrepancy"],
+    }),
     mechanics: await group("LT maintenance", ["read", "discrepancy", "resolve", "maintenance"]),
     owners: await client.mutation(api.admin.saveGroup, {
       programUuid,
