@@ -13,7 +13,7 @@ What changed, and when. Newest first. Each line gives the finding's id, what cha
 
 ## 20 Nov 2026 at a glance
 
-The day's five releases and its one incident, in UTC (03.15 means 03:15). Releases 1–4 are timed by when their Deploy run finished on GitHub Actions, release 5 by its merge; the incident's times are approximate.
+The day's five releases and its one incident, in UTC (03.15 means 03:15). Each release is timed by when its Deploy run finished on GitHub Actions; the incident's times are approximate.
 
 ```mermaid
 timeline
@@ -24,7 +24,7 @@ timeline
     19.30 : Incident starts : Cloudflare's Git build publishes a site with no backend address
     20.02 : Release 4 in production : Backups without encryption : Incident ends
     20.15 : Aaron disconnects Cloudflare's Git build
-    21.05 : Release 5 merged to main : Documentation, password-only sign-in, build guard
+    21.30 : Release 5 in production : Documentation, password-only sign-in, build guard
 ```
 
 ## Release 6: not yet released
@@ -40,7 +40,7 @@ The review of the handbook and wiki that followed release 5:
 
 ## 20 Nov 2026, release 5: documentation and password-only sign-in
 
-Released at `8b40038`: merged to `main` at about 21:05 UTC; Deploy publishes it when CI on that commit passes.
+Released to production at `8b40038` (about 21:30 UTC; merged to `main` at about 21:05).
 
 | Change                                                                                                                                                                     | Commit                                                                      |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -181,20 +181,20 @@ Released to production at `0651e97` (about 03:15 UTC): every open register bug, 
 | FL-5  | A flight on an aircraft grounded mid-flight is held, not refused (settled 10 Nov)                                                              | D6       | [offline](../../offline.md#flights-held-for-review)              |
 | NA-15 | A newly set-up aircraft reads Setup incomplete (decided 10 Nov)                                                                                | D5       | [glossary](../../../GLOSSARY.md)                                 |
 
-Bug-hunt and stale-screen findings fixed in part or left open before, finished here:
+Bug-hunt and stale-screen findings fixed in part or left open before, finished here (SE-15 only in part):
 
-| Id          | Fix                                                                           | Commit                          |
-| ----------- | ----------------------------------------------------------------------------- | ------------------------------- |
-| AC-5, AC-11 | Owners get compliance records built from named fields, without user ids (D15) | `87eca56`                       |
-| SE-8        | A system administrator gets a program's alerts through a group only (D8)      | `6e82622`                       |
-| SE-15       | Changing the FAA key's renewal date schedules the system alert check          | `82987da`                       |
-| AC-7        | Only administrators are offered saving an address                             | `c701917`, `481f95e`, `3dacd1a` |
-| UI-12       | Purchasing quantity and cost fields keep typed text                           | `1e56398`                       |
-| B7 (D20)    | Owners and board members are told where their settings went                   | `36d1c16`                       |
-| B9          | Theme offers "Match this device"                                              | `224c24f`                       |
-| C5 (D21)    | The glossary and docs say "job card"                                          | `5d340c5`, `b0c6465`            |
-| C6 (D22)    | "Problem report" defined in the glossary                                      | `7a674ae`                       |
-| C9          | The change-history summary tab is labelled "Summary"                          | `24cbaf4`                       |
+| Id          | Fix                                                                                                                                                                                    | Commit                          |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| AC-5, AC-11 | Owners get compliance records built from named fields, without user ids (D15)                                                                                                          | `87eca56`                       |
+| SE-8        | A system administrator gets a program's alerts through a group only (D8)                                                                                                               | `6e82622`                       |
+| SE-15       | Fixed in part: changing the FAA key's renewal date schedules the system alert check. Applying a component template and accepting FAA candidates still wait for the daily check (RM-79) | `82987da`                       |
+| AC-7        | Only administrators are offered saving an address                                                                                                                                      | `c701917`, `481f95e`, `3dacd1a` |
+| UI-12       | Purchasing quantity and cost fields keep typed text                                                                                                                                    | `1e56398`                       |
+| B7 (D20)    | Owners and board members are told where their settings went                                                                                                                            | `36d1c16`                       |
+| B9          | Theme offers "Match this device"                                                                                                                                                       | `224c24f`                       |
+| C5 (D21)    | The glossary and docs say "job card"                                                                                                                                                   | `5d340c5`, `b0c6465`            |
+| C6 (D22)    | "Problem report" defined in the glossary                                                                                                                                               | `7a674ae`                       |
+| C9          | The change-history summary tab is labelled "Summary"                                                                                                                                   | `24cbaf4`                       |
 
 ### Security findings
 
@@ -216,7 +216,7 @@ Bug-hunt and stale-screen findings fixed in part or left open before, finished h
 | Upload checks | The file-contents check covers work-order, job-card, photo and license uploads, HEIC license copies, PDFs with leading bytes, and names each upload's own types; a manual that is not a PDF is deleted at once | `e6c928e`, `589ba16`, `8eed677`, `730b68e`, `50e05c2` |
 | Flight review | Every flight review needs a request id, so it is never applied twice                                                                                                                                           | `c37bf0c`                                             |
 | C1, C4        | Cloudflare's "Add security headers" transform and Bot Fight Mode turned off (19 Nov, Cloudflare settings)                                                                                                      | —                                                     |
-| P4            | CodeQL default set-up reported on (19 Nov, a GitHub setting); GitHub showed it not configured on 20 Nov; Aaron to re-check ([risks R13](../4-money-and-risk/risks.md#r13-public-repository))                   | —                                                     |
+| P4            | CodeQL default set-up (a GitHub setting). Reported done on 2026-11-19; on 2026-11-20 GitHub shows it not configured. Aaron to re-check ([risks R13](../4-money-and-risk/risks.md#r13-public-repository))       | —                                                     |
 
 ### Other changes in the release
 
