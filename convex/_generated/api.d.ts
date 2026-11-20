@@ -38,6 +38,7 @@ import type * as faa from "../faa.js";
 import type * as faaCredentials from "../faaCredentials.js";
 import type * as faaDrs from "../faaDrs.js";
 import type * as faaSearch from "../faaSearch.js";
+import type * as fileColumns from "../fileColumns.js";
 import type * as fileLinks from "../fileLinks.js";
 import type * as fileSweep from "../fileSweep.js";
 import type * as fileTokens from "../fileTokens.js";
@@ -126,6 +127,7 @@ declare const fullApi: ApiFromModules<{
   faaCredentials: typeof faaCredentials;
   faaDrs: typeof faaDrs;
   faaSearch: typeof faaSearch;
+  fileColumns: typeof fileColumns;
   fileLinks: typeof fileLinks;
   fileSweep: typeof fileSweep;
   fileTokens: typeof fileTokens;
