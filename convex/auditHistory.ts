@@ -469,8 +469,11 @@ async function periodSources(
   ctx: QueryCtx,
   state: Snapshot,
   canSee: CanSee,
-  { fromMs }: Required<SummaryPeriod>,
+  { fromMs, toMs }: Required<SummaryPeriod>,
 ): Promise<PeriodSource[]> {
+  // A one-day period's bounds, each near a midnight in some time zone, can
+  // cross; the period then holds nothing, and no range is read backwards.
+  if (fromMs >= toMs) return [];
   const program = activeProgram(state);
   const readable = state.aircraft.filter((a) =>
     canPageAuditFilter(canSee, { aircraftUuid: a.uuid }),

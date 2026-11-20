@@ -34,6 +34,7 @@ const modules = import.meta.glob([
   "!./**/*.d.ts",
 ]);
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 const PROGRAM = "demo-program";
 const NOW = Date.now();
 const TODAY = new Date(NOW).toISOString().slice(0, 10);
@@ -255,6 +256,22 @@ it("refuses day bounds that are not the dates' midnights in some time zone", asy
         ...bounds,
       }),
     ).rejects.toThrow("Choose a start and end date.");
+});
+
+// Each bound is within 14 hours of its UTC midnight, as the check allows, but
+// the start lies after the end.
+it("Characterizes current behaviour: counts nothing for a one-day period whose bounds cross", async () => {
+  const { admin } = await fixture([{ action: "flight.created", daysAgo: 0 }]);
+  const midnight = Date.parse(TODAY + "T00:00:00Z");
+  const result = await admin.query(api.auditHistory.summary, {
+    programUuid: PROGRAM,
+    from: TODAY,
+    to: TODAY,
+    fromMs: midnight + 13 * HOUR_MS,
+    toMs: midnight + DAY_MS - 13 * HOUR_MS,
+  });
+  expect(result.summary.total).toBe(0);
+  expect(result.truncated).toBe(false);
 });
 
 it("counts refused sign-ins for a system administrator in Unassigned records only", async () => {
