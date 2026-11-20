@@ -3,10 +3,12 @@
  *   status filters, newest first, the status counts beside them, and the
  *   rows' Hobbs hours and flights by week for the log's charts.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/model.ts (types), src/domain/listSearch.ts.
+ * Dependencies: src/domain/model.ts (types), src/domain/listSearch.ts,
+ *   src/domain/retention.ts (the history order).
  */
 import type { Flight, Snapshot } from "./model";
 import { matchesSearch } from "./listSearch";
+import { compareHistoryPositions, historyPosition } from "./retention";
 
 /** The flights the log shows at first, and adds with each "Show more". */
 export const FLIGHT_LOG_PAGE_SIZE = 50;
@@ -71,9 +73,10 @@ const MONTHS = [
  *
  * @param s - The flights, and the aircraft and members whose registration
  *   and names the search matches.
- * @returns The rows, newest start time first, and the status counts. The
- *   date matches as recorded ("2026-11-03") and as shown in this browser's
- *   time zone ("Nov 3, 2026").
+ * @returns The rows, newest start instant first and equal starts by uuid,
+ *   highest first, as flight history pages them, so older pages continue
+ *   the list; and the status counts. The date matches as recorded
+ *   ("2026-11-03") and as shown in this browser's time zone ("Nov 3, 2026").
  */
 export function flightLogRows(
   s: Pick<Snapshot, "flights" | "aircraft" | "members">,
@@ -92,7 +95,12 @@ export function flightLogRows(
   return {
     flights: flights
       .filter((f) => filters.status === "all" || f.status === filters.status)
-      .sort((a, b) => b.startTime.localeCompare(a.startTime)),
+      .sort((a, b) =>
+        compareHistoryPositions(
+          historyPosition("flights", a),
+          historyPosition("flights", b),
+        ),
+      ),
     counts,
   };
 }

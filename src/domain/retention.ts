@@ -40,6 +40,8 @@ export const HISTORY_PAGE_SIZE = 50;
 export const MAX_HISTORY_PAGE_SIZE = 100;
 
 const DAY_MS = 86_400_000;
+// The mean Gregorian month, 365.25 / 12 days.
+const DAYS_PER_MONTH = 30.4375;
 const INVALID_CURSOR = "Invalid history cursor.";
 
 /** The snapshot collections the window applies to. */
@@ -273,6 +275,42 @@ export function compareHistoryPositions(
   if (ak !== bk) return ak > bk ? -1 : 1;
   if (au !== bu) return au > bu ? -1 : 1;
   return 0;
+}
+
+/**
+ * The Work orders screen's order: open orders first, newest opened first,
+ * then closed orders in {@link historyPosition} order, so older pages
+ * continue the list where the workspace's closed orders end. Equal keys go
+ * by uuid, highest first.
+ *
+ * @param a - One order.
+ * @param b - The other.
+ * @returns Negative when `a` comes first, as Array.prototype.sort expects.
+ */
+export function compareWorkOrderList(a: WorkOrder, b: WorkOrder): number {
+  const open = Number(isOpenWorkOrder(b)) - Number(isOpenWorkOrder(a));
+  if (open) return open;
+  if (isOpenWorkOrder(a))
+    return compareHistoryPositions(
+      [a.recordedAt, a.uuid],
+      [b.recordedAt, b.uuid],
+    );
+  return compareHistoryPositions(
+    historyPosition("workOrders", a),
+    historyPosition("workOrders", b),
+  );
+}
+
+/**
+ * How many months of a list the workspace keeps, as a screen names them:
+ * {@link FLIGHT_RETENTION_DAYS} reads as 6, {@link RETENTION_DAYS} as 3.
+ *
+ * @param kind - The list.
+ * @returns The window's days in whole months, rounded.
+ */
+export function historyWindowMonths(kind: HistoryKind): number {
+  const days = kind === "flights" ? FLIGHT_RETENTION_DAYS : RETENTION_DAYS;
+  return Math.round(days / DAYS_PER_MONTH);
 }
 
 /**

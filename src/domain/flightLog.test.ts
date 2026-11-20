@@ -30,6 +30,21 @@ describe("flightLogRows", () => {
     expect(uuids(flightLogRows(s, ALL).flights)).toEqual(["b", "c", "a"]);
   });
 
+  it("orders by start instant across offsets, equal starts by uuid highest first, as history pages do", () => {
+    const s = withFlights(
+      flight("utc", { startTime: "2026-10-01T14:00:00Z" }),
+      flight("pacific", { startTime: "2026-10-01T12:00:00-07:00" }),
+      flight("tie-a", { startTime: "2026-09-30T12:00:00Z" }),
+      flight("tie-b", { startTime: "2026-09-30T05:00:00-07:00" }),
+    );
+    expect(uuids(flightLogRows(s, ALL).flights)).toEqual([
+      "pacific",
+      "utc",
+      "tie-b",
+      "tie-a",
+    ]);
+  });
+
   it("matches registration, pilot, copilot, route and remarks, ignoring case and spaces", () => {
     const s = withFlights(
       flight("reg", { aircraftUuid: N208.uuid }),

@@ -13,10 +13,12 @@ import {
   MAX_HISTORY_PAGE_SIZE,
   RETENTION_DAYS,
   compareHistoryPositions,
+  compareWorkOrderList,
   historyCursor,
   historyPage,
   historyPosition,
   historyStart,
+  historyWindowMonths,
   isOlderWorkOrder,
   readHistoryCursor,
   recentCompletionFloor,
@@ -522,6 +524,53 @@ describe("the paging contract the server shares", () => {
       "2020-01-01",
     );
     expect(recentCompletionFloor([])).toBeUndefined();
+  });
+});
+
+describe("compareWorkOrderList", () => {
+  it("lists open orders newest opened first, then closed ones in history order", () => {
+    const orders = [
+      completed("done-old", "2026-01-10"),
+      order("open-old", { recordedAt: LONG_AGO }),
+      order("cancelled-undated", { status: "cancelled" }),
+      completed("done-new", "2026-03-02"),
+      order("open-new", { recordedAt: NOW }),
+      order("cancelled-dated", {
+        status: "cancelled",
+        completionDate: "2026-02-01",
+      }),
+    ];
+    expect(orders.sort(compareWorkOrderList).map((w) => w.number)).toEqual([
+      "open-new",
+      "open-old",
+      "done-new",
+      "cancelled-dated",
+      "done-old",
+      "cancelled-undated",
+    ]);
+  });
+
+  it("orders closed orders exactly as the work order history pages them", () => {
+    const closed = [
+      completed("a", "2026-03-02"),
+      completed("b", "2026-03-02"),
+      completed("c", "2025-12-31"),
+    ];
+    const byPage = [...closed].sort((x, y) =>
+      compareHistoryPositions(
+        historyPosition("workOrders", x),
+        historyPosition("workOrders", y),
+      ),
+    );
+    expect([...closed].sort(compareWorkOrderList)).toEqual(byPage);
+  });
+});
+
+describe("historyWindowMonths", () => {
+  it("rounds each list's window to the months a screen names", () => {
+    expect(historyWindowMonths("flights")).toBe(6);
+    expect(historyWindowMonths("discrepancies")).toBe(3);
+    expect(historyWindowMonths("workOrders")).toBe(3);
   });
 });
 
