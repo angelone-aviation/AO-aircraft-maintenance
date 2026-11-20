@@ -352,13 +352,6 @@ const CASES: Case[] = [
     args: { uuid: "manual-1", ...command() },
   },
   {
-    method: "openManual",
-    call: (b) => b.openManual("manual-1"),
-    kind: "query",
-    name: "manuals:open",
-    args: { uuid: "manual-1", programUuid: ACTIVE_PROGRAM },
-  },
-  {
     method: "taskCard",
     call: (b) => b.taskCard(opaque()),
     kind: "mutation",
@@ -560,6 +553,16 @@ const CASES: Case[] = [
     args: { id: "file-1", reason: "Superseded", programUuid: ACTIVE_PROGRAM },
   },
   {
+    method: "fileLinks",
+    call: (b) => b.fileLinks([{ kind: "aircraftPhoto", id: "demo-206" }]),
+    kind: "mutation",
+    name: "fileLinks:links",
+    args: {
+      files: [{ kind: "aircraftPhoto", id: "demo-206" }],
+      programUuid: ACTIVE_PROGRAM,
+    },
+  },
+  {
     method: "selectProgram",
     call: (b) => b.selectProgram(OTHER_PROGRAM),
     kind: "mutation",
@@ -710,13 +713,6 @@ const CASES: Case[] = [
     kind: "action",
     name: "certifications:upload",
     args: { userId: "user-1", kind: "mechanic", ...fileArgs() },
-  },
-  {
-    method: "certificationFileUrl",
-    call: (b) => b.certificationFileUrl("copy-1"),
-    kind: "query",
-    name: "certifications:fileUrl",
-    args: { id: "copy-1" },
   },
   {
     method: "deleteCertificationFile",
@@ -931,6 +927,8 @@ it.each(CASES)(
 it("covers every adapter method", () => {
   const covered = new Set<string>(CASES.map((c) => c.method));
   covered.add("uploadManual");
+  covered.add("openManual");
+  covered.add("certificationFileUrl");
   const methods = Object.keys(recordingBackend().backend).sort();
   expect(methods).toEqual([...covered].sort());
 });
@@ -992,6 +990,27 @@ it("keeps a request id the caller chose for its intent", async () => {
   const { backend, calls } = recordingBackend();
   await backend.saveChecklist(chosen as unknown as ChecklistCommand);
   expect(calls[0].args.payload).toBe(JSON.stringify(chosen));
+});
+
+it("opens a manual and a license copy through their links", async () => {
+  const link = { url: "https://test.convex.site/files/v1/token", expiresAt: 1 };
+  const { backend, calls } = recordingBackend({ "fileLinks:links": [link] });
+  await expect(backend.openManual("manual-1")).resolves.toBe(link.url);
+  await expect(backend.certificationFileUrl("copy-1")).resolves.toBe(link.url);
+  const asked = (kind: string, id: string) => ({
+    kind: "mutation",
+    name: "fileLinks:links",
+    args: { files: [{ kind, id }], programUuid: ACTIVE_PROGRAM },
+  });
+  expect(calls).toEqual([
+    asked("manual", "manual-1"),
+    asked("certificationFile", "copy-1"),
+  ]);
+  const refused = recordingBackend({ "fileLinks:links": [null] }).backend;
+  await expect(refused.openManual("hidden")).rejects.toThrow(
+    "Manual is not available in this workspace.",
+  );
+  await expect(refused.certificationFileUrl("gone")).resolves.toBeNull();
 });
 
 it("uploadManual posts the PDF and finishes where it began", async () => {

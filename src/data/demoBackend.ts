@@ -3,7 +3,8 @@
  *   domain rules on the full fictional snapshot kept on the device.
  * Layer: Data. Browser only; no Convex server, no React.
  * Dependencies: ./backend, ./store (types), ./local, ./demoAircraftFiles,
- *   convex/values (ConvexError), and the src/domain modules it runs.
+ *   ./demoFileLinks, convex/values (ConvexError), and the src/domain modules
+ *   it runs.
  */
 import {
   groupDeletionPlan,
@@ -139,6 +140,7 @@ import { deferDiscrepancy, resolveDiscrepancy } from "../domain/deferrals";
 import * as local from "./local";
 import { groupAccessReports } from "../domain/groupAccessReview";
 import type { Backend } from "./backend";
+import { demoFileLinks } from "./demoFileLinks";
 import type { Workspace } from "./store";
 type DemoWorkspace = { getState(): Workspace };
 /**
@@ -1004,7 +1006,7 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         if (!can(s, aircraftUuid, "maintenance"))
           throw Error("Aircraft maintenance permission required.");
         s.aircraft = s.aircraft.map((a) =>
-          a.uuid === aircraftUuid ? { ...a, photoUrl } : a,
+          a.uuid === aircraftUuid ? { ...a, photoUrl, hasPhoto: true } : a,
         );
       });
     },
@@ -1013,7 +1015,9 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         if (!can(s, aircraftUuid, "maintenance"))
           throw Error("Aircraft maintenance permission required.");
         s.aircraft = s.aircraft.map((a) =>
-          a.uuid === aircraftUuid ? { ...a, photoUrl: undefined } : a,
+          a.uuid === aircraftUuid
+            ? { ...a, photoUrl: undefined, hasPhoto: undefined }
+            : a,
         );
       }),
     uploadAircraftFile: (aircraftUuid, category, file, link) =>
@@ -1025,6 +1029,8 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       ),
     archiveAircraftFile: (id, reason) =>
       demoAircraftFiles.archive(modify, audit, id, reason),
+    fileLinks: async (files) =>
+      demoFileLinks(workspace.getState().snapshot!, files, Date.now()),
     createUser: async (rawEmail, rawName, password) => {
       const id = crypto.randomUUID();
       const { passwordProblem } = await import("../domain/passwordRules");

@@ -22,16 +22,19 @@ import {
   readPendingPhotos,
   savePendingPhoto,
   removePendingPhoto,
+  favoritesKey,
+  alertReadsKey,
+  clearUserData,
 } from "./local";
 import { demoSnapshot } from "./demo";
 
-function discrepancy(queuedAt: number, uuid: string) {
+function discrepancy(queuedAt: number, uuid: string, authorId = "user-a") {
   return {
     queuedAt,
     operation: {
       kind: "discrepancy" as const,
       uuid,
-      authorId: "user-a",
+      authorId,
       aircraftUuid: "aircraft",
       description: "Broken light",
     },
@@ -109,6 +112,64 @@ it("rewrites a cached snapshot that still holds retired work-order fields", asyn
 });
 
 // Keep last: upgrades the shared database past the version this module opens.
+it("clears one user's device data but keeps other authors' unsynced work and the demo's own records", async () => {
+  const ns = "wipe";
+  const photo = (key: string, authorId: string) => ({
+    key,
+    aircraftUuid: "aircraft",
+    linkedKind: "flight" as const,
+    linkedUuid: "flight-1",
+    authorId,
+    name: key,
+    type: "image/jpeg",
+    size: 1,
+    queuedAt: 1,
+    blob: new Blob([new Uint8Array([1])], { type: "image/jpeg" }),
+  });
+  await saveSnapshot(ns, demoSnapshot());
+  await saveSnapshot(`${ns}:all`, demoSnapshot());
+  await persistOperation(ns, discrepancy(1, "mine"));
+  await persistOperation(ns, discrepancy(2, "theirs", "user-b"));
+  await persistOperation("other", discrepancy(3, "elsewhere"));
+  await savePendingPhoto(ns, photo("mine.jpg", "user-a"));
+  await savePendingPhoto(ns, photo("theirs.jpg", "user-b"));
+  await savePendingPhoto("other", photo("elsewhere.jpg", "user-a"));
+  await saveFavorites(favoritesKey(ns, "user-a"), ["N1"]);
+  await saveFavorites(favoritesKey(ns, "user-b"), ["N2"]);
+  await saveFavorites(alertReadsKey(ns, "user-a", "program"), ["due"]);
+  await saveFavorites(alertReadsKey(ns, "user-a", undefined), ["due"]);
+  await saveFavorites(alertReadsKey(ns, "user-b", "program"), ["due"]);
+  await saveFavorites(`${ns}:demo-alert-reads:user-a:program`, ["due"]);
+
+  await clearUserData(ns, "user-a");
+
+  expect(await readSnapshot(ns)).toBeUndefined();
+  expect(await readSnapshot(`${ns}:all`)).toBeDefined();
+  const uuids = async (n: string) =>
+    (await readQueue(n)).map((q) => q.operation.uuid);
+  expect(await uuids(ns)).toEqual(["theirs"]);
+  expect(await uuids("other")).toEqual(["elsewhere"]);
+  const keys = async (n: string) =>
+    (await readPendingPhotos(n)).map((p) => p.key);
+  expect(await keys(ns)).toEqual(["theirs.jpg"]);
+  expect(await keys("other")).toEqual(["elsewhere.jpg"]);
+  expect(await readFavorites(`${ns}:user-a`)).toBeUndefined();
+  expect(await readFavorites(`${ns}:user-b`)).toEqual(["N2"]);
+  expect(
+    await readFavorites(`${ns}:alert-reads:user-a:program`),
+  ).toBeUndefined();
+  expect(await readFavorites(`${ns}:alert-reads:user-a:`)).toBeUndefined();
+  expect(await readFavorites(`${ns}:alert-reads:user-b:program`)).toEqual([
+    "due",
+  ]);
+  expect(await readFavorites(`${ns}:demo-alert-reads:user-a:program`)).toEqual([
+    "due",
+  ]);
+  // The photo store test lists every key the store holds.
+  await removePendingPhoto(ns, "theirs.jpg");
+  await removePendingPhoto("other", "elsewhere.jpg");
+});
+
 it("releases its shared connection when another tab upgrades the database", async () => {
   await readQueue("upgrade-test");
   const upgraded = await new Promise<IDBDatabase>((resolve, reject) => {

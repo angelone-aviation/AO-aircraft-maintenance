@@ -28,7 +28,7 @@ import { AirplaneTilt, ArrowRight } from "@phosphor-icons/react";
 import { api } from "../convex/_generated/api";
 import { guardNumberEntry } from "./components/numberEntry";
 import { renewDemoAccess, useWorkspace, type Workspace } from "./data/store";
-import { hasKeptManuals, removeAllKeptManuals } from "./data/deviceManuals";
+import { hasKeptManuals } from "./data/deviceManuals";
 import { warmPdfViewer } from "./data/pdfOffline";
 import { pendingEntriesFile } from "./data/pendingEntries";
 import { convexBackend } from "./data/backend";
@@ -57,6 +57,7 @@ import {
 import { WorkspaceUnavailable } from "./components/WorkspaceUnavailable";
 import { ErrorBoundary, RenderFailure } from "./components/ErrorBoundary";
 import { offerAppUpdate } from "./components/appUpdate";
+import { useConfirmedSignOut } from "./components/SignOutConfirm";
 void initErrorReporting();
 initTheme();
 const configuredUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
@@ -116,11 +117,12 @@ function Root() {
 }
 function exitDemo() {
   sessionStorage.removeItem(DEMO_SESSION_KEY);
-  // Signing out of the demo removes its kept manuals, as signing out
-  // of a connected workspace does.
-  void removeAllKeptManuals(useWorkspace.getState().namespace).finally(() =>
-    window.location.assign("/"),
-  );
+  // Signing out of the demo clears the device as signing out of a connected
+  // workspace does; the demo's own fictional records stay.
+  void useWorkspace
+    .getState()
+    .signOutLocal()
+    .finally(() => window.location.assign("/"));
 }
 function ConfigurationError() {
   return (
@@ -178,6 +180,7 @@ function useConnection(demo: boolean) {
 }
 function DemoRoot({ onExit }: { onExit: () => void }) {
   const { ready, snapshot, initialize } = useWorkspace();
+  const exit = useConfirmedSignOut(onExit);
   useConnection(true);
   useEffect(() => {
     void initialize("demo", true);
@@ -194,9 +197,12 @@ function DemoRoot({ onExit }: { onExit: () => void }) {
       </Welcome>
     );
   return (
-    <AccessGate onExit={onExit}>
-      <App onExit={onExit} />
-    </AccessGate>
+    <>
+      <AccessGate onExit={exit.request}>
+        <App onExit={exit.request} />
+      </AccessGate>
+      {exit.dialog}
+    </>
   );
 }
 function LiveRoot({
@@ -210,7 +216,7 @@ function LiveRoot({
   const [openKeptCopy, setOpenKeptCopy] = useState(false);
   const session = useLiveSession(client);
   const screen = chooseLiveScreen(session, openKeptCopy);
-  const exit = () => void signOutOfLive(signOut);
+  const exit = useConfirmedSignOut(() => void signOutOfLive(signOut));
   if (screen === "loading") return <Loading />;
   if (screen === "unavailable")
     return (
@@ -222,15 +228,19 @@ function LiveRoot({
           userId={session.signedInUserId}
           onRetry={() => window.location.reload()}
           onOpenKeptCopy={() => setOpenKeptCopy(true)}
-          onSignOut={exit}
+          onSignOut={exit.request}
         />
+        {exit.dialog}
       </Welcome>
     );
   if (screen === "workspace")
     return (
-      <AccessGate onExit={exit}>
-        <App onExit={exit} />
-      </AccessGate>
+      <>
+        <AccessGate onExit={exit.request}>
+          <App onExit={exit.request} />
+        </AccessGate>
+        {exit.dialog}
+      </>
     );
   return <SignIn onDemo={onDemo} />;
 }

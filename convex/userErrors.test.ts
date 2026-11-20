@@ -272,14 +272,6 @@ it("shows refusals from functions outside runCommand to the client", async () =>
         }),
     ],
     [
-      "Manual is not available in this workspace.",
-      () =>
-        reader.query(api.manuals.open, {
-          uuid: "missing",
-          programUuid: PROGRAM,
-        }),
-    ],
-    [
       "Aircraft maintenance permission required.",
       () =>
         reader.action(api.faaSearch.search, {

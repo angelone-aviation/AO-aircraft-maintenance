@@ -6,7 +6,7 @@
  * Layer: Data. Browser-only: fetches files and the font; no React.
  * Dependencies: fflate, src/data (backend types, tablePdf, pdfFont,
  *   aircraftStatusReport), src/domain (recordsPackage, auditHistory, csv,
- *   model, statusSheet types).
+ *   model, statusSheet, fileLinks types).
  *
  * The signed logbook entries remain the maintenance record (ADR-0004); this
  * is the on-demand copy for an inspector, buyer or insurer.
@@ -20,6 +20,7 @@ import { toCsv } from "../domain/csv";
 import { MAX_AUDIT_PAGE_SIZE } from "../domain/auditHistory";
 import { localDate, type AuditEntry, type Snapshot } from "../domain/model";
 import type { StatusSectionId } from "../domain/statusSheet";
+import type { FileRef } from "../domain/fileLinks";
 import {
   assertRecordsExporter,
   buildRecordsPackage,
@@ -94,6 +95,11 @@ export interface RecordsPackageRequest {
   aircraftUuid: string;
   /** The backend to page the change log from; null reads the snapshot's. */
   backend: Backend | null;
+  /**
+   * Asks for stored files' links, as Backend.fileLinks; null when none can be
+   * had (offline), and every file is then listed as not downloaded.
+   */
+  fileLinks: Backend["fileLinks"] | null;
   /** Called with a short line of progress, such as "Copying files 3 of 12…". */
   onProgress?: (message: string) => void;
   now?: Date;
@@ -136,7 +142,11 @@ export async function exportRecordsPackage(
   progress("Printing records.pdf…");
   const pdf = await printTables(pkg, now);
   const plan = planPackageFiles(pkg.files);
-  const { copied, skipped } = await copyFiles(plan.included, progress);
+  const { copied, skipped } = await copyFiles(
+    plan.included,
+    request.fileLinks,
+    progress,
+  );
   skipped.unshift(...plan.skipped);
   progress("Compressing the package…");
   await yieldToBrowser();
@@ -230,6 +240,7 @@ function csv(section: RecordsSection): string {
 
 async function copyFiles(
   files: PackageFile[],
+  fileLinks: RecordsPackageRequest["fileLinks"],
   progress: (message: string) => void,
 ): Promise<{ copied: Zippable; skipped: SkippedFile[] }> {
   const copied: Zippable = {};
@@ -237,21 +248,28 @@ async function copyFiles(
   for (const [index, file] of files.entries()) {
     progress(`Copying files ${index + 1} of ${files.length}…`);
     try {
-      copied[file.path] = [await fileBytes(file.url), STORED];
+      copied[file.path] = [await fileBytes(file.file, fileLinks), STORED];
     } catch {
-      // A file that cannot be fetched (expired URL, network) is reported in
-      // README.txt; the rest of the package is still worth having.
+      // A file that cannot be fetched (no link offline, refused, network) is
+      // reported in README.txt; the rest of the package is still worth having.
       skipped.push({ file, reason: COULD_NOT_DOWNLOAD });
     }
   }
   return { copied, skipped };
 }
 
-// Demo files are data: URLs, which the Content-Security-Policy keeps fetch()
-// from reading, so those are decoded here.
-async function fileBytes(url: string): Promise<Uint8Array> {
-  if (url.startsWith("data:")) return dataUrlBytes(url);
-  const response = await fetch(url);
+// Each link is asked for just before its download, since a package of many
+// files outlasts a link's five minutes. Demo files arrive as data: URLs,
+// which the Content-Security-Policy keeps fetch() from reading, so those are
+// decoded here.
+async function fileBytes(
+  ref: FileRef,
+  fileLinks: RecordsPackageRequest["fileLinks"],
+): Promise<Uint8Array> {
+  const [link] = fileLinks ? await fileLinks([ref]) : [null];
+  if (!link) throw new Error(`No link to ${ref.kind} ${ref.id}`);
+  if (link.url.startsWith("data:")) return dataUrlBytes(link.url);
+  const response = await fetch(link.url);
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
   return new Uint8Array(await response.arrayBuffer());
 }

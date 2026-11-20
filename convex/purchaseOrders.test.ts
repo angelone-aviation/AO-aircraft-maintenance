@@ -10,8 +10,10 @@ import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import { poDraftSchema, poSchema } from "../src/domain/purchaseOrders";
+import { openFile } from "../tests/fixtures/fileLinks";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -146,8 +148,14 @@ it("persists PO receipts atomically and replays without double inventory or audi
     uuid: expect.any(String),
     name: "invoice.pdf",
     receiptUuid: receipt.requestUuid,
-    url: expect.any(String),
   });
+  expect(
+    await openFile(
+      client,
+      { kind: "poFile", id: files[0].uuid },
+      "demo-program",
+    ),
+  ).not.toBeNull();
   const inventoryFiles = await t.run((ctx) =>
     ctx.db.query("inventoryFiles").collect(),
   );
@@ -381,7 +389,7 @@ afterEach(() => vi.restoreAllMocks());
 // item that another Flight Program holds under the given uuids.
 async function foreignFixture(foreign: { po: string; stock: string }) {
   const t = convexTest(schema, modules);
-  const subjects = await t.run(async (ctx) => {
+  const seeded = await t.run(async (ctx) => {
     await ctx.db.insert("programs", demoSnapshot().programs![0]);
     const location = {
       uuid: "store",
@@ -403,6 +411,7 @@ async function foreignFixture(foreign: { po: string; stock: string }) {
       programUuid: "other",
       payload: "{}",
     });
+    const elsewhere = await insertPoFile(ctx, foreign.po, "other");
     await ctx.db.insert("management", {
       uuid: foreign.stock,
       programUuid: "other",
@@ -433,8 +442,12 @@ async function foreignFixture(foreign: { po: string; stock: string }) {
         userId,
         expirationTime: Date.now() + DAY_MS,
       })}`;
-    return { admin: await subject(admin), reader: await subject(reader) };
+    return {
+      subjects: { admin: await subject(admin), reader: await subject(reader) },
+      elsewhere,
+    };
   });
+  const { subjects } = seeded;
   const client = t.withIdentity({ subject: subjects.admin });
   const command = (c: unknown) =>
     client.mutation(api.purchaseOrders.execute, {
@@ -452,7 +465,29 @@ async function foreignFixture(foreign: { po: string; stock: string }) {
       programUuid: "demo-program",
       poUuid,
     });
-  return { command, stored, files };
+  const link = (as: keyof typeof subjects, id: string) =>
+    openFile(
+      t.withIdentity({ subject: subjects[as] }),
+      { kind: "poFile", id },
+      "demo-program",
+    );
+  return { t, command, stored, files, link, elsewhere: seeded.elsewhere };
+}
+
+async function insertPoFile(
+  ctx: MutationCtx,
+  poUuid: string,
+  programUuid: string,
+) {
+  return ctx.db.insert("poFiles", {
+    poUuid,
+    programUuid,
+    storageId: await ctx.storage.store(new Blob(["%PDF-1.4"])),
+    name: "invoice.pdf",
+    type: "application/pdf",
+    size: 8,
+    uploadedAt: 1,
+  });
 }
 
 const draft = (uuid: string) =>
@@ -498,8 +533,8 @@ it("refuses a PO uuid another Flight Program holds, and writes nothing", async (
   expect(await stored()).toEqual(before);
 });
 
-it("lists a PO's files only for an inventory administrator, and only within the Flight Program", async () => {
-  const { files } = await foreignFixture({
+it("lists and opens a PO's files only for an inventory administrator, and only within the Flight Program", async () => {
+  const { t, files, link, elsewhere } = await foreignFixture({
     po: "po-elsewhere",
     stock: "stock-elsewhere",
   });
@@ -511,6 +546,18 @@ it("lists a PO's files only for an inventory administrator, and only within the 
     name: "ConvexError",
     data: "PO not found.",
   });
+  // Inserted here, since the other cases decode every order in the program.
+  const here = await t.run(async (ctx) => {
+    await ctx.db.insert("purchaseOrders", {
+      uuid: "po-here",
+      programUuid: "demo-program",
+      payload: "{}",
+    });
+    return insertPoFile(ctx, "po-here", "demo-program");
+  });
+  expect(await link("reader", here)).toBeNull();
+  expect(await link("admin", elsewhere)).toBeNull();
+  expect(await link("admin", here)).not.toBeNull();
 });
 
 it("refuses received stock under a uuid another Flight Program holds, and writes nothing", async () => {

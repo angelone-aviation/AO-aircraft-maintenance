@@ -634,7 +634,11 @@ export interface WorkOrderAttachment {
   name: string;
   size: number;
   uploadedAt: number;
-  url: string;
+  /**
+   * The demo's stored copy, as a data URL. The server sends no link: screens
+   * open the file through Backend.fileLinks (docs/file-links.md).
+   */
+  url?: string;
 }
 
 /**
