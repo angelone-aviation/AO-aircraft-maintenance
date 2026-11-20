@@ -65,6 +65,7 @@ import type * as programContext from "../programContext.js";
 import type * as programUsers from "../programUsers.js";
 import type * as programs from "../programs.js";
 import type * as purchaseOrders from "../purchaseOrders.js";
+import type * as purchasingKeys from "../purchasingKeys.js";
 import type * as push from "../push.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as rateLimits from "../rateLimits.js";
@@ -154,6 +155,7 @@ declare const fullApi: ApiFromModules<{
   programUsers: typeof programUsers;
   programs: typeof programs;
   purchaseOrders: typeof purchaseOrders;
+  purchasingKeys: typeof purchasingKeys;
   push: typeof push;
   pushSubscriptions: typeof pushSubscriptions;
   rateLimits: typeof rateLimits;
