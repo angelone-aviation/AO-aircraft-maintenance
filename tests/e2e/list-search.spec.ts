@@ -131,17 +131,21 @@ async function demo(page: Page) {
  */
 async function storeFlights(page: Page, count: number) {
   await page.evaluate(async (total) => {
+    // One a day up to yesterday, all within the six months of flights the
+    // workspace keeps (ADR-0013), flight `total` newest.
+    const day = 86_400_000;
     const flights = Array.from({ length: total }, (_, i) => {
       const n = i + 1;
       const tenth = n % 10 === 0;
+      const at = Date.now() - (total - i) * day;
       return {
         uuid: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
         aircraftUuid: n % 2 ? "demo-206" : "demo-208",
         authorId: "demo-admin",
         pilotId: n % 2 ? "demo-admin" : "demo-pilot",
-        submittedAt: Date.UTC(2026, 0, n),
+        submittedAt: at,
         status: tenth ? "review" : "accepted",
-        startTime: new Date(Date.UTC(2026, 0, n, 12)).toISOString(),
+        startTime: new Date(at).toISOString(),
         landings: 1,
         cycles: 0,
         origin: `KF${String(n).padStart(3, "0")}`,
