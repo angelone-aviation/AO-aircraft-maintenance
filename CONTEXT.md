@@ -93,7 +93,7 @@ sequenceDiagram
   participant UI as screens
   Q->>Q: activeIdentity, context() and program-scoped loaders (programContext.ts), history and purchasing by the window's indexes (historyWindow.ts, windowedPurchasing.ts)
   Q->>Q: workspaceWindow() (src/domain/retention.ts): scopedSnapshot() strips what the caller may not see, history narrowed to the window
-  Q-->>WS: Snapshot via useQueries (src/main.tsx; a failure shows WorkspaceUnavailable) → receive()
+  Q-->>WS: Snapshot via useQueries (src/main.tsx, where a failure shows WorkspaceUnavailable) → receive()
   WS->>IDB: saveSnapshot(namespace)
   WS-->>UI: snapshot
 ```

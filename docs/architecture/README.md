@@ -104,7 +104,7 @@ sequenceDiagram
   D-->>M: mutated Snapshot + audit entries
   M->>M: hand-diff working vs prior rows
   M->>T: upsert taskCards, inspections, management, workOrders
-  M->>T: replay working.audit via access.audit(); one more audit("workOrder.save")
+  M->>T: replay working.audit via access.audit(), then one more audit("workOrder.save")
   Note over M,T: this glue is re-written by hand in ~18 mutation files
 ```
 
