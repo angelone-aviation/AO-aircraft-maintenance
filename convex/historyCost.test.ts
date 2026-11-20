@@ -51,6 +51,9 @@ const FLAT = 1.1;
 // The plan's headroom on Convex's 4,096 index ranges a function may read
 // (ADR-0013): a quarter of the limit.
 const INDEX_RANGE_BAR = 1000;
+// The plan's bar on bytes a function reads (ADR-0013): a quarter of Convex's
+// 16 MiB.
+const READ_BAR_BYTES = 4 * 1024 * 1024;
 // The parts requests and purchase orders each fleet-year adds.
 const PURCHASING_ROWS_PER_YEAR =
   VOLUME.aircraft * (VOLUME.partsRequests + VOLUME.purchaseOrders);
@@ -140,6 +143,20 @@ describe("the Weekly summary", () => {
     "is cut short over a year at %i fleet-years",
     (years) =>
       expect(cutShort.get(`auditHistory.summary.365d.${years}`)).toBe(true),
+  );
+
+  it.each(Object.keys(SUMMARY_FROM))(
+    "reads at most 4 MiB and a quarter of the index ranges over %s, the same at three fleet-years as at one",
+    (days) => {
+      const [one, three] = SUMMARY_YEARS.map(
+        (years) => reads.get(`auditHistory.summary.${days}`)![years],
+      );
+      for (const { bytes, indexRanges } of [one, three]) {
+        expect(bytes).toBeLessThanOrEqual(READ_BAR_BYTES);
+        expect(indexRanges).toBeLessThanOrEqual(INDEX_RANGE_BAR);
+      }
+      expect(three.bytes).toBeLessThanOrEqual(one.bytes * FLAT);
+    },
   );
 });
 

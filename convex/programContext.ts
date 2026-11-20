@@ -342,6 +342,7 @@ export const inspectionTemplateDocs = (ctx: Ctx, programUuid?: string) =>
  *
  * @param take - The most rows to return.
  * @param before - Only rows whose audit `_creationTime` is below this.
+ * @param from - Only rows whose audit `_creationTime` is at or above this.
  * @returns Newest first; none without a program.
  */
 export async function transferredAuditDocs(
@@ -349,13 +350,19 @@ export async function transferredAuditDocs(
   programUuid: string | undefined,
   take: number,
   before?: number,
+  from?: number,
 ) {
   if (!programUuid) return [];
   const links = await ctx.db
     .query("transferredAudit")
     .withIndex("program", (q) => {
       const eq = q.eq("programUuid", programUuid);
-      return before === undefined ? eq : eq.lt("auditCreationTime", before);
+      if (from === undefined)
+        return before === undefined ? eq : eq.lt("auditCreationTime", before);
+      const after = eq.gte("auditCreationTime", from);
+      return before === undefined
+        ? after
+        : after.lt("auditCreationTime", before);
     })
     .order("desc")
     .take(take);

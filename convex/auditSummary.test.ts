@@ -14,7 +14,8 @@ import { convexTest } from "convex-test";
 import { afterEach, it, expect, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { summary } from "./auditHistory";
 import { demoSnapshot } from "../src/data/demo";
 import type { AuditSummaryResult } from "../src/domain/auditSummary";
 import { encode } from "./collections";
@@ -97,6 +98,7 @@ async function fixture(rows: Row[]) {
   });
   return {
     t,
+    adminSubject: ids.admin,
     admin: t.withIdentity({ subject: ids.admin }),
     reader: t.withIdentity({ subject: ids.reader }),
     outsider: t.withIdentity({ subject: ids.outsider }),
@@ -317,6 +319,31 @@ it("counts rows about the program's purchase orders, requests and cost records, 
   expect(result.truncated).toBe(false);
 });
 
+it("stops once it has read 3 MiB, counting the newest rows, and reads at most 4 MiB when the rows are large", async () => {
+  const notes = "Torque values recorded. ".repeat(LARGE_ROW_REPEATS);
+  // 9 MB of rows inside the period, created in this order.
+  const rows: Row[] = Array.from({ length: 300 }, (_, i) => ({
+    action: "taskCard.save",
+    daysAgo: 0,
+    actorId: i < 100 ? "earliest" : "alex",
+    after: JSON.stringify({ notes }),
+  }));
+  const { t, adminSubject } = await fixture(rows);
+  const args = { programUuid: PROGRAM, ...WEEK };
+  const { result, bytes } = await t
+    .withIdentity({ subject: adminSubject })
+    .query(async (ctx) => {
+      const handler = (summary as unknown as SummaryHandler)._handler;
+      const result = await handler(ctx, args);
+      const { bytesRead } = await ctx.meta.getTransactionMetrics();
+      return { result, bytes: bytesRead.used };
+    });
+  expect(result.truncated).toBe(true);
+  expect(result.summary.actors.map((x) => x.actorId)).toEqual(["alex"]);
+  expect(bytes).toBeGreaterThanOrEqual(3 * MIB);
+  expect(bytes).toBeLessThanOrEqual(4 * MIB);
+}, 60_000);
+
 it("says the period was cut short when its rows name more records than it looks up", async () => {
   // Each row names a record of its own that the program does not hold.
   const named = (count: number) =>
@@ -336,11 +363,12 @@ it("says the period was cut short when its rows name more records than it looks 
   ).toBe(true);
 });
 
-// The aircraft's rows from before it joined the program carry the program
-// that wrote them, or none; a transfer lists rows no index of the program
-// reaches; the program's rows stay on an aircraft that left (ADR-0005).
+// An aircraft's rows from before it joined the program carry the program
+// that wrote them (one sorting before this program's uuid, one after), or
+// none; a transfer lists rows no index of the program reaches; the program's
+// rows stay on an aircraft that left (ADR-0005).
 it("counts each row of the program once, whichever index reaches it, and none of another program's aircraft", async () => {
-  const [ours] = demoSnapshot().aircraft;
+  const [ours, second, third] = demoSnapshot().aircraft;
   const { admin } = await fixtureOverTime([
     {
       action: "flight.dispatch_override",
@@ -360,9 +388,16 @@ it("counts each row of the program once, whichever index reaches it, and none of
     {
       action: "inspection.completed",
       daysAgo: 3,
-      aircraftUuid: ours.uuid,
+      aircraftUuid: second.uuid,
       programUuid: undefined,
       entityUuid: "inspection-1",
+    },
+    {
+      action: "ad.complied",
+      daysAgo: 3,
+      aircraftUuid: third.uuid,
+      programUuid: "another-program",
+      entityUuid: "ad-1",
     },
     {
       action: "location.saved",
@@ -398,15 +433,15 @@ it("counts each row of the program once, whichever index reaches it, and none of
     ...WEEK,
   });
   expect(truncated).toBe(false);
-  expect(summary.total).toBe(5);
+  expect(summary.total).toBe(6);
   expect(summary.actors.map((x) => [x.actorId, x.total])).toEqual([
-    ["alex", 4],
+    ["alex", 5],
     ["sam", 1],
   ]);
   expect(summary.families).toEqual({
     flights: 1,
     maintenance: 1,
-    ads: 0,
+    ads: 1,
     workOrders: 1,
     parts: 1,
     access: 0,
@@ -445,6 +480,15 @@ it("counts the rows created from the period's first midnight up to the midnight 
 });
 
 const MINUTE_MS = 60_000;
+const MIB = 1024 * 1024;
+// About 30 KB of notes a row: a page of 25 such rows is 0.75 MB.
+const LARGE_ROW_REPEATS = 1250;
+
+// Convex keeps a registered function's handler on `_handler`; calling it
+// inside a test query is the only way to read that query's reads after it.
+type SummaryHandler = {
+  _handler: (ctx: QueryCtx, args: object) => Promise<AuditSummaryResult>;
+};
 const STORES_BAY = "stores-bay";
 const THEIR_AIRCRAFT = "foreign-aircraft";
 

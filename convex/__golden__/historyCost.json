@@ -173,17 +173,17 @@
   "1": {
    "bytes": 663425,
    "documents": 1038,
-   "indexRanges": 26
+   "indexRanges": 32
   },
   "2": {
    "bytes": 663425,
    "documents": 1038,
-   "indexRanges": 26
+   "indexRanges": 32
   },
   "3": {
    "bytes": 663425,
    "documents": 1038,
-   "indexRanges": 26
+   "indexRanges": 32
   }
  },
  "history.costReport": {
@@ -222,38 +222,38 @@
  },
  "auditHistory.summary.7d": {
   "1": {
-   "bytes": 1970581,
-   "documents": 1738,
-   "indexRanges": 26
+   "bytes": 876539,
+   "documents": 1134,
+   "indexRanges": 35
   },
   "3": {
-   "bytes": 1970581,
-   "documents": 1738,
-   "indexRanges": 26
+   "bytes": 876539,
+   "documents": 1134,
+   "indexRanges": 35
   }
  },
  "auditHistory.summary.31d": {
   "1": {
-   "bytes": 5489327,
-   "documents": 3838,
-   "indexRanges": 50
+   "bytes": 1323665,
+   "documents": 1368,
+   "indexRanges": 45
   },
   "3": {
-   "bytes": 5489327,
-   "documents": 3838,
-   "indexRanges": 50
+   "bytes": 1323665,
+   "documents": 1368,
+   "indexRanges": 45
   }
  },
  "auditHistory.summary.365d": {
   "1": {
-   "bytes": 7696585,
-   "documents": 5238,
-   "indexRanges": 66
+   "bytes": 3156848,
+   "documents": 2513,
+   "indexRanges": 90
   },
   "3": {
-   "bytes": 7696585,
-   "documents": 5238,
-   "indexRanges": 66
+   "bytes": 3156848,
+   "documents": 2513,
+   "indexRanges": 90
   }
  }
 }
