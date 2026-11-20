@@ -2,7 +2,8 @@
  * Responsibility: Job cards: the job cards screen, the cards on work items and
  *   work orders, and editing, signing and evidence files for one card.
  * Layer: UI. React components; job card rules live in src/domain.
- * Dependencies: react, react-dom, zod (ZodError), src/data/store.ts,
+ * Dependencies: react, react-dom, zod (ZodError), src/data (store,
+ *   historyPages),
  *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
  *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders,
  *   listSearch), ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording,
@@ -51,6 +52,14 @@ import { ManualReferenceFields } from "./Manuals";
 import { useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace, type Workspace } from "../data/store";
+import {
+  HistoryRecordsContext,
+  useRecordsSnapshot,
+  useWorkOrderHistory,
+  withHistory,
+  workOrderRows,
+  type LoadedWorkOrder,
+} from "../data/historyPages";
 import { can, type Snapshot } from "../domain/model";
 import { ATA_GROUPS, ataLabel } from "../domain/ata";
 import { isOpenWorkOrder, validateWorkOrderFile } from "../domain/workOrders";
@@ -103,7 +112,15 @@ const PART_TEXT_FIELDS = [
   ["Installed component details", "installedComponent"],
 ] as const;
 
-type Selection = { uuid?: string; defaults?: TaskCardFields };
+/** The card to open, with its work order to load it by when it is older
+ * than the workspace keeps; or a new card's defaults. */
+type Selection = {
+  uuid?: string;
+  workOrderUuid?: string;
+  /** Just saved: the workspace may not hold it yet. */
+  saved?: boolean;
+  defaults?: TaskCardFields;
+};
 type CardOrder = "zone" | "number";
 type SignKind = "technician" | "inspection";
 type Choice = { uuid: string; name: string };
@@ -198,7 +215,7 @@ export function WorkItemJobCards(props: {
   workOrderUuid: string;
   item: WorkTask;
 }) {
-  const { snapshot: s } = useWorkspace();
+  const s = useRecordsSnapshot();
   const [selected, setSelected] = useState<Selection>();
   const [orderBy, setOrderBy] = useState<CardOrder>("zone");
   const { workOrderUuid, item } = props;
@@ -246,7 +263,8 @@ export function LinkedTaskCards(props: {
   aircraftUuid: string;
   link: TaskLink;
 }) {
-  const { snapshot: s, online, connected } = useWorkspace();
+  const { online, connected } = useWorkspace();
+  const s = useRecordsSnapshot();
   const [open, setOpen] = useState(false),
     [selected, setSelected] = useState<Selection>();
   const [orderBy, setOrderBy] = useState<CardOrder>("zone");
@@ -300,7 +318,7 @@ export function ArchivedJobCardButton({ card }: { card: TaskCard }) {
       </button>
       {open && (
         <TaskCardDialog
-          selection={{ uuid: card.uuid }}
+          selection={{ uuid: card.uuid, workOrderUuid: card.workOrderUuid }}
           onSelect={() => {}}
           onClose={() => setOpen(false)}
         />
@@ -442,7 +460,9 @@ function CardRow(props: {
           type="button"
           className="shop-title-button"
           aria-label={`Details for ${t.cardNumber}`}
-          onClick={() => props.onSelect({ uuid: t.uuid })}
+          onClick={() =>
+            props.onSelect({ uuid: t.uuid, workOrderUuid: t.workOrderUuid })
+          }
         >
           <strong>{t.cardNumber}</strong> · {t.title}
         </button>
@@ -477,7 +497,12 @@ function WorkItemCard(props: {
         <button
           type="button"
           className="text-button"
-          onClick={() => props.onSelect({ uuid: card.uuid })}
+          onClick={() =>
+            props.onSelect({
+              uuid: card.uuid,
+              workOrderUuid: card.workOrderUuid,
+            })
+          }
         >
           {card.cardNumber} · {card.title}
         </button>
@@ -816,7 +841,9 @@ function LinkedCardItem({
         <button
           type="button"
           className="text-button"
-          onClick={() => view.onSelect({ uuid: t.uuid })}
+          onClick={() =>
+            view.onSelect({ uuid: t.uuid, workOrderUuid: t.workOrderUuid })
+          }
         >
           {t.cardNumber} · {t.title}
         </button>
@@ -933,29 +960,92 @@ function TaskCardDialog({
   onSelect: (s: Selection) => void;
   onClose: () => void;
 }) {
-  const { snapshot: s } = useWorkspace();
-  const card = selection.uuid
-    ? [...(s?.taskCards ?? []), ...(s?.archivedTaskCards ?? [])].find(
-        (t) => t.uuid === selection.uuid,
-      )
-    : undefined;
+  const opened = useSelectedCard(selection);
+  const { card, s } = opened;
+  const missing = !!selection.uuid && !card;
   return createPortal(
     <div onSubmit={(e) => e.stopPropagation()}>
-      <Modal
-        className="job-card-modal"
-        title={card ? `Job card ${card.cardNumber}` : "New job card"}
-        onClose={onClose}
-      >
-        <TaskCardEditor
-          key={card ? `${card.uuid}:${card.version}` : "new"}
-          initial={card}
-          defaults={selection.defaults}
-          onSaved={(uuid) => onSelect({ uuid })}
+      <HistoryRecordsContext.Provider value={s}>
+        <Modal
+          className="job-card-modal"
+          title={
+            card
+              ? `Job card ${card.cardNumber}`
+              : missing
+                ? "Job card"
+                : "New job card"
+          }
           onClose={onClose}
-        />
-      </Modal>
+        >
+          {missing ? (
+            <MissingCard loaded={opened.loaded} saved={!!selection.saved} />
+          ) : (
+            <TaskCardEditor
+              key={card ? `${card.uuid}:${card.version}` : "new"}
+              initial={card}
+              defaults={selection.defaults}
+              onSaved={(uuid) =>
+                onSelect({
+                  uuid,
+                  workOrderUuid: card?.workOrderUuid,
+                  saved: true,
+                })
+              }
+              onClose={onClose}
+            />
+          )}
+        </Modal>
+      </HistoryRecordsContext.Provider>
     </div>,
     document.body,
+  );
+}
+
+// A card the screen does not hold belongs to a work order older than the
+// workspace keeps: it loads with that order, so a uuid never opens a blank
+// new card in its place (docs/history-paging.md, TaskCards.tsx).
+function useSelectedCard(selection: Selection) {
+  const records = useRecordsSnapshot();
+  const held = selection.uuid ? findCard(records, selection.uuid) : undefined;
+  const loaded = useWorkOrderHistory(
+    selection.uuid && !held ? selection.workOrderUuid : undefined,
+  );
+  const s =
+    records && loaded.history
+      ? withHistory(records, workOrderRows(loaded.history))
+      : records;
+  const card =
+    held ?? (selection.uuid ? findCard(s, selection.uuid) : undefined);
+  return { card, s, loaded };
+}
+
+function findCard(s: Snapshot | null, uuid: string) {
+  return [...(s?.taskCards ?? []), ...(s?.archivedTaskCards ?? [])].find(
+    (t) => t.uuid === uuid,
+  );
+}
+
+// A card just saved shows once the workspace receives it.
+function MissingCard({
+  loaded,
+  saved,
+}: {
+  loaded: LoadedWorkOrder;
+  saved: boolean;
+}) {
+  if (loaded.loading || (saved && !loaded.error))
+    return <p role="status">Loading the job card…</p>;
+  if (loaded.offline && !loaded.error)
+    return (
+      <p className="notice">
+        This job card is older than the records kept on this device. Reconnect
+        to open it.
+      </p>
+    );
+  return (
+    <p role="alert" className="error">
+      {loaded.error || "Job card not found."}
+    </p>
   );
 }
 
@@ -985,8 +1075,8 @@ function TaskCardEditor(props: EditorProps) {
 }
 
 function useTaskCardEditor({ initial, defaults }: EditorProps) {
-  const { snapshot: state, backend, online, connected } = useWorkspace();
-  const s = state!;
+  const { backend, online, connected } = useWorkspace();
+  const s = useRecordsSnapshot()!;
   const [uuid] = useState(initial?.uuid ?? crypto.randomUUID());
   const [f, setFields] = useState(initialFields(s, initial, defaults));
   const [revising, setRevising] = useState(false);
@@ -1795,7 +1885,8 @@ function EditorSignButton(props: {
 }
 
 function Evidence({ card, writable }: { card: TaskCard; writable: boolean }) {
-  const { snapshot: s, backend } = useWorkspace();
+  const { backend } = useWorkspace();
+  const s = useRecordsSnapshot();
   const [file, setFile] = useState<File>();
   const files = (s?.taskEvidence ?? []).filter(
     (f) => f.taskCardUuid === card.uuid,

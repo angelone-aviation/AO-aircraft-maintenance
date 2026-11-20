@@ -1,17 +1,25 @@
 /**
- * Responsibility: Pages a list's older history for a screen and merges what
- *   is loaded with the workspace snapshot.
- * Layer: Data. A React hook over the workspace store and Backend; renders
- *   nothing.
+ * Responsibility: Pages a list's older history for a screen, loads one older
+ *   work order on demand, and merges what is loaded with the workspace
+ *   snapshot for the screen's records.
+ * Layer: Data. React hooks and a context over the workspace store and
+ *   Backend; renders nothing.
  * Dependencies: react, ./store, ./errors, src/domain (retention,
  *   historyReads, model types).
  *
- * Pages come only through Backend.historyPage, which the server checks
- * (ADR-0013). They are not reactive and live only in memory: dropped on a
+ * Older records come only through Backend.historyPage and workOrderHistory,
+ * which the server checks (ADR-0013). They are not reactive and live only in memory: dropped on a
  * program switch or sign-out, and reloaded after any write of their kind, so
  * an edited older record never shows a stale copy.
  */
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useWorkspace } from "./store";
 import { errorText } from "./errors";
 import {
@@ -91,6 +99,25 @@ export type FetchHistoryPage = (
   request: HistoryPageRequest,
 ) => Promise<HistoryPage>;
 
+/** One older work order loaded on demand, and its load state. */
+export interface LoadedWorkOrder {
+  /** Undefined until loaded, or when it could not be. */
+  history?: WorkOrderHistory;
+  loading: boolean;
+  /** Why it could not load, as the user should read it; "" otherwise. */
+  error: string;
+  /** No connection: it cannot load. */
+  offline: boolean;
+}
+
+/**
+ * The records a screen shows: the workspace snapshot with the older records
+ * it has loaded. Components under it read it through
+ * {@link useRecordsSnapshot}, so a record opened from a history page finds
+ * its job cards, costs and files.
+ */
+export const HistoryRecordsContext = createContext<Snapshot | null>(null);
+
 /** Nothing loaded yet. */
 export const NO_HISTORY: LoadedHistory = Object.freeze({
   records: emptyHistoryRecords(),
@@ -101,6 +128,7 @@ export const NO_HISTORY: LoadedHistory = Object.freeze({
 });
 
 const LOAD_ERROR = "Could not load older records.";
+const NO_ITEM: LoadedItem = { item: "", mark: undefined, error: "" };
 const MERGED_COLLECTIONS = [
   "flights",
   "discrepancies",
@@ -113,6 +141,13 @@ const MERGED_COLLECTIONS = [
   "partsRequests",
 ] as const;
 type MergedCollection = (typeof MERGED_COLLECTIONS)[number];
+// What useWorkOrderHistory loaded, for which order and write mark.
+interface LoadedItem {
+  item: string;
+  mark: string | undefined;
+  history?: WorkOrderHistory;
+  error: string;
+}
 type Keyed = { uuid: string };
 // The change-log actions that write each list's records: a work order page
 // also carries its job cards and cost record.
@@ -162,6 +197,57 @@ export function useHistoryPages(list: HistoryList): HistoryPages {
     error: current ? state.error : "",
     offline: !live,
     loadOlder: pager.loadOlder,
+  };
+}
+
+/**
+ * The records of the screen around the caller: its {@link
+ * HistoryRecordsContext}, or the workspace snapshot when none is set.
+ *
+ * @returns Null before the workspace has a snapshot.
+ */
+export function useRecordsSnapshot(): Snapshot | null {
+  const screen = useContext(HistoryRecordsContext);
+  const { snapshot } = useWorkspace();
+  return screen ?? snapshot;
+}
+
+/**
+ * One work order and everything filed on it, loaded through
+ * Backend.workOrderHistory, for an order the workspace's window leaves out.
+ *
+ * @param uuid - The order; undefined loads nothing, for an order the
+ *   workspace holds.
+ * @returns The order once loaded. It loads again after any write of a work
+ *   order, job card or cost, keeping the copy it has meanwhile, and is
+ *   dropped on a program or user change. "History not found." is the
+ *   server's answer for an order the user may not read.
+ */
+export function useWorkOrderHistory(uuid: string | undefined): LoadedWorkOrder {
+  const { backend, online, connected, snapshot } = useWorkspace();
+  const live = !!backend && online && connected;
+  const item = uuid
+    ? historyScope(snapshot, { kind: "workOrders" }) + uuid
+    : "";
+  const mark = historyWriteMark(snapshot, "workOrders");
+  const [state, setState] = useState<LoadedItem>(NO_ITEM);
+  const fresh = state.item === item && state.mark === mark;
+  useEffect(() => {
+    if (!uuid || !live || !backend || fresh) return;
+    let current = true;
+    backend.workOrderHistory(uuid).then(
+      (history) => current && setState({ item, mark, history, error: "" }),
+      (e) =>
+        current && setState({ item, mark, error: errorText(e, LOAD_ERROR) }),
+    );
+    return () => void (current = false);
+  }, [uuid, live, backend, fresh, item, mark]);
+  const kept = state.item === item && !!uuid;
+  return {
+    history: kept ? state.history : undefined,
+    loading: !!uuid && live && !fresh,
+    error: kept ? state.error : "",
+    offline: !live,
   };
 }
 

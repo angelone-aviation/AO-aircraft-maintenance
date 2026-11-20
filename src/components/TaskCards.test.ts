@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins how job card lists filter and order cards, which cards
  *   a linked record lists and offers, how removing links stops at a refusal,
- *   and which links, stock and choices the card editor offers. Saving,
+ *   which links, stock and choices the card editor offers, and how a card
+ *   older than the workspace opens. Saving,
  *   signing and uploads need a browser: tests/e2e/job-cards*.spec.ts.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/TaskCards.tsx, src/data/demo.ts
@@ -78,6 +79,20 @@ const workspace = {
   backend: { taskCard },
 };
 vi.mock("../data/store", () => ({ useWorkspace: () => workspace }));
+const older = vi.hoisted(() => ({
+  loaded: { loading: false, error: "", offline: false } as Record<
+    string,
+    unknown
+  >,
+  asked: [] as (string | undefined)[],
+}));
+vi.mock("../data/historyPages", async (original) => ({
+  ...(await original<typeof import("../data/historyPages")>()),
+  useWorkOrderHistory: (uuid?: string) => {
+    older.asked.push(uuid);
+    return older.loaded;
+  },
+}));
 
 const uuid = (n: number) => `00000000-0000-4000-8000-0000000000${10 + n}`;
 const card = (n: number, extra: Partial<TaskCard> = {}): TaskCard => ({
@@ -341,3 +356,43 @@ function textOf(node: ReactNode): string {
     return textOf(node.props.children);
   return "";
 }
+
+it("opens a card the workspace does not hold by loading its work order", () => {
+  workspace.snapshot = snapshot([]);
+  const archived = card(12, { workOrderUuid: CLOSED.uuid, title: "Older" });
+  older.asked = [];
+  older.loaded = { loading: true, error: "", offline: false };
+  const loading = render(ArchivedJobCardButton, { card: archived }, [true]);
+  expect(older.asked).toContain(CLOSED.uuid);
+  expect(loading).toContain("Loading the job card…");
+  expect(loading).not.toContain('data-label="Save job card"');
+  older.loaded = {
+    ...{ loading: false, error: "", offline: false },
+    history: {
+      workOrder: { ...CLOSED, aircraftUuid: "demo-206" },
+      taskCards: [],
+      archivedTaskCards: [archived],
+      costs: [],
+      taskEvidence: [],
+      workOrderAttachments: [],
+      partsRequests: [],
+    },
+  };
+  const opened = render(ArchivedJobCardButton, { card: archived }, [true]);
+  expect(opened).toContain('value="Older"');
+});
+
+it("says an older card needs a connection, or was not found, never a blank new card", () => {
+  workspace.snapshot = snapshot([]);
+  older.loaded = { loading: false, error: "", offline: true };
+  const offline = render(
+    ArchivedJobCardButton,
+    { card: card(13, { workOrderUuid: CLOSED.uuid }) },
+    [true],
+  );
+  expect(offline).toContain("Reconnect to open it.");
+  older.loaded = { loading: false, error: "", offline: false };
+  const unknown = render(ArchivedJobCardButton, { card: card(14) }, [true]);
+  expect(unknown).toContain("Job card not found.");
+  expect(unknown).not.toContain('data-label="Save job card"');
+});
