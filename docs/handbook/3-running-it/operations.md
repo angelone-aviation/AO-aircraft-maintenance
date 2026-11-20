@@ -1,6 +1,6 @@
 # Operations
 
-How production is released, backed up, watched and repaired. Each section summarises a runbook; the runbook has the exact steps. Setting everything up from nothing is in [Set up from scratch](setup-from-scratch.md). What to do on a schedule is in [Checklists](checklists.md).
+How production is released, backed up, watched and repaired. Each section summarises a runbook; the runbook has the exact steps. Setting everything up from nothing is in [Set up from scratch](setup-from-scratch.md). What to do on a schedule is in [Checklists](checklists.md). Every credential, where it lives and what to do if it is lost or leaked: [Credentials and keys](credentials.md).
 
 | Runbook                                                          | Use it to                                                                     |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
