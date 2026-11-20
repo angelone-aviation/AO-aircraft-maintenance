@@ -794,7 +794,7 @@ function ADTaskRow({ ad, record: r, task: t }: RecordProps & { task: ADTask }) {
           {t.recurrence} · Interval: {taskInterval(t)}
         </p>
         <TaskStaleLimits ad={ad} record={r} task={t} />
-        <TaskParts ad={ad} task={t} />
+        <TaskParts task={t} />
       </div>
       <ADWorkOrderButton state={ad.state} record={r} taskUuid={t.uuid} />
       <button
@@ -867,7 +867,7 @@ function TaskStaleLimits({
   );
 }
 
-function TaskParts({ ad, task: t }: ADProps & { task: ADTask }) {
+function TaskParts({ task: t }: { task: ADTask }) {
   return (
     <>
       <PartsAvailability source={partsSource(t)} />
