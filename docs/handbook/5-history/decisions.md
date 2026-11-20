@@ -1,5 +1,7 @@
 # Decisions
 
+[Handbook](../README.md)
+
 Every standing decision, with its date and the choice made. Where an ADR exists it holds the reasons; this page is the index.
 
 - Aaron chose option A for every one of D1–D25 (D5–D7 on 10 Nov 2026, the rest on 19 Nov; D13's price record on 20 Nov) and H1–H7 (19 Nov; H5 revised 20 Nov). Each row says what that choice does in the code now.
@@ -52,8 +54,8 @@ timeline
 | D13: the price of an issued part                                  | Kept in the work order's administrator-only cost record                                                                                | [Parts and repair requests](../../parts-and-repair-requests.md)                                                                                 |
 | Google and Microsoft sign-in                                      | Removed; everyone signs in with a password. Closes security findings A3 and A10                                                        | [ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)                                                                               |
 | Cloudflare's Git build (Workers Builds)                           | Disconnected (about 20:15 UTC) and never to be reconnected; only the GitHub Deploy workflow publishes the site                         | [Release runbook](../../runbooks/release.md#cloudflare), [risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site) |
-| The readable copy in Dropbox                                      | Optional, and deferred: not set up for now                                                                                             | [Dropbox runbook](../../runbooks/dropbox-records-copy.md)                                                                                       |
-| An MCP server for the app                                         | Not doing                                                                                                                              | —                                                                                                                                               |
+| The readable copy in Dropbox                                      | Optional; deferred until after go-live                                                                                                 | [Dropbox runbook](../../runbooks/dropbox-records-copy.md)                                                                                       |
+| An MCP server                                                     | Not doing                                                                                                                              | —                                                                                                                                               |
 
 ## History paging, H1–H7 (19 Nov 2026)
 
@@ -114,7 +116,7 @@ From [ADR-0013](../../adr/0013-history-retention-window.md).
 
 ## Things Aaron decided not to do, for now
 
-From Aaron's to-do of 20 Nov 2026. The [20 Nov table](#20-nov-2026) above has the rest: backup encryption, the Dropbox copy, the MCP server and S9.
+From Aaron's to-do of 20 Nov 2026. The [20 Nov table](#20-nov-2026) above has the rest: backup encryption, the Dropbox records copy (deferred until after go-live), the MCP server (not doing) and S9.
 
 | Not doing                   | Why or until                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------------- |

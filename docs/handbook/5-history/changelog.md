@@ -1,5 +1,7 @@
 # Changelog
 
+[Handbook](../README.md)
+
 What changed, and when. Newest first. Each line gives the finding's id, what changed in plain words, and the commit.
 
 - **Sources:** `git log`, the status columns of the [4 Nov security review](../../security/review-2026-11-04.md), the [2 Nov review](../../security/review-2026-11-02.md), the [10 Nov bug hunt](../../qa/bug-hunt-2026-11-10/README.md) and [REFACTOR_ROADMAP.md](../../../REFACTOR_ROADMAP.md). Nothing is listed that can't be traced to one of them.
@@ -11,7 +13,7 @@ What changed, and when. Newest first. Each line gives the finding's id, what cha
 
 ## 20 Nov 2026 at a glance
 
-The day's four releases and its one incident, in UTC (03.15 means 03:15). Each release time is when its Deploy run finished on GitHub Actions; the incident's times are approximate.
+The day's five releases and its one incident, in UTC (03.15 means 03:15). Releases 1–4 are timed by when their Deploy run finished on GitHub Actions, release 5 by its merge; the incident's times are approximate.
 
 ```mermaid
 timeline
@@ -22,12 +24,20 @@ timeline
     19.30 : Incident starts : Cloudflare's Git build publishes a site with no backend address
     20.02 : Release 4 in production : Backups without encryption : Incident ends
     20.15 : Aaron disconnects Cloudflare's Git build
-    Not yet : Release 5 : Documentation, password-only sign-in, build guard
+    21.05 : Release 5 merged to main : Documentation, password-only sign-in, build guard
 ```
 
-## Release 5: documentation and password-only sign-in
+## Release 6: not yet released
 
-Not in production yet. It reached `main` at `8b40038` at about 21:05 UTC on 20 Nov; Deploy publishes it when CI on that commit is green.
+The review of the handbook and wiki that followed release 5:
+
+- fixes to the handbook and the user guide, each checked against the code;
+- diagrams, charts and timelines where they shorten the text;
+- a Credentials page in the handbook.
+
+## 20 Nov 2026, release 5: documentation and password-only sign-in
+
+Released at `8b40038`: merged to `main` at about 21:05 UTC; Deploy publishes it when CI on that commit passes.
 
 | Change                                                                                                                                                                     | Commit                                                                      |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -63,7 +73,7 @@ For about 30 minutes, at about 19:30–20:02 UTC on 20 Nov 2026, right after `8d
 
 - **Cause:** Cloudflare's own Git build (Workers Builds) had been connected by mistake. It built the repository without the backend address and published it before the Deploy workflow did.
 - **End:** Deploy published release 4 at 20:02 UTC. Until then nobody could sign in or sync.
-- **Fix:** Aaron disconnected the Git build at about 20:15 UTC. From release 5 a production build refuses to run there. The Git build must stay disconnected ([release runbook](../../runbooks/release.md#cloudflare), [risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
+- **Fix:** Aaron disconnected the Git build at about 20:15 UTC. Since release 5 a production build refuses to run there. The Git build must stay disconnected ([release runbook](../../runbooks/release.md#cloudflare), [risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
 
 ## 20 Nov 2026, release 3: the purchasing window, lighter saves and the Weekly summary
 
@@ -228,7 +238,7 @@ Bug-hunt and stale-screen findings fixed in part or left open before, finished h
 
 | Date   | What                                                                                                                 | Where                                                                                                     |
 | ------ | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 12 Nov | The redesign pushed: new look, grouped navigation, charts, a rebuilt Discrepancies screen; same data and permissions | [README: project status](../../../README.md#project-status)                                               |
+| 12 Nov | The redesign pushed: new look, grouped navigation, charts, a rebuilt Discrepancies screen; same data and permissions | Deployed at `fcadec0`; [roadmap](../../../REFACTOR_ROADMAP.md#findings) finding 70                        |
 | 10 Nov | Second bug hunt: 132 findings, 111 fixed                                                                             | [Bug hunt 10 Nov](../../qa/bug-hunt-2026-11-10/README.md)                                                 |
 | 9 Nov  | Urgent alerts by Web Push and email; expiring dates                                                                  | [ADR-0012](../../adr/0012-urgent-alerts-by-web-push-and-immediate-email.md)                               |
 | 4 Nov  | Second security review; fixes A1, A2, T1, C9, P1–P3                                                                  | [Review 4 Nov](../../security/review-2026-11-04.md)                                                       |

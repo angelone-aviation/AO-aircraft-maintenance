@@ -1,5 +1,7 @@
 # Services and costs
 
+[Handbook](../README.md)
+
 Every outside service Angel One uses: what it does, which plan, what it costs, what breaks without it, and who owns the account.
 
 - **Prices are as of November 2026**, from each vendor's own pricing page (linked), in US dollars, before tax.
@@ -72,7 +74,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan            | **Professional, one developer seat** ([ADR-0007](../../adr/0007-convex-pro-single-seat.md), [ADR-0010](../../adr/0010-one-convex-administrator.md)). App users are not seats                                                                                                                                                              |
 | Price           | $25 per developer a month. Includes 50 GB database storage, 50 GB database I/O, 100 GB file storage, 25M function calls, 250 GB-hours of action compute, 50 GB egress. Over that: $0.20/GB database storage and I/O, $0.03/GB files, $2 per million calls, $0.30 per GB-hour, $0.12/GB egress ([pricing](https://www.convex.dev/pricing)) |
 | Why Pro         | Daily scheduled backups, 50 GB of egress for the nightly export, log streams and exception reporting. The free plan has no backups, log streams or exception reporting                                                                                                                                                                    |
-| If it goes away | The app stops: no sign-in, no data, no sync. Pending entries wait on devices. Recovery: restore the latest R2 backup into a new Convex deployment ([backup runbook](../../runbooks/backup-restore.md)); none exists yet ([risks R1](risks.md#r1-no-working-off-site-backup-is-proven-yet)). There is no other backend                     |
+| If it goes away | The app stops: no sign-in, no data, no sync. Pending entries wait on devices. Recovery: restore the latest R2 backup into a new Convex deployment ([backup runbook](../../runbooks/backup-restore.md)); none exists yet ([risks R1](risks.md#r1-off-site-backups-are-set-up-but-not-proven-yet)). There is no other backend               |
 | Account holder  | Aaron, the one Convex member. The account should belong to the program before real records ([ADR-0007](../../adr/0007-convex-pro-single-seat.md))                                                                                                                                                                                         |
 
 ### Cloudflare (website, backups, DNS)
@@ -175,12 +177,12 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 
 ### Dropbox (optional)
 
-|                 |                                                                                                                                                                                                                                                                          |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Does            | Holds the readable Excel copy of the records, if switched on ([ADR-0011](../../adr/0011-readable-records-copy-in-dropbox.md), [runbook](../../runbooks/dropbox-records-copy.md)). Optional and deferred: not set up ([decisions](../5-history/decisions.md#20-nov-2026)) |
-| Price           | Basic is free with 2 GB; Plus, 2 TB, is $11.99 a month billed monthly, or $9.99 a month billed yearly ([plans](https://www.dropbox.com/plans)). A workbook is about 1 MB at the sample's size, so Basic likely fits for years (**estimate**)                             |
-| If it goes away | Only the convenience copy is lost. R2 is the backup                                                                                                                                                                                                                      |
-| Account holder  | Should be an organisation account with two-step sign-in                                                                                                                                                                                                                  |
+|                 |                                                                                                                                                                                                                                                                                               |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Does            | Holds the readable Excel copy of the records, if switched on ([ADR-0011](../../adr/0011-readable-records-copy-in-dropbox.md), [runbook](../../runbooks/dropbox-records-copy.md)). Optional, and deferred until after go-live: not set up ([decisions](../5-history/decisions.md#20-nov-2026)) |
+| Price           | Basic is free with 2 GB; Plus, 2 TB, is $11.99 a month billed monthly, or $9.99 a month billed yearly ([plans](https://www.dropbox.com/plans)). A workbook is about 1 MB at the sample's size, so Basic likely fits for years (**estimate**)                                                  |
+| If it goes away | Only the convenience copy is lost. R2 is the backup                                                                                                                                                                                                                                           |
+| Account holder  | Should be an organisation account with two-step sign-in                                                                                                                                                                                                                                       |
 
 ### Sentry (optional, not used)
 

@@ -1,5 +1,7 @@
 # Risks
 
+[Handbook](../README.md)
+
 The risk register for Angel One, as of 20 November 2026. Review it with the quarterly restore rehearsal ([checklists](../3-running-it/checklists.md)).
 
 - **Likelihood** and **impact** are judgements: Low, Medium or High, each with its reason.
@@ -19,7 +21,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ## The five to watch first
 
-1. **No working off-site backup proven yet.** When copies start they are unencrypted, and a broad token from another project can reach them (R1, R2, R23).
+1. **Off-site backups are set up but not proven yet.** When copies start they are unencrypted, and a broad token from another project can reach them (R1, R2, R23).
 2. **One person** holds the Convex account and maintains the app (R3, R4).
 3. **No second factor** on app accounts, and 2FA not yet confirmed on every operator account (R14).
 4. **Convex can't roll back**, and the app has no other backend (R5, R6).
@@ -27,12 +29,12 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ## The register
 
-### R1. No working off-site backup is proven yet
+### R1. Off-site backups are set up but not proven yet
 
-- **Risk:** no nightly backup has succeeded (every run up to 20 Nov failed, before the set-up was finished) and no restore has been rehearsed. Until both, the only copies are Convex's own scheduled backups, kept 7 days in the same account as the data.
+- **Risk:** no nightly backup has succeeded (every run up to 20 Nov failed, before the set-up was finished) and no restore has been rehearsed. Until both, the only copies known good are Convex's own daily backups (on since 20 Nov, with file storage), kept 7 days in the same account as the data.
 - **Likelihood:** High until a run and a rehearsal have worked: an untested backup often fails when needed.
 - **Impact:** High: losing the Convex account or project would lose every record.
-- **What reduces it:** the bucket, its lock rules, the R2 token and the scoped deploy key are in place. Left: the heartbeat secret, a first run by hand and the first [restore rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal) ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)).
+- **What reduces it:** the bucket, its lock and lifecycle rules, the R2 token, the scoped deploy key, the time zone and failure emails are in place. Left: the heartbeat secret, a first run by hand and the first [restore rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal) ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)).
 - **Who acts:** Aaron.
 - **Status:** Open.
 
@@ -50,9 +52,9 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Risk:** only Aaron can reach production data, deploy keys and the dashboard ([ADR-0010](../../adr/0010-one-convex-administrator.md)).
 - **Likelihood:** Medium: over years, one person is sometimes ill, travelling or gone.
 - **Impact:** High: while he is unavailable nobody can repair, restore or rotate a key.
-- **What reduces it:** the break-glass account and sealed credentials ([runbook](../../runbooks/break-glass-admin.md)), which also needs Convex's account-recovery steps written down.
+- **What reduces it:** the break-glass account and its sealed paper copy ([runbook](../../runbooks/break-glass-admin.md)). With backups unencrypted there is no backup key to seal ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)). To recover without Aaron the organisation needs instead: the Cloudflare login (it reaches the R2 copies), Convex's account-recovery steps written down, and an owner of the GitHub organisation.
 - **Who acts:** Aaron, with the organisation contact.
-- **Status:** Open: names and sealed copies not set up yet.
+- **Status:** Open: who holds each of the three is not recorded, and the break-glass account and its sealed copy are not set up yet.
 
 ### R4. A single maintainer
 
@@ -88,7 +90,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Impact:** Medium: automatic AD monitoring stops (ADs can still be entered by hand), or the disclosure file goes stale.
 - **What reduces it:** the app warns about the FAA key from 60 days before, and both dates are on the dated [checklists](../3-running-it/checklists.md#one-off-and-dated).
 - **Who acts:** Aaron.
-- **Status:** Reduced. Left: add `security.txt` under Settings → System → Expiring dates, so the app warns about it too.
+- **Status:** Reduced. Left: add `security.txt` under Settings → System → **Deployment expiring dates**, so the app warns about it too.
 
 ### R8. GitHub stops scheduled workflows
 
@@ -155,7 +157,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ### R15. Open security findings
 
-- **Risk:** A4, S2, S11 (partly) and C8 from the [4 Nov review](../../security/review-2026-11-04.md) are still open.
+- **Risk:** A4, S2, S11 (partly) and C8 from the [4 Nov review](../../security/review-2026-11-04.md) are still open. A7, C7 and the rest of T4 are accepted there; S6 is kept by design (R10).
 - **Likelihood:** Low: none gives access to records. A4, S2 and S11 turn on whether an email has an account, and C8 has no effect today.
 - **Impact:** Medium at most: S2 lets someone who knows an email keep that account locked out; the others are rated Low or Info.
 - **What reduces it:** the decision or small fix the review lists for each.
@@ -221,7 +223,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Risk:** Cloudflare's own Git build (Workers Builds), if connected, publishes a site without the backend address, as it did for about 30 minutes on 20 Nov 2026 ([changelog](../5-history/changelog.md#incident-configuration-error-after-the-merge)).
 - **Likelihood:** Low: Aaron disconnected it that day (about 20:15 UTC); it would have to be connected again by mistake.
 - **Impact:** High: every user sees "Configuration error" until Deploy publishes again.
-- **What reduces it:** the Git build kept disconnected, and from release 5 a production build that refuses to run there ([release runbook](../../runbooks/release.md#cloudflare)).
+- **What reduces it:** the Git build kept disconnected, and since release 5 a production build that refuses to run there ([release runbook](../../runbooks/release.md#cloudflare)).
 - **Who acts:** Aaron.
 - **Status:** Reduced. Never reconnect it.
 
