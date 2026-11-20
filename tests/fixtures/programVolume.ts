@@ -5,8 +5,8 @@
  * Layer: Test. Fixture for convex-test suites; never shipped in the build.
  * Dependencies: convex-test, convex/_generated and convex/schema (types),
  *   convex/collections.ts (codec), convex/recordNumbers.ts,
- *   convex/costLedger.ts, src/data/demo.ts, src/domain stored-record schemas
- *   and builders, purchasingWindow (allocations), ./purchasingEdges.
+ *   convex/costLedger.ts, convex/purchasingKeys.ts, src/data/demo.ts,
+ *   src/domain stored-record schemas and builders, ./purchasingEdges.
  *
  * Volumes follow the size test's profile (per aircraft per year: 300
  * flights, 12 work orders of 15 job cards, 30 problem reports, 60 flight
@@ -26,6 +26,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { decode, encode, type StoredRow } from "../../convex/collections";
 import { recordNumberOf } from "../../convex/recordNumbers";
 import { derivedLedger } from "../../convex/costLedger";
+import { purchasingKeysOf } from "../../convex/purchasingKeys";
 import { demoSnapshot } from "../../src/data/demo";
 import { adSchema } from "../../src/domain/airworthiness";
 import { costRecordSchema } from "../../src/domain/costs";
@@ -35,7 +36,6 @@ import { partsRequestSchema } from "../../src/domain/partsRequests";
 import { poSchema } from "../../src/domain/purchaseOrders";
 import { taskCardDefaults, taskCardSchema } from "../../src/domain/taskCards";
 import { workOrderSchema } from "../../src/domain/workOrders";
-import { allocatedRequests } from "../../src/domain/purchasingWindow";
 import { purchasingEdges, type EdgeAnchors } from "./purchasingEdges";
 
 export const VOLUME_PROGRAM = "demo-program";
@@ -193,7 +193,7 @@ async function seedVolume(
   for (let back = 1; back < years; back++) gen.pastYear(tables, back, blob);
   tables.recordNumbers = numberRows(tables);
   tables.costLedger = ledgerRows(tables);
-  tables.purchaseAllocations = allocationRows(tables);
+  tables.purchasingKeys = purchasingKeyRows(tables);
   if (deferredAudit) deferredAudit.push(...tables.audit.splice(0));
   for (const [table, rows] of Object.entries(tables))
     for (const row of rows) await ctx.db.insert(table as "audit", row as never);
@@ -276,19 +276,14 @@ function ledgerRows(tables: Record<string, Row[]>) {
   );
 }
 
-// The allocation rows the app writes beside each purchase order.
-function allocationRows(tables: Record<string, Row[]>) {
-  const orders = decode(
-    "purchaseOrders",
-    tables.purchaseOrders as { payload: string }[],
-  );
-  return orders.flatMap((p) =>
-    allocatedRequests(p).map((requestUuid) => ({
-      programUuid: p.programUuid,
-      poUuid: p.uuid,
-      requestUuid,
-    })),
-  );
+// The lookup-key rows the app writes beside each parts request and purchase
+// order.
+function purchasingKeyRows(tables: Record<string, Row[]>) {
+  const keysOf = (collection: "partsRequests" | "purchaseOrders") =>
+    decode(collection, tables[collection] as { payload: string }[]).flatMap(
+      (record) => purchasingKeysOf(collection, record) ?? [],
+    );
+  return [...keysOf("partsRequests"), ...keysOf("purchaseOrders")];
 }
 
 // The change-log rows by `at`, oldest first.

@@ -1,9 +1,9 @@
 /**
  * Responsibility: Pins the derived-column backfill, with the file rows'
- *   owner copies, the purchasing lookup keys and the purchase orders'
- *   allocation rows, and the recordNumbers rebuild: each fills older rows
- *   page by page, changes nothing else, writes no change-log row, reports
- *   what it filled, finds nothing on a second run, and names a damaged row.
+ *   owner copies and the purchasing lookup keys, and the recordNumbers
+ *   rebuild: each fills older rows page by page, changes nothing else,
+ *   writes no change-log row, reports what it filled, finds nothing on a
+ *   second run, and names a damaged row.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/migrations.ts, convex/schema.ts,
  *   tests/fixtures (storedCollections, derivedColumns), src/data/demo.ts.
@@ -157,9 +157,9 @@ it("finds nothing missing on a second run, and changes nothing", async () => {
   expect(await readRows(t)).toEqual(filled);
 });
 
-// Rows written before H5 hold no allocation rows; a stale one, such as a
+// Rows written before H5 hold no allocation keys; a stale one, such as a
 // request taken off the order, is deleted. Only the order counts as filled.
-it("writes each purchase order's allocation rows, and deletes stale ones", async () => {
+it("writes each purchase order's allocation keys, and deletes stale ones", async () => {
   const t = await olderRows();
   await t.run(async (ctx) => {
     const row = (await ctx.db.query("purchaseOrders").first())!;
@@ -169,24 +169,34 @@ it("writes each purchase order's allocation rows, and deletes stale ones", async
     ];
     po.lines = po.lines.map((l) => ({ ...l, requestAllocations: allocations }));
     await ctx.db.patch(row._id, { payload: JSON.stringify(po) });
-    await ctx.db.insert("purchaseAllocations", {
+    await ctx.db.insert("purchasingKeys", {
       programUuid: PROGRAM,
-      poUuid: "po-1",
-      requestUuid: "request-gone",
+      table: "purchaseOrders",
+      kind: "allocation",
+      key: "request-gone",
+      uuid: "po-1",
     });
   });
   expect((await t.action(backfill, {})).tables.purchaseOrders).toBe(1);
   const rows = await t.run((ctx) =>
-    ctx.db.query("purchaseAllocations").collect(),
+    ctx.db.query("purchasingKeys").collect(),
   );
   expect(
-    rows.map(({ programUuid, poUuid, requestUuid }) => ({
-      programUuid,
-      poUuid,
-      requestUuid,
-    })),
+    rows
+      .filter((r) => r.kind === "allocation")
+      .map(({ programUuid, table, key, uuid }) => ({
+        programUuid,
+        table,
+        key,
+        uuid,
+      })),
   ).toEqual([
-    { programUuid: PROGRAM, poUuid: "po-1", requestUuid: "request-1" },
+    {
+      programUuid: PROGRAM,
+      table: "purchaseOrders",
+      key: "request-1",
+      uuid: "po-1",
+    },
   ]);
   expect((await t.action(backfill, {})).missing).toBe(0);
 });

@@ -727,20 +727,10 @@ export default defineSchema({
   })
     .index("program", ["programUuid", "aircraftUuid", "date"])
     .index("workOrder", ["workOrderUuid"]),
-  // Derived, not records: one row for each parts request a purchase order's
-  // lines allocate, so a request's orders are found without reading every
-  // order (H5). Written with the order (convex/purchaseAllocations.ts) and
-  // filled by migrations:backfillHistoryColumns.
-  purchaseAllocations: defineTable({
-    programUuid: v.string(),
-    poUuid: v.string(),
-    requestUuid: v.string(),
-  })
-    .index("request", ["requestUuid"])
-    .index("order", ["poUuid"]),
   // Derived like the two above: what each parts request and purchase order
   // is looked up by, one row per key, so their saves read the records a rule
-  // names instead of every request and order (H5, convex/purchasingKeys.ts).
+  // names instead of every request and order, and the window finds a
+  // request's orders by their allocation keys (H5, convex/purchasingKeys.ts).
   // Filled for older rows by migrations:backfillHistoryColumns.
   purchasingKeys: defineTable({
     programUuid: v.string(),

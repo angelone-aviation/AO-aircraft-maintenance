@@ -3,9 +3,9 @@
  *   purchase order is looked up by, in step with the records, and finds
  *   records by those keys.
  * Layer: Server. Convex reads and writes of one derived table; which keys a
- *   rule needs is the caller's (convex/workingSet.ts).
- * Dependencies: ./_generated (types), ./collections (types), src/domain
- *   (partsRequests and purchaseOrders types).
+ *   rule needs is the caller's (convex/workingSet.ts, the window's loaders).
+ * Dependencies: ./_generated (types), ./collections (types), ./historyScan
+ *   (types), src/domain (partsRequests and purchaseOrders types).
  *
  * Derived rows, not records (ADR-0013): every write of a request or order
  * syncs them, migrations:backfillHistoryColumns fills them for older rows,
@@ -15,11 +15,13 @@
  * path syncs.
  */
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, TableNames } from "./_generated/dataModel";
 import type { PayloadCollection, StoredRecord } from "./collections";
+import type { ReadBudget } from "./historyScan";
 import type { PartsRequest } from "../src/domain/partsRequests";
 import type { PurchaseOrder } from "../src/domain/purchaseOrders";
 
+type Ctx = QueryCtx | MutationCtx;
 /** A table whose records carry lookup keys. */
 export type PurchasingTable = Doc<"purchasingKeys">["table"];
 /** What a key names; see {@link purchasingKeysOf}. */
@@ -95,7 +97,7 @@ export async function syncPurchasingKeys<N extends RecordCollection>(
  * @returns Each uuid once, in no promised order.
  */
 export async function uuidsByKey(
-  ctx: QueryCtx | MutationCtx,
+  ctx: Ctx,
   programUuid: string,
   table: PurchasingTable,
   kind: PurchasingKeyKind,
@@ -103,20 +105,74 @@ export async function uuidsByKey(
 ): Promise<string[]> {
   const wanted = [...new Set(keys)].filter(Boolean);
   const rows = await Promise.all(
-    wanted.map((key) =>
-      ctx.db
-        .query("purchasingKeys")
-        .withIndex("key", (q) =>
-          q
-            .eq("programUuid", programUuid)
-            .eq("table", table)
-            .eq("kind", kind)
-            .eq("key", key),
-        )
-        .collect(),
-    ),
+    wanted.map((key) => keyRows(ctx, { programUuid, table, kind, key })),
   );
   return [...new Set(rows.flat().map((row) => row.uuid))];
+}
+
+/**
+ * The program's purchase orders whose lines allocate any of the requests,
+ * found by their `allocation` keys: one index range per request, then one
+ * per order.
+ *
+ * @param programUuid - The active Flight Program; orders of another are
+ *   left out.
+ * @param requestUuids - The requests; repeats are read once.
+ * @param budget - Counts the reads, when a paged query bounds them.
+ * @returns Each order once, in the program loader's order (creation time).
+ */
+export async function ordersAllocating(
+  ctx: Ctx,
+  programUuid: string,
+  requestUuids: Iterable<string>,
+  budget?: ReadBudget,
+): Promise<Doc<"purchaseOrders">[]> {
+  const spend = <T extends Doc<TableNames>>(rows: T[]) =>
+    budget?.spend(rows) ?? rows;
+  const keys = await Promise.all(
+    [...new Set(requestUuids)].map(async (key) =>
+      spend(
+        await keyRows(ctx, {
+          programUuid,
+          table: "purchaseOrders",
+          kind: "allocation",
+          key,
+        }),
+      ),
+    ),
+  );
+  const orders = new Set(keys.flat().map((row) => row.uuid));
+  const found = await Promise.all(
+    [...orders].map(async (uuid) =>
+      spend(
+        await ctx.db
+          .query("purchaseOrders")
+          .withIndex("uuid", (q) => q.eq("uuid", uuid))
+          .take(1),
+      ),
+    ),
+  );
+  return found
+    .flat()
+    .filter((p) => p.programUuid === programUuid)
+    .sort((a, b) => a._creationTime - b._creationTime);
+}
+
+// One key's rows: a single index range.
+function keyRows(
+  ctx: Ctx,
+  k: Pick<PurchasingKey, "programUuid" | "table" | "kind" | "key">,
+): Promise<Doc<"purchasingKeys">[]> {
+  return ctx.db
+    .query("purchasingKeys")
+    .withIndex("key", (q) =>
+      q
+        .eq("programUuid", k.programUuid)
+        .eq("table", k.table)
+        .eq("kind", k.kind)
+        .eq("key", k.key),
+    )
+    .collect();
 }
 
 type Keyed = [PurchasingKeyKind, string[]][];

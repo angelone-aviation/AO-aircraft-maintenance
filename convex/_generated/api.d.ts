@@ -64,7 +64,6 @@ import type * as poFiles from "../poFiles.js";
 import type * as programContext from "../programContext.js";
 import type * as programUsers from "../programUsers.js";
 import type * as programs from "../programs.js";
-import type * as purchaseAllocations from "../purchaseAllocations.js";
 import type * as purchaseOrders from "../purchaseOrders.js";
 import type * as purchasingKeys from "../purchasingKeys.js";
 import type * as purchasingPages from "../purchasingPages.js";
@@ -157,7 +156,6 @@ declare const fullApi: ApiFromModules<{
   programContext: typeof programContext;
   programUsers: typeof programUsers;
   programs: typeof programs;
-  purchaseAllocations: typeof purchaseAllocations;
   purchaseOrders: typeof purchaseOrders;
   purchasingKeys: typeof purchasingKeys;
   purchasingPages: typeof purchasingPages;

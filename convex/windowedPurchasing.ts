@@ -21,7 +21,7 @@ import type { Doc } from "./_generated/dataModel";
 import { decode } from "./collections";
 import { perAircraft } from "./programContext";
 import { inLoadOrder } from "./workingSet";
-import { ordersAllocating } from "./purchaseAllocations";
+import { ordersAllocating } from "./purchasingKeys";
 import type { WindowScope } from "./historyWindow";
 import { windowCutoffs, type HistoryRecords } from "../src/domain/retention";
 import {

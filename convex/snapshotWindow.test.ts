@@ -229,9 +229,9 @@ async function seedMechanic(ctx: MutationCtx): Promise<string> {
   return `${id}|${session}`;
 }
 
-// Strips the derived columns from every row that has them, and the derived
-// allocation rows, as rows written before S2 were stored; the fixture's
-// flights are stored without them.
+// Strips the derived columns from every row that has them, and the
+// purchasing lookup keys, as rows written before S2 were stored; the
+// fixture's flights are stored without them.
 async function forgetEveryColumn(ctx: MutationCtx): Promise<void> {
   for (const table of DERIVED_TABLES)
     for (const row of await ctx.db.query(table).collect()) {
@@ -242,7 +242,7 @@ async function forgetEveryColumn(ctx: MutationCtx): Promise<void> {
         Object.fromEntries(columns.map((key) => [key, undefined])),
       );
     }
-  for (const row of await ctx.db.query("purchaseAllocations").collect())
+  for (const row of await ctx.db.query("purchasingKeys").collect())
     await ctx.db.delete(row._id);
 }
 

@@ -5,7 +5,7 @@
  *   included.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex (history, schema, collections, memberships,
- *   purchaseAllocations, _generated), tests/fixtures (derivedColumns,
+ *   purchasingKeys, _generated), tests/fixtures (derivedColumns,
  *   legacySnapshot, historyPages, purchasingEdges), src/data/demo.ts,
  *   src/domain (retention, historyReads, programs, record schemas).
  *
@@ -22,7 +22,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { encode, flightColumns } from "./collections";
 import { syncMemberships } from "./memberships";
-import { syncPurchaseAllocations } from "./purchaseAllocations";
+import { syncPurchasingKeys } from "./purchasingKeys";
 import { edgeLabel, edgeRecords } from "../tests/fixtures/purchasingEdges";
 import { forgetDerivedColumns } from "../tests/fixtures/derivedColumns";
 import { legacySnapshot } from "../tests/fixtures/legacySnapshot";
@@ -696,11 +696,13 @@ async function seedPurchasing(
     },
     nextUuid,
   );
-  for (const r of edges.partsRequests)
+  for (const r of edges.partsRequests) {
     await ctx.db.insert("partsRequests", encode("partsRequests", r));
+    await syncPurchasingKeys(ctx, "partsRequests", r);
+  }
   for (const p of edges.purchaseOrders) {
     await ctx.db.insert("purchaseOrders", encode("purchaseOrders", p));
-    await syncPurchaseAllocations(ctx, p);
+    await syncPurchasingKeys(ctx, "purchaseOrders", p);
   }
   for (const p of edges.flightPlans)
     await ctx.db.insert("flightPlans", encode("flightPlans", p));

@@ -47,7 +47,7 @@ import {
   taskCardDocsByUuid,
   workOrderDocsByUuid,
 } from "./workingSet";
-import { ordersAllocating } from "./purchaseAllocations";
+import { ordersAllocating } from "./purchasingKeys";
 import { ledgerCostReport } from "../src/domain/costs/ledger";
 import { periodFor } from "../src/domain/costs/period";
 import {

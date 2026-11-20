@@ -6,8 +6,7 @@
  * Layer: Server. Internal functions run by hand with `npx convex run`, and
  *   the reconcile by crons.ts; no public entry point and no change-log rows.
  * Dependencies: convex/values, convex/server, ./_generated, ./collections,
- *   ./recordNumbers, ./costLedger, ./fileColumns, ./purchaseAllocations,
- *   ./purchasingKeys.
+ *   ./recordNumbers, ./costLedger, ./fileColumns, ./purchasingKeys.
  *
  * The window's indexes (ADR-0013) find only rows that carry the columns, and
  * numbering reads only the number rows, so every deployment holding data
@@ -44,7 +43,6 @@ import {
   type StoredLedgerRow,
 } from "./costLedger";
 import { storedFileColumns } from "./fileColumns";
-import { syncPurchaseAllocations } from "./purchaseAllocations";
 import { syncPurchasingKeys } from "./purchasingKeys";
 
 const BACKFILL_TABLES = [
@@ -101,8 +99,7 @@ const LOGGED_DIFFERENCES = 20;
  * Fills the derived columns on one page of a table's rows, where any is
  * missing or differs from what the row's record derives (for a file row,
  * its owner: the card's aircraft and work order, the item's program), and a
- * parts request's or purchase order's lookup keys (convex/purchasingKeys.ts)
- * and a purchase order's allocation rows where they differ from its lines.
+ * parts request's or purchase order's lookup keys (convex/purchasingKeys.ts).
  * Writes only those, never the record, so no change-log row is due.
  *
  * @param table - The table to fill.
@@ -168,8 +165,7 @@ async function fillTable(ctx: ActionCtx, table: BackfillTable) {
   return filled;
 }
 
-// A row counts once, whether its columns, its keys, its allocation rows or
-// several of them were missing.
+// A row counts once, whether its columns, its keys or both were missing.
 async function fillRow(
   ctx: MutationCtx,
   table: BackfillTable,
@@ -177,8 +173,7 @@ async function fillRow(
 ): Promise<boolean> {
   const columns = await columnsOf(ctx, table, row);
   const keys = await fillKeys(ctx, table, row);
-  const allocations = await fillAllocations(ctx, table, row);
-  if (holdsColumns(row, columns)) return keys > 0 || allocations;
+  if (holdsColumns(row, columns)) return keys > 0;
   await ctx.db.patch(row._id, columns);
   return true;
 }
@@ -192,16 +187,6 @@ function fillKeys(
     return Promise.resolve(0);
   const record = recordOf(table, row as Doc<typeof table>);
   return syncPurchasingKeys(ctx, table, record);
-}
-
-function fillAllocations(
-  ctx: MutationCtx,
-  table: BackfillTable,
-  row: Doc<BackfillTable>,
-): Promise<boolean> {
-  if (table !== "purchaseOrders") return Promise.resolve(false);
-  const order = recordOf(table, row as Doc<"purchaseOrders">);
-  return syncPurchaseAllocations(ctx, order);
 }
 
 async function columnsOf(

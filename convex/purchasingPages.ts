@@ -17,7 +17,7 @@ import type { QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { decode } from "./collections";
 import { rangeAfter, type ReadBudget } from "./historyScan";
-import { ordersAllocating } from "./purchaseAllocations";
+import { ordersAllocating } from "./purchasingKeys";
 import { windowCutoffs } from "../src/domain/retention";
 import { isKeptRequest, requestActivity } from "../src/domain/purchasingWindow";
 import {
