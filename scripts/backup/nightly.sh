@@ -248,14 +248,41 @@ save_environment() {
   env_uploaded=true
 }
 
-# Replaces each sign-in table's documents.jsonl in the export with an empty
-# one. The table stays in the ZIP, so an import still creates it.
+# Refuses an export whose auth tables differ from what the strip list was
+# written for: a missing sign-in table, or an auth* table (at the top level or
+# in a component) that is neither stripped nor known to hold no credential.
+check_auth_tables() {
+  local table
+  for table in "${SIGN_IN_TABLES[@]}"; do
+    grep -qxF "$table/documents.jsonl" "$work/entries.txt" ||
+      fail "The export has no $table table, so the list of sign-in tables to remove (ADR-0014) is out of date. Nothing was uploaded; update SIGN_IN_TABLES in scripts/backup/nightly.sh."
+  done
+  while IFS= read -r table; do
+    is_known_auth_table "$table" ||
+      fail "The export has an auth table that is not on the sign-in allowlist: $table. Nothing was uploaded. Check whether it lets someone sign in, then add it to SIGN_IN_TABLES or KEPT_AUTH_TABLES in scripts/backup/nightly.sh (ADR-0014)."
+  done < <(sed -n 's|/documents\.jsonl$||p' "$work/entries.txt" | grep -E '(^|/)auth[^/]*$' || true)
+}
+
+is_known_auth_table() {
+  local known
+  for known in "${SIGN_IN_TABLES[@]}" "${KEPT_AUTH_TABLES[@]}"; do
+    [[ "$1" != "$known" ]] || return 0
+  done
+  return 1
+}
+
+# Replaces each sign-in table's documents.jsonl, and its generated_schema.jsonl
+# when there is one, with an empty file. The table stays in the ZIP, so an
+# import still creates it.
 empty_sign_in_tables() {
-  local blank="$work/blank" table entries=()
+  local blank="$work/blank" table file entries=()
   for table in "${SIGN_IN_TABLES[@]}"; do
     mkdir -p "$blank/$table"
-    : >"$blank/$table/documents.jsonl"
-    entries+=("$table/documents.jsonl")
+    for file in documents.jsonl generated_schema.jsonl; do
+      grep -qxF "$table/$file" "$work/entries.txt" || continue
+      : >"$blank/$table/$file"
+      entries+=("$table/$file")
+    done
   done
   (cd "$blank" && zip -qXD "$EXPORT_ZIP" "${entries[@]}") ||
     fail "Could not remove the sign-in records from the export."
@@ -283,6 +310,9 @@ PLAIN_WARNING="NOT ENCRYPTED: this backup is stored unencrypted in R2 (ADR-0014)
 # users and authAccounts stay: a restore needs them, and a password hash
 # signs nobody in without being cracked.
 SIGN_IN_TABLES=(authSessions authRefreshTokens authVerificationCodes authVerifiers)
+# The other Convex Auth tables, which hold no way to sign in: password hashes
+# and sign-in attempt counts. Any other auth* table fails a plain run.
+KEPT_AUTH_TABLES=(authAccounts authRateLimits)
 SIGN_IN_REASON="Emptied so that a copy cannot be used to sign in. After a restore everyone must sign in again."
 daily_key="daily/${year}/${month}/${day}/${base}${stored_ext}"
 daily_manifest_key="daily/${year}/${month}/${day}/${base}.manifest.json"
@@ -300,12 +330,16 @@ echo "Exporting the production deployment with file storage..."
 convex export --include-file-storage --path "$EXPORT_ZIP" || fail "npx convex export failed."
 [[ -s "$EXPORT_ZIP" ]] || fail "npx convex export produced no file."
 unzip -tq "$EXPORT_ZIP" >/dev/null 2>&1 || fail "The export is not a valid ZIP file (unzip -t failed)."
+unzip -Z1 "$EXPORT_ZIP" >"$work/entries.txt"
 # Before counting and hashing, so the manifest describes the uploaded ZIP.
-[[ "$encrypted" == true ]] || empty_sign_in_tables
+# Emptying replaces entries in place, so the listing stays right.
+if [[ "$encrypted" == false ]]; then
+  check_auth_tables
+  empty_sign_in_tables
+fi
 
 # Document count per table: one JSON document per line of <table>/documents.jsonl
 # (components are under _components/<name>/). Uploaded files are not read.
-unzip -Z1 "$EXPORT_ZIP" >"$work/entries.txt"
 : >"$work/tables.tsv"
 while IFS= read -r entry; do
   count=$(unzip -p "$EXPORT_ZIP" "$entry" | awk 'END { print NR }')
