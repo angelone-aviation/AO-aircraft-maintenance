@@ -147,7 +147,7 @@ Each table lists every finding in the area by severity. The full steps, expected
 | PT-5  | Medium   | A parts request could not be re-sourced after its order was cancelled | Fixed `521336e` | NOT REPRODUCED                                                |
 | PT-9  | Medium   | A stock-replenishment parts request can never be completed            | Fixed 2026-11-19 (commit e61bfe5), D18 | REPRODUCED (expected: open decision)                          |
 | PT-10 | Medium   | The purchase-order PDF replaced characters outside Latin-1            | Fixed `97c3d49` | NOT REPRODUCED                                                |
-| PT-12 | Medium   | Editing a stock item's unit cost re-prices past issues                | Decision pending (D13) | REPRODUCED (expected: open decision)                          |
+| PT-12 | Medium   | Editing a stock item's unit cost re-prices past issues                | Decided 2026-11-20 (D13): keep the issued price in the work order's administrator-only cost record; fix to follow | REPRODUCED (expected: open decision)                          |
 | PT-6  | Low      | A receipt can be dated years before its order existed                 | Fixed 2026-11-19 (commit b01803d), D19 | REPRODUCED (expected: open decision)                          |
 | PT-7  | Low      | Board view and Costs put issued parts in different periods            | Fixed `1a9afe8` | NOT REPRODUCED, adjusted copy expecting both screens to agree |
 | PT-8  | Low      | "Create PO for parts" counted expired and reserved stock              | Fixed `1c3d54a` | NOT REPRODUCED                                                |
