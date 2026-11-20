@@ -33,7 +33,7 @@ import {
   writeChanged,
   type ProgramContext,
 } from "./runCommand";
-import { decode } from "./collections";
+import { decode, encode } from "./collections";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
@@ -150,7 +150,7 @@ export const finishUpload = internalMutation({
       .query("taskCards")
       .withIndex("uuid", (q) => q.eq("uuid", t.uuid))
       .unique();
-    await ctx.db.patch(doc!._id, { payload: JSON.stringify(next) });
+    await ctx.db.patch(doc!._id, encode("taskCards", next));
     await audit(ctx, s.user.id, "taskCard.evidence", t.uuid, {
       aircraftUuid: t.aircraftUuid,
       before: t,

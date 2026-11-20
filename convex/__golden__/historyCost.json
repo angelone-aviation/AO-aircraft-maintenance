@@ -1,187 +1,187 @@
 {
  "snapshot.admin": {
   "1": {
-   "bytes": 7433387,
+   "bytes": 7558519,
    "documents": 6099,
    "indexRanges": 1011
   },
   "2": {
-   "bytes": 12446538,
+   "bytes": 12700196,
    "documents": 10179,
    "indexRanges": 1011
   },
   "3": {
-   "bytes": 17457940,
+   "bytes": 17840124,
    "documents": 14259,
    "indexRanges": 1011
   }
  },
  "snapshot.pilot": {
   "1": {
-   "bytes": 7394635,
+   "bytes": 7519767,
    "documents": 5947,
    "indexRanges": 96
   },
   "2": {
-   "bytes": 12370778,
+   "bytes": 12624436,
    "documents": 9883,
    "indexRanges": 96
   },
   "3": {
-   "bytes": 17345172,
+   "bytes": 17727356,
    "documents": 13819,
    "indexRanges": 96
   }
  },
  "snapshot.owner": {
   "1": {
-   "bytes": 1060739,
+   "bytes": 1066715,
    "documents": 1711,
    "indexRanges": 39
   },
   "2": {
-   "bytes": 1197803,
+   "bytes": 1210127,
    "documents": 1963,
    "indexRanges": 39
   },
   "3": {
-   "bytes": 1334867,
+   "bytes": 1353539,
    "documents": 2215,
    "indexRanges": 39
   }
  },
  "snapshot.board": {
   "1": {
-   "bytes": 4532826,
+   "bytes": 4655438,
    "documents": 3046,
    "indexRanges": 52
   },
   "2": {
-   "bytes": 8141256,
+   "bytes": 8389874,
    "documents": 4630,
    "indexRanges": 52
   },
   "3": {
-   "bytes": 11749686,
+   "bytes": 12124310,
    "documents": 6214,
    "indexRanges": 52
   }
  },
  "workOrder.save": {
   "1": {
-   "bytes": 4471837,
+   "bytes": 4589250,
    "documents": 2970,
    "indexRanges": 46
   },
   "2": {
-   "bytes": 8017843,
+   "bytes": 8255940,
    "documents": 4476,
    "indexRanges": 46
   },
   "3": {
-   "bytes": 11563849,
+   "bytes": 11922630,
    "documents": 5982,
    "indexRanges": 46
   }
  },
  "taskCard.save": {
   "1": {
-   "bytes": 4015771,
+   "bytes": 4116451,
    "documents": 2546,
    "indexRanges": 37
   },
   "2": {
-   "bytes": 7299697,
+   "bytes": 7504501,
    "documents": 3872,
    "indexRanges": 37
   },
   "3": {
-   "bytes": 10583623,
+   "bytes": 10892551,
    "documents": 5198,
    "indexRanges": 37
   }
  },
  "taskCard.evidence": {
   "1": {
-   "bytes": 4013367,
+   "bytes": 4113972,
    "documents": 2547,
    "indexRanges": 38
   },
   "2": {
-   "bytes": 7297293,
+   "bytes": 7502022,
    "documents": 3873,
    "indexRanges": 38
   },
   "3": {
-   "bytes": 10581219,
+   "bytes": 10890072,
    "documents": 5199,
    "indexRanges": 38
   }
  },
  "partsRequest.save": {
   "1": {
-   "bytes": 4587115,
+   "bytes": 4706928,
    "documents": 3086,
    "indexRanges": 45
   },
   "2": {
-   "bytes": 8250641,
+   "bytes": 8493658,
    "documents": 4712,
    "indexRanges": 45
   },
   "3": {
-   "bytes": 11914167,
+   "bytes": 12280388,
    "documents": 6338,
    "indexRanges": 45
   }
  },
  "cost.partUnitCost": {
   "1": {
-   "bytes": 1504793,
+   "bytes": 1542514,
    "documents": 1476,
    "indexRanges": 17
   },
   "2": {
-   "bytes": 2339134,
+   "bytes": 2414678,
    "documents": 1908,
    "indexRanges": 17
   },
   "3": {
-   "bytes": 3173475,
+   "bytes": 3286842,
    "documents": 2340,
    "indexRanges": 17
   }
  },
  "purchaseOrder.save": {
   "1": {
-   "bytes": 1173696,
+   "bytes": 1198972,
    "documents": 1592,
    "indexRanges": 27
   },
   "2": {
-   "bytes": 1612780,
+   "bytes": 1663484,
    "documents": 1964,
    "indexRanges": 27
   },
   "3": {
-   "bytes": 2051864,
+   "bytes": 2127996,
    "documents": 2336,
    "indexRanges": 27
   }
  },
  "auditHistory.weeklySummary": {
   "1": {
-   "bytes": 1092841,
+   "bytes": 1117073,
    "documents": 1414,
    "indexRanges": 29
   },
   "2": {
-   "bytes": 1517297,
+   "bytes": 1565505,
    "documents": 1786,
    "indexRanges": 29
   },
   "3": {
-   "bytes": 1941753,
+   "bytes": 2013937,
    "documents": 2158,
    "indexRanges": 29
   }

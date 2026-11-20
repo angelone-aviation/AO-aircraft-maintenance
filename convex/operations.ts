@@ -18,7 +18,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { runCommand, hydrate, errorsOf, requestOf } from "./runCommand";
 import { Rejection } from "../src/domain/rejection";
-import { decode } from "./collections";
+import { decode, decodeFlight, flightColumns } from "./collections";
 import {
   context,
   managementDocs,
@@ -705,7 +705,7 @@ async function submissionState(
     return {
       aircraft,
       management: [],
-      snapshot: { ...state, flights: [existing] },
+      snapshot: { ...state, flights: [decodeFlight(existing)] },
     };
   const management = await managementDocs(ctx, activeProgram(state));
   const snapshot = await flightState(ctx, state, operation, management);
@@ -733,7 +733,7 @@ async function reportState(
   return {
     ...state,
     discrepancies: await openReportDocs(ctx, operation.authorId),
-    flights: rowsOf(flight),
+    flights: rowsOf(flight).map(decodeFlight),
   };
 }
 
@@ -801,10 +801,11 @@ async function planRows(ctx: MutationCtx, input: FlightInput) {
 
 async function planFlights(ctx: MutationCtx, planUuid: string | undefined) {
   if (!planUuid) return [];
-  return ctx.db
+  const rows = await ctx.db
     .query("flights")
     .withIndex("plan", (q) => q.eq("flightPlanUuid", planUuid))
     .collect();
+  return rows.map(decodeFlight);
 }
 
 // Writes what an entry changed, in SubmissionChanges order.
@@ -819,7 +820,11 @@ async function persistSubmission(
     const doc = management.find((d) => d.uuid === change.before.uuid)!;
     await ctx.db.patch(doc._id, { payload: JSON.stringify(change.after) });
   }
-  if (changes.flight) await ctx.db.insert("flights", changes.flight);
+  if (changes.flight)
+    await ctx.db.insert("flights", {
+      ...changes.flight,
+      ...flightColumns(changes.flight),
+    });
   if (changes.aircraft) {
     const next = changes.aircraft;
     await ctx.db.patch(aircraft._id, {
@@ -864,7 +869,7 @@ interface ReviewState {
   snapshot: Snapshot;
   aircraft: Doc<"aircraft">;
   /** The stored flights the snapshot holds, for writing the replay. */
-  flights: Doc<"flights">[];
+  flights: Omit<Doc<"flights">, "startedAt">[];
 }
 
 // Loads what a review reads (see reviewFlight): the reviewed flight, the
@@ -887,7 +892,9 @@ async function loadReview(
     ...(await aircraftFlights(ctx, aircraft.uuid)),
     ...rowsOf(await flightRow(ctx, review.uuid)),
     ...(await planFlights(ctx, input.flightPlanUuid)),
-  ]).filter((f) => can(state, f.aircraftUuid, "read"));
+  ])
+    .filter((f) => can(state, f.aircraftUuid, "read"))
+    .map(decodeFlight);
   const management = await managementDocs(ctx, aircraft.programUuid);
   const snapshot: Snapshot = {
     ...state,
@@ -949,7 +956,10 @@ async function persistReview(
       flightTimeLogOff: replayed.flightTimeLogOff,
     });
   await patchTotals(ctx, aircraft, changes.aircraft);
-  await ctx.db.patch(idOf(reviewed), changes.reviewed);
+  await ctx.db.patch(idOf(reviewed), {
+    ...changes.reviewed,
+    ...flightColumns(changes.reviewed),
+  });
 }
 
 async function patchTotals(

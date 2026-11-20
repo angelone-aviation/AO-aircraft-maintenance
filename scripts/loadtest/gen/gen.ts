@@ -35,7 +35,7 @@ import {
   taskCardSchema,
 } from "../../../src/domain/taskCards";
 import { workOrderSchema } from "../../../src/domain/workOrders";
-import { encode } from "../../../convex/collections";
+import { encode, flightColumns } from "../../../convex/collections";
 
 interface Person {
   id: string;
@@ -373,7 +373,7 @@ function planLeg(plane: Plane, i: number, point: FlightPoint, meters: Pick<Leg, 
 
 function writeLeg(leg: Leg) {
   const flight = buildFlight(leg);
-  out(yy(sliceOf(leg.point.t)), "flights", leg.submittedAt, flight);
+  out(yy(sliceOf(leg.point.t)), "flights", leg.submittedAt, { ...flight, ...flightColumns(flight) });
   audit(leg.submittedAt, leg.pilot.id, "flight.created", leg.point.uuid, { aircraftUuid: leg.plane.uuid, after: flight });
   if (leg.i % EVERY.plan === 0) writeFlightPlan(leg);
   if (leg.squawk) writeProblemReport(leg);

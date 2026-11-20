@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins task file imports on the server: into a template or as
- *   draft job cards, access checks, all-or-none refusals, and replayed
- *   request ids.
+ *   draft job cards with their derived columns, access checks, all-or-none
+ *   refusals, and replayed request ids.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/taskImports, convex/schema,
- *   src/domain/inspectionTemplates, src/data/demo (fixture).
+ *   src/domain/inspectionTemplates, src/data/demo and
+ *   tests/fixtures/derivedColumns (fixtures).
  */
 import { convexTest } from "convex-test";
 import { expect, it } from "vitest";
@@ -12,6 +13,7 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { emptyTemplate } from "../src/domain/inspectionTemplates";
+import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -132,6 +134,11 @@ it("atomically persists file tasks to templates and inspections with server acce
     status: "draft",
     technicianSignoff: null,
   });
+  await expectDerivedColumns(
+    t,
+    "taskCards",
+    state!.taskCards!.map((c) => c.uuid),
+  );
 });
 
 it("imports once per request id: a replay returns nothing and writes nothing", async () => {

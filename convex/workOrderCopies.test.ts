@@ -1,9 +1,11 @@
 /**
  * Responsibility: Pins template copying onto work orders: bounded batches,
- *   captured contents, refusals, failure and resume without duplicates.
+ *   captured contents, refusals, failure and resume without duplicates, and
+ *   the derived columns of what it writes.
  * Layer: Test. convex-test suite with fake timers; never shipped in the build.
  * Dependencies: convex/workOrderCopies, convex/workOrders, convex/schema,
- *   src/domain (taskCards, workOrders), src/data/demo and tests/fixtures.
+ *   src/domain (taskCards, workOrders), src/data/demo and tests/fixtures
+ *   (workOrders, taskCards, derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -22,6 +24,10 @@ import {
   type WorkTask,
 } from "../src/domain/workOrders";
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
+import {
+  expectDerivedColumns,
+  forgetDerivedColumns,
+} from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -163,6 +169,21 @@ it("queues 450 templates, uses bounded batches, and ignores duplicate deliveries
     await t.run((ctx) => ctx.db.query("workOrderCopyBatches").collect()),
   ).toHaveLength(0);
 }, 20000);
+it("stores the derived columns on each copy, and on the order whose progress it publishes (ADR-0013)", async () => {
+  const { t, start, read, command } = await setup(2);
+  await start();
+  // An order stored before the columns existed gets them with its progress.
+  await forgetDerivedColumns(t, "workOrders", [command.uuid]);
+  await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+  const copies = (await read()).cards.filter((c) => c.workOrderUuid);
+  expect(copies).toHaveLength(2);
+  await expectDerivedColumns(
+    t,
+    "taskCards",
+    copies.map((c) => c.uuid),
+  );
+  await expectDerivedColumns(t, "workOrders", [command.uuid]);
+});
 it("retains captured template contents and versions when templates change or disappear", async () => {
   const { t, start, read } = await setup(2);
   await start();

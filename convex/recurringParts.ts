@@ -4,7 +4,7 @@
  * Layer: Server. Mutation helper inside the work-order transactions; the
  *   caller writes the change-log entries it returns.
  * Dependencies: src/domain/partsRequests (the rule and what it needs loaded),
- *   convex/collections (decoding), convex/programContext (loaders),
+ *   convex/collections (codec), convex/programContext (loaders),
  *   src/domain types.
  */
 import type { MutationCtx } from "./_generated/server";
@@ -17,7 +17,7 @@ import {
 } from "../src/domain/partsRequests";
 import type { ManagedRecord } from "../src/domain/management";
 import { airworthinessDocs, partsRequestDocs } from "./programContext";
-import { decode } from "./collections";
+import { decode, encode } from "./collections";
 
 type Needs = ReturnType<typeof recurringPartsNeeds>;
 
@@ -53,13 +53,8 @@ export async function prepareRecurringParts(
     ...(await loadSources(ctx, state, order, needs)),
     audit: [],
   };
-  for (const r of generateRecurringRequests(s, order)) {
-    await ctx.db.insert("partsRequests", {
-      uuid: r.uuid,
-      programUuid: r.programUuid,
-      payload: JSON.stringify(r),
-    });
-  }
+  for (const r of generateRecurringRequests(s, order))
+    await ctx.db.insert("partsRequests", encode("partsRequests", r));
   return s.audit;
 }
 

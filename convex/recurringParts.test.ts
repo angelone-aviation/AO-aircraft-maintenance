@@ -1,10 +1,10 @@
 /**
  * Responsibility: Pins recurring parts occurrences: one per owed task, written
- *   with the work order, never duplicated on later saves, and none for a
- *   finished task or a closed work order.
+ *   with the work order and its derived columns, never duplicated on later
+ *   saves, and none for a finished task or a closed work order.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/recurringParts, convex/workOrders, convex/partsRequests,
- *   src/domain fixtures, tests/fixtures/workOrders.
+ *   src/domain fixtures, tests/fixtures (workOrders, derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -18,6 +18,7 @@ import { workOrderCommand } from "../tests/fixtures/workOrders";
 import { blankAD, blankADTask } from "../src/domain/airworthiness";
 import { newWorkTask, type WorkOrder } from "../src/domain/workOrders";
 import { prepareRecurringParts } from "./recurringParts";
+import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -181,6 +182,11 @@ it("persists recurring AD and fast-path inspection occurrences atomically withou
   );
   requests = await read();
   expect(requests.filter((r) => r.templateUuid)).toHaveLength(2);
+  await expectDerivedColumns(
+    t,
+    "partsRequests",
+    requests.map((r) => r.uuid),
+  );
 });
 
 it("owes nothing to a finished task or a closed work order, and reads nothing more", async () => {

@@ -2,10 +2,11 @@
  * Responsibility: Pins the snapshot query and the problem-report, flight
  *   submission and review mutations: authorization, idempotent retries, held
  *   flights, resolution and deferral with their change-log rows, flight
- *   plans, profiles, checklists and oil.
+ *   plans, profiles, checklists, oil, and a flight's derived start.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/operations.ts, convex/schema.ts, convex/values, zod,
- *   src/domain (model, management), src/data/demo.ts (fixture).
+ * Dependencies: convex/operations.ts, convex/schema.ts, convex/collections.ts,
+ *   convex/values, zod, src/domain (model, management), src/data/demo.ts and
+ *   tests/fixtures/derivedColumns.ts (fixtures).
  */
 import type { ManagedRecord } from "../src/domain/management";
 import { convexTest } from "convex-test";
@@ -20,6 +21,8 @@ import {
   MAX_OPEN_REPORTS_PER_MEMBER,
   REPORT_LIMIT_REFUSAL,
 } from "../src/domain/reportBacklog";
+import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
+import { decodeFlight } from "./collections";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -664,8 +667,10 @@ describe("flight review on runCommand", () => {
       reason: "Checked",
       programUuid: "demo-program",
     });
-    expect(JSON.parse(log!.before!)).toEqual(original);
-    expect(JSON.parse(log!.after!)).toEqual(reviewed);
+    // The change log holds the row as the domain does: without its derived
+    // columns (ADR-0013).
+    expect(JSON.parse(log!.before!)).toEqual(decodeFlight(original));
+    expect(JSON.parse(log!.after!)).toEqual(decodeFlight(reviewed));
   });
 
   it("reviews once per request id: a replay returns nothing and writes nothing", async () => {
@@ -772,7 +777,7 @@ describe("flight review on runCommand", () => {
       copilotId: ids.admin,
       tachOn: a.currentTach + 3600,
     });
-    expect(JSON.parse(stored.log.after!)).toEqual(stored.flight);
+    expect(JSON.parse(stored.log.after!)).toEqual(decodeFlight(stored.flight));
   });
 });
 
@@ -1062,6 +1067,31 @@ describe("discrepancy resolution", () => {
     });
     expect(await stored()).toEqual(saved);
   });
+});
+
+it("stores a flight's start as an instant on submit and review, and never returns it (ADR-0013)", async () => {
+  const { t, pilot, admin, op } = await fixture();
+  const held = op();
+  held.baseVersion = 1;
+  held.input = { ...held.input, startTime: "2026-01-01T05:00:00-05:00" };
+  await pilot.mutation(api.operations.submit, { operation: held });
+  await expectDerivedColumns(t, "flights", [held.uuid]);
+  await admin.mutation(api.operations.reviewFlight, {
+    programUuid: "demo-program",
+    requestUuid: crypto.randomUUID(),
+    uuid: held.uuid,
+    decision: "accept",
+    reason: "Start time corrected from the logbook",
+    input: { ...held.input, startTime: "2026-01-01T09:30:00Z" },
+  });
+  await expectDerivedColumns(t, "flights", [held.uuid]);
+  const snapshot = await admin.query(api.operations.snapshot, {});
+  expect(snapshot!.flights.map((f) => f.startTime)).toEqual([
+    "2026-01-01T09:30:00Z",
+  ]);
+  const audit = await t.run((ctx) => ctx.db.query("audit").collect());
+  expect(audit.map((row) => row.action)).toContain("flight.reviewed");
+  expect(JSON.stringify([snapshot, audit])).not.toContain("startedAt");
 });
 
 it("names the signed-in account to a current session only", async () => {

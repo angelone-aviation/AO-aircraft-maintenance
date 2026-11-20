@@ -1,11 +1,12 @@
 /**
  * Responsibility: Pins cost records: who may see and set money, how labor
  *   is stored, program isolation, closed work orders, part unit costs, a
- *   replayed labor entry or request id, and a record uuid another Flight
- *   Program holds.
+ *   replayed labor entry or request id, a record uuid another Flight Program
+ *   holds, and the derived columns a cost save stores.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/costs, convex/workOrders, convex/operations,
- *   src/data/demo, src/domain/costs, tests/fixtures/workOrders.
+ *   src/data/demo, src/domain/costs, tests/fixtures (workOrders,
+ *   derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
@@ -16,6 +17,7 @@ import { demoSnapshot } from "../src/data/demo";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
 import { laborCents, parseLaborHours } from "../src/domain/costs";
 import { taskCardDefaults } from "../src/domain/taskCards";
+import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -163,7 +165,7 @@ it("keeps rates and money admin-only while maintenance records hours", async () 
   );
 });
 it("stores labor hours exactly and keeps whole-minute entries from older apps (#46)", async () => {
-  const { tech, admin } = await fixture();
+  const { t, tech, admin } = await fixture();
   const order = workOrderCommand();
   await tech.mutation(api.workOrders.save, {
     programUuid: "demo-program",
@@ -191,6 +193,11 @@ it("stores labor hours exactly and keeps whole-minute entries from older apps (#
     expect.not.objectContaining({ seconds: expect.anything() }),
   ]);
   expect(record.labor.map(laborCents)).toEqual([13300, 13333]);
+  await expectDerivedColumns(
+    t,
+    "costs",
+    view!.costs!.map((r) => r.uuid),
+  );
   await expect(
     run(tech, {
       action: "labor.add",

@@ -1,14 +1,14 @@
 /**
  * Responsibility: Pins work orders on the server: saving, close-out and the
  *   change-log rows of the components it changes, revisions, component
- *   corrections, job-card copies and archiving, the attachments of an open
- *   order, the refusals users see, and that keeping a stale edit leaves
- *   another person's task progress in place.
+ *   corrections, job-card copies and archiving with their derived columns,
+ *   the attachments of an open order, the refusals users see, and that
+ *   keeping a stale edit leaves another person's task progress in place.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/workOrders.ts, convex/admin.ts, convex/taskCards.ts,
  *   convex/schema.ts, src/domain/workOrders.ts, src/domain/recordMerge.ts,
  *   src/domain/keepMineRules.ts, src/data/demo.ts,
- *   tests/fixtures (workOrders, taskCards).
+ *   tests/fixtures (workOrders, taskCards, derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
@@ -27,6 +27,7 @@ import {
   workOrderComponent,
   workOrderCommand,
 } from "../tests/fixtures/workOrders";
+import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -808,6 +809,9 @@ it("archives a signed task copy without signer approval, preserving signatures, 
   expect(
     after.audit.some((entry) => entry.action === "taskCard.archived_with_task"),
   ).toBe(true);
+  await expectDerivedColumns(t, "workOrders", [order.uuid]);
+  await expectDerivedColumns(t, "taskCards", [template.uuid]);
+  await expectDerivedColumns(t, "archivedTaskCards", [copy.uuid]);
   await expect(tech.mutation(api.workOrders.save, args)).rejects.toThrow(
     "changed",
   );

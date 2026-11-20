@@ -1,28 +1,41 @@
 /**
- * Responsibility: How each stored payload row decodes into its Snapshot
- *   collection, and how a record encodes back into its row, said once.
+ * Responsibility: How each stored row decodes into its Snapshot collection,
+ *   and how a record encodes back into its row with its derived columns.
  * Layer: Server. Pure: no Convex context, no I/O, and only type imports from
  *   convex, so the backup scripts can bundle it.
- * Dependencies: src/domain (model, componentTemplates and the stored-record
- *   schemas), convex/server and ./_generated (types).
+ * Dependencies: src/domain (model, componentTemplates, the stored-record
+ *   schemas and number rules), convex/server and ./_generated (types).
  *
  * Component templates and setups decode as written, without a schema: their
  * readers have always taken the stored JSON as it is, and parsing it would
- * strip unknown fields and fill defaults.
+ * strip unknown fields and fill defaults. Derived columns exist only for the
+ * history window's indexes (ADR-0013); decoding never returns them.
  */
 import type { WithoutSystemFields } from "convex/server";
 import type { Doc } from "./_generated/dataModel";
-import type { Snapshot } from "../src/domain/model";
+import type { Flight, Snapshot } from "../src/domain/model";
 import type {
   ComponentSetup,
   ComponentTemplate,
 } from "../src/domain/componentTemplates";
 import { recordSchema } from "../src/domain/management";
-import { taskCardSchema } from "../src/domain/taskCards";
-import { workOrderSchema } from "../src/domain/workOrders";
+import {
+  cardNumberKey,
+  isTaskClosed,
+  taskCardSchema,
+} from "../src/domain/taskCards";
+import {
+  isOpenWorkOrder,
+  workOrderNumberKey,
+  workOrderSchema,
+  type WorkOrder,
+} from "../src/domain/workOrders";
 import { adSchema } from "../src/domain/airworthiness";
-import { partsRequestSchema } from "../src/domain/partsRequests";
-import { poSchema } from "../src/domain/purchaseOrders";
+import {
+  partsRequestSchema,
+  requestNumberValue,
+} from "../src/domain/partsRequests";
+import { poNumberValue, poSchema } from "../src/domain/purchaseOrders";
 import { checklistRecordSchema } from "../src/domain/checklists";
 import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
 import { costRecordSchema } from "../src/domain/costs";
@@ -106,13 +119,14 @@ export function decodeLenient<N extends PayloadCollection>(
 
 /**
  * Encodes a record into its stored row: the columns the table is indexed or
- * scoped by, lifted from the record, and the record as the JSON payload.
+ * scoped by, lifted from the record, its {@link derivedColumns}, and the
+ * record as the JSON payload.
  *
  * A management row keeps an empty `aircraftUuid` as the record has it. No
  * index covers the column, and its one reader (inspectionDocs) treats empty
  * and absent alike, so older rows without it read back the same.
  *
- * @returns The row's fields, ready to insert or replace.
+ * @returns The row's fields, ready to insert, replace or patch.
  * @throws {Error} For a component template without a Flight Program, which
  *   its table cannot store.
  */
@@ -120,7 +134,72 @@ export function encode<N extends PayloadCollection>(
   collection: N,
   record: StoredRecord<N>,
 ): StoredRow<N> {
-  return ENCODERS[collection](record, JSON.stringify(record));
+  return {
+    ...ENCODERS[collection](record, JSON.stringify(record)),
+    ...derivedColumns(collection, record),
+  };
+}
+
+/**
+ * The columns a row copies from its record for the history window's indexes
+ * (ADR-0013); none for the other collections.
+ *
+ * - Work orders: `status`, `completionDate`, `numberKey`, and once closed
+ *   `closedAt`: the later of the close-out and the completion date's UTC
+ *   midnight, absent for an order cancelled with neither.
+ * - Job cards: `workOrderUuid`, `numberKey`, and once closed `closedAt`, the
+ *   card's last update: a closed card takes no more edits.
+ * - Archived job cards: `workOrderUuid` and `numberKey`. The card records no
+ *   archive time; its work order dates the removal.
+ * - Costs: `kind`, and a work order's record its `workOrderUuid`.
+ * - Parts requests: the source's `workOrderUuid` and `uuid` as
+ *   `sourceWorkOrderUuid` and `sourceUuid`, and `numberValue`.
+ * - Purchase orders: `numberValue`.
+ *
+ * `numberKey` and `numberValue` are the number as the domain's uniqueness
+ * check and next-number rule read it.
+ *
+ * @returns The columns; one that is undefined is absent from the row.
+ */
+export function derivedColumns<N extends PayloadCollection>(
+  collection: N,
+  record: StoredRecord<N>,
+): Partial<StoredRow<N>> {
+  return DERIVED[collection]?.(record) ?? {};
+}
+
+/** The columns a flight's row adds to the flight. */
+export interface FlightColumns {
+  /** The start time in milliseconds: the stored text keeps the pilot's
+   * offset, so it does not sort by instant. */
+  startedAt: number;
+}
+
+/**
+ * The columns a flight's row adds for the history window's indexes
+ * (ADR-0013). Every write of a flight's start time writes them with it.
+ *
+ * @param flight - The flight, or the fields a review sets on it.
+ */
+export function flightColumns(
+  flight: Pick<Flight, "startTime">,
+): FlightColumns {
+  return { startedAt: Date.parse(flight.startTime) };
+}
+
+/**
+ * A stored flight row as the domain, the workspace and the change log hold
+ * it: without the columns {@link flightColumns} adds, so they never reach a
+ * screen or a change-log entry.
+ *
+ * @param row - The row as stored, with or without the columns.
+ * @returns The row's other fields, system fields included.
+ */
+export function decodeFlight<
+  R extends Pick<Flight, "startTime"> & Partial<FlightColumns>,
+>(row: R): Omit<R, keyof FlightColumns> {
+  const { startedAt: _derived, ...flight } = row;
+  return flight;
 }
 
 interface Schema<T> {
@@ -243,3 +322,43 @@ const ENCODERS: { [N in PayloadCollection]: Encoder<N> } = {
     payload,
   }),
 };
+
+const DERIVED: {
+  [N in PayloadCollection]?: (record: StoredRecord<N>) => Partial<StoredRow<N>>;
+} = {
+  workOrders: (r) => ({
+    status: r.status,
+    closedAt: workOrderClosedAt(r),
+    completionDate: r.completionDate,
+    numberKey: workOrderNumberKey(r.number),
+  }),
+  taskCards: (r) => ({
+    workOrderUuid: r.workOrderUuid,
+    closedAt: isTaskClosed(r) ? r.updatedAt : undefined,
+    numberKey: cardNumberKey(r.cardNumber),
+  }),
+  archivedTaskCards: (r) => ({
+    workOrderUuid: r.workOrderUuid,
+    numberKey: cardNumberKey(r.cardNumber),
+  }),
+  costs: (r) => ({
+    kind: r.kind,
+    workOrderUuid: r.kind === "workOrder" ? r.workOrderUuid : undefined,
+  }),
+  partsRequests: (r) => ({
+    sourceWorkOrderUuid: r.source.workOrderUuid,
+    sourceUuid: r.source.uuid,
+    numberValue: requestNumberValue(r.number),
+  }),
+  purchaseOrders: (r) => ({ numberValue: poNumberValue(r.number) }),
+};
+
+// Dated as the retention window dates a closing (src/domain/retention.ts).
+function workOrderClosedAt(w: WorkOrder): number | undefined {
+  if (isOpenWorkOrder(w)) return undefined;
+  const closed = Math.max(
+    w.closeout?.recordedAt ?? 0,
+    w.completionDate ? Date.parse(w.completionDate) : 0,
+  );
+  return closed || undefined;
+}

@@ -99,8 +99,9 @@ export const files = query({
   },
 });
 
-// Receipts change a request's reservations, never its columns, and never
-// create one, so only a changed payload is written.
+// Receipts change a request's reservations and never create one, so only a
+// changed request is written: its whole row, so an older row gets its
+// derived columns.
 async function patchRequests(
   ctx: MutationCtx,
   docs: Doc<"partsRequests">[],
@@ -108,8 +109,8 @@ async function patchRequests(
 ) {
   for (const record of records) {
     const prior = docs.find((d) => d.uuid === record.uuid);
-    const { payload } = encode("partsRequests", record);
-    if (prior && prior.payload !== payload)
-      await ctx.db.patch(prior._id, { payload });
+    const row = encode("partsRequests", record);
+    if (prior && prior.payload !== row.payload)
+      await ctx.db.patch(prior._id, row);
   }
 }

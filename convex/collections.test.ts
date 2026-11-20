@@ -20,8 +20,11 @@ import { hydrate, type Need } from "./runCommand";
 import { checkContext, inspectionDocs, managementDocs } from "./programContext";
 import {
   decode,
+  decodeFlight,
   decodeLenient,
+  derivedColumns,
   encode,
+  flightColumns,
   type PayloadCollection,
 } from "./collections";
 import {
@@ -39,6 +42,7 @@ import { poSchema } from "../src/domain/purchaseOrders";
 import { checklistRecordSchema } from "../src/domain/checklists";
 import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
 import { costRecordSchema } from "../src/domain/costs";
+import { closeoutSchema } from "../src/domain/workOrderCloseoutSchema";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -227,9 +231,12 @@ it("encodes every stored row as the app wrote it, and decodes it back", async ()
     PAYLOAD_COLLECTIONS.length,
   );
   for (const { collection, row } of rows) {
-    expect(encode(collection, JSON.parse(row.payload)), collection).toEqual(
-      row,
-    );
+    // The fixture writes rows as they were before the derived columns.
+    const parsed = JSON.parse(row.payload);
+    expect(encode(collection, parsed), collection).toEqual({
+      ...row,
+      ...derivedColumns(collection, parsed),
+    });
     const [record] = decode(collection, [row]);
     const encoded = encode(collection, record);
     expect(encoded.payload, collection).toBe(JSON.stringify(record));
@@ -245,6 +252,141 @@ it("refuses to encode a component template without a Flight Program", () => {
     "Component template t has no Flight Program.",
   );
 });
+
+it("derives the history window's columns from each record", async () => {
+  const { t } = await fixture();
+  const stored = await t.run(async (ctx) => ({
+    order: decode("workOrders", await ctx.db.query("workOrders").collect())[0],
+    card: decode("taskCards", await ctx.db.query("taskCards").collect())[0],
+    costs: decode("costs", await ctx.db.query("costs").collect()),
+    request: decode(
+      "partsRequests",
+      await ctx.db.query("partsRequests").collect(),
+    )[0],
+    po: decode(
+      "purchaseOrders",
+      await ctx.db.query("purchaseOrders").collect(),
+    )[0],
+    vendor: decode("management", await ctx.db.query("management").collect())[0],
+  }));
+  const { order, card, request, po } = stored;
+  const orderColumns = (fields: Partial<typeof order>) =>
+    derivedColumns("workOrders", { ...order, ...fields });
+  const completed = {
+    status: "completed",
+    completionDate: "2026-02-03",
+  } as const;
+  const midnight = Date.UTC(2026, 1, 3);
+  expect(orderColumns({ number: "Wo-7" })).toEqual({
+    status: "open",
+    completionDate: "",
+    numberKey: "wo-7",
+  });
+  expect(orderColumns({ ...completed, number: "WO-1" })).toEqual({
+    ...completed,
+    closedAt: midnight,
+    numberKey: "wo-1",
+  });
+  // The later of the close-out and the completion date's UTC midnight.
+  for (const recordedAt of [midnight + 1, midnight - 1])
+    expect(
+      orderColumns({ ...completed, closeout: closeout(recordedAt) }).closedAt,
+    ).toBe(Math.max(recordedAt, midnight));
+  expect(orderColumns({ status: "cancelled" }).closedAt).toBeUndefined();
+
+  const links = { workOrderUuid: card.workOrderUuid, numberKey: "jc-1" };
+  expect(derivedColumns("taskCards", card)).toEqual(links);
+  for (const status of ["completed", "canceled"] as const)
+    expect(
+      derivedColumns("taskCards", { ...card, status, updatedAt: 99 }),
+    ).toEqual({ ...links, closedAt: 99 });
+  expect(
+    derivedColumns("archivedTaskCards", { ...card, status: "completed" }),
+  ).toEqual(links);
+
+  const orderCost = costRecordSchema.parse({
+    uuid: "cost-order",
+    version: 1,
+    programUuid: PROGRAM,
+    kind: "workOrder",
+    aircraftUuid: order.aircraftUuid,
+    workOrderUuid: order.uuid,
+    labor: [],
+    other: [],
+    partUnitCosts: [],
+  });
+  expect(
+    [orderCost, ...stored.costs].map((c) => derivedColumns("costs", c)),
+  ).toEqual([
+    { kind: "workOrder", workOrderUuid: order.uuid },
+    { kind: "settings" },
+    { kind: "budget" },
+  ]);
+
+  const source = { ...request.source, workOrderUuid: "order", uuid: "task" };
+  expect(derivedColumns("partsRequests", { ...request, source })).toEqual({
+    sourceWorkOrderUuid: "order",
+    sourceUuid: "task",
+    numberValue: 1,
+  });
+  const NUMBERS = ["PR-00042", "PO-00042", "SAMPLE-1"];
+  // Characterizes current behaviour: a request number is read after the
+  // prefix's length whatever its prefix, as nextRequestNumber reads it.
+  expect(
+    NUMBERS.map(
+      (number) =>
+        derivedColumns("partsRequests", { ...request, number }).numberValue,
+    ),
+  ).toEqual([42, 42, 0]);
+  expect(
+    NUMBERS.map(
+      (number) =>
+        derivedColumns("purchaseOrders", { ...po, number }).numberValue,
+    ),
+  ).toEqual([0, 42, 0]);
+  expect(derivedColumns("management", stored.vendor)).toEqual({});
+});
+
+it("derives a flight's start as an instant, which decodeFlight drops again", () => {
+  const flight = {
+    uuid: "f",
+    status: "accepted",
+    startTime: "2026-10-03T21:30:00-05:00",
+  };
+  const later = Date.UTC(2026, 9, 4, 2, 30);
+  expect(flightColumns(flight)).toEqual({ startedAt: later });
+  // Why the column: as text, the later start sorts first.
+  expect(flight.startTime < "2026-10-04T01:00:00Z").toBe(true);
+  expect(later > Date.parse("2026-10-04T01:00:00Z")).toBe(true);
+  const row = { _id: "row", ...flight, ...flightColumns(flight) };
+  expect(decodeFlight(row)).toEqual({ _id: "row", ...flight });
+  expect(decodeFlight(flight)).toEqual(flight);
+});
+
+function closeout(recordedAt: number) {
+  return closeoutSchema.parse({
+    recordedAt,
+    aircraft: {
+      totalSeconds: 0,
+      hobbs: 0,
+      tach: 0,
+      cycles: 0,
+      registration: "N1",
+      make: "Cessna",
+      model: "206",
+      serial: "1",
+    },
+    completedBy: {
+      userId: "admin",
+      name: "Admin",
+      licenseNumber: "",
+      certificateType: "",
+    },
+    workPerformed: "",
+    components: [],
+    compliance: [],
+  });
+}
 
 const SPARE_PROP = {
   kind: "component",

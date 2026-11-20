@@ -9,7 +9,7 @@
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { authorized } from "./access";
-import { decode } from "./collections";
+import { decode, decodeFlight } from "./collections";
 import {
   runCommand,
   requestOf,
@@ -80,15 +80,16 @@ async function loadPlan(
       q.eq("aircraftUuid", command.plan.aircraftUuid),
     )
     .collect();
+  const flights = await ctx.db
+    .query("flights")
+    .withIndex("plan", (q) => q.eq("flightPlanUuid", command.plan.uuid))
+    .collect();
   return {
     plans,
     s: {
       ...state,
       flightPlans: decode("flightPlans", plans),
-      flights: await ctx.db
-        .query("flights")
-        .withIndex("plan", (q) => q.eq("flightPlanUuid", command.plan.uuid))
-        .collect(),
+      flights: flights.map(decodeFlight),
     },
   };
 }

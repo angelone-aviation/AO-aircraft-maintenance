@@ -1,10 +1,10 @@
 /**
  * Responsibility: Pins the hosted sample program: who may seed it, the linked
- *   records it creates once, the active program it selects, and the example
- *   documents it attaches once.
+ *   records it creates once with their derived columns, the active program it
+ *   selects, and the example documents it attaches once.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/sampleProgram, convex/sampleDocuments,
- *   convex/collections, convex/schema.
+ *   convex/collections, convex/schema, tests/fixtures/derivedColumns.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -12,6 +12,10 @@ import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
 import { decode, type PayloadCollection } from "./collections";
 import type { Id } from "./_generated/dataModel";
+import {
+  expectDerivedColumns,
+  type DerivedTable,
+} from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -166,6 +170,26 @@ it("seeds records that parse with their schemas, one sample state per aircraft",
     ],
     engines: [["single"], ["single"], ["left", "right"], ["single"]],
   });
+});
+
+it("stores the derived columns on every record it seeds that has them (ADR-0013)", async () => {
+  const t = convexTest(schema, modules);
+  await t.run((ctx) => ctx.db.insert("users", ADMIN));
+  await t.mutation(seed, { email: ADMIN.email });
+  const tables: DerivedTable[] = [
+    "flights",
+    "workOrders",
+    "taskCards",
+    "purchaseOrders",
+  ];
+  for (const table of tables) {
+    const rows = await t.run((ctx) => ctx.db.query(table).collect());
+    await expectDerivedColumns(
+      t,
+      table,
+      rows.map((r) => r.uuid),
+    );
+  }
 });
 
 it("links sample PDFs to each operational area and prevents duplicate attachments", async () => {

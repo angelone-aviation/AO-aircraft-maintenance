@@ -3,11 +3,12 @@
  *   as draft job cards on an inspection.
  * Layer: Server. One public mutation through runCommand; the rules are the
  *   domain's importTaskCsv.
- * Dependencies: convex/runCommand, src/domain/taskCsv.
+ * Dependencies: convex/runCommand, convex/collections, src/domain/taskCsv.
  */
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { runCommand, hydrate, requestOf } from "./runCommand";
+import { encode } from "./collections";
 import { importTaskCsv } from "../src/domain/taskCsv";
 
 /**
@@ -51,11 +52,7 @@ export const save = mutation({
           });
         }
         for (const task of result.tasks)
-          await ctx.db.insert("taskCards", {
-            uuid: task.uuid,
-            aircraftUuid: task.aircraftUuid,
-            payload: JSON.stringify(task),
-          });
+          await ctx.db.insert("taskCards", encode("taskCards", task));
       },
       audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (result) => result.count,

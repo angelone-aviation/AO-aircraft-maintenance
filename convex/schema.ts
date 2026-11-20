@@ -3,7 +3,7 @@
  *   indexes.
  * Layer: Server. Declarations Convex checks every write against; no logic.
  * Dependencies: convex/server, convex/values, @convex-dev/auth/server,
- *   ./validators, src/domain/ata.
+ *   ./validators, src/domain/ata, src/domain/workOrders.
  *
  * Most records are one JSON `payload` per row, checked by the domain's zod
  * schemas (convex/collections.ts), so a new record field changes this file
@@ -11,6 +11,7 @@
  * index for the blob clean-up (convex/storageReferences.ts).
  */
 import { ATA_CHAPTERS } from "../src/domain/ata";
+import { workOrderStatuses } from "../src/domain/workOrders";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
@@ -313,20 +314,35 @@ export default defineSchema({
   })
     .index("createdAt", ["createdAt"])
     .index("storage", ["storageId"]),
+  // Columns marked "derived" copy their record's payload for the history
+  // window's indexes (ADR-0013): encode in convex/collections.ts sets them on
+  // every write, and migrations:backfillHistoryColumns on older rows.
   archivedTaskCards: defineTable({
     uuid: v.string(),
     aircraftUuid: v.string(),
     payload: v.string(),
+    // Derived.
+    workOrderUuid: v.optional(v.string()),
+    numberKey: v.optional(v.string()),
   })
     .index("uuid", ["uuid"])
-    .index("aircraft", ["aircraftUuid"]),
+    .index("aircraft", ["aircraftUuid"])
+    .index("workOrder", ["workOrderUuid"])
+    .index("number", ["aircraftUuid", "numberKey"]),
   taskCards: defineTable({
     uuid: v.string(),
     aircraftUuid: v.string(),
     payload: v.string(),
+    // Derived.
+    workOrderUuid: v.optional(v.string()),
+    closedAt: v.optional(v.number()),
+    numberKey: v.optional(v.string()),
   })
     .index("uuid", ["uuid"])
-    .index("aircraft", ["aircraftUuid"]),
+    .index("aircraft", ["aircraftUuid"])
+    .index("workOrder", ["workOrderUuid"])
+    .index("closed", ["aircraftUuid", "closedAt"])
+    .index("number", ["aircraftUuid", "numberKey"]),
   taskEvidence: defineTable({
     taskCardUuid: v.string(),
     // The job card's aircraft, so the snapshot reads evidence once per
@@ -449,9 +465,17 @@ export default defineSchema({
     uuid: v.string(),
     aircraftUuid: v.string(),
     payload: v.string(),
+    // Derived.
+    status: v.optional(v.union(...workOrderStatuses.map((s) => v.literal(s)))),
+    closedAt: v.optional(v.number()),
+    completionDate: v.optional(v.string()),
+    numberKey: v.optional(v.string()),
   })
     .index("uuid", ["uuid"])
-    .index("aircraft", ["aircraftUuid"]),
+    .index("aircraft", ["aircraftUuid"])
+    .index("status", ["aircraftUuid", "status", "completionDate"])
+    .index("closed", ["aircraftUuid", "closedAt"])
+    .index("number", ["aircraftUuid", "numberKey"]),
   inventoryFiles: defineTable({
     stockUuid: v.string(),
     storageId: v.id("_storage"),
@@ -500,10 +524,16 @@ export default defineSchema({
     cyclicHobbsOff: v.optional(v.number()),
     flightTimeLogOff: v.optional(v.number()),
     dispatchOverride: v.optional(dispatchOverrideValidator),
+    // Derived: startTime in milliseconds. The stored text keeps the pilot's
+    // offset, so it does not sort by instant.
+    startedAt: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
-    .index("plan", ["flightPlanUuid"]),
+    .index("plan", ["flightPlanUuid"])
+    .index("started", ["aircraftUuid", "startedAt"])
+    .index("submitted", ["aircraftUuid", "submittedAt"])
+    .index("status", ["aircraftUuid", "status"]),
   discrepancies: defineTable({
     // A problem report has no version of its own; this one guards edits to
     // its required parts (src/domain/requiredParts.ts).
@@ -534,21 +564,33 @@ export default defineSchema({
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
     // A member's open reports, which their backlog limit counts (decision D2).
-    .index("author", ["authorId", "status"]),
+    .index("author", ["authorId", "status"])
+    .index("status", ["aircraftUuid", "status", "createdAt"])
+    .index("resolved", ["aircraftUuid", "resolvedAt"]),
   partsRequests: defineTable({
     uuid: v.string(),
     programUuid: v.string(),
     payload: v.string(),
+    // Derived.
+    sourceWorkOrderUuid: v.optional(v.string()),
+    sourceUuid: v.optional(v.string()),
+    numberValue: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
-    .index("program", ["programUuid"]),
+    .index("program", ["programUuid"])
+    .index("sourceWorkOrder", ["sourceWorkOrderUuid"])
+    .index("source", ["sourceUuid"])
+    .index("number", ["programUuid", "numberValue"]),
   purchaseOrders: defineTable({
     uuid: v.string(),
     programUuid: v.string(),
     payload: v.string(),
+    // Derived.
+    numberValue: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
-    .index("program", ["programUuid"]),
+    .index("program", ["programUuid"])
+    .index("number", ["programUuid", "numberValue"]),
   poFiles: defineTable({
     poUuid: v.string(),
     programUuid: v.string(),
@@ -578,16 +620,59 @@ export default defineSchema({
     .index("uuid", ["uuid"])
     .index("program", ["programUuid"]),
   // Maintenance cost records (work-order costs, budgets, labor rate settings).
-  // Aircraft rows travel with the aircraft; settings rows use aircraftUuid "".
+  // Rows stay with the program that paid when an aircraft moves (decision
+  // D14); settings rows use aircraftUuid "".
   costs: defineTable({
     uuid: v.string(),
     programUuid: v.string(),
     aircraftUuid: v.string(),
     payload: v.string(),
+    // Derived; workOrderUuid only on a work order's record.
+    kind: v.optional(
+      v.union(
+        v.literal("workOrder"),
+        v.literal("budget"),
+        v.literal("settings"),
+      ),
+    ),
+    workOrderUuid: v.optional(v.string()),
   })
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
-    .index("program", ["programUuid", "aircraftUuid"]),
+    .index("program", ["programUuid", "aircraftUuid"])
+    .index("kind", ["programUuid", "kind"])
+    .index("workOrder", ["workOrderUuid"]),
+  // The next two tables are derived, not records: rebuilt from the records
+  // after a restore, never written to the change log (ADR-0013). Empty until
+  // the bounded saves and the ledger use them.
+  //
+  // Every work order and job card number by aircraft, so a save checks a
+  // number without reading every record; keyed by aircraft, so the numbers
+  // move with an aircraft's records.
+  recordNumbers: defineTable({
+    aircraftUuid: v.string(),
+    kind: v.union(v.literal("workOrder"), v.literal("taskCard")),
+    // As the uniqueness check compares numbers (numberKey above).
+    key: v.string(),
+    uuid: v.string(),
+  })
+    .index("key", ["aircraftUuid", "kind", "key"])
+    .index("uuid", ["uuid"]),
+  // Work-order spending by day, so totals need no history scan. Kept with
+  // the program that paid, like its cost records (D14), not moved with the
+  // aircraft.
+  costLedger: defineTable({
+    programUuid: v.string(),
+    aircraftUuid: v.string(),
+    workOrderUuid: v.string(),
+    date: v.string(),
+    laborSeconds: v.number(),
+    laborCents: v.number(),
+    partsCents: v.number(),
+    otherCents: v.number(),
+  })
+    .index("program", ["programUuid", "aircraftUuid", "date"])
+    .index("workOrder", ["workOrderUuid"]),
   // Retired: nothing reads or writes it since commandRequests replaced it. It
   // stays declared only because Convex refuses a deploy whose schema drops a
   // table that still holds rows; a later batch drops it once it is empty.

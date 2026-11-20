@@ -3,15 +3,16 @@
  *   four aircraft with linked records, then their example documents.
  * Layer: Server. Internal mutations run by hand (docs/sample-program.md);
  *   nothing seeds automatically.
- * Dependencies: convex/access, convex/defaultGroups, src/domain (management,
- *   workOrders, taskCards, airworthiness, checklists, inspectionTemplates,
- *   flightPlans, purchaseOrders).
+ * Dependencies: convex/access, convex/defaultGroups, convex/collections,
+ *   src/domain (management, workOrders, taskCards, airworthiness, checklists,
+ *   inspectionTemplates, flightPlans, purchaseOrders).
  *
  * Every record says SAMPLE and fictional, so none can pass for a real
  * maintenance record, certificate, order or FAA directive.
  */
 import { writeAudit } from "./access";
 import { ensureDefaultGroups } from "./defaultGroups";
+import { encode, flightColumns } from "./collections";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { WithoutSystemFields } from "convex/server";
@@ -541,11 +542,7 @@ async function insertWorkOrder(s: Seeding, a: Sample, task: WorkTask) {
     componentReadings: [],
     tasks: [task],
   });
-  await s.ctx.db.insert("workOrders", {
-    uuid: order.uuid,
-    aircraftUuid: a.aircraftUuid,
-    payload: JSON.stringify(order),
-  });
+  await s.ctx.db.insert("workOrders", encode("workOrders", order));
 }
 
 // The aircraft as the work order recorded it when opened.
@@ -585,11 +582,7 @@ async function insertJobCard(
     inspectionSignoff: null,
     stepSignoffs: {},
   });
-  await ctx.db.insert("taskCards", {
-    uuid: a.cardUuid,
-    aircraftUuid: a.aircraftUuid,
-    payload: JSON.stringify(card),
-  });
+  await ctx.db.insert("taskCards", encode("taskCards", card));
 }
 
 async function insertTemplate({ ctx }: Seeding, { row }: Sample) {
@@ -675,7 +668,8 @@ function checklistSection(title: string) {
 // A past plan with the flight that used it, then a future plan.
 async function insertFlights(s: Seeding, a: Sample) {
   const past = await insertFlightPlan(s, a, -2, 1);
-  await s.ctx.db.insert("flights", sampleFlight(s, a, past));
+  const flight = sampleFlight(s, a, past);
+  await s.ctx.db.insert("flights", { ...flight, ...flightColumns(flight) });
   await insertFlightPlan(s, a, a.n, 2);
 }
 
@@ -808,11 +802,7 @@ async function insertAD({ ctx, now }: Seeding, a: Sample) {
 
 async function insertPurchaseOrder(s: Seeding, a: Sample) {
   const po = poSchema.parse(samplePurchaseOrder(s, a));
-  await s.ctx.db.insert("purchaseOrders", {
-    uuid: a.poUuid,
-    programUuid: PROGRAM,
-    payload: JSON.stringify(po),
-  });
+  await s.ctx.db.insert("purchaseOrders", encode("purchaseOrders", po));
 }
 
 function samplePurchaseOrder(s: Seeding, a: Sample) {

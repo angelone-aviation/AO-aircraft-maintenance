@@ -2,8 +2,8 @@
  * Responsibility: The caller's Flight Program context, its checks, and the
  *   program-scoped loaders every server read goes through.
  * Layer: Server. Convex reads only; the permission rules come from src/domain.
- * Dependencies: convex/values, ./_generated, ./access, src/domain (programs,
- *   model, ownerView, boardView).
+ * Dependencies: convex/values, ./_generated, ./access, ./collections,
+ *   src/domain (programs, model, ownerView, boardView).
  *
  * Loaders read one tenant, per program or per aircraft of the program, so
  * reads and reactive invalidation stay within it.
@@ -12,6 +12,7 @@ import { ConvexError } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { currentUser, member, group } from "./access";
+import { decodeFlight } from "./collections";
 import { activeProgram, programPermission } from "../src/domain/programs";
 import type { Snapshot } from "../src/domain/model";
 import { isOwnerView } from "../src/domain/ownerView";
@@ -155,14 +156,15 @@ export async function inspectionDocs(
   ];
 }
 
-/** The aircraft's flights. */
+/** The aircraft's flights, as {@link decodeFlight} returns them. */
 export const flightDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
-  perAircraft(aircraft, (id) =>
-    ctx.db
+  perAircraft(aircraft, async (id) => {
+    const rows = await ctx.db
       .query("flights")
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
-      .collect(),
-  );
+      .collect();
+    return rows.map(decodeFlight);
+  });
 
 /** The aircraft's problem reports. */
 export const discrepancyDocs = (ctx: Ctx, aircraft: AircraftRefs) =>

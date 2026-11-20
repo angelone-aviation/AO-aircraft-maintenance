@@ -1,10 +1,11 @@
 /**
  * Responsibility: Pins job cards: saving and access, signer identity and
  *   signoff rules, template unlinking, evidence, archived cards, a card uuid
- *   outside the Flight Program, and replayed request ids.
+ *   outside the Flight Program, replayed request ids, and derived columns.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/taskCards, convex/operations, convex/attachments,
- *   src/data/demo, src/domain/taskCards, tests/fixtures/taskCards.
+ *   src/data/demo, src/domain/taskCards, tests/fixtures (taskCards,
+ *   derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -18,6 +19,10 @@ import {
   taskCardFieldsSchema,
 } from "../src/domain/taskCards";
 import { MAX_ATTACHMENTS } from "./attachments";
+import {
+  expectDerivedColumns,
+  forgetDerivedColumns,
+} from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -208,6 +213,26 @@ it("records real signer identity, invalidates signatures on evidence upload, and
   await expect(tech.action(api.taskCards.upload, file)).rejects.toThrow(
     "open job card",
   );
+});
+it("stores a card's derived columns when it is saved and when evidence is filed (ADR-0013)", async () => {
+  const { t, tech } = await fixture();
+  const command = taskCardCommand();
+  await tech.mutation(api.taskCards.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(command),
+  });
+  await expectDerivedColumns(t, "taskCards", [command.uuid]);
+  // A card stored before the columns existed gets them with its evidence.
+  await forgetDerivedColumns(t, "taskCards", [command.uuid]);
+  await tech.action(api.taskCards.upload, {
+    programUuid: "demo-program",
+    taskCardUuid: command.uuid,
+    category: "photo",
+    name: "photo.pdf",
+    type: "application/pdf",
+    bytes: new TextEncoder().encode("%PDF-1.4 test").buffer,
+  });
+  await expectDerivedColumns(t, "taskCards", [command.uuid]);
 });
 it("shows a refused evidence file to the user, and keeps no file the card refuses", async () => {
   const { t, tech, reader } = await fixture(),

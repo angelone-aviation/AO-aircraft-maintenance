@@ -1,15 +1,20 @@
 /**
  * Responsibility: Pins parts requests: linked requests, inventory access,
  *   reservations and issues in stock history, what a recurring list owes the
- *   open work orders, request-id replay, and a request uuid another Flight
- *   Program holds.
+ *   open work orders, request-id replay, a request uuid another Flight
+ *   Program holds, and the derived columns request and PO writes store.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/partsRequests, convex/purchaseOrders,
  *   convex/workOrders, src/data/demo, src/domain (airworthiness,
- *   partsRequests, purchaseOrders, workOrders), tests/fixtures/workOrders.
+ *   partsRequests, purchaseOrders, workOrders), tests/fixtures (workOrders,
+ *   derivedColumns).
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
+import {
+  expectDerivedColumns,
+  forgetDerivedColumns,
+} from "../tests/fixtures/derivedColumns";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -97,6 +102,7 @@ it("persists linked requests, authorizes inventory actions, and reserves PO rece
     api.partsRequests.execute,
     args({ kind: "save", requestUuid: "save", draft }),
   );
+  await expectDerivedColumns(t, "partsRequests", [draft.uuid]);
   await expect(
     tech.mutation(
       api.partsRequests.execute,
@@ -159,8 +165,12 @@ it("persists linked requests, authorizes inventory actions, and reserves PO rece
     notes: "",
     lines: [{ lineUuid: "poline", quantity: 2, condition: "new", serials: [] }],
   });
+  // A request stored before the columns existed gets them with its receipt.
+  await forgetDerivedColumns(t, "partsRequests", [draft.uuid]);
   await admin.mutation(api.purchaseOrders.execute, receipt);
   await admin.mutation(api.purchaseOrders.execute, receipt);
+  await expectDerivedColumns(t, "partsRequests", [draft.uuid]);
+  await expectDerivedColumns(t, "purchaseOrders", [po.uuid]);
   const result = await t.run(async (ctx) => ({
     requests: (await ctx.db.query("partsRequests").collect()).map((d) =>
       JSON.parse(d.payload),
