@@ -101,7 +101,7 @@ The manual run has a second box: **EMERGENCY ONLY: deploy although CI has not pa
 
 ### After every deploy
 
-There is nothing to run on production after a deploy. It started empty on 2026-11-03, so the README's [one-off steps for deployments with older data](../../README.md#one-off-steps-for-deployments-with-older-data) (`memberships:backfill`) do not apply to it. If a later release needs a one-off command, it will be listed in that README section and named in the pull request; run it with the deploy key in the shell only (`read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY`, then `unset CONVEX_DEPLOY_KEY`).
+Production started empty on 2026-11-03, so the first two of the README's [one-off steps for deployments with older data](../../README.md#one-off-steps-for-deployments-with-older-data) (`memberships:backfill`, `attachments:backfillAircraft`) do not apply to it. The history paging steps do: after the first deploy of a new deployment and after any restore, run `migrations:backfillHistoryColumns`, `migrations:rebuildRecordNumbers` and `migrations:rebuildCostLedger`, each until it reports 0, then check that `migrations:reconcileCostLedger` answers `differing: 0` ([set up from scratch](../handbook/3-running-it/setup-from-scratch.md#8-one-off-migrations)). Otherwise nothing runs after an ordinary deploy. If a later release needs a one-off command, it will be listed in that README section and named in the pull request; run it with the deploy key in the shell only (`read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY`, then `unset CONVEX_DEPLOY_KEY`).
 
 Check the live site:
 
