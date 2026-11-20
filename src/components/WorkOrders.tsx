@@ -40,9 +40,19 @@ import {
   LinkedTaskCards,
   WorkItemJobCards,
 } from "./TaskCards";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
+import {
+  HistoryRecordsContext,
+  useHistoryPages,
+  useRecordsSnapshot,
+  useWorkOrderHistory,
+  withHistory,
+  workOrderRows,
+} from "../data/historyPages";
+import { compareWorkOrderList } from "../domain/retention";
+import { HistoryPager, windowSummary } from "./HistoryPager";
 import type { Backend } from "../data/backend";
 import {
   can,
@@ -178,29 +188,36 @@ export function AddToWorkOrder({
 
 /**
  * The work orders screen: counts, the open (or all) orders of one or every
- * aircraft, newest first, narrowed by a search of number, registration,
+ * aircraft, open ones first, newest opened first, then closed ones by
+ * completion date, narrowed by a search of number, registration,
  * supervisor, scope and work items, and the dialog that opens, edits or
  * closes one.
  *
- * @returns The screen. Saving, closing, copying templates and attachments
- *   call `backend.workOrder`, `attachWorkOrderFile` and `removeWorkOrderFile`;
+ * @returns The screen. With closed orders included, Load older adds the
+ *   closed orders the workspace's window leaves out, for the chosen
+ *   aircraft, with their job cards and costs; the counts and chart cover the
+ *   workspace. Saving, closing, copying templates and attachments call
+ *   `backend.workOrder`, `attachWorkOrderFile` and `removeWorkOrderFile`;
  *   every change needs a connection and maintenance permission.
  */
 export function WorkOrders() {
-  const { snapshot: state, online, connected } = useWorkspace();
-  const s = state!;
+  const { snapshot: workspace, online, connected } = useWorkspace();
   const [selected, setSelected] = useState<WorkOrder | "new" | null>(null);
   const filter = useWorkOrderFilter();
-  const scoped = (s.workOrders ?? []).filter(
-    (w) => !filter.aircraft || w.aircraftUuid === filter.aircraft,
-  );
-  const shown = scoped.filter((w) => filter.showClosed || isOpenWorkOrder(w));
-  const list = newestFirst(
-    shown.filter((w) => workOrderMatches(w, filter.search)),
-  );
+  const older = useOlderWorkOrders(workspace!, filter.aircraft);
+  const { s } = older;
+  const inScope = (w: WorkOrder) =>
+    !filter.aircraft || w.aircraftUuid === filter.aircraft;
+  const scoped = (workspace!.workOrders ?? []).filter(inScope);
+  const shown = (s.workOrders ?? [])
+    .filter(inScope)
+    .filter((w) => filter.showClosed || isOpenWorkOrder(w));
+  const list = shown
+    .filter((w) => workOrderMatches(w, filter.search))
+    .sort(compareWorkOrderList);
   const enabled = online && connected;
   return (
-    <>
+    <HistoryRecordsContext.Provider value={s}>
       <WorkOrdersHeader s={s} enabled={enabled} onOpen={setSelected} />
       <WorkOrderCounts scoped={scoped} />
       <WorkOrderStatusChart orders={scoped} />
@@ -211,6 +228,7 @@ export function WorkOrders() {
       ) : (
         <NoWorkOrders anyInScope={!!scoped.length} anyListed={!!shown.length} />
       )}
+      {filter.showClosed && <OlderWorkOrders older={older} />}
       {selected && (
         <WorkOrderDialog
           s={s}
@@ -219,7 +237,35 @@ export function WorkOrders() {
           onReload={setSelected}
         />
       )}
-    </>
+    </HistoryRecordsContext.Provider>
+  );
+}
+
+// Every older work order is closed, so only the closed list pages them.
+function useOlderWorkOrders(workspace: Snapshot, aircraft: string) {
+  const pages = useHistoryPages({
+    kind: "workOrders",
+    aircraftUuid: aircraft || undefined,
+  });
+  const s = useMemo(
+    () => withHistory(workspace, { ...pages.records, members: pages.members }),
+    [workspace, pages.records, pages.members],
+  );
+  const loaded =
+    (s.workOrders?.length ?? 0) - (workspace.workOrders?.length ?? 0);
+  return { s, pages, loaded };
+}
+
+function OlderWorkOrders({
+  older,
+}: {
+  older: ReturnType<typeof useOlderWorkOrders>;
+}) {
+  return (
+    <HistoryPager
+      pages={older.pages}
+      summary={windowSummary("workOrders", older.loaded, "work order")}
+    />
   );
 }
 
@@ -235,10 +281,6 @@ function useWorkOrderFilter() {
     search,
     setSearch,
   };
-}
-
-function newestFirst(orders: WorkOrder[]) {
-  return orders.sort((a, b) => b.recordedAt - a.recordedAt);
 }
 
 // Opening the dialog again starts over from the first item.
@@ -557,21 +599,61 @@ function WorkOrderDialog({
   onReload: (current: WorkOrder) => void;
 }) {
   const isNew = selected === "new";
+  const records = useOrderRecords(s, isNew ? undefined : selected);
   // The version is in the key so that Use theirs reloads the form's fields.
   return (
-    <Modal
-      className="work-order-modal shop-wo-dialog"
-      title={isNew ? "Open work order" : selected.number}
-      onClose={onClose}
-    >
-      <WorkOrderForm
-        key={isNew ? "new" : `${selected.uuid}:${selected.version}`}
-        s={s}
-        initial={isNew ? undefined : selected}
-        onDone={onClose}
-        onReload={onReload}
-      />
-    </Modal>
+    <HistoryRecordsContext.Provider value={records.s}>
+      <Modal
+        className="work-order-modal shop-wo-dialog"
+        title={isNew ? "Open work order" : selected.number}
+        onClose={onClose}
+      >
+        <OlderOrderNotice records={records} />
+        <WorkOrderForm
+          key={isNew ? "new" : `${selected.uuid}:${selected.version}`}
+          s={records.s}
+          initial={isNew ? undefined : selected}
+          onDone={onClose}
+          onReload={onReload}
+        />
+      </Modal>
+    </HistoryRecordsContext.Provider>
+  );
+}
+
+// An order from a history page brings its job cards and costs; its files,
+// evidence and parts requests load with the whole order.
+function useOrderRecords(s: Snapshot, order: WorkOrder | undefined) {
+  const { snapshot } = useWorkspace();
+  const older =
+    !!order && !snapshot?.workOrders?.some((w) => w.uuid === order.uuid);
+  const loaded = useWorkOrderHistory(older ? order.uuid : undefined);
+  const merged = useMemo(
+    () => (loaded.history ? withHistory(s, workOrderRows(loaded.history)) : s),
+    [s, loaded.history],
+  );
+  return { ...loaded, s: merged, older };
+}
+
+function OlderOrderNotice({
+  records,
+}: {
+  records: ReturnType<typeof useOrderRecords>;
+}) {
+  if (!records.older || records.history) return null;
+  if (records.loading)
+    return <p role="status">Loading this work order's files…</p>;
+  if (records.error)
+    return (
+      <p role="alert" className="error">
+        {records.error}
+      </p>
+    );
+  return (
+    <NoticeBar tone="warn" icon={WifiSlash}>
+      This work order is older than the records kept on this device. Reconnect
+      to see its attachments and evidence.
+    </NoticeBar>
   );
 }
 
@@ -2224,7 +2306,8 @@ function Attachments({
   order: WorkOrder;
   writable: boolean;
 }) {
-  const { snapshot: s, backend } = useWorkspace();
+  const { backend } = useWorkspace();
+  const s = useRecordsSnapshot();
   const [file, setFile] = useState<File>();
   const [fileKey, setFileKey] = useState(0);
   const files = (s?.workOrderAttachments ?? []).filter(

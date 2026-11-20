@@ -4,7 +4,7 @@
  *   corrections with their logbook addenda.
  * Layer: UI. React components; the correction is previewed and applied by
  *   the domain and the server, never edited here.
- * Dependencies: src/data/store.ts, src/domain (model, workOrders,
+ * Dependencies: src/data (store, historyPages), src/domain (model, workOrders,
  *   workOrderComponentWork, workOrderComponentCorrections, components),
  *   ./ui.tsx.
  *
@@ -13,6 +13,7 @@
  */
 import { useState } from "react";
 import { useWorkspace } from "../data/store";
+import { useRecordsSnapshot } from "../data/historyPages";
 import { can, type Snapshot } from "../domain/model";
 import type { WorkOrder } from "../domain/workOrders";
 import { componentWorkLabels } from "../domain/workOrderComponentWork";
@@ -59,7 +60,8 @@ export function ComponentCloseoutCorrection({
   order: WorkOrder;
   onDone: () => void;
 }) {
-  const { snapshot: s, online, connected } = useWorkspace();
+  const { online, connected } = useWorkspace();
+  const s = useRecordsSnapshot();
   const correctable = correctableWork(order);
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState(correctable[0]?.componentUuid ?? "");

@@ -128,6 +128,27 @@ vi.mock("../data/store", () => ({
     getState: () => ui.workspace,
   }),
 }));
+const pages = vi.hoisted(() => ({
+  older: [] as WorkOrder[],
+  list: undefined as unknown,
+}));
+vi.mock("../data/historyPages", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../data/historyPages")>();
+  return {
+    ...actual,
+    useHistoryPages: (list: unknown) => {
+      pages.list = list;
+      return {
+        ...actual.NO_HISTORY,
+        records: { ...actual.NO_HISTORY.records, workOrders: pages.older },
+        loading: false,
+        error: "",
+        offline: false,
+        loadOlder: () => {},
+      };
+    },
+  };
+});
 vi.mock("./PartsRequests", () => ui.none(["RequestPartsButton"]));
 vi.mock("./RequestedComponentMovement", () =>
   ui.none(["RequestedComponentMovement"]),
@@ -155,6 +176,7 @@ beforeEach(() => {
   for (const fn of Object.values(backend)) fn.mockReset();
   ui.workspace = { snapshot: s, backend, online: true, connected: true };
   ui.states.clear();
+  pages.older = [];
   ui.confirm.mockReset();
   vi.stubGlobal("window", { confirm: ui.confirm });
   vi.stubGlobal("document", { body: {} });
@@ -187,7 +209,7 @@ function formData(fields: [string, string][]) {
 }
 
 describe("listing", () => {
-  it("lists open orders newest first, with counts that include closed ones", () => {
+  it("lists open orders newest first, then closed ones by completion date, with counts that include closed ones", () => {
     const older = order(["A"], now - 1000);
     const newer = order(["B"], now);
     Object.assign(newer, { status: "in-progress" });
@@ -209,11 +231,41 @@ describe("listing", () => {
     expect(counts.map((m) => m[1])).toEqual(["2", "1", "1"]);
     ui.states.set("WorkOrders", [null, "", true]);
     expect(render().match(/WO-\d{4}-\d{4}/g)).toEqual([
-      closed.number,
       newer.number,
       older.number,
+      closed.number,
       lastYear.number,
     ]);
+  });
+
+  it("lists older closed orders after the workspace's once closed ones are included", () => {
+    const recent = order([], now);
+    Object.assign(recent, {
+      status: "completed",
+      completionDate: "2026-09-30",
+    });
+    const archived = {
+      ...recent,
+      uuid: crypto.randomUUID(),
+      number: "WO-2019-0001",
+      completionDate: "2019-05-01",
+    };
+    pages.older = [archived, { ...recent, scope: "Stale page copy" }];
+    expect(render()).not.toContain("Load older");
+    ui.states.set("WorkOrders", [null, "N206MA", true]);
+    const html = render();
+    expect(pages.list).toEqual({ kind: "workOrders", aircraftUuid: "N206MA" });
+    ui.states.set("WorkOrders", [null, "", true]);
+    const all = render();
+    expect(all.match(/WO-\d{4}-\d{4}/g)).toEqual([
+      recent.number,
+      archived.number,
+    ]);
+    expect(all).not.toContain("Stale page copy");
+    expect(all).toContain("Showing the last 3 months and 1 older work order");
+    expect(html).toContain("Load older");
+    const counts = [...all.matchAll(/class="ds-stat-value">(\d+)/g)];
+    expect(counts.map((m) => m[1])).toEqual(["0", "0", "0"]);
   });
 
   it("explains an empty list, and needs a connection to open an order", () => {

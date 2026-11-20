@@ -1,12 +1,14 @@
 /**
  * Responsibility: A work order's labor, parts and other costs panel.
  * Layer: UI. React components; cost rules live in src/domain/costs.ts.
- * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
+ * Dependencies: react, @phosphor-icons/react, src/data (store,
+ *   historyPages: an older order's costs come with its page), src/domain
  *   (model, programs, workOrders, costs), ./ShopList, ./ui, ./costs.css.
  */
 import { useState } from "react";
 import { Trash } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
+import { useRecordsSnapshot } from "../data/historyPages";
 import { can, localDate, type Snapshot } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import { isOpenWorkOrder, type WorkOrder } from "../domain/workOrders";
@@ -52,7 +54,8 @@ type UnitCostProps = {
  * @returns The panel, or null for a user who is neither.
  */
 export function WorkOrderCosts({ order }: { order: WorkOrder }) {
-  const { snapshot: s, backend, online, connected } = useWorkspace();
+  const { backend, online, connected } = useWorkspace();
+  const s = useRecordsSnapshot();
   const [error, setError] = useState("");
   if (!s) return null;
   const admin = programPermission(s, "admin");
