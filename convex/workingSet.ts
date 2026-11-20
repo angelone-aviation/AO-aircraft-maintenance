@@ -1,8 +1,8 @@
 /**
  * Responsibility: The bounded reads a save loads instead of whole history
  *   (ADR-0013): records by uuid, a work order's job cards, cards on no work
- *   order, open work orders and problem reports, recent close-outs, and a
- *   work order's parts requests and costs.
+ *   order, open work orders and problem reports, recent close-outs, a work
+ *   order's parts requests and costs, and the highest-numbered request.
  * Layer: Server. Convex reads only, each within the caller's Flight Program;
  *   the rules that use them are the domain's.
  * Dependencies: ./_generated (types).
@@ -311,6 +311,20 @@ export async function workOrderCostDocs(
 }
 
 /**
+ * The Flight Program's parts request holding the highest number, which the
+ * next number continues from.
+ *
+ * @returns None or one.
+ */
+export function highestRequestDocs(ctx: Ctx, programUuid: string) {
+  return ctx.db
+    .query("partsRequests")
+    .withIndex("number", (q) => q.eq("programUuid", programUuid))
+    .order("desc")
+    .take(1);
+}
+
+/**
  * Rows from several bounded reads as one whole-history load holds them:
  * each once, by aircraft in the program's order, then by creation time.
  */
@@ -334,20 +348,6 @@ async function rowsByUuid<D extends AircraftRow>(
   const wanted = [...new Set(uuids)].filter(Boolean);
   const rows = await Promise.all(wanted.map(read));
   return inLoadOrder(onFleet(rows.flat(), fleet), fleet);
-}
-
-/**
- * The Flight Program's parts request holding the highest number, which the
- * next number continues from.
- *
- * @returns None or one.
- */
-export function highestRequestDocs(ctx: Ctx, programUuid: string) {
-  return ctx.db
-    .query("partsRequests")
-    .withIndex("number", (q) => q.eq("programUuid", programUuid))
-    .order("desc")
-    .take(1);
 }
 
 function onFleet<D extends { aircraftUuid: string }>(
