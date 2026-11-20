@@ -12,7 +12,8 @@ summaries.
 
 **Start here:**
 [What everyone needs to know](../handbook/1-start-here/must-know.md) ·
-[Regular checklists](../handbook/3-running-it/checklists.md) (daily to yearly)
+[Regular checklists](../handbook/3-running-it/checklists.md) (daily to yearly) ·
+[Glossary](../handbook/1-start-here/glossary.md) (the words the app uses)
 
 ![The Overview: fleet counts and aircraft cards](images/overview.png)
 

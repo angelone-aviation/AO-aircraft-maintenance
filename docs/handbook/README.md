@@ -29,7 +29,7 @@ Everything about Angel One in one place: what it is, how it works, how to run it
 | [What everyone must know](1-start-here/must-know.md) | Everyone             | The few rules that matter most, by role; what to do if the app is down                    |
 | [System overview](1-start-here/system-overview.md)   | Everyone             | What the app is, who uses it, the parts (diagram), Flight Programs, roles, the data model |
 | [FAQ](1-start-here/faq.md)                           | Aaron, owners, board | Technical and owner questions: editing records, deploys, outages, cost, lifespan          |
-| [Glossary](1-start-here/glossary.md)                 | Everyone             | A pointer to [GLOSSARY.md](../../GLOSSARY.md), plus handbook shorthand                    |
+| [Glossary](1-start-here/glossary.md)                 | Everyone             | Every term the app and these pages use, and the words they avoid, with handbook shorthand |
 
 ### 2. How it works
 
