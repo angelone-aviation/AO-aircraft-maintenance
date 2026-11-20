@@ -1,19 +1,15 @@
 /**
  * Responsibility: Pins the demo's history reads to the domain oracle: they
  *   scope the full snapshot first, as the server's workspace does, then page
- *   exactly as historyPage pages it; and the demo's workspace view, windowed
- *   only while its flag is on.
+ *   exactly as historyPage pages it; and the demo's workspace view, through
+ *   the window as the server's.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/data/demoHistory.ts, src/data/demo.ts (seed), src/domain
  *   (retention, historyReads, programs, record schemas).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "./demo";
-import {
-  DEMO_WINDOW_KEY,
-  demoHistoryCalls,
-  demoWorkspaceView,
-} from "./demoHistory";
+import { demoHistoryCalls, demoWorkspaceView } from "./demoHistory";
 import {
   historyPage,
   retainedSnapshot,
@@ -279,21 +275,13 @@ function cost(uuid: string, w: WorkOrder) {
 }
 
 describe("demoWorkspaceView", () => {
-  it("scopes the full snapshot, and windows it only while the flag is on", () => {
+  it("scopes the full snapshot and narrows it to the window, as the server does", () => {
     const full = {
       ...demoSnapshot(),
-      flights: [flight("old-flight", N206, OLD)],
+      flights: [flight("old-flight", N206, OLD), flight("new", N206, NOW)],
     };
-    const store = new Map<string, string>();
-    vi.stubGlobal("sessionStorage", {
-      getItem: (key: string) => store.get(key) ?? null,
-    });
-    expect(demoWorkspaceView(full, NOW)).toEqual(scopedSnapshot(full));
-    store.set(DEMO_WINDOW_KEY, "on");
-    expect(demoWorkspaceView(full, NOW)).toEqual(
-      retainedSnapshot(scopedSnapshot(full), NOW),
-    );
-    expect(demoWorkspaceView(full, NOW).flights).toEqual([]);
-    vi.unstubAllGlobals();
+    const view = demoWorkspaceView(full, NOW);
+    expect(view).toEqual(scopedSnapshot(retainedSnapshot(full, NOW)));
+    expect(view.flights.map((f) => f.uuid)).toEqual(["new"]);
   });
 });

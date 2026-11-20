@@ -8,10 +8,9 @@
  * Dependencies: @playwright/test, fflate, node:fs, node:path, src/domain
  *   (workOrders, taskCards).
  *
- * The retention window is on for every program only from stage S7, so each
- * test turns it on for the demo with its session flag, then stores records
- * older than the window. Once S7 turns the window on, the flag changes
- * nothing and these tests still hold.
+ * The demo's records are dated now, so each test stores records older than
+ * the retention window, which the demo's workspace then leaves to Load
+ * older, as a live program's does.
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
@@ -143,11 +142,10 @@ test("the records package pages older flights in, and says it is partial offline
   expect(offline).toMatch(/^"Partial flights: only the last 6 months/m);
 });
 
-/** Opens the demo with the retention window on for this tab. */
+/** Opens the demo. */
 async function openDemo(page: Page, route: string) {
   await page.addInitScript(() => {
     sessionStorage.setItem("angel-one-demo", "true");
-    sessionStorage.setItem("angel-one-demo-window", "on");
   });
   await page.goto(route);
   await expect(page.getByRole("main")).toBeVisible();
