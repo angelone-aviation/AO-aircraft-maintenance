@@ -82,15 +82,21 @@ test("reports a camera code that matches nothing, then opens the item once it ex
   );
   await streamQrCode(page, CAMERA_PART);
   await page.goto("/scan");
-  // Characterizes current behaviour: the camera's refusal shows under the
-  // typed-code form, and the camera keeps running.
+  // OD-9: the camera stops on the label it cannot open and says why on its
+  // own panel, so the typed-code form shows only typed codes' refusals.
+  await expect(page.getByRole("alert")).toHaveText(
+    `No inventory item you can access matches “${CAMERA_PART}”.`,
+  );
   await expect(
     page
       .getByRole("form", { name: "Enter a label manually" })
       .getByRole("alert"),
-  ).toHaveText(`No inventory item you can access matches “${CAMERA_PART}”.`);
+  ).toHaveCount(0);
   await expect(
     page.getByLabel("Camera preview for scanning inventory labels"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Scan again", exact: true }),
   ).toBeVisible();
   await createStockItem(page, CAMERA_PART);
   await page.goto("/scan");
