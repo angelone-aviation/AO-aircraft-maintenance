@@ -46,6 +46,7 @@ import {
 import { useWorkspace, type Workspace } from "../data/store";
 import { useAuditHistory } from "../data/auditHistory";
 import {
+  HistoryRecordsContext,
   useHistoryPages,
   withHistory,
   type HistoryPages,
@@ -217,7 +218,7 @@ export function Flights() {
       linkedUuid: f.uuid,
     });
   return (
-    <>
+    <HistoryRecordsContext.Provider value={view.s}>
       <FlightLogHeader s={s!} onNew={() => setModal("new")} />
       {saved && (
         <LogbookPhotoPrompt target={saved} onDismiss={() => setSaved(null)} />
@@ -236,7 +237,7 @@ export function Flights() {
           onClose={() => setModal(null)}
         />
       )}
-    </>
+    </HistoryRecordsContext.Provider>
   );
 }
 

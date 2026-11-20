@@ -35,7 +35,7 @@ describe("HistoryPager", () => {
   it("says all records are loaded once the list is done, online or not", () => {
     for (const offline of [false, true]) {
       const html = pager({ isDone: true, offline });
-      expect(text(html)).toBe("All records loaded");
+      expect(text(html)).toBe("Showing the last 3 months·All records loaded");
       expect(html).not.toContain("<button");
     }
   });

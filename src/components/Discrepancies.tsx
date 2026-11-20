@@ -21,7 +21,11 @@ import {
   XCircle,
 } from "@phosphor-icons/react";
 import { useWorkspace, type Workspace } from "../data/store";
-import { useHistoryPages, withHistory } from "../data/historyPages";
+import {
+  HistoryRecordsContext,
+  useHistoryPages,
+  withHistory,
+} from "../data/historyPages";
 import { historyWindowMonths } from "../domain/retention";
 import { MAX_RESOLUTION_LENGTH } from "../domain/deferrals";
 import {
@@ -129,7 +133,7 @@ export function Discrepancies() {
     onResolve: setResolve,
   };
   return (
-    <>
+    <HistoryRecordsContext.Provider value={s}>
       <DiscrepancyHeader
         canReport={!!available.length}
         onReport={() => setAdding(true)}
@@ -149,7 +153,7 @@ export function Discrepancies() {
       {resolve && (
         <ResolveDialog uuid={resolve} onClose={() => setResolve(null)} />
       )}
-    </>
+    </HistoryRecordsContext.Provider>
   );
 }
 

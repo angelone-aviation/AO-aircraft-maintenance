@@ -29,9 +29,9 @@ export interface PagerState {
 const ICON_SIZE = 16;
 
 /**
- * "Showing the last 3 months · Load older" under a list, or "All records
- * loaded" once nothing older is left. Offline the button is disabled, with
- * "Older records need a connection".
+ * "Showing the last 3 months · Load older" under a list, ending "· All
+ * records loaded" in place of the button once nothing older is left.
+ * Offline the button is disabled, with "Older records need a connection".
  *
  * @param props.pages - The list's paging state.
  * @param props.summary - What the list covers, as {@link windowSummary}
@@ -58,9 +58,10 @@ export function HistoryPager({
         role="status"
         tabIndex={-1}
       >
-        {isDone ? <AllLoaded /> : summary}
+        {summary}
+        <span aria-hidden="true">·</span>
+        {isDone && <AllLoaded />}
       </p>
-      {!isDone && <span aria-hidden="true">·</span>}
       {!isDone && (
         <button
           type="button"
