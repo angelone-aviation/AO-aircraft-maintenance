@@ -2,7 +2,7 @@
 
 A guide for developers to the repository, its layers, and how a request moves through them. It builds on [CONTEXT.md](../../../CONTEXT.md), the system map and boundary rules. Where the two overlap, CONTEXT.md is the source and this page links to it. Rules for every change are in [CONSTRAINTS.md](../../../CONSTRAINTS.md). Words such as Flight Program, permission group and job card mean what [GLOSSARY.md](../../../GLOSSARY.md) says.
 
-Verified against the code at `e99058c` (2026-11-20).
+Verified against the code on 20 Nov 2026, after Google and Microsoft sign-in were removed ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)).
 
 ## 1. Repository map
 
@@ -30,7 +30,7 @@ Verified against the code at `e99058c` (2026-11-20).
 │   ├── backup/             Nightly off-site backup and the readable records workbook
 │   └── loadtest/           Size test against a local backend only
 ├── tests/                  Playwright specs (e2e/), shared fixtures (fixtures/), CSP teardown
-├── docs/                   Feature pages, ADRs, runbooks, architecture report, QA, security, research
+├── docs/                   Feature pages, handbook, wiki, ADRs, runbooks, architecture report, QA, security, research
 ├── .github/                CI, Deploy, nightly backup, first-time setup, Dependabot
 ├── .claude/                Standards hooks and settings (Aaron only); skills/ is VENDORED
 ├── .agents/                VENDORED skills. Never edit by hand.
@@ -95,7 +95,7 @@ One reactive query feeds every screen.
 | 3    | [convex/programContext.ts](../../../convex/programContext.ts) `context`                                                                                                   | The caller's programs, groups and aircraft; loaders such as `managementDocs` and `inspectionDocs` read by program or aircraft              |
 | 4    | [convex/historyWindow.ts](../../../convex/historyWindow.ts) `windowedHistory`, [convex/windowedPurchasing.ts](../../../convex/windowedPurchasing.ts) `windowedPurchasing` | History and purchasing read by the window's indexes, never in full ([ADR-0013](../../adr/0013-history-retention-window.md))                |
 | 5    | [src/domain/retention.ts](../../../src/domain/retention.ts) `workspaceWindow`                                                                                             | Narrows history to the retention window                                                                                                    |
-| 6    | [src/domain/programs.ts](../../../src/domain/programs.ts) `scopedSnapshot`                                                                                                | Strips what the caller may not see; owners and board members get `reducedSnapshot`                                                         |
+| 6    | [src/domain/programs.ts](../../../src/domain/programs.ts) `scopedSnapshot`                                                                                                | Called inside `workspaceWindow`: strips what the caller may not see; owners and board members get `reducedSnapshot`                        |
 | 7    | `workspaceSnapshot` in operations.ts                                                                                                                                      | Adds photo flags and file lists                                                                                                            |
 | 8    | [src/data/store.ts](../../../src/data/store.ts) `receive`                                                                                                                 | Stores the `Snapshot` and saves it to IndexedDB ([local.ts](../../../src/data/local.ts) `saveSnapshot`)                                    |
 | 9    | Screens                                                                                                                                                                   | Read `useWorkspace().snapshot`                                                                                                             |
@@ -104,7 +104,30 @@ Owners and board members take a shorter path: `reducedViewRecords` reads only wh
 
 ### 3.2 Write: one command transaction
 
-Server writes go through one transaction per command ([ADR-0003](../../adr/0003-server-writes-through-one-command-transaction.md)). Pattern: [convex/workOrders.ts](../../../convex/workOrders.ts) `save`.
+Server writes go through one transaction per command ([ADR-0003](../../adr/0003-server-writes-through-one-command-transaction.md)). Pattern: [convex/workOrders.ts](../../../convex/workOrders.ts) `save`. Who calls whom when a work order is saved:
+
+```mermaid
+sequenceDiagram
+  participant Screen
+  participant Backend as Backend (convexBackend)
+  participant Mutation as Mutation (workOrders.save)
+  participant Run as runCommand
+  participant Applier as Domain applier (saveWorkOrder)
+  participant DB as Convex tables
+  Screen->>Backend: backend.workOrder(command)
+  Backend->>Mutation: JSON payload and programUuid
+  Mutation->>Run: the command
+  Run->>Run: checkContext, parse, replay check
+  Run->>DB: load the working set
+  Run->>Applier: apply
+  Applier-->>Run: the result, or a thrown Rejection
+  Run->>DB: persist through writeChanged
+  Run->>DB: writeAudit (change-log rows), then the request id
+  Note over Run,DB: One transaction. Any throw writes nothing.
+  DB-->>Screen: the snapshot query re-runs
+```
+
+The steps in detail:
 
 1. A screen calls one `Backend` method, for example `backend.workOrder(command)`.
 2. [convexBackend](../../../src/data/backend.ts) calls the mutation with the JSON payload and the active `programUuid`.
@@ -313,15 +336,15 @@ Vitest picks files by [vitest.config.ts](../../../vitest.config.ts) (edge-runtim
 
 ## 9. Making a change safely
 
-| Gate                      | What it does                                                                               | Read                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| Standards                 | Header, TSDoc, WHY comments, size and nesting limits, no suppressions                      | [CONSTRAINTS.md](../../../CONSTRAINTS.md)                                                         |
-| Edit hook                 | Checks each file an agent edits; exit 2 on a missing header or a suppression               | [CONSTRAINTS.md §11](../../../CONSTRAINTS.md#11-enforcement-and-its-limits)                       |
-| `npm run check`           | Typecheck, oxlint, vitest, build                                                           | [package.json](../../../package.json)                                                             |
-| `npm run check:standards` | Headers and suppressions in files changed since `origin/main`                              | [check-standards.mjs](../../../.claude/hooks/check-standards.mjs)                                 |
-| CI                        | Standards, check, backup tests, e2e, production dependency audit, gitleaks                 | [ci.yml](../../../.github/workflows/ci.yml)                                                       |
-| Secret scan               | gitleaks on full history; test values allowed in [.gitleaks.toml](../../../.gitleaks.toml) | [release runbook](../../runbooks/release.md)                                                      |
-| Release                   | Deploy runs after green CI on `main`, newest commit only                                   | [deploy.yml](../../../.github/workflows/deploy.yml), [release runbook](../../runbooks/release.md) |
+| Gate                      | What it does                                                                                     | Read                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Standards                 | Header, TSDoc, WHY comments, size and nesting limits, no suppressions                            | [CONSTRAINTS.md](../../../CONSTRAINTS.md)                                                         |
+| Edit hook                 | Checks each file an agent edits; exit 2 on a missing header or a suppression                     | [CONSTRAINTS.md §11](../../../CONSTRAINTS.md#11-enforcement-and-its-limits)                       |
+| `npm run check`           | Typecheck, oxlint, vitest, build                                                                 | [package.json](../../../package.json)                                                             |
+| `npm run check:standards` | Headers and suppressions in files changed since `origin/main`                                    | [check-standards.mjs](../../../.claude/hooks/check-standards.mjs)                                 |
+| CI                        | Standards, check, Prettier on the docs, backup tests, e2e, production dependency audit, gitleaks | [ci.yml](../../../.github/workflows/ci.yml)                                                       |
+| Secret scan               | gitleaks on full history; test values allowed in [.gitleaks.toml](../../../.gitleaks.toml)       | [release runbook](../../runbooks/release.md)                                                      |
+| Release                   | Deploy runs after green CI on `main`, newest commit only                                         | [deploy.yml](../../../.github/workflows/deploy.yml), [release runbook](../../runbooks/release.md) |
 
 Before you start:
 
