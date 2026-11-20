@@ -5,7 +5,7 @@
  * Layer: Domain. Zod schema, rules and an applier on a working snapshot; no
  *   I/O, no React.
  * Dependencies: zod, src/domain/model.ts, dueItems.ts, rejection.ts,
- *   changeLog.ts, fleet.ts.
+ *   changeLog.ts, fleet.ts, retention.ts.
  */
 import { z } from "zod";
 import {
@@ -19,6 +19,7 @@ import { dueItems, type MaintenanceDue, type RequirementDue } from "./dueItems";
 import { Rejection } from "./rejection";
 import { auditEntry } from "./changeLog";
 import { operationalStatusLabels } from "./fleet";
+import { FLIGHT_RETENTION_DAYS, retentionCutoff } from "./retention";
 
 const MINUTE_SECONDS = 60;
 const MINUTE_MS = 60_000;
@@ -109,20 +110,48 @@ export function linkedPlanFlight(s: Pick<Snapshot, "flights">, uuid: string) {
 }
 
 /**
+ * Whether the snapshot cannot tell if a plan was flown: it departed before
+ * the six months of flights the workspace keeps (ADR-0013) and no flight
+ * there is logged against it, so one logged against it would be older
+ * history.
+ *
+ * @param s - The snapshot's flights.
+ * @param p - The plan.
+ * @param now - The current time, in milliseconds.
+ */
+export function isPlanFlightOlder(
+  s: Pick<Snapshot, "flights">,
+  p: Pick<FlightPlan, "uuid" | "departureAt">,
+  now = Date.now(),
+): boolean {
+  const cutoff = retentionCutoff(now, FLIGHT_RETENTION_DAYS);
+  return Date.parse(p.departureAt) < cutoff && !linkedPlanFlight(s, p.uuid);
+}
+
+/**
  * An aircraft's queue: its proposed plans not yet flown by an accepted
- * flight. A flight awaiting review keeps its plan queued.
+ * flight. A flight awaiting review keeps its plan queued. A plan the
+ * snapshot cannot tell was flown ({@link isPlanFlightOlder}) is left out: a
+ * plan that old is copied, not flown, and the server refuses logging one
+ * that already flew.
  *
  * @param s - The snapshot.
  * @param aircraftUuid - The aircraft.
+ * @param now - The current time, in milliseconds.
  * @returns The plans by departure, then creation time, then uuid.
  */
-export function queuedPlans(s: Snapshot, aircraftUuid: string) {
+export function queuedPlans(
+  s: Snapshot,
+  aircraftUuid: string,
+  now = Date.now(),
+) {
   return (s.flightPlans ?? [])
     .filter(
       (p) =>
         p.aircraftUuid === aircraftUuid &&
         p.status === "proposed" &&
-        linkedPlanFlight(s, p.uuid)?.status !== "accepted",
+        linkedPlanFlight(s, p.uuid)?.status !== "accepted" &&
+        !isPlanFlightOlder(s, p, now),
     )
     .sort(
       (a, b) =>

@@ -3,9 +3,9 @@
  *   reviewing and saving the parsed plan, and the saved plans and sessions.
  * Layer: UI. React components; PDF parsing runs in src/data, loaded on demand.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
- *   src/data/flightPlanDiagnostics.ts, src/data/flightPlanPdf.ts (on demand),
- *   src/domain (model, flightPlans, pdf/icao), ./ui, ./design, ./OpsList,
- *   ./FlightSession.
+ *   src/data/historyPages.ts, src/data/flightPlanDiagnostics.ts,
+ *   src/data/flightPlanPdf.ts (on demand), src/domain (model, flightPlans,
+ *   historyReads, pdf/icao), ./ui, ./design, ./OpsList, ./FlightSession.
  */
 import {
   flightPlanImporterVersion,
@@ -13,6 +13,8 @@ import {
 } from "../data/flightPlanDiagnostics";
 import { useState, type CSSProperties } from "react";
 import { useWorkspace } from "../data/store";
+import { useHistoryRecords, withHistory } from "../data/historyPages";
+import { MAX_RECORD_LOOKUPS } from "../domain/historyReads";
 import { can, hours, type Snapshot } from "../domain/model";
 import {
   COUNT_MAX,
@@ -23,6 +25,7 @@ import {
   TEXT_MAX_LENGTH,
   durationLabel,
   flightPlanSchema,
+  isPlanFlightOlder,
   linkedPlanFlight,
   projectQueue,
   type FlightPlan,
@@ -51,6 +54,9 @@ import {
 import { OpsSelect } from "./OpsList";
 import { FlightSessions } from "./FlightSession";
 
+const OLDER_PLAN_UNCHECKED =
+  "Departed over 6 months ago; whether it flew needs a connection";
+
 type Draft = ParsedPlan & { sourceName: string; sourceHash: string };
 type Group = ReturnType<typeof planGroups>[number];
 type Dialogs = ReturnType<typeof usePlanDialogs>;
@@ -59,6 +65,8 @@ type PlanActions = {
   s: Snapshot;
   allowed: (aircraftUuid: string) => boolean;
   dialogs: Dialogs;
+  /** Older plans whose flights were looked up ({@link useOlderPlanFlights}). */
+  checked?: ReadonlySet<string>;
 };
 
 /**
@@ -103,7 +111,8 @@ export function FlightPlans() {
 }
 
 function PlanList(props: PlanActions & { search: string }) {
-  const { s, dialogs, search } = props;
+  const { dialogs, search } = props;
+  const { s, checked } = useOlderPlanFlights(props.s);
   const groups = planGroups(s, dialogs.aircraftUuid, search);
   if (!groups.length)
     return (
@@ -119,6 +128,7 @@ function PlanList(props: PlanActions & { search: string }) {
       s={s}
       allowed={props.allowed}
       dialogs={dialogs}
+      checked={checked}
       group={group}
       index={index}
     />
@@ -533,10 +543,7 @@ function PlanHistory(props: PlanActions & { group: Group }) {
           <li key={p.uuid}>
             <span>
               {aircraft.registration} · {isoDate(p.departureAt)} · {p.origin} →{" "}
-              {p.destination} ·{" "}
-              {linkedPlanFlight(props.s, p.uuid)?.status === "accepted"
-                ? "Logged"
-                : "Removed"}
+              {p.destination} · {historyLabel(props.s, p, props.checked)}
             </span>{" "}
             <button
               className="button small"
@@ -957,6 +964,38 @@ function ImportedDetails({ draft }: { draft: Draft | FlightPlan }) {
       <p>{draft.otherInformation}</p>
     </details>
   );
+}
+
+// Plans departing before the six months of flights the workspace keeps,
+// with no flight there, may have flown long ago: the newest are looked up
+// on demand, so the history can say Logged or Not flown instead of guessing.
+function useOlderPlanFlights(s: Snapshot) {
+  const older = (s.flightPlans ?? [])
+    .filter((p) => p.status === "proposed" && isPlanFlightOlder(s, p))
+    .sort((a, b) => Date.parse(b.departureAt) - Date.parse(a.departureAt))
+    .slice(0, MAX_RECORD_LOOKUPS)
+    .map((p) => p.uuid);
+  const { records } = useHistoryRecords({
+    discrepancyUuids: [],
+    taskCardUuids: [],
+    flightPlanUuids: older,
+  });
+  return {
+    s: records ? withHistory(s, records) : s,
+    checked: new Set(records ? older : []),
+  };
+}
+
+// A plan leaves the queue once logged or removed, or once it departed before
+// the window's flights; for that last, whether it flew is looked up.
+function historyLabel(
+  s: Snapshot,
+  p: FlightPlan,
+  checked: ReadonlySet<string> = new Set(),
+) {
+  if (linkedPlanFlight(s, p.uuid)?.status === "accepted") return "Logged";
+  if (p.status === "cancelled") return "Removed";
+  return checked.has(p.uuid) ? "Not flown" : OLDER_PLAN_UNCHECKED;
 }
 
 // Groups by aircraft (by registration) the queued plans that match the

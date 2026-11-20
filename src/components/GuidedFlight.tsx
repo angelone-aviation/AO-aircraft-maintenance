@@ -4,7 +4,7 @@
  * Layer: UI. React components; flight rules live in src/domain.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts, src/domain
  *   (flightFluids, model, programs, checklists, guidedFlight, flights,
- *   flightSession, flightSubmission, readings, aircraftStatus),
+ *   flightPlans, flightSession, flightSubmission, readings, aircraftStatus),
  *   ./Checklists, ./FlightFluids, ./FlightForm, ./FlightParts,
  *   ./AircraftStatus, ./design, ./ui.
  *
@@ -39,6 +39,7 @@ import {
 } from "../domain/guidedFlight";
 import { flightOptionalEntries, validateFlight } from "../domain/flights";
 import { plannedFlightRules } from "../domain/flightSession";
+import { isPlanFlightOlder } from "../domain/flightPlans";
 import { aircraftAfterPendingFlights } from "../domain/flightSubmission";
 import { SECONDS_PER_HOUR, parseHours, readingText } from "../domain/readings";
 import { ChecklistReader } from "./Checklists";
@@ -1196,7 +1197,8 @@ function setupChoices(
     (p) =>
       p.aircraftUuid === chosen.aircraftId &&
       p.status === "proposed" &&
-      !used.has(p.uuid),
+      !used.has(p.uuid) &&
+      !isPlanFlightOlder(s, p),
   );
   const compatible = records.filter(
     (r) => !r.aircraftUuid || r.aircraftUuid === chosen.aircraftId,

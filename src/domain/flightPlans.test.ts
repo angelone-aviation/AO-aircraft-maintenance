@@ -17,6 +17,7 @@ import {
   durationLabel,
   flightPlanSchema,
   projectQueue,
+  isPlanFlightOlder,
   queuedPlans,
   saveFlightPlan,
   validatePlanFlight,
@@ -24,7 +25,7 @@ import {
   type PlanCommand,
 } from "./flightPlans";
 import { Rejection } from "./rejection";
-import { totalSeconds } from "./model";
+import { totalSeconds, type Flight } from "./model";
 import { componentSchema, requirementSchema } from "./components";
 import { scopedSnapshot } from "./programs";
 const draft = () =>
@@ -500,6 +501,24 @@ describe("plan refusals and queue order", () => {
       "c",
     ]);
   });
+  it("leaves out a plan departing before the window's flights unless one there flew it", () => {
+    const now = Date.UTC(2026, 10, 19);
+    const s = demoSnapshot();
+    const plan = draft();
+    const old = { ...plan, departureAt: "2026-05-01T12:00:00Z" };
+    const recent = { ...plan, uuid: crypto.randomUUID() };
+    s.flightPlans = [old, recent];
+    s.flights = [];
+    expect(isPlanFlightOlder(s, old, now)).toBe(true);
+    expect(isPlanFlightOlder(s, recent, now)).toBe(false);
+    expect(queuedPlans(s, plan.aircraftUuid, now)).toEqual([recent]);
+    s.flights = [flightOf(old.uuid, plan.aircraftUuid)];
+    expect(isPlanFlightOlder(s, old, now)).toBe(false);
+    expect(queuedPlans(s, plan.aircraftUuid, now).map((p) => p.uuid)).toEqual([
+      old.uuid,
+      recent.uuid,
+    ]);
+  });
   it("flags a held flight, status and open discrepancies first, and runs every meter", () => {
     const s = demoSnapshot();
     const a = s.aircraft[0];
@@ -644,3 +663,25 @@ describe("plan field limits", () => {
     expect(parses("X")).toBe(false);
   });
 });
+
+// A held flight logged against a plan, as review keeps it in the window.
+function flightOf(flightPlanUuid: string, aircraftUuid: string): Flight {
+  return {
+    uuid: crypto.randomUUID(),
+    aircraftUuid,
+    authorId: "demo-admin",
+    pilotId: "demo-admin",
+    submittedAt: Date.UTC(2026, 4, 1),
+    status: "review",
+    startTime: "2026-05-01T12:00:00Z",
+    landings: 1,
+    cycles: 1,
+    origin: "KCHA",
+    destination: "KAVL",
+    operation: "Mission",
+    flightRules: "VFR",
+    remarks: "",
+    discrepancy: "",
+    flightPlanUuid,
+  };
+}
