@@ -32,7 +32,7 @@ The twice-a-year and yearly tasks have no fixed date: do each with a quarterly r
 - [ ] **Alerts.** Everyone, 2 min. The bell or the **Alerts** page; urgent ones also arrive by email or push ([how](../../wiki/Alerts.md), [rules](../../alerts.md)).
 - [ ] **Held flights.** An administrator, 5 min. Flight log → **Review** each **Needs review** flight; accept (with corrections) or reject. Until then the aircraft's totals leave it out ([how](../../wiki/Flight-Log.md#review-a-held-flight), [rules](../../offline.md#flights-held-for-review)).
 - [ ] **Open problem reports.** A mechanic or administrator, 5 min. **Discrepancies**: anything grounding, deferrals near their deadline, reports with no work order ([how](../../wiki/Discrepancies.md), [rules](../../maintenance-workflows.md)).
-- [ ] **Certificates waiting for approval.** An administrator, 2 min. **Administration → Users** lists them at the top: check each against the real certificate, then **Approve**. Until then it can't give the inspection signoff ([how](../../wiki/Administration.md#approve-a-certificate), [rules](../../user-certifications.md)).
+- [ ] **Certificates waiting for approval.** An administrator, 2 min. **Administration → Users** lists them at the top: check each against the real certificate, then **Approve**. Until then its holder can't give the inspection signoff ([how](../../wiki/Administration.md#approve-a-certificate), [rules](../../user-certifications.md)).
 - [ ] **Sync center.** Each pilot, 1 min. No entries left in **Needs attention** ([how](../../wiki/Offline.md), [rules](../../offline.md#pending-entries-and-the-sync-center)).
 
 ### For Aaron
