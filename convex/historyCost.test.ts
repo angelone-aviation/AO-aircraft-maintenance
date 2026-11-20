@@ -61,9 +61,6 @@ describe("Characterizes current behaviour: reads grow with each year of history"
   it.each(ROLES)("the %s's workspace snapshot", (role) =>
     expectGrowth(`snapshot.${role}`),
   );
-  it.each(["auditHistory.weeklySummary"])("%s", (operation) =>
-    expectGrowth(operation),
-  );
 });
 
 describe("the bounded saves read the same at three years as at one (S3)", () => {
@@ -72,6 +69,7 @@ describe("the bounded saves read the same at three years as at one (S3)", () => 
     "taskCard.save",
     "taskCard.evidence",
     "cost.partUnitCost",
+    "auditHistory.weeklySummary",
   ])("%s", (operation) => expectFlat(operation));
 });
 

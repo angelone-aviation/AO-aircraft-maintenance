@@ -1,11 +1,13 @@
 /**
  * Responsibility: Pins the weekly summary query: Flight Program
  *   administrators only, the period checks and the caller's own day bounds,
- *   counts over the visible entries of the active program only, refused
- *   sign-ins counted only where they are read, and the flag set when the
- *   scan budget cuts the period short.
+ *   counts over the visible entries of the active program only, records
+ *   read by uuid to decide them, refused sign-ins counted only where they
+ *   are read, and the flag set when the scan or lookup budget cuts the
+ *   period short.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/auditHistory, src/data/demo, src/domain/auditSummary.
+ * Dependencies: convex/auditHistory, convex/collections, src/data/demo,
+ *   src/domain (auditSummary, purchaseOrders, partsRequests, costs).
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -14,6 +16,14 @@ import { api, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import type { AuditSummaryResult } from "../src/domain/auditSummary";
+import { encode } from "./collections";
+import { poSchema, type PurchaseOrder } from "../src/domain/purchaseOrders";
+import {
+  partsRequestSchema,
+  requestDraftSchema,
+  type PartsRequest,
+} from "../src/domain/partsRequests";
+import { costRecordSchema, type CostRecord } from "../src/domain/costs";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -32,6 +42,7 @@ const WEEK = {
 type Row = {
   action: string;
   daysAgo: number;
+  entityUuid?: string;
   actorId?: string;
   reason?: string;
   aircraftUuid?: string;
@@ -79,6 +90,7 @@ async function fixture(rows: Row[]) {
     };
   });
   return {
+    t,
     admin: t.withIdentity({ subject: ids.admin }),
     reader: t.withIdentity({ subject: ids.reader }),
     outsider: t.withIdentity({ subject: ids.outsider }),
@@ -268,3 +280,138 @@ it("counts refused sign-ins for a system administrator in Unassigned records onl
   expect(programWide.accountWide).toBe(false);
   expect(programWide.summary.refusedSignIns).toBe(0);
 });
+
+// Rows about a purchase order, a stock request or the labor rate carry no
+// aircraft: the summary reads the record each names by its uuid (ADR-0013).
+it("counts rows about the program's purchase orders, requests and cost records, each read by its uuid, and not another program's", async () => {
+  const records = [
+    purchaseOrder("po-1", PROGRAM),
+    stockRequest("request-1", PROGRAM),
+    laborRate("rate-1", PROGRAM),
+    purchaseOrder("po-foreign", "foreign"),
+  ];
+  const rows = ["po.save", "partsRequest.save", "cost.settings.laborRate"]
+    .map((action, n) => ({ action, daysAgo: 0, entityUuid: records[n].uuid }))
+    .concat([{ action: "po.save", daysAgo: 0, entityUuid: "po-foreign" }]);
+  const { admin, t } = await fixture(rows);
+  await t.run(async (ctx) => {
+    for (const record of records) await insertRecord(ctx, record);
+  });
+  const result = await admin.query(api.auditHistory.summary, {
+    programUuid: PROGRAM,
+    ...WEEK,
+  });
+  expect(result.summary.total).toBe(3);
+  expect(result.truncated).toBe(false);
+});
+
+it("says the period was cut short when its rows name more records than it looks up", async () => {
+  // Each row names a record of its own that the program does not hold.
+  const named = (count: number) =>
+    Array.from({ length: count }, (_, n) => ({
+      action: "po.save",
+      daysAgo: 0,
+      entityUuid: `missing-${n}`,
+    }));
+  const within = await fixture(named(100));
+  const past = await fixture(named(101));
+  const ask = { programUuid: PROGRAM, ...WEEK };
+  expect(
+    (await within.admin.query(api.auditHistory.summary, ask)).truncated,
+  ).toBe(false);
+  expect(
+    (await past.admin.query(api.auditHistory.summary, ask)).truncated,
+  ).toBe(true);
+});
+
+type ProgramRecord =
+  | { table: "purchaseOrders"; uuid: string; record: PurchaseOrder }
+  | { table: "partsRequests"; uuid: string; record: PartsRequest }
+  | { table: "costs"; uuid: string; record: CostRecord };
+
+// One branch per table: insert's types need the table and its row to agree.
+function insertRecord(ctx: MutationCtx, { table, record }: ProgramRecord) {
+  if (table === "purchaseOrders")
+    return ctx.db.insert(table, encode(table, record));
+  if (table === "partsRequests")
+    return ctx.db.insert(table, encode(table, record));
+  return ctx.db.insert(table, encode(table, record));
+}
+
+function purchaseOrder(uuid: string, programUuid: string): ProgramRecord {
+  const record = poSchema.parse({
+    uuid,
+    version: 1,
+    programUuid,
+    number: `PO-${uuid}`,
+    vendor: "Vendor",
+    vendorContact: "",
+    shipTo: "Hangar",
+    expectedDate: "",
+    currency: "USD",
+    shippingCents: 0,
+    notes: "",
+    phase: "draft",
+    revision: 0,
+    createdAt: NOW,
+    updatedAt: NOW,
+    lines: [
+      {
+        uuid: "po-line",
+        locationUuid: "store",
+        partNumber: "F",
+        description: "Filter",
+        quantity: 1,
+        unitCents: 100,
+        kind: "part",
+      },
+    ],
+    shipments: [],
+    receipts: [],
+    history: [],
+  });
+  return { table: "purchaseOrders", uuid, record };
+}
+
+function stockRequest(uuid: string, programUuid: string): ProgramRecord {
+  const record = partsRequestSchema.parse({
+    ...requestDraftSchema.parse({
+      uuid,
+      version: 1,
+      source: { kind: "stock" },
+      mode: "parts",
+      date: TODAY,
+      engineer: "Mechanic",
+      priority: "P2 Routine",
+      requiredBy: "",
+      currency: "USD",
+      lines: [{ uuid: "line", partNumber: "F", description: "F", quantity: 1 }],
+    }),
+    programUuid,
+    aircraftUuid: "",
+    sourceLabel: "Inventory stock request",
+    aircraftRegistration: "",
+    aircraftSerial: "",
+    aircraftModel: "",
+    number: `PR-${uuid}`,
+    requesterId: "alex",
+    createdAt: NOW,
+    updatedAt: NOW,
+    cancelled: false,
+    reservations: [],
+    issues: [],
+    history: [],
+  });
+  return { table: "partsRequests", uuid, record };
+}
+
+function laborRate(uuid: string, programUuid: string): ProgramRecord {
+  const record = costRecordSchema.parse({
+    uuid,
+    version: 1,
+    programUuid,
+    kind: "settings",
+    laborRateCents: 9500,
+  });
+  return { table: "costs", uuid, record };
+}
