@@ -125,7 +125,7 @@ Records are append-only: a wrong entry is answered with a correction, never by e
 1. **Where does it run?** `npm audit` lists advisories and `npm ls <package>` shows what pulls it in. Code reached from `src/` ships to browsers, from `convex/` runs on Convex; the rest is build and test tooling. `jsqr` ships but is a dev dependency (review finding S21), so `npm audit --omit=dev` misses it. The `wrangler` version pinned in `deploy.yml` is outside Dependabot.
 2. **Is it reachable?** Is the vulnerable code called, with input an outsider controls? The 2026-11-02 review found DOMPurify and seroval unreachable, and `@convex-dev/auth` 0.0.95 open to anyone (SEV1).
 3. **Fix** on a branch: the Dependabot pull request, or `npm install <package>@<fixed version>`. Run `npm run check` and `npm run test:e2e`, and for the auth library the auth `convex-test` suites. Merge; a green CI push deploys.
-4. **No fix yet**: turn off the feature that reaches it if you can (removing a provider's `AUTH_*` variables hides that sign-in button) and record the decision in the security review.
+4. **No fix yet**: turn off the feature that reaches it if you can and record the decision in the security review.
 5. Look in the change log for unexpected entries while it was exposed.
 
 ## Lost or stolen device

@@ -6,6 +6,12 @@ What changed, and when. Newest first. Each line gives the finding's id, what cha
 - **Ids:** OD, RM, LO and E are the bug register's; T, A, S, C and P the security reviews'; AC, FL, MX, NA, NB, OP, PT, SE, SZ and UI the 10 Nov bug hunt's; B, C (stale screens) its stale-screen audit's; D1–D25 the hunt's decisions ([decisions](decisions.md)).
 - The local history starts on 12 Nov 2026 (`fcadec0`), so earlier commits named in the docs can't be opened here. For work before then, read the bug hunts' and reviews' status columns.
 
+## Not yet released
+
+| Change                                                                                                                                      | Commit                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Google and Microsoft sign-in removed ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)); everyone signs in with a password | `89555e7`, `130a257`, `c965324`, `f51c49d` |
+
 ## 20 Nov 2026, release 3: the purchasing window, lighter saves and the Weekly summary
 
 Released to production at `e99058c` (about 17:00 UTC). Aaron's answers that day: A, A, A, A ([decisions](decisions.md#20-nov-2026)).

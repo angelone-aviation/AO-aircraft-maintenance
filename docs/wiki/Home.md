@@ -20,8 +20,7 @@ summaries.
 ## Sign in
 
 1. Open the app's address in a browser on a phone, tablet or computer.
-2. Enter your **Email** and **Password**, then **Sign in**. If your program has
-   them, **Sign in with Google** or **Sign in with Microsoft** also work.
+2. Enter your **Email** and **Password**, then **Sign in**.
 3. The first sign-in on a device needs a connection.
 
 | Situation                                                                                                                             | What to do                                                                              |

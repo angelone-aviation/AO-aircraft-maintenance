@@ -13,7 +13,7 @@ How production is released, backed up, watched and repaired. Each section summar
 | [Break-glass administrator](../../runbooks/break-glass-admin.md) | Get back in when no administrator can sign in                                 |
 | [Production database access](../../runbooks/database-access.md)  | The rules for touching production data, and the hand-written change-log entry |
 | [Credential encryption key](../../runbooks/credentials-key.md)   | Rotate the key that seals the FAA, Geoapify and Aircraft Spruce credentials   |
-| [Accounts](../../runbooks/accounts.md)                           | Who owns each outside account; user lockouts and sign-in methods              |
+| [Accounts](../../runbooks/accounts.md)                           | Who owns each outside account; user lockouts and the sign-in log              |
 
 ## Releasing
 
@@ -130,7 +130,6 @@ Set in the Convex dashboard (Settings → Environment Variables) or with `npx co
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Device push                                                     |
 | `RECORDS_TIME_ZONE`                                      | The calendar day for server alerts (default `America/New_York`) |
 | `FILE_SWEEP`                                             | `report` (default), `delete` or `off`                           |
-| `AUTH_GOOGLE_*`, `AUTH_MICROSOFT_ENTRA_ID_*`             | Single sign-on buttons (off until A3 is fixed)                  |
 
 Settings → System → **Deployment status** shows which features are on.
 
