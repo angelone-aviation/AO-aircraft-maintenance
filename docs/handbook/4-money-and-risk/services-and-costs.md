@@ -184,7 +184,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | Holds the readable Excel copy of the records, if switched on ([ADR-0011](../../adr/0011-readable-records-copy-in-dropbox.md), [runbook](../../runbooks/dropbox-records-copy.md)). Optional, and deferred until after go-live: not set up ([decisions](../5-history/decisions.md#20-nov-2026)) |
 | Price           | Basic is free with 2 GB; Plus, 2 TB, is $11.99 a month billed monthly, or $9.99 a month billed yearly ([plans](https://www.dropbox.com/plans)). A workbook is about 1 MB at the sample's size, so Basic likely fits for years (**estimate**)                                                  |
 | If it goes away | Only the convenience copy is lost. R2 is the backup                                                                                                                                                                                                                                           |
-| Account holder  | Angel One (the organisation), which already has a Dropbox account. Should be an organisation account with two-step sign-in                                                                                                                                                                    |
+| Account holder  | None yet: Angel One must create one first. It should be an organisation account with two-step sign-in                                                                                                                                                                                         |
 
 ### Sentry (optional, not used)
 
