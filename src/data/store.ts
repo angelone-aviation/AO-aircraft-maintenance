@@ -4,9 +4,9 @@
  *   logbook page photos waiting on them, and their sync.
  * Layer: Data. Zustand store over IndexedDB and the Backend; no UI.
  * Dependencies: zustand, convex/values, src/data (local, backend, demo,
- *   demoBackend, deviceManuals, errors, logbookPhotos), src/domain (model,
- *   programs, flights, flightChecklistLink, flightPlans, flightSubmission,
- *   aircraftStatus, aircraftFiles, rejection).
+ *   demoBackend, demoHistory, deviceManuals, errors, logbookPhotos),
+ *   src/domain (model, flights, flightChecklistLink, flightPlans,
+ *   flightSubmission, aircraftStatus, aircraftFiles, rejection).
  *
  * Only flights and problem reports queue offline; every other write needs a
  * connection. A logbook page photo is the one exception: it waits on the
@@ -17,7 +17,6 @@
 import { validateChecklistFlight } from "../domain/flightChecklistLink";
 import { validatePlanFlight } from "../domain/flightPlans";
 import { aircraftAfterPendingFlights } from "../domain/flightSubmission";
-import { scopedSnapshot } from "../domain/programs";
 import { create } from "zustand";
 import { ConvexError } from "convex/values";
 import type { Operation, QueuedOperation, Snapshot } from "../domain/model";
@@ -43,6 +42,7 @@ import { reconcileKeptManuals, removeAllKeptManuals } from "./deviceManuals";
 import { demoWorkspace, withDemoRole, type DemoRole } from "./demo";
 import type { Backend } from "./backend";
 import { demoBackend } from "./demoBackend";
+import { demoWorkspaceView } from "./demoHistory";
 import { CONVEX_FAILURE_PREFIX, errorText } from "./errors";
 
 // The demo keeps its full fictional snapshot under this suffix of the
@@ -543,7 +543,7 @@ async function openDemoSnapshot(
     demoWorkspace();
   if (cached?.user.id === full.user.id)
     full.authenticatedAt = cached.authenticatedAt;
-  const snapshot = scopedSnapshot(full);
+  const snapshot = demoWorkspaceView(full);
   await local.saveSnapshot(namespace + DEMO_FULL_SUFFIX, full);
   await local.saveSnapshot(namespace, snapshot);
   return snapshot;
@@ -746,7 +746,7 @@ async function previewDemoRole(current: Workspace, role: DemoRole) {
     current.snapshot!;
   const next = withDemoRole(all, role);
   await local.saveSnapshot(current.namespace + DEMO_FULL_SUFFIX, next);
-  await current.receive(scopedSnapshot(next));
+  await current.receive(demoWorkspaceView(next));
 }
 /**
  * Demo only: restarts the offline window. Demo changes rebuild the workspace
@@ -762,5 +762,5 @@ export async function renewDemoAccess() {
     current.snapshot!;
   const next = { ...all, authenticatedAt: Date.now() };
   await local.saveSnapshot(current.namespace + DEMO_FULL_SUFFIX, next);
-  await current.receive(scopedSnapshot(next));
+  await current.receive(demoWorkspaceView(next));
 }

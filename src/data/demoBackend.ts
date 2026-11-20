@@ -114,7 +114,6 @@ import { saveFlightPlan } from "../domain/flightPlans";
 import { transferProgram } from "../domain/programTransfers";
 import {
   activeProgram,
-  scopedSnapshot,
   auditVisible,
   programPermission,
   readsAccountWideAudit,
@@ -141,7 +140,7 @@ import * as local from "./local";
 import { groupAccessReports } from "../domain/groupAccessReview";
 import type { Backend } from "./backend";
 import { demoFileLinks } from "./demoFileLinks";
-import { demoHistoryCalls } from "./demoHistory";
+import { demoHistoryCalls, demoWorkspaceView } from "./demoHistory";
 import type { Workspace } from "./store";
 type DemoWorkspace = { getState(): Workspace };
 /**
@@ -171,12 +170,12 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         // as the server's live snapshot would, so the stale-save review
         // compares the draft with what is saved now.
         if (stored && error instanceof StaleRecordRejection)
-          await current.receive(scopedSnapshot(stored));
+          await current.receive(demoWorkspaceView(stored));
         throw error;
       }
       s.syncedAt = Date.now();
       await local.saveSnapshot(current.namespace + ":all", s);
-      await current.receive(scopedSnapshot(s));
+      await current.receive(demoWorkspaceView(s));
     });
     tail = run.catch(() => undefined);
     return run;

@@ -1,14 +1,19 @@
 /**
  * Responsibility: Pins the demo's history reads to the domain oracle: they
  *   scope the full snapshot first, as the server's workspace does, then page
- *   exactly as historyPage pages it.
+ *   exactly as historyPage pages it; and the demo's workspace view, windowed
+ *   only while its flag is on.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/data/demoHistory.ts, src/data/demo.ts (seed), src/domain
  *   (retention, historyReads, programs, record schemas).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "./demo";
-import { demoHistoryCalls } from "./demoHistory";
+import {
+  DEMO_WINDOW_KEY,
+  demoHistoryCalls,
+  demoWorkspaceView,
+} from "./demoHistory";
 import {
   historyPage,
   retainedSnapshot,
@@ -258,3 +263,23 @@ function cost(uuid: string, w: WorkOrder) {
     partUnitCosts: [],
   });
 }
+
+describe("demoWorkspaceView", () => {
+  it("scopes the full snapshot, and windows it only while the flag is on", () => {
+    const full = {
+      ...demoSnapshot(),
+      flights: [flight("old-flight", N206, OLD)],
+    };
+    const store = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+    });
+    expect(demoWorkspaceView(full, NOW)).toEqual(scopedSnapshot(full));
+    store.set(DEMO_WINDOW_KEY, "on");
+    expect(demoWorkspaceView(full, NOW)).toEqual(
+      retainedSnapshot(scopedSnapshot(full), NOW),
+    );
+    expect(demoWorkspaceView(full, NOW).flights).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+});
