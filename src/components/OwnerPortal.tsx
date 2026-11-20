@@ -5,8 +5,9 @@
  *   records.
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
  *   src/data/adReport.ts (on demand), src/domain/model.ts,
- *   src/domain/ownerDue.ts, src/domain/ownerView.ts, ./AircraftFiles,
- *   ./AircraftStatus, ./ExportAircraftStatus, ./design, ./ui.
+ *   src/domain/ownerDue.ts, src/domain/ownerView.ts, src/domain/retention.ts,
+ *   ./AircraftFiles, ./AircraftStatus, ./ExportAircraftStatus, ./design,
+ *   ./ui.
  */
 import { useState } from "react";
 import {
@@ -25,6 +26,7 @@ import {
 } from "../domain/model";
 import { ownerDueItems, type DueItem } from "../domain/ownerDue";
 import { ownerPortalAircraft } from "../domain/ownerView";
+import { RECENT_COMPLETED_WORK_ORDERS } from "../domain/retention";
 import { AircraftStatusSummary } from "./AircraftStatus";
 import { ExportAircraftStatus } from "./ExportAircraftStatus";
 import { AircraftForm337 } from "./AircraftFiles";
@@ -32,7 +34,6 @@ import { Empty, PageTitle, errorText } from "./ui";
 import { AircraftArt, Facts, StatusPill } from "./design";
 import "../styles/screens/board.css";
 
-const RECENT_WORK_ORDERS = 5;
 const OWNER_ART_WIDTH = 200;
 const DUE_BADGES = {
   overdue: { tone: "danger", label: "Overdue", icon: XCircle },
@@ -213,7 +214,7 @@ function RecentWork({ state, aircraft }: AircraftProps) {
   const orders = (state.workOrders ?? [])
     .filter((w) => w.aircraftUuid === aircraft.uuid && w.status === "completed")
     .sort((x, y) => y.completionDate.localeCompare(x.completionDate))
-    .slice(0, RECENT_WORK_ORDERS);
+    .slice(0, RECENT_COMPLETED_WORK_ORDERS);
   return (
     <div>
       <h3>Recently completed work</h3>
