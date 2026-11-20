@@ -18,7 +18,10 @@ import { workOrderCommand } from "../tests/fixtures/workOrders";
 import { blankAD, blankADTask } from "../src/domain/airworthiness";
 import { newWorkTask, type WorkOrder } from "../src/domain/workOrders";
 import { prepareRecurringParts } from "./recurringParts";
-import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
+import {
+  expectDerivedColumns,
+  expectPurchasingKeys,
+} from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -160,6 +163,8 @@ const BOUNDED_REQUESTS = [
   "partsRequests.source",
   "partsRequests.number",
 ];
+// A new occurrence's lookup keys, read as they are synced after its insert.
+const NEW_KEYS = "purchasingKeys.record";
 
 it("persists recurring AD and fast-path inspection occurrences atomically without duplicating on edits", async () => {
   const { t, ad, user, args, inspection } = await setup();
@@ -207,6 +212,11 @@ it("persists recurring AD and fast-path inspection occurrences atomically withou
     "partsRequests",
     requests.map((r) => r.uuid),
   );
+  await expectPurchasingKeys(
+    t,
+    "partsRequests",
+    requests.map((r) => r.uuid),
+  );
 });
 
 it("owes nothing to a finished task or a closed work order, and reads only its bounded requests", async () => {
@@ -242,12 +252,12 @@ it("owes nothing to a finished task or a closed work order, and reads only its b
         aircraftUuid: saved.aircraftUuid,
       }),
     ],
-    tables: [...BOUNDED_REQUESTS, "airworthiness.aircraft"],
+    tables: [...BOUNDED_REQUESTS, "airworthiness.aircraft", NEW_KEYS],
   });
   const source = { kind: "inspection" as const, uuid: inspection.uuid };
   expect(
     (await owe({ ...saved, tasks: [{ ...unserved, source }] })).tables,
-  ).toEqual([...BOUNDED_REQUESTS, "inspections.uuid"]);
+  ).toEqual([...BOUNDED_REQUESTS, "inspections.uuid", NEW_KEYS]);
 });
 
 it("owes a recurring component requirement's list, reading the requirement by its uuid", async () => {
@@ -278,7 +288,11 @@ it("owes a recurring component requirement's list, reading the requirement by it
     const rows = await ctx.db.query("partsRequests").collect();
     return { entries, tables, rows: rows.map((r) => JSON.parse(r.payload)) };
   });
-  expect(owed.tables).toEqual([...BOUNDED_REQUESTS, "management.uuid"]);
+  expect(owed.tables).toEqual([
+    ...BOUNDED_REQUESTS,
+    "management.uuid",
+    NEW_KEYS,
+  ]);
   expect(owed.entries).toEqual([
     expect.objectContaining({ action: "partsRequest.recurring" }),
   ]);

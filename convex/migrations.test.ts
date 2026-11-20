@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins the derived-column backfill, with the file rows'
- *   owner copies, and the recordNumbers rebuild: each fills older rows page
- *   by page, changes nothing else, writes no change-log row, reports what it
- *   filled, finds nothing on a second run, and names a damaged row.
+ *   owner copies and the purchasing lookup keys, and the recordNumbers
+ *   rebuild: each fills older rows page by page, changes nothing else,
+ *   writes no change-log row, reports what it filled, finds nothing on a
+ *   second run, and names a damaged row.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/migrations.ts, convex/schema.ts,
  *   tests/fixtures (storedCollections, derivedColumns), src/data/demo.ts.
@@ -17,6 +18,7 @@ import {
 } from "../tests/fixtures/storedCollections";
 import {
   expectDerivedColumns,
+  expectPurchasingKeys,
   forgetDerivedColumns,
   type DerivedTable,
 } from "../tests/fixtures/derivedColumns";
@@ -56,6 +58,9 @@ const [N206, , N182] = demoSnapshot().aircraft.map((a) => a.uuid);
 const ORDER = "00000000-0000-4000-8000-000000000005";
 const CARD = "00000000-0000-4000-8000-000000000003";
 const ARCHIVED_CARD = "00000000-0000-4000-8000-000000000004";
+// The fixture's parts request and purchase order.
+const REQUEST = "request-1";
+const PO = "po-1";
 
 // The seeded program, with every row of the derived tables written as it
 // was before the columns: the fixture's payload rows, and OLD_FLIGHTS
@@ -125,6 +130,8 @@ it("fills the derived columns on older rows, page by page, and changes nothing e
       table,
       rows.map((r) => r.uuid),
     );
+  await expectPurchasingKeys(t, "partsRequests", [REQUEST]);
+  await expectPurchasingKeys(t, "purchaseOrders", [PO]);
   expect(after.audit).toEqual(before.audit);
   // Every field each row held before is as it was.
   expect(after.tables).toEqual(
@@ -160,6 +167,36 @@ it("refills only the rows that lost a column", async () => {
   });
   await expectDerivedColumns(t, "flights", ["old-flight-7"]);
   await expectDerivedColumns(t, "costs", ["budget-206"]);
+});
+
+it("refills an order's lost lookup keys and drops a request's stale one, counting each row once", async () => {
+  const t = await olderRows();
+  await t.action(backfill, {});
+  await t.run(async (ctx) => {
+    const keys = await ctx.db
+      .query("purchasingKeys")
+      .withIndex("record", (q) =>
+        q.eq("table", "purchaseOrders").eq("uuid", PO),
+      )
+      .collect();
+    expect(keys.map((k) => [k.kind, k.key])).toEqual([
+      ["requestId", "request-1"],
+    ]);
+    for (const key of keys) await ctx.db.delete(key._id);
+    await ctx.db.insert("purchasingKeys", {
+      programUuid: PROGRAM,
+      table: "partsRequests",
+      kind: "component",
+      key: "no-longer-repaired",
+      uuid: REQUEST,
+    });
+  });
+  expect(await t.action(backfill, {})).toMatchObject({
+    missing: 2,
+    tables: { partsRequests: 1, purchaseOrders: 1 },
+  });
+  await expectPurchasingKeys(t, "partsRequests", [REQUEST]);
+  await expectPurchasingKeys(t, "purchaseOrders", [PO]);
 });
 
 it("files evidence under its card's aircraft and work order and an inventory file under its item's program, correcting stale copies", async () => {

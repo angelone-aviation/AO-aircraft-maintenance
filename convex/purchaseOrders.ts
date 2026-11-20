@@ -20,6 +20,7 @@ import {
 } from "./runCommand";
 import { decode, encode } from "./collections";
 import { workOrderDocsByUuid } from "./workingSet";
+import { syncPurchasingKeys } from "./purchasingKeys";
 import type { PartsRequest } from "../src/domain/partsRequests";
 import {
   applyPOCommand,
@@ -102,7 +103,8 @@ export const files = query({
 
 // Receipts change a request's reservations and never create one, so only a
 // changed request is written: its whole row, so an older row gets its
-// derived columns.
+// derived columns, and its keys, since its history now holds the receipt's
+// request id.
 async function patchRequests(
   ctx: MutationCtx,
   docs: Doc<"partsRequests">[],
@@ -111,8 +113,9 @@ async function patchRequests(
   for (const record of records) {
     const prior = docs.find((d) => d.uuid === record.uuid);
     const row = encode("partsRequests", record);
-    if (prior && prior.payload !== row.payload)
-      await ctx.db.patch(prior._id, row);
+    if (!prior || prior.payload === row.payload) continue;
+    await ctx.db.patch(prior._id, row);
+    await syncPurchasingKeys(ctx, "partsRequests", record);
   }
 }
 

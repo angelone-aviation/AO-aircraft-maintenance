@@ -4,9 +4,9 @@
  * Layer: Server. Internal mutations run by hand (docs/sample-program.md);
  *   nothing seeds automatically.
  * Dependencies: convex/access, convex/defaultGroups, convex/collections,
- *   convex/fileColumns, convex/recordNumbers, src/domain (management, workOrders, taskCards,
- *   airworthiness, checklists, inspectionTemplates, flightPlans,
- *   purchaseOrders).
+ *   convex/fileColumns, convex/recordNumbers, convex/purchasingKeys,
+ *   src/domain (management, workOrders, taskCards, airworthiness,
+ *   checklists, inspectionTemplates, flightPlans, purchaseOrders).
  *
  * Every record says SAMPLE and fictional, so none can pass for a real
  * maintenance record, certificate, order or FAA directive.
@@ -16,6 +16,7 @@ import { ensureDefaultGroups } from "./defaultGroups";
 import { decode, encode, flightColumns } from "./collections";
 import { insertInventoryFile } from "./fileColumns";
 import { syncRecordNumber } from "./recordNumbers";
+import { syncPurchasingKeys } from "./purchasingKeys";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { WithoutSystemFields } from "convex/server";
@@ -810,6 +811,7 @@ async function insertAD({ ctx, now }: Seeding, a: Sample) {
 async function insertPurchaseOrder(s: Seeding, a: Sample) {
   const po = poSchema.parse(samplePurchaseOrder(s, a));
   await s.ctx.db.insert("purchaseOrders", encode("purchaseOrders", po));
+  await syncPurchasingKeys(s.ctx, "purchaseOrders", po);
 }
 
 function samplePurchaseOrder(s: Seeding, a: Sample) {

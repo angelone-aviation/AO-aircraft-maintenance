@@ -2,8 +2,8 @@
  * Responsibility: Pins parts requests: linked requests, inventory access,
  *   reservations and issues in stock history, what a recurring list owes the
  *   open work orders, request-id replay, a request uuid another Flight
- *   Program holds, the derived columns request and PO writes store, and
- *   sources read by uuid.
+ *   Program holds, the derived columns and lookup keys request and PO writes
+ *   store, and sources read by uuid.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/partsRequests, convex/purchaseOrders,
  *   convex/workOrders, src/data/demo, src/domain (airworthiness,
@@ -14,6 +14,7 @@ import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
 import {
   expectDerivedColumns,
+  expectPurchasingKeys,
   forgetDerivedColumns,
 } from "../tests/fixtures/derivedColumns";
 import schema from "./schema";
@@ -173,6 +174,8 @@ it("persists linked requests, authorizes inventory actions, and reserves PO rece
   await admin.mutation(api.purchaseOrders.execute, receipt);
   await expectDerivedColumns(t, "partsRequests", [draft.uuid]);
   await expectDerivedColumns(t, "purchaseOrders", [po.uuid]);
+  await expectPurchasingKeys(t, "partsRequests", [draft.uuid]);
+  await expectPurchasingKeys(t, "purchaseOrders", [po.uuid]);
   const result = await t.run(async (ctx) => ({
     requests: (await ctx.db.query("partsRequests").collect()).map((d) =>
       JSON.parse(d.payload),

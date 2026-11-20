@@ -4,8 +4,8 @@
  * Layer: Server. Mutation helper inside the work-order transactions; the
  *   caller writes the change-log entries it returns.
  * Dependencies: src/domain/partsRequests (the rule and what it needs loaded),
- *   convex/collections (codec), convex/programContext and convex/workingSet
- *   (loaders), src/domain types.
+ *   convex/collections (codec), convex/purchasingKeys, convex/programContext
+ *   and convex/workingSet (loaders), src/domain types.
  */
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -19,6 +19,7 @@ import type { ManagedRecord } from "../src/domain/management";
 import { airworthinessDocs } from "./programContext";
 import { highestRequestDocs, partsRequestDocsOn } from "./workingSet";
 import { decode, encode } from "./collections";
+import { syncPurchasingKeys } from "./purchasingKeys";
 
 type Needs = ReturnType<typeof recurringPartsNeeds>;
 
@@ -29,7 +30,8 @@ type Needs = ReturnType<typeof recurringPartsNeeds>;
  * them), the program's highest-numbered request, and the sources of the tasks
  * still owed one.
  *
- * @param ctx - Mutation context; inserts into partsRequests.
+ * @param ctx - Mutation context; inserts into partsRequests, with each new
+ *   request's lookup keys.
  * @param state - The caller's program context.
  * @param order - The work order as it will be saved.
  * @returns A `partsRequest.recurring` change-log entry per new request, for
@@ -56,8 +58,10 @@ export async function prepareRecurringParts(
     ...(await loadSources(ctx, state, order, needs)),
     audit: [],
   };
-  for (const r of generateRecurringRequests(s, order))
+  for (const r of generateRecurringRequests(s, order)) {
     await ctx.db.insert("partsRequests", encode("partsRequests", r));
+    await syncPurchasingKeys(ctx, "partsRequests", r);
+  }
   return s.audit;
 }
 
