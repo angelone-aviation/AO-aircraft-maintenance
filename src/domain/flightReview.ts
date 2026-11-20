@@ -23,6 +23,7 @@ import {
 } from "./model";
 import { programIds, programPermission } from "./programs";
 import {
+  formatUtcMinute,
   rebuildFlights,
   resequenceReason,
   resequencedFlights,
@@ -57,7 +58,10 @@ const HELD_FLIGHT_FIELDS: FieldSpecs<HeldFlightFields> = {
   flightTimeLog: { label: "Flight time log (hours)", format: formatHours },
   landings: { label: "Landings", format: formatCount },
   cycles: { label: "Cycles", format: formatCount },
-  startTime: { label: "Flight time (UTC)", format: formatUtcMinute },
+  startTime: {
+    label: "Flight time (UTC)",
+    format: (value) => formatUtcMinute(String(value)),
+  },
 };
 
 /**
@@ -108,11 +112,6 @@ function formatHours(value: unknown) {
 
 function formatCount(value: unknown) {
   return Number(value).toLocaleString("en-US");
-}
-
-// "2026-01-02T10:00:00.000Z" reads "2026-01-02 10:00".
-function formatUtcMinute(value: unknown) {
-  return String(value).slice(0, 16).replace("T", " ");
 }
 
 /** The fewest characters a review explanation may hold once trimmed. */
