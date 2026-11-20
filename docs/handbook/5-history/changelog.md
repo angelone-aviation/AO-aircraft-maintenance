@@ -32,7 +32,8 @@ timeline
 Three of Aaron's decisions of 20 Nov:
 
 - RM-77: the job card screens send a signoff as one `sign` command. The unused path that saved today's date on a card without a completion date before signing is deleted; the screens already required the date, so nothing changes for users.
-- Work orders no longer carry a "final review" field. It had no input, and appeared only in the save-conflict comparison and revision history. Orders saved before the change still load.
+- RM-80: work orders no longer carry a "final review" field. It had no input, and appeared only in the save-conflict comparison and revision history. Orders saved before the change still load.
+- SE-15 (RM-79): applying a component template and every FAA monitor command, such as recording a candidate's review, schedule the urgent alert check at once instead of leaving it to the daily check. Neither creates an urgent alert under today's rules, so the check sends only alerts already pending.
 
 ## Release 6: not yet released
 
