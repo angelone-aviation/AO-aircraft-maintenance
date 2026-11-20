@@ -1,12 +1,12 @@
 /**
  * Responsibility: Builds and serves the app: the eval-free zod alias, the
  *   PDF.js files published beside the bundle, the offline PWA from its own
- *   service worker (src/sw.ts), and Sentry source maps when the release
- *   build has an upload token.
+ *   service worker (src/sw.ts), Sentry source maps when the release build
+ *   has an upload token, and no build at all in Cloudflare's Git builder.
  * Layer: Config. Build tooling only; nothing here ships in the bundle.
  * Dependencies: vite, @vitejs/plugin-react, vite-plugin-pwa,
  *   @sentry/vite-plugin, pdfjs-dist, src/cspSafeZod.ts, src/sw.ts,
- *   src/data/pdfCompatibility.js.
+ *   src/data/pdfCompatibility.js, scripts/cloudflareBuildGuard.ts.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -17,6 +17,7 @@ import { defineConfig, type Plugin, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
+import { assertNotCloudflareGitBuild } from "./scripts/cloudflareBuildGuard";
 
 const PDF_ROOT = dirname(
   createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
@@ -67,6 +68,7 @@ export default defineConfig({
     sourcemap: SENTRY_AUTH_TOKEN ? "hidden" : false,
   },
   plugins: [
+    refuseCloudflareGitBuild(),
     publishPdfViewerFiles(),
     retireOfflineWorkerInDevelopment(),
     react(),
@@ -144,6 +146,18 @@ function uploadSourceMapsToSentry(): PluginOption {
     sourcemaps: { filesToDeleteAfterUpload: ["./dist/**/*.map"] },
     telemetry: false,
   });
+}
+
+// First plugin, so the refusal comes before any work. Builds only: the dev
+// server and vitest never publish.
+function refuseCloudflareGitBuild(): Plugin {
+  return {
+    name: "refuse-cloudflare-git-build",
+    apply: "build",
+    config() {
+      assertNotCloudflareGitBuild(process.env);
+    },
+  };
 }
 
 // PDF.js image decoders and its worker, keyed by the path the app fetches.
