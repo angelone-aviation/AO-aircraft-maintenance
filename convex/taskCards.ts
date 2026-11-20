@@ -41,7 +41,10 @@ import {
   MAX_ATTACHMENTS,
 } from "./attachments";
 import { exposeRejections } from "./userErrors";
-import { validateWorkOrderFile } from "../src/domain/workOrders";
+import {
+  validateWorkOrderFile,
+  WORK_ORDER_FILE_TYPES,
+} from "../src/domain/workOrders";
 import { withNewEvidence } from "../src/domain/attachments";
 import { assertFileContents } from "../src/domain/inventoryAttachments";
 import {
@@ -159,8 +162,8 @@ export const finishUpload = internalMutation({
  * deleted again if the card refuses it.
  *
  * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", then
- *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG or
- *   WebP file." when the first bytes are not the declared type's, both before
+ *   "This file's contents do not match its type. Choose a PDF, JPEG or PNG
+ *   file." when the first bytes are not the declared type's, both before
  *   any permission check and storing nothing; the refusals of checkUpload and
  *   finishUpload.
  */
@@ -175,7 +178,7 @@ export const upload = action({
   handler: async (ctx, args): Promise<void> => {
     exposeRejections(() => {
       validateWorkOrderFile(args.name, args.type, args.bytes.byteLength);
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, WORK_ORDER_FILE_TYPES);
     });
     const card = {
       taskCardUuid: args.taskCardUuid,

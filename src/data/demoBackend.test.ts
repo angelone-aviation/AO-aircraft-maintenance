@@ -842,28 +842,34 @@ it.each<
   },
 );
 
-it.each<[string, (backend: Backend, s: Snapshot, file: File) => unknown]>([
+it.each<
+  [string, string, (backend: Backend, s: Snapshot, file: File) => unknown]
+>([
   [
     "job-card evidence",
+    "PDF, JPEG or PNG",
     (backend, s, file) =>
       backend.attachTaskEvidence(s.taskCards![0].uuid, "photo", file),
   ],
   [
     "a work-order attachment",
+    "PDF, JPEG or PNG",
     (backend, s, file) =>
       backend.attachWorkOrderFile(s.workOrders![0].uuid, file),
   ],
   [
     "an aircraft photo",
+    "JPEG, PNG or WebP",
     (backend, s, file) => backend.uploadAircraftPhoto(s.aircraft[0].uuid, file),
   ],
   [
     "a license copy",
+    "PDF, JPEG, PNG, WebP, HEIC or HEIF",
     (backend, s, file) => backend.uploadCertification(s.user.id, "pilot", file),
   ],
 ])(
-  "refuses %s whose first bytes are not its declared type, as the server does",
-  async (upload, attach) => {
+  "refuses %s whose first bytes are not its declared type, naming its %s types as the server does",
+  async (upload, types, attach) => {
     const { backend, stored } = await demo(`demo-renamed-${upload}`, (seed) =>
       withRecords(seed),
     );
@@ -876,8 +882,7 @@ it.each<[string, (backend: Backend, s: Snapshot, file: File) => unknown]>([
     );
     expect(error).toBeInstanceOf(Rejection);
     expect(error).toMatchObject({
-      message:
-        "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+      message: `This file's contents do not match its type. Choose a ${types} file.`,
     });
     expect(await stored()).toEqual(before);
   },

@@ -252,7 +252,7 @@ it("refuses an attachment whose first bytes are not its declared type, storing n
       client.action(api.workOrders.upload, renamed),
     ).rejects.toMatchObject({
       name: "ConvexError",
-      data: "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+      data: "This file's contents do not match its type. Choose a PDF, JPEG or PNG file.",
     });
   await t.run(async (ctx) => {
     expect(await ctx.db.query("workOrderFiles").collect()).toEqual([]);

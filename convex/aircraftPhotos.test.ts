@@ -183,7 +183,7 @@ it("refuses a photo whose first bytes are not its declared type, before permissi
       }),
     ).rejects.toMatchObject({
       name: "ConvexError",
-      data: "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+      data: "This file's contents do not match its type. Choose a JPEG, PNG or WebP file.",
     });
   await t.run(async (ctx) => {
     expect(await ctx.db.query("aircraftPhotos").collect()).toEqual([]);

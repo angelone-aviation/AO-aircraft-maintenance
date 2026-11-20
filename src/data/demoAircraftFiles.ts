@@ -18,7 +18,10 @@ import {
   type AircraftFileCategory,
   type AircraftFileLink,
 } from "../domain/aircraftFiles";
-import { assertFileContents } from "../domain/inventoryAttachments";
+import {
+  ATTACHMENT_FILE_TYPES,
+  assertFileContents,
+} from "../domain/inventoryAttachments";
 
 type Modify = (fn: (s: Snapshot) => void) => Promise<void>;
 type Audit = (
@@ -62,7 +65,11 @@ export const demoAircraftFiles = {
   ) {
     const { aircraftUuid, category, linkedKind, linkedUuid } = target;
     validateAircraftUpload(category, file.name, file.type, file.size);
-    assertFileContents(file.type, await file.arrayBuffer());
+    assertFileContents(
+      file.type,
+      await file.arrayBuffer(),
+      ATTACHMENT_FILE_TYPES,
+    );
     assertAircraftFileLink(category, target);
     const url = await readDataUrl(file);
     const { name, type, size } = file;

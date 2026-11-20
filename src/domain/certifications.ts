@@ -32,6 +32,11 @@ const LICENSE_COPY_EXTENSIONS = new Map<string, string[]>([
   ["image/heif", ["heif"]],
 ]);
 
+/** The MIME types a license copy may have, in the order refusals name them. */
+export const LICENSE_COPY_TYPES: readonly string[] = [
+  ...LICENSE_COPY_EXTENSIONS.keys(),
+];
+
 /** Certificate kinds a member may record, the legacy ratings included. */
 export const certificationKinds = [
   "pilot",

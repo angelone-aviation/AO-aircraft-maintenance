@@ -19,7 +19,10 @@ import {
 import { internal } from "./_generated/api";
 import { checkContext } from "./programContext";
 import { can } from "../src/domain/model";
-import { validateAircraftPhoto } from "../src/domain/aircraftPhotos";
+import {
+  AIRCRAFT_PHOTO_TYPES,
+  validateAircraftPhoto,
+} from "../src/domain/aircraftPhotos";
 import { assertFileContents } from "../src/domain/inventoryAttachments";
 import { audit } from "./access";
 import { storeThenFinish } from "./attachments";
@@ -83,8 +86,8 @@ export const finish = internalMutation({
  * @param type - The image's MIME type.
  * @param bytes - The image.
  * @throws {ConvexError} The refusals of `validateAircraftPhoto`, then "This
- *   file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP
- *   file." when the first bytes are not the declared type's, both before any
+ *   file's contents do not match its type. Choose a JPEG, PNG or WebP file."
+ *   when the first bytes are not the declared type's, both before any
  *   permission check and storing nothing; as {@link check}.
  */
 export const upload = action({
@@ -92,7 +95,7 @@ export const upload = action({
   handler: async (ctx, args): Promise<void> => {
     exposeRejections(() => {
       validateAircraftPhoto(args.type, args.bytes.byteLength);
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, AIRCRAFT_PHOTO_TYPES);
     });
     const scope = {
       aircraftUuid: args.aircraftUuid,

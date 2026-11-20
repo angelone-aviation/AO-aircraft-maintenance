@@ -29,6 +29,7 @@ import { programPermission } from "../src/domain/programs";
 import { poSchema, poAttachmentRemovable } from "../src/domain/purchaseOrders";
 import {
   assertFileContents,
+  ATTACHMENT_FILE_TYPES,
   validateInventoryFile,
 } from "../src/domain/inventoryAttachments";
 
@@ -127,7 +128,7 @@ export const upload = action({
   handler: async (ctx, args): Promise<void> => {
     exposeRejections(() => {
       validateInventoryFile(args.name, args.type, args.bytes.byteLength);
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, ATTACHMENT_FILE_TYPES);
     });
     const target = {
       poUuid: args.poUuid,

@@ -47,6 +47,7 @@ import {
   workOrderCommandSchema,
   isOpenWorkOrder,
   validateWorkOrderFile,
+  WORK_ORDER_FILE_TYPES,
   type WorkOrder,
   type WorkOrderCommand,
 } from "../src/domain/workOrders";
@@ -180,8 +181,8 @@ export const finishUpload = internalMutation({
  * @param type - The file's MIME type.
  * @param bytes - The file.
  * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", then
- *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG or
- *   WebP file." when the first bytes are not the declared type's, both before
+ *   "This file's contents do not match its type. Choose a PDF, JPEG or PNG
+ *   file." when the first bytes are not the declared type's, both before
  *   any permission check and storing nothing; as {@link finishUpload}.
  */
 export const upload = action({
@@ -189,7 +190,7 @@ export const upload = action({
   handler: async (ctx, args): Promise<void> => {
     exposeRejections(() => {
       validateWorkOrderFile(args.name, args.type, args.bytes.byteLength);
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, WORK_ORDER_FILE_TYPES);
     });
     const order = {
       workOrderUuid: args.workOrderUuid,

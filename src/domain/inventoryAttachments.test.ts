@@ -27,7 +27,7 @@ describe("attachment contents", () => {
     ).buffer;
   const matches = (type: string, file: ArrayBuffer) => {
     try {
-      assertFileContents(type, file);
+      assertFileContents(type, file, [type]);
       return true;
     } catch (e) {
       expect(e).toBeInstanceOf(Rejection);
@@ -68,6 +68,34 @@ describe("attachment contents", () => {
       expect(matches(type, bytes(0, 0, 0, 24, "ftyphei"))).toBe(false);
     }
     expect(matches("image/jpeg", iso("heic"))).toBe(false);
+  });
+
+  it("names the types the caller accepts in its refusal", () => {
+    const html = bytes("<html>");
+    expect(() =>
+      assertFileContents("application/pdf", html, ["application/pdf"]),
+    ).toThrow(
+      Error("This file's contents do not match its type. Choose a PDF file."),
+    );
+    expect(() =>
+      assertFileContents("image/png", html, ["image/jpeg", "image/png"]),
+    ).toThrow(
+      Error(
+        "This file's contents do not match its type. Choose a JPEG or PNG file.",
+      ),
+    );
+    expect(() =>
+      assertFileContents("image/heic", html, [
+        "application/pdf",
+        "image/webp",
+        "image/heic",
+        "image/heif",
+      ]),
+    ).toThrow(
+      Error(
+        "This file's contents do not match its type. Choose a PDF, WebP, HEIC or HEIF file.",
+      ),
+    );
   });
 
   it("answers the same question as a predicate, for callers with their own refusal", () => {

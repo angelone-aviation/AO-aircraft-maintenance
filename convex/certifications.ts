@@ -26,6 +26,7 @@ import {
   certificationKindSchema,
   memberLicense,
   validateCertificationFile,
+  LICENSE_COPY_TYPES,
 } from "../src/domain/certifications";
 import { assertFileContents } from "../src/domain/inventoryAttachments";
 
@@ -169,8 +170,9 @@ export const finishUpload = internalMutation({
  * @param bytes - The file.
  * @returns The new copy's id.
  * @throws {ConvexError} The refusals of `validateCertificationFile`, then
- *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG or
- *   WebP file." when the first bytes are not the declared type's, both
+ *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG,
+ *   WebP, HEIC or HEIF file." when the first bytes are not the declared
+ *   type's, both
  *   before any access check and storing nothing; as {@link checkUpload} and
  *   {@link finishUpload}.
  */
@@ -179,7 +181,7 @@ export const upload = action({
   handler: async (ctx, args): Promise<string> => {
     exposeRejections(() => {
       validateCertificationFile(args.name, args.type, args.bytes.byteLength);
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, LICENSE_COPY_TYPES);
     });
     await ctx.runQuery(internal.certifications.checkUpload, {
       userId: args.userId,

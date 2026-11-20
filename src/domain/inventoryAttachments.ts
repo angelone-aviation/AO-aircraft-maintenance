@@ -18,6 +18,23 @@ const ATTACHMENT_NAME_PATTERNS = new Map<string, RegExp>([
   ["image/webp", /\.webp$/i],
 ]);
 
+/**
+ * The MIME types an inventory, PO or aircraft document attachment may have,
+ * in the order refusals name them.
+ */
+export const ATTACHMENT_FILE_TYPES: readonly string[] = [
+  ...ATTACHMENT_NAME_PATTERNS.keys(),
+];
+
+const FILE_TYPE_NAMES = new Map<string, string>([
+  ["application/pdf", "PDF"],
+  ["image/jpeg", "JPEG"],
+  ["image/png", "PNG"],
+  ["image/webp", "WebP"],
+  ["image/heic", "HEIC"],
+  ["image/heif", "HEIF"],
+]);
+
 // A file's first bytes; null stands for any byte (a chunk or box size).
 type Signature = (number | null)[];
 const ascii = (text: string) => [...new TextEncoder().encode(text)];
@@ -118,14 +135,19 @@ export function validateInventoryFile(
  * @param type - The declared MIME type: PDF, JPEG, PNG, WebP, HEIC or HEIF.
  * @param bytes - The file, or at least its first
  *   {@link FILE_SIGNATURE_LENGTH} bytes.
+ * @param accepted - The MIME types the caller takes, named in the refusal.
  * @throws {Rejection} "This file's contents do not match its type. Choose a
- *   PDF, JPEG, PNG or WebP file." for a mismatch, a file too short to tell,
- *   or any other type.
+ *   PDF, JPEG or PNG file." (the `accepted` types, in order) for a mismatch,
+ *   a file too short to tell, or any other type.
  */
-export function assertFileContents(type: string, bytes: ArrayBuffer) {
+export function assertFileContents(
+  type: string,
+  bytes: ArrayBuffer,
+  accepted: readonly string[],
+) {
   if (!matchesFileType(type, bytes))
     throw new Rejection(
-      "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+      `This file's contents do not match its type. Choose a ${nameTypes(accepted)} file.`,
     );
 }
 
@@ -154,6 +176,13 @@ function startsBy(head: Uint8Array, signature: Signature, latest: number) {
   for (let at = 0; at <= latest; at++)
     if (startsAt(head, signature, at)) return true;
   return false;
+}
+
+// "PDF, JPEG or PNG": the types as users know them, the last after "or".
+function nameTypes(types: readonly string[]): string {
+  const names = types.map((t) => FILE_TYPE_NAMES.get(t) ?? t);
+  if (names.length < 2) return names.join("");
+  return `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
 }
 
 // A file shorter than the signature fails: its missing bytes read undefined.

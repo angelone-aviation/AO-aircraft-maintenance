@@ -31,7 +31,10 @@ import { consume, HOUR } from "./rateLimits";
 import { storeThenFinish } from "./attachments";
 import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
-import { assertFileContents } from "../src/domain/inventoryAttachments";
+import {
+  ATTACHMENT_FILE_TYPES,
+  assertFileContents,
+} from "../src/domain/inventoryAttachments";
 import {
   aircraftFileArchive,
   assertAircraftFileLink,
@@ -213,7 +216,7 @@ export const upload = action({
         args.type,
         args.bytes.byteLength,
       );
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, ATTACHMENT_FILE_TYPES);
     });
     const { name, type, bytes, ...scope } = args;
     await ctx.runQuery(internal.aircraftFiles.checkUpload, scope);

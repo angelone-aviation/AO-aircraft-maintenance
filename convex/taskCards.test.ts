@@ -266,7 +266,7 @@ it("refuses evidence whose first bytes are not its declared type, storing nothin
       client.action(api.taskCards.upload, renamed),
     ).rejects.toMatchObject({
       name: "ConvexError",
-      data: "This file's contents do not match its type. Choose a PDF, JPEG, PNG or WebP file.",
+      data: "This file's contents do not match its type. Choose a PDF, JPEG or PNG file.",
     });
   await t.run(async (ctx) => {
     expect(await ctx.db.query("taskEvidence").collect()).toEqual([]);
