@@ -3,7 +3,8 @@
  *   an aircraft's or a record's entries, newest first; and summarizes a
  *   period of it for Flight Program administrators.
  * Layer: Server. Two public queries; they read only entries the snapshot's
- *   visibility rules let the caller see.
+ *   visibility rules let the caller see, loading the cost records, parts
+ *   requests and purchase orders that rule reads only as rows name them.
  * Dependencies: convex/programContext, convex/collections,
  *   convex/recordsDate, src/domain (programs, auditHistory, auditSummary,
  *   model).
@@ -14,13 +15,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   checkContext,
   managementDocs,
-  partsRequestDocs,
-  purchaseOrderDocs,
   checklistDocs,
   componentTemplateDocs,
   componentSetupDocs,
   inspectionTemplateDocs,
-  costDocs,
   expiringItemDocs,
   transferredAuditDocs,
 } from "./programContext";
@@ -105,14 +103,20 @@ export const page = query({
     numItems: v.number(),
   },
   handler: async (ctx, args): Promise<AuditPage> => {
-    const { state, canSee } = await visibility(ctx, args.programUuid);
+    const state = await checkContext(ctx, args.programUuid);
+    const seen = new RowVisibility(
+      ctx,
+      state,
+      await completeRecords(ctx, state),
+    );
     const n = clampAuditPageSize(args.numItems);
     const before = await readCursor(ctx, args.cursor);
-    await assertFilterVisible(ctx, canSee, args);
-    const sources = selectSources(ctx, state, canSee, args, n);
+    await assertFilterVisible(ctx, seen, args);
+    const sources = selectSources(ctx, state, seen.canSee, args, n);
     const shown = (d: Doc<"audit">) =>
-      canSee(d) && (!args.aircraftUuid || d.aircraftUuid === args.aircraftUuid);
-    const scan = await scanVisible(sources, shown, n, before);
+      seen.canSee(d) &&
+      (!args.aircraftUuid || d.aircraftUuid === args.aircraftUuid);
+    const scan = await scanVisible(sources, seen, shown, n, before);
     return buildPage(scan, n, before);
   },
 });
@@ -178,29 +182,6 @@ export const summary = query({
   },
 });
 
-// The same records the snapshot loads to decide which history entries a
-// caller may read.
-async function visibility(ctx: QueryCtx, programUuid?: string) {
-  const state = await checkContext(ctx, programUuid);
-  const program = activeProgram(state);
-  return {
-    state,
-    canSee: auditVisible({
-      ...state,
-      ...(await completeRecords(ctx, state)),
-      partsRequests: decode(
-        "partsRequests",
-        await partsRequestDocs(ctx, program),
-      ),
-      purchaseOrders: decode(
-        "purchaseOrders",
-        await purchaseOrderDocs(ctx, program),
-      ),
-      costs: decode("costs", await costDocs(ctx, program)),
-    }),
-  };
-}
-
 // The program's records the visibility rule reads that do not grow with
 // history: inventory and components, checklists, templates and expiring
 // dates.
@@ -256,12 +237,23 @@ class RowVisibility {
    * Loads the records that rows the rule hides so far name.
    *
    * @returns False, loading nothing, when that would pass LOOKUP_BUDGET
-   *   records looked up in all.
+   *   records looked up in all; never before the first lookup, so a scan
+   *   always gets past its first round.
    */
   async learn(rows: readonly AuditEntry[]): Promise<boolean> {
     const hidden = rows.filter((r) => !this.canSee(r)).map((r) => r.entityUuid);
-    const wanted = [...new Set(hidden)].filter((u) => !this.sought.has(u));
-    if (this.sought.size + wanted.length > LOOKUP_BUDGET) return false;
+    return this.lookUp(hidden);
+  }
+
+  /**
+   * Loads the records with these uuids, as {@link learn} does for rows.
+   *
+   * @returns False, loading nothing, past LOOKUP_BUDGET.
+   */
+  async lookUp(uuids: readonly string[]): Promise<boolean> {
+    const wanted = [...new Set(uuids)].filter((u) => !this.sought.has(u));
+    const over = this.sought.size + wanted.length > LOOKUP_BUDGET;
+    if (over && this.sought.size > 0) return false;
     for (const uuid of wanted) this.sought.add(uuid);
     const found = await programRecordsByUuid(this.ctx, this.state, wanted);
     this.named = {
@@ -374,7 +366,7 @@ async function readCursor(
 // entry is read, to check that it is visible.
 async function assertFilterVisible(
   ctx: QueryCtx,
-  canSee: CanSee,
+  seen: RowVisibility,
   filter: AuditFilter,
 ): Promise<void> {
   const entityUuid = filter.entityUuid;
@@ -385,7 +377,8 @@ async function assertFilterVisible(
         .order("desc")
         .first()
     : null;
-  if (!canPageAuditFilter(canSee, filter, newest))
+  if (entityUuid) await seen.lookUp([entityUuid]);
+  if (!canPageAuditFilter(seen.canSee, filter, newest))
     throw new ConvexError(HISTORY_NOT_FOUND);
 }
 
@@ -432,9 +425,12 @@ function readIndex(
 }
 
 // Reads rounds below `floor` until one entry more than a page is visible (so
-// isDone is exact), every source is exhausted, or the budget is spent.
+// isDone is exact), every source is exhausted, or a budget is spent: the rows
+// scanned, or the records looked up to decide them. A round its lookups
+// cannot decide is left for the next page, which resumes above it.
 async function scanVisible(
   sources: Source[],
+  seen: RowVisibility,
   shown: (d: Doc<"audit">) => boolean,
   n: number,
   before: number | undefined,
@@ -446,10 +442,13 @@ async function scanVisible(
   while (!exhausted && visible.length <= n && scanned < SCAN_BUDGET) {
     const below = floor?._creationTime ?? before;
     const batches = await Promise.all(sources.map((s) => s(below)));
+    const edge = findCompleteEdge(batches, n);
+    const complete = mergeCompleteRows(batches, edge);
+    if (!(await seen.learn(complete))) return { visible, exhausted, floor };
     scanned += batches.reduce((sum, b) => sum + b.length, 0);
-    floor = findCompleteEdge(batches, n);
+    floor = edge;
     exhausted = floor === undefined;
-    visible.push(...mergeCompleteRows(batches, floor).filter(shown));
+    visible.push(...complete.filter(shown));
   }
   return { visible, exhausted, floor };
 }
