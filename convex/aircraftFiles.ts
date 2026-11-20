@@ -51,8 +51,8 @@ import {
  * Aircraft documents one user may file per hour, photos and Form 337 copies
  * together (decision D12, SE-5). A mechanic back-filling an older aircraft's
  * Form 337 history, or a pilot syncing two weeks of queued line photos, fits
- * within it; it bounds what one account can add to storage to about 210 MB an
- * hour (30 files of up to 7 MB), where nothing bounded it before, since an
+ * within it; it bounds what one account can add to storage to about 210 MiB
+ * an hour (30 files of up to 7 MiB), where nothing bounded it before, since an
  * archived copy keeps its file and leaves the cap.
  */
 export const AIRCRAFT_FILE_UPLOADS_PER_HOUR = 30;
