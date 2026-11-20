@@ -105,6 +105,7 @@ describe("loadHistoryPages", () => {
 describe("historyWriteMark and historyScope", () => {
   it("marks the newest change-log entry of the list's kind", () => {
     const s = snapshot({
+      syncedAt: Date.UTC(2026, 10, 19, 15),
       audit: [
         entry("cost", "cost.labor.add"),
         entry("report", "discrepancy.resolved"),
@@ -112,12 +113,22 @@ describe("historyWriteMark and historyScope", () => {
         entry("flight", "flight.save"),
       ],
     });
-    expect(historyWriteMark(s, "flights")).toBe("flight");
-    expect(historyWriteMark(s, "discrepancies")).toBe("report");
-    expect(historyWriteMark(s, "workOrders")).toBe("cost");
-    expect(historyWriteMark(snapshot({ audit: [] }), "flights")).toBe(
-      undefined,
-    );
+    const day = `${Date.UTC(2026, 10, 19)} `;
+    expect(historyWriteMark(s, "flights")).toBe(`${day}flight`);
+    expect(historyWriteMark(s, "discrepancies")).toBe(`${day}report`);
+    expect(historyWriteMark(s, "workOrders")).toBe(`${day}cost`);
+    expect(historyWriteMark({ ...s, audit: [] }, "flights")).toBe(day);
+    expect(historyWriteMark(null, "flights")).toBeUndefined();
+  });
+
+  // A snapshot cut after midnight has a window a day shorter, so pages loaded
+  // before it reload rather than leave out what it dropped.
+  it("changes when the snapshot's window is cut on a later UTC day", () => {
+    const at = (syncedAt: number) =>
+      historyWriteMark(snapshot({ audit: [], syncedAt }), "flights");
+    const midnight = Date.UTC(2026, 10, 20);
+    expect(at(midnight - 60_000)).toBe(at(Date.UTC(2026, 10, 19)));
+    expect(at(midnight)).not.toBe(at(midnight - 1));
   });
 
   it("names a different scope for another program, user or filter", () => {

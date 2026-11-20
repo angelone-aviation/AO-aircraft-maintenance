@@ -8,9 +8,11 @@
  *   historyReads, model types).
  *
  * Older records come only through Backend.historyPage and workOrderHistory,
- * which the server checks (ADR-0013). They are not reactive and live only in memory: dropped on a
- * program switch or sign-out, and reloaded after any write of their kind, so
- * an edited older record never shows a stale copy.
+ * which the server checks (ADR-0013). They are not reactive and live only in
+ * memory: dropped on a program switch or sign-out, and reloaded after any
+ * write of their kind, so an edited older record never shows a stale copy,
+ * and when the workspace's window moves a day, so a record leaving it is
+ * never in neither.
  */
 import {
   createContext,
@@ -25,6 +27,7 @@ import { errorText } from "./errors";
 import {
   emptyHistoryRecords,
   HISTORY_PAGE_SIZE,
+  retentionCutoff,
   type HistoryKind,
   type HistoryPage,
   type HistoryPageRequest,
@@ -324,20 +327,27 @@ export function historyScope(s: Snapshot | null, list: HistoryList): string {
 }
 
 /**
- * The newest change-log entry that wrote a list's records: it changes after
- * any write of that kind, from this device or another.
+ * What loaded pages must be newer than: the newest change-log entry that
+ * wrote a list's records, and the UTC day the workspace's window was cut on.
+ * It changes after any write of that kind, from this device or another, and
+ * when a snapshot cut on a later day arrives: its window has moved past
+ * records that pages loaded the day before do not hold.
  *
- * @param s - The workspace snapshot, its change log newest first.
+ * @param s - The workspace snapshot, its change log newest first; its
+ *   `syncedAt` is when the server cut its window.
  * @param kind - The list.
- * @returns The entry's uuid; undefined when the snapshot holds none.
+ * @returns The day and the entry's uuid; undefined without a snapshot.
  */
 export function historyWriteMark(
   s: Snapshot | null,
   kind: HistoryKind,
 ): string | undefined {
+  if (!s) return undefined;
   const actions = WRITE_ACTIONS[kind];
-  return s?.audit.find((a) => actions.some((p) => a.action.startsWith(p)))
-    ?.uuid;
+  const entry = s.audit.find((a) =>
+    actions.some((p) => a.action.startsWith(p)),
+  );
+  return `${retentionCutoff(s.syncedAt, 0)} ${entry?.uuid ?? ""}`;
 }
 
 /**
