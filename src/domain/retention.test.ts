@@ -378,7 +378,7 @@ describe("historyPage", () => {
     const membersOf = (kind: "flights" | "discrepancies") =>
       historyPage(named, { kind, cursor: null, numItems: 5 }, NOW).members;
     expect(membersOf("flights")).toEqual([pilot]);
-    expect(membersOf("discrepancies")).toEqual([resolver, pilot]);
+    expect(membersOf("discrepancies")).toEqual([pilot, resolver]);
   });
 
   it("continues after its cursor when newer records arrive between pages", () => {

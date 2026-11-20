@@ -92,7 +92,8 @@ export type HistoryPageRequest =
 /** One page of older history, and where the next one starts. */
 export interface HistoryPage {
   /** The page's rows of the requested kind; a work order brings its job
-   * cards, archived job cards and cost record. Other collections are empty. */
+   * cards, archived job cards and cost record, grouped in page order. Other
+   * collections are empty. */
   records: HistoryRecords;
   /** The members the rows name ({@link namedMembers}), for their names. */
   members: Member[];
@@ -392,22 +393,52 @@ export function recentCompletionFloor(
 }
 
 /**
- * The members a page's rows name, for the names its screen shows: flights'
- * pilots and copilots, and reports' authors and resolvers.
+ * The members a page's rows name, for the names its screen shows.
  *
  * @param members - The members the caller may see.
  * @param records - The page's rows.
- * @returns Those named, in `members` order.
+ * @returns Those of {@link namedMemberIds} that `members` holds, in that
+ *   order, so it does not depend on how `members` is sorted.
  */
 export function namedMembers(
   members: Member[],
   records: Pick<HistoryRecords, "flights" | "discrepancies">,
 ): Member[] {
-  const named = new Set([
+  const byId = new Map(members.map((m) => [m.id, m]));
+  return namedMemberIds(records).flatMap((id) => byId.get(id) ?? []);
+}
+
+/**
+ * The ids of the members rows name: flights' pilots and copilots, and
+ * reports' authors and resolvers.
+ *
+ * @param records - The rows.
+ * @returns Each id once, in row order.
+ */
+export function namedMemberIds(
+  records: Pick<HistoryRecords, "flights" | "discrepancies">,
+): string[] {
+  const ids = [
     ...records.flights.flatMap((f) => [f.pilotId, f.copilotId]),
     ...records.discrepancies.flatMap((d) => [d.authorId, d.resolvedBy]),
-  ]);
-  return members.filter((m) => named.has(m.id));
+  ];
+  return [...new Set(ids.filter((id) => id !== undefined))];
+}
+
+/**
+ * History records with every collection empty, for a page to fill.
+ *
+ * @returns A new object each call.
+ */
+export function emptyHistoryRecords(): HistoryRecords {
+  return {
+    flights: [],
+    discrepancies: [],
+    workOrders: [],
+    taskCards: [],
+    archivedTaskCards: [],
+    costs: [],
+  };
 }
 
 // Every windowed record lands on exactly one side.
@@ -532,7 +563,7 @@ function pageRecords(older: HistoryRecords, request: HistoryPageRequest) {
     const { status } = request;
     const flights = older.flights.filter((f) => !status || f.status === status);
     const { rows, ...page } = pageOf("flights", flights, request);
-    return { ...page, records: { ...emptyRecords(), flights: rows } };
+    return { ...page, records: { ...emptyHistoryRecords(), flights: rows } };
   }
   if (request.kind === "discrepancies") {
     const { rows, ...page } = pageOf(
@@ -540,12 +571,15 @@ function pageRecords(older: HistoryRecords, request: HistoryPageRequest) {
       older.discrepancies,
       request,
     );
-    return { ...page, records: { ...emptyRecords(), discrepancies: rows } };
+    return {
+      ...page,
+      records: { ...emptyHistoryRecords(), discrepancies: rows },
+    };
   }
   const { rows, ...page } = pageOf("workOrders", older.workOrders, request);
   return {
     ...page,
-    records: { ...emptyRecords(), ...withDependents(older, rows) },
+    records: { ...emptyHistoryRecords(), ...withDependents(older, rows) },
   };
 }
 
@@ -584,6 +618,8 @@ function readJson(text: string): unknown {
   }
 }
 
+// Each order's job cards, archived job cards and cost records follow it, in
+// page order, as the server reads them order by order.
 function withDependents(
   older: HistoryRecords,
   orders: WorkOrder[],
@@ -591,25 +627,15 @@ function withDependents(
   HistoryRecords,
   "workOrders" | "taskCards" | "archivedTaskCards" | "costs"
 > {
-  const uuids = new Set(orders.map((w) => w.uuid));
-  const onPage = (c: TaskCard) => uuids.has(c.workOrderUuid);
+  const cards = groupByOrder(older.taskCards);
+  const archived = groupByOrder(older.archivedTaskCards);
+  const costs = groupByOrder(
+    older.costs.flatMap((c) => (c.kind === "workOrder" ? [c] : [])),
+  );
   return {
     workOrders: orders,
-    taskCards: older.taskCards.filter(onPage),
-    archivedTaskCards: older.archivedTaskCards.filter(onPage),
-    costs: older.costs.filter(
-      (c) => c.kind === "workOrder" && uuids.has(c.workOrderUuid),
-    ),
-  };
-}
-
-function emptyRecords(): HistoryRecords {
-  return {
-    flights: [],
-    discrepancies: [],
-    workOrders: [],
-    taskCards: [],
-    archivedTaskCards: [],
-    costs: [],
+    taskCards: orders.flatMap((w) => cards.get(w.uuid) ?? []),
+    archivedTaskCards: orders.flatMap((w) => archived.get(w.uuid) ?? []),
+    costs: orders.flatMap((w) => costs.get(w.uuid) ?? []),
   };
 }
