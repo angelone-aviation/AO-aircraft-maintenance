@@ -21,8 +21,8 @@
     "test:backup": "bash scripts/backup/nightly.test.sh",
     "check:standards": "node .claude/hooks/check-standards.mjs --changed-since origin/main",
     "backup:workbook": "node scripts/backup/records-workbook.mjs",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts"
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/**/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"convex/*.ts\" \"scripts/*.mjs\" \"tests/**/*.ts\" \"docs/**/*.md\" README.md package.json tsconfig.json vite.config.ts vitest.config.ts playwright.config.ts"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",

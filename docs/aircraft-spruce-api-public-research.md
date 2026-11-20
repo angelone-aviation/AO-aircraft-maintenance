@@ -10,14 +10,14 @@ Reviewed 2026-10-21. Scope: public first-party sources only; no credentials or a
 
 ## What remains unverified
 
-| Capability | Evidence needed |
-| --- | --- |
-| Product CSV download | Successful authenticated response and downloaded CSV headers; exact request method and encoding |
-| Product price and availability lookup | Endpoint contract, price currency, units, stock semantics, and freshness |
-| Order submission | Documented request and response, account permissions, payment handling, duplicate prevention |
-| Order and shipment synchronization | Retrieval endpoints or webhooks, line identifiers, partial shipment/backorder semantics |
-| Order changes and cancellation | Vendor-supported operations and confirmation rules |
-| Operational limits | Rate limits, download refresh cadence, expiry timezone, sandbox availability |
+| Capability                            | Evidence needed                                                                                 |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Product CSV download                  | Successful authenticated response and downloaded CSV headers; exact request method and encoding |
+| Product price and availability lookup | Endpoint contract, price currency, units, stock semantics, and freshness                        |
+| Order submission                      | Documented request and response, account permissions, payment handling, duplicate prevention    |
+| Order and shipment synchronization    | Retrieval endpoints or webhooks, line identifiers, partial shipment/backorder semantics         |
+| Order changes and cancellation        | Vendor-supported operations and confirmation rules                                              |
+| Operational limits                    | Rate limits, download refresh cadence, expiry timezone, sandbox availability                    |
 
 The user-provided catalog response example suggests a temporary CSV download URL, but this public-source review did not independently verify that example. Authenticated catalog testing should be reported separately.
 

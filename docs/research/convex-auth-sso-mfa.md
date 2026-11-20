@@ -8,17 +8,17 @@ Convex Auth wraps Auth.js provider configs, so Google and Microsoft Entra ID OAu
 
 ## Facts table
 
-| Capability | Supported? | How | Source |
-|---|---|---|---|
-| Google OAuth | Yes (official) | `providers: [Google]`, `AUTH_GOOGLE_ID/SECRET`, redirect `https://<dep>.convex.site/api/auth/callback/google` | https://labs.convex.dev/auth/config/oauth/google |
-| Microsoft Entra ID OAuth | Works, unsupported by Convex | Auth.js `MicrosoftEntraID` provider id `microsoft-entra-id`; `AUTH_MICROSOFT_ENTRA_ID_ID/SECRET/ISSUER` | https://labs.convex.dev/auth/config/oauth ; https://authjs.dev/getting-started/providers/microsoft-entra-id |
-| Provider auth params (e.g. `hd`) | Yes | `provider.authorization.params` spread into the authorize URL | https://github.com/convex/convex-auth/blob/main/src/server/oauth/authorizationUrl.ts |
-| Reject unknown email | Yes | `callbacks.createOrUpdateUser` throws; default create/link skipped | https://labs.convex.dev/auth/api_reference/server |
-| Link OAuth to existing password user | Yes | Default: trusted method + exactly one user with `emailVerificationTime`; or do it yourself in `createOrUpdateUser` | https://labs.convex.dev/auth/advanced ; `src/server/implementation/users.ts` |
-| Native MFA / TOTP / passkeys | No | Only draft PRs (#352, #441, #633, #652) on v2 branch; TOTP made internal (#766) | https://github.com/convex/convex-auth/issues/77 |
-| Session config | Yes | `session.totalDurationMs` (30d default), `inactiveDurationMs` (30d), `jwt.durationMs` (1h) | https://labs.convex.dev/auth/api_reference/server |
-| Audit data | Partial | `authSessions`, `authAccounts`, `authRefreshTokens` tables; no IP/UA/provider-of-session | `src/server/implementation/types.ts` |
-| Status | Beta, v0.0.96 | "may change in backward-incompatible ways"; 186 stars, 201 open issues, pushed 2026-10-29 | https://docs.convex.dev/auth ; https://registry.npmjs.org/@convex-dev/auth/latest |
+| Capability                           | Supported?                   | How                                                                                                                | Source                                                                                                      |
+| ------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Google OAuth                         | Yes (official)               | `providers: [Google]`, `AUTH_GOOGLE_ID/SECRET`, redirect `https://<dep>.convex.site/api/auth/callback/google`      | https://labs.convex.dev/auth/config/oauth/google                                                            |
+| Microsoft Entra ID OAuth             | Works, unsupported by Convex | Auth.js `MicrosoftEntraID` provider id `microsoft-entra-id`; `AUTH_MICROSOFT_ENTRA_ID_ID/SECRET/ISSUER`            | https://labs.convex.dev/auth/config/oauth ; https://authjs.dev/getting-started/providers/microsoft-entra-id |
+| Provider auth params (e.g. `hd`)     | Yes                          | `provider.authorization.params` spread into the authorize URL                                                      | https://github.com/convex/convex-auth/blob/main/src/server/oauth/authorizationUrl.ts                        |
+| Reject unknown email                 | Yes                          | `callbacks.createOrUpdateUser` throws; default create/link skipped                                                 | https://labs.convex.dev/auth/api_reference/server                                                           |
+| Link OAuth to existing password user | Yes                          | Default: trusted method + exactly one user with `emailVerificationTime`; or do it yourself in `createOrUpdateUser` | https://labs.convex.dev/auth/advanced ; `src/server/implementation/users.ts`                                |
+| Native MFA / TOTP / passkeys         | No                           | Only draft PRs (#352, #441, #633, #652) on v2 branch; TOTP made internal (#766)                                    | https://github.com/convex/convex-auth/issues/77                                                             |
+| Session config                       | Yes                          | `session.totalDurationMs` (30d default), `inactiveDurationMs` (30d), `jwt.durationMs` (1h)                         | https://labs.convex.dev/auth/api_reference/server                                                           |
+| Audit data                           | Partial                      | `authSessions`, `authAccounts`, `authRefreshTokens` tables; no IP/UA/provider-of-session                           | `src/server/implementation/types.ts`                                                                        |
+| Status                               | Beta, v0.0.96                | "may change in backward-incompatible ways"; 186 stars, 201 open issues, pushed 2026-10-29                          | https://docs.convex.dev/auth ; https://registry.npmjs.org/@convex-dev/auth/latest                           |
 
 ## 1. OAuth support and wiring
 
@@ -70,6 +70,7 @@ Microsoft: register the app as "Accounts in this organizational directory only" 
 Convex Auth lists only magic links/OTP, OAuth and passwords; MFA/passkeys appear nowhere in the docs ([intro](https://labs.convex.dev/auth)). Issue #77 "Passkey support?" (2024) is still open; TOTP/passkey work exists only as draft PRs on the v2 "reboot" branch, and PR #766 made the TOTP component internal ([search](https://github.com/convex/convex-auth/issues?q=passkey+OR+TOTP)). Convex's own guidance: third-party providers add "passkeys, two-factor auth" and Convex Auth "doesn't provide as many features" ([docs.convex.dev/auth](https://docs.convex.dev/auth)).
 
 Options:
+
 - (a) IdP-enforced MFA. Google Workspace admins enforce 2-Step Verification per OU, including "Only security key" (keys and passkeys) ([Workspace 2SV](https://knowledge.workspace.google.com/admin/security/deploy-2-step-verification)). Entra: security defaults give app-based MFA on the free tier; Conditional Access "Require MFA for all users" needs P1 ([licensing](https://learn.microsoft.com/en-us/entra/identity/authentication/concept-mfa-licensing), [policy](https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-mfa-strength)). Entra emits `amr` containing `mfa` when MFA was completed ([optional claims](https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference)); Convex Auth can check it in `profile()` if the claim is requested. Then remove Password for non-admins (keep a break-glass admin password or drop it).
 - (b) Custom TOTP step in-app: no library hook exists; you would gate `createOrUpdateUser` on a separate verified-TOTP record and build enrollment, backup codes and rate limiting yourself. The maintainers' own attempt is still draft.
 - (c) Hosted IdP via `convex/auth.config.ts` custom JWT (`{ domain, applicationID: "convex" }`, [Clerk guide](https://docs.convex.dev/auth/clerk)). Clerk: MFA on Pro ($25/mo), 1 SSO connection included, extra $75/mo each ([pricing](https://clerk.com/pricing)). WorkOS AuthKit: first 1M MAU free, MFA included, enterprise SSO $125/connection ([pricing](https://workos.com/pricing)) — plain Google/Microsoft OAuth are not SSO connections. Convex also ships a Better Auth component whose supported-plugins page lists Two Factor ([supported plugins](https://labs.convex.dev/better-auth/supported-plugins)); migration cost is comparable to (c).
@@ -88,12 +89,12 @@ Latest 0.0.96 (peer `@auth/core` ^0.41.1); repo now `convex/convex-auth`, "stabl
 
 ## Decision inputs
 
-| | A: Convex Auth + Google/Microsoft OAuth, IdP MFA, password admin-only | B: Convex Auth + custom TOTP | C: Hosted IdP (Clerk / WorkOS / Better Auth) |
-|---|---|---|---|
-| Effort | Low-medium: 2 providers, `createOrUpdateUser`, `profile()` checks, upgrade to 0.0.96, UI buttons, Entra PKCE testing | High: build enrollment, verify, backup codes, rate limits, recovery; no library hook | Medium: swap `auth.config.ts`, rewrite sign-in UI, migrate admin provisioning to IdP API, re-link users |
-| Security | MFA quality equals IdP policy; residual risk is Convex Auth beta OAuth bugs and unverified Entra email (bounded by single tenant) | Home-grown crypto/ratelimit on a beta lib; weakest | Strongest, audited MFA/passkeys, breach detection |
-| Cost | $0 extra (Workspace/M365 already paid; Entra P1 only if Conditional Access wanted) | $0 extra, developer time | Clerk $25/mo+; WorkOS free to 1M MAU; vendor fees later |
-| Lock-in | Low: data stays in Convex tables | Low | Medium-high: users and MFA live in vendor |
+|          | A: Convex Auth + Google/Microsoft OAuth, IdP MFA, password admin-only                                                             | B: Convex Auth + custom TOTP                                                         | C: Hosted IdP (Clerk / WorkOS / Better Auth)                                                            |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Effort   | Low-medium: 2 providers, `createOrUpdateUser`, `profile()` checks, upgrade to 0.0.96, UI buttons, Entra PKCE testing              | High: build enrollment, verify, backup codes, rate limits, recovery; no library hook | Medium: swap `auth.config.ts`, rewrite sign-in UI, migrate admin provisioning to IdP API, re-link users |
+| Security | MFA quality equals IdP policy; residual risk is Convex Auth beta OAuth bugs and unverified Entra email (bounded by single tenant) | Home-grown crypto/ratelimit on a beta lib; weakest                                   | Strongest, audited MFA/passkeys, breach detection                                                       |
+| Cost     | $0 extra (Workspace/M365 already paid; Entra P1 only if Conditional Access wanted)                                                | $0 extra, developer time                                                             | Clerk $25/mo+; WorkOS free to 1M MAU; vendor fees later                                                 |
+| Lock-in  | Low: data stays in Convex tables                                                                                                  | Low                                                                                  | Medium-high: users and MFA live in vendor                                                               |
 
 Recommendation: A. It satisfies "no self-signup" with ~40 lines, gets real MFA from IdPs the customer already runs, and keeps the earlier stay-in-app decision.
 

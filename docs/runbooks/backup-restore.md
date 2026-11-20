@@ -6,12 +6,12 @@ Policy: [ADR-0008](../adr/0008-daily-backups-off-site-90-days-monthly-forever.md
 
 ## What is backed up, where
 
-| Copy | Where | Kept |
-|---|---|---|
-| Convex scheduled backup | Convex dashboard > Backups (production) | 7 days |
-| Nightly export (**not** encrypted) | R2 bucket `angelone-backups`, `daily/` | 90 days, locked |
-| Monthly archive (**not** encrypted) | Same bucket, `monthly/` | Forever, locked |
-| Environment variables | **Not saved** while encryption is off; `env/`, encrypted, once a key is set | Forever, locked |
+| Copy                                                                     | Where                                                                                                                                           | Kept                           |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Convex scheduled backup                                                  | Convex dashboard > Backups (production)                                                                                                         | 7 days                         |
+| Nightly export (**not** encrypted)                                       | R2 bucket `angelone-backups`, `daily/`                                                                                                          | 90 days, locked                |
+| Monthly archive (**not** encrypted)                                      | Same bucket, `monthly/`                                                                                                                         | Forever, locked                |
+| Environment variables                                                    | **Not saved** while encryption is off; `env/`, encrypted, once a key is set                                                                     | Forever, locked                |
 | Readable records workbook (Excel, **not** encrypted or locked), optional | Dropbox app folder, `/Daily/` and `/Monthly/` ([runbook](dropbox-records-copy.md), [ADR-0011](../adr/0011-readable-records-copy-in-dropbox.md)) | 90 days daily; monthly forever |
 
 ## The nightly job
@@ -62,18 +62,18 @@ GitHub → **Actions** → **Nightly backup** → **Run workflow** → branch `m
 
 Open the failed run and read the red error line. Running the workflow again is always safe.
 
-| Error says | Do this |
-|---|---|
-| `CONVEX_DEPLOY_KEY must be a production deploy key` | The `backups` environment secret `CONVEX_BACKUP_DEPLOY_KEY` is missing or not a `prod:` key. |
-| `BACKUP_AGE_PUBLIC_KEY holds an age private key` | The private key was saved in GitHub by mistake. Delete that secret, then [change the key](#changing-the-backup-key). |
-| `BACKUP_AGE_PUBLIC_KEY must be an age public key` | The secret is set but is not an `age1…` key. Delete it to store unencrypted copies, or put the right public key in it. |
-| `objectKey must start with "daily/" and end with ".zip.age"` (in the recording step) | The app is older than ADR-0014 and refuses an `.unencrypted.zip` copy. Deploy the current `main`, then run again. |
-| `The export has no documents in any table`, `… no file storage` or `… no user accounts` | The export is incomplete, or the deploy key belongs to a deployment nobody uses. Nothing was uploaded. Check that `CONVEX_BACKUP_DEPLOY_KEY` is the key of the production deployment people sign in to, then run again. |
-| `npx convex export failed` | Check Convex status and that the deploy key still exists (Convex dashboard → Settings). Convex allows one export at a time per deployment, so a dashboard backup running at the same time can block it; run again later. |
-| `Upload to s3://… failed` or `Could not check s3://…` | The R2 token expired, was deleted, or lacks object read and write on the bucket; or `R2_BUCKET` / `R2_ACCOUNT_ID` is wrong. |
-| `… after upload, expected … bytes` | The upload was cut short. Run again. |
-| `The backup itself succeeded … but recording it in the app failed` | The copy is in R2. Deploy the app if `backups:recordOffsiteCopy` is not live yet, then run again so the app sees a fresh copy. |
-| `The R2 backup succeeded and is recorded, but the readable workbook could not be made` or `… the Dropbox copy failed` | The R2 copy is safe. See [Dropbox records copy](dropbox-records-copy.md) for the Dropbox error table. Running again adds the day's workbook if it is still missing. |
+| Error says                                                                                                            | Do this                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CONVEX_DEPLOY_KEY must be a production deploy key`                                                                   | The `backups` environment secret `CONVEX_BACKUP_DEPLOY_KEY` is missing or not a `prod:` key.                                                                                                                             |
+| `BACKUP_AGE_PUBLIC_KEY holds an age private key`                                                                      | The private key was saved in GitHub by mistake. Delete that secret, then [change the key](#changing-the-backup-key).                                                                                                     |
+| `BACKUP_AGE_PUBLIC_KEY must be an age public key`                                                                     | The secret is set but is not an `age1…` key. Delete it to store unencrypted copies, or put the right public key in it.                                                                                                   |
+| `objectKey must start with "daily/" and end with ".zip.age"` (in the recording step)                                  | The app is older than ADR-0014 and refuses an `.unencrypted.zip` copy. Deploy the current `main`, then run again.                                                                                                        |
+| `The export has no documents in any table`, `… no file storage` or `… no user accounts`                               | The export is incomplete, or the deploy key belongs to a deployment nobody uses. Nothing was uploaded. Check that `CONVEX_BACKUP_DEPLOY_KEY` is the key of the production deployment people sign in to, then run again.  |
+| `npx convex export failed`                                                                                            | Check Convex status and that the deploy key still exists (Convex dashboard → Settings). Convex allows one export at a time per deployment, so a dashboard backup running at the same time can block it; run again later. |
+| `Upload to s3://… failed` or `Could not check s3://…`                                                                 | The R2 token expired, was deleted, or lacks object read and write on the bucket; or `R2_BUCKET` / `R2_ACCOUNT_ID` is wrong.                                                                                              |
+| `… after upload, expected … bytes`                                                                                    | The upload was cut short. Run again.                                                                                                                                                                                     |
+| `The backup itself succeeded … but recording it in the app failed`                                                    | The copy is in R2. Deploy the app if `backups:recordOffsiteCopy` is not live yet, then run again so the app sees a fresh copy.                                                                                           |
+| `The R2 backup succeeded and is recorded, but the readable workbook could not be made` or `… the Dropbox copy failed` | The R2 copy is safe. See [Dropbox records copy](dropbox-records-copy.md) for the Dropbox error table. Running again adds the day's workbook if it is still missing.                                                      |
 
 ## When an environment variable changes
 
@@ -110,9 +110,9 @@ Use the newest monthly copy.
 8. Delete the scratch deployment and the downloaded files (and `key.txt`, for an encrypted copy).
 9. Log it below.
 
-| Date | Snapshot used | Passed? | Time taken | By |
-|---|---|---|---|---|
-| | | | | |
+| Date | Snapshot used | Passed? | Time taken | By  |
+| ---- | ------------- | ------- | ---------- | --- |
+|      |               |         |            |     |
 
 ## Real restore (production)
 
@@ -149,6 +149,7 @@ With encryption on, a restore needs the private key, at least once a year use th
    ```
 
    If `age` reports no matching identity, compare the manifest's `encryptedTo` with `age-keygen -y key.txt`: the file was encrypted to a different key.
+
 4. For the environment file, change `SITE_URL` to the target site if it is a scratch deployment, then: `npx convex env set --deployment <target> --force --from-file angelone-env-20261101T084109Z.txt`. Delete the file afterwards.
 
 ### Changing the backup key

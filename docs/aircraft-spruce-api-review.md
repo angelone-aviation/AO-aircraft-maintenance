@@ -22,18 +22,18 @@ Credentials remain in the ignored `.env.aircraftspruce.local`. The downloaded ca
 
 ## Catalog fields and proposed application use
 
-| Observed columns | Proposed use and limitations |
-| --- | --- |
-| PN, DESCRIPTION | Vendor product search and PO description. Keep supplier PN separate from any internal/manufacturer part identifier until mappings are verified. Two descriptions are blank. |
-| RETAILPRICE, DISCOUNT, NETPRICE | Draft pricing display. Confirm currency, account pricing rules, discount meaning, and price validity before adopting NETPRICE as a PO unit price. No explicit currency column is present. |
+| Observed columns                                                         | Proposed use and limitations                                                                                                                                                                   |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PN, DESCRIPTION                                                          | Vendor product search and PO description. Keep supplier PN separate from any internal/manufacturer part identifier until mappings are verified. Two descriptions are blank.                    |
+| RETAILPRICE, DISCOUNT, NETPRICE                                          | Draft pricing display. Confirm currency, account pricing rules, discount meaning, and price validity before adopting NETPRICE as a PO unit price. No explicit currency column is present.      |
 | GA-AVAIL, CA-AVAIL, CANADA-AVAIL, IL-AVAIL, TX-AVAIL, PA-AVAIL, AZ-AVAIL | Display supplier availability by the feed's location codes with a fetch timestamp. These are supplier values, not local inventory. Blank values must remain unknown rather than becoming zero. |
-| Matching location -DUE columns | Display supplier due text. Values include dates and CALL; do not parse every value as a guaranteed delivery date. |
-| UOM | Unit-of-measure mapping. Observed units include EA, PC, PACK, KIT, FT, GAL. Verify pack quantities and conversion before mapping to the app's integer order quantities. |
-| MFG | Preserve supplier manufacturer metadata pending documentation of its format. |
-| CORE | Preserve raw value; observed entries look like part identifiers, so do not interpret this as a monetary core charge. |
-| DIMS, WEIGHT, HAZ, OVERSIZE | Shipping-related metadata. Confirm dimensions/weight units and flag meanings. HAZ and OVERSIZE contain codes beyond Y/N. |
-| URL, IMAGE, SECTION, CATEGORY | Product links, images, and browsing filters. These fields are populated on 92,294 rows in this snapshot. |
-| VOLDISC, SPECIAL, AVCODE | Preserve raw codes; meanings and pricing effects remain unverified. |
+| Matching location -DUE columns                                           | Display supplier due text. Values include dates and CALL; do not parse every value as a guaranteed delivery date.                                                                              |
+| UOM                                                                      | Unit-of-measure mapping. Observed units include EA, PC, PACK, KIT, FT, GAL. Verify pack quantities and conversion before mapping to the app's integer order quantities.                        |
+| MFG                                                                      | Preserve supplier manufacturer metadata pending documentation of its format.                                                                                                                   |
+| CORE                                                                     | Preserve raw value; observed entries look like part identifiers, so do not interpret this as a monetary core charge.                                                                           |
+| DIMS, WEIGHT, HAZ, OVERSIZE                                              | Shipping-related metadata. Confirm dimensions/weight units and flag meanings. HAZ and OVERSIZE contain codes beyond Y/N.                                                                       |
+| URL, IMAGE, SECTION, CATEGORY                                            | Product links, images, and browsing filters. These fields are populated on 92,294 rows in this snapshot.                                                                                       |
+| VOLDISC, SPECIAL, AVCODE                                                 | Preserve raw codes; meanings and pricing effects remain unverified.                                                                                                                            |
 
 ## Integration recommendation
 

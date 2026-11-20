@@ -35,11 +35,14 @@ The rules are in [docs/alerts.md](../alerts.md); this is the operator's part.
     ```
 
     All three must be set before **Settings → Alerts → Alert this device** appears; until then that block, and Settings → System → Deployment status, say that alerts on devices are not turned on. Record the pair under **Settings → System → Expiring dates** with a yearly review date, and in the [accounts inventory](accounts.md). Rotating the pair invalidates every device's subscription: each device's switch then reads off, and members switch it on again on each device. The server removes the old subscriptions after their push services refuse them on three checks in a row. If the private key leaks, rotate it the same way.
+
 11. **Checking delivery.** Turn **Alert this device** on in a browser, then save an expiring date with yesterday's date under Settings → Flight Program: within a minute the device shows "<program>: 1 urgent alert" and the opted-in members receive the email. The Convex logs show `sendImmediate` with `pushed: 1` and `sendUrgent` with `sent: 1`. A push service that answers 404 or 410 has that device's subscription removed; the member switches alerts on again.
+
 ## Privacy rules
 
 12. Keep error reports free of personal data:
-   - No session replay: never add Sentry's replay or feedback integrations.
-   - No user identity: never call `Sentry.setUser`. `errorReporting.ts` turns off Sentry's user, IP address, cookie, header and query string collection.
-   - No query strings: `beforeSend` strips them, with fragments, from the page URL and from breadcrumb URLs, because a sign-in redirect carries a one-time code. It also drops cookies and headers. `src/data/errorReporting.test.ts` pins this.
-   - In Sentry → Project Settings → Security & Privacy, keep **Data Scrubber** on and turn on **Prevent Storing of IP Addresses** for both projects.
+
+- No session replay: never add Sentry's replay or feedback integrations.
+- No user identity: never call `Sentry.setUser`. `errorReporting.ts` turns off Sentry's user, IP address, cookie, header and query string collection.
+- No query strings: `beforeSend` strips them, with fragments, from the page URL and from breadcrumb URLs, because a sign-in redirect carries a one-time code. It also drops cookies and headers. `src/data/errorReporting.test.ts` pins this.
+- In Sentry → Project Settings → Security & Privacy, keep **Data Scrubber** on and turn on **Prevent Storing of IP Addresses** for both projects.

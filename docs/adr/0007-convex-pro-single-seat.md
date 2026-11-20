@@ -17,7 +17,7 @@ We stay on Convex (standing recommendation) and move the project to the **Pro pl
 
 ## Consequences
 
-- **Tension with ADR-0005** (resolved by [ADR-0010](0010-one-convex-administrator.md): one Convex member, no second dashboard user): that decision limits production dashboard access to *two* named administrators. One seat gives standing dashboard access to one person. Until resolved, the second administrator holds only break-glass material (the escrowed deploy key and environment variables, ADR-0008) and gets no standing dashboard login. A second seat (about another US$25 a month) would restore the two-person rule; this is an open question for the program, not settled here.
+- **Tension with ADR-0005** (resolved by [ADR-0010](0010-one-convex-administrator.md): one Convex member, no second dashboard user): that decision limits production dashboard access to _two_ named administrators. One seat gives standing dashboard access to one person. Until resolved, the second administrator holds only break-glass material (the escrowed deploy key and environment variables, ADR-0008) and gets no standing dashboard login. A second seat (about another US$25 a month) would restore the two-person rule; this is an open question for the program, not settled here.
 - Which account owns and pays for the Convex team is part of the external-accounts inventory; the transfer must happen before go-live so the program, not an individual, owns production.
 - Pro's included egress (50 GB a month) bounds the nightly export: dataset plus files, times 30, must stay under it. Revisit when file storage passes about 1.5 GB.
 

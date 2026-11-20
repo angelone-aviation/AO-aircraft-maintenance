@@ -22,26 +22,26 @@ New evidence about E, F and D is in §4.
 
 ## 1. Ranking
 
-| Rank | ID | Candidate | Impact | Risk | Score | Depends on |
-|---|---|---|---|---|---|---|
-| 1 | T1 | Collection codec: a stored row ⇄ a Snapshot collection, once | H | L | 3.0 | none |
-| 2 | T2 | Discrepancy resolution as a domain command | M | L | 2.0 | none (T12 helps) |
-| 3 | T3 | Attachment rules shared by both adapters (new evidence clears signoffs) | M | L | 2.0 | none |
-| 4 | T4 | Server upload pipeline and one blob-reference list | M | L | 2.0 | none |
-| 5 | T5 | Retire the second aircraft-creation path | M | L | 2.0 | none |
-| 6 | T6 | Leftover non-command mutations: manuals ×3, saved address, FAA monitor, program select | M | L | 2.0 | none (T12 helps) |
-| 7 | T7 | Meter-reading value module (hours ⇄ seconds, tenths rule) | M | L | 2.0 | none; inside E's perimeter, see §4 |
-| 8 | T8 | Split the records workbook | M | L | 2.0 | T1 b1, T13 b1 |
-| 9 | T9 | Changed-row writer: `runCommand` owns persist | H | M | 1.5 | T1 b1–b2 |
-| 10 | T10 | One rejection type, exposed by default, with a stale-version guard | H | M | 1.5 | none |
-| 11 | T11 | Conflict review (flight review) as a domain command | H | M | 1.5 | T10 b1 helps |
-| 12 | T12 | Change-log rows composed once, in the domain, with `programUuid` stamped | H | M | 1.5 | none |
-| 13 | T13 | Maintenance due list: one module for "what is due on this aircraft" | H | H | 1.0 | none |
-| 14 | T14 | Recurring-parts occurrences generated inside the appliers | M | M | 1.0 | T9 helps |
-| 15 | T15 | Work-order "add inspection" fast path onto the applier, plus the ADR-0003 post-apply hook | M | M | 1.0 | none |
-| 16 | T16 | Membership and permission-group rules into the domain | M | M | 1.0 | none |
-| 17 | T17 | Status-record documents: content separate from PDF layout | M | M | 1.0 | T13 b1 |
-| 18 | T18 | Request ids on every command (`commandRequests`) | M | H | 0.67 | T9, T12 |
+| Rank | ID  | Candidate                                                                                 | Impact | Risk | Score | Depends on                         |
+| ---- | --- | ----------------------------------------------------------------------------------------- | ------ | ---- | ----- | ---------------------------------- |
+| 1    | T1  | Collection codec: a stored row ⇄ a Snapshot collection, once                              | H      | L    | 3.0   | none                               |
+| 2    | T2  | Discrepancy resolution as a domain command                                                | M      | L    | 2.0   | none (T12 helps)                   |
+| 3    | T3  | Attachment rules shared by both adapters (new evidence clears signoffs)                   | M      | L    | 2.0   | none                               |
+| 4    | T4  | Server upload pipeline and one blob-reference list                                        | M      | L    | 2.0   | none                               |
+| 5    | T5  | Retire the second aircraft-creation path                                                  | M      | L    | 2.0   | none                               |
+| 6    | T6  | Leftover non-command mutations: manuals ×3, saved address, FAA monitor, program select    | M      | L    | 2.0   | none (T12 helps)                   |
+| 7    | T7  | Meter-reading value module (hours ⇄ seconds, tenths rule)                                 | M      | L    | 2.0   | none; inside E's perimeter, see §4 |
+| 8    | T8  | Split the records workbook                                                                | M      | L    | 2.0   | T1 b1, T13 b1                      |
+| 9    | T9  | Changed-row writer: `runCommand` owns persist                                             | H      | M    | 1.5   | T1 b1–b2                           |
+| 10   | T10 | One rejection type, exposed by default, with a stale-version guard                        | H      | M    | 1.5   | none                               |
+| 11   | T11 | Conflict review (flight review) as a domain command                                       | H      | M    | 1.5   | T10 b1 helps                       |
+| 12   | T12 | Change-log rows composed once, in the domain, with `programUuid` stamped                  | H      | M    | 1.5   | none                               |
+| 13   | T13 | Maintenance due list: one module for "what is due on this aircraft"                       | H      | H    | 1.0   | none                               |
+| 14   | T14 | Recurring-parts occurrences generated inside the appliers                                 | M      | M    | 1.0   | T9 helps                           |
+| 15   | T15 | Work-order "add inspection" fast path onto the applier, plus the ADR-0003 post-apply hook | M      | M    | 1.0   | none                               |
+| 16   | T16 | Membership and permission-group rules into the domain                                     | M      | M    | 1.0   | none                               |
+| 17   | T17 | Status-record documents: content separate from PDF layout                                 | M      | M    | 1.0   | T13 b1                             |
+| 18   | T18 | Request ids on every command (`commandRequests`)                                          | M      | H    | 0.67  | T9, T12                            |
 
 **Suggested order of work.** The order differs from the ranking because some candidates depend on others:
 
@@ -61,19 +61,19 @@ New evidence about E, F and D is in §4.
 
 **Files**
 
-| File | Lines | What it holds |
-|---|---|---|
-| `convex/runCommand.ts` | 295 | `hydrate`, 205–295 |
-| `convex/operations.ts` | 709 | the `snapshot` query, 119–286 |
-| `convex/programContext.ts` | 296 | the scoped loaders |
-| `convex/costs.ts` | 85 | load, 28–56 |
-| `convex/programs.ts` | 190 | transfer load |
-| `convex/recurringParts.ts` | 88 | |
-| `convex/sampleProgram.ts` | 680 | |
-| `scripts/backup/recordsWorkbook.ts` | 2,289 | `decode`, 343–450 |
-| `scripts/backup/exportFixture.ts` | 1,713 | |
+| File                                | Lines | What it holds                 |
+| ----------------------------------- | ----- | ----------------------------- |
+| `convex/runCommand.ts`              | 295   | `hydrate`, 205–295            |
+| `convex/operations.ts`              | 709   | the `snapshot` query, 119–286 |
+| `convex/programContext.ts`          | 296   | the scoped loaders            |
+| `convex/costs.ts`                   | 85    | load, 28–56                   |
+| `convex/programs.ts`                | 190   | transfer load                 |
+| `convex/recurringParts.ts`          | 88    |                               |
+| `convex/sampleProgram.ts`           | 680   |                               |
+| `scripts/backup/recordsWorkbook.ts` | 2,289 | `decode`, 343–450             |
+| `scripts/backup/exportFixture.ts`   | 1,713 |                               |
 
-**Problem.** Each payload-blob table has two rules: how a stored row decodes into its Snapshot collection (zod schema plus `JSON.parse`), and how a record encodes back into a row (which indexed columns are lifted out of the payload). Neither rule has a home. Every reader and writer restates them, so the knowledge has no **locality**. `programContext.ts` holds the scoped *loaders*, which are deep, but it holds no codecs. This is also why the ADR-0003 invariant "unloaded collections are `undefined`" and the partial-Snapshot typing (G) have nowhere to live.
+**Problem.** Each payload-blob table has two rules: how a stored row decodes into its Snapshot collection (zod schema plus `JSON.parse`), and how a record encodes back into a row (which indexed columns are lifted out of the payload). Neither rule has a home. Every reader and writer restates them, so the knowledge has no **locality**. `programContext.ts` holds the scoped _loaders_, which are deep, but it holds no codecs. This is also why the ADR-0003 invariant "unloaded collections are `undefined`" and the partial-Snapshot typing (G) have nowhere to live.
 
 **Evidence**
 
@@ -87,16 +87,17 @@ New evidence about E, F and D is in §4.
 - **`componentTemplates` and `componentSetups` are never schema-checked.** They are decoded with a bare `JSON.parse` in both `runCommand.ts:275, 281` and `operations.ts:170-175`.
 - **The `management` row encoder has six copies, and they disagree about `aircraftUuid`.**
 
-  | File:line | `aircraftUuid` written as |
-  |---|---|
-  | `management.ts:36-39` | `\|\| undefined` |
-  | `programs.ts:133` | `\|\| undefined` |
-  | `purchaseOrders.ts:52` | keeps `""` |
-  | `workOrders.ts:170/177` | keeps `""`; the patch also omits `kind` and `programUuid` |
-  | `inspectionTemplates.ts:68-74` | |
-  | `sampleProgram.ts:115-121` | |
+  | File:line                      | `aircraftUuid` written as                                 |
+  | ------------------------------ | --------------------------------------------------------- |
+  | `management.ts:36-39`          | `\|\| undefined`                                          |
+  | `programs.ts:133`              | `\|\| undefined`                                          |
+  | `purchaseOrders.ts:52`         | keeps `""`                                                |
+  | `workOrders.ts:170/177`        | keeps `""`; the patch also omits `kind` and `programUuid` |
+  | `inspectionTemplates.ts:68-74` |                                                           |
+  | `sampleProgram.ts:115-121`     |                                                           |
 
   The column has no index (`schema.ts:486-487`), so the disagreement is cosmetic today. It is still drift.
+
 - **The deletion test.** No codec module exists. Deleting the scattered copies is impossible, because the knowledge reappears at every call site. A codec module would earn its keep across about 136 sites in Convex and the backup scripts.
 
 **Proposed deepening.** The codec is in-process, has no I/O, and needs no port or adapter. It goes in a new `convex/collections.ts`, which imports only types from `convex/_generated`, so that `scripts/backup` can import it too. The loaders stay in `programContext.ts`. `hydrate`, the `snapshot` query and the workbook all read through the codec.
@@ -104,8 +105,8 @@ New evidence about E, F and D is in §4.
 ```ts
 // convex/collections.ts: pure; no ctx.
 export interface Collection<R, Row> {
-  decode(row: { payload: string }): R;  // schema-checked, always
-  encode(record: R): Row;               // the indexed columns and the payload
+  decode(row: { payload: string }): R; // schema-checked, always
+  encode(record: R): Row; // the indexed columns and the payload
 }
 export const COLLECTIONS: { [N in Need]: Collection<Item<N>, RowFields<N>> };
 ```
@@ -129,13 +130,13 @@ export const COLLECTIONS: { [N in Need]: Collection<Item<N>, RowFields<N>> };
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `convex/collections.ts` (new), `convex/runCommand.ts` | `hydrate` decodes through the codec |
-| b2 | `convex/operations.ts` | `snapshot` decodes through the codec |
-| b3 | `convex/costs.ts`, `convex/programs.ts`, `convex/recurringParts.ts` | ad-hoc decoders go through the codec |
-| b4 | `scripts/backup/recordsWorkbook.ts`, `scripts/backup/exportFixture.ts` | decode and encode through the codec; the scripts already bundle `src/` with esbuild |
-| b5 (later, ADR-0003) | `convex/runCommand.ts`, `src/domain/model.ts` | `undefined` for collections that are not loaded, and `Pick<Snapshot, …>` as the applier parameter (G). This changes behaviour, so it needs its own ADR status note. |
+| Batch                | Files                                                                  | What                                                                                                                                                                |
+| -------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| b1                   | `convex/collections.ts` (new), `convex/runCommand.ts`                  | `hydrate` decodes through the codec                                                                                                                                 |
+| b2                   | `convex/operations.ts`                                                 | `snapshot` decodes through the codec                                                                                                                                |
+| b3                   | `convex/costs.ts`, `convex/programs.ts`, `convex/recurringParts.ts`    | ad-hoc decoders go through the codec                                                                                                                                |
+| b4                   | `scripts/backup/recordsWorkbook.ts`, `scripts/backup/exportFixture.ts` | decode and encode through the codec; the scripts already bundle `src/` with esbuild                                                                                 |
+| b5 (later, ADR-0003) | `convex/runCommand.ts`, `src/domain/model.ts`                          | `undefined` for collections that are not loaded, and `Pick<Snapshot, …>` as the applier parameter (G). This changes behaviour, so it needs its own ADR status note. |
 
 ---
 
@@ -143,24 +144,24 @@ export const COLLECTIONS: { [N in Need]: Collection<Item<N>, RowFields<N>> };
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/operations.ts` | 709 | `resolveDiscrepancy`, 445–477 |
-| `src/data/demoBackend.ts` | 1,459 | `resolve`, 943–964 |
-| `src/domain/deferrals.ts` | 127 | |
+| File                      | Lines | What                          |
+| ------------------------- | ----- | ----------------------------- |
+| `convex/operations.ts`    | 709   | `resolveDiscrepancy`, 445–477 |
+| `src/data/demoBackend.ts` | 1,459 | `resolve`, 943–964            |
+| `src/domain/deferrals.ts` | 127   |                               |
 
 **Problem.** Resolving a Discrepancy closes a maintenance record, but the rule has no domain module. Each adapter writes it inline, and the two copies have drifted. The server mutation sits outside `runCommand`, which the report lists as one of the leftovers.
 
 **Evidence: the drift.**
 
-| Rule | Convex (`operations.ts`) | Demo (`demoBackend.ts`) |
-|---|---|---|
-| "resolve" permission | checked, `:458` | missing |
-| Length limit | 1–5000 characters, `:459-460` | none; message is "Describe the repair." |
-| Stored text | trimmed, `:465` | untrimmed |
-| Already resolved | "This report is already resolved.", `:461-462` | "Already resolved." |
-| Missing report | "Report not found.", `:457` | `!` non-null assertion, then a crash, `:946` |
-| Audit row | values `{status, resolution, resolvedBy, resolvedAt}`, no `programUuid` | the whole record before and after |
+| Rule                 | Convex (`operations.ts`)                                                | Demo (`demoBackend.ts`)                      |
+| -------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+| "resolve" permission | checked, `:458`                                                         | missing                                      |
+| Length limit         | 1–5000 characters, `:459-460`                                           | none; message is "Describe the repair."      |
+| Stored text          | trimmed, `:465`                                                         | untrimmed                                    |
+| Already resolved     | "This report is already resolved.", `:461-462`                          | "Already resolved."                          |
+| Missing report       | "Report not found.", `:457`                                             | `!` non-null assertion, then a crash, `:946` |
+| Audit row            | values `{status, resolution, resolvedBy, resolvedAt}`, no `programUuid` | the whole record before and after            |
 
 All 59 Playwright specs run against the demo, so none of these server rules is exercised end to end. The deletion test is the same as for C: delete the rule, and it reappears in two adapters.
 
@@ -169,9 +170,12 @@ All 59 Playwright specs run against the demo, so none of these server rules is e
 ```ts
 // src/domain/deferrals.ts (or a new discrepancies.ts)
 export function resolveDiscrepancy(
-  s: Snapshot, uuid: string, resolution: string, now = Date.now(),
+  s: Snapshot,
+  uuid: string,
+  resolution: string,
+  now = Date.now(),
 ): Discrepancy; // checks can(s, aircraft, "resolve"); 1–5000 chars, trimmed;
-                // not already resolved; pushes the "discrepancy.resolved" entry
+// not already resolved; pushes the "discrepancy.resolved" entry
 ```
 
 **Tests today.** `convex/operations.test.ts` (3 references to `resolveDiscrepancy`), and e2e on the demo. There is no domain test.
@@ -184,11 +188,11 @@ export function resolveDiscrepancy(
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/deferrals.ts`, with its test | the new applier and its tests |
-| b2 | `convex/operations.ts` | `resolveDiscrepancy` moves onto `runCommand` with the applier; stored data unchanged |
-| b3 | `src/data/demoBackend.ts` | the demo uses the applier; this is an explicit behaviour fix |
+| Batch | Files                                    | What                                                                                 |
+| ----- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| b1    | `src/domain/deferrals.ts`, with its test | the new applier and its tests                                                        |
+| b2    | `convex/operations.ts`                   | `resolveDiscrepancy` moves onto `runCommand` with the applier; stored data unchanged |
+| b3    | `src/data/demoBackend.ts`                | the demo uses the applier; this is an explicit behaviour fix                         |
 
 ---
 
@@ -196,13 +200,13 @@ export function resolveDiscrepancy(
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/taskCards.ts` | 213 | `finishUpload`, 122–159 |
-| `src/data/demoBackend.ts` | 1,459 | 326–366, 469–533 |
-| `convex/attachments.ts` | 41 | |
-| `convex/workOrders.ts` | 305 | 209–305 |
-| `src/domain/taskCards.ts` | 696 | |
+| File                      | Lines | What                    |
+| ------------------------- | ----- | ----------------------- |
+| `convex/taskCards.ts`     | 213   | `finishUpload`, 122–159 |
+| `src/data/demoBackend.ts` | 1,459 | 326–366, 469–533        |
+| `convex/attachments.ts`   | 41    |                         |
+| `convex/workOrders.ts`    | 305   | 209–305                 |
+| `src/domain/taskCards.ts` | 696   |                         |
 
 **Problem.** "New evidence is part of the record being signed" is a Signoff-integrity rule. Adding evidence clears the technician, inspector and step Signoffs and bumps the version. The rule lives in two adapters and not in the domain. The attachment cap and the "open record" checks are also adapter-only.
 
@@ -234,12 +238,12 @@ export function assertWorkOrderWritable(s: Snapshot, order: WorkOrder): void;
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/taskCards.ts`, `src/domain/attachments.ts`, with tests | the new domain rules |
-| b2 | `convex/taskCards.ts`, `convex/attachments.ts` | the server uses the domain rules; output unchanged |
-| b3 | `convex/workOrders.ts` | one shared "open work order" access check |
-| b4 | `src/data/demoBackend.ts` | the demo applies the cap and the evidence rule |
+| Batch | Files                                                              | What                                               |
+| ----- | ------------------------------------------------------------------ | -------------------------------------------------- |
+| b1    | `src/domain/taskCards.ts`, `src/domain/attachments.ts`, with tests | the new domain rules                               |
+| b2    | `convex/taskCards.ts`, `convex/attachments.ts`                     | the server uses the domain rules; output unchanged |
+| b3    | `convex/workOrders.ts`                                             | one shared "open work order" access check          |
+| b4    | `src/data/demoBackend.ts`                                          | the demo applies the cap and the evidence rule     |
 
 ---
 
@@ -247,17 +251,17 @@ export function assertWorkOrderWritable(s: Snapshot, order: WorkOrder): void;
 
 **Files**
 
-| File | Lines |
-|---|---|
-| `convex/attachments.ts` | 41 |
-| `convex/storageReferences.ts` | 39 |
-| `convex/aircraftPhotos.ts` | 102 |
-| `convex/inventoryFiles.ts` | 117 |
-| `convex/poFiles.ts` | 130 |
-| `convex/taskCards.ts` | 213 |
-| `convex/certifications.ts` | 140 |
-| `convex/aircraftFiles.ts` | 193 |
-| `convex/workOrders.ts` | 305 |
+| File                          | Lines |
+| ----------------------------- | ----- |
+| `convex/attachments.ts`       | 41    |
+| `convex/storageReferences.ts` | 39    |
+| `convex/aircraftPhotos.ts`    | 102   |
+| `convex/inventoryFiles.ts`    | 117   |
+| `convex/poFiles.ts`           | 130   |
+| `convex/taskCards.ts`         | 213   |
+| `convex/certifications.ts`    | 140   |
+| `convex/aircraftFiles.ts`     | 193   |
+| `convex/workOrders.ts`        | 305   |
 
 **Problem.** Seven upload actions repeat the same transaction-shaped sequence by hand:
 
@@ -273,12 +277,13 @@ Separately, two modules each hold "which tables refer to a blob", with different
 - **The upload sequence has seven copies:** `aircraftPhotos.ts:59-80`, `inventoryFiles.ts:71-92`, `poFiles.ts:85-110`, `taskCards.ts:161-191`, `certifications.ts:104-129`, `aircraftFiles.ts:118-149`, `workOrders.ts:258-282`. Each also pairs a `check` query with a `finish` mutation that re-runs the same access function.
 - **The two blob-reference lists differ.**
 
-  | | `STORAGE_REFERENCES` (`storageReferences.ts:6-17`) | `deleteBlobIfUnused` (`attachments.ts:14-41`) |
-  |---|---|---|
-  | Tables checked | 10 | 5: `inventoryFiles`, `poFiles`, `taskEvidence`, `workOrderFiles`, `manuals` |
-  | Tested against `schema.ts` | yes, `manuals.test.ts:441` | no |
+  |                            | `STORAGE_REFERENCES` (`storageReferences.ts:6-17`) | `deleteBlobIfUnused` (`attachments.ts:14-41`)                               |
+  | -------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
+  | Tables checked             | 10                                                 | 5: `inventoryFiles`, `poFiles`, `taskEvidence`, `workOrderFiles`, `manuals` |
+  | Tested against `schema.ts` | yes, `manuals.test.ts:441`                         | no                                                                          |
 
   `deleteBlobIfUnused` is used at six sites. The blobs shared today (`sampleProgram.ts:631-677`) all live in the five tables it checks, so nothing is lost yet. A new file table would be caught by the tested list and missed by the other. Deleting a blob cannot be undone.
+
 - **The deletion test.** `deleteBlobIfUnused` collapses to `if (!(await storageReferenced(ctx, id))) await ctx.storage.delete(id)`. Its own list is a pass-through copy of knowledge another module already owns and tests.
 
 **Proposed deepening.** One module owns the action-side seam. Manuals keep their own ticket flow (`manuals.ts:25-182`), which is already deep (see §5).
@@ -286,10 +291,14 @@ Separately, two modules each hold "which tables refer to a blob", with different
 ```ts
 // convex/attachments.ts
 export async function storeThenFinish<T>(
-  ctx: ActionCtx, file: { bytes: ArrayBuffer; type: string },
+  ctx: ActionCtx,
+  file: { bytes: ArrayBuffer; type: string },
   finish: (storageId: Id<"_storage">) => Promise<T>,
 ): Promise<T>; // the blob is deleted if `finish` throws
-export async function deleteBlobIfUnused(ctx: MutationCtx, id: Id<"_storage">): Promise<void>;
+export async function deleteBlobIfUnused(
+  ctx: MutationCtx,
+  id: Id<"_storage">,
+): Promise<void>;
 // = storageReferenced(ctx, id) over STORAGE_REFERENCES
 ```
 
@@ -307,12 +316,12 @@ export async function deleteBlobIfUnused(ctx: MutationCtx, id: Id<"_storage">): 
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `convex/attachments.ts`, `convex/storageReferences.ts` | `deleteBlobIfUnused` goes through `storageReferenced` |
-| b2 | `convex/attachments.ts`, `convex/inventoryFiles.ts`, `convex/poFiles.ts` | adds `storeThenFinish` and moves the first two actions onto it |
-| b3 | `convex/aircraftPhotos.ts`, `convex/aircraftFiles.ts`, `convex/certifications.ts` | moves three more actions |
-| b4 | `convex/taskCards.ts`, `convex/workOrders.ts` | moves the last two; coordinate with T3 b2–b3 |
+| Batch | Files                                                                             | What                                                           |
+| ----- | --------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| b1    | `convex/attachments.ts`, `convex/storageReferences.ts`                            | `deleteBlobIfUnused` goes through `storageReferenced`          |
+| b2    | `convex/attachments.ts`, `convex/inventoryFiles.ts`, `convex/poFiles.ts`          | adds `storeThenFinish` and moves the first two actions onto it |
+| b3    | `convex/aircraftPhotos.ts`, `convex/aircraftFiles.ts`, `convex/certifications.ts` | moves three more actions                                       |
+| b4    | `convex/taskCards.ts`, `convex/workOrders.ts`                                     | moves the last two; coordinate with T3 b2–b3                   |
 
 ---
 
@@ -320,13 +329,13 @@ export async function deleteBlobIfUnused(ctx: MutationCtx, id: Id<"_storage">): 
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/admin.ts` | 531 | `createAircraft`, 394–493: 100 lines |
-| `src/data/backend.ts` | 680 | 235, 652–655 |
-| `src/data/demoBackend.ts` | 1,459 | 1413–1424 |
-| `src/domain/fleet.ts` | 341 | 176–260 |
-| `scripts/smoke-local.mjs` | | 99 |
+| File                      | Lines | What                                 |
+| ------------------------- | ----- | ------------------------------------ |
+| `convex/admin.ts`         | 531   | `createAircraft`, 394–493: 100 lines |
+| `src/data/backend.ts`     | 680   | 235, 652–655                         |
+| `src/data/demoBackend.ts` | 1,459 | 1413–1424                            |
+| `src/domain/fleet.ts`     | 341   | 176–260                              |
+| `scripts/smoke-local.mjs` |       | 99                                   |
 
 **Problem.** An Aircraft can be created two ways:
 
@@ -339,11 +348,11 @@ export async function deleteBlobIfUnused(ctx: MutationCtx, id: Id<"_storage">): 
 
 - **The rules are duplicated, with different conditions and messages.**
 
-  | Rule | `admin.ts` | `fleet.ts` |
-  |---|---|---|
+  | Rule         | `admin.ts`                                         | `fleet.ts`                       |
+  | ------------ | -------------------------------------------------- | -------------------------------- |
   | Meter source | 481–484: "Cyclic Hobbs Meter requires Helicopter." | 196–208: also requires a reading |
-  | Registration | `assertAvailableAircraft`, 458 | in-snapshot uniqueness, 210–216 |
-  | Baselines | tenths and non-negative checks, 435–455 | |
+  | Registration | `assertAvailableAircraft`, 458                     | in-snapshot uniqueness, 210–216  |
+  | Baselines    | tenths and non-negative checks, 435–455            |                                  |
 
 - **The audit row has no `programUuid`** (`admin.ts:488-491`).
 - **The demo adapter's `createAircraft`** (`demoBackend.ts:1413-1424`) checks only the admin permission and that the registration is unique: no tenths rule and no upper-casing.
@@ -365,11 +374,11 @@ export async function deleteBlobIfUnused(ctx: MutationCtx, id: Id<"_storage">): 
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/data/backend.ts`, `src/data/demoBackend.ts`, `src/data/store.test.ts` | drop the dead method |
-| b2 | `scripts/smoke-local.mjs`, `convex/programUsers.test.ts` | move both callers to `fleet.save` |
-| b3 | `convex/admin.ts` | delete the mutation, or make it the wrapper |
+| Batch | Files                                                                      | What                                        |
+| ----- | -------------------------------------------------------------------------- | ------------------------------------------- |
+| b1    | `src/data/backend.ts`, `src/data/demoBackend.ts`, `src/data/store.test.ts` | drop the dead method                        |
+| b2    | `scripts/smoke-local.mjs`, `convex/programUsers.test.ts`                   | move both callers to `fleet.save`           |
+| b3    | `convex/admin.ts`                                                          | delete the mutation, or make it the wrapper |
 
 ---
 
@@ -379,28 +388,28 @@ The mutations are three manual edits, saved address, FAA monitor command and pro
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/manuals.ts` | 295 | 194–295 |
-| `convex/savedAddresses.ts` | 116 | 53–116 |
-| `convex/faa.ts` | 258 | 72–125 |
-| `convex/programs.ts` | 190 | 20–41 |
-| `src/data/demoBackend.ts` | 1,459 | 199–268, 544–572, 681–708, 818–829 |
-| `src/domain/manuals.ts` | 70 | |
-| `src/domain/savedAddresses.ts` | 30 | |
-| `src/domain/faa.ts` | 252 | |
-| `src/domain/programs.ts` | 397 | |
+| File                           | Lines | What                               |
+| ------------------------------ | ----- | ---------------------------------- |
+| `convex/manuals.ts`            | 295   | 194–295                            |
+| `convex/savedAddresses.ts`     | 116   | 53–116                             |
+| `convex/faa.ts`                | 258   | 72–125                             |
+| `convex/programs.ts`           | 190   | 20–41                              |
+| `src/data/demoBackend.ts`      | 1,459 | 199–268, 544–572, 681–708, 818–829 |
+| `src/domain/manuals.ts`        | 70    |                                    |
+| `src/domain/savedAddresses.ts` | 30    |                                    |
+| `src/domain/faa.ts`            | 252   |                                    |
+| `src/domain/programs.ts`       | 397   |                                    |
 
 **Problem.** The report lists these as left outside `runCommand` because they have "no domain applier". The underlying problem is that their rules live in both adapters, so each pair can drift. `prepareSavedAddress` is a shallow parser; every rule sits around it.
 
 **Evidence: one row per mutation.**
 
-| Mutation | Server | Demo | Drift |
-|---|---|---|---|
-| Manual edit, rename, applicability | `manuals.ts:194-295` | `demoBackend.ts:199-268` | Rules are identical: same-program target aircraft and maintenance access. Messages are copied. The audit `before` differs: the server picks 6 fields (`manuals.ts:284-291`), the demo writes the whole record (`demoBackend.ts:222`). |
-| Saved address | `savedAddresses.ts:57-77, 78-89, 96-103` | `demoBackend.ts:681-708` | The demo has no administrator check, no `MAX_SAVED_ADDRESSES` limit and no audit row (the server's row is at `savedAddresses.ts:105-112`). Messages differ, for example "Address changed." against "Address changed. Reopen it before saving." |
-| FAA monitor command | `faa.ts:86-99` | `demoBackend.ts:556-565` | On configure, the server resets `runId` and `error`. On review, it throws "Candidate not found." for an unknown id, where the demo ignores it silently. The demo writes no `faa.*` audit row. |
-| Program select | `programs.ts:24-32` | `demoBackend.ts:818-829` | The access rule is copied word for word in both adapters. |
+| Mutation                           | Server                                   | Demo                     | Drift                                                                                                                                                                                                                                          |
+| ---------------------------------- | ---------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Manual edit, rename, applicability | `manuals.ts:194-295`                     | `demoBackend.ts:199-268` | Rules are identical: same-program target aircraft and maintenance access. Messages are copied. The audit `before` differs: the server picks 6 fields (`manuals.ts:284-291`), the demo writes the whole record (`demoBackend.ts:222`).          |
+| Saved address                      | `savedAddresses.ts:57-77, 78-89, 96-103` | `demoBackend.ts:681-708` | The demo has no administrator check, no `MAX_SAVED_ADDRESSES` limit and no audit row (the server's row is at `savedAddresses.ts:105-112`). Messages differ, for example "Address changed." against "Address changed. Reopen it before saving." |
+| FAA monitor command                | `faa.ts:86-99`                           | `demoBackend.ts:556-565` | On configure, the server resets `runId` and `error`. On review, it throws "Candidate not found." for an unknown id, where the demo ignores it silently. The demo writes no `faa.*` audit row.                                                  |
+| Program select                     | `programs.ts:24-32`                      | `demoBackend.ts:818-829` | The access rule is copied word for word in both adapters.                                                                                                                                                                                      |
 
 The deletion test holds for each rule: delete it, and it reappears in two adapters.
 
@@ -426,13 +435,13 @@ assertProgramSelectable(s, programUuid): void
 
 **Batches.** Each batch is independent; each applier then gets a matching demo batch.
 
-| Batch | Files |
-|---|---|
-| b1 | `src/domain/manuals.ts`, `convex/manuals.ts` |
-| b2 | `src/domain/savedAddresses.ts`, `convex/savedAddresses.ts` |
-| b3 | `src/domain/faa.ts`, `convex/faa.ts` |
-| b4 | `src/domain/programs.ts`, `convex/programs.ts` (`select`) |
-| b5 | `src/data/demoBackend.ts`: all four demo methods |
+| Batch | Files                                                      |
+| ----- | ---------------------------------------------------------- |
+| b1    | `src/domain/manuals.ts`, `convex/manuals.ts`               |
+| b2    | `src/domain/savedAddresses.ts`, `convex/savedAddresses.ts` |
+| b3    | `src/domain/faa.ts`, `convex/faa.ts`                       |
+| b4    | `src/domain/programs.ts`, `convex/programs.ts` (`select`)  |
+| b5    | `src/data/demoBackend.ts`: all four demo methods           |
 
 ---
 
@@ -442,14 +451,14 @@ This candidate falls inside E's perimeter; §4 explains why it is listed.
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `src/domain/model.ts` | 374 | 80, 360–375 |
-| `src/components/GuidedFlight.tsx` | 944 | 405–446 |
-| `src/components/FlightParts.tsx` | 223 | 203 |
-| `src/components/ManualDiscovery.tsx` | 930 | 543 |
-| `src/components/Fleet.tsx` | 918 | 91–123 |
-| `convex/admin.ts` | 531 | 449–455 |
+| File                                 | Lines | What        |
+| ------------------------------------ | ----- | ----------- |
+| `src/domain/model.ts`                | 374   | 80, 360–375 |
+| `src/components/GuidedFlight.tsx`    | 944   | 405–446     |
+| `src/components/FlightParts.tsx`     | 223   | 203         |
+| `src/components/ManualDiscovery.tsx` | 930   | 543         |
+| `src/components/Fleet.tsx`           | 918   | 91–123      |
+| `convex/admin.ts`                    | 531   | 449–455     |
 
 **Problem.** The rule that a meter reading is entered in decimal hours and stored as whole seconds in tenths of an hour has three homes, and some flight-entry paths bypass all of them.
 
@@ -465,6 +474,7 @@ This candidate falls inside E's perimeter; §4 explains why it is listed.
   - `guidedFlight.ts:60-63` types the readings as plain `z.number()`.
 
   Where the guided path first meets the tenths rule (in the outbox, on the server, or never) has to be confirmed by a test. If it is the server, the entry is a permanent rejection in the outbox.
+
 - **More conversions skip `parseHours` and its rounding:** `FlightParts.tsx:203` and `ManualDiscovery.tsx:543`, which does not round at all.
 - **There are 51 raw `3600` literals in 14 React files.** The deletion test on `hours` and `parseHours`: they earn their keep, but half the callers do not use them.
 
@@ -472,9 +482,9 @@ This candidate falls inside E's perimeter; §4 explains why it is listed.
 
 ```ts
 // src/domain/readings.ts
-export function readingText(seconds?: number): string;            // "1234.5"
-export function parseReading(text: string): number | undefined;   // tenths, safe integer; throws with the user message
-export const meterReadingSchema: z.ZodNumber;                      // the model.ts:80 refine, defined once
+export function readingText(seconds?: number): string; // "1234.5"
+export function parseReading(text: string): number | undefined; // tenths, safe integer; throws with the user message
+export const meterReadingSchema: z.ZodNumber; // the model.ts:80 refine, defined once
 ```
 
 **Tests today.** None for `model.ts`, as the report notes. `tests/e2e/guided-flight.spec.ts` covers the guided flight against the demo.
@@ -487,12 +497,12 @@ export const meterReadingSchema: z.ZodNumber;                      // the model.
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/readings.ts` (new, with test), `src/domain/model.ts` | `parseHours` and the refine move into the module |
-| b2 | `src/components/GuidedFlight.tsx`, `src/domain/guidedFlight.ts` | the guided flight uses the module; this is the bug-shaped case |
-| b3 | `src/components/FlightParts.tsx`, `src/components/ManualDiscovery.tsx`, `src/components/Fleet.tsx` | the remaining conversions |
-| — | `WorkOrders.tsx:814-829` | stays with E after launch; it will reuse the module |
+| Batch | Files                                                                                              | What                                                           |
+| ----- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| b1    | `src/domain/readings.ts` (new, with test), `src/domain/model.ts`                                   | `parseHours` and the refine move into the module               |
+| b2    | `src/components/GuidedFlight.tsx`, `src/domain/guidedFlight.ts`                                    | the guided flight uses the module; this is the bug-shaped case |
+| b3    | `src/components/FlightParts.tsx`, `src/components/ManualDiscovery.tsx`, `src/components/Fleet.tsx` | the remaining conversions                                      |
+| —     | `WorkOrders.tsx:814-829`                                                                           | stays with E after launch; it will reuse the module            |
 
 ---
 
@@ -532,11 +542,11 @@ The interface is deep, which is good. The implementation has no internal seams, 
 
 **Batches**
 
-| Batch | Files | What | Dependency |
-|---|---|---|---|
-| b1 | `scripts/backup/xlsxWriter.ts` (new), `recordsWorkbook.ts` | moves the writer out | none |
-| b2 | `scripts/backup/exportSnapshot.ts` (new), `recordsWorkbook.ts` | moves decoding out | after T1 b1 |
-| b3 | `recordsWorkbook.ts` | `dueItems` replaced by the domain module | after T13 b1 |
+| Batch | Files                                                          | What                                     | Dependency   |
+| ----- | -------------------------------------------------------------- | ---------------------------------------- | ------------ |
+| b1    | `scripts/backup/xlsxWriter.ts` (new), `recordsWorkbook.ts`     | moves the writer out                     | none         |
+| b2    | `scripts/backup/exportSnapshot.ts` (new), `recordsWorkbook.ts` | moves decoding out                       | after T1 b1  |
+| b3    | `recordsWorkbook.ts`                                           | `dueItems` replaced by the domain module | after T13 b1 |
 
 ---
 
@@ -544,18 +554,18 @@ The interface is deep, which is good. The implementation has no internal seams, 
 
 **Files.** `convex/runCommand.ts` (295) and the persist hooks of:
 
-| File | Lines |
-|---|---|
-| `partsRequests.ts` | 62 |
-| `purchaseOrders.ts` | 97 |
-| `costs.ts` | 85 |
-| `management.ts` | 170 |
-| `airworthiness.ts` | 56 |
-| `workOrders.ts` | 305 |
-| `programs.ts` | 190 |
-| `taskCards.ts` | 213 |
-| `inspectionTemplates.ts` | 147 |
-| `fleet.ts` | 86 |
+| File                     | Lines |
+| ------------------------ | ----- |
+| `partsRequests.ts`       | 62    |
+| `purchaseOrders.ts`      | 97    |
+| `costs.ts`               | 85    |
+| `management.ts`          | 170   |
+| `airworthiness.ts`       | 56    |
+| `workOrders.ts`          | 305   |
+| `programs.ts`            | 190   |
+| `taskCards.ts`           | 213   |
+| `inspectionTemplates.ts` | 147   |
+| `fleet.ts`               | 86    |
 
 **Problem.** ADR-0003 says "`runCommand` owns hydrate, diff and persist". Today it owns hydrate, and only partly; each command still writes its own diff and upsert. The `Command` interface has nine hooks (`parse`, `request`, `delegate`, `load`, `apply`, `expose`, `persist`, `audit`, `returns`). Callers must learn all of them, so `runCommand` is shallow exactly where its callers spend their lines.
 
@@ -564,17 +574,18 @@ The interface is deep, which is good. The implementation has no internal seams, 
 - **≈444 lines of hand-written persist in 10 files.** `workOrders.ts` has ≈90 lines, `programs.ts` ≈71, `management.ts` ≈49.
 - **The tenant-isolation guard, "a uuid outside the active Flight Program is never overwritten", is written at seven sites, with six messages and two error classes.**
 
-  | File:line | Message | Class |
-  |---|---|---|
-  | `partsRequests.ts:33-38` | "Request identifier already used." | Error |
-  | `purchaseOrders.ts:35-41` | "PO not found." | ConvexError |
-  | `costs.ts:66-75` | "Cost record belongs to another Flight Program." | ConvexError |
-  | `management.ts:97-105` (`assertNewManagementUuid`) | "Record belongs to another Flight Program." | Error |
-  | `management.ts:66-72` | same message, for inspections | Error |
-  | `airworthiness.ts:30-36` | "AD record belongs to another Flight Program." | Error |
-  | `inspectionTemplates.ts:30-36` | "Template belongs to another Flight Program." | Error |
+  | File:line                                          | Message                                          | Class       |
+  | -------------------------------------------------- | ------------------------------------------------ | ----------- |
+  | `partsRequests.ts:33-38`                           | "Request identifier already used."               | Error       |
+  | `purchaseOrders.ts:35-41`                          | "PO not found."                                  | ConvexError |
+  | `costs.ts:66-75`                                   | "Cost record belongs to another Flight Program." | ConvexError |
+  | `management.ts:97-105` (`assertNewManagementUuid`) | "Record belongs to another Flight Program."      | Error       |
+  | `management.ts:66-72`                              | same message, for inspections                    | Error       |
+  | `airworthiness.ts:30-36`                           | "AD record belongs to another Flight Program."   | Error       |
+  | `inspectionTemplates.ts:30-36`                     | "Template belongs to another Flight Program."    | Error       |
 
   `inspectionTemplates.ts:66-74` (`activate`) inserts `management` rows with **no** guard at all.
+
 - **Inspection metadata stripping has three copies:** the `inspectionSchema.parse({...i, materials ?? "", archived ?? false})` pattern at `management.ts:60-64` and `workOrders.ts:150-154`, and a bare `inspectionSchema.parse(r)` at `inspectionTemplates.ts:75`.
 - **The deletion test.** Delete the persist hooks, and the same diff-and-upsert reappears in every file. That diff-and-upsert is the module that is missing.
 
@@ -583,7 +594,10 @@ The interface is deep, which is good. The implementation has no internal seams, 
 ```ts
 // convex/runCommand.ts
 export async function writeChanged<N extends Need>(
-  tx: Transaction, need: N, loaded: Doc<Table<N>>[], records: Item<N>[],
+  tx: Transaction,
+  need: N,
+  loaded: Doc<Table<N>>[],
+  records: Item<N>[],
 ): Promise<void>;
 // Replaces rows whose encoded payload changed; inserts new rows after the
 // tenant-collision check (one message, one ConvexError); never deletes.
@@ -603,15 +617,15 @@ export async function writeChanged<N extends Need>(
 
 **Batches**
 
-| Batch | Files | Dependency |
-|---|---|---|
-| b1 | `convex/runCommand.ts`: `writeChanged` plus its tests in `runCommand.test.ts` | after T1 b1 |
-| b2 | `convex/partsRequests.ts`, `convex/purchaseOrders.ts`, `convex/costs.ts` | |
-| b3 | `convex/airworthiness.ts`, `convex/taskCards.ts`, `convex/fleet.ts` | |
-| b4 | `convex/management.ts`, `convex/inspectionTemplates.ts`; adds the missing guard, a behaviour change recorded in a test | |
-| b5 | `convex/workOrders.ts` | after T15 |
-| b6 | `convex/programs.ts` | |
-| b7 | the seven collision messages unified into one; client-visible | |
+| Batch | Files                                                                                                                  | Dependency  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------- | ----------- |
+| b1    | `convex/runCommand.ts`: `writeChanged` plus its tests in `runCommand.test.ts`                                          | after T1 b1 |
+| b2    | `convex/partsRequests.ts`, `convex/purchaseOrders.ts`, `convex/costs.ts`                                               |             |
+| b3    | `convex/airworthiness.ts`, `convex/taskCards.ts`, `convex/fleet.ts`                                                    |             |
+| b4    | `convex/management.ts`, `convex/inspectionTemplates.ts`; adds the missing guard, a behaviour change recorded in a test |             |
+| b5    | `convex/workOrders.ts`                                                                                                 | after T15   |
+| b6    | `convex/programs.ts`                                                                                                   |             |
+| b7    | the seven collision messages unified into one; client-visible                                                          |             |
 
 ---
 
@@ -619,12 +633,12 @@ export async function writeChanged<N extends Need>(
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/runCommand.ts` | 295 | 62–67, 117–123, 185–197 |
-| `src/domain/flightSubmission.ts` | 256 | `FlightRejection`, 24 |
-| `src/domain/components.ts` | 837 | `ComponentUsageError`, 19 |
-| ≈20 domain modules | | the version checks |
+| File                             | Lines | What                      |
+| -------------------------------- | ----- | ------------------------- |
+| `convex/runCommand.ts`           | 295   | 62–67, 117–123, 185–197   |
+| `src/domain/flightSubmission.ts` | 256   | `FlightRejection`, 24     |
+| `src/domain/components.ts`       | 837   | `ComponentUsageError`, 19 |
+| ≈20 domain modules               |       | the version checks        |
 
 **Problem.** Whether a domain error reaches the user is a per-mutation choice, the `expose` hook, not a property of the error. Per `docs/research/error-monitoring-options.md:33`, Convex production deployments show any non-`ConvexError` as a generic "Server Error". Fourteen of the 21 `runCommand` mutations set no `expose`, so their expected rejections reach users as "Server Error":
 
@@ -655,15 +669,19 @@ This is the ADR-0003 open invariant "uniform stale-version rejection".
 
 ```ts
 // src/domain/rejection.ts
-export class Rejection extends Error {}          // FlightRejection and ComponentUsageError extend it
+export class Rejection extends Error {} // FlightRejection and ComponentUsageError extend it
 export class StaleRecord extends Rejection {}
-export function assertCurrent(actual: number | undefined, expected: number, what: string): void;
+export function assertCurrent(
+  actual: number | undefined,
+  expected: number,
+  what: string,
+): void;
 // throws StaleRecord(`${what} changed. Reopen it before saving.`)
 ```
 
 **Tests today.** `runCommand.test.ts`, which covers `expose`, and the per-command suites, which assert messages but not error classes.
 
-**Characterization tests first.** For each `runCommand` mutation, assert that a stale command rejects and record *which class* it rejects with. Today that documents a plain `Error` in 14 of them. Add a production-mode check on one preview deployment.
+**Characterization tests first.** For each `runCommand` mutation, assert that a stale command rejects and record _which class_ it rejects with. Today that documents a plain `Error` in 14 of them. Add a production-mode check on one preview deployment.
 
 **Risk: Medium.** Users will see messages they did not see before, which is a client-visible change. Internal errors must stay hidden, which is why a dedicated class is used rather than `allErrors`.
 
@@ -671,12 +689,12 @@ export function assertCurrent(actual: number | undefined, expected: number, what
 
 **Batches**
 
-| Batch | Files | What | Dependency |
-|---|---|---|---|
-| b1 | `src/domain/rejection.ts` (new), `src/domain/flightSubmission.ts`, `src/domain/components.ts` | the classes; existing errors re-parented | none |
-| b2 | `convex/runCommand.ts`, `convex/runCommand.test.ts` | default `expose` = `Rejection`, from `load` too | |
-| b3, b4… | ≤3 domain modules each, leaf first: `taskCards.ts`, `flightPlans.ts`, `inspectionTemplates.ts`; then `workOrders.ts`, `partsRequests.ts`, `fleet.ts`; then the rest | `assertCurrent` and `Rejection` at each site | |
-| last | | drop each per-mutation `expose` | |
+| Batch   | Files                                                                                                                                                               | What                                            | Dependency |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------- |
+| b1      | `src/domain/rejection.ts` (new), `src/domain/flightSubmission.ts`, `src/domain/components.ts`                                                                       | the classes; existing errors re-parented        | none       |
+| b2      | `convex/runCommand.ts`, `convex/runCommand.test.ts`                                                                                                                 | default `expose` = `Rejection`, from `load` too |            |
+| b3, b4… | ≤3 domain modules each, leaf first: `taskCards.ts`, `flightPlans.ts`, `inspectionTemplates.ts`; then `workOrders.ts`, `partsRequests.ts`, `fleet.ts`; then the rest | `assertCurrent` and `Rejection` at each site    |            |
+| last    |                                                                                                                                                                     | drop each per-mutation `expose`                 |            |
 
 ---
 
@@ -684,28 +702,28 @@ export function assertCurrent(actual: number | undefined, expected: number, what
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/operations.ts` | 709 | `reviewFlight`, 509–664: 156 lines |
-| `src/data/demoBackend.ts` | 1,459 | `review`, 965–1013 |
-| `src/domain/flightSubmission.ts` | 256 | |
-| `src/domain/flights.ts` | 319 | no tests |
-| `src/domain/management.ts` | | `validateMaintenanceTotals` |
+| File                             | Lines | What                               |
+| -------------------------------- | ----- | ---------------------------------- |
+| `convex/operations.ts`           | 709   | `reviewFlight`, 509–664: 156 lines |
+| `src/data/demoBackend.ts`        | 1,459 | `review`, 965–1013                 |
+| `src/domain/flightSubmission.ts` | 256   |                                    |
+| `src/domain/flights.ts`          | 319   | no tests                           |
+| `src/domain/management.ts`       |       | `validateMaintenanceTotals`        |
 
 **Problem.** Conflict review (GLOSSARY) rewrites aircraft totals and re-sequences later flights. It is the next safety-relevant write that exists twice. The report names it "the next candidate for `flightSubmission.ts`", and the two copies have drifted the way submission had.
 
 **Evidence: seven server rules the demo lacks.**
 
-| Rule | Server (`operations.ts`) | Demo |
-|---|---|---|
-| Flight Program administrator required | 519–520 | missing |
-| Reason at most 5000 characters | 522–523 | missing |
-| "A correction cannot change aircraft." | 558–559 | missing |
-| "Use the discrepancy workflow…" | 560–563 | missing |
-| Pilot and copilot exist | 564–572 | missing |
-| Crew belong to the Flight Program (new crew only) | 573–588 | missing |
-| `validateFlight(aircraft, input)` | 590 | missing |
-| Plan check on accept of a rejected flight | only with `input.flightPlanUuid` (533–556) | unconditional (`demoBackend.ts:975-976`) |
+| Rule                                              | Server (`operations.ts`)                   | Demo                                     |
+| ------------------------------------------------- | ------------------------------------------ | ---------------------------------------- |
+| Flight Program administrator required             | 519–520                                    | missing                                  |
+| Reason at most 5000 characters                    | 522–523                                    | missing                                  |
+| "A correction cannot change aircraft."            | 558–559                                    | missing                                  |
+| "Use the discrepancy workflow…"                   | 560–563                                    | missing                                  |
+| Pilot and copilot exist                           | 564–572                                    | missing                                  |
+| Crew belong to the Flight Program (new crew only) | 573–588                                    | missing                                  |
+| `validateFlight(aircraft, input)`                 | 590                                        | missing                                  |
+| Plan check on accept of a rejected flight         | only with `input.flightPlanUuid` (533–556) | unconditional (`demoBackend.ts:975-976`) |
 
 The rebuild, `validateMaintenanceTotals`, the resequence audit and the action names are written twice: `operations.ts:591-663` and `demoBackend.ts:977-1012`. The e2e suite exercises only the demo copy.
 
@@ -716,9 +734,15 @@ The rebuild, `validateMaintenanceTotals`, the resequence audit and the action na
 ```ts
 // src/domain/flightReview.ts (or flightSubmission.ts)
 export function reviewFlight(
-  s: ReviewState, review: { uuid; decision: "accept" | "reject"; reason; input: FlightInput },
+  s: ReviewState,
+  review: { uuid; decision: "accept" | "reject"; reason; input: FlightInput },
   now: number,
-): { flight: Flight; flights: Flight[]; aircraft: Aircraft; audit: AuditEntry[] };
+): {
+  flight: Flight;
+  flights: Flight[];
+  aircraft: Aircraft;
+  audit: AuditEntry[];
+};
 ```
 
 **Tests today.** `convex/operations.test.ts` (11 references to `reviewFlight`), `convex/flightChronology.test.ts` (237), and e2e on the demo. `flights.ts`, which holds `rebuildFlights`, `resequencedFlights` and `resequenceReason`, has no vitest suite.
@@ -735,12 +759,12 @@ export function reviewFlight(
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/flights.test.ts` (new) | characterization only |
-| b2 | `src/domain/flightReview.ts` (new, with tests) | the domain sequence |
-| b3 | `convex/operations.ts` | onto `runCommand`; stored output unchanged |
-| b4 | `src/data/demoBackend.ts` | the demo uses the domain sequence; explicit behaviour fix |
+| Batch | Files                                          | What                                                      |
+| ----- | ---------------------------------------------- | --------------------------------------------------------- |
+| b1    | `src/domain/flights.test.ts` (new)             | characterization only                                     |
+| b2    | `src/domain/flightReview.ts` (new, with tests) | the domain sequence                                       |
+| b3    | `convex/operations.ts`                         | onto `runCommand`; stored output unchanged                |
+| b4    | `src/data/demoBackend.ts`                      | the demo uses the domain sequence; explicit behaviour fix |
 
 ---
 
@@ -748,13 +772,13 @@ export function reviewFlight(
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| 13 domain modules | | 24 inline `AuditEntry` literals: `purchaseOrders.ts` ×5, `partsRequests.ts` ×4, `fleet.ts` ×3, … |
-| `src/data/demoBackend.ts` | 1,459 | its own `audit()` helper, 140–160, with 39 calls |
-| `convex/runCommand.ts` | 295 | `CommandLog` |
-| `convex/access.ts` | 134 | `auditRow` |
-| ≈10 mutation files | | `audit` hooks |
+| File                      | Lines | What                                                                                             |
+| ------------------------- | ----- | ------------------------------------------------------------------------------------------------ |
+| 13 domain modules         |       | 24 inline `AuditEntry` literals: `purchaseOrders.ts` ×5, `partsRequests.ts` ×4, `fleet.ts` ×3, … |
+| `src/data/demoBackend.ts` | 1,459 | its own `audit()` helper, 140–160, with 39 calls                                                 |
+| `convex/runCommand.ts`    | 295   | `CommandLog`                                                                                     |
+| `convex/access.ts`        | 134   | `auditRow`                                                                                       |
+| ≈10 mutation files        |       | `audit` hooks                                                                                    |
 
 **Problem.** A Command's change-log rows (Audit entries) are composed in three places:
 
@@ -766,18 +790,18 @@ Two ADR-0003 invariants are open here: dropping the per-mutation summary rows, a
 
 **Evidence: the same row composed in both adapters for at least ten Commands.**
 
-| Command | Convex | Demo |
-|---|---|---|
-| AD save (`"ad." + kind`, `adCommandReason`, `adAuditRecord`) | `airworthiness.ts:40-53` | 573–588 |
-| Inspection template delete | `inspectionTemplates.ts:127-141` | 167–190 |
-| Work order (`"workOrder." + action`) | `workOrders.ts:192-200` | 457–466 |
-| Discrepancy deferral | `operations.ts:499-506` | 926–941 |
-| Discrepancy parts | `operations.ts:701-707` | 910–924 |
-| Checklist save | `checklists.ts:43-53` | 786–802 |
-| Task card | `taskCards.ts:94-99` | 312–325 |
-| Flight plan | `flightPlans.ts:58` | 803–816 |
-| Component templates | | |
-| Engine trends | | |
+| Command                                                      | Convex                           | Demo    |
+| ------------------------------------------------------------ | -------------------------------- | ------- |
+| AD save (`"ad." + kind`, `adCommandReason`, `adAuditRecord`) | `airworthiness.ts:40-53`         | 573–588 |
+| Inspection template delete                                   | `inspectionTemplates.ts:127-141` | 167–190 |
+| Work order (`"workOrder." + action`)                         | `workOrders.ts:192-200`          | 457–466 |
+| Discrepancy deferral                                         | `operations.ts:499-506`          | 926–941 |
+| Discrepancy parts                                            | `operations.ts:701-707`          | 910–924 |
+| Checklist save                                               | `checklists.ts:43-53`            | 786–802 |
+| Task card                                                    | `taskCards.ts:94-99`             | 312–325 |
+| Flight plan                                                  | `flightPlans.ts:58`              | 803–816 |
+| Component templates                                          |                                  |         |
+| Engine trends                                                |                                  |         |
 
 - **Programs are stamped inconsistently.** Of the ≈41 `audit()` calls in Convex, ≈29 pass no `programUuid`. Some are system rows by design (admin, identities, auth). Aircraft-scoped rows in `manuals`, `operations`, `taskCards`, `workOrders` and `workOrderCopies` rely on the aircraft index alone.
 - **Applier entries carry `programUuid` only sometimes.** `costs.ts:583` does; the `fleet.ts:164-173` program row does not.
@@ -789,7 +813,14 @@ Two ADR-0003 invariants are open here: dropping the per-mutation summary rows, a
 // src/domain/changeLog.ts
 export function recordChange(
   s: Snapshot,
-  change: { action: string; entityUuid: string; aircraftUuid?: string; reason?: string; before?: unknown; after?: unknown },
+  change: {
+    action: string;
+    entityUuid: string;
+    aircraftUuid?: string;
+    reason?: string;
+    before?: unknown;
+    after?: unknown;
+  },
   now = Date.now(),
 ): AuditEntry; // stamps uuid, at, actorId, and programUuid = owner of aircraftUuid ?? activeProgram(s)
 ```
@@ -804,13 +835,13 @@ export function recordChange(
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/changeLog.ts` (new, with tests) | the constructor |
-| b2 | `src/domain/fleet.ts`, `src/domain/costs.ts`, `src/domain/recurringParts.ts` | existing literals use the constructor |
-| b3 | `src/domain/purchaseOrders.ts`, `src/domain/partsRequests.ts` | existing literals use the constructor |
+| Batch   | Files                                                                            | What                                                                                                                      |
+| ------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| b1      | `src/domain/changeLog.ts` (new, with tests)                                      | the constructor                                                                                                           |
+| b2      | `src/domain/fleet.ts`, `src/domain/costs.ts`, `src/domain/recurringParts.ts`     | existing literals use the constructor                                                                                     |
+| b3      | `src/domain/purchaseOrders.ts`, `src/domain/partsRequests.ts`                    | existing literals use the constructor                                                                                     |
 | b4, b5… | ≤3 at a time: the applier (domain), its Convex `audit` hook, and the demo method | appliers start pushing their own entries: AD, then deferral and parts, then checklist, task card and plan, then templates |
-| last | | drop the summary rows and stamp `programUuid` everywhere, as one recorded ADR-0003 change |
+| last    |                                                                                  | drop the summary rows and stamp `programUuid` everywhere, as one recorded ADR-0003 change                                 |
 
 ---
 
@@ -818,17 +849,17 @@ export function recordChange(
 
 **Files**
 
-| File | Lines |
-|---|---|
-| `src/domain/aircraftStatus.ts` (the Dispatch gate) | 188 |
-| `src/domain/alerts.ts` | 359 |
-| `src/domain/ownerDue.ts` | 148 |
-| `src/domain/partsPlanning.ts` | 206 |
-| `src/domain/forecast.ts` | 451 |
-| `src/domain/flightPlans.ts` | 206 |
-| `src/components/Dashboard.tsx` | 1,012 |
-| `src/components/Components.tsx` | 1,966 |
-| `src/data/aircraftStatusReport.ts` | 453 |
+| File                                                      | Lines |
+| --------------------------------------------------------- | ----- |
+| `src/domain/aircraftStatus.ts` (the Dispatch gate)        | 188   |
+| `src/domain/alerts.ts`                                    | 359   |
+| `src/domain/ownerDue.ts`                                  | 148   |
+| `src/domain/partsPlanning.ts`                             | 206   |
+| `src/domain/forecast.ts`                                  | 451   |
+| `src/domain/flightPlans.ts`                               | 206   |
+| `src/components/Dashboard.tsx`                            | 1,012 |
+| `src/components/Components.tsx`                           | 1,966 |
+| `src/data/aircraftStatusReport.ts`                        | 453   |
 | `scripts/backup/recordsWorkbook.ts` (`dueItems`, 585–779) | 2,289 |
 
 **Problem.** Three deep status functions answer "how due is this one item": `inspectionStatus`, `requirementStatus` and `adTaskStatus`. Each has its own vocabulary:
@@ -873,13 +904,26 @@ They disagree.
 // src/domain/dueItems.ts
 export interface DueItem {
   kind: "inspection" | "componentRequirement" | "adTask";
-  uuid: string; aircraftUuid: string; label: string;
-  level: "overdue" | "due-soon" | "ok" | "unknown";   // one vocabulary
-  status: string;                                     // the source label, for display
-  remaining: { seconds?: number; cycles?: number; landings?: number; days?: number };
-  dueDate?: string; urgency: number; problem?: string; // problem: why level is "unknown"
+  uuid: string;
+  aircraftUuid: string;
+  label: string;
+  level: "overdue" | "due-soon" | "ok" | "unknown"; // one vocabulary
+  status: string; // the source label, for display
+  remaining: {
+    seconds?: number;
+    cycles?: number;
+    landings?: number;
+    days?: number;
+  };
+  dueDate?: string;
+  urgency: number;
+  problem?: string; // problem: why level is "unknown"
 }
-export function dueItems(s: Snapshot, aircraftUuid: string, today?: string): DueItem[]; // worst first
+export function dueItems(
+  s: Snapshot,
+  aircraftUuid: string,
+  today?: string,
+): DueItem[]; // worst first
 ```
 
 **Tests today**
@@ -905,14 +949,14 @@ Record each consumer's current output. Every difference between consumers is the
 
 **Batches.** Leaf consumers come first; the Dispatch gate comes last.
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/dueItems.ts` (new, with tests), `src/domain/ownerDue.ts` | the module; the owner view uses it |
-| b2 | `src/domain/partsPlanning.ts`, `src/domain/alerts.ts` | |
-| b3 | `src/components/Dashboard.tsx`, `src/components/Components.tsx` | |
-| b4 | `src/domain/forecast.ts`, `src/domain/flightPlans.ts` | |
-| b5 | `src/domain/aircraftStatus.ts` | must produce identical grounded and due-soon reasons on the characterization fleet; any difference needs sign-off |
-| — | T8 b3 and T17 b1 | consume the module |
+| Batch | Files                                                                | What                                                                                                              |
+| ----- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| b1    | `src/domain/dueItems.ts` (new, with tests), `src/domain/ownerDue.ts` | the module; the owner view uses it                                                                                |
+| b2    | `src/domain/partsPlanning.ts`, `src/domain/alerts.ts`                |                                                                                                                   |
+| b3    | `src/components/Dashboard.tsx`, `src/components/Components.tsx`      |                                                                                                                   |
+| b4    | `src/domain/forecast.ts`, `src/domain/flightPlans.ts`                |                                                                                                                   |
+| b5    | `src/domain/aircraftStatus.ts`                                       | must produce identical grounded and due-soon reasons on the characterization fleet; any difference needs sign-off |
+| —     | T8 b3 and T17 b1                                                     | consume the module                                                                                                |
 
 **Design as built (b1, 2026-11-04).** The per-task `DueItem` above could not reproduce the owner portal, which shows one row per AD with the AD's own status and every action's `adRemaining` text, so the shape changed; the output did not:
 
@@ -927,17 +971,17 @@ Record each consumer's current output. Every difference between consumers is the
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `src/domain/recurringParts.ts` | 97 | |
-| `src/domain/partsRequests.ts` | 784 | 368–374, 662–692 |
-| `convex/recurringParts.ts` | 88 | |
-| `convex/partsRequests.ts` | 62 | |
-| `convex/workOrders.ts` | 305 | 104 |
-| `convex/workOrderCopies.ts` | 392 | 191 |
-| `src/data/demoBackend.ts` | 1,459 | 452–457, 589–597 |
+| File                           | Lines | What             |
+| ------------------------------ | ----- | ---------------- |
+| `src/domain/recurringParts.ts` | 97    |                  |
+| `src/domain/partsRequests.ts`  | 784   | 368–374, 662–692 |
+| `convex/recurringParts.ts`     | 88    |                  |
+| `convex/partsRequests.ts`      | 62    |                  |
+| `convex/workOrders.ts`         | 305   | 104              |
+| `convex/workOrderCopies.ts`    | 392   | 191              |
+| `src/data/demoBackend.ts`      | 1,459 | 452–457, 589–597 |
 
-**Problem.** "Saving a recurring parts list, or saving a work order, creates any missing occurrences" is a domain rule, but adapters orchestrate it at five sites. In `partsRequests.execute` it runs *inside `persist`* (`convex/partsRequests.ts:40-49`), after apply, which breaks `runCommand`'s apply-then-persist order. `convex/recurringParts.ts:28-45` restates the domain's matching rule to decide what to load. It is correct only because `applyRequestCommand` normalises template sources at save (`partsRequests.ts:368-374`), an invariant nothing ties to the server copy.
+**Problem.** "Saving a recurring parts list, or saving a work order, creates any missing occurrences" is a domain rule, but adapters orchestrate it at five sites. In `partsRequests.execute` it runs _inside `persist`_ (`convex/partsRequests.ts:40-49`), after apply, which breaks `runCommand`'s apply-then-persist order. `convex/recurringParts.ts:28-45` restates the domain's matching rule to decide what to load. It is correct only because `applyRequestCommand` normalises template sources at save (`partsRequests.ts:368-374`), an invariant nothing ties to the server copy.
 
 **Evidence**
 
@@ -949,8 +993,10 @@ Record each consumer's current output. Every difference between consumers is the
 
 ```ts
 // src/domain/recurringParts.ts
-export function recurringPartsNeeds(order: WorkOrder, requests: PartsRequest[]):
-  { inspections: string[]; requirements: string[]; airworthiness: boolean };
+export function recurringPartsNeeds(
+  order: WorkOrder,
+  requests: PartsRequest[],
+): { inspections: string[]; requirements: string[]; airworthiness: boolean };
 // applyRequestCommand(s, c) and saveWorkOrder(s, c, now) generate occurrences
 // themselves when s.partsRequests is loaded.
 ```
@@ -965,12 +1011,12 @@ export function recurringPartsNeeds(order: WorkOrder, requests: PartsRequest[]):
 
 **Batches**
 
-| Batch | Files | What | Dependency |
-|---|---|---|---|
-| b1 | `src/domain/recurringParts.ts`, `src/domain/partsRequests.ts` | the applier generates occurrences; adds `recurringPartsNeeds` | none |
-| b2 | `convex/partsRequests.ts` | the generation moves out of `persist` | ideally after T9 b2 |
-| b3 | `convex/recurringParts.ts`, `convex/workOrders.ts`, `convex/workOrderCopies.ts` | | |
-| b4 | `src/data/demoBackend.ts` | | |
+| Batch | Files                                                                           | What                                                          | Dependency          |
+| ----- | ------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------- |
+| b1    | `src/domain/recurringParts.ts`, `src/domain/partsRequests.ts`                   | the applier generates occurrences; adds `recurringPartsNeeds` | none                |
+| b2    | `convex/partsRequests.ts`                                                       | the generation moves out of `persist`                         | ideally after T9 b2 |
+| b3    | `convex/recurringParts.ts`, `convex/workOrders.ts`, `convex/workOrderCopies.ts` |                                                               |                     |
+| b4    | `src/data/demoBackend.ts`                                                       |                                                               |                     |
 
 ---
 
@@ -978,12 +1024,12 @@ export function recurringPartsNeeds(order: WorkOrder, requests: PartsRequest[]):
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/workOrderCopies.ts` | 392 | `startCopy`, 140–199 |
-| `convex/workOrders.ts` | 305 | `delegate`, 36–40 |
-| `src/domain/workOrders.ts` | 704 | 309, 380–390, 492, 590–596 |
-| `convex/runCommand.ts` | 295 | |
+| File                        | Lines | What                       |
+| --------------------------- | ----- | -------------------------- |
+| `convex/workOrderCopies.ts` | 392   | `startCopy`, 140–199       |
+| `convex/workOrders.ts`      | 305   | `delegate`, 36–40          |
+| `src/domain/workOrders.ts`  | 704   | 309, 380–390, 492, 590–596 |
+| `convex/runCommand.ts`      | 295   |                            |
 
 **Problem.** Adding an inspection to a Work order, or copying templates, goes through `delegate`, which leaves `runCommand`. `startCopy` then re-implements the domain's checks in Convex:
 
@@ -1024,11 +1070,11 @@ export function addInspectionTask(order: WorkOrder, inspection: Inspection): Wor
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/workOrders.ts` | extract `addInspectionTask` |
-| b2 | `convex/runCommand.ts`, `convex/runCommand.test.ts` | adds `afterApply` |
-| b3 | `convex/workOrders.ts`, `convex/workOrderCopies.ts` | drops `delegate` and `startCopy`'s checks; scheduling moves to `afterApply` |
+| Batch | Files                                               | What                                                                        |
+| ----- | --------------------------------------------------- | --------------------------------------------------------------------------- |
+| b1    | `src/domain/workOrders.ts`                          | extract `addInspectionTask`                                                 |
+| b2    | `convex/runCommand.ts`, `convex/runCommand.test.ts` | adds `afterApply`                                                           |
+| b3    | `convex/workOrders.ts`, `convex/workOrderCopies.ts` | drops `delegate` and `startCopy`'s checks; scheduling moves to `afterApply` |
 
 ---
 
@@ -1036,13 +1082,13 @@ export function addInspectionTask(order: WorkOrder, inspection: Inspection): Wor
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/programUsers.ts` | 292 | |
-| `convex/admin.ts` | 531 | `saveGroup`, 296–392; 53, 243 |
-| `src/data/demoBackend.ts` | 1,459 | 1014–1156, 1362–1411 |
-| `src/domain/accountRules.ts` | 23 | |
-| `src/domain/groupAircraft.ts` | 79 | |
+| File                          | Lines | What                          |
+| ----------------------------- | ----- | ----------------------------- |
+| `convex/programUsers.ts`      | 292   |                               |
+| `convex/admin.ts`             | 531   | `saveGroup`, 296–392; 53, 243 |
+| `src/data/demoBackend.ts`     | 1,459 | 1014–1156, 1362–1411          |
+| `src/domain/accountRules.ts`  | 23    |                               |
+| `src/domain/groupAircraft.ts` | 79    |                               |
 
 **Problem.** Rules about who can be added to a Flight Program, with which permission groups, live in the adapters. Some appear three times. These are authorization paths; per AGENTS.md they must never be weakened.
 
@@ -1063,10 +1109,21 @@ export function addInspectionTask(order: WorkOrder, inspection: Inspection): Wor
 
 ```ts
 // src/domain/accountRules.ts
-export function programGroupIds(groups: Group[], programUuid: string, requested: string[]): string[];
+export function programGroupIds(
+  groups: Group[],
+  programUuid: string,
+  requested: string[],
+): string[];
 // in-program only; dedupe; falls back to Observers or throws the user message
-export function normalizeGroup(input: GroupInput, existing: Group | undefined, actorIsAdmin: boolean): GroupFields;
-export function normalizeAccount(email: string, name: string): { email: string; name: string };
+export function normalizeGroup(
+  input: GroupInput,
+  existing: Group | undefined,
+  actorIsAdmin: boolean,
+): GroupFields;
+export function normalizeAccount(
+  email: string,
+  name: string,
+): { email: string; name: string };
 ```
 
 **Tests today.** `convex/programUsers.test.ts` (436), `memberships.test.ts` (210), `groupAccess.test.ts` (259), `groupAudit.test.ts` (348), `src/data/demoGroups.test.ts` (84), `demoGroupAccess.test.ts` (108) and `src/domain/groupAircraft.test.ts` (197). `accountRules.ts` has no test.
@@ -1079,12 +1136,12 @@ export function normalizeAccount(email: string, name: string): { email: string; 
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `src/domain/accountRules.ts` (with test) | the new rules |
-| b2 | `convex/programUsers.ts` | uses the rules |
-| b3 | `convex/admin.ts` | `saveGroup`, `createUser` |
-| b4 | `src/data/demoBackend.ts` | membership and group methods |
+| Batch | Files                                    | What                         |
+| ----- | ---------------------------------------- | ---------------------------- |
+| b1    | `src/domain/accountRules.ts` (with test) | the new rules                |
+| b2    | `convex/programUsers.ts`                 | uses the rules               |
+| b3    | `convex/admin.ts`                        | `saveGroup`, `createUser`    |
+| b4    | `src/data/demoBackend.ts`                | membership and group methods |
 
 ---
 
@@ -1092,15 +1149,15 @@ export function normalizeAccount(email: string, name: string): { email: string; 
 
 **Files**
 
-| File | Lines | Vitest suite |
-|---|---|---|
-| `src/data/aircraftStatusReport.ts` | 453 | none |
-| `src/data/adReport.ts` | 360 | `adReport.test.ts`, 104 |
-| `src/data/poPdf.ts` | 73 | |
-| `src/data/partsRequestPdf.ts` | 82 | |
-| `src/data/logbookPdf.ts` | 39 | |
-| `src/data/flightPlanPdf.ts` | 58 | |
-| `scripts/backup/recordsWorkbook.ts` | | `aircraftSheet`, 806–880 |
+| File                                | Lines | Vitest suite             |
+| ----------------------------------- | ----- | ------------------------ |
+| `src/data/aircraftStatusReport.ts`  | 453   | none                     |
+| `src/data/adReport.ts`              | 360   | `adReport.test.ts`, 104  |
+| `src/data/poPdf.ts`                 | 73    |                          |
+| `src/data/partsRequestPdf.ts`       | 82    |                          |
+| `src/data/logbookPdf.ts`            | 39    |                          |
+| `src/data/flightPlanPdf.ts`         | 58    |                          |
+| `scripts/backup/recordsWorkbook.ts` |       | `aircraftSheet`, 806–880 |
 
 **Problem.** Each jsPDF writer mixes two jobs in one module:
 
@@ -1120,11 +1177,20 @@ So the content of a 14 CFR 91.417 Status record is testable only by inspecting a
 
 ```ts
 // src/domain/statusSheet.ts: pure
-export function statusSheet(s: Snapshot, aircraftUuid: string, today: string):
-  { header: { registration; makeModel; serial; totals }; sections: { title: string; columns: string[]; rows: string[][] }[] };
+export function statusSheet(
+  s: Snapshot,
+  aircraftUuid: string,
+  today: string,
+): {
+  header: { registration; makeModel; serial; totals };
+  sections: { title: string; columns: string[]; rows: string[][] }[];
+};
 // src/data/pdfLayout.ts
-export function tablePdf(doc: { header; sections }, page: { format; orientation }): jsPDF;
-export function paragraphPdf(lines: { text: string; bold?: boolean }[]): jsPDF;   // PO, parts request
+export function tablePdf(
+  doc: { header; sections },
+  page: { format; orientation },
+): jsPDF;
+export function paragraphPdf(lines: { text: string; bold?: boolean }[]): jsPDF; // PO, parts request
 ```
 
 **Tests today.** `src/data/adReport.test.ts`, `flightPlanPdf.test.ts` (75) and `tests/e2e/aircraft-status-export.spec.ts` (2 tests, against the demo).
@@ -1137,12 +1203,12 @@ export function paragraphPdf(lines: { text: string; bold?: boolean }[]): jsPDF; 
 
 **Batches**
 
-| Batch | Files | What | Dependency |
-|---|---|---|---|
-| b1 | `src/domain/statusSheet.ts` (new, with test), `src/data/aircraftStatusReport.ts` | content moves to the domain | after T13 b1 |
-| b2 | `src/data/pdfLayout.ts` (new), `src/data/poPdf.ts`, `src/data/partsRequestPdf.ts` | the shared paragraph layout | none |
-| b3 | `src/data/aircraftStatusReport.ts`, `src/data/adReport.ts` | both use `tablePdf` | after b1 |
-| b4 | `scripts/backup/recordsWorkbook.ts` | `aircraftSheet` reads `statusSheet` | after T8 b1 |
+| Batch | Files                                                                             | What                                | Dependency   |
+| ----- | --------------------------------------------------------------------------------- | ----------------------------------- | ------------ |
+| b1    | `src/domain/statusSheet.ts` (new, with test), `src/data/aircraftStatusReport.ts`  | content moves to the domain         | after T13 b1 |
+| b2    | `src/data/pdfLayout.ts` (new), `src/data/poPdf.ts`, `src/data/partsRequestPdf.ts` | the shared paragraph layout         | none         |
+| b3    | `src/data/aircraftStatusReport.ts`, `src/data/adReport.ts`                        | both use `tablePdf`                 | after b1     |
+| b4    | `scripts/backup/recordsWorkbook.ts`                                               | `aircraftSheet` reads `statusSheet` | after T8 b1  |
 
 ---
 
@@ -1150,12 +1216,12 @@ export function paragraphPdf(lines: { text: string; bold?: boolean }[]): jsPDF; 
 
 **Files**
 
-| File | Lines | What |
-|---|---|---|
-| `convex/runCommand.ts` | 295 | 99–112, 129–134 |
-| `convex/schema.ts` | 599 | `managementRequests` |
-| every command schema in `src/domain` | | |
-| `src/data/backend.ts` | 680 | |
+| File                                 | Lines | What                 |
+| ------------------------------------ | ----- | -------------------- |
+| `convex/runCommand.ts`               | 295   | 99–112, 129–134      |
+| `convex/schema.ts`                   | 599   | `managementRequests` |
+| every command schema in `src/domain` |       |                      |
+| `src/data/backend.ts`                | 680   |                      |
 
 **Problem.** The ADR-0003 invariant is that every command carries a request id in one `commandRequests` table, and a replayed command writes nothing. Today `request` is an opt-in hook, used only by `management.ts:22` and `fleet.ts:17`. The table is still `managementRequests`. Separately, `partsRequests.ts:33-38` reuses a record's uuid as an ad-hoc idempotency check.
 
@@ -1177,17 +1243,17 @@ export function paragraphPdf(lines: { text: string; bold?: boolean }[]): jsPDF; 
 
 **Batches**
 
-| Batch | Files | What |
-|---|---|---|
-| b1 | `convex/schema.ts`, `convex/runCommand.ts` | the new table, written alongside the old one (expand) |
-| b2… | ≤3 command schemas and their mutations at a time | the client generates `requestUuid` in `src/data/backend.ts` |
-| last | | drop `managementRequests` (contract) |
+| Batch | Files                                            | What                                                        |
+| ----- | ------------------------------------------------ | ----------------------------------------------------------- |
+| b1    | `convex/schema.ts`, `convex/runCommand.ts`       | the new table, written alongside the old one (expand)       |
+| b2…   | ≤3 command schemas and their mutations at a time | the client generates `requestUuid` in `src/data/backend.ts` |
+| last  |                                                  | drop `managementRequests` (contract)                        |
 
 ---
 
 ## 3. Cross-cutting note on `runCommand`
 
-`runCommand` passes the deletion test: delete it, and the context check, the replay, the single audit write and the error exposure reappear in 21 mutations. Its *interface* is still wide, though. It has nine hooks, of which `persist`, `audit` and `expose` are re-written per command. Four candidates turn those hooks into defaults:
+`runCommand` passes the deletion test: delete it, and the context check, the replay, the single audit write and the error exposure reappear in 21 mutations. Its _interface_ is still wide, though. It has nine hooks, of which `persist`, `audit` and `expose` are re-written per command. Four candidates turn those hooks into defaults:
 
 - T9 makes `writeChanged` the default `persist`;
 - T12 makes `log.replay` the default `audit`;

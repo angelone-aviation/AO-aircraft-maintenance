@@ -8,38 +8,38 @@ Cloudflare now tells new projects to use **Workers Static Assets**, not Pages ("
 
 ## Facts
 
-| Topic | Finding | Source |
-|---|---|---|
-| Pages vs Workers | "Use Workers instead of Pages… new features and optimizations are focused on Workers" | https://developers.cloudflare.com/workers/best-practices/workers-best-practices/ |
-| Pages landing | "Start new projects with Workers." | https://developers.cloudflare.com/pages/ |
-| Migration guide | Pages → Workers steps; `_headers`/`_redirects` supported natively | https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/ |
-| SPA fallback | `not_found_handling = "single-page-application"` serves `/index.html` with 200 | https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/ |
-| `_headers` | In the asset dir (`public/`); 100 rules, 2,000 chars/line; not applied to Worker-generated responses | https://developers.cloudflare.com/workers/static-assets/headers/ |
-| Custom domain | `[[routes]] pattern = "app.example.com" custom_domain = true`; zone must be on Cloudflare | https://developers.cloudflare.com/workers/configuration/routing/custom-domains/ |
-| Previews | Isolated per-branch env under the same Worker; stable `<preview>-<worker>.<sub>.workers.dev`; public by default; 100 Previews/Worker on Free | https://developers.cloudflare.com/workers/previews/ |
-| Rollback | `wrangler rollback`; "immediately create a new deployment"; only the 100 most recent versions | https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/ |
-| Pages rollback | Dashboard only; production deployments only; "instantly revert" | https://developers.cloudflare.com/pages/configuration/rollbacks/ |
-| Static asset cost | "Requests to static assets are free and unlimited" | https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/ |
-| Workers Free limits | 100k Worker requests/day; 20,000 files, 25 MiB/file per version | https://developers.cloudflare.com/workers/platform/limits/ |
-| wrangler-action | `cloudflare/wrangler-action@v4`, `apiToken`, `accountId`, `command` | https://github.com/cloudflare/wrangler-action |
-| API token | "Edit Cloudflare Workers" template; secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/ |
-| Convex deploy | `npx convex deploy --cmd 'npm run build'` sets `VITE_CONVEX_URL` to prod, then pushes `convex/` | https://docs.convex.dev/production/hosting/custom |
-| Deploy key | "Generate Production Deploy Key" with `deployment:deploy`; store as `CONVEX_DEPLOY_KEY` | https://docs.convex.dev/production/hosting/vercel |
-| Preview deploys | Preview Deploy Key; `--preview-create <name>` recreates with fresh data; expire 5 days (Free/Starter) / 14 days (Pro+); beta | https://docs.convex.dev/production/hosting/preview-deployments |
-| Staging | "For a more permanent staging environment, use a separate Convex project" + its own `CONVEX_DEPLOY_KEY`; previews are a Pro feature | https://docs.convex.dev/production |
-| Schema on deploy | "The first push after a schema is added or modified will validate that all existing documents match"; failure blocks the push | https://docs.convex.dev/database/schemas |
-| Backups | Restore "wipes your existing data"; backups exclude code/env vars; Free keeps 2 backups | https://docs.convex.dev/database/backup-restore |
-| Hostnames | HTTP actions at `https://<deployment>.convex.site`, "not `.convex.cloud`" | https://docs.convex.dev/functions/http-actions |
-| Auth callback | `https://<deployment>.convex.site/api/auth/callback/<provider>`; `SITE_URL` per environment | https://labs.convex.dev/auth/config/oauth |
-| connect-src | Governs `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon` | https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/connect-src |
-| worker-src | Governs `ServiceWorker`; falls back child-src → script-src → default-src | https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/worker-src |
-| Other headers | HSTS `max-age=63072000; includeSubDomains; preload`, `nosniff`, `strict-origin-when-cross-origin`, Permissions-Policy, prefer `frame-ancestors` over XFO | https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html |
-| vite-plugin-pwa | `prompt` is default; `autoUpdate` forces `skipWaiting`/`clientsClaim`, can lose form data | https://vite-pwa-org.netlify.app/guide/auto-update.html |
-| PWA caching | Never `immutable`/long cache on `/`, `/sw.js`, `/index.html`, `/manifest.webmanifest` | https://vite-pwa-org.netlify.app/deployment/ |
-| Playwright CI | Official workflow; `install --with-deps`; report upload `if: ${{ !cancelled() }}`; browser caching **not** recommended | https://playwright.dev/docs/ci |
-| Concurrency | `group: ${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress: true` | https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs |
-| Actions minutes | GitHub Free private repos: $12 included compute/month ≈ 2,000 Linux 2-core min; public repos free | https://docs.github.com/en/billing/concepts/product-billing/github-actions |
-| Dependabot | `.github/dependabot.yml`, `version: 2`, npm + github-actions ecosystems | https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuring-dependabot-version-updates |
+| Topic               | Finding                                                                                                                                                  | Source                                                                                                                              |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Pages vs Workers    | "Use Workers instead of Pages… new features and optimizations are focused on Workers"                                                                    | https://developers.cloudflare.com/workers/best-practices/workers-best-practices/                                                    |
+| Pages landing       | "Start new projects with Workers."                                                                                                                       | https://developers.cloudflare.com/pages/                                                                                            |
+| Migration guide     | Pages → Workers steps; `_headers`/`_redirects` supported natively                                                                                        | https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/                                        |
+| SPA fallback        | `not_found_handling = "single-page-application"` serves `/index.html` with 200                                                                           | https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/                                            |
+| `_headers`          | In the asset dir (`public/`); 100 rules, 2,000 chars/line; not applied to Worker-generated responses                                                     | https://developers.cloudflare.com/workers/static-assets/headers/                                                                    |
+| Custom domain       | `[[routes]] pattern = "app.example.com" custom_domain = true`; zone must be on Cloudflare                                                                | https://developers.cloudflare.com/workers/configuration/routing/custom-domains/                                                     |
+| Previews            | Isolated per-branch env under the same Worker; stable `<preview>-<worker>.<sub>.workers.dev`; public by default; 100 Previews/Worker on Free             | https://developers.cloudflare.com/workers/previews/                                                                                 |
+| Rollback            | `wrangler rollback`; "immediately create a new deployment"; only the 100 most recent versions                                                            | https://developers.cloudflare.com/workers/configuration/versions-and-deployments/rollbacks/                                         |
+| Pages rollback      | Dashboard only; production deployments only; "instantly revert"                                                                                          | https://developers.cloudflare.com/pages/configuration/rollbacks/                                                                    |
+| Static asset cost   | "Requests to static assets are free and unlimited"                                                                                                       | https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/                                                    |
+| Workers Free limits | 100k Worker requests/day; 20,000 files, 25 MiB/file per version                                                                                          | https://developers.cloudflare.com/workers/platform/limits/                                                                          |
+| wrangler-action     | `cloudflare/wrangler-action@v4`, `apiToken`, `accountId`, `command`                                                                                      | https://github.com/cloudflare/wrangler-action                                                                                       |
+| API token           | "Edit Cloudflare Workers" template; secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`                                                              | https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/                                                       |
+| Convex deploy       | `npx convex deploy --cmd 'npm run build'` sets `VITE_CONVEX_URL` to prod, then pushes `convex/`                                                          | https://docs.convex.dev/production/hosting/custom                                                                                   |
+| Deploy key          | "Generate Production Deploy Key" with `deployment:deploy`; store as `CONVEX_DEPLOY_KEY`                                                                  | https://docs.convex.dev/production/hosting/vercel                                                                                   |
+| Preview deploys     | Preview Deploy Key; `--preview-create <name>` recreates with fresh data; expire 5 days (Free/Starter) / 14 days (Pro+); beta                             | https://docs.convex.dev/production/hosting/preview-deployments                                                                      |
+| Staging             | "For a more permanent staging environment, use a separate Convex project" + its own `CONVEX_DEPLOY_KEY`; previews are a Pro feature                      | https://docs.convex.dev/production                                                                                                  |
+| Schema on deploy    | "The first push after a schema is added or modified will validate that all existing documents match"; failure blocks the push                            | https://docs.convex.dev/database/schemas                                                                                            |
+| Backups             | Restore "wipes your existing data"; backups exclude code/env vars; Free keeps 2 backups                                                                  | https://docs.convex.dev/database/backup-restore                                                                                     |
+| Hostnames           | HTTP actions at `https://<deployment>.convex.site`, "not `.convex.cloud`"                                                                                | https://docs.convex.dev/functions/http-actions                                                                                      |
+| Auth callback       | `https://<deployment>.convex.site/api/auth/callback/<provider>`; `SITE_URL` per environment                                                              | https://labs.convex.dev/auth/config/oauth                                                                                           |
+| connect-src         | Governs `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon`                                                                              | https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/connect-src                             |
+| worker-src          | Governs `ServiceWorker`; falls back child-src → script-src → default-src                                                                                 | https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/worker-src                              |
+| Other headers       | HSTS `max-age=63072000; includeSubDomains; preload`, `nosniff`, `strict-origin-when-cross-origin`, Permissions-Policy, prefer `frame-ancestors` over XFO | https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html                                                        |
+| vite-plugin-pwa     | `prompt` is default; `autoUpdate` forces `skipWaiting`/`clientsClaim`, can lose form data                                                                | https://vite-pwa-org.netlify.app/guide/auto-update.html                                                                             |
+| PWA caching         | Never `immutable`/long cache on `/`, `/sw.js`, `/index.html`, `/manifest.webmanifest`                                                                    | https://vite-pwa-org.netlify.app/deployment/                                                                                        |
+| Playwright CI       | Official workflow; `install --with-deps`; report upload `if: ${{ !cancelled() }}`; browser caching **not** recommended                                   | https://playwright.dev/docs/ci                                                                                                      |
+| Concurrency         | `group: ${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress: true`                                                                            | https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs |
+| Actions minutes     | GitHub Free private repos: $12 included compute/month ≈ 2,000 Linux 2-core min; public repos free                                                        | https://docs.github.com/en/billing/concepts/product-billing/github-actions                                                          |
+| Dependabot          | `.github/dependabot.yml`, `version: 2`, npm + github-actions ecosystems                                                                                  | https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuring-dependabot-version-updates               |
 
 ## 1. Pages vs Workers Static Assets
 
@@ -50,10 +50,13 @@ Pick **Workers Static Assets**. Cloudflare's best-practices and Pages landing pa
 {
   "name": "angel-one",
   "compatibility_date": "2026-11-01",
-  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" },
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+  },
   "routes": [{ "pattern": "app.example.com", "custom_domain": true }],
   "preview_urls": true,
-  "previews": {}
+  "previews": {},
 }
 ```
 
