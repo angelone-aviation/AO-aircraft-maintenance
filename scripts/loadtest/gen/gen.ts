@@ -516,9 +516,12 @@ function buildTasks(order: Order, inspections: string[]) {
   const { w, isOpen, uuid: W } = order;
   return Array.from({ length: RATE.jobCardsPerWorkOrder }, (_, j) => {
     const [title] = JOBS[(w + j) % JOBS.length];
+    const task = uuid(`task:${W}:${j}`);
+    // Manual work is keyed by its own task, as the work order screen keys it:
+    // a save refuses two tasks with the same source.
     return {
-      uuid: uuid(`task:${W}:${j}`),
-      source: j === 0 ? { kind: "inspection" as const, uuid: inspections[(w * 2) % inspections.length] } : { kind: "manual" as const, uuid: "manual" },
+      uuid: task,
+      source: j === 0 ? { kind: "inspection" as const, uuid: inspections[(w * 2) % inspections.length] } : { kind: "manual" as const, uuid: task },
       description: j === 0 ? "100-hour inspection" : title,
       status: isOpen ? openTaskStatus(j) : "completed",
       notes: j % 4 === 0 ? "No defects beyond those recorded on the job card." : "",
