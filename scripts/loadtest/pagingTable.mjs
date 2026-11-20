@@ -62,7 +62,7 @@ function printSnapshots() {
   console.log("| --- | " + steps.map(() => "---").join(" | ") + " | --- |");
   const roles = [...new Set(rows.filter((r) => r.name === "snapshot").map((r) => r.role))];
   for (const role of roles) {
-    const sizes = steps.map((s) => rows.findLast((r) => r.step === s && r.name === "snapshot" && r.role === role && r.extra?.paging)?.bytes ?? null);
+    const sizes = steps.map((s) => rows.findLast((r) => r.step === s && r.name === "snapshot" && r.role === role)?.bytes ?? null);
     const first = sizes.find((b) => b !== null);
     const flat = sizes.every((b) => b !== null && b <= first * FLAT);
     console.log(`| ${role}, MiB returned | ` + sizes.map((b) => (b === null ? "FAIL" : (b / MIB).toFixed(DECIMALS))).join(" | ") + ` | ${flat ? "yes" : "**no**"} |`);
