@@ -3,8 +3,9 @@
  *   requests screen with its editor and documents, and turning requests into
  *   a purchase order draft.
  * Layer: UI. React components; request rules live in src/domain.
- * Dependencies: react, react-dom, @phosphor-icons/react, src/data (store;
- *   partsRequestPdf on demand), src/domain (model, vendors, management,
+ * Dependencies: react, react-dom, @phosphor-icons/react, src/data (store,
+ *   historyPages; partsRequestPdf on demand), src/domain (model, vendors,
+ *   management, retention,
  *   components, addresses, programs, requiredParts, shelfLife, partsRequests,
  *   partsRequestRules, purchaseOrders (types), aircraftSpruce, costs/units),
  *   ./Vendors, ./AircraftSpruce, ./SavedAddresses, ./PurchaseOrders,
@@ -26,6 +27,14 @@ import {
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
+import {
+  useHistoryRecords,
+  useRecordsSnapshot,
+  useWorkOrderHistory,
+  withHistory,
+  workOrderRows,
+} from "../data/historyPages";
+import { historyWindowMonths } from "../domain/retention";
 import type { Backend } from "../data/backend";
 import { can, type Snapshot } from "../domain/model";
 import { programPermission } from "../domain/programs";
@@ -78,6 +87,11 @@ const PRIORITIES: RequestDraft["priority"][] = [
   "P3 Stock",
 ];
 const REQUEST_TABLE_STYLE = { "--shop-table-min": "900px" } as CSSProperties;
+const SOURCE_OFFLINE =
+  "This request is for a record older than this device keeps. Reconnect to edit it.";
+const SOURCE_LOADING = "Loading the record this request is for…";
+const SOURCE_UNAVAILABLE =
+  "The record this request is for is not available, so it cannot be edited here.";
 const SOURCE_PAGES: Partial<Record<RequestSource["kind"], string>> = {
   airworthiness: "/airworthiness",
   stock: "/inventory",
@@ -131,7 +145,7 @@ export function RequestPartsButton({
   initialOpen = false,
   onClose,
 }: RequestPartsButtonProps) {
-  const { snapshot: s } = useWorkspace();
+  const s = useRecordsSnapshot();
   const [open, setOpen] = useState(initialOpen);
   if (!s) return null;
   const resolved = resolvedSource(s, source);
@@ -231,6 +245,7 @@ function RequestWorkspace({
           {workspace.error}
         </p>
       )}
+      {source && <OlderOrderRequests s={s} source={source} />}
       <RequestTable workspace={workspace} />
       <RequestDialogs workspace={workspace} source={source} />
     </div>
@@ -240,7 +255,8 @@ function RequestWorkspace({
 // The workspace's state: filters, selection, the open dialogs and the
 // request the New request button drafts.
 function useRequestWorkspace(source?: RequestSource) {
-  const { snapshot: s, online, connected } = useWorkspace();
+  const { online, connected } = useWorkspace();
+  const s = useRecordsSnapshot();
   const [edit, setEdit] = useState<RequestDraft>();
   const [view, setView] = useState<string>();
   const filters = useRequestFilters();
@@ -627,8 +643,26 @@ type RequestEditorProps = {
   onDone: () => void;
 };
 
-function RequestEditor({ initial, chooseSource, onDone }: RequestEditorProps) {
-  const editor = useRequestEditor(initial);
+// An existing request can name a record the workspace's window has left
+// out; the editor opens once it is loaded, since its rules read it.
+function RequestEditor(props: RequestEditorProps) {
+  const records = useSourceRecords(props.initial.source);
+  if (!records.s)
+    return (
+      <p className="notice" role="status">
+        {records.message}
+      </p>
+    );
+  return <RequestForm {...props} s={records.s} />;
+}
+
+function RequestForm({
+  initial,
+  chooseSource,
+  onDone,
+  s,
+}: RequestEditorProps & { s: Snapshot }) {
+  const editor = useRequestEditor(initial, s);
   const { draft } = editor;
   return (
     <AsyncForm
@@ -663,9 +697,8 @@ function RequestEditor({ initial, chooseSource, onDone }: RequestEditorProps) {
 
 // The editor's state: the draft, vendors added while editing, and what the
 // request's source allows.
-function useRequestEditor(initial: RequestDraft) {
-  const { snapshot, backend, online, connected } = useWorkspace();
-  const s = snapshot!;
+function useRequestEditor(initial: RequestDraft, s: Snapshot) {
+  const { backend, online, connected } = useWorkspace();
   const [draft, setDraft] = useState(initial);
   const [addedVendors, setAddedVendors] = useState<Vendor[]>([]);
   const [requestUuid] = useState(() => crypto.randomUUID());
@@ -1960,6 +1993,59 @@ function componentDescription(c: Component) {
 }
 
 // A record that was deleted or left the program resolves to nothing.
+// The screen's records with a request's source loaded on demand: a problem
+// report or job card by uuid, a work-order task with its order.
+function useSourceRecords(
+  source: RequestSource,
+): { s: Snapshot; message?: never } | { s?: never; message: string } {
+  const s = useRecordsSnapshot()!;
+  const held = !!resolvedSource(s, source);
+  const byUuid = (kind: RequestSource["kind"]) =>
+    !held && source.kind === kind ? [source.uuid] : [];
+  const found = useHistoryRecords({
+    discrepancyUuids: byUuid("discrepancy"),
+    taskCardUuids: byUuid("jobCard"),
+    flightPlanUuids: [],
+  });
+  const order = useWorkOrderHistory(
+    !held && source.kind === "workTask" ? source.workOrderUuid : undefined,
+  );
+  if (held) return { s };
+  const joined = withHistory(
+    s,
+    ...(found.records ? [found.records] : []),
+    ...(order.history ? [workOrderRows(order.history)] : []),
+  );
+  if (resolvedSource(joined, source)) return { s: joined };
+  if (found.offline) return { message: SOURCE_OFFLINE };
+  if (found.loading || order.loading) return { message: SOURCE_LOADING };
+  return { message: SOURCE_UNAVAILABLE };
+}
+
+// Requests raised on a work-order task match a record through their order,
+// which the workspace's window may have left out: say so rather than list
+// fewer requests without a word.
+function OlderOrderRequests(props: { s: Snapshot; source: RequestSource }) {
+  const { s, source } = props;
+  const aircraftUuid = resolvedSource(s, source)?.aircraftUuid;
+  const held = new Set((s.workOrders ?? []).map((w) => w.uuid));
+  const unmatched = (s.partsRequests ?? []).filter(
+    (r) =>
+      r.source.kind === "workTask" &&
+      r.aircraftUuid === aircraftUuid &&
+      !held.has(r.source.workOrderUuid),
+  ).length;
+  if (!unmatched || source.kind === "workTask") return null;
+  const months = historyWindowMonths("workOrders");
+  return (
+    <p className="muted">
+      {unmatched} {unmatched === 1 ? "request" : "requests"} raised on work
+      orders older than {months} months may also belong here; Parts requests
+      lists every request.
+    </p>
+  );
+}
+
 function resolvedSource(s: Snapshot, source: RequestSource) {
   try {
     return resolveRequestSource(s, source);

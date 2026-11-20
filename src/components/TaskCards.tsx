@@ -54,6 +54,7 @@ import { createPortal } from "react-dom";
 import { useWorkspace, type Workspace } from "../data/store";
 import {
   HistoryRecordsContext,
+  useHistoryRecords,
   useRecordsSnapshot,
   useWorkOrderHistory,
   withHistory,
@@ -102,6 +103,8 @@ import { NumberInput } from "./NumberInput";
 // A longer description shows its first 157 characters and an ellipsis.
 // Before the workspace loads there is no user to judge a signoff for.
 const WORKSPACE_LOADING = "Loading the workspace…";
+const OLDER_REPORT_OFFLINE = "Older problem report: reconnect to see which one";
+const REPORT_UNAVAILABLE = "Problem report not available";
 const PREVIEW_MAX_LENGTH = 160;
 const PREVIEW_KEPT_LENGTH = 157;
 const PART_TEXT_FIELDS = [
@@ -1491,6 +1494,8 @@ function InstructionsPanel({ e }: { e: Editor }) {
 
 function LinksPanel({ e }: { e: Editor }) {
   const choices = linkChoices(e.s, e.f);
+  const report = useLinkedReport(e.s, e.f.discrepancyUuid);
+  if (report) choices.discrepancies.push(report);
   return (
     <details open className="job-card-panel job-card-links">
       <summary>Linked records</summary>
@@ -2185,6 +2190,23 @@ function linkChoices(s: Snapshot, f: TaskCardFields) {
       )
       .map((d) => ({ uuid: d.uuid, name: d.description })),
   };
+}
+
+// A card can link a report the workspace's window has left out (resolved
+// before it). LinkSelect keeps the link either way; this names the report,
+// loaded on demand, or says why it cannot.
+function useLinkedReport(s: Snapshot, uuid: string): Choice | undefined {
+  const held = !uuid || s.discrepancies.some((d) => d.uuid === uuid);
+  const loaded = useHistoryRecords({
+    discrepancyUuids: held ? [] : [uuid],
+    taskCardUuids: [],
+    flightPlanUuids: [],
+  });
+  if (held) return undefined;
+  const report = loaded.records?.discrepancies[0];
+  if (report) return { uuid, name: report.description };
+  if (loaded.offline) return { uuid, name: OLDER_REPORT_OFFLINE };
+  return loaded.loading ? undefined : { uuid, name: REPORT_UNAVAILABLE };
 }
 
 // Stock and locations come from the aircraft's own Flight Program.
