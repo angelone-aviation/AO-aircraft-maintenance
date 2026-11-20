@@ -55,6 +55,11 @@ import type { FileLink, FileRef } from "../domain/fileLinks";
 import type { FleetCommand } from "../domain/fleet";
 import type { PlanCommand } from "../domain/flightPlans";
 import type { GroupAccessReport } from "../domain/groupAccessReview";
+import type {
+  FlightRange,
+  FlightRangeRequest,
+  WorkOrderHistory,
+} from "../domain/historyReads";
 import type { GroupDeletionPlan } from "../domain/groupDeletion";
 import type { InspectionTemplate } from "../domain/inspectionTemplates";
 import type { ManagementCommand } from "../domain/management";
@@ -70,6 +75,7 @@ import type { ProgramTransfer } from "../domain/programTransfers";
 import type { POCommand } from "../domain/purchaseOrders";
 import type { ReleaseStatement } from "../domain/releaseStatements";
 import type { RequiredPart } from "../domain/requiredParts";
+import type { HistoryPage, HistoryPageRequest } from "../domain/retention";
 import type {
   AddressChoices,
   SavedAddress,
@@ -689,6 +695,39 @@ export interface Backend {
    */
   auditSummary(period: SummaryPeriod): Promise<AuditSummaryResult>;
   /**
+   * Pages the older history the workspace's window leaves out: flights,
+   * problem reports, or work orders with their job cards, archived job cards
+   * and costs, newest first (historyPage in src/domain/retention.ts). Needs
+   * a connection.
+   *
+   * @param request - The list, its filters, the previous page's cursor and
+   *   the size.
+   * @returns The page and the members its rows name. The server returns a
+   *   page short and not done when its read budget runs out first.
+   * @throws "History not found." for an aircraft the user may not read, as
+   *   for one that does not exist.
+   */
+  historyPage(request: HistoryPageRequest): Promise<HistoryPage>;
+  /**
+   * One work order with everything filed on it, inside the window or not
+   * (workOrderHistory in src/domain/historyReads.ts).
+   *
+   * @throws "History not found." for an order the user may not read, as for
+   *   one that does not exist.
+   */
+  workOrderHistory(uuid: string): Promise<WorkOrderHistory>;
+  /**
+   * One aircraft's flights that started within a span, inside the window or
+   * not, newest first, with the pilots they name (flightRange in
+   * src/domain/historyReads.ts).
+   *
+   * @param request - The aircraft, and the span's first moment and the
+   *   moment after its last, in milliseconds.
+   * @throws "History not found."; "Choose a start time before the end
+   *   time."; "Choose a shorter span: it holds more than 1,000 flights."
+   */
+  flightsInRange(request: FlightRangeRequest): Promise<FlightRange>;
+  /**
    * Lists the keys of the alerts the signed-in user has marked read.
    *
    * @param programUuid - The Flight Program, or undefined outside one.
@@ -1169,6 +1208,11 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.query(api.auditHistory.page, inProgram(request)),
     auditSummary: (period) =>
       client.query(api.auditHistory.summary, inProgram(period)),
+    historyPage: (request) => queryHistoryPage(client, request),
+    workOrderHistory: (uuid) =>
+      client.query(api.history.workOrder, inProgram({ uuid })),
+    flightsInRange: (request) =>
+      client.query(api.history.flightsInRange, inProgram(request)),
     alertReads: (programUuid) =>
       client.query(api.alerts.readKeys, { programUuid }),
     markAlertsRead: (programUuid, keys, all) =>
@@ -1195,6 +1239,18 @@ function bindHistoryCalls(client: ConvexReactClient) {
       client.query(api.pushSubscriptions.held, { endpoint }),
     latestOffsiteCopy: () => client.query(api.backups.latestOffsiteCopy, {}),
   } satisfies Partial<Backend>;
+}
+
+// Each list is its own query; the request's kind picks it.
+function queryHistoryPage(
+  client: ConvexReactClient,
+  { kind, ...request }: HistoryPageRequest,
+): Promise<HistoryPage> {
+  if (kind === "flights")
+    return client.query(api.history.flights, inProgram(request));
+  if (kind === "discrepancies")
+    return client.query(api.history.discrepancies, inProgram(request));
+  return client.query(api.history.workOrders, inProgram(request));
 }
 
 // The program is read once, before any upload, so the ticket and the finish

@@ -3,8 +3,8 @@
  *   domain rules on the full fictional snapshot kept on the device.
  * Layer: Data. Browser only; no Convex server, no React.
  * Dependencies: ./backend, ./store (types), ./local, ./demoAircraftFiles,
- *   ./demoFileLinks, convex/values (ConvexError), and the src/domain modules
- *   it runs.
+ *   ./demoFileLinks, ./demoHistory, convex/values (ConvexError), and the
+ *   src/domain modules it runs.
  */
 import {
   groupDeletionPlan,
@@ -141,6 +141,7 @@ import * as local from "./local";
 import { groupAccessReports } from "../domain/groupAccessReview";
 import type { Backend } from "./backend";
 import { demoFileLinks } from "./demoFileLinks";
+import { demoHistoryCalls } from "./demoHistory";
 import type { Workspace } from "./store";
 type DemoWorkspace = { getState(): Workspace };
 /**
@@ -1179,6 +1180,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         throw new Error(HISTORY_NOT_FOUND);
       return pageAuditEntries(s.audit.filter(canSee), request);
     },
+    ...demoHistoryCalls(async () => {
+      const current = workspace.getState();
+      return (
+        (await local.readSnapshot(current.namespace + ":all")) ??
+        current.snapshot!
+      );
+    }),
     // The demo log is small, so the whole period is always covered.
     auditSummary: async (period) => {
       const current = workspace.getState();
