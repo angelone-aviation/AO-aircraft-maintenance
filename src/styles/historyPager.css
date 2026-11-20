@@ -1,0 +1,74 @@
+/*
+ * Responsibility: The pager under a list that keeps only recent history.
+ * Layer: UI. Styles for src/components/HistoryPager.tsx.
+ * Dependencies: src/styles/tokens.css (colours, type, spacing, motion).
+ *
+ * A quiet line, not a card: muted text and one cobalt text button, so the
+ * list stays the page's subject. No status colour: loading older records is
+ * not a status.
+ */
+.history-pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
+  text-align: center;
+}
+.history-pager p {
+  margin: 0;
+}
+.history-pager-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.history-pager-summary:focus {
+  outline: none;
+}
+.history-pager-load {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--blue-ink);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.history-pager-load:hover:not(:disabled) {
+  background: var(--tint);
+}
+.history-pager-load:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.history-pager-load:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.history-pager-note {
+  display: inline-flex;
+  flex-basis: 100%;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+.history-pager .error {
+  flex-basis: 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .history-pager-load {
+    transition: none;
+  }
+}

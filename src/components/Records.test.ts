@@ -66,7 +66,12 @@ vi.mock("./RequiredParts", () => ({ DiscrepancyParts: () => "PARTS" }));
 vi.mock("./PartsRequests", () => ({ RequestPartsButton: () => null }));
 vi.mock("./TaskCards", () => ({ LinkedTaskCards: () => null }));
 vi.mock("./WorkOrders", () => ({ AddToWorkOrder: () => null }));
-vi.mock("./ManagementShared", () => ({ HistoryPager: () => null }));
+vi.mock("./HistoryPager", () => ({
+  HistoryPager: () => null,
+  changeHistoryPages: () => ({}),
+  CHANGE_HISTORY_SUMMARY: "",
+  windowSummary: () => "",
+}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: Props) => h("a", null, children),
 }));

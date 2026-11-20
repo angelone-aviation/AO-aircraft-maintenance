@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins the management form readers, the shared fields, the
- *   change-history views and the offline refusal of management commands.
+ *   change-history view and its pager, and the offline refusal of management
+ *   commands.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/ManagementShared.tsx, react-dom/server.
  */
@@ -11,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagementCommand } from "../domain/management";
 import {
   History,
-  HistoryPager,
   NumberField,
   num,
   Reason,
@@ -120,20 +120,18 @@ describe("change history", () => {
     expect(html).toContain("&quot;a&quot;: 1");
   });
 
-  it("pages with status, error and Load more until the last page", () => {
-    expect(render(h(HistoryPager, { history: page({}) as never }))).toContain(
-      "Load more",
-    );
-    expect(
-      render(h(HistoryPager, { history: page({ loading: true }) as never })),
-    ).toBe('<p role="status">Loading history…</p>');
-    expect(
-      render(
-        h(HistoryPager, {
-          history: page({ isDone: true, error: "Offline" }) as never,
-        }),
-      ),
-    ).toBe('<p role="alert" class="error">Offline</p>');
+  it("pages with Load older until the last page", () => {
+    audit.history = page({ entries: [] });
+    expect(render(h(History, { uuid: "r1" }))).toContain("Load older");
+    audit.history = page({ isDone: true });
+    expect(render(h(History, { uuid: "r1" }))).toContain("All records loaded");
+  });
+
+  it("needs a connection for older entries while offline", () => {
+    audit.history = page({ isDone: true, offline: true });
+    const html = render(h(History, { uuid: "r1" }));
+    expect(html).toContain("Older records need a connection");
+    expect(html).not.toContain("All records loaded");
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the Record history panel of the inspection dialogs in
  *   the demo: a record with no change-log entries yet shows an empty state,
- *   not an error, and no Load more button.
+ *   not an error, and no Load older button.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  */
@@ -27,6 +27,6 @@ for (const button of ["Complete", "Details"])
     await expect(history.getByRole("alert")).toHaveCount(0);
     await expect(history.getByText("History not found.")).toHaveCount(0);
     await expect(
-      history.getByRole("button", { name: "Load more" }),
+      history.getByRole("button", { name: "Load older" }),
     ).toHaveCount(0);
   });

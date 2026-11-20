@@ -59,7 +59,11 @@ import {
   type FlightLogFilters,
   type FlightStatusFilter,
 } from "../domain/flightLog";
-import { HistoryPager } from "./ManagementShared";
+import {
+  CHANGE_HISTORY_SUMMARY,
+  changeHistoryPages,
+  HistoryPager,
+} from "./HistoryPager";
 import { ExportRecordsPackage } from "./ExportRecordsPackage";
 import {
   can,
@@ -1284,9 +1288,11 @@ function ChangeLog({ s }: { s: Snapshot }) {
             New entries and administrative changes will appear here.
           </EmptyState>
         )}
-        <div className="rec-pager">
-          <HistoryPager history={history} />
-        </div>
+        <HistoryPager
+          className="rec-pager"
+          pages={changeHistoryPages(history)}
+          summary={CHANGE_HISTORY_SUMMARY}
+        />
       </ListCard>
     </>
   );

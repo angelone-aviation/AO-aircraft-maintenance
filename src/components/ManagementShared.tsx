@@ -3,7 +3,8 @@
  *   by the management screens.
  * Layer: UI. Shared components and form helpers.
  * Dependencies: src/data/store.ts, src/data/auditHistory.ts,
- *   src/domain/model.ts, src/domain/management.ts (types), ./ui.tsx.
+ *   src/domain/model.ts, src/domain/management.ts (types), ./ui.tsx,
+ *   ./HistoryPager.tsx.
  */
 import { useWorkspace } from "../data/store";
 import { useAuditHistory } from "../data/auditHistory";
@@ -11,6 +12,11 @@ import { localDate } from "../domain/model";
 import { parseHours } from "../domain/model";
 import type { ManagementCommand } from "../domain/management";
 import { Field, value } from "./ui";
+import {
+  CHANGE_HISTORY_SUMMARY,
+  changeHistoryPages,
+  HistoryPager,
+} from "./HistoryPager";
 
 // Management commands refuse a longer reason (src/domain/management.ts).
 const REASON_MAX_LENGTH = 2000;
@@ -67,34 +73,9 @@ export const num = (d: FormData, k: string) =>
 export const secs = (d: FormData, k: string) => parseHours(value(d, k));
 
 /**
- * The paging controls under a change history: loading status, error and
- * Load more until the last page.
- */
-export function HistoryPager({
-  history,
-}: {
-  history: ReturnType<typeof useAuditHistory>;
-}) {
-  return (
-    <>
-      {history.loading && <p role="status">Loading history…</p>}
-      {history.error && (
-        <p role="alert" className="error">
-          {history.error}
-        </p>
-      )}
-      {!history.isDone && !history.loading && (
-        <button type="button" className="button" onClick={history.loadMore}>
-          Load more
-        </button>
-      )}
-    </>
-  );
-}
-
-/**
  * The change history of the record `uuid`: each entry's action, time, reason
- * and recorded values, in the order the audit history pages them.
+ * and recorded values, in the order the audit history pages them, with Load
+ * older until the last page.
  */
 export function History({ uuid }: { uuid: string }) {
   const history = useAuditHistory({ entityUuid: uuid });
@@ -119,7 +100,10 @@ export function History({ uuid }: { uuid: string }) {
           </div>
         ))
       )}
-      <HistoryPager history={history} />
+      <HistoryPager
+        pages={changeHistoryPages(history)}
+        summary={CHANGE_HISTORY_SUMMARY}
+      />
     </section>
   );
 }
