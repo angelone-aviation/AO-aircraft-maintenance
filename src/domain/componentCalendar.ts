@@ -9,7 +9,7 @@
  */
 import { Rejection } from "./rejection";
 
-// About 1,000 years; the error message states the same cap in months.
+// About 1,000 years.
 const MAX_SERVICE_DAYS = 365000;
 
 /** Days in an average month (365.25 / 12), for durations in service. */
@@ -25,6 +25,9 @@ export const daysPerServiceMonth = 30.4375;
 export const serviceMonthsFromDays = (days: number): number =>
   Number((days / daysPerServiceMonth).toFixed(3));
 
+// The cap as people type it, so the check and its refusal state one number.
+const MAX_SERVICE_MONTHS = serviceMonthsFromDays(MAX_SERVICE_DAYS);
+
 /**
  * Reads the prior months in service a person typed as the days to store.
  *
@@ -32,19 +35,18 @@ export const serviceMonthsFromDays = (days: number): number =>
  * @returns Days, rounded to the nearest whole day.
  * @throws {Rejection} "Enter valid prior months in service between 0 and
  *   11991.786." when the value is blank, not a finite number, negative, or
- *   over 365,000 days.
+ *   over that cap, 365,000 days shown in months.
  */
 export function serviceDaysFromMonths(value: string): number {
   const months = Number(value);
-  const days = Math.round(months * daysPerServiceMonth);
   if (
     !value.trim() ||
     !Number.isFinite(months) ||
     months < 0 ||
-    days > MAX_SERVICE_DAYS
+    months > MAX_SERVICE_MONTHS
   )
     throw new Rejection(
-      "Enter valid prior months in service between 0 and 11991.786.",
+      `Enter valid prior months in service between 0 and ${MAX_SERVICE_MONTHS}.`,
     );
-  return days;
+  return Math.round(months * daysPerServiceMonth);
 }

@@ -1321,7 +1321,7 @@ function AttachmentSection({
       <h3>8130 / supporting attachments</h3>
       <p>
         Choose an 8130 certificate or supporting documents to upload when you
-        save the component. PDF, JPEG, PNG or WebP, up to 7 MB per file.
+        save the component. PDF, JPEG, PNG or WebP, up to 7 MiB per file.
       </p>
       <InventoryFilePicker files={files} onChange={onChange} />
     </section>

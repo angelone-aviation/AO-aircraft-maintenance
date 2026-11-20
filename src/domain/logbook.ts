@@ -22,6 +22,8 @@ import { Rejection } from "./rejection";
 const SECONDS_PER_HOUR = 3600;
 const NOT_RECORDED = "Not recorded";
 const SIGNER_FIELD_MAX_LENGTH = 100;
+const WORDING_PROMPT =
+  "[Select Include in log book entry on a task or job card to see its wording here.]";
 
 /**
  * The certificate type and license number a signer enters, trimmed.
@@ -204,9 +206,7 @@ function entryText(s: Snapshot, order: WorkOrder, entry: Entry) {
     ...describeHeading(order, template, preview),
     ...(template === "inspection" ? [describeInspection(inspection), ""] : []),
     template === "ad" ? "Work and compliance references:" : "Work performed:",
-    order.revisedWorkPerformed ??
-      order.closeout?.workPerformed ??
-      draftWork(s, order, preview, closing?.workLines ?? []),
+    describeWork(s, order, preview, closing?.workLines ?? []),
     ...describeComponents(order, preview, closing?.components),
     ...describeCompliance(order.closeout?.compliance ?? []),
     "",
@@ -263,6 +263,19 @@ function describeInspection(inspection: InspectionEntry) {
   return `Completed ${annual ? "an" : "a"} ${annual ? "Annual" : "100-Hour"} inspection of this aircraft in accordance with the scope and detail of 14 CFR Part 43, Appendix D, and ${inspection.checklist.trim() || "[manufacturer's inspection checklist]"}. Service Bulletins and Airworthiness Directives checked through ${inspection.reviewedThrough.trim() || "[review date / bi-weekly issue]"}.`;
 }
 
+// A blank frozen wording keeps the prompt, so an entry is never printed for
+// signature with an empty line where the work should be described.
+function describeWork(
+  s: Snapshot,
+  order: WorkOrder,
+  preview: boolean,
+  workLines: string[],
+) {
+  const frozen = order.revisedWorkPerformed ?? order.closeout?.workPerformed;
+  if (frozen === undefined) return draftWork(s, order, preview, workLines);
+  return frozen.trim() ? frozen : WORDING_PROMPT;
+}
+
 // The close-out writes its component work lines after the wording; without
 // wording, the prompt stays below them.
 function draftWork(
@@ -274,10 +287,7 @@ function draftWork(
   const wording = workPerformedText(s, order, preview);
   const parts = wording
     ? [wording, ...workLines]
-    : [
-        ...workLines,
-        "[Select Include in log book entry on a task or job card to see its wording here.]",
-      ];
+    : [...workLines, WORDING_PROMPT];
   return parts.join("\n\n");
 }
 

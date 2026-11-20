@@ -18,7 +18,12 @@ import {
   type WorkOrderCost,
 } from "./records";
 import { SECONDS_PER_MINUTE } from "./units";
-import { findWorkOrderCost, laborRate, partIssues } from "./workOrderCosts";
+import {
+  findBudget,
+  findWorkOrderCost,
+  laborRate,
+  partIssues,
+} from "./workOrderCosts";
 
 /**
  * Applies one cost command to the snapshot and returns the changed record.
@@ -56,7 +61,10 @@ export function applyCostCommand(
     );
   }
   const w = openOrder(s, c.workOrderUuid, isAdmin(s));
-  const record = findWorkOrderCost(s, w.uuid) ?? emptyWorkOrderCost(w, program);
+  // Records stay with the program that paid when the aircraft moves
+  // (decision D14), so a command only ever edits its own program's.
+  const record =
+    findWorkOrderCost(s, w.uuid, program) ?? emptyWorkOrderCost(w, program);
   const changed = changeWorkOrderCost(s, c, w, record, now);
   if (!changed) return record;
   const next = workOrderCostSchema.parse({
@@ -127,12 +135,7 @@ function budgetRecord(
   requireAdmin(s);
   if (!can(s, c.aircraftUuid, "read"))
     throw new Rejection("Aircraft not found.");
-  const prior = s.costs?.find(
-    (r) =>
-      r.kind === "budget" &&
-      r.aircraftUuid === c.aircraftUuid &&
-      r.year === c.year,
-  );
+  const prior = findBudget(s, c.aircraftUuid, c.year, program);
   return {
     uuid: prior?.uuid ?? crypto.randomUUID(),
     version: (prior?.version ?? 0) + 1,

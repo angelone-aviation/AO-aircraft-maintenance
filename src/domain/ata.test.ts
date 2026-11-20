@@ -22,6 +22,7 @@ describe("ATA chapter catalog", () => {
   });
   it("labels a chapter with its code and title, or as unassigned", () => {
     expect(ataLabel("05")).toBe("ATA 05: Time Limits / Maintenance Checks");
+    expect(ataLabel("67")).toBe("ATA 67: Rotor Flight Controls");
     expect(ataLabel()).toBe("Unassigned");
   });
 });

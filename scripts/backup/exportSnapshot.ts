@@ -6,7 +6,11 @@
  *   src/domain/model (types).
  */
 import { exportContents, readDocuments } from "./convexExport";
-import { decodeLenient, type StoredRecord } from "../../convex/collections";
+import {
+  decodeLenient,
+  type DecodeIssue,
+  type StoredRecord,
+} from "../../convex/collections";
 import type {
   Aircraft,
   AuditEntry,
@@ -39,6 +43,8 @@ export type StoredPayload =
 export interface DamagedRecord {
   collection: RecordCollection;
   payload: StoredPayload;
+  /** Where JSON breaks the collection's schema; empty for other payloads. */
+  issues: DecodeIssue[];
 }
 
 /** An export, decoded for the records copy. */
@@ -274,9 +280,11 @@ function decodeRows<N extends RecordCollection>(
   return docs.flatMap((d) => {
     const payload = storedPayload(d);
     const result =
-      payload.kind === "json" && decodeLenient(collection, payload.value);
-    if (result && result.valid) return [result.record];
-    damaged.push({ collection, payload });
+      payload.kind === "json"
+        ? decodeLenient(collection, payload.value)
+        : undefined;
+    if (result?.valid) return [result.record];
+    damaged.push({ collection, payload, issues: result?.issues ?? [] });
     return [];
   });
 }

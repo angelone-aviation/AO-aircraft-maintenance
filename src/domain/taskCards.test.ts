@@ -21,8 +21,7 @@ import {
   isResultTextField,
   linkableTaskCards,
   linkedTaskCards,
-  signoffsOfferedInEditor,
-  signoffsOfferedInList,
+  signoffRefusals,
   TASK_TEXT_MAX_LENGTH,
   taskCardFieldsSchema,
   taskCardStatuses,
@@ -38,6 +37,7 @@ import {
 import { saveWorkOrder, workOrderProgress } from "./workOrders";
 import { scopedSnapshot } from "./programs";
 import { Rejection } from "./rejection";
+import type { Snapshot } from "./model";
 const now = Date.parse("2026-10-01T12:00:00Z");
 const edit = (t: TaskCard, patch: Partial<TaskCardFields> = {}) => ({
   action: "save" as const,
@@ -1229,65 +1229,71 @@ describe("what the job card screens offer", () => {
   });
 });
 
-describe("signoffs the list and the editor offer (they differ)", () => {
+describe("signoffs the job-card screens offer: exactly what the server accepts", () => {
   const asOf = "2026-10-01";
-  const technician = { userId: "technician", name: "Tech", at: 1 };
-  const inspection = { userId: "inspector", name: "Inspector", at: 2 };
-  const user = demoSnapshot().user;
-  const inspector = {
-    ...user,
-    id: "inspector",
-    licenseNumber: "A1",
-    certificateType: "A&P",
+  const certified = (s: Snapshot, id: string) => {
+    s.user = { ...s.user, id, licenseNumber: "A1", certificateType: "A&P" };
   };
-  const uncertified = { ...user, id: "inspector" };
-  const signer = { ...inspector, id: "technician" };
-  const none = { technicianSignoff: null, inspectionSignoff: null };
-  const tech = { technicianSignoff: technician, inspectionSignoff: null };
-  const both = { technicianSignoff: technician, inspectionSignoff: inspection };
-  // The signoffs offered as "TI": T for technician, I for inspection, else -.
-  const offers = (
-    status: TaskCard["status"],
-    signed: Pick<TaskCard, "technicianSignoff" | "inspectionSignoff">,
-    by: typeof user,
-  ) => {
-    const flags = (o: { technician: boolean; inspection: boolean }) =>
-      `${o.technician ? "T" : "-"}${o.inspection ? "I" : "-"}`;
-    const card = { status, ...signed };
-    return [
-      flags(signoffsOfferedInList(card, by, asOf)),
-      flags(signoffsOfferedInEditor(card, by, asOf)),
-    ];
+  // Offers "TI" (T for technician, I for inspection, else -), after checking
+  // that the server accepts each offered signoff and refuses each other one
+  // with the refusal the screens show.
+  const offers = (s: Snapshot, card: TaskCard) => {
+    const refusals = signoffRefusals(card, s.user, asOf);
+    for (const kind of ["technician", "inspection"] as const) {
+      const attempt = () =>
+        saveTaskCard(structuredClone(s), sign(card, kind), now);
+      if (refusals[kind]) expect(attempt).toThrow(Error(refusals[kind]));
+      else expect(attempt).not.toThrow();
+    }
+    return `${refusals.technician ? "-" : "T"}${refusals.inspection ? "-" : "I"}`;
   };
-
-  it.each([
-    ["unsigned draft", "draft", none, inspector, "--", "--"],
-    ["unsigned ready card", "ready", none, inspector, "T-", "T-"],
-    ["technician-signed card", "in-progress", tech, inspector, "-I", "TI"],
-    ["fully signed card", "in-progress", both, inspector, "--", "TI"],
-    ["draft with technician signoff", "draft", tech, inspector, "--", "-I"],
-    ["card its technician inspects", "ready", tech, signer, "--", "T-"],
-    ["inspector without a certificate", "ready", tech, uncertified, "--", "T-"],
-  ] as const)(
-    "%s: list %s, editor %s",
-    (_, status, signed, by, list, editor) => {
-      expect(offers(status, signed, by)).toEqual([list, editor]);
-    },
-  );
-
-  // Characterizes current behaviour: status edits keep signoffs, so a signed
-  // card set back to draft reaches the state where the two differ.
-  it("reaches a draft with a technician signoff, which the server will not inspect", () => {
+  // A ready card with its completion date, signed by "technician".
+  const signedWorld = () => {
     const w = cardWorld();
     w.stored(w.ready).completionDate = asOf;
-    const signed = saveTaskCard(w.s, sign(w.ready, "technician"), now);
-    const draft = saveTaskCard(w.s, edit(signed, { status: "draft" }), now);
-    expect(draft.technicianSignoff?.userId).toBe(w.s.user.id);
-    w.s.user = { ...w.s.user, ...inspector };
-    expect(offers("draft", draft, inspector)).toEqual(["--", "-I"]);
-    expect(() => saveTaskCard(w.s, sign(draft, "inspection"), now)).toThrow(
-      "Make the task ready before signing.",
-    );
+    const user = w.s.user;
+    certified(w.s, "technician");
+    const card = saveTaskCard(w.s, sign(w.ready, "technician"), now);
+    w.s.user = user;
+    return { ...w, card };
+  };
+
+  it("offers nothing on a draft or a template, and waits for a completion date", () => {
+    const w = cardWorld();
+    certified(w.s, "inspector");
+    expect(offers(w.s, w.card)).toBe("--");
+    expect(offers(w.s, w.template)).toBe("--");
+    expect(offers(w.s, w.ready)).toBe("--");
+    w.stored(w.ready).completionDate = asOf;
+    expect(offers(w.s, w.stored(w.ready))).toBe("T-");
+  });
+
+  it("offers inspection after the technician's, to another certificated person, and both again once signed", () => {
+    const { s, card } = signedWorld();
+    expect(offers(s, card)).toBe("T-");
+    certified(s, "technician");
+    expect(offers(s, card)).toBe("T-");
+    certified(s, "inspector");
+    expect(offers(s, card)).toBe("TI");
+    const both = saveTaskCard(s, sign(card, "inspection"), now);
+    expect(offers(s, both)).toBe("TI");
+  });
+
+  it("clears a signed card's signoffs when it is set back to draft, keeping them in the change log", () => {
+    const { s, card } = signedWorld();
+    certified(s, "inspector");
+    const both = saveTaskCard(s, sign(card, "inspection"), now);
+    const draft = applyTaskCardCommand(s, edit(both, { status: "draft" }), now);
+    expect(draft).toMatchObject({
+      status: "draft",
+      technicianSignoff: null,
+      inspectionSignoff: null,
+    });
+    expect(JSON.parse(s.audit[0].before!)).toMatchObject({
+      technicianSignoff: { userId: "technician" },
+      inspectionSignoff: { userId: "inspector" },
+    });
+    expect(offers(s, draft)).toBe("--");
   });
 });
 

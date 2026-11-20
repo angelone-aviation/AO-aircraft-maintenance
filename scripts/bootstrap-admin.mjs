@@ -1,7 +1,7 @@
 /**
  * Responsibility: Command-line entry for `npm run setup:admin`.
  * Layer: Script. A launcher only: the setup lives in scripts/bootstrapAdmin.ts.
- * Dependencies: esbuild (installed with convex), scripts/bootstrapAdmin.ts.
+ * Dependencies: esbuild (a pinned devDependency), scripts/bootstrapAdmin.ts.
  *
  * That module shares the app's password rule, TypeScript with extensionless
  * imports that Node cannot load, so it is bundled in memory on every run. The

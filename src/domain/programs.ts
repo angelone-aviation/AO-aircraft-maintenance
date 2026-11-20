@@ -48,6 +48,13 @@ const PROGRAM_ADMIN_AUDIT_ACTIONS: readonly string[] = [
 ];
 
 type CostRecord = NonNullable<Snapshot["costs"]>[number];
+// Who is reading: board members get money for their aircraft only.
+interface CostScope {
+  active: string | undefined;
+  ids: Set<string>;
+  admin: boolean;
+  money: boolean;
+}
 /** Finds a managed record by kind and uuid: the first, as `find` would. */
 type FindRecord = (kind: string, uuid: string) => ManagedRecord | undefined;
 type PurchaseOrder = NonNullable<Snapshot["purchaseOrders"]>[number];
@@ -301,10 +308,12 @@ export const auditVisible = (s: Snapshot) => visibleScope(s).canSeeAudit;
  * (reducedSnapshot): the owner portal, the board view, or both.
  *
  * @param s - The full snapshot; it is not changed.
+ * @param today - The date the board view's year and quarter are taken from;
+ *   this device's date by default. The server passes its records date.
  * @returns The scoped snapshot, with `activeProgramUuid` and
  *   `programScopeVersion` set.
  */
-export function scopedSnapshot(s: Snapshot): Snapshot {
+export function scopedSnapshot(s: Snapshot, today?: string): Snapshot {
   const scope = visibleScope(s);
   // The spread order sets the key order of fields the full snapshot lacks.
   const scoped: Snapshot = {
@@ -315,7 +324,7 @@ export function scopedSnapshot(s: Snapshot): Snapshot {
     ...scopeMaintenance(s, scope),
     ...scopePeople(s, scope),
   };
-  return reducedSnapshot(scoped) ?? scoped;
+  return reducedSnapshot(scoped, today) ?? scoped;
 }
 
 // Shared by the snapshot and the paginated history so both apply the same
@@ -340,7 +349,9 @@ function visibleScope(s: Snapshot): VisibleScope {
     checklists: keepActiveProgram(s, s.checklists).filter(
       (c) => !c.aircraftUuid || ids.has(c.aircraftUuid),
     ),
-    costs: (s.costs ?? []).flatMap((r) => scopeCost(r, active, ids, money)),
+    costs: (s.costs ?? []).flatMap((r) =>
+      scopeCost(r, { active, ids, admin, money }),
+    ),
     componentTemplates: keepActiveProgram(s, s.componentTemplates),
     componentSetups: keepActiveProgram(s, s.componentSetups).filter((t) =>
       ids.has(t.aircraftUuid),
@@ -439,15 +450,14 @@ function canSeeRequest(
 }
 
 // Cost records are administrator data; maintenance users only see labor
-// hours (no rates) so they can record their time on a work order.
-function scopeCost(
-  r: CostRecord,
-  active: string | undefined,
-  ids: Set<string>,
-  money: boolean,
-): CostRecord[] {
-  if (r.kind === "settings")
-    return r.programUuid === active && money ? [r] : [];
+// hours (no rates) so they can record their time on a work order. A record
+// stays with the program that paid when its aircraft moves (decision D14):
+// only that program reads it, and its administrators keep it.
+function scopeCost(r: CostRecord, scope: CostScope): CostRecord[] {
+  const { active, ids, admin, money } = scope;
+  if (r.programUuid !== active) return [];
+  if (r.kind === "settings") return money ? [r] : [];
+  if (admin) return [r];
   if (!ids.has(r.aircraftUuid)) return [];
   if (money) return [r];
   if (r.kind !== "workOrder") return [];

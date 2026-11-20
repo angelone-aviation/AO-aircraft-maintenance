@@ -5,7 +5,7 @@
  *   default reads the clock).
  * Dependencies: ./model, ./management, ./workOrders, ./airworthiness,
  *   ./deferrals, ./components/records (types), ./programs, ./adOwnership,
- *   ./costs/workOrderCosts, ./costs/period, ./rejection.
+ *   ./pickFields, ./costs/workOrderCosts, ./costs/period, ./rejection.
  *
  * The board snapshot is a whitelist of its own, not a cut of the owner
  * snapshot: every field a board member sees is named here (BOARD_FIELDS), so
@@ -29,6 +29,7 @@ import type { Deferral } from "./deferrals";
 import type { Component, ComponentRequirement } from "./components/records";
 import { groupCoversAircraft, reducedViewGroups } from "./programs";
 import { adAircraftUuid } from "./adOwnership";
+import { pickFields } from "./pickFields";
 import { aircraftSpendCents, findBudget } from "./costs/workOrderCosts";
 import type { Period } from "./costs/period";
 import { Rejection } from "./rejection";
@@ -462,16 +463,6 @@ function toBoardRecords(
   if (r.kind === "componentRequirement" && components.has(r.componentUuid))
     return [{ ...pickFields(r, BOARD_FIELDS.requirement), notes: "" }];
   return [];
-}
-
-// Copies the named fields a record holds, and no other.
-function pickFields<T extends object, K extends keyof T>(
-  record: T,
-  keys: readonly K[],
-): Pick<T, K> {
-  const picked = {} as Pick<T, K>;
-  for (const key of keys) if (key in record) picked[key] = record[key];
-  return picked;
 }
 
 // Only identity, dates and the scope line leave the server.

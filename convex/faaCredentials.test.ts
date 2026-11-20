@@ -1,9 +1,11 @@
 /**
  * Responsibility: Pins the FAA key settings: who may replace the key, the FAA
- *   check before a working key is discarded, the renewal date, and the
- *   deployment key used until one is saved.
+ *   check before a working key is discarded, the renewal date and the alert
+ *   check a new one schedules, and the deployment key used until one is
+ *   saved.
  * Layer: Test. convex-test suite with a stubbed fetch; never shipped.
- * Dependencies: convex/faaCredentials, convex/secrets, convex/schema.
+ * Dependencies: convex/faaCredentials, convex/secrets, convex/alerts,
+ *   convex/schema.
  */
 import { convexTest } from "convex-test";
 import { afterEach, it, expect, vi } from "vitest";
@@ -11,6 +13,7 @@ import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { openSecret } from "./secrets";
 import { FAA_SECRET, faaSecret } from "./faaCredentials";
+import { SYSTEM_SCOPE } from "./alerts";
 const ENCRYPTION_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -234,4 +237,34 @@ it("records an expiry only in YYYY-MM-DD form and only once", async () => {
   expect(
     await t.run((ctx) => ctx.db.query("faaCredentials").unique()),
   ).toMatchObject({ expiresOn: "2099-01-31", version: 1 });
+});
+
+// The deployment's own check alerts system administrators about the key's
+// renewal date (convex/urgentAlerts.ts), so a new date is checked at once.
+it("schedules the system alert check when the renewal date changes (SE-15)", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", ENCRYPTION_KEY);
+  stubFaa(JSON.stringify({ summary: {}, documents: [] }));
+  const { t, admin } = await setupAdmin();
+  const checks = async () =>
+    (
+      await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      )
+    )
+      .filter((f) => f.name.includes("sendImmediate"))
+      .map((f) => f.args);
+  const replace = (key: string, expiresOn: string, version: number) =>
+    admin.action(api.faaCredentials.replace, { key, expiresOn, version });
+
+  await t.mutation(internal.faaCredentials.initializeExpiry, {
+    expiresOn: "2099-01-31",
+  });
+  expect(await checks()).toEqual([[{ programUuid: SYSTEM_SCOPE }]]);
+  await replace("synthetic-saved-key-0001", "2099-01-31", 1);
+  expect(await checks()).toHaveLength(1);
+  await replace("synthetic-saved-key-0002", "2099-10-14", 2);
+  expect(await checks()).toEqual([
+    [{ programUuid: SYSTEM_SCOPE }],
+    [{ programUuid: SYSTEM_SCOPE }],
+  ]);
 });

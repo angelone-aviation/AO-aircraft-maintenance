@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins Settings: the sections each role sees, the panels moved
  *   out of Administration, Costs and Vendors working from Settings, deep
- *   links, the theme and alert digest, and reaching it on a phone.
+ *   links, the theme and alert digest, reaching it on a phone, and the line
+ *   owners and board members get in its place.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  *
@@ -18,6 +19,8 @@ const SECTIONS = [
   "System",
 ];
 const PHONE = { width: 390, height: 844 };
+const REDUCED_VIEW_NOTE =
+  "No Settings page here: the sun and moon button at the top switches the theme, and your administrators change your name, email, password or access.";
 const PROGRAM_ADMIN: MemberGroup = {
   id: "program-admin",
   name: "Program administrators",
@@ -254,6 +257,47 @@ test("the theme chosen in Settings persists across reload", async ({
   ).toHaveAttribute("aria-pressed", "true");
 });
 
+test("Match this device follows the device's light or dark setting live (B9)", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() => {
+    sessionStorage.setItem("angel-one-demo", "true");
+    if (!sessionStorage.getItem("theme-seeded")) {
+      localStorage.setItem("angelone-theme", "dark");
+      sessionStorage.setItem("theme-seeded", "true");
+    }
+  });
+  await page.goto("/settings#device");
+  await expectSettings(page);
+  const html = page.locator("html");
+  const theme = page.getByRole("group", { name: "Theme", exact: true });
+  const matchDevice = theme.getByRole("button", {
+    name: "Match this device",
+    exact: true,
+  });
+  await expect(html).toHaveClass(/\bdark\b/);
+  await matchDevice.click();
+  await expect(matchDevice).toHaveAttribute("aria-pressed", "true");
+  await expect(html).not.toHaveClass(/\bdark\b/);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(html).toHaveClass(/\bdark\b/);
+  expect(
+    await page.evaluate(() => localStorage.getItem("angelone-theme")),
+  ).toBe("system");
+  await page.reload();
+  await expectSettings(page);
+  await expect(matchDevice).toHaveAttribute("aria-pressed", "true");
+  await expect(html).toHaveClass(/\bdark\b/);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(html).not.toHaveClass(/\bdark\b/);
+  // A chosen theme stays put when the device changes.
+  await theme.getByRole("button", { name: "Dark", exact: true }).click();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(html).toHaveClass(/\bdark\b/);
+});
+
 test("a labor rate saved in Settings shows on Costs", async ({ page }) => {
   await openDemo(page, "/settings#program");
   await expectSettings(page);
@@ -417,6 +461,30 @@ test("phones reach Settings from the More sheet, not the tab bar", async ({
   expect(box).not.toBeNull();
   expect(box!.x + box!.width).toBeLessThanOrEqual(PHONE.width);
 });
+
+for (const view of ["owner portal", "board view"])
+  test(`the ${view}'s More sheet says where the theme and account settings are`, async ({
+    page,
+  }) => {
+    await openDemo(page, "/");
+    // The preview buttons are hidden on phones.
+    await page
+      .getByRole("button", { name: `Preview ${view}`, exact: true })
+      .click();
+    await page.setViewportSize(PHONE);
+    await page.getByRole("button", { name: "More", exact: true }).click();
+    const sheet = page.getByRole("dialog", { name: "All sections" });
+    await expect(sheet.getByText(REDUCED_VIEW_NOTE)).toBeVisible();
+    await expect(
+      sheet.getByRole("button", { name: "Sign out", exact: true }),
+    ).toBeVisible();
+    await expect(
+      sheet.getByRole("link", { name: "Settings", exact: true }),
+    ).toHaveCount(0);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(PHONE.width);
+  });
 
 interface MemberGroup {
   id: string;

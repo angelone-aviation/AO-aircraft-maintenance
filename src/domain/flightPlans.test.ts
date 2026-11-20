@@ -521,7 +521,7 @@ describe("plan refusals and queue order", () => {
     ];
     expect(projectQueue(s, a.uuid)[0].flags).toEqual([
       "Logged flight awaiting review; estimate remains in projection until accepted.",
-      "Aircraft status: grounded",
+      "Profile status: Grounded",
       "Open discrepancy: Light",
     ]);
     a.meter = "flightTimeLog";
@@ -546,7 +546,7 @@ describe("queue flags on the due fleet", () => {
       { ...draft(), departureAt: "2026-10-31T12:00:00Z", durationMinutes: 60 },
     ];
     expect(projectQueue(s, a.uuid)[0].flags).toStrictEqual([
-      "Aircraft status: unknown",
+      "Profile status: Unverified",
       "i-late: Due before further Flight",
       "i-today: Due before further Flight",
       "i-zero: Due before further Flight",
@@ -590,7 +590,7 @@ describe("queue flags on the due fleet", () => {
     expect(entry.totalSeconds).toBeUndefined();
     // RM-66: the calendar-only inspection is flagged although the meter is unread.
     expect(entry.flags).toStrictEqual([
-      "Aircraft status: unknown",
+      "Profile status: Unverified",
       "i-collective: Collective component tracking requires a helicopter collective hourmeter reading.",
       "i-calendar-unread: Due before further Flight",
     ]);

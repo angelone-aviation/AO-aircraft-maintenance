@@ -12,6 +12,9 @@ import { jsPDF } from "jspdf";
 
 type Rgb = [number, number, number];
 
+/** How a status cell prints: danger red and bold, caution amber. */
+export type PdfTone = "danger" | "caution";
+
 /** A page's orientation; a letter page is 215.9 by 279.4 mm. */
 export type PageOrientation = "portrait" | "landscape";
 
@@ -26,6 +29,10 @@ export interface PdfTable {
   shares?: number[];
   /** The table starts on a page of this orientation; the document's if unset. */
   orientation?: PageOrientation;
+  /** The column whose cells print in their row's tone. */
+  statusColumn?: number;
+  /** Each row's tone, by row; a row without one prints in ink. */
+  tones?: (PdfTone | undefined)[];
 }
 
 /** A TrueType font to embed, already base64-encoded, with one style only. */
@@ -73,6 +80,8 @@ const DANGER: Rgb = [165, 35, 35];
 const CAUTION: Rgb = [134, 83, 0];
 const INK: Rgb = [35, 48, 43];
 const GRID: Rgb = [195, 211, 201];
+const TONE_INK: Record<PdfTone, Rgb> = { danger: DANGER, caution: CAUTION };
+const NEGATIVE_NUMBER = /^-\d/;
 
 /** Where text may go on a page of one orientation. */
 type Geometry = {
@@ -100,17 +109,23 @@ type Layout = {
   y: number;
 };
 
-type Table = { title: string; labels: string[]; widths: number[] };
+type Table = {
+  title: string;
+  labels: string[];
+  widths: number[];
+  statusColumn?: number;
+  tones: (PdfTone | undefined)[];
+};
 
 /**
  * Writes tables as a letter-size document: each table's title, a filled
  * heading row, striped rows, then its notes, flowing across pages. A table
  * whose orientation differs from the current page starts a new page, and the
  * first page takes the first table's orientation. A row continued on a new
- * page repeats the table heading. Cells reading "overdue" or a negative
- * number print red and bold; "Needs review" and "due-soon" amber; the first
- * column bold. With Helvetica, dashes print as "-" and other non-ASCII
- * characters as spaces.
+ * page repeats the table heading. A status cell prints in its row's tone,
+ * whatever its words; any other cell holding a negative number prints red
+ * and bold; the first column is bold. With Helvetica, dashes print as "-" and
+ * other non-ASCII characters as spaces.
  *
  * @param tables - The tables in reading order.
  * @param options - The orientation, header, footer and optional font.
@@ -231,6 +246,8 @@ function writeTable(layout: Layout, source: PdfTable): void {
     title: source.title,
     labels: source.columns,
     widths: shares.map((x) => (x / sum) * layout.page.textWidth),
+    statusColumn: source.statusColumn,
+    tones: source.tones ?? [],
   };
   if (layout.y + TABLE_START_SPACE_MM > layout.page.bottom) startPage(layout);
   writeTableHeading(layout, table);
@@ -318,10 +335,9 @@ function drawRowSlice(
   pdf.setFillColor(...(index % 2 === 0 ? STRIPE : WHITE));
   pdf.rect(LEFT_MM, y, page.textWidth, height, "F");
   cells.forEach((lines, i) => {
-    const value = row[i] || "";
-    const danger = /overdue|^-/i.test(value) && value !== "-";
-    pdf.setTextColor(...(danger ? DANGER : cellInk(value)));
-    setFont(layout, i === 0 || danger);
+    const tone = cellTone(table, row[i] || "", i, index);
+    pdf.setTextColor(...(tone ? TONE_INK[tone] : INK));
+    setFont(layout, i === 0 || tone === "danger");
     pdf.setFontSize(CELL_FONT_PT);
     pdf.text(lines.slice(offset, offset + take), x + CELL_PADDING_MM, y + 5);
     pdf.setDrawColor(...GRID);
@@ -332,8 +348,16 @@ function drawRowSlice(
   layout.y += height;
 }
 
-function cellInk(value: string): Rgb {
-  return /Needs review|due-soon/i.test(value) ? CAUTION : INK;
+// A negative remaining value is overdue (the status sheet's notes say so), in
+// whichever column it stands.
+function cellTone(
+  table: Table,
+  value: string,
+  column: number,
+  row: number,
+): PdfTone | undefined {
+  if (column === table.statusColumn) return table.tones[row];
+  return NEGATIVE_NUMBER.test(value) ? "danger" : undefined;
 }
 
 // Runs after layout, once the page count is known; each page keeps its own

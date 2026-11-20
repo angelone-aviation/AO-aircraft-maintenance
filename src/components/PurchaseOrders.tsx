@@ -8,7 +8,7 @@
  *   purchaseOrders, purchaseOrderRules, shelfLife, aircraftSpruce,
  *   costs/units),
  *   ./AircraftSpruce, ./Vendors, ./CoreReturns, ./SavedAddresses, ./ShopList,
- *   ./ui, ./design, CSS.
+ *   ./NumberInput, ./ui, ./design, CSS.
  */
 import { SpruceProductPicker, SpruceOrderProgress } from "./AircraftSpruce";
 import { localDate, type Snapshot } from "../domain/model";
@@ -53,6 +53,7 @@ import {
 import type { Inspection } from "../domain/model";
 import { usableQuantity } from "../domain/shelfLife";
 import { AsyncForm, DeleteFileButton, Modal, Field, errorText } from "./ui";
+import { NumberInput } from "./NumberInput";
 import {
   useStaleSave,
   type StaleSaveAttempt,
@@ -831,14 +832,11 @@ function OrderTermsFields({ editor }: { editor: Editor }) {
         />
       </Field>
       <Field label="Shipping cost">
-        <input
-          type="number"
+        <NumberInput
           min="0"
           step=".01"
           value={draft.shippingCents / CENTS_PER_DOLLAR}
-          onChange={(e) =>
-            patch({ shippingCents: toCents(Number(e.target.value)) })
-          }
+          onValue={(amount) => patch({ shippingCents: toCents(amount) })}
         />
       </Field>
     </>
@@ -980,23 +978,21 @@ function LineQuantityFields({ editor, line: l, index, inspection }: LineProps) {
   return (
     <>
       <Field label={`Part ${index + 1} quantity`}>
-        <input
-          type="number"
+        <NumberInput
           required
           min={inspection ? 0 : 1}
           step="1"
           value={l.quantity}
-          onChange={(e) => set({ quantity: Number(e.target.value) })}
+          onValue={(quantity) => set({ quantity })}
         />
       </Field>
       <Field label={`Part ${index + 1} unit cost`}>
-        <input
-          type="number"
+        <NumberInput
           required
           min="0"
           step=".01"
           value={l.unitCents / CENTS_PER_DOLLAR}
-          onChange={(e) => set({ unitCents: toCents(Number(e.target.value)) })}
+          onValue={(amount) => set({ unitCents: toCents(amount) })}
         />
       </Field>
     </>
@@ -1123,16 +1119,13 @@ function LineExchangeFields({ editor, line: l, index }: LineProps) {
       )}
       {l.exchange && (
         <Field label={`Part ${index + 1} core due (days after receipt)`}>
-          <input
-            type="number"
+          <NumberInput
             required
             min="1"
             max={MAX_CORE_DUE_DAYS}
             step="1"
             value={l.coreDueDays ?? DEFAULT_CORE_DUE_DAYS}
-            onChange={(e) =>
-              editor.linePatch(l.uuid, { coreDueDays: Number(e.target.value) })
-            }
+            onValue={(coreDueDays) => editor.linePatch(l.uuid, { coreDueDays })}
           />
         </Field>
       )}
@@ -1795,13 +1788,12 @@ function DeliveryLine({
       <Field
         label={`${l.partNumber} ${kind === "ship" ? "quantity shipped" : "quantity received"}`}
       >
-        <input
-          type="number"
+        <NumberInput
           min="0"
           max={Math.min(max, l.kind === "component" ? MAX_SERIAL_ROWS : max)}
           step="1"
           value={d.quantities[l.uuid] ?? 0}
-          onChange={(e) => setQuantity(d, s, l, kind, Number(e.target.value))}
+          onValue={(quantity) => setQuantity(d, s, l, kind, quantity)}
         />
       </Field>
       {kind === "receive" && (d.quantities[l.uuid] ?? 0) > 0 && (

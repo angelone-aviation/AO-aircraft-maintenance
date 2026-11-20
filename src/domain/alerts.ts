@@ -3,11 +3,11 @@
  *   Program, which of them are urgent, and whether they want them emailed.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./aircraftStatus, ./certifications, ./components,
- *   ./dueItems, ./expiringItems, ./faaCandidateReview, ./maintenance;
- *   ./airworthiness (types).
+ *   ./dueItems, ./expiringItems, ./faaCandidateReview, ./maintenance,
+ *   ./programs, ./reportBacklog; ./airworthiness (types).
  */
 import { aircraftStatus } from "./aircraftStatus";
-import type { AD, ADTask } from "./airworthiness";
+import { SETTLED_AD_STATUSES, type AD, type ADTask } from "./airworthiness";
 import { certificationLabels, normalizeCertifications } from "./certifications";
 import {
   requirementDueDate,
@@ -38,6 +38,12 @@ import {
   type Member,
   type Snapshot,
 } from "./model";
+import { programPermission } from "./programs";
+import {
+  highReportBacklogs,
+  MAX_OPEN_REPORT_BYTES_PER_MEMBER,
+  MAX_OPEN_REPORTS_PER_MEMBER,
+} from "./reportBacklog";
 
 /** What an alert is about. Extend it as new alert sources are added. */
 export type AlertKind =
@@ -45,6 +51,7 @@ export type AlertKind =
   | "inspection-overdue"
   | "ad-due-soon"
   | "ad-overdue"
+  | "ad-review"
   | "component-due-soon"
   | "component-past-due"
   | "certificate-expiring"
@@ -52,14 +59,20 @@ export type AlertKind =
   | "faa-ad-review"
   | "aircraft-grounded"
   | "date-expiring"
-  | "date-expired";
+  | "date-expired"
+  | "report-backlog";
 
 /** How urgent an alert is, as {@link severityLabels} names it. */
 export type AlertSeverity = "info" | "warning" | "danger";
 
 /** The screen an alert opens. */
 export type AlertLink =
-  "/" | "/inspections" | "/airworthiness" | "/components" | "/settings";
+  | "/"
+  | "/inspections"
+  | "/airworthiness"
+  | "/components"
+  | "/discrepancies"
+  | "/settings";
 
 /** One alert, shown in the app and sent in the email digest. */
 export interface Alert {
@@ -89,7 +102,7 @@ export const CERTIFICATE_WARNING_DAYS = 30;
 
 /** What the alerts cover, as the Alerts page and Settings describe them. */
 export const ALERT_KINDS_SUMMARY =
-  "Inspections, ADs and component limits coming due, grounded aircraft, your certificates, FAA documents to review and expiring dates, for the aircraft you can access.";
+  "Inspections, ADs and component limits coming due, ADs to review, grounded aircraft, your certificates, FAA documents to review and expiring dates, for the aircraft you can access; for administrators, a member's open problem reports piling up.";
 
 /** The UTC hour the daily alert digest goes out (convex/crons.ts). */
 export const ALERT_DIGEST_HOUR_UTC = 13;
@@ -101,9 +114,13 @@ export const ALERT_DIGEST_HOUR_UTC = 13;
  */
 export const IMMEDIATE_EMAILS_PER_DAY = 60;
 
+/** No Flight Program's share of the day's immediate emails is smaller. */
+export const IMMEDIATE_EMAIL_SHARE_FLOOR = 10;
+
 /**
  * The alerts that reach people at once (GLOSSARY "Urgent alert"): an
- * aircraft that may not fly, a limit already passed, a date already expired.
+ * aircraft that may not fly, a limit already passed, a date already expired,
+ * a member's problem reports piling up fast enough to lock the program out.
  * Everything else waits for the daily digest.
  */
 export const URGENT_ALERT_KINDS: readonly AlertKind[] = [
@@ -112,20 +129,7 @@ export const URGENT_ALERT_KINDS: readonly AlertKind[] = [
   "ad-overdue",
   "component-past-due",
   "date-expired",
-];
-
-/**
- * The AD statuses whose actions never alert. Any other AD alerts on each
- * overdue or due-soon action, even while it needs review; an AD with none
- * (complied, scheduled, no due limit) has nothing to alert on. The
- * dashboard's AD panel lists more (`DASHBOARD_SETTLED_AD_STATUSES`) until T13
- * settles the difference.
- */
-export const ALERTS_SKIPPED_AD_STATUSES: readonly string[] = [
-  "Not applicable",
-  "Superseded",
-  "Removed component",
-  "Previously Complied With (PCW)",
+  "report-backlog",
 ];
 
 const SEVERITY_RANK: Record<AlertSeverity, number> = {
@@ -139,6 +143,7 @@ const DAY_MS = 86_400_000;
 const UNDATED = "9999";
 
 const AD_DETAIL_MAX_LENGTH = 200;
+const BYTES_PER_KIB = 1024;
 const FAA_NUMBERS_SHOWN = 5;
 const GROUNDED_REASONS_SHOWN = 3;
 
@@ -166,6 +171,7 @@ export function computeAlerts(s: Snapshot, today: string): Alert[] {
     ...groundedAlerts(s, today),
     ...expiringDateAlerts(s, "system", today),
     ...expiringDateAlerts(s, "program", today),
+    ...reportBacklogAlerts(s),
   ].sort(compareAlerts);
 }
 
@@ -246,6 +252,30 @@ export function urgentAlerts<T extends Pick<Alert, "kind">>(alerts: T[]): T[] {
   return alerts.filter((a) => URGENT_ALERT_KINDS.includes(a.kind));
 }
 
+/**
+ * How many immediate emails one Flight Program may send in a UTC day: the
+ * deployment's {@link IMMEDIATE_EMAILS_PER_DAY} split equally between the
+ * programs with an active member, never below
+ * {@link IMMEDIATE_EMAIL_SHARE_FLOOR}.
+ *
+ * @param activePrograms - Programs where an active member holds a group.
+ * @returns The program's share; the whole total for one program or none.
+ */
+export function immediateEmailShare(activePrograms: number): number {
+  // One program's flood (an administrator re-saving a past date 60 times,
+  // SE-3) must not hold back another program's "is grounded" email until
+  // the next digest. An equal split is the plainest fair rule, since every
+  // program's members count alike. The floor leaves room for one bad event
+  // among a program's administrators and maintenance members once many
+  // programs share the total: past six programs the shares add up to more
+  // than the total, which still caps them all together, so a share bounds
+  // what one program can take rather than promising it.
+  const equal = Math.floor(
+    IMMEDIATE_EMAILS_PER_DAY / Math.max(1, activePrograms),
+  );
+  return Math.max(IMMEDIATE_EMAIL_SHARE_FLOOR, equal);
+}
+
 const alertKey = (kind: AlertKind, ...parts: unknown[]) =>
   [kind, ...parts.map((p) => (p === undefined || p === null ? "" : p))].join(
     "|",
@@ -313,13 +343,32 @@ function inspectionAlert(
   };
 }
 
+// An AD the dashboard lists alerts on each overdue or due-soon action, even
+// while it needs review; without one, it asks for review once.
 function adAlerts(s: Snapshot, due: MaintenanceDue[]): Alert[] {
   return due.flatMap((item): Alert[] => {
     if (item.kind !== "ad" || !item.aircraft) return [];
     if (!can(s, item.aircraft.uuid, "read")) return [];
-    if (ALERTS_SKIPPED_AD_STATUSES.includes(item.status)) return [];
-    return adTaskAlerts(item, item.aircraft);
+    if (SETTLED_AD_STATUSES.includes(item.status)) return [];
+    const actions = adTaskAlerts(item, item.aircraft);
+    return actions.length ? actions : [adReviewAlert(item, item.aircraft)];
   });
+}
+
+function adReviewAlert({ ad: r, status }: AdDue, a: Aircraft): Alert {
+  return {
+    key: alertKey("ad-review", r.uuid, status),
+    kind: "ad-review",
+    severity: "info",
+    title: `AD ${r.source.number}: ${status}`,
+    detail: joinDetail(
+      a.registration,
+      r.source.subject.slice(0, AD_DETAIL_MAX_LENGTH),
+    ),
+    aircraftUuid: a.uuid,
+    entityUuid: r.uuid,
+    link: "/airworthiness",
+  };
 }
 
 function adTaskAlerts(item: AdDue, a: Aircraft): Alert[] {
@@ -563,4 +612,27 @@ function expiringDateAlert(
     dueDate: item.expiresOn,
     link: "/settings",
   };
+}
+
+// A program's administrators can resolve or defer the reports, and see who
+// filed them. The key names only the member, so one occurrence is sent
+// once however many more reports arrive.
+function reportBacklogAlerts(s: Snapshot): Alert[] {
+  if (!programPermission(s, "admin")) return [];
+  return highReportBacklogs(s).map((b) => ({
+    key: alertKey("report-backlog", b.authorId),
+    kind: "report-backlog",
+    severity: "danger",
+    title: `${memberName(s, b.authorId)} has ${b.count} open problem reports`,
+    detail: joinDetail(
+      `${Math.ceil(b.bytes / BYTES_PER_KIB)} KiB of text`,
+      `New reports from them are refused past ${MAX_OPEN_REPORTS_PER_MEMBER} or ${MAX_OPEN_REPORT_BYTES_PER_MEMBER / BYTES_PER_KIB} KiB. Resolve or defer them, or check the account.`,
+    ),
+    entityUuid: b.authorId,
+    link: "/discrepancies",
+  }));
+}
+
+function memberName(s: Snapshot, id: string) {
+  return s.members.find((m) => m.id === id)?.name ?? "A member";
 }

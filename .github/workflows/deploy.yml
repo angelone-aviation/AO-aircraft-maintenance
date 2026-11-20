@@ -34,11 +34,6 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
-env:
-  # Dependabot does not update this pin: raise it together with the version in
-  # docs/runbooks/release.md.
-  WRANGLER_VERSION: 4.151.3
-
 jobs:
   deploy:
     name: Deploy to production
@@ -152,13 +147,15 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           # The map check runs here, not in "Verify the build", so a bad build
-          # stops before Convex is changed.
+          # stops before Convex is changed. So does pinning the built CSP to
+          # this deployment's hosts (security review C3).
           BUILD: |
             set -eu
             node scripts/check-csp-origin.mjs "$VITE_CONVEX_URL"
             node scripts/check-csp-origin.mjs --sentry-dsn "$VITE_SENTRY_DSN"
             rm -rf dist
             npm run build
+            node scripts/pin-csp-origin.mjs "$VITE_CONVEX_URL"
             maps=$(find dist -name '*.map')
             if [ -n "$maps" ]; then
               echo "::error::Source maps must never be published: $maps"
@@ -194,8 +191,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_SEND_METRICS: "false"
+        # The wrangler that npm ci installed from package-lock.json (decision
+        # D24): its whole dependency tree is integrity-checked and audited,
+        # and --no-install refuses to fetch anything else.
         run: >-
-          npx --yes "wrangler@${WRANGLER_VERSION}" deploy
+          npx --no-install wrangler deploy
           --tag "${DEPLOY_SHA::12}"
           --message "Commit ${DEPLOY_SHA::12}, workflow run ${GITHUB_RUN_ID}"
 
@@ -213,7 +213,7 @@ jobs:
         run: |
           set -eu
           tag="${DEPLOY_SHA::12}"
-          deployments=$(npx --yes "wrangler@${WRANGLER_VERSION}" deployments list --name angel-one)
+          deployments=$(npx --no-install wrangler deployments list --name angel-one)
           echo "$deployments"
           echo "$deployments" | grep -F "$tag" >/dev/null || {
             echo "::error::Active Cloudflare deployments do not include tag $tag."
@@ -245,7 +245,7 @@ jobs:
             echo "### Deploy ${DEPLOY_SHA::12}: ${{ job.status }}"
             echo ""
             echo "- Convex deployment: ${CONVEX_URL:-not reached}"
-            echo "- Cloudflare Worker version tag: ${DEPLOY_SHA::12} (wrangler ${WRANGLER_VERSION})"
+            echo "- Cloudflare Worker version tag: ${DEPLOY_SHA::12}"
             echo ""
             echo "Next: check the live site (docs/runbooks/release.md, \"After every deploy\")."
             echo "Roll back the website with Cloudflare (Workers > angel-one > Deployments). Convex cannot be rolled back: fix forward."

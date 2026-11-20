@@ -543,11 +543,12 @@ export function emailChoice(
 /**
  * Loads one program's alert sources: its aircraft, maintenance records,
  * inspections, ADs, FAA monitors, open problem reports, expiring dates (with
- * the deployment's) and the FAA key status.
+ * the deployment's), the FAA key status, and its members, whom a
+ * problem-report backlog alert names.
  *
  * @param groups - The program's permission groups, already loaded.
- * @returns The sources; members, flights, closed problem reports and the
- *   change log stay empty, since no alert reads them.
+ * @returns The sources; flights, closed problem reports and the change log
+ *   stay empty, since no alert reads them.
  */
 export async function loadAlertSources(
   ctx: QueryCtx,
@@ -579,7 +580,7 @@ export async function loadAlertSources(
     faaMonitors: (await faaMonitorDocs(ctx, aircraft)).map((d) =>
       faaMonitorSchema.parse(JSON.parse(d.payload)),
     ),
-    members: [],
+    members: (await programUsers(ctx, programUuid)).map(member),
     flights: [],
     discrepancies: await openDiscrepancies(ctx, aircraft),
     audit: [],

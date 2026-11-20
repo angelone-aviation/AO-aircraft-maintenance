@@ -4,8 +4,9 @@
  *   Administration.
  * Layer: UI. React components; the sign-in screen runs before the workspace
  *   exists, so it calls Convex and Convex Auth directly (CONTEXT.md §5).
- * Dependencies: convex/react, @convex-dev/auth/react, convex/_generated/api,
- *   src/data/store.ts, src/domain/signInMethods.ts, ./design.tsx, ./ui.tsx.
+ * Dependencies: react, convex/react, @convex-dev/auth/react,
+ *   @phosphor-icons/react, convex/_generated/api, src/data/store.ts,
+ *   src/domain/signInMethods.ts, ./design.tsx, ./ui.tsx.
  *
  * Accounts stay administrator-provisioned: a Google or Microsoft account is
  * only ever linked to an existing user.
@@ -13,12 +14,18 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Password, WarningCircle, WifiSlash } from "@phosphor-icons/react";
+import {
+  Password,
+  UserCircle,
+  WarningCircle,
+  WifiSlash,
+} from "@phosphor-icons/react";
 import { api } from "../../convex/_generated/api";
 import type { Backend } from "../data/backend";
 import { useWorkspace } from "../data/store";
 import {
   GOOGLE,
+  MICROSOFT,
   SIGN_IN_ERROR_PARAM,
   SIGN_IN_PROVIDER_PARAM,
   isSsoProvider,
@@ -345,10 +352,23 @@ function ErrorAlert({ error }: { error: string }) {
   );
 }
 
-// The providers' own marks, as their sign-in button guidelines require. Any
-// provider other than Google gets the Microsoft mark.
-function ProviderMark({ provider }: { provider: string }) {
-  return provider === GOOGLE ? (
+/**
+ * A sign-in provider's mark, decorative beside its name: Google's and
+ * Microsoft's own logos, as their sign-in button guidelines require, and a
+ * neutral account icon for any other provider, so no provider is shown with
+ * another company's logo.
+ *
+ * @param props.provider - The provider id, such as "google".
+ * @returns An `svg.sgn-mark`, hidden from screen readers.
+ */
+export function ProviderMark({ provider }: { provider: string }) {
+  if (provider === GOOGLE) return <GoogleMark />;
+  if (provider === MICROSOFT) return <MicrosoftMark />;
+  return <UserCircle className="sgn-mark" aria-hidden="true" />;
+}
+
+function GoogleMark() {
+  return (
     <svg className="sgn-mark" viewBox="0 0 48 48" aria-hidden="true">
       <path
         fill="#EA4335"
@@ -367,7 +387,11 @@ function ProviderMark({ provider }: { provider: string }) {
         d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
       />
     </svg>
-  ) : (
+  );
+}
+
+function MicrosoftMark() {
+  return (
     <svg className="sgn-mark" viewBox="0 0 21 21" aria-hidden="true">
       <rect x="1" y="1" width="9" height="9" fill="#F25022" />
       <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />

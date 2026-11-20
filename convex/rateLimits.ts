@@ -1,7 +1,8 @@
 /**
  * Responsibility: Counts uses of a limited action per key in fixed time
- *   windows, refuses a use once the window's allowance is spent, and gives
- *   back a use that did not happen.
+ *   windows, refuses a use once a window's allowance is spent (one key, or
+ *   several together), gives back a use that did not happen, and splits a
+ *   shared allowance between Flight Programs.
  * Layer: Server. Mutation helper over the rateLimits table.
  * Dependencies: convex/values (ConvexError), convex/_generated/server.
  */
@@ -14,6 +15,33 @@ export const MINUTE = 60000;
 export const HOUR = 3600000;
 /** One day in milliseconds, for rate-limit windows. */
 export const DAY = 86400000;
+
+/**
+ * A Flight Program's share of an allowance every program draws on: an equal
+ * split between the deployment's programs, never below `floor`. The total
+ * stays its own allowance, so shares the floor lifts cannot together spend
+ * more than it.
+ *
+ * @param total - The deployment-wide allowance per window.
+ * @param programs - How many Flight Programs the deployment holds.
+ * @param floor - The least share any program gets.
+ * @returns Uses allowed to one program per window.
+ */
+export function programShare(total: number, programs: number, floor: number) {
+  return Math.max(floor, Math.floor(total / Math.max(1, programs)));
+}
+
+/** One allowance of a limited action: uses allowed per fixed window. */
+export interface Allowance {
+  /** What is limited: a user, a program, or a provider-wide quota. */
+  key: string;
+  /** Uses allowed per window. */
+  limit: number;
+  /** Window length, such as {@link HOUR}. */
+  windowMs: number;
+  /** The refusal once the window's allowance is spent. */
+  message: string;
+}
 
 /**
  * Records `cost` uses of a limited action, unless that would pass the limit.
@@ -37,17 +65,41 @@ export async function consume(
   message: string,
   cost = 1,
 ): Promise<void> {
+  await consumeAll(ctx, [{ key, limit, windowMs, message }], cost);
+}
+
+/**
+ * Records `cost` uses against every allowance, or against none: all are
+ * checked before any is spent, so one that refuses leaves the others as
+ * they were (as {@link consume} for each, windows included).
+ *
+ * @param ctx - Mutation context; patches or inserts each key's rateLimits row.
+ * @param allowances - The allowances, checked in order.
+ * @param cost - Uses this call counts for, against each.
+ * @throws {ConvexError} The first allowance's `message` whose window's count
+ *   plus `cost` would exceed its limit, before recording anything.
+ */
+export async function consumeAll(
+  ctx: MutationCtx,
+  allowances: readonly Allowance[],
+  cost = 1,
+): Promise<void> {
   const now = Date.now();
-  const windowStart = now - (now % windowMs);
-  const row = await ctx.db
-    .query("rateLimits")
-    .withIndex("key", (q) => q.eq("key", key))
-    .unique();
-  const count = row?.windowStart === windowStart ? row.count : 0;
+  const windows = await Promise.all(
+    allowances.map((a) => readWindow(ctx, a, now)),
+  );
+  const spent = windows.find((w) => w.count + cost > w.allowance.limit);
   // ConvexError keeps the message visible to users in production.
-  if (count + cost > limit) throw new ConvexError(message);
-  if (row) await ctx.db.patch(row._id, { windowStart, count: count + cost });
-  else await ctx.db.insert("rateLimits", { key, windowStart, count: cost });
+  if (spent) throw new ConvexError(spent.allowance.message);
+  for (const { allowance, row, windowStart, count } of windows) {
+    if (row) await ctx.db.patch(row._id, { windowStart, count: count + cost });
+    else
+      await ctx.db.insert("rateLimits", {
+        key: allowance.key,
+        windowStart,
+        count: cost,
+      });
+  }
 }
 
 /**
@@ -73,4 +125,16 @@ export async function refund(
   // A use from an earlier window was already forgotten when it rolled over.
   if (!row || row.windowStart !== now - (now % windowMs)) return;
   await ctx.db.patch(row._id, { count: Math.max(0, row.count - cost) });
+}
+
+// The key's row and its count in the window that holds `now`; a row from an
+// earlier window counts as empty.
+async function readWindow(ctx: MutationCtx, allowance: Allowance, now: number) {
+  const windowStart = now - (now % allowance.windowMs);
+  const row = await ctx.db
+    .query("rateLimits")
+    .withIndex("key", (q) => q.eq("key", allowance.key))
+    .unique();
+  const count = row?.windowStart === windowStart ? row.count : 0;
+  return { allowance, row, windowStart, count };
 }

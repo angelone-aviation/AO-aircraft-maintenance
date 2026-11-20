@@ -74,22 +74,34 @@ export function decode<N extends PayloadCollection>(
   return rows.map((row) => schema.parse(JSON.parse(row.payload)));
 }
 
+/** Where a stored payload breaks its collection's schema, and the rule. */
+export interface DecodeIssue {
+  /** Keys and list positions from the record down to the field. */
+  path: PropertyKey[];
+  message: string;
+}
+
 /**
  * Checks one stored payload value against its collection's schema without
  * throwing, for a reader that shows an old or damaged record as stored.
  *
  * @param value - The payload, already parsed from JSON.
- * @returns The decoded record, or the value as stored when it does not match.
+ * @returns The decoded record, or the value as stored when it does not match,
+ *   with the schema's issues in its order: each path and message only.
  */
 export function decodeLenient<N extends PayloadCollection>(
   collection: N,
   value: unknown,
 ):
-  { valid: true; record: StoredRecord<N> } | { valid: false; stored: unknown } {
+  | { valid: true; record: StoredRecord<N> }
+  | { valid: false; stored: unknown; issues: DecodeIssue[] } {
   const result = SCHEMAS[collection].safeParse(value);
-  return result.success
-    ? { valid: true, record: result.data }
-    : { valid: false, stored: value };
+  if (result.success) return { valid: true, record: result.data };
+  const issues = result.error.issues.map(({ path, message }) => ({
+    path,
+    message,
+  }));
+  return { valid: false, stored: value, issues };
 }
 
 /**
@@ -113,7 +125,11 @@ export function encode<N extends PayloadCollection>(
 
 interface Schema<T> {
   parse(value: unknown): T;
-  safeParse(value: unknown): { success: true; data: T } | { success: false };
+  safeParse(
+    value: unknown,
+  ):
+    | { success: true; data: T }
+    | { success: false; error: { issues: readonly DecodeIssue[] } };
 }
 
 function asWritten<T>(): Schema<T> {

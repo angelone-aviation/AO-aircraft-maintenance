@@ -23,7 +23,7 @@ import { admin, audit } from "./access";
 import { checkContext } from "./programContext";
 import { SEALED_V2, sealSecret, type SecretContext } from "./secrets";
 import { openStoredSecret } from "./secretsMigration";
-import { consume, DAY } from "./rateLimits";
+import { consume, DAY, programShare } from "./rateLimits";
 import { can, type Snapshot } from "../src/domain/model";
 import { programPermission } from "../src/domain/programs";
 import {
@@ -44,9 +44,10 @@ const LOOKUP_TIMEOUT_MS = 15 * SECOND;
 const GLOBAL_DAILY_LOOKUPS = 2900;
 
 // Shares of the global allowance, so one user or Flight Program cannot spend
-// it for everyone else.
+// it for everyone else. A program's share is an equal split between the
+// programs (programShare), never below the floor.
 const USER_DAILY_LOOKUPS = 200;
-const PROGRAM_DAILY_LOOKUPS = 1000;
+const PROGRAM_DAILY_LOOKUPS_FLOOR = 100;
 
 const keySchema = z
   .string()
@@ -111,8 +112,8 @@ export const authorizeAdmin = internalQuery({
 
 /**
  * Admits one lookup and counts it against every allowance: one a second per
- * user, 2,900 a UTC day in all, and the user's and the Flight Program's daily
- * shares.
+ * user, 2,900 a UTC day in all, the user's 200, and the Flight Program's
+ * equal share of the 2,900 (at least 100).
  *
  * @param programUuid - The caller's active Flight Program.
  * @returns The saved key, still sealed, or "" to use GEOAPIFY_API_KEY.
@@ -135,7 +136,7 @@ export const reserve = internalMutation({
     const now = Date.now();
     const day = new Date(now).toISOString().slice(0, 10);
     const used = saved?.day === day ? saved.used : 0;
-    await consumeAllowances(ctx, s.user.id, args.programUuid, used);
+    await consumeAllowances(ctx, s, args.programUuid, used);
     await countLookup(ctx, saved, { day, used: used + 1, lastLookupAt: now });
     return { stored: saved?.key || "" };
   },
@@ -309,13 +310,13 @@ function assertMayLookUp(s: Snapshot): void {
 
 async function consumeAllowances(
   ctx: MutationCtx,
-  userId: string,
+  s: Snapshot,
   programUuid: string | undefined,
   usedToday: number,
 ): Promise<void> {
   await consume(
     ctx,
-    `address:user-second:${userId}`,
+    `address:user-second:${s.user.id}`,
     1,
     SECOND,
     "Please wait a second before another address lookup.",
@@ -326,7 +327,7 @@ async function consumeAllowances(
     );
   await consume(
     ctx,
-    `address:user:${userId}`,
+    `address:user:${s.user.id}`,
     USER_DAILY_LOOKUPS,
     DAY,
     "Your address lookup allowance for today is used. Try again tomorrow.",
@@ -334,7 +335,11 @@ async function consumeAllowances(
   await consume(
     ctx,
     `address:program:${programUuid ?? ""}`,
-    PROGRAM_DAILY_LOOKUPS,
+    programShare(
+      GLOBAL_DAILY_LOOKUPS,
+      s.programs?.length ?? 0,
+      PROGRAM_DAILY_LOOKUPS_FLOOR,
+    ),
     DAY,
     "This Flight Program's address lookup allowance for today is used. Try again tomorrow.",
   );

@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { demoSnapshot } from "../data/demo";
-import { applyManagement } from "./management";
+import { applyManagement, type Stock } from "./management";
 import {
   applyRequestCommand,
   requestDraftSchema,
@@ -40,7 +40,10 @@ import { blankAD, blankADTask } from "./airworthiness";
 import { addressSchema, formatAddress } from "./addresses";
 import { Rejection } from "./rejection";
 const now = Date.parse("2026-10-20T12:00:00Z");
-function fixture() {
+// A request that supplies work: parts received for it are held for it until
+// issued, where an inventory stock request's go on the shelf (PT-9).
+const FOR_WORK = { kind: "discrepancy", uuid: "demo-report" } as const;
+function fixture(source: Partial<RequestSource> = { kind: "stock" }) {
   const s = demoSnapshot();
   s.user.isAdmin = true;
   s.management = [
@@ -71,7 +74,7 @@ function fixture() {
   const draft = requestDraftSchema.parse({
     uuid: "request",
     version: 0,
-    source: { kind: "stock" },
+    source,
     mode: "parts",
     date: "2026-10-20",
     engineer: "Engineer",
@@ -110,6 +113,7 @@ function fixture() {
           quantity: qty,
           unitCents: 100,
           kind: "part",
+          aircraftUuid: r.aircraftUuid,
           requestAllocations: [
             { requestUuid: r.uuid, lineUuid: "item", quantity: qty },
           ],
@@ -121,7 +125,7 @@ function fixture() {
 }
 describe("shared parts requests", () => {
   it("reserves stock, purchases only the shortage, receives in stages and issues without duplicating stock", () => {
-    const { s, draftPO, po } = fixture();
+    const { s, draftPO, po } = fixture(FOR_WORK);
     const action = (kind: "reserve" | "issue", quantity: number) =>
       applyRequestCommand(
         s,
@@ -305,7 +309,7 @@ describe("shared parts requests", () => {
     expect(requestStatus(s, s.partsRequests![0])).toBe("Cancelled");
   });
   it("records reserve, release, issue and cancel in the stock item's own history (#49)", () => {
-    const { s, draftPO, po } = fixture();
+    const { s, draftPO, po } = fixture(FOR_WORK);
     const command = (
       kind: "reserve" | "release" | "issue",
       quantity: number,
@@ -462,7 +466,7 @@ describe("shared parts requests", () => {
     ).toThrow(/outside/);
   });
   it("cancels outstanding PO quantities without losing received reservations or receipt history", () => {
-    const { s, po, draftPO } = fixture();
+    const { s, po, draftPO } = fixture(FOR_WORK);
     let p = po({ kind: "save", requestUuid: "save", drafts: [draftPO(5)] });
     p = po({
       kind: "issue",
@@ -706,6 +710,91 @@ describe("shared parts requests", () => {
     expect(requestLineProgress(s, s.partsRequests![0], "item").toOrder).toBe(0);
   });
 });
+describe("a stock replenishment is complete when its parts arrive (PT-9)", () => {
+  // The fixture's request is an inventory stock request for 5 tires; order
+  // all 5 and receive some of them.
+  function received(quantity: number) {
+    const { s, draftPO, po } = fixture();
+    let p = po({ kind: "save", requestUuid: "save", drafts: [draftPO(5)] });
+    p = po({
+      kind: "issue",
+      requestUuid: "issue",
+      uuid: p.uuid,
+      version: p.version,
+      reason: "",
+    });
+    po({
+      kind: "receive",
+      requestUuid: "receive",
+      uuid: p.uuid,
+      version: p.version,
+      date: "2026-10-20",
+      invoice: "INV",
+      notes: "",
+      lines: [{ lineUuid: "line", quantity, condition: "new", serials: [] }],
+    });
+    const stock = s.management!.find((x) => x.uuid === "stock") as Stock;
+    return { s, request: s.partsRequests![0], stock, draftPO, po };
+  }
+
+  it("reads Fulfilled, with nothing left to order or to supply", () => {
+    const { s, request } = received(5);
+    expect(requestStatus(s, request)).toBe("Fulfilled");
+    expect(requestLineProgress(s, request, "item")).toMatchObject({
+      received: 5,
+      reserved: 0,
+      toOrder: 0,
+      remaining: 0,
+    });
+  });
+  it("puts the parts on the shelf for anyone rather than holding them", () => {
+    const { request, stock } = received(5);
+    expect(request.reservations).toEqual([]);
+    expect(stock.quantity).toBe(7);
+    expect(stock.reservedQuantity ?? 0).toBe(0);
+  });
+  it("stays on its purchase order until the rest arrive", () => {
+    const { s, request } = received(2);
+    expect(requestStatus(s, request)).toBe("On purchase order");
+    expect(requestLineProgress(s, request, "item")).toMatchObject({
+      toOrder: 0,
+      remaining: 3,
+    });
+  });
+  it("cannot be bought again once its parts arrived", () => {
+    const { po, draftPO } = received(5);
+    expect(() =>
+      po({ kind: "save", requestUuid: "again", drafts: [draftPO(1, "po2")] }),
+    ).toThrow("PO quantity exceeds the uncommitted request balance.");
+  });
+  it("reads Fulfilled when an earlier receipt held its parts, which can be released", () => {
+    // Receipts reserved a stock request's parts for it before decision D18.
+    const { s, request, stock } = received(5);
+    request.reservations = [
+      { lineUuid: "item", stockUuid: "stock", quantity: 5 },
+    ];
+    stock.reservedQuantity = 5;
+    expect(requestStatus(s, request)).toBe("Fulfilled");
+    applyRequestCommand(
+      s,
+      {
+        kind: "release",
+        requestUuid: "release",
+        uuid: request.uuid,
+        version: request.version,
+        lineUuid: "item",
+        stockUuid: "stock",
+        quantity: 5,
+        alternateConfirmed: false,
+      },
+      now,
+    );
+    const released = s.management!.find((x) => x.uuid === "stock") as Stock;
+    expect(released.reservedQuantity).toBe(0);
+    expect(requestStatus(s, s.partsRequests![0])).toBe("Fulfilled");
+  });
+});
+
 describe("request status (#55)", () => {
   type Line = {
     quantity?: number;
@@ -850,7 +939,7 @@ describe("request status (#55)", () => {
     expect(status("repair", ...lines)).toBe(expected);
   });
   it("shows Partially issued once received parts are issued while more are on order", () => {
-    const { s, draftPO, po } = fixture();
+    const { s, draftPO, po } = fixture(FOR_WORK);
     const request = () => s.partsRequests![0];
     let p = po({ kind: "save", requestUuid: "save", drafts: [draftPO(5)] });
     p = po({

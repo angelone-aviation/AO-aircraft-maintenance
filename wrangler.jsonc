@@ -1,13 +1,18 @@
 // Cloudflare Workers Static Assets site for the Angel One web app.
-// There is no Worker script: Cloudflare serves the Vite build in dist/ and
-// applies public/_headers (copied into dist/ by the build). The backend runs
-// on Convex. Release, rollback and first-time setup: docs/runbooks/release.md.
+// Cloudflare serves the Vite build in dist/ and applies public/_headers
+// (copied into dist/ by the build) to those files. The backend runs on
+// Convex. Release, rollback and first-time setup: docs/runbooks/release.md.
 {
   "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
   "name": "angel-one",
   "compatibility_date": "2026-10-01",
+  // Runs only for a request no file in dist/ matches and that is not a page
+  // navigation (those get index.html below): a missing bundle under /assets/
+  // gets a 404 that is never cached, any other path the app shell.
+  "main": "./worker/assets.ts",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     // App routes such as /work-orders/123 are answered with index.html (200).
     "not_found_handling": "single-page-application",
   },

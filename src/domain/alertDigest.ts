@@ -1,14 +1,20 @@
 /**
  * Responsibility: The messages alerts go out as: the daily digest email, the
- *   urgent alert email and push message, and the off-site backup warning
- *   email, as subject, plain text and HTML.
+ *   urgent alert email and push message, the off-site backup warning email
+ *   and the warning that a program's share of urgent emails is spent, as
+ *   subject, plain text and HTML.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./alerts.
  *
  * Record text is escaped in the HTML and flattened to one line elsewhere, so
  * it cannot add markup or headers; a site URL that is not http(s) is dropped.
  */
-import { severityLabels, type Alert } from "./alerts";
+import {
+  ALERT_DIGEST_HOUR_UTC,
+  IMMEDIATE_EMAILS_PER_DAY,
+  severityLabels,
+  type Alert,
+} from "./alerts";
 
 /** The most alerts one digest lists; the rest are counted, not listed. */
 export const DIGEST_LIMIT = 50;
@@ -135,6 +141,38 @@ export function urgentEmail<T extends DigestAlert>(
     `<p>${URGENT_FOOTER}</p>`,
   ].join("");
   return { subject: heading, html, text, shown };
+}
+
+/**
+ * The warning system administrators get when a Flight Program's share of the
+ * day's immediate emails holds one back (`immediateEmailShare`).
+ *
+ * @param programName - The program whose share is spent.
+ * @param share - How many immediate emails the program may send a day.
+ * @param options - The site URL to link to, used only when it is http(s).
+ * @returns The subject ("System: <program> reached its share of urgent alert
+ *   emails"), plain text and HTML.
+ */
+export function shareReachedEmail(
+  programName: string,
+  share: number,
+  options: { siteUrl?: string },
+) {
+  const program = oneLine(programName);
+  const base = siteBase(options.siteUrl);
+  const lines = [
+    `${program} has sent its ${share} immediate urgent-alert emails for today, its share of the deployment's ${IMMEDIATE_EMAILS_PER_DAY}.`,
+    `Its members' further urgent alerts wait for the daily digest at ${ALERT_DIGEST_HOUR_UTC}:00 UTC; the bell and alerts on devices are not held back. Shares start again at 00:00 UTC.`,
+    "If this happens often, review the program's alert email choices, or raise the cap as the monitoring runbook describes.",
+  ];
+  const link = base && `${base}/settings#system`;
+  return {
+    subject: `System: ${program} reached its share of urgent alert emails`,
+    text: [...lines, ...(link ? [link] : []), "", URGENT_FOOTER].join("\n"),
+    html: [...lines, URGENT_FOOTER]
+      .map((line) => `<p>${escapeHtml(line)}</p>`)
+      .join(""),
+  };
 }
 
 /**

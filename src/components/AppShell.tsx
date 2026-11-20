@@ -263,6 +263,10 @@ const GLOSSARY_LINK: NavItem = {
   icon: BookOpenText,
   group: "manage",
 };
+// Owners and board members have no Settings page (decision D20); their More
+// sheet says where the little they can change lives instead.
+const REDUCED_VIEW_NOTE =
+  "No Settings page here: the sun and moon button at the top switches the theme, and your administrators change your name, email, password or access.";
 const CLOSED_GROUPS_KEY = "angelone-nav-closed";
 /** Sidebar counts above this show as "99+". */
 const MAX_NAV_COUNT = 99;
@@ -330,9 +334,10 @@ export { ThemeToggle };
  *   overview and board members only the board view; program administrators
  *   also get inventory and purchasing, Administration, Costs and the board
  *   view; everyone gets the Glossary, and Settings ends the list for
- *   everyone but owners and board members, who keep their one view. Phones
- *   offer Log flight to anyone who may log one; on computers, N opens it
- *   too.
+ *   everyone but owners and board members, who keep their one view and
+ *   whose "All sections" sheet says where the theme and their account are
+ *   changed instead. Phones offer Log flight to anyone who may log one; on
+ *   computers, N opens it too.
  */
 export function AppShell({
   exit,
@@ -742,6 +747,7 @@ function MoreSheet({
   exit: () => void;
 }) {
   const count = useCounts();
+  const reduced = isReducedView(useWorkspace((x) => x.snapshot)!);
   return (
     <Dialog
       title="All sections"
@@ -760,6 +766,7 @@ function MoreSheet({
         />
       ))}
       <ProfileFooter exit={exit} variant="sheet" />
+      {reduced && <p className="muted sheet-note">{REDUCED_VIEW_NOTE}</p>}
     </Dialog>
   );
 }

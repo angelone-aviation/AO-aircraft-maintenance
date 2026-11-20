@@ -305,12 +305,28 @@ export function requestPurchases(orders: PurchaseOrder[]): RequestPurchase[] {
 }
 
 /**
+ * Whether a request restocks inventory (an inventory stock request) rather
+ * than supplying work. Its parts complete it when they arrive and go on the
+ * shelf for anyone, instead of being held for it until issued (decision
+ * D18), so its received units count as supplied.
+ *
+ * @param r - The request.
+ * @returns True for a parts request whose source is stock.
+ */
+export function isStockReplenishment(
+  r: Pick<PartsRequest, "mode" | "source">,
+): boolean {
+  return r.mode === "parts" && r.source.kind === "stock";
+}
+
+/**
  * How far one request line has got, from its PO allocations and its own
  * reservations and issues.
  *
  * @returns The allocations and units ordered, received, issued and reserved;
  *   `toOrder`, the shortfall still to buy; and `remaining`, the units neither
- *   issued nor reserved. Neither is ever negative.
+ *   issued nor reserved, nor for a stock replenishment received. Neither is
+ *   ever negative.
  */
 export function requestLineProgress(
   s: Snapshot,
@@ -329,23 +345,20 @@ export function requestLineProgress(
     .filter((a) => a.lineUuid === lineUuid)
     .reduce((n, a) => n + a.quantity, 0);
   const line = r.lines.find((l) => l.uuid === lineUuid)!;
+  const unheld = line.quantity - issued - reserved;
+  const restock = isStockReplenishment(r);
+  // Received parts go to stock and count again once reserved or issued; a
+  // repaired component comes back to its owner, and a restock's parts
+  // supply it where they land.
+  const backInStock = r.mode === "repair" || restock ? 0 : received;
   return {
     purchases,
     ordered,
     received,
     issued,
     reserved,
-    // Received parts go to stock and count again once reserved or issued; a
-    // repaired component comes back to its owner, not to stock.
-    toOrder: Math.max(
-      0,
-      line.quantity -
-        issued -
-        reserved -
-        ordered +
-        (r.mode === "repair" ? 0 : received),
-    ),
-    remaining: Math.max(0, line.quantity - issued - reserved),
+    toOrder: Math.max(0, unheld - ordered + backInStock),
+    remaining: Math.max(0, unheld - (restock ? received : 0)),
   };
 }
 
@@ -353,20 +366,16 @@ export function requestLineProgress(
  * Where a request stands.
  *
  * @returns The first that applies: "Cancelled", "Recurring", "Fulfilled"
- *   (every line issued, or received back for a repair), "Out for repair",
- *   "Received / awaiting issue", "Partially issued", "On purchase order",
- *   "Reserved" or "Requested".
+ *   (every line issued, received back for a repair, or received or issued
+ *   for a stock replenishment), "Out for repair", "Received / awaiting
+ *   issue", "Partially issued", "On purchase order", "Reserved" or
+ *   "Requested".
  */
 export function requestStatus(s: Snapshot, r: PartsRequest) {
   if (r.cancelled) return "Cancelled";
   if (r.recurring) return "Recurring";
   const p = r.lines.map((l) => ({ l, ...requestLineProgress(s, r, l.uuid) }));
-  if (
-    p.every(
-      (x) => (r.mode === "repair" ? x.received : x.issued) >= x.l.quantity,
-    )
-  )
-    return "Fulfilled";
+  if (p.every((x) => suppliedUnits(r, x) >= x.l.quantity)) return "Fulfilled";
   if (
     p.some((x) => x.purchases.some((a) => a.shipped > a.received)) &&
     r.mode === "repair"
@@ -1330,4 +1339,14 @@ function hasOccurrence(
 
 function isClosed({ status }: { status: string }) {
   return CLOSED_WORK_STATUSES.includes(status);
+}
+
+// Since decision D18 a restock's received parts are not held for it, so
+// units it was issued came from other stock and add to what arrived.
+function suppliedUnits(
+  r: PartsRequest,
+  x: { received: number; issued: number },
+) {
+  if (r.mode === "repair") return x.received;
+  return isStockReplenishment(r) ? x.received + x.issued : x.issued;
 }

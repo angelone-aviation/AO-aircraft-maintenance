@@ -187,7 +187,7 @@ const COLUMNS =
 
 it("refuses a file or row it cannot read, naming the row", () => {
   const cases: [string, string][] = [
-    ["é".repeat(1024 * 1024 + 1), "Choose a CSV up to 2 MB."],
+    ["é".repeat(1024 * 1024 + 1), "Choose a CSV up to 2 MiB."],
     [HEADER, "Choose a CSV with headers and task rows."],
     [`Task,${HEADER}\nA1`, "Duplicate CSV headers are not allowed."],
     [`${HEADER},Notes\nA1,Inspect,,,,`, COLUMNS],
@@ -225,7 +225,7 @@ it("refuses a file or row it cannot read, naming the row", () => {
 
 it("measures the CSV limit in UTF-8 bytes when parsing, in characters in a request", () => {
   const atLimit = "é".repeat(CSV_MAX_BYTES / 2);
-  const size = "Choose a CSV up to 2 MB.";
+  const size = "Choose a CSV up to 2 MiB.";
   expect(() => parseTaskCsv(atLimit)).not.toThrow(size);
   expect(() => parseTaskCsv(atLimit + "x")).toThrow(size);
   const field = taskCsvImportSchema.shape.csv;
@@ -269,9 +269,23 @@ it("names job cards by source key and finds earlier job cards by code, source ke
     targetVersion: 0,
   };
   const audit = s.audit.length;
-  importTaskCsv(s, request);
-  // Characterizes current behaviour: imported job cards log no rows.
-  expect(s.audit).toHaveLength(audit);
+  const { tasks } = importTaskCsv(s, request);
+  // T3: each imported job card logs its creation, as the template path logs
+  // the template it saves.
+  expect(s.audit).toHaveLength(audit + tasks.length);
+  expect(s.audit.slice(0, tasks.length).reverse()).toEqual(
+    tasks.map((t) => ({
+      uuid: expect.any(String),
+      programUuid: "demo-program",
+      actorId: s.user.id,
+      at: expect.any(Number),
+      action: "taskCard.created_from_csv",
+      entityUuid: t.uuid,
+      aircraftUuid: inspection.aircraftUuid,
+      reason: `Imported from a task file onto ${inspection.reference}.`,
+      after: JSON.stringify(t),
+    })),
+  );
   const card = s.taskCards![0];
   expect(card).toMatchObject({
     sourceKey: "task-csv:a243003",

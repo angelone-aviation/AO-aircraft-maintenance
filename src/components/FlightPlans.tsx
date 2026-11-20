@@ -323,8 +323,8 @@ function PlansHelp() {
         Times are UTC. Maintenance projections include the full queue for each
         aircraft, even when searching.{" "}
         <span id="ops-plan-upload-hint">
-          PDF upload: the original single-page ICAO form, up to 10 MB · Importer{" "}
-          {flightPlanImporterVersion}.
+          PDF upload: the original single-page ICAO form, up to 10 MiB ·
+          Importer {flightPlanImporterVersion}.
         </span>
       </span>
     </p>

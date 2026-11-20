@@ -4,8 +4,8 @@
  *   into commands, and which setup steps still lack data.
  * Layer: Domain. Pure parsing and planning; no I/O, no React.
  * Dependencies: zod, ./maintenanceCsv, ./model, ./management/schemas,
- *   ./airworthiness, ./componentTemplates, ./readings, ./validationText,
- *   ./rejection.
+ *   ./management/inspections, ./airworthiness, ./componentTemplates,
+ *   ./readings, ./validationText, ./rejection.
  *
  * The plan builds the same commands the Inspections and Airworthiness screens
  * send, so the appliers keep every rule; the plan only predicts the refusals a
@@ -21,6 +21,7 @@ import {
   type Snapshot,
 } from "./model";
 import type { ManagementCommand } from "./management/schemas";
+import { inspectionNameKey } from "./management/inspections";
 import {
   adNumber,
   blankAD,
@@ -264,7 +265,7 @@ const adRowSchema = z.object({
  * @param csv - The file's text; a leading byte-order mark is ignored.
  * @returns The rows in file order; the header row alone gives [].
  * @throws {Rejection} "Use columns: …" for other headers; the
- *   {@link readCsvRows} limits (2 MB, 2,000 rows); or "Row <n>: <reason>" for
+ *   {@link readCsvRows} limits (2 MiB, 2,000 rows); or "Row <n>: <reason>" for
  *   a blank name, an interval or count that is not a positive whole number,
  *   hours that are not in tenths, or a date that is not YYYY-MM-DD.
  */
@@ -463,7 +464,8 @@ const norm = (h: string) =>
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
 
-const inspectionKey = (name: string) => `inspection-name:${norm(name)}`;
+const inspectionKey = (name: string) =>
+  `inspection-name:${inspectionNameKey(name)}`;
 const adKey = (number: string) => `ad-number:${adNumber(number)}`;
 
 function readTemplate<T>(
@@ -508,7 +510,7 @@ function readCount(value: string): number | undefined {
 function readDecimal(value: string): number | undefined {
   if (!value) return undefined;
   if (!/^\d+(\.\d+)?$/.test(value))
-    throw new Rejection("Use positive hours such as 1234.5.");
+    throw new Rejection("Use hours of 0 or more, such as 1234.5.");
   return Number(value);
 }
 
@@ -662,6 +664,7 @@ function inspectionCommand(
     requestUuid: crypto.randomUUID(),
     reason: SETUP_INSPECTION_REASON,
     action: "inspection.save",
+    initialAircraftSetup: true,
     record: {
       uuid: crypto.randomUUID(),
       version: 0,

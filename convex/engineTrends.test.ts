@@ -7,7 +7,7 @@
  *   src/data/demo (fixture).
  */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
@@ -163,7 +163,7 @@ it("requires read to view and maintenance to import, scoped to the program's air
   ]);
 });
 
-it("lists at most MAX_ENGINE_TRENDS imports, and shows only the schema's refusal as invalid data", async () => {
+it("lists at most MAX_ENGINE_TRENDS imports, and shows any error but a refusal as invalid data", async () => {
   const { t, ids, client, scope } = await setup();
   await t.run((ctx) =>
     ctx.db.patch(ids.group, { permissions: ["read", "maintenance"] }),
@@ -183,16 +183,14 @@ it("lists at most MAX_ENGINE_TRENDS imports, and shows only the schema's refusal
   await expect(
     execute(JSON.stringify({ action: "bogus" })),
   ).rejects.toMatchObject({ data: "Engine trend data is invalid." });
-  let syntax = "";
-  try {
-    JSON.parse("{");
-  } catch (error) {
-    syntax = (error as Error).message;
-  }
+  // Finding E-16: a parser's own text is never shown.
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
   await expect(execute("{")).rejects.toMatchObject({
     name: "ConvexError",
-    data: syntax,
+    data: "Engine trend data is invalid.",
   });
+  expect(log).toHaveBeenCalledTimes(1);
+  log.mockRestore();
   await t.run(async (ctx) => {
     const stored = await ctx.db
       .query("engineTrends")

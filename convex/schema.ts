@@ -133,6 +133,7 @@ export default defineSchema({
           airframe: v.optional(v.boolean()),
           powerplant: v.optional(v.boolean()),
           ia: v.optional(v.boolean()),
+          pending: v.optional(v.boolean()),
           legacyQualifications: v.optional(
             v.array(
               v.object({
@@ -350,6 +351,18 @@ export default defineSchema({
     windowStart: v.number(),
     count: v.number(),
   }).index("key", ["key"]),
+  // The one row of the hourly sweep of unreferenced files
+  // (convex/fileSweep.ts): the midnight of its first run, before which it
+  // touches nothing; the mode its walk is in; the creation time of the newest
+  // file it checked, and the files checked at exactly that time. Those ids
+  // are positions, not references, so convex/storageReferences.ts leaves
+  // them out.
+  fileSweep: defineTable({
+    notBefore: v.number(),
+    mode: v.union(v.literal("report"), v.literal("delete")),
+    checkedThrough: v.number(),
+    checkedIds: v.array(v.id("_storage")),
+  }),
   // The one Geoapify row: the sealed API key, and the UTC day's lookup count
   // that caps lookups for the whole deployment.
   addressVerificationSettings: defineTable({
@@ -519,7 +532,9 @@ export default defineSchema({
     deferral: v.optional(deferralValidator),
   })
     .index("uuid", ["uuid"])
-    .index("aircraft", ["aircraftUuid"]),
+    .index("aircraft", ["aircraftUuid"])
+    // A member's open reports, which their backlog limit counts (decision D2).
+    .index("author", ["authorId", "status"]),
   partsRequests: defineTable({
     uuid: v.string(),
     programUuid: v.string(),

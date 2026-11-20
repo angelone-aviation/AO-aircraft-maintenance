@@ -4,7 +4,7 @@
  *   once per request id.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/programs and the mutations it isolates, src/data/demo,
- *   src/domain/fleet.
+ *   src/domain/fleet, src/domain/programTransfers.
  */
 import { convexTest } from "convex-test";
 import { it, expect } from "vitest";
@@ -12,6 +12,7 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { aircraftInputSchema } from "../src/domain/fleet";
+import { TRANSFER_REASON_MAX_LENGTH } from "../src/domain/programTransfers";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -170,6 +171,24 @@ it("refuses unassigned records to all but a system administrator, a missing prog
     name: "ConvexError",
     data: "System administrator required for Flight Program transfers.",
   });
+});
+it("refuses a transfer reason longer than the form allows and moves nothing", async () => {
+  const { system, onlyA } = await setup();
+  await expect(
+    system.mutation(api.programs.transfer, {
+      programUuid: "A",
+      kind: "aircraft",
+      uuid: "plane-A",
+      destination: "B",
+      reason: "x".repeat(TRANSFER_REASON_MAX_LENGTH + 1),
+    }),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "Keep the transfer reason to 2000 characters or fewer.",
+  });
+  const a = (await onlyA.query(api.operations.snapshot, {}))!;
+  expect(a.aircraft.map((p) => p.uuid)).toContain("plane-A");
+  expect(a.audit.some((e) => e.action === "program.transferred")).toBe(false);
 });
 it("enforces active program and roles on raw writes, automatic ownership, and stale or forged offline submissions", async () => {
   const { multi, onlyA } = await setup();

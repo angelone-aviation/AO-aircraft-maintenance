@@ -1,7 +1,7 @@
 /**
  * Responsibility: Characterizes serve-dist.mjs, the Cloudflare-like server the
  *   browser tests use: _headers rules, ignored assets, redirects, SPA fallback,
- *   caching and CSP report collection.
+ *   the 404 for a missing bundle, caching and CSP report collection.
  * Layer: Test. Starts the script on a fixture build and requests it over HTTP.
  * Dependencies: vitest, scripts/serve-dist.mjs.
  *
@@ -113,7 +113,6 @@ describe("serve-dist.mjs", () => {
     "/missing.html",
     "/_headers",
     "/.assetsignore",
-    "/assets/app.js.map",
     "/notes/readme.txt",
     "/..%2Foutside.txt",
     "/__csp-report",
@@ -125,6 +124,18 @@ describe("serve-dist.mjs", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(INDEX);
   });
+
+  it.each(["/assets/index-0ld.js", "/assets/app.js.map"])(
+    "answers the missing bundle %s with an uncached 404, as the Worker does",
+    async (pathname) => {
+      const response = await fetch(`${plain}${pathname}`);
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.has("x-multi")).toBe(false);
+      expect(await response.text()).toBe("Not found");
+    },
+  );
 
   it("answers 304 to a matching ETag and no body to HEAD", async () => {
     const first = await fetch(`${plain}/data.json`);

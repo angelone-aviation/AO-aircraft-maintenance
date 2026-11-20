@@ -4,7 +4,7 @@
  * Layer: UI. React components; cost rules live in src/domain/costs.ts.
  * Dependencies: @tanstack/react-router, src/data/store.ts, src/domain (model,
  *   programs, csv, costs), ./ui.tsx, ./design.tsx, ./ShopList.tsx,
- *   ./CostCharts.tsx, ./WorkOrderList.tsx.
+ *   ./CostCharts.tsx, ./WorkOrderList.tsx, ./NumberInput.tsx.
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -38,6 +38,7 @@ import {
   type Period,
 } from "../domain/costs";
 import { AsyncForm, Field, download, errorText, value } from "./ui";
+import { NumberInput } from "./NumberInput";
 import {
   EmptyState,
   NoticeBar,
@@ -529,12 +530,11 @@ function BudgetPanel({
     <section className="shop-card" aria-labelledby="budget-heading">
       <h2 id="budget-heading">Annual budget</h2>
       <Field label="Budget year">
-        <input
-          type="number"
+        <NumberInput
           min={BUDGET_YEAR_MIN}
           max={BUDGET_YEAR_MAX}
           value={year}
-          onChange={(e) => setYear(Number(e.target.value))}
+          onValue={setYear}
         />
       </Field>
       <BudgetBar s={s} aircraftUuid={aircraftUuid} year={year} />

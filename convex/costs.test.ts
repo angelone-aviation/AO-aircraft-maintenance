@@ -264,6 +264,82 @@ it("isolates cost records between Flight Programs", async () => {
     laborRateCents: 9500,
   });
 });
+it("keeps cost records with the program that paid when the aircraft moves (AC-10)", async () => {
+  const { t, tech, admin, outsider } = await fixture();
+  const order = workOrderCommand();
+  const aircraftUuid = order.fields.aircraftUuid;
+  await tech.mutation(api.workOrders.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(order),
+  });
+  await run(admin, { action: "settings.laborRate", laborRateCents: 9500 });
+  await run(admin, {
+    action: "budget.set",
+    aircraftUuid,
+    year: 2026,
+    amountCents: 500000,
+  });
+  const labor = (technician: string) => ({
+    action: "labor.add",
+    workOrderUuid: order.uuid,
+    entry: { uuid: crypto.randomUUID(), date: today, technician, minutes: 60 },
+  });
+  await run(admin, labor("Source mechanic"));
+  const system = t.withIdentity(await systemAdministrator(t));
+  await system.mutation(api.programs.transfer, {
+    programUuid: "demo-program",
+    kind: "aircraft",
+    uuid: aircraftUuid,
+    destination: "other",
+    reason: "Sold to the other program.",
+  });
+
+  const destination = (await outsider.query(api.operations.snapshot, {}))!;
+  expect(destination.aircraft.map((a) => a.uuid)).toContain(aircraftUuid);
+  expect(JSON.stringify(destination.costs)).not.toContain("demo-program");
+  expect(destination.audit.some((a) => a.action.startsWith("cost."))).toBe(
+    false,
+  );
+  const board = t.withIdentity(await boardMember(t, "other"));
+  const boardView = (await board.query(api.operations.snapshot, {}))!;
+  const boardTotals = boardView.boardCosts?.find(
+    (c) => c.aircraftUuid === aircraftUuid,
+  );
+  expect(boardTotals).toMatchObject({ yearCents: 0, quarterCents: 0 });
+  expect(boardTotals?.budgetCents).toBeUndefined();
+  const source = (await admin.query(api.operations.snapshot, {}))!;
+  expect(
+    source.costs?.filter((r) => r.kind !== "settings").map((r) => r.kind),
+  ).toEqual(expect.arrayContaining(["budget", "workOrder"]));
+
+  // The destination's own entries start its own records.
+  await run(
+    outsider,
+    { action: "budget.set", aircraftUuid, year: 2026, amountCents: 7 },
+    "other",
+  );
+  await run(outsider, labor("Destination mechanic"), "other");
+  const rows = await t.run(async (ctx) =>
+    (await ctx.db.query("costs").collect()).map((r) => ({
+      program: r.programUuid,
+      record: JSON.parse(r.payload),
+    })),
+  );
+  const tagged = (program: string, kind: string) =>
+    rows.filter((r) => r.program === program && r.record.kind === kind);
+  expect(tagged("demo-program", "budget").map((r) => r.record)).toEqual([
+    expect.objectContaining({ amountCents: 500000, version: 1 }),
+  ]);
+  expect(tagged("other", "budget").map((r) => r.record)).toEqual([
+    expect.objectContaining({ amountCents: 7 }),
+  ]);
+  const technicians = (program: string) =>
+    tagged(program, "workOrder").flatMap((r) =>
+      r.record.labor.map((e: { technician: string }) => e.technician),
+    );
+  expect(technicians("demo-program")).toEqual(["Source mechanic"]);
+  expect(technicians("other")).toEqual(["Destination mechanic"]);
+});
 it("makes a closed work order's costs read-only", async () => {
   const { tech, admin } = await fixture();
   const order = workOrderCommand();
@@ -485,3 +561,47 @@ it("applies a cost command once per request id: a replay returns nothing and wri
   });
   expect(await stored()).toEqual(saved);
 });
+
+// An active system administrator with a session, who alone may transfer
+// records between programs.
+async function systemAdministrator(t: ReturnType<typeof convexTest>) {
+  return t.run(async (ctx) => {
+    const user = await ctx.db.insert("users", {
+      name: "System",
+      active: true,
+      isAdmin: true,
+      activeProgramUuid: "demo-program",
+      groupIds: [],
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: user,
+      expirationTime: Date.now() + DAY_MS,
+    });
+    return { subject: `${user}|${session}` };
+  });
+}
+
+// A member of a program's read-only board group, who sees its cost totals.
+async function boardMember(t: ReturnType<typeof convexTest>, program: string) {
+  return t.run(async (ctx) => {
+    const group = await ctx.db.insert("groups", {
+      programUuid: program,
+      name: "Board (read-only)",
+      board: true,
+      aircraftIds: [],
+      permissions: ["read"],
+    });
+    const user = await ctx.db.insert("users", {
+      name: "Board",
+      active: true,
+      isAdmin: false,
+      activeProgramUuid: program,
+      groupIds: [group],
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: user,
+      expirationTime: Date.now() + DAY_MS,
+    });
+    return { subject: `${user}|${session}` };
+  });
+}

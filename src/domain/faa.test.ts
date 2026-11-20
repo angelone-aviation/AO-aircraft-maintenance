@@ -20,6 +20,9 @@ import {
   mergeCandidates,
   parseDrsPage,
   monitorAttemptedWithin,
+  faaCheckWaitMs,
+  MAX_ENABLED_FAA_MONITORS,
+  runFaaCommand,
   startFaaRun,
   type FaaCandidate,
   type FaaMonitor,
@@ -261,6 +264,16 @@ describe("monitor commands", () => {
     expect(recent).toThrow(Error("Wait one minute before checking again."));
   });
 
+  it("waits a minute after the last attempt for a manual check, finished or not", () => {
+    expect(faaCheckWaitMs(monitor(), NOW)).toBe(0);
+    expect(
+      faaCheckWaitMs(monitor({ lastAttempt: NOW - MINUTE + 1 }), NOW),
+    ).toBe(1);
+    expect(
+      faaCheckWaitMs(monitor({ lastAttempt: NOW - MINUTE, runId: "run" }), NOW),
+    ).toBe(0);
+  });
+
   it("tells whether the last check started within an interval", () => {
     expect(monitorAttemptedWithin(monitor(), MINUTE, NOW)).toBe(false);
     for (const [ago, within] of [
@@ -274,6 +287,53 @@ describe("monitor commands", () => {
           NOW,
         ),
       ).toBe(within);
+  });
+});
+
+describe("runFaaCommand", () => {
+  const configure = (aircraftUuid: string) => ({
+    kind: "configure" as const,
+    aircraftUuid,
+    enabled: true,
+    terms: [],
+  });
+  // The seed's program monitoring the cap, less `free`, plus as many
+  // monitored aircraft of another program, which never count.
+  const fleet = (free: number) => {
+    const s = demoSnapshot();
+    const [first] = s.aircraft;
+    const add = (uuid: string, programUuid: string) => {
+      s.aircraft.push({ ...first, uuid, programUuid });
+      (s.faaMonitors ??= []).push({ ...emptyMonitor(uuid), enabled: true });
+    };
+    for (let i = 0; i < MAX_ENABLED_FAA_MONITORS - free; i++)
+      add(`own-${i}`, first.programUuid!);
+    for (let i = 0; i < MAX_ENABLED_FAA_MONITORS; i++)
+      add(`other-${i}`, "other-program");
+    return s;
+  };
+
+  it("enables a monitor while the program monitors fewer than the cap, and logs the command", () => {
+    const s = fleet(1);
+    const { monitor, entry } = runFaaCommand(s, configure("demo-206"), 1);
+    expect(monitor.enabled).toBe(true);
+    expect(entry).toMatchObject({
+      action: "faa.configure",
+      entityUuid: "demo-206",
+      aircraftUuid: "demo-206",
+      programUuid: "demo-program",
+      after: JSON.stringify(configure("demo-206")),
+    });
+  });
+
+  it("refuses an aircraft the user does not maintain, then a monitor past the cap", () => {
+    const s = fleet(0);
+    expect(() => runFaaCommand(s, configure("other-0"), 1)).toThrow(
+      new Rejection("Aircraft maintenance permission required."),
+    );
+    expect(() => runFaaCommand(s, configure("demo-206"), 1)).toThrow(
+      `A Flight Program can monitor at most ${MAX_ENABLED_FAA_MONITORS} aircraft daily.`,
+    );
   });
 });
 

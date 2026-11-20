@@ -151,4 +151,17 @@ describe("Flight Program", () => {
     expect(render(group())).toMatch(/<select[^>]*disabled=""/);
     expect(render()).not.toMatch(/<select[^>]*disabled=""/);
   });
+
+  it("keeps another program's group aircraft without the retired unscoped-group note", async () => {
+    const other = { ...s.programs![0], uuid: "other", name: "Other" };
+    s.programs = [...s.programs!, other];
+    const aircraftIds = ["other-a", "other-b"];
+    const html = render(group({ programUuid: "other", aircraftIds }));
+    expect(html).toContain("Switch the active program to configure");
+    expect(html).not.toContain("chosen earlier");
+    await submit();
+    expect(saveGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ programUuid: "other", aircraftIds }),
+    );
+  });
 });

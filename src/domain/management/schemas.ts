@@ -184,6 +184,7 @@ export const managementCommandSchema = z.discriminatedUnion("action", [
     ...commandBase,
     action: z.literal("inspection.save"),
     record: inspectionSchema,
+    initialAircraftSetup: z.boolean().optional(),
   }),
   z.object({
     ...commandBase,

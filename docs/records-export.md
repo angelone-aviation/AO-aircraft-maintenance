@@ -35,7 +35,7 @@ The tables:
 
 ## Size guard
 
-A package copies at most **150 MB** of stored files. Files are taken in order (Form 337 copies, then work-order attachments, then logbook page photos, oldest upload first); one that would exceed the limit is skipped and smaller later ones may still be taken. A file that cannot be downloaded is skipped too. Skipped files are listed in `README.txt` with the reason and counted in the message under the button, so the exporter can fetch them separately from the record. The tables are never cut.
+A package copies at most **150 MiB** of stored files. Files are taken in order (Form 337 copies, then work-order attachments, then logbook page photos, oldest upload first); one that would exceed the limit is skipped and smaller later ones may still be taken. A file that cannot be downloaded is skipped too. Skipped files are listed in `README.txt` with the reason and counted in the message under the button, so the exporter can fetch them separately from the record. The tables are never cut.
 
 ## What the package is not
 

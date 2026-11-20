@@ -5,10 +5,10 @@
  *   domain's saveComponentTemplate and applyComponentTemplate.
  * Dependencies: convex/runCommand, src/domain/componentTemplates.
  *
- * Both parse the payload inside the domain step and show every error it
- * throws, so malformed input is refused with its message too. Their request
- * id is read from the payload first; the domain schemas drop it, so it is
- * never stored in a template or setup.
+ * Both parse the payload inside the domain step: a refusal or a zod issue
+ * shows its own text, and anything else (a malformed payload, a fault) shows
+ * TEMPLATE_UNREADABLE. Their request id is read from the payload first; the
+ * domain schemas drop it, so it is never stored in a template or setup.
  */
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
@@ -16,7 +16,8 @@ import {
   runCommand,
   hydrate,
   writeChanged,
-  allErrors,
+  hideErrors,
+  validationErrors,
   requestOf,
   requestUuidIn,
 } from "./runCommand";
@@ -27,6 +28,14 @@ import {
 
 const args = { payload: v.string(), programUuid: v.optional(v.string()) };
 
+/** What users see for a template command that is neither valid nor refused. */
+export const TEMPLATE_UNREADABLE =
+  "This template change could not be read. Reload the page and try again.";
+
+const hideUnreadable = hideErrors(TEMPLATE_UNREADABLE);
+const showRefusals = (error: unknown) =>
+  validationErrors(error) ?? hideUnreadable(error);
+
 /**
  * Saves a component template as its next version in the caller's Flight
  * Program, and writes the `componentTemplate.save` row saveComponentTemplate
@@ -36,10 +45,10 @@ const args = { payload: v.string(), programUuid: v.optional(v.string()) };
  *   request id.
  * @param programUuid - The caller's active Flight Program.
  * @returns The template's uuid.
- * @throws {ConvexError} As `runCommand`; any error saveComponentTemplate or
- *   the JSON parser throws, with its message (the stale-save message, …) or
- *   a zod refusal's issue text; "Record belongs to another
- *   Flight Program." for a new uuid another program uses.
+ * @throws {ConvexError} As `runCommand`; saveComponentTemplate's refusals
+ *   (the stale-save message, …) or a zod refusal's issue text;
+ *   {@link TEMPLATE_UNREADABLE} for any other error; "Record belongs to
+ *   another Flight Program." for a new uuid another program uses.
  */
 export const save = mutation({
   args,
@@ -51,7 +60,7 @@ export const save = mutation({
       load: ({ ctx, state }) => hydrate(ctx, state, ["componentTemplates"]),
       apply: ({ snapshot }, payload) =>
         saveComponentTemplate(snapshot, JSON.parse(payload)),
-      expose: allErrors,
+      expose: showRefusals,
       persist: ({ ctx }, { docs }, next) =>
         writeChanged(ctx, "componentTemplates", docs.componentTemplates, [
           next,
@@ -72,10 +81,10 @@ export const save = mutation({
  *   `aircraftUuid`, the `rowIds` to add and the request id.
  * @param programUuid - The caller's active Flight Program.
  * @returns How many rows were added.
- * @throws {ConvexError} As `runCommand`; any error applyComponentTemplate or
- *   the JSON parser throws, with its message (the stale-save message,
- *   "Aircraft make and model must match the template.", …) or a zod
- *   refusal's issue text.
+ * @throws {ConvexError} As `runCommand`; applyComponentTemplate's refusals
+ *   (the stale-save message, "Aircraft make and model must match the
+ *   template.", …) or a zod refusal's issue text; {@link TEMPLATE_UNREADABLE}
+ *   for any other error.
  */
 export const apply = mutation({
   args,
@@ -92,7 +101,7 @@ export const apply = mutation({
         ]),
       apply: ({ snapshot }, payload) =>
         applyComponentTemplate(snapshot, JSON.parse(payload)),
-      expose: allErrors,
+      expose: showRefusals,
       persist: ({ ctx }, { docs }, added) =>
         writeChanged(ctx, "componentSetups", docs.componentSetups, added),
       audit: (log, { snapshot }) => log.replayOldestFirst(snapshot.audit),

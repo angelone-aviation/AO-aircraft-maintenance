@@ -108,24 +108,19 @@ export async function perAircraft<T>(
 }
 
 /**
- * The program's records, plus legacy rows stored without a program: the
- * domain derives their program from their location, component or aircraft
- * (recordProgram).
+ * The program's inventory and component records. Rows stored without a
+ * program are the unassigned records, which only a system administrator
+ * reads, working in no program; no program's read set holds them (security
+ * review T7). Every save stamps the record's program, and a transfer moves
+ * it, so a program's own records always carry its uuid.
  *
- * @param programUuid - The program; undefined reads only the rows without one.
+ * @param programUuid - The program; undefined reads the unassigned rows.
  */
-export async function managementDocs(ctx: Ctx, programUuid?: string) {
-  const docs = await ctx.db
+export const managementDocs = (ctx: Ctx, programUuid?: string) =>
+  ctx.db
     .query("management")
     .withIndex("program", (q) => q.eq("programUuid", programUuid))
     .collect();
-  if (programUuid === undefined) return docs;
-  const legacy = await ctx.db
-    .query("management")
-    .withIndex("program", (q) => q.eq("programUuid", undefined))
-    .collect();
-  return [...docs, ...legacy];
-}
 
 /**
  * The aircraft's inspections, plus those of removed components, which travel
@@ -177,6 +172,17 @@ export const discrepancyDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
       .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
       .collect(),
   );
+
+/**
+ * A member's open problem reports, on every aircraft they were filed on: what
+ * their open-report limit counts before they file another (decision D2). The
+ * limit keeps this read small; the domain keeps the active program's.
+ */
+export const openReportDocs = (ctx: Ctx, authorId: string) =>
+  ctx.db
+    .query("discrepancies")
+    .withIndex("author", (q) => q.eq("authorId", authorId).eq("status", "open"))
+    .collect();
 
 /** The aircraft's job cards. */
 export const taskCardDocs = (ctx: Ctx, aircraft: AircraftRefs) =>
@@ -278,29 +284,21 @@ export const componentSetupDocs = (ctx: Ctx, programUuid?: string) =>
     : Promise.resolve([]);
 
 /**
- * The aircraft's cost records, plus the program's settings row (stored with
- * aircraftUuid "").
+ * The program's cost records, then its settings row (stored with
+ * aircraftUuid ""); none without a program. Read by program, not by
+ * aircraft, because records stay with the program that paid when an
+ * aircraft moves (decision D14).
  */
-export async function costDocs(
-  ctx: Ctx,
-  programUuid: string | undefined,
-  aircraft: AircraftRefs,
-) {
-  const rows = await perAircraft(aircraft, (id) =>
-    ctx.db
-      .query("costs")
-      .withIndex("aircraft", (q) => q.eq("aircraftUuid", id))
-      .collect(),
-  );
-  const settings = programUuid
-    ? await ctx.db
-        .query("costs")
-        .withIndex("program", (q) =>
-          q.eq("programUuid", programUuid).eq("aircraftUuid", ""),
-        )
-        .collect()
-    : [];
-  return [...rows, ...settings];
+export async function costDocs(ctx: Ctx, programUuid: string | undefined) {
+  if (!programUuid) return [];
+  const rows = await ctx.db
+    .query("costs")
+    .withIndex("program", (q) => q.eq("programUuid", programUuid))
+    .collect();
+  return [
+    ...rows.filter((r) => r.aircraftUuid),
+    ...rows.filter((r) => !r.aircraftUuid),
+  ];
 }
 
 /**

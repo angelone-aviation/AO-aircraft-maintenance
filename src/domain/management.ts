@@ -27,6 +27,7 @@ export {
 } from "./management/schemas";
 export {
   inspectionCounters,
+  MissingInspectionComponent,
   validateMaintenanceTotals,
 } from "./management/counters";
 export { applyManagement } from "./management/apply";

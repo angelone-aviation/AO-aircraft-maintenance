@@ -3,7 +3,7 @@
  * Responsibility: Command-line launcher that builds the readable records
  *   workbook (ADR-0011) from a Convex export ZIP.
  * Layer: Script. A launcher only; the workbook is built in recordsWorkbook.ts.
- * Dependencies: esbuild (installed with convex),
+ * Dependencies: esbuild (a pinned devDependency),
  *   scripts/backup/recordsWorkbook.ts.
  *
  *   node scripts/backup/records-workbook.mjs --zip <convex export zip> \

@@ -215,6 +215,27 @@ describe("reviewFlight refusals", () => {
     });
   });
 
+  // Roadmap leftover (LO-3): an administrator saw the data-integrity text
+  // "Inspection component not found." and could not tell what to fix.
+  it("names the inspection whose component is no longer on the aircraft", () => {
+    const { s, held, input } = fixture();
+    const inspection = s.inspections.find(
+      (i) => i.aircraftUuid === held.aircraftUuid,
+    )!;
+    inspection.componentUuid = "component-moved-away";
+    const registration = s.aircraft[0].registration;
+    const error = refusal(s, {
+      uuid: held.uuid,
+      decision: "accept",
+      reason: REASON,
+      input,
+    });
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({
+      message: `The inspection "${inspection.reference}" on ${registration} is linked to a component that is not installed on it. Correct the inspection under Inspections, then review this flight again.`,
+    });
+  });
+
   it("takes 5 trimmed characters and up to 5000 as entered", () => {
     const { s, held, input } = fixture();
     const review = (reason: string) => () =>

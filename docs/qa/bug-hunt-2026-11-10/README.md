@@ -263,13 +263,13 @@ Each table lists every finding in the area by severity. The full steps, expected
 | OP-2  | Low      | Sample flights had start and end readings swapped                     | Fixed `c1f1748`                       | No repro script; unit test                                |
 | OP-3  | Low      | Re-running setup:auth replaced the production SITE_URL with localhost | Fixed `f91ac40`; confirm in D25       | No repro script; unit tests                               |
 | OP-4  | Low      | .gitignore missed the secret files the backup runbook creates         | Fixed `0df0cfb`                       | No repro script; unit test                                |
-| OP-5  | Low      | The "36-hour" stale-backup warning arrives after about 52 hours       | Decision D10; doc corrected `0b921b1` | REPRODUCED (expected: open decision)                      |
+| OP-5  | Low      | The "36-hour" stale-backup warning arrives after about 52 hours       | Fixed: 26-hour limit (D10)            | REPRODUCED (expected: open decision)                      |
 | OP-7  | Low      | A manual Deploy ignored CI                                            | Fixed `283c70c`; confirm in D25       | No repro script; workflow tests                           |
 | OP-8  | Low      | check:standards ignores uncommitted files and some file types         | Decision D23                          | No repro script; open decision                            |
 | OP-9  | Low      | Release runbook and README disagreed on memberships:backfill          | Fixed `283c70c`                       | No repro script; doc only                                 |
 | OP-10 | Info     | The nightly job accepted an export without files or users             | Fixed `b45447c`                       | NOT REPRODUCED                                            |
 | OP-11 | Info     | The recorded backup hash was the plaintext ZIP's                      | Fixed `b45447c`                       | No repro script; backup job test                          |
-| OP-12 | Info     | Deploy resolves wrangler's dependencies outside the lockfile          | Decision D24                          | No repro script; open decision                            |
+| OP-12 | Info     | Deploy resolves wrangler's dependencies outside the lockfile          | Fixed: locked devDependencies (D24)   | No repro script; open decision                            |
 
 ### Size
 

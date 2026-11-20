@@ -14,8 +14,8 @@ import {
   emptyMonitor,
   type FaaCandidate,
   type FaaMonitor,
+  MAX_ENABLED_FAA_MONITORS,
 } from "../src/domain/faa";
-import { MAX_ENABLED_FAA_MONITORS } from "./faa";
 
 const modules = import.meta.glob([
   "./**/*.ts",

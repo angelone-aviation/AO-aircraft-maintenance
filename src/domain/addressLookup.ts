@@ -3,31 +3,39 @@
  *   is typing: what may be sent, and how the reply is read.
  * Layer: Domain. Pure schemas and functions; no I/O, no React. The server
  *   makes the request (convex/addressVerification.ts).
- * Dependencies: zod, src/domain/addresses.ts (types).
+ * Dependencies: zod, src/domain/addresses.ts (field limits, types).
  */
 import { z } from "zod";
-import type { Address } from "./addresses";
+import {
+  ADDRESS_FIELD_MAX_LENGTH,
+  ADDRESS_STREET_MAX_LENGTH,
+  type Address,
+} from "./addresses";
 
 /** How many suggestions are asked for, and shown. */
 export const ADDRESS_SUGGESTION_LIMIT = 5;
 
 /**
- * The physical address fields sent to Geoapify, trimmed.
+ * The physical address fields sent to Geoapify, trimmed, with the same
+ * length limits as a stored {@link Address}, so any saved address can be
+ * looked up.
  *
  * @throws {z.ZodError} From `parse()`: "Enter a street address to look up.",
  *   "Enter a country to look up.", or "<Field> is too long to look up (up to
- *   N characters)." Postal code (100) and country (150) are capped below the
- *   300 characters an {@link Address} may store.
+ *   N characters)."
  */
 export const addressLookupSchema = z.object({
-  street: lookupField("Street address", 2000).min(
+  street: lookupField("Street address", ADDRESS_STREET_MAX_LENGTH).min(
     1,
     "Enter a street address to look up.",
   ),
-  city: lookupField("City", 300),
-  region: lookupField("State / province", 300),
-  postalCode: lookupField("ZIP / postal code", 100),
-  country: lookupField("Country", 150).min(1, "Enter a country to look up."),
+  city: lookupField("City", ADDRESS_FIELD_MAX_LENGTH),
+  region: lookupField("State / province", ADDRESS_FIELD_MAX_LENGTH),
+  postalCode: lookupField("ZIP / postal code", ADDRESS_FIELD_MAX_LENGTH),
+  country: lookupField("Country", ADDRESS_FIELD_MAX_LENGTH).min(
+    1,
+    "Enter a country to look up.",
+  ),
 });
 
 /** A parsed {@link addressLookupSchema} input. */

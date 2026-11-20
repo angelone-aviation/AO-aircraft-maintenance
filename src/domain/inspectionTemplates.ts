@@ -266,7 +266,7 @@ export function templateIdentity(t: InspectionTemplate) {
  * @param s - Working snapshot; its templates and audit change.
  * @param raw - 1 to 2,000 templates, each at the version it was opened at.
  * @returns Per template, in order: `before` (undefined when new) and `next`.
- * @throws {Rejection} Without maintenance permission; over 2 MB, or 800 KB for
+ * @throws {Rejection} Without maintenance permission; over 2 MiB, or 800 KB for
  *   one template; another program's template; a stale version ("Template
  *   changed. Reopen it before saving."); a duplicate name or manual source.
  * @throws {Error} A repeated uuid or unavailable manual; {z.ZodError} a bad
@@ -431,7 +431,7 @@ function parseTemplateBatch(raw: InspectionTemplate[]) {
   if (new Set(parsed.map((t) => t.uuid)).size !== parsed.length)
     throw new Error("Duplicate template IDs in this batch.");
   if (measureJsonBytes(parsed) > SAVE_MAX_BYTES)
-    throw new Rejection("Save templates in batches up to 2 MB.");
+    throw new Rejection("Save templates in batches up to 2 MiB.");
   if (parsed.some((t) => measureJsonBytes(t) > TEMPLATE_MAX_BYTES))
     throw new Rejection(
       "A template with its tasks must fit within 800 KB. Split the checklist into smaller templates.",

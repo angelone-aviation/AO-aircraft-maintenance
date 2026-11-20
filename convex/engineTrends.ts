@@ -11,6 +11,7 @@ import type { QueryCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { checkContext } from "./programContext";
 import {
+  hideErrors,
   requestOf,
   requestUuidIn,
   runCommand,
@@ -63,9 +64,9 @@ export const list = query({
  * @param payload - JSON, as `engineTrendCommandSchema`, with its request id;
  *   the other arguments are {@link list}'s.
  * @throws {ConvexError} As `runCommand`; "Aircraft maintenance permission
- *   required."; "Engine trend data is invalid." for a payload the command
- *   schema refuses; any other error the applier throws, with its message
- *   ("This engine data file was already imported.", …).
+ *   required."; the applier's refusals ("This engine data file was already
+ *   imported.", …); "Engine trend data is invalid." for any other error,
+ *   such as a payload the command schema refuses.
  */
 export const execute = mutation({
   args: { ...target, payload: v.string() },
@@ -86,7 +87,9 @@ export const execute = mutation({
           actorId,
           now: Date.now(),
         }),
-      expose: showTrendError,
+      // The applier refuses with Rejections; a zod or parser error's own
+      // text is no message for users (finding E-16).
+      expose: hideErrors("Engine trend data is invalid."),
       persist: async ({ ctx }, { loaded, scope }, result) => {
         if (result.created)
           await ctx.db.insert("engineTrends", {
@@ -143,13 +146,6 @@ async function loadForChange(
     actorId: state.user.id,
     scope: { programUuid, aircraftUuid },
   };
-}
-
-// A ZodError's message is its issue list as JSON, which starts with "[".
-function showTrendError(error: unknown): string {
-  return error instanceof Error && !error.message.startsWith("[")
-    ? error.message
-    : "Engine trend data is invalid.";
 }
 
 function logChange(
