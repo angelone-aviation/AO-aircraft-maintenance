@@ -2,7 +2,7 @@
 
 How to switch on error reporting (Sentry), outside monitoring (Better Stack), and the alert email and push channels.
 
-**Status, 20 Nov 2026:** Better Stack is set up: the two uptime monitors and the backup heartbeat (steps 6 to 8). The heartbeat's URL is not in GitHub yet, so the nightly backup does not ping it ([go-live checklist](../go-live-checklist.md#backup-setup-remaining)). Sentry (steps 1 to 5) is supported by the code but not used.
+**Status, 20 Nov 2026:** Better Stack is set up: the two uptime monitors and the backup heartbeat (steps 6 to 8). The heartbeat's URL is the `backups` secret `BACKUP_HEARTBEAT_URL`, and the first nightly backup pinged it. Device push (step 10) waits for its VAPID keys. Sentry (steps 1 to 5) is supported by the code but not used.
 
 The code is in place and stays dormant until these keys exist: without `VITE_SENTRY_DSN` the build contains no Sentry code, without `BACKUP_HEARTBEAT_URL` the nightly backup skips its ping, without the Resend variables no email goes out, and without the VAPID variables no device can be alerted. Browser reporting lives in `src/data/errorReporting.ts`; the deploy wiring in `.github/workflows/deploy.yml`.
 

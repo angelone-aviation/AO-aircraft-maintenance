@@ -116,14 +116,14 @@ flowchart TD
   Daily --> Monthly["First good night of the month:<br/>also upload to monthly/"]
   Monthly --> Record["Record the copy in the app<br/>(backups:recordOffsiteCopy)"]
   Record --> Dropbox["Optional: Excel workbook to Dropbox"]
-  Dropbox --> Beat["Ping the Better Stack heartbeat<br/>(once its secret is set)"]
+  Dropbox --> Beat["Ping the Better Stack heartbeat"]
 ```
 
 - **A failed step** stops the run: nothing later happens, no heartbeat is sent, and no copy is ever deleted or overwritten. With a key, the job also saves changed environment variables to `env/` before it records the copy.
 - **Encryption** is off ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)), so (recommended) keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager, and protect the bucket and its token as you would the records ([risks R2](../4-money-and-risk/risks.md#r2-unencrypted-backups)).
-- **Status today:** the bucket, its lock and lifecycle rules, the R2 token, the scoped backup deploy key, the time zone and the failure emails are set up. Still for Aaron to do: the `BACKUP_HEARTBEAT_URL` secret, the first manual run and the first restore rehearsal. Until that run is checked, do not count on an off-site copy ([backup set-up](setup-from-scratch.md#7-backups)).
+- **Status today:** the set-up is done and backups run. The first, run #19 started by hand on 20 Nov 2026, passed export, upload, record and the heartbeat. Still for Aaron to do: the first restore rehearsal; until it passes, a restore from R2 is not proven ([quarterly rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal)).
 - **Check a run:** green in Actions; Settings → System → **Off-site backups** shows the time; the files are in R2.
-- **Who is told:** GitHub emails a failed scheduled run to whoever last changed or re-enabled the workflow; Better Stack alerts on a missed heartbeat (once the `BACKUP_HEARTBEAT_URL` secret is set); system administrators get "Off-site backups" in the digest after 26 hours.
+- **Who is told:** GitHub emails a failed scheduled run to whoever last changed or re-enabled the workflow; Better Stack alerts on a missed heartbeat; system administrators get "Off-site backups" in the digest after 26 hours.
 - **Restore:** stop writes, take a fresh backup, restore (Convex dashboard for 7 days, R2 for older), re-apply access changes made since, run the migrations above, verify, then record the restore with `audit:recordManualEntry` ([backup runbook: real restore](../../runbooks/backup-restore.md#real-restore-production)).
 - **Rehearse** every quarter into a scratch deployment, never one others can sign in to ([quarterly rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal)).
 
@@ -131,20 +131,20 @@ Policy: [ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever
 
 ## Monitoring
 
-| What                                                | Set up?                                             | Alerts                                  |
-| --------------------------------------------------- | --------------------------------------------------- | --------------------------------------- |
-| Better Stack: the site and Convex's sign-in service | Yes, 20 Nov 2026                                    | Email                                   |
-| Better Stack: backup heartbeat (24 h period)        | Yes; the `BACKUP_HEARTBEAT_URL` secret still to add | Email when a night's ping is missing    |
-| GitHub failed-workflow email                        | Yes; goes to Aaron                                  | Email                                   |
-| The app's daily digest                              | On for system administrators who switch it on       | Backup age, expiring dates, maintenance |
-| Sentry (browser and server errors)                  | No; Better Stack only for now                       | —                                       |
-| Convex dashboard logs and usage                     | Always there                                        | None: look quarterly                    |
+| What                                                | Set up?                                       | Alerts                                  |
+| --------------------------------------------------- | --------------------------------------------- | --------------------------------------- |
+| Better Stack: the site and Convex's sign-in service | Yes, 20 Nov 2026                              | Email                                   |
+| Better Stack: backup heartbeat (24 h period)        | Yes; its secret set 20 Nov 2026               | Email when a night's ping is missing    |
+| GitHub failed-workflow email                        | Yes; goes to Aaron                            | Email                                   |
+| The app's daily digest                              | On for system administrators who switch it on | Backup age, expiring dates, maintenance |
+| Sentry (browser and server errors)                  | No; Better Stack only for now                 | —                                       |
+| Convex dashboard logs and usage                     | Always there                                  | None: look quarterly                    |
 
 Cloudflare Bot Fight Mode blocks uptime monitors; it is off. Detail: [monitoring runbook](../../runbooks/monitoring.md).
 
 ## Settings on the deployment
 
-Set in the Convex dashboard (Settings → Environment Variables) or with `npx convex env set`. Values never go in the repository. The full list, with whether each is required: [set up from scratch](setup-from-scratch.md#33-environment-variables).
+Set in the Convex dashboard (Settings → Environment Variables) or with `npx convex env set`. Values never go in the repository. The full list, with whether each is required: [set up from scratch](setup-from-scratch.md#33-environment-variables). On production (20 Nov 2026) all of these are set except the VAPID keys, so device push is still to do, and `FILE_SWEEP`, which defaults to `report`.
 
 | Variable                                                 | Turns on                                                                                                                                           |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

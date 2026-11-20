@@ -13,15 +13,15 @@ The risk register for Angel One, as of 20 November 2026. Review it with the quar
 
 Each risk by its number, placed by likelihood and impact. Top right is worst.
 
-| Likelihood | Impact: Low | Impact: Medium    | Impact: High          |
-| ---------- | ----------- | ----------------- | --------------------- |
-| **High**   |             | R16               | R1, R4                |
-| **Medium** | R19, R20    | R7, R10, R12, R13 | R3, R8, R14, R17, R23 |
-| **Low**    | R9, R18     | R11, R15          | R2, R5, R6, R21, R22  |
+| Likelihood | Impact: Low | Impact: Medium    | Impact: High              |
+| ---------- | ----------- | ----------------- | ------------------------- |
+| **High**   |             | R16               | R4                        |
+| **Medium** | R19, R20    | R7, R10, R12, R13 | R1, R3, R8, R14, R17      |
+| **Low**    | R9, R18     | R11, R15          | R2, R5, R6, R21, R22, R23 |
 
 ## The five to watch first
 
-1. **Off-site backups are set up but not proven yet.** When copies start they are unencrypted, and a broad token from another project can reach them (R1, R2, R23).
+1. **Off-site backups run, but no restore is proven yet.** The copies are unencrypted, and the deploy token can reach them (R1, R2, R23).
 2. **One person** holds the Convex account and maintains the app (R3, R4).
 3. **No second factor** on app accounts, and 2FA not yet confirmed on every operator account (R14).
 4. **Convex can't roll back**, and the app has no other backend (R5, R6).
@@ -29,19 +29,19 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ## The register
 
-### R1. Off-site backups are set up but not proven yet
+### R1. Off-site backups run, but no restore is proven yet
 
-- **Risk:** no nightly backup has succeeded (every run up to 20 Nov failed, before the set-up was finished) and no restore has been rehearsed. Until both, the only copies known good are Convex's own daily backups (on since 20 Nov, with file storage), kept 7 days in the same account as the data.
-- **Likelihood:** High until a run and a rehearsal have worked: an untested backup often fails when needed.
+- **Risk:** the first nightly backup succeeded on 20 Nov 2026 (run #19, started by hand); every run before it failed, before the set-up was finished. No restore has been rehearsed. Until one is, the only copies known to restore are Convex's own daily backups (on since 20 Nov, with file storage), kept 7 days in the same account as the data.
+- **Likelihood:** Medium until a rehearsal has worked: an untested restore often fails when needed.
 - **Impact:** High: losing the Convex account or project would lose every record.
-- **What reduces it:** the bucket, its lock and lifecycle rules, the R2 token, the scoped deploy key, the time zone and failure emails are in place. Left: the heartbeat secret, a first run by hand and the first [restore rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal) ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)).
+- **What reduces it:** the bucket, its lock and lifecycle rules, the R2 token, the scoped deploy key, the time zone, failure emails and the Better Stack heartbeat are in place, and the first run passed. Left: the first [restore rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal) ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)).
 - **Who acts:** Aaron.
-- **Status:** Open.
+- **Status:** Reduced.
 
 ### R2. Unencrypted backups
 
 - **Risk:** anyone holding an R2 token for the bucket, the Cloudflare login or a downloaded copy can read every record, name, email, file and password hash ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)).
-- **Likelihood:** Low: the bucket is private, with no public address. It rests on few people holding those credentials, which R23 breaks today.
+- **Likelihood:** Low: the bucket is private, with no public address. It rests on few people holding those credentials; the deploy token's R2 permission (R23) widens that today.
 - **Impact:** High: every record to date, and copies under `monthly/` can never be removed.
 - **What reduces it:** a private, locked bucket; a backup token limited to that one bucket; sign-in sessions emptied from each copy; encryption one secret away ([backup runbook](../../runbooks/backup-restore.md#to-turn-encryption-on)).
 - **Who acts:** Aaron.
@@ -99,7 +99,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Impact:** High: backups stop without an error.
 - **What reduces it:** the Better Stack heartbeat, the digest's 26-hour warning and [re-enabling the workflow](../../runbooks/backup-restore.md#who-is-told-when-it-fails).
 - **Who acts:** Aaron.
-- **Status:** Reduced. Left: add the heartbeat's URL to GitHub as `BACKUP_HEARTBEAT_URL`; until then only the digest warns.
+- **Status:** Reduced. The heartbeat's URL is in GitHub as `BACKUP_HEARTBEAT_URL` (since 20 Nov 2026), so Better Stack reports a missed night.
 
 ### R9. Accepting a very old held flight is refused
 
@@ -142,9 +142,9 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Risk:** anyone can read the code, docs and runbooks and find a weakness first.
 - **Likelihood:** Medium: the code shows where to look, though no secret is in it.
 - **Impact:** Medium: a weakness still has to get past permission checks that run on the server.
-- **What reduces it:** no secrets in the repository, a secret scan and dependency audit in CI, server-side permission checks and a [disclosure policy](../../../SECURITY.md); private would cost a paid plan ([costs](services-and-costs.md#github)).
+- **What reduces it:** no secrets in the repository, a secret scan and dependency audit in CI, CodeQL code scanning (default set-up, enabled 20 Nov 2026), server-side permission checks and a [disclosure policy](../../../SECURITY.md); private would cost a paid plan ([costs](services-and-costs.md#github)).
 - **Who acts:** Aaron.
-- **Status:** Accepted. Left: CodeQL default set-up. Reported done on 2026-11-19; on 2026-11-20 GitHub shows it not configured. Aaron to re-check, and to turn it on ([GitHub docs](https://docs.github.com/en/code-security/code-scanning/enabling-code-scanning/configuring-default-setup-for-code-scanning)).
+- **Status:** Accepted.
 
 ### R14. No second factor (2FA)
 
@@ -166,7 +166,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ### R16. Account inventory and incident contacts are blank
 
-- **Risk:** nobody else knows who holds the registrar, Cloudflare, Resend or the FAA key.
+- **Risk:** nobody else knows who holds the registrars of the two domains (`angeloneaviation.org` for the app, `angeloneonline.org` for email), Cloudflare, Resend or the FAA key.
 - **Likelihood:** High: the rows are blank today.
 - **Impact:** Medium: it slows every incident and renewal, and makes R3 and R4 worse.
 - **What reduces it:** filling in [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md).
@@ -223,18 +223,18 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 - **Risk:** Cloudflare's own Git build (Workers Builds), if connected, publishes a site without the backend address, as it did for about 30 minutes on 20 Nov 2026 ([changelog](../5-history/changelog.md#incident-configuration-error-after-the-merge)).
 - **Likelihood:** Low: Aaron disconnected it that day (about 20:15 UTC); it would have to be connected again by mistake.
 - **Impact:** High: every user sees "Configuration error" until Deploy publishes again.
-- **What reduces it:** the Git build kept disconnected, and since release 5 a production build that refuses to run there ([release runbook](../../runbooks/release.md#cloudflare)).
+- **What reduces it:** the Git build kept disconnected, its "Workers Builds" token deleted (20 Nov), and since release 5 a production build that refuses to run there ([release runbook](../../runbooks/release.md#cloudflare)).
 - **Who acts:** Aaron.
 - **Status:** Reduced. Never reconnect it.
 
-### R23. A broad R2 token from another project
+### R23. The deploy token can reach every R2 bucket
 
-- **Risk:** the Cloudflare account holds an R2 token made for another project, "order-health-dashboard build token", with **Admin Read & Write on all buckets**. It can read and write every object in `angelone-backups`, and Cloudflare lists "edit bucket configuration" and "delete buckets" among that permission's rights ([R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/)).
-- **Likelihood:** Medium: the token lives in another project's build set-up, outside this app's controls.
+- **Risk:** the user token **Edit Cloudflare Workers**, which Deploy uses as `CLOUDFLARE_API_TOKEN`, still has **Admin Read & Write on all R2 buckets**, from its template. A holder can read and write every object in `angelone-backups`, and Cloudflare lists "edit bucket configuration" and "delete buckets" among that permission's rights ([R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/)). The other project's "order-health-dashboard build token", which had the same reach, no longer exists.
+- **Likelihood:** Low: the token is held only as a GitHub `production` secret.
 - **Impact:** High: every record in the unencrypted copies (R2), and possibly the bucket's own settings.
-- **What reduces it:** nothing yet. Replace it with a token limited to that project's own bucket (Object Read & Write), then delete it.
+- **What reduces it:** the token lives only in GitHub. Optional: remove its "Workers R2 Storage" permission (the site uses no R2), so that the backup token **angelone-backups nightly** (Object Read & Write on `angelone-backups` only) is the one token that reaches the bucket.
 - **Who acts:** Aaron.
-- **Status:** Open.
+- **Status:** Reduced.
 
 ## Where the rest is tracked
 

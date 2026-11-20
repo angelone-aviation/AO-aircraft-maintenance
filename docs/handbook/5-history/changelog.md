@@ -13,7 +13,7 @@ What changed, and when. Newest first. Each line gives the finding's id, what cha
 
 ## 20 Nov 2026 at a glance
 
-The day's five releases and its one incident, in UTC (03.15 means 03:15). Each release is timed by when its Deploy run finished on GitHub Actions; the incident's times are approximate.
+The day's five releases, its one incident and the set-up finished that evening, in UTC (03.15 means 03:15). Each release is timed by when its Deploy run finished on GitHub Actions; the incident's times are approximate.
 
 ```mermaid
 timeline
@@ -25,7 +25,17 @@ timeline
     20.02 : Release 4 in production : Backups without encryption : Incident ends
     20.15 : Aaron disconnects Cloudflare's Git build
     21.30 : Release 5 in production : Documentation, password-only sign-in, build guard
+    21.45 : First off-site backup succeeds : Nightly backup run 19, started by hand
+    22.05 : CodeQL code scanning on
 ```
+
+### Late on 20 Nov: set-up done
+
+- **The first off-site backup:** Nightly backup run #19, started by hand at about 21:45 UTC on `8b40038`, passed export, upload, record and the Better Stack heartbeat. A manual run before it failed because the `R2_ACCOUNT_ID` secret held the wrong value, which Aaron corrected; every scheduled run before 20 Nov had failed because the set-up wasn't finished. The first restore rehearsal is still to do.
+- **`BACKUP_HEARTBEAT_URL`** is set in the `backups` environment.
+- **CodeQL code scanning** is on: Aaron enabled the default set-up at about 22:05 UTC, and its first run succeeded.
+- **Cloudflare tokens:** the Git build's "Workers Builds" user token was deleted, and the "order-health-dashboard build token" no longer exists ([risks R23](../4-money-and-risk/risks.md#r23-the-deploy-token-can-reach-every-r2-bucket)).
+- **Convex production variables**, as checked that evening: `CREDENTIALS_ENCRYPTION_KEY`, `JWKS`, `JWT_PRIVATE_KEY`, `RECORDS_TIME_ZONE`, `RESEND_API_KEY`, `RESEND_FROM`, `SITE_URL`; no Google or Microsoft variables. The VAPID keys are not set, so device push is still to do.
 
 ## Release 7: not yet released
 
@@ -227,7 +237,7 @@ Bug-hunt and stale-screen findings fixed in part or left open before, finished h
 | Upload checks | The file-contents check covers work-order, job-card, photo and license uploads, HEIC license copies, PDFs with leading bytes, and names each upload's own types; a manual that is not a PDF is deleted at once | `e6c928e`, `589ba16`, `8eed677`, `730b68e`, `50e05c2` |
 | Flight review | Every flight review needs a request id, so it is never applied twice                                                                                                                                           | `c37bf0c`                                             |
 | C1, C4        | Cloudflare's "Add security headers" transform and Bot Fight Mode turned off (19 Nov, Cloudflare settings)                                                                                                      | —                                                     |
-| P4            | CodeQL default set-up (a GitHub setting). Reported done on 2026-11-19; on 2026-11-20 GitHub shows it not configured. Aaron to re-check ([risks R13](../4-money-and-risk/risks.md#r13-public-repository))       | —                                                     |
+| P4            | CodeQL default set-up (a GitHub setting): on, enabled 20 Nov 2026 ([risks R13](../4-money-and-risk/risks.md#r13-public-repository))                                                                            | —                                                     |
 
 ### Other changes in the release
 

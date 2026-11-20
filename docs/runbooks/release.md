@@ -72,7 +72,6 @@ Set-up steps: set up from scratch, [5.1](../handbook/3-running-it/setup-from-scr
 
 - **No required reviewer on `production`.** Deploy starts by itself after a green CI push to `main`, with no approval click. A required reviewer would hold every automatic Deploy until Aaron approved it.
 - **Branch protection on `main` is off**, by Aaron's decision of 19 Nov 2026 ([risks R21](../handbook/4-money-and-risk/risks.md#r21-branch-protection-is-off)). Keep write access to the repository limited.
-- **CodeQL default set-up.** Reported done on 2026-11-19; on 2026-11-20 GitHub shows it not configured. Aaron to re-check (Settings → Code security → CodeQL analysis; no CodeQL run exists).
 
 ## Release
 

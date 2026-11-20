@@ -1,7 +1,7 @@
 # Backup and restore
 
 Policy: [ADR-0008](../adr/0008-daily-backups-off-site-90-days-monthly-forever.md), changed by [ADR-0014](../adr/0014-backups-stored-unencrypted.md). Plan and deployments: [ADR-0007](../adr/0007-convex-pro-single-seat.md).
-**Status, 20 Nov 2026:** the bucket, its lock and lifecycle rules, the `backups` environment, the R2 token, the scoped backup deploy key, the time zone and failure emails are set up. Still to do: the `BACKUP_HEARTBEAT_URL` secret, the first run by hand and the first restore rehearsal ([go-live checklist](../go-live-checklist.md#backup-setup-remaining)). Until a run has been checked and a restore rehearsed, only Convex's own 7-day backups are known good.
+**Status, 20 Nov 2026:** the set-up is done and backups run: the first, run #19 started by hand, passed export, upload, record and the heartbeat. Still to do: the first restore rehearsal ([go-live checklist](../go-live-checklist.md#backup-setup-remaining)). Until it passes, only Convex's own 7-day backups are known to restore.
 
 **Backups are not encrypted, by Aaron's decision on 20 Nov 2026. Anyone holding the R2 keys or the Cloudflare login can read every record, user, password hash and file in them, but cannot sign in with a copied session.** A copy also holds emails, certificate numbers, licence copies and the saved (still sealed) third-party credentials. Its sessions, refresh tokens, sign-in codes and OAuth verifiers are emptied before upload. Keep the bucket private and the R2 token and Cloudflare login to people who may read all of that. Encryption comes back by adding one secret: [To turn encryption on](#to-turn-encryption-on).
 
