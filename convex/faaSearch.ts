@@ -1,6 +1,6 @@
 /**
  * Responsibility: Searching FAA DRS for a Flight Program's ADs: who may search
- *   and the daily allowances shared by every program on the one FAA key.
+ *   and the daily allowances every program draws on through the one FAA key.
  * Layer: Server. A public action over internal steps; maintenance permission
  *   on the aircraft searches.
  * Dependencies: convex/rateLimits, convex/faaCredentials, convex/faaDrs,
@@ -13,7 +13,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
-import { consume, DAY, MINUTE } from "./rateLimits";
+import { consume, DAY, MINUTE, programShare } from "./rateLimits";
 import { faaSecret } from "./faaCredentials";
 import { searchFAA } from "./faaDrs";
 import { internal } from "./_generated/api";
@@ -29,11 +29,12 @@ import {
   type FaaSearchResult,
 } from "../src/domain/faaSearch";
 
-/** FAA requests one Flight Program may make per UTC day. */
-export const FAA_PROGRAM_DAILY = 500;
-
 /** FAA requests all Flight Programs together may make per UTC day. */
 export const FAA_GLOBAL_DAILY = 5000;
+
+// The least FAA share a program gets, however many programs there are: about
+// a day of monitoring checks on its 25 monitored aircraft.
+const FAA_PROGRAM_DAILY_FLOOR = 250;
 
 const USER_SEARCHES_PER_MINUTE = 10;
 
@@ -71,7 +72,8 @@ export const authorize = internalQuery({
 
 /**
  * Spends `requests` of the program's daily FAA allowance, then of the global
- * one; searches and monitoring runs share both.
+ * one; searches and monitoring runs share both. The program's allowance is
+ * its equal share of the global one (`programShare`), at least 250.
  *
  * @param programUuid - The program charged.
  * @param requests - How many FAA requests to count.
@@ -84,10 +86,11 @@ export async function chargeFaaAllowance(
   programUuid: string,
   requests = 1,
 ) {
+  const programs = await ctx.db.query("programs").collect();
   await consume(
     ctx,
     `faa:program:${programUuid}`,
-    FAA_PROGRAM_DAILY,
+    programShare(FAA_GLOBAL_DAILY, programs.length, FAA_PROGRAM_DAILY_FLOOR),
     DAY,
     "This Flight Program's FAA search allowance for today is used. Try again tomorrow.",
     requests,

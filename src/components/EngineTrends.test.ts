@@ -321,7 +321,7 @@ describe("AircraftEngineTrends", () => {
     await open();
     await expect(
       submit("Preview summary", { engineLog: new File([], "x.csv") }),
-    ).rejects.toThrow("Choose an engine monitor CSV up to 7 MB.");
+    ).rejects.toThrow("Choose an engine monitor CSV up to 7 MiB.");
     const html = await submit("Preview summary", {
       engineLog: new File([JPI], "jpi.csv"),
     });

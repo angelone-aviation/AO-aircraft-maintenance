@@ -4,7 +4,8 @@
  *   idempotency, and the refusals users see.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/management.ts, convex/schema.ts, src/domain/management,
- *   tests/fixtures/componentMovement, src/data/demo.ts (fixture).
+ *   src/domain/aircraftSetup, tests/fixtures/componentMovement,
+ *   src/data/demo.ts (fixture).
  */
 import { movementOrderCommand } from "../tests/fixtures/componentMovement";
 import type { ManagementCommand } from "../src/domain/management";
@@ -13,6 +14,11 @@ import { expect, it } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
+import {
+  inspectionSetupHeaders,
+  parseInspectionSetupCsv,
+  planAircraftSetup,
+} from "../src/domain/aircraftSetup";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -647,6 +653,43 @@ it("saves and completes recurring inspections while retaining source identity an
       sourceKey: "template:runtime:recurring",
     });
   });
+});
+
+it("refuses a second aircraft setup's inspections, not an ordinary save of the same name (NA-11)", async () => {
+  const { t, admin, ids } = await fixture();
+  const csv = [
+    inspectionSetupHeaders.join(","),
+    "Annual,,12,,,2026-01-31,,,,91.409(a)",
+    "100-hour,100,,,,2026-08-14,2300.5,,,91.409(b)",
+  ].join("\n");
+  // Each run is planned from the same snapshot, before either has saved.
+  const run = () =>
+    planAircraftSetup(demoSnapshot(), ids.a.uuid, {
+      inspections: parseInspectionSetupCsv(csv),
+      ads: [],
+    }).actions;
+  const send = (command: unknown) =>
+    admin.mutation(api.management.execute, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(command),
+    });
+  const names = () =>
+    t.run(async (ctx) =>
+      (await ctx.db.query("inspections").collect())
+        .map((i) => i.description)
+        .sort(),
+    );
+  for (const a of run()) await send(a.command);
+  for (const a of run())
+    await expect(send(a.command)).rejects.toMatchObject({
+      data: "An inspection with this name is already on the aircraft.",
+    });
+  expect(await names()).toEqual(["100-hour", "Annual"]);
+  const { initialAircraftSetup: _setup, ...ordinary } = run()[0].command as {
+    initialAircraftSetup?: boolean;
+  };
+  await send(ordinary);
+  expect(await names()).toEqual(["100-hour", "Annual", "Annual"]);
 });
 
 it("refuses a new record or inspection whose uuid another program uses, as a ConvexError", async () => {

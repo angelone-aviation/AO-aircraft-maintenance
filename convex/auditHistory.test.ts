@@ -337,7 +337,7 @@ it("ends a history exactly one page long as done, and combines filters", async (
   ).toMatchObject({ page: [], isDone: true });
 });
 
-it("refuses a cursor that is not a number", async () => {
+it("refuses a cursor that is neither a time nor a resume point", async () => {
   const { t, ids } = await fixture();
   await expect(
     t.withIdentity({ subject: ids.manager }).query(api.auditHistory.page, {
@@ -370,16 +370,16 @@ it("returns a short page after scanning 4,000 entries, then carries on", async (
     cursor: null,
   });
   expect(first).toMatchObject({ page: [], isDone: false });
-  // Characterizes current behaviour: this cursor is a hidden row's time.
+  // The cursor resumes past the hidden rows without telling their time.
   const hidden = await t.run((ctx) =>
     ctx.db
       .query("audit")
       .filter((q) => q.eq(q.field("entityUuid"), "some-user"))
       .collect(),
   );
-  expect(hidden.map((d) => String(d._creationTime))).toContain(
-    first.continueCursor,
-  );
+  expect(Number.isNaN(Number(first.continueCursor))).toBe(true);
+  for (const d of hidden)
+    expect(first.continueCursor).not.toContain(String(d._creationTime));
   const next = await restricted.query(api.auditHistory.page, {
     ...request,
     cursor: first.continueCursor,

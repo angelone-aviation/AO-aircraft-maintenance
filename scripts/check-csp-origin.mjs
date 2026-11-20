@@ -7,8 +7,9 @@
  * Dependencies: node:fs.
  *
  * A source allows its exact host or, written `*.host`, any subdomain of it; a
- * source with a port or a path never matches. An empty DSN passes, because
- * error reporting is then off.
+ * source with a port or a path never matches. A source without a port covers
+ * only the scheme's default port, so a URL naming another port is refused.
+ * An empty DSN passes, because error reporting is then off.
  */
 import { readFileSync } from "node:fs";
 
@@ -41,6 +42,10 @@ function checkSentryDsn(dsn) {
 function checkOrigin(target, label, required) {
   const name = label + target.origin;
   if (target.protocol !== "https:") exitWithError(`${name} must use https.`);
+  if (target.port)
+    exitWithError(
+      `${name} must use the default https port (443): the policy's sources name no port.`,
+    );
   const missing = required.filter(
     ([directive, scheme]) => !allows(directive, scheme, target.hostname),
   );

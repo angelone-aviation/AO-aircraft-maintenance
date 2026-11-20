@@ -415,15 +415,24 @@ it("caps lookups at 2,900 a UTC day across users, counting afresh each day", asy
   expect(await saved()).toMatchObject({ day: today(), used: 1 });
 });
 
-it("gives each Flight Program a daily share of 1,000 lookups", async () => {
+// Security review T8: the one key's day is split equally between Flight
+// Programs, never below the floor; the 2,900 total still binds.
+it.each([
+  [1, 2900],
+  [4, 725],
+  [40, 100],
+])("gives each of %i Flight Programs %i lookups a day", async (programs, share) => {
   const { t, reserve } = await fixture();
   const now = Date.now();
   await t.run(async (ctx) => {
     await ctx.db.insert("addressVerificationSettings", settings());
+    const base = demoSnapshot().programs![0];
+    for (let i = 1; i < programs; i++)
+      await ctx.db.insert("programs", { ...base, uuid: `other-${i}` });
     await ctx.db.insert("rateLimits", {
       key: "address:program:demo-program",
       windowStart: now - (now % 86400000),
-      count: 999,
+      count: share - 1,
     });
   });
   await reserve();

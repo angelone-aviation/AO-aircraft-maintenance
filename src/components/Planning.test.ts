@@ -1,6 +1,7 @@
 /**
- * Responsibility: Pins the status tones and which forecast items the
- *   Planning screen lists. Filters, printing and export need a browser.
+ * Responsibility: Pins the status tones, the CSV's status words and which
+ *   forecast items the Planning screen lists. Filters, printing and the
+ *   download need a browser.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/Planning.tsx, src/data/demo.ts (demoSnapshot),
  *   src/domain/forecast.ts (ForecastItem, mocked forecast), react-dom/server.
@@ -12,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import { addDays, type ForecastItem } from "../domain/forecast";
 import { localDate } from "../domain/model";
-import { Planning, statusTone } from "./Planning";
+import { forecastCsvRows, Planning, statusTone } from "./Planning";
 
 const snapshot = demoSnapshot();
 const workspace = { snapshot };
@@ -52,6 +53,18 @@ describe("statusTone", () => {
     expect(statusTone(item("a", { status: "due-soon" }))).toBe("warning");
     expect(statusTone(item("a", { status: "Due now" }))).toBe("warning");
     expect(statusTone(item("a"))).toBe("neutral");
+  });
+});
+
+describe("forecastCsvRows", () => {
+  it("exports the status words the screen shows, not status codes", () => {
+    const status = (extra: Partial<ForecastItem>) =>
+      forecastCsvRows([item("a", extra)], () => "N206MA")[0].Status;
+    expect(status({ status: "due-soon" })).toBe("Due soon");
+    expect(status({ status: "Due now" })).toBe("Due now");
+    expect(status({ status: "unknown", projection: due(0, true) })).toBe(
+      "Overdue",
+    );
   });
 });
 

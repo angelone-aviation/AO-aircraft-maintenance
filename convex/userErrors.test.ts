@@ -4,8 +4,8 @@
  *   that faults and the session refusal keep their own class.
  * Layer: Test. Unit and convex-test suite; never shipped in the build.
  * Dependencies: convex/userErrors.ts, convex/schema.ts, src/domain
- *   (rejection, validationText, faaSearch, and the certification, license
- *   and wording schemas), src/data/demo.ts (fixture).
+ *   (rejection, validationText, faaSearch, and the certification and
+ *   wording schemas), src/data/demo.ts (fixture).
  *
  * convex-test does not redact errors as production does, so the refusals are
  * checked by class: only a ConvexError keeps its message in production.
@@ -22,7 +22,6 @@ import type { Permission } from "../src/domain/model";
 import { Rejection, STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import { validationText } from "../src/domain/validationText";
 import { certificationsSchema } from "../src/domain/certifications";
-import { licenseSchema } from "../src/domain/logbook";
 import { logbookPhrasesSchema } from "../src/domain/logbookWording";
 import { releaseStatementsSchema } from "../src/domain/releaseStatements";
 import { exposeRejections } from "./userErrors";
@@ -264,7 +263,7 @@ it("shows refusals from functions outside runCommand to the client", async () =>
         }),
     ],
     [
-      "Choose a PDF up to 200 MB.",
+      "Choose a PDF up to 200 MiB.",
       () =>
         maintainer.mutation(api.manuals.beginUpload, {
           payload: JSON.stringify(manual),
@@ -349,7 +348,7 @@ it("shows refusals from functions outside runCommand to the client", async () =>
     expect(await refusal(run()), message).toMatchObject(shown(message));
 });
 
-it("shows the issue text of a refused certification, license or logbook wording", async () => {
+it("shows the issue text of a refused certification or logbook wording", async () => {
   const { ids, as } = await server();
   const member = as(ids.maintainer);
   const certifications = [
@@ -361,7 +360,6 @@ it("shows the issue text of a refused certification, license or logbook wording"
     },
   ];
   const payload = JSON.stringify(certifications);
-  const license = { licenseNumber: " ", certificateType: "A&P" };
   const phrases = ["Inspected", "inspected"];
   const statements = [
     { label: "Return", text: "Returned to service." },
@@ -390,12 +388,6 @@ it("shows the issue text of a refused certification, license or logbook wording"
           groupIds: [ids.maintainer.group],
           certificationsPayload: payload,
         }),
-    ],
-    [
-      "Enter a license / certificate number of up to 100 characters.",
-      licenseSchema,
-      license,
-      () => member.mutation(api.admin.saveLicense, license),
     ],
     [
       "Remove duplicate phrases.",

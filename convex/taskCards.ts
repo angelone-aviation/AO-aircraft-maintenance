@@ -5,7 +5,7 @@
  *   rules live in src/domain (taskCards, attachments).
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
  *   ./runCommand, ./collections, ./attachments, ./userErrors, src/domain
- *   (taskCards, workOrders, attachments).
+ *   (taskCards, workOrders, attachments, inventoryAttachments, model).
  */
 import { v, ConvexError } from "convex/values";
 import {
@@ -41,8 +41,13 @@ import {
   MAX_ATTACHMENTS,
 } from "./attachments";
 import { exposeRejections } from "./userErrors";
-import { validateWorkOrderFile } from "../src/domain/workOrders";
+import {
+  validateWorkOrderFile,
+  WORK_ORDER_FILE_TYPES,
+} from "../src/domain/workOrders";
 import { withNewEvidence } from "../src/domain/attachments";
+import { assertFileContents } from "../src/domain/inventoryAttachments";
+import { can } from "../src/domain/model";
 import {
   applyTaskCardCommand,
   taskCardCommandSchema,
@@ -157,8 +162,11 @@ export const finishUpload = internalMutation({
  * Uploads one evidence file to a job card. The file is stored first and
  * deleted again if the card refuses it.
  *
- * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MB.", before
- *   any permission check; the refusals of checkUpload and finishUpload.
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MiB.", then
+ *   "This file's contents do not match its type. Choose a PDF, JPEG or PNG
+ *   file." when the first bytes are not the declared type's, both before
+ *   any permission check and storing nothing; the refusals of checkUpload and
+ *   finishUpload.
  */
 export const upload = action({
   args: {
@@ -169,9 +177,10 @@ export const upload = action({
     category,
   },
   handler: async (ctx, args): Promise<void> => {
-    exposeRejections(() =>
-      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength),
-    );
+    exposeRejections(() => {
+      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength);
+      assertFileContents(args.type, args.bytes, WORK_ORDER_FILE_TYPES);
+    });
     const card = {
       taskCardUuid: args.taskCardUuid,
       programUuid: args.programUuid,
@@ -193,18 +202,20 @@ export const upload = action({
  * file once nothing else uses it. Writes a "taskCard.evidence_removed"
  * change-log row.
  *
- * @throws {ConvexError} "Evidence not found."; "Evidence can be deleted only
- *   from an open, unsigned job card."; the refusals of checkContext and
- *   authorized.
+ * @throws {ConvexError} The refusals of checkContext, first; "Evidence not
+ *   found.", also for evidence the caller cannot read; as authorized;
+ *   "Evidence can be deleted only from an open, unsigned job card."
  */
 export const removeEvidence = mutation({
   args: { id: v.id("taskEvidence"), programUuid: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const file = await ctx.db.get(args.id);
-    if (!file) throw new ConvexError(NO_EVIDENCE);
     const s = await taskState(ctx, args.programUuid);
-    const t = s.taskCards.find((t) => t.uuid === file.taskCardUuid);
-    if (!t) throw new ConvexError(NO_EVIDENCE);
+    const file = await ctx.db.get(args.id);
+    const t = file && s.taskCards.find((t) => t.uuid === file.taskCardUuid);
+    // One refusal for evidence that is gone or out of the caller's sight, so
+    // an id never tells that another program's evidence exists (review T4).
+    if (!file || !t || !can(s, t.aircraftUuid, "read"))
+      throw new ConvexError(NO_EVIDENCE);
     await authorized(ctx, t.aircraftUuid, "maintenance", s);
     if (!evidenceRemovable(s, t))
       throw new ConvexError(

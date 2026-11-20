@@ -23,9 +23,11 @@ import { localDate, type Aircraft, type Snapshot } from "./model";
 import { programPermission } from "./programs";
 import { Rejection } from "./rejection";
 
+/** The earliest date anywhere; see ./model, kept here for importers. */
+export { earliestLocalDate } from "./model";
+
 const OVERRIDE_REASON_MAX = 1000;
 const DISCREPANCY_LABEL_MAX = 80;
-const EARLIEST_ZONE_OFFSET_MS = 12 * 3600000;
 
 /** How fit an aircraft is to fly (GLOSSARY "Aircraft status"). */
 export type AircraftStatusLevel = "airworthy" | "due-soon" | "grounded";
@@ -165,18 +167,6 @@ export function aircraftStatusFindings(
     ...listAdFindings(due),
     ...listDiscrepancyFindings(s, a, today),
   ];
-}
-
-/**
- * Gets the earliest calendar date anywhere (UTC-12), so the server, which
- * does not know a device's time zone, never finds a limit overdue that the
- * device still accepted.
- *
- * @param now - Time in epoch milliseconds.
- * @returns The date as YYYY-MM-DD.
- */
-export function earliestLocalDate(now = Date.now()) {
-  return new Date(now - EARLIEST_ZONE_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 /** Why a flight the aircraft was grounded after it began is held. */

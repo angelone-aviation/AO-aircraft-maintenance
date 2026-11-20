@@ -25,18 +25,19 @@ import { FAA_DRS_KEY_URL } from "../domain/faaCredential";
 import {
   emptyMonitor,
   FAA_CHECK_HOUR_UTC,
+  faaCheckWaitMs,
   faaSearchTerms,
   type FaaCandidate,
   type FaaCommand,
 } from "../domain/faa";
-import { useState, type ReactNode } from "react";
+import { useEffect, useReducer, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace, type Workspace } from "../data/store";
 import { can } from "../domain/model";
 import { programPermission } from "../domain/programs";
 import {
   AD_RECURRING_CHOICES,
-  DASHBOARD_SETTLED_AD_STATUSES,
+  SETTLED_AD_STATUSES,
   REASON_MAX_LENGTH,
   REQUIRED_COMPLIANCE_FIELDS,
   adAircraftUuid,
@@ -134,9 +135,6 @@ const COUNTER_FIELDS: readonly string[] = ["hours", "cycles", "landings"];
 const HOUR_MS = 3_600_000;
 // Checks run daily (convex/crons.ts); results older than two days are stale.
 const STALE_CHECK_MS = 48 * HOUR_MS;
-// A check still marked running blocks another only this long after it
-// started, in case it never finishes.
-const CHECK_RETRY_MS = 5 * 60_000;
 
 /** A new compliance entry, or (with corrects) a correction of one. */
 interface ComplianceDraft {
@@ -174,7 +172,7 @@ export function ADAlerts({ aircraftUuid }: { aircraftUuid?: string }) {
   const rows = (s.airworthiness ?? []).filter(
     (r) =>
       (!aircraftUuid || adAircraftUuid(s, r) === aircraftUuid) &&
-      !DASHBOARD_SETTLED_AD_STATUSES.includes(adStatus(s, r)),
+      !SETTLED_AD_STATUSES.includes(adStatus(s, r)),
   );
   const pending = pendingFaaReviews(s, aircraftUuid);
   return (
@@ -2109,12 +2107,12 @@ function SearchTermsHelp({ monitor: m }: { monitor: FaaMonitor }) {
 }
 
 function CheckNowButton({ monitor: m }: { monitor: FaaMonitor }) {
-  const running =
-    !!m.saved.runId && Date.now() - (m.saved.lastAttempt ?? 0) < CHECK_RETRY_MS;
+  const wait = faaCheckWaitMs(m.saved, Date.now());
+  useRenderAgainAfter(wait);
   return (
     <button
       className="button"
-      disabled={!m.editable || m.busy || running || m.demo}
+      disabled={!m.editable || m.busy || wait > 0 || m.demo}
       onClick={() =>
         void m.run({ kind: "check", aircraftUuid: m.aircraftUuid })
       }
@@ -2122,6 +2120,17 @@ function CheckNowButton({ monitor: m }: { monitor: FaaMonitor }) {
       Check FAA now
     </button>
   );
+}
+
+// The wait ends without a snapshot change, so the button is re-rendered when
+// the server would accept a check again.
+function useRenderAgainAfter(ms: number) {
+  const [, renderAgain] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (ms <= 0) return;
+    const timer = setTimeout(renderAgain, ms);
+    return () => clearTimeout(timer);
+  }, [ms]);
 }
 
 function CandidateReview({

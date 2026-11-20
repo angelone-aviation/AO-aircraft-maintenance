@@ -194,7 +194,7 @@ it("returns the snapshot it returned before the codec, to an administrator and a
   }
 });
 
-it("decodes leniently: a matching payload decoded, any other as stored", () => {
+it("decodes leniently: a matching payload decoded, any other as stored with its issues", () => {
   const vendor = { uuid: "a", version: 1, kind: "vendor", name: " Vendor " };
   expect(decodeLenient("management", vendor)).toEqual({
     valid: true,
@@ -204,6 +204,7 @@ it("decodes leniently: a matching payload decoded, any other as stored", () => {
   expect(decodeLenient("management", damaged)).toEqual({
     valid: false,
     stored: damaged,
+    issues: [{ path: ["name"], message: expect.any(String) }],
   });
   expect(decodeLenient("componentSetups", damaged)).toEqual({
     valid: true,

@@ -6,8 +6,8 @@
  *   snapshot loader; maintenance permission writes, or flight permission for
  *   a flight's logbook line photo.
  * Dependencies: convex/programContext, convex/access, convex/attachments,
- *   convex/userErrors, src/domain/aircraftFiles, src/domain/model,
- *   src/domain/inventoryAttachments, convex/values.
+ *   convex/rateLimits, convex/userErrors, src/domain/aircraftFiles,
+ *   src/domain/model, src/domain/inventoryAttachments, convex/values.
  *
  * Form 337 copies are permanent status records (14 CFR 91.417(a)(2)(vi);
  * ADR-0004) and a logbook page photo points at the signed paper record, so
@@ -27,21 +27,35 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { checkContext } from "./programContext";
 import { audit } from "./access";
+import { consume, HOUR } from "./rateLimits";
 import { storeThenFinish } from "./attachments";
 import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
-import { assertFileContents } from "../src/domain/inventoryAttachments";
+import {
+  ATTACHMENT_FILE_TYPES,
+  assertFileContents,
+} from "../src/domain/inventoryAttachments";
 import {
   aircraftFileArchive,
   assertAircraftFileLink,
   assertAircraftFileRoom,
   assertAircraftFileWriter,
-  MAX_AIRCRAFT_FILES,
+  MAX_CURRENT_AIRCRAFT_FILES,
   validateAircraftUpload,
   type AircraftFile,
   type AircraftFileCategory,
   type AircraftFileLink,
 } from "../src/domain/aircraftFiles";
+
+/**
+ * Aircraft documents one user may file per hour, photos and Form 337 copies
+ * together (decision D12, SE-5). A mechanic back-filling an older aircraft's
+ * Form 337 history, or a pilot syncing two weeks of queued line photos, fits
+ * within it; it bounds what one account can add to storage to about 210 MiB
+ * an hour (30 files of up to 7 MiB), where nothing bounded it before, since an
+ * archived copy keeps its file and leaves the cap.
+ */
+export const AIRCRAFT_FILE_UPLOADS_PER_HOUR = 30;
 
 const category = v.union(v.literal("form-337"), v.literal("logbook-page"));
 const linkedKind = v.union(v.literal("flight"), v.literal("work-order"));
@@ -116,7 +130,11 @@ export const checkUpload = internalQuery({
  * @param storageId - The stored file; the caller deletes it on a refusal.
  * @param size - Its size; the other arguments are {@link upload}'s.
  * @throws {ConvexError} The {@link checkUpload} refusals; the file refusals;
- *   "This aircraft already has the maximum of 200 current documents."
+ *   "This aircraft already has the maximum of 200 current Form 337 copies."
+ *   or "... of 500 current logbook page photos." for the upload's category;
+ *   "Too many aircraft document uploads. Wait an hour and try again." past
+ *   the user's {@link AIRCRAFT_FILE_UPLOADS_PER_HOUR}. Only a filed upload
+ *   spends the allowance.
  */
 export const finishUpload = internalMutation({
   args: {
@@ -130,8 +148,18 @@ export const finishUpload = internalMutation({
     const owner = await authorizeFileWriter(ctx, args);
     await exposeRejections(async () => {
       validateAircraftUpload(args.category, args.name, args.type, args.size);
-      assertAircraftFileRoom(await countCurrentFiles(ctx, args.aircraftUuid));
+      assertAircraftFileRoom(
+        args.category,
+        await countCurrentFiles(ctx, args.aircraftUuid, args.category),
+      );
     });
+    await consume(
+      ctx,
+      `aircraftFile:upload:user:${owner.user.id}`,
+      AIRCRAFT_FILE_UPLOADS_PER_HOUR,
+      HOUR,
+      "Too many aircraft document uploads. Wait an hour and try again.",
+    );
     const { programUuid: _program, ...fields } = args;
     await ctx.db.insert("aircraftFiles", { ...fields, uploadedAt: Date.now() });
     await audit(
@@ -166,9 +194,9 @@ export const finishUpload = internalMutation({
  * @param linkedUuid - For a photo, the linked record's uuid.
  * @param name - The file name; its extension must match `type`.
  * @param type - PDF, JPEG, PNG or WebP.
- * @param bytes - The file, at most 7 MB.
+ * @param bytes - The file, at most 7 MiB.
  * @throws {ConvexError} "Choose a PDF, JPEG, PNG or WebP file.",
- *   "Attachments must be between 1 byte and 7 MB." or, for a photo, the HEIC
+ *   "Attachments must be between 1 byte and 7 MiB." or, for a photo, the HEIC
  *   refusal, checked first; then "This file's contents do not match its
  *   type. Choose a PDF, JPEG, PNG or WebP file." when the first bytes are
  *   not the declared type's; the {@link finishUpload} refusals, after which
@@ -189,7 +217,7 @@ export const upload = action({
         args.type,
         args.bytes.byteLength,
       );
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, ATTACHMENT_FILE_TYPES);
     });
     const { name, type, bytes, ...scope } = args;
     await ctx.runQuery(internal.aircraftFiles.checkUpload, scope);
@@ -212,7 +240,8 @@ export const upload = action({
  * @param id - The file.
  * @param reason - Why it is archived; trimmed, 1 to 500 characters.
  * @param programUuid - The caller's active Flight Program.
- * @throws {ConvexError} "Document not found.", checked first; the
+ * @throws {ConvexError} As `checkContext`, first; "Document not found.",
+ *   also for a copy on an aircraft the caller cannot read; the
  *   {@link checkUpload} refusals; "This copy is already archived."; "Enter a
  *   reason for archiving this copy."; "Keep the reason for archiving to 500
  *   characters."
@@ -224,15 +253,23 @@ export const archive = mutation({
     programUuid: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const state = await checkContext(ctx, args.programUuid);
     const file = await ctx.db.get(args.id);
-    if (!file) throw new ConvexError("Document not found.");
-    const owner = await authorizeFileWriter(ctx, {
-      aircraftUuid: file.aircraftUuid,
-      programUuid: args.programUuid,
-      category: file.category,
-      linkedKind: file.linkedKind,
-      linkedUuid: file.linkedUuid,
-    });
+    // One refusal for a copy that is gone or on an aircraft out of the
+    // caller's sight, so an id never tells that it exists (review T4).
+    if (!file || !can(state, file.aircraftUuid, "read"))
+      throw new ConvexError("Document not found.");
+    const owner = await authorizeFileWriter(
+      ctx,
+      {
+        aircraftUuid: file.aircraftUuid,
+        programUuid: args.programUuid,
+        category: file.category,
+        linkedKind: file.linkedKind,
+        linkedUuid: file.linkedUuid,
+      },
+      state,
+    );
     const archived = exposeRejections(() =>
       aircraftFileArchive(file, owner.user, args.reason, Date.now()),
     );
@@ -262,8 +299,12 @@ export const archive = mutation({
   },
 });
 
-async function authorizeFileWriter(ctx: QueryCtx | MutationCtx, args: Target) {
-  const state = await checkContext(ctx, args.programUuid);
+async function authorizeFileWriter(
+  ctx: QueryCtx | MutationCtx,
+  args: Target,
+  known?: Snapshot,
+) {
+  const state = known ?? (await checkContext(ctx, args.programUuid));
   exposeRejections(() => {
     assertAircraftFileLink(args.category, args);
     assertAircraftFileWriter(state, args.aircraftUuid, args.linkedKind);
@@ -300,16 +341,23 @@ async function assertLinkedRecord(
     );
 }
 
-// Reads at most the cap, so the check stays cheap on a full aircraft.
+// Reads at most the category's cap, so the check stays cheap on a full
+// aircraft.
 async function countCurrentFiles(
   ctx: MutationCtx,
   aircraftUuid: string,
+  category: AircraftFileCategory,
 ): Promise<number> {
   const current = await ctx.db
     .query("aircraftFiles")
     .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
-    .filter((q) => q.eq(q.field("archivedAt"), undefined))
-    .take(MAX_AIRCRAFT_FILES);
+    .filter((q) =>
+      q.and(
+        q.eq(q.field("category"), category),
+        q.eq(q.field("archivedAt"), undefined),
+      ),
+    )
+    .take(MAX_CURRENT_AIRCRAFT_FILES[category]);
   return current.length;
 }
 

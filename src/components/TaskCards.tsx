@@ -6,8 +6,8 @@
  *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
  *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders,
  *   listSearch), ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording,
- *   ./TaskCsvImport, ./Manuals, ./design, ./FileLink, ./ShopList, ./ui,
- *   @phosphor-icons/react.
+ *   ./TaskCsvImport, ./Manuals, ./NumberInput, ./design, ./FileLink,
+ *   ./ShopList, ./ui, @phosphor-icons/react.
  *
  * A template holds instructions only: results, parts and signoffs go on the
  * job card a work order copies from it.
@@ -61,15 +61,12 @@ import {
   canUnlinkTaskCard,
   evidenceCategories,
   evidenceRemovable,
-  inspectorCertificateProblem,
-  inspectorCertificateRequired,
   isResultTextField,
   isTaskClosed,
   isTaskTemplate,
   linkableTaskCards,
   linkedTaskCards,
-  signoffsOfferedInEditor,
-  signoffsOfferedInList,
+  signoffRefusals,
   taskCardDefaults,
   taskCardFieldsSchema,
   taskCardStatuses,
@@ -91,8 +88,11 @@ import {
   errorText,
   value,
 } from "./ui";
+import { NumberInput } from "./NumberInput";
 
 // A longer description shows its first 157 characters and an ellipsis.
+// Before the workspace loads there is no user to judge a signoff for.
+const WORKSPACE_LOADING = "Loading the workspace…";
 const PREVIEW_MAX_LENGTH = 160;
 const PREVIEW_KEPT_LENGTH = 157;
 const PART_TEXT_FIELDS = [
@@ -613,8 +613,9 @@ function SummarySignoffButtons(props: {
 }) {
   const { card, snapshot } = props;
   const { busy, error } = props.state;
-  const offered =
-    snapshot && signoffsOfferedInList(card, snapshot.user, localDate());
+  const refused = snapshot
+    ? signoffRefusals(card, snapshot.user, localDate())
+    : { technician: WORKSPACE_LOADING, inspection: WORKSPACE_LOADING };
   const blocked = !props.state.writable || !!busy;
   const { technicianSignoff: technician, inspectionSignoff: inspection } = card;
   return (
@@ -622,15 +623,15 @@ function SummarySignoffButtons(props: {
       <SignButton
         signer="Technician"
         state={{ signing: busy === "technician", signed: !!technician }}
-        disabled={blocked || !offered?.technician}
-        title={technician ? signedBy(technician) : "Record technician signoff"}
+        disabled={blocked || !!refused.technician}
+        title={signoffTitle(technician, refused.technician, "technician")}
         onClick={() => props.onSign("technician")}
       />
       <SignButton
         signer="Inspection"
         state={{ signing: busy === "inspection", signed: !!inspection }}
-        disabled={blocked || !offered?.inspection}
-        title={summaryInspectionTitle(card, snapshot)}
+        disabled={blocked || !!refused.inspection}
+        title={signoffTitle(inspection, refused.inspection, "inspection")}
         onClick={() => props.onSign("inspection")}
       />
       {error && (
@@ -1615,14 +1616,11 @@ function PartDetails({ e, part, index }: PartProps) {
         </Field>
       ))}
       <Field label={`Part ${index + 1} quantity`}>
-        <input
-          type="number"
+        <NumberInput
           min="0.000001"
           step="any"
           value={part.quantity}
-          onChange={(event) =>
-            updatePart(e, part.uuid, { quantity: Number(event.target.value) })
-          }
+          onValue={(quantity) => updatePart(e, part.uuid, { quantity })}
         />
       </Field>
     </>
@@ -1730,7 +1728,7 @@ function VerificationPanel({ e }: { e: Editor }) {
 
 function EditorSignoffs({ e, initial }: { e: Editor; initial: TaskCard }) {
   const blocked = !e.writable || e.busy || e.dirty;
-  const offered = signoffsOfferedInEditor(initial, e.s.user, localDate());
+  const refused = signoffRefusals(initial, e.s.user, localDate());
   return (
     <section>
       <h3>Signoffs</h3>
@@ -1745,18 +1743,18 @@ function EditorSignoffs({ e, initial }: { e: Editor; initial: TaskCard }) {
         </p>
       )}
       <p>Technician: {signatureText(initial.technicianSignoff)}</p>
-      <button
-        type="button"
-        className="button"
-        disabled={blocked || !offered.technician}
-        onClick={() => void signCard(e, "technician")}
-      >
-        Technician signoff
-      </button>
-      <InspectionSignoff
+      <EditorSignButton
         e={e}
-        initial={initial}
-        disabled={blocked || !offered.inspection}
+        kind="technician"
+        refusal={refused.technician}
+        disabled={blocked}
+      />
+      <p>Inspection: {signatureText(initial.inspectionSignoff)}</p>
+      <EditorSignButton
+        e={e}
+        kind="inspection"
+        refusal={refused.inspection}
+        disabled={blocked}
       />
       {e.error && (
         <p className="error" role="alert">
@@ -1767,36 +1765,29 @@ function EditorSignoffs({ e, initial }: { e: Editor; initial: TaskCard }) {
   );
 }
 
-function InspectionSignoff(props: {
+// A signoff the server would refuse is disabled, with the refusal beside it.
+function EditorSignButton(props: {
   e: Editor;
-  initial: TaskCard;
+  kind: SignKind;
+  refusal: string | undefined;
   disabled: boolean;
 }) {
-  const { e, initial } = props;
-  const certificateProblem = inspectorCertificateProblem(e.s.user, localDate());
-  const sameSigner = initial.technicianSignoff?.userId === e.s.user.id;
-  const unsigned = !initial.inspectionSignoff;
-  const noteId = `inspector-certificate-${initial.uuid}`;
+  const { e, kind, refusal } = props;
+  const noteId = `${kind}-signoff-refusal-${e.initial?.uuid}`;
   return (
     <>
-      <p>Inspection: {signatureText(initial.inspectionSignoff)}</p>
       <button
         type="button"
         className="button"
-        disabled={props.disabled}
-        aria-describedby={unsigned && certificateProblem ? noteId : undefined}
-        onClick={() => void signCard(e, "inspection")}
+        disabled={props.disabled || !!refusal}
+        aria-describedby={refusal ? noteId : undefined}
+        onClick={() => void signCard(e, kind)}
       >
-        Inspection signoff
+        {kind === "technician" ? "Technician signoff" : "Inspection signoff"}
       </button>
-      {unsigned && certificateProblem && (
+      {refusal && (
         <p className="muted" id={noteId}>
-          {certificateProblem}
-        </p>
-      )}
-      {unsigned && sameSigner && (
-        <p className="muted">
-          Inspection must be signed by a different person than the technician.
+          {refusal}
         </p>
       )}
     </>
@@ -1865,7 +1856,7 @@ function EvidenceUpload(props: {
           ))}
         </select>
       </Field>
-      <Field label="Evidence file" hint="PDF, JPEG or PNG, up to 7 MB">
+      <Field label="Evidence file" hint="PDF, JPEG or PNG, up to 7 MiB">
         <input
           type="file"
           accept=".pdf,.jpg,.jpeg,.png"
@@ -1956,25 +1947,14 @@ function signatureText(sig: TaskCard["technicianSignoff"]) {
   return sig ? signedBy(sig) : "Not signed";
 }
 
-function summaryInspectionTitle(card: TaskCard, snapshot: Snapshot | null) {
-  // Why this user cannot sign as inspector, if they cannot.
-  const certificateProblem = snapshot
-    ? inspectorCertificateProblem(snapshot.user, localDate())
-    : inspectorCertificateRequired;
-  const sameSigner = card.technicianSignoff?.userId === snapshot?.user.id;
-  return inspectionTitle(card, certificateProblem, sameSigner);
-}
-
-function inspectionTitle(
-  card: TaskCard,
-  certificateProblem: string | undefined,
-  sameSigner: boolean,
+// Who signed, else why this user may not, else what the button does.
+function signoffTitle(
+  signature: TaskCard["technicianSignoff"],
+  refusal: string | undefined,
+  kind: SignKind,
 ) {
-  if (card.inspectionSignoff) return signedBy(card.inspectionSignoff);
-  if (certificateProblem) return certificateProblem;
-  if (sameSigner) return "Inspection must be signed by a different person";
-  if (!card.technicianSignoff) return "Technician signoff is required first";
-  return "Record inspection signoff";
+  if (signature) return signedBy(signature);
+  return refusal ?? `Record ${kind} signoff`;
 }
 
 async function removeSelected(view: LinkedView, backend: Workspace["backend"]) {

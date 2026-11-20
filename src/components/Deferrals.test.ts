@@ -53,6 +53,7 @@ beforeEach(() => {
   form.workspace = {
     online: true,
     connected: true,
+    snapshot: demoSnapshot(),
     backend: {
       deferDiscrepancy: async (command: unknown) => calls.push(command),
     },
@@ -96,6 +97,15 @@ describe("DeferralStatus", () => {
     expect(html).toContain("The aircraft is grounded until this is resolved.");
   });
 
+  it("names the day the defect was found, else the report's date", () => {
+    expect(status({ foundOn: "2026-09-28" })).toContain(
+      "Found 2026-09-28 · deferred by Alex Morgan on 2026-10-01",
+    );
+    expect(status({})).toContain(
+      `Found ${localDate(report.createdAt)} · deferred by Alex Morgan`,
+    );
+  });
+
   it("has no expiry under 91.213(d), and ends with the discrepancy", () => {
     expect(status({ type: "91.213d" })).toContain(
       "No expiry under 91.213(d); repair at the next required inspection.",
@@ -114,7 +124,10 @@ describe("DeferDiscrepancyForm", () => {
   function render(basis = "mel", category = "B") {
     form.choices.set("mel", basis).set("B", category);
     return renderToStaticMarkup(
-      h(DeferDiscrepancyForm, { uuid: "d1", onDone: () => calls.push("done") }),
+      h(DeferDiscrepancyForm, {
+        uuid: report.uuid,
+        onDone: () => calls.push("done"),
+      }),
     );
   }
 
@@ -124,8 +137,20 @@ describe("DeferDiscrepancyForm", () => {
     return form.submit!(data);
   }
 
+  it("asks when the defect was found, starting from the report's date", () => {
+    const reported = localDate(report.createdAt);
+    expect(render()).toMatch(
+      new RegExp(
+        `<input type="date" required="" max="${reported}" [^>]*name="foundOn" value="${reported}"/>`,
+      ),
+    );
+    expect(render("91.213d")).toContain('name="foundOn"');
+  });
+
   it("asks for MEL days only in category A", () => {
-    expect(render()).toContain("3 calendar days after today.");
+    expect(render()).toContain(
+      "3 calendar days after the day the defect was found.",
+    );
     expect(render()).not.toContain('name="days"');
     expect(render("mel", "D")).not.toContain('name="days"');
     const a = render("mel", "A");
@@ -141,12 +166,18 @@ describe("DeferDiscrepancyForm", () => {
     expect(html).not.toContain('name="melItem"');
   });
 
-  it("sends the parsed deferral with today's date, then closes", async () => {
+  it("sends the parsed deferral with the found date and today's, then closes", async () => {
     render("mel", "A");
-    await submit({ melItem: " 21-1 ", days: "5", placard: "INOP" });
+    await submit({
+      foundOn: "2026-09-28",
+      melItem: " 21-1 ",
+      days: "5",
+      placard: "INOP",
+    });
     expect(calls).toEqual([
       {
-        uuid: "d1",
+        uuid: report.uuid,
+        foundOn: "2026-09-28",
         deferredOn: localDate(),
         deferral: {
           type: "mel",

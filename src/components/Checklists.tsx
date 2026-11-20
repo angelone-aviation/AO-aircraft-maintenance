@@ -784,7 +784,7 @@ function useFmdImport(
 // A set without a name takes the file's.
 async function readFmdFile(file: File) {
   if (!file.name.toLowerCase().endsWith(".fmd") || file.size > FMD_MAX_BYTES)
-    throw new Error("Choose a ForeFlight .fmd checklist under 2 MB.");
+    throw new Error("Choose a ForeFlight .fmd checklist under 2 MiB.");
   const document = await importFmd(await file.arrayBuffer());
   if (!document.payload.metadata.name)
     document.payload.metadata.name = file.name.replace(/\.fmd$/i, "");

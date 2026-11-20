@@ -9,13 +9,14 @@
 import { expect, it } from "vitest";
 import { aircraftStatusReport } from "./aircraftStatusReport";
 import { demoSnapshot } from "./demo";
-import { blankAD } from "../domain/airworthiness";
+import { blankAD, blankADTask } from "../domain/airworthiness";
 import { componentSchema } from "../domain/components";
 import { totalSeconds, type Snapshot } from "../domain/model";
 
 const NOW = new Date("2026-06-15T09:30:00Z");
 const RED = "0.647 0.137 0.137";
 const AMBER = "0.525 0.325 0.";
+const INK = "0.137 0.188 0.169";
 
 function report(s: Snapshot) {
   return aircraftStatusReport(s, s.aircraft[0].uuid, NOW);
@@ -83,6 +84,36 @@ it("prints negative remaining values red and reviews amber", () => {
   const output = report(s).output();
   expect(colourOf(output, "-2.0")).toBe(RED);
   expect(colourOf(output, "Needs review")).toBe(AMBER);
+});
+
+it("colours a status by its value and leaves words in other cells in ink", () => {
+  const s = demoSnapshot();
+  const a = s.aircraft[0];
+  s.inspections = [];
+  s.airworthiness = [
+    {
+      ...blankAD(a.uuid),
+      applicability: "Applicable",
+      reviewRequired: false,
+      tasks: [{ ...blankADTask(), dueDate: "2026-06-20" }],
+    },
+  ];
+  s.discrepancies = [
+    {
+      uuid: "report",
+      aircraftUuid: a.uuid,
+      description: "Oil change overdue",
+      status: "open",
+      authorId: "pilot",
+      createdAt: NOW.getTime(),
+      grounding: true,
+    },
+  ];
+  const output = report(s).output();
+  expect(colourOf(output, "Due soon")).toBe(AMBER);
+  expect(colourOf(output, "Grounded")).toBe(RED);
+  expect(colourOf(output, "Open: grounds the aircraft")).toBe(RED);
+  expect(colourOf(output, "Oil change overdue")).toBe(INK);
 });
 
 it("prints text as ASCII and flags component times it cannot compute", () => {

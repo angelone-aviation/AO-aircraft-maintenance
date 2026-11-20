@@ -2,15 +2,15 @@
  * Responsibility: Choosing the caller's active Flight Program, and moving an
  *   aircraft, component or location with its dependent records to another.
  * Layer: Server. Convex mutations; the selection and transfer rules live in
- *   src/domain (programs, programTransfers).
+ *   src/domain (programSelection, programTransfers).
  * Dependencies: convex/values, ./_generated, ./access, ./programContext,
  *   ./runCommand, ./collections, ./urgentAlerts, ./userErrors, src/domain
- *   (model, programs, programTransfers).
+ *   (model, programSelection, programTransfers).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v, type ObjectType } from "convex/values";
-import { currentUser, audit } from "./access";
+import { currentUser, writeAudit } from "./access";
 import {
   context,
   managementDocs,
@@ -29,7 +29,7 @@ import {
 import { decode } from "./collections";
 import { scheduleUrgentAlerts } from "./urgentAlerts";
 import { exposeRejections } from "./userErrors";
-import { assertProgramSelectable } from "../src/domain/programs";
+import { selectProgram } from "../src/domain/programSelection";
 import { transferProgram } from "../src/domain/programTransfers";
 import type { Snapshot } from "../src/domain/model";
 
@@ -47,15 +47,9 @@ export const select = mutation({
   handler: async (ctx, { programUuid }) => {
     const user = await currentUser(ctx),
       state = await context(ctx, user);
-    exposeRejections(() => assertProgramSelectable(state, programUuid));
+    const entry = exposeRejections(() => selectProgram(state, programUuid));
     await ctx.db.patch(user._id, { activeProgramUuid: programUuid });
-    await audit(
-      ctx,
-      user._id,
-      "program.selected",
-      programUuid || "unassigned",
-      { programUuid: programUuid || undefined },
-    );
+    await writeAudit(ctx, entry);
   },
 });
 

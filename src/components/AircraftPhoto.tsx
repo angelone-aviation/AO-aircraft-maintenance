@@ -38,7 +38,7 @@ export function AircraftPhoto({ aircraftUuid }: { aircraftUuid: string }) {
         />
       )}
       <p className="muted">
-        JPEG, PNG or WebP, up to 5 MB. Photos save immediately and are resized
+        JPEG, PNG or WebP, up to 5 MiB. Photos save immediately and are resized
         for the dashboard.
       </p>
       <PhotoInput disabled={disabled} onFile={photo.upload} />

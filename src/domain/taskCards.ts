@@ -14,7 +14,11 @@ import { recordProgram } from "./programs";
 import { manualReferenceSchema, validateManualReference } from "./manuals";
 import { z } from "zod";
 import { can, latestLocalDate, type Member, type Snapshot } from "./model";
-import { certificateOptions, memberLicense } from "./certifications";
+import {
+  certificateOptions,
+  filedCertificates,
+  memberLicense,
+} from "./certifications";
 import { ataChapterSchema } from "./ata";
 import { isOpenWorkOrder } from "./workOrders";
 import { expiredForUse } from "./shelfLife";
@@ -315,12 +319,18 @@ export const inspectorCertificateRequired =
 export const inspectorMaintenanceCertificateRequired =
   "Add a mechanic, repairman or inspection authorization certificate under My certifications to sign as inspector.";
 /**
+ * The refusal shown to an inspector whose mechanic certificate waits for an
+ * administrator's approval.
+ */
+export const inspectorCertificatePending =
+  "Your mechanic certificate is waiting for a Flight Program administrator or system administrator to approve it; you can sign as inspector once it is approved.";
+/**
  * What a member's certificates change in the app, in the words Settings and
  * the My certifications form use; {@link inspectorCertificateProblem} is the
  * rule it states.
  */
 export const certificationsEffect =
-  "Recording a job card's inspection signoff needs a numbered mechanic certificate on file, issued on or before the day of the signoff; a pilot certificate is not enough. Certifications grant no other permission.";
+  "Recording a job card's inspection signoff needs a numbered mechanic certificate, approved by a Flight Program administrator or system administrator and issued on or before the day of the signoff; a pilot certificate is not enough. A certificate you file or change waits for that approval before it prints on entries or allows the signoff. Certifications grant no other permission.";
 // Free-text certificate types on the older single-license profile fields that
 // name a mechanic (A&P, airframe, powerplant), inspection authorization or
 // repairman certificate. Pilot and unrecognized types (e.g. AME, CRS) do not.
@@ -331,20 +341,23 @@ type CertificateHolder = Pick<
   "certifications" | "licenseNumber" | "certificateType"
 >;
 type Signer = CertificateHolder & Pick<Member, "id">;
-type SignoffState = Pick<
-  TaskCard,
-  "status" | "technicianSignoff" | "inspectionSignoff"
->;
+type SignoffCard = CardLinks &
+  Pick<
+    TaskCard,
+    "status" | "completionDate" | "technicianSignoff" | "inspectionSignoff"
+  >;
 /**
  * Why `user` cannot record an inspection signoff, or undefined if they can.
  * The inspection signoff is the 14 CFR 43.7 person's signature, so it needs
- * a numbered maintenance certificate on file (ADR-0004); a pilot certificate
+ * a numbered maintenance certificate on file (ADR-0004), approved by an
+ * administrator rather than only filed by its holder; a pilot certificate
  * is not enough. Technician signoffs stay open: 43.3(d) lets supervised
  * uncertificated workers perform work.
  *
  * @param asOf - The local date the certificate must be held on.
- * @returns {@link inspectorMaintenanceCertificateRequired} when a certificate
- *   on file is not a maintenance one, else
+ * @returns {@link inspectorCertificatePending} when the mechanic certificate
+ *   waits for approval; {@link inspectorMaintenanceCertificateRequired} when
+ *   a certificate filed is not a maintenance one; else
  *   {@link inspectorCertificateRequired}.
  */
 export function inspectorCertificateProblem(
@@ -358,8 +371,11 @@ export function inspectorCertificateProblem(
       : // Airframe, powerplant and IA records are folded into "mechanic".
         certificateOptions(user, asOf).some((c) => c.key === "mechanic");
   if (eligible) return undefined;
+  const filed = filedCertificates(user, asOf);
+  if (filed.some((c) => c.kind === "mechanic" && c.pending))
+    return inspectorCertificatePending;
   const { licenseNumber, certificateType } = memberLicense(user, asOf);
-  return licenseNumber.trim() && certificateType.trim()
+  return filed.length || (licenseNumber.trim() && certificateType.trim())
     ? inspectorMaintenanceCertificateRequired
     : inspectorCertificateRequired;
 }
@@ -489,46 +505,22 @@ export function taskLinkLocked(
 }
 
 /**
- * The signoffs the job card lists offer on a card, each only once the card is
- * past draft and until it is signed: inspection after the technician's, to a
- * different person with a maintenance certificate.
+ * Why `user` may not record each signoff on a job card, in the words
+ * {@link saveTaskCard} refuses with; undefined for a signoff they may record.
+ * Both job-card screens offer exactly the signoffs left undefined. A signoff
+ * already recorded may be recorded again, and a new technician signoff clears
+ * the inspection's.
  *
- * @param card - A job card; a template takes no signoffs, unchecked here.
- * @param asOf - The local date the inspector's certificate must be held on.
- * @returns Whether each signoff is offered, before connection and access.
+ * @param card - The job card as stored.
+ * @param user - The signed-in user.
+ * @param asOf - The local date the completion date and the inspector's
+ *   certificate are judged on.
+ * @returns A refusal per signoff, before connection and access.
  */
-export function signoffsOfferedInList(
-  card: SignoffState,
-  user: Signer,
-  asOf: string,
-) {
-  const ready = card.status !== "draft";
+export function signoffRefusals(card: SignoffCard, user: Signer, asOf: string) {
   return {
-    technician: ready && !card.technicianSignoff,
-    inspection:
-      ready && !card.inspectionSignoff && inspectorMaySign(card, user, asOf),
-  };
-}
-
-/**
- * The signoffs the card editor offers, each again after it is signed:
- * technician once the card is past draft; inspection, in any status, after
- * the technician's, to a different person with a maintenance certificate.
- * So on a draft card that kept its technician signoff, the editor offers an
- * inspection signoff that {@link saveTaskCard} refuses and the lists do not.
- *
- * @param card - A job card; a template takes no signoffs, unchecked here.
- * @param asOf - The local date the inspector's certificate must be held on.
- * @returns Whether each signoff is offered, before connection and access.
- */
-export function signoffsOfferedInEditor(
-  card: SignoffState,
-  user: Signer,
-  asOf: string,
-) {
-  return {
-    technician: card.status !== "draft",
-    inspection: inspectorMaySign(card, user, asOf),
+    technician: signoffRefusal(card, user, "technician", asOf),
+    inspection: signoffRefusal(card, user, "inspection", asOf),
   };
 }
 
@@ -621,8 +613,10 @@ export const copyTemplateSteps = (steps: TaskStep[]): TaskStep[] =>
  * Saves, signs, links or unlinks one job card, as the signed-in user.
  *
  * Editing anything but the status clears every signoff, because signed work
- * may not change under a signature. A step signoff clears the card's
- * technician and inspection signoffs. New cards are numbered
+ * may not change under a signature, and so does setting a card back to
+ * draft; the change-log row a user's command records keeps them in its
+ * "before". A step signoff clears the card's technician and inspection
+ * signoffs. New cards are numbered
  * `TC-<year>-<nnnn>`, the first number free in the Flight Program.
  *
  * @param s - The snapshot; its job cards are replaced on success and
@@ -724,21 +718,32 @@ function signTaskCard(
   prior: TaskCard,
   now: number,
 ): TaskCard {
-  if (isTaskTemplate(prior))
-    throw new Rejection(
-      "Sign the work-order job card, not the reusable template.",
-    );
-  if (prior.status === "draft")
-    throw new Rejection("Make the task ready before signing.");
+  const refusal = signoffRefusal(prior, s.user, c.kind, latestLocalDate(now));
+  if (refusal) throw new Rejection(refusal);
   const signature = { userId: s.user.id, name: s.user.name, at: now };
   const next = { ...prior, stepSignoffs: { ...prior.stepSignoffs } };
   if (c.kind === "step") return signStep(next, c.stepUuid, signature);
-  validateExecution(prior, now);
   // Previously recorded steps are history, not a signoff prerequisite.
   if (c.kind === "technician")
     return { ...next, technicianSignoff: signature, inspectionSignoff: null };
-  assertInspector(s, prior, now);
   return { ...next, inspectionSignoff: signature };
+}
+
+// What signTaskCard refuses before it signs, in the order it checks; the
+// screens offer a signoff only when this is undefined.
+function signoffRefusal(
+  card: SignoffCard,
+  user: Signer,
+  kind: SignCommand["kind"],
+  latest: string,
+) {
+  if (isTaskTemplate(card))
+    return "Sign the work-order job card, not the reusable template.";
+  if (card.status === "draft") return "Make the task ready before signing.";
+  if (kind === "step") return undefined;
+  const undated = completionDateProblem(card, latest);
+  if (undated || kind === "technician") return undated;
+  return inspectorRefusal(card, user, latest);
 }
 
 function signStep(
@@ -756,26 +761,12 @@ function signStep(
 
 // The inspection signoff is the 14 CFR 43.7 approval: a second, certificated
 // person after the technician.
-function assertInspector(s: Snapshot, prior: TaskCard, now: number) {
-  if (!prior.technicianSignoff)
-    throw new Rejection(
-      "Technician signoff is required before inspection signoff.",
-    );
-  if (prior.technicianSignoff.userId === s.user.id)
-    throw new Rejection(
-      "Inspection signoff must be by a different person than the technician.",
-    );
-  const certificate = inspectorCertificateProblem(s.user, latestLocalDate(now));
-  if (certificate) throw new Rejection(certificate);
-}
-
-// What assertInspector checks, offered as a button rather than refused.
-function inspectorMaySign(card: SignoffState, user: Signer, asOf: string) {
-  return (
-    !!card.technicianSignoff &&
-    card.technicianSignoff.userId !== user.id &&
-    !inspectorCertificateProblem(user, asOf)
-  );
+function inspectorRefusal(card: SignoffCard, user: Signer, latest: string) {
+  if (!card.technicianSignoff)
+    return "Technician signoff is required before inspection signoff.";
+  if (card.technicianSignoff.userId === user.id)
+    return "Inspection signoff must be by a different person than the technician.";
+  return inspectorCertificateProblem(user, latest);
 }
 
 function unlinkTaskCard(
@@ -1109,8 +1100,11 @@ function withSignoffs(
   now: number,
 ): TaskCard {
   const priorFields = prior ? taskCardFieldsSchema.parse(prior) : undefined;
-  const changed =
+  // A draft is not ready to be signed, so a card set back to draft keeps no
+  // signoff.
+  const cleared =
     !priorFields ||
+    f.status === "draft" ||
     JSON.stringify({ ...priorFields, status: f.status }) !== JSON.stringify(f);
   return {
     ...f,
@@ -1122,15 +1116,15 @@ function withSignoffs(
     createdAt: prior?.createdAt ?? now,
     createdBy: prior?.createdBy ?? s.user.id,
     updatedAt: now,
-    technicianSignoff: changed ? null : prior!.technicianSignoff,
-    inspectionSignoff: changed ? null : prior!.inspectionSignoff,
-    stepSignoffs: changed ? {} : prior!.stepSignoffs,
+    technicianSignoff: cleared ? null : prior!.technicianSignoff,
+    inspectionSignoff: cleared ? null : prior!.inspectionSignoff,
+    stepSignoffs: cleared ? {} : prior!.stepSignoffs,
   };
 }
 
 function assertCompletable(f: TaskCardFields, next: TaskCard, now: number) {
   const missing = [
-    completionDateProblem(f, now),
+    completionDateProblem(f, latestLocalDate(now)),
     !next.technicianSignoff &&
       "Save the work, then record technician signoff before completing.",
     f.inspectionSignoffRequired &&
@@ -1140,13 +1134,11 @@ function assertCompletable(f: TaskCardFields, next: TaskCard, now: number) {
   if (missing.length) throw new Rejection(missing.join("\n"));
 }
 
-function validateExecution(f: TaskCardFields, now: number) {
-  const problem = completionDateProblem(f, now);
-  if (problem) throw new Rejection(problem);
-}
-
-function completionDateProblem(f: TaskCardFields, now: number) {
-  if (!f.completionDate || f.completionDate > latestLocalDate(now))
+function completionDateProblem(
+  f: Pick<TaskCardFields, "completionDate">,
+  latest: string,
+) {
+  if (!f.completionDate || f.completionDate > latest)
     return "Enter a completion date (today or earlier) before signing or completing this job card.";
   return undefined;
 }

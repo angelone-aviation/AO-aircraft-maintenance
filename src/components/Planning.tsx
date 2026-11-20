@@ -372,8 +372,19 @@ function ForecastRow({
   );
 }
 
-function exportCsv({ today, planned, unprojected, registration }: Plan) {
-  const rows = [...planned, ...unprojected].map((i) => ({
+/**
+ * The Planning CSV's rows: one per forecast item, in the order given, with
+ * the status words the screen shows.
+ *
+ * @param items - The items the screen lists.
+ * @param registration - Names an item's aircraft.
+ * @returns One row per item, keyed by column heading.
+ */
+export function forecastCsvRows(
+  items: ForecastItem[],
+  registration: (i: ForecastItem) => string,
+) {
+  return items.map((i) => ({
     Aircraft: registration(i),
     Type: KIND_LABELS[i.kind],
     Item: i.title,
@@ -382,12 +393,15 @@ function exportCsv({ today, planned, unprojected, registration }: Plan) {
     Basis: i.projection ? BASIS_LABELS[i.projection.basis] : "",
     Overdue: i.projection?.overdue ? "Yes" : "",
     Remaining: i.remaining,
-    Status: i.status,
+    Status: statusText(i),
     Note: i.note,
   }));
+}
+
+function exportCsv({ today, planned, unprojected, registration }: Plan) {
   download(
     `maintenance-forecast-${today}.csv`,
-    toCsv(rows),
+    toCsv(forecastCsvRows([...planned, ...unprojected], registration)),
     "text/csv;charset=utf-8",
   );
 }

@@ -255,13 +255,16 @@ describe("component service limits", () => {
 });
 
 describe("aircraft cards", () => {
-  it("filters by registration, model or program text (not make) and by favorites", () => {
+  it("filters by registration, make, model or program text and by favorites", () => {
     hooks.states = ["n206"];
     expect(registrations()).toEqual(["N206MA"]);
     hooks.states = ["skylane"];
     expect(registrations()).toEqual(["N182MA"]);
+    snapshot.aircraft[1].make = "Textron";
     hooks.states = ["cessna"];
-    expect(registrations()).toEqual([]);
+    expect(registrations()).toEqual(["N206MA", "N182MA"]);
+    hooks.states = ["textron 208"];
+    expect(registrations()).toEqual(["N208MA"]);
     favorites = ["demo-208"];
     hooks.states = ["", true];
     expect(registrations()).toEqual(["N208MA"]);

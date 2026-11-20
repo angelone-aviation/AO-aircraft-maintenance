@@ -303,7 +303,7 @@ function CsvFilesForm({ csv }: { csv: CsvState }) {
         ))}
       </div>
       <p className="muted">
-        UTF-8 CSV, up to 2 MB / 2,000 records per file. You may load one or
+        UTF-8 CSV, up to 2 MiB / 2,000 records per file. You may load one or
         several files together. A new preview replaces the previous unsaved
         preview.
       </p>
@@ -808,7 +808,7 @@ async function readCsvFiles(d: FormData) {
     if (!(file instanceof File) || !file.size) continue;
     // readCsvRows refuses larger files; checking first spares reading them.
     if (file.size > CSV_MAX_BYTES)
-      throw new Error(`${k}: use a CSV file up to ${CSV_MAX_MEGABYTES} MB.`);
+      throw new Error(`${k}: use a CSV file up to ${CSV_MAX_MEGABYTES} MiB.`);
     files[k] = await decodeUtf8(k, file);
   }
   if (!Object.keys(files).length)
@@ -986,7 +986,7 @@ RULES
 - Every row needs pdf_page (1-based page in the ORIGINAL uploaded manual), section and printed_page (these latter two may be blank if unknown). If given a chapter-only PDF, ask for its original PDF starting page and apply that offset. Never guess the original page number.
 - Do not extract headers, page footers, table-of-contents lines or general background paragraphs as records. Preserve required general inspection criteria in the inspection description or as separate linked task rows.
 - Check for duplicate IDs, orphan task parent IDs and missing source pages. List unresolved issues separately. Do not claim complete coverage of pages you have not examined.
-- Limit each CSV to 2 MB and 2,000 records. Split larger batches while keeping parent IDs stable. Do not truncate instructions to fit; flag them for human review.
+- Limit each CSV to 2 MiB and 2,000 records. Split larger batches while keeping parent IDs stable. Do not truncate instructions to fit; flag them for human review.
 
 The application loads candidates only. A human verifies applicability, selects actual aircraft/components, enters compliance history and saves each record. Never populate those operational fields from a manual.
 `;

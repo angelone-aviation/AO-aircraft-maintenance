@@ -84,7 +84,7 @@ describe("AircraftForm337", () => {
     expect(html).toMatch(
       /Upload Form 337 copy<input type="file"[^>]*class="dash-file-input" aria-describedby="[^"]+"\/>/,
     );
-    expect(html).toContain("PDF, JPEG, PNG or WebP, up to 7 MB.");
+    expect(html).toContain("PDF, JPEG, PNG or WebP, up to 7 MiB.");
   });
 
   it("holds uploads and archiving while offline", () => {

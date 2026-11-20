@@ -199,7 +199,7 @@ npm run setup:auth
 npm run setup:admin
 ```
 
-- `setup:auth` generates signing keys on the selected deployment without printing them and preserves an existing key. It sets `SITE_URL` to the `SITE_URL` environment variable when you give one; without it, an address already on the deployment is kept, and a deployment that has none gets `http://localhost:5173`. It prints which of these it did.
+- `setup:auth` generates signing keys on the selected deployment without printing them and preserves an existing pair; a `JWT_PRIVATE_KEY` without its `JWKS`, or the reverse, is replaced with a new pair, since half a pair cannot keep anyone signed in. It sets `SITE_URL` to the `SITE_URL` environment variable when you give one; without it, an address already on the deployment is kept, and a deployment that has none gets `http://localhost:5173`. It prints which of these it did.
 - It also creates `CREDENTIALS_ENCRYPTION_KEY` (32 random bytes, base64) if the deployment has none. That key encrypts saved Aircraft Spruce, FAA and Geoapify credentials with AES-GCM; saving those credentials fails until it is set. To set it by hand: `openssl rand -base64 32 | npx convex env set CREDENTIALS_ENCRYPTION_KEY`. Never change or delete it in place on a deployment with saved credentials, or administrators must re-enter them; to rotate it, follow [the credential key runbook](docs/runbooks/credentials-key.md). Unencrypted values are refused.
 - `setup:admin` prompts for name, email, and a hidden password (15–128 characters, not a common password). It passes the password to the deployment through a temporary `BOOTSTRAP_ADMIN_PASSWORD` environment variable (over stdin, never in process arguments) and removes it afterward. It only works with an empty user database and invokes an internal function, never a public signup endpoint. Keep credentials private.
 
@@ -227,7 +227,7 @@ Each sign-in button appears only when all of its provider's variables are set. I
 - To also email a daily digest (13:00 UTC) of new alerts, set a [Resend](https://resend.com) API key and a verified sender on the deployment: `npx convex env set RESEND_API_KEY re_...` and `npx convex env set RESEND_FROM "Angel One <alerts@your-domain>"`. Without both, email is skipped and in-app alerts keep working. Digests link back to `SITE_URL`.
 - Program administrators receive digests by default; anyone can change this under Settings → Alerts.
 - Urgent alerts (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) also go out at once: by email to program administrators and maintenance members (switch under Settings → Alerts; at most 60 a day so the digest fits Resend's free 100), and to devices members switch on under Settings → Alerts once the deployment has Web Push keys (until then Settings says device alerts are not turned on). See the [monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) and [alerts](docs/alerts.md).
-- System administrators whose alert email is on also get an "Off-site backups" warning, at the top of their digest or on its own, while the newest nightly off-site backup is more than 36 hours old or none has been recorded; Settings → System shows the newest copy.
+- System administrators whose alert email is on also get an "Off-site backups" warning, at the top of their digest or on its own, while the newest nightly off-site backup is more than 26 hours old or none has been recorded; Settings → System shows the newest copy.
 
 ### Accounts and sign-in
 

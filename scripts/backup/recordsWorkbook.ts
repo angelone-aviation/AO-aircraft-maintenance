@@ -48,6 +48,7 @@ import {
   type CostRecord,
 } from "../../src/domain/costs";
 import {
+  adLevel,
   dueItems,
   requirementLevel,
   type AdDue,
@@ -1084,12 +1085,6 @@ const AD_COLUMNS: Column[] = [
   { header: "Next due at (h)", width: 11, fmt: "hours" },
   { header: "Recurring", width: 18, fmt: "wrap" },
 ];
-const OK_AD_STATUSES = [
-  "Scheduled",
-  "Complied",
-  "Previously Complied With (PCW)",
-];
-
 function adRow(r: AD, { s, names, clock, today }: Context): Row {
   const c = names.component(r.componentUuid);
   const status = valueOr(() => adStatus(s, r, today), "Unknown");
@@ -1120,7 +1115,7 @@ function adRow(r: AD, { s, names, clock, today }: Context): Row {
       dueHours.length ? Math.min(...dueHours) : undefined,
       lines(r.source.recurring, ...intervals),
     ],
-    tone: adTone(status),
+    tone: LEVEL_TONE[adLevel(status)],
     statusColumn: 5,
   };
 }
@@ -1157,12 +1152,6 @@ function adIntervals(r: AD) {
 
 function every(n: number | null | undefined, unit: string, digits = 0) {
   return n ? `every ${n.toFixed(digits)} ${unit}` : "";
-}
-
-function adTone(status: string): Tone | undefined {
-  if (status === "Overdue") return "bad";
-  if (status === "Due soon") return "warn";
-  return OK_AD_STATUSES.includes(status) ? "good" : undefined;
 }
 
 function componentSheet(ctx: Context): SheetSpec {
@@ -1872,6 +1861,9 @@ const DAMAGE_NOTES: Record<StoredPayload["kind"], string> = {
   text: "Not JSON; shown as the stored text.",
   missing: "The row has no payload.",
 };
+// Fields a damaged record is most likely still named by, in this order; an
+// AD's number sits in its source instead.
+const STORED_NAME_KEYS = ["number", "cardNumber", "partNumber", "name"];
 
 // One note per record type, in the order the records are listed.
 function damageWarnings(damaged: DamagedRecord[]) {
@@ -1901,12 +1893,56 @@ function damagedSheet(
     rows: damaged.map((d) => ({
       cells: [
         sentence(RECORD_LABELS[d.collection]),
-        DAMAGE_NOTES[d.payload.kind],
+        damageNote(d),
         writer.stored(d.payload),
       ],
     })),
     count: damaged.length,
   };
+}
+
+// Names each field that broke the app's format and the rule it broke, such
+// as "Lines: Invalid input: expected array, received undefined".
+function damageNote({ payload, issues }: DamagedRecord) {
+  if (!issues.length) return DAMAGE_NOTES[payload.kind];
+  const problems = issues.map(({ path, message }) =>
+    path.length ? `${issuePath(path)}: ${message}` : message,
+  );
+  return `Does not match the app's current format: ${problems.join("; ")}.`;
+}
+
+// "lines", 0, "quantity" reads "Lines #1 Quantity".
+function issuePath(path: PropertyKey[]) {
+  return path
+    .map((key) =>
+      typeof key === "number" ? `#${key + 1}` : fieldName(String(key)),
+    )
+    .join(" ");
+}
+
+// A damaged record is left out of the snapshot, so Change history would call
+// it "(unknown record)"; it is named from what it stores instead.
+function damagedNames(damaged: DamagedRecord[]): [string, string][] {
+  return damaged.flatMap((d): [string, string][] => {
+    const stored = d.payload.kind === "json" ? d.payload.value : undefined;
+    if (!isRecord(stored) || typeof stored.uuid !== "string") return [];
+    const label = [sentence(RECORD_LABELS[d.collection]), storedName(stored)]
+      .filter(Boolean)
+      .join(" ");
+    return [[stored.uuid, `${label} (damaged record)`]];
+  });
+}
+
+function storedName(stored: Record<string, unknown>) {
+  const source = isRecord(stored.source) ? stored.source.number : undefined;
+  const name = [...STORED_NAME_KEYS.map((k) => stored[k]), source].find(
+    (v): v is string => typeof v === "string" && v.trim() !== "",
+  );
+  return name ? shorten(name.trim()) : "";
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return isObject(x) && !Array.isArray(x);
 }
 
 // ----------------------------------------------------------------- build --
@@ -1988,7 +2024,8 @@ export async function buildRecordsWorkbook(
 // change history newest first (the export orders it by document ID).
 function recordsContext(decoded: ExportSnapshot, clock: Clock, today: string) {
   const { snapshot: s, programs, transferred } = decoded;
-  const names = namer(s, programs, decoded.labels, clock);
+  const labels = [...decoded.labels, ...damagedNames(decoded.damaged)];
+  const names = namer(s, programs, labels, clock);
   const audit = decoded.audit.sort((a, b) => b.at - a.at);
   const writer = changeWriter(names, clock, decoded.storageIds);
   const due = dueList(s, today, names);

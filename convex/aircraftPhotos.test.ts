@@ -60,7 +60,8 @@ const args = {
   aircraftUuid: demoSnapshot().aircraft[0].uuid,
   programUuid: "demo-program",
   type: "image/png",
-  bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+  bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    .buffer,
 };
 it("scopes aircraft photos and replaces/removes storage without changing aircraft records", async () => {
   const { t, ids, client } = await fixture();
@@ -161,4 +162,33 @@ it("keeps no stored file when saving fails, and validates before permission", as
       programUuid: args.programUuid,
     }),
   ).rejects.toThrow("Aircraft maintenance permission required.");
+});
+
+it("refuses a photo whose first bytes are not its declared type, before permission and storing nothing", async () => {
+  const { t, ids, client } = await fixture();
+  const svg = new TextEncoder().encode(
+    '<svg xmlns="http://www.w3.org/2000/svg"/>',
+  );
+  const heic = new Uint8Array([
+    0,
+    0,
+    0,
+    24,
+    ...new TextEncoder().encode("ftypheic"),
+  ]);
+  await t.run((ctx) => ctx.db.patch(ids.group, { programAdmin: false }));
+  for (const bytes of [svg, heic])
+    await expect(
+      client.action(api.aircraftPhotos.upload, {
+        ...args,
+        bytes: bytes.buffer,
+      }),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "This file's contents do not match its type. Choose a JPEG, PNG or WebP file.",
+    });
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("aircraftPhotos").collect()).toEqual([]);
+    expect(await ctx.db.system.query("_storage").collect()).toEqual([]);
+  });
 });

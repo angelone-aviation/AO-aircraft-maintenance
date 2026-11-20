@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins the Flight Program context check and what the scoped
- *   loaders add beyond their index: legacy, removed-component and settings
- *   rows, and the History list's limit and order.
+ *   loaders read beyond their index: unassigned, removed-component and
+ *   settings rows, and the History list's limit and order.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/programContext.ts, convex/schema.ts, src/data/demo.ts
  *   (fixture).
@@ -127,7 +127,10 @@ it("refuses a missing session with a plain Error", async () => {
   expect(error).not.toBeInstanceOf(ConvexError);
 });
 
-it("adds legacy records without a program, and reads only those without one", async () => {
+// Security review T7: rows saved without a program are the unassigned
+// records, which only a system administrator reads (by working in no
+// program); no program's read set holds them.
+it("reads only the program's records, and without a program only the unassigned ones", async () => {
   const f = await fixture();
   const uuids = await f.t.run(async (ctx) => {
     for (const [uuid, programUuid] of [
@@ -145,7 +148,7 @@ it("adds legacy records without a program, and reads only those without one", as
       (await managementDocs(ctx, program)).map((d) => d.uuid);
     return { program: await of(PROGRAM), none: await of(undefined) };
   });
-  expect(uuids).toEqual({ program: ["mine", "legacy"], none: ["legacy"] });
+  expect(uuids).toEqual({ program: ["mine"], none: ["legacy"] });
 });
 
 it("adds each inspection of a removed component once", async () => {
@@ -184,13 +187,15 @@ it("adds each inspection of a removed component once", async () => {
   );
 });
 
-it("adds the program's cost settings row to the aircraft's cost records", async () => {
+it("reads the program's cost records by program, whichever aircraft they name (AC-10)", async () => {
   const f = await fixture();
   const uuids = await f.t.run(async (ctx) => {
     for (const [uuid, aircraftUuid, programUuid] of [
       ["cost", "demo-206", PROGRAM],
       ["settings", "", PROGRAM],
+      ["departed", "sold-aircraft", PROGRAM],
       ["other-settings", "", "another-program"],
+      ["paid-elsewhere", "demo-206", "another-program"],
     ])
       await ctx.db.insert("costs", {
         uuid,
@@ -199,10 +204,13 @@ it("adds the program's cost settings row to the aircraft's cost records", async 
         payload: "{}",
       });
     const of = async (program?: string) =>
-      (await costDocs(ctx, program, [{ uuid: "demo-206" }])).map((d) => d.uuid);
+      (await costDocs(ctx, program)).map((d) => d.uuid);
     return { program: await of(PROGRAM), none: await of(undefined) };
   });
-  expect(uuids).toEqual({ program: ["cost", "settings"], none: ["cost"] });
+  expect(uuids).toEqual({
+    program: ["cost", "departed", "settings"],
+    none: [],
+  });
 });
 
 it("keeps the History list to the newest AUDIT_LIMIT rows, each once", async () => {

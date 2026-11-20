@@ -608,6 +608,10 @@ const refusals: [string, (w: World) => object][] = [
     }),
   ],
   [
+    "An inspection with this name is already on the aircraft.",
+    ({ a }) => setupSave(a, " Phase "),
+  ],
+  [
     STALE_RECORD_MESSAGE,
     () => ({
       ...common(),
@@ -914,6 +918,51 @@ const refusals: [string, (w: World) => object][] = [
     }),
   ],
 ];
+
+// An inspection as aircraft setup saves it: new, and marked as setup's.
+const setupSave = (a: Aircraft, description: string, uuid = "setup") => ({
+  ...common(),
+  action: "inspection.save",
+  initialAircraftSetup: true,
+  record: newInspection(a, {
+    uuid,
+    description,
+    intervalSeconds: 100 * HOUR_SECONDS,
+    lastSeconds: 0,
+  }),
+});
+
+describe("an inspection saved by aircraft setup (NA-11)", () => {
+  it("is refused when the aircraft already has one by that name", () => {
+    const { s, a } = world();
+    expect(() =>
+      applyManagement(s, setupSave(a, "Landing Check") as never, NOW),
+    ).toThrow(
+      new Rejection("An inspection with this name is already on the aircraft."),
+    );
+  });
+  it("is saved when the name is only on an archived or another aircraft's schedule", () => {
+    const { s, a } = world();
+    s.inspections.push({
+      ...s.inspections[0],
+      uuid: "elsewhere",
+      aircraftUuid: s.aircraft[1].uuid,
+      description: "Annual",
+    });
+    for (const name of ["done", "Annual"])
+      expect(
+        applyManagement(s, setupSave(a, name, `setup-${name}`) as never, NOW)
+          .next,
+      ).toMatchObject({ description: name, aircraftUuid: a.uuid });
+  });
+  it("leaves an ordinary save of a repeated name as it was", () => {
+    const { s, a } = world();
+    const { initialAircraftSetup: _setup, ...ordinary } = setupSave(a, "phase");
+    expect(applyManagement(s, ordinary as never, NOW).next).toMatchObject({
+      description: "phase",
+    });
+  });
+});
 
 describe("management refusals", () => {
   it.each(refusals)("refuses: %s", (message, build) => {

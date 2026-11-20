@@ -664,15 +664,30 @@ describe("records workbook", () => {
     ws.eachRow((row, n) => {
       if (n > 2) listed.push([1, 2, 3].map((c) => text(row.getCell(c).value)));
     });
-    const MISMATCH = "Does not match the app's current format.";
-    expect(listed.map(([type, note]) => [type, note])).toEqual([
-      ["Inventory and component", "Not JSON; shown as the stored text."],
-      ["Inventory and component", MISMATCH],
-      ["AD", MISMATCH],
-      ["Work order", MISMATCH],
-      ["Job card", "The row has no payload."],
-      ["Purchase order", MISMATCH],
+    expect(listed.map(([type]) => type)).toEqual([
+      "Inventory and component",
+      "Inventory and component",
+      "AD",
+      "Work order",
+      "Job card",
+      "Purchase order",
     ]);
+    // Each note names the field that no longer matches, and why.
+    const mismatch = (field: string) =>
+      new RegExp(
+        `^Does not match the app's current format: ${field}: [^;]+\\.$`,
+      );
+    expect(listed[0][1]).toBe("Not JSON; shown as the stored text.");
+    expect(listed[1][1]).toMatch(mismatch("Name"));
+    expect(listed[2][1]).toMatch(mismatch("Tasks"));
+    expect(listed[3][1]).toMatch(mismatch("Date opened"));
+    expect(listed[4][1]).toBe("The row has no payload.");
+    expect(listed[5][1]).toMatch(mismatch("Lines"));
+    const records: string[] = [];
+    read
+      .getWorksheet("Change history")!
+      .eachRow((row) => records.push(text(row.getCell(5).value)));
+    expect(records).toContain("Work order WO-2026-0007 (damaged record)");
     expect(listed[0][2]).toBe(
       '{"kind":"stock","file":"[file]","link":"[link removed]',
     );
@@ -750,6 +765,33 @@ describe("records workbook", () => {
       (r) => text(r.cells["AD number"].value) === "AD 2025-DEMO-12",
     )!;
     expect(text(seatRail.cells.Status.value)).toBe("Overdue");
+  });
+
+  it("colours ADs that no longer apply green, as the domain judges them in order", async () => {
+    const files = unzipSync(fixture.zip);
+    for (const [number, applicability] of [
+      ["2025-DEMO-12", "Not applicable"],
+      ["2024-DEMO-03", "Superseded"],
+    ])
+      editFirst(
+        files,
+        "airworthiness",
+        (d) =>
+          (d.payload = JSON.stringify({
+            ...JSON.parse(String(d.payload)),
+            applicability,
+          })),
+        (d) => JSON.parse(String(d.payload)).source.number === number,
+      );
+    const { read } = await buildFrom(files, "closed-ads");
+    const status = (number: string) =>
+      rows("Airworthiness directives", read).find(
+        (r) => text(r.cells["AD number"].value) === `AD ${number}`,
+      )!.cells.Status;
+    expect(text(status("2025-DEMO-12").value)).toBe("Not applicable");
+    expect(fill(status("2025-DEMO-12"))).toBe(GREEN);
+    expect(text(status("2024-DEMO-03").value)).toBe("Superseded");
+    expect(fill(status("2024-DEMO-03"))).toBe(GREEN);
   });
 
   it("builds for an aircraft without a meter reading: its AD actions read Counter unavailable, a passed due date still overdue", async () => {

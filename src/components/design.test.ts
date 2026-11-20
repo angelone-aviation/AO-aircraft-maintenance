@@ -1,6 +1,6 @@
 /**
  * Responsibility: Pins the design system's documented markup rules, the
- *   dialog's dismissal rules and the saved theme.
+ *   dialog's dismissal rules and the theme: saved, or following the device.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/design.tsx, react-dom/server.
  *
@@ -223,17 +223,34 @@ describe("theme", () => {
   const stub = (saved: string | null, systemDark = false) => {
     const stored = new Map<string, string>();
     const dark = vi.fn();
+    const system = { dark: systemDark, listeners: new Set<() => void>() };
     vi.stubGlobal("localStorage", {
       getItem: () => saved,
       setItem: (key: string, value: string) => stored.set(key, value),
     });
     vi.stubGlobal("window", {
-      matchMedia: () => ({ matches: systemDark }),
+      matchMedia: () => ({
+        get matches() {
+          return system.dark;
+        },
+        addEventListener: (_: string, l: () => void) => system.listeners.add(l),
+        removeEventListener: (_: string, l: () => void) =>
+          system.listeners.delete(l),
+      }),
     });
     vi.stubGlobal("document", {
-      documentElement: { classList: { toggle: dark } },
+      documentElement: {
+        classList: { toggle: dark, add: vi.fn(), remove: vi.fn() },
+      },
     });
-    return { stored, dark };
+    vi.stubGlobal("getComputedStyle", () => ({ getPropertyValue: () => "" }));
+    // Changes the device's light or dark setting, telling the page as the
+    // browser does.
+    const turnDevice = (toDark: boolean) => {
+      system.dark = toDark;
+      system.listeners.forEach((l) => l());
+    };
+    return { stored, dark, turnDevice };
   };
 
   it("applies the saved theme, or else the system preference", () => {
@@ -256,5 +273,35 @@ describe("theme", () => {
     });
     setTheme("light");
     expect(dark).toHaveBeenLastCalledWith("dark", false);
+  });
+
+  it("saves Match this device as its own choice and follows the device live (B9)", () => {
+    const device = stub("light", false);
+    initTheme();
+    setTheme("system");
+    expect(device.stored.get("angelone-theme")).toBe("system");
+    device.turnDevice(true);
+    expect(device.dark).toHaveBeenLastCalledWith("dark", true);
+    device.turnDevice(false);
+    expect(device.dark).toHaveBeenLastCalledWith("dark", false);
+  });
+
+  it("follows the device live when nothing is saved, or Match this device was", () => {
+    for (const saved of [null, "system"]) {
+      const device = stub(saved, true);
+      initTheme();
+      expect(device.dark).toHaveBeenLastCalledWith("dark", true);
+      device.turnDevice(false);
+      expect(device.dark).toHaveBeenLastCalledWith("dark", false);
+    }
+  });
+
+  it("keeps a chosen light or dark theme when the device's setting changes", () => {
+    const device = stub("system", false);
+    initTheme();
+    setTheme("dark");
+    device.turnDevice(true);
+    device.turnDevice(false);
+    expect(device.dark).toHaveBeenLastCalledWith("dark", true);
   });
 });

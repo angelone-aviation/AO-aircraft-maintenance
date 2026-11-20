@@ -1,15 +1,16 @@
 /**
  * Responsibility: Pins the demo aircraft files: the stored data URL, the
- *   change-log entries, a photo's link to its flight, and that archiving
- *   keeps the copy.
+ *   change-log entries, a photo's link to its flight, the separate caps, and
+ *   that archiving keeps the copy.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/data/demoAircraftFiles.ts, src/data/demo.ts,
- *   src/domain/model.ts (types).
+ *   src/domain/model.ts and aircraftFiles.ts (types).
  */
 import { expect, it, vi } from "vitest";
 import { demoAircraftFiles } from "./demoAircraftFiles";
 import { demoSnapshot } from "./demo";
 import type { Flight, Snapshot } from "../domain/model";
+import type { AircraftFileCategory } from "../domain/aircraftFiles";
 
 function setup() {
   const s = demoSnapshot();
@@ -64,6 +65,42 @@ it("refuses a file whose first bytes are not its declared type, as the server do
   ).rejects.toThrow("This file's contents do not match its type.");
   expect(s.aircraftFiles ?? []).toEqual([]);
   expect(audit).not.toHaveBeenCalled();
+});
+
+it("caps Form 337 copies and logbook page photos apart, as the server does", async () => {
+  const { s, modify, audit, aircraft } = setup();
+  const copy = (category: AircraftFileCategory, i: number) => ({
+    uuid: `${category}-${i}`,
+    aircraftUuid: aircraft,
+    category,
+    name: `${i}.pdf`,
+    type: "application/pdf",
+    size: 1,
+    uploadedAt: i,
+    url: "",
+  });
+  s.aircraftFiles = Array.from({ length: 499 }, (_, i) =>
+    copy("logbook-page", i),
+  );
+  await demoAircraftFiles.upload(modify, audit, form337(aircraft), pdf());
+  s.aircraftFiles.push(copy("logbook-page", 499));
+  s.flights = [flight(aircraft, "f1")];
+  await expect(
+    demoAircraftFiles.upload(
+      modify,
+      audit,
+      {
+        ...form337(aircraft),
+        category: "logbook-page",
+        linkedKind: "flight",
+        linkedUuid: "f1",
+      },
+      jpeg(),
+    ),
+  ).rejects.toThrow(
+    "This aircraft already has the maximum of 500 current logbook page photos.",
+  );
+  expect(s.aircraftFiles).toHaveLength(501);
 });
 
 it("keeps an upload as a data URL and logs it", async () => {

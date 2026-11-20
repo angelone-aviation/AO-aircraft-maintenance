@@ -25,10 +25,12 @@ import {
   shownAircraftStatus,
   type AircraftStatusFinding,
   type ShownAircraftStatus,
+  type ShownStatusLevel,
 } from "./aircraftStatus";
 import {
   dueItems,
   type AdDue,
+  type DueLevel,
   type InspectionDue,
   type MaintenanceDue,
   type RequirementDue,
@@ -51,7 +53,23 @@ const SECONDS_PER_HOUR = 3600;
 const BYTES_PER_KB = 1024;
 const NOT_TRACKED = "Not tracked";
 const REVIEW = "Review";
+// The adStatus of an AD whose applicability is not decided yet.
+const NEEDS_REVIEW = "Needs review";
 const NUMERIC = { numeric: true } as const;
+const LEVEL_TONES: Record<DueLevel, StatusTone | undefined> = {
+  overdue: "danger",
+  "due-soon": "caution",
+  ok: undefined,
+  unknown: undefined,
+};
+// As on screen (STATUS_TONE): an aircraft whose records are not all loaded
+// must not look ready.
+const AIRCRAFT_TONES: Record<ShownStatusLevel, StatusTone | undefined> = {
+  grounded: "danger",
+  "due-soon": "caution",
+  "setup-incomplete": "caution",
+  airworthy: undefined,
+};
 
 /** Names a section, so a layout can size its columns. */
 export type StatusSectionId =
@@ -63,6 +81,12 @@ export type StatusSectionId =
   | "form337"
   | "discrepancies";
 
+/**
+ * How pressing a status is, which decides how it prints: grounding or
+ * overdue (danger), or due soon or awaiting review (caution).
+ */
+export type StatusTone = "danger" | "caution";
+
 /** One table of the sheet and the notes that follow it. */
 export interface StatusSection {
   id: StatusSectionId;
@@ -71,6 +95,13 @@ export interface StatusSection {
   /** One cell per column; an empty table holds one placeholder row. */
   rows: string[][];
   notes: string[];
+  /** The column holding each row's status; absent in a table without one. */
+  statusColumn?: number;
+  /**
+   * Each row's tone, taken from its status value rather than its words;
+   * undefined for a status in order and for a placeholder row.
+   */
+  tones?: (StatusTone | undefined)[];
 }
 
 /** What one aircraft's status sheet says, in reading order. */
@@ -165,6 +196,8 @@ function overviewSection(
       ],
     ],
     notes,
+    statusColumn: 0,
+    tones: [AIRCRAFT_TONES[status.level]],
   };
 }
 
@@ -256,6 +289,9 @@ function limitsSection(
       ? items.map(limitRow)
       : [["No component limits recorded", "-", "-", "-", "-"]],
     notes: [],
+    statusColumn: 4,
+    // A limit that cannot be computed reads "Review", like an AD to review.
+    tones: items.map((d) => (d.due ? LEVEL_TONES[d.level] : "caution")),
   };
 }
 
@@ -332,6 +368,8 @@ function inspectionsSection(
       ...listExemptionNotes(items.map((d) => d.inspection)),
       "* Months remaining are approximate; the exact date due controls. Hours and cycles use each inspection's configured counter; landings use aircraft total landings.",
     ],
+    statusColumn: columns.length - 1,
+    tones: items.map((d) => LEVEL_TONES[d.level]),
   };
 }
 
@@ -442,6 +480,10 @@ function airworthinessSection(
       ? ads.map((d) => adRow(d, s, components, today))
       : [["No AD records", "-", "-", "-", "-"]],
     notes: [],
+    statusColumn: 4,
+    tones: ads.map((d) =>
+      d.status === NEEDS_REVIEW ? "caution" : LEVEL_TONES[d.level],
+    ),
   };
 }
 
@@ -545,6 +587,8 @@ function discrepanciesSection(
         ])
       : [["-", "No open discrepancies recorded", "-", "-"]],
     notes: [],
+    statusColumn: 3,
+    tones: open.map((d) => discrepancyTone(findFinding(d, findings))),
   };
 }
 
@@ -562,17 +606,29 @@ function discrepancyStatus(
   d: Snapshot["discrepancies"][number],
   findings: AircraftStatusFinding[],
 ): string {
-  const found = findings.find(
-    (f) =>
-      f.reason.entityUuid === d.uuid &&
-      (f.reason.kind === "discrepancy" || f.reason.kind === "deferral"),
-  );
+  const found = findFinding(d, findings);
   if (found?.level === "grounded")
     return found.reason.kind === "deferral"
       ? "Open: deferral expired, grounds the aircraft"
       : "Open: grounds the aircraft";
   if (found) return "Open: deferral expires soon";
   return d.deferral ? "Open: deferred" : "Open";
+}
+
+function discrepancyTone(found: AircraftStatusFinding | undefined) {
+  if (!found) return undefined;
+  return found.level === "grounded" ? "danger" : "caution";
+}
+
+function findFinding(
+  d: Snapshot["discrepancies"][number],
+  findings: AircraftStatusFinding[],
+) {
+  return findings.find(
+    (f) =>
+      f.reason.entityUuid === d.uuid &&
+      (f.reason.kind === "discrepancy" || f.reason.kind === "deferral"),
+  );
 }
 
 function formatHours(seconds: number | null | undefined): string {

@@ -16,12 +16,20 @@ import { inPeriod, type Period } from "./period";
 /**
  * A work order's cost record.
  *
+ * @param programUuid - Only that program's record: a work order that moved
+ *   with its aircraft can hold one from each program that costed it.
  * @returns The record, or undefined while nothing has been costed.
  */
-export const findWorkOrderCost = (s: Snapshot, workOrderUuid: string) =>
+export const findWorkOrderCost = (
+  s: Snapshot,
+  workOrderUuid: string,
+  programUuid?: string,
+) =>
   s.costs?.find(
     (r): r is WorkOrderCost =>
-      r.kind === "workOrder" && r.workOrderUuid === workOrderUuid,
+      r.kind === "workOrder" &&
+      r.workOrderUuid === workOrderUuid &&
+      (programUuid === undefined || r.programUuid === programUuid),
   );
 
 /**
@@ -131,12 +139,22 @@ export function aircraftSpendCents(
 /**
  * An aircraft's maintenance budget for a calendar year.
  *
+ * @param programUuid - Only that program's budget: an aircraft that moved
+ *   can hold one from each program that budgeted it.
  * @returns The budget record, or undefined when none is set.
  */
-export const findBudget = (s: Snapshot, aircraftUuid: string, year: number) =>
+export const findBudget = (
+  s: Snapshot,
+  aircraftUuid: string,
+  year: number,
+  programUuid?: string,
+) =>
   s.costs?.find(
     (r): r is Extract<CostRecord, { kind: "budget" }> =>
-      r.kind === "budget" && r.aircraftUuid === aircraftUuid && r.year === year,
+      r.kind === "budget" &&
+      r.aircraftUuid === aircraftUuid &&
+      r.year === year &&
+      (programUuid === undefined || r.programUuid === programUuid),
   );
 
 // Issued parts grouped by stock item: a manual unit cost wins over the stock

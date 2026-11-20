@@ -5,12 +5,15 @@
  *   choice, the check running after a mutation, a grounding problem report
  *   reaching both the urgent email and the digest, calendar limits judged
  *   on the records time zone's date, de-duplication per occurrence (an alert
- *   that cleared and returned is sent, and unread, again), and deployment-wide
- *   dates sent once to system administrators, whatever their groups.
+ *   that cleared and returned is sent, and unread, again), deployment-wide
+ *   dates sent once to system administrators, whatever their groups, and a
+ *   program's alerts reaching a system administrator only through its groups,
+ *   and a member's problem-report backlog reaching the administrators at
+ *   once.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/urgentAlerts.ts, convex/alerts.ts,
  *   convex/expiringItems.ts, convex/rateLimits.ts, convex/schema.ts,
- *   tests/fixtures/alertProgram.ts.
+ *   src/domain (alerts, reportBacklog), tests/fixtures/alertProgram.ts.
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -18,8 +21,10 @@ import { DAY } from "./rateLimits";
 import { recordsDate } from "./recordsDate";
 import { IMMEDIATE_CAP_KEY, IMMEDIATE_EMAILS_PER_DAY } from "./urgentAlerts";
 import { computeAlerts } from "../src/domain/alerts";
+import { MAX_OPEN_REPORTS_PER_MEMBER } from "../src/domain/reportBacklog";
 import {
   DEMO_PROGRAM,
+  OTHER_PROGRAM,
   seedAlertProgram,
   sentEmails,
   stubResend,
@@ -315,6 +320,47 @@ it("emails an aircraft grounded by a synced problem report at once, and lists it
   expect(digest.text).toContain("N206MA is grounded");
 });
 
+it("emails the administrators at once when a member's open problem reports pile up (D2)", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await clearInspections(world.t);
+  const { userId } = world.ids.reader;
+  await world.t.run(async (ctx) => {
+    const reader = await ctx.db.get(userId);
+    await ctx.db.patch(reader!.groupIds![0], {
+      permissions: ["read", "flight", "discrepancy"],
+    });
+    for (let i = 1; i < MAX_OPEN_REPORTS_PER_MEMBER / 2; i++)
+      await ctx.db.insert("discrepancies", {
+        uuid: `open-${i}`,
+        aircraftUuid: world.ids.aircraftUuid,
+        description: "Short",
+        status: "open",
+        authorId: userId,
+        createdAt: 0,
+      });
+  });
+  const request = stubResend();
+  await world.reader.mutation(api.operations.submit, {
+    operation: {
+      programUuid: DEMO_PROGRAM,
+      kind: "discrepancy",
+      uuid: crypto.randomUUID(),
+      authorId: userId,
+      aircraftUuid: world.ids.aircraftUuid,
+      description: "Short",
+    },
+  });
+  await world.t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [urgent] = sentEmails(request);
+  expect(urgent.to).toEqual(["admin@example.test"]);
+  expect(urgent.subject).toBe("Mission operations: 1 urgent alert");
+  expect(urgent.text).toContain(
+    `reader has ${MAX_OPEN_REPORTS_PER_MEMBER / 2} open problem reports`,
+  );
+  expect(urgent.text).toContain("https://app.example.test/discrepancies");
+});
+
 it("emails an aircraft grounded by an expired deferral, and nothing for a resolved report", async () => {
   const { t, ids } = await seedAlertProgram();
   await clearInspections(t);
@@ -606,4 +652,41 @@ it("sends a deployment-wide date once, not once per Flight Program, and only by 
   await t.action(internal.urgentAlerts.daily, {});
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   expect(linesAbout(request, SECRET_LINE)).toHaveLength(1);
+});
+
+it("sends a system administrator in no group none of a program's alerts, until they join one of its groups", async () => {
+  const { t } = await seedAlertProgram();
+  const root = await addRoot(t);
+  const request = stubResend();
+  const toRoot = () =>
+    sentEmails(request)
+      .filter((e) => e.to[0] === "root@example.test")
+      .map((e) => e.subject);
+  const patchRoot = (fields: { activeProgramUuid?: string; group?: string }) =>
+    t.run(async (ctx) => {
+      const users = await ctx.db.query("users").collect();
+      const user = users.find((u) => u.email === "root@example.test")!;
+      const groups = await ctx.db.query("groups").collect();
+      const joined = groups.find((g) => g.name === fields.group);
+      await ctx.db.patch(user._id, {
+        activeProgramUuid: fields.activeProgramUuid,
+        ...(joined ? { groupIds: [joined._id] } : {}),
+      });
+    });
+  // Working in the program, their bell shows its overdue inspection.
+  await patchRoot({ activeProgramUuid: DEMO_PROGRAM });
+  const bell = await root.query(api.operations.snapshot, {});
+  expect(computeAlerts(bell!, "2026-11-11").length).toBeGreaterThan(0);
+  await sendImmediate(t);
+  await t.action(internal.urgentAlerts.sendImmediate, {
+    programUuid: OTHER_PROGRAM,
+  });
+  await t.action(internal.alerts.sendDigests, {});
+  // The off-site backup warning is the system administrators' own.
+  const BACKUP = "Off-site backup warning";
+  expect(toRoot()).toEqual([BACKUP]);
+  await patchRoot({ activeProgramUuid: DEMO_PROGRAM, group: "reader group" });
+  await t.mutation(internal.memberships.backfill, {});
+  await sendImmediate(t);
+  expect(toRoot()).toEqual([BACKUP, SUBJECT]);
 });

@@ -300,11 +300,13 @@ describe("logbook entry", () => {
     );
   });
 
-  it("prints a blank close-out wording as it is", () => {
-    // Characterizes current behaviour: "" is not replaced by the placeholder.
+  it("prints the wording prompt for a blank close-out or revised wording", () => {
     const { s, final } = closedOrder();
-    expect(logbookText(s, final, "maintenance", signer)).toContain(
-      "\nWork performed:\n\n\nApproved for return to service.\n",
-    );
+    const prompted =
+      "\nWork performed:\n[Select Include in log book entry on a task or job card to see its wording here.]\n\nApproved for return to service.\n";
+    expect(final.closeout!.workPerformed).toBe("");
+    expect(logbookText(s, final, "maintenance", signer)).toContain(prompted);
+    const revised = { ...final, revisedWorkPerformed: " " };
+    expect(logbookText(s, revised, "maintenance", signer)).toContain(prompted);
   });
 });

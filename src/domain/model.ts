@@ -548,6 +548,18 @@ export function latestLocalDate(now = Date.now()): string {
 }
 
 /**
+ * The earliest date that is today anywhere (UTC-12), so the server, which
+ * does not know a device's time zone, never finds a limit overdue, or a date
+ * too early, that the device still accepted.
+ *
+ * @param now - The time (epoch ms).
+ * @returns The date as YYYY-MM-DD.
+ */
+export function earliestLocalDate(now = Date.now()): string {
+  return formatUtcDate(now - FURTHEST_BEHIND_UTC_MS);
+}
+
+/**
  * Whether a date is today in some time zone.
  *
  * @param d - The date as YYYY-MM-DD.
@@ -556,10 +568,7 @@ export function latestLocalDate(now = Date.now()): string {
  *   furthest-ahead zone's.
  */
 export function isLocalToday(d: string, now = Date.now()): boolean {
-  return (
-    d >= formatUtcDate(now - FURTHEST_BEHIND_UTC_MS) &&
-    d <= latestLocalDate(now)
-  );
+  return d >= earliestLocalDate(now) && d <= latestLocalDate(now);
 }
 
 /**

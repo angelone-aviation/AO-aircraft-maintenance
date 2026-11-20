@@ -10,7 +10,6 @@ import { getDocument } from "./pdfRuntime";
 import { readPdfText } from "./pdfText";
 import { parseIcao, type PdfText } from "../domain/pdf/icao";
 
-// The refusal says "10 MB"; the limit is 10 MiB.
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
 // The planning app's page box, in points. parseIcao's field boxes are measured
 // on it, so text from any other page size is scaled to it first.
@@ -24,7 +23,7 @@ const TEMPLATE_HEIGHT = 841.91998;
  * @param onStage - Called with each step's name as it starts, for reports.
  * @returns parseIcao's fields, plus `sourceName` (the file name) and
  *   `sourceHash` (hex SHA-256 of its bytes).
- * @throws {Error} "Choose a PDF smaller than 10 MB.", "Upload the single-page
+ * @throws {Error} "Choose a PDF smaller than 10 MiB.", "Upload the single-page
  *   ICAO flight-plan form.", or PDF.js's or parseIcao's errors. The PDF reader
  *   is closed either way.
  */
@@ -34,7 +33,7 @@ export async function readFlightPlanPdf(
 ) {
   onStage("Validate file");
   if (!/\.pdf$/i.test(file.name) || file.size > MAX_PDF_BYTES)
-    throw new Error("Choose a PDF smaller than 10 MB.");
+    throw new Error("Choose a PDF smaller than 10 MiB.");
   onStage("Read file bytes");
   const data = await file.arrayBuffer();
   onStage("Calculate file fingerprint");

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins purchase-order attachments: who may upload and remove
- *   them, the copies a receipt's file puts on the items it received, and when
- *   a stored file is deleted.
+ *   them, the copies a receipt's file puts on the items it received, the
+ *   change-log rows each writes, and when a stored file is deleted.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/poFiles.ts, convex/schema.ts, src/domain/purchaseOrders,
  *   src/data/demo.ts (fixture).
@@ -167,7 +167,21 @@ it("checks the file first, then the administrator, the order's program and the r
     });
 });
 
-it("files a receipt's file once on each item it received, sharing one blob, without a change-log row", async () => {
+it("logs a purchase-order attachment on the order (T3)", async () => {
+  const { t, admin, upload } = await fixture();
+  await admin.action(api.poFiles.upload, upload);
+  expect(await t.run((ctx) => ctx.db.query("audit").collect())).toMatchObject([
+    {
+      action: "purchaseOrder.attachment",
+      entityUuid: "po",
+      programUuid: PROGRAM,
+      reason: "Purchase order attachment uploaded",
+      after: JSON.stringify({ name: "invoice.pdf", size: PDF.byteLength }),
+    },
+  ]);
+});
+
+it("files a receipt's file once on each item it received, sharing one blob, and logs the order's and each item's copy (T3)", async () => {
   const { t, admin, upload } = await fixture();
   await admin.action(api.poFiles.upload, { ...upload, receiptUuid: "receipt" });
   const stored = await t.run(async (ctx) => ({
@@ -181,7 +195,23 @@ it("files a receipt's file once on each item it received, sharing one blob, with
   expect(stored.items.map((f) => f.stockUuid)).toEqual(["stock-a", "stock-b"]);
   for (const item of stored.items)
     expect(item.storageId).toBe(stored.po[0].storageId);
-  expect(stored.audit).toEqual([]);
+  const file = { name: "invoice.pdf", size: PDF.byteLength };
+  expect(stored.audit).toMatchObject([
+    {
+      action: "purchaseOrder.attachment",
+      entityUuid: "po",
+      programUuid: PROGRAM,
+      reason: "Receipt attachment uploaded",
+      after: JSON.stringify({ ...file, receiptUuid: "receipt" }),
+    },
+    ...["stock-a", "stock-b"].map((stockUuid) => ({
+      action: "inventory.attachment",
+      entityUuid: stockUuid,
+      programUuid: PROGRAM,
+      reason: "Receipt attachment from po",
+      after: JSON.stringify(file),
+    })),
+  ]);
 });
 
 it("deletes the stored file when filing is refused", async () => {
@@ -219,7 +249,9 @@ it("removes an attachment but keeps the blob its received items still use, and a
   expect(await t.run((ctx) => ctx.storage.getUrl(file.storageId))).not.toBe(
     null,
   );
-  const [row] = await t.run((ctx) => ctx.db.query("audit").collect());
+  const row = (await t.run((ctx) => ctx.db.query("audit").collect())).find(
+    (r) => r.action === "purchaseOrder.attachment_removed",
+  );
   expect(row).toMatchObject({
     action: "purchaseOrder.attachment_removed",
     entityUuid: "po",

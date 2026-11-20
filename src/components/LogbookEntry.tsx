@@ -101,8 +101,11 @@ function LogbookEntry({
       <SignerFields entry={entry} name={user.name} />
       {entry.template === "inspection" && <InspectionFields entry={entry} />}
       {entry.template === "component" && <ComponentOutcome entry={entry} />}
-      {user.certifications === undefined && (
-        <SaveLicenseButton entry={entry} status={status} />
+      {!entry.signer.choices.length && (
+        <p className="muted">
+          A certificate you file under My certifications fills in here once an
+          administrator has approved it.
+        </p>
       )}
       <Field label="Logbook entry text">
         <textarea
@@ -451,31 +454,6 @@ function ComponentOutcome({ entry }: { entry: Entry }) {
         </option>
       </select>
     </Field>
-  );
-}
-
-function SaveLicenseButton({
-  entry,
-  status,
-}: {
-  entry: Entry;
-  status: Status;
-}) {
-  const { backend, online, connected } = useWorkspace();
-  async function saveLicense() {
-    const license = entry.signer.validLicense();
-    await backend!.saveLicense(license.licenseNumber, license.certificateType);
-    return "License saved to your profile.";
-  }
-  return (
-    <button
-      type="button"
-      className="button"
-      disabled={status.busy || !online || !connected}
-      onClick={(e) => void status.run(e, saveLicense)}
-    >
-      Save license to my profile
-    </button>
   );
 }
 

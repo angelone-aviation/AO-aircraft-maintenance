@@ -33,7 +33,10 @@ import { Rejection } from "./rejection";
 import { preserveChecklistLink } from "./flightChecklistLink";
 import { preserveOilInventory } from "./oilInventory";
 import { validatePlanFlight } from "./flightPlans";
-import { validateMaintenanceTotals } from "./management";
+import {
+  MissingInspectionComponent,
+  validateMaintenanceTotals,
+} from "./management";
 import { fieldDiff, type FieldDifference, type FieldSpecs } from "./fieldDiff";
 
 /** What a held flight's review compares with the aircraft. */
@@ -298,14 +301,31 @@ function replayFlights(
   const flights = stored.map((f) => (f.uuid === next.uuid ? next : f));
   const rebuilt = refuseAs(() => rebuildFlights(aircraft, flights, stored));
   refuseAs(() =>
-    validateMaintenanceTotals(
-      rebuilt.aircraft,
-      s.management ?? [],
-      s.inspections,
-      s.airworthiness ?? [],
+    explainMissingComponent(aircraft, () =>
+      validateMaintenanceTotals(
+        rebuilt.aircraft,
+        s.management ?? [],
+        s.inspections,
+        s.airworthiness ?? [],
+      ),
     ),
   );
   return rebuilt;
+}
+
+// The check measures each component inspection on its component, so one that
+// names a component no longer on the aircraft stops the review; the reviewer
+// is told which inspection to correct, not the bare integrity message.
+function explainMissingComponent(aircraft: Aircraft, check: () => void) {
+  try {
+    check();
+  } catch (error) {
+    if (!(error instanceof MissingInspectionComponent)) throw error;
+    const { reference, description } = error.inspection;
+    throw new Rejection(
+      `The inspection "${reference || description}" on ${aircraft.registration} is linked to a component that is not installed on it. Correct the inspection under Inspections, then review this flight again.`,
+    );
+  }
 }
 
 // validateFlight, rebuildFlights and validateMaintenanceTotals refuse with a

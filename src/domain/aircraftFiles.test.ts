@@ -20,7 +20,7 @@ import {
   isCurrentAircraftFile,
   assertAircraftFileWriter,
   linkedLogbookPhotos,
-  MAX_AIRCRAFT_FILES,
+  MAX_CURRENT_AIRCRAFT_FILES,
   validateAircraftFile,
   validateAircraftUpload,
   validateLogbookPhoto,
@@ -68,7 +68,7 @@ function photo(over: Partial<AircraftFile>): AircraftFile {
   };
 }
 
-it("accepts the shared attachment types up to 7 MB", () => {
+it("accepts the shared attachment types up to 7 MiB", () => {
   for (const [name, type] of [
     ["337.pdf", "application/pdf"],
     ["337.jpg", "image/jpeg"],
@@ -83,9 +83,22 @@ it("accepts the shared attachment types up to 7 MB", () => {
   );
   expect(() =>
     validateAircraftFile("337.pdf", "application/pdf", 7 * 1024 * 1024 + 1),
-  ).toThrow("7 MB");
-  expect(() => assertAircraftFileRoom(MAX_AIRCRAFT_FILES - 1)).not.toThrow();
-  expect(() => assertAircraftFileRoom(MAX_AIRCRAFT_FILES)).toThrow("maximum");
+  ).toThrow("7 MiB");
+});
+
+it("caps each category on its own: 200 current Form 337 copies, 500 current logbook page photos", () => {
+  expect(MAX_CURRENT_AIRCRAFT_FILES).toEqual({
+    "form-337": 200,
+    "logbook-page": 500,
+  });
+  expect(() => assertAircraftFileRoom("form-337", 199)).not.toThrow();
+  expect(() => assertAircraftFileRoom("form-337", 200)).toThrow(
+    "maximum of 200 current Form 337 copies",
+  );
+  expect(() => assertAircraftFileRoom("logbook-page", 499)).not.toThrow();
+  expect(() => assertAircraftFileRoom("logbook-page", 500)).toThrow(
+    "maximum of 500 current logbook page photos",
+  );
 });
 
 it("lets maintenance upload and delete while readers only see the files", () => {
@@ -149,8 +162,12 @@ it("refuses with a Rejection and the exact message", () => {
   const user = { id: "u1", name: "Casey Tech" };
   const refusals: [() => unknown, string][] = [
     [
-      () => assertAircraftFileRoom(MAX_AIRCRAFT_FILES),
-      "This aircraft already has the maximum of 200 current documents.",
+      () => assertAircraftFileRoom("form-337", 200),
+      "This aircraft already has the maximum of 200 current Form 337 copies.",
+    ],
+    [
+      () => assertAircraftFileRoom("logbook-page", 500),
+      "This aircraft already has the maximum of 500 current logbook page photos.",
     ],
     [
       () =>
@@ -203,7 +220,7 @@ it("refuses HEIC photos by type or name and otherwise applies the Form 337 check
   );
   expect(() =>
     validateLogbookPhoto("page.jpg", "image/jpeg", 7 * 1024 * 1024 + 1),
-  ).toThrow("7 MB");
+  ).toThrow("7 MiB");
   expect(() =>
     validateAircraftUpload("logbook-page", "x.heic", "image/heic", 10),
   ).toThrow(Rejection);

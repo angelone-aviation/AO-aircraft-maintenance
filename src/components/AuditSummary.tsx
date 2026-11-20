@@ -1,5 +1,5 @@
 /**
- * Responsibility: The Weekly summary tab of Change history: a period picker,
+ * Responsibility: The Summary tab of Change history: a period picker,
  *   the period's changes by kind of work as one bar, the per-actor table by
  *   action family, the notable events with links to their screens, and the
  *   CSV export.
@@ -110,7 +110,7 @@ export function WeeklySummary() {
       />
       {!live && (
         <NoticeBar tone="warn" icon={WifiSlash}>
-          The weekly summary needs a connection.
+          The summary needs a connection.
         </NoticeBar>
       )}
       {error && (

@@ -361,7 +361,7 @@ function UploadButton({
       </label>
       <small id={hintId}>
         {live
-          ? "PDF, JPEG, PNG or WebP, up to 7 MB."
+          ? "PDF, JPEG, PNG or WebP, up to 7 MiB."
           : "Reconnect to upload or archive Form 337 copies."}
       </small>
     </div>

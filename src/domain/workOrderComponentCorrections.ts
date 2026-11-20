@@ -451,15 +451,23 @@ function buildCorrection(
 function writeAddendum(c: Correcting, after: Replay["result"]["after"]) {
   const { s, order, command, target, current, now } = c;
   const { choice } = command;
-  const iaw = choice.reference ? ` IAW ${choice.reference}.` : "";
+  const work = choice.reference
+    ? `${choice.description} IAW ${choice.reference}`
+    : choice.description;
   const displayHours = (value: number | null) =>
     value === null ? "Not recorded" : `${(value / HOUR_SECONDS).toFixed(1)} h`;
   return (
     `Correction to work order ${order.number}, component ${current.componentType} P/N ${current.partNumber}; S/N ${current.serial}, maintenance dated ${order.completionDate}: ` +
-    `${componentWorkLabels[target.effective.action]} corrected to ${componentWorkLabels[choice.action]}. ${choice.description}${iaw} ` +
+    `${componentWorkLabels[target.effective.action]} corrected to ${componentWorkLabels[choice.action]}. ${endSentence(work)} ` +
     `Corrected completion TSN ${displayHours(after.timeSinceNew)}; TSO ${displayHours(after.timeSinceOverhaul)}; TSR ${displayHours(after.timeSinceRepair)}; cycles ${after.cyclesSinceNew}. ` +
     `Reason: ${command.reason}. Recorded by ${s.user.name} on ${new Date(now).toISOString()}. Review alongside the original logbook entry.`
   );
+}
+
+// The work text runs straight into "Corrected completion…", so a description
+// typed without a full stop would merge the two sentences in signed text.
+function endSentence(text: string) {
+  return !text || /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 function buildCorrectionMovement(

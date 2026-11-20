@@ -1,11 +1,13 @@
 /**
- * Responsibility: Pins how number and money fields read a comma: a decimal
- *   comma is refused with a plain message instead of being read as a number
- *   10 to 1,000 times larger, in a meter field and a money field alike.
+ * Responsibility: Pins how number and money fields read what is typed: a
+ *   decimal comma is refused with a plain message instead of being read as a
+ *   number 10 to 1,000 times larger, in a meter field and a money field alike;
+ *   and the purchasing quantity and cost fields can be emptied, show what was
+ *   typed and refuse a negative number instead of flipping its sign.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 
 const COMMA_MESSAGE =
   "Use a point for decimals, as in 2342.5, and leave out thousands commas.";
@@ -73,6 +75,75 @@ test("a money field refuses 45,50 instead of saving $4,550.00", async ({
   await expect(section.getByRole("alert")).toHaveCount(0);
   await expect(section).toContainText("$1,045.50");
 });
+
+test("a PO quantity can be emptied, shows what was typed and refuses -5", async ({
+  page,
+}) => {
+  const dialog = await openNewPurchaseOrder(page);
+  const quantity = dialog.getByLabel("Part 1 quantity", { exact: true });
+  await quantity.fill("");
+  await expect(quantity).toHaveValue("");
+  await quantity.pressSequentially("12");
+  await expect(quantity).toHaveValue("12");
+  await retype(quantity, "-5");
+  await expect(quantity).toHaveValue("-5");
+  expect(await rangeRefusal(quantity)).toEqual({
+    underflow: true,
+    message: expect.stringMatching(/\S/),
+  });
+});
+
+test("a PO unit cost and shipping cost can be emptied and retyped", async ({
+  page,
+}) => {
+  const dialog = await openNewPurchaseOrder(page);
+  for (const label of ["Part 1 unit cost", "Shipping cost"]) {
+    const cost = dialog.getByLabel(label, { exact: true });
+    await cost.fill("");
+    await expect(cost).toHaveValue("");
+    await cost.pressSequentially("7.25");
+    await expect(cost).toHaveValue("7.25");
+    await retype(cost, "-5");
+    await expect(cost).toHaveValue("-5");
+    expect((await rangeRefusal(cost)).underflow).toBe(true);
+  }
+});
+
+test("a parts request quantity can be emptied and retyped", async ({
+  page,
+}) => {
+  await page.goto("/parts-requests");
+  await page.getByRole("button", { name: "New request", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "New parts / repair request",
+  });
+  const quantity = dialog.getByLabel("Quantity", { exact: true });
+  await retype(quantity, "12");
+  await expect(quantity).toHaveValue("12");
+  await retype(quantity, "-5");
+  await expect(quantity).toHaveValue("-5");
+  expect((await rangeRefusal(quantity)).underflow).toBe(true);
+});
+
+async function openNewPurchaseOrder(page: Page) {
+  await page.goto("/purchase-orders");
+  await page.getByRole("button", { name: "New PO", exact: true }).click();
+  return page.getByRole("dialog", { name: "New purchase order", exact: true });
+}
+
+async function retype(field: Locator, text: string) {
+  await field.fill("");
+  await field.pressSequentially(text);
+}
+
+// The browser refuses to submit a field under its minimum and shows this
+// message beside it.
+function rangeRefusal(field: Locator) {
+  return field.evaluate((i: HTMLInputElement) => ({
+    underflow: i.validity.rangeUnderflow,
+    message: i.validationMessage,
+  }));
+}
 
 async function openFlightForm(page: Page) {
   await page.getByRole("button", { name: "Log a flight", exact: true }).click();

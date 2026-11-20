@@ -22,7 +22,7 @@ const MAX_FMD_BYTES = 2 * 1024 * 1024;
  * @param bytes - The file's contents.
  * @returns The checklist document, as {@link fmdSchema} parses it.
  * @throws {Error} "Invalid FMD file size. Choose a ForeFlight .fmd checklist
- *   under 2 MB." for a size outside 32 bytes–2 MiB or not a whole number of
+ *   under 2 MiB." for a size outside 32 bytes–2 MiB or not a whole number of
  *   AES blocks; "Unable to read this FMD file. It may be damaged or use an
  *   unsupported format." when it does not decrypt to UTF-8 JSON;
  *   "Unsupported checklist content: <first issue>. No checklist was
@@ -38,7 +38,7 @@ export async function importFmd(
     bytes.byteLength % AES_BLOCK_BYTES !== 0
   )
     throw new Error(
-      "Invalid FMD file size. Choose a ForeFlight .fmd checklist under 2 MB.",
+      "Invalid FMD file size. Choose a ForeFlight .fmd checklist under 2 MiB.",
     );
   const decoded = await decryptJson(bytes, await importKey("decrypt"));
   const result = fmdSchema.safeParse(decoded);

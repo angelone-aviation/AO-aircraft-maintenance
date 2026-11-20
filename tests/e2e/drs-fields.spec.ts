@@ -1,7 +1,8 @@
 /**
  * Responsibility: Pins the aircraft make and model fields: DRS suggestions,
- *   custom values kept on the profile, and the FAA search model override that
- *   prefills, and resets, the AD search.
+ *   custom values kept on the profile, the FAA search model override that
+ *   prefills, and resets, the AD search, and Escape closing the list first,
+ *   then the dialog.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test.
  */
@@ -57,4 +58,28 @@ test("searches DRS suggestions, saves custom profile values and uses the FAA mod
   await expect(searchModel).toHaveValue("Unlisted Model 123");
   await dialog.getByRole("button", { name: "Reset from profiles" }).click();
   await expect(searchModel).toHaveValue("441");
+});
+
+test("Escape in the make field closes its list first, then the aircraft dialog", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    sessionStorage.setItem("angel-one-demo", "true"),
+  );
+  await page.goto("/aircraft");
+  await page
+    .getByRole("list", { name: "Aircraft", exact: true })
+    .getByRole("listitem")
+    .filter({ hasText: "N206MA" })
+    .getByRole("button", { name: "Edit aircraft", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  const make = dialog.getByLabel("Make", { exact: true });
+  await make.focus();
+  await expect(make).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Escape");
+  await expect(make).toHaveAttribute("aria-expanded", "false");
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
 });

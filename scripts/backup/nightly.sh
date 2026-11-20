@@ -312,7 +312,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# f. Record the copy in the app (Settings > System and the 36-hour warning).
+# f. Record the copy in the app (Settings > System and the 26-hour warning).
 # bytes and sha256 describe the encrypted object, the one a person can check
 # in the bucket; the manifest also holds the plaintext ZIP's.
 
@@ -331,7 +331,7 @@ record=$(jq -cn \
 summary
 echo "Recording the copy in the app..."
 if ! CONVEX_DEPLOY_KEY="$deploy_key" npx convex run backups:recordOffsiteCopy "$record"; then
-  fail "The backup itself succeeded and is in R2 (listed above), but recording it in the app failed (backups:recordOffsiteCopy). The app will not know about this copy and will warn after 36 hours. Check that the function is deployed and the deploy key works, then run the workflow again."
+  fail "The backup itself succeeded and is in R2 (listed above), but recording it in the app failed (backups:recordOffsiteCopy). The app will not know about this copy and will warn after 26 hours. Check that the function is deployed and the deploy key works, then run the workflow again."
 fi
 
 # ---------------------------------------------------------------------------

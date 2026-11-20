@@ -101,6 +101,7 @@ async function fixture() {
     reason = "Verified against the paper log",
   ) =>
     admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid,
       decision,

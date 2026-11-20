@@ -4,8 +4,13 @@
  * Layer: Server. Read-only query helper.
  * Dependencies: convex/_generated (server, dataModel).
  *
- * manuals.test.ts checks the list against the schema, so a new file table
- * cannot be missed by code that deletes blobs no record refers to.
+ * The unreferenced-file sweep deletes any day-old file this list does not
+ * name, so storageReferences.test.ts fails on any storage id the schema types
+ * outside it, and on any field or stored-payload key named like one. A
+ * storage id kept in a plain string under another name would still go
+ * unseen: name such a field as a storage id, and list it here. Every path
+ * that creates a file files its reference within a day, in the same action
+ * or within its one-hour upload ticket; the same test pins those paths.
  */
 import type { QueryCtx } from "./_generated/server";
 import type { Id, TableNames } from "./_generated/dataModel";

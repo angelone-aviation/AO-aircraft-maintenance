@@ -9,8 +9,8 @@
  *   node scripts/serve-dist.mjs [--port 4173] [--host 127.0.0.1] [--dir dist]
  *                               [--report-csp]
  *
- * Mirrors _headers, .assetsignore, the /index.html -> / redirect and the
- * single-page-app fallback. --report-csp adds a report-uri, collects reports
+ * Mirrors _headers, .assetsignore, the /index.html -> / redirect, the
+ * single-page-app fallback and the Worker's 404 for a missing bundle. --report-csp adds a report-uri, collects reports
  * at GET /__csp-report and allows the local Convex backend (npm run
  * dev:local); the published policy is unchanged.
  */
@@ -23,6 +23,14 @@ const LOCAL_BACKEND =
   "http://127.0.0.1:3210 ws://127.0.0.1:3210 http://127.0.0.1:3211";
 // Cloudflare's default for static assets that _headers does not override.
 const DEFAULT_CACHE_CONTROL = "public, max-age=0, must-revalidate";
+// worker/assets.ts answers a missing bundle under this prefix with this 404;
+// _headers rules apply to static assets only, so none of them is added.
+const BUNDLE_PATH_PREFIX = "/assets/";
+const MISSING_BUNDLE_HEADERS = {
+  "Content-Type": "text/plain; charset=utf-8",
+  "Cache-Control": "no-store",
+  "X-Content-Type-Options": "nosniff",
+};
 // Read as configuration, never served as assets.
 const CONFIG_FILES = ["_headers", "_redirects", ".assetsignore"];
 const CONTENT_TYPES = {
@@ -143,6 +151,10 @@ function handleRequest(request, response) {
   const pathname = decodePath(url.pathname);
   if (pathname === null) {
     response.writeHead(400).end();
+    return;
+  }
+  if (pathname.startsWith(BUNDLE_PATH_PREFIX) && !fileFor(pathname)) {
+    response.writeHead(404, MISSING_BUNDLE_HEADERS).end("Not found");
     return;
   }
   setRuleHeaders(response, pathname);

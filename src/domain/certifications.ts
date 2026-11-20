@@ -6,6 +6,10 @@
  *
  * Airframe, powerplant and IA were once separate records; they are now
  * ratings on the one mechanic certificate, and old rows are folded into it.
+ * A certificate its holder filed or changed is `pending` until an
+ * administrator approves it (certificateApproval.ts), and only an approved
+ * one is cited on entries; certificates stored before approvals existed
+ * carry no flag and count as approved.
  */
 import { z } from "zod";
 import { localDate, type Member } from "./model";
@@ -19,7 +23,6 @@ const CERTIFICATE_NUMBER_MAX_LENGTH = 100;
 // and zod checks the cap first.
 const DUPLICATE_KIND = "Each certification may be selected only once.";
 const LICENSE_COPY_NAME_MAX_LENGTH = 200;
-// 5 MiB, although the refusal says "5 MB".
 const LICENSE_COPY_MAX_BYTES = 5 * 1024 * 1024;
 // A Map, not an object literal: the type is user input, and "constructor"
 // would find an inherited property instead of no entry.
@@ -31,6 +34,11 @@ const LICENSE_COPY_EXTENSIONS = new Map<string, string[]>([
   ["image/heic", ["heic"]],
   ["image/heif", ["heif"]],
 ]);
+
+/** The MIME types a license copy may have, in the order refusals name them. */
+export const LICENSE_COPY_TYPES: readonly string[] = [
+  ...LICENSE_COPY_EXTENSIONS.keys(),
+];
 
 /** Certificate kinds a member may record, the legacy ratings included. */
 export const certificationKinds = [
@@ -74,7 +82,8 @@ const legacyQualificationSchema = z.object({
 });
 
 /**
- * One certificate. Dates are ISO dates or "".
+ * One certificate. Dates are ISO dates or "". `pending` is true while an
+ * administrator has not approved it as filed or last changed.
  *
  * @throws {z.ZodError} From `parse()` on an invalid field, including
  *   "Certificate number is too long (up to 100 characters)." and "Renewal
@@ -97,6 +106,7 @@ export const certificationSchema = z
     powerplant: z.boolean().optional(),
     ia: z.boolean().optional(),
     legacyQualifications: z.array(legacyQualificationSchema).optional(),
+    pending: z.boolean().optional(),
   })
   .refine((c) => !c.issuedOn || !c.renewalDate || c.renewalDate >= c.issuedOn, {
     message: "Renewal date must be on or after the issue date.",
@@ -180,9 +190,9 @@ export interface CertificationFile {
 }
 
 /**
- * The certificates a member can cite on an entry dated `asOf`: those with a
- * number, issued on or before it or with no issue date. Expiry dates are not
- * applied.
+ * The certificates a member can cite on an entry dated `asOf`: approved ones
+ * with a number, issued on or before it or with no issue date. Expiry dates
+ * are not applied.
  *
  * @param user - The member; their certificates are folded first.
  * @param asOf - The entry's local date; today by default.
@@ -194,8 +204,8 @@ export function certificateOptions(
   user: Pick<Member, "certifications">,
   asOf = localDate(),
 ) {
-  return normalizeCertifications(user.certifications ?? [])
-    .filter((c) => c.number && (!c.issuedOn || c.issuedOn <= asOf))
+  return filedCertificates(user, asOf)
+    .filter((c) => !c.pending)
     .map((c) => ({
       key: c.kind as string,
       licenseNumber: c.number,
@@ -204,6 +214,23 @@ export function certificateOptions(
           ? mechanicCertificateType(c)
           : certificateTypes[c.kind],
     }));
+}
+
+/**
+ * The numbered certificates a member holds on `asOf`, approved or not: those
+ * issued on or before it or with no issue date.
+ *
+ * @param user - The member; their certificates are folded first.
+ * @param asOf - A local date; today by default.
+ * @returns The certificates, in folded order.
+ */
+export function filedCertificates(
+  user: Pick<Member, "certifications">,
+  asOf = localDate(),
+): Certification[] {
+  return normalizeCertifications(user.certifications ?? []).filter(
+    (c) => c.number && (!c.issuedOn || c.issuedOn <= asOf),
+  );
 }
 
 /**
@@ -235,6 +262,29 @@ export function memberLicense(
 }
 
 /**
+ * One certificate in a line of plain words, as Settings and the approval list
+ * show it: the number, a mechanic's ratings and IA renewal or a pilot's
+ * expiry, and "Waiting for approval" while it is pending.
+ *
+ * @returns The parts joined with " · "; "Number not recorded" for no number.
+ */
+export function certificateSummary(c: Certification): string {
+  const number = c.number ? `No. ${c.number}` : "Number not recorded";
+  const details =
+    c.kind === "mechanic"
+      ? [
+          [c.airframe && "Airframe", c.powerplant && "Powerplant", c.ia && "IA"]
+            .filter(Boolean)
+            .join(", "),
+          c.ia && c.renewalDate && `IA renewal ${c.renewalDate}`,
+        ]
+      : [c.expiresOn && `Expires ${c.expiresOn}`];
+  return [number, ...details, c.pending && "Waiting for approval"]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
  * Checks a license copy before upload: a PDF, JPEG, PNG, WebP, HEIC or HEIF
  * whose extension matches its type, with a name of at most 200 characters.
  *
@@ -243,7 +293,7 @@ export function memberLicense(
  * @param size - The file size in bytes.
  * @throws {Rejection} "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license
  *   copy." for any other file; "License copies must be between 1 byte and 5
- *   MB." outside 1 byte to 5 MiB.
+ *   MiB." for any other size.
  */
 export function validateCertificationFile(
   name: string,
@@ -260,7 +310,7 @@ export function validateCertificationFile(
       "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
     );
   if (!Number.isSafeInteger(size) || size <= 0 || size > LICENSE_COPY_MAX_BYTES)
-    throw new Rejection("License copies must be between 1 byte and 5 MB.");
+    throw new Rejection("License copies must be between 1 byte and 5 MiB.");
 }
 
 function isRating(c: Certification): c is Certification & { kind: RatingKind } {

@@ -13,7 +13,10 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
 import { taskCardCommand } from "../tests/fixtures/taskCards";
-import { taskCardFieldsSchema } from "../src/domain/taskCards";
+import {
+  inspectorCertificatePending,
+  taskCardFieldsSchema,
+} from "../src/domain/taskCards";
 import { MAX_ATTACHMENTS } from "./attachments";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -63,6 +66,22 @@ async function fixture() {
     inspector: t.withIdentity(identities.inspector),
     inspectorId: identities.inspector.subject.split("|")[0] as Id<"users">,
   };
+}
+async function systemAdministrator(t: ReturnType<typeof convexTest>) {
+  const subject = await t.run(async (ctx) => {
+    const user = await ctx.db.insert("users", {
+      name: "Root",
+      active: true,
+      isAdmin: true,
+      groupIds: [],
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: user,
+      expirationTime: Date.now() + 86400000,
+    });
+    return `${user}|${session}`;
+  });
+  return t.withIdentity({ subject });
 }
 it("persists cards, enforces access and prevents forged signoffs", async () => {
   const { t, tech, reader } = await fixture(),
@@ -212,7 +231,7 @@ it("shows a refused evidence file to the user, and keeps no file the card refuse
       client.action(api.taskCards.upload, file),
     ).rejects.toMatchObject({
       name: "ConvexError",
-      data: "Choose a PDF, JPEG or PNG file up to 7 MB.",
+      data: "Choose a PDF, JPEG or PNG file up to 7 MiB.",
     });
   await t.run(async (ctx) => {
     const storageId = await ctx.storage.store(new Blob(["photo"]));
@@ -236,6 +255,7 @@ it("shows a refused evidence file to the user, and keeps no file the card refuse
       ...file,
       name: "photo.jpg",
       type: "image/jpeg",
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer,
     }),
   ).rejects.toMatchObject({
     name: "ConvexError",
@@ -243,8 +263,37 @@ it("shows a refused evidence file to the user, and keeps no file the card refuse
   });
   expect(await stored()).toBe(before);
 });
-it("rejects an inspection signoff until the inspector has a certificate on file", async () => {
-  const { tech, inspector, inspectorId } = await fixture(),
+it("refuses evidence whose first bytes are not its declared type, storing nothing", async () => {
+  const { t, tech, reader } = await fixture(),
+    command = taskCardCommand();
+  command.fields.steps = [];
+  await tech.mutation(api.taskCards.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(command),
+  });
+  const renamed = {
+    programUuid: "demo-program",
+    taskCardUuid: command.uuid,
+    category: "photo" as const,
+    name: "IMG_0001.jpg",
+    type: "image/jpeg",
+    bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')
+      .buffer,
+  };
+  for (const client of [tech, reader])
+    await expect(
+      client.action(api.taskCards.upload, renamed),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "This file's contents do not match its type. Choose a PDF, JPEG or PNG file.",
+    });
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("taskEvidence").collect()).toEqual([]);
+    expect(await ctx.db.system.query("_storage").collect()).toEqual([]);
+  });
+});
+it("rejects an inspection signoff until the inspector has an approved certificate on file", async () => {
+  const { t, tech, inspector, inspectorId } = await fixture(),
     command = taskCardCommand();
   command.fields.steps = [];
   const save = (client: typeof tech, payload: unknown) =>
@@ -310,17 +359,24 @@ it("rejects an inspection signoff until the inspector has a certificate on file"
   );
   card = await getCard();
   expect(card.inspectionSignoff).toBeNull();
+  const mechanic = {
+    kind: "mechanic",
+    number: "3456789",
+    issuedOn: "",
+    airframe: true,
+    powerplant: true,
+  };
   await inspector.mutation(api.certifications.save, {
     userId: inspectorId,
-    payload: JSON.stringify([
-      {
-        kind: "mechanic",
-        number: "3456789",
-        issuedOn: "",
-        airframe: true,
-        powerplant: true,
-      },
-    ]),
+    payload: JSON.stringify([mechanic]),
+  });
+  // Filed by its holder, the certificate waits for an administrator.
+  await expect(inspect()).rejects.toThrow(inspectorCertificatePending);
+  const root = await systemAdministrator(t);
+  await root.mutation(api.certifications.approve, {
+    userId: inspectorId,
+    programUuid: "demo-program",
+    certificate: JSON.stringify(mechanic),
   });
   await inspect();
   card = await getCard();

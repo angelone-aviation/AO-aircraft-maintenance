@@ -6,10 +6,12 @@
  * Layer: UI. React components; the server enforces every permission shown.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/domain (model, programs, groupAircraft,
- *   accountRules), ./DeleteGroupButton, ./PermissionGroupForm, ./Fleet, ./ui,
+ *   accountRules), ./CertificateApprovals, ./DeleteGroupButton,
+ *   ./PermissionGroupForm, ./Fleet, ./ui,
  *   ./design, src/styles/screens/admin.css (and settings.css for the CSV
  *   export card, which only Settings shows).
  */
+import { CertificateApprovals } from "./CertificateApprovals";
 import { DeleteGroupButton } from "./DeleteGroupButton";
 import { Link } from "@tanstack/react-router";
 import { GroupForm } from "./PermissionGroupForm";
@@ -164,6 +166,7 @@ export function ProgramUsers() {
     <div className="adm-page">
       <AdministrationHeader {...props} />
       <ConnectionNotices enabled={enabled} demo={demo} />
+      <CertificateApprovals />
       <UsersSection {...props} />
       <GroupsSection {...props} />
       <AircraftSection {...props} />

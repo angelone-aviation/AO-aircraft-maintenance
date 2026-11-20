@@ -4,8 +4,8 @@
  * Layer: Server. One public action and internal functions; the key is stored
  *   sealed and never returned.
  * Dependencies: convex/secrets, convex/secretsMigration, convex/access,
- *   convex/recordsDate, src/domain/faaCredential, src/domain/rejection,
- *   convex/values, zod.
+ *   convex/recordsDate, convex/urgentAlerts, src/domain/faaCredential,
+ *   src/domain/rejection, convex/values, zod.
  *
  * faaCredentialStatus is the one reader of the row for snapshots and alerts,
  * so what leaves the server about the key is decided here.
@@ -25,6 +25,7 @@ import { ConvexError, v } from "convex/values";
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import { admin, audit } from "./access";
 import { recordsDate } from "./recordsDate";
+import { scheduleSystemAlerts } from "./urgentAlerts";
 import {
   faaCredentialInput,
   type FaaCredentialStatus,
@@ -122,7 +123,8 @@ export async function faaSecret(
  * @param expiresOn - The renewal date (YYYY-MM-DD).
  * @param version - The settings version the form was loaded with.
  * @returns null. Bumps the version and audits `faa.key.updated` with the
- *   renewal date and version, never the key.
+ *   renewal date and version, never the key. A new renewal date schedules
+ *   the system administrators' urgent-alert check.
  * @throws {ConvexError} "Administrator permission required."; "The renewal
  *   date must be in the future."; STALE_RECORD_MESSAGE for a stale version.
  * @throws {z.ZodError} For a malformed date or version; after the version
@@ -148,6 +150,7 @@ export const commit = internalMutation({
     await audit(ctx, user._id, "faa.key.updated", "faa-key", {
       after: { expiresOn: value.expiresOn, version: value.version },
     });
+    if (saved?.expiresOn !== value.expiresOn) await scheduleSystemAlerts(ctx);
     return null;
   },
 });
@@ -183,7 +186,8 @@ export const replace = action({
 
 /**
  * Records the renewal date of a key that lives only in FAA_DRS_API_KEY,
- * without reading or changing the key. Run once by hand; it does nothing once
+ * without reading or changing the key, and schedules the system
+ * administrators' urgent-alert check. Run once by hand; it does nothing once
  * key settings exist.
  *
  * @param expiresOn - The renewal date (YYYY-MM-DD).
@@ -200,6 +204,7 @@ export const initializeExpiry = internalMutation({
       version: 1,
       updatedAt: Date.now(),
     });
+    await scheduleSystemAlerts(ctx);
   },
 });
 

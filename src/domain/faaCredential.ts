@@ -111,5 +111,6 @@ function describeExpiry(expiresOn: string, days: number) {
     days <= RENEWAL_WARNING_DAYS
       ? " Renew it before AD monitoring is interrupted."
       : "";
-  return `FAA API key expires on ${expiresOn} (${days} days remaining).${reminder}`;
+  const left = `${days} day${days === 1 ? "" : "s"}`;
+  return `FAA API key expires on ${expiresOn} (${left} remaining).${reminder}`;
 }

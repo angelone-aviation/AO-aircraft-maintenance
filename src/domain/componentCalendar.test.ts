@@ -30,11 +30,13 @@ it("uses an average month and shows months to three decimals", () => {
   expect(daysPerServiceMonth).toBe(365.25 / 12);
   expect(serviceMonthsFromDays(1)).toBe(0.033);
 });
-it("rounds to the nearest day and caps the total at 365,000 days", () => {
+it("rounds to the nearest day and caps the months where the refusal says", () => {
   expect(serviceDaysFromMonths("1")).toBe(30);
   expect(serviceDaysFromMonths(" 1.5 ")).toBe(46);
-  expect(serviceDaysFromMonths("11991.802")).toBe(365000);
-  expect(() => serviceDaysFromMonths("11991.803")).toThrow(
-    Error("Enter valid prior months in service between 0 and 11991.786."),
+  expect(serviceDaysFromMonths("11991.786")).toBe(365000);
+  expect(() => serviceDaysFromMonths("11991.787")).toThrow(
+    new Rejection(
+      "Enter valid prior months in service between 0 and 11991.786.",
+    ),
   );
 });

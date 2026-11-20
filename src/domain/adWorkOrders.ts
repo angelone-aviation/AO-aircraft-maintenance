@@ -16,8 +16,10 @@ import type { Snapshot } from "./model";
 /** The applicability decisions under which an AD's actions are tracked. */
 export const TRACKED_AD_APPLICABILITY = TRACKED_APPLICABILITY;
 
-/** The action and AD statuses with something due for a work order to do. */
-export const OPEN_AD_STATUSES: readonly string[] = [
+// The action statuses with something due for a work order to do. The AD's
+// own status is not consulted: it can read "Due not set" or "Counter
+// unavailable" while one of its actions is due.
+const OPEN_AD_STATUSES: readonly string[] = [
   "Scheduled",
   "Due soon",
   "Overdue",

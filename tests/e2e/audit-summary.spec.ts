@@ -1,5 +1,5 @@
 /**
- * Responsibility: Pins the Weekly summary tab of Change history in the demo:
+ * Responsibility: Pins the Summary tab of Change history in the demo:
  *   a change made in the session is counted for its author, the period
  *   switches, refused sign-ins are not claimed as 0 inside a program, and
  *   the table exports as CSV.
@@ -9,7 +9,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
-test("weekly summary counts the session's changes by person and exports CSV", async ({
+test("the Summary tab counts the session's changes by person and exports CSV", async ({
   page,
 }) => {
   await page.addInitScript(() =>
@@ -29,7 +29,10 @@ test("weekly summary counts the session's changes by person and exports CSV", as
   await expect(page.getByRole("dialog")).not.toBeVisible();
 
   await page.getByRole("link", { name: "Change history", exact: true }).click();
-  await page.getByRole("button", { name: "Weekly summary" }).click();
+  // It covers 7 days, 30 days or a custom range, so the tab is not "Weekly".
+  const views = page.getByRole("group", { name: "History view", exact: true });
+  await expect(views.getByRole("button")).toHaveText(["Change log", "Summary"]);
+  await views.getByRole("button", { name: "Summary", exact: true }).click();
   const table = page.getByRole("table", { name: "Changes by person" });
   await expect(table).toBeVisible();
   const row = table.getByRole("row", { name: /Alex Morgan/ });

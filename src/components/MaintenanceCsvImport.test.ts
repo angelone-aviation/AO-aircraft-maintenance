@@ -323,17 +323,17 @@ describe("maintenance CSV import", () => {
     );
   });
 
-  it("refuses no files, a file over 2 MB and one not in UTF-8", async () => {
+  it("refuses no files, a file over 2 MiB and one not in UTF-8", async () => {
     open();
     const label = "Validate and preview CSVs";
     expect(await submit(label)).toBe("Choose at least one CSV file.");
     const big = "x".repeat(2 * 1024 * 1024 + 1);
     expect(await submit(label, csvFiles({ components: big }))).toBe(
-      "components: use a CSV file up to 2 MB.",
+      "components: use a CSV file up to 2 MiB.",
     );
     const largest = "x".repeat(CSV_MAX_BYTES);
     expect(await submit(label, csvFiles({ components: largest }))).not.toBe(
-      "components: use a CSV file up to 2 MB.",
+      "components: use a CSV file up to 2 MiB.",
     );
     const latin1 = new Uint8Array([0x69, 0x64, 0xe9]);
     expect(await submit(label, csvFiles({ tasks: latin1 }))).toBe(

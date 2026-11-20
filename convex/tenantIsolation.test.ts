@@ -53,6 +53,9 @@ const PDF_FILE = {
   type: PDF_TYPE,
   bytes: new TextEncoder().encode(PDF).buffer,
 };
+const PNG_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]).buffer;
 // A well-formed base64 SHA-256; no file is ever uploaded against it.
 const SHA256 = `${"A".repeat(43)}=`;
 const NEW_ACCOUNT = {
@@ -100,6 +103,8 @@ const INVENTORY_ADMIN =
   "Inventory administrator access to this item is required.";
 const LICENSE_OWNER =
   "Only the account owner or an administrator may access license records.";
+const APPROVER_ONLY =
+  "Only a system administrator, or a Flight Program administrator of the member's program, may approve their certificates, and nobody their own.";
 const STALE_PROGRAM =
   "Flight Program changed. Reopen the form in the correct program.";
 const ADMIN = "Administrator permission required.";
@@ -109,6 +114,11 @@ const RECORD_TAKEN = "Record belongs to another Flight Program.";
 const PO_NOT_FOUND = "PO not found.";
 const HISTORY_NOT_FOUND = "History not found.";
 const GROUP_NOT_FOUND = "Permission group not found.";
+const ATTACHMENT_NOT_FOUND = "Attachment not found.";
+const DOCUMENT_NOT_FOUND = "Document not found.";
+const LICENSE_COPY_NOT_FOUND = "License copy not found.";
+const EVIDENCE_NOT_FOUND = "Evidence not found.";
+const NO_SESSION = "An active account and session are required.";
 
 type Kind = "query" | "mutation" | "action";
 type Convex = TestConvex<typeof schema>;
@@ -157,7 +167,6 @@ const NOT_PROGRAM_SCOPED: Record<string, string> = {
   "auth:isAuthenticated": "Convex Auth; answers for the caller's own session.",
   "identities:mine": "Lists the caller's own linked identities.",
   "operations:signedInUser": "Returns the caller's own user id.",
-  "admin:saveLicense": "Writes the caller's own license fields.",
   "admin:saveLogbookPhrases": "Writes the caller's own logbook phrases.",
   "admin:saveReleaseStatements": "Writes the caller's own release statements.",
   "alerts:setEmailPreference": "Writes the caller's own alert-email choice.",
@@ -201,6 +210,7 @@ const CASES: Case[] = [
   callMutation(api.operations.deferDiscrepancy, "A's report", (a) =>
     sendInB({
       uuid: a.row.discrepancies.uuid,
+      foundOn: "2026-01-01",
       deferredOn: "2026-01-01",
       deferral: { type: "mel", melItem: "1", category: "C", placard: "Inop" },
     }),
@@ -233,10 +243,10 @@ const CASES: Case[] = [
   ).refuses(WORK_ORDER_DENIED),
   callMutation(api.workOrders.removeFile, "A's work order file", (a) =>
     stampB({ id: a.row.workOrderFiles._id }),
-  ).refuses(AIRCRAFT_DENIED),
+  ).refuses(ATTACHMENT_NOT_FOUND),
   callAction(api.workOrders.upload, "A's work order", (a) =>
     stampB({ workOrderUuid: a.row.workOrders.uuid, ...PDF_FILE }),
-  ).refuses(AIRCRAFT_DENIED),
+  ).refuses(WORK_ORDER_NOT_FOUND),
   callMutation(api.workOrderCopies.resume, "A's work order", (a) => ({
     workOrderUuid: a.row.workOrders.uuid,
     programUuid: PROGRAM_B,
@@ -278,7 +288,7 @@ const CASES: Case[] = [
   ).refuses(RECORD_TAKEN),
   callMutation(api.taskCards.removeEvidence, "A's job card evidence", (a) =>
     stampB({ id: a.row.taskEvidence._id }),
-  ).refuses("Evidence not found."),
+  ).refuses(EVIDENCE_NOT_FOUND),
   callAction(api.taskCards.upload, "evidence on A's job card", (a) =>
     stampB({
       taskCardUuid: a.row.taskCards.uuid,
@@ -314,7 +324,7 @@ const CASES: Case[] = [
   ).refuses(PERMISSION_DENIED),
   callMutation(api.inventoryFiles.remove, "A's stock file", (a) =>
     stampB({ id: a.row.inventoryFiles._id }),
-  ).refuses(INVENTORY_ADMIN),
+  ).refuses(ATTACHMENT_NOT_FOUND),
   callAction(api.inventoryFiles.upload, "a file on A's stock", (a) =>
     stampB({ stockUuid: a.row.inventoryFiles.stockUuid, ...PDF_FILE }),
   ).refuses(INVENTORY_ADMIN),
@@ -326,7 +336,7 @@ const CASES: Case[] = [
   ).refuses(PO_NOT_FOUND),
   callMutation(api.poFiles.remove, "A's purchase order file", (a) =>
     stampB({ id: a.row.poFiles._id }),
-  ).refuses(PO_NOT_FOUND),
+  ).refuses(ATTACHMENT_NOT_FOUND),
   callMutation(FILE_LINKS, "a link to A's purchase order file", (a) =>
     stampB({ files: [{ kind: "poFile", id: a.row.poFiles._id }] }),
   ).returns([null]),
@@ -459,7 +469,7 @@ const CASES: Case[] = [
     stampB({
       aircraftUuid: a.row.aircraft.uuid,
       type: "image/png",
-      bytes: PDF_FILE.bytes,
+      bytes: PNG_BYTES,
     }),
   ).refuses(MAINTENANCE),
   callMutation(api.aircraftPhotos.remove, "A's aircraft photo", (a) =>
@@ -467,7 +477,7 @@ const CASES: Case[] = [
   ).refuses(MAINTENANCE),
   callMutation(api.aircraftFiles.archive, "A's Form 337", (a) =>
     stampB({ id: a.row.aircraftFiles._id, reason: "Superseded." }),
-  ).refuses(MAINTENANCE),
+  ).refuses(DOCUMENT_NOT_FOUND),
   callMutation(FILE_LINKS, "a link to A's Form 337", (a) =>
     stampB({ files: [{ kind: "aircraftFile", id: a.row.aircraftFiles._id }] }),
   ).returns([null]),
@@ -644,12 +654,25 @@ const CASES: Case[] = [
   ).returns([null]),
   callMutation(api.certifications.remove, "Alice's license copy", (a) => ({
     id: a.row.certificationFiles._id,
-  })).refuses(LICENSE_OWNER),
+  })).refuses(LICENSE_COPY_NOT_FOUND),
   callAction(api.certifications.upload, "a license copy for Alice", (a) => ({
     userId: a.alice,
     kind: "ap",
     ...PDF_FILE,
   })).refuses(LICENSE_OWNER),
+  callMutation(api.certifications.approve, "Alice's certificate", (a) =>
+    stampB({
+      userId: a.alice,
+      certificate: JSON.stringify({
+        kind: "mechanic",
+        number: "1",
+        issuedOn: "",
+      }),
+    }),
+  ).refuses(APPROVER_ONLY),
+  callQuery(api.certifications.awaitingApproval, "Alice's certificates", () =>
+    stampB({}),
+  ).returns([]),
   callMutation(api.admin.updateUser, "itself, into A", (a, me) => ({
     id: me,
     active: true,
@@ -763,6 +786,122 @@ describe("B's board member", () => {
   });
 });
 
+// Security review T4: an id that names A's record must be refused exactly
+// as one whose record is gone, and an anonymous caller must meet the session
+// check before any read, or either could tell that A's record exists.
+type IdTable =
+  | "aircraftFiles"
+  | "certificationFiles"
+  | "inventoryFiles"
+  | "poFiles"
+  | "taskEvidence"
+  | "workOrderFiles";
+type Caller = Pick<Client, "query" | "mutation">;
+const ID_CASES: {
+  fn: string;
+  table: IdTable;
+  call: (client: Caller, id: string) => Promise<unknown>;
+}[] = [
+  {
+    fn: "aircraftFiles:archive",
+    table: "aircraftFiles",
+    call: (c, id) =>
+      c.mutation(
+        api.aircraftFiles.archive,
+        stampB({ id: asId<"aircraftFiles">(id), reason: "Superseded." }),
+      ),
+  },
+  {
+    fn: "certifications:remove",
+    table: "certificationFiles",
+    call: (c, id) =>
+      c.mutation(api.certifications.remove, {
+        id: asId<"certificationFiles">(id),
+      }),
+  },
+  {
+    fn: "inventoryFiles:remove",
+    table: "inventoryFiles",
+    call: (c, id) =>
+      c.mutation(
+        api.inventoryFiles.remove,
+        stampB({ id: asId<"inventoryFiles">(id) }),
+      ),
+  },
+  {
+    fn: "poFiles:remove",
+    table: "poFiles",
+    call: (c, id) =>
+      c.mutation(api.poFiles.remove, stampB({ id: asId<"poFiles">(id) })),
+  },
+  {
+    fn: "taskCards:removeEvidence",
+    table: "taskEvidence",
+    call: (c, id) =>
+      c.mutation(
+        api.taskCards.removeEvidence,
+        stampB({ id: asId<"taskEvidence">(id) }),
+      ),
+  },
+  {
+    fn: "workOrders:removeFile",
+    table: "workOrderFiles",
+    call: (c, id) =>
+      c.mutation(
+        api.workOrders.removeFile,
+        stampB({ id: asId<"workOrderFiles">(id) }),
+      ),
+  },
+];
+// A link to another program's file answers as one to a deleted file does:
+// null, not a refusal, since a link request names many files at once.
+const LINK_CASES = [
+  ["aircraftFiles", "aircraftFile"],
+  ["certificationFiles", "certificationFile"],
+  ["inventoryFiles", "inventoryFile"],
+  ["poFiles", "poFile"],
+  ["taskEvidence", "taskEvidence"],
+  ["workOrderFiles", "workOrderFile"],
+] as const;
+
+describe("an id of A's record", () => {
+  let world: Awaited<ReturnType<typeof seedWorld>>;
+
+  beforeAll(async () => {
+    world = await seedWorld(false);
+  });
+
+  it.each(ID_CASES)(
+    "$fn: refused as if the record were gone",
+    async ({ table, call }) => {
+      const theirs = world.a.row[table]._id;
+      const gone = await copyThenDelete(world.t, table, theirs);
+      const outsider = await settle(call(world.attacker, theirs));
+      expect(outsider).toHaveProperty("refused");
+      expect(outsider).toEqual(await settle(call(world.attacker, gone)));
+      for (const id of [theirs, gone])
+        expect(await settle(call(world.t, id))).toEqual({
+          refused: NO_SESSION,
+        });
+    },
+  );
+
+  it.each(LINK_CASES)(
+    "fileLinks:links: a link to one of %s answers as for a gone one",
+    async (table, kind) => {
+      const ask = (client: Caller, id: string) =>
+        client.mutation(FILE_LINKS, stampB({ files: [{ kind, id }] }));
+      const theirs = world.a.row[table]._id;
+      const gone = await copyThenDelete(world.t, table, theirs);
+      const outsider = await settle(ask(world.attacker, theirs));
+      expect(outsider).toEqual({ returned: [null] });
+      expect(outsider).toEqual(await settle(ask(world.attacker, gone)));
+      for (const id of [theirs, gone])
+        expect(await settle(ask(world.t, id))).toEqual({ refused: NO_SESSION });
+    },
+  );
+});
+
 it("attacks every public function, or says why it need not", async () => {
   const exported = await listPublicFunctions();
   const covered = new Set([
@@ -843,6 +982,22 @@ function findNamesOfA(outcome: Outcome, a: ProgramA, memberOfA: boolean) {
   const text = JSON.stringify(outcome);
   const names = memberOfA ? a.recordUuids : [PROGRAM_A, ...a.recordUuids];
   return names.filter((name) => text.includes(name));
+}
+
+// The tests pass ids of several tables through one signature.
+function asId<T extends TableNames>(id: string): Id<T> {
+  return id as Id<T>;
+}
+
+// An id of `table` that no row holds any longer: a copy of the row, deleted.
+async function copyThenDelete(t: Convex, table: IdTable, id: string) {
+  return t.run(async (ctx) => {
+    const row = await ctx.db.get(asId<IdTable>(id));
+    const { _id, _creationTime, ...fields } = row!;
+    const copy = await ctx.db.insert(table, fields as never);
+    await ctx.db.delete(copy);
+    return copy as string;
+  });
 }
 
 function stampA<T extends object>(fields: T) {
@@ -927,6 +1082,7 @@ function buildReview(flight: Doc<"flights">, aircraftUuid: string) {
   const { destination, operation, flightRules, remarks, discrepancy } = flight;
   return stampB({
     uuid: flight.uuid,
+    requestUuid: crypto.randomUUID(),
     decision: "reject" as const,
     reason: "Not our flight.",
     input: {

@@ -131,10 +131,10 @@ function initialScope(
   return listsAllAircraft(initial) ? "all" : "selected";
 }
 
-// The snapshot holds the active program's fleet only. For another program
-// (an unscoped group being assigned) the group's aircraft cannot be shown, so
-// they are kept for the server to check against that program. In the active
-// program, ids no longer listed left it and are dropped.
+// The snapshot holds the active program's fleet only. For a group of another
+// program the group's aircraft cannot be shown, so they are kept for the
+// server to check against that program. In the active program, ids no longer
+// listed left it and are dropped.
 function aircraftAccess(
   s: Snapshot,
   initial: Group | undefined,
@@ -153,7 +153,7 @@ function aircraftAccess(
     !!initial?.aircraftIds.length &&
     !initial.aircraftIds.some(isListed);
   const aircraftIds = [...checked.map((a) => a.uuid), ...kept];
-  return { listed, fleetShown, kept, checked, departed, aircraftIds };
+  return { listed, fleetShown, checked, departed, aircraftIds };
 }
 
 function groupToSave(
@@ -320,7 +320,7 @@ function ScopeChoice({ draft }: { draft: GroupDraft }) {
 }
 
 function AccessNotices({
-  draft: { owner, scope, all, departed, checked, kept },
+  draft: { owner, scope, departed, checked },
   review,
 }: {
   draft: GroupDraft;
@@ -344,12 +344,6 @@ function AccessNotices({
             ? "Check the owner's aircraft."
             : "Choose aircraft or all aircraft."}
         </NoticeBar>
-      )}
-      {kept.length > 0 && !all && (
-        <p className="muted">
-          Keeps {kept.length} aircraft chosen earlier; they must belong to the
-          selected Flight Program.
-        </p>
       )}
     </>
   );

@@ -18,7 +18,7 @@ name,description,hours,cycles,calendar_value,calendar_unit,initial_hours,initial
 
 Calendar units are DAYS, MONTHS or YEARS. Requirement types are Inspection Requirement, Overhaul Requirement or Life Limits. Time bases are TSN, TSO or TSR. Limit modes are ABSOLUTE or FROM_LAST_COMPLIED. Blank numeric fields mean unknown; positive hours use at most one decimal place and cycles/calendar values are positive integers. If no numeric interval is provided, conditions must explain the requirement. No due dates are calculated for templates.
 
-CSV preview identifies invalid rows; only selected valid rows are submitted. A batch save is atomic. Duplicate names within the same model/part/group, and repeat imports of a source row within the same model association, are rejected. Edit or unarchive the existing template instead. Version checks reject stale edits. Individual templates with tasks are limited to 800 KB; a save batch is limited to 2 MB and 2,000 templates.
+CSV preview identifies invalid rows; only selected valid rows are submitted. A batch save is atomic. Duplicate names within the same model/part/group, and repeat imports of a source row within the same model association, are rejected. Edit or unarchive the existing template instead. Version checks reject stale edits. Individual templates with tasks are limited to 800 KB; a save batch is limited to 2 MiB and 2,000 templates.
 
 ## Create an operational schedule
 

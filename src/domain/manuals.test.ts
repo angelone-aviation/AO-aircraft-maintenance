@@ -40,7 +40,7 @@ describe("manual files", () => {
     ]) {
       expect(() => validateManualFile(file)).toThrow(Rejection);
       expect(() => validateManualFile(file)).toThrow(
-        Error("Choose a PDF up to 200 MB."),
+        Error("Choose a PDF up to 200 MiB."),
       );
     }
   });

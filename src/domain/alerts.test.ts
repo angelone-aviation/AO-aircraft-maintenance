@@ -14,7 +14,6 @@ import {
 } from "../../tests/fixtures/dueFleet";
 import { demoSnapshot } from "../data/demo";
 import {
-  ALERTS_SKIPPED_AD_STATUSES,
   computeAlerts as allAlerts,
   URGENT_ALERT_KINDS,
   systemDateAlerts,
@@ -28,8 +27,10 @@ import { digestEmail, DIGEST_LIMIT } from "./alertDigest";
 import {
   blankAD,
   blankADTask,
-  DASHBOARD_SETTLED_AD_STATUSES,
+  adStatus,
+  SETTLED_AD_STATUSES,
 } from "./airworthiness";
+import { adAircraftUuid } from "./adOwnership";
 import type { Component, ComponentRequirement } from "./components";
 import type { FaaCandidate } from "./faa";
 import { totalSeconds, type Snapshot } from "./model";
@@ -139,15 +140,38 @@ describe("AD alerts", () => {
     r.reviewRequired = true;
     expect(kinds(computeAlerts(s, today))).toEqual(["ad-overdue"]);
   });
-  it("skips fewer statuses than the dashboard's AD panel (Characterizes current behaviour; T13)", () => {
-    expect(ALERTS_SKIPPED_AD_STATUSES).toEqual([
-      "Not applicable",
-      "Superseded",
-      "Removed component",
-      "Previously Complied With (PCW)",
+  it("asks for review of an AD that needs attention but has no action coming due", () => {
+    const unset = withTask({});
+    expect(computeAlerts(unset.s, today)).toMatchObject([
+      {
+        kind: "ad-review",
+        severity: "info",
+        title: "AD 2026-01-01: Due not set",
+        entityUuid: unset.r.uuid,
+        link: "/airworthiness",
+      },
     ]);
-    expect([...DASHBOARD_SETTLED_AD_STATUSES].sort()).toEqual(
-      [...ALERTS_SKIPPED_AD_STATUSES, "Complied", "Scheduled"].sort(),
+    const review = withTask({ dueDate: plus(31) });
+    review.r.reviewRequired = true;
+    const [alert] = computeAlerts(review.s, today);
+    expect(alert.title).toBe("AD 2026-01-01: Needs review");
+    expect(alert.key).not.toBe(computeAlerts(unset.s, today)[0].key);
+  });
+  it("mentions exactly the ADs the dashboard's AD panel lists", () => {
+    const { s } = dueFleet();
+    const listed = (s.airworthiness ?? []).filter(
+      (r) =>
+        s.aircraft.some((a) => a.uuid === adAircraftUuid(s, r)) &&
+        !SETTLED_AD_STATUSES.includes(adStatus(s, r, DUE_FLEET_TODAY)),
+    );
+    const mentioned = allAlerts(s, DUE_FLEET_TODAY)
+      .filter((a) => a.kind.startsWith("ad-"))
+      .map((a) => a.entityUuid);
+    expect(listed.map((r) => adStatus(s, r, DUE_FLEET_TODAY))).toEqual(
+      expect.arrayContaining(["Counter unavailable", "Due not set"]),
+    );
+    expect([...new Set(mentioned)].sort()).toEqual(
+      listed.map((r) => r.uuid).sort(),
     );
   });
 });
@@ -584,13 +608,14 @@ describe("expiring-date alerts", () => {
 });
 
 describe("urgent alerts", () => {
-  it("are the grounded, overdue, past-due and expired kinds", () => {
+  it("are the grounded, overdue, past-due, expired and report-backlog kinds", () => {
     expect([...URGENT_ALERT_KINDS].sort()).toEqual([
       "ad-overdue",
       "aircraft-grounded",
       "component-past-due",
       "date-expired",
       "inspection-overdue",
+      "report-backlog",
     ]);
     const { s } = dueFleet();
     const all = allAlerts(s, DUE_FLEET_TODAY);
@@ -697,7 +722,7 @@ describe("on the due fleet", () => {
     ).toStrictEqual(DUE_FLEET_ALERTS);
   });
 
-  it("skips an AD limit an aircraft without a meter reading cannot judge, not its passed due dates", () => {
+  it("asks for review of an AD limit an aircraft without a meter reading cannot judge, and alerts its passed due dates", () => {
     const { s, c } = dueFleet();
     withoutMeterReading(s, c);
     const onC = allAlerts(s, DUE_FLEET_TODAY).filter(
@@ -708,6 +733,7 @@ describe("on the due fleet", () => {
       "ad-overdue AD AD-UNREAD-LATE overdue",
       "inspection-overdue Inspection overdue: i-calendar-unread",
       "aircraft-grounded N182MA is grounded",
+      "ad-review AD AD-UNREAD: Counter unavailable",
     ]);
   });
 });
@@ -727,4 +753,7 @@ const DUE_FLEET_ALERTS = [
   "warning | i-today | Inspection due soon: i-today | N206MA · i-today description · due 2026-10-30 | 2026-10-30 | inspection-due-soon|i-today|2026-10-30|||",
   "warning | ad-soon | AD AD-SOON due soon | N206MA · Inspect · due at 2351.2 h |  | ad-due-soon|ad-soon|ad-soon/hourly-2351.2||2351.2||",
   "warning | i-cycles | Inspection due soon: i-cycles | N206MA · i-cycles description · 5 cycles remaining |  | inspection-due-soon|i-cycles|||1899|",
+  "info | ad-counter | AD AD-COUNTER: Counter unavailable | N206MA · Subject |  | ad-review|ad-counter|Counter unavailable",
+  "info | ad-review | AD AD-REVIEW: Needs review | N206MA · Subject |  | ad-review|ad-review|Needs review",
+  "info | ad-unset | AD AD-UNSET: Due not set | N206MA · Subject |  | ad-review|ad-unset|Due not set",
 ];
