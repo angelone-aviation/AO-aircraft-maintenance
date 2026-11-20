@@ -13,7 +13,7 @@
  *   tests/fixtures (workOrders, taskCards, derivedColumns).
  */
 import { convexTest } from "convex-test";
-import { it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -25,6 +25,7 @@ import {
 } from "../src/domain/workOrders";
 import { decode, encode } from "./collections";
 import { syncRecordNumber } from "./recordNumbers";
+import { LATER_WORK_REVIEW } from "../src/domain/workOrderComponentCorrections";
 import { mergeKeepMine } from "../src/domain/recordMerge";
 import {
   WORK_ORDER_KEEP_MINE,
@@ -37,6 +38,7 @@ import {
 import {
   expectDerivedColumns,
   expectRecordNumbers,
+  forgetDerivedColumns,
 } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -1086,4 +1088,110 @@ it("numbers a blank order as the program scan did: the year's first free number,
     "Work order number already exists in this program.",
   );
   await expectRecordNumbers(t, "workOrders", [first, second, gap, next]);
+});
+
+// A component correction reads the later close-outs it checks from the closed
+// index (ADR-0013); it must never pass a correction that a later close-out
+// it did not read would have sent to manual review.
+describe("a component correction and the close-outs after it", () => {
+  // The corrected order, closed out with an overhaul of the engine, and a
+  // correction of it to a repair.
+  async function closedWithCorrection() {
+    const { t, tech } = await fixture();
+    const component = { ...workOrderComponent(), programUuid: PROGRAM };
+    await t.run((ctx) =>
+      ctx.db.insert("management", {
+        uuid: component.uuid,
+        programUuid: PROGRAM,
+        aircraftUuid: component.aircraftUuid,
+        kind: "component",
+        payload: JSON.stringify(component),
+      }),
+    );
+    const cmd = workOrderCommand();
+    cmd.componentUuids = [component.uuid];
+    const send = (payload: unknown) =>
+      tech.mutation(api.workOrders.save, {
+        programUuid: PROGRAM,
+        payload: JSON.stringify(payload),
+      });
+    await send(cmd);
+    await send({
+      ...cmd,
+      version: 1,
+      fields: {
+        ...cmd.fields,
+        status: "completed",
+        completionDate: today(),
+        releaseOutcome: "Reviewed",
+        finalReview: "Reviewed",
+      },
+      componentWork: [
+        {
+          componentUuid: component.uuid,
+          version: component.version,
+          action: "overhaul",
+          description: "Bench work",
+          reference: "",
+        },
+      ],
+    });
+    const before = (await tech.query(api.operations.snapshot, {}))!;
+    const order = before.workOrders![0];
+    const correction = {
+      action: "correctComponent",
+      uuid: order.uuid,
+      version: order.version,
+      aircraftVersion: before.aircraft[0].version,
+      reason: "Repair was performed, not overhaul",
+      choice: {
+        componentUuid: component.uuid,
+        version: before.management!.find((r) => r.uuid === component.uuid)!
+          .version,
+        action: "repair",
+        description: "Bench repair",
+        reference: "",
+      },
+    };
+    // Copies of the corrected order, closed out `n` ms after it, with or
+    // without its work on the engine.
+    const later = (n: number, engine: boolean) =>
+      t.run(async (ctx) => {
+        const { componentWork, ...closeout } = order.closeout!;
+        const copy = workOrderSchema.parse({
+          ...order,
+          uuid: crypto.randomUUID(),
+          number: `WO-LATER-${n}`,
+          closeout: {
+            ...closeout,
+            recordedAt: closeout.recordedAt + n,
+            ...(engine ? { componentWork } : {}),
+          },
+        });
+        await ctx.db.insert("workOrders", encode("workOrders", copy));
+        return copy.uuid;
+      });
+    return { t, correct: () => send(correction), later };
+  }
+
+  it("sends the correction to review for a later close-out of the component on another order", async () => {
+    const { correct, later } = await closedWithCorrection();
+    await later(1, true);
+    await expect(correct()).rejects.toThrow(LATER_WORK_REVIEW);
+  });
+
+  it("still sees a later close-out stored before the closing-time column", async () => {
+    const { t, correct, later } = await closedWithCorrection();
+    await forgetDerivedColumns(t, "workOrders", [await later(1, true)]);
+    await expect(correct()).rejects.toThrow(LATER_WORK_REVIEW);
+  });
+
+  it("checks up to 200 later close-outs, and sends the correction to review past them", async () => {
+    const many = await closedWithCorrection();
+    for (let n = 1; n <= 200; n++) await many.later(n, false);
+    await expect(many.correct()).resolves.toBeDefined();
+    const more = await closedWithCorrection();
+    for (let n = 1; n <= 201; n++) await more.later(n, false);
+    await expect(more.correct()).rejects.toThrow(LATER_WORK_REVIEW);
+  });
 });

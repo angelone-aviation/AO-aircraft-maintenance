@@ -69,19 +69,19 @@
  },
  "workOrder.save": {
   "1": {
-   "bytes": 4589592,
-   "documents": 2972,
-   "indexRanges": 59
+   "bytes": 980731,
+   "documents": 1485,
+   "indexRanges": 50
   },
   "2": {
-   "bytes": 8256282,
-   "documents": 4478,
-   "indexRanges": 59
+   "bytes": 980731,
+   "documents": 1485,
+   "indexRanges": 50
   },
   "3": {
-   "bytes": 11922972,
-   "documents": 5984,
-   "indexRanges": 59
+   "bytes": 980731,
+   "documents": 1485,
+   "indexRanges": 50
   }
  },
  "taskCard.save": {

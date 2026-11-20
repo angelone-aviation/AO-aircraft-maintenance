@@ -34,6 +34,7 @@ const YEARS = [1, 2, 3] as const;
 const ROLES = ["admin", "pilot", "owner", "board"] as const;
 // Three databases of up to about 22,000 rows each on a shared machine.
 const SEED_TIMEOUT_MS = 180_000;
+const FLAT = 1.1;
 
 type Reads = { documents: number; bytes: number; indexRanges: number };
 type Handler<C> = (ctx: C, args: object) => Promise<unknown>;
@@ -58,7 +59,6 @@ describe("Characterizes current behaviour: reads grow with each year of history"
     expectGrowth(`snapshot.${role}`),
   );
   it.each([
-    "workOrder.save",
     "taskCard.save",
     "taskCard.evidence",
     "partsRequest.save",
@@ -66,6 +66,10 @@ describe("Characterizes current behaviour: reads grow with each year of history"
     "purchaseOrder.save",
     "auditHistory.weeklySummary",
   ])("%s", (operation) => expectGrowth(operation));
+});
+
+describe("the bounded saves read the same at three years as at one (S3)", () => {
+  it.each(["workOrder.save"])("%s", (operation) => expectFlat(operation));
 });
 
 // Documents and bytes rise every year. Index ranges do not: each loader
@@ -77,6 +81,14 @@ function expectGrowth(name: string) {
   expect(three.documents, name).toBeGreaterThan(two.documents);
   expect(two.bytes, name).toBeGreaterThan(one.bytes);
   expect(three.bytes, name).toBeGreaterThan(two.bytes);
+  expectSameRanges(name);
+}
+
+// The plan's bar for a bounded read (ADR-0013): within 10% of year 1.
+function expectFlat(name: string) {
+  const [one, , three] = yearsOf(name);
+  expect(three.documents, name).toBeLessThanOrEqual(one.documents * FLAT);
+  expect(three.bytes, name).toBeLessThanOrEqual(one.bytes * FLAT);
   expectSameRanges(name);
 }
 

@@ -4,8 +4,8 @@
  * Layer: Server. A helper for workOrders.save, internal batch workers and one
  *   public mutation; maintenance permission writes.
  * Dependencies: convex/access, convex/programContext, convex/collections,
- *   convex/recordNumbers, src/domain (model, taskCards, workOrders,
- *   workOrderCards).
+ *   convex/recordNumbers, convex/workingSet, src/domain (model, taskCards,
+ *   workOrders, workOrderCards).
  *
  * A work order can name hundreds of templates, more than one mutation may
  * write, so the request captures them and scheduled batches copy them.
@@ -23,6 +23,7 @@ import { audit } from "./access";
 import { checkContext } from "./programContext";
 import { encode } from "./collections";
 import { syncRecordNumber } from "./recordNumbers";
+import { inLoadOrder, looseCardDocs, workOrderCardDocs } from "./workingSet";
 import { can, type Snapshot } from "../src/domain/model";
 import {
   copyTemplateSteps,
@@ -224,16 +225,22 @@ async function orderDocument(ctx: MutationCtx, uuid: string) {
   return doc;
 }
 
-// A template already copied to this order is not copied again.
+// A template already copied to this order is not copied again. Templates are
+// on no work order, so the aircraft's cards on none and the order's own cards
+// are every card the selection reads (ADR-0013), in the aircraft's order.
 async function selectTemplates(
   ctx: MutationCtx,
   order: WorkOrder,
   added: WorkTask[],
 ): Promise<CardCopy[]> {
-  const documents = await ctx.db
-    .query("taskCards")
-    .withIndex("aircraft", (q) => q.eq("aircraftUuid", order.aircraftUuid))
-    .collect();
+  const aircraft = [{ uuid: order.aircraftUuid }];
+  const documents = inLoadOrder(
+    [
+      ...(await looseCardDocs(ctx, aircraft)),
+      ...(await workOrderCardDocs(ctx, [order.uuid], aircraft)),
+    ],
+    aircraft,
+  );
   const cards = documents.map((d) => ({
     payload: d.payload,
     card: JSON.parse(d.payload) as TaskCard,

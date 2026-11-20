@@ -125,14 +125,26 @@ function savedWorkOrder(
 }
 
 // The mutation context with its table reads recorded, in order.
+// Each query as "table.index", or the table alone for one read without an
+// index, in the order the queries start.
 function traceQueries(ctx: MutationCtx) {
   const tables: string[] = [];
   const db = new Proxy(ctx.db, {
     get(target, key) {
       if (key === "query")
         return (table: TableNames) => {
-          tables.push(table);
-          return target.query(table);
+          const at = tables.push(table) - 1;
+          const query = target.query(table);
+          return new Proxy(query, {
+            get(inner, name) {
+              const value = Reflect.get(inner, name);
+              if (name !== "withIndex") return value.bind(inner);
+              return (index: string, range: never) => {
+                tables[at] = `${table}.${index}`;
+                return value.call(inner, index, range);
+              };
+            },
+          });
         };
       const value = Reflect.get(target, key);
       return typeof value === "function" ? value.bind(target) : value;
@@ -140,6 +152,14 @@ function traceQueries(ctx: MutationCtx) {
   });
   return { traced: { ...ctx, db }, tables };
 }
+
+// The order's requests, its items' requests (the lists among them) and the
+// highest-numbered one: never the whole program's.
+const BOUNDED_REQUESTS = [
+  "partsRequests.sourceWorkOrder",
+  "partsRequests.source",
+  "partsRequests.number",
+];
 
 it("persists recurring AD and fast-path inspection occurrences atomically without duplicating on edits", async () => {
   const { t, ad, user, args, inspection } = await setup();
@@ -189,7 +209,7 @@ it("persists recurring AD and fast-path inspection occurrences atomically withou
   );
 });
 
-it("owes nothing to a finished task or a closed work order, and reads nothing more", async () => {
+it("owes nothing to a finished task or a closed work order, and reads only its bounded requests", async () => {
   const { t, s, ad, user, args, inspection } = await setup();
   const command = workOrderCommand();
   command.tasks = [
@@ -208,7 +228,7 @@ it("owes nothing to a finished task or a closed work order, and reads nothing mo
       const entries = await prepareRecurringParts(traced, state, order);
       return { entries, tables };
     });
-  const nothing = { entries: [], tables: ["partsRequests"] };
+  const nothing = { entries: [], tables: BOUNDED_REQUESTS };
   for (const status of ["completed", "cancelled"] as const) {
     expect(await owe({ ...saved, status, tasks: [unserved] })).toEqual(nothing);
     expect(await owe({ ...saved, tasks: [{ ...unserved, status }] })).toEqual(
@@ -222,12 +242,12 @@ it("owes nothing to a finished task or a closed work order, and reads nothing mo
         aircraftUuid: saved.aircraftUuid,
       }),
     ],
-    tables: ["partsRequests", "airworthiness"],
+    tables: [...BOUNDED_REQUESTS, "airworthiness.aircraft"],
   });
   const source = { kind: "inspection" as const, uuid: inspection.uuid };
   expect(
     (await owe({ ...saved, tasks: [{ ...unserved, source }] })).tables,
-  ).toEqual(["partsRequests", "inspections"]);
+  ).toEqual([...BOUNDED_REQUESTS, "inspections.uuid"]);
 });
 
 it("owes a recurring component requirement's list, reading the requirement by its uuid", async () => {
@@ -258,7 +278,7 @@ it("owes a recurring component requirement's list, reading the requirement by it
     const rows = await ctx.db.query("partsRequests").collect();
     return { entries, tables, rows: rows.map((r) => JSON.parse(r.payload)) };
   });
-  expect(owed.tables).toEqual(["partsRequests", "management"]);
+  expect(owed.tables).toEqual([...BOUNDED_REQUESTS, "management.uuid"]);
   expect(owed.entries).toEqual([
     expect.objectContaining({ action: "partsRequest.recurring" }),
   ]);

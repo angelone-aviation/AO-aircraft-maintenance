@@ -341,6 +341,9 @@ export default defineSchema({
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
     .index("workOrder", ["workOrderUuid"])
+    // With workOrderUuid "", an aircraft's templates and loose cards, which
+    // every bounded save reads (ADR-0013).
+    .index("aircraftWorkOrder", ["aircraftUuid", "workOrderUuid"])
     .index("closed", ["aircraftUuid", "closedAt"])
     .index("number", ["aircraftUuid", "numberKey"]),
   taskEvidence: defineTable({

@@ -4,12 +4,22 @@
  * Layer: Server. One runCommand mutation, the rules being the domain's; the
  *   attachment functions check access themselves. Every change is audited.
  * Dependencies: convex (runCommand, programContext, access, attachments,
- *   management, recordNumbers, recurringParts, workOrderCopies, urgentAlerts,
- *   userErrors),
- *   src/domain (workOrders, model, changeLog, inventoryAttachments).
+ *   collections, management, recordNumbers, recurringParts, workingSet,
+ *   workOrderCopies, urgentAlerts, userErrors), src/domain (workOrders,
+ *   workOrderComponentCorrections, model, changeLog, inventoryAttachments).
  */
 import { prepareRecurringParts } from "./recurringParts";
 import { dropRecordNumber, readRecordNumbers } from "./recordNumbers";
+import {
+  inLoadOrder,
+  looseCardDocs,
+  openDiscrepancyDocs,
+  openWorkOrderDocs,
+  workOrderCardDocs,
+  workOrdersClosedSince,
+} from "./workingSet";
+import { decode } from "./collections";
+import { LATER_WORK_REVIEW } from "../src/domain/workOrderComponentCorrections";
 import { ConvexError, v } from "convex/values";
 import { can, localDate, type Snapshot } from "../src/domain/model";
 import { auditEntry } from "../src/domain/changeLog";
@@ -32,7 +42,6 @@ import {
   requestOf,
   requestUuidIn,
   writeChanged,
-  type Hydrated,
   type ProgramContext,
   type Transaction,
 } from "./runCommand";
@@ -64,6 +73,10 @@ type LoadedWorkOrder = Awaited<ReturnType<typeof loadWorkOrder>>;
 // The tenant guard's message. Every row a save writes was loaded from the
 // program or has a fresh uuid, so data the app wrote never meets it.
 const NOT_FOUND = "Work order not found.";
+// The later close-outs a component correction reads before it sends the
+// correction to manual review: about three years at the size test's rate of
+// 72 orders a year.
+const MAX_LATER_CLOSEOUTS = 200;
 
 /**
  * Runs one work order command (save, revise, add work, copy templates or
@@ -251,16 +264,26 @@ async function loadWorkOrder(
   const previous = existing
     ? workOrderSchema.parse(JSON.parse(existing.payload))
     : undefined;
+  // Past this check a stored order is the program's: `can` reads only the
+  // program's aircraft.
   if (previous) assertEditable(state, previous);
-  const orders = await hydrate(ctx, state, ["workOrders"]);
   const aircraftUuid =
     command.action === "save"
       ? command.fields.aircraftUuid
-      : orders.snapshot.workOrders!.find((w) => w.uuid === command.uuid)
-          ?.aircraftUuid;
+      : previous?.aircraftUuid;
   if (!aircraftUuid) throw new ConvexError(NOT_FOUND);
   await authorized(ctx, aircraftUuid, "maintenance", state);
-  const { working, docs } = await loadWorking(ctx, state, orders);
+  const orders = [
+    ...(existing ? [existing] : []),
+    ...(command.action === "correctComponent"
+      ? await laterCloseouts(ctx, state, previous)
+      : []),
+  ];
+  const { working, docs } = await loadWorking(ctx, state, {
+    orders,
+    orderUuid: command.uuid,
+    aircraftUuid,
+  });
   return {
     working,
     docs,
@@ -280,26 +303,72 @@ async function loadWorkOrder(
   };
 }
 
+// The bounded working set (ADR-0013): the order, its job cards, the cards on
+// no work order (templates among them), the aircraft's open problem reports
+// (the work items it offers), and the complete component, inspection and AD
+// records. Work order rules read no other order, card or report.
 async function loadWorking(
   ctx: MutationCtx,
   state: ProgramContext,
-  orders: Hydrated<"workOrders">,
+  target: {
+    orders: Doc<"workOrders">[];
+    orderUuid: string;
+    aircraftUuid: string;
+  },
 ) {
+  const fleet = state.aircraft;
   const { snapshot, docs } = await hydrate(ctx, state, [
     "management",
     "airworthiness",
-    "taskCards",
     "inspections",
-    "discrepancies",
+  ]);
+  const orders = inLoadOrder(target.orders, fleet);
+  const cards = inLoadOrder(
+    [
+      ...(await workOrderCardDocs(ctx, [target.orderUuid], fleet)),
+      ...(await looseCardDocs(ctx, fleet)),
+    ],
+    fleet,
+  );
+  const discrepancies = await openDiscrepancyDocs(ctx, [
+    { uuid: target.aircraftUuid },
   ]);
   const working: Snapshot = {
     ...snapshot,
-    workOrders: orders.snapshot.workOrders,
+    workOrders: decode("workOrders", orders),
+    taskCards: decode("taskCards", cards),
+    discrepancies,
     archivedTaskCards: [],
     // Work order rules never read evidence; it stays out of the transaction.
     taskEvidence: [],
   };
-  return { working, docs: { ...docs, workOrders: orders.docs.workOrders } };
+  return { working, docs: { ...docs, workOrders: orders, taskCards: cards } };
+}
+
+// The orders a correction must see to send later work on its component to
+// review: every order closed out since the corrected one, and every order
+// with no closing time, which covers rows written before the column. Past
+// MAX_LATER_CLOSEOUTS the correction is refused rather than checked against
+// a partial history.
+async function laterCloseouts(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  previous: WorkOrder | undefined,
+) {
+  if (!previous?.closeout) return [];
+  const fleet = state.aircraft;
+  // The corrected order closed no earlier than its close-out, so it is read
+  // too: one row beyond it and the limit shows the limit is passed.
+  const closed = await workOrdersClosedSince(
+    ctx,
+    fleet,
+    previous.closeout.recordedAt,
+    MAX_LATER_CLOSEOUTS + 2,
+  );
+  const later = closed.filter((d) => d.uuid !== previous.uuid);
+  if (later.length > MAX_LATER_CLOSEOUTS)
+    throw new ConvexError(LATER_WORK_REVIEW);
+  return [...closed, ...(await openWorkOrderDocs(ctx, fleet))];
 }
 
 // The program's numbers a save's numbering can meet: the command's and the
