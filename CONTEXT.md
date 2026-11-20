@@ -169,6 +169,7 @@ Invariants:
 4. **The demo adapter goes through the same domain rules.** `demoBackend` calls the same appliers and `submitOperation`; a rejected demo outbox entry is rethrown as `ConvexError` so the Sync center treats it like a server rejection.
 5. **No secrets reach the browser.** The bundle reads only `VITE_CONVEX_URL`, `VITE_DEMO_MODE`, `VITE_ALLOW_DEMO`, and the public Sentry DSN and release (`VITE_SENTRY_DSN`, `VITE_SENTRY_RELEASE`). Integration keys live in Convex environment variables or in rows sealed with AES-GCM (`convex/secrets.ts`, `CREDENTIALS_ENCRYPTION_KEY`), are decrypted only inside server actions, and status queries say whether a key is configured, never what it is.
 6. **Every program-scoped call carries the active `programUuid`**, and the server's row loaders (`convex/programContext.ts`) read by that program or its aircraft.
+7. **Derived columns are copies, never records.** Every write of a work order, job card, archived job card, cost record, parts request or purchase order goes through `encode` (`convex/collections.ts`), and every write of a flight's start time adds `flightColumns`, so the history window's indexes see every record ([ADR-0013](docs/adr/0013-history-retention-window.md)). Reads decode the columns away, and `migrations:backfillHistoryColumns` fills older rows. The `recordNumbers` and `costLedger` tables are derived too, and never reach the change log.
 
 Current violations and exceptions (2026-11-03). Record fixes in `REFACTOR_ROADMAP.md`:
 

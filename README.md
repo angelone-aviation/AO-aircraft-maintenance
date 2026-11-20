@@ -310,7 +310,7 @@ The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.j
 
 ### One-off steps for deployments with older data
 
-**Fresh deployments skip this section.** The production deployment started empty on 2026-11-03 (no data was migrated; the old test deployment was deleted), so the step below has nothing to do there. It repairs data written by earlier versions and stays documented for any deployment that holds such data.
+**Fresh deployments skip this section.** The production deployment started empty on 2026-11-03 (no data was migrated; the old test deployment was deleted), so the first two steps below have nothing to do there; the last applies to production too. Each repairs data written by earlier versions and stays documented for any deployment that holds such data.
 
 After deploying a version that adds the `memberships` table, populate it once from existing accounts. It is safe to rerun, batches itself until every user is processed, and does nothing once complete:
 
@@ -327,6 +327,14 @@ npx convex run attachments:backfillAircraft
 ```
 
 Until it runs, those older files still show: the workspace snapshot reads them through a slower fallback on every load.
+
+After deploying the version that adds the history window's derived columns (history paging stage S2), fill them in on rows written before, and again after restoring a backup taken before that version. It writes no change-log row and changes no record; it answers how many rows were missing their columns. Run it until that count is 0:
+
+```bash
+npx convex run migrations:backfillHistoryColumns
+```
+
+Until it reaches 0, nothing changes for users: no screen or save reads the columns yet. The window (stage S7) must not be turned on before it does. Details: [history paging](docs/history-paging.md#running-the-backfill).
 
 ## Operations
 

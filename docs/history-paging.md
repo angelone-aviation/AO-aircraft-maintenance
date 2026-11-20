@@ -2,7 +2,7 @@
 
 The workspace keeps a retention window of history; older flights, problem reports and work orders load page by page ([ADR-0013](adr/0013-history-retention-window.md), decision D3, finding SZ-1). This page holds the window's rule, the read counts it is measured against, and every lookup by uuid the window can break, with what each one should do.
 
-Status, 20 Nov 2026: the rule exists in the domain and is tested (`src/domain/retention.ts`), and the baseline is recorded (`convex/historyCost.test.ts`). Nothing calls the rule yet; the workspace still loads full history.
+Status, 20 Nov 2026: the rule exists in the domain and is tested (`src/domain/retention.ts`), the baseline is recorded (`convex/historyCost.test.ts`), and every row the window will index carries its derived columns, with a backfill for older rows (S2, below). Nothing reads the columns or calls the rule yet; the workspace still loads full history.
 
 ## The window
 
@@ -27,21 +27,54 @@ What the workspace snapshot and the saves that load whole history read today, me
 
 | Read                    | Documents, 1 / 2 / 3 years | MiB, 1 / 2 / 3 years | Index ranges |
 | ----------------------- | -------------------------- | -------------------- | ------------ |
-| Snapshot, administrator | 6,099 / 10,179 / 14,259    | 7.09 / 11.87 / 16.65 | 1,011        |
-| Snapshot, pilot         | 5,947 / 9,883 / 13,819     | 7.05 / 11.80 / 16.54 | 96           |
-| Snapshot, owner         | 1,711 / 1,963 / 2,215      | 1.01 / 1.14 / 1.27   | 39           |
-| Snapshot, board         | 3,046 / 4,630 / 6,214      | 4.32 / 7.76 / 11.21  | 52           |
-| Work order save         | 2,970 / 4,476 / 5,982      | 4.26 / 7.65 / 11.03  | 46           |
-| Job card save           | 2,546 / 3,872 / 5,198      | 3.83 / 6.96 / 10.09  | 37           |
-| Job card evidence check | 2,547 / 3,873 / 5,199      | 3.83 / 6.96 / 10.09  | 38           |
-| Parts request save      | 3,086 / 4,712 / 6,338      | 4.37 / 7.87 / 11.36  | 45           |
-| Part unit cost          | 1,476 / 1,908 / 2,340      | 1.44 / 2.23 / 3.03   | 17           |
-| Purchase order save     | 1,592 / 1,964 / 2,336      | 1.12 / 1.54 / 1.96   | 27           |
-| Weekly summary, 7 days  | 1,414 / 1,786 / 2,158      | 1.04 / 1.45 / 1.85   | 29           |
+| Snapshot, administrator | 6,099 / 10,179 / 14,259    | 7.21 / 12.11 / 17.01 | 1,011        |
+| Snapshot, pilot         | 5,947 / 9,883 / 13,819     | 7.17 / 12.04 / 16.91 | 96           |
+| Snapshot, owner         | 1,711 / 1,963 / 2,215      | 1.02 / 1.15 / 1.29   | 39           |
+| Snapshot, board         | 3,046 / 4,630 / 6,214      | 4.44 / 8.00 / 11.56  | 52           |
+| Work order save         | 2,970 / 4,476 / 5,982      | 4.38 / 7.87 / 11.37  | 46           |
+| Job card save           | 2,546 / 3,872 / 5,198      | 3.93 / 7.16 / 10.39  | 37           |
+| Job card evidence check | 2,547 / 3,873 / 5,199      | 3.92 / 7.15 / 10.39  | 38           |
+| Parts request save      | 3,086 / 4,712 / 6,338      | 4.49 / 8.10 / 11.71  | 45           |
+| Part unit cost          | 1,476 / 1,908 / 2,340      | 1.47 / 2.30 / 3.13   | 17           |
+| Purchase order save     | 1,592 / 1,964 / 2,336      | 1.14 / 1.59 / 2.03   | 27           |
+| Weekly summary, 7 days  | 1,414 / 1,786 / 2,158      | 1.07 / 1.49 / 1.92   | 29           |
 
 - The administrator's and pilot's snapshots pass Convex's 16 MiB read limit at three years, as the size test found.
 - Index ranges do not grow: every loader reads one range per aircraft or program. Bytes are the limit history reaches.
+- S2's derived columns (below) add 1–4% to the bytes each read counts; documents and index ranges did not change.
 - The plan's pass criteria are a 20-year snapshot within 10% of year 1 and 4× headroom on every Convex limit (4 MiB read, 250 ms, 1,000 index ranges). Each stage that bounds a read turns its row from growing to flat, and the test flips with it.
+
+## Derived columns and tables (S2)
+
+The window's queries need indexes on fields that live inside a record's JSON payload, so each row copies those fields into columns of its own. `encode` in `convex/collections.ts` sets them on every write of a payload row, and `flightColumns` on every write of a flight's start; decoding never returns them, so the workspace, the change log and the readable records copy are unchanged. Every column is optional, so rows written before S2 stay valid until the backfill fills them. Nothing reads a column or a new table until S3.
+
+| Table              | Derived columns                                                                                                                                                                                                                                 | New indexes                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Flights            | `startedAt`: the start time in milliseconds, since the stored text keeps the pilot's offset and does not sort by instant                                                                                                                        | `[aircraftUuid, startedAt]`, `[aircraftUuid, submittedAt]`, `[aircraftUuid, status]`              |
+| Problem reports    | None: the fields are columns already                                                                                                                                                                                                            | `[aircraftUuid, status, createdAt]`, `[aircraftUuid, resolvedAt]`                                 |
+| Work orders        | `status`; `completionDate`; `numberKey` (the number in lower case, as the uniqueness check compares it); once closed, `closedAt`: the later of the close-out and the completion date's UTC midnight, absent for an order cancelled with neither | `[aircraftUuid, status, completionDate]`, `[aircraftUuid, closedAt]`, `[aircraftUuid, numberKey]` |
+| Job cards          | `workOrderUuid`; `numberKey`; once closed, `closedAt`: the card's last update, since a closed card takes no more edits                                                                                                                          | `[workOrderUuid]`, `[aircraftUuid, closedAt]`, `[aircraftUuid, numberKey]`                        |
+| Archived job cards | `workOrderUuid`; `numberKey`                                                                                                                                                                                                                    | `[workOrderUuid]`, `[aircraftUuid, numberKey]`                                                    |
+| Cost records       | `kind`; a work order's record also `workOrderUuid`                                                                                                                                                                                              | `[programUuid, kind]`, `[workOrderUuid]`                                                          |
+| Parts requests     | `sourceWorkOrderUuid` and `sourceUuid` from the request's source; `numberValue` (the sequence the next number continues)                                                                                                                        | `[sourceWorkOrderUuid]`, `[sourceUuid]`, `[programUuid, numberValue]`                             |
+| Purchase orders    | `numberValue`                                                                                                                                                                                                                                   | `[programUuid, numberValue]`                                                                      |
+
+Two tables are declared, empty until S3 and S4 fill them. Neither holds records: both are rebuilt from the records, and neither writes the change log.
+
+- `recordNumbers`: every work order and job card number by aircraft (`aircraftUuid`, `kind`, `key`, `uuid`), indexed by `[aircraftUuid, kind, key]` and by `uuid`. Keyed by aircraft, the numbers move with an aircraft's records.
+- `costLedger`: work-order spending by day (`programUuid`, `aircraftUuid`, `workOrderUuid`, `date`, `laborSeconds`, `laborCents`, `partsCents`, `otherCents`), indexed by `[programUuid, aircraftUuid, date]` and by `workOrderUuid`. Where an issued part's price comes from is decision D13's, so S2 assumes nothing about `partsCents`.
+
+Writes that bypassed `encode` now go through it: job-card evidence (`convex/taskCards.ts`), template copies and their progress (`convex/workOrderCopies.ts`), task-file imports (`convex/taskImports.ts`), recurring parts requests (`convex/recurringParts.ts`), purchase-order receipts' request updates (`convex/purchaseOrders.ts`) and the sample program (`convex/sampleProgram.ts`). Flight submissions and reviews (`convex/operations.ts`), the sample program and the load test's generator set `startedAt`. Every flight read decodes the row first (`decodeFlight`), so the column never reaches a screen or a change-log entry.
+
+### Running the backfill
+
+After deploying S2 on a deployment that holds data from before it, and after restoring a backup taken before it:
+
+```bash
+npx convex run migrations:backfillHistoryColumns
+```
+
+It fills the columns table by table, 100 rows per transaction, writes no change-log row and changes no record. It answers `{ missing, tables }`: how many rows lacked their columns, now filled, in all and by table. Run it again until `missing` is 0. It is safe to rerun and beside live traffic, since every write since S2 sets the columns; a run cut short (an action's 10-minute limit) keeps what it filled, and the next run fills the rest. A payload its schema refuses stops it with "Cannot derive the columns of <table> row <uuid>.", after the pages before it are filled.
 
 ## Lookups by uuid the window can break
 
@@ -156,3 +189,7 @@ Not lookups by uuid, but lists and totals that shrink with the window, for S6 an
 - **No record carries a "changed at" time.** Work orders, flights and job card links have no single update time; a reviewed flight records no review time, and a part's unit cost no time at all. "Changed within the window" is read from the dated events each record does hold, listed above.
 - **`historyPage` takes `now`**, like `retainedSnapshot`, since the pages are whatever the window leaves out at that moment.
 - **Index ranges do not grow with history.** The snapshot reads a fixed number of index ranges (1,011 for an administrator at any size); bytes are what history pushes past the limit.
+- **`costLedger` stays with the program that paid.** The plan keys both new tables by aircraft so they move with transfers, but cost records stopped moving with an aircraft on 19 Nov (decision D14, AC-10). A ledger that moved would show the destination's board money it never spent, so its rows carry `programUuid`, which its index starts with. `recordNumbers` is keyed by aircraft, as planned.
+- **An archived job card has no `archivedAt`.** A card is archived unchanged, and only its work order dates the removal (`archivedTasks[].removedAt`), so the card has no archive time to copy. It pages with its work order, which needs only `workOrderUuid`.
+- **Later events on a closed work order have no column.** The window keeps a closed order revised, corrected or with an item removed in the last 90 days, but `closedAt` dates only the closing. S7 needs another derived column for those events (another backfill), or such an order drops out of the workspace.
+- **The paging order has no index yet.** `historyPage` pages flights by start time as recorded (the text) and work orders by `recordedAt`, equal keys by uuid; the new indexes order flights by `startedAt`, no column holds a work order's `recordedAt`, and Convex breaks index ties by creation time. S5 either pages by the indexed fields, with the oracle changed to match, or adds indexes on `startTime` (no backfill) and a `recordedAt` column (a backfill).
