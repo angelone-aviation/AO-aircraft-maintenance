@@ -61,14 +61,17 @@ describe("Vendors", () => {
     expect(render()).toContain("Inventory administrator access required");
   });
 
-  it("lists vendors with their order counts", () => {
+  // The workspace keeps only open and recent orders (H5), so a count would
+  // be short: each vendor's orders open with their history instead.
+  it("lists vendors with an Orders button, not a count of the orders kept", () => {
     workspace.snapshot = {
       ...demoSnapshot(),
       management: [acme],
       purchaseOrders: [{ vendor: " acme aero " }] as Snapshot["purchaseOrders"],
     };
     expect(render()).toContain("Acme Aero");
-    expect(render()).toContain("1 order<");
+    expect(render()).toContain(">Orders<");
+    expect(render()).not.toContain("1 order");
   });
 });
 

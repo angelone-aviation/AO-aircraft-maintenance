@@ -5,15 +5,25 @@
  * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
  *   src/data/historyPages.ts, src/data/flightPlanDiagnostics.ts,
  *   src/data/flightPlanPdf.ts (on demand), src/domain (model, flightPlans,
- *   historyReads, pdf/icao), ./ui, ./design, ./OpsList, ./FlightSession.
+ *   historyReads, pdf/icao), ./ui, ./design, ./OpsList, ./FlightSession,
+ *   ./HistoryPager.
+ *
+ * The workspace keeps plans departing within the six months of flights it
+ * keeps, or later, and those filed in the last three (H5, ADR-0013); older
+ * ones load page by page with the flights logged against them.
  */
 import {
   flightPlanImporterVersion,
   flightPlanUploadReport,
 } from "../data/flightPlanDiagnostics";
-import { useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { useWorkspace } from "../data/store";
-import { useHistoryRecords, withHistory } from "../data/historyPages";
+import {
+  useHistoryPages,
+  useHistoryRecords,
+  withHistory,
+} from "../data/historyPages";
+import { HistoryPager, windowSummary } from "./HistoryPager";
 import { MAX_RECORD_LOOKUPS } from "../domain/historyReads";
 import { can, hours, type Snapshot } from "../domain/model";
 import {
@@ -112,27 +122,53 @@ export function FlightPlans() {
 
 function PlanList(props: PlanActions & { search: string }) {
   const { dialogs, search } = props;
-  const { s, checked } = useOlderPlanFlights(props.s);
+  const older = useOlderPlans(props.s, dialogs.aircraftUuid);
+  const { s, checked } = useOlderPlanFlights(older.s, older.paged);
   const groups = planGroups(s, dialogs.aircraftUuid, search);
-  if (!groups.length)
-    return (
-      <EmptyState
-        title={search ? "No matching flight plans" : "No queued flight plans"}
-      >
-        Change your search or upload a flight plan PDF.
-      </EmptyState>
-    );
-  return groups.map((group, index) => (
-    <AircraftPlans
-      key={group.aircraft.uuid}
-      s={s}
-      allowed={props.allowed}
-      dialogs={dialogs}
-      checked={checked}
-      group={group}
-      index={index}
-    />
-  ));
+  const summary = windowSummary("flightPlans", older.paged.size, "plan");
+  return (
+    <>
+      {groups.length ? (
+        groups.map((group, index) => (
+          <AircraftPlans
+            key={group.aircraft.uuid}
+            s={s}
+            allowed={props.allowed}
+            dialogs={dialogs}
+            checked={checked}
+            group={group}
+            index={index}
+          />
+        ))
+      ) : (
+        <EmptyState
+          title={search ? "No matching flight plans" : "No queued flight plans"}
+        >
+          Change your search or upload a flight plan PDF.
+        </EmptyState>
+      )}
+      <HistoryPager pages={older.pages} summary={summary} />
+    </>
+  );
+}
+
+// The plans older than the workspace keeps, for the chosen aircraft or all,
+// loaded page by page with the flights logged against them, so whether each
+// flew is known.
+function useOlderPlans(workspace: Snapshot, aircraftUuid: string) {
+  const pages = useHistoryPages({
+    kind: "flightPlans",
+    aircraftUuid: aircraftUuid || undefined,
+  });
+  const s = useMemo(
+    () => withHistory(workspace, { ...pages.records, members: pages.members }),
+    [workspace, pages.records, pages.members],
+  );
+  const paged = useMemo(
+    () => new Set(pages.records.flightPlans.map((p) => p.uuid)),
+    [pages.records],
+  );
+  return { s, pages, paged };
 }
 
 function usePlanDialogs() {
@@ -969,9 +1005,15 @@ function ImportedDetails({ draft }: { draft: Draft | FlightPlan }) {
 // Plans departing before the six months of flights the workspace keeps,
 // with no flight there, may have flown long ago: the newest are looked up
 // on demand, so the history can say Logged or Not flown instead of guessing.
-function useOlderPlanFlights(s: Snapshot) {
+// A plan from a history page came with its flights, so it is known already.
+function useOlderPlanFlights(s: Snapshot, paged: ReadonlySet<string>) {
   const older = (s.flightPlans ?? [])
-    .filter((p) => p.status === "proposed" && isPlanFlightOlder(s, p))
+    .filter(
+      (p) =>
+        p.status === "proposed" &&
+        !paged.has(p.uuid) &&
+        isPlanFlightOlder(s, p),
+    )
     .sort((a, b) => Date.parse(b.departureAt) - Date.parse(a.departureAt))
     .slice(0, MAX_RECORD_LOOKUPS)
     .map((p) => p.uuid);
@@ -982,7 +1024,7 @@ function useOlderPlanFlights(s: Snapshot) {
   });
   return {
     s: records ? withHistory(s, records) : s,
-    checked: new Set(records ? older : []),
+    checked: new Set([...paged, ...(records ? older : [])]),
   };
 }
 

@@ -1,11 +1,19 @@
 /**
  * Responsibility: The vendor directory: saved vendors plus vendor names typed
- *   on purchase orders, parts requests and stock.
+ *   on purchase orders, parts requests and stock; and one vendor's orders
+ *   and what was ordered on them.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: ./model (types), ./management (types).
+ * Dependencies: ./model (types), ./management (types), ./purchaseOrders.
  */
 import type { Snapshot } from "./model";
 import type { Vendor } from "./management";
+import { poTotal, type PurchaseOrder } from "./purchaseOrders";
+
+/** What was ordered from a vendor in one currency. */
+export interface VendorSpend {
+  currency: string;
+  cents: number;
+}
 
 type VendorMention = Pick<Vendor, "name" | "addressDetails"> & {
   contact: string;
@@ -32,6 +40,42 @@ export function vendorDirectory(s: Snapshot): Vendor[] {
       entries.set(key, unsavedVendor(mention));
   }
   return [...entries.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * A vendor's purchase orders, matched by {@link vendorKey}.
+ *
+ * @param orders - The orders to look in, such as a snapshot's with older
+ *   pages joined.
+ * @param name - The vendor's name.
+ * @returns Newest first by creation, as the Purchase orders screen lists
+ *   them.
+ */
+export function vendorOrders(
+  orders: readonly PurchaseOrder[],
+  name: string,
+): PurchaseOrder[] {
+  return orders
+    .filter((p) => vendorKey(p.vendor) === vendorKey(name))
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
+ * What the given orders placed with their vendor: each issued or closed
+ * order's total (its lines at their unit price, plus shipping), by currency.
+ * A draft was never sent and a cancelled order bought nothing, so neither
+ * counts.
+ *
+ * @param orders - The orders.
+ * @returns One total per currency, in the order each currency first
+ *   appears.
+ */
+export function orderedSpend(orders: readonly PurchaseOrder[]): VendorSpend[] {
+  const spend = new Map<string, number>();
+  for (const p of orders)
+    if (p.phase === "issued" || p.phase === "closed")
+      spend.set(p.currency, (spend.get(p.currency) ?? 0) + poTotal(p));
+  return [...spend].map(([currency, cents]) => ({ currency, cents }));
 }
 
 function vendorMentions(s: Snapshot): VendorMention[] {

@@ -1,6 +1,7 @@
 /**
  * Responsibility: Pins saving vendors, the directory's merge of saved and typed
- *   vendor names, and its program scoping.
+ *   vendor names, its program scoping, and a vendor's orders and what they
+ *   placed.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/domain/vendors.ts, ./management, ./programs,
  *   ./purchaseOrders and ./partsRequests (types), src/data/demo.ts (seed).
@@ -11,7 +12,12 @@ import { applyManagement, vendorSchema, type Stock } from "./management";
 import type { Address } from "./addresses";
 import type { PartsRequest } from "./partsRequests";
 import type { PurchaseOrder } from "./purchaseOrders";
-import { vendorDirectory, vendorKey } from "./vendors";
+import {
+  orderedSpend,
+  vendorDirectory,
+  vendorKey,
+  vendorOrders,
+} from "./vendors";
 import { scopedSnapshot } from "./programs";
 const command = (name = "Aircraft supplier") => ({
   action: "record.save" as const,
@@ -98,5 +104,46 @@ describe("vendor directory", () => {
       ["Zulu Supply", false, ""],
     ]);
     expect(directory[1]).toMatchObject({ version: 0, uuid: "" });
+  });
+});
+
+describe("a vendor's orders and what they placed", () => {
+  const order = (
+    number: string,
+    phase: PurchaseOrder["phase"],
+    fields: Partial<PurchaseOrder> = {},
+  ) =>
+    ({
+      number,
+      vendor: " Acme Aero ",
+      currency: "USD",
+      phase,
+      createdAt: Number(number.slice(-1)),
+      shippingCents: 500,
+      lines: [{ quantity: 2, unitCents: 1000 }],
+      ...fields,
+    }) as PurchaseOrder;
+  const orders = [
+    order("PO-1", "closed"),
+    order("PO-3", "issued", { currency: "EUR" }),
+    order("PO-2", "draft"),
+    order("PO-4", "cancelled"),
+    order("PO-5", "issued", { vendor: "Other" }),
+  ];
+
+  it("lists a vendor's orders newest first, matching names as vendorKey does", () => {
+    expect(vendorOrders(orders, "ACME aero").map((p) => p.number)).toEqual([
+      "PO-4",
+      "PO-3",
+      "PO-2",
+      "PO-1",
+    ]);
+  });
+
+  it("totals issued and closed orders by currency, leaving out drafts and cancelled ones", () => {
+    expect(orderedSpend(vendorOrders(orders, "Acme Aero"))).toEqual([
+      { currency: "EUR", cents: 2500 },
+      { currency: "USD", cents: 2500 },
+    ]);
   });
 });

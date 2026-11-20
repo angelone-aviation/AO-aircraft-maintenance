@@ -5,11 +5,14 @@
  * Layer: UI. React components; request rules live in src/domain.
  * Dependencies: react, react-dom, @phosphor-icons/react, src/data (store,
  *   historyPages; partsRequestPdf on demand), src/domain (model, vendors,
- *   management, retention,
- *   components, addresses, programs, requiredParts, shelfLife, partsRequests,
- *   partsRequestRules, purchaseOrders (types), aircraftSpruce, costs/units),
- *   ./Vendors, ./AircraftSpruce, ./SavedAddresses, ./PurchaseOrders,
- *   ./NumberInput, ./ui, ./design, ./ShopList, CSS.
+ *   management, retention, components, addresses, programs, requiredParts,
+ *   shelfLife, partsRequests, partsRequestRules, purchaseOrders (types),
+ *   aircraftSpruce, costs/units), ./Vendors, ./AircraftSpruce,
+ *   ./SavedAddresses, ./PurchaseOrders, ./HistoryPager, ./NumberInput, ./ui,
+ *   ./design, ./ShopList, CSS.
+ *
+ * The workspace keeps open requests and those changed in the window (H5,
+ * ADR-0013); older ones load page by page, with their purchases.
  */
 import { VendorPicker, newVendor } from "./Vendors";
 import { localDate } from "../domain/model";
@@ -24,16 +27,19 @@ import {
   SPRUCE_VENDOR_NAME,
   type SpruceProduct,
 } from "../domain/aircraftSpruce";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
 import {
+  HistoryRecordsContext,
+  useHistoryPages,
   useHistoryRecords,
   useRecordsSnapshot,
   useWorkOrderHistory,
   withHistory,
   workOrderRows,
 } from "../data/historyPages";
+import { HistoryPager, windowSummary } from "./HistoryPager";
 import { historyWindowMonths } from "../domain/retention";
 import type { Backend } from "../data/backend";
 import { can, type Snapshot } from "../domain/model";
@@ -92,6 +98,15 @@ const SOURCE_OFFLINE =
 const SOURCE_LOADING = "Loading the record this request is for…";
 const SOURCE_UNAVAILABLE =
   "The record this request is for is not available, so it cannot be edited here.";
+const ORDER_OFFLINE =
+  "This purchase order is older than this device keeps. Reconnect to open it.";
+const ORDER_LOADING = "Loading the purchase order…";
+const ORDER_UNAVAILABLE = "This purchase order is not available.";
+const NO_LOOKUP = {
+  discrepancyUuids: [],
+  taskCardUuids: [],
+  flightPlanUuids: [],
+};
 const SOURCE_PAGES: Partial<Record<RequestSource["kind"], string>> = {
   airworthiness: "/airworthiness",
   stock: "/inventory",
@@ -150,9 +165,13 @@ export function RequestPartsButton({
   if (!s) return null;
   const resolved = resolvedSource(s, source);
   if (!resolved || !mayRead(s, resolved.aircraftUuid)) return null;
+  // Open requests only: every one is in the workspace, however old (H5).
   const count =
     s.partsRequests?.filter(
-      (r) => requestMatchesSource(s, r, source) && !r.cancelled,
+      (r) =>
+        requestMatchesSource(s, r, source) &&
+        !r.cancelled &&
+        requestStatus(s, r) !== "Fulfilled",
     ).length ?? 0;
   return (
     <>
@@ -213,15 +232,49 @@ function RequestsDialog({
   );
 }
 
-// The requests list, on the screen or inside a record's dialog.
-function RequestWorkspace({
+// The requests list, on the screen or inside a record's dialog, with the
+// older requests loaded so far, which the components under it see too. The
+// server matched a record's older requests to it, through work orders this
+// device may not hold, so they are listed without matching them again.
+function RequestWorkspace(props: { source?: RequestSource; page?: boolean }) {
+  const records = useRecordsSnapshot();
+  const older = useHistoryPages({
+    kind: "partsRequests",
+    source: props.source,
+  });
+  const s = useMemo(
+    () => records && withHistory(records, older.records),
+    [records, older.records],
+  );
+  const paged = useMemo(
+    () => new Set(older.records.partsRequests.map((r) => r.uuid)),
+    [older.records],
+  );
+  if (!s) return null;
+  const summary = windowSummary("partsRequests", paged.size, "request");
+  return (
+    <HistoryRecordsContext.Provider value={s}>
+      <RequestList
+        {...props}
+        paged={paged}
+        pager={<HistoryPager pages={older} summary={summary} />}
+      />
+    </HistoryRecordsContext.Provider>
+  );
+}
+
+function RequestList({
   source,
   page = false,
+  paged,
+  pager,
 }: {
   source?: RequestSource;
   page?: boolean;
+  paged: ReadonlySet<string>;
+  pager: ReactNode;
 }) {
-  const workspace = useRequestWorkspace(source);
+  const workspace = useRequestWorkspace(source, paged);
   if (!workspace) return null;
   const { s, filters, newRequest } = workspace;
   return (
@@ -245,8 +298,9 @@ function RequestWorkspace({
           {workspace.error}
         </p>
       )}
-      {source && <OlderOrderRequests s={s} source={source} />}
+      {source && <OlderOrderRequests s={s} source={source} paged={paged} />}
       <RequestTable workspace={workspace} />
+      {pager}
       <RequestDialogs workspace={workspace} source={source} />
     </div>
   );
@@ -254,7 +308,10 @@ function RequestWorkspace({
 
 // The workspace's state: filters, selection, the open dialogs and the
 // request the New request button drafts.
-function useRequestWorkspace(source?: RequestSource) {
+function useRequestWorkspace(
+  source: RequestSource | undefined,
+  paged: ReadonlySet<string>,
+) {
   const { online, connected } = useWorkspace();
   const s = useRecordsSnapshot();
   const [edit, setEdit] = useState<RequestDraft>();
@@ -266,7 +323,7 @@ function useRequestWorkspace(source?: RequestSource) {
   if (!s) return undefined;
   const admin = programPermission(s, "admin");
   const all = (s.partsRequests ?? []).filter(
-    (r) => !source || requestMatchesSource(s, r, source),
+    (r) => !source || paged.has(r.uuid) || requestMatchesSource(s, r, source),
   );
   const writable = online && connected;
   const startRequest = () => {
@@ -1320,11 +1377,12 @@ function StockTable({
 type RequestDetailProps = { request: PartsRequest; onEdit: () => void };
 
 function RequestDetail({ request: r, onEdit }: RequestDetailProps) {
-  const { snapshot, online, connected } = useWorkspace();
-  const s = snapshot!;
+  const { online, connected } = useWorkspace();
+  const s = useRecordsSnapshot()!;
   const [poUuid, setPoUuid] = useState("");
   const [editPO, setEditPO] = useState<PODraft>();
-  const po = s.purchaseOrders?.find((p) => p.uuid === poUuid);
+  const linked = useLinkedOrder(s, poUuid);
+  const po = linked.po;
   const admin = programPermission(s, "admin");
   const writable = online && connected;
   return (
@@ -1340,6 +1398,7 @@ function RequestDetail({ request: r, onEdit }: RequestDetailProps) {
           onOrder={setPoUuid}
         />
       ))}
+      {linked.note && <p className="muted">{linked.note}</p>}
       <p>{r.notes}</p>
       {admin && !r.cancelled && (
         <CancelRequest request={r} writable={writable} />
@@ -2022,26 +2081,47 @@ function useSourceRecords(
   return { message: SOURCE_UNAVAILABLE };
 }
 
+// The order a purchase names: the screen's, or loaded by uuid, since a
+// request kept in the workspace can name an order older than it keeps.
+function useLinkedOrder(s: Snapshot, poUuid: string) {
+  const held = s.purchaseOrders?.find((p) => p.uuid === poUuid);
+  const missing = poUuid && !held ? [poUuid] : [];
+  const found = useHistoryRecords({
+    ...NO_LOOKUP,
+    purchaseOrderUuids: missing,
+  });
+  const po =
+    held ?? found.records?.purchaseOrders.find((p) => p.uuid === poUuid);
+  if (po || !poUuid) return { po, note: "" };
+  if (found.offline) return { po, note: ORDER_OFFLINE };
+  return { po, note: found.loading ? ORDER_LOADING : ORDER_UNAVAILABLE };
+}
+
 // Requests raised on a work-order task match a record through their order,
 // which the workspace's window may have left out: say so rather than list
 // fewer requests without a word.
-function OlderOrderRequests(props: { s: Snapshot; source: RequestSource }) {
-  const { s, source } = props;
+function OlderOrderRequests(props: {
+  s: Snapshot;
+  source: RequestSource;
+  paged: ReadonlySet<string>;
+}) {
+  const { s, source, paged } = props;
   const aircraftUuid = resolvedSource(s, source)?.aircraftUuid;
   const held = new Set((s.workOrders ?? []).map((w) => w.uuid));
   const unmatched = (s.partsRequests ?? []).filter(
     (r) =>
       r.source.kind === "workTask" &&
       r.aircraftUuid === aircraftUuid &&
-      !held.has(r.source.workOrderUuid),
+      !held.has(r.source.workOrderUuid) &&
+      !paged.has(r.uuid),
   ).length;
   if (!unmatched || source.kind === "workTask") return null;
   const months = historyWindowMonths("workOrders");
   return (
     <p className="muted">
       {unmatched} {unmatched === 1 ? "request" : "requests"} raised on work
-      orders older than {months} months may also belong here; Parts requests
-      lists every request.
+      orders older than {months} months may also belong here; they show on the
+      Parts requests screen.
     </p>
   );
 }

@@ -474,7 +474,8 @@ function completedOrder(number: string, completedAt: number) {
   });
 }
 
-// A plan that departed with the older flights, as the PDF import stores one.
+// A plan that departed with the older flights, as the PDF import stores one,
+// imported lately: the window keeps a plan filed in its three months (H5).
 function olderPlan() {
   return flightPlanSchema.parse({
     uuid: crypto.randomUUID(),
@@ -500,6 +501,6 @@ function olderPlan() {
     sourceName: "older-plan.pdf",
     sourceHash: "0".repeat(64),
     status: "proposed",
-    createdAt: daysAgo(AGE_DAYS + 1),
+    createdAt: daysAgo(10),
   });
 }

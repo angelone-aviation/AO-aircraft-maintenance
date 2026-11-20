@@ -4,12 +4,15 @@
  * Layer: UI. React components; order rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, historyPages, backend type; poPdf and partsRequestPdf
- *   on demand),
- *   src/domain (model, vendors, management, addresses, programs,
- *   purchaseOrders, purchaseOrderRules, shelfLife, aircraftSpruce,
- *   costs/units),
- *   ./AircraftSpruce, ./Vendors, ./CoreReturns, ./SavedAddresses, ./ShopList,
- *   ./NumberInput, ./ui, ./design, ./FileLink, ./WorkOrderNumber, CSS.
+ *   on demand), src/domain (model, vendors, management, addresses,
+ *   programs, purchaseOrders, purchaseOrderRules, purchasingWindow,
+ *   shelfLife, aircraftSpruce, costs/units), ./AircraftSpruce, ./Vendors,
+ *   ./CoreReturns, ./SavedAddresses, ./ShopList, ./NumberInput, ./ui,
+ *   ./design, ./FileLink, ./WorkOrderNumber, ./HistoryPager, CSS.
+ *
+ * The workspace keeps open orders and those changed in the window (H5,
+ * ADR-0013); older ones load page by page, and the requests an order's
+ * lines allocate load by uuid when the workspace no longer holds them.
  */
 import { SpruceProductPicker, SpruceOrderProgress } from "./AircraftSpruce";
 import { localDate, type Snapshot } from "../domain/model";
@@ -23,10 +26,19 @@ import {
   type SpruceProduct,
 } from "../domain/aircraftSpruce";
 import { CENTS_PER_DOLLAR } from "../domain/costs/units";
-import { useState, useEffect, type CSSProperties } from "react";
+import { useMemo, useState, useEffect, type CSSProperties } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
-import { useWorkOrderHistory } from "../data/historyPages";
+import {
+  HistoryRecordsContext,
+  useHistoryPages,
+  useHistoryRecords,
+  useRecordsSnapshot,
+  useWorkOrderHistory,
+  withHistory,
+} from "../data/historyPages";
+import { allocatedRequests } from "../domain/purchasingWindow";
+import { HistoryPager, windowSummary } from "./HistoryPager";
 import type { Backend } from "../data/backend";
 import { programPermission } from "../domain/programs";
 import {
@@ -93,6 +105,12 @@ const ORDER_TABLE_STYLE = { "--shop-table-min": "860px" } as CSSProperties;
 const OLDER_ORDER_OFFLINE = "Older work order: reconnect to see its number";
 const OLDER_ORDER_LOADING = "Loading the work order…";
 const OLDER_ORDER_UNAVAILABLE = "Work order not available";
+const REQUESTS_OFFLINE =
+  "This order names requests older than this device keeps. Reconnect to show them and print the order.";
+const REQUESTS_LOADING = "Loading the requests this order names…";
+const REQUESTS_UNAVAILABLE =
+  "A request this order names is not available, so the order cannot be printed here.";
+const REQUEST_NOT_LOADED = "Request not loaded";
 // The preview tab reads the PDF through this URL, so it must outlive the load.
 const PREVIEW_URL_LIFETIME_MS = 60_000;
 // A component receipt takes one serial row per unit; this caps the rows.
@@ -183,7 +201,12 @@ type OrderFile = {
  * @returns The page. New PO needs a connection.
  */
 export function PurchaseOrders() {
-  const { snapshot: s, online, connected } = useWorkspace();
+  const { snapshot: workspace, online, connected } = useWorkspace();
+  const older = useHistoryPages({ kind: "purchaseOrders" });
+  const s = useMemo(
+    () => workspace && withHistory(workspace, older.records),
+    [workspace, older.records],
+  );
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [edit, setEdit] = useState<PODraft>();
@@ -191,8 +214,9 @@ export function PurchaseOrders() {
   const orders = s?.purchaseOrders ?? [];
   const po = orders.find((p) => p.uuid === view);
   if (!s || !programPermission(s, "admin")) return <PurchasingAccessRequired />;
+  const loaded = older.records.purchaseOrders.length;
   return (
-    <>
+    <HistoryRecordsContext.Provider value={s}>
       <OrdersHeader
         disabled={!online || !connected}
         onNew={() => setEdit(freshDraft())}
@@ -210,11 +234,15 @@ export function PurchaseOrders() {
         status={status}
         onView={setView}
       />
+      <HistoryPager
+        pages={older}
+        summary={windowSummary("purchaseOrders", loaded, "order")}
+      />
       <div className="shop-card">
         <CoreReturns orders={orders} />
       </div>
       <OrderDialogs edit={edit} po={po} onEdit={setEdit} onView={setView} />
-    </>
+    </HistoryRecordsContext.Provider>
   );
 }
 
@@ -377,7 +405,8 @@ function draftAttempt(
  *   that change the order need a connection.
  */
 export function PODetail({ po, onEdit }: PODetailProps) {
-  const { snapshot: s, online, connected } = useWorkspace();
+  const { online, connected } = useWorkspace();
+  const { s, note } = useOrderRequests(po);
   const [action, setAction] = useState<OrderAction>();
   const [pdfError, setPdfError] = useState("");
   return (
@@ -390,19 +419,21 @@ export function PODetail({ po, onEdit }: PODetailProps) {
       <SpruceOrderProgress poUuid={po.uuid} />
       <OrderActions
         po={po}
-        s={s!}
+        s={s}
         writable={online && connected}
+        printable={!note}
         onEdit={onEdit}
         onAction={setAction}
         onError={setPdfError}
       />
+      {note && <p className="muted">{note}</p>}
       {pdfError && (
         <p role="alert" className="error">
           {pdfError}
         </p>
       )}
-      <OrderLines po={po} s={s!} />
-      <OrderRecords po={po} s={s!} />
+      <OrderLines po={po} s={s} />
+      <OrderRecords po={po} s={s} />
       {action && (
         <Modal
           title={`${actionTitle(action)} · ${po.number}`}
@@ -414,6 +445,26 @@ export function PODetail({ po, onEdit }: PODetailProps) {
       )}
     </>
   );
+}
+
+// The screen's records with every request the order's lines allocate: an
+// older one loads by uuid, with its purchases. Until all are held, the note
+// says why, and the order's documents, which name them, wait.
+function useOrderRequests(po: PurchaseOrder) {
+  const records = useRecordsSnapshot()!;
+  const held = new Set((records.partsRequests ?? []).map((r) => r.uuid));
+  const missing = allocatedRequests(po).filter((uuid) => !held.has(uuid));
+  const found = useHistoryRecords({
+    discrepancyUuids: [],
+    taskCardUuids: [],
+    flightPlanUuids: [],
+    partsRequestUuids: missing,
+  });
+  const s = found.records ? withHistory(records, found.records) : records;
+  const loaded = new Set((s.partsRequests ?? []).map((r) => r.uuid));
+  if (missing.every((uuid) => loaded.has(uuid))) return { s, note: "" };
+  if (found.offline) return { s, note: REQUESTS_OFFLINE };
+  return { s, note: found.loading ? REQUESTS_LOADING : REQUESTS_UNAVAILABLE };
 }
 
 function PurchasingAccessRequired() {
@@ -1274,23 +1325,27 @@ type OrderActionsProps = {
   po: PurchaseOrder;
   s: Snapshot;
   writable: boolean;
+  /** Every request the order names is held, so its documents are whole. */
+  printable: boolean;
   onEdit: () => void;
   onAction: (action: OrderAction) => void;
   onError: (error: string) => void;
 };
 
 function OrderActions(props: OrderActionsProps) {
-  const { po, s, writable, onAction, onError } = props;
+  const { po, s, writable, printable, onAction, onError } = props;
   return (
     <div className="management-actions">
       <button
         className="button"
+        disabled={!printable}
         onClick={() => void printOrder(po, s, false, onError)}
       >
         Print PO
       </button>
       <button
         className="button"
+        disabled={!printable}
         onClick={() => void printOrder(po, s, true, onError)}
       >
         Save PO PDF
@@ -1449,7 +1504,7 @@ function OrderLinePart({ line: l, s }: { line: POLine; s: Snapshot }) {
       {(l.requestAllocations ?? []).map((a) => (
         <small className="block" key={`${a.requestUuid}-${a.lineUuid}`}>
           {s.partsRequests?.find((r) => r.uuid === a.requestUuid)?.number ??
-            a.requestUuid}{" "}
+            REQUEST_NOT_LOADED}{" "}
           · Allocated {a.quantity}
         </small>
       ))}

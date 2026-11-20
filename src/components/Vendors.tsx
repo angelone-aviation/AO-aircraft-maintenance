@@ -4,7 +4,7 @@
  * Layer: UI. React components; vendors save through the workspace backend.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data/store.ts, src/domain (management, programs, vendors),
- *   ./AddressFields, ./ShopList, ./design, ./ui.
+ *   ./AddressFields, ./ShopList, ./VendorOrders, ./design, ./ui.
  */
 import { useId, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -23,6 +23,7 @@ import {
   Toolbar,
 } from "./design";
 import { ShopLead, ShopTableCard } from "./ShopList";
+import { VendorOrders } from "./VendorOrders";
 import { ArrowLeft, GearSix, Plus, Storefront } from "@phosphor-icons/react";
 
 const DETAIL_FIELDS = [
@@ -330,15 +331,17 @@ function VendorTable(props: ListProps & { vendors: Vendor[] }) {
   );
 }
 
+// The vendor's orders open in a dialog with their history: the workspace
+// keeps only open and recent orders (H5), so a count here would be short.
 function VendorRow({
-  s,
   disabled,
   onEdit,
   vendor: v,
 }: ListProps & { vendor: Vendor }) {
+  const [orders, setOrders] = useState(false);
   const a = v.addressDetails;
   const place = [a?.city, a?.region].filter(Boolean).join(", ");
-  const details = [place, a?.contactName, a?.email, a?.phone, orderCount(s, v)];
+  const details = [place, a?.contactName, a?.email, a?.phone];
   return (
     <tr>
       <td className="shop-lead-cell shop-wide">
@@ -358,6 +361,9 @@ function VendorRow({
         )}
       </td>
       <td className="shop-actions-cell">
+        <button className="button small" onClick={() => setOrders(true)}>
+          Orders
+        </button>
         <button
           className="button small"
           disabled={disabled}
@@ -366,6 +372,7 @@ function VendorRow({
         >
           Edit vendor
         </button>
+        {orders && <VendorOrders vendor={v} onClose={() => setOrders(false)} />}
       </td>
     </tr>
   );
@@ -469,11 +476,4 @@ function matchesSearch(v: Vendor, search: string) {
   return `${v.name} ${a?.contactName ?? ""} ${a?.email ?? ""}`
     .toLowerCase()
     .includes(search.toLowerCase());
-}
-
-function orderCount(s: Snapshot, vendor: Vendor) {
-  const n = (s.purchaseOrders ?? []).filter(
-    (p) => vendorKey(p.vendor) === vendorKey(vendor.name),
-  ).length;
-  return `${n} order${n === 1 ? "" : "s"}`;
 }

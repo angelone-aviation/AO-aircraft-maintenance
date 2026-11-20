@@ -5,7 +5,7 @@
  *   loads.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/data/historyPages.ts, src/data/demo.ts (seed),
- *   src/domain (retention, model).
+ *   src/domain (retention, model, partsRequests types).
  */
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
@@ -26,6 +26,7 @@ import {
   type HistoryPageRequest,
 } from "../domain/retention";
 import type { AuditEntry, Flight, Member, Snapshot } from "../domain/model";
+import type { RequestPurchase } from "../domain/partsRequests";
 
 const FLIGHTS: HistoryList = { kind: "flights" };
 const ROWS_PER_PAGE = 2;
@@ -60,6 +61,22 @@ describe("withHistory", () => {
     expect(merged.workOrderAttachments).toEqual([file]);
     expect(withHistory(s, {}).workOrderAttachments).toBeUndefined();
     expect(withHistory(s, {})).toEqual(s);
+  });
+
+  // An allocation has no uuid: its order, line and request name it.
+  it("joins a request's purchases once, the snapshot's copy winning", () => {
+    const held = purchase("po-1", "request-1", 1);
+    const s = snapshot({ partsRequestPurchases: [held] });
+    const merged = withHistory(s, {
+      partsRequestPurchases: [
+        { ...held, received: 0 },
+        purchase("po-2", "request-1", 2),
+      ],
+    });
+    expect(merged.partsRequestPurchases).toEqual([
+      held,
+      purchase("po-2", "request-1", 2),
+    ]);
   });
 });
 
@@ -98,6 +115,20 @@ describe("loadHistoryPages", () => {
         numItems: 50,
       },
       { kind: "workOrders", aircraftUuid: "a", cursor: null, numItems: 50 },
+    ]);
+  });
+
+  it("asks requests by record and orders by vendor, never orders by aircraft", async () => {
+    const fetch = vi.fn<FetchHistoryPage>(async () => page([], true));
+    const source = { kind: "stock", uuid: "s", workOrderUuid: "" } as const;
+    for (const list of [
+      { kind: "partsRequests", source, vendor: "V" },
+      { kind: "purchaseOrders", aircraftUuid: "a", vendor: "V", source },
+    ] as const)
+      await loadHistoryPages(fetch, list, NO_HISTORY, 1);
+    expect(fetch.mock.calls.map(([request]) => request)).toEqual([
+      { kind: "partsRequests", source, cursor: null, numItems: 50 },
+      { kind: "purchaseOrders", vendor: "V", cursor: null, numItems: 50 },
     ]);
   });
 });
@@ -140,8 +171,27 @@ describe("historyWriteMark and historyScope", () => {
       historyScope(s, { kind: "flights", aircraftUuid: "a" }),
       historyScope(s, { kind: "flights", status: "review" }),
       historyScope(null, FLIGHTS),
+      historyScope(s, { kind: "partsRequests" }),
+      historyScope(s, {
+        kind: "partsRequests",
+        source: { kind: "stock", uuid: "s", workOrderUuid: "" },
+      }),
+      historyScope(s, { kind: "purchaseOrders" }),
+      historyScope(s, { kind: "purchaseOrders", vendor: "V" }),
+      historyScope(s, { kind: "flightPlans" }),
     ];
     expect(new Set(scopes).size).toBe(scopes.length);
+  });
+
+  it("reloads requests after an order's write, and plans after a flight's", () => {
+    const s = snapshot({
+      syncedAt: Date.UTC(2026, 10, 19, 15),
+      audit: [entry("order", "po.receive"), entry("flight", "flight.save")],
+    });
+    const day = `${Date.UTC(2026, 10, 19)} `;
+    expect(historyWriteMark(s, "partsRequests")).toBe(`${day}order`);
+    expect(historyWriteMark(s, "purchaseOrders")).toBe(`${day}order`);
+    expect(historyWriteMark(s, "flightPlans")).toBe(`${day}flight`);
   });
 });
 
@@ -302,5 +352,25 @@ function flight(uuid: string, remarks = ""): Flight {
     flightRules: "VFR",
     remarks,
     discrepancy: "",
+  };
+}
+
+function purchase(
+  poUuid: string,
+  requestUuid: string,
+  received: number,
+): RequestPurchase {
+  return {
+    requestUuid,
+    lineUuid: "line",
+    poUuid,
+    number: poUuid.toUpperCase(),
+    phase: "closed",
+    quantity: 2,
+    received,
+    shipped: 0,
+    expectedDate: "",
+    purchasedDate: "",
+    purchasedBy: "",
   };
 }

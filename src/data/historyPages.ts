@@ -5,7 +5,7 @@
  * Layer: Data. React hooks and a context over the workspace store and
  *   Backend; renders nothing.
  * Dependencies: react, ./store, ./backend (types), ./errors, src/domain
- *   (retention, historyReads, model types).
+ *   (retention, historyReads, model and partsRequests types).
  *
  * Older records come only through Backend.historyPage and workOrderHistory,
  * which the server checks (ADR-0013). They are not reactive and live only in
@@ -35,10 +35,11 @@ import {
   type HistoryPageRequest,
   type HistoryRecords,
 } from "../domain/retention";
-import type {
-  FoundRecords,
-  RecordLookup,
-  WorkOrderHistory,
+import {
+  lookupSize,
+  type FoundRecords,
+  type RecordLookup,
+  type WorkOrderHistory,
 } from "../domain/historyReads";
 import type { Flight, Member, Snapshot } from "../domain/model";
 import type { RequestPurchase, RequestSource } from "../domain/partsRequests";
@@ -180,6 +181,14 @@ interface LoadedItem<T> {
   error: string;
 }
 type Keyed = { uuid: string };
+// The lists whose writes can change records looked up by uuid.
+const LOOKUP_KINDS = [
+  "flights",
+  "discrepancies",
+  "workOrders",
+  "partsRequests",
+  "purchaseOrders",
+] as const;
 // The change-log actions that write each list's records: a work order page
 // also carries its job cards and cost record, a request page its purchases,
 // which orders change, and a plan page the flights logged against it.
@@ -276,25 +285,23 @@ export function useWorkOrderHistory(uuid: string | undefined): LoadedWorkOrder {
 /**
  * Records a screen names by uuid that the workspace may not hold, loaded
  * through Backend.historyRecords while connected: a job card's problem
- * report, a request's source, a plan's flights.
+ * report, a request's source, a plan's flights, the requests an order's
+ * lines allocate, the order a request's purchase names.
  *
  * @param lookup - The uuids; a lookup naming none loads nothing.
  * @returns The records once loaded. They load again after any write of a
- *   flight, problem report or work order, keeping the copy they have
- *   meanwhile, and are dropped on a program or user change.
+ *   flight, problem report, work order, parts request or purchase order,
+ *   keeping the copy they have meanwhile, and are dropped on a program or
+ *   user change.
  */
 export function useHistoryRecords(lookup: RecordLookup): LoadedRecords {
   const { snapshot } = useWorkspace();
-  const named =
-    lookup.discrepancyUuids.length +
-    lookup.taskCardUuids.length +
-    lookup.flightPlanUuids.length;
-  const item = named
+  const item = lookupSize(lookup)
     ? JSON.stringify([snapshot?.user.id, snapshot?.activeProgramUuid, lookup])
     : "";
-  const mark = (["flights", "discrepancies", "workOrders"] as const)
-    .map((kind) => historyWriteMark(snapshot, kind))
-    .join("|");
+  const mark = LOOKUP_KINDS.map((kind) =>
+    historyWriteMark(snapshot, kind),
+  ).join("|");
   const { value, ...state } = useLoadedItem(item, mark, (backend) =>
     backend.historyRecords(lookup),
   );
