@@ -4,8 +4,8 @@
  * Layer: Data. Browser start-up side effect; no rendering, no domain rules.
  * Dependencies: @sentry/react (imported on demand), react-dom/client (types).
  *
- * No replay, no user identity and no query strings leave the device: a URL can
- * carry a one-time sign-in code (docs/runbooks/monitoring.md).
+ * No replay, no user identity and no query strings leave the device: a URL's
+ * query can name a record or a Flight Program (docs/runbooks/monitoring.md).
  */
 import type { RootOptions } from "react-dom/client";
 import type { Breadcrumb, BrowserOptions, ErrorEvent } from "@sentry/react";
