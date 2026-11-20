@@ -1,5 +1,7 @@
 # System overview
 
+[Handbook](../README.md)
+
 What Angel One is, who uses it, how the parts connect, and what it stores. The engineer's version is [CONTEXT.md](../../../CONTEXT.md).
 
 ## What it is
@@ -62,6 +64,7 @@ flowchart LR
   Nightly -.-> DBX
   Nightly -.->|ping| BS
   BS -.->|checks| Site
+  BS -.->|checks| Fns
 ```
 
 | Part            | What it is                                                                   | Where it is set up                                                                                                                          |
@@ -99,27 +102,38 @@ Every outside service, its plan and its cost: [Services and costs](../4-money-an
 - A **Flight Program** is the unit that owns aircraft, locations, stock and memberships. It is the first access boundary ([Flight Program access](../../flight-program-access.md)).
 - One deployment holds every program. The server filters every read and checks every write by program.
 - Flights, problem reports and inspections follow their aircraft. Stock belongs to its location's program.
-- A user can belong to several programs with different permissions in each, and picks the active one in the header. Switching needs a connection.
-- Only a system administrator moves records between programs (**Transfer Flight Program**), with a reason. Cost records stay with the program that paid (decision D14).
+- A user can belong to several programs with different permissions in each, and picks the active one at the top of the sidebar (under **All sections** on a phone). Switching needs a connection.
+- Only a system administrator moves records between programs (**Transfer record** on **Flight Programs**), with a reason. Cost records stay with the program that paid (decision D14).
 - Isolation is tested: `convex/tenantIsolation.test.ts` attacks every public function from another program ([4 Nov review](../../security/review-2026-11-04.md)).
 
 ## Roles and permissions
 
 Access comes from **permission groups**. A group belongs to one program and covers all its aircraft or chosen ones.
 
-| Permission or flag                  | Lets a member                                                                                                                                                                                                     |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read`                              | See the program's records for the group's aircraft                                                                                                                                                                |
-| `flight`                            | Log flights                                                                                                                                                                                                       |
-| `discrepancy`                       | Report problems                                                                                                                                                                                                   |
-| `resolve`                           | Resolve problem reports                                                                                                                                                                                           |
-| `maintenance`                       | Work on inspections, components, ADs, work orders, job cards; raise parts requests; export the records package                                                                                                    |
-| Flight Program administrator        | Manage the whole program: aircraft, components, inventory, purchasing, costs, held flights, saved addresses, and its members (create accounts, add existing users, change or remove their access in this program) |
-| Aircraft owner (flag)               | The owner portal for the named aircraft, nothing else                                                                                                                                                             |
-| Board member (flag)                 | The board view, nothing else                                                                                                                                                                                      |
-| System administrator (account flag) | Everything, in every program; accounts, groups, transfers, deployment settings                                                                                                                                    |
+| Permission or flag                  | Lets a member                                                                                                                                                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read`                              | See the program's records for the group's aircraft                                                                                                                                                                                                                        |
+| `flight`                            | Log flights; save flight plans and the aircraft's checklists                                                                                                                                                                                                              |
+| `discrepancy`                       | Report problems                                                                                                                                                                                                                                                           |
+| `resolve`                           | Resolve or defer problem reports                                                                                                                                                                                                                                          |
+| `maintenance`                       | Edit an aircraft; work on inspections, components, ADs, work orders, job cards; raise parts requests; export the records package                                                                                                                                          |
+| Flight Program administrator        | Manage the whole program: aircraft (only an administrator adds one), components, inventory, purchasing, costs, held flights, saved addresses, its permission groups, and its members (create accounts, add existing users, change or remove their access in this program) |
+| Aircraft owner (flag)               | The owner portal for the named aircraft, nothing else                                                                                                                                                                                                                     |
+| Board member (flag)                 | The board view, nothing else                                                                                                                                                                                                                                              |
+| System administrator (account flag) | Everything, in every program; accounts, groups, transfers, deployment settings                                                                                                                                                                                            |
 
-- Owner and board flags refuse administrator rights and write permissions. Every other call from them is refused ("Aircraft owner access is read-only.", "Board access is read-only.").
+Every new program starts with six groups ([`src/domain/defaultPermissionGroups.ts`](../../../src/domain/defaultPermissionGroups.ts)); administrators can edit them or add their own:
+
+| Starter group           | `read` | `flight` | `discrepancy` | `resolve` | `maintenance` | Also                                                      |
+| ----------------------- | ------ | -------- | ------------- | --------- | ------------- | --------------------------------------------------------- |
+| Observers               | Yes    | —        | —             | —         | —             |                                                           |
+| Pilots                  | Yes    | Yes      | Yes           | —         | —             |                                                           |
+| Maintenance technicians | Yes    | —        | Yes           | Yes       | Yes           |                                                           |
+| Program managers        | Yes    | Yes      | Yes           | Yes       | Yes           | Flight Program administrator                              |
+| Aircraft owners         | Yes    | —        | —             | —         | —             | Owner flag; covers no aircraft until its aircraft are set |
+| Board (read-only)       | Yes    | —        | —             | —         | —             | Board flag                                                |
+
+- An owner or board group cannot also hold administrator rights or write permissions. A member whose only groups are owner or board groups gets those views in place of the workspace, and the server refuses every change they send ("Aircraft owner access is read-only.", "Board access is read-only.").
 - Accounts are created by administrators only: system administrators, and Flight Program administrators for their own program ([`convex/programUsers.ts`](../../../convex/programUsers.ts)). Only system administrators reset passwords, disable accounts and create programs. There is no public sign-up or self-service reset ([ADR-0002](../../adr/0002-administrator-provisioned-accounts.md)).
 - The last active system administrator cannot be disabled or demoted ("Keep at least one active administrator.").
 - An inspection signoff needs an approved mechanic certificate. Nobody approves their own, administrators included ([user certifications](../../user-certifications.md)).

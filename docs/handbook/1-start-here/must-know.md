@@ -1,16 +1,18 @@
 # What everyone must know
 
+[Handbook](../README.md)
+
 The few rules that matter most, by who you are. Each links to the page with the detail. How to do each task is in the user guide, [Using the app](../../wiki/Home.md).
 
 ## Everyone
 
 - **Records are corrected, never edited.** A change to a completed record is a correction with a reason, added to the change log. The original stays ([how it works](../2-how-it-works/how-it-works.md#the-change-log-appended-never-edited)).
 - **The paper logbook is the signed record.** The app keeps the status records and writes logbook wording for signature; it is not the signature ([ADR-0004](../../adr/0004-logbook-generator-and-status-record-system.md)). Paper logbooks run beside the app for the first year.
-- **Decimals use a point.** "2342,5" is refused, so a slip can't be saved as ten times too much ([README](../../../README.md#what-it-does)).
+- **Decimals use a point.** "2342,5" is refused, so a slip can't be saved as ten times too much ([README](../../../README.md#the-look)).
 - **Signing out clears the device.** Your copy, unsynced entries and photos, drafts and kept manuals are deleted. If anything hasn't synced, it asks first: **Stay signed in** or **Delete and sign out** ([offline](../../offline.md#signing-out-and-shared-devices)).
 - **Your phone or tablet needs a screen lock.** The app keeps a readable copy of the program on it for seven days ([offline](../../offline.md#signing-out-and-shared-devices)).
 - **Sign-in lasts seven days.** Then sign in again; pending entries wait and sync after ([README](../../../README.md#offline-and-installation)).
-- **Passwords are 15 to 128 characters.** Ten wrong tries in an hour lock the account for up to an hour; a system administrator can reset it at once ([accounts runbook](../../runbooks/accounts.md#a-user-is-locked-out-after-failed-sign-ins)).
+- **Passwords are 15 to 128 characters.** Ten wrong tries in an hour lock the account; one try returns every 6 minutes, and a system administrator's reset clears it at once ([accounts runbook](../../runbooks/accounts.md#a-user-is-locked-out-after-failed-sign-ins)).
 - **A half-filled form asks before closing.** Save before you tap **Reload now** for a new version.
 - **Two people saving one record:** the second sees "This record was changed by someone else. Review the differences." and chooses ([offline](../../offline.md#when-two-people-change-the-same-record)).
 - **A copied file link stops working after five minutes.** Open the file again from the app ([file links](../../file-links.md)).
@@ -38,11 +40,11 @@ The few rules that matter most, by who you are. Each links to the page with the 
 ## Mechanics and inspectors
 
 - **Signoffs are internal work tracking**, not return to service. The signed logbook entry is the record ([job cards](../../task-cards.md)).
-- **Technician signoff first; inspection signoff by a different person,** who needs an approved mechanic certificate.
+- **Technician signoff first.** Where a card requires an inspection signoff, a different person gives it, and needs an approved mechanic certificate.
 - **Nobody approves their own certificate,** administrators included. A new or changed certificate waits for another administrator ([user certifications](../../user-certifications.md)).
 - **Editing a signed card's content or adding evidence clears its signoffs.** So does setting it back to Draft. The cleared signoffs stay in the change log.
 - **Close-out confirms the readings** and records inspection compliance in one step. A closed work order is read-only; fix it with a correction ([work orders](../../work-orders.md)).
-- **An overdue item grounds the aircraft.** A usage limit at 0 remaining is overdue; a calendar limit is overdue the day after its due date ([glossary: Overdue](../../../GLOSSARY.md)).
+- **An overdue item grounds the aircraft.** A usage limit at 0 remaining is overdue; a calendar limit is overdue the day after its due date ([due soon and overdue](../../maintenance-workflows.md#due-soon-and-overdue)).
 - **Older records** (more than 3 months closed) are behind **Load older** and need a connection ([history paging](../2-how-it-works/how-it-works.md#history-paging-and-the-3-month-window)).
 
 ## Administrators
@@ -55,7 +57,7 @@ The few rules that matter most, by who you are. Each links to the page with the 
 - **Keep expiring dates current:** insurance, registration, keys. They alert from 60 days out ([alerts](../../alerts.md)).
 - **Do the monthly paper check** while paper logbooks are kept ([paper check](../../reconciliation.md)).
 - **When someone leaves,** a system administrator disables the account; that ends every session at once ([accounts runbook](../../runbooks/accounts.md#disabling-a-user)).
-- **A lost device:** reset that user's password and tell Aaron ([incident runbook](../../runbooks/incident-response.md#lost-or-stolen-device)).
+- **A lost device:** a system administrator resets that user's password; lock or erase the device remotely if you can; tell Aaron ([incident runbook](../../runbooks/incident-response.md#lost-or-stolen-device)).
 - **Transfers between programs** are for system administrators, need a reason, and leave cost records with the program that paid ([Flight Program access](../../flight-program-access.md#explicit-transfers)).
 
 ## Owners and board members
@@ -69,9 +71,10 @@ The few rules that matter most, by who you are. Each links to the page with the 
 
 - **Merging to `main` is the release.** Take a Convex backup first ([operations](../3-running-it/operations.md#releasing)).
 - **Convex can't roll back.** Revert on `main` and let Deploy release it; the website rolls back in Cloudflare.
-- **After any restore, run the three rebuild migrations** until 0, then `reconcileCostLedger` must answer `differing: 0` ([operations](../3-running-it/operations.md#after-a-release-or-a-restore-the-migrations)).
+- **After any restore, and after a deploy that adds derived columns or keys, run the three migrations** (`backfillHistoryColumns`, `rebuildRecordNumbers`, `rebuildCostLedger`) until each returns `missing: 0`; then `reconcileCostLedger` must return `differing: 0` ([operations](../3-running-it/operations.md#after-a-release-or-a-restore-the-migrations)).
 - **Never edit production data directly,** except a restore or a written repair, recorded at once with `audit:recordManualEntry`. Never touch a change-log row ([database access](../../runbooks/database-access.md)).
 - **Secrets never go in the repository.** It is public. A leaked secret is rotated first ([incident runbook](../../runbooks/incident-response.md#leaked-secret)).
-- **Keep the nightly backup alive:** read failure emails, and keep the repository active (60 days) ([checklists](../3-running-it/checklists.md)).
+- **Get the nightly backup working, then keep it alive.** Its set-up is not finished, so no off-site copy exists yet ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)). After that: read failure emails, and keep the repository active, because GitHub stops scheduled runs after 60 days without a commit ([checklists](../3-running-it/checklists.md)).
+- **Never reconnect Cloudflare's own Git build.** Only the GitHub Deploy workflow publishes the website ([risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
 - **Dated renewals:** `security.txt` before 2027-09-04; the FAA DRS key before 2027-10-14 ([checklists](../3-running-it/checklists.md#one-off-and-dated)).
 - **Follow [CONSTRAINTS.md](../../../CONSTRAINTS.md)** and run `npm run check` and `npm run test:e2e` before a change ships.
