@@ -1,5 +1,7 @@
 # Troubleshooting
 
+[User guide](Home.md)
+
 Find the message you see, then follow the fix. Messages are quoted as the app
 shows them. Where to start:
 

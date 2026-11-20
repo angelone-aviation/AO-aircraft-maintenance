@@ -1,5 +1,7 @@
 # Alerts
 
+[User guide](Home.md)
+
 An **alert** tells you what needs attention in your Flight Program. They are
 under the bell in the top bar and on the **Alerts** page (under Manage). They
 work offline from the copy on the device.

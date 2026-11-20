@@ -1,5 +1,7 @@
 # Weekly summary
 
+[User guide](Home.md)
+
 The **Summary** tab of [Change history](Change-History.md) lets a Flight
 Program administrator review a period of the change log without reading it
 entry by entry. It needs a connection.

@@ -1,5 +1,7 @@
 # FAQ
 
+[User guide](Home.md)
+
 ## General
 
 **Is Angel One the official maintenance record?**
@@ -110,4 +112,5 @@ safe ([Troubleshooting](Troubleshooting.md#configuration-error)).
 Emails use the program's records time zone; the bell uses your device's date.
 
 **How the system is run, backed up and paid for**
-See the [handbook](../handbook/README.md).
+See the [handbook](../handbook/README.md) and its
+[technical FAQ](../handbook/1-start-here/faq.md).

@@ -1,5 +1,7 @@
 # Reference library
 
+[User guide](Home.md)
+
 The **Reference library** (under Manage) holds PDF manuals linked to aircraft.
 Inspections, component requirements and job cards can point to a page in a
 manual. Kept manuals open offline.

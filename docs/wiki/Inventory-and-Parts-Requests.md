@@ -1,5 +1,7 @@
 # Inventory and parts requests
 
+[User guide](Home.md)
+
 **Parts & repair requests** is how mechanics ask for parts or a repair.
 **Inventory** holds the program's storage locations and stock. Both are under
 **Maintain**.

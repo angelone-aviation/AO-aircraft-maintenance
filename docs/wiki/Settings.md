@@ -1,5 +1,7 @@
 # Settings
 
+[User guide](Home.md)
+
 **Settings** (the last link under Manage, or **Settings** under your name)
 changes how the app behaves. Each section shows only to those allowed to
 change it. Owners and board members have no Settings page.
@@ -81,5 +83,9 @@ Until the first nightly copy is recorded, Off-site backups reads "No off-site
 backup has been recorded yet."
 
 Keys are stored on the server and never shown again or kept offline. The demo
-accepts no keys. How backups and restores work is in the
-[handbook](../handbook/README.md).
+accepts no keys. How backups and restores work is in the handbook's
+[Backups and restore](../handbook/3-running-it/operations.md#backups-and-restore).
+
+In the demo only, System ends with **Download this demo's data**: **Download
+demo data** saves everything the browser's demo holds as one JSON file. It
+cannot be imported into a live deployment.

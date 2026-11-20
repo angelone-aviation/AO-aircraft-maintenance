@@ -1,5 +1,7 @@
 # Purchase orders and vendors
 
+[User guide](Home.md)
+
 **Purchase orders**, **Vendors** and **Saved addresses** are under **Manage**.
 Purchase orders and vendors are for Flight Program administrators. Mechanics
 see the progress of orders on their own requests. Everything here needs a
@@ -102,8 +104,21 @@ orders to include them.
 
 ![A vendor's Orders dialog](images/vendor-orders.png)
 
-The Aircraft Spruce account is linked in
-[Settings → Flight Program](Settings.md#flight-program).
+### Aircraft Spruce
+
+Link the program's Aircraft Spruce account in
+[Settings → Flight Program](Settings.md#flight-program). Then:
+
+- **Refresh Aircraft Spruce catalog** downloads their catalog.
+- **Find at Aircraft Spruce** on a request or draft order line records their
+  part number and order unit on it, and copies their price when the
+  currencies match. Check that one of their units is one of yours.
+- **Aircraft Spruce order progress** → **Sync Aircraft Spruce order** on a
+  saved order shows their status, quantities and tracking for it.
+
+The app never places an order: order from Aircraft Spruce yourself, quoting
+the PO number. Record shipments and receipts as for any vendor. The details
+are in [Aircraft Spruce connection](../aircraft-spruce.md).
 
 ## Saved addresses
 

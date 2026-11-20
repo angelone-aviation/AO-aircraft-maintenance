@@ -1,5 +1,7 @@
 # Change history
 
+[User guide](Home.md)
+
 **Change history** (under **Manage**) is the change log of the active Flight
 Program: every submission, correction and administrative change, newest first.
 Each entry says who, when, the reason where one was required, and the values

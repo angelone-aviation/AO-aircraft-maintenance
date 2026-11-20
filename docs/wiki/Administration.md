@@ -1,5 +1,7 @@
 # Administration
 
+[User guide](Home.md)
+
 **Administration** (under Manage) decides who can do what: users, permission
 groups and aircraft access. **Flight Programs** and **Aircraft** sit beside it.
 Administration needs a connection: "Administration requires a connection."

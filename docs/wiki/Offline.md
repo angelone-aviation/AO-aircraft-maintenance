@@ -1,5 +1,7 @@
 # Offline
 
+[User guide](Home.md)
+
 Pilots can log flights and report problems with no signal. Everything else
 needs a connection. The device keeps a copy of your Flight Program for seven
 days from sign-in.
