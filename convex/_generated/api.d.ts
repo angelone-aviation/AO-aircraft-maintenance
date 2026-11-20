@@ -44,6 +44,8 @@ import type * as fleet from "../fleet.js";
 import type * as flightPlans from "../flightPlans.js";
 import type * as groupAudit from "../groupAudit.js";
 import type * as groupDeletion from "../groupDeletion.js";
+import type * as history from "../history.js";
+import type * as historyScan from "../historyScan.js";
 import type * as http from "../http.js";
 import type * as identities from "../identities.js";
 import type * as inspectionTemplates from "../inspectionTemplates.js";
@@ -126,6 +128,8 @@ declare const fullApi: ApiFromModules<{
   flightPlans: typeof flightPlans;
   groupAudit: typeof groupAudit;
   groupDeletion: typeof groupDeletion;
+  history: typeof history;
+  historyScan: typeof historyScan;
   http: typeof http;
   identities: typeof identities;
   inspectionTemplates: typeof inspectionTemplates;

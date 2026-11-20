@@ -473,7 +473,9 @@ export default defineSchema({
   })
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
-    .index("status", ["aircraftUuid", "status", "completionDate"])
+    // History pages read this range by completion date; the uuid orders
+    // ties as src/domain/retention.ts does.
+    .index("status", ["aircraftUuid", "status", "completionDate", "uuid"])
     .index("closed", ["aircraftUuid", "closedAt"])
     .index("number", ["aircraftUuid", "numberKey"]),
   inventoryFiles: defineTable({
@@ -531,7 +533,9 @@ export default defineSchema({
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
     .index("plan", ["flightPlanUuid"])
-    .index("started", ["aircraftUuid", "startedAt"])
+    // History pages read this range; the uuid orders ties as
+    // src/domain/retention.ts does.
+    .index("started", ["aircraftUuid", "startedAt", "uuid"])
     .index("submitted", ["aircraftUuid", "submittedAt"])
     .index("status", ["aircraftUuid", "status"]),
   discrepancies: defineTable({
@@ -565,7 +569,9 @@ export default defineSchema({
     .index("aircraft", ["aircraftUuid"])
     // A member's open reports, which their backlog limit counts (decision D2).
     .index("author", ["authorId", "status"])
-    .index("status", ["aircraftUuid", "status", "createdAt"])
+    // History pages read this range; the uuid orders ties as
+    // src/domain/retention.ts does.
+    .index("status", ["aircraftUuid", "status", "createdAt", "uuid"])
     .index("resolved", ["aircraftUuid", "resolvedAt"]),
   partsRequests: defineTable({
     uuid: v.string(),
