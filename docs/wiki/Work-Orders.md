@@ -124,7 +124,8 @@ On a completed order, open **Details → Generate logbook entry**.
 4. Choose **Save as PDF** or **Copy text**. Both stay disabled until the
    certificate and those fields are filled in.
 5. Write or paste it into the paper logbook and sign it there.
-6. Choose **Attach signed page photo** to attach a photo of the signed page.
+6. Choose **Attach signed page photo** to attach a photo of the signed page
+   ([camera, PDF and file rules](Flight-Log.md#logbook-page-photos)).
 
 Exporting is not a signature. The **Performed by** line names each technician
 who signed an included job card, when that is not you (14 CFR 43.9(a)(3)).

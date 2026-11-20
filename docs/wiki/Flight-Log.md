@@ -150,7 +150,8 @@ While the program keeps paper logbooks, attach a photo of the handwritten line:
 
 1. Choose **Add a photo of the logbook line** in the **Flight saved** notice,
    or in the flight's **Logbook page** column later.
-2. On a phone the camera opens; elsewhere, a file picker.
+2. On a phone the camera opens. On a computer a file picker opens and shows
+   images only: to attach a PDF, choose "All files" in the picker.
 
 | Rule     | Detail                                                                                               |
 | -------- | ---------------------------------------------------------------------------------------------------- |
