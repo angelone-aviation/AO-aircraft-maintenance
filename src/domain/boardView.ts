@@ -271,33 +271,71 @@ export function boardViewAircraft(
 
 /**
  * Totals each aircraft's spend for the current quarter and year against its
- * budget, from a snapshot that still holds the cost records.
+ * budget.
  *
- * @param s - A snapshot with cost records (a program administrator's, or the
- *   one the board whitelist is built from).
+ * @param s - A snapshot with the budgets and, unless `spend` is given, the
+ *   cost records (a program administrator's, or the one the board whitelist
+ *   is built from).
  * @param today - A local date; today by default.
+ * @param spend - An aircraft's spend in cents over a period; by default
+ *   totalled from the cost records (aircraftSpendCents). The server sums the
+ *   cost ledger instead (ADR-0013).
  * @returns One row per aircraft in `s.aircraft`, in that order.
  */
 export function boardCostTotals(
   s: Snapshot,
   today = localDate(),
+  spend: (aircraftUuid: string, period: Period) => number = (a, p) =>
+    aircraftSpendCents(s, a, p),
 ): BoardAircraftCosts[] {
-  const year = Number(today.slice(0, 4));
-  const quarter = quarterPeriod(today);
-  const wholeYear = { from: `${year}-01-01`, to: `${year}-12-31` };
+  const { year, quarter, wholeYear } = boardCostPeriods(today);
   return s.aircraft.map((a) => {
     const budgetCents = findBudget(s, a.uuid, year)?.amountCents;
-    const yearCents = aircraftSpendCents(s, a.uuid, wholeYear);
+    const yearCents = spend(a.uuid, wholeYear);
     return {
       aircraftUuid: a.uuid,
       year,
       quarterLabel: quarter.label,
-      quarterCents: aircraftSpendCents(s, a.uuid, quarter),
+      quarterCents: spend(a.uuid, quarter),
       yearCents,
       budgetCents,
       overBudget: budgetCents !== undefined && yearCents > budgetCents,
     };
   });
+}
+
+/**
+ * The periods the board totals: the calendar year and the quarter `today`
+ * falls in, both inclusive.
+ *
+ * @param today - A local date.
+ */
+export function boardCostPeriods(today: string) {
+  const year = Number(today.slice(0, 4));
+  return {
+    year,
+    quarter: quarterPeriod(today),
+    wholeYear: { from: `${year}-01-01`, to: `${year}-12-31` },
+  };
+}
+
+/**
+ * The board's cost rows for `s.aircraft`: those the server totalled from the
+ * cost ledger (`s.boardCosts`) when present, else totalled here from the
+ * cost records, as the demo does.
+ *
+ * @param today - A local date; today by default.
+ * @returns One row per aircraft in `s.aircraft` that has one, in that order.
+ */
+export function boardCostRows(
+  s: Snapshot,
+  today = localDate(),
+): BoardAircraftCosts[] {
+  const totalled = s.boardCosts;
+  if (!totalled) return boardCostTotals(s, today);
+  return s.aircraft.flatMap((a) =>
+    totalled.filter((c) => c.aircraftUuid === a.uuid),
+  );
 }
 
 /**
@@ -307,7 +345,8 @@ export function boardCostTotals(
  * notes, descriptions or people), completed work orders as number, dates and
  * scope, cost totals in place of cost records, and the backup time.
  *
- * @param s - A program-scoped snapshot that still holds cost records.
+ * @param s - A program-scoped snapshot that still holds cost records, or the
+ *   board's cost rows the server totalled (`boardCosts`).
  * @param today - A local date for the cost periods; today by default.
  * @returns The user's own member record and groups; open discrepancies with
  *   grounding and deferral but no text; unarchived inspections, ADs and
@@ -346,7 +385,7 @@ export function boardSnapshot(s: Snapshot, today = localDate()): Snapshot {
     workOrders: (s.workOrders ?? [])
       .filter((w) => w.status === "completed" && ids.has(w.aircraftUuid))
       .map(toBoardWorkOrder),
-    boardCosts: boardCostTotals(s, today),
+    boardCosts: boardCostRows(s, today),
     offsiteBackupAt: s.offsiteBackupAt,
   };
 }

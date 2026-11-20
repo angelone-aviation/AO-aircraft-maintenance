@@ -5,7 +5,7 @@
  *   holds, and the derived columns a cost save stores.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/costs, convex/workOrders, convex/operations,
- *   convex/collections, src/data/demo, src/domain (costs, taskCards,
+ *   convex/collections, convex/costLedger, src/data/demo, src/domain (costs, taskCards,
  *   partsRequests), tests/fixtures (workOrders, derivedColumns).
  */
 import { convexTest } from "convex-test";
@@ -19,6 +19,7 @@ import { laborCents, parseLaborHours } from "../src/domain/costs";
 import { taskCardDefaults, taskCardSchema } from "../src/domain/taskCards";
 import { partsRequestSchema } from "../src/domain/partsRequests";
 import { encode } from "./collections";
+import { storedLedger } from "./costLedger";
 import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -348,6 +349,14 @@ it("keeps cost records with the program that paid when the aircraft moves (AC-10
     );
   expect(technicians("demo-program")).toEqual(["Source mechanic"]);
   expect(technicians("other")).toEqual(["Destination mechanic"]);
+  // The ledger keeps each program's own days (ADR-0013): the source's stay.
+  const ledger = await t.run((ctx) => storedLedger(ctx, order.uuid));
+  expect(
+    ledger.map((r) => [r.programUuid, r.aircraftUuid, r.laborCents]),
+  ).toEqual([
+    ["demo-program", aircraftUuid, 9500],
+    ["other", aircraftUuid, 0],
+  ]);
 });
 it("makes a closed work order's costs read-only", async () => {
   const { tech, admin } = await fixture();

@@ -5,7 +5,7 @@
  *   order's parts requests and costs, and the highest-numbered request.
  * Layer: Server. Convex reads only, each within the caller's Flight Program;
  *   the rules that use them are the domain's.
- * Dependencies: ./_generated (types).
+ * Dependencies: ./_generated (types), ./collections.
  *
  * Each loader returns rows in the order a whole-history loader does (by
  * aircraft, then creation time), so an applier that takes the first match
@@ -13,6 +13,7 @@
  */
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
+import { decode } from "./collections";
 
 type Ctx = QueryCtx | MutationCtx;
 /** The Flight Program's aircraft, as the caller's context holds them. */
@@ -281,33 +282,53 @@ export async function workOrderCostDocs(
   programUuid: string,
   workOrderUuids: Iterable<string>,
 ): Promise<Doc<"costs">[]> {
-  const ofKind = (kind: "budget" | "settings") =>
-    ctx.db
-      .query("costs")
-      .withIndex("kind", (q) =>
-        q.eq("programUuid", programUuid).eq("kind", kind),
-      )
-      .collect();
   const ofOrder = (uuid: string) =>
     ctx.db
       .query("costs")
       .withIndex("workOrder", (q) => q.eq("workOrderUuid", uuid))
       .collect();
   const orders = [...new Set(workOrderUuids)].filter(Boolean);
-  const [budgets, settings, ...ofOrders] = await Promise.all([
-    ofKind("budget"),
-    ofKind("settings"),
+  const [standing, ...ofOrders] = await Promise.all([
+    budgetAndSettingsDocs(ctx, programUuid),
     ...orders.map(ofOrder),
   ]);
   const rows = unique([
     ...ofOrders.flat().filter((r) => r.programUuid === programUuid),
-    ...budgets,
-    ...settings,
+    ...standing,
   ]);
   return [
     ...byProgramOrder(rows.filter((r) => r.aircraftUuid)),
     ...byProgramOrder(rows.filter((r) => !r.aircraftUuid)),
   ];
+}
+
+/**
+ * A Flight Program's budgets and labor-rate settings, by the derived `kind`
+ * column, and those among its rows written before the column (until
+ * migrations:backfillHistoryColumns fills it).
+ *
+ * @returns Budgets, then settings, then the older rows, each by index order.
+ */
+export async function budgetAndSettingsDocs(
+  ctx: Ctx,
+  programUuid: string,
+): Promise<Doc<"costs">[]> {
+  const ofKind = (kind: "budget" | "settings" | undefined) =>
+    ctx.db
+      .query("costs")
+      .withIndex("kind", (q) =>
+        q.eq("programUuid", programUuid).eq("kind", kind),
+      )
+      .collect();
+  const [budgets, settings, unfilled] = await Promise.all([
+    ofKind("budget"),
+    ofKind("settings"),
+    ofKind(undefined),
+  ]);
+  const standing = unfilled.filter(
+    (r) => decode("costs", [r])[0].kind !== "workOrder",
+  );
+  return [...budgets, ...settings, ...standing];
 }
 
 /**

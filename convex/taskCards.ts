@@ -4,7 +4,7 @@
  * Layer: Server. Convex mutations, an action and internal functions; the
  *   rules live in src/domain (taskCards, attachments).
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./runCommand, ./collections, ./recordNumbers, ./workingSet,
+ *   ./runCommand, ./collections, ./recordNumbers, ./costLedger, ./workingSet,
  *   ./attachments, ./userErrors, src/domain (taskCards, workOrders,
  *   attachments, inventoryAttachments, model).
  */
@@ -38,6 +38,7 @@ import {
 } from "./runCommand";
 import { decode, encode } from "./collections";
 import { readRecordNumbers } from "./recordNumbers";
+import { syncWorkOrderLedger } from "./costLedger";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
@@ -69,8 +70,10 @@ const NO_EVIDENCE = "Evidence not found.";
 
 /**
  * Saves a job card in the active Flight Program and writes the
- * "taskCard.<action>" row applyTaskCardCommand records. A replayed request id
- * changes nothing.
+ * "taskCard.<action>" row applyTaskCardCommand records. A card joining a
+ * work order brings that order's cost ledger rows up to date, since parts
+ * requests on the card now count toward it. A replayed request id changes
+ * nothing.
  *
  * @param payload - The job-card command, as JSON, with its request id.
  * @returns The card's uuid; nothing for a replay.
@@ -88,8 +91,16 @@ export const save = mutation({
       load: ({ ctx, state }, command) => loadCard(ctx, state, command),
       apply: ({ snapshot, now, numbers }, command) =>
         applyTaskCardCommand(snapshot, command, now, numbers),
-      persist: ({ ctx }, { docs }, next) =>
-        writeChanged(ctx, "taskCards", docs, [next]),
+      persist: async ({ ctx }, { docs }, next) => {
+        const prior = decode(
+          "taskCards",
+          docs.filter((d) => d.uuid === next.uuid),
+        ).at(0);
+        await writeChanged(ctx, "taskCards", docs, [next]);
+        // Parts requests on a card count toward the work order it joins.
+        if (next.workOrderUuid && next.workOrderUuid !== prior?.workOrderUuid)
+          await syncWorkOrderLedger(ctx, next.workOrderUuid);
+      },
       audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (next) => next.uuid,
     }),

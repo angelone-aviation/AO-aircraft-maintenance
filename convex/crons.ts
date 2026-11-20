@@ -2,7 +2,8 @@
  * Responsibility: Schedules the deployment's recurring jobs: the FAA AD check,
  *   expired manual-upload cleanup, the sweep of stored files nothing refers
  *   to, the maintenance alert email digest, the urgent alert check that
- *   follows it, and the weekly sign-in records cleanup.
+ *   follows it, the cost ledger reconcile, and the weekly sign-in records
+ *   cleanup.
  * Layer: Server. Schedules only; each job is an internal function elsewhere.
  * Dependencies: convex/server (cronJobs), convex/_generated/api,
  *   convex/fileSweep, src/domain (alerts, faa: the hours screens also quote).
@@ -14,6 +15,8 @@ import { ALERT_DIGEST_HOUR_UTC } from "../src/domain/alerts";
 import { FAA_CHECK_HOUR_UTC } from "../src/domain/faa";
 
 const SIGN_IN_CLEANUP_HOUR_UTC = 7;
+// Before dawn across the Americas, clear of the other daily jobs.
+const LEDGER_RECONCILE_HOUR_UTC = 9;
 
 const crons = cronJobs();
 crons.daily(
@@ -42,6 +45,15 @@ crons.daily(
   "Urgent alert check",
   { hourUTC: ALERT_DIGEST_HOUR_UTC, minuteUTC: 10 },
   internal.urgentAlerts.daily,
+  {},
+);
+
+// Logs a work order whose cost ledger rows differ from its records; an
+// operator rebuilds the ledger (docs/history-paging.md).
+crons.daily(
+  "Cost ledger reconcile",
+  { hourUTC: LEDGER_RECONCILE_HOUR_UTC, minuteUTC: 37 },
+  internal.migrations.reconcileCostLedger,
   {},
 );
 

@@ -1,10 +1,11 @@
 /**
  * Responsibility: Fills the history window's derived columns on rows written
- *   before they existed, and rebuilds the recordNumbers table.
- * Layer: Server. Internal functions run by hand with `npx convex run`; no
- *   public entry point and no change-log rows.
+ *   before they existed, rebuilds the recordNumbers and costLedger tables,
+ *   and checks the ledger against its records each night.
+ * Layer: Server. Internal functions run by hand with `npx convex run`, and
+ *   the reconcile by crons.ts; no public entry point and no change-log rows.
  * Dependencies: convex/values, convex/server, ./_generated, ./collections,
- *   ./recordNumbers.
+ *   ./recordNumbers, ./costLedger.
  *
  * The window's indexes (ADR-0013) find only rows that carry the columns, and
  * numbering reads only the number rows, so every deployment holding data
@@ -16,8 +17,10 @@ import { makeFunctionReference } from "convex/server";
 import {
   internalAction,
   internalMutation,
+  internalQuery,
   type ActionCtx,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import {
@@ -32,6 +35,12 @@ import {
   recordNumberOf,
   syncRecordNumber,
 } from "./recordNumbers";
+import {
+  expectedLedger,
+  storedLedger,
+  syncWorkOrderLedger,
+  type StoredLedgerRow,
+} from "./costLedger";
 
 const BACKFILL_TABLES = [
   "flights",
@@ -63,6 +72,20 @@ const REBUILD_PAGE = makeFunctionReference<
   { step: RebuildStep; cursor: string | null },
   FilledPage
 >("migrations:rebuildRecordNumbersPage");
+type LedgerStep = "workOrders" | "costLedger";
+const LEDGER_PAGE = makeFunctionReference<
+  "mutation",
+  { step: LedgerStep; cursor: string | null },
+  FilledPage
+>("migrations:rebuildCostLedgerPage");
+type ReconciledPage = { differing: string[]; cursor: string | null };
+const RECONCILE_PAGE = makeFunctionReference<
+  "query",
+  { cursor: string | null },
+  ReconciledPage
+>("migrations:reconcileCostLedgerPage");
+// Work orders named in the reconcile's log line; the count gives the rest.
+const LOGGED_DIFFERENCES = 20;
 
 /**
  * Fills the derived columns on one page of a table's rows, where any is
@@ -274,4 +297,163 @@ async function pruneNumbers(ctx: MutationCtx, cursor: string | null) {
     removed++;
   }
   return { filled: removed, cursor: page.isDone ? null : page.continueCursor };
+}
+
+/**
+ * Brings one page of the cost ledger in step with the records: for a page of
+ * work orders, rewrites each one's rows for every program that paid; for a
+ * page of ledger rows, deletes those whose work order no longer exists.
+ * Writes no record and no change-log row.
+ *
+ * @param step - The table to page.
+ * @param cursor - The page; null for the first.
+ * @returns How many rows the page wrote or deleted, and the next cursor,
+ *   null once the table is done.
+ */
+export const rebuildCostLedgerPage = internalMutation({
+  args: {
+    step: v.union(v.literal("workOrders"), v.literal("costLedger")),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, { step, cursor }): Promise<FilledPage> => {
+    if (step === "costLedger") return pruneLedger(ctx, cursor);
+    const page = await ctx.db
+      .query("workOrders")
+      .paginate({ cursor, numItems: BACKFILL_PAGE });
+    let written = 0;
+    for (const order of page.page)
+      written += await syncWorkOrderLedger(ctx, order.uuid);
+    return {
+      filled: written,
+      cursor: page.isDone ? null : page.continueCursor,
+    };
+  },
+});
+
+/**
+ * Rebuilds the cost ledger from the work orders' cost records and parts
+ * requests, one page per transaction, then deletes rows of work orders that
+ * no longer exist. Idempotent and safe beside live traffic, since every cost
+ * write since the ledger keeps its rows; run it until it reports 0 missing.
+ *
+ * @returns The rows written or deleted: `missing` in all, `tables` by the
+ *   table paged (`costLedger` counts the deleted rows).
+ */
+export const rebuildCostLedger = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const tables: [LedgerStep, number][] = [];
+    for (const step of ["workOrders", "costLedger"] as const)
+      tables.push([step, await pageLedger(ctx, step)]);
+    return {
+      missing: tables.reduce((sum, [, written]) => sum + written, 0),
+      tables: Object.fromEntries(tables),
+    };
+  },
+});
+
+/**
+ * Compares one page of work orders' ledger rows with what their records
+ * derive, without writing.
+ *
+ * @param cursor - The page; null for the first.
+ * @returns The uuids of the work orders whose rows differ, and the next
+ *   cursor, null once done.
+ */
+export const reconcileCostLedgerPage = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }): Promise<ReconciledPage> => {
+    const page = await ctx.db
+      .query("workOrders")
+      .paginate({ cursor, numItems: BACKFILL_PAGE });
+    const differing = [];
+    for (const order of page.page)
+      if (await ledgerDiffers(ctx, order.uuid)) differing.push(order.uuid);
+    return { differing, cursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+/**
+ * Checks every work order's ledger rows against its records, the nightly
+ * reconcile (ADR-0013). A difference is logged with the work orders' uuids
+ * (the first 20) and their count, for an operator to run
+ * migrations:rebuildCostLedger; nothing is changed.
+ *
+ * @returns How many work orders' rows differ, and the uuids it logged.
+ */
+export const reconcileCostLedger = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const differing: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: ReconciledPage = await ctx.runQuery(RECONCILE_PAGE, {
+        cursor,
+      });
+      differing.push(...page.differing);
+      cursor = page.cursor;
+    } while (cursor !== null);
+    const logged = differing.slice(0, LOGGED_DIFFERENCES);
+    if (differing.length)
+      console.error("The cost ledger differs from its records.", {
+        workOrders: differing.length,
+        first: logged,
+      });
+    return { differing: differing.length, logged };
+  },
+});
+
+async function pageLedger(ctx: ActionCtx, step: LedgerStep) {
+  let written = 0;
+  let cursor: string | null = null;
+  do {
+    const page: FilledPage = await ctx.runMutation(LEDGER_PAGE, {
+      step,
+      cursor,
+    });
+    written += page.filled;
+    cursor = page.cursor;
+  } while (cursor !== null);
+  return written;
+}
+
+async function pruneLedger(ctx: MutationCtx, cursor: string | null) {
+  const page = await ctx.db
+    .query("costLedger")
+    .paginate({ cursor, numItems: BACKFILL_PAGE });
+  let removed = 0;
+  for (const row of page.page) {
+    const order = await ctx.db
+      .query("workOrders")
+      .withIndex("uuid", (q) => q.eq("uuid", row.workOrderUuid))
+      .first();
+    if (order) continue;
+    await ctx.db.delete(row._id);
+    removed++;
+  }
+  return { filled: removed, cursor: page.isDone ? null : page.continueCursor };
+}
+
+// Rows compare by program, date, aircraft and amounts, in any stored order.
+async function ledgerDiffers(ctx: QueryCtx, workOrderUuid: string) {
+  const canonical = (rows: StoredLedgerRow[]) =>
+    rows
+      .map((r) =>
+        [
+          r.programUuid,
+          r.date,
+          r.aircraftUuid,
+          r.laborSeconds,
+          r.laborCents,
+          r.partsCents,
+          r.otherCents,
+        ].join(" "),
+      )
+      .sort()
+      .join("\n");
+  const [expected, stored] = await Promise.all([
+    expectedLedger(ctx, workOrderUuid),
+    storedLedger(ctx, workOrderUuid),
+  ]);
+  return canonical(expected) !== canonical(stored);
 }

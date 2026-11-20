@@ -4,8 +4,8 @@
  *   one account per kind of view.
  * Layer: Test. Fixture for convex-test suites; never shipped in the build.
  * Dependencies: convex/_generated (types), convex/collections.ts (codec),
- *   convex/recordNumbers.ts, src/data/demo.ts, src/domain stored-record
- *   schemas and builders.
+ *   convex/recordNumbers.ts, convex/costLedger.ts, src/data/demo.ts,
+ *   src/domain stored-record schemas and builders.
  *
  * Volumes follow the size test's profile (per aircraft per year: 300
  * flights, 12 work orders of 15 job cards, 30 problem reports, 60 flight
@@ -17,8 +17,9 @@
  */
 import type { MutationCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel";
-import { encode, type StoredRow } from "../../convex/collections";
+import { decode, encode, type StoredRow } from "../../convex/collections";
 import { recordNumberOf } from "../../convex/recordNumbers";
+import { derivedLedger } from "../../convex/costLedger";
 import { demoSnapshot } from "../../src/data/demo";
 import { adSchema } from "../../src/domain/airworthiness";
 import { costRecordSchema } from "../../src/domain/costs";
@@ -131,6 +132,7 @@ export async function seedProgramVolume(
   const tables = gen.program(blob);
   for (let back = 1; back < years; back++) gen.pastYear(tables, back, blob);
   tables.recordNumbers = numberRows(tables);
+  tables.costLedger = ledgerRows(tables);
   for (const [table, rows] of Object.entries(tables))
     for (const row of rows) await ctx.db.insert(table as "audit", row as never);
   return {
@@ -165,6 +167,29 @@ export async function addJobCards(ctx: MutationCtx, at: number, count: number) {
     const order = gen.workOrder(aircraft, n, false);
     await ctx.db.insert("workOrders", encode("workOrders", order));
   }
+}
+
+// The cost ledger rows the app writes beside each work order's cost record.
+// No request of the fixture counts toward a work order, so each record is
+// all its order's ledger reads.
+function ledgerRows(tables: Record<string, Row[]>) {
+  const orders = new Map(
+    decode("workOrders", tables.workOrders as StoredRow<"workOrders">[]).map(
+      (w) => [w.uuid, w],
+    ),
+  );
+  return decode("costs", tables.costs as StoredRow<"costs">[]).flatMap(
+    (record) => {
+      if (record.kind !== "workOrder") return [];
+      const records = {
+        costs: [record],
+        taskCards: [],
+        archivedTaskCards: [],
+        partsRequests: [],
+      };
+      return derivedLedger(orders.get(record.workOrderUuid)!, records) as Row[];
+    },
+  );
 }
 
 // The number rows the app writes beside each work order and job card.

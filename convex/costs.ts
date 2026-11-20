@@ -4,7 +4,8 @@
  * Layer: Server. Convex mutation over runCommand; the rules live in
  *   src/domain/costs.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   ./programContext, ./workingSet, src/domain (costs, programs, model).
+ *   ./programContext, ./workingSet, ./costLedger, src/domain (costs,
+ *   programs, model).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
@@ -23,6 +24,7 @@ import {
   workOrderCostDocs,
 } from "./workingSet";
 import { activeProgram } from "../src/domain/programs";
+import { syncWorkOrderLedger } from "./costLedger";
 import { decode, encode } from "./collections";
 import type { Snapshot } from "../src/domain/model";
 import {
@@ -32,7 +34,8 @@ import {
 } from "../src/domain/costs";
 
 /**
- * Applies one cost command to the active Flight Program's cost records. An
+ * Applies one cost command to the active Flight Program's cost records, and
+ * brings a work order's cost ledger rows up to date with its record. An
  * unchanged record is neither saved nor audited again, and a replayed request
  * id changes nothing.
  *
@@ -60,8 +63,11 @@ export const execute = mutation({
       apply: ({ s }, command) => applyCostCommand(s, command),
       // Explicit domain validation messages are safe, actionable feedback.
       expose: plainErrors,
-      persist: ({ ctx }, { docs }, next) =>
-        writeChanged(ctx, "costs", docs, [next]),
+      persist: async ({ ctx }, { docs }, next) => {
+        await writeChanged(ctx, "costs", docs, [next]);
+        if (next.kind === "workOrder")
+          await syncWorkOrderLedger(ctx, next.workOrderUuid);
+      },
       audit: (log, { s, docs }, next) => {
         const prior = docs.find((d) => d.uuid === next.uuid);
         if (prior?.payload !== encode("costs", next).payload)

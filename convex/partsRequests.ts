@@ -4,7 +4,8 @@
  * Layer: Server. Convex mutation over runCommand; the rules live in
  *   src/domain/partsRequests.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   ./workingSet, src/domain (model, management, partsRequests, programs).
+ *   ./workingSet, ./costLedger, src/domain (model, management,
+ *   partsRequests, programs).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -33,13 +34,15 @@ import {
   type PartsRequest,
 } from "../src/domain/partsRequests";
 import { activeProgram } from "../src/domain/programs";
+import { syncWorkOrderLedger } from "./costLedger";
 import type { Snapshot } from "../src/domain/model";
 import type { ManagedRecord } from "../src/domain/management";
 
 /**
  * Applies one parts-request command in the active Flight Program, with the
  * stock it moves. An issue also writes the work-order cost records that
- * record its price (decision D13). Saving an active recurring list also
+ * record its price (decision D13), and those orders' cost ledger rows.
+ * Saving an active recurring list also
  * writes the requests the applier creates for the open work orders on its
  * aircraft. Each change has its change-log row.
  *
@@ -65,12 +68,11 @@ export const execute = mutation({
           changedRequests(s, docs.partsRequests, r),
         );
         await patchStock(ctx, docs.management, s.management ?? []);
-        await writeChanged(
-          ctx,
-          "costs",
-          docs.costs,
-          pricedCosts(s, docs.costs),
-        );
+        const priced = pricedCosts(s, docs.costs);
+        await writeChanged(ctx, "costs", docs.costs, priced);
+        for (const record of priced)
+          if (record.kind === "workOrder")
+            await syncWorkOrderLedger(ctx, record.workOrderUuid);
       },
       audit: (log, { snapshot }) => log.record(snapshot.audit),
       returns: (r) => r.uuid,
