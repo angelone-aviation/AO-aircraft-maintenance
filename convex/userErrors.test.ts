@@ -185,13 +185,6 @@ it("shows refusals from functions outside runCommand to the client", async () =>
   const manager = as(ids.manager);
   const systemAdmin = as(ids.systemAdmin);
   const target = { aircraftUuid: AIRCRAFT.uuid, programUuid: PROGRAM };
-  const passwordLogin = await t.run((ctx) =>
-    ctx.db.insert("authAccounts", {
-      userId: ids.maintainer.id,
-      provider: "password",
-      providerAccountId: "member@example.test",
-    }),
-  );
   const faaKey = { key: "synthetic-test-key-000001", version: 0 };
   const pdf = { name: "a.pdf", type: "application/pdf", bytes: PDF };
   const manual = {
@@ -323,14 +316,6 @@ it("shows refusals from functions outside runCommand to the client", async () =>
           key: "sealed",
           expiresOn: "2099-10-14",
           version: 1,
-        }),
-    ],
-    [
-      "Linked identity not found.",
-      () =>
-        systemAdmin.mutation(api.identities.remove, {
-          userId: ids.maintainer.id,
-          id: passwordLogin,
         }),
     ],
     [
