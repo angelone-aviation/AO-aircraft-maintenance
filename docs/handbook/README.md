@@ -4,15 +4,15 @@ Everything about Angel One in one place: what it is, how it works, how to run it
 
 ## Where do I start?
 
-| You are                             | Start with                                                                                 | Then                                                                                                                                                 |
-| ----------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A pilot                             | [Using the app](../wiki/Home.md)                                                           | [What everyone must know: pilots](1-start-here/must-know.md#pilots)                                                                                  |
-| A mechanic or inspector             | [Using the app](../wiki/Home.md)                                                           | [Must know: mechanics](1-start-here/must-know.md#mechanics-and-inspectors), [How it works](2-how-it-works/how-it-works.md)                           |
-| A Flight Program administrator      | [Must know: administrators](1-start-here/must-know.md#administrators)                      | [Checklists](3-running-it/checklists.md), [Features](2-how-it-works/features.md)                                                                     |
-| An aircraft owner or board member   | [Must know: aircraft owners and board](1-start-here/must-know.md#owners-and-board-members) | [System overview](1-start-here/system-overview.md), [Services and costs](4-money-and-risk/services-and-costs.md), [Risks](4-money-and-risk/risks.md) |
-| Aaron, or whoever maintains the app | [Must know: maintainer](1-start-here/must-know.md#whoever-maintains-the-app-aaron)         | [Operations](3-running-it/operations.md), [Checklists](3-running-it/checklists.md), [Risks](4-money-and-risk/risks.md)                               |
-| A developer new to the code         | [System overview](1-start-here/system-overview.md)                                         | [Code structure](6-for-developers/code-structure.md), [CONTEXT.md](../../CONTEXT.md), [CONSTRAINTS.md](../../CONSTRAINTS.md)                         |
-| Setting it up from nothing          | [Set up from scratch](3-running-it/setup-from-scratch.md)                                  | [Operations](3-running-it/operations.md)                                                                                                             |
+| You are                             | Start with                                                                         | Then                                                                                                                                                                                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A pilot                             | [Pilot guide](../wiki/Pilot.md)                                                    | [What everyone must know: pilots](1-start-here/must-know.md#pilots)                                                                                                                                                                              |
+| A mechanic or inspector             | [Mechanic guide](../wiki/Mechanic.md)                                              | [Must know: mechanics](1-start-here/must-know.md#mechanics-and-inspectors), [How it works](2-how-it-works/how-it-works.md)                                                                                                                       |
+| A Flight Program administrator      | [Administrator guide](../wiki/Administrator.md)                                    | [Must know: administrators](1-start-here/must-know.md#administrators), [Checklists](3-running-it/checklists.md), [Features](2-how-it-works/features.md)                                                                                          |
+| An aircraft owner or board member   | [Owner and board guide](../wiki/Owner-and-Board.md)                                | [Must know: aircraft owners and board](1-start-here/must-know.md#owners-and-board-members), [System overview](1-start-here/system-overview.md), [Services and costs](4-money-and-risk/services-and-costs.md), [Risks](4-money-and-risk/risks.md) |
+| Aaron, or whoever maintains the app | [Must know: maintainer](1-start-here/must-know.md#whoever-maintains-the-app-aaron) | [Operations](3-running-it/operations.md), [Checklists](3-running-it/checklists.md), [Risks](4-money-and-risk/risks.md)                                                                                                                           |
+| A developer new to the code         | [System overview](1-start-here/system-overview.md)                                 | [Code structure](6-for-developers/code-structure.md), [CONTEXT.md](../../CONTEXT.md), [CONSTRAINTS.md](../../CONSTRAINTS.md)                                                                                                                     |
+| Setting it up from nothing          | [Set up from scratch](3-running-it/setup-from-scratch.md)                          | [Operations](3-running-it/operations.md)                                                                                                                                                                                                         |
 
 ## The pages
 
@@ -45,6 +45,7 @@ Everything about Angel One in one place: what it is, how it works, how to run it
 | --------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------- |
 | [Set up from scratch](3-running-it/setup-from-scratch.md) | Aaron                 | Accounts, every secret and variable, step-by-step set-up from nothing                     |
 | [Operations](3-running-it/operations.md)                  | Aaron                 | Releases, migrations, backups and restore, monitoring, incidents; each runbook summarised |
+| [Credentials and keys](3-running-it/credentials.md)       | Aaron                 | Every key, token and login, where it lives, and what to do if it's lost or leaked         |
 | [Checklists](3-running-it/checklists.md)                  | Administrators, Aaron | Daily, weekly, monthly, quarterly, twice-yearly, yearly and dated checks                  |
 
 ### 4. Money and risk
@@ -63,9 +64,9 @@ Everything about Angel One in one place: what it is, how it works, how to run it
 
 ### 6. For developers
 
-| Page                                                 | For        | What's in it               |
-| ---------------------------------------------------- | ---------- | -------------------------- |
-| [Code structure](6-for-developers/code-structure.md) | Developers | How the code is structured |
+| Page                                                 | For        | What's in it                                                                                                             |
+| ---------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [Code structure](6-for-developers/code-structure.md) | Developers | The repository map, the layers, how a request flows, the `Backend` interface, key modules, tests, making a change safely |
 
 ## Elsewhere in the repository
 
