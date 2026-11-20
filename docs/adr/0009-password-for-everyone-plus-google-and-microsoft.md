@@ -1,9 +1,11 @@
 ---
-status: accepted
+status: accepted; superseded in part by ADR-0015 (2026-11-20)
 date: 2026-11-02
 ---
 
 # Every user keeps a password; Google and Microsoft sign-in are offered alongside it
+
+> Superseded in part by [ADR-0015](0015-remove-google-and-microsoft-sign-in.md): Google and Microsoft sign-in were removed on 20 Nov 2026 before they were switched on. The password rules, the sign-in log, the session lifetime and the library version below still stand.
 
 Every account, administrator-created as before (ADR-0002), signs in with an **email and password**. Users may also sign in with a **Google or Microsoft account** whose email matches their Angel One account. Single sign-on is a convenience and a route to a second factor, not a replacement: the program does not yet control a Google Workspace or Microsoft 365 tenant for all its pilots and mechanics, so a password must remain the method that always works. One-time email codes are not used.
 
