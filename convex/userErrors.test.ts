@@ -179,7 +179,7 @@ async function server() {
 }
 
 it("shows refusals from functions outside runCommand to the client", async () => {
-  const { t, ids, as } = await server();
+  const { ids, as } = await server();
   const maintainer = as(ids.maintainer);
   const reader = as(ids.reader);
   const manager = as(ids.manager);

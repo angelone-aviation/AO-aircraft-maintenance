@@ -436,7 +436,9 @@ describe("settings", () => {
     expect(html).toMatch(
       /Alert email \(Resend\)<\/span><span[^>]*>.*On<\/span>/,
     );
-    expect(html).toContain("You sign in with your email and password.");
+    expect(html).toContain(
+      "You sign in with your email and password. The administrator who created your account set it; a system administrator can reset it.",
+    );
     expect(html).not.toMatch(/Google|Microsoft/);
   });
 
