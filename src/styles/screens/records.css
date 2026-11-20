@@ -472,6 +472,12 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* H2: the search reads only the flights loaded, so it says so. */
+.rec-search-scope {
+  margin: 0;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-light);
+}
 .rec-pager {
   display: flex;
   flex-wrap: wrap;

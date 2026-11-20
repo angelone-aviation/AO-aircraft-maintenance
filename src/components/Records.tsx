@@ -13,7 +13,7 @@ import { dateTime, shortDate, TIME_OPTIONS } from "./recordDates";
 import { FlightFluidSummary } from "./FlightFluids";
 import { WeeklySummary } from "./AuditSummary";
 import { programPermission } from "../domain/programs";
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Airplane,
@@ -45,6 +45,11 @@ import {
 } from "@phosphor-icons/react";
 import { useWorkspace, type Workspace } from "../data/store";
 import { useAuditHistory } from "../data/auditHistory";
+import {
+  useHistoryPages,
+  withHistory,
+  type HistoryPages,
+} from "../data/historyPages";
 import { ownEntries, pendingEntriesFile } from "../data/pendingEntries";
 import {
   ownPendingPhotos,
@@ -63,7 +68,9 @@ import {
   CHANGE_HISTORY_SUMMARY,
   changeHistoryPages,
   HistoryPager,
+  windowSummary,
 } from "./HistoryPager";
+import { HISTORY_PAGE_SIZE, historyWindowMonths } from "../domain/retention";
 import { ExportRecordsPackage } from "./ExportRecordsPackage";
 import {
   can,
@@ -182,8 +189,11 @@ type QueuedEntry = Workspace["queue"][number];
  *
  * @returns Stacked rows on a phone, otherwise a table, of the first 50
  *   matching flights; Show more adds 50 at a time, and changing a filter
- *   starts again at 50. The status counts cover every flight matching the
- *   search and aircraft. Above a phone's width, two charts show the matching
+ *   starts again at 50. Under the last row, Load older adds the flights the
+ *   workspace's window leaves out, filtered by aircraft and status on the
+ *   server (H2); the search, the status counts and the charts cover the
+ *   flights loaded, and a line under the search says so. The status counts
+ *   cover every loaded flight matching the search and aircraft. Above a phone's width, two charts show the matching
  *   flights' Hobbs hours and count by week. The collective, flight time log, cycles and engine start
  *   readings show only when an aircraft or a matching flight has them. Each
  *   flight shows its logbook page photos and, with flight permission, the
@@ -193,11 +203,10 @@ type QueuedEntry = Workspace["queue"][number];
  */
 export function Flights() {
   const { snapshot: s, queue, online, connected } = useWorkspace();
-  const phone = useBreakpoint() === "phone";
   const [modal, setModal] = useState<"new" | Flight | null>(null),
     [saved, setSaved] = useState<LogbookPhotoTarget | null>(null);
   const view = useFlightLogView(s!);
-  const log = flightLog(s!, view, {
+  const log = flightLog(view.s, view, {
     disabled: !online || !connected,
     open: setModal,
   });
@@ -219,9 +228,7 @@ export function Flights() {
         pending={pendingFlightCount(s!, queue)}
         view={view}
       />
-      {!phone && <FlightLogCharts flights={view.rows.flights} />}
-      <FlightList log={log} phone={phone} />
-      <ShowMoreFlights view={view} />
+      <FlightLogBody view={view} log={log} />
       {modal && (
         <FlightDialog
           modal={modal}
@@ -233,14 +240,55 @@ export function Flights() {
   );
 }
 
-// Changing a filter starts the list again at its first page.
-function useFlightLogView(s: Snapshot) {
+// Load older waits under the last loaded flight, after any Show more.
+function FlightLogBody({ view, log }: { view: FlightLogView; log: FlightLog }) {
+  const phone = useBreakpoint() === "phone";
+  return (
+    <>
+      {!!view.filters.search && <SearchScope view={view} />}
+      {!phone && <FlightLogCharts flights={view.rows.flights} />}
+      <FlightList log={log} phone={phone} />
+      <ShowMoreFlights view={view} />
+      {view.limit >= view.rows.flights.length && (
+        <HistoryPager
+          pages={view.older}
+          summary={windowSummary("flights", view.olderCount, "flight")}
+        />
+      )}
+    </>
+  );
+}
+
+// Changing a filter starts the list again at its first page, and the
+// aircraft and status choose the older flights the server pages (H2). A page
+// loaded is shown at once rather than behind another Show more.
+function useFlightLogView(workspace: Snapshot) {
   const [filters, setFilters] = useState(NO_FLIGHT_FILTERS),
     [limit, setLimit] = useState(FLIGHT_LOG_PAGE_SIZE);
+  const pages = useHistoryPages({
+    kind: "flights",
+    aircraftUuid: filters.aircraftUuid || undefined,
+    status: filters.status === "all" ? undefined : filters.status,
+  });
+  const s = useMemo(
+    () => withHistory(workspace, { ...pages.records, members: pages.members }),
+    [workspace, pages.records, pages.members],
+  );
+  const rows = flightLogRows(s, filters);
+  const older: HistoryPages = {
+    ...pages,
+    loadOlder: () => {
+      setLimit(rows.flights.length + HISTORY_PAGE_SIZE);
+      pages.loadOlder();
+    },
+  };
   return {
+    s,
     filters,
     limit,
-    rows: flightLogRows(s, filters),
+    rows,
+    older,
+    olderCount: s.flights.length - workspace.flights.length,
     change: (patch: Partial<FlightLogFilters>) => {
       setFilters({ ...filters, ...patch });
       setLimit(FLIGHT_LOG_PAGE_SIZE);
@@ -360,6 +408,19 @@ function FlightToolbar({
         }))}
       />
     </Toolbar>
+  );
+}
+
+// H2: the server filters older flights by aircraft and status, but the
+// search reads only the flights this screen has loaded.
+function SearchScope({ view }: { view: FlightLogView }) {
+  const months = historyWindowMonths("flights");
+  const older = view.olderCount ? ` and ${view.olderCount} older` : "";
+  return (
+    <p className="rec-search-scope muted">
+      Search covers the flights loaded here: the last {months} months{older}.
+      Load older to search further back.
+    </p>
   );
 }
 

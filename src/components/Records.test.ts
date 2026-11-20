@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { demoSnapshot } from "../data/demo";
 import type { Discrepancy, Flight, Snapshot } from "../domain/model";
 import type { WorkOrder } from "../domain/workOrders";
+import { emptyHistoryRecords } from "../domain/retention";
 import { Discrepancies } from "./Discrepancies";
 import { Flights, History, SyncCenter } from "./Records";
 
@@ -28,6 +29,8 @@ const ui = vi.hoisted(() => ({
   breakpoint: "desktop",
   history: { entries: [] as unknown[], offline: false, isDone: true },
   historyFilter: undefined as unknown,
+  pages: {} as Record<string, unknown>,
+  pagesList: undefined as unknown,
   states: [] as unknown[],
   slot: 0,
   handlers: new Map<string, Handler>(),
@@ -43,6 +46,13 @@ vi.mock("../data/auditHistory", () => ({
   useAuditHistory: (filter: unknown) => {
     ui.historyFilter = filter;
     return ui.history;
+  },
+}));
+vi.mock("../data/historyPages", async (original) => ({
+  ...(await original<typeof import("../data/historyPages")>()),
+  useHistoryPages: (list: unknown) => {
+    ui.pagesList = list;
+    return ui.pages;
   },
 }));
 vi.mock("./design", async (original) => ({
@@ -66,12 +76,6 @@ vi.mock("./RequiredParts", () => ({ DiscrepancyParts: () => "PARTS" }));
 vi.mock("./PartsRequests", () => ({ RequestPartsButton: () => null }));
 vi.mock("./TaskCards", () => ({ LinkedTaskCards: () => null }));
 vi.mock("./WorkOrders", () => ({ AddToWorkOrder: () => null }));
-vi.mock("./HistoryPager", () => ({
-  HistoryPager: () => null,
-  changeHistoryPages: () => ({}),
-  CHANGE_HISTORY_SUMMARY: "",
-  windowSummary: () => "",
-}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: Props) => h("a", null, children),
 }));
@@ -127,6 +131,7 @@ beforeEach(() => {
   ui.states = [];
   ui.breakpoint = "desktop";
   ui.history = { entries: [], offline: false, isDone: true };
+  ui.pages = olderFlights([]);
   setWorkspace(ADMIN);
 });
 afterEach(() => {
@@ -215,6 +220,60 @@ describe("Flights search and paging", () => {
     expect(all).not.toContain(">Show more<");
     handler("Segmented Flight status")("accepted");
     expect(rows(render(Flights))).toBe(50);
+  });
+});
+
+describe("Flights older history", () => {
+  it("asks the server for older flights of the chosen aircraft and status", () => {
+    render(Flights);
+    expect(ui.pagesList).toEqual({ kind: "flights" });
+    handler("AircraftSelect")(N208.uuid);
+    render(Flights);
+    handler("Segmented Flight status")("review");
+    render(Flights);
+    expect(ui.pagesList).toEqual({
+      kind: "flights",
+      aircraftUuid: N208.uuid,
+      status: "review",
+    });
+  });
+
+  it("lists older flights after the workspace's, the workspace's copy winning", () => {
+    setWorkspace(withFlights(flight("recent", "2026-10-01")));
+    ui.pages = olderFlights([
+      flight("recent", "2026-10-01", { remarks: "stale page copy" }),
+      flight("older", "2025-01-02"),
+    ]);
+    const html = render(Flights);
+    expect(html.indexOf("2026-10-01")).toBeLessThan(html.indexOf("2025-01-02"));
+    expect(html).not.toContain("stale page copy");
+    expect(html).toContain("Showing the last 6 months and 1 older flight");
+    expect(html).toContain(">Load older<");
+  });
+
+  it("says the search covers the flights loaded", () => {
+    setWorkspace(withFlights(flight("a", "2026-10-01")));
+    render(Flights);
+    handler("SearchField Search flights")("kpae");
+    expect(render(Flights)).toContain(
+      "Search covers the flights loaded here: the last 6 months.",
+    );
+  });
+
+  it("shows a page loaded at once instead of behind Show more", () => {
+    const days = Array.from({ length: 60 }, (_, i) =>
+      new Date(Date.UTC(2026, 6, 1 + i)).toISOString().slice(0, 10),
+    );
+    setWorkspace(withFlights(...days.map((day) => flight(day, day))));
+    const loadOlder = vi.fn();
+    ui.pages = { ...olderFlights([]), loadOlder };
+    vi.stubGlobal("requestAnimationFrame", vi.fn());
+    expect(render(Flights)).not.toContain(">Load older<");
+    handler("button Show more")();
+    expect(render(Flights)).toContain(">Load older<");
+    handler("button Load older")();
+    expect(loadOlder).toHaveBeenCalledOnce();
+    expect(ui.states).toContain(110);
   });
 });
 
@@ -431,6 +490,21 @@ function render(screen: () => ReactNode) {
   ui.slot = 0;
   ui.handlers.clear();
   return renderToStaticMarkup(h(screen));
+}
+
+// A pager over these older flights, nothing loading, more to load.
+function olderFlights(flights: Flight[]) {
+  return {
+    records: { ...emptyHistoryRecords(), flights },
+    members: [],
+    pages: flights.length ? 1 : 0,
+    cursor: null,
+    isDone: false,
+    loading: false,
+    error: "",
+    offline: false,
+    loadOlder: () => {},
+  };
 }
 
 function setWorkspace(snapshot: Snapshot, over: Record<string, unknown> = {}) {

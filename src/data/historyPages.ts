@@ -143,7 +143,11 @@ export function useHistoryPages(list: HistoryList): HistoryPages {
       ),
     [backend, kind, aircraftUuid, status],
   );
-  const state = useSyncExternalStore(pager.subscribe, pager.getState);
+  const state = useSyncExternalStore(
+    pager.subscribe,
+    pager.getState,
+    pager.getState,
+  );
   const scope = historyScope(snapshot, list);
   const mark = historyWriteMark(snapshot, kind);
   const live = !!backend && online && connected;
