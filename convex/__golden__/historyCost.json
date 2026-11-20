@@ -120,19 +120,19 @@
  },
  "partsRequest.save": {
   "1": {
-   "bytes": 1331022,
-   "documents": 1766,
-   "indexRanges": 37
+   "bytes": 933242,
+   "documents": 1466,
+   "indexRanges": 39
   },
   "2": {
-   "bytes": 1729702,
-   "documents": 2066,
-   "indexRanges": 37
+   "bytes": 933242,
+   "documents": 1466,
+   "indexRanges": 39
   },
   "3": {
-   "bytes": 2128382,
-   "documents": 2366,
-   "indexRanges": 37
+   "bytes": 933242,
+   "documents": 1466,
+   "indexRanges": 39
   }
  },
  "cost.partUnitCost": {
@@ -154,19 +154,19 @@
  },
  "purchaseOrder.save": {
   "1": {
-   "bytes": 1133996,
-   "documents": 1520,
-   "indexRanges": 22
+   "bytes": 733309,
+   "documents": 1219,
+   "indexRanges": 23
   },
   "2": {
-   "bytes": 1532676,
-   "documents": 1820,
-   "indexRanges": 22
+   "bytes": 733312,
+   "documents": 1219,
+   "indexRanges": 23
   },
   "3": {
-   "bytes": 1931356,
-   "documents": 2120,
-   "indexRanges": 22
+   "bytes": 733312,
+   "documents": 1219,
+   "indexRanges": 23
   }
  },
  "auditHistory.weeklySummary": {
@@ -205,155 +205,155 @@
  },
  "partsRequest.edit": {
   "1": {
-   "bytes": 1337655,
-   "documents": 1770,
-   "indexRanges": 36
+   "bytes": 938708,
+   "documents": 1469,
+   "indexRanges": 38
   },
   "2": {
-   "bytes": 1736335,
-   "documents": 2070,
-   "indexRanges": 36
+   "bytes": 938708,
+   "documents": 1469,
+   "indexRanges": 38
   },
   "3": {
-   "bytes": 2135015,
-   "documents": 2370,
-   "indexRanges": 36
+   "bytes": 938708,
+   "documents": 1469,
+   "indexRanges": 38
   }
  },
  "purchaseOrder.edit": {
   "1": {
-   "bytes": 1138966,
-   "documents": 1523,
-   "indexRanges": 21
+   "bytes": 741413,
+   "documents": 1223,
+   "indexRanges": 24
   },
   "2": {
-   "bytes": 1537646,
-   "documents": 1823,
-   "indexRanges": 21
+   "bytes": 741413,
+   "documents": 1223,
+   "indexRanges": 24
   },
   "3": {
-   "bytes": 1936326,
-   "documents": 2123,
-   "indexRanges": 21
+   "bytes": 741413,
+   "documents": 1223,
+   "indexRanges": 24
   }
  },
  "purchaseOrder.issue": {
   "1": {
-   "bytes": 1141899,
-   "documents": 1525,
-   "indexRanges": 21
+   "bytes": 748909,
+   "documents": 1227,
+   "indexRanges": 25
   },
   "2": {
-   "bytes": 1540579,
-   "documents": 1825,
-   "indexRanges": 21
+   "bytes": 748909,
+   "documents": 1227,
+   "indexRanges": 25
   },
   "3": {
-   "bytes": 1939259,
-   "documents": 2125,
-   "indexRanges": 21
+   "bytes": 748909,
+   "documents": 1227,
+   "indexRanges": 25
   }
  },
  "purchaseOrder.receive": {
   "1": {
-   "bytes": 1147068,
-   "documents": 1530,
-   "indexRanges": 22
+   "bytes": 754764,
+   "documents": 1232,
+   "indexRanges": 26
   },
   "2": {
-   "bytes": 1545748,
-   "documents": 1830,
-   "indexRanges": 22
+   "bytes": 754764,
+   "documents": 1232,
+   "indexRanges": 26
   },
   "3": {
-   "bytes": 1944428,
-   "documents": 2130,
-   "indexRanges": 22
+   "bytes": 754764,
+   "documents": 1232,
+   "indexRanges": 26
   }
  },
  "partsRequest.reserve": {
   "1": {
-   "bytes": 1344418,
-   "documents": 1773,
-   "indexRanges": 36
+   "bytes": 949096,
+   "documents": 1474,
+   "indexRanges": 39
   },
   "2": {
-   "bytes": 1743098,
-   "documents": 2073,
-   "indexRanges": 36
+   "bytes": 949096,
+   "documents": 1474,
+   "indexRanges": 39
   },
   "3": {
-   "bytes": 2141778,
-   "documents": 2373,
-   "indexRanges": 36
+   "bytes": 949096,
+   "documents": 1474,
+   "indexRanges": 39
   }
  },
  "partsRequest.issue": {
   "1": {
-   "bytes": 1345793,
-   "documents": 1774,
-   "indexRanges": 36
+   "bytes": 951032,
+   "documents": 1475,
+   "indexRanges": 39
   },
   "2": {
-   "bytes": 1744473,
-   "documents": 2074,
-   "indexRanges": 36
+   "bytes": 951032,
+   "documents": 1475,
+   "indexRanges": 39
   },
   "3": {
-   "bytes": 2143153,
-   "documents": 2374,
-   "indexRanges": 36
+   "bytes": 951032,
+   "documents": 1475,
+   "indexRanges": 39
   }
  },
  "purchaseOrder.core": {
   "1": {
-   "bytes": 1146831,
-   "documents": 1527,
-   "indexRanges": 21
+   "bytes": 756765,
+   "documents": 1229,
+   "indexRanges": 25
   },
   "2": {
-   "bytes": 1545511,
-   "documents": 1827,
-   "indexRanges": 21
+   "bytes": 756765,
+   "documents": 1229,
+   "indexRanges": 25
   },
   "3": {
-   "bytes": 1944191,
-   "documents": 2127,
-   "indexRanges": 21
+   "bytes": 756765,
+   "documents": 1229,
+   "indexRanges": 25
   }
  },
  "purchaseOrder.close": {
   "1": {
-   "bytes": 1148081,
-   "documents": 1528,
-   "indexRanges": 21
+   "bytes": 759053,
+   "documents": 1230,
+   "indexRanges": 25
   },
   "2": {
-   "bytes": 1546761,
-   "documents": 1828,
-   "indexRanges": 21
+   "bytes": 759053,
+   "documents": 1230,
+   "indexRanges": 25
   },
   "3": {
-   "bytes": 1945441,
-   "documents": 2128,
-   "indexRanges": 21
+   "bytes": 759053,
+   "documents": 1230,
+   "indexRanges": 25
   }
  },
  "partsRequest.cancel": {
   "1": {
-   "bytes": 1347346,
-   "documents": 1774,
-   "indexRanges": 36
+   "bytes": 953091,
+   "documents": 1475,
+   "indexRanges": 39
   },
   "2": {
-   "bytes": 1746026,
-   "documents": 2074,
-   "indexRanges": 36
+   "bytes": 953091,
+   "documents": 1475,
+   "indexRanges": 39
   },
   "3": {
-   "bytes": 2144706,
-   "documents": 2374,
-   "indexRanges": 36
+   "bytes": 953091,
+   "documents": 1475,
+   "indexRanges": 39
   }
  },
  "snapshot.window": {

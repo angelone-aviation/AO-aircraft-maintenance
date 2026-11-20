@@ -122,12 +122,10 @@ describe("the bounded saves read the same at three years as at one (S3)", () => 
   ])("%s", (operation) => expectFlat(operation));
 });
 
-// H5 keeps parts requests and purchase orders complete, and these saves read
-// them all; everything else they read is bounded.
-describe("Characterizes current behaviour: saves that read every parts request and purchase order grow by those alone", () => {
-  it.each(PURCHASING_COMMANDS)("%s", (operation) =>
-    expectGrowthOf(operation, PURCHASING_ROWS_PER_YEAR),
-  );
+// They read the requests and orders a command names, by uuid or lookup key
+// (convex/purchasingKeys.ts), not every one the program holds.
+describe("the parts-request and purchase-order commands read the same at three years as at one (H5)", () => {
+  it.each(PURCHASING_COMMANDS)("%s", (operation) => expectFlat(operation));
 });
 
 // The plan's bar for a bounded read (ADR-0013): within 10% of year 1.
