@@ -322,9 +322,7 @@ function useRequestWorkspace(
   const [error, setError] = useState("");
   if (!s) return undefined;
   const admin = programPermission(s, "admin");
-  const all = (s.partsRequests ?? []).filter(
-    (r) => !source || paged.has(r.uuid) || requestMatchesSource(s, r, source),
-  );
+  const all = listedRequests(s, source, paged);
   const writable = online && connected;
   const startRequest = () => {
     setError("");
@@ -351,6 +349,18 @@ function useRequestWorkspace(
 }
 
 type Workspace = NonNullable<ReturnType<typeof useRequestWorkspace>>;
+
+// Every request, or a record's: those it matches here, and the older ones
+// the server matched to it.
+function listedRequests(
+  s: Snapshot,
+  source: RequestSource | undefined,
+  paged: ReadonlySet<string>,
+) {
+  return (s.partsRequests ?? []).filter(
+    (r) => !source || paged.has(r.uuid) || requestMatchesSource(s, r, source),
+  );
+}
 
 function useRequestFilters() {
   const [search, setSearch] = useState("");

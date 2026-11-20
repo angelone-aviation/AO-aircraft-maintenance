@@ -849,15 +849,7 @@ function pageRecords(
     }));
   }
   if (kind === "partsRequests") return requestPage(s, older, request);
-  if (kind === "purchaseOrders") {
-    const { vendor } = request;
-    const orders = older.purchaseOrders.filter(
-      (p) => vendor === undefined || vendorKey(p.vendor) === vendorKey(vendor),
-    );
-    return listPage(kind, orders, request, (purchaseOrders) => ({
-      purchaseOrders,
-    }));
-  }
+  if (kind === "purchaseOrders") return orderPage(older, request);
   if (kind === "flightPlans")
     return listPage(
       kind,
@@ -877,6 +869,19 @@ function pageRecords(
   return listPage(kind, onAircraft(older.workOrders, request), request, (w) =>
     withDependents(older, w),
   );
+}
+
+function orderPage(
+  older: HistoryRecords,
+  request: Extract<HistoryPageRequest, { kind: "purchaseOrders" }>,
+) {
+  const { vendor } = request;
+  const orders = older.purchaseOrders.filter(
+    (p) => vendor === undefined || vendorKey(p.vendor) === vendorKey(vendor),
+  );
+  return listPage("purchaseOrders", orders, request, (purchaseOrders) => ({
+    purchaseOrders,
+  }));
 }
 
 // One list's page of rows, with what follows the rows.

@@ -250,12 +250,14 @@ export class PurchasingJudge {
       : programPermission(state, "admin");
   }
 
-  // The work order the request counts toward: its own, or its job card's.
+  // As countsToward: its own work order, or its job card's.
   async #countsTowardKeptWork(r: PartsRequest): Promise<boolean> {
-    const order =
-      r.source.workOrderUuid ||
-      (r.source.kind === "jobCard" ? await this.#cardOrder(r.source.uuid) : "");
-    return !!order && this.#scope.keepsOrder(order);
+    const { keepsOrder } = this.#scope;
+    if (r.source.workOrderUuid && (await keepsOrder(r.source.workOrderUuid)))
+      return true;
+    if (r.source.kind !== "jobCard") return false;
+    const order = await this.#cardOrder(r.source.uuid);
+    return !!order && keepsOrder(order);
   }
 
   #cardOrder(cardUuid: string): Promise<string> {

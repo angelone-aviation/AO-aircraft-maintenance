@@ -201,12 +201,8 @@ type OrderFile = {
  * @returns The page. New PO needs a connection.
  */
 export function PurchaseOrders() {
-  const { snapshot: workspace, online, connected } = useWorkspace();
-  const older = useHistoryPages({ kind: "purchaseOrders" });
-  const s = useMemo(
-    () => workspace && withHistory(workspace, older.records),
-    [workspace, older.records],
-  );
+  const { online, connected } = useWorkspace();
+  const { s, older } = useOlderOrders();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [edit, setEdit] = useState<PODraft>();
@@ -234,10 +230,7 @@ export function PurchaseOrders() {
         status={status}
         onView={setView}
       />
-      <HistoryPager
-        pages={older}
-        summary={windowSummary("purchaseOrders", loaded, "order")}
-      />
+      <HistoryPager pages={older} summary={orderSummary(loaded)} />
       <div className="shop-card">
         <CoreReturns orders={orders} />
       </div>
@@ -411,11 +404,7 @@ export function PODetail({ po, onEdit }: PODetailProps) {
   const [pdfError, setPdfError] = useState("");
   return (
     <>
-      <p>
-        <strong>{po.vendor}</strong> · Revision {po.revision} · {po.currency}
-      </p>
-
-      <p className="po-pre">Deliver to: {po.shipTo}</p>
+      <OrderHeading po={po} />
       <SpruceOrderProgress poUuid={po.uuid} />
       <OrderActions
         po={po}
@@ -445,6 +434,34 @@ export function PODetail({ po, onEdit }: PODetailProps) {
       )}
     </>
   );
+}
+
+function OrderHeading({ po }: { po: PurchaseOrder }) {
+  return (
+    <>
+      <p>
+        <strong>{po.vendor}</strong> · Revision {po.revision} · {po.currency}
+      </p>
+
+      <p className="po-pre">Deliver to: {po.shipTo}</p>
+    </>
+  );
+}
+
+// The workspace with the older orders loaded so far, which the dialogs
+// under the screen see too.
+function useOlderOrders() {
+  const { snapshot: workspace } = useWorkspace();
+  const older = useHistoryPages({ kind: "purchaseOrders" });
+  const s = useMemo(
+    () => workspace && withHistory(workspace, older.records),
+    [workspace, older.records],
+  );
+  return { s, older };
+}
+
+function orderSummary(loaded: number) {
+  return windowSummary("purchaseOrders", loaded, "order");
 }
 
 // The screen's records with every request the order's lines allocate: an
