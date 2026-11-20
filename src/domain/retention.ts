@@ -4,7 +4,8 @@
  *   the order, cursors and pages of the older history it leaves out.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ./model, ./workOrders, ./taskCards, ./costs (types),
- *   ./auditHistory (the not-found message), ./rejection.
+ *   ./programs (scopedSnapshot), ./ownerView, ./boardView, ./auditHistory
+ *   (the not-found message), ./rejection.
  *
  * ADR-0013: the workspace keeps open items, recent history and the records
  * the owner portal shows; everything else stays on the server and loads page
@@ -13,7 +14,10 @@
 import type { Discrepancy, Flight, Member, Snapshot } from "./model";
 import { isOpenWorkOrder, type WorkOrder } from "./workOrders";
 import { isTaskClosed, type TaskCard } from "./taskCards";
-import type { CostRecord } from "./costs";
+import type { CostRecord, WorkOrderCost } from "./costs";
+import { scopedSnapshot } from "./programs";
+import { isOwnerView } from "./ownerView";
+import { isBoardView } from "./boardView";
 import { HISTORY_NOT_FOUND } from "./auditHistory";
 import { Rejection } from "./rejection";
 
@@ -167,6 +171,36 @@ export function retainedSnapshot(s: Snapshot, now: number): Snapshot {
     }),
     ...(s.costs && { costs: retained.costs }),
   };
+}
+
+/**
+ * The workspace a caller gets of their program: `full` scoped as
+ * scopedSnapshot scopes it, with history narrowed to the window.
+ *
+ * The window is judged on the caller's scoped records, as historyPage judges
+ * pages: a non-administrator's cost records carry no other costs, so an
+ * order changed in the window only by one is older history for them. The
+ * kept records are then scoped again, so members named only on older
+ * flights leave with those flights. An owner's or board member's view holds
+ * no job cards or cost entries to judge by, and its whitelist strips the
+ * fields the window reads, so it is judged before scoping.
+ *
+ * @param full - The caller's program, unscoped: a whole-history load, or one
+ *   holding every record the window keeps and all that decides it.
+ * @param now - The current time, in milliseconds.
+ * @param today - The program's local date, for a board member's periods.
+ * @returns The scoped snapshot with only kept records in the windowed
+ *   collections, each in its original order.
+ */
+export function workspaceWindow(
+  full: Snapshot,
+  now: number,
+  today?: string,
+): Snapshot {
+  if (isOwnerView(full) || isBoardView(full))
+    return scopedSnapshot(retainedSnapshot(full, now), today);
+  const kept = retainedSnapshot(scopedSnapshot(full), now);
+  return scopedSnapshot(onlyKept(full, kept));
 }
 
 /**
@@ -408,8 +442,45 @@ export function isOlderWorkOrder(
     w.completionDate >= recentFloor
   )
     return false;
-  const changed = Math.max(orderActivity(w), latestDependentChange(context));
+  const changed = Math.max(
+    workOrderActivity(w),
+    latestDependentChange(context),
+  );
   return changed < retentionCutoff(now, RETENTION_DAYS);
+}
+
+/**
+ * The latest of a work order's own dated events: opening, close-out,
+ * completion date (from its UTC midnight, for an order closed without a
+ * recorded close-out), revisions, removed items and component corrections.
+ * The workspace finds a closed order changed within the window by this
+ * time's column.
+ *
+ * @param w - The order.
+ * @returns Milliseconds.
+ */
+export function workOrderActivity(w: WorkOrder): number {
+  return Math.max(
+    w.recordedAt,
+    w.closeout?.recordedAt ?? 0,
+    w.completionDate ? Date.parse(w.completionDate) : 0,
+    ...(w.revisions ?? []).map((r) => r.recordedAt),
+    ...(w.archivedTasks ?? []).map((t) => t.removedAt),
+    ...(w.componentCorrections ?? []).map((c) => c.recordedAt),
+  );
+}
+
+/**
+ * When a work order's cost record last gained a labor or other entry, the
+ * entries the window dates a cost change by.
+ *
+ * @param c - The cost record.
+ * @returns The latest entry's `createdAt`; 0 without entries.
+ */
+export function costEntryActivity(
+  c: Pick<WorkOrderCost, "labor" | "other">,
+): number {
+  return Math.max(0, ...[...c.labor, ...c.other].map((e) => e.createdAt));
 }
 
 /**
@@ -570,30 +641,37 @@ function groupByOrder<T extends { workOrderUuid: string }>(rows: T[]) {
   return byOrder;
 }
 
-// The order's own dated events. A completion date counts from its UTC
-// midnight, for orders closed without a recorded close-out.
-function orderActivity(w: WorkOrder): number {
-  return Math.max(
-    w.recordedAt,
-    w.closeout?.recordedAt ?? 0,
-    w.completionDate ? Date.parse(w.completionDate) : 0,
-    ...(w.revisions ?? []).map((r) => r.recordedAt),
-    ...(w.archivedTasks ?? []).map((t) => t.removedAt),
-    ...(w.componentCorrections ?? []).map((c) => c.recordedAt),
-  );
-}
-
 // The latest change to an order's job cards and cost entries.
 function latestDependentChange(context: WorkOrderContext): number {
   const cards = [...context.taskCards, ...context.archivedTaskCards];
-  const entries = context.costs.flatMap((c) =>
-    c.kind === "workOrder" ? [...c.labor, ...c.other] : [],
-  );
   return Math.max(
     0,
     ...cards.map((c) => c.updatedAt),
-    ...entries.map((e) => e.createdAt),
+    ...context.costs.map((c) =>
+      c.kind === "workOrder" ? costEntryActivity(c) : 0,
+    ),
   );
+}
+
+// The full snapshot's windowed collections, cut to the records `kept` holds;
+// a collection the full snapshot lacks stays absent.
+function onlyKept(full: Snapshot, kept: Snapshot): Snapshot {
+  const ofKept = <T extends { uuid: string }>(
+    rows: T[] | undefined,
+    held: { uuid: string }[] | undefined,
+  ) => {
+    const uuids = new Set((held ?? []).map((r) => r.uuid));
+    return rows?.filter((r) => uuids.has(r.uuid));
+  };
+  return {
+    ...full,
+    flights: ofKept(full.flights, kept.flights) ?? [],
+    discrepancies: ofKept(full.discrepancies, kept.discrepancies) ?? [],
+    workOrders: ofKept(full.workOrders, kept.workOrders),
+    taskCards: ofKept(full.taskCards, kept.taskCards),
+    archivedTaskCards: ofKept(full.archivedTaskCards, kept.archivedTaskCards),
+    costs: ofKept(full.costs, kept.costs),
+  };
 }
 
 function pageRecords(older: HistoryRecords, request: HistoryPageRequest) {

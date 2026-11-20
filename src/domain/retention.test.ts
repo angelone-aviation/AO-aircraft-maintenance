@@ -24,6 +24,8 @@ import {
   recentCompletionFloor,
   retainedSnapshot,
   retentionCutoff,
+  workOrderActivity,
+  workspaceWindow,
   type HistoryKind,
   type HistoryPageRequest,
   type HistoryPosition,
@@ -36,6 +38,7 @@ import { workOrderSchema, type WorkOrder } from "./workOrders";
 import { closeoutSchema } from "./workOrderCloseoutSchema";
 import { taskCardDefaults, taskCardSchema, type TaskCard } from "./taskCards";
 import { costRecordSchema, type CostRecord } from "./costs";
+import { scopedSnapshot } from "./programs";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 19, 15, 30);
@@ -262,6 +265,78 @@ describe("retainedSnapshot moves job cards and costs with their work order", () 
     const r = retainedSnapshot(s, NOW);
     expect(r).toEqual({ ...s, flights: [] });
     expect([r.taskCards, r.costs]).toEqual([undefined, undefined]);
+  });
+});
+
+describe("workspaceWindow", () => {
+  it("is scopedSnapshot of retainedSnapshot for an administrator", () => {
+    const s = history();
+    expect(workspaceWindow(s, NOW)).toEqual(
+      scopedSnapshot(retainedSnapshot(s, NOW)),
+    );
+  });
+
+  it("judges an order on the caller's scoped costs, as the pages do", () => {
+    const idle = completed("idle", "2024-01-10");
+    const s = snapshotOf({
+      workOrders: withRecentWork([idle]),
+      costs: [otherCost("other-cost", idle, CUTOFF)],
+    });
+    expect(uuids(workspaceWindow(s, NOW).workOrders)).toContain(idle.uuid);
+    const mechanic = asMechanic(s);
+    expect(uuids(workspaceWindow(mechanic, NOW).workOrders)).not.toContain(
+      idle.uuid,
+    );
+    const page = historyPage(
+      scopedSnapshot(mechanic),
+      { kind: "workOrders", cursor: null, numItems: MAX_HISTORY_PAGE_SIZE },
+      NOW,
+    );
+    expect(uuids(page.records.workOrders)).toContain(idle.uuid);
+  });
+
+  it("leaves out a former member named only on older flights", () => {
+    const former = {
+      ...snapshotOf({}).members[1],
+      id: "former",
+      active: false,
+    };
+    const s = asMechanic(
+      snapshotOf({
+        members: [...snapshotOf({}).members, former],
+        flights: [
+          flight("old", LONG_AGO, { pilotId: "former" }),
+          flight("recent", NOW, { pilotId: "demo-pilot" }),
+        ],
+      }),
+    );
+    expect(scopedSnapshot(s).members.map((m) => m.id)).toContain("former");
+    expect(workspaceWindow(s, NOW).members.map((m) => m.id)).not.toContain(
+      "former",
+    );
+  });
+
+  it("windows an owner's view before its whitelist strips the dates", () => {
+    const old = completed("old", "2024-01-10");
+    const s = asOwner(snapshotOf({ workOrders: withRecentWork([old]) }));
+    const view = workspaceWindow(s, NOW);
+    expect(view.workOrders).toHaveLength(5);
+    expect(uuids(view.workOrders)).not.toContain(old.uuid);
+  });
+});
+
+describe("workOrderActivity", () => {
+  it("dates an order by the latest of its own events", () => {
+    expect(workOrderActivity(order("plain"))).toBe(LONG_AGO);
+    expect(
+      workOrderActivity(
+        completed("dated", "2026-08-21", {
+          closeout: closeout(CUTOFF - DAY),
+          revisions: [revision(CUTOFF + DAY)],
+        }),
+      ),
+    ).toBe(CUTOFF + DAY);
+    expect(workOrderActivity(completed("by-date", "2026-08-21"))).toBe(CUTOFF);
   });
 });
 
@@ -841,6 +916,62 @@ function cost(uuid: string, w: WorkOrder, createdAt: number): CostRecord {
     other: [],
     partUnitCosts: [],
   });
+}
+
+// A cost record whose only entry is another cost: rates and other costs are
+// administrator data, so scoping empties it for anyone else.
+function otherCost(uuid: string, w: WorkOrder, createdAt: number): CostRecord {
+  return costRecordSchema.parse({
+    uuid,
+    version: 1,
+    programUuid: "demo-program",
+    kind: "workOrder",
+    aircraftUuid: w.aircraftUuid,
+    workOrderUuid: w.uuid,
+    labor: [],
+    other: [
+      {
+        uuid: `${uuid}-other`,
+        date: "2024-01-10",
+        description: "Shop supplies",
+        amountCents: 1500,
+        createdBy: "admin",
+        createdAt,
+      },
+    ],
+    partUnitCosts: [],
+  });
+}
+
+// Signed in as a mechanic on both aircraft: read and maintenance only.
+function asMechanic(s: Snapshot): Snapshot {
+  const group = {
+    id: "mechanics",
+    name: "Mechanics",
+    programUuid: s.aircraft[0].programUuid,
+    aircraftIds: [A, B],
+    permissions: ["read", "maintenance"] as const,
+  };
+  const user = { ...s.members[1], id: "demo-pilot", groupIds: [group.id] };
+  return {
+    ...s,
+    user,
+    groups: [...s.groups, { ...group, permissions: [...group.permissions] }],
+  };
+}
+
+// Signed in as an owner of both aircraft.
+function asOwner(s: Snapshot): Snapshot {
+  const group = {
+    id: "owners",
+    name: "Owners",
+    programUuid: s.aircraft[0].programUuid,
+    owner: true,
+    aircraftIds: [A, B],
+    permissions: ["read" as const],
+  };
+  const user = { ...s.members[1], id: "owner", groupIds: [group.id] };
+  return { ...s, user, members: [...s.members, user], groups: [group] };
 }
 
 function budget(): CostRecord {
