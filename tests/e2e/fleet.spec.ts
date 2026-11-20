@@ -111,9 +111,13 @@ test("program directory and aircraft total-time setup persist through editing an
   await expect(
     page.getByLabel("Total time adjustment (hours)", { exact: true }),
   ).toHaveValue("-150");
-  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
-    "1,050.0 hours",
-  );
+  // The edit dialog's record history has a status line of its own.
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("status")
+      .filter({ hasText: "Aircraft total time" }),
+  ).toContainText("1,050.0 hours");
   await page
     .getByRole("button", { name: "Save aircraft", exact: true })
     .click();
