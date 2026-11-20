@@ -14,7 +14,7 @@ When the dated tasks fall, with the quarterly round between them:
 timeline
   title Dated tasks and quarterly rounds, November 2026 to October 2027
   section 2026
-    Nov to Dec : Finish the backup set-up and the first restore rehearsal : Review the file sweep, then switch it on : Add security.txt to Deployment expiring dates : Save the credential key
+    Nov to Dec : The first restore rehearsal : Review the file sweep, then switch it on : Add security.txt to Deployment expiring dates : Save the credential key
   section 2027
     Jan to Mar : Quarterly round : Raise node-version before Node 22 ends in April
     Apr to Jun : Quarterly round
@@ -80,14 +80,12 @@ Budget 1–2 hours.
 ## One-off and dated
 
 - [ ] **Review the file sweep, then switch it on.** Aaron, 10 min, from 21 Nov 2026. Convex Logs → search `fileSweep would delete`; check a few ids are referenced nowhere; then `FILE_SWEEP=delete` ([file sweep](../../runbooks/file-sweep.md#review-the-first-pass-then-switch-to-delete)).
-- [ ] **Finish the backup set-up.** Aaron, about 1 hour. Three steps are left: add the `BACKUP_HEARTBEAT_URL` secret, run the Nightly backup by hand and check it, and do the first restore rehearsal ([set up from scratch](setup-from-scratch.md#7-backups), [rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal)).
+- [ ] **The first restore rehearsal.** Aaron, about 1 hour. The backup set-up is done and the first run passed on 20 Nov 2026; a restore is not proven until this passes ([rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal)).
 - [ ] **Add `security.txt` to the expiring dates.** Aaron, 5 min. Settings → System → **Deployment expiring dates**, expiring 2027-10-04.
 - [ ] **Renew `security.txt` before 2027-09-04.** Aaron, 15 min. It expires **2027-10-04**. Set `Expires` about 11 months ahead in [`public/.well-known/security.txt`](../../../public/.well-known/security.txt), check `Contact` still reaches someone, deploy.
 - [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry ([airworthiness](../../airworthiness.md)).
-- [ ] **Re-check CodeQL.** Aaron, 5 min. Reported done on 2026-11-19; on 2026-11-20 GitHub shows it not configured. Settings → Code security → **CodeQL analysis**: turn the default set-up on if it is off ([set-up step](setup-from-scratch.md#54-repository-settings), [risks R13](../4-money-and-risk/risks.md#r13-public-repository)).
 - [ ] **Fill the password manager.** Aaron, 30 min. Save everything in [its checklist](credentials.md#your-password-manager-should-hold), recovery codes included.
-- [ ] **Narrow the order-health-dashboard token.** Aaron, 10 min. Cloudflare → API Tokens: that project's build token has admin access to every R2 bucket, `angelone-backups` included. Limit it to that project's own bucket, or delete it if unused ([credentials](credentials.md#every-credential)).
-- [ ] **Delete the old sign-in variables.** Aaron, 2 min. Delete any `AUTH_GOOGLE_*` or `AUTH_MICROSOFT_ENTRA_ID_*` variable in Convex; the code no longer reads them ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)).
+- [ ] **Optional: take R2 off the deploy token.** Aaron, 5 min. Cloudflare → My Profile → API Tokens → **Edit Cloudflare Workers**: remove its "Workers R2 Storage" permission; the site uses no R2 ([risks R23](../4-money-and-risk/risks.md#r23-the-deploy-token-can-reach-every-r2-bucket)).
 - [ ] **Keep the credential key safe.** Aaron, 5 min, now that backups are unencrypted ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)). Recommended: keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager: the backup job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.
 
 ## Whenever it happens

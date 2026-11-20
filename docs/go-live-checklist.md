@@ -10,13 +10,14 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [x] New Convex Pro account created.
 - [x] Old production deployment retired (2026-11-03): deleted, with nothing migrated. It held only test data and still ran the auth library with the critical flaw (security review S1). Production starts fresh on the new Convex Pro account. Still to do if not done yet: remove the old site files from A2 Hosting and revoke any API keys only the old deployment used.
 - [ ] Accounts inventory: fill in [`docs/runbooks/accounts.md`](runbooks/accounts.md) after connecting the new Convex account.
-- [ ] Backups: the nightly backup job is built, and its bucket, keys, time zone and failure emails are set up (as of 2026-11-20). Left: the heartbeat secret, the first run by hand and the first restore rehearsal ([below](#backup-setup-remaining)).
+- [ ] Backups: the nightly backup job is set up and runs; its first run, by hand, passed on 2026-11-20. Left: the first restore rehearsal ([below](#backup-setup-remaining)).
 - [ ] File clean-up: the hourly sweep of stored files no record refers to starts in report-only mode (`FILE_SWEEP` unset) and deletes nothing. Review its first report, then set `FILE_SWEEP=delete` ([file sweep runbook](runbooks/file-sweep.md#review-the-first-pass-then-switch-to-delete)).
 - [x] Release process: CI checks, Cloudflare hosting with security headers, the Deploy workflow (it starts after a green CI push to `main`, or by hand), rollback steps and Dependabot updates are in the repository and in use ([release runbook](runbooks/release.md)).
   - [x] Cloudflare, the Convex deploy key and the GitHub `production` environment are set up, and the first release was made on 2026-11-03.
   - [x] Cloudflare's Git build for the `angel-one` Worker was disconnected on 2026-11-20 (Workers & Pages → `angel-one` → Settings → Build), so only Deploy publishes. Never reconnect it ([release runbook](runbooks/release.md#cloudflare), [risks R22](handbook/4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
+  - [x] CodeQL code scanning: on (default set-up, enabled 2026-11-20).
   - [ ] Preview deployments per change are not built yet ([release runbook](runbooks/release.md#not-set-up-yet)).
-- [x] Monitoring: Better Stack (two uptime monitors and a backup heartbeat), set up on 2026-11-20. Sentry error reporting is supported by the code but not used ([monitoring runbook](runbooks/monitoring.md)). Left: the heartbeat secret ([below](#backup-setup-remaining)).
+- [x] Monitoring: Better Stack (two uptime monitors and a backup heartbeat), set up on 2026-11-20. Sentry error reporting is supported by the code but not used ([monitoring runbook](runbooks/monitoring.md)). The heartbeat secret was added on 2026-11-20.
 - [ ] Ownership and runbooks: Aaron, plus onboarding, release and incident-response runbooks.
   - [ ] Fill in the names and places left blank in [incident response](runbooks/incident-response.md) (including who reads accounts@angeloneonline.org, the [`SECURITY.md`](../SECURITY.md) contact) and [break-glass administrator access](runbooks/break-glass-admin.md), and set up the break-glass account.
 - [ ] Data on shared or lost devices: offline copy, sign-out, device unlock. Decided 2026-11-19: the seven-day offline copy stays as it is, signing out clears the device after warning about unsynced work ([signing out](offline.md#signing-out-and-shared-devices)), and phones and tablets need a screen lock. File links now expire after five minutes ([file links](file-links.md)). Still to do: tell users about the screen lock.
@@ -47,11 +48,11 @@ Done, as of 2026-11-20:
 - [x] A scoped production deploy key for backups, saved as the `backups` secret `CONVEX_BACKUP_DEPLOY_KEY`. It can export the data and files and run internal mutations; it cannot deploy or read environment variables ([its permissions](handbook/3-running-it/setup-from-scratch.md#7-backups)).
 - [x] The time zone: `RECORDS_TIME_ZONE` is `America/Edmonton` on the Convex production deployment (set 2026-11-19) and as the `backups` environment variable (set 2026-11-20).
 - [x] Failed runs email Aaron ([runbook](runbooks/backup-restore.md#who-is-told-when-it-fails)).
+- [x] The Better Stack heartbeat URL is the `backups` secret `BACKUP_HEARTBEAT_URL` ([monitoring](runbooks/monitoring.md#better-stack-uptime-and-the-backup-heartbeat)).
+- [x] The first run by hand: Nightly backup run #19 passed export, upload, record and the heartbeat ([check that it worked](runbooks/backup-restore.md#check-that-it-worked)). A manual run before it failed on a wrong `R2_ACCOUNT_ID`, since corrected.
 
 Still to do:
 
-- [ ] Add the Better Stack heartbeat URL as the `backups` secret `BACKUP_HEARTBEAT_URL` ([monitoring](runbooks/monitoring.md#better-stack-uptime-and-the-backup-heartbeat)). Until it is set the job skips the ping, so Better Stack cannot report a missed night.
-- [ ] Run the workflow by hand once (Actions → **Nightly backup** → **Run workflow**) and confirm the `.unencrypted.zip` appears in R2 under `daily/` and `monthly/` (nothing in `env/`) and under Settings → System → **Off-site backups** ([check that it worked](runbooks/backup-restore.md#check-that-it-worked)).
 - [ ] Do the first [restore rehearsal](runbooks/backup-restore.md#quarterly-restore-rehearsal) and log it in the runbook. Until it passes, the off-site backup is not proven.
 - [ ] Aaron turns on **Email me a daily alert digest** (Settings → Alerts). The app's "no off-site backup for over 26 hours" warning goes only to system administrators with this switch on, and it is off by default for a system administrator who is not also a Flight Program administrator.
 - [ ] Recommended: keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager. The job saves no environment variables while encryption is off, and without that key a restore onto a new Convex account cannot open the saved FAA, Geoapify and Aircraft Spruce credentials.

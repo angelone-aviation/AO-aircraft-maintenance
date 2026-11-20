@@ -38,7 +38,7 @@ The Convex URL (or a Sentry host, if Sentry is ever switched on) is not allowed 
 ## Outages
 
 **What if Convex is down?**
-Nobody can sign in, load data or sync. Installed apps still open their copy: pilots keep logging flights and problem reports, which wait in the Sync center and send themselves later. Everything else waits. Check [Convex status](https://status.convex.dev) and Better Stack. If Convex lost the data, restore from a backup ([backup runbook](../../runbooks/backup-restore.md#real-restore-production)). Today that means Convex's own backups: the off-site copy in R2 is set up, but no run has succeeded yet ([risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-are-set-up-but-not-proven-yet)).
+Nobody can sign in, load data or sync. Installed apps still open their copy: pilots keep logging flights and problem reports, which wait in the Sync center and send themselves later. Everything else waits. Check [Convex status](https://status.convex.dev) and Better Stack. If Convex lost the data, restore from a backup ([backup runbook](../../runbooks/backup-restore.md#real-restore-production)). Convex's own backups go back 7 days. The off-site copies in R2 have run since 20 Nov 2026, but no restore from them has been rehearsed yet ([risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-run-but-no-restore-is-proven-yet)).
 
 **What if Cloudflare is down?**
 The website doesn't load for new visits. Installed apps open from their cache and still reach Convex, so they keep working.
@@ -47,7 +47,7 @@ The website doesn't load for new visits. Installed apps open from their cache an
 No CI, no deploys and no nightly backup while it is down. Production keeps running.
 
 **What if the nightly backup fails?**
-No run has succeeded yet: the set-up is done except the heartbeat secret, a first run by hand and a restore rehearsal ([risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-are-set-up-but-not-proven-yet)). When a run fails, GitHub emails whoever last changed the workflow's schedule or re-enabled it, Better Stack alerts on the missed heartbeat (once the `BACKUP_HEARTBEAT_URL` secret is added), and system administrators with the daily digest on get "Off-site backups" in the next one. Running it again is always safe ([backup runbook](../../runbooks/backup-restore.md#when-a-nightly-run-fails)).
+The first run passed on 20 Nov 2026; no restore has been rehearsed yet ([risks R1](../4-money-and-risk/risks.md#r1-off-site-backups-run-but-no-restore-is-proven-yet)). When a run fails, GitHub emails whoever last changed the workflow's schedule or re-enabled it, Better Stack alerts on the missed heartbeat, and system administrators with the daily digest on get "Off-site backups" in the next one. Running it again is always safe ([backup runbook](../../runbooks/backup-restore.md#when-a-nightly-run-fails)).
 
 ## People and access
 

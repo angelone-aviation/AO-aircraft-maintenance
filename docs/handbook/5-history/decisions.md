@@ -111,7 +111,7 @@ From [ADR-0013](../../adr/0013-history-retention-window.md).
 | 19 Nov 2026 | The offline copy stays seven days, unencrypted; phones and tablets need a screen lock; sign-out clears the device (S6, S10) | [Offline](../../offline.md#signing-out-and-shared-devices)                              |
 | 19 Nov 2026 | File links expire after five minutes (S7, SE-12, D17)                                                                       | [File links](../../file-links.md)                                                       |
 | 19 Nov 2026 | Backup-age warning after 26 hours instead of 36 (D10)                                                                       | [ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)            |
-| 19 Nov 2026 | CodeQL default set-up on (P4). Reported done on 2026-11-19; on 2026-11-20 GitHub shows it not configured. Aaron to re-check | [Review 4 Nov](../../security/review-2026-11-04.md)                                     |
+| 19 Nov 2026 | CodeQL default set-up on (P4); enabled 20 Nov 2026                                                                          | [Review 4 Nov](../../security/review-2026-11-04.md)                                     |
 | —           | Security contact: accounts@angeloneonline.org                                                                               | [SECURITY.md](../../../SECURITY.md)                                                     |
 
 ## Things Aaron decided not to do, for now
