@@ -17,7 +17,10 @@ test("flight log searches, filters by aircraft and shows 50 flights at a time", 
   await storeFlights(page, FLIGHTS);
   await page.goto("/flights");
   const rows = page.locator(".rec-table tbody tr");
-  const pager = page.getByRole("status").filter({ hasText: /^Showing / });
+  // The Show more count, not the older-history pager's "Showing the last".
+  const pager = page
+    .getByRole("status")
+    .filter({ hasText: /^Showing \d+ of \d+ flights/ });
   const more = page.getByRole("button", { name: "Show more", exact: true });
   await expect(rows).toHaveCount(50);
   await expect(pager).toHaveText("Showing 50 of 120 flights");
