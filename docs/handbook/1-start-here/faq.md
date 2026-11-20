@@ -31,7 +31,7 @@ Screens: roll the website back in Cloudflare, instantly. Data or functions: Conv
 Normally no. A release that needs a one-off command names it in its pull request and in the README ([README](../../../README.md#one-off-steps-for-deployments-with-older-data)). After any restore, run the four history migrations ([operations](../3-running-it/operations.md#after-a-release-or-a-restore-the-migrations)).
 
 **Deploy refused because of the Content-Security-Policy. Why?**
-The Convex URL, or a Sentry host, is not allowed by `public/_headers`. It stops before anything changes in production ([release runbook](../../runbooks/release.md#security-headers)).
+The Convex URL (or a Sentry host, if Sentry is ever switched on) is not allowed by `public/_headers`. It stops before anything changes in production ([release runbook](../../runbooks/release.md#security-headers)).
 
 ## Outages
 
@@ -76,13 +76,13 @@ About **$25 a month** (Convex Pro) plus the domain, so about $311 a year, at tod
 The load test held 20 years of a six-aircraft fleet: every load and save succeeded except accepting a held flight from the oldest year. At that rate the main limit is about a hundred years away ([capacity and limits](../2-how-it-works/capacity-and-limits.md)). What wears out sooner is the software around it: the sign-in library, Node versions and keys need about one to two hours a quarter ([checklists](../3-running-it/checklists.md)).
 
 **What if Aaron is unavailable?**
-That is the biggest risk ([risks R3, R4](../4-money-and-risk/risks.md)). The organisation holds sealed credentials; this handbook and the runbooks say what to do. Fill in the [accounts](../../runbooks/accounts.md) and [incident contacts](../../runbooks/incident-response.md#who-to-notify).
+That is the biggest risk ([risks R3, R4](../4-money-and-risk/risks.md)). The break-glass account and the organisation's sealed credentials are planned but not set up yet; this handbook and the runbooks say what to do. Fill in the [accounts](../../runbooks/accounts.md) and [incident contacts](../../runbooks/incident-response.md#who-to-notify).
 
 **Could we move off Convex?**
 Yes, but it is a rewrite of `convex/`. The business rules in `src/domain` and the exported data would carry over ([risks R6](../4-money-and-risk/risks.md)).
 
 **Are the backups encrypted?**
-Not by default, since Aaron's decision of 20 Nov 2026; encryption stays an option. They sit in a private, locked R2 bucket ([risks R2](../4-money-and-risk/risks.md)).
+No, by Aaron's decision of 20 Nov 2026; one secret turns encryption back on. They sit in a private, locked R2 bucket ([risks R2](../4-money-and-risk/risks.md)).
 
 **Why is the repository public?**
 GitHub Actions and security features are free for public repositories. No secrets are in it; a scan checks every push ([risks R13](../4-money-and-risk/risks.md)).

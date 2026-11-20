@@ -14,7 +14,7 @@ Released to production at `e99058c` (about 17:00 UTC). Aaron's answers that day:
 | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | Closed parts requests, purchase orders and flight plans leave the workspace like other history (H5, option A)       | `36074ab`                                  |
 | **Load older** on Parts requests, Purchase orders and Flight plans                                                  | `dcde429`                                  |
-| A request's or order's links are judged on both work-order links of an older request                                | `3ae5d17`                                  |
+| An older request is judged on both its work-order links                                                             | `3ae5d17`                                  |
 | Purchasing lookup keys (`purchasingKeys`) kept for every request and order, so saves read only what a command names | `8a152fd`, `e48e9a4`                       |
 | A request's orders found by their allocation keys; the separate allocations table dropped                           | `b33fab6`                                  |
 | Summary (Weekly summary) reads each change-log row once and stops at 3 MiB, saying the period was cut short         | `31ee86b`, `b12696c`, `5cd894d`            |
@@ -87,27 +87,27 @@ Released to production at `b5f2f56` (about 02:20 UTC): every open register bug, 
 
 ### The 10 Nov bug hunt's 19 open findings
 
-| Id    | Fix                                                                                                                                     | Decision | Commit                                                           |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------- |
-| SE-13 | One member may hold at most 200 open problem reports or 512 KiB of their text; administrators are alerted at half                       | D2       | `d418aff`, `00df9dc`                                             |
-| SZ-1  | The workspace stopped loading after about two fleet-years: fixed by history paging (release 2)                                          | D3       | see release 2                                                    |
-| MX-3  | An MEL repair interval counts from the day the defect was found                                                                         | D4       | `8facd81`                                                        |
-| PT-9  | A stock-replenishment request completes when its parts arrive                                                                           | D18      | `e61bfe5`                                                        |
-| PT-12 | Issued parts keep their price (release 2)                                                                                               | D13      | `7f5bdf3`                                                        |
-| AC-10 | Cost records stay with the program that paid when an aircraft moves                                                                     | D14      | `aa87fe7`                                                        |
-| NA-7  | Logbook photos and Form 337 copies have separate caps                                                                                   | D12      | `73be318`                                                        |
-| NA-11 | Aircraft setup refuses a duplicate inspection                                                                                           | D11      | `01a15d5`                                                        |
-| SE-3  | Each Flight Program gets a share of the day's 60 urgent emails                                                                          | D9       | `fde4c67`                                                        |
-| SE-5  | At most 30 aircraft document uploads per user an hour                                                                                   | D12      | `bac2be5`                                                        |
-| PT-6  | A receipt dated before its order is refused                                                                                             | D19      | `b01803d`                                                        |
-| SE-12 | Every stored file opens through a link that expires after five minutes                                                                  | D17      | `eb5768b`, `52ea5a8`, `fd9d4c2`, `089c454`, `6af3c64`, `277a6e1` |
-| SE-7  | Sign-out clears the device, after warning about unsynced work                                                                           | D17      | `c743aa6`                                                        |
-| OP-5  | A missed off-site backup is reported at the next day's digest (26 hours)                                                                | D10      | `1434b27`                                                        |
-| OP-12 | Wrangler and esbuild install from the lockfile                                                                                          | D24      | `7a1b577`                                                        |
-| OP-8  | `check:standards` to check uncommitted files: the repository is ready (`dca6fca`); the patch to the owner-only hook is Aaron's to apply | D23      | `dca6fca`                                                        |
-| FL-1  | A pilot's consecutive offline legs are accepted in order (settled 10 Nov, before this history)                                          | D7       | [offline](../../offline.md#several-legs-logged-offline)          |
-| FL-5  | A flight on an aircraft grounded mid-flight is held, not refused (settled 10 Nov)                                                       | D6       | [offline](../../offline.md#flights-held-for-review)              |
-| NA-15 | A newly set-up aircraft reads Setup incomplete (decided 10 Nov)                                                                         | D5       | [glossary](../../../GLOSSARY.md)                                 |
+| Id    | Fix                                                                                                                                            | Decision | Commit                                                           |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| SE-13 | One member may hold at most 200 open problem reports or 512 KiB of their text; administrators are alerted at half                              | D2       | `d418aff`, `00df9dc`                                             |
+| SZ-1  | The workspace stopped loading after about two fleet-years: fixed by history paging (release 2)                                                 | D3       | see release 2                                                    |
+| MX-3  | An MEL repair interval counts from the day the defect was found                                                                                | D4       | `8facd81`                                                        |
+| PT-9  | A stock-replenishment request completes when its parts arrive                                                                                  | D18      | `e61bfe5`                                                        |
+| PT-12 | Issued parts keep their price (release 2)                                                                                                      | D13      | `7f5bdf3`                                                        |
+| AC-10 | Cost records stay with the program that paid when an aircraft moves                                                                            | D14      | `aa87fe7`                                                        |
+| NA-7  | Logbook photos and Form 337 copies have separate caps                                                                                          | D12      | `73be318`                                                        |
+| NA-11 | Aircraft setup refuses a duplicate inspection                                                                                                  | D11      | `01a15d5`                                                        |
+| SE-3  | Each Flight Program gets a share of the day's 60 urgent emails                                                                                 | D9       | `fde4c67`                                                        |
+| SE-5  | At most 30 aircraft document uploads per user an hour                                                                                          | D12      | `bac2be5`                                                        |
+| PT-6  | A receipt dated before its order is refused                                                                                                    | D19      | `b01803d`                                                        |
+| SE-12 | Every stored file opens through a link that expires after five minutes                                                                         | D17      | `eb5768b`, `52ea5a8`, `fd9d4c2`, `089c454`, `6af3c64`, `277a6e1` |
+| SE-7  | Sign-out clears the device, after warning about unsynced work                                                                                  | D17      | `c743aa6`                                                        |
+| OP-5  | A missed off-site backup is reported at the next day's digest (26 hours)                                                                       | D10      | `1434b27`                                                        |
+| OP-12 | Wrangler and esbuild install from the lockfile                                                                                                 | D24      | `7a1b577`                                                        |
+| OP-8  | `check:standards` to check uncommitted files: the repository is ready (`dca6fca`); the patch to the hook only Aaron may change is his to apply | D23      | `dca6fca`                                                        |
+| FL-1  | A pilot's consecutive offline legs are accepted in order (settled 10 Nov, before this history)                                                 | D7       | [offline](../../offline.md#several-legs-logged-offline)          |
+| FL-5  | A flight on an aircraft grounded mid-flight is held, not refused (settled 10 Nov)                                                              | D6       | [offline](../../offline.md#flights-held-for-review)              |
+| NA-15 | A newly set-up aircraft reads Setup incomplete (decided 10 Nov)                                                                                | D5       | [glossary](../../../GLOSSARY.md)                                 |
 
 Bug-hunt findings fixed in part before, finished here:
 
@@ -130,24 +130,24 @@ Bug-hunt findings fixed in part before, finished here:
 
 ### Security findings
 
-| Id            | Fix                                                                                                                                                             | Commit                                                |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| S20, A5       | A filed or changed certificate waits for an administrator's approval; nobody approves their own                                                                 | `c26ced2`                                             |
-| A6            | Expired sign-in records cleaned up weekly                                                                                                                       | `ffe6f63`                                             |
-| A8            | A disabled account's password is checked as a wrong one                                                                                                         | `327b2cc`                                             |
-| A9            | A forged refresh token can't sign another session out                                                                                                           | `5da10ee`                                             |
-| S13, T2       | An hourly sweep of stored files nothing refers to, starting in report mode                                                                                      | `337369d`, `6754f9b`, `79d37be`, `b783f01`, `6e7a062` |
-| T4            | File functions check the session first and refuse unseen records as missing                                                                                     | `fb974e1`, `93f40a4`                                  |
-| T7            | Unassigned inventory records no longer load into every program's reads                                                                                          | `d7cfecd`                                             |
-| T8, S15       | The FAA and Geoapify daily caps split fairly between programs; one shared helper                                                                                | `2a23a7f`, `58d2e98`                                  |
-| C2            | A missing bundle gets an uncached 404 from a small Worker                                                                                                       | `67fa346`                                             |
-| C3            | The published CSP is pinned to production's Convex hosts                                                                                                        | `8c0263c`                                             |
-| S18           | Dev and preview servers listen on this computer only                                                                                                            | `4c1f1be`                                             |
-| S7, S6        | File links expire after five minutes; the device copy holds none (with SE-12)                                                                                   | `eb5768b`, `e11ff5e`                                  |
-| S10           | Sign-out clears the device (with SE-7)                                                                                                                          | `c743aa6`, `a23267b`                                  |
-| Upload checks | The file-contents check covers work-order, job-card, photo and license uploads, HEIC license copies, PDFs with leading bytes, and names each upload's own types | `e6c928e`, `589ba16`, `8eed677`, `730b68e`, `50e05c2` |
-| Flight review | Every flight review needs a request id, so it is never applied twice                                                                                            | `c37bf0c`                                             |
-| P4            | CodeQL default set-up on (19 Nov, a GitHub setting)                                                                                                             | —                                                     |
+| Id            | Fix                                                                                                                                                                                                            | Commit                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| S20, A5       | A filed or changed certificate waits for an administrator's approval; nobody approves their own                                                                                                                | `c26ced2`                                             |
+| A6            | Expired sign-in records cleaned up weekly                                                                                                                                                                      | `ffe6f63`                                             |
+| A8            | A disabled account's password is checked as a wrong one                                                                                                                                                        | `327b2cc`                                             |
+| A9            | A forged refresh token can't sign another session out                                                                                                                                                          | `5da10ee`                                             |
+| S13, T2       | An hourly sweep of stored files nothing refers to, starting in report mode                                                                                                                                     | `337369d`, `6754f9b`, `79d37be`, `b783f01`, `6e7a062` |
+| T4            | File functions check the session first and refuse unseen records as missing                                                                                                                                    | `fb974e1`, `93f40a4`                                  |
+| T7            | Unassigned inventory records no longer load into every program's reads                                                                                                                                         | `d7cfecd`                                             |
+| T8, S15       | The FAA and Geoapify daily caps split fairly between programs; one shared helper                                                                                                                               | `2a23a7f`, `58d2e98`                                  |
+| C2            | A missing bundle gets an uncached 404 from a small Worker                                                                                                                                                      | `67fa346`                                             |
+| C3            | The published CSP is pinned to production's Convex hosts                                                                                                                                                       | `8c0263c`                                             |
+| S18           | Dev and preview servers listen on this computer only                                                                                                                                                           | `4c1f1be`                                             |
+| S7, S6        | File links expire after five minutes; the device copy holds none (with SE-12)                                                                                                                                  | `eb5768b`, `e11ff5e`                                  |
+| S10           | Sign-out clears the device (with SE-7)                                                                                                                                                                         | `c743aa6`, `a23267b`                                  |
+| Upload checks | The file-contents check covers work-order, job-card, photo and license uploads, HEIC license copies, PDFs with leading bytes, and names each upload's own types; a manual that is not a PDF is deleted at once | `e6c928e`, `589ba16`, `8eed677`, `730b68e`, `50e05c2` |
+| Flight review | Every flight review needs a request id, so it is never applied twice                                                                                                                                           | `c37bf0c`                                             |
+| P4            | CodeQL default set-up on (19 Nov, a GitHub setting)                                                                                                                                                            | —                                                     |
 
 ### Other changes in the release
 
@@ -162,8 +162,6 @@ Bug-hunt findings fixed in part before, finished here:
 ### Branches joined
 
 `fix/theme-switch-at-once`, `work/ui-bugs`, `work/register-bugs`, `work/server-bugs`, `work/alerts-and-access`, `work/loadtest-and-small-fixes`, `work/records-rules`, `work/uploads-security`, `work/device-data`, `work/combine-chores` (merges `eaf599b` to `4627685`).
-
-Tests at release 1: 4,405 unit and server tests, 246 browser tests passed, 0 failed, CSP violations 0. At release 3: 4,769 tests; 258 browser tests passed.
 
 ## Before 20 Nov 2026
 

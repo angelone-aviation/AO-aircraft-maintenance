@@ -9,7 +9,7 @@ What Angel One is, who uses it, how the parts connect, and what it stores. The e
 - It is the **system of record for the six status records** of 14 CFR 91.417(a)(2): total time, life-limited parts, time since overhaul, inspection status, AD status and Form 337 copies.
 - It is **not the signed maintenance record.** It writes unsigned logbook entry wording for signature in the paper (or PDF) logbook ([ADR-0004](../../adr/0004-logbook-generator-and-status-record-system.md)). For its first year the program keeps paper logbooks beside the app ([logbook page photos](../../logbook-photos.md)).
 - Live at <https://ops.angeloneaviation.org>. Real records begin when the program decides; no launch date is set.
-- Jeff built the original app, a PHP system kept in `legecy php_project/` as a reference for business rules only. Aaron runs and maintains Angel One.
+- It replaces an older PHP system, kept in `legecy php_project/` as a reference for business rules only. Aaron runs and maintains Angel One.
 
 ## Who uses it
 

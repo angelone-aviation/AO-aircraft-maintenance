@@ -69,7 +69,7 @@ The few rules that matter most, by who you are. Each links to the page with the 
 
 - **Merging to `main` is the release.** Take a Convex backup first ([operations](../3-running-it/operations.md#releasing)).
 - **Convex can't roll back.** Revert on `main` and let Deploy release it; the website rolls back in Cloudflare.
-- **After any restore, run the four migrations** until 0, then `reconcileCostLedger` must answer `differing: 0` ([operations](../3-running-it/operations.md#after-a-release-or-a-restore-the-migrations)).
+- **After any restore, run the three rebuild migrations** until 0, then `reconcileCostLedger` must answer `differing: 0` ([operations](../3-running-it/operations.md#after-a-release-or-a-restore-the-migrations)).
 - **Never edit production data directly,** except a restore or a written repair, recorded at once with `audit:recordManualEntry`. Never touch a change-log row ([database access](../../runbooks/database-access.md)).
 - **Secrets never go in the repository.** It is public. A leaked secret is rotated first ([incident runbook](../../runbooks/incident-response.md#leaked-secret)).
 - **Keep the nightly backup alive:** read failure emails, and keep the repository active (60 days) ([checklists](../3-running-it/checklists.md)).

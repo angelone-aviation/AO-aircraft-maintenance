@@ -37,12 +37,12 @@ Before you merge ([release runbook](../../runbooks/release.md#release)):
 
 What Deploy refuses ([`deploy.yml`](../../../.github/workflows/deploy.yml)):
 
-| Deploy stops when                                                                                                   | Message or sign                    | What to do                                                             |
-| ------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
-| Its commit is not the newest on `main`                                                                              | "is not the newest commit on main" | Nothing. Two merges landed close together; the newer run releases both |
-| A manual run without green CI for that commit                                                                       | Refusal in the log                 | Wait for CI, or use the emergency box (below)                          |
-| The Convex URL or Sentry host isn't allowed by the CSP, the CSP can't be pinned, or a source map is left in `dist/` | Refusal before anything is pushed  | Fix the cause; nothing changed in production                           |
-| The deploy key is not a production key                                                                              | Refusal                            | Replace `CONVEX_DEPLOY_KEY` in the GitHub `production` environment     |
+| Deploy stops when                                                                                                                       | Message or sign                    | What to do                                                             |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| Its commit is not the newest on `main`                                                                                                  | "is not the newest commit on main" | Nothing. Two merges landed close together; the newer run releases both |
+| A manual run without green CI for that commit                                                                                           | Refusal in the log                 | Wait for CI, or use the emergency box (below)                          |
+| The Convex URL (or a Sentry host, if switched on) isn't allowed by the CSP, the CSP can't be pinned, or a source map is left in `dist/` | Refusal before anything is pushed  | Fix the cause; nothing changed in production                           |
+| The deploy key is not a production key                                                                                                  | Refusal                            | Replace `CONVEX_DEPLOY_KEY` in the GitHub `production` environment     |
 
 - **By hand:** Actions → **Deploy** → **Run workflow** from `main`, tick the backup box. Use it after a website rollback or a changed GitHub variable.
 - **Emergency box:** skips only the green-CI check, for a broken production whose fix is on `main` while CI can't pass for an unrelated reason. Never past a failed secret scan ([release runbook](../../runbooks/release.md#emergency-deploy-without-green-ci)).
@@ -86,16 +86,16 @@ The nightly 09:37 UTC reconcile logs "The cost ledger differs from its records."
 
 ## Backups and restore
 
-| Copy                         | Where                                  | Kept                           |
-| ---------------------------- | -------------------------------------- | ------------------------------ |
-| Convex scheduled backup      | Convex dashboard → Backups             | 7 days                         |
-| Nightly export               | R2 bucket `angelone-backups`, `daily/` | 90 days, locked                |
-| Monthly archive              | Same bucket, `monthly/`                | Forever, locked                |
-| Environment variables        | Same bucket, `env/`                    | Forever, locked                |
-| Readable workbook (optional) | Dropbox app folder                     | 90 days daily; monthly forever |
+| Copy                         | Where                                        | Kept                           |
+| ---------------------------- | -------------------------------------------- | ------------------------------ |
+| Convex scheduled backup      | Convex dashboard → Backups                   | 7 days                         |
+| Nightly export               | R2 bucket `angelone-backups`, `daily/`       | 90 days, locked                |
+| Monthly archive              | Same bucket, `monthly/`                      | Forever, locked                |
+| Environment variables        | Same bucket, `env/`, only with encryption on | Forever, locked                |
+| Readable workbook (optional) | Dropbox app folder                           | 90 days daily; monthly forever |
 
-- **The nightly job** ([`backup.yml`](../../../.github/workflows/backup.yml), [`scripts/backup/nightly.sh`](../../../scripts/backup/nightly.sh)) runs at 08:41 UTC: export with files, check it, upload, copy the month's first to `monthly/`, save changed environment variables, record the copy in the app, then build the optional Dropbox workbook.
-- **Encryption** is optional and **off by default**, by Aaron's decision of 20 Nov 2026. The change is being built on `work/backup-plain`; until it merges, the runbook and job still describe `age` encryption. With encryption off, protect the bucket and its token as you would the records ([risks R2](../4-money-and-risk/risks.md)).
+- **The nightly job** ([`backup.yml`](../../../.github/workflows/backup.yml), [`scripts/backup/nightly.sh`](../../../scripts/backup/nightly.sh)) runs at 08:41 UTC: export with files, check it, upload, copy the month's first to `monthly/`, save changed environment variables (with encryption on), record the copy in the app, then build the optional Dropbox workbook.
+- **Encryption** is off, by Aaron's decision of 20 Nov 2026 (ADR-0014, on `work/backup-plain`; until it merges, the runbook and job still require `age` encryption). Without it the job saves no environment variables, so keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager. Protect the bucket and its token as you would the records ([risks R2](../4-money-and-risk/risks.md)).
 - **Status today:** the bucket, lock rules, `backups` environment and R2 token are set up; the rest is not, so the job fails nightly until it is ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)).
 - **Check a run:** green in Actions; Settings → System → **Off-site backups** shows the time; the files are in R2.
 - **Who is told:** GitHub emails a failed scheduled run to whoever last changed or re-enabled the workflow; Better Stack alerts on a missed heartbeat; system administrators get "Off-site backups" in the digest after 26 hours.

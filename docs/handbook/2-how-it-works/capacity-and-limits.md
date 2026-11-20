@@ -82,14 +82,14 @@ File storage will likely dwarf the records. A single manual PDF can be tens of M
 
 ## What still grows
 
-| What                                      | Why                                                                                | Rate at the model's volume            |
-| ----------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------- |
-| AD compliance history                     | ADR-0013 keeps ADs complete                                                        | Part of 0.08–0.11 MiB a year          |
-| Component movements                       | Kept complete                                                                      | Part of the same                      |
-| Repairs and restocks settled by a receipt | Their own record can't show they are settled, so the window keeps them             | Small; finding 75                     |
-| Open items                                | Kept however many there are; bounded only by the per-member report limit           | Depends on use                        |
-| Index ranges                              | Grow with aircraft, not years: about 140 + 14 per aircraft + 5 per kept work order | The 1,000 target at about 20 aircraft |
-| Files and backups                         | Monthly archives are kept forever by design                                        | Depends on uploads                    |
+| What                                      | Why                                                                                                     | Rate at the model's volume                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| AD compliance history                     | ADR-0013 keeps ADs complete                                                                             | Part of 0.08–0.11 MiB a year                                                |
+| Component movements                       | Kept complete                                                                                           | Part of the same                                                            |
+| Repairs and restocks settled by a receipt | Their own record can't show they are settled, so the window keeps them                                  | Small; finding 75                                                           |
+| Open items                                | Kept however many there are; bounded only by the per-member report limit                                | Depends on use                                                              |
+| Index ranges                              | Grow with readable aircraft and kept work orders, not years: 306 for two aircraft, 654 for six (year 1) | About 87 per aircraft; the 1,000 target at about 10 aircraft (**estimate**) |
+| Files and backups                         | Monthly archives are kept forever by design                                                             | Depends on uploads                                                          |
 
 Follow-ups are findings 73, 74a, 74b, 74d, 75 and 76a in [REFACTOR_ROADMAP.md](../../../REFACTOR_ROADMAP.md).
 
@@ -98,7 +98,7 @@ Follow-ups are findings 73, 74a, 74b, 74d, 75 and 76a in [REFACTOR_ROADMAP.md](.
 | Trigger                                               | What to do                                                                                                                                                                                                         |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Every quarter                                         | In the Convex dashboard's logs, look for "Many bytes read" or "took a long time" on `operations:snapshot`, `operations:reviewFlight` and the saves ([recurring tasks](../../go-live-checklist.md#recurring-tasks)) |
-| The fleet grows past about 20 aircraft                | Index ranges near the 1,000 target; re-run the load test                                                                                                                                                           |
+| The fleet grows past about 10 aircraft                | Index ranges near the 1,000 target (estimate); re-run the load test                                                                                                                                                |
 | Flying much more than 300 flights per aircraft a year | Re-run the load test at the new rate (`scripts/loadtest/paging.sh`)                                                                                                                                                |
 | A held flight from years back must be accepted        | Expect it to fail from about 20 years of history (S9)                                                                                                                                                              |
 | File storage passes about 1.5 GB                      | Check the nightly export still fits Convex's 50 GB monthly egress ([ADR-0007](../../adr/0007-convex-pro-single-seat.md))                                                                                           |

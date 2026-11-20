@@ -4,7 +4,7 @@ What to check, how often, who does it, and how. Copy a section into an issue or 
 
 - **Sources:** [recurring tasks](../../go-live-checklist.md#recurring-tasks), the [runbooks](../../runbooks/), [ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md).
 - **Times** are rough. The go-live checklist budgets one to two hours a quarter for upkeep.
-- **Aaron** is the technical owner. "An administrator" means a Flight Program administrator unless it says system administrator.
+- **Aaron** runs the app. "An administrator" means a Flight Program administrator unless it says system administrator.
 
 ## Daily
 
@@ -64,15 +64,14 @@ Budget 1–2 hours.
 - [ ] **Finish the backup set-up.** Aaron, about 1 hour: backup deploy key, time zone, failure email, heartbeat secret, a manual run, the first rehearsal ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)).
 - [ ] **Add `security.txt` to Expiring dates.** Aaron, 5 min. Settings → System → Expiring dates, expiring 2027-10-04.
 - [ ] **Renew `security.txt` before 2027-09-04.** Aaron, 15 min. It expires **2027-10-04**. Set `Expires` about 11 months ahead in [`public/.well-known/security.txt`](../../../public/.well-known/security.txt), check `Contact` still reaches someone, deploy.
-- [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → FAA API key → **Update…** with the new expiry ([airworthiness](../../airworthiness.md)).
-- [ ] **Node 22 end of life, April 2027.** See Yearly.
+- [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry ([airworthiness](../../airworthiness.md)).
+- [ ] **Keep the credential key safe.** Aaron, 5 min, once unencrypted backups ship (`work/backup-plain`). Save `CREDENTIALS_ENCRYPTION_KEY` in his password manager: the unencrypted job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.
 
 ## Whenever it happens
 
 - [ ] **After any restore:** run, each until it reports 0: `migrations:backfillHistoryColumns`, `migrations:rebuildRecordNumbers`, `migrations:rebuildCostLedger`; then `migrations:reconcileCostLedger` must answer `differing: 0` ([operations](operations.md#after-a-release-or-a-restore-the-migrations)). Then record the restore with `audit:recordManualEntry`.
 - [ ] **After a release that names a one-off command:** run it as the pull request says ([README](../../../README.md#one-off-steps-for-deployments-with-older-data)).
-- [ ] **After changing a Convex environment variable:** run the Nightly backup by hand so `env/` holds the new set.
-- [ ] **When the backup key changes:** check the next run's summary lists an `env/` object.
+- [ ] **After changing a Convex environment variable, with backup encryption on:** run the Nightly backup by hand so `env/` holds the new set; after changing the backup key, check the next run's summary lists an `env/` object.
 - [ ] **When the reconcile logs "The cost ledger differs from its records.":** run `migrations:rebuildCostLedger` until 0.
 - [ ] **When a person leaves:** a system administrator disables their account; remove them from the Dropbox folder; if they held a Convex key, rotate it ([accounts](../../runbooks/accounts.md#disabling-a-user)).
 - [ ] **When a device is lost:** follow [lost or stolen device](../../runbooks/incident-response.md#lost-or-stolen-device).
