@@ -320,7 +320,7 @@ The fixture's earlier years now close their orders (as the fixture always said t
 | Snapshot, board                       | 1,838 flat                         | 1,838 flat       | 1.06 flat                    | 1.06 flat  | 83 / 83                      |
 
 - **Flat.** The administrator's and pilot's snapshots read the same at one, two and three fleet-years; `historyCost.test.ts` holds every view to within 10% of year 1. At this volume nothing else grows: the fixture's ADs record no compliance and no component moves, which ADR-0013 keeps complete and the load test showed growing about 0.1 MB a year.
-- **Index ranges grow by about 60,** a fixed number: two request ranges per readable aircraft and for stock, three plan ranges per readable aircraft, and one allocation lookup per request kept from before the window with one per order it finds. The administrator's 641 stays under the plan's 1,000.
+- **Index ranges grow by a fixed number,** 61 for the administrator and 33 for the pilot: two request ranges per readable aircraft and for stock, three plan ranges per readable aircraft, and one allocation lookup per request read from before the window, with one per order it finds. The administrator's 641 stays under the plan's 1,000.
 - **Not yet measured at 20 fleet-years.** The load test needs a local backend, which this change did not run; S8's table below is from before it. By S8's figures, the 85% of growth H5 accounted for is gone, which leaves the ADs' and component history's 0.1 MB a year and the window's own reads.
 - The parts request and purchase order saves still load every request and order (bounded in a separate change, `work/h5-saves`); writing an order now also reads its allocation rows, one range.
 
