@@ -27,17 +27,17 @@ What the workspace snapshot and the saves that load whole history read today, me
 
 | Read                    | Documents, 1 / 2 / 3 years | MiB, 1 / 2 / 3 years | Index ranges |
 | ----------------------- | -------------------------- | -------------------- | ------------ |
-| Snapshot, administrator | 6,099 / 10,179 / 14,259    | 7.09 / 11.87 / 16.65 | 1,018        |
-| Snapshot, pilot         | 5,947 / 9,883 / 13,819     | 7.05 / 11.80 / 16.54 | 103          |
-| Snapshot, owner         | 1,711 / 1,963 / 2,215      | 1.01 / 1.14 / 1.27   | 40           |
-| Snapshot, board         | 3,046 / 4,630 / 6,214      | 4.32 / 7.76 / 11.21  | 59           |
-| Work order save         | 2,970 / 4,476 / 5,982      | 4.26 / 7.65 / 11.03  | 47           |
-| Job card save           | 2,546 / 3,872 / 5,198      | 3.83 / 6.96 / 10.09  | 38           |
-| Job card evidence check | 2,547 / 3,873 / 5,199      | 3.83 / 6.96 / 10.09  | 39           |
-| Parts request save      | 3,086 / 4,712 / 6,338      | 4.37 / 7.87 / 11.36  | 46           |
-| Part unit cost          | 1,476 / 1,908 / 2,340      | 1.44 / 2.23 / 3.03   | 24           |
-| Purchase order save     | 1,592 / 1,964 / 2,336      | 1.12 / 1.54 / 1.96   | 28           |
-| Weekly summary, 7 days  | 1,414 / 1,786 / 2,158      | 1.04 / 1.45 / 1.85   | 36           |
+| Snapshot, administrator | 6,099 / 10,179 / 14,259    | 7.09 / 11.87 / 16.65 | 1,011        |
+| Snapshot, pilot         | 5,947 / 9,883 / 13,819     | 7.05 / 11.80 / 16.54 | 96           |
+| Snapshot, owner         | 1,711 / 1,963 / 2,215      | 1.01 / 1.14 / 1.27   | 39           |
+| Snapshot, board         | 3,046 / 4,630 / 6,214      | 4.32 / 7.76 / 11.21  | 52           |
+| Work order save         | 2,970 / 4,476 / 5,982      | 4.26 / 7.65 / 11.03  | 46           |
+| Job card save           | 2,546 / 3,872 / 5,198      | 3.83 / 6.96 / 10.09  | 37           |
+| Job card evidence check | 2,547 / 3,873 / 5,199      | 3.83 / 6.96 / 10.09  | 38           |
+| Parts request save      | 3,086 / 4,712 / 6,338      | 4.37 / 7.87 / 11.36  | 45           |
+| Part unit cost          | 1,476 / 1,908 / 2,340      | 1.44 / 2.23 / 3.03   | 17           |
+| Purchase order save     | 1,592 / 1,964 / 2,336      | 1.12 / 1.54 / 1.96   | 27           |
+| Weekly summary, 7 days  | 1,414 / 1,786 / 2,158      | 1.04 / 1.45 / 1.85   | 29           |
 
 - The administrator's and pilot's snapshots pass Convex's 16 MiB read limit at three years, as the size test found.
 - Index ranges do not grow: every loader reads one range per aircraft or program. Bytes are the limit history reaches.
@@ -155,4 +155,4 @@ Not lookups by uuid, but lists and totals that shrink with the window, for S6 an
 - **Archived job cards have no screen of their own.** They show only in a work order's "Removed items" (`src/components/WorkOrders.tsx:1956`), so they page with their work order, as `historyPage` does, rather than through a "Load older" of their own. The Job cards screen, which does list every card, is missing from the plan's five screens.
 - **No record carries a "changed at" time.** Work orders, flights and job card links have no single update time; a reviewed flight records no review time, and a part's unit cost no time at all. "Changed within the window" is read from the dated events each record does hold, listed above.
 - **`historyPage` takes `now`**, like `retainedSnapshot`, since the pages are whatever the window leaves out at that moment.
-- **Index ranges do not grow with history.** The snapshot reads a fixed number of index ranges (1,018 for an administrator at any size); bytes are what history pushes past the limit.
+- **Index ranges do not grow with history.** The snapshot reads a fixed number of index ranges (1,011 for an administrator at any size); bytes are what history pushes past the limit.
