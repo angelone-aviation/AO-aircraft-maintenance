@@ -21,7 +21,10 @@ import {
   normalizeGroup,
   programGroupIds,
 } from "../domain/accountRules";
-import { validateAircraftPhoto } from "../domain/aircraftPhotos";
+import {
+  AIRCRAFT_PHOTO_TYPES,
+  validateAircraftPhoto,
+} from "../domain/aircraftPhotos";
 import { assertAttachmentRoom, withNewEvidence } from "../domain/attachments";
 import { demoAircraftFiles, readDataUrl } from "./demoAircraftFiles";
 import { missingDefaultGroups } from "../domain/defaultPermissionGroups";
@@ -30,6 +33,7 @@ import {
   certificationsSchema,
   memberLicense,
   validateCertificationFile,
+  LICENSE_COPY_TYPES,
   type Certification,
 } from "../domain/certifications";
 import {
@@ -69,9 +73,12 @@ import { auditEntry } from "../domain/changeLog";
 import { reviewFlight } from "../domain/flightReview";
 import { saveChecklist } from "../domain/checklists";
 import {
+  FILE_SIGNATURE_LENGTH,
   inventoryAttachmentAccess,
+  matchesFileType,
   validateInventoryFile,
   assertFileContents,
+  ATTACHMENT_FILE_TYPES,
   poAttachmentChanges,
   receiptItemUuids,
 } from "../domain/inventoryAttachments";
@@ -99,6 +106,7 @@ import {
 import {
   saveWorkOrder,
   validateWorkOrderFile,
+  WORK_ORDER_FILE_TYPES,
   isOpenWorkOrder,
 } from "../domain/workOrders";
 import { saveFlightPlan } from "../domain/flightPlans";
@@ -336,6 +344,9 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       const input = manualInputSchema.parse(raw);
       validateManualFile(file);
       if (file.size !== input.size) throw new Error("File size changed.");
+      const head = await file.slice(0, FILE_SIGNATURE_LENGTH).arrayBuffer();
+      if (!matchesFileType("application/pdf", head))
+        throw new Error("Uploaded file is not a PDF.");
       const uuid = crypto.randomUUID();
       const current = workspace.getState();
       if (
@@ -381,6 +392,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     attachTaskEvidence: async (taskCardUuid, category, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
+      assertFileContents(
+        file.type,
+        await file.arrayBuffer(),
+        WORK_ORDER_FILE_TYPES,
+      );
       const url = await readDataUrl(file);
       await modify((s) => {
         const t = s.taskCards?.find((t) => t.uuid === taskCardUuid);
@@ -518,7 +534,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       }),
     attachInventoryFile: async (stockUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
-      assertFileContents(file.type, await file.arrayBuffer());
+      assertFileContents(
+        file.type,
+        await file.arrayBuffer(),
+        ATTACHMENT_FILE_TYPES,
+      );
       const url = await readDataUrl(file);
       await modify((s) => {
         inventoryAttachmentAccess(s, stockUuid);
@@ -551,6 +571,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     attachWorkOrderFile: async (workOrderUuid, file) => {
       validateWorkOrderFile(file.name, file.type, file.size);
+      assertFileContents(
+        file.type,
+        await file.arrayBuffer(),
+        WORK_ORDER_FILE_TYPES,
+      );
       const url = await readDataUrl(file);
       await modify((s) => {
         const w = s.workOrders?.find((w) => w.uuid === workOrderUuid);
@@ -731,7 +756,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
       ),
     attachPOFile: async (poUuid, receiptUuid, file) => {
       validateInventoryFile(file.name, file.type, file.size);
-      assertFileContents(file.type, await file.arrayBuffer());
+      assertFileContents(
+        file.type,
+        await file.arrayBuffer(),
+        ATTACHMENT_FILE_TYPES,
+      );
       const url = await readDataUrl(file);
       await modify((s) => {
         if (!programPermission(s, "admin"))
@@ -960,6 +989,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
     },
     uploadAircraftPhoto: async (aircraftUuid, file) => {
       validateAircraftPhoto(file.type, file.size);
+      assertFileContents(
+        file.type,
+        await file.arrayBuffer(),
+        AIRCRAFT_PHOTO_TYPES,
+      );
       const photoUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
@@ -1063,6 +1097,11 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
         .snapshot?.certificationFiles?.find((f) => f.id === id)?.url ?? null,
     uploadCertification: async (userId, kind, file) => {
       validateCertificationFile(file.name, file.type, file.size);
+      assertFileContents(
+        file.type,
+        await file.arrayBuffer(),
+        LICENSE_COPY_TYPES,
+      );
       const url = await readDataUrl(file);
       await modify((s) => {
         if (userId !== s.user.id && !s.user.isAdmin)

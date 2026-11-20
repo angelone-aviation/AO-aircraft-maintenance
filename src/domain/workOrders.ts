@@ -59,7 +59,6 @@ const WORK_PERFORMED_MAX_LENGTH = 100_000;
 const ENTRY_LIST_MAX = 100;
 const TASK_LIST_MAX = 500;
 const FILE_NAME_MAX_LENGTH = 255;
-const ATTACHMENT_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 const ORDER_NUMBER_DIGITS = 4;
 const CLOSED_STATUSES: readonly string[] = ["completed", "cancelled"];
 // Job cards spell their closed status "canceled".
@@ -86,6 +85,16 @@ export const taskStatuses = [
   "completed",
   "cancelled",
 ] as const;
+
+/**
+ * The MIME types a work-order attachment or job-card evidence file may have,
+ * in the order refusals name them.
+ */
+export const WORK_ORDER_FILE_TYPES: readonly string[] = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+];
 
 /**
  * The record a work item comes from: an AD action, discrepancy, inspection or
@@ -643,7 +652,7 @@ export function validateWorkOrderFile(
   if (
     !name.trim() ||
     name.length > FILE_NAME_MAX_LENGTH ||
-    !ATTACHMENT_TYPES.includes(type) ||
+    !WORK_ORDER_FILE_TYPES.includes(type) ||
     size <= 0 ||
     size > MAX_ACTION_FILE_BYTES
   )

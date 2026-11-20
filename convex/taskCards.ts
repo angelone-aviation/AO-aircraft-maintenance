@@ -5,7 +5,7 @@
  *   rules live in src/domain (taskCards, attachments).
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
  *   ./runCommand, ./collections, ./attachments, ./userErrors, src/domain
- *   (taskCards, workOrders, attachments, model).
+ *   (taskCards, workOrders, attachments, inventoryAttachments, model).
  */
 import { v, ConvexError } from "convex/values";
 import {
@@ -41,8 +41,12 @@ import {
   MAX_ATTACHMENTS,
 } from "./attachments";
 import { exposeRejections } from "./userErrors";
-import { validateWorkOrderFile } from "../src/domain/workOrders";
+import {
+  validateWorkOrderFile,
+  WORK_ORDER_FILE_TYPES,
+} from "../src/domain/workOrders";
 import { withNewEvidence } from "../src/domain/attachments";
+import { assertFileContents } from "../src/domain/inventoryAttachments";
 import { can } from "../src/domain/model";
 import {
   applyTaskCardCommand,
@@ -158,8 +162,11 @@ export const finishUpload = internalMutation({
  * Uploads one evidence file to a job card. The file is stored first and
  * deleted again if the card refuses it.
  *
- * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MiB.", before
- *   any permission check; the refusals of checkUpload and finishUpload.
+ * @throws {ConvexError} "Choose a PDF, JPEG or PNG file up to 7 MiB.", then
+ *   "This file's contents do not match its type. Choose a PDF, JPEG or PNG
+ *   file." when the first bytes are not the declared type's, both before
+ *   any permission check and storing nothing; the refusals of checkUpload and
+ *   finishUpload.
  */
 export const upload = action({
   args: {
@@ -170,9 +177,10 @@ export const upload = action({
     category,
   },
   handler: async (ctx, args): Promise<void> => {
-    exposeRejections(() =>
-      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength),
-    );
+    exposeRejections(() => {
+      validateWorkOrderFile(args.name, args.type, args.bytes.byteLength);
+      assertFileContents(args.type, args.bytes, WORK_ORDER_FILE_TYPES);
+    });
     const card = {
       taskCardUuid: args.taskCardUuid,
       programUuid: args.programUuid,

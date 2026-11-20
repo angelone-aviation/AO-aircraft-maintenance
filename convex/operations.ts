@@ -240,7 +240,9 @@ export const deferDiscrepancy = mutation({
 const reviewArgs = {
   uuid: v.string(),
   programUuid: v.optional(v.string()),
-  requestUuid: v.optional(v.string()),
+  // Required, unlike most commands' (T18): a review sent again without one
+  // would re-run, writing its change-log rows and aircraft version twice.
+  requestUuid: v.string(),
   decision: v.union(v.literal("accept"), v.literal("reject")),
   reason: v.string(),
   input: v.object(flightFields),
@@ -251,12 +253,14 @@ const reviewArgs = {
  * the domain's reviewFlight allows. The aircraft's totals are rebuilt from its
  * flights, and the change log gets "flight.reviewed" plus "flight.resequenced"
  * for each other flight whose readings moved. A replayed request id changes
- * nothing.
+ * nothing; the same id with another review is refused.
  *
- * @param requestUuid - The request id, when the client sends one.
+ * @param requestUuid - The request id, one per review the user submits;
+ *   required, so a call without one is refused by argument validation.
  * @throws {ConvexError} The refusals of checkContext; "Flight Program
  *   administrator required."; "You do not have permission for this
- *   aircraft."; then reviewFlight's refusals, such as "Flight not found."
+ *   aircraft."; then reviewFlight's refusals, such as "Flight not found.";
+ *   "Request identifier already used." for an id spent on another review.
  * @throws {Error} checkContext's session refusal.
  */
 export const reviewFlight = mutation({

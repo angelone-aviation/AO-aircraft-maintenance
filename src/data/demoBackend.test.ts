@@ -932,6 +932,52 @@ it.each<
   },
 );
 
+it.each<
+  [string, string, (backend: Backend, s: Snapshot, file: File) => unknown]
+>([
+  [
+    "job-card evidence",
+    "PDF, JPEG or PNG",
+    (backend, s, file) =>
+      backend.attachTaskEvidence(s.taskCards![0].uuid, "photo", file),
+  ],
+  [
+    "a work-order attachment",
+    "PDF, JPEG or PNG",
+    (backend, s, file) =>
+      backend.attachWorkOrderFile(s.workOrders![0].uuid, file),
+  ],
+  [
+    "an aircraft photo",
+    "JPEG, PNG or WebP",
+    (backend, s, file) => backend.uploadAircraftPhoto(s.aircraft[0].uuid, file),
+  ],
+  [
+    "a license copy",
+    "PDF, JPEG, PNG, WebP, HEIC or HEIF",
+    (backend, s, file) => backend.uploadCertification(s.user.id, "pilot", file),
+  ],
+])(
+  "refuses %s whose first bytes are not its declared type, naming its %s types as the server does",
+  async (upload, types, attach) => {
+    const { backend, stored } = await demo(`demo-renamed-${upload}`, (seed) =>
+      withRecords(seed),
+    );
+    const before = await stored();
+    const renamed = new File(["<html><body>x</body></html>"], "IMG_1.jpg", {
+      type: "image/jpeg",
+    });
+    const error = await Promise.resolve(attach(backend, before, renamed)).catch(
+      (e) => e,
+    );
+    expect(error).toBeInstanceOf(Rejection);
+    expect(error).toMatchObject({
+      message: `This file's contents do not match its type. Choose a ${types} file.`,
+    });
+    expect(await stored()).toEqual(before);
+  },
+);
+
 const MANUAL: Manual = {
   uuid: "manual",
   aircraftUuid: "demo-206",
@@ -951,6 +997,20 @@ const MANUAL: Manual = {
   uploadedAt: 1,
   uploadedBy: "demo-admin",
 };
+
+it("refuses a manual whose first bytes are not a PDF's, keeping nothing, as the server does", async () => {
+  const { backend, stored } = await demo("demo-manual-disguised");
+  const before = await stored();
+  const body = "<html>....";
+  const disguised = new File([body], "handbook.pdf", {
+    type: "application/pdf",
+  });
+  const { uuid: _uuid, uploadedAt: _at, uploadedBy: _by, ...input } = MANUAL;
+  await expect(
+    backend.uploadManual({ ...input, size: body.length }, disguised),
+  ).rejects.toThrow("Uploaded file is not a PDF.");
+  expect(await stored()).toEqual(before);
+});
 
 it("audits a manual edit with the six editable fields before, as the server does", async () => {
   const { backend, stored } = await demo("demo-manual-edit", (seed) => {

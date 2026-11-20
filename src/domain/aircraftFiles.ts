@@ -76,10 +76,24 @@ export const isCurrentAircraftFile = (f: { archivedAt?: number }) =>
   f.archivedAt === undefined;
 
 /**
- * The most current copies an aircraft may hold. Status records accumulate
- * over an aircraft's life, so this is above the cap on other attachments.
+ * The most current copies of each category an aircraft may hold; archived
+ * copies do not count. Form 337 copies keep the 200 the one shared cap was
+ * sized for: status records accumulate over an aircraft's life, well above
+ * the cap on other attachments. Photos get room of their own, so a pilot's
+ * line photos can never block filing a Form 337 copy (NA-7, decision D12):
+ * 500 covers a photo of every flight and signed work-order page for more
+ * than a year at a flight a day, the paper logbooks' first year beside the
+ * app. Both stay capped because every reader's snapshot lists each
+ * aircraft's documents.
  */
-export const MAX_AIRCRAFT_FILES = 200;
+export const MAX_CURRENT_AIRCRAFT_FILES: Record<AircraftFileCategory, number> =
+  { "form-337": 200, "logbook-page": 500 };
+
+// The category as a refusal names it mid-sentence.
+const ROOM_NOUNS: Record<AircraftFileCategory, string> = {
+  "form-337": "Form 337 copies",
+  "logbook-page": "logbook page photos",
+};
 
 /**
  * Checks an aircraft document before upload: the same types (PDF, JPEG, PNG,
@@ -125,16 +139,23 @@ export function validateAircraftUpload(
 }
 
 /**
- * Checks that an aircraft has room for one more current copy.
+ * Checks that an aircraft has room for one more current copy of a category.
  *
- * @param current - How many of the aircraft's copies are not archived.
+ * @param category - The category of the copy being added.
+ * @param current - How many of the aircraft's copies of that category are not
+ *   archived.
  * @throws {Rejection} "This aircraft already has the maximum of 200 current
- *   documents." at {@link MAX_AIRCRAFT_FILES}.
+ *   Form 337 copies." or "... of 500 current logbook page photos." at the
+ *   category's {@link MAX_CURRENT_AIRCRAFT_FILES}.
  */
-export function assertAircraftFileRoom(current: number) {
-  if (current >= MAX_AIRCRAFT_FILES)
+export function assertAircraftFileRoom(
+  category: AircraftFileCategory,
+  current: number,
+) {
+  const max = MAX_CURRENT_AIRCRAFT_FILES[category];
+  if (current >= max)
     throw new Rejection(
-      `This aircraft already has the maximum of ${MAX_AIRCRAFT_FILES} current documents.`,
+      `This aircraft already has the maximum of ${max} current ${ROOM_NOUNS[category]}.`,
     );
 }
 

@@ -51,6 +51,9 @@ const PDF_FILE = {
   type: PDF_TYPE,
   bytes: new TextEncoder().encode(PDF).buffer,
 };
+const PNG_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]).buffer;
 // A well-formed base64 SHA-256; no file is ever uploaded against it.
 const SHA256 = `${"A".repeat(43)}=`;
 const NEW_ACCOUNT = {
@@ -459,7 +462,7 @@ const CASES: Case[] = [
     stampB({
       aircraftUuid: a.row.aircraft.uuid,
       type: "image/png",
-      bytes: PDF_FILE.bytes,
+      bytes: PNG_BYTES,
     }),
   ).refuses(MAINTENANCE),
   callMutation(api.aircraftPhotos.remove, "A's aircraft photo", (a) =>
@@ -1050,6 +1053,7 @@ function buildReview(flight: Doc<"flights">, aircraftUuid: string) {
   const { destination, operation, flightRules, remarks, discrepancy } = flight;
   return stampB({
     uuid: flight.uuid,
+    requestUuid: crypto.randomUUID(),
     decision: "reject" as const,
     reason: "Not our flight.",
     input: {

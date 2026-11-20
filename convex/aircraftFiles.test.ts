@@ -1,19 +1,20 @@
 /**
  * Responsibility: Pins Form 337 copies and logbook page photos on the
  *   aircraft record: who uploads and archives them, the link a photo must
- *   carry, the audit entries, the 200-copy cap, and that a copy and its
- *   stored file are never deleted.
+ *   carry, the audit entries, the separate caps on Form 337 copies and
+ *   photos, and that a copy and its stored file are never deleted.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/aircraftFiles, convex/operations (snapshot),
  *   convex/workOrders (save), src/domain/aircraftFiles, src/data/demo,
  *   tests/fixtures/workOrders.
  */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
-import { MAX_AIRCRAFT_FILES } from "../src/domain/aircraftFiles";
+import { MAX_CURRENT_AIRCRAFT_FILES } from "../src/domain/aircraftFiles";
+import { AIRCRAFT_FILE_UPLOADS_PER_HOUR } from "./aircraftFiles";
 import { workOrderCommand } from "../tests/fixtures/workOrders";
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -96,6 +97,8 @@ async function fixture() {
     reader: t.withIdentity(identities.reader),
   };
 }
+afterEach(() => vi.useRealTimers());
+
 const FLIGHT_UUID = "11111111-1111-4111-8111-111111111111";
 const FOREIGN_FLIGHT_UUID = "22222222-2222-4222-8222-222222222222";
 const pdf = new TextEncoder().encode("%PDF-1.4 Form 337").buffer;
@@ -234,36 +237,157 @@ it("keeps Form 337 copies on the aircraft for readers, with maintenance uploads 
     archiveReason: "Superseded by the corrected 337",
   });
 });
-it("limits an aircraft to 200 current copies; archived copies do not count", async () => {
+// Inserts `count` copies of a category on the aircraft, sharing one blob.
+function fillAircraft(
+  t: Awaited<ReturnType<typeof fixture>>["t"],
+  category: "form-337" | "logbook-page",
+  count: number,
+  archived = false,
+) {
+  return t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(new Blob(["copy"]));
+    for (let i = 0; i < count; i++)
+      await ctx.db.insert("aircraftFiles", {
+        aircraftUuid: upload.aircraftUuid,
+        category,
+        ...(category === "logbook-page"
+          ? { linkedKind: "flight" as const, linkedUuid: FLIGHT_UUID }
+          : {}),
+        storageId,
+        name: `${category}-${i}.pdf`,
+        type: "application/pdf",
+        size: 3,
+        uploadedAt: i,
+        ...(archived
+          ? {
+              archivedAt: 1,
+              archivedBy: { userId: "u", name: "Archivist" },
+              archiveReason: "Superseded",
+            }
+          : {}),
+      });
+  });
+}
+
+it("limits an aircraft to 200 current Form 337 copies; archived copies do not count", async () => {
   const { t, tech } = await fixture();
-  const fill = (count: number, archived: boolean) =>
-    t.run(async (ctx) => {
-      const storageId = await ctx.storage.store(new Blob(["337"]));
-      for (let i = 0; i < count; i++)
-        await ctx.db.insert("aircraftFiles", {
-          aircraftUuid: upload.aircraftUuid,
-          category: "form-337",
-          storageId,
-          name: `337-${i}.pdf`,
-          type: "application/pdf",
-          size: 3,
-          uploadedAt: i,
-          ...(archived
-            ? {
-                archivedAt: 1,
-                archivedBy: { userId: "u", name: "Archivist" },
-                archiveReason: "Superseded",
-              }
-            : {}),
-        });
-    });
-  await fill(MAX_AIRCRAFT_FILES, true);
+  const max = MAX_CURRENT_AIRCRAFT_FILES["form-337"];
+  await fillAircraft(t, "form-337", max, true);
   await tech.action(api.aircraftFiles.upload, upload);
-  await fill(MAX_AIRCRAFT_FILES - 2, false);
+  await fillAircraft(t, "form-337", max - 2);
   await tech.action(api.aircraftFiles.upload, upload);
-  await expect(tech.action(api.aircraftFiles.upload, upload)).rejects.toThrow(
-    "maximum of 200 current documents",
+  await expect(
+    tech.action(api.aircraftFiles.upload, upload),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "This aircraft already has the maximum of 200 current Form 337 copies.",
+  });
+});
+
+it("limits an aircraft to 500 current logbook page photos, apart from its Form 337 copies", async () => {
+  const { t, tech, pilot } = await fixture();
+  await fillAircraft(t, "form-337", MAX_CURRENT_AIRCRAFT_FILES["form-337"]);
+  await fillAircraft(
+    t,
+    "logbook-page",
+    MAX_CURRENT_AIRCRAFT_FILES["logbook-page"] - 1,
   );
+  await pilot.action(api.aircraftFiles.upload, photo);
+  await expect(
+    pilot.action(api.aircraftFiles.upload, photo),
+  ).rejects.toMatchObject({
+    name: "ConvexError",
+    data: "This aircraft already has the maximum of 500 current logbook page photos.",
+  });
+  await expect(
+    tech.action(api.aircraftFiles.upload, upload),
+  ).rejects.toMatchObject({
+    data: "This aircraft already has the maximum of 200 current Form 337 copies.",
+  });
+});
+
+it("files a Form 337 copy on an aircraft whose 200 current documents are all logbook page photos (NA-7)", async () => {
+  const { t, tech } = await fixture();
+  await fillAircraft(t, "logbook-page", 200);
+  await tech.action(api.aircraftFiles.upload, upload);
+  const files = await t.run((ctx) => ctx.db.query("aircraftFiles").collect());
+  expect(files.filter((f) => f.category === "form-337")).toHaveLength(1);
+});
+
+// A member with flight and maintenance permission, who may file both kinds.
+async function addCrew(t: Awaited<ReturnType<typeof fixture>>["t"]) {
+  return t.withIdentity(
+    await t.run(async (ctx) => {
+      const group = await ctx.db.insert("groups", {
+        programUuid: "demo-program",
+        name: "crew",
+        aircraftIds: [upload.aircraftUuid],
+        permissions: ["read", "flight", "maintenance"],
+      });
+      const user = await ctx.db.insert("users", {
+        name: "Crew",
+        active: true,
+        isAdmin: false,
+        groupIds: [group],
+        activeProgramUuid: "demo-program",
+      });
+      const session = await ctx.db.insert("authSessions", {
+        userId: user,
+        expirationTime: Date.now() + 86400000,
+      });
+      return { subject: `${user}|${session}` };
+    }),
+  );
+}
+
+const TOO_MANY_UPLOADS = {
+  name: "ConvexError",
+  data: "Too many aircraft document uploads. Wait an hour and try again.",
+};
+
+// Mid-hour, so the hourly window cannot turn over during a test.
+function pinClockMidHour() {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(Date.UTC(2026, 10, 19, 10, 20));
+}
+
+it("allows each user 30 document uploads an hour, photos and Form 337 copies together (D12)", async () => {
+  pinClockMidHour();
+  const { t, pilot } = await fixture();
+  const crew = await addCrew(t);
+  expect(AIRCRAFT_FILE_UPLOADS_PER_HOUR).toBe(30);
+  for (let i = 0; i < AIRCRAFT_FILE_UPLOADS_PER_HOUR; i++)
+    await crew.action(api.aircraftFiles.upload, i % 2 ? upload : photo);
+  for (const file of [upload, photo])
+    await expect(
+      crew.action(api.aircraftFiles.upload, file),
+    ).rejects.toMatchObject(TOO_MANY_UPLOADS);
+  await t.run(async (ctx) => {
+    const filed = await ctx.db.query("aircraftFiles").collect();
+    expect(filed).toHaveLength(AIRCRAFT_FILE_UPLOADS_PER_HOUR);
+    expect(await ctx.db.system.query("_storage").collect()).toHaveLength(
+      filed.length,
+    );
+  });
+  // Another member's allowance is their own.
+  await pilot.action(api.aircraftFiles.upload, photo);
+  vi.setSystemTime(Date.UTC(2026, 10, 19, 11, 0));
+  await crew.action(api.aircraftFiles.upload, upload);
+});
+
+it("spends the upload allowance only on a document it files", async () => {
+  pinClockMidHour();
+  const { t } = await fixture();
+  const crew = await addCrew(t);
+  await fillAircraft(t, "form-337", MAX_CURRENT_AIRCRAFT_FILES["form-337"]);
+  await expect(crew.action(api.aircraftFiles.upload, upload)).rejects.toThrow(
+    "maximum of 200 current Form 337 copies",
+  );
+  for (let i = 0; i < AIRCRAFT_FILE_UPLOADS_PER_HOUR; i++)
+    await crew.action(api.aircraftFiles.upload, photo);
+  await expect(
+    crew.action(api.aircraftFiles.upload, photo),
+  ).rejects.toMatchObject(TOO_MANY_UPLOADS);
 });
 
 it("deletes the stored file of an upload the cap refuses", async () => {
@@ -272,21 +396,9 @@ it("deletes the stored file of an upload the cap refuses", async () => {
     t.run(
       async (ctx) => (await ctx.db.system.query("_storage").collect()).length,
     );
-  await t.run(async (ctx) => {
-    const storageId = await ctx.storage.store(new Blob(["337"]));
-    for (let i = 0; i < MAX_AIRCRAFT_FILES; i++)
-      await ctx.db.insert("aircraftFiles", {
-        aircraftUuid: upload.aircraftUuid,
-        category: "form-337",
-        storageId,
-        name: `337-${i}.pdf`,
-        type: "application/pdf",
-        size: 3,
-        uploadedAt: i,
-      });
-  });
+  await fillAircraft(t, "form-337", MAX_CURRENT_AIRCRAFT_FILES["form-337"]);
   await expect(tech.action(api.aircraftFiles.upload, upload)).rejects.toThrow(
-    "maximum of 200 current documents",
+    "maximum of 200 current Form 337 copies",
   );
   expect(await blobs()).toBe(1);
 });

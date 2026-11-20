@@ -255,12 +255,42 @@ it("shows a refused evidence file to the user, and keeps no file the card refuse
       ...file,
       name: "photo.jpg",
       type: "image/jpeg",
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer,
     }),
   ).rejects.toMatchObject({
     name: "ConvexError",
     data: `This record already has the maximum of ${MAX_ATTACHMENTS} attachments.`,
   });
   expect(await stored()).toBe(before);
+});
+it("refuses evidence whose first bytes are not its declared type, storing nothing", async () => {
+  const { t, tech, reader } = await fixture(),
+    command = taskCardCommand();
+  command.fields.steps = [];
+  await tech.mutation(api.taskCards.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(command),
+  });
+  const renamed = {
+    programUuid: "demo-program",
+    taskCardUuid: command.uuid,
+    category: "photo" as const,
+    name: "IMG_0001.jpg",
+    type: "image/jpeg",
+    bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')
+      .buffer,
+  };
+  for (const client of [tech, reader])
+    await expect(
+      client.action(api.taskCards.upload, renamed),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "This file's contents do not match its type. Choose a PDF, JPEG or PNG file.",
+    });
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("taskEvidence").collect()).toEqual([]);
+    expect(await ctx.db.system.query("_storage").collect()).toEqual([]);
+  });
 });
 it("rejects an inspection signoff until the inspector has an approved certificate on file", async () => {
   const { t, tech, inspector, inspectorId } = await fixture(),

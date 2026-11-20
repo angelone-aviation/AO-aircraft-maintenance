@@ -5,7 +5,7 @@
  *   steps and an hourly sweep; maintenance permission writes, read opens.
  * Dependencies: convex/programContext, convex/access, convex/rateLimits,
  *   convex/storageReferences, convex/userErrors, src/domain/manuals,
- *   src/domain/model.
+ *   src/domain/model, src/domain/inventoryAttachments.
  *
  * The browser uploads the PDF straight to storage between beginUpload and
  * finishUpload, so a blob is bound to a ticket only when its bytes, size, type
@@ -28,6 +28,10 @@ import { consume, DAY, HOUR } from "./rateLimits";
 import { storageReferenced } from "./storageReferences";
 import { exposeRejections } from "./userErrors";
 import { can, type Snapshot } from "../src/domain/model";
+import {
+  FILE_SIGNATURE_LENGTH,
+  matchesFileType,
+} from "../src/domain/inventoryAttachments";
 import {
   assertManualMaintainer,
   editManual,
@@ -53,7 +57,6 @@ export const UPLOAD_SWEEP_AGE = DAY;
 
 // Base64 SHA-256, the format Convex records in `_storage.sha256`.
 const SHA256 = /^[A-Za-z0-9+/]{43}=$/;
-const PDF_MAGIC = "%PDF-";
 
 // Bounds one sweep's work; the sweep runs hourly.
 const SWEEP_TICKETS_PER_RUN = 50;
@@ -128,7 +131,8 @@ export const beginUpload = mutation({
  * Binds an uploaded blob to the caller's ticket: only one uploaded during the
  * ticket's lifetime, with exactly the declared bytes, size and type, that no
  * other record refers to. A blob that fails is never deleted here, since it
- * may belong to someone else; the sweep removes the ticket's own.
+ * may belong to someone else; the hourly file sweep (convex/fileSweep.ts)
+ * deals with it once it is a day old if nothing refers to it by then.
  *
  * @param ticket - The caller's unexpired ticket.
  * @param storageId - The uploaded blob.
@@ -185,29 +189,46 @@ export const saveUpload = internalMutation({
 });
 
 /**
- * Completes an upload: claims the blob, checks it starts as a PDF, and saves
- * the manual.
+ * Ends the caller's ticket and deletes the blob {@link claimUpload} bound to
+ * it, for an upload whose contents are refused. The claim proved the blob is
+ * this ticket's upload and that no other record refers to it.
+ *
+ * @throws {ConvexError} The {@link claimUpload} ticket refusals; "Upload
+ *   expired. Please upload again." when this blob is not the claimed one.
+ */
+export const discardUpload = internalMutation({
+  args: uploadArgs,
+  handler: async (ctx, args) => {
+    const { ticket } = await loadUploadTicket(ctx, args);
+    if (ticket.storageId !== args.storageId)
+      throw new ConvexError("Upload expired. Please upload again.");
+    await ctx.db.delete(ticket._id);
+    await deleteBlobIfUnreferenced(ctx, args.storageId, ticket._id);
+  },
+});
+
+/**
+ * Completes an upload: claims the blob, checks it has a PDF header in its
+ * first 1,024 bytes, and saves the manual.
  *
  * @param ticket - From {@link beginUpload}.
  * @param storageId - What the upload URL returned.
  * @param programUuid - The caller's active Flight Program.
  * @returns The new manual's uuid.
  * @throws {ConvexError} The {@link claimUpload} and {@link saveUpload}
- *   refusals; "Uploaded file is not a PDF.", leaving the claimed blob for the
- *   sweep.
+ *   refusals; "Uploaded file is not a PDF.", after deleting the blob and
+ *   ending the ticket ({@link discardUpload}).
  */
 export const finishUpload = action({
   args: uploadArgs,
   handler: async (ctx, args): Promise<string> => {
     await ctx.runMutation(internal.manuals.claimUpload, args);
     const blob = await ctx.storage.get(args.storageId);
-    const head = blob
-      ? new TextDecoder().decode(
-          await blob.slice(0, PDF_MAGIC.length).arrayBuffer(),
-        )
-      : "";
-    if (head !== PDF_MAGIC)
+    const head = await blob?.slice(0, FILE_SIGNATURE_LENGTH).arrayBuffer();
+    if (!head || !matchesFileType("application/pdf", head)) {
+      await ctx.runMutation(internal.manuals.discardUpload, args);
       throw new ConvexError("Uploaded file is not a PDF.");
+    }
     return await ctx.runMutation(internal.manuals.saveUpload, args);
   },
 });

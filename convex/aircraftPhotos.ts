@@ -4,7 +4,8 @@
  * Layer: Server. A public action and mutation over internal steps; every
  *   change needs maintenance permission on the aircraft and is audited.
  * Dependencies: convex/programContext, convex/access, convex/attachments,
- *   convex/userErrors, src/domain/model, src/domain/aircraftPhotos.
+ *   convex/userErrors, src/domain/model, src/domain/aircraftPhotos,
+ *   src/domain/inventoryAttachments.
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -18,7 +19,11 @@ import {
 import { internal } from "./_generated/api";
 import { checkContext } from "./programContext";
 import { can } from "../src/domain/model";
-import { validateAircraftPhoto } from "../src/domain/aircraftPhotos";
+import {
+  AIRCRAFT_PHOTO_TYPES,
+  validateAircraftPhoto,
+} from "../src/domain/aircraftPhotos";
+import { assertFileContents } from "../src/domain/inventoryAttachments";
 import { audit } from "./access";
 import { storeThenFinish } from "./attachments";
 import { exposeRejections } from "./userErrors";
@@ -80,15 +85,18 @@ export const finish = internalMutation({
  * @param programUuid - The caller's active Flight Program.
  * @param type - The image's MIME type.
  * @param bytes - The image.
- * @throws As `validateAircraftPhoto`, a Rejection as a ConvexError, before any
- *   permission check; as {@link check}.
+ * @throws {ConvexError} The refusals of `validateAircraftPhoto`, then "This
+ *   file's contents do not match its type. Choose a JPEG, PNG or WebP file."
+ *   when the first bytes are not the declared type's, both before any
+ *   permission check and storing nothing; as {@link check}.
  */
 export const upload = action({
   args: { ...target, type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<void> => {
-    exposeRejections(() =>
-      validateAircraftPhoto(args.type, args.bytes.byteLength),
-    );
+    exposeRejections(() => {
+      validateAircraftPhoto(args.type, args.bytes.byteLength);
+      assertFileContents(args.type, args.bytes, AIRCRAFT_PHOTO_TYPES);
+    });
     const scope = {
       aircraftUuid: args.aircraftUuid,
       programUuid: args.programUuid,

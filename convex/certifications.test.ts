@@ -175,7 +175,7 @@ it("saves independent certifications, protects copies and allows the owner to ma
       kind: "ia",
       name: "license.jpg",
       type: "image/jpeg",
-      bytes: new Uint8Array([1, 2, 3]).buffer,
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer,
     }),
   ).rejects.toThrow(/Save this certification/);
   await owner.mutation(api.certifications.save, {
@@ -301,6 +301,51 @@ it("opens a copy whose file is gone as null, and checks a file before access", a
   ).rejects.toThrow(
     "Upload a PDF, JPEG, PNG, WebP, HEIC or HEIF license copy.",
   );
+});
+
+it("refuses a copy whose first bytes are not its declared type, before access and storing nothing, and keeps a real HEIC", async () => {
+  const { t, users, owner, other } = await fixture();
+  const userId = users.owner.id;
+  await owner.mutation(api.certifications.save, {
+    userId,
+    payload: JSON.stringify(mechanic),
+  });
+  const text = (body: string) => new TextEncoder().encode(body).buffer;
+  const heic = new Uint8Array([
+    0,
+    0,
+    0,
+    24,
+    ...new TextEncoder().encode("ftypheicmif1"),
+  ]).buffer;
+  for (const [client, file] of [
+    [owner, { ...pdf, bytes: text("<html><body>license</body></html>") }],
+    [other, { ...pdf, bytes: text("<html><body>license</body></html>") }],
+    [
+      owner,
+      { ...pdf, name: "license.heic", type: "image/heic", bytes: pdf.bytes },
+    ],
+  ] as const)
+    await expect(
+      client.action(api.certifications.upload, { userId, ...file }),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "This file's contents do not match its type. Choose a PDF, JPEG, PNG, WebP, HEIC or HEIF file.",
+    });
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("certificationFiles").collect()).toEqual([]);
+    expect(await ctx.db.system.query("_storage").collect()).toEqual([]);
+  });
+  await owner.action(api.certifications.upload, {
+    userId,
+    ...pdf,
+    name: "license.heic",
+    type: "image/heic",
+    bytes: heic,
+  });
+  expect(await owner.query(api.certifications.list, { userId })).toMatchObject([
+    { name: "license.heic" },
+  ]);
 });
 
 it("deletes the stored copy when its certification is unselected during the upload, keeping earlier copies", async () => {

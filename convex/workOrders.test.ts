@@ -233,6 +233,34 @@ it("uploads authorized maintenance attachments and prevents uploads after closin
   );
 });
 
+it("refuses an attachment whose first bytes are not its declared type, storing nothing", async () => {
+  const { t, tech, reader } = await fixture();
+  const command = workOrderCommand();
+  await tech.mutation(api.workOrders.save, {
+    programUuid: PROGRAM,
+    payload: JSON.stringify(command),
+  });
+  const renamed = {
+    programUuid: PROGRAM,
+    workOrderUuid: command.uuid,
+    name: "invoice.pdf",
+    type: "application/pdf",
+    bytes: new TextEncoder().encode("<html><body>invoice</body></html>").buffer,
+  };
+  // Like the type check, it runs before any permission check.
+  for (const client of [tech, reader])
+    await expect(
+      client.action(api.workOrders.upload, renamed),
+    ).rejects.toMatchObject({
+      name: "ConvexError",
+      data: "This file's contents do not match its type. Choose a PDF, JPEG or PNG file.",
+    });
+  await t.run(async (ctx) => {
+    expect(await ctx.db.query("workOrderFiles").collect()).toEqual([]);
+    expect(await ctx.db.system.query("_storage").collect()).toEqual([]);
+  });
+});
+
 it("prepares independent source template copies for each work order and prevents premature item completion", async () => {
   vi.useFakeTimers();
   const { t, tech } = await fixture();

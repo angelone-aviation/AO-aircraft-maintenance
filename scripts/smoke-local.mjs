@@ -229,6 +229,7 @@ async function checkConflictReview(operation) {
   );
   await client.mutation(api.operations.reviewFlight, {
     programUuid: operation.programUuid,
+    requestUuid: randomUUID(),
     uuid: second.uuid,
     decision: "accept",
     reason: "Local test chronology verified",

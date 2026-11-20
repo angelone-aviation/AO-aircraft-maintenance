@@ -6,7 +6,7 @@
  *   every change is audited against the member.
  * Dependencies: convex/access, convex/attachments, convex/memberships,
  *   convex/programContext, convex/userErrors, src/domain (certifications,
- *   certificateApproval).
+ *   certificateApproval, inventoryAttachments).
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -31,6 +31,7 @@ import {
   certificationKindSchema,
   memberLicense,
   validateCertificationFile,
+  LICENSE_COPY_TYPES,
   type Certification,
 } from "../src/domain/certifications";
 import {
@@ -41,6 +42,7 @@ import {
   fileCertifications,
   mayApproveCertificates,
 } from "../src/domain/certificateApproval";
+import { assertFileContents } from "../src/domain/inventoryAttachments";
 
 const target = { userId: v.id("users"), kind: v.string() };
 
@@ -250,15 +252,19 @@ export const finishUpload = internalMutation({
  * @param type - The file's MIME type.
  * @param bytes - The file.
  * @returns The new copy's id.
- * @throws {ConvexError} The refusals of `validateCertificationFile`, before
- *   any access check; as {@link checkUpload} and {@link finishUpload}.
+ * @throws {ConvexError} The refusals of `validateCertificationFile`, then
+ *   "This file's contents do not match its type. Choose a PDF, JPEG, PNG,
+ *   WebP, HEIC or HEIF file." when the first bytes are not the declared
+ *   type's, both before any access check and storing nothing; as
+ *   {@link checkUpload} and {@link finishUpload}.
  */
 export const upload = action({
   args: { ...target, name: v.string(), type: v.string(), bytes: v.bytes() },
   handler: async (ctx, args): Promise<string> => {
-    exposeRejections(() =>
-      validateCertificationFile(args.name, args.type, args.bytes.byteLength),
-    );
+    exposeRejections(() => {
+      validateCertificationFile(args.name, args.type, args.bytes.byteLength);
+      assertFileContents(args.type, args.bytes, LICENSE_COPY_TYPES);
+    });
     await ctx.runQuery(internal.certifications.checkUpload, {
       userId: args.userId,
       kind: args.kind,

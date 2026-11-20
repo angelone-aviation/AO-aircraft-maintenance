@@ -350,6 +350,7 @@ describe("flight submissions and reviews", () => {
     );
     // Nothing is lost: the administrator can still accept it as logged.
     await admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid: slip.uuid,
       decision: "accept",
@@ -374,6 +375,7 @@ describe("flight submissions and reviews", () => {
     await pilot.mutation(api.operations.submit, { operation: earlier });
     await expect(
       pilot.mutation(api.operations.reviewFlight, {
+        requestUuid: crypto.randomUUID(),
         programUuid: "demo-program",
         uuid: earlier.uuid,
         decision: "accept",
@@ -382,6 +384,7 @@ describe("flight submissions and reviews", () => {
       }),
     ).rejects.toThrow(/[Aa]dministrator/);
     await admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid: earlier.uuid,
       decision: "accept",
@@ -424,6 +427,7 @@ describe("flight submissions and reviews", () => {
       },
     });
     await admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid: earlier.uuid,
       decision: "accept",
@@ -456,6 +460,7 @@ describe("flight submissions and reviews", () => {
     await pilot.mutation(api.operations.submit, { operation: second });
     await expect(
       admin.mutation(api.operations.reviewFlight, {
+        requestUuid: crypto.randomUUID(),
         programUuid: "demo-program",
         uuid: first.uuid,
         decision: "accept",
@@ -501,6 +506,7 @@ describe("flight review on runCommand", () => {
       uuid: string = held.uuid,
     ) => ({
       programUuid: "demo-program",
+      requestUuid: crypto.randomUUID(),
       uuid,
       decision: "accept" as const,
       reason,
@@ -583,6 +589,7 @@ describe("flight review on runCommand", () => {
     for (const changes of [{}, { flightPlanUuid: crypto.randomUUID() }])
       await expect(
         manager.mutation(api.operations.reviewFlight, {
+          requestUuid: crypto.randomUUID(),
           programUuid: "other-program",
           uuid: held.uuid,
           decision: "reject",
@@ -603,6 +610,7 @@ describe("flight review on runCommand", () => {
     await pilot.mutation(api.operations.submit, { operation: held });
     const error = await admin
       .mutation(api.operations.reviewFlight, {
+        requestUuid: crypto.randomUUID(),
         programUuid: "demo-program",
         uuid: held.uuid,
         decision: "accept",
@@ -629,6 +637,7 @@ describe("flight review on runCommand", () => {
     const original = (await row())!;
     const input = { ...held.input, remarks: "Paper log" };
     await admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid: held.uuid,
       decision: "accept",
@@ -699,6 +708,34 @@ describe("flight review on runCommand", () => {
     expect(await stored()).toEqual(saved);
   });
 
+  it("refuses a review without a request id, so no review can be applied twice", async () => {
+    const { t, pilot, admin, op } = await fixture();
+    const held = op();
+    held.baseVersion = 1;
+    await pilot.mutation(api.operations.submit, { operation: held });
+    const stored = () =>
+      t.run(async (ctx) => ({
+        flights: await ctx.db.query("flights").collect(),
+        aircraft: await ctx.db.query("aircraft").collect(),
+        audit: await ctx.db.query("audit").collect(),
+      }));
+    const before = await stored();
+    const review = {
+      programUuid: "demo-program",
+      uuid: held.uuid,
+      decision: "accept" as const,
+      reason: "Checked",
+      input: held.input,
+    };
+    await expect(
+      admin.mutation(
+        api.operations.reviewFlight,
+        review as typeof review & { requestUuid: string },
+      ),
+    ).rejects.toThrow(/requestUuid/);
+    expect(await stored()).toEqual(before);
+  });
+
   it("clears the copilot and a reading the review leaves blank, as the demo does", async () => {
     const { t, pilot, admin, op, ids, a } = await fixture();
     const held = op();
@@ -711,6 +748,7 @@ describe("flight review on runCommand", () => {
     await pilot.mutation(api.operations.submit, { operation: held });
     // FlightForm sends a cleared field as undefined, which Convex drops.
     await admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid: held.uuid,
       decision: "accept",
@@ -1135,6 +1173,7 @@ it("persists turbine start readings and amphibious landing surfaces through subm
   expect(saved.engineStarts).toEqual(operation.input.engineStarts);
   expect(saved.landingSurface).toBe("sea");
   await admin.mutation(api.operations.reviewFlight, {
+    requestUuid: crypto.randomUUID(),
     uuid: operation.uuid,
     programUuid: "demo-program",
     decision: "accept",
@@ -1157,6 +1196,7 @@ it("persists turbine start readings and amphibious landing surfaces through subm
   ]);
   expect(saved.landingSurface).toBe("land");
   await admin.mutation(api.operations.reviewFlight, {
+    requestUuid: crypto.randomUUID(),
     uuid: operation.uuid,
     programUuid: "demo-program",
     decision: "accept",
@@ -1217,6 +1257,7 @@ it("saves helicopter profiles and cyclic readings through live flight submission
     status: "accepted",
   });
   await admin.mutation(api.operations.reviewFlight, {
+    requestUuid: crypto.randomUUID(),
     uuid: request.uuid,
     programUuid: "demo-program",
     decision: "accept",
@@ -1281,6 +1322,7 @@ it("stores guided checklist and fluid readings, deduplicates and preserves prove
   });
   await expect(
     admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid: operation.uuid,
       decision: "accept",
@@ -1289,6 +1331,7 @@ it("stores guided checklist and fluid readings, deduplicates and preserves prove
     }),
   ).rejects.toThrow("cannot change");
   await admin.mutation(api.operations.reviewFlight, {
+    requestUuid: crypto.randomUUID(),
     programUuid: "demo-program",
     uuid: operation.uuid,
     decision: "accept",
@@ -1329,6 +1372,7 @@ it("persists range oil levels and their separate added quantity through submissi
     oil: [{ ...operation.input.oil[0], end: 75 }],
   };
   await admin.mutation(api.operations.reviewFlight, {
+    requestUuid: crypto.randomUUID(),
     programUuid: "demo-program",
     uuid: operation.uuid,
     decision: "accept",
@@ -1446,6 +1490,7 @@ it("issues oil once for a held flight, aggregates engines, and keeps physical us
   expect(await stock()).toMatchObject({ quantity: 1, version: 1 });
   await expect(
     admin.mutation(api.operations.reviewFlight, {
+      requestUuid: crypto.randomUUID(),
       programUuid: "demo-program",
       uuid: operation.uuid,
       decision: "reject",
@@ -1454,6 +1499,7 @@ it("issues oil once for a held flight, aggregates engines, and keeps physical us
     }),
   ).rejects.toThrow("posted oil inventory");
   await admin.mutation(api.operations.reviewFlight, {
+    requestUuid: crypto.randomUUID(),
     programUuid: "demo-program",
     uuid: operation.uuid,
     decision: "reject",

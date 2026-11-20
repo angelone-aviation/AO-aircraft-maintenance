@@ -1,14 +1,15 @@
 /**
  * Responsibility: Schedules the deployment's recurring jobs: the FAA AD check,
- *   expired manual-upload cleanup, the maintenance alert email digest, the
- *   urgent alert check that follows it, and the weekly sign-in records
- *   cleanup.
+ *   expired manual-upload cleanup, the sweep of stored files nothing refers
+ *   to, the maintenance alert email digest, the urgent alert check that
+ *   follows it, and the weekly sign-in records cleanup.
  * Layer: Server. Schedules only; each job is an internal function elsewhere.
  * Dependencies: convex/server (cronJobs), convex/_generated/api,
- *   src/domain (alerts, faa: the hours screens also quote).
+ *   convex/fileSweep, src/domain (alerts, faa: the hours screens also quote).
  */
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
+import { SWEEP_FILES } from "./fileSweep";
 import { ALERT_DIGEST_HOUR_UTC } from "../src/domain/alerts";
 import { FAA_CHECK_HOUR_UTC } from "../src/domain/faa";
 
@@ -27,6 +28,9 @@ crons.hourly(
   internal.manuals.cleanupUploads,
   {},
 );
+// Its own job, so a run that fails (a read limit, say) never holds back the
+// ticket clean-up, nor the other way round.
+crons.hourly("Unreferenced file sweep", { minuteUTC: 45 }, SWEEP_FILES, {});
 crons.daily(
   "Maintenance alert email digest",
   { hourUTC: ALERT_DIGEST_HOUR_UTC, minuteUTC: 0 },

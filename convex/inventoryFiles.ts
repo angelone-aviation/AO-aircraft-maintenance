@@ -30,6 +30,7 @@ import {
   inventoryAttachmentAccess,
   validateInventoryFile,
   assertFileContents,
+  ATTACHMENT_FILE_TYPES,
 } from "../src/domain/inventoryAttachments";
 import { activeProgram, recordProgram } from "../src/domain/programs";
 import { Rejection } from "../src/domain/rejection";
@@ -114,7 +115,7 @@ export const upload = action({
   handler: async (ctx, args): Promise<void> => {
     exposeRejections(() => {
       validateInventoryFile(args.name, args.type, args.bytes.byteLength);
-      assertFileContents(args.type, args.bytes);
+      assertFileContents(args.type, args.bytes, ATTACHMENT_FILE_TYPES);
     });
     const target = { stockUuid: args.stockUuid, programUuid: args.programUuid };
     await ctx.runQuery(internal.inventoryFiles.checkUpload, target);
