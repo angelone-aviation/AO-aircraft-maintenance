@@ -22,28 +22,33 @@ sidebar (or under **All sections** on a phone).
 
 ### Add a user
 
-System administrators: **Add user**. Flight Program administrators: **Add
-user** creates an account in the active program only; **Add existing user**
-adds an active account by email without changing its password.
+| Who                           | Button                | Does                                                           |
+| ----------------------------- | --------------------- | -------------------------------------------------------------- |
+| System administrators         | **Add user**          | Creates an account with groups in any program                  |
+| Flight Program administrators | **Add user**          | Creates an account in the active program only                  |
+| Flight Program administrators | **Add existing user** | Adds an active account by email, without changing its password |
 
 1. Enter **Full name**, **Email** and **Initial password** (at least 15
    characters; common passwords are refused). Share it privately.
-2. Under **Flight Program access**, tick the permission groups for each program.
-   **Observers** is read-only.
-3. Tick certifications if known.
-4. Choose **Create account**.
+2. Tick the permission groups. **Observers** is read-only. A system
+   administrator ticks them under **Flight Program access**, program by
+   program, and can also tick certifications if known.
+3. Choose **Create account**.
 
 There is no public sign-up and no self-service password reset.
 
 ### Change a user
 
-| Task                        | How                                                                                                                                             | Who                           |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Change groups               | **Edit access**, tick or untick groups. Unticking every group in a program removes them from it.                                                | Administrators                |
-| Remove from your program    | **Remove access to this Flight Program**. The account stays.                                                                                    | Flight Program administrators |
-| Reset a password            | **Reset password**, enter a **New password**. "Existing sessions will be revoked when the device reconnects." It also clears a sign-in lockout. | System administrators         |
-| Disable an account          | **Edit access**, untick **Account active**. Every session ends.                                                                                 | System administrators         |
-| Make a global administrator | **Global administrator (all aircraft and settings)**                                                                                            | System administrators         |
+| Task                        | How                                                                                                                                                         | Who                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Change groups               | **Edit access** (a Flight Program administrator sees **Edit program access**), tick or untick groups                                                        | Administrators        |
+| Remove from a program       | System administrators: untick every group in that program. Flight Program administrators: tick **Remove access to this Flight Program**. The account stays. | Administrators        |
+| Reset a password            | **Reset password**, enter a **New password**. "Existing sessions will be revoked when the device reconnects." It also clears a sign-in lockout.             | System administrators |
+| Disable an account          | **Edit access**, untick **Account active**. Every session ends.                                                                                             | System administrators |
+| Make a global administrator | **Global administrator (all aircraft and settings)**                                                                                                        | System administrators |
+
+The last active system administrator cannot be disabled or lose the global
+administrator tick: "Keep at least one active administrator."
 
 ### Approve a certificate
 
@@ -66,13 +71,14 @@ one program.
 
 Each new program gets:
 
-| Group                   | Permissions                                                |
-| ----------------------- | ---------------------------------------------------------- |
-| Observers               | Read                                                       |
-| Pilots                  | Read, add flights, report discrepancies                    |
-| Maintenance technicians | Read, report and resolve discrepancies, manage maintenance |
-| Program managers        | Flight Program administrator                               |
-| Board (read-only)       | Board view                                                 |
+| Group                   | Permissions                                                 |
+| ----------------------- | ----------------------------------------------------------- |
+| Observers               | Read                                                        |
+| Pilots                  | Read, add flights, report discrepancies                     |
+| Maintenance technicians | Read, report and resolve discrepancies, manage maintenance  |
+| Program managers        | Flight Program administrator                                |
+| Aircraft owners         | Owner portal (read-only); no aircraft until you assign them |
+| Board (read-only)       | Board view                                                  |
 
 ### Create or edit a group
 
