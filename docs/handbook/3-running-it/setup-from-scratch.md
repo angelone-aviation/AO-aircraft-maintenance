@@ -75,13 +75,13 @@ All of this section was run on a fresh copy of `main` on 2026-11-20 and passed.
 6. Run the app with `npm run dev` and sign in.
 7. Run the checks:
 
-   | Command                                                    | Checks                                                                                          |
-   | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-   | `npm run check`                                            | Typecheck, lint, unit and server tests, production build                                        |
-   | `npx playwright install chromium`, then `npm run test:e2e` | Browser tests against the production build with the production headers; any CSP violation fails |
-   | `npm run test:local`                                       | Real sign-in and database calls against the local backend (refuses any non-local URL)           |
-   | `npm run test:backup`                                      | The nightly backup job against a fake Convex and R2                                             |
-   | `npm run check:standards`                                  | File headers and the no-suppression rule on files changed since `origin/main`                   |
+   | Command                                                    | Checks                                                                                                                                                                                                                        |
+   | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `npm run check`                                            | Typecheck, lint, unit and server tests, production build                                                                                                                                                                      |
+   | `npx playwright install chromium`, then `npm run test:e2e` | Browser tests against the production build with the production headers; any CSP violation fails. Run it with no `.env.local`, as CI does: with one, the build talks to your local backend and `sign-in-methods.spec.ts` fails |
+   | `npm run test:local`                                       | Real sign-in and database calls against the local backend (refuses any non-local URL)                                                                                                                                         |
+   | `npm run test:backup`                                      | The nightly backup job against a fake Convex and R2                                                                                                                                                                           |
+   | `npm run check:standards`                                  | File headers and the no-suppression rule on files changed since `origin/main`                                                                                                                                                 |
 
 To start over locally, stop the backend and delete `.env.local`, `.env.local-admin.json` and `.convex/`. The [README](../../../README.md#dev-container-and-docker) covers the dev container.
 
