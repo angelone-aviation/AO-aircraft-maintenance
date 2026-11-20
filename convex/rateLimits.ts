@@ -1,8 +1,7 @@
 /**
  * Responsibility: Counts uses of a limited action per key in fixed time
  *   windows, refuses a use once a window's allowance is spent (one key, or
- *   several together), gives back a use that did not happen, and splits a
- *   shared allowance between Flight Programs.
+ *   several together), and gives back a use that did not happen.
  * Layer: Server. Mutation helper over the rateLimits table.
  * Dependencies: convex/values (ConvexError), convex/_generated/server.
  */
@@ -15,21 +14,6 @@ export const MINUTE = 60000;
 export const HOUR = 3600000;
 /** One day in milliseconds, for rate-limit windows. */
 export const DAY = 86400000;
-
-/**
- * A Flight Program's share of an allowance every program draws on: an equal
- * split between the deployment's programs, never below `floor`. The total
- * stays its own allowance, so shares the floor lifts cannot together spend
- * more than it.
- *
- * @param total - The deployment-wide allowance per window.
- * @param programs - How many Flight Programs the deployment holds.
- * @param floor - The least share any program gets.
- * @returns Uses allowed to one program per window.
- */
-export function programShare(total: number, programs: number, floor: number) {
-  return Math.max(floor, Math.floor(total / Math.max(1, programs)));
-}
 
 /** One allowance of a limited action: uses allowed per fixed window. */
 export interface Allowance {

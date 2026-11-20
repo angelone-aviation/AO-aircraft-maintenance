@@ -5,7 +5,7 @@
  *   on the aircraft searches.
  * Dependencies: convex/rateLimits, convex/faaCredentials, convex/faaDrs,
  *   convex/programContext, convex/recordsDate, convex/userErrors, src/domain
- *   (model, management, faaSearch).
+ *   (model, management, programShare, faaSearch).
  */
 import {
   action,
@@ -13,7 +13,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
-import { consume, DAY, MINUTE, programShare } from "./rateLimits";
+import { consume, DAY, MINUTE } from "./rateLimits";
 import { faaSecret } from "./faaCredentials";
 import { searchFAA } from "./faaDrs";
 import { internal } from "./_generated/api";
@@ -23,6 +23,7 @@ import { recordsDate } from "./recordsDate";
 import { exposeRejections } from "./userErrors";
 import { can } from "../src/domain/model";
 import { recordSchema } from "../src/domain/management";
+import { programShare } from "../src/domain/programShare";
 import {
   faaSearchSchema,
   searchAssets,
