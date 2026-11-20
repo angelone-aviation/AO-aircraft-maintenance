@@ -2,8 +2,9 @@
  * Responsibility: The Discrepancies screen: problem reports, their summary,
  *   search and filter, and the report, defer and resolve dialogs.
  * Layer: UI. A screen over the workspace snapshot; holds no business rules.
- * Dependencies: src/data (store, historyPages), src/domain (model,
- *   deferrals, discrepancyList, pilotView, retention), ./design, ./ui,
+ * Dependencies: src/data (store, historyPages, historyLoads), src/domain
+ *   (model, deferrals, discrepancyList, pilotView, retention, workOrders),
+ *   ./design, ./ui,
  *   ./TermTip, ./recordDates, ./HistoryPager, and the deferral, parts, job
  *   card and work order components.
  */
@@ -26,11 +27,14 @@ import {
   useHistoryPages,
   withHistory,
 } from "../data/historyPages";
+import { loadWorkOrdersSince } from "../data/historyLoads";
 import { historyWindowMonths } from "../domain/retention";
+import type { WorkOrder } from "../domain/workOrders";
 import { MAX_RESOLUTION_LENGTH } from "../domain/deferrals";
 import {
   discrepancyCounts,
   listedReports,
+  mayHaveOlderWorkOrders,
   reportStanding,
   reportWorkOrders,
   type DiscrepancyCounts,
@@ -67,7 +71,7 @@ import { DiscrepancyParts } from "./RequiredParts";
 import { HistoryPager } from "./HistoryPager";
 import { LinkedTaskCards } from "./TaskCards";
 import { TermTip } from "./TermTip";
-import { AsyncForm, Field, value } from "./ui";
+import { AsyncForm, Field, errorText, value } from "./ui";
 import { AddToWorkOrder } from "./WorkOrders";
 
 type ReportProps = { s: Snapshot; report: Discrepancy };
@@ -496,17 +500,65 @@ function ReportDetails({
       )}
       {d.resolution && <ResolutionNote s={s} report={d} />}
       {!pilotView && <DiscrepancyParts report={d} />}
-      {orders.length > 0 && (
-        <p className="disc-links">
-          <Wrench size={16} aria-hidden="true" />
-          {orders.map((w) => (
-            <Link key={w.uuid} to="/work-orders" className="ds-link">
-              Work order {w.number || w.dateOpened}
-            </Link>
-          ))}
-        </p>
-      )}
+      {orders.length > 0 && <OrderLinks orders={orders} />}
+      {!pilotView && <OlderReportOrders s={s} report={d} shown={orders} />}
     </div>
+  );
+}
+
+function OrderLinks({ orders }: { orders: WorkOrder[] }) {
+  return (
+    <p className="disc-links">
+      <Wrench size={16} aria-hidden="true" />
+      {orders.map((w) => (
+        <Link key={w.uuid} to="/work-orders" className="ds-link">
+          Work order {w.number || w.dateOpened}
+        </Link>
+      ))}
+    </p>
+  );
+}
+
+// A report older than the window can be covered by a work order closed
+// before it, which the workspace leaves out: those load on request.
+function OlderReportOrders({
+  s,
+  report: d,
+  shown,
+}: ReportProps & { shown: WorkOrder[] }) {
+  const { backend, online, connected } = useWorkspace();
+  const [found, setFound] = useState<WorkOrder[]>();
+  const [error, setError] = useState("");
+  if (!mayHaveOlderWorkOrders(d)) return null;
+  if (found) {
+    const older = found.filter((w) => !shown.some((o) => o.uuid === w.uuid));
+    if (older.length) return <OrderLinks orders={older} />;
+    return <p className="muted">No older work order covers this report.</p>;
+  }
+  const live = !!backend && online && connected;
+  const find = () =>
+    loadWorkOrdersSince(backend!, s, d.aircraftUuid, localDate(d.createdAt))
+      .then((joined) => setFound(reportWorkOrders(joined, d.uuid)))
+      .catch((e: unknown) => setError(errorText(e)));
+  return (
+    <p className="disc-links">
+      <button
+        type="button"
+        className="button small soft"
+        disabled={!live}
+        onClick={find}
+      >
+        Find older work orders
+      </button>
+      {!live && (
+        <small className="muted">Older work orders need a connection</small>
+      )}
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
+    </p>
   );
 }
 

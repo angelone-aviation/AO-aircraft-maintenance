@@ -3,7 +3,8 @@
  *   detail with its documents and files, and the inspection PO button.
  * Layer: UI. React components; order rules live in src/domain.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
- *   src/data (store, backend type; poPdf and partsRequestPdf on demand),
+ *   src/data (store, historyPages, backend type; poPdf and partsRequestPdf
+ *   on demand),
  *   src/domain (model, vendors, management, addresses, programs,
  *   purchaseOrders, purchaseOrderRules, shelfLife, aircraftSpruce,
  *   costs/units),
@@ -25,6 +26,7 @@ import { CENTS_PER_DOLLAR } from "../domain/costs/units";
 import { useState, useEffect, type CSSProperties } from "react";
 import { Link } from "@tanstack/react-router";
 import { useWorkspace } from "../data/store";
+import { useWorkOrderHistory } from "../data/historyPages";
 import type { Backend } from "../data/backend";
 import { programPermission } from "../domain/programs";
 import {
@@ -88,6 +90,9 @@ import { CoreReturns } from "./CoreReturns";
 import { WorkOrderNumber } from "./WorkOrderNumber";
 
 const ORDER_TABLE_STYLE = { "--shop-table-min": "860px" } as CSSProperties;
+const OLDER_ORDER_OFFLINE = "Older work order: reconnect to see its number";
+const OLDER_ORDER_LOADING = "Loading the work order…";
+const OLDER_ORDER_UNAVAILABLE = "Work order not available";
 // The preview tab reads the PDF through this URL, so it must outlive the load.
 const PREVIEW_URL_LIFETIME_MS = 60_000;
 // A component receipt takes one serial row per unit; this caps the rows.
@@ -1027,6 +1032,7 @@ function LineWorkFields({ editor, line: l, index }: LineProps) {
   const workOrders = (editor.s.workOrders ?? []).filter(
     (w) => w.aircraftUuid === l.aircraftUuid,
   );
+  const older = useOlderOrderChoice(l.workOrderUuid, workOrders);
   return (
     <>
       <Field label={`Part ${index + 1} aircraft`}>
@@ -1051,6 +1057,7 @@ function LineWorkFields({ editor, line: l, index }: LineProps) {
           onChange={(e) => set({ workOrderUuid: e.target.value })}
         >
           <option value="">No work order</option>
+          {older && <option value={l.workOrderUuid}>{older}</option>}
           {workOrders.map((w) => (
             <option key={w.uuid} value={w.uuid}>
               {w.number}
@@ -1060,6 +1067,21 @@ function LineWorkFields({ editor, line: l, index }: LineProps) {
       </Field>
     </>
   );
+}
+
+// A line can name a work order the workspace's window has left out; it stays
+// a choice, named once loaded, so the select never shows "No work order" for
+// a line that has one.
+function useOlderOrderChoice(
+  uuid: string,
+  held: { uuid: string }[],
+): string | undefined {
+  const missing = !!uuid && !held.some((w) => w.uuid === uuid);
+  const loaded = useWorkOrderHistory(missing ? uuid : undefined);
+  if (!missing) return undefined;
+  if (loaded.history) return loaded.history.workOrder.number;
+  if (loaded.offline) return OLDER_ORDER_OFFLINE;
+  return loaded.loading ? OLDER_ORDER_LOADING : OLDER_ORDER_UNAVAILABLE;
 }
 
 function LineComponentFields({ editor, line: l, index }: LineProps) {

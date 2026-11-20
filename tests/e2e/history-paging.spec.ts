@@ -2,11 +2,13 @@
  * Responsibility: Pins Load older on the Flight log, Discrepancies and Work
  *   orders with aged demo records: older rows load only through it, filters
  *   reach the server, a write of the kind reloads the pages, offline it
- *   needs a connection, an older record's job card and photo work, and the
- *   records package pages full history in.
+ *   needs a connection, an older record's job card and photo work, the
+ *   records package pages full history in, a plan flown long ago and a job
+ *   card's older report load on demand, and the windowed copy on the device
+ *   is enough to log a flight offline.
  * Layer: Test. Playwright spec against the demo in a production build.
  * Dependencies: @playwright/test, fflate, node:fs, node:path, src/domain
- *   (workOrders, taskCards).
+ *   (workOrders, taskCards, flightPlans).
  *
  * The demo's records are dated now, so each test stores records older than
  * the retention window, which the demo's workspace then leaves to Load
@@ -18,6 +20,7 @@ import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { newWorkTask, workOrderSchema } from "../../src/domain/workOrders";
 import { taskCardDefaults, taskCardSchema } from "../../src/domain/taskCards";
+import { flightPlanSchema } from "../../src/domain/flightPlans";
 
 const DAY_MS = 86_400_000;
 const HOUR_SECONDS = 3600;
@@ -140,6 +143,122 @@ test("the records package pages older flights in, and says it is partial offline
   const offline = await exportPackage(page);
   expect(offline).not.toContain("KOLA");
   expect(offline).toMatch(/^"Partial flights: only the last 6 months/m);
+});
+
+test("a pilot logs a flight offline from the windowed copy, with plans, crew and open reports", async ({
+  page,
+  context,
+}) => {
+  await openDemo(page, "/flight-plans");
+  await page
+    .getByLabel("Upload Flight Plan PDF")
+    .setInputFiles(path.resolve("tests/fixtures/icao-flight-plan.pdf"));
+  const upload = page.getByRole("dialog");
+  await upload.getByLabel("Aircraft", { exact: true }).selectOption(N206);
+  await upload
+    .getByLabel("Aircraft differs from the PDF: confirm reassignment")
+    .check();
+  await upload.getByRole("button", { name: "Save flight plan" }).click();
+  await expect(upload).not.toBeVisible();
+  await storeOlderRecords(page, {
+    flights: olderFlights(),
+    discrepancies: [olderReport()],
+  });
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Start / resume flight" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Discrepancies", exact: true }).click();
+  await expect(page.getByRole("article").first()).toBeVisible();
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(page.getByText("OLD-REPORT")).toHaveCount(0);
+  await page.getByRole("link", { name: "Flight log", exact: true }).click();
+  await expect(flightRow(page, "KOLA")).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page.getByRole("button", { name: "Log a flight", exact: true }).click();
+  const form = page.getByRole("dialog");
+  await expect(form.getByLabel("Pilot", { exact: true })).toContainText(
+    "Jordan Lee",
+  );
+  await form.getByLabel("Ending Hobbs *", { exact: true }).fill("2342.2");
+  await form.getByRole("button", { name: "Save flight", exact: true }).click();
+  await expect(form).not.toBeVisible();
+  await expect(
+    page.getByText("1 entry waiting to send · Offline"),
+  ).toBeVisible();
+
+  await context.setOffline(false);
+  await page.getByRole("link", { name: /Sync center/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "0 pending entries" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Flight log", exact: true }).click();
+  await historyPager(page).getByRole("button", { name: "Load older" }).click();
+  await expect(flightRow(page, "KOLA")).toBeVisible();
+});
+
+test("a plan flown long ago leaves the queue and says Logged once its flight loads", async ({
+  page,
+  context,
+}) => {
+  await openDemo(page, "/flight-plans");
+  const plan = olderPlan();
+  const [flight] = olderFlights();
+  await storeOlderRecords(page, {
+    flightPlans: [plan],
+    flights: [{ ...flight, flightPlanUuid: plan.uuid }],
+  });
+  const history = page.locator(".ops-plan-history");
+  await history.getByText(/Logged and removed plans/).click();
+  await expect(history).toContainText("KOLD → KBFI · Logged");
+  await expect(
+    page.getByRole("button", { name: "Start / resume flight" }),
+  ).toHaveCount(0);
+
+  await context.setOffline(true);
+  await page.reload();
+  await page
+    .locator(".ops-plan-history")
+    .getByText(/Logged and removed/)
+    .click();
+  await expect(page.locator(".ops-plan-history")).toContainText(
+    "whether it flew needs a connection",
+  );
+});
+
+test("a job card names the older problem report it links to", async ({
+  page,
+}) => {
+  await openDemo(page, "/task-cards");
+  const report = olderReport();
+  const card = taskCardSchema.parse({
+    ...taskCardDefaults(N206),
+    uuid: crypto.randomUUID(),
+    version: 1,
+    cardNumber: "TC-LINKED",
+    title: "Landing light follow-up",
+    discrepancyUuid: report.uuid,
+    status: "ready",
+    createdAt: daysAgo(1),
+    createdBy: "demo-admin",
+    updatedAt: daysAgo(1),
+    stepSignoffs: {},
+    technicianSignoff: null,
+    inspectionSignoff: null,
+  });
+  await storeOlderRecords(page, { discrepancies: [report], taskCards: [card] });
+  await page
+    .getByRole("row")
+    .filter({ hasText: "TC-LINKED" })
+    .getByRole("button", { name: "Details for TC-LINKED", exact: true })
+    .click();
+  const editor = page.getByRole("dialog", { name: "Job card TC-LINKED" });
+  await expect(
+    editor.getByLabel("Originating discrepancy", { exact: true }),
+  ).toContainText("OLD-REPORT");
 });
 
 /** Opens the demo. */
@@ -352,5 +471,35 @@ function completedOrder(number: string, completedAt: number) {
     },
     componentReadings: [],
     tasks: [],
+  });
+}
+
+// A plan that departed with the older flights, as the PDF import stores one.
+function olderPlan() {
+  return flightPlanSchema.parse({
+    uuid: crypto.randomUUID(),
+    version: 1,
+    aircraftUuid: N206,
+    registration: "N206MA",
+    departureAt: new Date(daysAgo(AGE_DAYS)).toISOString(),
+    origin: "KOLD",
+    destination: "KBFI",
+    alternate: "",
+    durationMinutes: 60,
+    cycles: 0,
+    landings: 1,
+    flightRules: "V",
+    aircraftType: "C206",
+    flightType: "G",
+    speed: "",
+    level: "",
+    route: "DCT",
+    pilotText: "",
+    equipment: "",
+    otherInformation: "",
+    sourceName: "older-plan.pdf",
+    sourceHash: "0".repeat(64),
+    status: "proposed",
+    createdAt: daysAgo(AGE_DAYS + 1),
   });
 }

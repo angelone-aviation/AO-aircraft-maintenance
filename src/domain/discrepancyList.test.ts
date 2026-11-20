@@ -11,6 +11,7 @@ import type { Deferral } from "./deferrals";
 import {
   discrepancyCounts,
   listedReports,
+  mayHaveOlderWorkOrders,
   reportStanding,
   reportWorkOrders,
 } from "./discrepancyList";
@@ -157,3 +158,12 @@ function order(uuid: string, discrepancyUuid: string): WorkOrder {
     tasks: [{ source: { kind: "discrepancy", uuid: discrepancyUuid } }],
   } as WorkOrder;
 }
+
+describe("mayHaveOlderWorkOrders", () => {
+  it("is true for a report created before the window's cutoff day", () => {
+    const now = Date.UTC(2026, 10, 19, 15);
+    const cutoff = Date.UTC(2026, 7, 21);
+    expect(mayHaveOlderWorkOrders({ createdAt: cutoff - 1 }, now)).toBe(true);
+    expect(mayHaveOlderWorkOrders({ createdAt: cutoff }, now)).toBe(false);
+  });
+});

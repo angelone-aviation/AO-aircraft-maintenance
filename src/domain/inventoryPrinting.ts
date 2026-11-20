@@ -160,7 +160,22 @@ function isLoopbackHost(host: string) {
   );
 }
 
-function findLatestRemoval(s: Snapshot, c: Component) {
+/**
+ * The work order a component's removal tag names: the one its latest
+ * removal that no correction superseded was recorded under.
+ *
+ * @param s - The program's movements.
+ * @param c - The component.
+ * @returns Its uuid; undefined for no removal, or one under no work order.
+ */
+export function tagWorkOrderUuid(
+  s: Pick<Snapshot, "management">,
+  c: Component,
+): string | undefined {
+  return findLatestRemoval(s, c)?.workOrderUuid || undefined;
+}
+
+function findLatestRemoval(s: Pick<Snapshot, "management">, c: Component) {
   return (s.management ?? [])
     .filter((r) => r.kind === "componentMovement")
     .filter(

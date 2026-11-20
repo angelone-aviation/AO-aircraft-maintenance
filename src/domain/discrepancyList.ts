@@ -3,12 +3,13 @@
  *   which reports a view lists, how each one stands and the summary counts.
  * Layer: Domain. Pure functions over the snapshot; no I/O, no React.
  * Dependencies: src/domain/model.ts, deferrals.ts, listSearch.ts,
- *   workOrders.ts (type).
+ *   retention.ts, workOrders.ts (type).
  */
 import { deferralExpired, isGroundingReport } from "./deferrals";
 import { discrepancyMatches } from "./listSearch";
 import { localDate, type Discrepancy, type Snapshot } from "./model";
 import type { WorkOrder } from "./workOrders";
+import { RETENTION_DAYS, retentionCutoff } from "./retention";
 
 /**
  * Where a report stands: open, grounding its aircraft, deferred, deferred
@@ -123,4 +124,20 @@ export function reportWorkOrders(s: Snapshot, uuid: string): WorkOrder[] {
         (t) => t.source.kind === "discrepancy" && t.source.uuid === uuid,
       ),
   );
+}
+
+/**
+ * Whether a work order covering a report can be older than the workspace
+ * keeps: one opened after a report created before the window's cutoff can
+ * have closed before it, and the window leaves such an order out
+ * (ADR-0013), so {@link reportWorkOrders} on the workspace can miss it.
+ *
+ * @param d - The report.
+ * @param now - The current time, in milliseconds.
+ */
+export function mayHaveOlderWorkOrders(
+  d: Pick<Discrepancy, "createdAt">,
+  now = Date.now(),
+): boolean {
+  return d.createdAt < retentionCutoff(now, RETENTION_DAYS);
 }

@@ -2,19 +2,21 @@
  * Responsibility: The print buttons for an inventory item's tag and label,
  *   with the print preview and this browser's print settings.
  * Layer: UI. React components; the print document is built in src/data.
- * Dependencies: react-dom, src/data/store.ts,
+ * Dependencies: react-dom, src/data/store.ts, src/data/historyPages.ts,
  *   src/data/inventoryPrintDocument.ts, src/domain/programs.ts,
  *   src/domain/inventoryPrinting.ts, ./ui.tsx.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useWorkspace } from "../data/store";
+import { useWorkOrderHistory } from "../data/historyPages";
 import { recordProgram } from "../domain/programs";
 import {
   inventoryItemUrl,
   inventoryPrintBase,
   inventoryTagFields,
   tagFieldLabels,
+  tagWorkOrderUuid,
   type PrintableItem,
   type InventoryPrintKind,
   type TagFields,
@@ -34,6 +36,8 @@ const TAG_REASON_MAX_LENGTH = 500;
 const TAG_FIELD_MAX_LENGTH = 150;
 // Layout rounding can put an edge a pixel past the sheet; that still fits.
 const FIT_TOLERANCE_PX = 1;
+const OLDER_ORDER_OFFLINE =
+  "It was removed under a work order older than this device keeps. Reconnect to fill in its number, or enter it.";
 
 interface Settings {
   base: string;
@@ -102,7 +106,10 @@ function PrintInventory({
       <PrintSettingsFields kind={kind} job={job} />
       <PrintChecks job={job} />
       {kind === "tag" && job.tag && (
-        <TagDetails tag={job.tag} onChange={job.setTag} />
+        <>
+          {job.referenceNote && <p className="muted">{job.referenceNote}</p>}
+          <TagDetails tag={job.tag} onChange={job.setTag} />
+        </>
       )}
       <PreviewFrame preview={preview} height={job.height} />
       <p className="muted">
@@ -127,8 +134,18 @@ function usePrintJob(item: PrintableItem, kind: InventoryPrintKind) {
   const s = snapshot!;
   const key = `angel-one-inventory-print:${s.activeProgramUuid ?? "unassigned"}`;
   const [settings, setSettings] = useState(() => savedSettings(key));
-  const [tag, setTag] = useState(() =>
+  const [edited, setTag] = useState(() =>
     item.kind === "component" ? inventoryTagFields(s, item) : undefined,
+  );
+  const older = useOlderReference(s, item);
+  // A still blank Reference shows the older order's number once it loads;
+  // one object per change, since the preview rebuilds when it changes.
+  const tag = useMemo(
+    () =>
+      edited && !edited.reference && older.number
+        ? { ...edited, reference: older.number }
+        : edited,
+    [edited, older.number],
   );
   const [saved, setSaved] = useState("");
   const height = kind === "tag" ? settings.tagHeight : settings.labelHeight;
@@ -141,6 +158,7 @@ function usePrintJob(item: PrintableItem, kind: InventoryPrintKind) {
     settings,
     tag,
     setTag,
+    referenceNote: older.note,
     saved,
     height,
     url,
@@ -159,6 +177,17 @@ function usePrintJob(item: PrintableItem, kind: InventoryPrintKind) {
       frame.current?.contentWindow?.print();
     },
   };
+}
+
+// A removal under a work order the workspace's window has left out names it
+// only by uuid: its number loads on demand.
+function useOlderReference(s: Snapshot, item: PrintableItem) {
+  const uuid = item.kind === "component" ? tagWorkOrderUuid(s, item) : "";
+  const held = !uuid || s.workOrders?.some((w) => w.uuid === uuid);
+  const older = useWorkOrderHistory(held ? undefined : uuid);
+  const number = older.history?.workOrder.number;
+  const note = !held && !number && older.offline ? OLDER_ORDER_OFFLINE : "";
+  return { number, note };
 }
 
 function usePrintPreview(
