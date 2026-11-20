@@ -1,6 +1,7 @@
 # Responsibility: Checks every pull request and push to main: standards on
-#   changed files, typecheck, lint, unit and server tests, build, backup-job
-#   tests, browser tests, production dependency audit and secret scan.
+#   changed files, typecheck, lint, unit and server tests, build, Markdown
+#   formatting, backup-job tests, browser tests, production dependency audit
+#   and secret scan.
 # Layer: Tooling (CI). Needs no secrets and never deploys; a green run for a
 #   push to main starts deploy.yml, so every job here gates production.
 # Dependencies: npm, Playwright Chromium, age, gitleaks, .gitleaks.toml,
@@ -77,6 +78,11 @@ jobs:
 
       - name: Typecheck, lint, unit tests and build
         run: npm run check
+
+      # Only the Markdown: npm run format:check also covers code files that
+      # are not yet formatted, and would fail until they are.
+      - name: Prettier on the docs
+        run: npx --no-install prettier --check "docs/**/*.md" README.md
 
       - name: Backup job tests (fake Convex and R2)
         run: |

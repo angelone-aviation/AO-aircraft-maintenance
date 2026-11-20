@@ -16,13 +16,8 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 
-// Vendored or retired content we do not maintain.
-const EXCLUDED_PREFIXES = [
-  ".claude/skills/",
-  ".agents/",
-  "node_modules/",
-  "legecy php_project/",
-];
+// Vendored content we do not maintain.
+const EXCLUDED_PREFIXES = [".claude/skills/", ".agents/", "node_modules/"];
 
 /** Read access to the files a Markdown link can point at. */
 interface FileTree {
@@ -39,6 +34,7 @@ describe("findBrokenLinks", () => {
   const tree = fakeTree({
     "/r/a.md": "# Top\n\n## Same\n\n## Same\n\n## `Code` and **bold**\n",
     "/r/img.png": "",
+    "/r/a b.md": "# Spaced\n",
   });
   const check = (text: string) =>
     findBrokenLinks("/r/b.md", text, tree, "/r").broken;
@@ -56,6 +52,16 @@ describe("findBrokenLinks", () => {
       "missing: gone.md",
       "no anchor: a.md#nope",
       "no anchor: a.md#also-nope",
+    ]);
+  });
+
+  it("reads angle-bracket targets with spaces, inline and as references", () => {
+    const text =
+      '[a](<a b.md>) [b](<a b.md#spaced> "Title") [c](<gone b.md>)\n\n' +
+      "[ref]: <a b.md#nope>\n";
+    expect(check(text)).toEqual([
+      "missing: gone b.md",
+      "no anchor: a b.md#nope",
     ]);
   });
 
@@ -120,11 +126,12 @@ function checkHref(
 
 function extractHrefs(markdown: string): string[] {
   const text = stripFencedCode(markdown).replace(/`[^`\n]*`/g, "");
-  const inline = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-  const reference = /^\s*\[[^\]]+\]:\s*<?([^\s>]+)>?/gm;
+  // CommonMark allows spaces in a target only inside <...>: [a](<a b.md>).
+  const inline = /\]\(\s*(?:<([^>\n]+)>|([^)\s]+))(?:\s+"[^"]*")?\s*\)/g;
+  const reference = /^\s*\[[^\]]+\]:\s*(?:<([^>\n]+)>|(\S+))/gm;
   const html = /<(?:a|img)\s[^>]*?(?:href|src)="([^"]+)"/g;
   return [inline, reference, html].flatMap((pattern) =>
-    [...text.matchAll(pattern)].map((match) => match[1]),
+    [...text.matchAll(pattern)].map((match) => match[1] ?? match[2]),
   );
 }
 
