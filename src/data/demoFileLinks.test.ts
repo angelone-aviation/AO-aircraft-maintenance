@@ -90,3 +90,47 @@ it("keeps the owner preview to its portal's files and refuses the board preview"
     demoFileLinks(board, [{ kind: "aircraftFile", id: "copy" }], NOW),
   ).toThrow(new Rejection("Files are not available in the board view."));
 });
+
+it("hands over the demo's purchase-order files and license copies, but not manuals", () => {
+  const s: Snapshot = {
+    ...scopedSnapshot(withFiles()),
+    purchaseOrderFiles: [
+      {
+        uuid: "invoice",
+        poUuid: "po",
+        name: "invoice.pdf",
+        type: "application/pdf",
+        size: 3,
+        uploadedAt: 1,
+        url: "data:application/pdf;base64,aW52",
+      },
+    ],
+    certificationFiles: [
+      {
+        id: "license",
+        userId: "demo-admin",
+        kind: "mechanic",
+        name: "license.pdf",
+        type: "application/pdf",
+        size: 3,
+        uploadedAt: 1,
+        url: "data:application/pdf;base64,bGlj",
+      },
+    ],
+  };
+  expect(
+    demoFileLinks(
+      s,
+      [
+        { kind: "poFile", id: "invoice" },
+        { kind: "certificationFile", id: "license" },
+        { kind: "manual", id: "any" },
+      ],
+      NOW,
+    ).map((link) => link?.url ?? null),
+  ).toEqual([
+    "data:application/pdf;base64,aW52",
+    "data:application/pdf;base64,bGlj",
+    null,
+  ]);
+});

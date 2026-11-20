@@ -204,7 +204,7 @@ beforeEach(() => {
       manage: async (command: unknown) => void calls.push(["manage", command]),
       poFiles: async (uuid: string) => {
         calls.push(["poFiles", uuid]);
-        return [{ uuid: "f1", name: "invoice.pdf", url: "https://f/1" }];
+        return [{ uuid: "f1", name: "invoice.pdf" }];
       },
       attachPOFile: async (...args: unknown[]) =>
         void calls.push(["attach", ...args]),
@@ -689,7 +689,8 @@ describe("purchase order detail", () => {
     open(p);
     for (const effect of ui.effects) effect();
     await settle();
-    expect(render()).toContain('href="https://f/1"');
+    // Each file opens through a link the list asks for (tests/e2e covers it).
+    expect(render()).toContain("invoice.pdf");
     const file = new File(["x"], "slip.pdf");
     const input = ui.fields.get("PO attachment")!;
     await (input.onChange as (e: unknown) => Promise<void>)({

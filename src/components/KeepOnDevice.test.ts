@@ -220,12 +220,23 @@ describe("openManualFile", () => {
     URL.revokeObjectURL(file.url);
   });
 
-  it("opens the online file when told to skip the device", async () => {
+  it("downloads the online file once when told to skip the device", async () => {
     storage.readKeptManual.mockResolvedValue(new Blob(["pdf"]));
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response("pdf");
+    });
+    // An object URL, so the viewer's buttons outlive the five-minute link.
     expect(await openManualFile("m1", { useDevice: false })).toEqual({
-      url: "https://files.example/m1",
+      url: expect.stringMatching(/^blob:/),
       fromDevice: false,
     });
+    expect(fetched).toEqual(["https://files.example/m1"]);
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 403 }));
+    await expect(openManualFile("m1", { useDevice: false })).rejects.toThrow(
+      "Manual file is unavailable.",
+    );
   });
 
   it("refuses with no kept copy and no backend", async () => {

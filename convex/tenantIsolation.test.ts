@@ -5,7 +5,8 @@
  *   whitelist.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/schema.ts, convex/sampleProgram.ts (program A),
- *   convex/memberships.ts, convex/_generated, src/domain/faaSearch.ts.
+ *   convex/memberships.ts, convex/_generated, src/domain/faaSearch.ts,
+ *   tests/fixtures/fileLinks.ts.
  *
  * Refusals are pinned by message: one that reads differently for another
  * program's record tells the caller it exists, as flight review's once did.
@@ -14,7 +15,6 @@ import { convexTest, type TestConvex } from "convex-test";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   getFunctionName,
-  makeFunctionReference,
   type FunctionArgs,
   type FunctionReference,
   type StorageActionWriter,
@@ -28,6 +28,7 @@ import { PROGRAM as PROGRAM_A } from "./sampleProgram";
 import { syncMemberships } from "./memberships";
 import { blankSearch, searchAssets } from "../src/domain/faaSearch";
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
+import { FILE_LINKS } from "../tests/fixtures/fileLinks";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -145,12 +146,6 @@ interface Attempt {
   refuses: (message: string) => Case;
   returns: (value: unknown) => Case;
 }
-
-// By name until convex/_generated is next regenerated against a deployment.
-const FILE_LINKS = makeFunctionReference<
-  "mutation",
-  { programUuid?: string; files: { kind: "aircraftFile"; id: string }[] }
->("fileLinks:links");
 
 // Public functions that reach no Flight Program record, and why.
 const NOT_PROGRAM_SCOPED: Record<string, string> = {
@@ -332,6 +327,9 @@ const CASES: Case[] = [
   callMutation(api.poFiles.remove, "A's purchase order file", (a) =>
     stampB({ id: a.row.poFiles._id }),
   ).refuses(PO_NOT_FOUND),
+  callMutation(FILE_LINKS, "a link to A's purchase order file", (a) =>
+    stampB({ files: [{ kind: "poFile", id: a.row.poFiles._id }] }),
+  ).returns([null]),
   callAction(api.poFiles.upload, "a file on A's purchase order", (a) =>
     stampB({ poUuid: a.row.purchaseOrders.uuid, ...PDF_FILE }),
   ).refuses(PO_NOT_FOUND),
@@ -435,9 +433,9 @@ const CASES: Case[] = [
     ),
     outsiderOnly: true,
   },
-  callQuery(api.manuals.open, "A's manual", (a) =>
-    stampB({ uuid: a.row.manuals.uuid }),
-  ).refuses("Manual is not available in this workspace."),
+  callMutation(FILE_LINKS, "a link to A's manual", (a) =>
+    stampB({ files: [{ kind: "manual", id: a.row.manuals.uuid }] }),
+  ).returns([null]),
   callMutation(api.manuals.rename, "A's manual", (a) =>
     stampB({ uuid: a.row.manuals.uuid, title: "Renamed by B" }),
   ).refuses(MANUAL_MAINTENANCE),
@@ -639,9 +637,11 @@ const CASES: Case[] = [
     userId: a.alice,
     payload: "[]",
   })).refuses(LICENSE_OWNER),
-  callQuery(api.certifications.fileUrl, "Alice's license copy", (a) => ({
-    id: a.row.certificationFiles._id,
-  })).refuses(LICENSE_OWNER),
+  callMutation(FILE_LINKS, "a link to Alice's license copy", (a) =>
+    stampB({
+      files: [{ kind: "certificationFile", id: a.row.certificationFiles._id }],
+    }),
+  ).returns([null]),
   callMutation(api.certifications.remove, "Alice's license copy", (a) => ({
     id: a.row.certificationFiles._id,
   })).refuses(LICENSE_OWNER),

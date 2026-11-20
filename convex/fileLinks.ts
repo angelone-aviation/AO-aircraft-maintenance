@@ -1,8 +1,9 @@
 /**
  * Responsibility: Issues short-lived links to the stored files a member's own
- *   snapshot lists, and to nothing else.
- * Layer: Server. One public mutation; the visibility rules are the snapshot
- *   query's (convex/operations.ts) and src/domain's scoping.
+ *   snapshot or file listings show, and to nothing else.
+ * Layer: Server. One public mutation; the visibility rules are those of the
+ *   snapshot query (convex/operations.ts), the purchase-order and license-copy
+ *   listings, and src/domain's scoping.
  * Dependencies: convex/values, ./_generated, ./programContext, ./collections,
  *   ./fileTokens, src/domain (model, programs, ownerView, boardView,
  *   aircraftFiles, fileLinks).
@@ -37,6 +38,7 @@ import {
 // Upload paths that keep no type of their own are served as a download.
 const UNKNOWN_TYPE = "application/octet-stream";
 const PHOTO_NAME = "aircraft-photo";
+const PDF = "application/pdf";
 
 /**
  * Issues links to the stored files the caller's snapshot lists. Workspace
@@ -111,7 +113,8 @@ async function readerOf(ctx: MutationCtx, programUuid?: string) {
       "Flight Program changed. Reopen the form in the correct program.",
     );
   const owner = isOwnerView(state);
-  if (isBoardView(state) && !owner) throw new ConvexError(NO_FILES_IN_BOARD_VIEW);
+  if (isBoardView(state) && !owner)
+    throw new ConvexError(NO_FILES_IN_BOARD_VIEW);
   return { state, scoped: scopedSnapshot(state), owner };
 }
 
@@ -131,13 +134,17 @@ async function linkTo(
 
 // The rules follow convex/operations.ts: a reduced view adds only its
 // owners' photos and Form 337 copies; a workspace lists every file of the
-// records its scoped snapshot keeps.
+// records its scoped snapshot keeps. Manuals, purchase-order files and
+// license copies follow the checks that opened them before links existed.
 const RESOLVE: Record<FileRef["kind"], Resolve> = {
   aircraftFile: resolveAircraftFile,
   aircraftPhoto: resolveAircraftPhoto,
   workOrderFile: resolveWorkOrderFile,
   taskEvidence: resolveTaskEvidence,
   inventoryFile: resolveInventoryFile,
+  manual: resolveManual,
+  poFile: resolvePoFile,
+  certificationFile: resolveCertificationFile,
 };
 
 async function resolveAircraftFile(
@@ -219,6 +226,41 @@ async function resolveInventoryFile(
   return filed ? file : null;
 }
 
+// A workspace reader of the manual's aircraft; owners have no library.
+async function resolveManual(
+  ctx: MutationCtx,
+  { state, owner }: Reader,
+  uuid: string,
+) {
+  const manual = owner ? null : await byUuid.manuals(ctx, uuid);
+  if (!manual || !can(state, manual.aircraftUuid, "read")) return null;
+  return { storageId: manual.storageId, name: manual.filename, type: PDF };
+}
+
+// An inventory administrator, for an order in the active program.
+async function resolvePoFile(
+  ctx: MutationCtx,
+  { state, owner }: Reader,
+  id: string,
+) {
+  const file = owner ? null : await rowById(ctx, "poFiles", id);
+  const order = file && (await byUuid.purchaseOrders(ctx, file.poUuid));
+  if (!file || order?.programUuid !== activeProgram(state)) return null;
+  return programPermission(state, "admin") ? file : null;
+}
+
+// The member whose license it is, or a system administrator.
+async function resolveCertificationFile(
+  ctx: MutationCtx,
+  { state }: Reader,
+  id: string,
+) {
+  const file = await rowById(ctx, "certificationFiles", id);
+  if (!file || !(await ctx.db.get(file.userId))) return null;
+  const mine = file.userId === state.user.id;
+  return mine || state.user.isAdmin ? file : null;
+}
+
 async function rowById<T extends TableNames>(
   ctx: MutationCtx,
   table: T,
@@ -249,6 +291,16 @@ const byUuid = {
   management: (ctx: MutationCtx, uuid: string) =>
     ctx.db
       .query("management")
+      .withIndex("uuid", (q) => q.eq("uuid", uuid))
+      .unique(),
+  manuals: (ctx: MutationCtx, uuid: string) =>
+    ctx.db
+      .query("manuals")
+      .withIndex("uuid", (q) => q.eq("uuid", uuid))
+      .unique(),
+  purchaseOrders: (ctx: MutationCtx, uuid: string) =>
+    ctx.db
+      .query("purchaseOrders")
       .withIndex("uuid", (q) => q.eq("uuid", uuid))
       .unique(),
 };

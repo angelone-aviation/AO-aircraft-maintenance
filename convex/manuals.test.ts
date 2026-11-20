@@ -16,6 +16,7 @@ import { MANUAL_UPLOADS_PER_HOUR } from "./manuals";
 import { STORAGE_REFERENCES } from "./storageReferences";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { openFile } from "../tests/fixtures/fileLinks";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -122,9 +123,7 @@ it("stores immutable manual revisions, scopes access and binds upload completion
       programUuid: "demo-program",
     }),
   ).rejects.toThrow("expired");
-  expect(
-    await reader.query(api.manuals.open, { uuid, programUuid: "demo-program" }),
-  ).toBeTruthy();
+  expect(await openFile(reader, { kind: "manual", id: uuid })).not.toBeNull();
   const snapshot = await reader.query(api.operations.snapshot);
   expect(snapshot?.manuals).toMatchObject([{ ...input, uuid }]);
   expect(snapshot?.manuals?.[0]).not.toHaveProperty("storageId");
@@ -141,12 +140,7 @@ it("stores immutable manual revisions, scopes access and binds upload completion
   expect((await reader.query(api.operations.snapshot))?.manuals).toHaveLength(
     1,
   );
-  await expect(
-    reader.query(api.manuals.open, {
-      uuid: "hidden",
-      programUuid: "demo-program",
-    }),
-  ).rejects.toThrow("not available");
+  expect(await openFile(reader, { kind: "manual", id: "hidden" })).toBeNull();
 });
 it("rejects mismatched uploads and invalid reference pages, and persists linked task references", async () => {
   const { t, tech } = await fixture();

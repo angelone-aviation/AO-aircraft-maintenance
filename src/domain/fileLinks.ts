@@ -26,11 +26,15 @@ export const FILE_KINDS = [
   "workOrderFile",
   "taskEvidence",
   "inventoryFile",
+  "manual",
+  "poFile",
+  "certificationFile",
 ] as const;
 
 /**
- * A stored file to open: its kind and the `uuid` the snapshot gives it. An
- * aircraft photo is named by its aircraft's uuid, since each has at most one.
+ * A stored file to open: its kind and the `uuid` the snapshot or its listing
+ * gives it (a license copy's `id`). An aircraft photo is named by its
+ * aircraft's uuid, since each has at most one.
  */
 export interface FileRef {
   kind: (typeof FILE_KINDS)[number];

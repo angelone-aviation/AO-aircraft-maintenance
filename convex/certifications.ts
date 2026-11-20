@@ -86,23 +86,6 @@ export const list = query({
 });
 
 /**
- * Opens a license copy.
- *
- * @param id - The copy.
- * @returns A URL to download it, or null when its stored file is gone.
- * @throws {ConvexError} "License copy not found."; as {@link list}.
- */
-export const fileUrl = query({
-  args: { id: v.id("certificationFiles") },
-  handler: async (ctx, { id }) => {
-    const file = await ctx.db.get(id);
-    if (!file) throw new ConvexError("License copy not found.");
-    await authorize(ctx, file.userId);
-    return ctx.storage.getUrl(file.storageId);
-  },
-});
-
-/**
  * Refuses an upload for {@link upload} before anything is stored.
  *
  * @param userId - The member.

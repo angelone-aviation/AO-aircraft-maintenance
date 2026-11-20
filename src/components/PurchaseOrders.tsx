@@ -8,7 +8,7 @@
  *   purchaseOrders, purchaseOrderRules, shelfLife, aircraftSpruce,
  *   costs/units),
  *   ./AircraftSpruce, ./Vendors, ./CoreReturns, ./SavedAddresses, ./ShopList,
- *   ./ui, ./design, CSS.
+ *   ./ui, ./design, ./FileLink, CSS.
  */
 import { SpruceProductPicker, SpruceOrderProgress } from "./AircraftSpruce";
 import { localDate, type Snapshot } from "../domain/model";
@@ -67,6 +67,7 @@ import {
   StatsStrip,
   Toolbar,
 } from "./design";
+import { NamedFileLink } from "./FileLink";
 import {
   ShopLead,
   ShopPill,
@@ -164,7 +165,6 @@ type SerialRow = { serial: string; hours: string; cycles: string };
 type OrderFile = {
   uuid: string;
   name: string;
-  url: string | null;
   receiptUuid?: string;
 };
 
@@ -1977,9 +1977,10 @@ function FileList({
       <ul>
         {files.files.map((f) => (
           <li key={f.uuid}>
-            <a href={f.url ?? undefined} target="_blank" rel="noreferrer">
-              {f.name}
-            </a>
+            <NamedFileLink
+              file={{ kind: "poFile", id: f.uuid }}
+              name={f.name}
+            />
             {f.receiptUuid ? " · Receipt attachment" : ""}{" "}
             {poAttachmentRemovable(po) && removable && (
               <DeleteFileButton

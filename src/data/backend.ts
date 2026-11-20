@@ -224,13 +224,14 @@ export interface Backend {
    */
   manage(command: ManagementCommand): Promise<unknown>;
   /**
-   * Lists a purchase order's attachments with download links (null when the
-   * stored file is unavailable). Inventory administrators only.
+   * Lists a purchase order's attachments, each opened through
+   * {@link Backend.fileLinks} as a "poFile". Inventory administrators only.
+   * The demo's entries also carry its stored copy as `url`.
    */
   poFiles(
     uuid: string,
   ): Promise<
-    { uuid: string; name: string; url: string | null; receiptUuid?: string }[]
+    { uuid: string; name: string; receiptUuid?: string; url?: string }[]
   >;
   /**
    * Attaches a file to a purchase order, or to one of its receipts and the
@@ -340,7 +341,13 @@ export interface Backend {
    *   URL refuses the PDF.
    */
   uploadManual(input: ManualInput, file: File): Promise<unknown>;
-  /** Opens a manual the caller can read: a URL to its PDF. */
+  /**
+   * Opens a manual the caller can read: a link to its PDF that works for five
+   * minutes (the demo's: an object URL of the copy in the browser).
+   *
+   * @throws {Error} "Manual is not available in this workspace." when the
+   *   caller may not read it or its file is gone.
+   */
   openManual(uuid: string): Promise<string>;
   /** Renames a manual, keeping its PDF and references. */
   renameManual(uuid: string, title: string): Promise<unknown>;
@@ -608,7 +615,10 @@ export interface Backend {
     kind: CertificationKind,
     file: File,
   ): Promise<unknown>;
-  /** A license copy's download URL, or null when its stored file is gone. */
+  /**
+   * A link to a license copy, working for five minutes; null when the caller
+   * may not open it or its stored file is gone.
+   */
   certificationFileUrl(id: string): Promise<string | null>;
   /** Deletes a license copy and its stored file. */
   deleteCertificationFile(id: string): Promise<unknown>;
@@ -890,7 +900,11 @@ function bindTemplateCalls(client: ConvexReactClient) {
 function bindManualCalls(client: ConvexReactClient) {
   return {
     uploadManual: (input, file) => uploadManual(client, input, file),
-    openManual: (uuid) => client.query(api.manuals.open, inProgram({ uuid })),
+    openManual: async (uuid) => {
+      const [link] = await openFiles(client, [{ kind: "manual", id: uuid }]);
+      if (!link) throw new Error("Manual is not available in this workspace.");
+      return link.url;
+    },
     renameManual: (uuid, title) =>
       client.mutation(api.manuals.rename, inProgram({ uuid, title })),
     editManual: (uuid, input) =>
@@ -999,7 +1013,7 @@ function bindAircraftCalls(client: ConvexReactClient) {
         api.aircraftFiles.archive,
         inProgram({ id: id as Id<"aircraftFiles">, reason }),
       ),
-    fileLinks: (files) => client.mutation(FILE_LINKS, inProgram({ files })),
+    fileLinks: (files) => openFiles(client, files),
   } satisfies Partial<Backend>;
 }
 
@@ -1092,10 +1106,12 @@ function bindCredentialCalls(client: ConvexReactClient) {
         kind,
         ...(await readFileFields(file)),
       }),
-    certificationFileUrl: (id) =>
-      client.query(api.certifications.fileUrl, {
-        id: id as Id<"certificationFiles">,
-      }),
+    certificationFileUrl: async (id) => {
+      const [link] = await openFiles(client, [
+        { kind: "certificationFile", id },
+      ]);
+      return link?.url ?? null;
+    },
     deleteCertificationFile: (id) =>
       client.mutation(api.certifications.remove, {
         id: id as Id<"certificationFiles">,
@@ -1204,6 +1220,10 @@ const FILE_LINKS = makeFunctionReference<
   { programUuid?: string; files: FileRef[] },
   (FileLink | null)[]
 >("fileLinks:links");
+
+function openFiles(client: ConvexReactClient, files: FileRef[]) {
+  return client.mutation(FILE_LINKS, inProgram({ files }));
+}
 
 function readActiveProgram(): string | undefined {
   return useWorkspace.getState().snapshot?.activeProgramUuid;

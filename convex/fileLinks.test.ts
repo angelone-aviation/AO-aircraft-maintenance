@@ -9,17 +9,13 @@
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
+import { FILE_LINKS } from "../tests/fixtures/fileLinks";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
 import { issueFileLink } from "./fileTokens";
-import {
-  FILE_LINK_TTL_MS,
-  MAX_FILE_LINKS,
-  type FileLink,
-} from "../src/domain/fileLinks";
+import { FILE_LINK_TTL_MS, MAX_FILE_LINKS } from "../src/domain/fileLinks";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -36,12 +32,7 @@ const EXPIRED = "This link has expired. Open the file again from Angel One.";
 const OWNED = demoSnapshot().aircraft[0].uuid;
 const OTHER = demoSnapshot().aircraft[1].uuid;
 type Role = "reader" | "owner" | "board" | "admin";
-// By name until convex/_generated is next regenerated against a deployment.
-const links = makeFunctionReference<
-  "mutation",
-  { programUuid?: string; files: { kind: "aircraftFile"; id: string }[] },
-  (FileLink | null)[]
->("fileLinks:links");
+const links = FILE_LINKS;
 
 beforeEach(() => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);

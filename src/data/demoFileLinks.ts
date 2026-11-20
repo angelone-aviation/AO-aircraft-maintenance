@@ -41,13 +41,20 @@ export function demoFileLinks(
   });
 }
 
+// Manuals are not here: the demo keeps them in the browser's database and
+// opens them through openManual.
 function storedCopy(s: Snapshot, { kind, id }: FileRef): string | undefined {
   const inList = (files?: { uuid: string; url?: string }[]) =>
     files?.find((f) => f.uuid === id)?.url;
-  if (kind === "aircraftPhoto")
-    return s.aircraft.find((a) => a.uuid === id)?.photoUrl;
-  if (kind === "aircraftFile") return inList(s.aircraftFiles);
-  if (kind === "workOrderFile") return inList(s.workOrderAttachments);
-  if (kind === "taskEvidence") return inList(s.taskEvidence);
-  return inList(s.inventoryAttachments);
+  const lists: Partial<Record<FileRef["kind"], () => string | undefined>> = {
+    aircraftPhoto: () => s.aircraft.find((a) => a.uuid === id)?.photoUrl,
+    aircraftFile: () => inList(s.aircraftFiles),
+    workOrderFile: () => inList(s.workOrderAttachments),
+    taskEvidence: () => inList(s.taskEvidence),
+    inventoryFile: () => inList(s.inventoryAttachments),
+    poFile: () => inList(s.purchaseOrderFiles),
+    certificationFile: () =>
+      s.certificationFiles?.find((f) => f.id === id)?.url,
+  };
+  return lists[kind]?.();
 }

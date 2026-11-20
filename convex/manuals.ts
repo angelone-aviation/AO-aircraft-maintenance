@@ -16,7 +16,6 @@ import {
   action,
   internalMutation,
   mutation,
-  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -232,29 +231,6 @@ export const cleanupUploads = internalMutation({
         await deleteBlobIfUnreferenced(ctx, id, ticket._id);
       await ctx.db.delete(ticket._id);
     }
-  },
-});
-
-/**
- * Opens a manual the caller can read.
- *
- * @param uuid - The manual.
- * @param programUuid - The caller's active Flight Program.
- * @returns A URL to the stored PDF.
- * @throws {ConvexError} "Manual is not available in this workspace.";
- *   "Manual file is unavailable."
- * @throws As `checkContext`, first.
- */
-export const open = query({
-  args: { uuid: v.string(), programUuid: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const s = await checkContext(ctx, args.programUuid);
-    const manual = await findManual(ctx, args.uuid);
-    if (!manual || !can(s, manual.aircraftUuid, "read"))
-      throw new ConvexError("Manual is not available in this workspace.");
-    const url = await ctx.storage.getUrl(manual.storageId);
-    if (!url) throw new ConvexError("Manual file is unavailable.");
-    return url;
   },
 });
 

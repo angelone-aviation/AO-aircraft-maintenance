@@ -895,7 +895,8 @@ function useManualFile(uuid: string, manual?: Manual) {
   return { url, fromDevice, deviceFailed, error, onDeviceFailed };
 }
 
-// Only an object URL made for a kept copy is released; online links are not.
+// Every manual opens from an object URL (a kept copy or a downloaded file);
+// anything else is not the viewer's to release.
 function revokeBlob(url: string) {
   if (url.startsWith("blob:")) URL.revokeObjectURL(url);
 }

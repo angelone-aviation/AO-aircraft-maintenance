@@ -12,6 +12,7 @@ import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import type { Id } from "./_generated/dataModel";
+import { openFile } from "../tests/fixtures/fileLinks";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -149,15 +150,13 @@ it("saves independent certifications, protects copies and allows the owner to ma
   await expect(
     other.query(api.certifications.list, { userId: users.owner.id }),
   ).rejects.toThrow(/account owner/);
-  await expect(
-    other.query(api.certifications.fileUrl, { id: files[0].id }),
-  ).rejects.toThrow(/account owner/);
+  const copy = { kind: "certificationFile" as const, id: files[0].id };
+  expect(await openFile(other, copy)).toBeNull();
   await expect(
     other.mutation(api.certifications.remove, { id: files[0].id }),
   ).rejects.toThrow(/account owner/);
-  expect(
-    await admin.query(api.certifications.fileUrl, { id: files[0].id }),
-  ).toBeTruthy();
+  expect(await openFile(admin, copy)).not.toBeNull();
+  expect(await openFile(owner, copy)).not.toBeNull();
   await expect(
     owner.action(api.certifications.upload, {
       userId: users.owner.id,
@@ -247,9 +246,7 @@ it("refuses a missing member or license copy", async () => {
     ...pdf,
   })) as Id<"certificationFiles">;
   await owner.mutation(api.certifications.remove, { id });
-  await expect(owner.query(api.certifications.fileUrl, { id })).rejects.toThrow(
-    "License copy not found.",
-  );
+  expect(await openFile(owner, { kind: "certificationFile", id })).toBeNull();
   await expect(
     owner.mutation(api.certifications.remove, { id }),
   ).rejects.toThrow("License copy not found.");
@@ -284,7 +281,7 @@ it("opens a copy whose file is gone as null, and checks a file before access", a
   await t.run(async (ctx) =>
     ctx.storage.delete((await ctx.db.get(id))!.storageId),
   );
-  expect(await owner.query(api.certifications.fileUrl, { id })).toBeNull();
+  expect(await openFile(owner, { kind: "certificationFile", id })).toBeNull();
   await expect(
     other.action(api.certifications.upload, { userId, ...pdf, name: "" }),
   ).rejects.toThrow(

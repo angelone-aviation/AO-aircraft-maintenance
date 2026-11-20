@@ -9,12 +9,12 @@
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
+import { FILE_LINKS } from "../tests/fixtures/fileLinks";
 import { api, internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import type { Snapshot } from "../src/domain/model";
-import type { FileLink, FileRef } from "../src/domain/fileLinks";
+import type { FileRef } from "../src/domain/fileLinks";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -26,15 +26,12 @@ const K1 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const ROOT = "root@example.test";
 const DAY_MS = 86_400_000;
 const SAMPLE_PDFS = 4;
-type Kind = FileRef["kind"];
+// The kinds the snapshot lists; the others are listed on request and pinned
+// with their features (manuals, purchase orders, certifications).
+type Kind = Exclude<FileRef["kind"], "manual" | "poFile" | "certificationFile">;
 type Role =
   "reader" | "owner" | "ownerAndBoard" | "board" | "programAdmin" | "admin";
-// By name until convex/_generated is next regenerated against a deployment.
-const links = makeFunctionReference<
-  "mutation",
-  { programUuid?: string; files: FileRef[] },
-  (FileLink | null)[]
->("fileLinks:links");
+const links = FILE_LINKS;
 
 beforeEach(() => {
   vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
