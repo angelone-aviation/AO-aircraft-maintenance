@@ -132,7 +132,7 @@ export const beginUpload = mutation({
  * ticket's lifetime, with exactly the declared bytes, size and type, that no
  * other record refers to. A blob that fails is never deleted here, since it
  * may belong to someone else; the hourly file sweep (convex/fileSweep.ts)
- * removes it once it is a day old if nothing refers to it by then.
+ * deals with it once it is a day old if nothing refers to it by then.
  *
  * @param ticket - The caller's unexpired ticket.
  * @param storageId - The uploaded blob.
