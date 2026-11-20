@@ -8,6 +8,6 @@ Four generated PDFs are linked to the reference library, inventory, work orders,
 
 Authentication tables, FAA credentials/monitoring state, upload staging, and request-deduplication tables are system state, not sample business data. Existing users and permissions remain unchanged. If the administrator has no active program, this program is selected; otherwise their existing selection is preserved.
 
-Before provisioning production, a private export was saved under `.convex/production/before-sample-program.zip`. Keep backups and credentials outside the website upload directory.
+Before provisioning a deployment that holds records, take a Convex backup (dashboard → Backups → **Backup now**). The export this page used to name belonged to the old test deployment, deleted on 2026-11-03.
 
 Validation: `npx vitest run convex/sampleProgram.test.ts` checks linked counters, work-card relationships, repeat safety, account preservation, and document attachment/storage repeat safety.

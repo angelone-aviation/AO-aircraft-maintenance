@@ -42,7 +42,7 @@ The program administrator role grants all operational permissions throughout its
 
 ## Default permission groups
 
-Each new Flight Program automatically receives four groups covering all of its aircraft:
+Each new Flight Program automatically receives six groups. All but Aircraft owners cover all of its aircraft:
 
 | Group                   | Permissions                                                           |
 | ----------------------- | --------------------------------------------------------------------- |
@@ -50,6 +50,8 @@ Each new Flight Program automatically receives four groups covering all of its a
 | Pilots                  | Read, add flights, report discrepancies                               |
 | Maintenance technicians | Read, report discrepancies, resolve discrepancies, manage maintenance |
 | Program managers        | Flight Program administrator; all program permissions                 |
+| Aircraft owners         | Read-only owner portal; covers no aircraft until you choose them      |
+| Board (read-only)       | Read-only board view of the whole fleet                               |
 
 Creating these groups does not enroll users. Administrators assign them through user access. Groups remain editable. Editing a program does not reset its groups or recreate renamed groups. The one-time initialization for existing programs adds missing group names only, preserves custom groups and current memberships, and can be retried without duplicates.
 

@@ -4,17 +4,17 @@ Flight Program is the first access boundary. Each aircraft and storage location 
 
 ## Setup
 
-1. As a system administrator, create the Flight Programs and their contact details.
-2. Choose the active Flight Program in the header. New aircraft, components, locations, and stock inherit it automatically. Aircraft's program field is read-only in its normal edit form.
+1. As a system administrator, create the Flight Programs and their contact details: **Flight Programs** (under Manage) → **Add Flight Program**.
+2. Choose the active Flight Program in the selector at the top of the sidebar (under **All sections** on a phone). New aircraft, components, locations, and stock inherit it automatically. Aircraft's program field is read-only in its normal edit form.
 3. In Administration → Permission groups, create a group for that program. Set read/flight/discrepancy/resolve/maintenance permissions, or select **Flight Program administrator**. Under **Aircraft access**, choose **All aircraft in this program** to cover all current and future aircraft in the program, or **Only selected aircraft** and check the aircraft to restrict ordinary permissions. Every program aircraft is never implied by an empty checklist: the form and the server refuse to save a group with no aircraft checked unless all aircraft was chosen, and refuse to open a restricted group to all aircraft without that choice. Flight Program administrators cover the entire program.
 4. Create users (a system administrator, or a Flight Program administrator for their own program) or use **Edit access** to select Flight Programs and permission groups. Every program appears, including newly created programs with no groups. Selecting a program without an applicable selected group creates or reuses a read-only group for that program. Select additional groups for flight, maintenance or other permissions. A user can belong to multiple programs with different permissions in each.
-5. To assign existing records, choose **Unassigned records** in the header and use **Flight Programs → Transfer Flight Program**. A permission group's Flight Program cannot be changed after it is saved. No memberships or operational ownership are guessed from names.
+5. To assign existing records, choose **Unassigned records** in the same selector and use **Flight Programs** → **Transfer record**. A permission group's Flight Program cannot be changed after it is saved. No memberships or operational ownership are guessed from names.
 
 Unassigned aircraft, locations, and components are visible only to system administrators. Existing aircraft-linked components inherit their aircraft's program when an explicit component owner is absent. Stock without an explicit owner inherits its location's owner. No records are deleted.
 
 ## Working in one program
 
-The header lists only the user's assigned programs; a user with one program enters it automatically. The last selected program is remembered on the account, including across devices. Switching requires a connection and refreshes open screens, lists, forms, and the cached snapshot. System administrators can additionally select unassigned records and manage the global program directory and user access.
+The Flight Program selector lists only the user's assigned programs; a user with one program enters it automatically. The last selected program is remembered on the account, including across devices. Switching requires a connection and refreshes open screens, lists, forms, and the cached snapshot. System administrators can additionally select unassigned records and manage the global program directory and user access.
 
 The server filters aircraft, flights, inspections, components, discrepancies, inventory, pilot directory, and audit history before sending them to a client. Mutations independently recheck program ownership and permissions. A stale form or queued entry from another program is rejected. Membership alone does not grant maintenance or flight-entry rights.
 
@@ -26,7 +26,7 @@ Flight Program administrators can add and edit aircraft, edit their program's co
 
 ## Explicit transfers
 
-The Flight Programs page provides a system-administrator transfer form with source record, destination program, and a required transfer reason. Transfers are atomic and audited.
+The Flight Programs page provides a system-administrator transfer form (**Transfer records between Flight Programs**) with source record, destination program, and a required transfer reason. Transfers are atomic and audited.
 
 - Aircraft transfers carry their flights, discrepancies, inspections, checklists, component setups, the program's expiring dates for the aircraft (registration, insurance; each move writes an `expiring-date.transferred` entry with the transfer reason), and associated components (including components retaining that aircraft association while in inventory). Historical records remain attached to the aircraft; its version increments to invalidate stale flight drafts. Cost records (labor, other costs, part unit costs, the prices parts were issued at, and budgets) stay with the program that paid: the destination program never reads them and starts its own for the aircraft, and the source program's administrators keep theirs.
 - Aircraft transfers wait until the aircraft's open parts requests are cancelled or fulfilled. They also wait while an issued purchase-order line that names the aircraft is not yet fully received or cancelled, because an order is shipped and received in the program that issued it; the message lists the parts and orders.
