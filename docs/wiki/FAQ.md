@@ -1,5 +1,7 @@
 # FAQ
 
+[User guide](Home.md)
+
 ## General
 
 **Is Angel One the official maintenance record?**
@@ -20,8 +22,8 @@ Use the selector at the top of the sidebar, or under **All sections** on a
 phone. It needs a connection.
 
 **Where do I change my name, email or password?**
-Ask an administrator. There is no self-service reset. Owners and board members
-have no Settings page.
+Ask a system administrator. There is no self-service reset, and you cannot
+change your own password. Owners and board members have no Settings page.
 
 **Is there a test version I can try?**
 **Explore the local demo** on the sign-in page, where offered, opens fictional
@@ -98,6 +100,10 @@ Seven days from sign-in ([Offline](Offline.md#seven-days)).
 The copy is not encrypted on the device. Use a screen lock, and sign out of
 shared devices.
 
+**The app shows "Configuration error". What do I do?**
+Reload the page. If it stays, tell your administrator; your device's data is
+safe ([Troubleshooting](Troubleshooting.md#configuration-error)).
+
 **How do I get everything we hold on one aircraft?**
 **Export records package** on **View aircraft**
 ([Records package](Records-Package-and-Exports.md#records-package)).
@@ -106,4 +112,5 @@ shared devices.
 Emails use the program's records time zone; the bell uses your device's date.
 
 **How the system is run, backed up and paid for**
-See the [handbook](../handbook/README.md).
+See the [handbook](../handbook/README.md) and its
+[technical FAQ](../handbook/1-start-here/faq.md).

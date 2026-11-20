@@ -1,5 +1,7 @@
 # Offline
 
+[User guide](Home.md)
+
 Pilots can log flights and report problems with no signal. Everything else
 needs a connection. The device keeps a copy of your Flight Program for seven
 days from sign-in.
@@ -24,6 +26,23 @@ The pill in the top bar says **Connected** or **Offline**.
 
 A flight or problem report saved offline is a **pending entry**. It waits on
 the device and is sent by itself when connected.
+
+```mermaid
+sequenceDiagram
+  participant You
+  participant Device
+  participant Server
+  You->>Device: Save a flight or problem report offline
+  Device-->>You: Pending entry, Awaiting sync
+  Note over Device,Server: Connected again, or you choose Sync now
+  Device->>Server: Send the entry
+  alt Accepted
+    Server-->>Device: Saved, or held for review
+  else Refused
+    Server-->>Device: The reason
+    Device-->>You: Needs attention: Edit and retry, or Discard entry
+  end
+```
 
 - A line under the top bar says how many wait, such as "3 entries waiting to
   send", and links to the Sync center (**See entries**).
@@ -100,8 +119,16 @@ Device settings stay: theme, larger text, collapsed menu groups and label
 printer settings.
 
 If anything has not synced, the app asks first, for example "2 entries and 1
-photo haven't synced". **Stay signed in** keeps them to send later; only
-**Delete and sign out** deletes them.
+photo haven't synced":
+
+```mermaid
+flowchart TD
+  A[Sign out] --> B{Entries or photos not synced?}
+  B -->|No| C[Device cleared and signed out]
+  B -->|Yes| D[The app asks first]
+  D -->|Stay signed in| E[Nothing deleted. They send when connected.]
+  D -->|Delete and sign out| F[Unsynced entries and photos deleted for good]
+```
 
 On a shared device, entries someone else left stay until they sign in.
 

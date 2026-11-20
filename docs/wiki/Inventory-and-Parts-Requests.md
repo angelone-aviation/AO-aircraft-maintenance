@@ -1,5 +1,7 @@
 # Inventory and parts requests
 
+[User guide](Home.md)
+
 **Parts & repair requests** is how mechanics ask for parts or a repair.
 **Inventory** holds the program's storage locations and stock. Both are under
 **Maintain**.
@@ -27,7 +29,9 @@ All changes need a connection. Offline, quantities are marked as cached.
 
 1. Choose **New request**, or **Parts / repair requests** on a problem report,
    inspection, AD task, job card, component or stock item, or **Request parts
-   for task** on a work-order task. The source and aircraft fill in.
+   for task** on a work-order task. The source and aircraft fill in. A
+   number on the button, such as **Parts / repair requests (2)**, counts that
+   record's open requests.
 2. **Request type**: **Parts**.
 3. Enter the priority, **Required by**, preferred vendor and **Deliver / return
    to** address.
@@ -42,13 +46,30 @@ cannot reserve or order parts.
 
 ### Reserve, order and issue (administrators)
 
+A request's status, and the action that moves it on:
+
+```mermaid
+flowchart LR
+  Q[Requested] -->|Reserve| R[Reserved]
+  Q -->|Add selected to purchase order| O[On purchase order]
+  O -->|Receive parts| W[Received / awaiting issue]
+  R -->|Issue reserved parts| F[Fulfilled]
+  W -->|Issue reserved parts| F
+  O -->|Record shipment, repairs only| X[Out for repair]
+  X -->|Receive repair return| F
+```
+
+A request issued in part reads **Partially issued**. A request to restock
+inventory, rather than for an aircraft, is **Fulfilled** as soon as its parts
+are received.
+
 | Step                       | How                                                                                                                         |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Hold stock for the request | **Reserve**; **Release reservation** gives it back                                                                          |
 | Use the parts              | **Issue reserved parts** (dated today)                                                                                      |
 | Order what is short        | Select requests with the same vendor, currency and ship-to address, then **Add selected to purchase order**                 |
 | Receive                    | On the purchase order; parts received for a request are reserved for it ([Purchase orders](Purchase-Orders-and-Vendors.md)) |
-| Cancel                     | **Cancel request and release reservations**; issued parts stay recorded                                                     |
+| Cancel                     | **Cancel request**, a reason, then **Cancel request and release reservations**; issued parts stay recorded                  |
 
 Rules:
 
@@ -58,19 +79,22 @@ Rules:
   number."
 - Lines become fixed once reserved, issued or on a purchase order.
 - An issue to a work order records the stock's unit cost at that moment.
+- A request with quantities ordered but not yet received cannot be cancelled:
+  "Remove draft allocations or cancel outstanding PO quantities first."
 
 ### Send a component for repair
 
 1. **New request**, **Request type**: **Component repair / service**.
 2. Choose an uninstalled component. Enter the defect, work requested,
-   estimated cost, addresses and shipping instructions.
-3. Add the service to a purchase order.
+   quoted cost, addresses and shipping instructions.
+3. Select the request, choose **Add selected to purchase order**, then
+   **Issue PO** on the order.
 4. **Download repair order / tag** and **Download packing slip** from the
    request.
-5. Record the outbound shipment. The component reads **Out for repair** and
-   cannot be installed or edited.
-6. Record its return with the same serial number and verified hours and
-   cycles. The same component record is updated.
+5. Choose **Record shipment** on the order. The component reads **Out for
+   repair** and cannot be installed or edited.
+6. Choose **Receive repair return** on the order, with the same serial number
+   and verified hours and cycles. The same component record is updated.
 
 ### Load older
 
@@ -109,10 +133,10 @@ itself. Record what you used with an issue.
 
 ### Labels and tags
 
-| Button          | Prints                                                                 |
-| --------------- | ---------------------------------------------------------------------- |
-| **Print Label** | A 2-inch sticker with part number, QR code and, for components, serial |
-| **Print Tag**   | A 2 × 4-inch parts-removal sticker for a hang tag (tracked components) |
+| Button          | Prints                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| **Print Label** | A 2-inch sticker with part number, QR code and, for components, serial                            |
+| **Print Tag**   | A 2-inch-wide parts-removal sticker for a hang tag, 4 inches long by default (tracked components) |
 
 1. Enter the **QR website address** (the app's shared address) and **Save
    print settings**. Printing is off until it is set.

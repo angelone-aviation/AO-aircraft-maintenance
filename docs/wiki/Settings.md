@@ -1,5 +1,7 @@
 # Settings
 
+[User guide](Home.md)
+
 **Settings** (the last link under Manage, or **Settings** under your name)
 changes how the app behaves. Each section shows only to those allowed to
 change it. Owners and board members have no Settings page.
@@ -29,8 +31,9 @@ change it. Owners and board members have no Settings page.
 2. Tick **Pilot** or **Certified mechanic** and enter the number and dates.
 3. Attach copies if needed: PDF, JPEG, PNG, WebP, HEIC or HEIF, up to 5 MiB
    each. Only you and system administrators can open them.
-4. Save. A new or changed certificate is "Waiting for approval" until a Flight
-   Program administrator or system administrator approves it.
+4. Save. A new or changed certificate is "Waiting for approval" until a system
+   administrator, or a Flight Program administrator of your program, approves
+   it.
 
 Until approved, it is not printed on logbook entries, not offered under **Use
 saved certification**, and does not allow the inspection signoff.
@@ -67,15 +70,22 @@ Users and access are in [Administration](Administration.md).
 
 ## System
 
-| Item                      | Does                                                                                                                                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Deployment status         | What the deployment has turned on (alert email, device alerts, browser error reporting)                                                                                                       |
-| FAA API key and renewal   | **Update…** stores the FAA key and its expiry date. Status: **Active**, **Renew soon**, **Expired**, **No expiry date** or **Not set up**. **Request / renew key at FAA** opens the FAA site. |
-| Address verification      | The address lookup key (**Update…**)                                                                                                                                                          |
-| Deployment expiring dates | Dates the deployment must renew ([Alerts](Alerts.md#expiring-dates))                                                                                                                          |
-| Off-site backups          | When the newest nightly copy was made; a warning when it is more than 26 hours old                                                                                                            |
-| CSV extract (partial)     | Some tables, all programs                                                                                                                                                                     |
+| Item                      | Does                                                                                                                                                                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deployment status         | What the deployment has turned on (alert email, device alerts, browser error reporting)                                                                                                                           |
+| FAA API key and renewal   | **Update…** stores the FAA key and its expiry date. Status: **Active**, **Renew soon**, **Expired**, **No expiry date** or **Not set up**. **Request / renew key at FAA** opens the FAA site.                     |
+| Address verification      | The address lookup key (**Update…**)                                                                                                                                                                              |
+| Deployment expiring dates | Dates the deployment must renew ([Alerts](Alerts.md#expiring-dates))                                                                                                                                              |
+| Off-site backups          | The nightly copy of all records and files to Cloudflare R2 (not encrypted unless a backup key is set): when the newest was made, its size, the last monthly copy, and a warning when it is more than 26 hours old |
+| CSV extract (partial)     | Some tables, all programs                                                                                                                                                                                         |
+
+Until the first nightly copy is recorded, Off-site backups reads "No off-site
+backup has been recorded yet."
 
 Keys are stored on the server and never shown again or kept offline. The demo
-accepts no keys. How backups and restores work is in the
-[handbook](../handbook/README.md).
+accepts no keys. How backups and restores work is in the handbook's
+[Backups and restore](../handbook/3-running-it/operations.md#backups-and-restore).
+
+In the demo only, System ends with **Download this demo's data**: **Download
+demo data** saves everything the browser's demo holds as one JSON file. It
+cannot be imported into a live deployment.

@@ -1,5 +1,7 @@
 # Records package and exports
 
+[User guide](Home.md)
+
 | Export            | What it is                                                                     | Where                                                         | Who                                       |
 | ----------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------- | ----------------------------------------- |
 | Status sheet      | One aircraft's status records as a PDF                                         | **View aircraft**, owner portal                               | Anyone who reads the aircraft             |
