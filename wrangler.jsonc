@@ -1,7 +1,11 @@
-// Cloudflare Workers Static Assets site for the Angel One web app.
-// Cloudflare serves the Vite build in dist/ and applies public/_headers
-// (copied into dist/ by the build) to those files. The backend runs on
-// Convex. Release, rollback and first-time setup: docs/runbooks/release.md.
+// Responsibility: The web app's Cloudflare Workers Static Assets site: the
+//   build it serves, the Worker for paths no file matches, and its address.
+// Layer: Config. Deploy time only (wrangler); the app never reads it.
+// Dependencies: dist/ (the Vite build, with public/_headers copied in),
+//   worker/assets.ts.
+//
+// Cloudflare applies public/_headers to the files in dist/. The backend runs
+// on Convex. Release, rollback and first-time setup: docs/runbooks/release.md.
 {
   "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
   "name": "angel-one",

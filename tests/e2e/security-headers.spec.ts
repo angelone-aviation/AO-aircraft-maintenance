@@ -18,7 +18,8 @@ const SECURITY_TXT = "/.well-known/security.txt";
 
 test("the published policy keeps scripts, framing and plugins locked down", () => {
   const file = readFileSync("public/_headers", "utf8");
-  const policy = file.match(/Content-Security-Policy: (.+)/)?.[1] ?? "";
+  // The header line, not a "#" comment that names it.
+  const policy = file.match(/^\s*Content-Security-Policy: (.+)$/m)?.[1] ?? "";
   const csp = directives(policy);
   expect(csp.get("default-src")).toEqual(["'self'"]);
   expect(csp.get("script-src")).toEqual(SCRIPT_SOURCES);
