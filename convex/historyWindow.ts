@@ -106,7 +106,7 @@ export async function windowedHistory(
  * The problem reports and work orders the window can keep on their own
  * fields, as a reduced view, which holds no job cards or costs, judges them.
  *
- * @param fleet - The program's aircraft.
+ * @param fleet - The aircraft whose history is read.
  * @param now - The current time, in milliseconds.
  * @returns Both in the whole-history loaders' order; work orders as rows.
  */
