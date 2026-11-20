@@ -2,11 +2,13 @@
  * Responsibility: Pins work orders on the server: saving, close-out and the
  *   change-log rows of the components it changes, revisions, component
  *   corrections, job-card copies and archiving with their derived columns,
- *   the attachments of an open order, the refusals users see, and that
- *   keeping a stale edit leaves another person's task progress in place.
+ *   the attachments of an open order, the refusals users see, that keeping a
+ *   stale edit leaves another person's task progress in place, and
+ *   numbering from the number rows.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/workOrders.ts, convex/admin.ts, convex/taskCards.ts,
- *   convex/schema.ts, src/domain/workOrders.ts, src/domain/recordMerge.ts,
+ *   convex/schema.ts, convex/collections.ts, convex/recordNumbers.ts,
+ *   src/domain/workOrders.ts, src/domain/recordMerge.ts,
  *   src/domain/keepMineRules.ts, src/data/demo.ts,
  *   tests/fixtures (workOrders, taskCards, derivedColumns).
  */
@@ -17,7 +19,12 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { demoSnapshot } from "../src/data/demo";
 import { MAX_ATTACHMENTS } from "./attachments";
-import { workOrderFieldsSchema } from "../src/domain/workOrders";
+import {
+  workOrderFieldsSchema,
+  workOrderSchema,
+} from "../src/domain/workOrders";
+import { decode, encode } from "./collections";
+import { syncRecordNumber } from "./recordNumbers";
 import { mergeKeepMine } from "../src/domain/recordMerge";
 import {
   WORK_ORDER_KEEP_MINE,
@@ -1003,4 +1010,80 @@ it("deletes the stored file when filing it is refused", async () => {
     `maximum of ${MAX_ATTACHMENTS} attachments`,
   );
   expect(await stored()).toBe(before);
+});
+
+// Numbering reads the number rows (ADR-0013), not every order, and keeps the
+// scan's rules.
+it("numbers a blank order as the program scan did: the year's first free number, a gap reused, any case and any aircraft taken", async () => {
+  vi.useFakeTimers({ now: Date.UTC(2026, 5, 1, 12), toFake: ["Date"] });
+  const { t, tech } = await fixture();
+  const other = workOrderCommand();
+  await t.run(async (ctx) => {
+    const row = encode(
+      "workOrders",
+      workOrderSchema.parse({
+        ...other.fields,
+        number: "WO-2026-0003",
+        aircraftUuid: demoSnapshot().aircraft[1].uuid,
+        uuid: other.uuid,
+        version: 1,
+        recordedAt: Date.now(),
+        createdBy: "admin",
+        aircraft: {
+          registration: "N2",
+          make: "Cessna",
+          model: "208",
+          serial: "2",
+          totalSeconds: 0,
+          hobbs: 0,
+          tach: 0,
+          meter: "hobbs",
+          cycles: 0,
+        },
+        componentReadings: [],
+        tasks: [],
+      }),
+    );
+    await ctx.db.insert("workOrders", row);
+    await syncRecordNumber(ctx, "workOrders", row);
+  });
+  const save = async (number: string, uuid?: string) => {
+    const command = workOrderCommand();
+    const version = uuid ? 1 : 0;
+    const saved = { ...command, uuid: uuid ?? command.uuid, version };
+    saved.fields.number = number;
+    await tech.mutation(api.workOrders.save, {
+      programUuid: PROGRAM,
+      payload: JSON.stringify(saved),
+    });
+    return saved.uuid;
+  };
+  const numberOf = async (uuid: string) => {
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("workOrders")
+        .withIndex("uuid", (q) => q.eq("uuid", uuid))
+        .unique(),
+    );
+    return decode("workOrders", [row!])[0].number;
+  };
+  const first = await save("");
+  const second = await save("");
+  await save("wo-2026-0004");
+  await save("WO-SPECIAL", second);
+  const gap = await save("");
+  const next = await save("");
+  expect(await Promise.all([first, second, gap, next].map(numberOf))).toEqual([
+    "WO-2026-0001",
+    "WO-SPECIAL",
+    "WO-2026-0002",
+    "WO-2026-0005",
+  ]);
+  await expect(save("wo-2026-0001")).rejects.toThrow(
+    "Work order number already exists in this program.",
+  );
+  await expect(save("wo-2026-0003")).rejects.toThrow(
+    "Work order number already exists in this program.",
+  );
+  await expectRecordNumbers(t, "workOrders", [first, second, gap, next]);
 });

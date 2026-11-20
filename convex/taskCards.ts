@@ -4,8 +4,9 @@
  * Layer: Server. Convex mutations, an action and internal functions; the
  *   rules live in src/domain (taskCards, attachments).
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./runCommand, ./collections, ./attachments, ./userErrors, src/domain
- *   (taskCards, workOrders, attachments, inventoryAttachments, model).
+ *   ./runCommand, ./collections, ./recordNumbers, ./attachments,
+ *   ./userErrors, src/domain (taskCards, workOrders, attachments,
+ *   inventoryAttachments, model).
  */
 import { v, ConvexError } from "convex/values";
 import {
@@ -34,6 +35,7 @@ import {
   type ProgramContext,
 } from "./runCommand";
 import { decode, encode } from "./collections";
+import { readRecordNumbers } from "./recordNumbers";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
@@ -50,9 +52,12 @@ import { assertFileContents } from "../src/domain/inventoryAttachments";
 import { can } from "../src/domain/model";
 import {
   applyTaskCardCommand,
+  cardNumberKey,
+  cardNumberPrefix,
   taskCardCommandSchema,
   taskWritable,
   evidenceRemovable,
+  type TaskCard,
   type TaskCardCommand,
 } from "../src/domain/taskCards";
 
@@ -78,7 +83,8 @@ export const save = mutation({
       parse: () => taskCardCommandSchema.parse(JSON.parse(args.payload)),
       request: (command) => requestOf(command.requestUuid, args.payload),
       load: ({ ctx, state }, command) => loadCard(ctx, state, command),
-      apply: ({ snapshot }, command) => applyTaskCardCommand(snapshot, command),
+      apply: ({ snapshot, now, numbers }, command) =>
+        applyTaskCardCommand(snapshot, command, now, numbers),
       persist: ({ ctx }, { docs }, next) =>
         writeChanged(ctx, "taskCards", docs, [next]),
       audit: (log, { snapshot }) => log.replay(snapshot.audit),
@@ -248,7 +254,27 @@ async function loadCard(
     .withIndex("uuid", (q) => q.eq("uuid", command.uuid))
     .unique();
   if (archived) throw new ConvexError("Archived job cards are read-only.");
-  return { snapshot, docs: docs.taskCards };
+  const now = Date.now();
+  const prior = snapshot.taskCards?.find((t) => t.uuid === command.uuid);
+  const numbers = await cardNumbers(ctx, state, command, prior, now);
+  return { snapshot, docs: docs.taskCards, now, numbers };
+}
+
+// The program's numbers a save's numbering can meet: the command's and the
+// card's own, and the year's first free sequence (recordNumbers.ts).
+function cardNumbers(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  command: TaskCardCommand,
+  prior: TaskCard | undefined,
+  now: number,
+) {
+  const named = command.action === "save" ? command.fields.cardNumber : "";
+  const keys = [named, prior?.cardNumber ?? ""]
+    .filter(Boolean)
+    .map(cardNumberKey);
+  const prefix = cardNumberKey(cardNumberPrefix(now));
+  return readRecordNumbers(ctx, state.aircraft, "taskCard", { keys, prefix });
 }
 
 // The caller's program with its job cards, work orders, inspections, problem

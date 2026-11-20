@@ -9,9 +9,9 @@
  *   src/domain (workOrders, model, changeLog, inventoryAttachments).
  */
 import { prepareRecurringParts } from "./recurringParts";
-import { dropRecordNumber } from "./recordNumbers";
+import { dropRecordNumber, readRecordNumbers } from "./recordNumbers";
 import { ConvexError, v } from "convex/values";
-import { can, type Snapshot } from "../src/domain/model";
+import { can, localDate, type Snapshot } from "../src/domain/model";
 import { auditEntry } from "../src/domain/changeLog";
 import { queueTemplateCopies } from "./workOrderCopies";
 import {
@@ -49,6 +49,8 @@ import {
   workOrderCommandSchema,
   isOpenWorkOrder,
   validateWorkOrderFile,
+  workOrderNumberKey,
+  workOrderNumberPrefix,
   WORK_ORDER_FILE_TYPES,
   type WorkOrder,
   type WorkOrderCommand,
@@ -86,9 +88,10 @@ export const save = mutation({
       parse: () => workOrderCommandSchema.parse(JSON.parse(args.payload)),
       request: () => requestOf(requestUuidIn(args.payload), args.payload),
       load: loadWorkOrder,
-      apply: ({ working }, command) => ({
-        next: saveWorkOrder(working, command, Date.now(), {
+      apply: ({ working, now, numbers }, command) => ({
+        next: saveWorkOrder(working, command, now, {
           deferTemplateCopies: true,
+          numbers,
         }),
       }),
       afterApply: scheduleJobs,
@@ -243,6 +246,7 @@ async function loadWorkOrder(
   { ctx, state }: Transaction,
   command: WorkOrderCommand,
 ) {
+  const now = Date.now();
   const existing = await findWorkOrder(ctx, command.uuid);
   const previous = existing
     ? workOrderSchema.parse(JSON.parse(existing.payload))
@@ -260,6 +264,11 @@ async function loadWorkOrder(
   return {
     working,
     docs,
+    now,
+    numbers:
+      command.action === "save"
+        ? await orderNumbers(ctx, state, command, previous, now)
+        : undefined,
     previous,
     previousInspections: new Map(
       working.inspections.map((i) => [i.uuid, i.version]),
@@ -291,6 +300,22 @@ async function loadWorking(
     taskEvidence: [],
   };
   return { working, docs: { ...docs, workOrders: orders.docs.workOrders } };
+}
+
+// The program's numbers a save's numbering can meet: the command's and the
+// order's own, and the year's first free sequence (recordNumbers.ts).
+function orderNumbers(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  command: Extract<WorkOrderCommand, { action: "save" }>,
+  previous: WorkOrder | undefined,
+  now: number,
+) {
+  const keys = [command.fields.number, previous?.number ?? ""]
+    .filter(Boolean)
+    .map(workOrderNumberKey);
+  const prefix = workOrderNumberKey(workOrderNumberPrefix(localDate(now)));
+  return readRecordNumbers(ctx, state.aircraft, "workOrder", { keys, prefix });
 }
 
 function assertEditable(state: ProgramContext, previous: WorkOrder) {

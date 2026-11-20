@@ -1,14 +1,15 @@
 /**
  * Responsibility: Pins job cards: saving and access, signer identity and
  *   signoff rules, template unlinking, evidence, archived cards, a card uuid
- *   outside the Flight Program, replayed request ids, and derived columns.
+ *   outside the Flight Program, replayed request ids, derived columns and
+ *   numbering from the number rows.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/taskCards, convex/operations, convex/attachments,
- *   src/data/demo, src/domain/taskCards, tests/fixtures (taskCards,
- *   derivedColumns).
+ *   convex/collections, convex/recordNumbers, src/data/demo,
+ *   src/domain/taskCards, tests/fixtures (taskCards, derivedColumns).
  */
 import { convexTest } from "convex-test";
-import { it, expect } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -17,7 +18,10 @@ import { taskCardCommand } from "../tests/fixtures/taskCards";
 import {
   inspectorCertificatePending,
   taskCardFieldsSchema,
+  taskCardSchema,
 } from "../src/domain/taskCards";
+import { decode, encode } from "./collections";
+import { syncRecordNumber } from "./recordNumbers";
 import { MAX_ATTACHMENTS } from "./attachments";
 import {
   expectDerivedColumns,
@@ -30,6 +34,8 @@ const modules = import.meta.glob([
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+afterEach(() => vi.useRealTimers());
+
 async function fixture() {
   const t = convexTest(schema, modules);
   const identities = await t.run(async (ctx) => {
@@ -606,4 +612,74 @@ it("saves a job card once per request id: a replay returns nothing and writes no
     save({ ...command, fields: { ...command.fields, title: "Other" } }),
   ).rejects.toMatchObject({ data: "Request identifier already used." });
   expect(await stored()).toEqual(saved);
+});
+
+// Numbering reads the number rows (ADR-0013), not every card, and keeps the
+// scan's rules.
+it("numbers a blank card as the program scan did: the year's first free number, a gap reused, any case and any aircraft taken", async () => {
+  vi.useFakeTimers({ now: Date.UTC(2026, 5, 1, 12), toFake: ["Date"] });
+  const { t, tech } = await fixture();
+  await t.run(async (ctx) => {
+    const other = taskCardCommand();
+    const row = encode(
+      "taskCards",
+      taskCardSchema.parse({
+        ...other.fields,
+        aircraftUuid: demoSnapshot().aircraft[1].uuid,
+        cardNumber: "TC-2026-0003",
+        uuid: other.uuid,
+        version: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        createdBy: "admin",
+        technicianSignoff: null,
+        inspectionSignoff: null,
+        stepSignoffs: {},
+      }),
+    );
+    await ctx.db.insert("taskCards", row);
+    await syncRecordNumber(ctx, "taskCards", row);
+  });
+  const save = async (cardNumber: string, uuid?: string) => {
+    const command = taskCardCommand();
+    const saved = {
+      ...command,
+      uuid: uuid ?? command.uuid,
+      version: uuid ? 1 : 0,
+    };
+    saved.fields.cardNumber = cardNumber;
+    await tech.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(saved),
+    });
+    return saved.uuid;
+  };
+  const numberOf = async (uuid: string) => {
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("taskCards")
+        .withIndex("uuid", (q) => q.eq("uuid", uuid))
+        .unique(),
+    );
+    return decode("taskCards", [row!])[0].cardNumber;
+  };
+  const first = await save("");
+  const second = await save("");
+  await save("tc-2026-0004");
+  await save("TC-SPECIAL", second);
+  const gap = await save("");
+  const next = await save("");
+  expect(await Promise.all([first, second, gap, next].map(numberOf))).toEqual([
+    "TC-2026-0001",
+    "TC-SPECIAL",
+    "TC-2026-0002",
+    "TC-2026-0005",
+  ]);
+  await expect(save("tc-2026-0001")).rejects.toThrow(
+    "Card number already exists in this program.",
+  );
+  await expect(save("tc-2026-0003")).rejects.toThrow(
+    "Card number already exists in this program.",
+  );
+  await expectRecordNumbers(t, "taskCards", [first, second, gap, next]);
 });

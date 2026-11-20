@@ -4,7 +4,8 @@
  *   a save's numbering compares.
  * Layer: Server. Convex reads and writes of one derived table; the number
  *   rules come from src/domain through the rows' derived columns.
- * Dependencies: ./_generated (types), ./collections (types).
+ * Dependencies: ./_generated (types), ./collections (types),
+ *   src/domain/model (types).
  *
  * Derived rows, not records (ADR-0013): migrations:rebuildRecordNumbers
  * rebuilds them from the records, and they never reach the change log.
@@ -14,16 +15,12 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { PayloadCollection, StoredRow } from "./collections";
+import type { NumberedRecord } from "../src/domain/model";
 
 /** The kind of record a number row numbers. */
 export type NumberKind = Doc<"recordNumbers">["kind"];
 /** A number row as stored, without its system fields. */
 export type RecordNumber = Omit<Doc<"recordNumbers">, "_id" | "_creationTime">;
-/** One record's number, as the domain's numbering compares it. */
-export interface NumberedRecord {
-  uuid: string;
-  number: string;
-}
 
 /**
  * The numbers a save's numbering reads: exact keys (numbers the command or
