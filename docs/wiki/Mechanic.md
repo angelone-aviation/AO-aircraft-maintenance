@@ -46,15 +46,18 @@ signoff.
 2. Tick **Certified mechanic** and enter the number, issue date and ratings
    (Airframe, Powerplant, Inspection Authorization).
 3. Attach a copy of your certificate if your program asks for one.
-4. Save. It reads "Waiting for approval" until a Flight Program administrator
-   or system administrator approves it.
+4. Choose **Save certifications**. It reads "Waiting for approval" until a
+   Flight Program administrator or system administrator approves it (nobody
+   approves their own). Until then it does not print on logbook entries or
+   allow the inspection signoff.
 
 See [Job cards](Job-Cards.md#who-can-sign).
 
 ## Your regular checks
 
-See the "Daily" and "Weekly" sections of the
-[checklists](../handbook/3-running-it/checklists.md).
+See the ["Daily"](../handbook/3-running-it/checklists.md#daily) and
+["Weekly"](../handbook/3-running-it/checklists.md#weekly) sections of the
+checklists.
 
 1. Weekly: **Planning** (next 30 days) and the **Maintenance calendar**.
 2. Weekly: open problem reports on **Discrepancies**, and deferrals near their

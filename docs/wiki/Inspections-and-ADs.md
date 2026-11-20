@@ -18,7 +18,7 @@ Changes need maintenance permission on the aircraft and a connection.
 | Aircraft          | One aircraft or all                                                      |
 | Sort              | Phase, next due date, hours, cycles or landings; ascending or descending |
 | **Show archived** | Includes completed one-time and archived schedules                       |
-| Tiles             | Overdue, Due soon, Scheduled                                             |
+| Chart             | Schedules by status: Overdue, Due soon, Scheduled (not on a phone)       |
 
 Each row shows what is due, what remains, a meter of the interval left, and its
 status. The meter is green while scheduled, amber when due soon, and an empty
@@ -46,7 +46,8 @@ Completion is usually recorded by closing a work order
 
 1. Choose **Complete** on the inspection.
 2. Enter the **Completion date**, **Tracked total at completion (hours)**,
-   **Tracked cycles at completion** and landings.
+   **Tracked cycles at completion** and, for a landings limit, **Aircraft
+   total landings at completion**.
 3. Enter **Work performed / reason** (required).
 4. Choose **Record completion**.
 
@@ -66,12 +67,12 @@ work.
 Choose an aircraft. The search narrows by AD number, subject, section, make,
 model, amendment, superseding AD or required action.
 
-| Tile               | Counts                                   |
-| ------------------ | ---------------------------------------- |
-| Tracked ADs        | ADs on the aircraft and its components   |
-| ADs needing review | Imported or changed ADs not yet reviewed |
-| ADs due soon       | Within 30 days, hours or cycles          |
-| Overdue ADs        | Past a limit; these ground the aircraft  |
+| Tile               | Counts                                           |
+| ------------------ | ------------------------------------------------ |
+| Tracked ADs        | ADs on the aircraft and its components           |
+| ADs needing review | Imported or changed ADs not yet reviewed         |
+| ADs due soon       | 30 or fewer days, hours, cycles or landings left |
+| Overdue ADs        | Past a limit; these ground the aircraft          |
 
 ### Add ADs
 
@@ -79,20 +80,23 @@ model, amendment, superseding AD or required action.
 | --------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **Search FAA ADs & Import** | Searches the FAA by the aircraft's and components' models. Pick matches, then import. Not in the demo. |
 | **Add AD**                  | Type the AD by hand                                                                                    |
-| **Other import options**    | Imports a `.docx` compliance report                                                                    |
+| **Other import options**    | **Import Word report** imports a `.docx` compliance report                                             |
 
 Imported ADs start as **Needs review**. Importing never fills in compliance or
 deadlines.
 
 ### Review an AD
 
-1. Open the AD.
+1. Choose **Edit** on the AD (or **Details**, then **Review / edit AD**).
 2. Set **Applicability**: Needs review, Applicable, Not applicable,
    Superseded, or Previously Complied With (PCW). Give the reason for "Not
    applicable".
 3. For an applicable AD, **Add required action** for each action, with its
    recurrence and first due limits.
-4. Choose **Save AD**.
+4. Tick **Applicability and source changes reviewed**. Until it is ticked, an
+   applicable AD still reads **Needs review** and compliance cannot be
+   recorded on it.
+5. Choose **Save AD**.
 
 Changing an AD after its applicability is decided, or after compliance is
 recorded, is a correction: **Save AD** then asks for a **Reason for change**.
@@ -101,10 +105,11 @@ recorded, is a correction: **Save AD** then asks for a **Reason for change**.
 
 Closing a work order does not record AD compliance.
 
-1. Choose **Record compliance** on the action.
+1. Choose **Details** on the AD, then **Record compliance** on the action. It
+   is disabled until the AD is reviewed as Applicable or PCW.
 2. Enter the method, date and counters, mechanic and certificate, service
    bulletin, evidence or logbook reference, and work order.
-3. Save.
+3. Choose **Save compliance**.
 
 Repeating limits move forward from the compliance. A first-time limit without
 a repeat interval is cleared. A terminating action ends the recurrence. An
@@ -115,21 +120,23 @@ next limit is entered.
 
 Compliance history is never edited. Flight Program administrators only:
 
-1. Choose **Correct entry** in the AD's compliance history.
+1. Choose **Details** on the AD, open **Compliance history**, and choose
+   **Correct entry**.
 2. Enter the corrected values and a **Reason for correction**.
-3. Save.
+3. Choose **Save correction**.
 
 The correction is appended; the original stays in the history, the reports and
 Change history.
 
 ### Statuses you may see
 
-| Status                                                                                                                  | Means                                                                             |
-| ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Due now                                                                                                                 | An hours, cycles or landings limit at 0 remaining: overdue                        |
-| Counter unavailable                                                                                                     | A limit the app cannot read, for example hours on a part that does not track time |
-| Due not set                                                                                                             | Recurs without a fixed interval; enter the next limit                             |
-| "This one-time limit (…) was not cleared when compliance was recorded on (date). If compliance satisfied it, clear it." | Older data; use **Clear initial limit** if it was satisfied                       |
+| Status                                                                                                                  | Means                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Needs review                                                                                                            | Imported or changed and not yet reviewed; compliance cannot be recorded until it is |
+| Due now                                                                                                                 | An hours, cycles or landings limit at 0 remaining: overdue                          |
+| Counter unavailable                                                                                                     | A limit the app cannot read, for example hours on a part that does not track time   |
+| Due not set                                                                                                             | Recurs without a fixed interval; enter the next limit                               |
+| "This one-time limit (…) was not cleared when compliance was recorded on (date). If compliance satisfied it, clear it." | Older data; use **Clear initial limit** if it was satisfied                         |
 
 ### Reports
 

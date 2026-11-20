@@ -47,18 +47,31 @@ that do not already hold the item.
 
 ## Work the order
 
-| Task                         | How                                                                                                               |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Track each task              | Status: requested, in progress, delayed for parts, completed, cancelled                                           |
-| Reorder tasks                | **Move up**, **Move down**, then **Save work order**                                                              |
-| Job cards                    | Each task lists its job cards. Open one to record work and signoffs ([Job cards](Job-Cards.md)).                  |
-| Add job cards from templates | **Add missing job card templates**. It never makes duplicates.                                                    |
-| Request parts                | **Request parts for task** on a saved task                                                                        |
-| Attach records               | Upload PDF, JPEG or PNG, up to 7 MiB each, after the order is opened                                              |
-| Costs                        | **Add labor** (hours, technician) and **Add cost** (amount, description, date). Program administrators see costs. |
+| Task                         | How                                                                                                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Track each task              | Status: requested, in progress, delayed for parts, completed, cancelled                                                                                                       |
+| Reorder tasks                | **Move up**, **Move down**, then **Save work order**                                                                                                                          |
+| Job cards                    | Each task lists its job cards. Open one to record work and signoffs ([Job cards](Job-Cards.md)).                                                                              |
+| Add job cards from templates | **Add missing job card templates**. It never makes duplicates.                                                                                                                |
+| Request parts                | **Request parts for task** on a saved task                                                                                                                                    |
+| Attach records               | Upload PDF, JPEG or PNG, up to 7 MiB each, after the order is opened                                                                                                          |
+| Costs                        | **Add labor** (hours, technician): mechanics and administrators. **Add cost** (amount, description, date), rates, parts costs and totals: Flight Program administrators only. |
 
-Order status (open, in-progress, awaiting-approval, parts-delay, completed,
-cancelled) is set on its own. Completing a task does not record compliance.
+You set the order's own **Status**; it does not follow its tasks:
+
+```mermaid
+stateDiagram-v2
+  state "open, in-progress, awaiting-approval or parts-delay" as Working
+  state "completed (read-only)" as Completed
+  state "cancelled (read-only)" as Cancelled
+  [*] --> Working: Open work order
+  Working --> Completed: Close-out, every task completed or cancelled
+  Working --> Cancelled: every job card completed or canceled
+  Completed --> Completed: Revise work order
+  Cancelled --> Cancelled: Revise work order
+```
+
+A new order starts **open**. Completing a task does not record compliance.
 
 A task with job cards can be marked completed only when every one of its cards
 is completed with all required signoffs.
@@ -71,14 +84,17 @@ preparation**.
 
 1. Complete or cancel every task. Every linked job card must be completed or
    cancelled.
-2. Under **Closeout**, enter the **Completion date**, choose a **Release
-   statement** (or type the **Release outcome**) and the final review.
-3. Confirm the completion total time, Hobbs, tach and cycles. They must fall
-   between the opening readings and the current totals.
+2. Set the **Status** to completed. Under **Closeout**, enter the **Completion
+   date** and choose a **Release statement** (or type the **Release outcome**).
+3. Confirm the completion total time, Hobbs, tach, landings and, on a turbine
+   aircraft, cycles. They must fall between the opening readings and the
+   current totals.
 4. Under **Component work performed**, choose for each component: **Inspected
    / serviced only**, **Repaired**, **Overhauled** or **Repaired and
    overhauled**. Repair and overhaul need a work description.
-5. Set the status to completed and save. Confirm the permanent-close warning.
+5. Choose **Save work order** and confirm the warning: "Closing this work
+   order is permanent. You will no longer be able to modify the work order or
+   its job cards. You can still view tasks and attachments."
 
 | Close-out does                                                                 | Close-out does not                     |
 | ------------------------------------------------------------------------------ | -------------------------------------- |
@@ -99,8 +115,12 @@ On a completed order, open **Details → Generate logbook entry**.
 2. Enter your **License / certificate number** and **Certificate type**, or
    pick from **Use saved certification**. Only approved certificates are
    offered ([Settings](Settings.md#my-account)).
-3. Review and edit the text.
-4. Choose **Save as PDF** or **Copy text**.
+3. Review and edit the text. The **Annual / 100-Hour inspection** template
+   also needs the inspection type, the manufacturer's checklist, the AD / SB
+   review date and the **Inspection finding**; the component template needs
+   the **Return-to-service outcome**.
+4. Choose **Save as PDF** or **Copy text**. Both stay disabled until the
+   certificate and those fields are filled in.
 5. Write or paste it into the paper logbook and sign it there.
 6. Choose **Attach signed page photo** to attach a photo of the signed page.
 

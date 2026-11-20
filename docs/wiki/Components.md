@@ -28,22 +28,24 @@ the nearest service limit.
 **Details** shows identity, location, attachments, service requirements,
 movement and baseline history, and record history.
 
-| Button                         | Does                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------ |
-| **Edit component**             | Identity and location details                                                        |
-| **Set baseline**               | Verified opening readings                                                            |
-| **Move / service**             | Records a service event; needs **Work performed / reason**                           |
-| **Add service requirement**    | A life limit, overhaul or inspection, by hours, cycles, landings or calendar         |
-| **Add trackable parts**        | Parts tracked under this component                                                   |
-| **Print Tag**, **Print Label** | Stickers for the part ([Inventory](Inventory-and-Parts-Requests.md#labels-and-tags)) |
-| **Upload attachment**          | Photos, invoices, certificates; PDF, JPEG, PNG or WebP, up to 7 MiB                  |
+| Button                         | Does                                                                                                                                    |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Edit component**             | Identity and location details                                                                                                           |
+| **Set baseline**               | Verified opening readings                                                                                                               |
+| **Move / service**             | Plans an install or removal on a work order, or records an overhaul or repair of a stored component (needs **Work performed / reason**) |
+| **Add service requirement**    | A life limit, overhaul or inspection, by hours, cycles, landings or calendar                                                            |
+| **Add trackable parts**        | Parts tracked under this component                                                                                                      |
+| **Print Tag**, **Print Label** | Stickers for the part ([Inventory](Inventory-and-Parts-Requests.md#labels-and-tags))                                                    |
+| **Upload attachment**          | Photos, invoices, certificates; PDF, JPEG, PNG or WebP, up to 7 MiB                                                                     |
 
 ## Install or remove a component
 
 Installs and removals are planned on a work order and applied at close-out.
 
 1. On the work order, choose **Install/remove component** under Requested
-   work. Or use **Inventory → Install / service** for a part in stock.
+   work. Or start from the component: **Move / service** in its record, or
+   **Inventory → Install / service** for a part in stock, then **Add movement
+   to work order**.
 2. Choose the component, and the position or the storage location.
 3. Save the work order.
 4. Close the work order with verified readings
@@ -55,12 +57,12 @@ requirements and inspections follow it to the new aircraft.
 
 ## Limits and statuses
 
-| Label          | Means                                                                           |
-| -------------- | ------------------------------------------------------------------------------- |
-| Due now        | A usage limit at exactly 0 remaining; overdue, grounds the aircraft             |
-| Past due       | Beyond a usage limit; overdue, grounds the aircraft                             |
-| Review         | A limit the app cannot read (for example, the part does not track that counter) |
-| Out for repair | Sent to a vendor; cannot be installed or edited until it returns                |
+| Label                                   | Means                                                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Due now                                 | A usage limit at exactly 0 remaining; overdue, grounds the aircraft                                                      |
+| Past due                                | Beyond a usage limit, or after a calendar due date; overdue, grounds the aircraft                                        |
+| Set time baseline, Set landing baseline | The limit cannot be measured until a verified baseline is entered (**Set baseline**; for landings, **Edit requirement**) |
+| Out for repair                          | Sent to a vendor; cannot be installed or edited until it returns                                                         |
 
 Repair resets TSR, overhaul resets TSO; lifetime totals never reset. That is
 chosen at close-out ([Work orders](Work-Orders.md#close-out)).
@@ -69,7 +71,8 @@ chosen at close-out ([Work orders](Work-Orders.md#close-out)).
 
 - **Set baseline** is refused if the new totals fall below the last
   compliance recorded on one of the component's inspections, requirements or
-  ADs. The message names the record; correct it first.
+  ADs, for example "Baseline would precede recorded inspection compliance."
+  Correct that record first.
 - Components are never deleted. Their history stays with the serial number.
 - A component that changed since you opened it, or moved after a backdated
   close-out, needs review before close-out.

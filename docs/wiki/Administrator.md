@@ -60,8 +60,10 @@ opens with the fleet summary.
 
 ## Your regular checks
 
-See the "Daily", "Weekly" and "Monthly" sections of the
-[checklists](../handbook/3-running-it/checklists.md).
+See the ["Daily"](../handbook/3-running-it/checklists.md#daily),
+["Weekly"](../handbook/3-running-it/checklists.md#weekly) and
+["Monthly"](../handbook/3-running-it/checklists.md#monthly) sections of the
+checklists.
 
 1. Daily: **Flight log** filtered to **Needs review**; review each held
    flight.
@@ -70,4 +72,5 @@ See the "Daily", "Weekly" and "Monthly" sections of the
    problem reports piling up.
 4. Weekly: **Change history → Summary** for dispatch overrides, permission
    changes and corrections.
-5. Monthly: the paper check for each aircraft, and **Costs** against the budget.
+5. Monthly: the paper check for each aircraft, the expiring dates, and
+   **Costs** against the budget.

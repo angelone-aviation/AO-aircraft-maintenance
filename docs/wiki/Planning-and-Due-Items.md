@@ -13,7 +13,7 @@ The rule for due soon and overdue is in
 ![Planning: counts and the projected workload](images/planning.png)
 
 Planning lists inspections, component requirements and AD actions across the
-fleet, by whichever limit comes first.
+fleet, week by week, by whichever limit comes first.
 
 | Control                   | Does                                                                     |
 | ------------------------- | ------------------------------------------------------------------------ |

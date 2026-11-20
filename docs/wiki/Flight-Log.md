@@ -14,7 +14,7 @@ which drive every hours-based limit. Flights can be logged offline.
 | **Aircraft**   | One aircraft, or **All aircraft**                                                                           |
 | Status         | **All flights**, **Accepted**, **Needs review**, **Rejected**                                               |
 | **Show more**  | Shows 50 more of the flights already loaded                                                                 |
-| **Load older** | Loads flights older than the last 6 months ([below](#load-older))                                           |
+| **Load older** | Under the last flight, loads flights older than the last 6 months ([below](#load-older))                    |
 
 ## Log a flight
 
@@ -32,10 +32,11 @@ bottom bar, or **N** on a keyboard. The steps are in the
 | Engine oil from stock   | **Use inventory for engine oil** issues oil an administrator marked **Engine oil**. It is deducted once when the flight syncs, even if the flight is held. |
 | Discrepancy             | Opens a linked problem report, even if the flight needs review.                                                                                            |
 
-Aircraft options add fields: turbine aircraft get engine start time and maximum
-start EGT; twins get left and right; amphibians get **Sea/Land** beside the
-landing count. An aircraft with **Flight time log** on asks for cumulative
-flight time instead of timestamps.
+Aircraft options add fields: turbine aircraft get cycles, engine start time
+and maximum start EGT; twins get left and right; amphibians get **Landing
+surface** (Sea or Land); helicopters get the **Collective hourmeter**. An
+aircraft with **Flight time log** on adds that reading: the cumulative
+takeoff-to-touchdown hours from the flight-time log.
 
 The **Origin** and **Destination** fields suggest the program's eight most-used
 places. **Same as last flight** fills crew and route, never readings.
@@ -43,13 +44,16 @@ places. **Same as last flight** fills crew and route, never readings.
 ### Start flight and End flight
 
 1. Choose **Start flight** on the Flight log.
-2. Verify the aircraft's readings, enter the flight details and preflight fuel
-   and oil.
-3. After landing, open the flight again and choose **End flight**. Enter the
-   ending readings and save.
+2. Check the aircraft's maintenance status and starting readings, tick both
+   confirmations, and choose **Verified — continue to flight information**.
+3. Enter the flight details and preflight fuel and oil, then **Save preflight
+   & start flight**.
+4. After landing, choose **End flight** beside the started flight on the
+   Flight log. Enter the ending readings and choose **End flight & save**.
 
 "Preflight is saved in this browser on this device." Return on the same
-device to end the flight.
+device to end the flight. **Cancel flight** removes a started flight; no hours
+are recorded.
 
 ### Import a logbook
 
@@ -77,18 +81,32 @@ flight."
 
 ### Flights held for review
 
-A flight that reaches the server after the aircraft moved on is held:
-status **Needs review**. It does not change the aircraft's totals until an
-administrator decides. Nothing is lost. The reasons, checked in this order:
+What happens to a flight after you save it:
 
-| Reason shown                                                                                                                             | Usual cause                                             |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| "The aircraft was grounded during this flight."                                                                                          | A grounding problem was reported while flying           |
-| "Aircraft totals changed after this entry was started."                                                                                  | Someone else logged a flight first                      |
-| "Flight predates an aircraft counter change and requires chronology review."                                                             | The aircraft's totals were corrected after this flight  |
-| "Backdated or duplicate-time flight requires a chronology review."                                                                       | The start time is before the aircraft's latest flight   |
-| "Hobbs reading is lower than the current counter." (or Tach, Flight time log)                                                            | A typing slip, or a missed flight                       |
-| "Hobbs reading is N hours past the current counter, longer than any single flight. Check for a missed decimal point or a decimal comma." | More than 24 hours on a meter: usually 23425 for 2342.5 |
+```mermaid
+flowchart TD
+  A["Save flight"] --> B["Saved on this device, listed in Sync center"]
+  B -->|"connected"| C{"The server checks the entry"}
+  C -->|"refused, for example a grounded aircraft"| D["Stays in Sync center: Needs attention"]
+  D -->|"Edit and retry"| B
+  C -->|"a hold reason applies"| E["Needs review: totals unchanged"]
+  C -->|"nothing in the way"| F["Accepted: totals advance"]
+  E --> G{"An administrator chooses Review"}
+  G -->|"Accept corrected entry and recalculate totals"| F
+  G -->|"Reject entry and exclude it from totals"| H["Rejected: left out of totals"]
+```
+
+A flight that reaches the server after the aircraft moved on is held, not
+lost. The reasons, checked in this order:
+
+| Reason shown                                                                                                                             | Usual cause                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| "The aircraft was grounded during this flight."                                                                                          | A grounding problem was reported while flying               |
+| "Aircraft totals changed after this entry was started."                                                                                  | Someone else logged a flight first                          |
+| "Flight predates an aircraft counter change and requires chronology review."                                                             | The aircraft's totals were corrected after this flight      |
+| "Backdated or duplicate-time flight requires a chronology review."                                                                       | The start time is at or before the aircraft's latest flight |
+| "Hobbs reading is lower than the current counter." (or Collective hourmeter, Flight time log, Tach)                                      | A typing slip, or a missed flight                           |
+| "Hobbs reading is N hours past the current counter, longer than any single flight. Check for a missed decimal point or a decimal comma." | More than 24 hours on a meter: usually 23425 for 2342.5     |
 
 Several flights logged offline on one aircraft are queued in order, so the
 later legs are not held. If an earlier leg is held, the later legs are held
@@ -112,9 +130,10 @@ Accepting rebuilds the totals and later flights.
 
 ### Correct a flight
 
-Administrators choose **Correct** on an accepted flight. It opens the same
-form with a **Review decision** and a required **Explanation**: accept the
-corrected entry, or reject it to exclude it from totals. The original stays in
+Flight Program administrators choose **Correct** on an accepted or rejected
+flight. It opens the same form with a **Review decision** and a required
+**Explanation**: accept the corrected entry, or reject it to exclude it from
+totals. The original stays in
 Change history. Corrections need a connection. Oil already issued from stock is
 not returned; fix stock with an inventory adjustment.
 
@@ -147,7 +166,8 @@ for a month, to tick against the paper logbook. See
 ## Load older
 
 The log holds the last 6 months of flights, plus every held flight. **Load
-older** under the list fetches older flights page by page. It needs a
+older** under the list (after any **Show more**) fetches older flights 50 at a
+time, for the chosen aircraft and status. It needs a
 connection; offline it reads "Older records need a connection". The search,
 counts and charts cover the flights loaded. See
 [what the device keeps](Offline.md#what-the-device-keeps).
