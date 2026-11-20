@@ -220,7 +220,7 @@ function cellValue(v: Cell): ExcelJS.CellValue {
   );
   return text.length > MAX_CELL_TEXT
     ? text.slice(0, MAX_CELL_TEXT) +
-        "\n… (shortened here; the encrypted backup holds the full record)"
+        "\n… (shortened here; the off-site backup holds the full record)"
     : text;
 }
 

@@ -97,13 +97,20 @@ case "$1" in
           # Convex Auth's tables. The session, refresh token, code and
           # verifier rows carry the fake secrets the plain mode must drop.
           mkdir -p "$src"/{authAccounts,authSessions,authRefreshTokens,authVerificationCodes,authVerifiers,authRateLimits}
+          case "$mode" in
+            extra-auth) mkdir -p "$src/authPasskeys" && echo '{"_id":"pk1"}' >"$src/authPasskeys/documents.jsonl" ;;
+            component-auth)
+              mkdir -p "$src/_components/auth/authSessions"
+              echo '{"_id":"cs1"}' >"$src/_components/auth/authSessions/documents.jsonl" ;;
+          esac
           printf '{"_id":"acc1","userId":"u1","provider":"password","secret":"$2a$fake-password-hash"}\n' >"$src/authAccounts/documents.jsonl"
           printf '{"_id":"fake-session-id-71c3","userId":"u1"}\n' >"$src/authSessions/documents.jsonl"
           printf '{"_id":"fake-refresh-token-id-2d8e","sessionId":"fake-session-id-71c3"}\n{"_id":"fake-refresh-token-id-9a01","sessionId":"fake-session-id-71c3"}\n' >"$src/authRefreshTokens/documents.jsonl"
           printf '{"_id":"vc1","accountId":"acc1","code":"fake-reset-code-hash-55b2"}\n' >"$src/authVerificationCodes/documents.jsonl"
           printf '{"_id":"fake-verifier-id-0e4f","signature":"fake-verifier-signature"}\n' >"$src/authVerifiers/documents.jsonl"
           printf '{"_id":"rl1","identifier":"pilot@example.org","attemptsLeft":5}\n' >"$src/authRateLimits/documents.jsonl"
-          echo '{"type":"object"}' >"$src/authSessions/generated_schema.jsonl"
+          echo '{"type":"object","fake-schema-hint":"fake-session-schema-4c1d"}' >"$src/authSessions/generated_schema.jsonl"
+          [[ "$mode" != no-verifiers ]] || rm -rf "$src/authVerifiers"
         fi
         (cd "$src" && zip -qrX "$path" .)
         rm -rf "$src"
@@ -303,21 +310,27 @@ all_age_encrypted() { # all_age_encrypted <bucket folder>
 
 # The Convex Auth tables a plain copy keeps but empties (ADR-0014).
 sign_in_tables=(authSessions authRefreshTokens authVerificationCodes authVerifiers)
-sign_in_secrets=(fake-session-id-71c3 fake-refresh-token-id-2d8e fake-refresh-token-id-9a01 fake-reset-code-hash-55b2 fake-verifier-id-0e4f fake-verifier-signature)
+sign_in_secrets=(fake-session-id-71c3 fake-refresh-token-id-2d8e fake-refresh-token-id-9a01 fake-reset-code-hash-55b2 fake-verifier-id-0e4f fake-verifier-signature fake-session-schema-4c1d)
 zip_entry() { unzip -p "$1" "$2" 2>/dev/null; }
 sign_in_tables_empty() { # sign_in_tables_empty <zip>: present, with no rows
   local table
   for table in "${sign_in_tables[@]}"; do
-    unzip -Z1 "$1" | grep -qxF "$table/documents.jsonl" || return 1
+    # grep -q would exit at the first match and fail unzip's write under
+    # pipefail; read the whole listing instead.
+    grep -xF "$table/documents.jsonl" <<<"$(unzip -Z1 "$1")" >/dev/null || return 1
     [[ -z "$(zip_entry "$1" "$table/documents.jsonl")" ]] || return 1
   done
+}
+generated_schema_blank() { # generated_schema_blank <zip>: authSessions' schema kept but empty
+  grep -xF "authSessions/generated_schema.jsonl" <<<"$(unzip -Z1 "$1")" >/dev/null &&
+    [[ -z "$(zip_entry "$1" authSessions/generated_schema.jsonl)" ]]
 }
 same_entries_except_sign_in() { # same_entries_except_sign_in <stripped zip> <export>
   local entry table skip
   [[ "$(unzip -Z1 "$1" | LC_ALL=C sort)" == "$(unzip -Z1 "$2" | LC_ALL=C sort)" ]] || return 1
   while IFS= read -r entry; do
     skip=false
-    for table in "${sign_in_tables[@]}"; do [[ "$entry" != "$table/documents.jsonl" ]] || skip=true; done
+    for table in "${sign_in_tables[@]}"; do [[ "${entry%/*}" != "$table" ]] || skip=true; done
     [[ "$skip" == true ]] || cmp -s <(zip_entry "$1" "$entry") <(zip_entry "$2" "$entry") || return 1
   done < <(unzip -Z1 "$2")
 }
@@ -489,6 +502,7 @@ plain_file="$(bucket_dir)/$plain_key"
 check "daily object is a valid ZIP" unzip -tq "$plain_file"
 check "it empties the sign-in tables but keeps them in the ZIP" sign_in_tables_empty "$plain_file"
 check "no session, refresh token, code or verifier value is left in it" sign_in_secrets_absent "$plain_file"
+check "it also blanks a stripped table's generated_schema.jsonl, keeping the entry" generated_schema_blank "$plain_file"
 check "it keeps users, authAccounts (password hashes) and records" \
   test "$(zip_entry "$plain_file" users/documents.jsonl | wc -l) $(zip_entry "$plain_file" authAccounts/documents.jsonl | wc -l) $(zip_entry "$plain_file" aircraft/documents.jsonl | wc -l)" = "2 1 3"
 check "it keeps every other entry byte for byte, uploaded files included" \
@@ -576,6 +590,18 @@ check "plain: daily object already there: never overwritten" \
   fails grep -q " s3 cp .* s3://angelone-backups/daily/" "$state/aws-calls.log"
 failure_case plain-export-no-users "plain: export with no user accounts" BACKUP_AGE_PUBLIC_KEY= FAKE_EXPORT=no-users
 check "plain: export with no user accounts: nothing uploaded" test -z "$(objects)"
+failure_case plain-missing-sign-in "plain: a sign-in table missing from the export" BACKUP_AGE_PUBLIC_KEY= FAKE_EXPORT=no-verifiers
+check "plain: a sign-in table missing: says the list is out of date" output_says "has no authVerifiers table"
+check "plain: a sign-in table missing: nothing uploaded" test -z "$(objects)"
+failure_case plain-extra-auth "plain: an auth table outside the allowlist" BACKUP_AGE_PUBLIC_KEY= FAKE_EXPORT=extra-auth
+check "plain: an unknown auth table: names it" output_says "not on the sign-in allowlist: authPasskeys"
+check "plain: an unknown auth table: nothing uploaded" test -z "$(objects)"
+failure_case plain-component-auth "plain: an auth table in a component" BACKUP_AGE_PUBLIC_KEY= FAKE_EXPORT=component-auth
+check "plain: an auth table in a component: names it" output_says "not on the sign-in allowlist: _components/auth/authSessions"
+check "plain: an auth table in a component: nothing uploaded" test -z "$(objects)"
+fresh_bucket encrypted-extra-auth
+run_backup encrypted-extra-auth FAKE_EXPORT=extra-auth
+check "encrypted: an unknown auth table changes nothing, the full export is stored" exited_ok
 fresh_bucket plain-record-fails
 run_backup plain-record-fails BACKUP_AGE_PUBLIC_KEY= FAKE_RECORD=fail
 check "plain: recording fails after a good backup: exits non-zero and says so" \

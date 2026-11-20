@@ -5,7 +5,7 @@
  * Dependencies: ./exportSnapshot, ./xlsxWriter, src/domain (statuses,
  *   labels and rules).
  *
- * A copy for reading; the logbooks and the encrypted R2 backup (ADR-0008) are
+ * A copy for reading; the logbooks and the off-site R2 backup (ADR-0008) are
  * the records. Every status and label comes from src/domain, so the workbook
  * says what the app says.
  */
@@ -1960,11 +1960,11 @@ const COLOUR_LEGEND: [Tone, string, string][] = [
 const INTRO_FACTS: [string, string][] = [
   [
     "What this file is",
-    "A readable copy of the Angel One maintenance-records system, made automatically every night from the same export as the encrypted backup. It opens in Excel, Numbers or Google Sheets.",
+    "A readable copy of the Angel One maintenance-records system, made automatically every night from the same export as the off-site backup. It opens in Excel, Numbers or Google Sheets.",
   ],
   [
     "Official records",
-    "This copy is for reading only. The official records are the aircraft logbooks and the encrypted backup kept in Cloudflare R2. If this file disagrees with them, they are right. Changes made here are not saved anywhere else.",
+    "This copy is for reading only. The official records are the aircraft logbooks and the off-site backup kept in Cloudflare R2. If this file disagrees with them, they are right. Changes made here are not saved anywhere else.",
   ],
 ];
 const TABLES_FACT: [string, string] = [
@@ -2009,7 +2009,7 @@ export async function buildRecordsWorkbook(
     out: options.out,
     now,
     made,
-    subtitle: `Times in ${clock.name} · status as of ${clock.dateText(today)} · copy for reading; the logbooks and encrypted backup are the records`,
+    subtitle: `Times in ${clock.name} · status as of ${clock.dateText(today)} · copy for reading; the logbooks and off-site backup are the records`,
     readMe: {
       title: "Angel One records: readable copy",
       facts,
@@ -2111,7 +2111,7 @@ function notInCopyText(storageFiles: number) {
     storageFiles === 1
       ? " (manual, photo or attachment) is"
       : "s (manuals, photos and attachments) are";
-  return `Passwords, sign-in records, saved credentials and file links are never included. ${storageFiles} uploaded file${files} kept only in the encrypted backup.`;
+  return `Passwords, sign-in records, saved credentials and file links are never included. ${storageFiles} uploaded file${files} kept only in the off-site backup.`;
 }
 
 function historySplitFact(parts: number): [string, string] {

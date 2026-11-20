@@ -13,9 +13,9 @@ The nightly job refused to run without the age public key `BACKUP_AGE_PUBLIC_KEY
 
 ## What a copy holds
 
-The whole Convex export with its uploaded files: every aircraft record and the change log; users' names, emails and certificate numbers; licence and certificate copies and other attachments; sign-in password hashes (`authAccounts`); and the saved FAA, Geoapify and Aircraft Spruce credentials, which stay sealed with `CREDENTIALS_ENCRYPTION_KEY` (that key is not in the export).
+The whole Convex export with its uploaded files: every aircraft record and the change log; users' names, emails and certificate numbers; licence and certificate copies and other attachments; sign-in password hashes (`authAccounts`); users' Web Push subscriptions (`pushSubscriptions`), which cannot be used to send alerts without the VAPID private key, an environment variable that is not in the export; and the saved FAA, Geoapify and Aircraft Spruce credentials, which stay sealed with `CREDENTIALS_ENCRYPTION_KEY` (that key is not in the export).
 
-**Left out of an unencrypted copy**: the rows of the Convex Auth tables that let someone sign in with a copy. `authSessions` (live sessions), `authRefreshTokens` (a refresh token is its row id joined to its session id, so a copied row is a working token), `authVerificationCodes` (sign-in and password-reset codes) and `authVerifiers` (OAuth sign-in verifiers) are kept in the ZIP but emptied before it is hashed and uploaded. `users` and `authAccounts` stay: a restore needs them, and a password hash lets nobody sign in without cracking it. `authRateLimits` stays too; it holds no credential. After restoring an unencrypted copy everyone must sign in again, which is harmless. An encrypted copy keeps the full export.
+**Left out of an unencrypted copy**: the rows of the Convex Auth tables that let someone sign in with a copy. `authSessions` (live sessions), `authRefreshTokens` (a refresh token is its row id joined to its session id, so a copied row is a working token), `authVerificationCodes` (sign-in and password-reset codes) and `authVerifiers` (OAuth sign-in verifiers) are kept in the ZIP but emptied, `documents.jsonl` and `generated_schema.jsonl` alike, before it is hashed and uploaded. A plain run fails, uploading nothing, if one of those four is missing from the export or if it holds any other `auth*` table (at the top level or in a component) than those four, `authAccounts` and `authRateLimits`: a new auth table must be judged before a plain copy carries it. `users` and `authAccounts` stay: a restore needs them, and a password hash lets nobody sign in without cracking it. `authRateLimits` stays too; it holds no credential. After restoring an unencrypted copy everyone must sign in again, which is harmless. An encrypted copy keeps the full export.
 
 ## How it works
 
@@ -31,6 +31,7 @@ The whole Convex export with its uploaded files: every aircraft record and the c
 - After losing the Convex account, a restore has no saved environment variables: administrators re-enter the saved FAA, Geoapify and Aircraft Spruce credentials, and new sign-in keys are made with `npm run setup:auth`. Keeping `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager avoids the first.
 - The bucket must stay private: no public access, no `r2.dev` address and no custom domain on it. The job only reads and writes objects with the R2 token; it never changes the bucket's access.
 - Leaking the R2 token or the Cloudflare login is now exposure of all records to date (SEV1 in the [incident response runbook](../runbooks/incident-response.md)).
+- If a key is later added and then removed, copies silently go back to unencrypted, as Aaron asked: no separate switch is needed. The summary heading (`NOT ENCRYPTED`), a warning in the run, the object names and the manifest say so.
 - No age key pair to make, store, escrow or rehearse while encryption is off.
 
 ## Considered options

@@ -321,7 +321,7 @@ describe("records workbook", () => {
       .filter((c) => c.sheet === "Read me")
       .map((c) => c.value)
       .join("\n");
-    expect(readMe).toContain("aircraft logbooks and the encrypted backup");
+    expect(readMe).toContain("aircraft logbooks and the off-site backup");
     expect(readMe).toContain("for reading only");
     expect(readMe).toContain("fixture deployment");
     expect(readMe).toContain("Eastern Time (America/New_York)");

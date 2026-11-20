@@ -12,7 +12,7 @@ import ExcelJS from "exceljs";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { MAX_DATA_ROWS, writeWorkbook, type SheetSpec } from "./xlsxWriter";
 
-const NOTE = "\n… (shortened here; the encrypted backup holds the full record)";
+const NOTE = "\n… (shortened here; the off-site backup holds the full record)";
 const RED = "FFF8D7DA";
 const GREEN = "FFD1E7DD";
 const ITEMS: SheetSpec = {
