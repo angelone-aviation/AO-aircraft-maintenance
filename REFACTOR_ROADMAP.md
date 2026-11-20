@@ -272,6 +272,8 @@ Raised by the audit; not batches. Update as batches find more.
     - `--navy`, `--brand-blue`, the `--on-navy-*` tokens (`src/styles/tokens.css`) and `RoundButton`'s `onNavy` are kept only for the dark panels of screens not yet moved to the white language (`dashboard.css`, `operations.css`, `checklists.css`). Remove them when no screen sheet uses them.
     - `.tabs`, `.search`, `.stats`/`.stat`, `.row-icon` and `.empty` in `src/styles.css` duplicate `Segmented`, `SearchField`, `KpiStrip`, `IconTile` and `EmptyState`; move their callers to the components and delete the classes.
 
+71. **TODO (S4): the Costs report reads only the workspace's costs.** History paging (D3, S6) moved every screen and export that needs full history onto the paged queries except the Costs report (`src/components/Costs.tsx`, `src/domain/costs/report.ts`) and the change-log visibility rule for cost rows (`src/domain/programs.ts:493`, `convex/auditHistory.ts:199`). Both wait for S4's cost report query over `costLedger`; until then, once S7 turns the window on, the report would total only the last three months' work orders. Wire the Costs report to that query in S4, before S7. See [history paging](docs/history-paging.md), "Left for S7".
+
 ## Tier 1: foundation and leaf modules
 
 Dependency order: modules with no internal imports first, most-imported first. Each batch is a module with its colocated test, or up to three small sibling modules.
