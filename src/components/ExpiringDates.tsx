@@ -40,7 +40,7 @@ const STATUS_TONES: Record<ExpiringStatus, Tone> = {
 };
 const DESCRIPTIONS: Record<ExpiringScope, string> = {
   system:
-    "Dates the deployment must renew: the Cloudflare token, the sign-in client secret, security.txt, the push keys. Only system administrators see them; an alert goes out from the warning window and when a date passes.",
+    "Dates the deployment must renew: the Cloudflare token, the FAA DRS API key, security.txt, the push keys. Only system administrators see them; an alert goes out from the warning window and when a date passes.",
   program:
     "Insurance, registration and other renewals for this Flight Program, with an aircraft where one applies. Program administrators see them; an alert goes out from the warning window and when a date passes.",
 };

@@ -6,8 +6,8 @@
  * Dependencies: zod, ./model (types), ./programs, ./changeLog,
  *   ./commandRequest, ./rejection, ./faaCredential.
  *
- * An item without a Flight Program is system-wide (a Cloudflare token, a
- * sign-in client secret): only system administrators see and edit it. A
+ * An item without a Flight Program is system-wide (a Cloudflare token,
+ * security.txt): only system administrators see and edit it. A
  * program's items are its administrators'. Archiving hides an item and keeps
  * it, as every record here is kept.
  */
