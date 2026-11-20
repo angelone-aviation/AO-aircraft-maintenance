@@ -5,12 +5,12 @@ shows them.
 
 ## Signing in
 
-| Message                                                                                                                                | Fix                                                                                                                                                              |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Email or password is incorrect. After too many wrong tries, sign-in pauses for a while; your administrator can reset your password."  | Check both. After 10 wrong tries in an hour, sign-in pauses: one more try is allowed every 6 minutes. A system administrator's password reset clears it at once. |
-| "Connect to sign in for the first time on this device."                                                                                | Connect, then sign in                                                                                                                                            |
-| **Time to reconnect.** "Your seven-day offline access has expired. Pending entries are preserved. Sign in again to continue."          | Connect and **Return to sign in**. Use the same account so your entries sync.                                                                                    |
-| "This device's clock is behind the time you signed in. Set the date and time to update automatically, then reopen the app."            | Turn on automatic date and time                                                                                                                                  |
+| Message                                                                                                                               | Fix                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Email or password is incorrect. After too many wrong tries, sign-in pauses for a while; your administrator can reset your password." | Check both. After 10 wrong tries in an hour, sign-in pauses: one more try is allowed every 6 minutes. A system administrator's password reset clears it at once. |
+| "Connect to sign in for the first time on this device."                                                                               | Connect, then sign in                                                                                                                                            |
+| **Time to reconnect.** "Your seven-day offline access has expired. Pending entries are preserved. Sign in again to continue."         | Connect and **Return to sign in**. Use the same account so your entries sync.                                                                                    |
+| "This device's clock is behind the time you signed in. Set the date and time to update automatically, then reopen the app."           | Turn on automatic date and time                                                                                                                                  |
 
 ## The app will not open
 

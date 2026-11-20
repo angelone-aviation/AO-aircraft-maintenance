@@ -8,23 +8,23 @@ Every outside service Angel One uses: what it does, which plan, what it costs, w
 
 ## At a glance
 
-| Service                                   | Plan                           | Cost today                             | Needed?                    |
-| ----------------------------------------- | ------------------------------ | -------------------------------------- | -------------------------- |
-| Convex                                    | Professional, 1 seat           | $25 a month                            | Yes: the whole backend     |
-| Cloudflare Workers (website)              | Free                           | $0                                     | Yes                        |
-| Cloudflare R2 (backups)                   | Free tier                      | $0                                     | Yes, for off-site backups  |
-| Cloudflare DNS                            | Zone on Cloudflare             | $0 (no paid plan in use)               | Yes                        |
-| GitHub (code, CI, Deploy, backups)        | Free, public repository        | $0                                     | Yes                        |
-| Resend (email)                            | Free                           | $0                                     | For alert emails           |
-| Web Push (Google, Apple, Mozilla)         | No account                     | $0                                     | For device alerts          |
-| Better Stack (uptime, backup heartbeat)   | Free                           | $0                                     | Recommended                |
-| Domain registrar (`angeloneaviation.org`) | Not known                      | Not known; about $11 a year (estimate) | Yes                        |
-| FAA DRS API key                           | Key from the FAA               | Not known                              | For AD monitoring          |
-| Geoapify (address lookup)                 | Free                           | $0                                     | Optional feature           |
-| Aircraft Spruce                           | The program's customer account | Not known                              | Optional feature           |
-| Google Workspace                          | Organisation email             | Not part of the app's cost             | No                         |
-| Dropbox                                   | Optional readable copy         | $0 if on Basic                         | No                         |
-| Sentry                                    | Not used                       | $0                                     | No                         |
+| Service                                   | Plan                           | Cost today                             | Needed?                   |
+| ----------------------------------------- | ------------------------------ | -------------------------------------- | ------------------------- |
+| Convex                                    | Professional, 1 seat           | $25 a month                            | Yes: the whole backend    |
+| Cloudflare Workers (website)              | Free                           | $0                                     | Yes                       |
+| Cloudflare R2 (backups)                   | Free tier                      | $0                                     | Yes, for off-site backups |
+| Cloudflare DNS                            | Zone on Cloudflare             | $0 (no paid plan in use)               | Yes                       |
+| GitHub (code, CI, Deploy, backups)        | Free, public repository        | $0                                     | Yes                       |
+| Resend (email)                            | Free                           | $0                                     | For alert emails          |
+| Web Push (Google, Apple, Mozilla)         | No account                     | $0                                     | For device alerts         |
+| Better Stack (uptime, backup heartbeat)   | Free                           | $0                                     | Recommended               |
+| Domain registrar (`angeloneaviation.org`) | Not known                      | Not known; about $11 a year (estimate) | Yes                       |
+| FAA DRS API key                           | Key from the FAA               | Not known                              | For AD monitoring         |
+| Geoapify (address lookup)                 | Free                           | $0                                     | Optional feature          |
+| Aircraft Spruce                           | The program's customer account | Not known                              | Optional feature          |
+| Google Workspace                          | Organisation email             | Not part of the app's cost             | No                        |
+| Dropbox                                   | Optional readable copy         | $0 if on Basic                         | No                        |
+| Sentry                                    | Not used                       | $0                                     | No                        |
 
 ## Totals
 
