@@ -4,13 +4,14 @@
  *   monitoring) and the dashboard's AD alerts.
  * Layer: UI. React components; AD rules live in src/domain.
  * Dependencies: src/data (store, adImport, historyLoads, adReport on
- *   demand), src/domain
- *   (airworthiness, faa, listSearch and the AD helpers), ./design, ./ui,
- *   ./TermTip and the AD, FAA, parts and ops components.
+ *   demand), src/domain (airworthiness, faa, listSearch and the AD helpers),
+ *   ./design, ./ui, ./TermTip, ./WorkOrderNumber and the AD, FAA, parts and
+ *   ops components.
  */
 import { ADTrackingFields } from "./ADTrackingFields";
 import { localDate, type Snapshot } from "../domain/model";
 import { ADWorkOrderButton } from "./ADWorkOrderButton";
+import { WorkOrderNumber } from "./WorkOrderNumber";
 import { isPilotView } from "../domain/pilotView";
 import { adRemaining } from "../domain/adRemaining";
 import { memberLicense } from "../domain/certifications";
@@ -873,9 +874,7 @@ function TaskParts({ ad, task: t }: ADProps & { task: ADTask }) {
       <RequestPartsButton source={partsSource(t)} />
       {t.workOrderUuid && (
         <Link to="/work-orders">
-          Work order:{" "}
-          {ad.workOrders.find((w) => w.uuid === t.workOrderUuid)?.number ||
-            t.workOrderUuid}
+          Work order: <WorkOrderNumber uuid={t.workOrderUuid} />
         </Link>
       )}
     </>

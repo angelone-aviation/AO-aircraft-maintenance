@@ -8,7 +8,7 @@
  *   purchaseOrders, purchaseOrderRules, shelfLife, aircraftSpruce,
  *   costs/units),
  *   ./AircraftSpruce, ./Vendors, ./CoreReturns, ./SavedAddresses, ./ShopList,
- *   ./NumberInput, ./ui, ./design, ./FileLink, CSS.
+ *   ./NumberInput, ./ui, ./design, ./FileLink, ./WorkOrderNumber, CSS.
  */
 import { SpruceProductPicker, SpruceOrderProgress } from "./AircraftSpruce";
 import { localDate, type Snapshot } from "../domain/model";
@@ -85,6 +85,7 @@ import {
 } from "@phosphor-icons/react";
 import "./purchaseOrders.css";
 import { CoreReturns } from "./CoreReturns";
+import { WorkOrderNumber } from "./WorkOrderNumber";
 
 const ORDER_TABLE_STYLE = { "--shop-table-min": "860px" } as CSSProperties;
 // The preview tab reads the PDF through this URL, so it must outlive the load.
@@ -1444,7 +1445,7 @@ function OrderLineDestination({ line: l, s }: { line: POLine; s: Snapshot }) {
       <small className="block">
         {s.aircraft.find((a) => a.uuid === l.aircraftUuid)?.registration}{" "}
         {s.inspections.find((i) => i.uuid === l.inspectionUuid)?.reference}{" "}
-        {s.workOrders?.find((w) => w.uuid === l.workOrderUuid)?.number}
+        {l.workOrderUuid && <WorkOrderNumber uuid={l.workOrderUuid} />}
       </small>
     </td>
   );
