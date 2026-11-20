@@ -76,5 +76,5 @@ The few rules that matter most, by who you are. Each links to the page with the 
 - **Secrets never go in the repository.** It is public. A leaked secret is rotated first ([incident runbook](../../runbooks/incident-response.md#leaked-secret)).
 - **Keep the nightly backup alive, and rehearse a restore.** The first off-site copy was made on 20 Nov 2026; no restore has been rehearsed yet ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)). Read failure emails, and keep the repository active, because GitHub stops scheduled runs after 60 days without a commit ([checklists](../3-running-it/checklists.md)).
 - **Never reconnect Cloudflare's own Git build.** Only the GitHub Deploy workflow publishes the website ([risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
-- **Dated renewals:** renew `security.txt` before 2027-09-04 (it expires 2027-10-04); the FAA DRS key before 2027-10-14 ([checklists](../3-running-it/checklists.md#one-off-and-dated)).
+- **Dated renewals:** renew `security.txt` before 2027-09-04 (it expires 2027-10-04); the FAA DRS key before its expiry date, if one is set up (none is today) ([checklists](../3-running-it/checklists.md#one-off-and-dated)).
 - **Follow [CONSTRAINTS.md](../../../CONSTRAINTS.md)** and run `npm run check` and `npm run test:e2e` before a change ships.

@@ -19,7 +19,7 @@ timeline
     Jan to Mar : Quarterly round : Raise node-version before Node 22 ends in April
     Apr to Jun : Quarterly round
     Jul to Sep : Quarterly round : Renew security.txt before 4 September
-    Oct to Dec : Quarterly round : Renew the FAA DRS key before 14 October
+    Oct to Dec : Quarterly round
 ```
 
 The twice-a-year and yearly tasks have no fixed date: do each with a quarterly round.
@@ -83,7 +83,7 @@ Budget 1–2 hours.
 - [ ] **The first restore rehearsal.** Aaron, about 1 hour. The backup set-up is done and the first run passed on 20 Nov 2026; a restore is not proven until this passes ([rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal)).
 - [ ] **Add `security.txt` to the expiring dates.** Aaron, 5 min. Settings → System → **Deployment expiring dates**, expiring 2027-10-04.
 - [ ] **Renew `security.txt` before 2027-09-04.** Aaron, 15 min. It expires **2027-10-04**. Set `Expires` about 11 months ahead in [`public/.well-known/security.txt`](../../../public/.well-known/security.txt), check `Contact` still reaches someone, deploy.
-- [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry ([airworthiness](../../airworthiness.md)).
+- [ ] **Renew the FAA DRS key before its expiry date, if one is set up.** Aaron, 15 min. None is set up today ([accounts](../../runbooks/accounts.md)). Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry; the app warns from 60 days before ([airworthiness](../../airworthiness.md)).
 - [ ] **Fill the password manager.** Aaron, 30 min. Save everything in [its checklist](credentials.md#your-password-manager-should-hold), recovery codes included.
 - [ ] **Optional: take R2 off the deploy token.** Aaron, 5 min. Cloudflare → My Profile → API Tokens → **Edit Cloudflare Workers**: remove its "Workers R2 Storage" permission; the site uses no R2 ([risks R23](../4-money-and-risk/risks.md#r23-the-deploy-token-can-reach-every-r2-bucket)).
 - [ ] **Keep the credential key safe.** Aaron, 5 min, now that backups are unencrypted ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)). Recommended: keep `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager: the backup job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.

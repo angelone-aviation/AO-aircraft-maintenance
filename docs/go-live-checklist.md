@@ -60,6 +60,6 @@ Still to do:
 
 ## Recurring tasks
 
-The daily, weekly, monthly, quarterly and yearly tasks, with who does each and how long it takes, are in the handbook's [checklists](handbook/3-running-it/checklists.md). The dated renewals (`security.txt` before 2027-09-04, because RFC 9116 treats an expired file as stale; the FAA DRS API key before 2027-10-14) are under [One-off and dated](handbook/3-running-it/checklists.md#one-off-and-dated).
+The daily, weekly, monthly, quarterly and yearly tasks, with who does each and how long it takes, are in the handbook's [checklists](handbook/3-running-it/checklists.md). The dated renewals (`security.txt` before 2027-09-04, because RFC 9116 treats an expired file as stale; the FAA DRS API key before its expiry date, if one is set up) are under [One-off and dated](handbook/3-running-it/checklists.md#one-off-and-dated).
 
 Budget about one to two hours a quarter. The built website keeps working untouched, but three things rot if nobody looks: the sign-in library (pre-release, with security fixes every few months), the GitHub Actions runners that run CI, deploys and the nightly backup (GitHub retires old Node versions and runner images), and the keys and dates that expire.

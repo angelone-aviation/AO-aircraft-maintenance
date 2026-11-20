@@ -85,10 +85,10 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ### R7. Expiring FAA key and `security.txt`
 
-- **Risk:** the FAA DRS key expires 14 Oct 2027 and `security.txt` on 4 Oct 2027.
-- **Likelihood:** Medium: dates a year away are easy to miss.
+- **Risk:** `security.txt` expires on 4 Oct 2027, and an FAA DRS key, once one is set up, expires on the date the FAA gives it (none is set up today: [accounts](../../runbooks/accounts.md)).
+- **Likelihood:** Medium: dates a year or more away are easy to miss.
 - **Impact:** Medium: automatic AD monitoring stops (ADs can still be entered by hand), or the disclosure file goes stale.
-- **What reduces it:** the app warns about the FAA key from 60 days before, and both dates are on the dated [checklists](../3-running-it/checklists.md#one-off-and-dated).
+- **What reduces it:** the app warns about a saved FAA key from 60 days before its expiry, and both renewals are on the dated [checklists](../3-running-it/checklists.md#one-off-and-dated).
 - **Who acts:** Aaron.
 - **Status:** Reduced. Left: add `security.txt` under Settings → System → **Deployment expiring dates**, so the app warns about it too.
 
@@ -166,12 +166,12 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ### R16. Account inventory and incident contacts are incomplete
 
-- **Risk:** nobody else knows who holds Resend, the FAA key, Geoapify or Aircraft Spruce, where the `angeloneonline.org` DNS zone is hosted, or who the incident contacts and the break-glass administrator are.
+- **Risk:** nobody else knows who holds SMTP2GO or the A2 Hosting cPanel, what the `forge.rmta.net` sending records are for, or who the incident contacts and the break-glass administrator are. Two of the gaps touch email: the email domain's DNS is run by a third party, Wix, apart from SiteGround and Cloudflare, and the app's domain carries sending records for two services whose holders nobody knows yet: SMTP2GO, and whatever uses `forge.rmta.net`.
 - **Likelihood:** Medium: most of the [accounts list](../../runbooks/accounts.md) was filled in on 20 Nov 2026, but some answers and the incident contacts are still missing.
 - **Impact:** Medium: it slows every incident and renewal, and makes R3 and R4 worse.
-- **What reduces it:** filling in the rest of [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md).
-- **Who acts:** Aaron; the operations staff member for the domains.
-- **Status:** Reduced (20 Nov 2026). Known: Aaron owns Convex; both domains are registered at SiteGround, with the login held by the operations staff member, who also administers Google Workspace and reads `accounts@angeloneonline.org`; Cloudflare and Better Stack share that mailbox as their login (R24); Angel One pays for the services. Still to find out: DNS for `angeloneonline.org`, Resend, the FAA key, Geoapify, Aircraft Spruce, the A2 Hosting cPanel and the break-glass administrator.
+- **What reduces it:** filling in the rest of [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md); keeping the unidentified sending records until their owner is known, then removing any nobody uses.
+- **Who acts:** Aaron; the operations staff member for the domains, Wix and the website's email.
+- **Status:** Reduced (20 Nov 2026). Known: Aaron owns Convex and Resend (on the shared mailbox login); both domains are registered at SiteGround, with the login held by the operations staff member, who also holds the Wix login for `angeloneonline.org`'s DNS, administers Google Workspace and reads `accounts@angeloneonline.org`; Cloudflare and Better Stack share that mailbox as their login (R24); SMTP2GO sends the public website's contact form; the FAA key, Geoapify and Aircraft Spruce are not set up; Angel One pays for the services. Still to find out: who holds SMTP2GO, what uses the `forge.rmta.net` records, the A2 Hosting cPanel and the break-glass administrator.
 
 ### R17. The auth library is pre-release
 
