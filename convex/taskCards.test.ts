@@ -21,6 +21,7 @@ import {
 import { MAX_ATTACHMENTS } from "./attachments";
 import {
   expectDerivedColumns,
+  expectRecordNumbers,
   forgetDerivedColumns,
 } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
@@ -222,6 +223,7 @@ it("stores a card's derived columns when it is saved and when evidence is filed 
     payload: JSON.stringify(command),
   });
   await expectDerivedColumns(t, "taskCards", [command.uuid]);
+  await expectRecordNumbers(t, "taskCards", [command.uuid]);
   // A card stored before the columns existed gets them with its evidence.
   await forgetDerivedColumns(t, "taskCards", [command.uuid]);
   await tech.action(api.taskCards.upload, {

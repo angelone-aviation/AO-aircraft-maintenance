@@ -26,6 +26,7 @@ import {
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
 import {
   expectDerivedColumns,
+  expectRecordNumbers,
   forgetDerivedColumns,
 } from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
@@ -183,6 +184,11 @@ it("stores the derived columns on each copy, and on the order whose progress it 
     copies.map((c) => c.uuid),
   );
   await expectDerivedColumns(t, "workOrders", [command.uuid]);
+  await expectRecordNumbers(
+    t,
+    "taskCards",
+    copies.map((c) => c.uuid),
+  );
 });
 it("retains captured template contents and versions when templates change or disappear", async () => {
   const { t, start, read } = await setup(2);

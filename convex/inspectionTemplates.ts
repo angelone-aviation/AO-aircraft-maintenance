@@ -5,8 +5,8 @@
  * Layer: Server. Three public mutations through runCommand; the rules are the
  *   domain's.
  * Dependencies: convex/runCommand, convex/management, convex/attachments,
- *   convex/urgentAlerts, src/domain (inspectionTemplates, activateTemplate,
- *   deleteInspectionTemplates).
+ *   convex/recordNumbers, convex/urgentAlerts, src/domain
+ *   (inspectionTemplates, activateTemplate, deleteInspectionTemplates).
  */
 import { deleteInspectionTemplates } from "../src/domain/deleteInspectionTemplates";
 import { activateTemplate } from "../src/domain/activateTemplate";
@@ -21,6 +21,7 @@ import {
 } from "./runCommand";
 import { writeInspection } from "./management";
 import { deleteBlobIfUnused } from "./attachments";
+import { dropRecordNumber } from "./recordNumbers";
 import { scheduleUrgentAlerts } from "./urgentAlerts";
 import { saveInspectionTemplates } from "../src/domain/inspectionTemplates";
 
@@ -167,6 +168,7 @@ async function deleteTemplates(
       await deleteBlobIfUnused(ctx, file.storageId);
     }
     await ctx.db.delete(docs.taskCards.find((d) => d.uuid === task.uuid)!._id);
+    await dropRecordNumber(ctx, task.uuid);
   }
   for (const template of result.templates)
     await ctx.db.delete(

@@ -1,13 +1,15 @@
 /**
  * Responsibility: Fills the history window's derived columns on rows written
- *   before they existed.
+ *   before they existed, and rebuilds the recordNumbers table.
  * Layer: Server. Internal functions run by hand with `npx convex run`; no
  *   public entry point and no change-log rows.
- * Dependencies: convex/values, convex/server, ./_generated, ./collections.
+ * Dependencies: convex/values, convex/server, ./_generated, ./collections,
+ *   ./recordNumbers.
  *
- * The window's indexes (ADR-0013) find only rows that carry the columns, so
- * every deployment holding data from before them runs the backfill once,
- * and again after restoring an older backup (docs/history-paging.md).
+ * The window's indexes (ADR-0013) find only rows that carry the columns, and
+ * numbering reads only the number rows, so every deployment holding data
+ * from before them runs both once, and again after restoring a backup
+ * (docs/history-paging.md).
  */
 import { v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
@@ -15,9 +17,21 @@ import {
   internalAction,
   internalMutation,
   type ActionCtx,
+  type MutationCtx,
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { decode, derivedColumns, flightColumns } from "./collections";
+import {
+  decode,
+  derivedColumns,
+  encode,
+  flightColumns,
+  type StoredRecord,
+} from "./collections";
+import {
+  dropRecordNumber,
+  recordNumberOf,
+  syncRecordNumber,
+} from "./recordNumbers";
 
 const BACKFILL_TABLES = [
   "flights",
@@ -41,6 +55,14 @@ const FILL_PAGE = makeFunctionReference<
   { table: BackfillTable; cursor: string | null },
   FilledPage
 >("migrations:fillHistoryColumns");
+const NUMBERED_TABLES = ["workOrders", "taskCards"] as const;
+type NumberedTable = (typeof NUMBERED_TABLES)[number];
+type RebuildStep = NumberedTable | "recordNumbers";
+const REBUILD_PAGE = makeFunctionReference<
+  "mutation",
+  { step: RebuildStep; cursor: string | null },
+  FilledPage
+>("migrations:rebuildRecordNumbersPage");
 
 /**
  * Fills the derived columns on one page of a table's rows, where any is
@@ -119,7 +141,10 @@ function columnsOf(table: BackfillTable, row: Doc<BackfillTable>): object {
   return derivedColumns(table, recordOf(table, row as Doc<PayloadTable>));
 }
 
-function recordOf(table: PayloadTable, row: Doc<PayloadTable>) {
+function recordOf<T extends PayloadTable>(
+  table: T,
+  row: { uuid: string; payload: string },
+): StoredRecord<T> {
   try {
     return decode(table, [row])[0];
   } catch (error) {
@@ -134,4 +159,119 @@ function holdsColumns(row: Doc<BackfillTable>, columns: object): boolean {
   return Object.entries(columns).every(
     ([key, value]) => row[key as keyof typeof row] === value,
   );
+}
+
+/**
+ * Brings one page of the number rows in step with the records: for a work
+ * order or job card page, writes each record's row where it is missing or
+ * differs; for a page of the number table, deletes rows whose record is no
+ * longer a live work order or job card. Writes no record and no change-log
+ * row.
+ *
+ * @param step - The table to page.
+ * @param cursor - The page; null for the first.
+ * @returns How many rows the page wrote or deleted, and the next cursor,
+ *   null once the table is done.
+ * @throws {Error} "Cannot derive the columns of <table> row <uuid>." for a
+ *   payload its schema refuses; the page then writes nothing.
+ */
+export const rebuildRecordNumbersPage = internalMutation({
+  args: {
+    step: v.union(
+      ...[...NUMBERED_TABLES, "recordNumbers" as const].map((t) =>
+        v.literal(t),
+      ),
+    ),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, { step, cursor }): Promise<FilledPage> => {
+    if (step === "recordNumbers") return pruneNumbers(ctx, cursor);
+    const page = await ctx.db
+      .query(step)
+      .paginate({ cursor, numItems: BACKFILL_PAGE });
+    let filled = 0;
+    for (const row of page.page)
+      if (await fillNumber(ctx, step, row as Doc<NumberedTable>)) filled++;
+    return { filled, cursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+/**
+ * Rebuilds the recordNumbers table from the work orders and job cards, one
+ * page per transaction: writes each record's missing or stale row, then
+ * deletes rows no live record holds (an archived or deleted job card's).
+ * Idempotent and safe beside live traffic, since every write since the
+ * table sets its row; run it until it reports 0 missing.
+ *
+ * @returns The rows written or deleted: `missing` in all, `tables` by the
+ *   table paged (`recordNumbers` counts the deleted rows).
+ * @throws {Error} {@link rebuildRecordNumbersPage}'s refusal of a damaged
+ *   payload, after the pages before it are written.
+ */
+export const rebuildRecordNumbers = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const tables: [RebuildStep, number][] = [];
+    for (const step of [...NUMBERED_TABLES, "recordNumbers" as const])
+      tables.push([step, await pageThrough(ctx, step)]);
+    return {
+      missing: tables.reduce((sum, [, written]) => sum + written, 0),
+      tables: Object.fromEntries(tables),
+    };
+  },
+});
+
+async function pageThrough(ctx: ActionCtx, step: RebuildStep) {
+  let written = 0;
+  let cursor: string | null = null;
+  do {
+    const page: FilledPage = await ctx.runMutation(REBUILD_PAGE, {
+      step,
+      cursor,
+    });
+    written += page.filled;
+    cursor = page.cursor;
+  } while (cursor !== null);
+  return written;
+}
+
+// The row is derived from the record, not the row's own number column, which
+// a row written before the columns lacks.
+async function fillNumber(
+  ctx: MutationCtx,
+  table: NumberedTable,
+  row: Doc<NumberedTable>,
+) {
+  const encoded = encode(table, recordOf(table, row));
+  const next = recordNumberOf(table, encoded)!;
+  const stored = await ctx.db
+    .query("recordNumbers")
+    .withIndex("uuid", (q) => q.eq("uuid", next.uuid))
+    .unique();
+  if (
+    stored?.aircraftUuid === next.aircraftUuid &&
+    stored.kind === next.kind &&
+    stored.key === next.key
+  )
+    return false;
+  await syncRecordNumber(ctx, table, encoded);
+  return true;
+}
+
+async function pruneNumbers(ctx: MutationCtx, cursor: string | null) {
+  const page = await ctx.db
+    .query("recordNumbers")
+    .paginate({ cursor, numItems: BACKFILL_PAGE });
+  let removed = 0;
+  for (const row of page.page) {
+    const table = row.kind === "workOrder" ? "workOrders" : "taskCards";
+    const live = await ctx.db
+      .query(table)
+      .withIndex("uuid", (q) => q.eq("uuid", row.uuid))
+      .first();
+    if (live) continue;
+    await dropRecordNumber(ctx, row.uuid);
+    removed++;
+  }
+  return { filled: removed, cursor: page.isDone ? null : page.continueCursor };
 }

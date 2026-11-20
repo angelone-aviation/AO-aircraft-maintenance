@@ -4,7 +4,8 @@
  *   one account per kind of view.
  * Layer: Test. Fixture for convex-test suites; never shipped in the build.
  * Dependencies: convex/_generated (types), convex/collections.ts (codec),
- *   src/data/demo.ts, src/domain stored-record schemas and builders.
+ *   convex/recordNumbers.ts, src/data/demo.ts, src/domain stored-record
+ *   schemas and builders.
  *
  * Volumes follow the size test's profile (per aircraft per year: 300
  * flights, 12 work orders of 15 job cards, 30 problem reports, 60 flight
@@ -16,7 +17,8 @@
  */
 import type { MutationCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel";
-import { encode } from "../../convex/collections";
+import { encode, type StoredRow } from "../../convex/collections";
+import { recordNumberOf } from "../../convex/recordNumbers";
 import { demoSnapshot } from "../../src/data/demo";
 import { adSchema } from "../../src/domain/airworthiness";
 import { costRecordSchema } from "../../src/domain/costs";
@@ -128,6 +130,7 @@ export async function seedProgramVolume(
   const blob = await ctx.storage.store(new Blob(["%PDF-1.4 evidence"]));
   const tables = gen.program(blob);
   for (let back = 1; back < years; back++) gen.pastYear(tables, back, blob);
+  tables.recordNumbers = numberRows(tables);
   for (const [table, rows] of Object.entries(tables))
     for (const row of rows) await ctx.db.insert(table as "audit", row as never);
   return {
@@ -162,6 +165,15 @@ export async function addJobCards(ctx: MutationCtx, at: number, count: number) {
     const order = gen.workOrder(aircraft, n, false);
     await ctx.db.insert("workOrders", encode("workOrders", order));
   }
+}
+
+// The number rows the app writes beside each work order and job card.
+function numberRows(tables: Record<string, Row[]>) {
+  const rows = (collection: "workOrders" | "taskCards") =>
+    tables[collection].map((row) =>
+      recordNumberOf(collection, row as StoredRow<typeof collection>),
+    );
+  return [...rows("workOrders"), ...rows("taskCards")] as Row[];
 }
 
 async function seedPeople(ctx: MutationCtx) {

@@ -27,7 +27,10 @@ import {
   workOrderComponent,
   workOrderCommand,
 } from "../tests/fixtures/workOrders";
-import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
+import {
+  expectDerivedColumns,
+  expectRecordNumbers,
+} from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -812,6 +815,9 @@ it("archives a signed task copy without signer approval, preserving signatures, 
   await expectDerivedColumns(t, "workOrders", [order.uuid]);
   await expectDerivedColumns(t, "taskCards", [template.uuid]);
   await expectDerivedColumns(t, "archivedTaskCards", [copy.uuid]);
+  await expectRecordNumbers(t, "workOrders", [order.uuid]);
+  await expectRecordNumbers(t, "taskCards", [template.uuid]);
+  await expectRecordNumbers(t, "archivedTaskCards", [copy.uuid]);
   await expect(tech.mutation(api.workOrders.save, args)).rejects.toThrow(
     "changed",
   );

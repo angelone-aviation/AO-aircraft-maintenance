@@ -4,8 +4,9 @@
  * Layer: Server. Internal mutations run by hand (docs/sample-program.md);
  *   nothing seeds automatically.
  * Dependencies: convex/access, convex/defaultGroups, convex/collections,
- *   src/domain (management, workOrders, taskCards, airworthiness, checklists,
- *   inspectionTemplates, flightPlans, purchaseOrders).
+ *   convex/recordNumbers, src/domain (management, workOrders, taskCards,
+ *   airworthiness, checklists, inspectionTemplates, flightPlans,
+ *   purchaseOrders).
  *
  * Every record says SAMPLE and fictional, so none can pass for a real
  * maintenance record, certificate, order or FAA directive.
@@ -13,6 +14,7 @@
 import { writeAudit } from "./access";
 import { ensureDefaultGroups } from "./defaultGroups";
 import { encode, flightColumns } from "./collections";
+import { syncRecordNumber } from "./recordNumbers";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { WithoutSystemFields } from "convex/server";
@@ -542,7 +544,9 @@ async function insertWorkOrder(s: Seeding, a: Sample, task: WorkTask) {
     componentReadings: [],
     tasks: [task],
   });
-  await s.ctx.db.insert("workOrders", encode("workOrders", order));
+  const row = encode("workOrders", order);
+  await s.ctx.db.insert("workOrders", row);
+  await syncRecordNumber(s.ctx, "workOrders", row);
 }
 
 // The aircraft as the work order recorded it when opened.
@@ -582,7 +586,9 @@ async function insertJobCard(
     inspectionSignoff: null,
     stepSignoffs: {},
   });
-  await ctx.db.insert("taskCards", encode("taskCards", card));
+  const row = encode("taskCards", card);
+  await ctx.db.insert("taskCards", row);
+  await syncRecordNumber(ctx, "taskCards", row);
 }
 
 async function insertTemplate({ ctx }: Seeding, { row }: Sample) {

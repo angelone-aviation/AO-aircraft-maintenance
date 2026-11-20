@@ -4,7 +4,8 @@
  * Layer: Server. A helper for workOrders.save, internal batch workers and one
  *   public mutation; maintenance permission writes.
  * Dependencies: convex/access, convex/programContext, convex/collections,
- *   src/domain (model, taskCards, workOrders, workOrderCards).
+ *   convex/recordNumbers, src/domain (model, taskCards, workOrders,
+ *   workOrderCards).
  *
  * A work order can name hundreds of templates, more than one mutation may
  * write, so the request captures them and scheduled batches copy them.
@@ -21,6 +22,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { audit } from "./access";
 import { checkContext } from "./programContext";
 import { encode } from "./collections";
+import { syncRecordNumber } from "./recordNumbers";
 import { can, type Snapshot } from "../src/domain/model";
 import {
   copyTemplateSteps,
@@ -321,7 +323,9 @@ async function insertCopy(
   const { job, order } = target;
   const original = taskCardSchema.parse(JSON.parse(entry.payload));
   const copy = draftCopy(original, entry, target);
-  await ctx.db.insert("taskCards", encode("taskCards", copy));
+  const row = encode("taskCards", copy);
+  await ctx.db.insert("taskCards", row);
+  await syncRecordNumber(ctx, "taskCards", row);
   await audit(ctx, job.actorId, "taskCard.created_from_template", copy.uuid, {
     programUuid: job.programUuid,
     aircraftUuid: job.aircraftUuid,

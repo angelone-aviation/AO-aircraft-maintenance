@@ -4,10 +4,12 @@
  * Layer: Server. One runCommand mutation, the rules being the domain's; the
  *   attachment functions check access themselves. Every change is audited.
  * Dependencies: convex (runCommand, programContext, access, attachments,
- *   management, recurringParts, workOrderCopies, urgentAlerts, userErrors),
+ *   management, recordNumbers, recurringParts, workOrderCopies, urgentAlerts,
+ *   userErrors),
  *   src/domain (workOrders, model, changeLog, inventoryAttachments).
  */
 import { prepareRecurringParts } from "./recurringParts";
+import { dropRecordNumber } from "./recordNumbers";
 import { ConvexError, v } from "convex/values";
 import { can, type Snapshot } from "../src/domain/model";
 import { auditEntry } from "../src/domain/changeLog";
@@ -349,8 +351,11 @@ async function deleteRemovedCards(
   remaining: readonly { uuid: string }[],
 ) {
   const kept = new Set(remaining.map((card) => card.uuid));
-  for (const doc of loaded)
-    if (!kept.has(doc.uuid)) await ctx.db.delete(doc._id);
+  for (const doc of loaded) {
+    if (kept.has(doc.uuid)) continue;
+    await ctx.db.delete(doc._id);
+    await dropRecordNumber(ctx, doc.uuid);
+  }
 }
 
 // A work order adds component movements only; every other record it changes

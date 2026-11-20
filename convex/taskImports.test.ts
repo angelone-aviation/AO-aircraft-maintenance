@@ -13,7 +13,10 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 import { demoSnapshot } from "../src/data/demo";
 import { emptyTemplate } from "../src/domain/inspectionTemplates";
-import { expectDerivedColumns } from "../tests/fixtures/derivedColumns";
+import {
+  expectDerivedColumns,
+  expectRecordNumbers,
+} from "../tests/fixtures/derivedColumns";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -135,6 +138,11 @@ it("atomically persists file tasks to templates and inspections with server acce
     technicianSignoff: null,
   });
   await expectDerivedColumns(
+    t,
+    "taskCards",
+    state!.taskCards!.map((c) => c.uuid),
+  );
+  await expectRecordNumbers(
     t,
     "taskCards",
     state!.taskCards!.map((c) => c.uuid),
