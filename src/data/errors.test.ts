@@ -50,7 +50,7 @@ describe("errorText", () => {
 
   it("falls back for ConvexError data without a string message", () => {
     expect(
-      errorText(clientError("Server Error", { code: "sso-refused" }), "F."),
+      errorText(clientError("Server Error", { code: "refused" }), "F."),
     ).toBe("F.");
     expect(errorText(clientError("Server Error", { message: 4 }), "F.")).toBe(
       "F.",

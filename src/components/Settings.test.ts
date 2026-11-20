@@ -159,9 +159,6 @@ vi.mock("../data/store", () => ({
 vi.mock("./UserProfile", () => ({
   MyCertifications: stub("MyCertifications"),
 }));
-vi.mock("./SignInMethods", () => ({
-  SignInMethodList: stub("SignInMethodList"),
-}));
 vi.mock("./Fleet", () => ({ ProgramDialog: stub("ProgramDialog") }));
 vi.mock("./AircraftSpruce", () => ({
   AircraftSpruceAccount: stub("AircraftSpruceAccount"),
@@ -188,7 +185,7 @@ let calls: unknown[][];
 let element: Parameters<typeof renderToStaticMarkup>[0];
 let alertEmails: () => Promise<unknown>;
 let latestCopy: () => Promise<unknown>;
-let features: { email: () => Promise<boolean>; signIn: string[] };
+let features: { email: () => Promise<boolean> };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -199,7 +196,7 @@ beforeEach(() => {
   s = demoSnapshot();
   alertEmails = async () => undefined;
   latestCopy = async () => ({ completedAt: NOW - 3_600_000, bytes: 3 << 20 });
-  features = { email: async () => true, signIn: [] };
+  features = { email: async () => true };
   ui.workspace = {
     snapshot: s,
     hash: "",
@@ -220,7 +217,6 @@ beforeEach(() => {
       latestOffsiteCopy: () => latestCopy(),
       alertEmailEnabled: () => features.email(),
       pushPublicKey: async () => "",
-      signInProviders: async () => features.signIn,
     },
   };
   vi.stubGlobal("document", {
@@ -418,32 +414,30 @@ describe("settings", () => {
   });
 
   it("says what the deployment has not turned on instead of offering it", async () => {
-    features = { email: async () => false, signIn: [] };
+    features = { email: async () => false };
     render(h(Settings));
     let html = await runEffects();
     expect(html).toContain(
       "Email alerts are not turned on for this deployment.",
     );
     expect(ui.fields.has("emailAlerts")).toBe(false);
-    expect(html).toContain("This deployment signs in with passwords only.");
     expect(html).toMatch(
       /Alert email \(Resend\)<\/span><span[^>]*>.*Not set up/,
     );
-    expect(html).toMatch(/Google sign-in<\/span><span[^>]*>.*Not set up/);
     expect(html).toContain(
       "Urgent emails stop at 60 a day for the whole deployment, shared equally between its Flight Programs;",
     );
     expect(html).toContain("once a day at 13:00 UTC");
     ui.states.clear();
-    features = { email: async () => true, signIn: ["google"] };
+    features = { email: async () => true };
     render();
     html = await runEffects();
     expect(ui.fields.has("emailAlerts")).toBe(true);
-    expect(html).toContain(
-      "A Google account whose verified email matches yours is linked",
+    expect(html).toMatch(
+      /Alert email \(Resend\)<\/span><span[^>]*>.*On<\/span>/,
     );
-    expect(html).not.toContain("Microsoft account");
-    expect(html).toMatch(/Google sign-in<\/span><span[^>]*>.*On<\/span>/);
+    expect(html).toContain("You sign in with your email and password.");
+    expect(html).not.toMatch(/Google|Microsoft/);
   });
 
   it("shows when offline access on this device ends", () => {

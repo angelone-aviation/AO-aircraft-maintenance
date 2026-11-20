@@ -19,11 +19,8 @@ change it. Owners and board members have no Settings page.
 | Item              | What you can do                                                                                                  |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Name, email, role | Read only. A system administrator sets your name and email; your Flight Program administrator sets your access.  |
-| Sign-in methods   | Your password always works. A linked Google or Microsoft account is listed with its email.                       |
+| Password          | You sign in with your email and password. A system administrator sets it; ask one to reset it.                   |
 | Certifications    | **Edit my certifications**: Pilot, and Certified mechanic with Airframe, Powerplant and Inspection Authorization |
-
-Signing in with Google or Microsoft links that account when its verified email
-matches your Angel One account.
 
 ### Certifications
 
@@ -72,7 +69,7 @@ Users and access are in [Administration](Administration.md).
 
 | Item                      | Does                                                                                                                                                                                          |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Deployment status         | What the deployment has turned on (email, device alerts, Google and Microsoft sign-in)                                                                                                        |
+| Deployment status         | What the deployment has turned on (alert email, device alerts, browser error reporting)                                                                                                       |
 | FAA API key and renewal   | **Update…** stores the FAA key and its expiry date. Status: **Active**, **Renew soon**, **Expired**, **No expiry date** or **Not set up**. **Request / renew key at FAA** opens the FAA site. |
 | Address verification      | The address lookup key (**Update…**)                                                                                                                                                          |
 | Deployment expiring dates | Dates the deployment must renew ([Alerts](Alerts.md#expiring-dates))                                                                                                                          |

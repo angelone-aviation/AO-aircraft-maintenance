@@ -84,7 +84,6 @@ import type {
   SavedAddress,
   SavedAddressInput,
 } from "../domain/savedAddresses";
-import type { LinkedIdentity } from "../domain/signInMethods";
 import type { TaskCardCommand, TaskEvidence } from "../domain/taskCards";
 import type { TaskCsvImport } from "../domain/taskCsv";
 import type { WorkOrderCommand } from "../domain/workOrders";
@@ -583,18 +582,6 @@ export interface Backend {
    * lockout. System administrators only.
    */
   resetPassword(id: string, password: string): Promise<unknown>;
-  /**
-   * Lists linked Google or Microsoft accounts: the signed-in user's own, or
-   * another user's for a system administrator.
-   *
-   * @param userId - The other user; omitted or "" for your own.
-   */
-  linkedIdentities(userId?: string): Promise<LinkedIdentity[]>;
-  /**
-   * Detaches a linked Google or Microsoft account; the person can link it
-   * again by signing in. System administrators only.
-   */
-  removeIdentity(userId: string, id: string): Promise<unknown>;
 
   /** Saves the signed-in user's logbook phrases, in the order offered. */
   saveLogbookPhrases(phrases: string[]): Promise<unknown>;
@@ -788,12 +775,6 @@ export interface Backend {
    * answers true: it stands in for a deployment with email, and sends none.
    */
   alertEmailEnabled(): Promise<boolean>;
-  /**
-   * The Google and Microsoft sign-in the deployment offers.
-   *
-   * @returns The enabled provider ids, Google first; none in the demo.
-   */
-  signInProviders(): Promise<string[]>;
   /**
    * Turns the signed-in user's immediate emails for urgent alerts (GLOSSARY
    * "Urgent alert") on or off; no change-log row.
@@ -1150,17 +1131,6 @@ function bindAccountCalls(client: ConvexReactClient) {
         id: id as Id<"users">,
         password,
       }),
-    linkedIdentities: (userId) =>
-      userId
-        ? client.query(api.identities.forUser, {
-            userId: userId as Id<"users">,
-          })
-        : client.query(api.identities.mine, {}),
-    removeIdentity: (userId, id) =>
-      client.mutation(api.identities.remove, {
-        userId: userId as Id<"users">,
-        id: id as Id<"authAccounts">,
-      }),
   } satisfies Partial<Backend>;
 }
 
@@ -1253,7 +1223,6 @@ function bindHistoryCalls(client: ConvexReactClient) {
     setUrgentAlertEmails: (enabled) =>
       client.mutation(api.urgentAlerts.setUrgentEmailPreference, { enabled }),
     alertEmailEnabled: () => client.query(api.alerts.emailEnabled, {}),
-    signInProviders: () => client.query(api.identities.providers, {}),
     expiringDate: (command) =>
       client.mutation(api.expiringItems.save, requestedCommand(command)),
     pushPublicKey: () => client.query(api.pushSubscriptions.publicKey, {}),

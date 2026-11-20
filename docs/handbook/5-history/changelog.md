@@ -6,7 +6,7 @@ What changed, and when. Newest first. Each line gives the finding's id, what cha
 - **Ids:** OD, RM, LO and E are the bug register's; T, A, S, C and P the security reviews'; AC, FL, MX, NA, NB, OP, PT, SE, SZ and UI the 10 Nov bug hunt's; B, C (stale screens) its stale-screen audit's; D1–D25 the hunt's decisions ([decisions](decisions.md)).
 - The local history starts on 12 Nov 2026 (`fcadec0`), so earlier commits named in the docs can't be opened here. For work before then, read the bug hunts' and reviews' status columns.
 
-## Release 5 — documentation
+## Release 5 — documentation and password-only sign-in
 
 On `release/docs`; not in production yet.
 
@@ -22,6 +22,7 @@ On `release/docs`; not in production yet.
 | Doc fixes: the docs brought in line with the code and the 19–20 Nov changes, Prettier on the docs, the browser tests run without `.env.local`                              | `1c297b5`, `0756c4c`, `3659378`                                             |
 | The final review's fixes: the completion-date hint names the technician and inspection signoffs, "Aaron" for the person, the risk register by risk, encryption stated once | this release                                                                |
 | A production build refuses to run in Cloudflare's Git builder (Workers Builds)                                                                                             | this release                                                                |
+| Google and Microsoft sign-in removed ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)); everyone signs in with a password; findings A3 and A10 closed    | `89555e7`, `130a257`, `c965324`, `f51c49d`, `02fdf85`, `93dd5d0`            |
 
 ## 20 Nov 2026, release 4 — backups without encryption (ADR-0014), `8df41a2`
 

@@ -146,11 +146,10 @@ Detail: [alerts](../../alerts.md), [ADR-0012](../../adr/0012-urgent-alerts-by-we
 
 ## Sign-in
 
-- Everyone signs in with **email and password**. Administrators create accounts ([ADR-0002](../../adr/0002-administrator-provisioned-accounts.md), [ADR-0009](../../adr/0009-password-for-everyone-plus-google-and-microsoft.md)).
+- Everyone signs in with **email and password**. Administrators create accounts ([ADR-0002](../../adr/0002-administrator-provisioned-accounts.md), [ADR-0009](../../adr/0009-password-for-everyone-plus-google-and-microsoft.md), [ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)).
 - Passwords: **15 to 128 characters**, no composition rules, common passwords refused (NIST SP 800-63B).
 - **10 failed sign-ins in an hour** lock the account; one attempt returns every 6 minutes. A system administrator's **Reset password** clears it at once ([accounts runbook](../../runbooks/accounts.md)).
 - A session lasts **seven days**, matching the offline window. A device clock up to five minutes behind still opens.
-- Google and Microsoft sign-in are built but **off** until security finding A3 is fixed (decided 19 Nov). They never create an account.
 - The app has **no second factor of its own** ([risks](../4-money-and-risk/risks.md)).
 - Every sign-in is written to the change log ("User · signed in", with the method).
 - Disabling a user or resetting a password ends every session at once.

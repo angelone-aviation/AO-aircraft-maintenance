@@ -67,7 +67,7 @@ test("system administrators see all five sections with the moved panels", async 
     page
       .locator("#system")
       .getByText(
-        "The demo sends no email or device alerts, signs in with passwords only and reports no errors.",
+        "The demo sends no email or device alerts and reports no errors.",
       ),
   ).toBeVisible();
   // The nightly off-site backup is recorded only by the production job.

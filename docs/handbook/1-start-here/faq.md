@@ -58,11 +58,8 @@ Ten wrong passwords in an hour lock the account; it clears within the hour. A sy
 **No administrator can sign in.**
 Use the break-glass account ([break-glass runbook](../../runbooks/break-glass-admin.md)). It is not set up yet.
 
-**Can people sign in with Google or Microsoft?**
-It is built but off until security finding A3 is fixed ([4 Nov review](../../security/review-2026-11-04.md)).
-
 **Is there two-factor sign-in?**
-Not in the app; the sign-in library has none ([ADR-0009](../../adr/0009-password-for-everyone-plus-google-and-microsoft.md), [risks](../4-money-and-risk/risks.md)).
+Not in the app; the sign-in library has none ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md), [risks](../4-money-and-risk/risks.md)).
 
 **What happens to a lost phone's data?**
 The copy is readable for seven days from sign-in if the phone is unlocked. Reset the user's password and remote-erase the phone ([incident runbook](../../runbooks/incident-response.md#lost-or-stolen-device)).

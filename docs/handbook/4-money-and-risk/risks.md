@@ -122,7 +122,7 @@ The risk register for Angel One, as of 20 November 2026. Review it with the quar
 
 ### R14. No second factor (2FA)
 
-- **Risk:** app accounts have no second factor ([ADR-0009](../../adr/0009-password-for-everyone-plus-google-and-microsoft.md)), and two-step sign-in on operator accounts is not yet confirmed.
+- **Risk:** app accounts have no second factor, and with password-only sign-in no outside provider can add one ([ADR-0015](../../adr/0015-remove-google-and-microsoft-sign-in.md)); two-step sign-in on operator accounts is not yet confirmed.
 - **Likelihood · Impact:** Medium · High for an administrator or operator account.
 - **What reduces it:** 15-character passwords, lockout after 10 failures, and 2FA on every operator account.
 - **Who acts:** Aaron.
@@ -130,7 +130,7 @@ The risk register for Angel One, as of 20 November 2026. Review it with the quar
 
 ### R15. Open security findings
 
-- **Risk:** A3, A4, S2, S11 (partly), C8 and A10 from the [4 Nov review](../../security/review-2026-11-04.md) are still open.
+- **Risk:** A4, S2, S11 (partly) and C8 from the [4 Nov review](../../security/review-2026-11-04.md) are still open.
 - **Likelihood · Impact:** Low to Medium · Low to Medium.
 - **What reduces it:** the decision or small fix the review lists for each.
 - **Who acts:** Aaron.

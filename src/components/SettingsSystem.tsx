@@ -3,7 +3,7 @@
  *   features the deployment has turned on, and the off-site backup status.
  * Layer: UI. React components; system administrators only (Settings checks).
  * Dependencies: react, src/data (store, deviceManuals), src/domain (alerts,
- *   model, offsiteBackups, signInMethods), ./design, ./SettingsBlock,
+ *   model, offsiteBackups), ./design, ./SettingsBlock,
  *   ./useDeploymentFeatures.
  */
 import { useEffect, useState } from "react";
@@ -16,7 +16,6 @@ import {
   OFFSITE_STALE_AFTER_MS,
   type OffsiteCopy,
 } from "../domain/offsiteBackups";
-import { GOOGLE, MICROSOFT } from "../domain/signInMethods";
 import { StatusPill, type Tone } from "./design";
 import { Block, settingsDateTime } from "./SettingsBlock";
 import type { DeploymentFeatures } from "./useDeploymentFeatures";
@@ -39,8 +38,6 @@ export function DeploymentStatus({
   const rows: [string, boolean | undefined][] = [
     ["Alert email (Resend)", features.email],
     ["Alerts on devices (Web Push)", features.devicePush],
-    ["Google sign-in", features.signIn?.includes(GOOGLE)],
-    ["Microsoft sign-in", features.signIn?.includes(MICROSOFT)],
     ["Browser error reporting (Sentry)", features.errorReporting],
   ];
   return (
@@ -50,8 +47,7 @@ export function DeploymentStatus({
     >
       {demo ? (
         <p className="set-empty">
-          The demo sends no email or device alerts, signs in with passwords only
-          and reports no errors.
+          The demo sends no email or device alerts and reports no errors.
         </p>
       ) : (
         <ul className="set-status-list">

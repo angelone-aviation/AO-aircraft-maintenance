@@ -22,7 +22,7 @@ Every outside service Angel One uses: what it does, which plan, what it costs, w
 | FAA DRS API key                           | Key from the FAA               | Not known                              | For AD monitoring          |
 | Geoapify (address lookup)                 | Free                           | $0                                     | Optional feature           |
 | Aircraft Spruce                           | The program's customer account | Not known                              | Optional feature           |
-| Google Workspace                          | Organisation email             | Not part of the app's cost             | No (Google sign-in is off) |
+| Google Workspace                          | Organisation email             | Not part of the app's cost             | No                         |
 | Dropbox                                   | Optional readable copy         | $0 if on Basic                         | No                         |
 | Sentry                                    | Not used                       | $0                                     | No                         |
 
@@ -153,7 +153,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 
 |                 |                                                                                                                                                                                                                                                                                                                                                                               |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Does            | The organisation's email (`angeloneaviation.org` mail is Google). Could provide Google sign-in, which is built but off                                                                                                                                                                                                                                                        |
+| Does            | The organisation's email (`angeloneaviation.org` mail is Google)                                                                                                                                                                                                                                                                                                              |
 | Price           | Business Starter $7 per user a month (annual) or $8.40 (flexible); Business Standard $14 or $16.80 ([Google](https://knowledge.workspace.google.com/admin/billing/compare-flexible-and-annual-fixed-term-payment-plans)). A nonprofit edition is $0 ([Google for Nonprofits](https://www.google.com/nonprofits/offerings/workspace/)). Which one the program has is not known |
 | If it goes away | Nothing in the app depends on it today                                                                                                                                                                                                                                                                                                                                        |
 | Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                              |
@@ -177,8 +177,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 
 ## Accounts that cost nothing but must be kept
 
-| Account                                                       | Why it matters                                                | Where                                                                       |
-| ------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Microsoft Entra app registration, Google Cloud sign-in client | Only if single sign-on is switched on; Entra's secret expires | [Accounts runbook](../../runbooks/accounts.md#google-and-microsoft-sign-in) |
-| The `accounts@angeloneonline.org` mailbox                     | Security reports arrive there                                 | [SECURITY.md](../../../SECURITY.md)                                         |
-| A2 Hosting cPanel                                             | Published the old test website; to be retired                 | [Accounts](../../runbooks/accounts.md)                                      |
+| Account                                   | Why it matters                                | Where                                  |
+| ----------------------------------------- | --------------------------------------------- | -------------------------------------- |
+| The `accounts@angeloneonline.org` mailbox | Security reports arrive there                 | [SECURITY.md](../../../SECURITY.md)    |
+| A2 Hosting cPanel                         | Published the old test website; to be retired | [Accounts](../../runbooks/accounts.md) |

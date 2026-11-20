@@ -5,15 +5,18 @@
  *   rows stay with system administrators in Unassigned records.
  * Layer: Test. convex-test suite; never shipped.
  * Dependencies: convex/admin.ts, convex/programUsers.ts,
- *   convex/groupDeletion.ts, convex/identities.ts, convex/auditHistory.ts,
+ *   convex/groupDeletion.ts, convex/access.ts (audit), convex/auditHistory.ts,
  *   convex/operations.ts, convex/recordsDate.ts,
  *   tests/fixtures/alertProgram.ts.
  *
  * Every row is written by the mutation that writes it in production, so the
- * tests fail when a writer and the history filter stop agreeing.
+ * tests fail when a writer and the history filter stop agreeing; a refused
+ * sign-in, which nothing writes since ADR-0015, is written as older entries
+ * hold it.
  */
 import { expect, it } from "vitest";
-import { api, internal } from "./_generated/api";
+import { api } from "./_generated/api";
+import { audit } from "./access";
 import type { Id } from "./_generated/dataModel";
 import { recordsDate } from "./recordsDate";
 import {
@@ -153,12 +156,17 @@ it("leaves account-wide rows with system administrators in Unassigned records", 
     isAdmin: false,
     groupIds,
   });
-  await t.mutation(internal.identities.recordRefusal, {
-    provider: "google",
-    providerAccountId: "1234567890",
-    email: "stranger@example.test",
-    reason: "no_account",
-  });
+  // A refused sign-in as the removed Google sign-in logged it (ADR-0015):
+  // older entries like it stay in the change log.
+  await t.run((ctx) =>
+    audit(ctx, "system", "user.sign_in_refused", "google:1234567890", {
+      after: {
+        method: "google",
+        reason: "no_account",
+        email: "stranger@example.test",
+      },
+    }),
+  );
   const accountWide = [
     "user.sign_in_refused",
     "user.sessions_ended",

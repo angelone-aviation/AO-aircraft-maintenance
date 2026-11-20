@@ -1,10 +1,10 @@
 # Break-glass administrator access
 
-How Aaron gets system administrator access back when no administrator can sign in, or when Google or Microsoft sign-in is down. It uses only what the app and Convex offer today; what is missing is marked "Gap:". If an intruder may be involved, run [incident response](incident-response.md) alongside this.
+How Aaron gets system administrator access back when no administrator can sign in. It uses only what the app and Convex offer today; what is missing is marked "Gap:". If an intruder may be involved, run [incident response](incident-response.md) alongside this.
 
 ## What exists today
 
-- Every account has a password; Google and Microsoft sign-in are extras ([ADR-0009](../adr/0009-password-for-everyone-plus-google-and-microsoft.md)). Their outage, or an expired client secret, locks out nobody who knows their password. Restricting administrators to single sign-on is not decided; until it is, they keep passwords like everyone else.
+- Every account signs in with a password, the only sign-in method ([ADR-0015](../adr/0015-remove-google-and-microsoft-sign-in.md)); no outside identity provider can lock anyone out.
 - 10 failed password sign-ins within an hour lock an account; one attempt returns every 6 minutes, and a system administrator's **Reset password** clears the lock at once ([accounts runbook](accounts.md#a-user-is-locked-out-after-failed-sign-ins)). Anyone who knows the email can cause a lock.
 - The app will not disable or demote the last active system administrator ("Keep at least one active administrator.").
 - `npm run setup:admin` (`scripts/bootstrap-admin.mjs`, which runs the internal `admin:bootstrap`) creates an administrator only on an empty user database. Once any account exists it stops with "Bootstrap is only available on an empty user database.", so it cannot recover production.
@@ -13,10 +13,10 @@ How Aaron gets system administrator access back when no administrator can sign i
 
 ## The break-glass credentials
 
-| Credential                                                                                                                            | Kept in                                                     | Held by                        |
-| ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------ |
-| The break-glass account: a system administrator account used only for this, with a password and no linked Google or Microsoft account | Aaron's password manager, and a sealed paper copy at ______ | Aaron; the sealed copy: ______ |
-| The Convex account's sign-in details and recovery codes                                                                               | Aaron's password manager, and a sealed paper copy at ______ | Aaron only (ADR-0010)          |
+| Credential                                                                                  | Kept in                                                     | Held by                        |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------ |
+| The break-glass account: a system administrator account used only for this, with a password | Aaron's password manager, and a sealed paper copy at ______ | Aaron; the sealed copy: ______ |
+| The Convex account's sign-in details and recovery codes                                     | Aaron's password manager, and a sealed paper copy at ______ | Aaron only (ADR-0010)          |
 
 Aaron's decision: ADR-0010 gives the organization only the sealed backup key, never production credentials. If the organization holds the sealed copy of the break-glass account, record that as an amendment to ADR-0010.
 
@@ -34,7 +34,6 @@ Start at the first row that fits.
 
 | Situation                                            | Do this                                                                                                                                                               |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Google or Microsoft sign-in fails                    | Sign in with email and password. If a client secret expired, renew it ([accounts runbook](accounts.md#google-and-microsoft-sign-in)).                                 |
 | An administrator is locked out after failed sign-ins | Another system administrator resets their password. If there is none, stop trying and wait: one attempt returns every 6 minutes and the lock is gone within the hour. |
 | An administrator forgot their password               | Another system administrator resets it.                                                                                                                               |
 | No administrator can sign in                         | [Use the break-glass account](#use-the-break-glass-account).                                                                                                          |

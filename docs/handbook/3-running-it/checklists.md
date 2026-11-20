@@ -53,7 +53,7 @@ Budget 1–2 hours.
 ## Yearly
 
 - [ ] **Node version.** Aaron, 30 min. Raise `node-version` in all four workflows to the current Node LTS before the pinned one ends (Node 22: April 2027). Rebuild from a clean checkout: `npm ci && npm run check`.
-- [ ] **Rotate tokens.** Aaron, 30 min. The Cloudflare API token, the Microsoft Entra client secret (if SSO is on) and the Dropbox tokens; record new expiry dates in [accounts](../../runbooks/accounts.md) and under Expiring dates ([incident runbook: leaked secret](../../runbooks/incident-response.md#leaked-secret) has the steps for each).
+- [ ] **Rotate tokens.** Aaron, 30 min. The Cloudflare API token and the Dropbox tokens; record new expiry dates in [accounts](../../runbooks/accounts.md) and under Expiring dates ([incident runbook: leaked secret](../../runbooks/incident-response.md#leaked-secret) has the steps for each).
 - [ ] **VAPID key review.** Aaron, 5 min. The push key pair's yearly review date under Expiring dates. Rotating it signs every device out of alerts ([monitoring](../../runbooks/monitoring.md#alerts-by-email-and-on-devices)).
 - [ ] **Backup key.** Aaron, 15 min. If backup encryption is switched on, decrypt one backup with the organisation's sealed key copy ([backup runbook](../../runbooks/backup-restore.md)).
 - [ ] **Cost review.** Aaron, 15 min. Convex usage, R2 size and the Dropbox folder against [services and costs](../4-money-and-risk/services-and-costs.md). Monthly archives grow forever by design ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)).

@@ -650,34 +650,6 @@ const CASES: Case[] = [
     args: { id: "user-1", password: "pw" },
   },
   {
-    method: "linkedIdentities",
-    call: (b) => b.linkedIdentities("user-1"),
-    kind: "query",
-    name: "identities:forUser",
-    args: { userId: "user-1" },
-  },
-  {
-    method: "linkedIdentities",
-    call: (b) => b.linkedIdentities(),
-    kind: "query",
-    name: "identities:mine",
-    args: {},
-  },
-  {
-    method: "linkedIdentities",
-    call: (b) => b.linkedIdentities(""),
-    kind: "query",
-    name: "identities:mine",
-    args: {},
-  },
-  {
-    method: "removeIdentity",
-    call: (b) => b.removeIdentity("user-1", "account-1"),
-    kind: "mutation",
-    name: "identities:remove",
-    args: { userId: "user-1", id: "account-1" },
-  },
-  {
     method: "saveReleaseStatements",
     call: (b) => b.saveReleaseStatements([{ label: "RTS", text: "Returned" }]),
     kind: "mutation",
@@ -973,13 +945,6 @@ const CASES: Case[] = [
     call: (b) => b.alertEmailEnabled(),
     kind: "query",
     name: "alerts:emailEnabled",
-    args: {},
-  },
-  {
-    method: "signInProviders",
-    call: (b) => b.signInProviders(),
-    kind: "query",
-    name: "identities:providers",
     args: {},
   },
 ];

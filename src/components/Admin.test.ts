@@ -121,9 +121,6 @@ vi.mock("./ProgramUsers", () => ({
   ListHead: stub("ListHead"),
 }));
 vi.mock("./charts", () => ({ BarChart: stub("BarChart") }));
-vi.mock("./SignInMethods", () => ({
-  SignInMethodList: stub("SignInMethodList"),
-}));
 vi.mock("./DeleteGroupButton", () => ({
   DeleteGroupButton: stub("DeleteGroupButton"),
 }));
@@ -269,10 +266,11 @@ describe("users", () => {
     ui.workspace.demo = true;
     expect(render()).toContain("Local demo.");
     expect(buttons("Reset password")[0].disabled).toBe(true);
-    expect(buttons("Sign-in methods")[0].disabled).toBe(false);
+    expect(buttons("Edit access")[0].disabled).toBe(false);
+    expect(buttons("Sign-in methods")).toHaveLength(0);
     ui.workspace.connected = false;
     expect(render()).toContain("Administration requires a connection.");
-    for (const name of ["Add user", "Edit access", "Sign-in methods"])
+    for (const name of ["Add user", "Edit access", "Reset password"])
       expect(buttons(name)[0].disabled).toBe(true);
   });
 
@@ -298,14 +296,6 @@ describe("users", () => {
       ["reset", "demo-pilot", "correct horse battery staple"],
     ]);
     expect(render()).not.toContain("Reset password · Jordan Lee");
-  });
-
-  it("shows a user's sign-in methods", () => {
-    render();
-    const html = click("Sign-in methods", 1);
-    expect(html).toContain("Sign-in methods · Jordan Lee");
-    expect(html).toContain("verified email is jordan@example.test.");
-    expect(ui.stubs.get("SignInMethodList")!.member).toBe(s.members[1]);
   });
 });
 

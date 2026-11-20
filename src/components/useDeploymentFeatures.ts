@@ -1,7 +1,7 @@
 /**
  * Responsibility: Which optional features this deployment has turned on
- *   (alert email, alerts on devices, Google and Microsoft sign-in, error
- *   reporting), for the Settings page.
+ *   (alert email, alerts on devices, error reporting), for the Settings
+ *   page.
  * Layer: UI. A React hook over the workspace Backend.
  * Dependencies: react, src/data/store.ts, src/data/backend.ts (types),
  *   src/data/errorReporting.ts.
@@ -19,7 +19,6 @@ import { errorReportingEnabled } from "../data/errorReporting";
 export interface DeploymentFeatures {
   email?: boolean;
   devicePush?: boolean;
-  signIn?: string[];
   errorReporting: boolean;
 }
 
@@ -48,7 +47,7 @@ export function useDeploymentFeatures(): DeploymentFeatures {
   return { ...loaded, errorReporting: errorReportingEnabled };
 }
 
-// Three independent reads: one that fails leaves only its own feature unknown.
+// Two independent reads: one that fails leaves only its own feature unknown.
 async function loadFeatures(
   backend: Backend,
   keep: (patch: Partial<DeploymentFeatures>) => void,
@@ -56,6 +55,5 @@ async function loadFeatures(
   await Promise.allSettled([
     backend.alertEmailEnabled().then((email) => keep({ email })),
     backend.pushPublicKey().then((key) => keep({ devicePush: key !== "" })),
-    backend.signInProviders().then((signIn) => keep({ signIn })),
   ]);
 }

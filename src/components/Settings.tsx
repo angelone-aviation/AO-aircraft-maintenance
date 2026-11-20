@@ -5,10 +5,10 @@
  *   what.
  * Dependencies: react, @tanstack/react-router, @phosphor-icons/react,
  *   src/data (store, pendingEntries), src/domain (alerts, certifications,
- *   costs, memberRole, model, programs, signInMethods, taskCards), the panels
+ *   costs, memberRole, model, programs, taskCards), the panels
  *   it embeds (./AddressVerificationSettings, ./AircraftSpruce, ./DemoBackup,
  *   ./DeviceAlerts, ./ExpiringDates, ./FaaKeySettings, ./Fleet, ./LargeText,
- *   ./SettingsExtracts, ./SettingsSystem, ./SignInMethods, ./UserProfile),
+ *   ./SettingsExtracts, ./SettingsSystem, ./UserProfile),
  *   ./SettingsBlock, ./useDeploymentFeatures, ./design, ./ui,
  *   src/styles/screens/settings.css.
  *
@@ -75,7 +75,6 @@ import {
 } from "../domain/costs";
 import { CENTS_PER_DOLLAR } from "../domain/costs/units";
 import { certificationsEffect } from "../domain/taskCards";
-import { signInMethodLabels } from "../domain/signInMethods";
 import { AsyncForm, Field, errorText, safeHref, value } from "./ui";
 import {
   Facts,
@@ -89,7 +88,6 @@ import {
   type ThemeChoice,
 } from "./design";
 import { MyCertifications } from "./UserProfile";
-import { SignInMethodList } from "./SignInMethods";
 import { ProgramDialog } from "./Fleet";
 import { AircraftSpruceAccount } from "./AircraftSpruce";
 import { FaaKeySettings } from "./FaaKeySettings";
@@ -175,7 +173,7 @@ export function Settings() {
       />
       <SectionLinks sections={sections} current={current} />
       <div className="set-sections">
-        <AccountSection signIn={features.signIn} />
+        <AccountSection />
         <AlertsSection email={features.email} />
         <DeviceSection />
         {sections.includes("program") && <ProgramSection />}
@@ -249,14 +247,15 @@ function Section({
 
 /* ─────────────────────────── My account ─────────────────────────── */
 
-function AccountSection({ signIn }: { signIn?: string[] }) {
+function AccountSection() {
   const s = useWorkspace((x) => x.snapshot)!;
   return (
     <Section id="account" index={0}>
       <AccountFacts s={s} />
-      <Block title="Sign-in methods" description={signInHint(signIn)}>
-        <SignInMethodList />
-      </Block>
+      <Block
+        title="Password"
+        description="You sign in with your email and password. A system administrator sets it; ask one to reset it."
+      />
       <CertificationsBlock s={s} />
     </Section>
   );
@@ -795,16 +794,6 @@ function jumpTo(
   e.preventDefault();
   void navigate({ to: "/settings", hash: key, hashScrollIntoView: false });
   document.getElementById(key)?.scrollIntoView();
-}
-
-// Only the providers this deployment offers; none means passwords only.
-function signInHint(providers: string[] | undefined) {
-  const always = "Your password always works.";
-  if (!providers) return always;
-  if (!providers.length)
-    return `${always} This deployment signs in with passwords only.`;
-  const names = providers.map((p) => signInMethodLabels[p] ?? p).join(" or ");
-  return `${always} A ${names} account whose verified email matches yours is linked the first time you sign in with it. For two-step verification, sign in with one that has it turned on.`;
 }
 
 // A profile from before certifications were recorded keeps its license.
