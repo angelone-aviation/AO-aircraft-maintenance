@@ -18,7 +18,7 @@ How Aaron gets system administrator access back when no administrator can sign i
 | The break-glass account: a system administrator account used only for this, with a password | Aaron's password manager, and a sealed paper copy at ______ | Aaron; the sealed copy: ______ |
 | The Convex account's sign-in details and recovery codes                                     | Aaron's password manager, and a sealed paper copy at ______ | Aaron only (ADR-0010)          |
 
-Aaron's decision: ADR-0010 gives the organization only the sealed backup key, never production credentials. If the organization holds the sealed copy of the break-glass account, record that as an amendment to ADR-0010.
+Aaron's decision: ADR-0010 gives the organization only the sealed backup key, never production credentials. While backups are unencrypted ([ADR-0014](../adr/0014-backups-stored-unencrypted.md)) no backup key exists, so the organization holds nothing yet. If the organization holds the sealed copy of the break-glass account, record that as an amendment to ADR-0010.
 
 ### Set up once
 

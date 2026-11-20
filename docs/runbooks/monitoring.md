@@ -1,6 +1,10 @@
 # Monitoring: errors, uptime, the backup heartbeat, and alerts that reach people
 
-How to switch on error reporting (Sentry), outside monitoring (Better Stack), and the alert email and push channels. The code is in place and stays dormant until these keys exist: without `VITE_SENTRY_DSN` the build contains no Sentry code, without `BACKUP_HEARTBEAT_URL` the nightly backup skips its ping, without the Resend variables no email goes out, and without the VAPID variables no device can be alerted. Browser reporting lives in `src/data/errorReporting.ts`; the deploy wiring in `.github/workflows/deploy.yml`.
+How to switch on error reporting (Sentry), outside monitoring (Better Stack), and the alert email and push channels.
+
+**Status, 20 Nov 2026:** Better Stack is set up: the two uptime monitors and the backup heartbeat (steps 6 to 8). The heartbeat's URL is not in GitHub yet, so the nightly backup does not ping it ([go-live checklist](../go-live-checklist.md#backup-setup-remaining)). Sentry (steps 1 to 5) is supported by the code but not used.
+
+The code is in place and stays dormant until these keys exist: without `VITE_SENTRY_DSN` the build contains no Sentry code, without `BACKUP_HEARTBEAT_URL` the nightly backup skips its ping, without the Resend variables no email goes out, and without the VAPID variables no device can be alerted. Browser reporting lives in `src/data/errorReporting.ts`; the deploy wiring in `.github/workflows/deploy.yml`.
 
 ## Sentry: browser errors
 
@@ -17,7 +21,7 @@ How to switch on error reporting (Sentry), outside monitoring (Better Stack), an
 
 6. Create two HTTP monitors: `https://ops.angeloneaviation.org/`, and the Convex deployment's `https://<deployment>.convex.site/.well-known/openid-configuration` (the sign-in service).
 7. Create a heartbeat with a 24-hour period and a grace period of a few hours, since GitHub can start scheduled runs late. In GitHub → Settings → Environments → `backups`, add its URL as the secret `BACKUP_HEARTBEAT_URL`. The next successful **Nightly backup** pings it; a failed or skipped run sends no ping, so Better Stack alerts.
-8. Cloudflare Bot Fight Mode blocks uptime monitors. Turn it off (Cloudflare → Security → Bots), or allowlist the monitor.
+8. Cloudflare Bot Fight Mode blocks uptime monitors. Keep it off (Cloudflare → Security → Settings → **Bot traffic**; Aaron turned it off on 19 Nov 2026), or allowlist the monitor.
 
 ## Alerts by email and on devices
 
@@ -34,7 +38,7 @@ The rules are in [docs/alerts.md](../alerts.md); this is the operator's part.
     npx convex env set VAPID_SUBJECT mailto:accounts@angeloneonline.org --prod
     ```
 
-    All three must be set before **Settings → Alerts → Alert this device** appears; until then that block, and Settings → System → Deployment status, say that alerts on devices are not turned on. Record the pair under **Settings → System → Expiring dates** with a yearly review date, and in the [accounts inventory](accounts.md). Rotating the pair invalidates every device's subscription: each device's switch then reads off, and members switch it on again on each device. The server removes the old subscriptions after their push services refuse them on three checks in a row. If the private key leaks, rotate it the same way.
+    All three must be set before **Settings → Alerts → Alert this device** appears; until then that block, and Settings → System → Deployment status, say that alerts on devices are not turned on. Record the pair under **Settings → System → Deployment expiring dates** with a yearly review date, and in the [accounts inventory](accounts.md). Rotating the pair invalidates every device's subscription: each device's switch then reads off, and members switch it on again on each device. The server removes the old subscriptions after their push services refuse them on three checks in a row. If the private key leaks, rotate it the same way.
 
 11. **Checking delivery.** Turn **Alert this device** on in a browser, then save an expiring date with yesterday's date under Settings → Flight Program: within a minute the device shows "<program>: 1 urgent alert" and the opted-in members receive the email. The Convex logs show `sendImmediate` with `pushed: 1` and `sendUrgent` with `sent: 1`. A push service that answers 404 or 410 has that device's subscription removed; the member switches alerts on again.
 
@@ -44,5 +48,5 @@ The rules are in [docs/alerts.md](../alerts.md); this is the operator's part.
 
 - No session replay: never add Sentry's replay or feedback integrations.
 - No user identity: never call `Sentry.setUser`. `errorReporting.ts` turns off Sentry's user, IP address, cookie, header and query string collection.
-- No query strings: `beforeSend` strips them, with fragments, from the page URL and from breadcrumb URLs, because a sign-in redirect carries a one-time code. It also drops cookies and headers. `src/data/errorReporting.test.ts` pins this.
+- No query strings: `beforeSend` strips them, with fragments, from the page URL and from breadcrumb URLs, so nothing a URL carries leaves the device. It also drops cookies and headers. `src/data/errorReporting.test.ts` pins this.
 - In Sentry → Project Settings → Security & Privacy, keep **Data Scrubber** on and turn on **Prevent Storing of IP Addresses** for both projects.
