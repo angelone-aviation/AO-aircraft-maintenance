@@ -194,3 +194,17 @@ it("offers no Google or Microsoft sign-in, and a login row left by one does not 
     { method: "password" },
   ]);
 });
+
+// No method issues one-time codes since ADR-0015, so a code alone, without
+// the email or phone that auth.ts already turns away, must redeem nothing.
+it("redeems no one-time code, writing no session and no change-log entry", async () => {
+  const f = await fixture();
+  await f.provision("pilot@example.test");
+  const before = await rows(f);
+  expect(
+    await f.t.action(api.auth.signIn, {
+      params: { code: crypto.randomUUID() },
+    }),
+  ).toEqual({ tokens: null });
+  expect(await rows(f)).toEqual(before);
+});

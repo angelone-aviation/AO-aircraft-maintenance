@@ -254,7 +254,7 @@ function AccountSection() {
       <AccountFacts s={s} />
       <Block
         title="Password"
-        description="You sign in with your email and password. A system administrator sets it; ask one to reset it."
+        description="You sign in with your email and password. The administrator who created your account set it; a system administrator can reset it."
       />
       <CertificationsBlock s={s} />
     </Section>

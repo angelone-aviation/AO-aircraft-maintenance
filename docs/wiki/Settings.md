@@ -16,11 +16,11 @@ change it. Owners and board members have no Settings page.
 
 ## My account
 
-| Item              | What you can do                                                                                                  |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Name, email, role | Read only. A system administrator sets your name and email; your Flight Program administrator sets your access.  |
-| Password          | You sign in with your email and password. A system administrator sets it; ask one to reset it.                   |
-| Certifications    | **Edit my certifications**: Pilot, and Certified mechanic with Airframe, Powerplant and Inspection Authorization |
+| Item              | What you can do                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Name, email, role | Read only. A system administrator sets your name and email; your Flight Program administrator sets your access.                   |
+| Password          | You sign in with your email and password. The administrator who created your account set it; a system administrator can reset it. |
+| Certifications    | **Edit my certifications**: Pilot, and Certified mechanic with Airframe, Powerplant and Inspection Authorization                  |
 
 ### Certifications
 
