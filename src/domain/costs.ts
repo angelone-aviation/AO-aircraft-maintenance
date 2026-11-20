@@ -1,7 +1,7 @@
 /**
- * Responsibility: The public interface of maintenance costs on work orders,
- *   annual budgets, the labor rate and the aircraft cost report; the rules
- *   live in ./costs/.
+ * Responsibility: The public interface of maintenance costs on work orders
+ *   (issue prices included), annual budgets, the labor rate and the aircraft
+ *   cost report; the rules live in ./costs/.
  * Layer: Domain. Re-exports only; no I/O, no React.
  * Dependencies: ./costs/units, ./costs/records, ./costs/period,
  *   ./costs/workOrderCosts, ./costs/report, ./costs/commands.
@@ -21,6 +21,7 @@ export {
 export {
   laborEntrySchema,
   otherCostSchema,
+  issuedPartSchema,
   workOrderCostSchema,
   budgetSchema,
   costSettingsSchema,
@@ -28,6 +29,7 @@ export {
   costCommandSchema,
   type CostRecord,
   type WorkOrderCost,
+  type IssuedPart,
   type LaborEntry,
   type OtherCost,
   type CostCommand,

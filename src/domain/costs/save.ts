@@ -11,8 +11,8 @@ import type { CostCommand, CostRecord, WorkOrderCost } from "./records";
 
 /** One change to a cost record, as its change-log row names it. */
 export interface CostChange {
-  /** The row's action after `cost.`: a cost command's. */
-  action: CostCommand["action"];
+  /** The row's action after `cost.`: a cost command's, or "part.issue". */
+  action: CostCommand["action"] | "part.issue";
   program: string;
   now: number;
   /** The aircraft costed; its registration becomes the row's reason. */

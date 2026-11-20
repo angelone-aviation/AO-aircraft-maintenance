@@ -1,6 +1,6 @@
 /**
- * Responsibility: The stored shapes of cost records (work-order costs,
- *   budgets, the labor rate) and of the cost command.
+ * Responsibility: The stored shapes of cost records (work-order costs and
+ *   issue prices, budgets, the labor rate) and of the cost command.
  * Layer: Domain. Zod schemas and types; no I/O, no React.
  * Dependencies: zod; ./units (limits), ../commandRequest.
  */
@@ -57,6 +57,25 @@ export const otherCostSchema = z.object({
   createdAt: z.number(),
 });
 
+/**
+ * One parts-request issue to a work order, at the stock item's unit cost when
+ * it was issued (decision D13), so correcting that cost later never re-prices
+ * it. `requestUuid` and `issuedAt` (the issue's `at`) name the issue; `date`
+ * is the calendar date it counts on.
+ *
+ * @throws {z.ZodError} From `parse()` on an invalid field.
+ */
+export const issuedPartSchema = z.object({
+  requestUuid: id,
+  issuedAt: z.number(),
+  stockUuid: id,
+  quantity: z.number().int().positive(),
+  date,
+  // Absent when the stock item had no unit cost: the part stays unpriced
+  // until an administrator sets a manual unit cost.
+  unitCents: cents.optional(),
+});
+
 const base = {
   uuid: id,
   version: z.number().int().nonnegative(),
@@ -64,8 +83,9 @@ const base = {
 };
 
 /**
- * The costs of one work order: labor, other costs, and manual unit costs for
- * issued parts that override the stock unit cost.
+ * The costs of one work order: labor, other costs, manual unit costs for
+ * issued parts that override every other price, and the parts issued to it
+ * at their issue price.
  *
  * @throws {z.ZodError} From `parse()` on an invalid field or too many entries.
  */
@@ -79,6 +99,8 @@ export const workOrderCostSchema = z.object({
   partUnitCosts: z
     .array(z.object({ stockUuid: id, unitCents: cents }))
     .max(200),
+  // Absent on records saved before issue prices were recorded (D13).
+  issuedParts: z.array(issuedPartSchema).max(2000).optional(),
 });
 
 /**
@@ -119,6 +141,8 @@ export const costRecordSchema = z.discriminatedUnion("kind", [
 export type CostRecord = z.infer<typeof costRecordSchema>;
 /** A parsed work-order cost record. */
 export type WorkOrderCost = z.infer<typeof workOrderCostSchema>;
+/** A parsed issued part, priced as it was issued. */
+export type IssuedPart = z.infer<typeof issuedPartSchema>;
 /** A parsed labor entry. */
 export type LaborEntry = z.infer<typeof laborEntrySchema>;
 /** A parsed other cost. */
