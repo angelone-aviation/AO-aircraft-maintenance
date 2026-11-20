@@ -230,11 +230,11 @@ Each table lists every finding in the area by severity. The full steps, expected
 | SE-9  | Medium   | Server "today" was UTC for urgent alerts; same as MX-4               | Fixed `e8977e8`                        | NOT REPRODUCED                                                                    |
 | SE-10 | Low      | A deployment-wide date was emailed once per program; same as NB-8    | Fixed `a20a1a8`                        | REPRODUCED (by design, see note): skips the system check                          |
 | SE-11 | Low      | A crafted engine-monitor CSV froze the tab                           | Fixed `bebd1a7`                        | NOT REPRODUCED                                                                    |
-| SE-12 | Low      | A file link works for anyone, with no session, indefinitely          | Decision D17                           | REPRODUCED (expected: open decision)                                              |
+| SE-12 | Low      | A file link works for anyone, with no session, indefinitely          | Fixed after D17 (2026-11-19)           | Not re-run; `convex/fileLinks.test.ts` pins expiry, signature and access          |
 | SE-14 | Low      | A crafted AD Word report froze the tab                               | Fixed `bebd1a7`                        | NOT REPRODUCED                                                                    |
 | SE-15 | Low      | Template activation and transfers did not schedule the urgent check  | Fixed in part `ff5c564`                | No repro script; unit tests                                                       |
 | SE-6  | Info     | The public push key needs no session                                 | Not a bug; documented `184916f`        | REPRODUCED (by design, see note): the public key is public                        |
-| SE-7  | Info     | Queued logbook photos stay on the device after sign-out              | Decision D17                           | No repro script; open decision                                                    |
+| SE-7  | Info     | Queued logbook photos stay on the device after sign-out              | Fixed after D17 (2026-11-19)           | No repro script; `src/data/store.test.ts` and `tests/e2e/sign-out.spec.ts`        |
 
 ### Interface
 

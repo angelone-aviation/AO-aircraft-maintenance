@@ -99,6 +99,7 @@ sequenceDiagram
 
 - `Snapshot` (`src/domain/model.ts`) holds the active Flight Program only. Cached copies open offline for seven days from sign-in (`OFFLINE_WINDOW`, `offlineValid`).
 - Paged or large data loads on demand through `Backend` queries: History (`auditPage`), engine trends, attachment lists, certification files.
+- No stored file reaches the device by address: the snapshot and listings name files, and screens ask `Backend.fileLinks` (`convex/fileLinks.ts`) for links that expire after five minutes, while the file is on screen (`src/components/FileLink.tsx`; [file links](docs/file-links.md)).
 - Demo: `demoBackend` keeps the full fictional snapshot under `<namespace>:all` in IndexedDB and hands the workspace `scopedSnapshot()` of it, as the server would.
 
 **Write path.** Screens call one `Backend` method; the server runs one transaction.

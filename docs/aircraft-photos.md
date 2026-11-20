@@ -4,7 +4,7 @@ Open **Aircraft → Edit aircraft → Dashboard photo** to upload, replace or re
 
 JPEG, PNG and WebP images up to 5 MB are accepted. The browser decodes the image and converts it to a JPEG no larger than 1024 pixels on its longest edge. Dashboard cards display a cropped thumbnail; aircraft without a photo retain the aircraft illustration.
 
-Photos are stored separately from aircraft operating records. Upload and removal require maintenance permission for the aircraft in the active Flight Program, including Flight Program administrators. Only aircraft visible in the reader's scoped snapshot receive photo URLs. Replacements and removals delete the previous stored file and write an audit event. The demo stores images only in the browser.
+Photos are stored separately from aircraft operating records. Upload and removal require maintenance permission for the aircraft in the active Flight Program, including Flight Program administrators. The snapshot only says which aircraft have a photo; a photo shows through a five-minute link the app asks for while it is on screen, and only for aircraft in the reader's scoped snapshot, or their owned aircraft in the owner portal ([file links](file-links.md)). Offline, the dashboard shows the aircraft drawing instead. Replacements and removals delete the previous stored file and write an audit event. The demo stores images only in the browser.
 
 ## Form 337 copies
 
