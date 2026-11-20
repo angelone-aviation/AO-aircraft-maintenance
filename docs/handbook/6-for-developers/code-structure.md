@@ -29,7 +29,7 @@ Verified against the code at `e99058c` (2026-11-20).
 ├── scripts/                Setup, CSP checks, local server and smoke test
 │   ├── backup/             Nightly off-site backup and the readable records workbook
 │   └── loadtest/           Size test against a local backend only
-├── tests/                  Playwright specs (e2e/) and shared fixtures (fixtures/)
+├── tests/                  Playwright specs (e2e/), shared fixtures (fixtures/), CSP teardown
 ├── docs/                   Feature pages, ADRs, runbooks, architecture report, QA, security, research
 ├── .github/                CI, Deploy, nightly backup, first-time setup, Dependabot
 ├── .claude/                Standards hooks and settings (owner only); skills/ is VENDORED
@@ -66,18 +66,19 @@ flowchart LR
   UI --> Domain
   Data --> Domain
   Server --> Domain
+  UI -.->|main.tsx only| Gen
   Data -->|backend.ts only| Gen
   Server --> Gen
 ```
 
-| Layer  | May import                                                                                                        | Must not                                                                                                                                      |
-| ------ | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| UI     | `src/data`, `src/domain`                                                                                          | Import `convex/` (exceptions in [CONTEXT.md §5](../../../CONTEXT.md#5-module-boundary-rules)); write the snapshot; re-implement a domain rule |
-| Data   | `src/domain`; `convex/_generated` and `convex/react` in [backend.ts](../../../src/data/backend.ts); `ConvexError` | Import `src/components`; decide a permission the server does not also decide                                                                  |
-| Domain | Other `src/domain` modules, zod                                                                                   | Import React, Zustand, Convex, `src/data` or `src/components`; do I/O                                                                         |
-| Server | `src/domain`, `convex/_generated`, Convex libraries                                                               | Import `src/data` or `src/components` outside tests                                                                                           |
+| Layer  | May import                                                                                                                                              | Must not                                                                                                                                      |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| UI     | `src/data`, `src/domain`                                                                                                                                | Import `convex/` (exceptions in [CONTEXT.md §5](../../../CONTEXT.md#5-module-boundary-rules)); write the snapshot; re-implement a domain rule |
+| Data   | `src/domain`; `convex/_generated`, `convex/react` and `convex/server` in [backend.ts](../../../src/data/backend.ts); `ConvexError` from `convex/values` | Import `src/components`; decide a permission the server does not also decide                                                                  |
+| Domain | Other `src/domain` modules, zod                                                                                                                         | Import React, Zustand, Convex, `src/data` or `src/components`; do I/O                                                                         |
+| Server | `src/domain`, `convex/_generated`, npm packages such as Convex, Convex Auth and zod                                                                     | Import `src/data` or `src/components` outside tests                                                                                           |
 
-Why the domain is shared: a business rule must give the same answer everywhere it runs. The server runs the domain appliers inside its transaction. The demo adapter runs the same appliers on an in-browser copy. Screens call the same functions to decide what to show. One copy of each rule means the demo cannot drift from production, and a rule is tested once ([CONTEXT.md §5](../../../CONTEXT.md#5-module-boundary-rules), invariants 1 and 4).
+Why the domain is shared: a business rule must give the same answer everywhere it runs. The server runs the domain appliers (functions that apply one command to a copy of the records) inside its transaction. The demo adapter runs the same appliers on an in-browser copy. Screens call the same functions to decide what to show. One copy of each rule means the demo cannot drift from production, and a rule is tested once ([CONTEXT.md §5](../../../CONTEXT.md#5-module-boundary-rules), invariants 1 and 4).
 
 No linter enforces these imports yet. CONTEXT.md §5 lists the `rg` commands that check them.
 
@@ -111,15 +112,15 @@ Server writes go through one transaction per command ([ADR-0003](../../adr/0003-
    - `checkContext`: active session, read permission, not an owner or board view, `programUuid` still active;
    - `parse` the command;
    - a request id already in `commandRequests` with the same payload returns early (replay); with another payload it is refused;
-   - `load` the working set: `hydrate(needs)` or the bounded reads in [convex/workingSet.ts](../../../convex/workingSet.ts), then a record-level `authorized()` check;
-   - `apply`: the domain applier, for example `saveWorkOrder` in [src/domain/workOrders.ts](../../../src/domain/workOrders.ts);
+   - `load` the working set: `hydrate(needs)` or the bounded reads in [convex/workingSet.ts](../../../convex/workingSet.ts);
+   - `apply`: the domain applier, for example `saveWorkOrder` in [src/domain/workOrders.ts](../../../src/domain/workOrders.ts). The record-level check is `authorized()` in `load` or `can()` in the applier;
    - `afterApply` (optional), then `persist`;
    - `audit`: the change-log rows, collected in `CommandLog` and written once through `writeAudit` ([convex/access.ts](../../../convex/access.ts));
    - record the request id.
-4. `persist` uses `writeChanged`: it encodes each record ([convex/collections.ts](../../../convex/collections.ts) `encode`), skips unchanged rows, refuses a uuid stored outside the loaded rows (`RECORD_TAKEN`), never deletes, and keeps the derived tables in step (`syncRecordNumber`, `syncPurchasingKeys`, `moveInventoryFiles`).
+4. `persist` uses `writeChanged`: it encodes each record ([convex/collections.ts](../../../convex/collections.ts) `encode`), skips unchanged rows, refuses a uuid stored outside the loaded rows (`RECORD_TAKEN`), never deletes, and keeps derived data in step (`syncRecordNumber`, `syncPurchasingKeys`, `moveInventoryFiles`).
 5. Convex re-runs the snapshot query and the screen updates.
 
-A Convex mutation is one transaction: any throw writes nothing. A domain `Rejection` becomes a `ConvexError` so the user sees its message; other errors stay hidden as "Server Error".
+A Convex mutation is one transaction: any throw writes nothing. A domain `Rejection` becomes a `ConvexError` so the user sees its message; other errors stay hidden as "Server Error", unless the command's `expose` gives a message for them.
 
 24 call sites use `runCommand` today. Administration, upload and a few other mutations check access themselves (`checkContext` with `authorized` or `admin`) and write the change log through `audit()` or `writeAudit()`. The change log is append-only: `writeAudit` is the only insert into `audit`.
 
@@ -270,25 +271,25 @@ Reads decode the derived columns away, so screens never see them. Runbook-level 
 
 The server decides every permission. Client checks only hide controls ([CONTEXT.md §5](../../../CONTEXT.md#5-module-boundary-rules), invariant 2; [Flight Program access](../../flight-program-access.md)).
 
-| Piece             | Where                                                                                                                                                                                                                                               | Role                                                                                                    |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Permissions       | `permissionSchema` in [model.ts](../../../src/domain/model.ts); `permission` in [convex/validators.ts](../../../convex/validators.ts)                                                                                                               | `read`, `flight`, `discrepancy`, `resolve`, `maintenance`                                               |
-| Per-aircraft rule | `can` in [model.ts](../../../src/domain/model.ts)                                                                                                                                                                                                   | Active user, aircraft in active program, group covers it, `read` plus the permission (or program admin) |
-| Program rule      | `programPermission`, `activeProgram` in [programs.ts](../../../src/domain/programs.ts)                                                                                                                                                              | Program-level permissions, including `admin`                                                            |
-| Redaction         | `scopedSnapshot` in [programs.ts](../../../src/domain/programs.ts); `reducedSnapshot` in [reducedViews.ts](../../../src/domain/reducedViews.ts); [ownerView.ts](../../../src/domain/ownerView.ts), [boardView.ts](../../../src/domain/boardView.ts) | What a caller may read; the same function runs on the server and in the demo                            |
-| Server checks     | `checkContext` in [programContext.ts](../../../convex/programContext.ts); `activeIdentity`, `currentUser`, `admin`, `authorized` in [access.ts](../../../convex/access.ts)                                                                          | Gate each public function                                                                               |
-| Navigation        | [AppShell.tsx](../../../src/components/AppShell.tsx), `pilotNavigation` in [pilotView.ts](../../../src/domain/pilotView.ts)                                                                                                                         | Convenience only                                                                                        |
+| Piece             | Where                                                                                                                                                                                                                                               | Role                                                                                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Permissions       | `permissionSchema` in [model.ts](../../../src/domain/model.ts); `permission` in [convex/validators.ts](../../../convex/validators.ts)                                                                                                               | `read`, `flight`, `discrepancy`, `resolve`, `maintenance`                                                                                               |
+| Per-aircraft rule | `can` in [model.ts](../../../src/domain/model.ts)                                                                                                                                                                                                   | Active user, aircraft in active program; a system administrator, or a group covering it with `read` plus the permission (program-admin groups hold all) |
+| Program rule      | `programPermission`, `activeProgram` in [programs.ts](../../../src/domain/programs.ts)                                                                                                                                                              | Program-level permissions, including `admin`                                                                                                            |
+| Redaction         | `scopedSnapshot` in [programs.ts](../../../src/domain/programs.ts); `reducedSnapshot` in [reducedViews.ts](../../../src/domain/reducedViews.ts); [ownerView.ts](../../../src/domain/ownerView.ts), [boardView.ts](../../../src/domain/boardView.ts) | What a caller may read; the same function runs on the server and in the demo                                                                            |
+| Server checks     | `checkContext` in [programContext.ts](../../../convex/programContext.ts); `activeIdentity`, `currentUser`, `admin`, `authorized` in [access.ts](../../../convex/access.ts)                                                                          | Gate each public function                                                                                                                               |
+| Navigation        | [AppShell.tsx](../../../src/components/AppShell.tsx), `pilotNavigation` in [pilotView.ts](../../../src/domain/pilotView.ts)                                                                                                                         | Convenience only                                                                                                                                        |
 
 How each kind of call is checked:
 
-| Call          | Check                                                                    |
-| ------------- | ------------------------------------------------------------------------ |
-| Snapshot      | `activeIdentity`, then `scopedSnapshot` (inside `workspaceWindow`)       |
-| Command write | `runCommand` → `checkContext`, then `authorized()` per record in `load`  |
-| Other writes  | `checkContext` plus `authorized` or `admin`, in the mutation             |
-| History pages | `checkContext`, readable aircraft only, results through `scopedSnapshot` |
-| File links    | The caller's scoped view; unlisted files return `null`                   |
-| Actions       | Call an internal function that checks first                              |
+| Call          | Check                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------- |
+| Snapshot      | `activeIdentity`, then `scopedSnapshot` (inside `workspaceWindow`)                     |
+| Command write | `runCommand` → `checkContext`, then `authorized()` in `load` or `can()` in the applier |
+| Other writes  | `checkContext` plus `authorized` or `admin`, in the mutation                           |
+| History pages | `checkContext`, readable aircraft only, results through `scopedSnapshot`               |
+| File links    | The caller's scoped view; unlisted files return `null`                                 |
+| Actions       | Call an internal function that checks first                                            |
 
 `checkContext` refuses, in order: no read permission, an owner view, a board view, a stale `programUuid`. The only public functions without a check are listed in CONTEXT.md §5 (invariant 2).
 
