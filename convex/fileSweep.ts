@@ -14,8 +14,9 @@
  * deletes a row naming a file also deletes the file once nothing else refers
  * to it, so a file nothing refers to was orphaned at upload: a link upload
  * whose bytes matched no ticket (T2), or an action stopped between storing a
- * file and filing it. A day is far past the longest wait between the two
- * (the one-hour upload ticket), so a run never takes an upload in flight.
+ * file and filing it. Every path that creates a file files its reference
+ * within a day, in the same action or within its one-hour upload ticket
+ * (storageReferences.test.ts), so a run never takes an upload in flight.
  */
 import { makeFunctionReference } from "convex/server";
 import { internalMutation, type MutationCtx } from "./_generated/server";

@@ -1,10 +1,10 @@
 /**
  * Responsibility: Pins the hourly clean-up of stored files nothing refers
  *   to: its off, report and delete modes, the start day before which it
- *   touches nothing, the age a file must reach, that a file any record
- *   refers to is never deleted, that every storage id in the schema is in the reference list,
- *   and the bounded batch that resumes where the last run stopped, a page
- *   edge between files of equal creation time included.
+ *   touches nothing, the age a file must reach, that a file any storage table
+ *   refers to is never deleted, and the bounded batch that resumes where the
+ *   last run stopped, a page edge between files of equal creation time
+ *   included. storageReferences.test.ts pins the list itself.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/fileSweep, convex/crons, convex/storageReferences,
  *   convex/schema.
@@ -269,48 +269,6 @@ describe("the page after the cursor", () => {
     });
   });
 });
-
-// The sweep's own cursor holds ids of files it has checked: positions, not
-// references.
-const NOT_REFERENCES = ["fileSweep.checkedIds[]"];
-
-it("finds every storage id in the schema, nested ones included, in the reference list", () => {
-  const found = Object.entries(schema.tables)
-    .flatMap(([table, def]) =>
-      storagePaths(
-        (def as unknown as { validator: Validator }).validator,
-        table,
-      ),
-    )
-    .filter((path) => !NOT_REFERENCES.includes(path));
-  expect(found.sort()).toEqual(
-    STORAGE_REFERENCES.map((r) => `${r.table}.${r.field}`).sort(),
-  );
-});
-
-// The parts of a Convex validator that can hold another validator.
-type Validator = {
-  kind: string;
-  tableName?: string;
-  fields?: Record<string, Validator>;
-  element?: Validator;
-  members?: Validator[];
-  value?: Validator;
-};
-
-// "table.field" for a top-level id; a nested one gets a longer path, which
-// the reference list (top-level fields only) can never match.
-function storagePaths(v: Validator, path: string): string[] {
-  if (v.kind === "id") return v.tableName === "_storage" ? [path] : [];
-  return [
-    ...Object.entries(v.fields ?? {}).flatMap(([name, field]) =>
-      storagePaths(field, `${path}.${name}`),
-    ),
-    ...(v.element ? storagePaths(v.element, `${path}[]`) : []),
-    ...(v.members ?? []).flatMap((member) => storagePaths(member, path)),
-    ...(v.value ? storagePaths(v.value, `${path}{}`) : []),
-  ];
-}
 
 // One file referred to from each storage table, by table name.
 async function referEveryWay(
