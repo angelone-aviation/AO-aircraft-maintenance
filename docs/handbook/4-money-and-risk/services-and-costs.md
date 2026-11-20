@@ -11,33 +11,34 @@ Every outside service Angel One uses: what it does, which plan, what it costs, w
 
 ## At a glance
 
-| Service                                   | Plan                           | Cost today                                | Needed?                   |
-| ----------------------------------------- | ------------------------------ | ----------------------------------------- | ------------------------- |
-| Convex                                    | Professional, 1 seat           | $25 a month                               | Yes: the whole backend    |
-| Cloudflare Workers (website)              | Free                           | $0                                        | Yes                       |
-| Cloudflare R2 (backups)                   | Free tier                      | $0                                        | Yes, for off-site backups |
-| Cloudflare DNS                            | Zone on Cloudflare             | $0 (no paid plan in use)                  | Yes                       |
-| GitHub (code, CI, Deploy, backups)        | Free, public repository        | $0                                        | Yes                       |
-| Resend (email)                            | Free                           | $0                                        | For alert emails          |
-| Web Push (Google, Apple, Mozilla)         | No account                     | $0                                        | For device alerts         |
-| Better Stack (uptime, backup heartbeat)   | Free                           | $0                                        | Recommended               |
-| Domain registrar (`angeloneaviation.org`) | Not known                      | Not known; about $11.20 a year (estimate) | Yes                       |
-| FAA DRS API key                           | Key from the FAA               | Not known                                 | For AD monitoring         |
-| Geoapify (address lookup)                 | Free                           | $0                                        | Optional feature          |
-| Aircraft Spruce                           | The program's customer account | Not known                                 | Optional feature          |
-| Google Workspace                          | Organisation email             | Not part of the app's cost                | No                        |
-| Dropbox                                   | Optional; not set up           | $0 if on Basic                            | No                        |
-| Sentry                                    | Optional; not used             | $0                                        | No                        |
+| Service                                                 | Plan                           | Cost today                                | Needed?                   |
+| ------------------------------------------------------- | ------------------------------ | ----------------------------------------- | ------------------------- |
+| Convex                                                  | Professional, 1 seat           | $25 a month                               | Yes: the whole backend    |
+| Cloudflare Workers (website)                            | Free                           | $0                                        | Yes                       |
+| Cloudflare R2 (backups)                                 | Free tier                      | $0                                        | Yes, for off-site backups |
+| Cloudflare DNS                                          | Zone on Cloudflare             | $0 (no paid plan in use)                  | Yes                       |
+| GitHub (code, CI, Deploy, backups)                      | Free, public repository        | $0                                        | Yes                       |
+| Resend (email)                                          | Free                           | $0                                        | For alert emails          |
+| Web Push (Google, Apple, Mozilla)                       | No account                     | $0                                        | For device alerts         |
+| Better Stack (uptime, backup heartbeat)                 | Free                           | $0                                        | Recommended               |
+| Domain registrar (`angeloneaviation.org`, site and app) | Not known                      | Not known; about $11.20 a year (estimate) | Yes                       |
+| Domain registrar (`angeloneonline.org`, email)          | Not known                      | Not known; about $11.20 a year (estimate) | Yes                       |
+| FAA DRS API key                                         | Key from the FAA               | Not known                                 | For AD monitoring         |
+| Geoapify (address lookup)                               | Free                           | $0                                        | Optional feature          |
+| Aircraft Spruce                                         | The program's customer account | Not known                                 | Optional feature          |
+| Google Workspace                                        | Organisation email             | Not part of the app's cost                | No                        |
+| Dropbox                                                 | Optional; not set up           | $0 if on Basic                            | No                        |
+| Sentry                                                  | Optional; not used             | $0                                        | No                        |
 
 ## Totals
 
 | Size                                             | Monthly                         | Yearly                            |
 | ------------------------------------------------ | ------------------------------- | --------------------------------- |
-| **Today** (production holds no real records yet) | **$25**                         | **about $311**                    |
-| **Load-test size** (6 aircraft, 20 years)        | **$25 to about $40** (estimate) | **about $311 to $490** (estimate) |
+| **Today** (production holds no real records yet) | **$25**                         | **about $322**                    |
+| **Load-test size** (6 aircraft, 20 years)        | **$25 to about $40** (estimate) | **about $322 to $502** (estimate) |
 
-- **Today:** Convex $25 × 12 = $300, plus the domain, about $11.20 (estimate): $311.20. Everything else is on a free plan.
-- **Load-test size:** records alone stay inside Convex Pro's included amounts. The upper figure allows for heavy use and a few GB of uploaded files ([below](#how-the-load-test-figure-is-estimated)). $40 × 12 = $480, plus the domain: about $490.
+- **Today:** Convex $25 × 12 = $300, plus the two domains, about $11.20 each (estimate): $322.40. Everything else is on a free plan.
+- **Load-test size:** records alone stay inside Convex Pro's included amounts. The upper figure allows for heavy use and a few GB of uploaded files ([below](#how-the-load-test-figure-is-estimated)). $40 × 12 = $480, plus the two domains: about $502.
 - **Not included:** Google Workspace (the organisation's email, paid or not whatever the app does), parts bought through Aircraft Spruce, and anyone's time.
 
 Where today's yearly cost goes:
@@ -45,10 +46,11 @@ Where today's yearly cost goes:
 ```mermaid
 pie showData title Yearly cost today, in US dollars
   "Convex Professional, 1 seat" : 300
-  "Domain renewal (estimate)" : 11.2
+  "angeloneaviation.org renewal (estimate)" : 11.2
+  "angeloneonline.org renewal (estimate)" : 11.2
 ```
 
-Source: the [Convex](#convex-backend) and [domain](#domain-registrar) prices below. Every other service costs $0 today.
+Source: the [Convex](#convex-backend) and [domain](#domain-registrars) prices below. Every other service costs $0 today.
 
 ### How the load-test figure is estimated
 
@@ -128,14 +130,14 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | If it goes away | Nobody is told the site is down or a backup was missed until a user or the daily digest says so                                                                                                                                                                                                                            |
 | Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                           |
 
-### Domain registrar
+### Domain registrars
 
-|                 |                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Does            | Owns `angeloneaviation.org`. Its DNS zone is on Cloudflare                                                                                                                                                                                                                                                                                                                                                                              |
-| Plan, price     | **Not known**: which registrar holds it is still to find out ([accounts](../../runbooks/accounts.md)). For scale, .org renews for $11.20 a year at Cloudflare Registrar's at-cost price (**estimate**: the figure is from a third-party price list, [cfdomainpricing.com](https://cfdomainpricing.com/), read 20 Nov 2026; Cloudflare states it adds no markup: [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/)) |
-| If it goes away | A lapsed domain takes the site and email down, and lets someone else buy the name. Keep auto-renew on                                                                                                                                                                                                                                                                                                                                   |
-| Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                                                                                        |
+|                 |                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Does            | Hold the organisation's two domains: `angeloneaviation.org`, the website and app only (`ops.angeloneaviation.org`), its DNS zone on Cloudflare; and `angeloneonline.org`, email: Google Workspace mail and the `accounts@angeloneonline.org` security mailbox                                                                                                                                                                                                 |
+| Plan, price     | **Not known**: which registrar holds each is still to find out ([accounts](../../runbooks/accounts.md)). For scale, each is a .org, and .org renews for $11.20 a year at Cloudflare Registrar's at-cost price (**estimate**: the figure is from a third-party price list, [cfdomainpricing.com](https://cfdomainpricing.com/), read 20 Nov 2026; Cloudflare states it adds no markup: [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/)) |
+| If it goes away | A lapsed `angeloneaviation.org` takes the site and app down. A lapsed `angeloneonline.org` takes the organisation's email down, including security reports to `accounts@angeloneonline.org`, service alerts sent to its mailboxes, and the app's alert emails if Resend sends them from this domain. Either lets someone else buy the name. Keep auto-renew on for both                                                                                       |
+| Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ### FAA DRS API key
 
@@ -170,7 +172,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 
 |                 |                                                                                                                                                                                                                                                                                                                                                                               |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Does            | The organisation's email (`angeloneaviation.org` mail is Google)                                                                                                                                                                                                                                                                                                              |
+| Does            | The organisation's email (`angeloneonline.org` mail is Google)                                                                                                                                                                                                                                                                                                                |
 | Price           | Business Starter $7 per user a month (annual) or $8.40 (flexible); Business Standard $14 or $16.80 ([Google](https://knowledge.workspace.google.com/admin/billing/compare-flexible-and-annual-fixed-term-payment-plans)). A nonprofit edition is $0 ([Google for Nonprofits](https://www.google.com/nonprofits/offerings/workspace/)). Which one the program has is not known |
 | If it goes away | Nothing in the app depends on it today                                                                                                                                                                                                                                                                                                                                        |
 | Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                              |

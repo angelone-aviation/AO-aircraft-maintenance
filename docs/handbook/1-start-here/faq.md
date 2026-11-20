@@ -69,7 +69,7 @@ The copy is readable for seven days from sign-in if the phone is unlocked. Reset
 ## Money and the long run
 
 **How much will this cost us?**
-About **$25 a month** (Convex Pro) plus the domain, so about $311 a year, at today's size. At 20 years of a six-aircraft fleet, an estimated $25 to $40 a month, depending mostly on uploaded files ([services and costs](../4-money-and-risk/services-and-costs.md)).
+About **$25 a month** (Convex Pro) plus two domains, so about $322 a year, at today's size. At 20 years of a six-aircraft fleet, an estimated $25 to $40 a month, depending mostly on uploaded files ([services and costs](../4-money-and-risk/services-and-costs.md)).
 
 **How long will it last?**
 The load test held 20 years of a six-aircraft fleet: every load and save succeeded except accepting a held flight from the oldest year. At that rate the main limit is about a hundred years away ([capacity and limits](../2-how-it-works/capacity-and-limits.md)). What wears out sooner is the software around it: the sign-in library, Node versions and keys need about one to two hours a quarter ([checklists](../3-running-it/checklists.md)).

@@ -166,7 +166,7 @@ Each risk by its number, placed by likelihood and impact. Top right is worst.
 
 ### R16. Account inventory and incident contacts are blank
 
-- **Risk:** nobody else knows who holds the registrar, Cloudflare, Resend or the FAA key.
+- **Risk:** nobody else knows who holds the registrars of the two domains (`angeloneaviation.org` for the app, `angeloneonline.org` for email), Cloudflare, Resend or the FAA key.
 - **Likelihood:** High: the rows are blank today.
 - **Impact:** Medium: it slows every incident and renewal, and makes R3 and R4 worse.
 - **What reduces it:** filling in [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md).
