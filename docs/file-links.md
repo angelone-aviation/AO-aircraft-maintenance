@@ -1,6 +1,6 @@
 # File links that expire
 
-Decision of 2026-11-19 on security findings S7 and SE-12 (D17). Status: built for every stored file; one release step is listed under [What is left](#what-is-left).
+Decision of 2026-11-19 on security findings S7 and SE-12 (D17). Status: built for every stored file and in production; see [What is left](#what-is-left).
 
 ## The problem
 
@@ -47,7 +47,7 @@ The issuing rule for each kind is the one its listing applies today, so nobody g
 | `workOrderFile`     | `workOrderAttachments`                     | Readers of the work order in the scoped snapshot                                                          |
 | `taskEvidence`      | `taskEvidence`                             | Readers of the job card or archived task card                                                             |
 | `inventoryFile`     | `inventoryAttachments`                     | Flight Program administrators                                                                             |
-| `poFile`            | `purchaseOrders.files`                     | Inventory administrators of the order's program                                                           |
+| `poFile`            | `purchaseOrders.files`                     | Flight Program administrators of the order's program (the app's messages say "inventory administrator")   |
 | `manual`            | the library (formerly `manuals.open`)      | Workspace readers of the manual's aircraft                                                                |
 | `certificationFile` | `certifications.list` (formerly `fileUrl`) | The member, and system administrators                                                                     |
 

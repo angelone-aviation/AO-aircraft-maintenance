@@ -37,7 +37,7 @@ Privacy rules are the digest's: each member's alerts are computed from a snapsho
 
 ## Expiring dates
 
-An **expiring date** is a renewal the program or the deployment must not miss: insurance, registration, a service key, a client secret, or anything else. Each has a label, a kind, the date, how many days before it to warn (60 by default, up to 730), an optional note, and for a program's dates an optional aircraft.
+An **expiring date** is a renewal the program or the deployment must not miss: insurance, registration, a service key, another secret such as an API token, or anything else. Each has a label, a kind, the date, how many days before it to warn (60 by default, up to 730), an optional note, and for a program's dates an optional aircraft.
 
 - **Settings → Flight Program → Program expiring dates** holds the active program's dates. Flight Program administrators see, add, edit and archive them.
 - **Settings → System → Deployment expiring dates** holds the deployment's own: the Cloudflare API token, `security.txt`, the VAPID keys. Only system administrators see them. The FAA DRS API key appears here as a row computed from its own renewal date, with an **Update key** action that opens the same dialog as **FAA API key and renewal**.

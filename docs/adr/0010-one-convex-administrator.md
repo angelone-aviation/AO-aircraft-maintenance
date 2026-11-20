@@ -5,6 +5,8 @@ date: 2026-11-03
 
 # One Convex administrator; no second dashboard user
 
+> Note, 2026-11-20: while backups are stored unencrypted ([ADR-0014](0014-backups-stored-unencrypted.md)) there is no backup key, so the "sealed copy held by the organization" below does not exist today. To recover without Aaron, the organization instead needs the Cloudflare login (it opens the R2 backups and the website), the Convex account's recovery, and owner rights on the GitHub organization. Who holds each is still blank in the [accounts](../runbooks/accounts.md) and [break-glass](../runbooks/break-glass-admin.md) runbooks. The sealed-key rule applies again if encryption is turned on.
+
 The Convex Pro account has exactly **one member**: Aaron. There is no second dashboard user and no second break-glass holder with Convex access. This settles the tension recorded in ADR-0007 and replaces ADR-0005's "two named administrators" with one.
 
 The change log stays protected the way ADR-0005 intends, through controls that do not depend on a second dashboard user:

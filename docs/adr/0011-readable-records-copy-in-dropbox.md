@@ -5,6 +5,8 @@ date: 2026-11-03
 
 # A readable copy of the records in Dropbox, alongside the encrypted backup
 
+> Note, 2026-11-20: since [ADR-0014](0014-backups-stored-unencrypted.md) the R2 backup is stored unencrypted unless a backup key is set. Read "the encrypted backup" and "the encrypted archive", in the title and below, as "the R2 backup". This decision is unchanged: Dropbox holds only a readable copy, and the locked R2 copies stay the backup.
+
 > Adds to [ADR-0008](0008-daily-backups-off-site-90-days-monthly-forever.md) without changing it: its "Considered options" turned down Google Drive or OneDrive as _the_ off-site store, and Dropbox here holds only a readable copy. Setup: [Dropbox records copy runbook](../runbooks/dropbox-records-copy.md).
 
 The program asked for logs of everything to be saved in Dropbox as an Excel file, in addition to the Cloudflare R2 backup, formatted so that people can read and understand it. Each night the backup job therefore also turns the same Convex export into one formatted workbook and uploads it to a Dropbox folder. An administrator, an inspector or a board member can open it in Excel, Numbers or Google Sheets without training.

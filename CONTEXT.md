@@ -57,7 +57,7 @@ flowchart LR
   Nightly --> Dropbox
 ```
 
-The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and the production deployment's own `.convex.cloud`/`.convex.site` hosts (written into the published `_headers` at deploy; local and demo builds allow any `*.convex.cloud`/`*.convex.site`). The one planned exception is Sentry error reporting, off until a DSN and its ingest host are added ([monitoring runbook](docs/runbooks/monitoring.md)). Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
+The browser never calls an outside service: the CSP `connect-src` allows only the site, `blob:` and the production deployment's own `.convex.cloud`/`.convex.site` hosts (written into the published `_headers` at deploy; local and demo builds allow any `*.convex.cloud`/`*.convex.site`). The one exception the code supports is Sentry error reporting, which is not used: it stays off until a DSN and its ingest host are added ([monitoring runbook](docs/runbooks/monitoring.md)). Release steps: [release runbook](docs/runbooks/release.md). Backups: [ADR-0008](docs/adr/0008-daily-backups-off-site-90-days-monthly-forever.md), [ADR-0011](docs/adr/0011-readable-records-copy-in-dropbox.md), [backup runbook](docs/runbooks/backup-restore.md).
 
 ## 3. Code layers and directory ownership
 
@@ -76,7 +76,7 @@ Layer names match the file-header labels in [CONSTRAINTS.md §2](CONSTRAINTS.md)
 | `scripts` | Script | Setup (`configure-auth.mjs`, `bootstrap-admin.mjs`), local smoke test, `serve-dist.mjs`, CSP check and deploy-time CSP pin, icons; nightly backup and records workbook (`scripts/backup/`) | Print secrets; import `src/data` except test fixtures |
 | `tests`, `*.test.ts` | Test | Playwright specs (`tests/e2e`) and fixtures; vitest and convex-test suites beside the code they test | Ship in the build |
 | `.github` | Tooling | CI; Deploy, which a green CI push to `main` starts, or a person by hand; first-time setup; nightly backup; Dependabot | Deploy from `ci.yml` (it holds no secrets; `deploy.yml` releases); release a commit that is not the newest on `main`; hold secrets outside the `production` and `backups` environments |
-| `.claude` | Tooling | Standards hooks and settings (owner-only, do not edit); vendored skills (`npx skills update` only) | Be edited by agents |
+| `.claude` | Tooling | Standards hooks and settings (only Aaron edits them); vendored skills (`npx skills update` only) | Be edited by agents |
 | `docs` | Docs | Feature behaviour, ADRs, runbooks, architecture report, research | Contradict an accepted ADR without a new one |
 
 Also at the root: `public/` (headers, icons, fonts), `wrangler.jsonc` (Cloudflare site), `legecy php_project/` (retired PHP system, reference only).
@@ -196,7 +196,7 @@ The 34 terms you meet first. Full definitions and words to avoid: [GLOSSARY.md](
 | Snapshot (not in GLOSSARY.md yet) | The scoped read model (`src/domain/model.ts`) the server sends and the device caches. |
 | Command | Validated request to change records in one step; applied by a domain applier, idempotent where it carries a request id. |
 | Pending entry (outbox) | Flights and problem reports recorded on the device, waiting to sync (Sync center). |
-| Held flight (not in GLOSSARY.md yet) | A synced flight that conflicts with the aircraft's counters; `status: "review"` until an administrator accepts or rejects it (conflict review). |
+| Held flight | A synced flight that conflicts with the aircraft's counters; `status: "review"` until an administrator accepts or rejects it (conflict review). |
 | Counter change (not in GLOSSARY.md yet) | An administrator's correction of aircraft counters, recorded as a counter event; flights before it need chronology review. |
 | Aircraft status | Computed airworthy, due soon or grounded, with reasons. |
 | Dispatch gate | Check that blocks a flight on a grounded aircraft; a dispatch override records the reason with the flight. |

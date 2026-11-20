@@ -1,6 +1,6 @@
 # Vendors
 
-Open **Vendors** directly below **Purchase orders** in the sidebar, or use **View vendors** on the PO page. Inventory administrators can add and edit vendors within their active Flight Program.
+Open **Vendors** directly below **Purchase orders** in the sidebar, or use **View vendors** on the PO page. Flight Program administrators (the app's messages say "inventory administrator") can add and edit vendors within their active Flight Program.
 
 The PO editor displays only the vendor name. Typing offers existing names; an unknown name offers **Quick add** (name only) or **Add vendor** (the full details form). Returning from the details form preserves the unfinished PO. Per-line vendor overrides use the same selector.
 
