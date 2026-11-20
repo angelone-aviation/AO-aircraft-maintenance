@@ -13,14 +13,14 @@ What Angel One is, who uses it, how the parts connect, and what it stores. The e
 
 ## Who uses it
 
-| Person | What they do in the app |
-| --- | --- |
-| Pilot | Logs flights and problem reports, online or offline; sees whether an aircraft may fly; reads checklists, flight plans and manuals |
-| Mechanic or inspector | Inspections, work orders, job cards and signoffs, components, ADs, parts requests |
-| Flight Program administrator | Everything in their program: aircraft, its members and their access, held flights, inventory, purchasing, costs |
-| System administrator | Every program: creates programs, accounts and groups, resets passwords, transfers records, deployment settings |
-| Aircraft owner | A read-only owner portal for the aircraft their group names |
-| Board member | A read-only board view: fleet status, due items, spend, last backup, a PDF for meetings |
+| Person                       | What they do in the app                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Pilot                        | Logs flights and problem reports, online or offline; sees whether an aircraft may fly; reads checklists, flight plans and manuals |
+| Mechanic or inspector        | Inspections, work orders, job cards and signoffs, components, ADs, parts requests                                                 |
+| Flight Program administrator | Everything in their program: aircraft, its members and their access, held flights, inventory, purchasing, costs                   |
+| System administrator         | Every program: creates programs, accounts and groups, resets passwords, transfers records, deployment settings                    |
+| Aircraft owner               | A read-only owner portal for the aircraft their group names                                                                       |
+| Board member                 | A read-only board view: fleet status, due items, spend, last backup, a PDF for meetings                                           |
 
 App users cost nothing. Only Aaron holds a Convex seat ([ADR-0007](../../adr/0007-convex-pro-single-seat.md), [ADR-0010](../../adr/0010-one-convex-administrator.md)).
 
@@ -64,14 +64,14 @@ flowchart LR
   BS -.->|checks| Site
 ```
 
-| Part | What it is | Where it is set up |
-| --- | --- | --- |
-| Browser app | React 19, Vite, TanStack Router, Zustand; keeps an offline copy in IndexedDB | [`src/`](../../../src/) |
-| Shared rules | TypeScript and zod schemas used by both the browser and the server | [`src/domain/`](../../../src/domain/) |
-| Backend | Convex: database, files, functions, sign-in (Convex Auth), scheduled jobs | [`convex/`](../../../convex/) |
-| Website hosting | Cloudflare Workers Static Assets; security headers | [`wrangler.jsonc`](../../../wrangler.jsonc), [`public/_headers`](../../../public/_headers), [`worker/assets.ts`](../../../worker/assets.ts) |
-| Pipeline | CI, Deploy, Nightly backup, First-time setup | [`.github/workflows/`](../../../.github/workflows/) |
-| Demo | The same app on fictional data, in the browser only | [`src/data/demoBackend.ts`](../../../src/data/demoBackend.ts) |
+| Part            | What it is                                                                   | Where it is set up                                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser app     | React 19, Vite, TanStack Router, Zustand; keeps an offline copy in IndexedDB | [`src/`](../../../src/)                                                                                                                     |
+| Shared rules    | TypeScript and zod schemas used by both the browser and the server           | [`src/domain/`](../../../src/domain/)                                                                                                       |
+| Backend         | Convex: database, files, functions, sign-in (Convex Auth), scheduled jobs    | [`convex/`](../../../convex/)                                                                                                               |
+| Website hosting | Cloudflare Workers Static Assets; security headers                           | [`wrangler.jsonc`](../../../wrangler.jsonc), [`public/_headers`](../../../public/_headers), [`worker/assets.ts`](../../../worker/assets.ts) |
+| Pipeline        | CI, Deploy, Nightly backup, First-time setup                                 | [`.github/workflows/`](../../../.github/workflows/)                                                                                         |
+| Demo            | The same app on fictional data, in the browser only                          | [`src/data/demoBackend.ts`](../../../src/data/demoBackend.ts)                                                                               |
 
 Rules that hold everywhere:
 
@@ -83,16 +83,16 @@ Every outside service, its plan and its cost: [Services and costs](../4-money-an
 
 ### Scheduled jobs
 
-| Job | When (UTC) | Defined in |
-| --- | --- | --- |
-| FAA AD monitoring | Daily 10:00 | [`convex/crons.ts`](../../../convex/crons.ts) |
-| Alert email digest | Daily 13:00 | same |
-| Urgent alert check | Daily 13:10, and after each change that can cause one | same, [`convex/urgentAlerts.ts`](../../../convex/urgentAlerts.ts) |
-| Cost ledger reconcile | Daily 09:37 | same |
-| Expired manual upload clean-up | Hourly at :15 | same |
-| Unreferenced file sweep | Hourly at :45 | same, [file sweep runbook](../../runbooks/file-sweep.md) |
-| Sign-in records clean-up | Sundays 07:20 | same |
-| Nightly backup | Daily 08:41 | [`.github/workflows/backup.yml`](../../../.github/workflows/backup.yml) |
+| Job                            | When (UTC)                                            | Defined in                                                              |
+| ------------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| FAA AD monitoring              | Daily 10:00                                           | [`convex/crons.ts`](../../../convex/crons.ts)                           |
+| Alert email digest             | Daily 13:00                                           | same                                                                    |
+| Urgent alert check             | Daily 13:10, and after each change that can cause one | same, [`convex/urgentAlerts.ts`](../../../convex/urgentAlerts.ts)       |
+| Cost ledger reconcile          | Daily 09:37                                           | same                                                                    |
+| Expired manual upload clean-up | Hourly at :15                                         | same                                                                    |
+| Unreferenced file sweep        | Hourly at :45                                         | same, [file sweep runbook](../../runbooks/file-sweep.md)                |
+| Sign-in records clean-up       | Sundays 07:20                                         | same                                                                    |
+| Nightly backup                 | Daily 08:41                                           | [`.github/workflows/backup.yml`](../../../.github/workflows/backup.yml) |
 
 ## Flight Programs: one deployment, many programs
 
@@ -107,17 +107,17 @@ Every outside service, its plan and its cost: [Services and costs](../4-money-an
 
 Access comes from **permission groups**. A group belongs to one program and covers all its aircraft or chosen ones.
 
-| Permission or flag | Lets a member |
-| --- | --- |
-| `read` | See the program's records for the group's aircraft |
-| `flight` | Log flights |
-| `discrepancy` | Report problems |
-| `resolve` | Resolve problem reports |
-| `maintenance` | Work on inspections, components, ADs, work orders, job cards; raise parts requests; export the records package |
-| Flight Program administrator | Manage the whole program: aircraft, components, inventory, purchasing, costs, held flights, saved addresses, and its members (create accounts, add existing users, change or remove their access in this program) |
-| Aircraft owner (flag) | The owner portal for the named aircraft, nothing else |
-| Board member (flag) | The board view, nothing else |
-| System administrator (account flag) | Everything, in every program; accounts, groups, transfers, deployment settings |
+| Permission or flag                  | Lets a member                                                                                                                                                                                                     |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read`                              | See the program's records for the group's aircraft                                                                                                                                                                |
+| `flight`                            | Log flights                                                                                                                                                                                                       |
+| `discrepancy`                       | Report problems                                                                                                                                                                                                   |
+| `resolve`                           | Resolve problem reports                                                                                                                                                                                           |
+| `maintenance`                       | Work on inspections, components, ADs, work orders, job cards; raise parts requests; export the records package                                                                                                    |
+| Flight Program administrator        | Manage the whole program: aircraft, components, inventory, purchasing, costs, held flights, saved addresses, and its members (create accounts, add existing users, change or remove their access in this program) |
+| Aircraft owner (flag)               | The owner portal for the named aircraft, nothing else                                                                                                                                                             |
+| Board member (flag)                 | The board view, nothing else                                                                                                                                                                                      |
+| System administrator (account flag) | Everything, in every program; accounts, groups, transfers, deployment settings                                                                                                                                    |
 
 - Owner and board flags refuse administrator rights and write permissions. Every other call from them is refused ("Aircraft owner access is read-only.", "Board access is read-only.").
 - Accounts are created by administrators only: system administrators, and Flight Program administrators for their own program ([`convex/programUsers.ts`](../../../convex/programUsers.ts)). Only system administrators reset passwords, disable accounts and create programs. There is no public sign-up or self-service reset ([ADR-0002](../../adr/0002-administrator-provisioned-accounts.md)).
@@ -128,18 +128,18 @@ Access comes from **permission groups**. A group belongs to one program and cove
 
 Records are stored as validated JSON documents in Convex tables ([`convex/schema.ts`](../../../convex/schema.ts)); the shapes are zod schemas in [`src/domain/`](../../../src/domain/). The words are defined in [GLOSSARY.md](../../../GLOSSARY.md).
 
-| Group | Main records |
-| --- | --- |
-| Organisation and people | Flight Programs, users, permission groups, memberships, certificates and license copies |
-| Aircraft | Aircraft and their counters (Hobbs, tach, cycles, landings), photos, documents and Form 337 copies, expiring dates |
-| Flying | Flights (including held flights), flight plans, checklists, engine trends |
-| Defects | Problem reports (discrepancies), deferrals under the MEL |
-| Maintenance due | Inspections, components and their requirements and movements, ADs and their compliance records, templates |
-| Work | Work orders, job cards, job card evidence, archived job cards, work-order files, costs |
-| Parts | Inventory (stock and locations), parts and repair requests, purchase orders, vendors, saved addresses, Aircraft Spruce orders |
-| Library | Reference manuals |
-| Change log | `audit`: one row per change, with who, when, before, after and reason; never edited |
-| Derived (not records) | `recordNumbers`, `costLedger`, `purchasingKeys`: rebuilt from the records, never in the change log ([history paging](../../history-paging.md)) |
-| Bookkeeping | Request ids, rate limits, alert deliveries, push subscriptions, backup runs, sign-in tables |
+| Group                   | Main records                                                                                                                                   |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Organisation and people | Flight Programs, users, permission groups, memberships, certificates and license copies                                                        |
+| Aircraft                | Aircraft and their counters (Hobbs, tach, cycles, landings), photos, documents and Form 337 copies, expiring dates                             |
+| Flying                  | Flights (including held flights), flight plans, checklists, engine trends                                                                      |
+| Defects                 | Problem reports (discrepancies), deferrals under the MEL                                                                                       |
+| Maintenance due         | Inspections, components and their requirements and movements, ADs and their compliance records, templates                                      |
+| Work                    | Work orders, job cards, job card evidence, archived job cards, work-order files, costs                                                         |
+| Parts                   | Inventory (stock and locations), parts and repair requests, purchase orders, vendors, saved addresses, Aircraft Spruce orders                  |
+| Library                 | Reference manuals                                                                                                                              |
+| Change log              | `audit`: one row per change, with who, when, before, after and reason; never edited                                                            |
+| Derived (not records)   | `recordNumbers`, `costLedger`, `purchasingKeys`: rebuilt from the records, never in the change log ([history paging](../../history-paging.md)) |
+| Bookkeeping             | Request ids, rate limits, alert deliveries, push subscriptions, backup runs, sign-in tables                                                    |
 
 What a device holds is a **snapshot**: the active program's records the user may see, cut to the history window ([How it works](../2-how-it-works/how-it-works.md#history-paging-and-the-3-month-window)).

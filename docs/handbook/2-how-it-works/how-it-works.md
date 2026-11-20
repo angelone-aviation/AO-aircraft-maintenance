@@ -4,15 +4,15 @@ How records move through the app, from a flight to a signed-off job card, and th
 
 ## The life of a flight
 
-| Step | What happens | Detail |
-| --- | --- | --- |
-| 1. Start | The pilot opens **Log flight** on a phone. The form shows the aircraft's starting Hobbs and tach to check, read-only. | [README: offline and installation](../../../README.md#offline-and-installation) |
-| 2. Dispatch gate | A grounded aircraft is refused before the flight starts. An administrator can record a dispatch override with a reason. | [Glossary: Dispatch gate](../../../GLOSSARY.md) |
-| 3. End | The pilot enters ending readings, landings, cycles, fuel and oil. Numbers with a decimal comma ("2342,5") are refused. | [Flight log options](../../flight-log-options.md) |
-| 4. Save | Online, it goes to the server. Offline, it waits on the device as a **pending entry** in the **Sync center**. | [Offline](../../offline.md) |
-| 5. Server check | The server checks it again. It applies it and moves the aircraft's totals, or holds it, or refuses it. | [Flights held for review](../../offline.md#flights-held-for-review) |
-| 6. Held flight | A flight that no longer fits the aircraft is stored as **Needs review** and changes no totals. | same |
-| 7. Review | An administrator accepts it (with corrections if needed; totals and later flights are rebuilt) or rejects it. Both keep the original values in the change log. | same |
+| Step             | What happens                                                                                                                                                   | Detail                                                                          |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 1. Start         | The pilot opens **Log flight** on a phone. The form shows the aircraft's starting Hobbs and tach to check, read-only.                                          | [README: offline and installation](../../../README.md#offline-and-installation) |
+| 2. Dispatch gate | A grounded aircraft is refused before the flight starts. An administrator can record a dispatch override with a reason.                                        | [Glossary: Dispatch gate](../../../GLOSSARY.md)                                 |
+| 3. End           | The pilot enters ending readings, landings, cycles, fuel and oil. Numbers with a decimal comma ("2342,5") are refused.                                         | [Flight log options](../../flight-log-options.md)                               |
+| 4. Save          | Online, it goes to the server. Offline, it waits on the device as a **pending entry** in the **Sync center**.                                                  | [Offline](../../offline.md)                                                     |
+| 5. Server check  | The server checks it again. It applies it and moves the aircraft's totals, or holds it, or refuses it.                                                         | [Flights held for review](../../offline.md#flights-held-for-review)             |
+| 6. Held flight   | A flight that no longer fits the aircraft is stored as **Needs review** and changes no totals.                                                                 | same                                                                            |
+| 7. Review        | An administrator accepts it (with corrections if needed; totals and later flights are rebuilt) or rejects it. Both keep the original values in the change log. | same                                                                            |
 
 A flight is held, not refused, when, in this order:
 
@@ -26,13 +26,13 @@ Also held: a flight whose aircraft was grounded only by problems reported after 
 
 ## The life of a problem report
 
-| Step | What happens | Detail |
-| --- | --- | --- |
-| 1. Report | **Report a problem**, or the flight form's problem field. Works offline. The report is the discrepancy. | [Glossary: Problem report](../../../GLOSSARY.md) |
-| 2. Open | It shows on **Discrepancies**. One marked grounding grounds the aircraft and sends an urgent alert. | [Alerts](../../alerts.md) |
-| 3a. Defer | Postponed under an MEL item and category, with placard text and a repair deadline counted from the day the defect was found (decision D4). | [Maintenance workflows](../../maintenance-workflows.md) |
-| 3b. Work | **Add to work order**, so the repair is planned and signed off there. | [Work orders](../../work-orders.md) |
-| 4. Resolve | **Record resolution** closes it, with who and when. A member needs the `resolve` permission. | [Maintenance workflows](../../maintenance-workflows.md) |
+| Step       | What happens                                                                                                                               | Detail                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| 1. Report  | **Report a problem**, or the flight form's problem field. Works offline. The report is the discrepancy.                                    | [Glossary: Problem report](../../../GLOSSARY.md)        |
+| 2. Open    | It shows on **Discrepancies**. One marked grounding grounds the aircraft and sends an urgent alert.                                        | [Alerts](../../alerts.md)                               |
+| 3a. Defer  | Postponed under an MEL item and category, with placard text and a repair deadline counted from the day the defect was found (decision D4). | [Maintenance workflows](../../maintenance-workflows.md) |
+| 3b. Work   | **Add to work order**, so the repair is planned and signed off there.                                                                      | [Work orders](../../work-orders.md)                     |
+| 4. Resolve | **Record resolution** closes it, with who and when. A member needs the `resolve` permission.                                               | [Maintenance workflows](../../maintenance-workflows.md) |
 
 One member may hold at most **200 open problem reports**, or **512 KiB** of their text, in a program. Past that, a new report is refused. Administrators are alerted at half of either limit (decision D2, [maintenance workflows](../../maintenance-workflows.md)).
 
@@ -59,15 +59,15 @@ flowchart LR
 
 ## The life of a parts request to a purchase order
 
-| Step | What happens | Who |
-| --- | --- | --- |
-| 1. Request | **Parts / repair requests** from a problem report, inspection, task, job card, component or stock item. The source is carried in. | Maintenance |
-| 2. Check stock | On-hand, reserved and available stock by location. Expired stock is never available. | Anyone who can see it |
+| Step           | What happens                                                                                                                                         | Who                     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 1. Request     | **Parts / repair requests** from a problem report, inspection, task, job card, component or stock item. The source is carried in.                    | Maintenance             |
+| 2. Check stock | On-hand, reserved and available stock by location. Expired stock is never available.                                                                 | Anyone who can see it   |
 | 3a. From stock | Reserve, then **issue** reserved parts. An issue to a work order records the unit cost on the order's administrator-only cost record (decision D13). | Inventory administrator |
-| 3b. To order | **Add selected to purchase order** (same vendor, currency and ship-to). | Inventory administrator |
-| 4. PO | Save draft → Issue → Record shipment → Receive parts → Close. A receipt cannot be dated before the order was issued (D19). | Inventory administrator |
-| 5. Arrive | Parts received for a request are reserved for it; issue them when used. A stock request reads **Fulfilled** once its parts arrive (D18). | Inventory administrator |
-| Repair | Send an uninstalled serialized component out on a repair PO; it reads **Out for repair** until it is received back. | Inventory administrator |
+| 3b. To order   | **Add selected to purchase order** (same vendor, currency and ship-to).                                                                              | Inventory administrator |
+| 4. PO          | Save draft → Issue → Record shipment → Receive parts → Close. A receipt cannot be dated before the order was issued (D19).                           | Inventory administrator |
+| 5. Arrive      | Parts received for a request are reserved for it; issue them when used. A stock request reads **Fulfilled** once its parts arrive (D18).             | Inventory administrator |
+| Repair         | Send an uninstalled serialized component out on a repair PO; it reads **Out for repair** until it is received back.                                  | Inventory administrator |
 
 Detail: [parts and repair requests](../../parts-and-repair-requests.md), [purchase orders](../../purchase-orders.md), [vendors](../../vendors.md), [Aircraft Spruce](../../aircraft-spruce.md).
 
@@ -88,11 +88,11 @@ Who sees which rows follows the same rules as the records themselves ([Flight Pr
 
 ## Offline and sync
 
-| Works offline | Needs a connection |
-| --- | --- |
-| Logging flights and problem reports | Everything else: corrections, resolutions, work orders, access changes |
-| A logbook line photo for a flight not yet synced | Switching Flight Program |
-| Manuals kept with **Keep on this device** | **Load older** history; opening files other than kept manuals ("Reconnect to open.") |
+| Works offline                                    | Needs a connection                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Logging flights and problem reports              | Everything else: corrections, resolutions, work orders, access changes               |
+| A logbook line photo for a flight not yet synced | Switching Flight Program                                                             |
+| Manuals kept with **Keep on this device**        | **Load older** history; opening files other than kept manuals ("Reconnect to open.") |
 
 - The device keeps a copy of the active program, cut to the history window, for **seven days from sign-in**. It is not encrypted. Phones and tablets need a screen lock (decision of 19 Nov; [offline](../../offline.md#signing-out-and-shared-devices)).
 - Pending entries sync by themselves when connected. A banner says how many wait ("3 entries waiting to send").
@@ -106,13 +106,13 @@ Who sees which rows follows the same rules as the records themselves ([Flight Pr
 
 The device and every screen hold a **window** of history, not all of it. Older records load page by page ([history paging](../../history-paging.md), [ADR-0013](../../adr/0013-history-retention-window.md), decisions H1–H7).
 
-| Kept in the workspace | Loads with **Load older** |
-| --- | --- |
-| Every open item, however old (held flights, open and deferred problem reports, open work orders and job cards, open parts requests and purchase orders) | Older flights, problem reports, work orders |
-| Flights from the last 6 months (183 days) | Settled parts requests, closed purchase orders |
-| Closed records changed in the last 3 months (90 days) | Older flight plans |
-| The 5 latest completed work orders on each aircraft | |
-| Always complete: aircraft, inspections, ADs, components, checklists, templates, inventory | |
+| Kept in the workspace                                                                                                                                   | Loads with **Load older**                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Every open item, however old (held flights, open and deferred problem reports, open work orders and job cards, open parts requests and purchase orders) | Older flights, problem reports, work orders    |
+| Flights from the last 6 months (183 days)                                                                                                               | Settled parts requests, closed purchase orders |
+| Closed records changed in the last 3 months (90 days)                                                                                                   | Older flight plans                             |
+| The 5 latest completed work orders on each aircraft                                                                                                     |                                                |
+| Always complete: aircraft, inspections, ADs, components, checklists, templates, inventory                                                               |                                                |
 
 - Screens show "Showing the last 3 months · Load older". Counts and text search cover loaded rows and say so (H2, H3).
 - The window starts at midnight UTC, so a record at the edge appears in both places, never in neither.
@@ -129,12 +129,12 @@ The device and every screen hold a **window** of history, not all of it. Older r
 
 ## Alerts
 
-| Channel | What | Who | When |
-| --- | --- | --- | --- |
-| Bell and Alerts page | Every alert | Everyone who can read the aircraft | Always |
-| Daily digest email | Alerts not yet emailed | Members with **Email me a daily alert digest** on (default on for program administrators) | 13:00 UTC |
-| Urgent email | New urgent alerts | Members with **Email me urgent alerts at once** on (default on for administrators and maintenance) | Right after the change |
-| Device push | The same urgent alerts | Devices switched on under **Alert this device** | Right after the change |
+| Channel              | What                   | Who                                                                                                | When                   |
+| -------------------- | ---------------------- | -------------------------------------------------------------------------------------------------- | ---------------------- |
+| Bell and Alerts page | Every alert            | Everyone who can read the aircraft                                                                 | Always                 |
+| Daily digest email   | Alerts not yet emailed | Members with **Email me a daily alert digest** on (default on for program administrators)          | 13:00 UTC              |
+| Urgent email         | New urgent alerts      | Members with **Email me urgent alerts at once** on (default on for administrators and maintenance) | Right after the change |
+| Device push          | The same urgent alerts | Devices switched on under **Alert this device**                                                    | Right after the change |
 
 - **Urgent** means: aircraft grounded, inspection or AD overdue, component past its limit, a date expired, one member's problem reports piling up.
 - At most **60 urgent emails a day** for the whole deployment, so the digest fits Resend's free 100 a day. Each program gets a fair share, at least 10 (decision D9).

@@ -1,5 +1,7 @@
 # Angel One
 
+> **New here?** Start with the [Angel One handbook](docs/handbook/README.md): what the app is, how it works, how to run it, what it costs and what could go wrong.
+
 **Aircraft operations and maintenance records for a mission flight program.**
 
 Angel One keeps the maintenance and status records a 14 CFR Part 91 operator must hold for its aircraft, and runs the daily work that produces them: flight logging, discrepancies, inspections, work orders, parts and airworthiness directives. Everything is scoped by **Flight Program** with permission groups, and pilots can log flights and report discrepancies with no signal.
