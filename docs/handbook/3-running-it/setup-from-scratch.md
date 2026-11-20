@@ -153,7 +153,7 @@ What the scripts do:
 
 ### 3.3 Environment variables
 
-Set them in the dashboard (production deployment → **Settings** → **Environment Variables**, [docs](https://docs.convex.dev/production/environment-variables)) or with `npx convex env set NAME --prod` and the value on stdin. Every name below is read by code in `convex/`.
+Set them in the dashboard (production deployment → **Settings** → **Environment Variables**, [docs](https://docs.convex.dev/production/environment-variables)) or with `npx convex env set NAME --prod` and the value on stdin. Every name below is read by code in `convex/`, or by the sign-in library it runs (`JWT_PRIVATE_KEY`, `JWKS`).
 
 | Name                                                           | Where it goes | Required                                  | What it's for                                                                                                                                                                                                                    | Example format                               |
 | -------------------------------------------------------------- | ------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
