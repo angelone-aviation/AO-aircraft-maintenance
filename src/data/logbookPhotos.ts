@@ -29,6 +29,11 @@ export interface PendingLogbookPhoto extends AircraftFileLink {
   queuedAt: number;
   /** The server's refusal, kept for the Sync center; retried on request. */
   error?: string;
+  /**
+   * Its record is older than the workspace keeps, opened from a history
+   * page (ADR-0013): the server holds it, so it is not waited for.
+   */
+  olderRecord?: boolean;
   blob: Blob;
 }
 
@@ -100,7 +105,8 @@ export function pendingPhotosFor(
 /**
  * Whether a queued photo may be uploaded now: its author is signed in, its
  * program is active, and its flight or work order is in the snapshot, so the
- * server knows the record.
+ * server knows the record, or is an older record the server holds. The
+ * server checks the record again on upload.
  *
  * @param photo - The queued photo.
  * @param s - The current snapshot.
@@ -112,7 +118,7 @@ export function pendingPhotoReady(
   return (
     photo.authorId === s.user.id &&
     photo.programUuid === s.activeProgramUuid &&
-    hasAircraftFileTarget(s, photo.aircraftUuid, photo)
+    (!!photo.olderRecord || hasAircraftFileTarget(s, photo.aircraftUuid, photo))
   );
 }
 

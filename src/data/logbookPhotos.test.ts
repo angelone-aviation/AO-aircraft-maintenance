@@ -87,6 +87,20 @@ it("is ready only for the signed-in author, the active program and a synced reco
   ).toBe(false);
 });
 
+it("does not wait for an older record the server holds, but still for its author and program", () => {
+  const s = demoSnapshot();
+  const older = photo({
+    aircraftUuid: s.aircraft[0].uuid,
+    programUuid: s.activeProgramUuid,
+    olderRecord: true,
+  });
+  expect(pendingPhotoReady(older, s)).toBe(true);
+  expect(pendingPhotoReady({ ...older, authorId: "demo-pilot" }, s)).toBe(
+    false,
+  );
+  expect(pendingPhotoReady({ ...older, programUuid: "other" }, s)).toBe(false);
+});
+
 it("rebuilds the upload file from the queued bytes, name and type", async () => {
   const file = pendingPhotoFile(photo({}));
   expect([file.name, file.type, file.size]).toEqual([

@@ -1186,7 +1186,7 @@ function isOrphanPhoto(
   const synced =
     s.flights.some((f) => f.uuid === photo.linkedUuid) ||
     (s.workOrders ?? []).some((w) => w.uuid === photo.linkedUuid);
-  return !queued && !synced;
+  return !photo.olderRecord && !queued && !synced;
 }
 
 function DiscardPhotoButton({ photoKey }: { photoKey: string }) {
@@ -1220,7 +1220,13 @@ function PendingPhotoNotes({
           {photo.error}
         </p>
       )}
-      {!photo.error && !orphan && <p>Uploads once its {record} has synced.</p>}
+      {!photo.error && !orphan && (
+        <p>
+          {photo.olderRecord
+            ? "Uploads when connected."
+            : `Uploads once its ${record} has synced.`}
+        </p>
+      )}
       {orphan && (
         <p>
           Its {record} is not on this device or the server, so the photo cannot

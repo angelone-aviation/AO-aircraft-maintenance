@@ -1169,6 +1169,43 @@ it("keeps a logbook photo on the device until its flight has synced, then upload
   vi.unstubAllGlobals();
 });
 
+it("uploads a photo of an older record without waiting for it to sync", async () => {
+  const namespace = "photo-older-record-test";
+  const s = { ...demoSnapshot(), activeProgramUuid: "A" };
+  const uploadAircraftFile = vi.fn().mockResolvedValue(undefined);
+  const workspace = await liveWorkspace(namespace, vi.fn());
+  workspace.setState({
+    snapshot: s,
+    connected: false,
+    backend: { uploadAircraftFile } as unknown as Backend,
+  });
+  const target = {
+    aircraftUuid: s.aircraft[0].uuid,
+    linkedKind: "work-order" as const,
+    linkedUuid: crypto.randomUUID(),
+    olderRecord: true,
+  };
+  const page = () =>
+    new File([new Uint8Array([255, 216])], "signed.jpg", {
+      type: "image/jpeg",
+    });
+  await workspace.getState().attachLogbookPhoto(target, page());
+  expect(workspace.getState().pendingPhotos).toMatchObject([
+    { olderRecord: true },
+  ]);
+  expect(workspace.getState().notice).toBe(
+    "Photo saved on this device. It will upload when connected.",
+  );
+  workspace.getState().setConnection(true, true);
+  await vi.waitFor(() =>
+    expect(workspace.getState().pendingPhotos).toEqual([]),
+  );
+  await workspace.getState().attachLogbookPhoto(target, page());
+  expect(uploadAircraftFile).toHaveBeenCalledTimes(2);
+  expect(workspace.getState().pendingPhotos).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
 it("holds a refused photo for attention, retries it on request and discards it", async () => {
   const { ConvexError } = await import("convex/values");
   const namespace = "photo-refusal-test";

@@ -121,7 +121,9 @@ export interface Workspace {
    * Attaches a photo of the paper logbook line or signed page to a flight or
    * work order on the aircraft. Connected, with the record already synced,
    * the photo uploads at once; otherwise it is kept on this device and
-   * uploads on a later flush, once the record is in the snapshot.
+   * uploads on a later flush, once the record is in the snapshot. A record
+   * older than the workspace keeps (`olderRecord`, from a history page) is
+   * not waited for: its photo uploads once connected.
    *
    * @param target - The aircraft and the flight or work order.
    * @param file - The photo.
@@ -131,7 +133,7 @@ export interface Workspace {
    *   `backend.uploadAircraftFile`.
    */
   attachLogbookPhoto(
-    target: { aircraftUuid: string } & AircraftFileLink,
+    target: { aircraftUuid: string; olderRecord?: boolean } & AircraftFileLink,
     file: File,
   ): Promise<void>;
   /**
@@ -357,10 +359,9 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       linkedKind: target.linkedKind,
       linkedUuid: target.linkedUuid,
     };
-    if (
-      canFlush(state) &&
-      hasAircraftFileTarget(snapshot, target.aircraftUuid, link)
-    ) {
+    const synced = hasAircraftFileTarget(snapshot, target.aircraftUuid, link);
+    const olderRecord = !synced && !!target.olderRecord;
+    if (canFlush(state) && (synced || olderRecord)) {
       await state.backend!.uploadAircraftFile(
         target.aircraftUuid,
         "logbook-page",
@@ -370,14 +371,15 @@ export const useWorkspace = create<Workspace>((set, get) => ({
       set({ notice: "Photo attached." });
       return;
     }
-    await local.savePendingPhoto(
-      namespace,
-      buildPendingPhoto(snapshot, target, file),
-    );
+    await local.savePendingPhoto(namespace, {
+      ...buildPendingPhoto(snapshot, target, file),
+      ...(olderRecord && { olderRecord }),
+    });
     set({
       pendingPhotos: await local.readPendingPhotos(namespace),
-      notice:
-        "Photo saved on this device. It will upload once the record has synced.",
+      notice: olderRecord
+        ? "Photo saved on this device. It will upload when connected."
+        : "Photo saved on this device. It will upload once the record has synced.",
     });
     void get().flush();
   },

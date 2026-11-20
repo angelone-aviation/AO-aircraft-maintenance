@@ -3,8 +3,8 @@
  *   taking or choosing one, the thumbnails, the full-size view with archive,
  *   the photos still waiting to upload, and the prompt after a flight saves.
  * Layer: UI. React components; writes through the workspace store.
- * Dependencies: react, @phosphor-icons/react, src/data/store.ts,
- *   src/data/logbookPhotos.ts, src/domain/aircraftFiles.ts,
+ * Dependencies: react, @phosphor-icons/react, src/data (store,
+ *   logbookPhotos, historyPages), src/domain/aircraftFiles.ts,
  *   src/domain/model.ts, ./AircraftFiles.tsx, ./FileLink.tsx, ./design.tsx,
  *   ./ui.tsx, src/styles/screens/logbook-photos.css.
  *
@@ -15,11 +15,13 @@
 import { useEffect, useState } from "react";
 import { Camera, FileText } from "@phosphor-icons/react";
 import { useWorkspace } from "../data/store";
+import { useRecordsSnapshot } from "../data/historyPages";
 import {
   pendingPhotosFor,
   type PendingLogbookPhoto,
 } from "../data/logbookPhotos";
 import {
+  hasAircraftFileTarget,
   canWriteAircraftFile,
   linkedLogbookPhotos,
   type AircraftFile,
@@ -188,8 +190,16 @@ export function PendingThumbnail({ photo }: { photo: PendingLogbookPhoto }) {
   );
 }
 
+// A record on screen that the workspace lacks came from a history page: the
+// server holds it, so its photo need not wait for it to sync.
 function usePhotoAttach(target: LogbookPhotoTarget) {
-  const { attachLogbookPhoto } = useWorkspace();
+  const { attachLogbookPhoto, snapshot } = useWorkspace();
+  const records = useRecordsSnapshot();
+  const olderRecord =
+    !!records &&
+    !!snapshot &&
+    hasAircraftFileTarget(records, target.aircraftUuid, target) &&
+    !hasAircraftFileTarget(snapshot, target.aircraftUuid, target);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -199,7 +209,7 @@ function usePhotoAttach(target: LogbookPhotoTarget) {
     setError("");
     setMessage("");
     try {
-      await attachLogbookPhoto(target, file);
+      await attachLogbookPhoto({ ...target, olderRecord }, file);
       setMessage(useWorkspace.getState().notice);
     } catch (e) {
       setError(errorText(e, "Unable to attach the photo."));
