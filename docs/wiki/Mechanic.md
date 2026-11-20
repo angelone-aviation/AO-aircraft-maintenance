@@ -1,5 +1,7 @@
 # Mechanic guide
 
+[User guide](Home.md)
+
 You keep the aircraft's maintenance current: inspections, ADs, component
 limits, problem reports, work orders and job cards. The default
 **Maintenance technicians** group can read, report and resolve discrepancies

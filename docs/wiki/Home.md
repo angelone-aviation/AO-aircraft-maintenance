@@ -69,6 +69,8 @@ flowchart LR
 
 ## Find your way
 
+[All pages](_Sidebar.md) lists every page of this guide.
+
 The sidebar groups screens under **Fly**, **Maintain** and **Manage**. On a
 phone, the bottom bar has **Overview**, **Flight log**, **Log flight**,
 **Inspections** (not in the pilot view) and **More**.

@@ -1,5 +1,7 @@
 # Flight log
 
+[User guide](Home.md)
+
 The **Flight log** (under Fly) lists every flight, newest first. Logging a
 flight advances the aircraft's Hobbs, tach, total time, cycles and landings,
 which drive every hours-based limit. Flights can be logged offline.

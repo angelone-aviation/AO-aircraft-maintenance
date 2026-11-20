@@ -1,5 +1,7 @@
 # Job cards and sign-off
 
+[User guide](Home.md)
+
 A **job card** (`TC-YYYY-NNNN`) is where the work is recorded: findings,
 actual work, parts used, evidence and signoffs. Cards usually belong to a work
 order; a card can also stand alone. The screen is **Job cards** under

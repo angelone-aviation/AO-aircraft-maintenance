@@ -1,8 +1,22 @@
 # Pilot guide
 
+[User guide](Home.md)
+
 You log flights, report problems and read checklists and manuals. All of it
 works without a connection (manuals once kept on the device). See the
 [rules for flights](Flight-Log.md#rules) and [Offline](Offline.md).
+
+## Your first day
+
+1. Install the app on your phone
+   ([how](Home.md#install-it-on-a-phone)).
+2. Set a screen lock on the phone.
+3. Sign in once while connected; after that the app opens offline for seven
+   days at a time.
+4. In **Reference library**, choose **Keep on this device** on the manuals
+   you fly with ([how](Reference-Library.md#keep-on-this-device)).
+5. In **Settings → Alerts**, switch on **Alert this device**
+   ([Alerts](Alerts.md#email-and-device-alerts)).
 
 ## What you see
 

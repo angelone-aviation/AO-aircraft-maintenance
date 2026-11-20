@@ -1,5 +1,7 @@
 # Inspections and ADs
 
+[User guide](Home.md)
+
 **Inspections** and **Airworthiness directives** are under **Maintain**. Both
 track limits by hours, cycles, landings or calendar, and both ground the
 aircraft once a limit is overdue
@@ -38,6 +40,15 @@ Monthly intervals fall due on the last day of the target month. An inspection
 can follow the aircraft's time or one of its components. A component's
 inspections stay with that serial number, even in storage. In storage they
 still alert, but no longer ground the aircraft it came off.
+
+### Calendar exemption
+
+For an inspection whose calendar limit does not apply for now, open
+**Details**, tick **Calendar exempt** and give the **Calendar exemption
+reason / reference** (required). The calendar deadline then stops counting
+toward status and alerts and the row reads **Calendar exempt**; hours and
+cycles limits still apply. Unticking restores the deadline from the recorded
+compliance. The form shows who last changed it and when.
 
 ### Record a completion
 

@@ -1,5 +1,7 @@
 # Discrepancies
 
+[User guide](Home.md)
+
 A **discrepancy** is a defect reported on an aircraft. It stays open until it
 is resolved or deferred. "Problem" is the act of reporting; "discrepancy" is
 the record. The screen is under **Fly**.
@@ -50,10 +52,10 @@ Anyone with "Report discrepancies" permission can report, online or offline.
 
 A pilot can also report from the flight form's **Discrepancy** field.
 
-| Limit                                                                         | What happens                                                                                                                            |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 200 open reports, or about 500,000 characters of text, per member per program | "You have too many open problem reports. Ask an administrator to resolve or defer some of your open reports, then send this one again." |
-| Half that (100 reports or about 250,000 characters)                           | The program's administrators get an alert                                                                                               |
+| Limit                                                                                   | What happens                                                                                                                            |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 200 open reports, or 512 KiB of text (about 500,000 characters), per member per program | "You have too many open problem reports. Ask an administrator to resolve or defer some of your open reports, then send this one again." |
+| Half that (100 reports or 256 KiB)                                                      | The program's administrators get an alert                                                                                               |
 
 Deferred and resolved reports do not count.
 

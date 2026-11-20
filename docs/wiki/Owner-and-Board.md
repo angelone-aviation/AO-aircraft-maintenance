@@ -1,5 +1,7 @@
 # Owner and board member guide
 
+[User guide](Home.md)
+
 Owners and board members get one read-only view. They cannot change any
 record. Every other request is refused with "Aircraft owner access is
 read-only." or "Board access is read-only."

@@ -1,5 +1,7 @@
 # Components
 
+[User guide](Home.md)
+
 A **component** is one serialized, life-tracked part: an engine, a propeller,
 a pump. It is either installed on an aircraft at a position or held in
 inventory. **Components** is under **Maintain**.
@@ -22,6 +24,24 @@ the nearest service limit.
 | **Details**                 | The component's record                                                                                                 |
 | **Add Service/Inspections** | Adds a service requirement                                                                                             |
 | **Parts / repair requests** | Requests parts, or sends the component for repair ([how](Inventory-and-Parts-Requests.md#send-a-component-for-repair)) |
+
+## Component templates
+
+A **component template** is a list of the components an aircraft make and
+model should have. Applying one adds them without serial numbers or readings.
+
+1. Choose **Imported components**, then **Component templates**.
+2. Choose **New template / import CSV**. Enter the **Template name**, make and
+   model (they must match the aircraft profile) and the component rows, then
+   **Save template**. **Download CSV columns** gives the column headings; a
+   CSV must be under 2 MiB.
+3. Choose **Preview / apply to aircraft**, pick the **Target aircraft**, tick
+   the rows and choose **Import selected as setup incomplete**.
+4. On **Imported components**, choose **Complete setup** on each row: confirm
+   it is installed and enter its serial number and opening readings. A parent
+   component comes before its parts.
+
+Templates need maintenance permission and a connection.
 
 ## A component's record
 

@@ -1,5 +1,7 @@
 # Flight plans and checklists
 
+[User guide](Home.md)
+
 Both are under **Fly**. Flight plans check what maintenance falls due across
 an aircraft's queued flights. Checklists are ForeFlight-compatible checklists
 you can run on the device.
@@ -20,6 +22,8 @@ you can run on the device.
 The PDF itself is not stored, only the fields. Times are UTC.
 
 ### Read the queue
+
+![Flight plans: one queued plan with its maintenance flags and buttons](images/flight-plans.png)
 
 Plans are listed by departure time. Each row adds the plan's estimated time to
 the aircraft's total and checks inspections, component limits, open problems

@@ -1,5 +1,7 @@
 # Overview and aircraft
 
+[User guide](Home.md)
+
 The **Overview** is the first screen: fleet counts, each aircraft's status and
 what comes due. The **Aircraft** page (under Manage) lists the aircraft with
 their meters and profile.
@@ -104,17 +106,36 @@ The exports are described in
 Each aircraft row shows total time source, Hobbs and tach, landings, profile
 status and its status. Actions:
 
-| Button                 | Does                                                                                   | Who                   |
-| ---------------------- | -------------------------------------------------------------------------------------- | --------------------- |
-| **Add aircraft**       | Adds an aircraft to the active Flight Program                                          | Administrators        |
-| **Set up an aircraft** | Loads an aircraft's history step by step ([how](Administration.md#set-up-an-aircraft)) | Administrators        |
-| **Edit aircraft**      | Changes identity, options, readings and the time source                                | Maintenance           |
-| **Add component**      | Adds an installed component                                                            | Maintenance           |
-| **Manuals**            | Opens the aircraft's manuals ([Reference library](Reference-Library.md))               | Everyone who reads it |
-| **Engine trends**      | Shows engine-monitor file summaries against limits; maintenance imports them           | Everyone who reads it |
+| Button                 | Does                                                                                                                                                                               | Who                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| **Add aircraft**       | Adds an aircraft to the active Flight Program                                                                                                                                      | Administrators        |
+| **Set up an aircraft** | Loads an aircraft's history step by step ([how](Administration.md#set-up-an-aircraft))                                                                                             | Administrators        |
+| **Edit aircraft**      | Changes identity, options, readings and the time source. **Dashboard photo** at the top sets the picture on the aircraft's card (JPEG, PNG or WebP, up to 5 MiB; it saves at once) | Maintenance           |
+| **Add component**      | Adds an installed component                                                                                                                                                        | Maintenance           |
+| **Manuals**            | Opens the aircraft's manuals ([Reference library](Reference-Library.md))                                                                                                           | Everyone who reads it |
+| **Engine trends**      | Shows engine-monitor file summaries against limits ([below](#engine-trends))                                                                                                       | Everyone who reads it |
 
 Administrators see setup chips such as "Components missing" or "ADs not
 reviewed"; each opens the setup step that fills it.
+
+### Engine trends
+
+**Engine trends** on an aircraft's row charts each imported flight's engine
+readings and flags the ones outside the aircraft's limits. It needs a
+connection.
+
+1. Choose the **Engine monitor CSV**: a JPI EDM CSV export, or a Garmin
+   G1000/G3X data log from the SD card (up to 7 MiB).
+2. Choose **Preview summary**, check it, then **Save engine summary**.
+
+| Flag                         | Limit                                                    |
+| ---------------------------- | -------------------------------------------------------- |
+| Hottest CHT                  | **CHT limit (°F)**, 435 unless changed                   |
+| Cruise oil pressure          | **Minimum cruise oil pressure (psi)**, 25 unless changed |
+| CHT spread between cylinders | 50 °F, fixed                                             |
+
+Importing, removing an import and **Save limits** need maintenance permission.
+A file can be imported once, and an aircraft keeps up to 1,000 imports.
 
 ### Time source and total time
 

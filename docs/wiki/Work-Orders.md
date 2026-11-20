@@ -1,5 +1,7 @@
 # Work orders
 
+[User guide](Home.md)
+
 A **work order** (`WO-YYYY-NNNN`) holds the requested work on one aircraft,
 from opening to close-out. Closing it records inspection compliance, applies
 component movements and freezes the readings. It is under **Maintain**.
