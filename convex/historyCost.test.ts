@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { QueryCtx } from "./_generated/server";
 import schema from "./schema";
 import { snapshot } from "./operations";
-import { seedProgramVolume } from "../tests/fixtures/programVolume";
+import { seedProgramVolume, VOLUME } from "../tests/fixtures/programVolume";
 import {
   findVolumeTargets,
   volumeOperations,
@@ -35,6 +35,9 @@ const ROLES = ["admin", "pilot", "owner", "board"] as const;
 // Three databases of up to about 22,000 rows each on a shared machine.
 const SEED_TIMEOUT_MS = 180_000;
 const FLAT = 1.1;
+// The parts requests and purchase orders each fleet-year adds.
+const PURCHASING_ROWS_PER_YEAR =
+  VOLUME.aircraft * (VOLUME.partsRequests + VOLUME.purchaseOrders);
 
 type Reads = { documents: number; bytes: number; indexRanges: number };
 type Handler<C> = (ctx: C, args: object) => Promise<unknown>;
@@ -58,18 +61,25 @@ describe("Characterizes current behaviour: reads grow with each year of history"
   it.each(ROLES)("the %s's workspace snapshot", (role) =>
     expectGrowth(`snapshot.${role}`),
   );
-  it.each([
-    "partsRequest.save",
-    "cost.partUnitCost",
-    "purchaseOrder.save",
-    "auditHistory.weeklySummary",
-  ])("%s", (operation) => expectGrowth(operation));
+  it.each(["auditHistory.weeklySummary"])("%s", (operation) =>
+    expectGrowth(operation),
+  );
 });
 
 describe("the bounded saves read the same at three years as at one (S3)", () => {
-  it.each(["workOrder.save", "taskCard.save", "taskCard.evidence"])(
-    "%s",
-    (operation) => expectFlat(operation),
+  it.each([
+    "workOrder.save",
+    "taskCard.save",
+    "taskCard.evidence",
+    "cost.partUnitCost",
+  ])("%s", (operation) => expectFlat(operation));
+});
+
+// H5 keeps parts requests and purchase orders complete, and these saves read
+// them all; everything else they read is bounded.
+describe("Characterizes current behaviour: saves that read every parts request and purchase order grow by those alone", () => {
+  it.each(["partsRequest.save", "purchaseOrder.save"])("%s", (operation) =>
+    expectGrowthOf(operation, PURCHASING_ROWS_PER_YEAR),
   );
 });
 
@@ -90,6 +100,15 @@ function expectFlat(name: string) {
   const [one, , three] = yearsOf(name);
   expect(three.documents, name).toBeLessThanOrEqual(one.documents * FLAT);
   expect(three.bytes, name).toBeLessThanOrEqual(one.bytes * FLAT);
+  expectSameRanges(name);
+}
+
+function expectGrowthOf(name: string, documentsPerYear: number) {
+  const [one, two, three] = yearsOf(name);
+  expect(
+    [two.documents - one.documents, three.documents - two.documents],
+    name,
+  ).toEqual([documentsPerYear, documentsPerYear]);
   expectSameRanges(name);
 }
 

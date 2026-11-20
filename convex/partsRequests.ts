@@ -4,17 +4,35 @@
  * Layer: Server. Convex mutation over runCommand; the rules live in
  *   src/domain/partsRequests.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   src/domain (model, management, partsRequests).
+ *   ./workingSet, src/domain (model, management, partsRequests, programs).
  */
 import { mutation, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { runCommand, hydrate, writeChanged } from "./runCommand";
-import { encode } from "./collections";
+import {
+  runCommand,
+  hydrate,
+  writeChanged,
+  type ProgramContext,
+} from "./runCommand";
+import { decode, encode } from "./collections";
+import {
+  archivedCardDocs,
+  archivedCardDocsByUuid,
+  discrepancyDocsByUuid,
+  inLoadOrder,
+  openWorkOrderDocs,
+  taskCardDocsByUuid,
+  workOrderCardDocs,
+  workOrderCostDocs,
+  workOrderDocsByUuid,
+} from "./workingSet";
 import {
   applyRequestCommand,
+  requestCommandSchema,
   type PartsRequest,
 } from "../src/domain/partsRequests";
+import { activeProgram } from "../src/domain/programs";
 import type { Snapshot } from "../src/domain/model";
 import type { ManagedRecord } from "../src/domain/management";
 
@@ -36,17 +54,7 @@ export const execute = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => JSON.parse(args.payload),
-      load: ({ ctx, state }) =>
-        hydrate(ctx, state, [
-          "management",
-          "partsRequests",
-          "purchaseOrders",
-          "workOrders",
-          "taskCards",
-          "airworthiness",
-          "inspections",
-          "discrepancies",
-        ]),
+      load: ({ ctx, state }, command) => loadRequest(ctx, state, command),
       apply: ({ snapshot }, command) => applyRequestCommand(snapshot, command),
       persist: async ({ ctx }, { snapshot: s, docs }, r) => {
         await writeChanged(
@@ -89,4 +97,93 @@ async function patchStock(
     if (prior && prior.payload !== payload)
       await ctx.db.patch(prior._id, { payload });
   }
+}
+
+// The bounded working set (ADR-0013). Stock, parts requests, purchase orders,
+// ADs and inspections load whole (H5 keeps requests and orders complete). Of
+// history, only what the request's source names: its work order, its job
+// card (live or archived) and the order owning that card, with those orders'
+// cards, archived cards and cost records; its problem report; and the
+// program's open work orders, which a saved recurring list serves.
+async function loadRequest(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  command: unknown,
+) {
+  const fleet = state.aircraft;
+  const { snapshot, docs } = await hydrate(ctx, state, [
+    "management",
+    "partsRequests",
+    "purchaseOrders",
+    "airworthiness",
+    "inspections",
+  ]);
+  const named = sourcesNamed(command, snapshot.partsRequests ?? []);
+  const ownCards = await taskCardDocsByUuid(ctx, named.jobCards, fleet);
+  const ownArchived = await archivedCardDocsByUuid(ctx, named.jobCards, fleet);
+  const orders = [
+    ...named.workOrders,
+    ...decode("taskCards", ownCards).map((c) => c.workOrderUuid),
+    ...decode("archivedTaskCards", ownArchived).map((c) => c.workOrderUuid),
+  ];
+  const loaded = {
+    workOrders: inLoadOrder(
+      [
+        ...(await workOrderDocsByUuid(ctx, orders, fleet)),
+        ...(await openWorkOrderDocs(ctx, fleet)),
+      ],
+      fleet,
+    ),
+    taskCards: inLoadOrder(
+      [...ownCards, ...(await workOrderCardDocs(ctx, orders, fleet))],
+      fleet,
+    ),
+    archivedTaskCards: inLoadOrder(
+      [...ownArchived, ...(await archivedCardDocs(ctx, orders, fleet))],
+      fleet,
+    ),
+    costs: await programCostDocs(ctx, state, orders),
+    discrepancies: await discrepancyDocsByUuid(ctx, named.discrepancies, fleet),
+  };
+  return {
+    snapshot: {
+      ...snapshot,
+      workOrders: decode("workOrders", loaded.workOrders),
+      taskCards: decode("taskCards", loaded.taskCards),
+      archivedTaskCards: decode("archivedTaskCards", loaded.archivedTaskCards),
+      costs: decode("costs", loaded.costs),
+      discrepancies: loaded.discrepancies,
+    },
+    docs: { ...docs, ...loaded },
+  };
+}
+
+// The work orders, job cards and problem reports the command's draft and the
+// stored request name as their source. A command that does not parse names
+// none; the applier refuses it.
+function sourcesNamed(command: unknown, requests: PartsRequest[]) {
+  const parsed = requestCommandSchema.safeParse(command);
+  const c = parsed.success ? parsed.data : undefined;
+  const draft = c?.kind === "save" ? c.draft : undefined;
+  const uuid = draft?.uuid ?? (c && "uuid" in c ? c.uuid : undefined);
+  const stored = requests.find((r) => r.uuid === uuid);
+  const sources = [draft?.source, stored?.source].filter(
+    (source) => source !== undefined,
+  );
+  const of = (kind: string) =>
+    sources.filter((s) => s.kind === kind).map((s) => s.uuid);
+  return {
+    workOrders: sources.map((s) => s.workOrderUuid),
+    jobCards: of("jobCard"),
+    discrepancies: of("discrepancy"),
+  };
+}
+
+function programCostDocs(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  orders: string[],
+) {
+  const program = activeProgram(state);
+  return program ? workOrderCostDocs(ctx, program, orders) : [];
 }

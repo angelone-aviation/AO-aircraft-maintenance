@@ -1,15 +1,17 @@
 /**
  * Responsibility: Pins purchase orders: atomic receipts and replays, address
- *   confirmation, attachments and who may list them, and uuids another Flight
- *   Program holds.
+ *   confirmation, attachments and who may list them, uuids another Flight
+ *   Program holds, and a line's work order read by its uuid.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex/purchaseOrders, convex/poFiles, src/data/demo,
- *   src/domain/purchaseOrders.
+ * Dependencies: convex/purchaseOrders, convex/poFiles, convex/workOrders,
+ *   src/data/demo, src/domain/purchaseOrders, tests/fixtures (fileLinks,
+ *   workOrders).
  */
 import { convexTest } from "convex-test";
 import { it, expect, vi, afterEach } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import { workOrderCommand } from "../tests/fixtures/workOrders";
 import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import { poDraftSchema, poSchema } from "../src/domain/purchaseOrders";
@@ -596,4 +598,90 @@ it("refuses received stock under a uuid another Flight Program holds, and writes
     data: "Record belongs to another Flight Program.",
   });
   expect(await stored()).toEqual(before);
+});
+
+// A line's work order is read by its uuid (ADR-0013), on save and on issue.
+it("checks a line's work order on save and on issue, reading it by its uuid", async () => {
+  const t = convexTest(schema, modules);
+  const demo = demoSnapshot();
+  const [first, second] = demo.aircraft;
+  const subject = await t.run(async (ctx) => {
+    await ctx.db.insert("programs", demo.programs![0]);
+    for (const a of demo.aircraft) await ctx.db.insert("aircraft", a);
+    const user = await ctx.db.insert("users", {
+      name: "PO admin",
+      isAdmin: true,
+      active: true,
+      groupIds: [],
+    });
+    const session = await ctx.db.insert("authSessions", {
+      userId: user,
+      expirationTime: Date.now() + DAY_MS,
+    });
+    await ctx.db.insert("management", {
+      uuid: "store",
+      programUuid: "demo-program",
+      kind: "location",
+      payload: JSON.stringify({
+        uuid: "store",
+        version: 1,
+        programUuid: "demo-program",
+        kind: "location",
+        name: "Store",
+        address: "",
+        contact: "",
+      }),
+    });
+    return `${user}|${session}`;
+  });
+  const client = t.withIdentity({ subject });
+  const send = (to: "workOrders" | "purchaseOrders", c: unknown) =>
+    client.mutation(
+      to === "workOrders" ? api.workOrders.save : api.purchaseOrders.execute,
+      { programUuid: "demo-program", payload: JSON.stringify(c) },
+    );
+  const order = workOrderCommand();
+  await send("workOrders", order);
+  const draft = (uuid: string, aircraftUuid: string) =>
+    poDraftSchema.parse({
+      uuid,
+      version: 0,
+      vendor: "Vendor",
+      vendorContact: "",
+      shipTo: "Hangar",
+      expectedDate: "",
+      currency: "USD",
+      shippingCents: 0,
+      notes: "",
+      lines: [
+        {
+          uuid: "line",
+          locationUuid: "store",
+          partNumber: "TEST-P",
+          description: "Test part",
+          quantity: 1,
+          unitCents: 100,
+          kind: "part",
+          aircraftUuid,
+          workOrderUuid: order.uuid,
+        },
+      ],
+    });
+  const save = (uuid: string, aircraftUuid: string) =>
+    send("purchaseOrders", {
+      kind: "save",
+      requestUuid: crypto.randomUUID(),
+      drafts: [draft(uuid, aircraftUuid)],
+    });
+  await save("po-on-order", first.uuid);
+  await send("purchaseOrders", {
+    kind: "issue",
+    requestUuid: crypto.randomUUID(),
+    uuid: "po-on-order",
+    version: 1,
+    reason: "",
+  });
+  await expect(save("po-elsewhere", second.uuid)).rejects.toThrow(
+    "Work order does not match the aircraft.",
+  );
 });

@@ -99,21 +99,46 @@ export async function workOrderCardDocs(
 }
 
 /**
- * The archived job cards of one work order, on the program's aircraft.
+ * The archived job cards of the given work orders, on the program's
+ * aircraft.
  *
+ * @param orderUuids - Work order uuids; blanks and repeats are skipped.
  * @returns In load order.
  */
 export async function archivedCardDocs(
   ctx: Ctx,
-  orderUuid: string,
+  orderUuids: Iterable<string>,
   fleet: Fleet,
 ): Promise<Doc<"archivedTaskCards">[]> {
-  const rows = await ctx.db
-    .query("archivedTaskCards")
-    .withIndex("workOrder", (q) => q.eq("workOrderUuid", orderUuid))
-    .collect();
-  return inLoadOrder(onFleet(rows, fleet), fleet);
+  const wanted = [...new Set(orderUuids)].filter(Boolean);
+  const rows = await Promise.all(
+    wanted.map((uuid) =>
+      ctx.db
+        .query("archivedTaskCards")
+        .withIndex("workOrder", (q) => q.eq("workOrderUuid", uuid))
+        .collect(),
+    ),
+  );
+  return inLoadOrder(onFleet(rows.flat(), fleet), fleet);
 }
+
+/**
+ * Archived job cards by uuid, on the program's aircraft only.
+ *
+ * @param uuids - Card uuids; blanks and repeats are skipped.
+ * @returns In load order.
+ */
+export const archivedCardDocsByUuid = (
+  ctx: Ctx,
+  uuids: Iterable<string>,
+  fleet: Fleet,
+) =>
+  rowsByUuid(uuids, fleet, (uuid) =>
+    ctx.db
+      .query("archivedTaskCards")
+      .withIndex("uuid", (q) => q.eq("uuid", uuid))
+      .collect(),
+  );
 
 /**
  * The aircraft's cards on no work order: templates and loose cards, kept
@@ -213,8 +238,7 @@ export async function openDiscrepancyDocs(
 
 /**
  * A Flight Program's parts requests raised on the given work orders or with
- * the given sources, and the one holding the highest number, which the next
- * number continues from.
+ * the given sources.
  *
  * @param on - `workOrderUuids` match a request's source work order;
  *   `sourceUuids` its source record. Blanks are skipped.
@@ -240,21 +264,22 @@ export async function partsRequestDocsOn(
         .withIndex("source", (q) => q.eq("sourceUuid", uuid))
         .collect(),
     ),
-    highestRequestDoc(ctx, programUuid),
   ]);
   const inProgram = rows.flat().filter((r) => r.programUuid === programUuid);
   return byCreation(unique(inProgram));
 }
 
 /**
- * A Flight Program's cost records of one work order, then its budgets and
- * labor-rate settings, in the program loader's order: records on an
- * aircraft first, the settings row (aircraft "") last.
+ * A Flight Program's cost records of the given work orders, then its
+ * budgets and labor-rate settings, in the program loader's order: records on
+ * an aircraft first, the settings row (aircraft "") last.
+ *
+ * @param workOrderUuids - Work order uuids; blanks and repeats are skipped.
  */
 export async function workOrderCostDocs(
   ctx: Ctx,
   programUuid: string,
-  workOrderUuid: string,
+  workOrderUuids: Iterable<string>,
 ): Promise<Doc<"costs">[]> {
   const ofKind = (kind: "budget" | "settings") =>
     ctx.db
@@ -263,19 +288,22 @@ export async function workOrderCostDocs(
         q.eq("programUuid", programUuid).eq("kind", kind),
       )
       .collect();
-  const [order, budgets, settings] = await Promise.all([
+  const ofOrder = (uuid: string) =>
     ctx.db
       .query("costs")
-      .withIndex("workOrder", (q) => q.eq("workOrderUuid", workOrderUuid))
-      .collect(),
+      .withIndex("workOrder", (q) => q.eq("workOrderUuid", uuid))
+      .collect();
+  const orders = [...new Set(workOrderUuids)].filter(Boolean);
+  const [budgets, settings, ...ofOrders] = await Promise.all([
     ofKind("budget"),
     ofKind("settings"),
+    ...orders.map(ofOrder),
   ]);
-  const rows = [
-    ...order.filter((r) => r.programUuid === programUuid),
+  const rows = unique([
+    ...ofOrders.flat().filter((r) => r.programUuid === programUuid),
     ...budgets,
     ...settings,
-  ];
+  ]);
   return [
     ...byProgramOrder(rows.filter((r) => r.aircraftUuid)),
     ...byProgramOrder(rows.filter((r) => !r.aircraftUuid)),
@@ -308,7 +336,13 @@ async function rowsByUuid<D extends AircraftRow>(
   return inLoadOrder(onFleet(rows.flat(), fleet), fleet);
 }
 
-function highestRequestDoc(ctx: Ctx, programUuid: string) {
+/**
+ * The Flight Program's parts request holding the highest number, which the
+ * next number continues from.
+ *
+ * @returns None or one.
+ */
+export function highestRequestDocs(ctx: Ctx, programUuid: string) {
   return ctx.db
     .query("partsRequests")
     .withIndex("number", (q) => q.eq("programUuid", programUuid))

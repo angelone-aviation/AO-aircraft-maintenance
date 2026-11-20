@@ -17,7 +17,7 @@ import {
 } from "../src/domain/partsRequests";
 import type { ManagedRecord } from "../src/domain/management";
 import { airworthinessDocs } from "./programContext";
-import { partsRequestDocsOn } from "./workingSet";
+import { highestRequestDocs, partsRequestDocsOn } from "./workingSet";
 import { decode, encode } from "./collections";
 
 type Needs = ReturnType<typeof recurringPartsNeeds>;
@@ -46,10 +46,7 @@ export async function prepareRecurringParts(
   if (!program) return [];
   const requests = decode(
     "partsRequests",
-    await partsRequestDocsOn(ctx, program, {
-      workOrderUuids: [order.uuid],
-      sourceUuids: order.tasks.map((t) => t.source.uuid),
-    }),
+    await recurringRequestDocs(ctx, program, order),
   );
   const needs = recurringPartsNeeds(order, requests);
   if (!owesAny(needs)) return [];
@@ -62,6 +59,24 @@ export async function prepareRecurringParts(
   for (const r of generateRecurringRequests(s, order))
     await ctx.db.insert("partsRequests", encode("partsRequests", r));
   return s.audit;
+}
+
+// The requests raised on the order or on its items' records, the lists among
+// them, and the highest-numbered one an occurrence's number continues from.
+async function recurringRequestDocs(
+  ctx: MutationCtx,
+  program: string,
+  order: WorkOrder,
+) {
+  const docs = await partsRequestDocsOn(ctx, program, {
+    workOrderUuids: [order.uuid],
+    sourceUuids: order.tasks.map((t) => t.source.uuid),
+  });
+  const highest = await highestRequestDocs(ctx, program);
+  const seen = new Set(docs.map((d) => d._id));
+  return [...docs, ...highest.filter((d) => !seen.has(d._id))].sort(
+    (a, b) => a._creationTime - b._creationTime,
+  );
 }
 
 // A recurring list is saved only for an inspection, component requirement or

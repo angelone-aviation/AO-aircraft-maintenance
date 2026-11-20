@@ -4,17 +4,28 @@
  * Layer: Server. Convex mutation and query; the rules live in
  *   src/domain/purchaseOrders.
  * Dependencies: convex/values, ./_generated, ./programContext, ./runCommand,
- *   ./collections, src/domain (management, partsRequests, purchaseOrders,
- *   programs).
+ *   ./collections, ./workingSet, src/domain (management, partsRequests,
+ *   purchaseOrders, programs).
  */
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { checkContext } from "./programContext";
-import { runCommand, hydrate, plainErrors, writeChanged } from "./runCommand";
-import { encode } from "./collections";
+import {
+  runCommand,
+  hydrate,
+  plainErrors,
+  writeChanged,
+  type ProgramContext,
+} from "./runCommand";
+import { decode, encode } from "./collections";
+import { workOrderDocsByUuid } from "./workingSet";
 import type { PartsRequest } from "../src/domain/partsRequests";
-import { applyPOCommand } from "../src/domain/purchaseOrders";
+import {
+  applyPOCommand,
+  poCommandSchema,
+  type PurchaseOrder,
+} from "../src/domain/purchaseOrders";
 import { programPermission } from "../src/domain/programs";
 
 const PO_NOT_FOUND = "PO not found.";
@@ -36,14 +47,7 @@ export const execute = mutation({
     runCommand(ctx, {
       programUuid: args.programUuid,
       parse: () => JSON.parse(args.payload),
-      load: ({ ctx, state }) =>
-        hydrate(ctx, state, [
-          "partsRequests",
-          "purchaseOrders",
-          "management",
-          "inspections",
-          "workOrders",
-        ]),
+      load: ({ ctx, state }, command) => loadOrders(ctx, state, command),
       apply: ({ snapshot }, command) => applyPOCommand(snapshot, command),
       // Explicit domain validation messages are safe, actionable user feedback.
       // Unexpected parser/schema/runtime errors retain server-side details only.
@@ -110,4 +114,52 @@ async function patchRequests(
     if (prior && prior.payload !== row.payload)
       await ctx.db.patch(prior._id, row);
   }
+}
+
+// The bounded working set (ADR-0013): parts requests, purchase orders, stock
+// and inspections whole (H5 keeps requests and orders complete), and only the
+// work orders the command's lines, or the lines of the orders it names,
+// point to: the line checks read no other.
+async function loadOrders(
+  ctx: MutationCtx,
+  state: ProgramContext,
+  command: unknown,
+) {
+  const hydrated = await hydrate(ctx, state, [
+    "partsRequests",
+    "purchaseOrders",
+    "management",
+    "inspections",
+  ]);
+  const orders = await workOrderDocsByUuid(
+    ctx,
+    workOrdersNamed(command, hydrated.snapshot.purchaseOrders ?? []),
+    state.aircraft,
+  );
+  return {
+    snapshot: {
+      ...hydrated.snapshot,
+      workOrders: decode("workOrders", orders),
+    },
+    docs: { ...hydrated.docs, workOrders: orders },
+  };
+}
+
+// The work orders a command's draft lines name, and those the lines of the
+// stored orders it names do. A command that does not parse names none; the
+// applier refuses it.
+function workOrdersNamed(command: unknown, stored: PurchaseOrder[]) {
+  const parsed = poCommandSchema.safeParse(command);
+  if (!parsed.success) return [];
+  const c = parsed.data;
+  const drafts = c.kind === "save" ? c.drafts : [];
+  const named = new Set([
+    ...drafts.map((d) => d.uuid),
+    ...("uuid" in c ? [c.uuid] : []),
+  ]);
+  const lines = [
+    ...drafts.flatMap((d) => d.lines),
+    ...stored.filter((p) => named.has(p.uuid)).flatMap((p) => p.lines),
+  ];
+  return lines.map((l) => l.workOrderUuid ?? "");
 }
