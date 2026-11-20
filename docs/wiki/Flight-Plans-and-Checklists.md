@@ -33,17 +33,21 @@ name. These are estimates and change no totals.
 
 ### Fly, copy or remove a plan
 
-| Button                    | Does                                                                                                                                                                                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Start / resume flight** | Runs [Start flight and End flight](Flight-Log.md#start-flight-and-end-flight) with the plan's route, date, rules, cycles and landings filled in. Verify the pilot and time. After landing, choose it again, or **End flight** on the Flight log, to enter the ending readings. |
-| **Copy plan**             | Opens a copy. Set the new flight date and departure time, then **Save copy**.                                                                                                                                                                                                  |
-| **Edit plan**             | Changes a proposed plan                                                                                                                                                                                                                                                        |
-| **Remove**                | **Remove from queue** cancels a proposed plan. A plan with a flight logged or waiting to sync has no flight, edit or remove buttons.                                                                                                                                           |
+| Button                    | Does                                                                                                                                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Start / resume flight** | Runs [Start flight and End flight](Flight-Log.md#start-flight-and-end-flight) with the plan's route, date, rules, cycles and landings filled in. Verify the pilot and time. After landing, choose it again, offline too, or **End flight** on the Flight log, to enter the ending readings. |
+| **Copy plan**             | Opens a copy. Set the new flight date and departure time, then **Save copy**.                                                                                                                                                                                                               |
+| **Edit plan**             | Changes a proposed plan                                                                                                                                                                                                                                                                     |
+| **Remove**                | **Remove from queue** cancels a proposed plan. A plan with a flight logged or waiting to sync has no flight, edit or remove buttons.                                                                                                                                                        |
 
 A plan can be flown once. Rejecting its flight makes the plan available
 again. Uploading, copying, editing and removing plans, and starting a plan's
-flight, need a connection and flight permission; **End flight** on the
-Flight log works offline. Flown and removed plans are under **Logged and removed plans**.
+flight, need a connection and flight permission. Offline, **Start / resume
+flight** is off and says "Starting needs a connection: this device's copy of
+the plan may be out of date." Once a plan's preflight is saved on this
+device, **Start / resume flight** resumes it offline too, as **End flight**
+on the Flight log does. Flown and removed plans are under **Logged and
+removed plans**.
 
 ### Load older
 

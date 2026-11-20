@@ -1,6 +1,6 @@
 # Offline entries, the Sync center and changes that collide
 
-Pilots log flights and report problems without a connection; everything else needs one. This page covers what happens to those entries afterwards, and what the app does when two people change the same record. Setup for offline use (installing the app, the seven-day access window) is in the [README](../README.md#offline-and-installation).
+Pilots log flights and report problems without a connection, including starting and ending a flight on the Flight log and resuming a flight plan's preflight saved on the device; everything else needs one, starting a flight from a flight plan included. This page covers what happens to those entries afterwards, and what the app does when two people change the same record. Setup for offline use (installing the app, the seven-day access window) is in the [README](../README.md#offline-and-installation).
 
 ## Pending entries and the Sync center
 
@@ -35,6 +35,10 @@ The copy on the device is the workspace as the server sends it: the retention wi
 ## When the workspace cannot be opened
 
 If the server cannot load the Flight Program's records (an outage, or a program too large to load in one go), the app shows **Your workspace could not be opened.** instead of a blank page. It says the records are safe and entries saved on the device stay queued, and asks the user to contact their Flight Program administrator if it keeps happening. **Try again** reloads and asks the server again. **View the copy on this device** opens the copy kept from the last sync, but only after the server confirms it belongs to the account now signed in. The copy behaves as it does offline: direct edits are off, and flights and problem reports wait in the Sync center until the workspace opens. **Export my pending entries** and **Sign out** are offered too. Any other unexpected screen error shows **Something went wrong.** with a reload, never a blank page.
+
+## Resuming a flight plan's flight offline
+
+**Start / resume flight** on the flight plan queue opens a plan's flight. When the plan's preflight is already saved on this device (by the same pilot, in the same Flight Program) and its flight is not yet logged or queued, the button stays enabled offline and opens **End flight** from the saved preflight, as **End flight** on the Flight log does. The ended flight is queued in the outbox and checked by the server when it syncs, like any other flight: the dispatch gate, held-flight reasons and duplicate-plan check are unchanged. Starting a plan's flight still needs a connection, so a plan another pilot flew, changed or removed since the last sync is never started from a stale copy; offline the button is disabled with "Starting needs a connection: this device's copy of the plan may be out of date." The button also needs flight permission on the aircraft, online or off. `tests/e2e/flight-plan-offline.spec.ts` saves a preflight online, resumes and ends it offline, and sees it sync.
 
 ## Several legs logged offline
 

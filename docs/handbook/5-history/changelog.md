@@ -27,6 +27,12 @@ timeline
     21.30 : Release 5 in production : Documentation, password-only sign-in, build guard
 ```
 
+## Release 7: not yet released
+
+| Change                                                                                                                                                                                                                                                                                            | Commit    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| **Start / resume flight** on the flight plan queue resumes a preflight saved on this device offline, opening End flight (Aaron's decision, 20 Nov). Starting a flight from a plan still needs a connection and, offline, says why. The flight still syncs through the outbox with the same checks | `c951166` |
+
 ## Release 6: not yet released
 
 The review of the handbook and wiki that followed release 5:

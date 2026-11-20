@@ -54,8 +54,11 @@ places. **Same as last flight** fills crew and route, never readings.
    Flight log. Enter the ending readings and choose **End flight & save**.
 
 "Preflight is saved in this browser on this device." Return on the same
-device to end the flight. **Cancel flight** removes a started flight; no hours
-are recorded.
+device to end the flight. Both buttons work offline. A flight started from a
+flight plan can also be ended with **Start / resume flight** on the plan,
+offline too; starting one from a plan needs a connection
+([Flight plans](Flight-Plans-and-Checklists.md#fly-copy-or-remove-a-plan)).
+**Cancel flight** removes a started flight; no hours are recorded.
 
 ### Import a logbook
 
