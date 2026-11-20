@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       backup_taken:
-        description: "I took a Convex backup of production and saved its environment variables (docs/runbooks/backup-restore.md)"
+        description: "I took a Convex backup of production, and the password-manager copy of CREDENTIALS_ENCRYPTION_KEY is current (docs/runbooks/backup-restore.md)"
         type: boolean
         required: true
         default: false
