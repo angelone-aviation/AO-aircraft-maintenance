@@ -203,6 +203,7 @@ const CASES: Case[] = [
   callMutation(api.operations.deferDiscrepancy, "A's report", (a) =>
     sendInB({
       uuid: a.row.discrepancies.uuid,
+      foundOn: "2026-01-01",
       deferredOn: "2026-01-01",
       deferral: { type: "mel", melItem: "1", category: "C", placard: "Inop" },
     }),

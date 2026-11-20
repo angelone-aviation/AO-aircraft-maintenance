@@ -199,7 +199,7 @@ async function visibility(ctx: QueryCtx, programUuid?: string) {
         await inspectionTemplateDocs(ctx, program),
         inspectionTemplateSchema,
       ),
-      costs: decode("costs", await costDocs(ctx, program, state.aircraft)),
+      costs: decode("costs", await costDocs(ctx, program)),
       expiringItems: decode(
         "expiringItems",
         await expiringItemDocs(ctx, program, state.user.isAdmin),

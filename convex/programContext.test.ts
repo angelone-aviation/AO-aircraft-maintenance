@@ -187,13 +187,15 @@ it("adds each inspection of a removed component once", async () => {
   );
 });
 
-it("adds the program's cost settings row to the aircraft's cost records", async () => {
+it("reads the program's cost records by program, whichever aircraft they name (AC-10)", async () => {
   const f = await fixture();
   const uuids = await f.t.run(async (ctx) => {
     for (const [uuid, aircraftUuid, programUuid] of [
       ["cost", "demo-206", PROGRAM],
       ["settings", "", PROGRAM],
+      ["departed", "sold-aircraft", PROGRAM],
       ["other-settings", "", "another-program"],
+      ["paid-elsewhere", "demo-206", "another-program"],
     ])
       await ctx.db.insert("costs", {
         uuid,
@@ -202,10 +204,13 @@ it("adds the program's cost settings row to the aircraft's cost records", async 
         payload: "{}",
       });
     const of = async (program?: string) =>
-      (await costDocs(ctx, program, [{ uuid: "demo-206" }])).map((d) => d.uuid);
+      (await costDocs(ctx, program)).map((d) => d.uuid);
     return { program: await of(PROGRAM), none: await of(undefined) };
   });
-  expect(uuids).toEqual({ program: ["cost", "settings"], none: ["cost"] });
+  expect(uuids).toEqual({
+    program: ["cost", "departed", "settings"],
+    none: [],
+  });
 });
 
 it("keeps the History list to the newest AUDIT_LIMIT rows, each once", async () => {

@@ -269,9 +269,23 @@ it("names job cards by source key and finds earlier job cards by code, source ke
     targetVersion: 0,
   };
   const audit = s.audit.length;
-  importTaskCsv(s, request);
-  // Characterizes current behaviour: imported job cards log no rows.
-  expect(s.audit).toHaveLength(audit);
+  const { tasks } = importTaskCsv(s, request);
+  // T3: each imported job card logs its creation, as the template path logs
+  // the template it saves.
+  expect(s.audit).toHaveLength(audit + tasks.length);
+  expect(s.audit.slice(0, tasks.length).reverse()).toEqual(
+    tasks.map((t) => ({
+      uuid: expect.any(String),
+      programUuid: "demo-program",
+      actorId: s.user.id,
+      at: expect.any(Number),
+      action: "taskCard.created_from_csv",
+      entityUuid: t.uuid,
+      aircraftUuid: inspection.aircraftUuid,
+      reason: `Imported from a task file onto ${inspection.reference}.`,
+      after: JSON.stringify(t),
+    })),
+  );
   const card = s.taskCards![0];
   expect(card).toMatchObject({
     sourceKey: "task-csv:a243003",

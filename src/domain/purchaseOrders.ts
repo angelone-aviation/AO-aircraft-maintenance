@@ -17,13 +17,14 @@ import {
 } from "./addresses";
 import {
   auditStockChange,
+  isStockReplenishment,
   requestPurchases,
   requestLineProgress,
   type PartsRequest,
   type RequestPurchase,
 } from "./partsRequests";
 import { z } from "zod";
-import { latestLocalDate, type Snapshot } from "./model";
+import { earliestLocalDate, latestLocalDate, type Snapshot } from "./model";
 import { SECONDS_PER_HOUR } from "./readings";
 import { activeProgram, programPermission, recordProgram } from "./programs";
 import { applyManagement, type Stock } from "./management";
@@ -795,6 +796,14 @@ function moveOrder(
     throw new Rejection("Issue the order before shipping or receiving.");
   if (c.date > latestLocalDate(ctx.now))
     throw new Rejection("Shipment and receipt dates cannot be in the future.");
+  // The order's day in the furthest-behind zone, so a receipt dated the day
+  // the order was issued is accepted wherever the user is. Orders stored
+  // before issuedAt existed are dated from when they were made.
+  if (
+    c.kind === "receive" &&
+    c.date < earliestLocalDate(p.issuedAt ?? p.createdAt)
+  )
+    throw new Rejection("Receipt date cannot precede the order date.");
   assertUnique(c.lines.map((l) => l.lineUuid));
   for (const x of c.lines) checkBalance(p, c.kind, x);
   if (c.kind === "ship") shipOrder(ctx, p, c);
@@ -1186,15 +1195,42 @@ function reserveReceived(ctx: Context, d: Delivery, stockUuid: string) {
 }
 
 function reserveAllocation(
-  { s, now }: Context,
+  ctx: Context,
   { p, c }: Delivery,
   a: Allocation,
   stock: Stock,
   quantity: number,
 ) {
+  const { s, now } = ctx;
   const request = s.partsRequests?.find((r) => r.uuid === a.requestUuid);
   if (!request || request.cancelled)
     throw new Rejection("Receiving allocation is unavailable.");
+  // A stock replenishment is complete when its parts arrive, so they stay on
+  // the shelf for anyone rather than being held for it (decision D18).
+  const restock = isStockReplenishment(request);
+  if (!restock) holdForRequest(ctx, p, { request, a, stock, quantity });
+  request.version++;
+  request.updatedAt = now;
+  request.history.push({
+    requestUuid: c.requestUuid,
+    at: now,
+    actorId: s.user.id,
+    action: `${restock ? "Received" : "Received and reserved"} from ${p.number}`,
+    detail: JSON.stringify(c),
+  });
+}
+
+function holdForRequest(
+  { s, now }: Context,
+  p: PurchaseOrder,
+  hold: {
+    request: PartsRequest;
+    a: Allocation;
+    stock: Stock;
+    quantity: number;
+  },
+) {
+  const { request, a, stock, quantity } = hold;
   const reservation = request.reservations.find(
     (r) => r.lineUuid === a.lineUuid && r.stockUuid === stock.uuid,
   );
@@ -1210,15 +1246,6 @@ function reserveAllocation(
   stock.version++;
   const note = `Received and reserved ${quantity} for ${request.number} from ${p.number}`;
   auditStockChange(s, before, stock, "reserve", note, now);
-  request.version++;
-  request.updatedAt = now;
-  request.history.push({
-    requestUuid: c.requestUuid,
-    at: now,
-    actorId: s.user.id,
-    action: `Received and reserved from ${p.number}`,
-    detail: JSON.stringify(c),
-  });
 }
 
 function addCoreReturn({ p, c, l, x }: Delivery) {
@@ -1393,7 +1420,13 @@ function checkRequestBalance(
   const allocations = commitments.filter(
     (a) => a.requestUuid === r.uuid && a.lineUuid === lineUuid,
   );
-  const ordered = allocations.reduce((n, a) => n + a.quantity - a.received, 0);
+  // Received units count once reserved or issued, except a restock's, which
+  // supply it on arrival.
+  const restock = isStockReplenishment(r);
+  const ordered = allocations.reduce(
+    (n, a) => n + a.quantity - (restock ? 0 : a.received),
+    0,
+  );
   const progress = requestLineProgress(
     { ...s, partsRequestPurchases: undefined },
     r,

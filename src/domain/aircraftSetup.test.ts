@@ -186,6 +186,20 @@ describe("planAircraftSetup", () => {
     ]);
     expect(plan.confirmations).toEqual([]);
   });
+  it("marks each inspection it saves as setup's, so the server refuses a repeat (NA-11)", () => {
+    const s = demoSnapshot();
+    const plan = planAircraftSetup(s, AIRCRAFT, parsed(), { now: NOW });
+    const first = plan.actions.find((a) => a.step === "inspections")!;
+    expect(first.command).toMatchObject({ initialAircraftSetup: true });
+    applyManagement(s, first.command as never, NOW);
+    // A second run planned from the snapshot before the first one saved.
+    const again = planAircraftSetup(demoSnapshot(), AIRCRAFT, parsed(), {
+      now: NOW,
+    }).actions[0];
+    expect(() => applyManagement(s, again.command as never, NOW)).toThrow(
+      "An inspection with this name is already on the aircraft.",
+    );
+  });
   it("builds commands the inspection and AD appliers accept", () => {
     const s = demoSnapshot();
     const plan = planAircraftSetup(s, AIRCRAFT, parsed(), { now: NOW });

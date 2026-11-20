@@ -1,11 +1,14 @@
 /**
- * Responsibility: Files attached to inventory items: the attachment record,
- *   the file rules (name, size and first bytes), and who may manage an
- *   item's attachments.
+ * Responsibility: Files attached to inventory items and purchase orders: the
+ *   attachment record, the file rules (name, size and first bytes), who may
+ *   manage an item's attachments, and the rows a purchase-order upload logs.
  * Layer: Domain. Pure functions; no I/O, no React.
- * Dependencies: src/domain/model.ts (types), programs.ts, rejection.ts.
+ * Dependencies: src/domain/model.ts, changeLog.ts, purchaseOrders.ts (types),
+ *   programs.ts, rejection.ts.
  */
 import type { Snapshot } from "./model";
+import type { AuditChange } from "./changeLog";
+import type { PurchaseOrder } from "./purchaseOrders";
 import { ownsActive, programPermission, recordProgram } from "./programs";
 import { Rejection } from "./rejection";
 
@@ -130,4 +133,55 @@ export function inventoryAttachmentAccess(s: Snapshot, stockUuid: string) {
       "Inventory administrator access to this item is required.",
     );
   return stock;
+}
+
+type Receipt = PurchaseOrder["receipts"][number];
+
+/**
+ * The items a purchase-order receipt brought in, each once: the records a
+ * file attached to that receipt is also filed on.
+ *
+ * @param receipt - The receipt, if the file belongs to one.
+ * @returns Item uuids in receipt order; none without a receipt.
+ */
+export function receiptItemUuids(receipt?: Pick<Receipt, "lines">): string[] {
+  return [...new Set(receipt?.lines.flatMap((l) => l.itemUuids) ?? [])];
+}
+
+/**
+ * The change-log rows one purchase-order upload writes (T3): the order's,
+ * then one for each item a receipt's file is also filed on, as uploading to
+ * the item itself logs it.
+ *
+ * @param po - The order.
+ * @param receipt - The receipt the file belongs to, if any.
+ * @param file - The file's name and size.
+ * @returns A "purchaseOrder.attachment" row, then an "inventory.attachment"
+ *   row per {@link receiptItemUuids} item, all tagged with the order's
+ *   program.
+ */
+export function poAttachmentChanges(
+  po: Pick<PurchaseOrder, "uuid" | "number" | "programUuid">,
+  receipt: Pick<Receipt, "uuid" | "lines"> | undefined,
+  file: { name: string; size: number },
+): AuditChange[] {
+  const { programUuid } = po;
+  const stored = { name: file.name, size: file.size };
+  const order: AuditChange = {
+    action: "purchaseOrder.attachment",
+    entityUuid: po.uuid,
+    programUuid,
+    reason: receipt
+      ? "Receipt attachment uploaded"
+      : "Purchase order attachment uploaded",
+    after: receipt ? { ...stored, receiptUuid: receipt.uuid } : stored,
+  };
+  const items = receiptItemUuids(receipt).map((stockUuid) => ({
+    action: "inventory.attachment",
+    entityUuid: stockUuid,
+    programUuid,
+    reason: `Receipt attachment from ${po.number}`,
+    after: stored,
+  }));
+  return [order, ...items];
 }

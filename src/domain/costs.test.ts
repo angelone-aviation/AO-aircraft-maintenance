@@ -681,6 +681,94 @@ describe("aircraft cost report", () => {
   });
 });
 
+describe("an aircraft transfer (AC-10)", () => {
+  // Records another program paid for while it held the aircraft that now
+  // belongs to this one, as the transfer leaves them.
+  function receivedAircraft() {
+    const f = fixture();
+    f.s.costs = [
+      {
+        uuid: "paid-budget",
+        version: 1,
+        programUuid: "seller",
+        kind: "budget",
+        aircraftUuid: f.order.aircraftUuid,
+        year: 2026,
+        amountCents: 500000,
+      },
+      {
+        uuid: "paid-order",
+        version: 1,
+        programUuid: "seller",
+        kind: "workOrder",
+        aircraftUuid: f.order.aircraftUuid,
+        workOrderUuid: f.order.uuid,
+        labor: [],
+        other: [
+          {
+            uuid: "fee",
+            date: "2026-06-01",
+            description: "Seller's hangar fee",
+            amountCents: 45000,
+            createdBy: "seller-admin",
+            createdAt: NOW,
+          },
+        ],
+        partUnitCosts: [],
+      },
+    ];
+    return f;
+  }
+  const uuids = (s: Snapshot) => (s.costs ?? []).map((r) => r.uuid);
+
+  it("keeps the paying program's records from the program that receives it", () => {
+    const { s, order } = receivedAircraft();
+    const scoped = scopedSnapshot(s);
+    expect(uuids(scoped)).toEqual([]);
+    expect(budgetStatus(scoped, order.aircraftUuid, 2026).budgetCents).toBe(
+      undefined,
+    );
+    expect(workOrderCosts(scoped, order).otherCents).toBe(0);
+  });
+  it("starts the receiving program's own records rather than editing those", () => {
+    const { s, order, run } = receivedAircraft();
+    const before = structuredClone(s.costs);
+    const budget = run({
+      action: "budget.set",
+      aircraftUuid: order.aircraftUuid,
+      year: 2026,
+      amountCents: 7,
+    });
+    const own = run({
+      action: "other.add",
+      workOrderUuid: order.uuid,
+      entry: {
+        uuid: crypto.randomUUID(),
+        date: "2026-06-02",
+        description: "Own fee",
+        amountCents: 1,
+      },
+    });
+    expect([budget.programUuid, own.programUuid]).toEqual([
+      "demo-program",
+      "demo-program",
+    ]);
+    expect([budget.uuid, own.uuid]).not.toContain("paid-budget");
+    expect(own.uuid).not.toBe("paid-order");
+    expect(s.costs!.filter((r) => r.programUuid === "seller")).toEqual(before);
+  });
+  it("leaves the paying program's administrators its records for an aircraft it no longer holds", () => {
+    const { s } = receivedAircraft();
+    for (const r of s.costs!) {
+      r.programUuid = "demo-program";
+      if (r.kind !== "settings") r.aircraftUuid = "sold-aircraft";
+    }
+    expect(uuids(scopedSnapshot(s))).toEqual(["paid-budget", "paid-order"]);
+    asMaintenance(s);
+    expect(uuids(scopedSnapshot(s))).toEqual([]);
+  });
+});
+
 describe("cost report details", () => {
   it("formats cents as US dollars", () => {
     expect(formatCents(123450)).toBe("$1,234.50");

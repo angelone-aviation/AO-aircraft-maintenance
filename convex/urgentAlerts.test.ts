@@ -7,11 +7,13 @@
  *   on the records time zone's date, de-duplication per occurrence (an alert
  *   that cleared and returned is sent, and unread, again), deployment-wide
  *   dates sent once to system administrators, whatever their groups, and a
- *   program's alerts reaching a system administrator only through its groups.
+ *   program's alerts reaching a system administrator only through its groups,
+ *   and a member's problem-report backlog reaching the administrators at
+ *   once.
  * Layer: Test. convex-test suite with a stubbed Resend; never shipped.
  * Dependencies: convex/urgentAlerts.ts, convex/alerts.ts,
  *   convex/expiringItems.ts, convex/rateLimits.ts, convex/schema.ts,
- *   tests/fixtures/alertProgram.ts.
+ *   src/domain (alerts, reportBacklog), tests/fixtures/alertProgram.ts.
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -19,6 +21,7 @@ import { DAY } from "./rateLimits";
 import { recordsDate } from "./recordsDate";
 import { IMMEDIATE_CAP_KEY, IMMEDIATE_EMAILS_PER_DAY } from "./urgentAlerts";
 import { computeAlerts } from "../src/domain/alerts";
+import { MAX_OPEN_REPORTS_PER_MEMBER } from "../src/domain/reportBacklog";
 import {
   DEMO_PROGRAM,
   OTHER_PROGRAM,
@@ -315,6 +318,47 @@ it("emails an aircraft grounded by a synced problem report at once, and lists it
   const [, digest] = sentEmails(request);
   expect(digest.subject).toBe("Mission operations: 1 maintenance alert");
   expect(digest.text).toContain("N206MA is grounded");
+});
+
+it("emails the administrators at once when a member's open problem reports pile up (D2)", async () => {
+  const world = await seedAlertProgram();
+  vi.useFakeTimers();
+  await clearInspections(world.t);
+  const { userId } = world.ids.reader;
+  await world.t.run(async (ctx) => {
+    const reader = await ctx.db.get(userId);
+    await ctx.db.patch(reader!.groupIds![0], {
+      permissions: ["read", "flight", "discrepancy"],
+    });
+    for (let i = 1; i < MAX_OPEN_REPORTS_PER_MEMBER / 2; i++)
+      await ctx.db.insert("discrepancies", {
+        uuid: `open-${i}`,
+        aircraftUuid: world.ids.aircraftUuid,
+        description: "Short",
+        status: "open",
+        authorId: userId,
+        createdAt: 0,
+      });
+  });
+  const request = stubResend();
+  await world.reader.mutation(api.operations.submit, {
+    operation: {
+      programUuid: DEMO_PROGRAM,
+      kind: "discrepancy",
+      uuid: crypto.randomUUID(),
+      authorId: userId,
+      aircraftUuid: world.ids.aircraftUuid,
+      description: "Short",
+    },
+  });
+  await world.t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [urgent] = sentEmails(request);
+  expect(urgent.to).toEqual(["admin@example.test"]);
+  expect(urgent.subject).toBe("Mission operations: 1 urgent alert");
+  expect(urgent.text).toContain(
+    `reader has ${MAX_OPEN_REPORTS_PER_MEMBER / 2} open problem reports`,
+  );
+  expect(urgent.text).toContain("https://app.example.test/discrepancies");
 });
 
 it("emails an aircraft grounded by an expired deferral, and nothing for a resolved report", async () => {

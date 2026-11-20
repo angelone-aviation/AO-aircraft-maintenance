@@ -211,7 +211,7 @@ describe("aircraft status", () => {
       status: "open",
       grounding: true,
       authorId: s.user.id,
-      createdAt: 0,
+      createdAt: Date.now(),
     });
     expect(aircraftStatus(s, N206, today)).toEqual({
       level: "grounded",
@@ -225,6 +225,7 @@ describe("aircraft status", () => {
     });
     const deferred = deferDiscrepancy(s, {
       uuid: "d1",
+      foundOn: today,
       deferredOn: today,
       deferral: {
         type: "mel",

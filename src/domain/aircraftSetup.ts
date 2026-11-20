@@ -4,8 +4,8 @@
  *   into commands, and which setup steps still lack data.
  * Layer: Domain. Pure parsing and planning; no I/O, no React.
  * Dependencies: zod, ./maintenanceCsv, ./model, ./management/schemas,
- *   ./airworthiness, ./componentTemplates, ./readings, ./validationText,
- *   ./rejection.
+ *   ./management/inspections, ./airworthiness, ./componentTemplates,
+ *   ./readings, ./validationText, ./rejection.
  *
  * The plan builds the same commands the Inspections and Airworthiness screens
  * send, so the appliers keep every rule; the plan only predicts the refusals a
@@ -21,6 +21,7 @@ import {
   type Snapshot,
 } from "./model";
 import type { ManagementCommand } from "./management/schemas";
+import { inspectionNameKey } from "./management/inspections";
 import {
   adNumber,
   blankAD,
@@ -463,7 +464,8 @@ const norm = (h: string) =>
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
 
-const inspectionKey = (name: string) => `inspection-name:${norm(name)}`;
+const inspectionKey = (name: string) =>
+  `inspection-name:${inspectionNameKey(name)}`;
 const adKey = (number: string) => `ad-number:${adNumber(number)}`;
 
 function readTemplate<T>(
@@ -662,6 +664,7 @@ function inspectionCommand(
     requestUuid: crypto.randomUUID(),
     reason: SETUP_INSPECTION_REASON,
     action: "inspection.save",
+    initialAircraftSetup: true,
     record: {
       uuid: crypto.randomUUID(),
       version: 0,

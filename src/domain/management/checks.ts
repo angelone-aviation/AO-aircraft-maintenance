@@ -1,10 +1,10 @@
 /**
  * Responsibility: The checks every management command passes before its
  *   action runs: program ownership, links, manual reference, permission,
- *   duplicate manual items and the record's version.
+ *   duplicate manual items and setup inspections, and the record's version.
  * Layer: Domain. Pure functions; no I/O, no React.
  * Dependencies: ../model, ../programs, ../manuals, ../rejection, ./schemas,
- *   ./context.
+ *   ./context, ./inspections.
  */
 import { can, type Inspection, type Snapshot } from "../model";
 import {
@@ -17,6 +17,7 @@ import { validateManualReference } from "../manuals";
 import { Rejection, StaleRecordRejection } from "../rejection";
 import type { ManagedRecord, ManagementCommand } from "./schemas";
 import type { Existing } from "./context";
+import { hasInspectionNamed } from "./inspections";
 
 const INVENTORY_KINDS = ["stock", "location", "vendor"];
 const MANUAL_LINKED_KINDS = ["componentRequirement", "component"];
@@ -49,7 +50,9 @@ export function mayMaintain(s: Snapshot, aircraftUuid: string | undefined) {
  *   Program."; as {@link validateManualReference} for a changed reference;
  *   "Permission denied."; "Records cannot be moved between aircraft.";
  *   "Aircraft not found."; "This manual item has already been added to the
- *   selected target."; a StaleRecordRejection for a stale version.
+ *   selected target."; "An inspection with this name is already on the
+ *   aircraft." for a new one aircraft setup saves; a StaleRecordRejection for
+ *   a stale version.
  */
 export function admitCommand(
   s: Snapshot,
@@ -63,6 +66,7 @@ export function admitCommand(
   checkManualReference(s, c, existing);
   const { scope, aircraft } = authorize(s, c, existing);
   assertNewSourceItem(s, records, c, existing);
+  assertNewSetupInspection(s, c, existing);
   assertFresh(c.action, "record" in c ? c.record.version : c.version, existing);
   return { existing, scope, aircraft };
 }
@@ -217,5 +221,21 @@ function assertNewSourceItem(
   if (duplicate)
     throw new Rejection(
       "This manual item has already been added to the selected target.",
+    );
+}
+
+// Aircraft setup promises that a second run cannot duplicate a schedule, but
+// two runs planned from snapshots that do not show each other's rows meet
+// only here (NA-11, decision D11). Ordinary saves may repeat a name.
+function assertNewSetupInspection(
+  s: Snapshot,
+  c: ManagementCommand,
+  existing: Existing,
+) {
+  if (c.action !== "inspection.save" || !c.initialAircraftSetup || existing)
+    return;
+  if (hasInspectionNamed(s, c.record.aircraftUuid, c.record.description))
+    throw new Rejection(
+      "An inspection with this name is already on the aircraft.",
     );
 }

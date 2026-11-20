@@ -48,6 +48,13 @@ const PROGRAM_ADMIN_AUDIT_ACTIONS: readonly string[] = [
 ];
 
 type CostRecord = NonNullable<Snapshot["costs"]>[number];
+// Who is reading: board members get money for their aircraft only.
+interface CostScope {
+  active: string | undefined;
+  ids: Set<string>;
+  admin: boolean;
+  money: boolean;
+}
 /** Finds a managed record by kind and uuid: the first, as `find` would. */
 type FindRecord = (kind: string, uuid: string) => ManagedRecord | undefined;
 type PurchaseOrder = NonNullable<Snapshot["purchaseOrders"]>[number];
@@ -342,7 +349,9 @@ function visibleScope(s: Snapshot): VisibleScope {
     checklists: keepActiveProgram(s, s.checklists).filter(
       (c) => !c.aircraftUuid || ids.has(c.aircraftUuid),
     ),
-    costs: (s.costs ?? []).flatMap((r) => scopeCost(r, active, ids, money)),
+    costs: (s.costs ?? []).flatMap((r) =>
+      scopeCost(r, { active, ids, admin, money }),
+    ),
     componentTemplates: keepActiveProgram(s, s.componentTemplates),
     componentSetups: keepActiveProgram(s, s.componentSetups).filter((t) =>
       ids.has(t.aircraftUuid),
@@ -441,15 +450,14 @@ function canSeeRequest(
 }
 
 // Cost records are administrator data; maintenance users only see labor
-// hours (no rates) so they can record their time on a work order.
-function scopeCost(
-  r: CostRecord,
-  active: string | undefined,
-  ids: Set<string>,
-  money: boolean,
-): CostRecord[] {
-  if (r.kind === "settings")
-    return r.programUuid === active && money ? [r] : [];
+// hours (no rates) so they can record their time on a work order. A record
+// stays with the program that paid when its aircraft moves (decision D14):
+// only that program reads it, and its administrators keep it.
+function scopeCost(r: CostRecord, scope: CostScope): CostRecord[] {
+  const { active, ids, admin, money } = scope;
+  if (r.programUuid !== active) return [];
+  if (r.kind === "settings") return money ? [r] : [];
+  if (admin) return [r];
   if (!ids.has(r.aircraftUuid)) return [];
   if (money) return [r];
   if (r.kind !== "workOrder") return [];

@@ -10,7 +10,8 @@
  * Dependencies: src/data/store.ts (the demo workspace), ./local, ./demo
  *   (seed), src/domain (model, flights, airworthiness, rejection, attachments,
  *   checklists, taskCards, flightPlans, deleteInspectionTemplates,
- *   workOrders, purchaseOrders, manuals, addresses, faa), tests/fixtures.
+ *   workOrders, purchaseOrders, manuals, addresses, faa, reportBacklog),
+ *   convex/values (ConvexError), tests/fixtures.
  *
  * Before Batch 269 the demo resolved without the resolve permission or a
  * length limit, stored the text untrimmed, said "Describe the repair." and
@@ -49,8 +50,13 @@ import {
   blankADTask,
   type AD,
 } from "../domain/airworthiness";
+import { ConvexError } from "convex/values";
 import { Rejection } from "../domain/rejection";
 import { MAX_ATTACHMENTS } from "../domain/attachments";
+import {
+  MAX_OPEN_REPORTS_PER_MEMBER,
+  REPORT_LIMIT_REFUSAL,
+} from "../domain/reportBacklog";
 import { saveTaskCard } from "../domain/taskCards";
 import { emptyChecklist } from "../domain/checklists";
 import type { FlightPlan } from "../domain/flightPlans";
@@ -125,6 +131,7 @@ it("defers and audits it as the server does: the program, the placard, the defer
   const before = (await stored()).discrepancies.find((d) => d.uuid === REPORT);
   await backend.deferDiscrepancy({
     uuid: REPORT,
+    foundOn: localDate(before!.createdAt),
     deferredOn: localDate(),
     deferral: { type: "91.213d", placard: " LDG LT INOP ", notHazard: true },
   });
@@ -136,6 +143,7 @@ it("defers and audits it as the server does: the program, the placard, the defer
       type: "91.213d",
       placard: "LDG LT INOP",
       notHazard: true,
+      foundOn: localDate(before!.createdAt),
       deferredOn: localDate(),
       deferredAt: expect.any(Number),
       deferredBy: s.user.id,
@@ -540,6 +548,38 @@ it("logs a submitted flight and problem report under the aircraft's program, as 
   expect(report).toMatchObject({ ...logged, action: "discrepancy.created" });
 });
 
+it("refuses a report past the member's open-report limit as a ConvexError, as the server does (D2)", async () => {
+  const { backend, stored } = await demo("demo-report-limit", (seed) => {
+    seed.discrepancies = Array.from(
+      { length: MAX_OPEN_REPORTS_PER_MEMBER },
+      (_, i) => ({
+        uuid: `open-${i}`,
+        aircraftUuid: seed.aircraft[0].uuid,
+        description: "Short",
+        status: "open" as const,
+        authorId: seed.user.id,
+        createdAt: 0,
+      }),
+    );
+  });
+  const { user, aircraft } = await stored();
+  const refused = await backend
+    .submit({
+      programUuid: "demo-program",
+      uuid: crypto.randomUUID(),
+      authorId: user.id,
+      kind: "discrepancy",
+      aircraftUuid: aircraft[0].uuid,
+      description: "One more",
+    })
+    .catch((e) => e);
+  expect(refused).toBeInstanceOf(ConvexError);
+  expect(refused).toMatchObject({ data: REPORT_LIMIT_REFUSAL });
+  expect((await stored()).discrepancies).toHaveLength(
+    MAX_OPEN_REPORTS_PER_MEMBER,
+  );
+});
+
 // The server receives FlightForm's cleared fields absent; the demo, undefined.
 it.each([
   ["left out", {}],
@@ -741,6 +781,48 @@ function withRecords(s: Snapshot) {
     }),
   ];
 }
+
+it("logs a receipt's file on the order and on each item it received, as the server does (T3)", async () => {
+  const { backend, stored } = await demo("demo-po-file", (seed) => {
+    withRecords(seed);
+    seed.purchaseOrders![0].receipts = [
+      {
+        uuid: "receipt",
+        date: "2026-01-01",
+        invoice: "",
+        notes: "",
+        actorId: seed.user.id,
+        lines: [
+          {
+            lineUuid: "line",
+            quantity: 1,
+            condition: "new",
+            itemUuids: ["tire-lot"],
+            serials: [],
+          },
+        ],
+      },
+    ];
+  });
+  await backend.attachPOFile("po", "receipt", pdf());
+  const file = { name: "scan.pdf", size: pdf().size };
+  expect((await stored()).audit.slice(0, 2).reverse()).toMatchObject([
+    {
+      action: "purchaseOrder.attachment",
+      entityUuid: "po",
+      programUuid: "demo-program",
+      reason: "Receipt attachment uploaded",
+      after: JSON.stringify({ ...file, receiptUuid: "receipt" }),
+    },
+    {
+      action: "inventory.attachment",
+      entityUuid: "tire-lot",
+      programUuid: "demo-program",
+      reason: "Receipt attachment from PO-1",
+      after: JSON.stringify(file),
+    },
+  ]);
+});
 
 it("files evidence on a signed job card: every signoff cleared, at a new version", async () => {
   const { backend, stored } = await demo("demo-evidence", (seed) => {

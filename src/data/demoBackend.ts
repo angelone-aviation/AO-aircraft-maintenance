@@ -72,6 +72,8 @@ import {
   inventoryAttachmentAccess,
   validateInventoryFile,
   assertFileContents,
+  poAttachmentChanges,
+  receiptItemUuids,
 } from "../domain/inventoryAttachments";
 import { releaseStatementsSchema } from "../domain/releaseStatements";
 import { logbookPhrasesSchema } from "../domain/logbookWording";
@@ -751,13 +753,13 @@ export function demoBackend(workspace: DemoWorkspace): Backend {
           uploadedAt: Date.now(),
         };
         s.purchaseOrderFiles = [...(s.purchaseOrderFiles ?? []), f];
-        for (const stockUuid of new Set(
-          receipt?.lines.flatMap((l) => l.itemUuids) ?? [],
-        ))
+        for (const stockUuid of receiptItemUuids(receipt))
           s.inventoryAttachments = [
             ...(s.inventoryAttachments ?? []),
             { ...f, uuid: crypto.randomUUID(), stockUuid },
           ];
+        for (const change of poAttachmentChanges(po, receipt, file))
+          s.audit.unshift(auditEntry(s, change));
       });
     },
     purchaseOrder: (command) =>

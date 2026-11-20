@@ -16,12 +16,17 @@ import { api } from "./_generated/api";
 import schema from "./schema";
 import { demoSnapshot } from "../src/data/demo";
 import { localDate, type FlightInput } from "../src/domain/model";
+import {
+  MAX_OPEN_REPORTS_PER_MEMBER,
+  REPORT_LIMIT_REFUSAL,
+} from "../src/domain/reportBacklog";
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
   "!./**/*.test.ts",
   "!./**/*.d.ts",
 ]);
+const DAY_MS = 86_400_000;
 async function fixture() {
   const t = convexTest(schema, modules);
   const a = demoSnapshot().aircraft[0];
@@ -110,6 +115,60 @@ async function fixture() {
   });
   return { t, pilot, admin, outsider, ids, a, input, op };
 }
+describe("the per-member open-report limit (D2)", () => {
+  it("refuses a synced report or a flight's report past it, never a resend, and frees room on a resolution", async () => {
+    const { t, pilot, admin, ids, a, op } = await fixture();
+    await t.run(async (ctx) => {
+      // Half on an aircraft the pilot cannot see: the limit is the
+      // program's whole workspace, not the pilot's view of it.
+      for (let i = 0; i < MAX_OPEN_REPORTS_PER_MEMBER; i++)
+        await ctx.db.insert("discrepancies", {
+          uuid: `open-${i}`,
+          aircraftUuid: i % 2 ? a.uuid : "secret-aircraft",
+          description: "Short",
+          status: "open",
+          authorId: ids.user,
+          createdAt: 0,
+        });
+    });
+    const report = {
+      programUuid: "demo-program",
+      kind: "discrepancy" as const,
+      uuid: crypto.randomUUID(),
+      authorId: ids.user,
+      aircraftUuid: a.uuid,
+      description: "One more",
+    };
+    const submit = (operation: unknown) =>
+      pilot.mutation(api.operations.submit, { operation } as never);
+    const reports = () =>
+      t.run(
+        async (ctx) => (await ctx.db.query("discrepancies").collect()).length,
+      );
+    // A ConvexError, so the Sync center keeps the entry with this message.
+    await expect(submit(report)).rejects.toMatchObject({
+      name: "ConvexError",
+      data: REPORT_LIMIT_REFUSAL,
+    });
+    expect(await reports()).toBe(MAX_OPEN_REPORTS_PER_MEMBER);
+    await admin.mutation(api.operations.resolveDiscrepancy, {
+      programUuid: "demo-program",
+      uuid: "open-1",
+      resolution: "Fixed",
+    });
+    expect(await submit(report)).toEqual({ status: "accepted" });
+    expect(await submit(report)).toEqual({ status: "accepted" });
+    const flight = op();
+    await expect(
+      submit({
+        ...flight,
+        input: { ...flight.input, discrepancy: "Brake soft" },
+      }),
+    ).rejects.toMatchObject({ data: REPORT_LIMIT_REFUSAL });
+    expect(await submit(flight)).toEqual({ status: "accepted" });
+  });
+});
+
 describe("server authorization", () => {
   it("rejects anonymous writes and aircraft access outside the user group", async () => {
     const { t, pilot, outsider, op } = await fixture();
@@ -810,10 +869,13 @@ describe("discrepancy resolution", () => {
           .unique(),
       );
     const stored = await report();
+    // MX-3: the repair interval counts from the day the defect was found.
+    const foundOn = localDate(Date.now() - 2 * DAY_MS);
     await admin.mutation(api.operations.deferDiscrepancy, {
       programUuid: "demo-program",
       payload: JSON.stringify({
         uuid,
+        foundOn,
         deferredOn: localDate(),
         deferral: {
           type: "mel",
@@ -824,6 +886,10 @@ describe("discrepancy resolution", () => {
       }),
     });
     const deferred = await report();
+    expect(deferred!.deferral).toMatchObject({
+      foundOn,
+      expiresOn: localDate(Date.parse(foundOn + "T12:00:00") + 3 * DAY_MS),
+    });
     const rows = await t.run(async (ctx) =>
       (await ctx.db.query("audit").collect()).filter(
         (r) => r.action === "discrepancy.deferred",
@@ -847,6 +913,7 @@ describe("discrepancy resolution", () => {
           melItem: "24-1",
           category: "B",
           placard: "ALT INOP",
+          foundOn,
           deferredOn: localDate(),
           deferredAt: deferred!.deferral!.deferredAt,
           deferredBy: ids.admin,
@@ -919,6 +986,7 @@ describe("discrepancy resolution", () => {
     const requestUuid = crypto.randomUUID();
     const command = (placard: string) => ({
       uuid,
+      foundOn: localDate(),
       deferredOn: localDate(),
       deferral: { type: "91.213d", placard, notHazard: true },
       requestUuid,

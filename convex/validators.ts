@@ -248,7 +248,8 @@ export const dispatchOverrideValidator = v.object({
 /**
  * A discrepancy deferral: under an MEL item and category, or under 14 CFR
  * 91.213(d), which requires a determination that the inoperative equipment is
- * not a hazard (`notHazard`).
+ * not a hazard (`notHazard`). `foundOn` is optional because deferrals
+ * recorded before the found date was asked lack it.
  */
 export const deferralValidator = v.union(
   v.object({
@@ -262,6 +263,7 @@ export const deferralValidator = v.union(
     ),
     days: v.optional(v.number()),
     placard,
+    foundOn: v.optional(v.string()),
     deferredOn: v.string(),
     deferredAt: v.number(),
     deferredBy: v.string(),
@@ -272,6 +274,7 @@ export const deferralValidator = v.union(
     type: v.literal("91.213d"),
     placard,
     notHazard: v.literal(true),
+    foundOn: v.optional(v.string()),
     deferredOn: v.string(),
     deferredAt: v.number(),
     deferredBy: v.string(),

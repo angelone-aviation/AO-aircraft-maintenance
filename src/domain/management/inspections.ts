@@ -55,6 +55,44 @@ export function saveInspection(
 }
 
 /**
+ * The form of an inspection's name that schedules are matched by, so
+ * "100-Hour" and "100 hour" name one schedule: trimmed, lower case, with each
+ * run of spaces and hyphens as one "_".
+ *
+ * @param name - The inspection's description.
+ * @returns The key, such as "100_hour".
+ */
+export function inspectionNameKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+/**
+ * Whether an aircraft already holds an active inspection by a name.
+ *
+ * @param s - The snapshot holding the program's inspections.
+ * @param aircraftUuid - The aircraft.
+ * @param name - The inspection's description, matched by
+ *   {@link inspectionNameKey}.
+ * @returns True for an unarchived inspection of that name on the aircraft.
+ */
+export function hasInspectionNamed(
+  s: Snapshot,
+  aircraftUuid: string,
+  name: string,
+): boolean {
+  const key = inspectionNameKey(name);
+  return s.inspections.some(
+    (i) =>
+      i.aircraftUuid === aircraftUuid &&
+      !i.archived &&
+      inspectionNameKey(i.description) === key,
+  );
+}
+
+/**
  * Whether an inspection schedule counts aircraft landings, so its completion
  * must record them.
  *

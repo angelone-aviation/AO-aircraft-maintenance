@@ -29,6 +29,8 @@ import { programPermission } from "../src/domain/programs";
 import { poSchema, poAttachmentRemovable } from "../src/domain/purchaseOrders";
 import {
   assertFileContents,
+  poAttachmentChanges,
+  receiptItemUuids,
   validateInventoryFile,
 } from "../src/domain/inventoryAttachments";
 
@@ -60,7 +62,8 @@ export const check = internalQuery({
 
 /**
  * Records a stored upload on the purchase order and, for a receipt, on each
- * item it received. Writes no change-log row.
+ * item it received, and writes the rows poAttachmentChanges lists: a
+ * `purchaseOrder.attachment` row and an `inventory.attachment` row per item.
  *
  * @param storageId - The stored file; the caller deletes it on a refusal.
  * @param size - Its size; the other arguments are {@link upload}'s.
@@ -76,7 +79,7 @@ export const finish = internalMutation({
     size: v.number(),
   },
   handler: async (ctx, args) => {
-    const { po, receipt } = await authorizePoAdmin(ctx, args);
+    const { po, receipt, s } = await authorizePoAdmin(ctx, args);
     exposeRejections(() =>
       validateInventoryFile(args.name, args.type, args.size),
     );
@@ -101,10 +104,14 @@ export const finish = internalMutation({
     });
     // The items share the file's blob; deleteBlobIfUnused keeps it until the
     // last row that uses it goes.
-    for (const stockUuid of new Set(
-      receipt?.lines.flatMap((l) => l.itemUuids) ?? [],
-    ))
+    for (const stockUuid of receiptItemUuids(receipt))
       await ctx.db.insert("inventoryFiles", { ...fields, stockUuid });
+    for (const { action, entityUuid, ...row } of poAttachmentChanges(
+      po,
+      receipt,
+      args,
+    ))
+      await audit(ctx, s.user.id, action, entityUuid, row);
   },
 });
 

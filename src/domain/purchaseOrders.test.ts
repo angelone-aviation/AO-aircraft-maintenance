@@ -391,10 +391,12 @@ describe("purchase orders", () => {
 function issuedExchange(coreDueDays?: number) {
   const { s, d } = poFixture();
   d.lines[0] = { ...d.lines[0], exchange: true, coreDueDays };
+  // Ordered before the receipts these tests date from 1 October.
+  const orderedAt = Date.parse("2026-09-30T12:00:00Z");
   let [p] = applyPOCommand(
     s,
     { kind: "save", requestUuid: "save", drafts: [d] },
-    now,
+    orderedAt,
   );
   [p] = applyPOCommand(
     s,
@@ -405,7 +407,7 @@ function issuedExchange(coreDueDays?: number) {
       version: p.version,
       reason: "",
     },
-    now,
+    orderedAt,
   );
   const run = (c: POCommand) => ([p] = applyPOCommand(s, c, now));
   const receive = (quantity: number, date = "2026-10-15") =>
@@ -889,6 +891,10 @@ const refusals: [string, (w: World) => POCommand][] = [
     (w) => ship(w.issued, { date: "2026-10-30" }),
   ],
   [
+    "Receipt date cannot precede the order date.",
+    (w) => receive(w.issued, {}, { date: "2026-10-14" }),
+  ],
+  [
     "Duplicate lines are not allowed.",
     (w) =>
       ship(w.issued, {
@@ -936,9 +942,9 @@ const refusals: [string, (w: World) => POCommand][] = [
     "Return date cannot precede repair shipment.",
     (w) =>
       receive(
-        shippedRepair(w),
+        w.run(ship(w.repair, { date: "2026-10-16" })),
         { serials: [{ serial: "SN1", hours: 101, cycles: 101 }] },
-        { date: "2026-10-14" },
+        { date: "2026-10-15" },
       ),
   ],
   [
@@ -1103,6 +1109,27 @@ describe("purchase order results", () => {
     expect(poStatus(partly)).toBe("Partially shipped");
     const cancelled = w.run(act(w.draft, "cancel"));
     expect(poStatus(cancelled)).toBe("Cancelled");
+  });
+  it("accepts a receipt dated the order's day in any time zone (PT-6)", () => {
+    const w = world();
+    // 02:00 UTC on 15 Oct was still 14 Oct in the furthest-behind zone.
+    const issuedAt = Date.parse("2026-10-15T02:00:00Z");
+    const [p] = applyPOCommand(w.s, act(w.draft, "issue", ""), issuedAt);
+    expect(() => w.run(receive(p, {}, { date: "2026-10-13" }))).toThrow(
+      new Rejection("Receipt date cannot precede the order date."),
+    );
+    expect(w.run(receive(p, {}, { date: "2026-10-14" })).receipts).toHaveLength(
+      1,
+    );
+  });
+  it("dates an order stored without an issue time from when it was made", () => {
+    const w = world();
+    const stored = w.s.purchaseOrders!.find((p) => p.uuid === "issued")!;
+    delete stored.issuedAt;
+    stored.createdAt = Date.parse("2026-10-01T12:00:00Z");
+    expect(
+      w.run(receive(stored, {}, { date: "2026-10-02" })).receipts,
+    ).toHaveLength(1);
   });
   it("receives another condition into a new stock lot priced from the line", () => {
     const w = world();
