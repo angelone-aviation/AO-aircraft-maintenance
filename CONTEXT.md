@@ -264,3 +264,4 @@ Decisions ([docs/adr/](docs/adr/)):
 | [0010](docs/adr/0010-one-convex-administrator.md) | One Convex administrator. |
 | [0011](docs/adr/0011-readable-records-copy-in-dropbox.md) | Readable records copy in Dropbox. |
 | [0012](docs/adr/0012-urgent-alerts-by-web-push-and-immediate-email.md) | Urgent alerts reach people by Web Push and an immediate email; expiring dates are records. |
+| [0013](docs/adr/0013-history-retention-window.md) | The workspace keeps a retention window of history; older records load page by page. |
