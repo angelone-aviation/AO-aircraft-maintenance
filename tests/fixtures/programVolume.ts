@@ -13,7 +13,10 @@
  * inspections and 40 ADs per aircraft; 300 stock records), with shorter
  * text. Everything is derived from counters, so two runs store the same rows.
  * Earlier years repeat the newest year's records a year apart, all closed,
- * after it in each table, so the one-year database is unchanged.
+ * after it in each table, so the one-year database is unchanged. The newest
+ * year adds, on its first aircraft, the purchasing edges each rule of the
+ * purchasing window is built for (./purchasingEdges.ts), once whatever the
+ * years.
  */
 import type { MutationCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -29,6 +32,7 @@ import { partsRequestSchema } from "../../src/domain/partsRequests";
 import { poSchema } from "../../src/domain/purchaseOrders";
 import { taskCardDefaults, taskCardSchema } from "../../src/domain/taskCards";
 import { workOrderSchema } from "../../src/domain/workOrders";
+import { purchasingEdges, type EdgeAnchors } from "./purchasingEdges";
 
 export const VOLUME_PROGRAM = "demo-program";
 /** The size test's one-year volume. */
@@ -49,6 +53,15 @@ export const VOLUME = {
   evidenceEvery: 10,
   inventoryFileEvery: 30,
 } as const;
+/**
+ * The aircraft that carry the purchasing edges: the pilot's two and the
+ * mechanic's second, so every view sees some; the first also has a request
+ * for stock, which only an administrator sees.
+ */
+export const EDGE_AIRCRAFT = 3;
+// The work order the edges' requests count toward: completed, kept by its
+// recent cost entry, and opened before them.
+const EDGE_ORDER = 5;
 
 const DAY = 86_400_000;
 const YEAR = 365 * DAY;
@@ -186,23 +199,28 @@ export async function addOlderHistory(
   }
 }
 
-// The cost ledger rows the app writes beside each work order's cost record.
-// No request of the fixture counts toward a work order, so each record is
-// all its order's ledger reads.
+// The cost ledger rows the app writes beside each work order's cost record,
+// from the record and the purchasing edges' requests on the order or its job
+// cards, which the cost rules count toward it.
 function ledgerRows(tables: Record<string, Row[]>) {
-  const orders = new Map(
-    decode("workOrders", tables.workOrders as StoredRow<"workOrders">[]).map(
-      (w) => [w.uuid, w],
-    ),
+  const decoded = <N extends "workOrders" | "taskCards" | "partsRequests">(
+    table: N,
+  ) => decode(table, tables[table] as StoredRow<N>[]);
+  const orders = new Map(decoded("workOrders").map((w) => [w.uuid, w]));
+  const cards = decoded("taskCards");
+  const requests = decoded("partsRequests").filter(
+    (r) => r.source.kind === "jobCard" || r.source.workOrderUuid,
   );
   return decode("costs", tables.costs as StoredRow<"costs">[]).flatMap(
     (record) => {
       if (record.kind !== "workOrder") return [];
       const records = {
         costs: [record],
-        taskCards: [],
+        taskCards: cards.filter(
+          (c) => c.workOrderUuid === record.workOrderUuid,
+        ),
         archivedTaskCards: [],
-        partsRequests: [],
+        partsRequests: requests,
       };
       return derivedLedger(orders.get(record.workOrderUuid)!, records) as Row[];
     },
@@ -297,6 +315,8 @@ class Generator {
   private next = 0;
   private stock: { uuid: string; locationUuid: string; partNumber: string }[] =
     [];
+  // What each aircraft's purchasing edges point at, as its records are made.
+  private anchors = new Map<string, Partial<EdgeAnchors>>();
   private readonly suffix: string;
 
   constructor(
@@ -334,6 +354,7 @@ class Generator {
     };
     this.programRecords(t, blob);
     for (let n = 0; n < VOLUME.aircraft; n++) this.aircraftYear(t, n, blob);
+    for (let n = 0; n < EDGE_AIRCRAFT; n++) this.edgesOf(t, demoAircraft(n));
     return t as Record<string, Row[]> & {
       taskCards: Row[];
       archivedTaskCards: Row[];
@@ -550,8 +571,13 @@ class Generator {
       this.audit(t, a, "workOrder.save", order.uuid, order.recordedAt, order);
       t.costs.push(encode("costs", this.cost(a, order.uuid)));
       if (!open) t.workOrderFiles.push(this.file(blob, a, order.uuid, "work"));
-      for (let j = 0; j < VOLUME.jobCardsPerWorkOrder; j++)
-        this.jobCard(t, a, order.uuid, w * 100 + j, blob, w === 0 && j === 0);
+      const cards = Array.from(
+        { length: VOLUME.jobCardsPerWorkOrder },
+        (_, j) =>
+          this.jobCard(t, a, order.uuid, w * 100 + j, blob, w === 0 && j === 0),
+      );
+      if (w === EDGE_ORDER)
+        this.anchor(a, { order: { uuid: order.uuid, card: cards[1] } });
     }
   }
 
@@ -572,6 +598,7 @@ class Generator {
         ...this.file(blob, a, card.uuid, "card"),
         category: "photo",
       });
+    return card.uuid;
   }
 
   taskCard(
@@ -717,6 +744,7 @@ class Generator {
         cyclesSinceNew: 0,
         serviceDaysBase: 0,
       });
+      if (i === 0) this.anchor(a, { component: component.uuid });
       if (i % 5 === 0) this.requirement(t, a, component.uuid);
     }
     this.inspectionsOf(t, a);
@@ -746,23 +774,24 @@ class Generator {
   }
 
   private inspectionsOf(t: Record<string, Row[]>, a: Aircraft) {
-    for (let i = 0; i < VOLUME.inspections; i++)
-      t.inspections.push(
-        inspectionSchema.parse({
-          uuid: this.uuid(),
-          version: 2,
-          programUuid: VOLUME_PROGRAM,
-          aircraftUuid: a.uuid,
-          reference: `100-hour inspection item ${i + 1}`,
-          description: "Inspect for leaks, chafing and security.",
-          materials: "",
-          archived: false,
-          intervalSeconds: 100 * HOUR,
-          lastSeconds: a.currentHobbs - 20 * HOUR,
-          lastDate: "2026-10-20",
-          dueSeconds: a.currentHobbs + 80 * HOUR,
-        }),
-      );
+    for (let i = 0; i < VOLUME.inspections; i++) {
+      const inspection = inspectionSchema.parse({
+        uuid: this.uuid(),
+        version: 2,
+        programUuid: VOLUME_PROGRAM,
+        aircraftUuid: a.uuid,
+        reference: `100-hour inspection item ${i + 1}`,
+        description: "Inspect for leaks, chafing and security.",
+        materials: "",
+        archived: false,
+        intervalSeconds: 100 * HOUR,
+        lastSeconds: a.currentHobbs - 20 * HOUR,
+        lastDate: "2026-10-20",
+        dueSeconds: a.currentHobbs + 80 * HOUR,
+      });
+      t.inspections.push(inspection);
+      if (i === 0) this.anchor(a, { inspection: inspection.uuid });
+    }
   }
 
   private adsOf(t: Record<string, Row[]>, a: Aircraft) {
@@ -851,8 +880,11 @@ class Generator {
     });
   }
 
+  // An earlier year's orders were received in full and closed.
   private purchaseOrder(a: Aircraft, stock: Generator["stock"][number]) {
     const at = this.end - 20 * DAY;
+    const line = this.uuid();
+    const closed = this.yearsBack > 0;
     return poSchema.parse({
       uuid: this.uuid(),
       version: 2,
@@ -865,14 +897,14 @@ class Generator {
       currency: "USD",
       shippingCents: 1500,
       notes: "",
-      phase: "issued",
+      phase: closed ? "closed" : "issued",
       revision: 0,
       createdAt: at,
-      updatedAt: at,
+      updatedAt: closed ? at + DAY : at,
       issuedAt: at,
       lines: [
         {
-          uuid: this.uuid(),
+          uuid: line,
           stockUuid: stock.uuid,
           locationUuid: stock.locationUuid,
           partNumber: stock.partNumber,
@@ -884,9 +916,49 @@ class Generator {
         },
       ],
       shipments: [],
-      receipts: [],
+      receipts: closed ? [this.receipt(line, at + DAY)] : [],
       history: [],
     });
+  }
+
+  private receipt(lineUuid: string, at: number) {
+    return {
+      uuid: this.uuid(),
+      date: new Date(at).toISOString().slice(0, 10),
+      invoice: "INV-1",
+      notes: "",
+      actorId: this.users.admin,
+      lines: [
+        {
+          lineUuid,
+          quantity: 4,
+          condition: "new",
+          itemUuids: [],
+          serials: [],
+        },
+      ],
+    };
+  }
+
+  // The purchasing edges of one aircraft of the newest year, once its
+  // records are made.
+  private edgesOf(t: Record<string, Row[]>, a: Aircraft) {
+    const anchors = {
+      ...this.anchors.get(a.uuid),
+      end: this.end,
+      program: VOLUME_PROGRAM,
+      admin: this.users.admin,
+      pilot: this.users.pilot,
+      aircraft: a,
+      stock: this.stock[0],
+      stockRequest: a.uuid === demoAircraft(0).uuid,
+    } as EdgeAnchors;
+    const rows = purchasingEdges(anchors, () => this.uuid());
+    for (const [table, added] of Object.entries(rows)) t[table].push(...added);
+  }
+
+  private anchor(a: Aircraft, found: Partial<EdgeAnchors>) {
+    this.anchors.set(a.uuid, { ...this.anchors.get(a.uuid), ...found });
   }
 
   private audit(
