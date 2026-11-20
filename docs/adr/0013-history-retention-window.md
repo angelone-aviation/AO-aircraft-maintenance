@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted; implemented 2026-11-20 (stage S7 turned the window on)
 date: 2026-11-19
 ---
 
@@ -41,7 +41,7 @@ The work is staged S0 to S9 in the history-paging plan; the window is turned on 
 
 ## Consequences
 
-- What the workspace reads stops growing with history. The target is a 20-year snapshot within 10% of year 1, with four times headroom on every Convex limit; `convex/historyCost.test.ts` holds the baseline and flips from growing to flat stage by stage.
+- What the workspace reads of the windowed history stops growing with history. The target was a 20-year snapshot within 10% of year 1, with four times headroom on every Convex limit; `convex/historyCost.test.ts` holds the baseline and flipped stage by stage. Since S7 the window's reads, and the owner's and board's snapshots, are flat; an administrator's or pilot's snapshot still grows by the parts requests, purchase orders and flight plans H5 keeps complete (0.64 MiB a year at the size test's volume, past 16 MiB at about 13 years), so H5 is what remains.
 - 42 lookups by uuid, in 24 files, need work before the window is turned on: a record outside it must be loaded on demand, or the command refused. They are listed in [history paging](../history-paging.md), with what each should do. A screen that silently showed nothing would be the failure mode.
 - Lists, counts and text search on the five screens cover the loaded rows, with labels saying so (H2, H3). The Job cards screen also loses older cards and needs the same treatment.
 - No record carries one "changed at" time, so "changed in the window" is read from the dated events each record holds: close-outs, revisions, corrections, removed items, job card and cost entry times. A part's unit cost carries no time, so changing one does not keep an older work order in the workspace.

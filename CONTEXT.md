@@ -90,17 +90,17 @@ sequenceDiagram
   participant WS as useWorkspace (src/data/store.ts)
   participant IDB as IndexedDB (src/data/local.ts)
   participant UI as screens
-  Q->>Q: activeIdentity, context() and program-scoped loaders (programContext.ts)
-  Q->>Q: scopedSnapshot() (src/domain/programs.ts) strips what the caller may not see
+  Q->>Q: activeIdentity, context() and program-scoped loaders (programContext.ts), history by the window's indexes (historyWindow.ts)
+  Q->>Q: workspaceWindow() (src/domain/retention.ts): scopedSnapshot() strips what the caller may not see, history narrowed to the window
   Q-->>WS: Snapshot via useQueries (src/main.tsx; a failure shows WorkspaceUnavailable) → receive()
   WS->>IDB: saveSnapshot(namespace)
   WS-->>UI: snapshot
 ```
 
-- `Snapshot` (`src/domain/model.ts`) holds the active Flight Program only. Cached copies open offline for seven days from sign-in (`OFFLINE_WINDOW`, `offlineValid`).
-- Paged or large data loads on demand through `Backend` queries: History (`auditPage`), older flights, problem reports and work orders (`historyPage`, `convex/history.ts`, read through `src/data/historyPages.ts` and `historyLoads.ts`; [history paging](docs/history-paging.md)), engine trends, attachment lists, certification files.
+- `Snapshot` (`src/domain/model.ts`) holds the active Flight Program only, and of its history only the retention window (ADR-0013): open items, closed maintenance changed in the last three months, six months of flights, the five latest completed work orders per aircraft, and the collections that stay complete (H5). Cached copies, that window, open offline for seven days from sign-in (`OFFLINE_WINDOW`, `offlineValid`).
+- Paged or large data loads on demand through `Backend` queries: History (`auditPage`), older flights, problem reports and work orders (`historyPage`), one older work order (`workOrderHistory`) and records named by uuid (`historyRecords`) from `convex/history.ts`, read through `src/data/historyPages.ts` and `historyLoads.ts` ([history paging](docs/history-paging.md)); engine trends, attachment lists, certification files.
 - No stored file reaches the device by address: the snapshot and listings name files, and screens ask `Backend.fileLinks` (`convex/fileLinks.ts`) for links that expire after five minutes, while the file is on screen (`src/components/FileLink.tsx`; [file links](docs/file-links.md)).
-- Demo: `demoBackend` keeps the full fictional snapshot under `<namespace>:all` in IndexedDB and hands the workspace `scopedSnapshot()` of it, as the server would.
+- Demo: `demoBackend` keeps the full fictional snapshot under `<namespace>:all` in IndexedDB and hands the workspace `workspaceWindow()` of it (`demoWorkspaceView`), as the server would; its history reads run the same domain functions over the full copy.
 
 **Write path.** Screens call one `Backend` method; the server runs one transaction.
 
@@ -126,7 +126,7 @@ sequenceDiagram
 
 - A Convex mutation is one transaction: any throw writes nothing. Expected domain rejections become `ConvexError` (the `expose` option) so users see the message in production.
 - 22 mutations use `runCommand`. Administration, upload and a few others check access themselves and write the change log through `audit()`, or `writeAudit()` directly. The list, and what ADR-0003 still asks for (request ids on every command, uniform stale-version rejection), is in the architecture report's "Done since this report".
-- Demo: `demoBackend.modify()` clones the full snapshot, runs the same applier, saves it, and calls `receive(scopedSnapshot(s))`. Demo writes need `online`.
+- Demo: `demoBackend.modify()` clones the full snapshot, runs the same applier, saves it, and calls `receive(demoWorkspaceView(s))`. Demo writes need `online`.
 
 **Offline outbox** (`src/data/store.ts`, `src/domain/flightSubmission.ts`, `convex/operations.ts` `submit`):
 

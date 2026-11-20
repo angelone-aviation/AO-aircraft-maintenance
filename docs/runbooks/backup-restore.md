@@ -125,8 +125,9 @@ Use the newest monthly copy and the environment variables that were current when
 4. In `angelone-env-20261101T084109Z.txt`, change `SITE_URL` to the scratch site, then set the variables: `npx convex env set --deployment <scratch> --force --from-file angelone-env-20261101T084109Z.txt`.
 5. `npx convex import --deployment <scratch> --replace-all -y angelone-20261104T084112Z.zip`
 6. Check: the document count of each table in the Convex dashboard (scratch deployment → Data) matches the counts `decrypt.sh` printed from the manifest; an administrator can sign in; one aircraft's records and one attachment open.
-7. Delete the scratch deployment, the decrypted files and `key.txt`.
-8. Log it below.
+7. Run the history paging steps, each until it reports 0: `npx convex run --deployment <scratch> migrations:backfillHistoryColumns`, then `migrations:rebuildRecordNumbers`, then `migrations:rebuildCostLedger`; then `migrations:reconcileCostLedger` must answer `differing: 0`. Check that **Load older** on the Flight log loads older flights.
+8. Delete the scratch deployment, the decrypted files and `key.txt`.
+9. Log it below.
 
 | Date | Snapshot used | Passed? | Time taken | By |
 |---|---|---|---|---|
@@ -139,8 +140,9 @@ Use the newest monthly copy and the environment variables that were current when
 3. Restore from the Convex dashboard (last 7 days), or from R2 for anything older: download and decrypt the `daily/` or `monthly/` copy ([above](#download-and-decrypt)), then `npx convex import --prod --replace-all angelone-<time>.zip`.
 4. Re-apply environment variables from the matching `env/` file if the deployment is new.
 5. Re-apply access changes made since the backup. A restore brings accounts, passwords, memberships and sessions back as they were: disable again anyone disabled since, reset again any password reset since, and remove again any member removed since.
-6. Verify as in the rehearsal.
-7. Record the restore in the app's change log by hand (ADR-0005): what was restored, from which snapshot, and why. Use `audit:recordManualEntry` as described in [Production database access](database-access.md#recording-the-hand-written-change-log-entry).
+6. Rebuild what the workspace's history window reads, in this order and each until it reports 0: `npx convex run --prod migrations:backfillHistoryColumns` (rows from before a column carry none), `migrations:rebuildRecordNumbers`, `migrations:rebuildCostLedger`; then `migrations:reconcileCostLedger` must answer `differing: 0` ([history paging](../history-paging.md#before-deploying-s7)). Until the backfill reaches 0 the workspace loads more than it needs and the history pages refuse; until the rebuilds do, a blank number can repeat an older one and the board can show less than was spent.
+7. Verify as in the rehearsal.
+8. Record the restore in the app's change log by hand (ADR-0005): what was restored, from which snapshot, and why. Use `audit:recordManualEntry` as described in [Production database access](database-access.md#recording-the-hand-written-change-log-entry).
 
 ## Changing the backup key
 

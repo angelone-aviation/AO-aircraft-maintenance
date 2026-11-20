@@ -257,6 +257,7 @@ Open the preview URL online, sign in, and allow the app to cache before testing 
 | Take a photo of the paper logbook line for a flight that has not synced | Switching Flight Program                    |
 | Open reference manuals kept on the device                               | Everything else                             |
 
+- The copy on the device is the workspace: six months of flights, three months of closed maintenance, every open item, and the records that stay complete (aircraft, inspections, ADs, checklists, flight plans, parts requests and purchase orders), which is what logging a flight needs. Older records load with **Load older** and need a connection ([history paging](docs/history-paging.md)).
 - A photo taken for a flight that has not synced waits on the device and uploads after it ([logbook page photos](docs/logbook-photos.md)).
 - Reference manuals a user keeps on the device (**Keep on this device** in the Reference library) also open offline; see [reference library](docs/reference-library.md#keep-on-this-device).
 - Pending entries appear in **Sync center** and sync automatically when connected. Conflicting flights go to administrator review without changing aircraft totals.
@@ -329,13 +330,19 @@ npx convex run attachments:backfillAircraft
 
 Until it runs, those older files still show: the workspace snapshot reads them through a slower fallback on every load.
 
-After deploying the version that adds the history window's derived columns (history paging stage S2), fill them in on rows written before, and again after restoring a backup taken before that version. It writes no change-log row and changes no record; it answers how many rows were missing their columns. Run it until that count is 0:
+History paging (stages S2 to S7) adds three one-off steps. Run them in this order after deploying it, and again after restoring any backup, each until it reports 0:
+
+1. `migrations:backfillHistoryColumns`, the derived columns, S7's `changedAt` and `latestAt` among them;
+2. `migrations:rebuildRecordNumbers`, the number rows;
+3. `migrations:rebuildCostLedger`, the cost ledger; then check that `npx convex run migrations:reconcileCostLedger` answers `differing: 0` and logs no "The cost ledger differs from its records."
+
+After deploying the version that adds the history window's derived columns (history paging stage S2, and the columns S7 adds), fill them in on rows written before, and again after restoring a backup taken before that version. It writes no change-log row and changes no record; it answers how many rows were missing their columns. Run it until that count is 0:
 
 ```bash
 npx convex run migrations:backfillHistoryColumns
 ```
 
-Saves read the columns from stage S3, so on a deployment holding rows from before S2, the backfill must reach 0 before S3 serves saves: a bounded save does not see a row without its columns. The window (stage S7) must not be turned on before it does either. Details: [history paging](docs/history-paging.md#running-the-backfill).
+Saves read the columns from stage S3, so on a deployment holding rows from before S2, the backfill must reach 0 before S3 serves saves: a bounded save does not see a row without its columns. Since S7 the workspace reads the window through them too; until the count reaches 0 it reads the rows without them as well, so it loads more, never less, and the history pages refuse until then. Details: [history paging](docs/history-paging.md#before-deploying-s7).
 
 After deploying stage S3, and again after restoring any backup, rebuild the work order and job card number rows that numbering reads. It writes no change-log row and changes no record; it answers how many rows it wrote or deleted. Run it until that count is 0:
 

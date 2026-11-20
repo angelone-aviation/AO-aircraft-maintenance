@@ -23,6 +23,14 @@ A session that ends without signing out (seven days after sign-in, or when an ad
 
 The copy of the Flight Program stays on the device for seven days from sign-in, unencrypted, so pilots can work without a connection. Phones and tablets used for the app must have a screen lock (a passcode, fingerprint or face unlock).
 
+## What the device keeps
+
+The copy on the device is the workspace as the server sends it: the retention window ([history paging](history-paging.md), ADR-0013), not the program's whole history.
+
+- **Kept:** the aircraft, their inspections, ADs, components and inventory; checklists, flight plans, parts requests and purchase orders, which stay complete; every open item however old (held flights, open and deferred problem reports, open work orders and their job cards); six months of flights; three months of closed maintenance; the five latest completed work orders on each aircraft; the program's members.
+- **That is what logging a flight offline needs:** the aircraft and its counters, what is due, open problem reports and the dispatch gate, checklists, queued plans and the crew. `tests/e2e/history-paging.spec.ts` logs one offline from the windowed copy.
+- **Not kept:** older flights, problem reports and work orders. **Load older** needs a connection and says so offline; a records package made offline says which tables are partial; the paper check refuses a month older than the window; a form that names an older record (a job card's report, a request's source, a purchase-order line's work order, a removal tag's work order, a plan flown long ago) loads it when connected and says it needs a connection otherwise.
+
 ## When the workspace cannot be opened
 
 If the server cannot load the Flight Program's records (an outage, or a program too large to load in one go), the app shows **Your workspace could not be opened.** instead of a blank page. It says the records are safe and entries saved on the device stay queued, and asks the user to contact their Flight Program administrator if it keeps happening. **Try again** reloads and asks the server again. **View the copy on this device** opens the copy kept from the last sync, but only after the server confirms it belongs to the account now signed in. The copy behaves as it does offline: direct edits are off, and flights and problem reports wait in the Sync center until the workspace opens. **Export my pending entries** and **Sign out** are offered too. Any other unexpected screen error shows **Something went wrong.** with a reload, never a blank page.
