@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins job cards: a linked card's notes, evidence, parts and
- *   signoffs; a new card's signing advice and completion-date hint; inspector signoff only with an approved maintenance
- *   certificate on file;
+ *   signoffs; a new card's signing advice and completion-date hint;
+ *   inspector signoff only with an approved maintenance certificate on file;
  *   the stock picker's usable quantities and expired lots; and no
  *   unreachable scrolling region on an empty list.
  * Layer: Test. Playwright spec against the demo in a production build.
@@ -17,7 +17,7 @@ const DAY_MS = 86400000;
 const NEW_CARD_SIGNING =
   "Save the job card first: Task status unlocks after the first save. Then change it to Ready or In progress and save again before signing.";
 const COMPLETION_DATE_HINT =
-  "Required to sign — today or earlier. Signing or completing without one is refused.";
+  "Required for technician and inspection signoff — today or earlier. Completing without one is refused.";
 const INSPECTOR_HINT =
   "Add your certificate type and number under My certifications to sign as inspector.";
 const PENDING_HINT =

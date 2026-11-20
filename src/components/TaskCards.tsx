@@ -1790,7 +1790,7 @@ function ExecutionFields({ e }: { e: Editor }) {
       </Field>
       <Field
         label="Completion date"
-        hint="Required to sign — today or earlier. Signing or completing without one is refused."
+        hint="Required for technician and inspection signoff — today or earlier. Completing without one is refused."
       >
         <input
           type="date"
