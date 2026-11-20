@@ -51,7 +51,8 @@ export function ExportRecordsPackage({
 }
 
 function usePackageExport(state: Snapshot, aircraftUuid: string) {
-  const { backend, online, connected } = useWorkspace();
+  const { backend, online, connected, demo } = useWorkspace();
+  const live = online && connected;
   const [progress, setProgress] = useState("");
   const [done, setDone] = useState("");
   const [error, setError] = useState("");
@@ -65,7 +66,9 @@ function usePackageExport(state: Snapshot, aircraftUuid: string) {
         snapshot: state,
         aircraftUuid,
         // The change log is paged from the backend only while connected.
-        backend: online && connected ? backend : null,
+        backend: live ? backend : null,
+        // Live links need the server; the demo's files are in the browser.
+        fileLinks: (live || demo) && backend ? backend.fileLinks : null,
         onProgress: setProgress,
       });
       download(result.name, result.blob, ZIP_TYPE);

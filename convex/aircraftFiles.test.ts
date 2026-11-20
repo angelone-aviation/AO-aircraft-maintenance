@@ -168,7 +168,9 @@ it("keeps Form 337 copies on the aircraft for readers, with maintenance uploads 
       size: pdf.byteLength,
     },
   ]);
-  expect(seen.aircraftFiles![0].url).toBeTruthy();
+  // Files open through short-lived links (convex/fileLinks.ts); a storage
+  // URL in the snapshot would open the file for anyone, for good.
+  expect(seen.aircraftFiles![0]).not.toHaveProperty("url");
   expect(seen.aircraftFiles![0].archivedAt).toBeUndefined();
   const file = seen.aircraftFiles![0];
   const stored = await t.run(async (ctx) =>
@@ -210,7 +212,8 @@ it("keeps Form 337 copies on the aircraft for readers, with maintenance uploads 
       (await ctx.storage.get(stored.storageId))?.text(),
     ),
   ).toBe("%PDF-1.4 Form 337");
-  // Readers still receive the archived copy, flagged, with an openable URL.
+  // Readers still receive the archived copy, flagged; it opens through a
+  // link like any other (convex/fileLinkRules.test.ts).
   const after = (await reader.query(api.operations.snapshot, {}))!;
   expect(after.aircraftFiles).toMatchObject([
     {
@@ -219,7 +222,6 @@ it("keeps Form 337 copies on the aircraft for readers, with maintenance uploads 
       archivedBy: { name: "read,maintenance" },
     },
   ]);
-  expect(after.aircraftFiles![0].url).toBeTruthy();
   const audit = (await tech.query(api.operations.snapshot, {}))!.audit.filter(
     (a) => a.entityUuid === file.aircraftUuid,
   );
@@ -403,7 +405,7 @@ it("deletes the stored file of an upload the cap refuses", async () => {
   expect(await blobs()).toBe(1);
 });
 
-it("lists a copy whose stored file is missing with an empty URL", async () => {
+it("still lists a copy whose stored file is missing", async () => {
   const { t, reader } = await fixture();
   await t.run(async (ctx) => {
     const storageId = await ctx.storage.store(new Blob(["337"]));
@@ -419,7 +421,7 @@ it("lists a copy whose stored file is missing with an empty URL", async () => {
     });
   });
   const seen = (await reader.query(api.operations.snapshot, {}))!;
-  expect(seen.aircraftFiles).toMatchObject([{ name: "missing.pdf", url: "" }]);
+  expect(seen.aircraftFiles).toMatchObject([{ name: "missing.pdf" }]);
 });
 
 it("refuses a file whose first bytes are not its declared type, storing nothing", async () => {

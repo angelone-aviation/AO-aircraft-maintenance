@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins credential sealing: the v2 format and its binding to
  *   table, program and field, the refusal of plaintext and v1 values (stored,
- *   or offered to a commit step), key rotation and the re-seal after it, and
- *   configuration errors.
+ *   or offered to a commit step), key rotation and the re-seal after it,
+ *   configuration errors, and the file-link key derived from a credential
+ *   key.
  * Layer: Test. Vitest and convex-test suite; never shipped in the build.
  * Dependencies: convex/secrets.ts, convex/schema.ts, convex/_generated,
  *   src/data/demo.ts (fixture).
@@ -15,6 +16,7 @@ import type { MutationCtx } from "./_generated/server";
 import { demoSnapshot } from "../src/data/demo";
 import {
   activeKeyId,
+  fileLinkKey,
   needsReseal,
   openSecret,
   sealSecret,
@@ -372,4 +374,37 @@ it("stops the re-seal at a plaintext or v1 value, keeping what it replaced", asy
     expect(faaKey).toMatch(/^enc:v2:k2:/);
     vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY_ID", "k1");
   }
+});
+
+it("derives the file-link key from a credential key, for signing only", async () => {
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", K1);
+  vi.stubEnv("CREDENTIALS_ENCRYPTION_KEYS", `k2=${K2}`);
+  const message = new TextEncoder().encode("v1.k1.payload");
+  const sign = async (key: CryptoKey) =>
+    new Uint8Array(await crypto.subtle.sign("HMAC", key, message));
+  // The label is part of every issued link: changing it ends them all.
+  const hmac = { name: "HMAC", hash: "SHA-256" };
+  const base = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(atob(K1), (c) => c.charCodeAt(0)),
+    hmac,
+    false,
+    ["sign"],
+  );
+  const derived = await crypto.subtle.sign(
+    "HMAC",
+    base,
+    new TextEncoder().encode("angel-one:file-links:v1"),
+  );
+  const expected = await crypto.subtle.importKey("raw", derived, hmac, false, [
+    "sign",
+  ]);
+  const k1 = await fileLinkKey("k1");
+  expect(await sign(k1)).toEqual(await sign(expected));
+  expect(await sign(await fileLinkKey("k2"))).not.toEqual(await sign(k1));
+  expect(k1.extractable).toBe(false);
+  expect(k1.usages.sort()).toEqual(["sign", "verify"]);
+  await expect(fileLinkKey("k3")).rejects.toThrow(
+    "Credential encryption key k3 is not configured (see docs/runbooks/credentials-key.md).",
+  );
 });

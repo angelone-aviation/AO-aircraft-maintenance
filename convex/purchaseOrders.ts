@@ -64,10 +64,10 @@ export const execute = mutation({
 });
 
 /**
- * Lists a purchase order's attachments, with download links, for an
- * inventory administrator of its Flight Program.
+ * Lists a purchase order's attachments for an inventory administrator of its
+ * Flight Program. None carries a link: each opens through convex/fileLinks.ts.
  *
- * @returns Each file's id, name, receipt and link.
+ * @returns Each file's id, name and receipt.
  * @throws {ConvexError} "Inventory administrator access required."; "PO not
  *   found." for a purchase order outside the program; checkContext's
  *   program refusals.
@@ -88,14 +88,11 @@ export const files = query({
       .query("poFiles")
       .withIndex("po", (q) => q.eq("poUuid", args.poUuid))
       .collect();
-    return Promise.all(
-      files.map(async (f) => ({
-        uuid: f._id,
-        name: f.name,
-        receiptUuid: f.receiptUuid,
-        url: await ctx.storage.getUrl(f.storageId),
-      })),
-    );
+    return files.map((f) => ({
+      uuid: f._id,
+      name: f.name,
+      receiptUuid: f.receiptUuid,
+    }));
   },
 });
 

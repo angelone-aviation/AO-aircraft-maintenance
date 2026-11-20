@@ -1,8 +1,9 @@
 /**
  * Responsibility: Pins the live session's rules: which screen a cached
  *   snapshot opens, when a sign-out clears the device, the sign-in failure
- *   message, signing out offline, the service worker's notices, and where
- *   error reporting and the number field guard are wired in.
+ *   message, signing out offline or with unsynced work, the service worker's
+ *   notices, and where error reporting and the number field guard are wired
+ *   in.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/main.tsx, react-dom/server, convex/server.
  *
@@ -236,6 +237,16 @@ describe("signing in and out", () => {
     await vi.waitFor(() => expect(location.reload).toHaveBeenCalled());
     expect(live.signOut).toHaveBeenCalled();
   });
+
+  it("asks first, clearing nothing, while the user has unsynced work", async () => {
+    const entry = { operation: { authorId: "pilot" }, queuedAt: 1 };
+    screen({ queue: [entry] }, SIGNED_IN, snapshot("pilot"));
+    live.onExit!();
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(live.workspace.signOutLocal).not.toHaveBeenCalled();
+    expect(live.signOut).not.toHaveBeenCalled();
+    expect(localStorage.getItem(TOKEN_KEY)).toBe("token");
+  });
 });
 
 describe("error reporting", () => {
@@ -285,6 +296,7 @@ function screen(
     online: true,
     snapshot: snapshot("pilot"),
     queue: [],
+    pendingPhotos: [],
     namespace: `live:${CONVEX_URL}`,
     initialize: vi.fn(async () => {}),
     receive: vi.fn(async () => {}),

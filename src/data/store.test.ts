@@ -10,10 +10,12 @@ import "fake-indexeddb/auto";
 import { it, expect, vi } from "vitest";
 import {
   persistOperation,
+  readFavorites,
   readPendingPhotos,
   readQueue,
   readSnapshot,
   saveFavorites,
+  savePendingPhoto,
   saveSnapshot,
 } from "./local";
 import type { Flight } from "../domain/model";
@@ -115,6 +117,7 @@ it("automatically flushes preserved entries when login supplies a new snapshot",
       uploadAircraftPhoto: vi.fn(),
       removeAircraftPhoto: vi.fn(),
       uploadAircraftFile: vi.fn(),
+      fileLinks: vi.fn(),
       archiveAircraftFile: vi.fn(),
       createUser: vi.fn(),
       updateUser: vi.fn(),
@@ -969,29 +972,87 @@ it("queues the end of a flight the aircraft was grounded after it began", async 
   vi.unstubAllGlobals();
 });
 
-it("keeps the outbox but clears this namespace's drafts on sign-out", async () => {
+it("clears what the device keeps for the user on sign-out, except other people's unsynced work and device settings", async () => {
   const { MemoryCacheStorage } =
     await import("../../tests/fixtures/cacheStorage");
   vi.stubGlobal("caches", new MemoryCacheStorage());
   const namespace = "sign-out-test";
-  const drafts: Record<string, string> = {
+  const userId = demoSnapshot().user.id;
+  const storage: Record<string, string> = {
     [`angel-one-guided:${namespace}:user`]: "{}",
     [`angel-one-checks:${namespace}:user:list`]: "{}",
     "angel-one-guided:other:user": "{}",
+    "angelone-theme": "dark",
   };
-  Object.defineProperty(drafts, "removeItem", {
-    value: (key: string) => delete drafts[key],
+  Object.defineProperty(storage, "removeItem", {
+    value: (key: string) => delete storage[key],
   });
-  vi.stubGlobal("localStorage", drafts);
-  const entry = discrepancy("demo-program");
-  await persistOperation(namespace, { operation: entry, queuedAt: 1 });
+  vi.stubGlobal("localStorage", storage);
+  const own = discrepancy("demo-program");
+  const theirs = { ...discrepancy("demo-program"), authorId: "someone-else" };
+  await persistOperation(namespace, { operation: own, queuedAt: 1 });
+  await persistOperation(namespace, { operation: theirs, queuedAt: 2 });
+  await savePendingPhoto(namespace, waitingPhoto("own", userId));
+  await savePendingPhoto(namespace, waitingPhoto("theirs", "someone-else"));
+  await saveFavorites(`${namespace}:${userId}`, ["demo-206"]);
   const workspace = await signedInWorkspace(namespace);
+  workspace.setState({ favorites: ["demo-206"] });
+
   await workspace.getState().signOutLocal();
-  expect(Object.keys(drafts)).toEqual(["angel-one-guided:other:user"]);
-  expect(workspace.getState()).toMatchObject({ snapshot: null, blocked: true });
-  expect(await readQueue(namespace)).toHaveLength(1);
+
+  expect(Object.keys(storage).sort()).toEqual([
+    "angel-one-guided:other:user",
+    "angelone-theme",
+  ]);
+  const state = workspace.getState();
+  expect(state).toMatchObject({ snapshot: null, blocked: true, favorites: [] });
+  expect(state.queue.map((q) => q.operation.uuid)).toEqual([theirs.uuid]);
+  expect(state.pendingPhotos.map((p) => p.key)).toEqual(["f1:theirs"]);
+  expect((await readQueue(namespace)).map((q) => q.operation.uuid)).toEqual([
+    theirs.uuid,
+  ]);
+  expect((await readPendingPhotos(namespace)).map((p) => p.key)).toEqual([
+    "f1:theirs",
+  ]);
+  expect(await readSnapshot(namespace)).toBeUndefined();
+  expect(await readFavorites(`${namespace}:${userId}`)).toBeUndefined();
   vi.unstubAllGlobals();
 });
+
+it("does not put back an entry the server refuses after the user signed out", async () => {
+  const { ConvexError } = await import("convex/values");
+  const namespace = "sign-out-race-test";
+  const entry = discrepancy("A");
+  await persistOperation(namespace, { operation: entry, queuedAt: 1 });
+  let refuse: (error: Error) => void = () => {};
+  const submit = vi.fn(
+    () => new Promise<never>((_resolve, reject) => (refuse = reject)),
+  );
+  const workspace = await liveWorkspace(namespace, submit);
+  const flushing = workspace.getState().flush();
+  await vi.waitFor(() => expect(submit).toHaveBeenCalled());
+  await workspace.getState().signOutLocal();
+  refuse(new ConvexError("This aircraft is no longer in your program."));
+  await flushing;
+  expect(await readQueue(namespace)).toEqual([]);
+  vi.unstubAllGlobals();
+});
+
+function waitingPhoto(id: string, authorId: string) {
+  return {
+    key: `f1:${id}`,
+    aircraftUuid: "demo-206",
+    linkedKind: "flight" as const,
+    linkedUuid: "f1",
+    authorId,
+    programUuid: "demo-program",
+    name: "page.jpg",
+    type: "image/jpeg",
+    size: 1,
+    queuedAt: 1,
+    blob: new Blob([new Uint8Array([1])], { type: "image/jpeg" }),
+  };
+}
 
 it("keeps favorites per user and offers demo-only tools only in the demo", async () => {
   const { previewDemoOwner, renewDemoAccess } = await import("./store");

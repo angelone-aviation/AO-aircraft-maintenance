@@ -219,7 +219,7 @@ it("uploads authorized maintenance attachments and prevents uploads after closin
   expect(snapshot?.workOrderAttachments).toMatchObject([
     { name: "maintenance.pdf", workOrderUuid: command.uuid },
   ]);
-  expect(snapshot?.workOrderAttachments?.[0].url).toBeTruthy();
+  expect(snapshot?.workOrderAttachments?.[0]).not.toHaveProperty("url");
   await tech.mutation(api.workOrders.save, {
     programUuid: PROGRAM,
     payload: JSON.stringify({
@@ -783,7 +783,7 @@ it("archives a signed task copy without signer approval, preserving signatures, 
   ).toEqual(order.tasks[0]);
   expect(
     after.taskEvidence!.some(
-      (file) => file.taskCardUuid === copy.uuid && !!file.url,
+      (file) => file.taskCardUuid === copy.uuid && !("url" in file),
     ),
   ).toBe(true);
   await t.run(async (ctx) => {

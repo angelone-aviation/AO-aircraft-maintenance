@@ -9,7 +9,7 @@
  *   ./WorkOrderComponentWork, ./WorkOrderRevisions, ./ReleaseStatements,
  *   ./LogbookEntry, ./LogbookSample, ./LogbookWording,
  *   ./ComponentCloseoutCorrection, ./ShopList, ./WorkOrderList, ./design,
- *   ./ui.
+ *   ./FileLink, ./ui.
  */
 import { RequestPartsButton } from "./PartsRequests";
 import { localDate } from "../domain/model";
@@ -101,6 +101,7 @@ import {
   Switch,
   Toolbar,
 } from "./design";
+import { NamedFileLink } from "./FileLink";
 import { ShopSelect } from "./ShopList";
 import { WorkOrderCards, WorkOrderStatusChart } from "./WorkOrderList";
 import { Airplane, Plus, WifiSlash } from "@phosphor-icons/react";
@@ -2291,9 +2292,10 @@ function AttachmentList({
       <ul>
         {files.map((f) => (
           <li key={f.uuid}>
-            <a href={f.url} target="_blank" rel="noreferrer" download={f.name}>
-              {f.name}
-            </a>{" "}
+            <NamedFileLink
+              file={{ kind: "workOrderFile", id: f.uuid }}
+              name={f.name}
+            />{" "}
             · {Math.ceil(f.size / 1024)} KB{" "}
             {writable && (
               <DeleteFileButton

@@ -482,7 +482,7 @@ describe("buildRecordsPackage", () => {
       ["form-337/2026-06-02-Repair.pdf", "Form 337 copy"],
       ["form-337/2026-06-02-Repair (2).pdf", "Form 337 copy"],
     ]);
-    expect(pkg.files[0].url).toBe("data:application/pdf;base64,old");
+    expect(pkg.files[0].file).toEqual({ kind: "aircraftFile", id: "old" });
   });
 
   it("states every time in UTC under a labelled heading, file names too", () => {
@@ -593,13 +593,13 @@ describe("buildRecordsPackage", () => {
     expect(build(s).files).toEqual([
       {
         path: "files/2026-06-01-photo.jpg",
-        url: "https://files.test/a",
+        file: { kind: "workOrderFile", id: "a" },
         size: 20,
         description: `Work order ${order.number} attachment`,
       },
       {
         path: "files/2026-06-02-invoice_2.pdf",
-        url: "https://files.test/b",
+        file: { kind: "workOrderFile", id: "b" },
         size: 10,
         description: `Work order ${order.number} attachment`,
       },
@@ -680,7 +680,7 @@ describe("buildRecordsPackage", () => {
 describe("planPackageFiles", () => {
   const file = (path: string, size: number): PackageFile => ({
     path,
-    url: path,
+    file: { kind: "aircraftFile", id: path },
     size,
     description: "Form 337 copy",
   });
@@ -742,7 +742,7 @@ describe("recordsReadme and recordsPackageName", () => {
       {
         file: {
           path: "files/a.pdf",
-          url: "",
+          file: { kind: "workOrderFile", id: "a" },
           size: 1,
           description: "Work order WO-1 attachment",
         },

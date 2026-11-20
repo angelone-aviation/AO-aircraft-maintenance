@@ -3,13 +3,15 @@
  *   adapters, and the Convex adapter that sends each call to one server
  *   function.
  * Layer: Data. A thin client over convex/_generated/api; no rules, no UI.
- * Dependencies: convex/react, convex/_generated (api, dataModel),
- *   src/data/store, src/domain (command, input and record types), zod (types).
+ * Dependencies: convex/react, convex/server (makeFunctionReference),
+ *   convex/_generated (api, dataModel), src/data/store, src/domain (command,
+ *   input and record types), zod (types).
  *
  * The server re-checks every argument. Ids arrive from the server snapshot as
  * strings; the `Id` casts are safe because Convex checks each id's table.
  */
 import type { ConvexReactClient } from "convex/react";
+import { makeFunctionReference } from "convex/server";
 import type { z } from "zod";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -49,6 +51,7 @@ import type {
 import type { FaaCommand } from "../domain/faa";
 import type { faaCredentialInput } from "../domain/faaCredential";
 import type { FaaSearchInput, FaaSearchResult } from "../domain/faaSearch";
+import type { FileLink, FileRef } from "../domain/fileLinks";
 import type { FleetCommand } from "../domain/fleet";
 import type { PlanCommand } from "../domain/flightPlans";
 import type { GroupAccessReport } from "../domain/groupAccessReview";
@@ -222,13 +225,14 @@ export interface Backend {
    */
   manage(command: ManagementCommand): Promise<unknown>;
   /**
-   * Lists a purchase order's attachments with download links (null when the
-   * stored file is unavailable). Inventory administrators only.
+   * Lists a purchase order's attachments, each opened through
+   * {@link Backend.fileLinks} as a "poFile". Inventory administrators only.
+   * The demo's entries also carry its stored copy as `url`.
    */
   poFiles(
     uuid: string,
   ): Promise<
-    { uuid: string; name: string; url: string | null; receiptUuid?: string }[]
+    { uuid: string; name: string; receiptUuid?: string; url?: string }[]
   >;
   /**
    * Attaches a file to a purchase order, or to one of its receipts and the
@@ -338,7 +342,13 @@ export interface Backend {
    *   URL refuses the PDF.
    */
   uploadManual(input: ManualInput, file: File): Promise<unknown>;
-  /** Opens a manual the caller can read: a URL to its PDF. */
+  /**
+   * Opens a manual the caller can read: a link to its PDF that works for five
+   * minutes (the demo's: an object URL of the copy in the browser).
+   *
+   * @throws {Error} "Manual is not available in this workspace." when the
+   *   caller may not read it or its file is gone.
+   */
   openManual(uuid: string): Promise<string>;
   /** Renames a manual, keeping its PDF and references. */
   renameManual(uuid: string, title: string): Promise<unknown>;
@@ -478,6 +488,19 @@ export interface Backend {
    * @param reason - Why it is archived.
    */
   archiveAircraftFile(id: string, reason: string): Promise<unknown>;
+  /**
+   * Links to stored files the signed-in member's view lists, each working for
+   * five minutes and never stored (docs/file-links.md). The demo answers with
+   * the copies it keeps in the browser.
+   *
+   * @param files - At most 50 files.
+   * @returns One entry per file, in order: its link, or null when the member
+   *   may not open it or it is gone.
+   * @throws {ConvexError} "Files are not available in the board view." for a
+   *   member who is only on a board; "Flight Program changed. Reopen the form
+   *   in the correct program."
+   */
+  fileLinks(files: FileRef[]): Promise<(FileLink | null)[]>;
 
   /**
    * Makes a Flight Program the caller's active one.
@@ -610,7 +633,10 @@ export interface Backend {
     kind: CertificationKind,
     file: File,
   ): Promise<unknown>;
-  /** A license copy's download URL, or null when its stored file is gone. */
+  /**
+   * A link to a license copy, working for five minutes; null when the caller
+   * may not open it or its stored file is gone.
+   */
   certificationFileUrl(id: string): Promise<string | null>;
   /** Deletes a license copy and its stored file. */
   deleteCertificationFile(id: string): Promise<unknown>;
@@ -892,7 +918,11 @@ function bindTemplateCalls(client: ConvexReactClient) {
 function bindManualCalls(client: ConvexReactClient) {
   return {
     uploadManual: (input, file) => uploadManual(client, input, file),
-    openManual: (uuid) => client.query(api.manuals.open, inProgram({ uuid })),
+    openManual: async (uuid) => {
+      const [link] = await openFiles(client, [{ kind: "manual", id: uuid }]);
+      if (!link) throw new Error("Manual is not available in this workspace.");
+      return link.url;
+    },
     renameManual: (uuid, title) =>
       client.mutation(api.manuals.rename, inProgram({ uuid, title })),
     editManual: (uuid, input) =>
@@ -1001,6 +1031,7 @@ function bindAircraftCalls(client: ConvexReactClient) {
         api.aircraftFiles.archive,
         inProgram({ id: id as Id<"aircraftFiles">, reason }),
       ),
+    fileLinks: (files) => openFiles(client, files),
   } satisfies Partial<Backend>;
 }
 
@@ -1098,10 +1129,12 @@ function bindCredentialCalls(client: ConvexReactClient) {
         kind,
         ...(await readFileFields(file)),
       }),
-    certificationFileUrl: (id) =>
-      client.query(api.certifications.fileUrl, {
-        id: id as Id<"certificationFiles">,
-      }),
+    certificationFileUrl: async (id) => {
+      const [link] = await openFiles(client, [
+        { kind: "certificationFile", id },
+      ]);
+      return link?.url ?? null;
+    },
     deleteCertificationFile: (id) =>
       client.mutation(api.certifications.remove, {
         id: id as Id<"certificationFiles">,
@@ -1201,6 +1234,18 @@ async function hashFileBase64(file: File): Promise<string> {
   let binary = "";
   for (const byte of hash) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+// By name, as api.fileLinks.links will name it once convex/_generated is next
+// regenerated against a deployment.
+const FILE_LINKS = makeFunctionReference<
+  "mutation",
+  { programUuid?: string; files: FileRef[] },
+  (FileLink | null)[]
+>("fileLinks:links");
+
+function openFiles(client: ConvexReactClient, files: FileRef[]) {
+  return client.mutation(FILE_LINKS, inProgram({ files }));
 }
 
 function readActiveProgram(): string | undefined {

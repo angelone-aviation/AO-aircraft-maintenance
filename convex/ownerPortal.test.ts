@@ -343,14 +343,13 @@ describe("owner portal documents", () => {
         "size",
         "type",
         "uploadedAt",
-        "url",
         "uuid",
       ].sort(),
     );
     const text = JSON.stringify(view);
     for (const leaked of [linked.flight, linked.order, "flight-line.jpg"])
       expect(text).not.toContain(leaked);
-    // Readers of the aircraft still see the photos with their links.
+    // Readers of the aircraft still see the photos.
     const tech = (await world.tech.query(api.operations.snapshot, {}))!;
     expect(
       tech.aircraftFiles?.filter((f) => f.category === "logbook-page"),

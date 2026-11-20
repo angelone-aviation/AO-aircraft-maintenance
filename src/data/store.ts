@@ -178,9 +178,13 @@ export interface Workspace {
    */
   toggleFavorite(uuid: string): Promise<void>;
   /**
-   * Signs out on this device: removes the cached snapshot, unsent form
-   * drafts and kept manuals, and blocks the workspace. The outbox and the
-   * queued photos stay, to sync when the same user signs in again.
+   * Signs out on this device: blocks the workspace, then deletes what the
+   * device keeps for the signed-in user (the cached snapshot, the outbox
+   * entries and queued photos they recorded, favorites, read-alert lists),
+   * every unsent form draft and kept manual for the namespace. Other people's
+   * unsynced entries and photos stay, and so do device settings such as the
+   * theme. Callers confirm with the user first when anything has not synced
+   * (unsyncedItems in src/data/pendingEntries.ts): it cannot be recovered.
    */
   signOutLocal(): Promise<void>;
 }
@@ -295,7 +299,9 @@ export const useWorkspace = create<Workspace>((set, get) => ({
     const sequence = ++receiveSequence;
     if (snapshot) {
       const favorites =
-        (await local.readFavorites(namespace + ":" + snapshot.user.id)) ?? [];
+        (await local.readFavorites(
+          local.favoritesKey(namespace, snapshot.user.id),
+        )) ?? [];
       // Check before writing too: IndexedDB applies writes in issue order, so a
       // newer receive() always persists after this one.
       if (sequence !== receiveSequence) return;
@@ -437,18 +443,27 @@ export const useWorkspace = create<Workspace>((set, get) => ({
     const next = favorites.includes(uuid)
       ? favorites.filter((id) => id !== uuid)
       : [...favorites, uuid];
-    await local.saveFavorites(namespace + ":" + snapshot.user.id, next);
+    await local.saveFavorites(
+      local.favoritesKey(namespace, snapshot.user.id),
+      next,
+    );
     set({ favorites: next });
   },
   async signOutLocal() {
-    const { namespace } = get();
-    await local.clearSnapshot(namespace);
-    // The outbox and queued photos stay (both are tied to their author and
-    // sync after the same user signs in again); unsent form drafts and kept
-    // manuals do not.
+    const { namespace, snapshot } = get();
+    // Blocked first, so no entry is queued or sent while the device is
+    // cleared, and a refusal arriving afterwards is not stored again.
+    set({ blocked: true });
+    if (snapshot) await local.clearUserData(namespace, snapshot.user.id);
+    else await local.clearSnapshot(namespace);
     clearDeviceDrafts(namespace);
     await removeAllKeptManuals(namespace);
-    set({ snapshot: null, blocked: true, favorites: [] });
+    set({
+      snapshot: null,
+      favorites: [],
+      queue: await local.readQueue(namespace),
+      pendingPhotos: await local.readPendingPhotos(namespace),
+    });
   },
 }));
 async function flushPass(namespace: string, backend: Backend, retry: boolean) {
@@ -467,7 +482,9 @@ async function flushPass(namespace: string, backend: Backend, retry: boolean) {
 }
 
 // A permanent refusal stays in the outbox with its text; any other failure
-// is retried on the next flush.
+// is retried on the next flush. After sign-out nothing is stored again: the
+// user chose to delete the entry, and a session that ended keeps it as it
+// was.
 async function submitEntry(
   namespace: string,
   backend: Backend,
@@ -483,7 +500,7 @@ async function submitEntry(
           : "Entry synchronized successfully.",
     });
   } catch (error) {
-    if (!permanentSyncError(error)) return;
+    if (!permanentSyncError(error) || useWorkspace.getState().blocked) return;
     await local.persistOperation(namespace, {
       ...entry,
       error: errorText(error),
@@ -507,7 +524,9 @@ async function readDeviceWorkspace(namespace: string, demo: boolean) {
       ? cached
       : null;
   const favorites = snapshot
-    ? ((await local.readFavorites(namespace + ":" + snapshot.user.id)) ?? [])
+    ? ((await local.readFavorites(
+        local.favoritesKey(namespace, snapshot.user.id),
+      )) ?? [])
     : [];
   return { snapshot, queue, pendingPhotos, favorites };
 }
@@ -668,7 +687,7 @@ async function flushPhotos(
 }
 
 // A domain Rejection counts as permanent like a ConvexError: the demo adapter
-// throws it as is.
+// throws it as is. Blocked, the photo is left as submitEntry leaves entries.
 async function uploadPhoto(
   namespace: string,
   backend: Backend,
@@ -685,6 +704,7 @@ async function uploadPhoto(
     useWorkspace.setState({ notice: "Logbook page photo uploaded." });
   } catch (error) {
     if (!permanentSyncError(error) && !(error instanceof Rejection)) return;
+    if (useWorkspace.getState().blocked) return;
     await local.savePendingPhoto(namespace, {
       ...photo,
       error: errorText(error),

@@ -5,7 +5,8 @@
  *   whitelist.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/schema.ts, convex/sampleProgram.ts (program A),
- *   convex/memberships.ts, convex/_generated, src/domain/faaSearch.ts.
+ *   convex/memberships.ts, convex/_generated, src/domain/faaSearch.ts,
+ *   tests/fixtures/fileLinks.ts.
  *
  * Refusals are pinned by message: one that reads differently for another
  * program's record tells the caller it exists, as flight review's once did.
@@ -27,6 +28,7 @@ import { PROGRAM as PROGRAM_A } from "./sampleProgram";
 import { syncMemberships } from "./memberships";
 import { blankSearch, searchAssets } from "../src/domain/faaSearch";
 import { STALE_RECORD_MESSAGE } from "../src/domain/rejection";
+import { FILE_LINKS } from "../tests/fixtures/fileLinks";
 
 const modules = import.meta.glob([
   "./**/*.ts",
@@ -157,6 +159,8 @@ interface Attempt {
 
 // Public functions that reach no Flight Program record, and why.
 const NOT_PROGRAM_SCOPED: Record<string, string> = {
+  "fileTokens:serve":
+    "Serves only a file named by a signed link that fileLinks:links issued; the issuing call is attacked.",
   "identities:providers": "Lists the enabled sign-in buttons, before sign-in.",
   "auth:signIn": "Convex Auth's sign-in; the caller has no session yet.",
   "auth:signOut": "Convex Auth; ends the caller's own session.",
@@ -333,6 +337,9 @@ const CASES: Case[] = [
   callMutation(api.poFiles.remove, "A's purchase order file", (a) =>
     stampB({ id: a.row.poFiles._id }),
   ).refuses(ATTACHMENT_NOT_FOUND),
+  callMutation(FILE_LINKS, "a link to A's purchase order file", (a) =>
+    stampB({ files: [{ kind: "poFile", id: a.row.poFiles._id }] }),
+  ).returns([null]),
   callAction(api.poFiles.upload, "a file on A's purchase order", (a) =>
     stampB({ poUuid: a.row.purchaseOrders.uuid, ...PDF_FILE }),
   ).refuses(PO_NOT_FOUND),
@@ -436,9 +443,9 @@ const CASES: Case[] = [
     ),
     outsiderOnly: true,
   },
-  callQuery(api.manuals.open, "A's manual", (a) =>
-    stampB({ uuid: a.row.manuals.uuid }),
-  ).refuses("Manual is not available in this workspace."),
+  callMutation(FILE_LINKS, "a link to A's manual", (a) =>
+    stampB({ files: [{ kind: "manual", id: a.row.manuals.uuid }] }),
+  ).returns([null]),
   callMutation(api.manuals.rename, "A's manual", (a) =>
     stampB({ uuid: a.row.manuals.uuid, title: "Renamed by B" }),
   ).refuses(MANUAL_MAINTENANCE),
@@ -471,6 +478,9 @@ const CASES: Case[] = [
   callMutation(api.aircraftFiles.archive, "A's Form 337", (a) =>
     stampB({ id: a.row.aircraftFiles._id, reason: "Superseded." }),
   ).refuses(DOCUMENT_NOT_FOUND),
+  callMutation(FILE_LINKS, "a link to A's Form 337", (a) =>
+    stampB({ files: [{ kind: "aircraftFile", id: a.row.aircraftFiles._id }] }),
+  ).returns([null]),
   callAction(api.aircraftFiles.upload, "a Form 337 on A's aircraft", (a) =>
     stampB({
       aircraftUuid: a.row.aircraft.uuid,
@@ -637,9 +647,11 @@ const CASES: Case[] = [
     userId: a.alice,
     payload: "[]",
   })).refuses(LICENSE_OWNER),
-  callQuery(api.certifications.fileUrl, "Alice's license copy", (a) => ({
-    id: a.row.certificationFiles._id,
-  })).refuses(LICENSE_COPY_NOT_FOUND),
+  callMutation(FILE_LINKS, "a link to Alice's license copy", (a) =>
+    stampB({
+      files: [{ kind: "certificationFile", id: a.row.certificationFiles._id }],
+    }),
+  ).returns([null]),
   callMutation(api.certifications.remove, "Alice's license copy", (a) => ({
     id: a.row.certificationFiles._id,
   })).refuses(LICENSE_COPY_NOT_FOUND),
@@ -800,14 +812,6 @@ const ID_CASES: {
       ),
   },
   {
-    fn: "certifications:fileUrl",
-    table: "certificationFiles",
-    call: (c, id) =>
-      c.query(api.certifications.fileUrl, {
-        id: asId<"certificationFiles">(id),
-      }),
-  },
-  {
     fn: "certifications:remove",
     table: "certificationFiles",
     call: (c, id) =>
@@ -849,6 +853,16 @@ const ID_CASES: {
       ),
   },
 ];
+// A link to another program's file answers as one to a deleted file does:
+// null, not a refusal, since a link request names many files at once.
+const LINK_CASES = [
+  ["aircraftFiles", "aircraftFile"],
+  ["certificationFiles", "certificationFile"],
+  ["inventoryFiles", "inventoryFile"],
+  ["poFiles", "poFile"],
+  ["taskEvidence", "taskEvidence"],
+  ["workOrderFiles", "workOrderFile"],
+] as const;
 
 describe("an id of A's record", () => {
   let world: Awaited<ReturnType<typeof seedWorld>>;
@@ -869,6 +883,21 @@ describe("an id of A's record", () => {
         expect(await settle(call(world.t, id))).toEqual({
           refused: NO_SESSION,
         });
+    },
+  );
+
+  it.each(LINK_CASES)(
+    "fileLinks:links: a link to one of %s answers as for a gone one",
+    async (table, kind) => {
+      const ask = (client: Caller, id: string) =>
+        client.mutation(FILE_LINKS, stampB({ files: [{ kind, id }] }));
+      const theirs = world.a.row[table]._id;
+      const gone = await copyThenDelete(world.t, table, theirs);
+      const outsider = await settle(ask(world.attacker, theirs));
+      expect(outsider).toEqual({ returned: [null] });
+      expect(outsider).toEqual(await settle(ask(world.attacker, gone)));
+      for (const id of [theirs, gone])
+        expect(await settle(ask(world.t, id))).toEqual({ refused: NO_SESSION });
     },
   );
 });

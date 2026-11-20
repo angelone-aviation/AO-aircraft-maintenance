@@ -78,9 +78,11 @@ it("scopes aircraft photos and replaces/removes storage without changing aircraf
   await client.action(api.aircraftPhotos.upload, args);
   const photo = await t.run((ctx) => ctx.db.query("aircraftPhotos").unique());
   const snapshot = await client.query(api.operations.snapshot, {});
-  expect(
-    snapshot!.aircraft.find((a) => a.uuid === args.aircraftUuid)?.photoUrl,
-  ).toBeTruthy();
+  // The photo opens through a short-lived link; the snapshot only says it
+  // exists.
+  const shown = snapshot!.aircraft.find((a) => a.uuid === args.aircraftUuid);
+  expect(shown).toMatchObject({ hasPhoto: true });
+  expect(shown).not.toHaveProperty("photoUrl");
   expect(snapshot!.aircraft.some((a) => a.uuid === "foreign-aircraft")).toBe(
     false,
   );

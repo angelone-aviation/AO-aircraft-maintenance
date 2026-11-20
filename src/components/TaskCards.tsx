@@ -6,8 +6,8 @@
  *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
  *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders,
  *   listSearch), ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording,
- *   ./TaskCsvImport, ./Manuals, ./NumberInput, ./design, ./ShopList, ./ui,
- *   @phosphor-icons/react.
+ *   ./TaskCsvImport, ./Manuals, ./NumberInput, ./design, ./FileLink,
+ *   ./ShopList, ./ui, @phosphor-icons/react.
  *
  * A template holds instructions only: results, parts and signoffs go on the
  * job card a work order copies from it.
@@ -36,6 +36,7 @@ import {
   SearchField,
   Toolbar,
 } from "./design";
+import { NamedFileLink } from "./FileLink";
 import { ShopSelect, ShopTableCard } from "./ShopList";
 import {
   Airplane,
@@ -1805,9 +1806,10 @@ function Evidence({ card, writable }: { card: TaskCard; writable: boolean }) {
       <ul>
         {files.map((f) => (
           <li key={f.uuid}>
-            <a href={f.url} download={f.name} target="_blank" rel="noreferrer">
-              {f.name}
-            </a>{" "}
+            <NamedFileLink
+              file={{ kind: "taskEvidence", id: f.uuid }}
+              name={f.name}
+            />{" "}
             · {label(f.category)}{" "}
             {writable && s && evidenceRemovable(s, card) && (
               <DeleteFileButton
