@@ -1,17 +1,17 @@
 # Release, rollback and website hosting
 
-The website is a static build served by **Cloudflare Workers Static Assets**, with one small Worker (`worker/assets.ts`) that runs only when no file matches a request; the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only Aaron holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
+The website is a static build served by **Cloudflare Workers Static Assets**, with one small Worker (`worker/assets.ts`) that runs only when no file matches a request; the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Never connect Cloudflare's own Git build ("Continue with GitHub"): the Deploy workflow owns the Worker ([Cloudflare](#cloudflare)). Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only Aaron holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
 
 ## What runs where
 
-| Piece              | File                                                        | When                                                                                                                                         | Secrets                  |
-| ------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| CI                 | `.github/workflows/ci.yml`                                  | Every pull request and every push to `main`                                                                                                  | None                     |
-| Deploy             | `.github/workflows/deploy.yml`                              | After a green CI push to `main`, or by hand from `main`                                                                                      | `production` environment |
-| First-time setup   | `.github/workflows/first-time-setup.yml`                    | By hand, once, from `main` only, on a new empty deployment                                                                                   | `production` environment |
-| Nightly backup     | `.github/workflows/backup.yml`                              | Every night at 08:41 UTC, or by hand ([backup runbook](backup-restore.md))                                                                   | `backups` environment    |
-| Dependency updates | `.github/dependabot.yml`                                    | Weekly, grouped minor/patch pull requests; merged by hand on the cadence in the [go-live checklist](../go-live-checklist.md#recurring-tasks) | None                     |
-| Website hosting    | `wrangler.jsonc`, `public/_headers`, `public/.assetsignore` | On deploy                                                                                                                                    | —                        |
+| Piece              | File                                                        | When                                                                                                                                 | Secrets                  |
+| ------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| CI                 | `.github/workflows/ci.yml`                                  | Every pull request and every push to `main`                                                                                          | None                     |
+| Deploy             | `.github/workflows/deploy.yml`                              | After a green CI push to `main`, or by hand from `main`                                                                              | `production` environment |
+| First-time setup   | `.github/workflows/first-time-setup.yml`                    | By hand, once, from `main` only, on a new empty deployment                                                                           | `production` environment |
+| Nightly backup     | `.github/workflows/backup.yml`                              | Every night at 08:41 UTC, or by hand ([backup runbook](backup-restore.md))                                                           | `backups` environment    |
+| Dependency updates | `.github/dependabot.yml`                                    | Weekly, grouped minor/patch pull requests; merged by hand on the cadence in the [checklists](../handbook/3-running-it/checklists.md) | None                     |
+| Website hosting    | `wrangler.jsonc`, `public/_headers`, `public/.assetsignore` | On deploy                                                                                                                            | —                        |
 
 **CI** runs `npm ci`, `npm run check`, the backup job's tests (`npm run test:backup`) and the Playwright suite. The browser tests serve the production build with the production headers (`scripts/serve-dist.mjs` applies `public/_headers` the way Cloudflare does) and fail on any Content-Security-Policy violation. On failure, the run keeps the Playwright report and traces as the `playwright-report` artifact for 14 days.
 
@@ -32,31 +32,27 @@ The backend goes live a few seconds before the website, so Convex functions must
 
 ## First-time setup (no terminal)
 
-A new, empty production deployment can be set up entirely from the Convex dashboard and the GitHub website; secrets are typed only into GitHub settings. Prepare Cloudflare first ([Cloudflare](#cloudflare) below gives the API token and account ID). Then, in order:
+A new, empty production deployment is set up from the Convex dashboard and the GitHub website with the manual **First-time setup** workflow; secrets are typed only into GitHub settings. The steps are in [set up from scratch](../handbook/3-running-it/setup-from-scratch.md): sections 3 to 5 prepare Convex, Cloudflare and GitHub, and [5.3](../handbook/3-running-it/setup-from-scratch.md#53-first-time-setup-and-the-first-deploy) runs the workflow and the first Deploy.
 
-1. **Create the Convex production deploy key:** Convex dashboard → the project's **Production** deployment → **Settings** → **Deploy keys** → **Generate a deploy key**. It starts with `prod:`. Convex deploy keys are scoped: allow `deployment:deploy`, `deployment:env:view`, `deployment:env:write`, `deployment:data:view` and `deployment:functions:runInternalActions`, which Deploy, First-time setup and the migrations need ([why each](../handbook/3-running-it/setup-from-scratch.md#31-create-the-project)). The nightly backup uses a second key with its own permissions ([backups](../handbook/3-running-it/setup-from-scratch.md#7-backups)).
-2. **Create the GitHub `production` environment** (Settings → Environments → **New environment**, deployment branches `main` only; details in [GitHub](#github) below) with the environment secrets `CONVEX_DEPLOY_KEY` (from step 1), `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the environment variable `PRODUCTION_URL` (the website's address exactly, `https://ops.angeloneaviation.org`, no trailing slash), and the temporary environment secret `FIRST_ADMIN_PASSWORD`: the first administrator's password, 15 to 128 characters, not a common one and not containing their email.
-3. **Run First-time setup:** Actions → **First-time setup** → **Run workflow** → branch `main`, enter the administrator's name and email, tick **This is a new, empty production deployment**. It checks the key, the address and the password, stops without changing anything if the deployment already has users, then runs `npm run setup:auth` with `SITE_URL` = `PRODUCTION_URL`, deploys the Convex functions and schema, and creates the administrator with `npm run setup:admin`. If it fails before the administrator exists, fix the cause and run it again.
-4. **Delete `FIRST_ADMIN_PASSWORD`** from the `production` environment as soon as the run is green.
-5. **Run Deploy** to publish the website, as described under [Release](#release).
-6. **Sign in** at `PRODUCTION_URL` with the administrator's email and password.
+What the workflow does: it checks the deploy key, `PRODUCTION_URL` and `FIRST_ADMIN_PASSWORD` (15 to 128 characters, not a common password and not containing the administrator's email), and stops without changing anything if the deployment already has users. Then it runs `npm run setup:auth` with `SITE_URL` = `PRODUCTION_URL`, deploys the Convex functions and schema, and creates the administrator with `npm run setup:admin`. If it fails before the administrator exists, fix the cause and run it again. Delete `FIRST_ADMIN_PASSWORD` from the `production` environment as soon as the run is green.
 
 ## First-time setup
 
-Record each owner in [the accounts runbook](accounts.md) as you go.
+How to build production from nothing has one home: [set up from scratch](../handbook/3-running-it/setup-from-scratch.md), sections 3 (Convex), 4 (Cloudflare) and 5 (GitHub). Record each owner in [the accounts runbook](accounts.md) as you go. This section keeps the hosting rules that still matter after set-up.
 
 ### Cloudflare
 
-1. Use the organization's Cloudflare account, not a personal one, with two-factor sign-in on. Copy its **Account ID** (Workers & Pages overview, right-hand column).
-2. Create an API token from the **Edit Cloudflare Workers** template. Prefer an account-owned token (Manage Account → Account API Tokens) so it does not depend on one person's login. Limit **Account Resources** to this account and **Zone Resources** to the app's zone. Give it an expiry date and note the renewal date in `accounts.md`.
-3. **Domain and DNS.** The app's address is `ops.angeloneaviation.org`. The `angeloneaviation.org` zone is already on Cloudflare (nameservers `nancy` and `rustam.ns.cloudflare.com`), and `wrangler.jsonc` declares the hostname as a custom domain. Use the Cloudflare account that holds that zone: a custom domain only works in the same account as the Worker. Do not create an `ops` DNS record; the first deploy creates the record and its certificate. `workers_dev` is off, so the site has one public address and the account needs no `workers.dev` subdomain. Do not use Cloudflare's "Create an app" or "Continue with GitHub": the Deploy workflow creates and updates the Worker. The API token's zone resources must include `angeloneaviation.org`; if a deploy fails on the custom domain with a permission error, add **Zone → DNS → Edit** for that zone to the token.
-4. HSTS: the site sends `Strict-Transport-Security: max-age=63072000; includeSubDomains`. If the app is on the bare domain, every subdomain of it must then be HTTPS. Adding `preload` is a separate decision for Aaron and is hard to undo.
-5. **Keep Cloudflare's Git build disconnected.** Workers & Pages → `angel-one` → **Settings** → **Build**: the Git repository must show as not connected; if one is, choose **Disconnect**. Cloudflare's own build (Workers Builds) builds without the production `VITE_CONVEX_URL` and publishes ahead of Deploy: on 20 Nov 2026 it showed "Configuration error" in production for about 30 minutes ([changelog](../handbook/5-history/changelog.md#incident-configuration-error-after-the-merge)). A production build now refuses to run when Workers Builds' `WORKERS_CI` variable is set (`scripts/cloudflareBuildGuard.ts`), so a reconnected Git build fails instead of publishing.
+Set-up steps: [set up from scratch, section 4](../handbook/3-running-it/setup-from-scratch.md#4-the-cloudflare-website).
+
+- **Account and token.** Use the organization's Cloudflare account, not a personal one, with two-factor sign-in on. Prefer an account-owned API token (Manage Account → Account API Tokens) so it does not depend on one person's login. Give it an expiry date and note the renewal date in `accounts.md`.
+- **Domain and DNS.** The app's address is `ops.angeloneaviation.org`, which `wrangler.jsonc` declares as a custom domain. The `angeloneaviation.org` zone is on Cloudflare (nameservers `nancy` and `rustam.ns.cloudflare.com`), and a custom domain only works in the same account as the Worker. Deploy creates the `ops` record and its certificate; never create them by hand. `workers_dev` is off, so the site has one public address and the account needs no `workers.dev` subdomain.
+- **HSTS.** The site sends `Strict-Transport-Security: max-age=63072000; includeSubDomains`. If the app is on the bare domain, every subdomain of it must then be HTTPS. Adding `preload` is a separate decision for Aaron and is hard to undo.
+- **Keep Cloudflare's Git build disconnected.** Workers & Pages → `angel-one` → **Settings** → **Build**: the Git repository must show as not connected; if one is, choose **Disconnect**. Do not use Cloudflare's "Create an app" or "Continue with GitHub": the Deploy workflow creates and updates the Worker. Cloudflare's own build (Workers Builds) builds without the production `VITE_CONVEX_URL` and publishes ahead of Deploy: on 20 Nov 2026 it showed "Configuration error" in production for about 30 minutes, until Aaron disconnected it that day ([changelog](../handbook/5-history/changelog.md#incident-configuration-error-after-the-merge)). A production build now refuses to run when Workers Builds' `WORKERS_CI` variable is set (`scripts/cloudflareBuildGuard.ts`), so a reconnected Git build fails instead of publishing.
 
 ### Convex production deployment
 
-1. Convex dashboard → the project's **Production** deployment → **Settings** → **Deploy keys** → **Generate a deploy key**. It starts with `prod:`. Convex deploy keys are scoped: allow `deployment:deploy`, `deployment:env:view`, `deployment:env:write`, `deployment:data:view` and `deployment:functions:runInternalActions`, which Deploy, First-time setup and the migrations need ([why each](../handbook/3-running-it/setup-from-scratch.md#31-create-the-project)). The nightly backup uses a second key with its own permissions ([backups](../handbook/3-running-it/setup-from-scratch.md#7-backups)).
-2. Configure the deployment once, from Aaron's computer, with the key in the shell only (never in a file or the shell history):
+1. **Deploy keys.** Convex deploy keys are scoped, and each starts with `prod:`. The release key (`CONVEX_DEPLOY_KEY`) and the backup key (`CONVEX_BACKUP_DEPLOY_KEY`) get only the permissions listed in set up from scratch, [3.1](../handbook/3-running-it/setup-from-scratch.md#31-create-the-project) and [7](../handbook/3-running-it/setup-from-scratch.md#7-backups).
+2. **A Convex command from a terminal** runs from Aaron's computer with the key in the shell only, never in a file or the shell history. To configure a deployment that way:
 
    ```sh
    read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY
@@ -66,20 +62,17 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
    unset CONVEX_DEPLOY_KEY
    ```
 
-   `SITE_URL` must be the website's address exactly (no trailing slash): sign-in redirects and email links use it. Create the first administrator with `npm run setup:admin` the same way, only on an empty database. See [Connect Convex and create accounts](../../README.md#connect-convex-and-create-accounts). Without a terminal, use [First-time setup (no terminal)](#first-time-setup-no-terminal) instead.
+   `SITE_URL` must be the website's address exactly (no trailing slash): the links in alert emails use it. Create the first administrator with `npm run setup:admin` the same way, only on an empty database ([set up from scratch, 3.2](../handbook/3-running-it/setup-from-scratch.md#32-sign-in-keys-and-the-first-administrator)). Without a terminal, use [First-time setup (no terminal)](#first-time-setup-no-terminal) instead.
 
 3. If you give the Convex deployment a custom domain, add its API domain to `connect-src` and its HTTP actions domain, which serves file links, to `connect-src` and `img-src` in `public/_headers` first, and pass the HTTP actions URL to `scripts/check-csp-origin.mjs` as its second argument; the deploy refuses a Convex URL the policy does not allow. Change `scripts/pin-csp-origin.mjs` too: it pins only a `<name>.convex.cloud` URL and stops the deploy for any other.
 
 ### GitHub
 
-1. Settings → Environments → **New environment** `production`:
-   - **Deployment branches and tags**: selected branches, `main` only.
-   - **Required reviewers**: Aaron. (On GitHub Free this rule is only available for public repositories; then keep write access to the repository limited.)
-   - **Environment secrets**: `CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Do not add them as repository secrets.
-   - **Environment variable** `PRODUCTION_URL` = `https://ops.angeloneaviation.org` (turns on the smoke check).
-   - Optional error reporting: the `VITE_SENTRY_DSN` variable and the Sentry secrets in the [monitoring runbook](monitoring.md).
-2. Protect `main`: require a pull request and the **Check and browser tests**, **Dependency audit (production)** and **Secret scan (gitleaks)** status checks. A private repository needs GitHub Pro or higher for this.
-3. Settings → Code security: turn on Dependabot alerts and security updates. Version updates come from `.github/dependabot.yml`.
+Set-up steps: set up from scratch, [5.1](../handbook/3-running-it/setup-from-scratch.md#51-environments-secrets-and-variables) (environments, secrets and variables) and [5.4](../handbook/3-running-it/setup-from-scratch.md#54-repository-settings) (repository settings). Where Angel One's repository differs from those steps today (20 Nov 2026):
+
+- **No required reviewer on `production`.** Deploy starts by itself after a green CI push to `main`, with no approval click. A required reviewer would hold every automatic Deploy until Aaron approved it.
+- **Branch protection on `main` is off**, by Aaron's decision of 19 Nov 2026 ([risks R21](../handbook/4-money-and-risk/risks.md#r21-branch-protection-is-off)). Keep write access to the repository limited.
+- **CodeQL default set-up is not configured**: GitHub reports it so (Settings → Code security → CodeQL analysis), and no CodeQL run exists.
 
 ## Release
 
@@ -87,11 +80,11 @@ Merging a pull request into `main` is the release: CI runs on the merge commit, 
 
 - [ ] CI is green on the pull request.
 - [ ] You read what changed. Schema changes must accept the documents already stored (widen, migrate, then tighten in a later release); otherwise the Convex push fails.
-- [ ] You took a Convex backup (dashboard → Backups → **Backup now**, including file storage) and, if Aaron keeps a copy of the environment variables, it is current ([backup and restore](backup-restore.md#when-an-environment-variable-changes)).
+- [ ] You took a Convex backup (dashboard → Backups → **Backup now**, including file storage) and the password-manager copy of `CREDENTIALS_ENCRYPTION_KEY` is current ([backup and restore](backup-restore.md#when-an-environment-variable-changes)).
 
 Then merge and watch **CI** and **Deploy** under Actions. The Deploy run summary shows the commit, the Convex URL and the Cloudflare version tag.
 
-**By hand** (to publish again after a website rollback, after changing a GitHub variable such as `VITE_SENTRY_DSN`, or when an automatic run failed for a reason outside the code): take the backup as above, then GitHub → Actions → **Deploy** → **Run workflow** → branch `main`, tick the backup box, leave the emergency box unticked → **Run workflow**. Approve it if reviewers are required. A manual run releases the newest commit on `main` and refuses while CI for that commit is red or still running.
+**By hand** (to publish again after a website rollback, after changing a GitHub variable such as `VITE_SENTRY_DSN`, or when an automatic run failed for a reason outside the code): take the backup as above, then GitHub → Actions → **Deploy** → **Run workflow** → branch `main`, tick the backup box, leave the emergency box unticked → **Run workflow**. A manual run releases the newest commit on `main` and refuses while CI for that commit is red or still running.
 
 ### Emergency deploy without green CI
 
@@ -103,7 +96,7 @@ The manual run has a second box: **EMERGENCY ONLY: deploy although CI has not pa
 
 ### After every deploy
 
-Production started empty on 2026-11-03, so the first two of the README's [one-off steps for deployments with older data](../../README.md#one-off-steps-for-deployments-with-older-data) (`memberships:backfill`, `attachments:backfillAircraft`) do not apply to it. The history paging steps do: after the first deploy of a new deployment and after any restore, run `migrations:backfillHistoryColumns`, `migrations:rebuildRecordNumbers` and `migrations:rebuildCostLedger`, each until it reports 0, then check that `migrations:reconcileCostLedger` answers `differing: 0` ([set up from scratch](../handbook/3-running-it/setup-from-scratch.md#8-one-off-migrations)). Run the same three again after a release that adds derived columns or lookup keys, as release 3 did on 20 Nov 2026 (H5's purchasing lookup keys, filled by `migrations:backfillHistoryColumns`); its pull request says so. Each is an internal action: run it from the dashboard (production deployment → **Functions** → `migrations` → **Run function**, arguments `{}`) or from a terminal. Otherwise nothing runs after an ordinary deploy. If a later release needs a one-off command, it will be listed in that README section and named in the pull request; run it with the deploy key in the shell only (`read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY`, then `unset CONVEX_DEPLOY_KEY`).
+Production started empty on 2026-11-03, so the first two of the README's [one-off steps for deployments with older data](../../README.md#one-off-steps-for-deployments-with-older-data) (`memberships:backfill`, `attachments:backfillAircraft`) do not apply to it. The history migrations do: after the first deploy of a new deployment, after a release that adds derived columns or lookup keys (its pull request says so, as release 3's did on 20 Nov 2026), and after any restore, run the three migrations and then the reconcile check as in [operations](../handbook/3-running-it/operations.md#after-a-release-or-a-restore-the-migrations). Otherwise nothing runs after an ordinary deploy. If a later release needs a one-off command, it will be listed in that README section and named in the pull request; run it with the deploy key in the shell only (`read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY`, then `unset CONVEX_DEPLOY_KEY`).
 
 Check the live site:
 
