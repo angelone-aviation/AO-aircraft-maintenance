@@ -13,6 +13,7 @@ days from sign-in.
 | Works offline                                         | Needs a connection                                                |
 | ----------------------------------------------------- | ----------------------------------------------------------------- |
 | Log flights, Start flight and End flight              | First sign-in on a device                                         |
+| Resume a flight plan's preflight saved on the device  | Starting a flight from a flight plan                              |
 | Report problems                                       | Resolving and deferring problems                                  |
 | Photograph the logbook line for a flight              | Work orders, job cards, inspections, components, ADs              |
 | Read every screen from the copy on the device         | Inventory, parts requests, purchasing                             |

@@ -1,7 +1,7 @@
 /**
  * Responsibility: Pins how the flight plans screen searches and projects each
- *   aircraft's queue, which actions a plan offers, and how the plan form
- *   picks an aircraft and removes a plan. Uploading a PDF needs a browser:
+ *   aircraft's queue, which actions a plan offers online and offline, and how
+ *   the plan form picks an aircraft and removes a plan. Uploading a PDF needs a browser:
  *   tests/e2e/flight-plans.spec.ts covers it.
  * Layer: Test. Vitest suite; never shipped in the build.
  * Dependencies: src/components/FlightPlans.tsx, src/data/demo.ts
@@ -54,7 +54,11 @@ vi.mock("./ui", async (original) => ({
     return createElement("form", null, props.children);
   },
 }));
-vi.mock("./FlightSession", () => ({ FlightSessions: () => null }));
+let resumable = new Set<string>();
+vi.mock("./FlightSession", () => ({
+  FlightSessions: () => null,
+  useResumablePlans: () => resumable,
+}));
 const base = demoSnapshot();
 const workspace = {
   snapshot: base as Snapshot,
@@ -96,6 +100,19 @@ const render = (
   workspace.snapshot = { ...base, flightPlans: [plan(1), plan(2)], ...extra };
   return renderToStaticMarkup(createElement(FlightPlans));
 };
+
+// The Start / resume flight button in the row of the plan to that
+// destination, and the note it points at, if any.
+const flyButton = (html: string, destination: string) => {
+  const row = html.split("<tr>").find((r) => r.includes(`→ ${destination}`));
+  const button = row?.match(/<button[^>]*>Start \/ resume flight<\/button>/);
+  if (!button) throw new Error(`No Start / resume flight for ${destination}.`);
+  const noteId = button[0].match(/aria-describedby="([^"]+)"/)?.[1];
+  const note = noteId && row!.match(new RegExp(`id="${noteId}"[^>]*>([^<]*)<`));
+  return { disabled: button[0].includes('disabled=""'), note: note?.[1] };
+};
+const START_NOTE =
+  "Starting needs a connection: this device&#x27;s copy of the plan may be out of date.";
 
 describe("FlightPlans", () => {
   it("projects the full queue even when the search hides a plan", () => {
@@ -181,5 +198,38 @@ describe("FlightPlans", () => {
     workspace.online = true;
     expect(html).toMatch(/type="file"[^>]*disabled=""/);
     expect(html).toContain('<button class="button small" disabled="">Copy');
+  });
+
+  it("resumes a preflight saved on this device offline, but starts no flight", () => {
+    const offline = (saved: string[], extra: Partial<Snapshot> = {}) => {
+      workspace.online = false;
+      resumable = new Set(saved);
+      const html = render({}, extra);
+      workspace.online = true;
+      resumable = new Set();
+      return html;
+    };
+    const html = offline([plan(1).uuid]);
+    expect(flyButton(html, "KB1")).toEqual({
+      disabled: false,
+      note: undefined,
+    });
+    expect(flyButton(html, "KB2")).toEqual({
+      disabled: true,
+      note: START_NOTE,
+    });
+    expect(html).not.toMatch(/<button class="button small">(Edit|Remove)/);
+    const online = render({});
+    expect(flyButton(online, "KB2")).toEqual({
+      disabled: false,
+      note: undefined,
+    });
+    // A saved preflight never stands in for flight access to the aircraft.
+    const user = { ...base.user, isAdmin: false, groupIds: [] };
+    const denied = offline([plan(1).uuid], { user });
+    expect(flyButton(denied, "KB1")).toEqual({
+      disabled: true,
+      note: undefined,
+    });
   });
 });

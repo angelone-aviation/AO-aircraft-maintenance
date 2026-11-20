@@ -29,11 +29,14 @@ timeline
 
 ## Release 7: not yet released
 
-Three of Aaron's decisions of 20 Nov:
+Four of Aaron's decisions of 20 Nov:
 
-- RM-77: the job card screens send a signoff as one `sign` command. The unused path that saved today's date on a card without a completion date before signing is deleted; the screens already required the date, so nothing changes for users (`ad133f9`).
-- RM-80: work orders no longer carry a "final review" field. It had no input, and appeared only in the save-conflict comparison and revision history. Orders saved before the change still load (`1249ce5`).
-- SE-15 (RM-79): applying a component template and every FAA monitor command, such as recording a candidate's review, schedule the urgent alert check at once instead of leaving it to the daily check. Neither creates an urgent alert under today's rules, so the check sends only alerts already pending (`7470eea`).
+| Change                                                                                                                                                                                                                                                                                                    | Commit    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| RM-77: the job card screens send a signoff as one `sign` command. The unused path that saved today's date on a card without a completion date before signing is deleted; the screens already required the date, so nothing changes for users                                                              | `ad133f9` |
+| RM-80: work orders no longer carry a "final review" field. It had no input, and appeared only in the save-conflict comparison and revision history. Orders saved before the change still load                                                                                                             | `1249ce5` |
+| SE-15 (RM-79): applying a component template and every FAA monitor command, such as recording a candidate's review, schedule the urgent alert check at once instead of leaving it to the daily check. Neither creates an urgent alert under today's rules, so the check sends only alerts already pending | `7470eea` |
+| **Start / resume flight** on the flight plan queue resumes a preflight saved on this device offline, opening End flight. Starting a flight from a plan still needs a connection and, offline, says why. The flight still syncs through the outbox with the same checks                                    | `c951166` |
 
 ## Release 6: not yet released
 

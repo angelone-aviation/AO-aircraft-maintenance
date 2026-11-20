@@ -535,6 +535,11 @@
   min-width: 170px;
   max-width: 240px;
 }
+/* The reason a disabled action needs a connection, on a line of its own. */
+.ops-cell-actions > .ops-cell-note {
+  flex-basis: 100%;
+  margin-top: 0;
+}
 .ops-plan-route {
   margin: 6px 0 0;
 }
