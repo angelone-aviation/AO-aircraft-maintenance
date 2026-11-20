@@ -9,8 +9,8 @@
  *
  * Only Flight Program administrators may save an address (the server refuses
  * anyone else), so only they are offered the ways to save one: Add new
- * address, Edit address, Review selected address, and the window that
- * completes an inventory location's address.
+ * address, Edit address, Review selected address, and an inventory
+ * location's address (an incomplete one opens in the address window).
  */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -78,8 +78,9 @@ type DirectoryHeaderProps = {
  * An address field filled from the active Flight Program's saved addresses
  * or, with `inventoryLocationName`, from that location's address. A new or
  * reviewed address is saved to the program, which confirms it, before it is
- * used. Choosing or saving needs a connection; adding, reviewing and
- * completing an address are offered to Flight Program administrators only.
+ * used. Choosing or saving needs a connection; adding or reviewing an
+ * address, and a location's address, are offered to Flight Program
+ * administrators only.
  *
  * @param props.value - The document's address; `legacy` is its text from
  *   before addresses were structured.
@@ -266,10 +267,13 @@ function AddressPicker(props: PickerProps & { programUuid: string }) {
   const { programUuid, inventoryLocationName, onChange } = props;
   const p = usePicker(programUuid, inventoryLocationName, onChange);
   const view = pickerView(p.choices, props, !online || !connected);
+  // The server sends a location's contact details to administrators only,
+  // so to anyone else its address is never complete enough to use.
+  const offerLocation = !!inventoryLocationName && p.canSave;
   return (
     <section className="panel">
       <strong>{props.label}</strong>
-      {inventoryLocationName && <SourceField p={p} view={view} />}
+      {offerLocation && <SourceField p={p} view={view} />}
       <SavedField p={p} view={view} />
       <PickerButtons p={p} view={view} />
       {view.unconfirmed && <p>{unconfirmedHint(p.canSave)}</p>}
@@ -344,14 +348,11 @@ function chooseSource(p: Picker, mode: string) {
   else if (mode === "saved") p.onChange(blankAddress());
 }
 
-// An inventory address with issues opens for review instead of being used,
-// for those who can save it.
+// An inventory address with issues opens for review instead of being used.
 function applyInventoryAddress(p: Picker) {
   if (!p.location) {
     p.setError(
-      p.canSave
-        ? "This inventory location's address is unavailable. Choose a saved address or add one."
-        : "This inventory location's address is unavailable. Choose a saved address.",
+      "This inventory location's address is unavailable. Choose a saved address or add one.",
     );
     return;
   }
@@ -360,11 +361,7 @@ function applyInventoryAddress(p: Picker) {
     addressName: p.location.name,
   };
   if (addressIssues(address).length) {
-    if (p.canSave) p.setEdit(newSavedAddress(p.location.name, address));
-    else
-      p.setError(
-        "This inventory location's address is incomplete, and only a Flight Program administrator can complete it. Choose a saved address.",
-      );
+    p.setEdit(newSavedAddress(p.location.name, address));
     return;
   }
   p.onChange({ ...address, confirmed: true });

@@ -357,25 +357,10 @@ describe("for a member who is not an administrator (AC-7)", () => {
     );
   });
 
-  it("an incomplete location address says so instead of opening the address window", async () => {
-    const shop = picker({ inventoryLocationName: "Shop" });
-    await mount(shop);
-    choose("Use inventory location address?", "inventory");
-    const html = render(shop);
-    expect(html).not.toContain("Add new shipping address");
-    expect(html).toContain(
-      "This inventory location&#x27;s address is incomplete, and only a Flight Program administrator can complete it. Choose a saved address.",
-    );
-    expect(changed).toEqual([]);
-  });
-
-  it("a location without an address is not offered as one to add", async () => {
-    const missing = picker({ inventoryLocationName: "Hangar 9" });
-    await mount(missing);
-    choose("Use inventory location address?", "inventory");
-    expect(render(missing)).toContain(
-      "This inventory location&#x27;s address is unavailable. Choose a saved address.<",
-    );
+  it("the picker offers no inventory location's address, whose contacts they cannot see", async () => {
+    const html = await mount(picker({ inventoryLocationName: "Stores" }));
+    expect(html).toContain("Main hangar — Receiving");
+    expect(html).not.toContain("Use inventory location address?");
   });
 });
 
