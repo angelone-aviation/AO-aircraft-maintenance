@@ -21,13 +21,18 @@ import type { MutationCtx } from "./_generated/server";
 import { encode, flightColumns } from "./collections";
 import { syncMemberships } from "./memberships";
 import { forgetDerivedColumns } from "../tests/fixtures/derivedColumns";
+import {
+  expectOraclePages,
+  queryHistoryPage,
+  type HistoryClient,
+  type PageArgs,
+} from "../tests/fixtures/historyPages";
 import { demoSnapshot } from "../src/data/demo";
 import {
   historyCursor,
   historyPage,
   type HistoryKind,
   type HistoryPage,
-  type HistoryPageRequest,
 } from "../src/domain/retention";
 import {
   FLIGHT_RANGE_INVALID,
@@ -62,21 +67,11 @@ const NO_SESSION = "An active account and session are required.";
 const STALE = "Flight Program changed. Reopen the form in the correct program.";
 
 type Convex = TestConvex<typeof schema>;
-type Client = Pick<Convex, "query">;
+type Client = HistoryClient;
 type Outcome = { refused: string } | { returned: unknown };
 type Role = "admin" | "pilot" | "mechanic" | "owner" | "board" | "outsider";
 type GroupFields = Partial<WithoutSystemFields<Doc<"groups">>>;
 type FlightRow = WithoutSystemFields<Doc<"flights">>;
-/** A page request's fields, any of them, as the cases vary them. */
-interface PageArgs {
-  programUuid?: string;
-  kind?: HistoryKind;
-  aircraftUuid?: string;
-  status?: Flight["status"];
-  cursor?: string | null;
-  numItems?: number;
-}
-
 /** What the world holds for the cases to aim at. */
 interface World {
   subjects: Record<Role, string>;
@@ -204,24 +199,31 @@ describe("pages equal historyPage on the caller's scoped snapshot", () => {
       const s = await snapshotOf(role);
       for (const kind of KINDS)
         for (const numItems of SIZES)
-          await expectOraclePages(as(role), s, {
-            kind,
-            cursor: null,
-            numItems,
-          });
+          await expectOraclePages(
+            as(role),
+            s,
+            { programUuid: P, kind, cursor: null, numItems },
+            NOW,
+          );
     },
   );
 
   it("filters flights by aircraft and outcome as the oracle does", async () => {
     const s = await snapshotOf("admin");
     for (const status of ["accepted", "rejected", "review"] as const)
-      await expectOraclePages(as("admin"), s, {
-        kind: "flights",
-        aircraftUuid: P2,
-        status,
-        cursor: null,
-        numItems: 2,
-      });
+      await expectOraclePages(
+        as("admin"),
+        s,
+        {
+          programUuid: P,
+          kind: "flights",
+          aircraftUuid: P2,
+          status,
+          cursor: null,
+          numItems: 2,
+        },
+        NOW,
+      );
   });
 
   it("pages every row the window leaves out once, after what it keeps", async () => {
@@ -366,13 +368,7 @@ function page(
   kind: HistoryKind,
   args: PageArgs = {},
 ): Promise<HistoryPage> {
-  const request = { programUuid: P, cursor: null, numItems: 50, ...args };
-  const { kind: _kind, status, ...list } = request;
-  if (kind === "flights")
-    return client.query(api.history.flights, { ...list, status });
-  if (kind === "discrepancies")
-    return client.query(api.history.discrepancies, list);
-  return client.query(api.history.workOrders, list);
+  return queryHistoryPage(client, kind, { programUuid: P, ...args });
 }
 
 function order(client: Client, uuid: string, programUuid = P) {
@@ -424,26 +420,6 @@ async function snapshotOf(role: Role): Promise<Snapshot> {
   const s = await as(role).query(api.operations.snapshot, {});
   if (!s) throw new Error(`No snapshot for the ${role}.`);
   return s;
-}
-
-// Follows server and oracle cursors in step; a cursor that stops advancing
-// fails the test instead of looping.
-async function expectOraclePages(
-  client: Client,
-  s: Snapshot,
-  first: HistoryPageRequest,
-): Promise<void> {
-  let request = first;
-  for (let n = 0; n < MAX_PAGES; n++) {
-    const expected = historyPage(s, request, NOW);
-    expect(
-      await page(client, request.kind, request),
-      JSON.stringify(request),
-    ).toEqual(expected);
-    if (expected.isDone) return;
-    request = { ...request, cursor: expected.continueCursor };
-  }
-  throw new Error("Paging never finished.");
 }
 
 async function allPages(client: Client, kind: "flights", numItems: number) {
