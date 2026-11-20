@@ -25,7 +25,7 @@ Unknowns to find out: (list who to ask for each blank row)
 
 ## Production dashboard administrators
 
-The only person who may hold production Convex dashboard access or its deploy key ([database access](database-access.md), [ADR-0010](../adr/0010-one-convex-administrator.md)): one administrator, the technical owner.
+The only person who may hold production Convex dashboard access or its deploy key ([database access](database-access.md), [ADR-0010](../adr/0010-one-convex-administrator.md)): one administrator, Aaron.
 
 | Name / role | Access (standing seat or break-glass only) | Since |
 | ----------- | ------------------------------------------ | ----- |
@@ -46,7 +46,7 @@ To unlock at once, a **system administrator resets the user's password** (Admini
 2. Reset the password. The reset sets the new password, ends every session the user has on any device, forgets every device they turned urgent alerts on for, and clears the failed-sign-in counter. The change log entry `user.password_reset` records `signInLockoutCleared: true` when a lock was cleared.
 3. Give the user the new password over a different channel from the email address.
 
-If many accounts lock at the same time, someone is guessing passwords across accounts (password spraying). The app has no global failed-sign-in alarm yet (see below); look in the Convex dashboard's `authRateLimits` table for many rows with a recent `lastAttemptTime`, and raise it with the technical owner. Limiting sign-in attempts per IP address belongs at the Cloudflare edge and is part of the release-process decision.
+If many accounts lock at the same time, someone is guessing passwords across accounts (password spraying). The app has no global failed-sign-in alarm yet (see below); look in the Convex dashboard's `authRateLimits` table for many rows with a recent `lastAttemptTime`, and raise it with Aaron. Limiting sign-in attempts per IP address belongs at the Cloudflare edge and is part of the release-process decision.
 
 Why no global budget in the app: `@convex-dev/auth` 0.0.96 has no hook that runs on a failed sign-in, the Password provider's `profile()` runs synchronously before the password is checked, and attempts against unknown emails are not recorded anywhere. Counting failures would mean wrapping the library's internal provider options, which can break silently on upgrade.
 

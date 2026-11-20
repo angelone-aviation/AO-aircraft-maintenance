@@ -6,6 +6,41 @@ What changed, and when. Newest first. Each line gives the finding's id, what cha
 - **Ids:** OD, RM, LO and E are the bug register's; T, A, S, C and P the security reviews'; AC, FL, MX, NA, NB, OP, PT, SE, SZ and UI the 10 Nov bug hunt's; B, C (stale screens) its stale-screen audit's; D1–D25 the hunt's decisions ([decisions](decisions.md)).
 - The local history starts on 12 Nov 2026 (`fcadec0`), so earlier commits named in the docs can't be opened here. For work before then, read the bug hunts' and reviews' status columns.
 
+## Release 5 — documentation
+
+On `release/docs`; not in production yet.
+
+| Change                                                                                                                                                                     | Commit                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| The handbook: system overview, how it works, features, capacity, services and costs, risks, changelog, decisions, operations, checklists, must-know and FAQ                | `7c813bb`, `c66140e`, `ed71bc7`, `1afc6ef`, `81c9e0d`, `63672ab`            |
+| The user wiki: home, role guides, flying, maintenance, parts and purchasing, records and settings pages, offline, FAQ and troubleshooting                                  | `91dc35b`, `5c172f1`, `5a4cb85`, `d1c24e6`, `06b7995`, `99bfc4b`, `3847fc5` |
+| The set-up-from-scratch guide                                                                                                                                              | `0b7986d`, `25ea0a9`                                                        |
+| The code structure guide                                                                                                                                                   | `5f608e3`, `6b8d8ad`                                                        |
+| The glossary checked against the code, carried in full in the handbook                                                                                                     | `17ea698`                                                                   |
+| Tests: a broken relative link or anchor in tracked Markdown fails; the two glossary copies must match                                                                      | `486912a`, `17ea698`                                                        |
+| The two job card texts: the completion date is needed to sign, and a new card saves first (wording and structure only; no behaviour change)                                | `3e4c3a9`                                                                   |
+| Doc fixes: the docs brought in line with the code and the 19–20 Nov changes, Prettier on the docs, the browser tests run without `.env.local`                              | `1c297b5`, `0756c4c`, `3659378`                                             |
+| The final review's fixes: the completion-date hint names the technician and inspection signoffs, "Aaron" for the person, the risk register by risk, encryption stated once | this release                                                                |
+| A production build refuses to run in Cloudflare's Git builder (Workers Builds)                                                                                             | this release                                                                |
+
+## 20 Nov 2026, release 4 — backups without encryption (ADR-0014), `8df41a2`
+
+Released to production at `8df41a2`. Aaron decided that day that backups run without encryption ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)).
+
+| Change                                                                                                                                   | Commit               |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Encryption optional, off by default: without `BACKUP_AGE_PUBLIC_KEY` the nightly job uploads the plain export                            | `c698f8b`            |
+| A plain copy is named `.unencrypted.zip`, and the app records it                                                                         | `95f909c`, `c698f8b` |
+| The sign-in tables (`authSessions`, `authRefreshTokens`, `authVerificationCodes`, `authVerifiers`) emptied in a plain copy               | `0e55670`            |
+| A plain run refused, uploading nothing, when the export holds an unknown `auth*` table or lacks one of the four                          | `8df41a2`            |
+| `env/` skipped without a key: the environment variables are neither read nor uploaded                                                    | `c698f8b`            |
+| Settings → System and the records workbook no longer say the copy is encrypted                                                           | `295b8df`, `8df41a2` |
+| Review fixes: a test helper that could fail at random, and the runbook, ADR-0008 and ADR-0014 on sessions, hashes and push subscriptions | `8df41a2`            |
+
+### Incident: "Configuration error" after the merge
+
+For about 30 minutes, at about 19:30–20:02 UTC on 20 Nov 2026, right after `8df41a2` reached `main`, production showed "Configuration error … VITE_CONVEX_URL is missing" with the unpinned CSP. Cloudflare's own Git build (Workers Builds) almost certainly built and published the repository without the backend address before the Deploy workflow published the release. A production build now refuses to run there (release 5), and the Git build must stay disconnected ([release runbook](../../runbooks/release.md#cloudflare), [risks R22](../4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
+
 ## 20 Nov 2026, release 3: the purchasing window, lighter saves and the Weekly summary
 
 Released to production at `e99058c` (about 17:00 UTC). Aaron's answers that day: A, A, A, A ([decisions](decisions.md#20-nov-2026)).

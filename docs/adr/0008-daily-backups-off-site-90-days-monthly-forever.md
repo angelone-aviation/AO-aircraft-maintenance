@@ -7,7 +7,7 @@ date: 2026-11-02
 
 > Encryption and the `env/` copy are changed by [ADR-0014](0014-backups-stored-unencrypted.md): since 20 Nov 2026 the copies are stored unencrypted unless a backup key is set.
 
-Production data is backed up **every day**. Daily copies are kept for **90 days**, and the first copy of each month is kept **forever**. Copies leave Convex automatically: a scheduled job exports a full snapshot, including uploaded files, every night and uploads it to **Cloudflare R2** object storage, which the program will already use for website hosting. Nobody has to remember to do it, and a missed night alerts the technical owner.
+Production data is backed up **every day**. Daily copies are kept for **90 days**, and the first copy of each month is kept **forever**. Copies leave Convex automatically: a scheduled job exports a full snapshot, including uploaded files, every night and uploads it to **Cloudflare R2** object storage, which the program will already use for website hosting. Nobody has to remember to do it, and a missed night alerts Aaron.
 
 Maintenance records must survive for the life of the aircraft (14 CFR 91.417(b)(2)), and ADR-0005 relies on independent off-site copies to prove the change log was not tampered with. Convex's own scheduled backups only reach back 7 days, so they cannot meet either need alone.
 
@@ -23,9 +23,9 @@ Maintenance records must survive for the life of the aircraft (14 CFR 91.417(b)(
 ## How it runs
 
 - A GitHub Actions workflow on a nightly schedule runs `npx convex export --include-file-storage` with a production deploy key scoped to backups, encrypts the ZIP with `age` to a public key when one is set (ADR-0014), and uploads it to R2. The job runs on GitHub's scheduler, not inside the app: Convex functions cannot run the export themselves.
-- **Encryption**: superseded by ADR-0014; since 20 Nov 2026 the archives are stored unencrypted unless a backup key is set. While one is set, archives are encrypted before upload. The private key is held by the technical owner in a password manager, plus a sealed copy held by the organization (ADR-0010; originally "two people … plus a sealed paper copy"). Losing every copy of the key makes every archive unreadable, so escrow is checked at each rehearsal.
+- **Encryption**: superseded by ADR-0014; since 20 Nov 2026 the archives are stored unencrypted unless a backup key is set. While one is set, archives are encrypted before upload. The private key is held by Aaron in a password manager, plus a sealed copy held by the organization (ADR-0010; originally "two people … plus a sealed paper copy"). Losing every copy of the key makes every archive unreadable, so escrow is checked at each rehearsal.
 - **Tamper resistance**: R2 bucket lock rules stop deletion or overwrite of `daily/` objects for 90 days and of `monthly/` and `env/` objects indefinitely. The CI token can write but cannot shorten retention, so a stolen CI token cannot erase history.
-- **Freshness alarm**: on success the job records the snapshot time in the app; the daily alert digest warns administrators when the newest off-site copy is older than 26 hours (36 until 2026-11-19, see Status), and a failed workflow run emails the technical owner.
+- **Freshness alarm**: on success the job records the snapshot time in the app; the daily alert digest warns administrators when the newest off-site copy is older than 26 hours (36 until 2026-11-19, see Status), and a failed workflow run emails Aaron.
 
 ## Restore
 

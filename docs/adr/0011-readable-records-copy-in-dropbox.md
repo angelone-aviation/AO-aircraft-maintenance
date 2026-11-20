@@ -25,7 +25,7 @@ The program asked for logs of everything to be saved in Dropbox as an Excel file
 
 - The Dropbox app has **App folder** access only, so its token cannot read or change anything else in the Dropbox account. It needs `files.content.write`, `files.content.read` and `files.metadata.read`.
 - The app belongs to an **organization Dropbox account with two-step sign-in**, not a person's account, because the refresh token belongs to that account.
-- The step runs only when the Dropbox secrets are set. If it fails, the nightly run fails and the technical owner is emailed; the R2 copy has already been made.
+- The step runs only when the Dropbox secrets are set. If it fails, the nightly run fails and Aaron is emailed; the R2 copy has already been made.
 
 ## Consequences
 

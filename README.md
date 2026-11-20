@@ -10,13 +10,13 @@ Angel One keeps the maintenance and status records a 14 CFR Part 91 operator mus
   <img src="docs/previews/desktop.png" alt="The Overview on a desktop: the grouped sidebar, the fleet counts and three fictional demo aircraft with their status, hours and next inspection due" width="880">
 </p>
 
-| At a glance       |                                                                                                                                                     |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                               |
-| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                         |
-| **Status**        | Deployed. Three releases reached production on 20 November 2026; real records begin when the program decides. See [Project status](#project-status) |
-| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                           |
-| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                |
+| At a glance       |                                                                                                                                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                                                   |
+| **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                                             |
+| **Status**        | Deployed. Four releases reached production on 20 November 2026, ending at `8df41a2`; real records begin when the program decides. See [Project status](#project-status) |
+| **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                                               |
+| **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                                    |
 
 > [!IMPORTANT]
 > Angel One generates logbook entry wording and is the system of record for **status records**. It is not the signed maintenance record ([ADR-0004](docs/adr/0004-logbook-generator-and-status-record-system.md)).
@@ -129,7 +129,7 @@ flowchart TB
     CI["CI"] -->|green on main| Deploy["Deploy"]
     Nightly["Nightly backup"]
   end
-  R2[("Cloudflare R2<br/>backups, unencrypted<br/>unless a key is set")]
+  R2[("Cloudflare R2<br/>nightly backups")]
 
   People --> App
   App -->|live sync| Fns
@@ -228,12 +228,15 @@ Each sign-in button appears only when all of its provider's variables are set. I
 - Maintenance alerts appear under the bell in the header for everyone, including demo mode.
 - To also email a daily digest (13:00 UTC) of new alerts, set a [Resend](https://resend.com) API key and a verified sender on the deployment: `npx convex env set RESEND_API_KEY re_...` and `npx convex env set RESEND_FROM "Angel One <alerts@your-domain>"`. Without both, email is skipped and in-app alerts keep working. Digests link back to `SITE_URL`.
 - Program administrators receive digests by default; anyone can change this under Settings → Alerts.
-- Urgent alerts (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) also go out at once: by email to program administrators and maintenance members (switch under Settings → Alerts; at most 60 a day so the digest fits Resend's free 100), and to devices members switch on under Settings → Alerts once the deployment has Web Push keys (until then Settings says device alerts are not turned on). See the [monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) and [alerts](docs/alerts.md).
+- Urgent alerts (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) also go out at once, by email and to devices.
+  - Email goes to program administrators and maintenance members (switch under Settings → Alerts), at most 60 a day so the digest fits Resend's free 100.
+  - Device alerts reach members who switch them on under Settings → Alerts, once the deployment has Web Push keys; until then Settings says they are not turned on.
+  - See the [monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) and [alerts](docs/alerts.md).
 - System administrators whose alert email is on also get an "Off-site backups" warning, at the top of their digest or on its own, while the newest nightly off-site backup is more than 26 hours old or none has been recorded; Settings → System shows the newest copy.
 
 ### Accounts and sign-in
 
-- Administrators can reset passwords; a reset also ends the user's sessions and clears a sign-in lockout (10 failed attempts per hour). Disabling a user ends their sessions.
+- System administrators can reset passwords; a reset also ends the user's sessions and clears a sign-in lockout (10 failed attempts per hour). Disabling a user ends their sessions.
 - Public password signup and password-reset registration paths are disabled server-side.
 - Passwords that administrators set need 15–128 characters and must not be common; existing shorter passwords keep working until their next reset.
 - Once their sign-in clients are configured, users can also sign in with a Google or Microsoft account whose verified email matches their account; this never creates an account ([ADR-0009](docs/adr/0009-password-for-everyone-plus-google-and-microsoft.md)). See the [accounts runbook](docs/runbooks/accounts.md).
@@ -299,16 +302,18 @@ _Departure: how a change reaches the hangar._
 
 The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.jsonc`, with the security headers in `public/_headers`) and the backend on Convex.
 
-| Step                   | What happens                                                                                                                                                                                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                                                                                                        |
-| CI finishes green      | **Deploy** starts by itself, if that commit is still the newest on `main`: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare                                           |
-| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                                                                |
-| Every night, 08:41 UTC | **Nightly backup** copies production off-site to Cloudflare R2, **not encrypted** unless a backup key is set, by Aaron's decision ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)), plus an optional readable Excel workbook in Dropbox |
+| Step                   | What happens                                                                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A push to `main`       | **CI** runs the checks, the backup job's tests and the browser tests, with a dependency audit and a secret scan alongside                                                                              |
+| CI finishes green      | **Deploy** starts by itself, if that commit is still the newest on `main`: it deploys the Convex functions, builds the site against that deployment with demo mode off, and publishes it to Cloudflare |
+| A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                      |
+| Every night, 08:41 UTC | **Nightly backup** copies production off-site to Cloudflare R2, unencrypted ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)), plus an optional readable Excel workbook in Dropbox             |
 
 - First-time setup (Cloudflare account and API token, domain, Convex deploy key, GitHub secrets and the `production` environment), releasing and rollback are in the [release runbook](docs/runbooks/release.md).
 - Without a terminal, set up a new, empty production deployment with the manual **First-time setup** workflow, once, before the first Deploy: see [First-time setup (no terminal)](docs/runbooks/release.md#first-time-setup-no-terminal).
-- Before deploying by hand, take a Convex backup (dashboard > Backups). Backups are not encrypted, by Aaron's decision on 20 Nov 2026: anyone holding the R2 keys or the Cloudflare login can read every record, user, password hash and file in them, but cannot sign in with a copied session, and the nightly job does not save the environment variables until a backup key is set ([backup runbook](docs/runbooks/backup-restore.md#to-turn-encryption-on)). Running the nightly backup by hand, checking it and restoring are in the same runbook, and `npm run test:backup` tests it without credentials.
+- Only Deploy publishes the site: keep Cloudflare's own Git build disconnected; a production build refuses to run there ([release runbook](docs/runbooks/release.md#cloudflare)).
+- Before deploying by hand, take a Convex backup (dashboard > Backups).
+- The nightly backup is unencrypted ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)). Running it by hand, checking it and restoring are in the [backup runbook](docs/runbooks/backup-restore.md); `npm run test:backup` tests it without credentials.
 - The settings that are set on the deployment are listed under [Settings that live on the deployment](#settings-that-live-on-the-deployment).
 - Never upload `.env.*`, local backend state, or test credentials. No production deployment is performed by the setup scripts.
 
@@ -368,7 +373,7 @@ _En route: keeping it flying._
 
 ### Project status
 
-**Deployed, with real records beginning when the program decides.** There is no launch date. Three releases reached production on 20 November 2026, ending at `e99058c`: every open bug and decision ([changelog](docs/handbook/5-history/changelog.md)), history paging, and the purchasing window with lighter saves and a bounded Weekly summary. The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, the backup heartbeat secret, and acceptance testing on actual pilot and mechanic devices. Outside monitoring is Better Stack, set up on 20 November; Sentry error reporting stays off for now ([monitoring runbook](docs/runbooks/monitoring.md)).
+**Deployed, with real records beginning when the program decides.** There is no launch date. Four releases reached production on 20 November 2026, ending at `8df41a2`: every open bug and decision ([changelog](docs/handbook/5-history/changelog.md)), history paging, the purchasing window with lighter saves and a bounded Weekly summary, and backups without encryption. The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, the backup heartbeat secret, and acceptance testing on actual pilot and mechanic devices. Outside monitoring is Better Stack, set up on 20 November; Sentry error reporting stays off for now ([monitoring runbook](docs/runbooks/monitoring.md)).
 
 - **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code. A [second review](docs/security/review-2026-11-04.md) on 2026-11-04 found nothing Critical or High; its fixes are merged, its two Cloudflare dashboard findings (C1, C4) were closed on 19 November, and its remaining open items are listed there. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 - **Bug hunts**: two full rounds of testing before real records begin, on [3 November](docs/qa/bug-hunt-2026-11-03/README.md) and [10 November](docs/qa/bug-hunt-2026-11-10/README.md). Each lists every finding, its fix or the decision it waits on, and a script that reproduces it.

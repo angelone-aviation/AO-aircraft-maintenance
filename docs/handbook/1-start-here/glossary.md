@@ -293,7 +293,7 @@ _Avoid_: archive
 The first off-site copy of each month, kept forever for life-of-aircraft retention and tamper evidence.
 
 **Off-site copy**:
-A backup stored outside Convex, in the program's R2 bucket, locked against deletion for its retention period. Unencrypted, named `.unencrypted.zip`, unless a backup key is set (ADR-0014).
+A backup stored outside Convex, in the program's R2 bucket, locked against deletion for its retention period; unencrypted unless a backup key is set (ADR-0014).
 
 **Preview deployment**:
 A short-lived Convex deployment for testing a change or a restore rehearsal, deleted afterwards. Previews for each change are not set up yet.
@@ -314,7 +314,7 @@ _Avoid_: archive, cutoff (bare)
 An account refusing sign-in after 10 failed password attempts within an hour, regaining one attempt every 6 minutes; a system administrator's password reset clears it at once.
 
 **Unencrypted backup**:
-An off-site copy stored without encryption, the default since Aaron's decision of 20 Nov 2026 (ADR-0014). It is named `.unencrypted.zip`, its sign-in session and token rows are emptied, and no copy of the environment variables is kept. Setting a backup key turns encryption back on.
+An off-site copy stored without encryption, named `.unencrypted.zip`, the default since 20 Nov 2026 (ADR-0014). Its sign-in session and token rows are emptied.
 
 **Workspace**:
 What the server sends a signed-in device: the active Flight Program's records the user may see, within the retention window. The device keeps a copy, which opens offline for seven days from sign-in.

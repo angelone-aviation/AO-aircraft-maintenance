@@ -16,29 +16,181 @@ The risk register for Angel One, as of 20 November 2026. Review it with the quar
 
 ## The register
 
-| ID  | Risk                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Likelihood                                                   | Impact                                                          | What reduces it                                                                                                                                                                                                                                                                                                                                   | Who acts                                        | Status                                                               |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------- |
-| R1  | **Off-site backups are not running yet.** Steps 1–4 of the set-up are done; the job fails every night until the rest is set (deploy key, time zone, failure email, heartbeat). Until then only Convex's own 7-day backups exist                                                                                                                                                                                                                      | High until set up                                            | High: losing the Convex account would lose every record         | Finish [backup set-up](../../go-live-checklist.md#backup-setup-remaining); run it by hand; do the first [restore rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal)                                                                                                                                                         | Aaron                                           | Open                                                                 |
-| R2  | **Unencrypted backups.** Aaron decided on 20 Nov 2026 that backups work without encryption (encryption optional, off by default). Anyone holding the R2 token, the Cloudflare login or a downloaded copy reads every record, user, email, licence copy and password hash, but cannot sign in with a copied session: the session and token rows are emptied ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md))                                | Low                                                          | High                                                            | R2 is private; the token is scoped to one bucket and kept in the GitHub `backups` environment; lock rules stop deletion; turn encryption on later if needed ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)). The Dropbox copy was always readable ([ADR-0011](../../adr/0011-readable-records-copy-in-dropbox.md)) | Aaron                                           | Accepted                                                             |
-| R3  | **A single Convex administrator.** Only Aaron can reach production data, deploy keys and the dashboard ([ADR-0010](../../adr/0010-one-convex-administrator.md))                                                                                                                                                                                                                                                                                      | Medium                                                       | High: if he is unavailable nobody can repair, restore or rotate | Break-glass account and sealed credentials ([runbook](../../runbooks/break-glass-admin.md)); the organisation's sealed copy; write down how Convex recovers or transfers an account (a gap in that runbook)                                                                                                                                       | Aaron, with the organisation contact            | Open: names and sealed copies not set up yet                         |
-| R4  | **A single maintainer.** One person knows the code, the release process and the accounts                                                                                                                                                                                                                                                                                                                                                             | High                                                         | High                                                            | This handbook, the [runbooks](../../runbooks/), [CONTEXT.md](../../../CONTEXT.md), the code guide; fill in [accounts](../../runbooks/accounts.md) and the [incident contacts](../../runbooks/incident-response.md#who-to-notify); a named deputy                                                                                                  | Aaron                                           | Open                                                                 |
-| R5  | **Convex can't roll back.** A bad backend release can only be fixed forward or reverted by a new commit; damaged data needs a restore ([release runbook](../../runbooks/release.md#backend-no-rollback-fix-forward))                                                                                                                                                                                                                                 | Low                                                          | High                                                            | Green CI before every deploy; schema changes are additions only; a Convex backup before merging; the website rolls back at once in Cloudflare                                                                                                                                                                                                     | Aaron                                           | Reduced                                                              |
-| R6  | **Vendor lock-in to Convex.** Functions, sign-in, files and data all live there. Moving would be a rewrite of `convex/`                                                                                                                                                                                                                                                                                                                              | Low                                                          | High                                                            | Business rules are in `src/domain`, separate from Convex; backups are plain ZIP exports; the website and R2 are replaceable ([ADR-0007](../../adr/0007-convex-pro-single-seat.md))                                                                                                                                                                | Aaron                                           | Accepted                                                             |
-| R7  | **Expiring FAA key and `security.txt`.** The FAA DRS key expires 14 Oct 2027; `security.txt` expires 4 Oct 2027                                                                                                                                                                                                                                                                                                                                      | Medium: dates are easy to miss                               | Medium: AD monitoring stops; a stale disclosure file            | Expiring dates in the app warn from 60 days before; dated items in the [checklists](../3-running-it/checklists.md#one-off-and-dated)                                                                                                                                                                                                              | Aaron                                           | Reduced: add `security.txt` under Settings → System → Expiring dates |
-| R8  | **GitHub stops scheduled workflows after 60 days without activity** in a public repository, which stops the nightly backup ([GitHub docs](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow))                                                                                                                                                                       | Medium: the app is meant to run for years with little change | High: backups stop silently                                     | Better Stack heartbeat alerts on a missed ping; the digest's 26-hour backup warning; push something to `main` or re-enable the workflow at least every 60 days ([backup runbook](../../runbooks/backup-restore.md#who-is-told-when-it-fails))                                                                                                     | Aaron                                           | Reduced                                                              |
-| R9  | **Accepting a held flight from years back passes one second** at about 20 years of history (S9, deferred by Aaron on 20 Nov)                                                                                                                                                                                                                                                                                                                         | Low: needs a very old held flight                            | Low: that one review fails; nothing is lost                     | Review held flights promptly; quarterly log check; build S9 (a checkpoint) if it ever matters ([history paging](../../history-paging.md#measured-at-20-fleet-years-s8-h5-release))                                                                                                                                                                | Aaron                                           | Accepted                                                             |
-| R10 | **Offline devices without a screen lock.** The device copy is readable for seven days, unencrypted, with aircraft, records, change log, costs and members ([offline](../../offline.md#signing-out-and-shared-devices), finding S6)                                                                                                                                                                                                                   | Medium                                                       | Medium                                                          | Screen lock required (decided 19 Nov; users still to be told); sign-out wipes the device; file links expire in five minutes; disabling a user clears the copy at its next connection                                                                                                                                                              | Aaron; Flight Program administrators tell users | Reduced                                                              |
-| R11 | **The file sweep deletes a needed file.** It removes stored files no record refers to ([runbook](../../runbooks/file-sweep.md))                                                                                                                                                                                                                                                                                                                      | Low                                                          | Medium: a file is gone until restored from a backup             | Starts in report mode and deletes nothing until `FILE_SWEEP=delete`; never touches files older than its first day or younger than a day; an independent review found no unsafe path; files are in every backup                                                                                                                                    | Aaron                                           | Reduced: review the first report before switching to delete          |
-| R12 | **A lost or stolen device.** As R10, plus pending entries                                                                                                                                                                                                                                                                                                                                                                                            | Medium                                                       | Medium                                                          | [Incident runbook: lost device](../../runbooks/incident-response.md#lost-or-stolen-device): reset the password, remote-erase                                                                                                                                                                                                                      | Aaron                                           | Reduced. Gap: the app cannot wipe a device that stays offline        |
-| R13 | **Public repository.** Anyone can read the code, docs and runbooks, and find a weakness first                                                                                                                                                                                                                                                                                                                                                        | Medium                                                       | Medium                                                          | No secrets in the repository (gitleaks scans every push, full history); CodeQL on; server checks every permission; disclosure policy ([SECURITY.md](../../../SECURITY.md)). Private would cost GitHub minutes and a paid plan ([costs](services-and-costs.md#github))                                                                             | Aaron                                           | Accepted                                                             |
-| R14 | **No second factor (2FA)** on app accounts: `@convex-dev/auth` has none ([ADR-0009](../../adr/0009-password-for-everyone-plus-google-and-microsoft.md)). Two-step sign-in on operator accounts (GitHub, Cloudflare, Convex, Google, Resend, registrar, Dropbox, Better Stack) is not yet confirmed or enforced                                                                                                                                       | Medium                                                       | High for an administrator or operator account                   | 15-character passwords; lockout after 10 failures; sign-ins logged; turn on 2FA on every operator account and require it for the GitHub organisation; revisit when the library adds passkeys                                                                                                                                                      | Aaron                                           | Open                                                                 |
-| R15 | **Open security findings** from the [4 Nov review](../../security/review-2026-11-04.md): A3 (first Google or Microsoft link trusts the provider; SSO stays off until fixed), A4 (sign-in timing shows which emails have accounts), S2 (anyone who knows an email can lock it for an hour), S11 (partly: an added person appears in the member list), C8 (service worker cache rule matches path only), A10 (hash refused SSO emails, when SSO is on) | Low to Medium                                                | Low to Medium                                                   | Each has a decision or a small fix listed in the review                                                                                                                                                                                                                                                                                           | Aaron                                           | Open                                                                 |
-| R16 | **Account inventory and incident contacts are blank.** Nobody else knows who owns the registrar, Cloudflare, Resend or the FAA key                                                                                                                                                                                                                                                                                                                   | High                                                         | Medium                                                          | Fill in [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md)                                                                                                                                                                                   | Aaron                                           | Open                                                                 |
-| R17 | **The auth library is pre-release** (`@convex-dev/auth` 0.0.x). A flaw in 0.0.95 let anyone delete records (S1, fixed)                                                                                                                                                                                                                                                                                                                               | Medium                                                       | High                                                            | Merge its security updates at once ([recurring tasks](../../go-live-checklist.md#recurring-tasks)); the dependency audit in CI                                                                                                                                                                                                                    | Aaron                                           | Reduced                                                              |
-| R18 | **Personal data kept forever.** Monthly backups are kept for good; a deletion request can't reach them                                                                                                                                                                                                                                                                                                                                               | Low                                                          | Low                                                             | Records retention comes first; say so in the privacy notice ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md))                                                                                                                                                                                                        | Aaron                                           | Accepted: privacy notice still to write                              |
-| R19 | **No error reporting.** Sentry is not used; problems are found by users, failed-workflow emails, Better Stack and the digest                                                                                                                                                                                                                                                                                                                         | Medium                                                       | Low                                                             | Better Stack monitors; Sentry can be switched on later ([monitoring runbook](../../runbooks/monitoring.md))                                                                                                                                                                                                                                       | Aaron                                           | Accepted (20 Nov)                                                    |
-| R20 | **Unknown file storage growth.** Uploaded files are copied into every nightly export and kept forever monthly                                                                                                                                                                                                                                                                                                                                        | Medium                                                       | Low (cost)                                                      | Watch Convex usage and R2 size yearly ([costs](services-and-costs.md#how-the-load-test-figure-is-estimated))                                                                                                                                                                                                                                      | Aaron                                           | Open                                                                 |
-| R21 | **Branch protection is off** on `main` for now (Aaron, 19 Nov). A push to `main` deploys after green CI                                                                                                                                                                                                                                                                                                                                              | Low                                                          | High                                                            | Write access limited; CI must pass; Deploy releases only the newest commit on `main`                                                                                                                                                                                                                                                              | Aaron                                           | Accepted                                                             |
+### R1. Off-site backups are not running yet
+
+- **Risk:** the nightly job fails until its set-up is finished, so only Convex's own 7-day backups exist.
+- **Likelihood · Impact:** High until set up · High: losing the Convex account would lose every record.
+- **What reduces it:** finishing the [backup set-up](../../go-live-checklist.md#backup-setup-remaining) and the first [restore rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal).
+- **Who acts:** Aaron.
+- **Status:** Open.
+
+### R2. Unencrypted backups
+
+- **Risk:** anyone holding the R2 token, the Cloudflare login or a downloaded copy can read every record ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)).
+- **Likelihood · Impact:** Low · High.
+- **What reduces it:** a private, locked bucket and a one-bucket token, with encryption one secret away ([backup runbook](../../runbooks/backup-restore.md#to-turn-encryption-on)).
+- **Who acts:** Aaron.
+- **Status:** Accepted.
+
+### R3. A single Convex administrator
+
+- **Risk:** only Aaron can reach production data, deploy keys and the dashboard ([ADR-0010](../../adr/0010-one-convex-administrator.md)).
+- **Likelihood · Impact:** Medium · High: if he is unavailable nobody can repair, restore or rotate.
+- **What reduces it:** the break-glass account and sealed credentials ([runbook](../../runbooks/break-glass-admin.md)), which also needs Convex's account-recovery steps written down.
+- **Who acts:** Aaron, with the organisation contact.
+- **Status:** Open: names and sealed copies not set up yet.
+
+### R4. A single maintainer
+
+- **Risk:** one person knows the code, the release process and the accounts.
+- **Likelihood · Impact:** High · High.
+- **What reduces it:** this handbook, the [runbooks](../../runbooks/), a filled-in [accounts list](../../runbooks/accounts.md) and [incident contacts](../../runbooks/incident-response.md#who-to-notify), and a named deputy.
+- **Who acts:** Aaron.
+- **Status:** Open.
+
+### R5. Convex can't roll back
+
+- **Risk:** a bad backend release can only be fixed forward, and damaged data needs a restore ([release runbook](../../runbooks/release.md#backend-no-rollback-fix-forward)).
+- **Likelihood · Impact:** Low · High.
+- **What reduces it:** green CI before every deploy, additive schema changes and a Convex backup before merging.
+- **Who acts:** Aaron.
+- **Status:** Reduced.
+
+### R6. Vendor lock-in to Convex
+
+- **Risk:** functions, sign-in, files and data all live on Convex, so moving would mean rewriting `convex/`.
+- **Likelihood · Impact:** Low · High.
+- **What reduces it:** business rules kept in `src/domain` and plain ZIP backups ([ADR-0007](../../adr/0007-convex-pro-single-seat.md)).
+- **Who acts:** Aaron.
+- **Status:** Accepted.
+
+### R7. Expiring FAA key and `security.txt`
+
+- **Risk:** the FAA DRS key expires 14 Oct 2027 and `security.txt` on 4 Oct 2027, and dates are easy to miss.
+- **Likelihood · Impact:** Medium · Medium: AD monitoring stops, or a stale disclosure file.
+- **What reduces it:** the app's expiring-date warnings and the dated [checklists](../3-running-it/checklists.md#one-off-and-dated).
+- **Who acts:** Aaron.
+- **Status:** Reduced: add `security.txt` under Settings → System → Expiring dates.
+
+### R8. GitHub stops scheduled workflows
+
+- **Risk:** GitHub turns off a public repository's schedules after 60 days without activity, which stops the nightly backup ([GitHub docs](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow)).
+- **Likelihood · Impact:** Medium: the app is meant to run for years with little change · High: backups stop silently.
+- **What reduces it:** the Better Stack heartbeat, the digest's 26-hour warning and [re-enabling the workflow](../../runbooks/backup-restore.md#who-is-told-when-it-fails).
+- **Who acts:** Aaron.
+- **Status:** Reduced.
+
+### R9. Accepting a very old held flight is slow
+
+- **Risk:** accepting a held flight from years back passes one second at about 20 years of history (S9, deferred by Aaron on 20 Nov).
+- **Likelihood · Impact:** Low · Low: that one review fails and nothing is lost.
+- **What reduces it:** reviewing held flights promptly, or building S9 if it ever matters ([history paging](../../history-paging.md#measured-at-20-fleet-years-s8-h5-release)).
+- **Who acts:** Aaron.
+- **Status:** Accepted.
+
+### R10. Offline devices without a screen lock
+
+- **Risk:** the device copy is readable, unencrypted, for seven days ([offline](../../offline.md#signing-out-and-shared-devices), finding S6).
+- **Likelihood · Impact:** Medium · Medium.
+- **What reduces it:** a required screen lock (users still to be told), sign-out wiping the device and five-minute file links.
+- **Who acts:** Aaron; Flight Program administrators tell users.
+- **Status:** Reduced.
+
+### R11. The file sweep deletes a needed file
+
+- **Risk:** the sweep removes stored files no record refers to, and could remove one still needed ([runbook](../../runbooks/file-sweep.md)).
+- **Likelihood · Impact:** Low · Medium: the file is gone until restored from a backup.
+- **What reduces it:** report mode until `FILE_SWEEP=delete`, and an independent review that found no unsafe path.
+- **Who acts:** Aaron.
+- **Status:** Reduced: review the first report before switching to delete.
+
+### R12. A lost or stolen device
+
+- **Risk:** as R10, plus entries not yet sent.
+- **Likelihood · Impact:** Medium · Medium.
+- **What reduces it:** resetting the password and remote-erasing ([incident runbook](../../runbooks/incident-response.md#lost-or-stolen-device)).
+- **Who acts:** Aaron.
+- **Status:** Reduced. Gap: the app cannot wipe a device that stays offline.
+
+### R13. Public repository
+
+- **Risk:** anyone can read the code, docs and runbooks and find a weakness first.
+- **Likelihood · Impact:** Medium · Medium.
+- **What reduces it:** no secrets in the repository, CodeQL, server-side permission checks and a [disclosure policy](../../../SECURITY.md); private would cost a paid plan ([costs](services-and-costs.md#github)).
+- **Who acts:** Aaron.
+- **Status:** Accepted.
+
+### R14. No second factor (2FA)
+
+- **Risk:** app accounts have no second factor ([ADR-0009](../../adr/0009-password-for-everyone-plus-google-and-microsoft.md)), and two-step sign-in on operator accounts is not yet confirmed.
+- **Likelihood · Impact:** Medium · High for an administrator or operator account.
+- **What reduces it:** 15-character passwords, lockout after 10 failures, and 2FA on every operator account.
+- **Who acts:** Aaron.
+- **Status:** Open.
+
+### R15. Open security findings
+
+- **Risk:** A3, A4, S2, S11 (partly), C8 and A10 from the [4 Nov review](../../security/review-2026-11-04.md) are still open.
+- **Likelihood · Impact:** Low to Medium · Low to Medium.
+- **What reduces it:** the decision or small fix the review lists for each.
+- **Who acts:** Aaron.
+- **Status:** Open.
+
+### R16. Account inventory and incident contacts are blank
+
+- **Risk:** nobody else knows who holds the registrar, Cloudflare, Resend or the FAA key.
+- **Likelihood · Impact:** High · Medium.
+- **What reduces it:** filling in [accounts](../../runbooks/accounts.md), [incident response](../../runbooks/incident-response.md) and [break-glass](../../runbooks/break-glass-admin.md).
+- **Who acts:** Aaron.
+- **Status:** Open.
+
+### R17. The auth library is pre-release
+
+- **Risk:** `@convex-dev/auth` is 0.0.x, and a flaw in 0.0.95 let anyone delete records (S1, fixed).
+- **Likelihood · Impact:** Medium · High.
+- **What reduces it:** merging its security updates at once ([recurring tasks](../../go-live-checklist.md#recurring-tasks)) and the dependency audit in CI.
+- **Who acts:** Aaron.
+- **Status:** Reduced.
+
+### R18. Personal data kept forever
+
+- **Risk:** monthly backups are kept for good, so a deletion request can't reach them.
+- **Likelihood · Impact:** Low · Low.
+- **What reduces it:** saying in the privacy notice that records retention comes first ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)).
+- **Who acts:** Aaron.
+- **Status:** Accepted: privacy notice still to write.
+
+### R19. No error reporting
+
+- **Risk:** Sentry is off, so problems surface through users, failed-workflow emails, Better Stack and the digest.
+- **Likelihood · Impact:** Medium · Low.
+- **What reduces it:** Better Stack, with Sentry ready to switch on ([monitoring runbook](../../runbooks/monitoring.md)).
+- **Who acts:** Aaron.
+- **Status:** Accepted (20 Nov).
+
+### R20. Unknown file storage growth
+
+- **Risk:** uploaded files go into every nightly export and every monthly copy kept forever.
+- **Likelihood · Impact:** Medium · Low (cost).
+- **What reduces it:** a yearly look at Convex usage and R2 size ([costs](services-and-costs.md#how-the-load-test-figure-is-estimated)).
+- **Who acts:** Aaron.
+- **Status:** Open.
+
+### R21. Branch protection is off
+
+- **Risk:** branch protection on `main` is off for now (Aaron, 19 Nov), and a push to `main` deploys after green CI.
+- **Likelihood · Impact:** Low · High.
+- **What reduces it:** limited write access, required CI, and Deploy releasing only the newest commit on `main`.
+- **Who acts:** Aaron.
+- **Status:** Accepted.
+
+### R22. Cloudflare's Git build publishes the site
+
+- **Risk:** a connected Git build (Workers Builds) publishes a site without the backend address, as it did for about 30 minutes on 20 Nov 2026 ([changelog](../5-history/changelog.md#incident-configuration-error-after-the-merge)).
+- **Likelihood · Impact:** Low now · High: every user sees "Configuration error".
+- **What reduces it:** a production build that refuses to run there, and the Git build kept disconnected ([release runbook](../../runbooks/release.md#cloudflare)).
+- **Who acts:** Aaron.
+- **Status:** Reduced: confirm the Git build is disconnected.
 
 ## Where the rest is tracked
 

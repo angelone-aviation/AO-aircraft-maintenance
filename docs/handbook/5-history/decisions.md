@@ -103,7 +103,7 @@ From Aaron's to-do of 20 Nov 2026:
 | --------------------------- | ----------------------------------------------------------------------------------------------- |
 | Sentry                      | Better Stack only, for now                                                                      |
 | GitHub billing              | Actions are free while the repository is public                                                 |
-| Branch protection on `main` | For now ([risks R21](../4-money-and-risk/risks.md))                                             |
+| Branch protection on `main` | For now ([risks R21](../4-money-and-risk/risks.md#r21-branch-protection-is-off))                |
 | HSTS preload                | Hard to undo; not now                                                                           |
 | Idle sign-out timeout       | Not now                                                                                         |
 | A second Convex seat        | Rejected in [ADR-0010](../../adr/0010-one-convex-administrator.md)                              |

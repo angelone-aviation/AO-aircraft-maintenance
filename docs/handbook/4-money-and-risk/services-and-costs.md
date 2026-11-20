@@ -59,7 +59,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Price           | $25 per developer a month. Includes 50 GB database storage, 50 GB database I/O, 100 GB file storage, 25M function calls, 250 GB-hours of action compute, 50 GB egress. Over that: $0.20/GB database storage and I/O, $0.03/GB files, $2 per million calls, $0.30 per GB-hour, $0.12/GB egress ([pricing](https://www.convex.dev/pricing)) |
 | Why Pro         | Daily scheduled backups, more egress for the nightly export, log streams and exception reporting (Sentry). The free plan has none of these                                                                                                                                                                                                |
 | If it goes away | The app stops: no sign-in, no data, no sync. Pending entries wait on devices. Recovery: restore the latest R2 backup into a new Convex deployment ([backup runbook](../../runbooks/backup-restore.md)). There is no other backend                                                                                                         |
-| Owner           | Aaron, the one Convex member. The account should belong to the program before real records ([ADR-0007](../../adr/0007-convex-pro-single-seat.md))                                                                                                                                                                                         |
+| Account holder  | Aaron, the one Convex member. The account should belong to the program before real records ([ADR-0007](../../adr/0007-convex-pro-single-seat.md))                                                                                                                                                                                         |
 
 ### Cloudflare (website, backups, DNS)
 
@@ -69,7 +69,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan            | Workers Free. R2 within its free tier                                                                                                                                                                                                                                                                                                      |
 | Price           | Static asset requests are free and unlimited; Workers Free allows 100,000 Worker requests a day; Workers Paid is $5 a month ([Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)). R2: $0.015 per GB-month, 10 GB free each month, no egress fees ([R2 pricing](https://developers.cloudflare.com/r2/pricing/)) |
 | If it goes away | Website: the site is unreachable; installed apps still open from their cache and log offline. Any static host can serve `dist/` ([release runbook](../../runbooks/release.md)). R2: no new off-site backups; any S3-compatible store can replace it ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md))         |
-| Owner           | Not recorded yet ([accounts](../../runbooks/accounts.md)). The API token in GitHub expires and must be rotated yearly                                                                                                                                                                                                                      |
+| Account holder  | Not recorded yet ([accounts](../../runbooks/accounts.md)). The API token in GitHub expires and must be rotated yearly                                                                                                                                                                                                                      |
 
 ### GitHub
 
@@ -80,7 +80,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Price           | Actions on standard runners are free for public repositories. A private repository on Free gets $12 of minutes a month (Linux at $0.006 a minute), and needs a paid plan (Team, $4 per user a month) for branch rules and required reviewers ([pricing](https://github.com/pricing), [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)) |
 | Watch           | In a public repository, scheduled workflows stop after 60 days without activity, which would stop the nightly backup ([GitHub docs](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow))                                                                                                            |
 | If it goes away | No CI, no deploys, no nightly backups. The live site and Convex keep running. Deploy by hand from a computer ([release runbook](../../runbooks/release.md))                                                                                                                                                                                                                         |
-| Owner           | The Angel One organisation                                                                                                                                                                                                                                                                                                                                                          |
+| Account holder  | The Angel One organisation                                                                                                                                                                                                                                                                                                                                                          |
 
 ### Resend (email)
 
@@ -90,7 +90,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan            | Free                                                                                                                                                                                               |
 | Price           | Free: 3,000 emails a month, **100 a day**, 3 domains. Pro: $20 a month for 50,000, no daily cap ([pricing](https://resend.com/pricing)). The app caps urgent emails at 60 a day so the digest fits |
 | If it goes away | No alert emails. The bell, the Alerts page and device push keep working. The backup-age warning is email only                                                                                      |
-| Owner           | Not recorded yet                                                                                                                                                                                   |
+| Account holder  | Not recorded yet                                                                                                                                                                                   |
 
 ### Web Push
 
@@ -99,7 +99,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | Urgent alerts on members' devices, sent by Convex through each browser's push service                                                |
 | Plan, price     | None. The VAPID key pair lives in Convex's environment ([ADR-0012](../../adr/0012-urgent-alerts-by-web-push-and-immediate-email.md)) |
 | If it goes away | No device alerts; email and the bell continue. Rotating the key pair signs every device out of alerts                                |
-| Owner           | Aaron (the keys are Convex variables)                                                                                                |
+| Account holder  | Aaron (the keys are Convex variables)                                                                                                |
 
 ### Better Stack (monitoring)
 
@@ -109,7 +109,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan            | Free. Aaron chose Better Stack only, no Sentry, on 20 Nov                                                                                                                                                                   |
 | Price           | Free: 10 monitors and heartbeats, 1 status page, Slack and email alerts ([pricing](https://betterstack.com/pricing))                                                                                                        |
 | If it goes away | Nobody is told the site is down or a backup was missed until a user or the daily digest says so                                                                                                                             |
-| Owner           | Not recorded yet                                                                                                                                                                                                            |
+| Account holder  | Not recorded yet                                                                                                                                                                                                            |
 
 ### Domain registrar
 
@@ -118,7 +118,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | Owns `angeloneaviation.org`. Its DNS zone is on Cloudflare                                                                                                                                                                                                                                                                                                                                                 |
 | Plan, price     | **Not known**: which registrar holds it is still to find out ([accounts](../../runbooks/accounts.md)). For scale, .org renews for about $11 a year at Cloudflare Registrar's at-cost price (**estimate**, from a third-party price list: [cfdomainpricing.com](https://cfdomainpricing.com/); Cloudflare states it adds no markup: [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/)) |
 | If it goes away | A lapsed domain takes the site and email down, and lets someone else buy the name. Keep auto-renew on                                                                                                                                                                                                                                                                                                      |
-| Owner           | Not recorded yet                                                                                                                                                                                                                                                                                                                                                                                           |
+| Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ### FAA DRS API key
 
@@ -128,7 +128,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan, price     | A key requested at <https://drs.faa.gov/drs-api>. Cost **not known**: no official price was found        |
 | Expires         | **14 October 2027**. Settings → System warns from 60 days before                                         |
 | If it goes away | No automatic AD monitoring. ADs can still be entered and tracked by hand                                 |
-| Owner           | Not recorded yet                                                                                         |
+| Account holder  | Not recorded yet                                                                                         |
 
 ### Geoapify (address lookup)
 
@@ -138,7 +138,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Plan            | Free                                                                                                                                                                                      |
 | Price           | Free: 3,000 credits a day. Cheapest paid plan $59 a month ([pricing](https://www.geoapify.com/pricing/)). The app spends at most 2,900 a day ([addresses](../../address-verification.md)) |
 | If it goes away | Addresses are typed and saved without the check                                                                                                                                           |
-| Owner           | Not recorded yet. The key is stored encrypted in the app                                                                                                                                  |
+| Account holder  | Not recorded yet. The key is stored encrypted in the app                                                                                                                                  |
 
 ### Aircraft Spruce
 
@@ -147,7 +147,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | Catalogue and order downloads for a linked account, per Flight Program ([Aircraft Spruce](../../aircraft-spruce.md)) |
 | Plan, price     | The program's own customer and API account. Price **not known**                                                      |
 | If it goes away | Order parts the usual way; purchase orders still work                                                                |
-| Owner           | Not recorded yet. The login is stored encrypted in the app                                                           |
+| Account holder  | Not recorded yet. The login is stored encrypted in the app                                                           |
 
 ### Google Workspace
 
@@ -156,7 +156,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | The organisation's email (`angeloneaviation.org` mail is Google). Could provide Google sign-in, which is built but off                                                                                                                                                                                                                                                        |
 | Price           | Business Starter $7 per user a month (annual) or $8.40 (flexible); Business Standard $14 or $16.80 ([Google](https://knowledge.workspace.google.com/admin/billing/compare-flexible-and-annual-fixed-term-payment-plans)). A nonprofit edition is $0 ([Google for Nonprofits](https://www.google.com/nonprofits/offerings/workspace/)). Which one the program has is not known |
 | If it goes away | Nothing in the app depends on it today                                                                                                                                                                                                                                                                                                                                        |
-| Owner           | Not recorded yet                                                                                                                                                                                                                                                                                                                                                              |
+| Account holder  | Not recorded yet                                                                                                                                                                                                                                                                                                                                                              |
 
 ### Dropbox (optional)
 
@@ -165,7 +165,7 @@ Not known: how many files the program will upload, and Convex's cloud bandwidth 
 | Does            | Holds the readable Excel copy of the records, if switched on ([ADR-0011](../../adr/0011-readable-records-copy-in-dropbox.md), [runbook](../../runbooks/dropbox-records-copy.md)). Not switched on yet                                        |
 | Price           | Basic is free with 2 GB; Plus, 2 TB, is $11.99 a month billed monthly, or $9.99 a month billed yearly ([plans](https://www.dropbox.com/plans)). A workbook is about 1 MB at the sample's size, so Basic likely fits for years (**estimate**) |
 | If it goes away | Only the convenience copy is lost. R2 holds the backups                                                                                                                                                                                      |
-| Owner           | Should be an organisation account with two-step sign-in                                                                                                                                                                                      |
+| Account holder  | Should be an organisation account with two-step sign-in                                                                                                                                                                                      |
 
 ### Sentry (optional, not used)
 

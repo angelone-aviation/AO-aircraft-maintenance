@@ -5,7 +5,7 @@ date: 2026-11-02
 
 # Convex Pro with one developer seat; one project holding production, previews and restore rehearsals
 
-We stay on Convex (standing recommendation) and move the project to the **Pro plan with one developer seat, about US$25 a month**. Pro is what makes the other hardening decisions possible: scheduled daily backups (ADR-0008), preview deployments for per-change testing (release process), log streams and alerting integrations (monitoring), and 50 GB of monthly egress for the nightly off-site export. A single seat matches the team: one technical owner deploys and administers; pilots, mechanics and administrators of the app are app users, not Convex members, and cost nothing.
+We stay on Convex (standing recommendation) and move the project to the **Pro plan with one developer seat, about US$25 a month**. Pro is what makes the other hardening decisions possible: scheduled daily backups (ADR-0008), preview deployments for per-change testing (release process), log streams and alerting integrations (monitoring), and 50 GB of monthly egress for the nightly off-site export. A single seat matches the team: Aaron alone deploys and administers; pilots, mechanics and administrators of the app are app users, not Convex members, and cost nothing.
 
 ## Topology
 

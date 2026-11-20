@@ -1,6 +1,6 @@
 # Release, rollback and website hosting
 
-The website is a static build served by **Cloudflare Workers Static Assets**, with one small Worker (`worker/assets.ts`) that runs only when no file matches a request; the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only the technical owner holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
+The website is a static build served by **Cloudflare Workers Static Assets**, with one small Worker (`worker/assets.ts`) that runs only when no file matches a request; the backend, database and files stay on **Convex**. A green **CI** run for a push to `main` starts **Deploy** automatically; you can still start Deploy by hand (with a backup confirmation). Either way Deploy releases only the newest commit on `main`, and only after CI passed for it. Do not wire Cloudflare's own "Continue with GitHub" app — the Deploy workflow owns the Worker. Background and sources: [Cloudflare hosting, CI and release research](../research/cloudflare-pages-ci-release.md). Only Aaron holds the production deploy key ([ADR-0010](../adr/0010-one-convex-administrator.md)).
 
 ## What runs where
 
@@ -50,12 +50,13 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
 1. Use the organization's Cloudflare account, not a personal one, with two-factor sign-in on. Copy its **Account ID** (Workers & Pages overview, right-hand column).
 2. Create an API token from the **Edit Cloudflare Workers** template. Prefer an account-owned token (Manage Account → Account API Tokens) so it does not depend on one person's login. Limit **Account Resources** to this account and **Zone Resources** to the app's zone. Give it an expiry date and note the renewal date in `accounts.md`.
 3. **Domain and DNS.** The app's address is `ops.angeloneaviation.org`. The `angeloneaviation.org` zone is already on Cloudflare (nameservers `nancy` and `rustam.ns.cloudflare.com`), and `wrangler.jsonc` declares the hostname as a custom domain. Use the Cloudflare account that holds that zone: a custom domain only works in the same account as the Worker. Do not create an `ops` DNS record; the first deploy creates the record and its certificate. `workers_dev` is off, so the site has one public address and the account needs no `workers.dev` subdomain. Do not use Cloudflare's "Create an app" or "Continue with GitHub": the Deploy workflow creates and updates the Worker. The API token's zone resources must include `angeloneaviation.org`; if a deploy fails on the custom domain with a permission error, add **Zone → DNS → Edit** for that zone to the token.
-4. HSTS: the site sends `Strict-Transport-Security: max-age=63072000; includeSubDomains`. If the app is on the bare domain, every subdomain of it must then be HTTPS. Adding `preload` is a separate decision for the domain owner and is hard to undo.
+4. HSTS: the site sends `Strict-Transport-Security: max-age=63072000; includeSubDomains`. If the app is on the bare domain, every subdomain of it must then be HTTPS. Adding `preload` is a separate decision for Aaron and is hard to undo.
+5. **Keep Cloudflare's Git build disconnected.** Workers & Pages → `angel-one` → **Settings** → **Build**: the Git repository must show as not connected; if one is, choose **Disconnect**. Cloudflare's own build (Workers Builds) builds without the production `VITE_CONVEX_URL` and publishes ahead of Deploy: on 20 Nov 2026 it showed "Configuration error" in production for about 30 minutes ([changelog](../handbook/5-history/changelog.md#incident-configuration-error-after-the-merge)). A production build now refuses to run when Workers Builds' `WORKERS_CI` variable is set (`scripts/cloudflareBuildGuard.ts`), so a reconnected Git build fails instead of publishing.
 
 ### Convex production deployment
 
 1. Convex dashboard → the project's **Production** deployment → **Settings** → **Deploy keys** → **Generate a deploy key**. It starts with `prod:`. Convex deploy keys are scoped: allow `deployment:deploy`, `deployment:env:view`, `deployment:env:write`, `deployment:data:view` and `deployment:functions:runInternalActions`, which Deploy, First-time setup and the migrations need ([why each](../handbook/3-running-it/setup-from-scratch.md#31-create-the-project)). The nightly backup uses a second key with its own permissions ([backups](../handbook/3-running-it/setup-from-scratch.md#7-backups)).
-2. Configure the deployment once, from the technical owner's computer, with the key in the shell only (never in a file or the shell history):
+2. Configure the deployment once, from Aaron's computer, with the key in the shell only (never in a file or the shell history):
 
    ```sh
    read -rs CONVEX_DEPLOY_KEY && export CONVEX_DEPLOY_KEY
@@ -73,7 +74,7 @@ Record each owner in [the accounts runbook](accounts.md) as you go.
 
 1. Settings → Environments → **New environment** `production`:
    - **Deployment branches and tags**: selected branches, `main` only.
-   - **Required reviewers**: the technical owner. (On GitHub Free this rule is only available for public repositories; then keep write access to the repository limited.)
+   - **Required reviewers**: Aaron. (On GitHub Free this rule is only available for public repositories; then keep write access to the repository limited.)
    - **Environment secrets**: `CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Do not add them as repository secrets.
    - **Environment variable** `PRODUCTION_URL` = `https://ops.angeloneaviation.org` (turns on the smoke check).
    - Optional error reporting: the `VITE_SENTRY_DSN` variable and the Sentry secrets in the [monitoring runbook](monitoring.md).

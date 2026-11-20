@@ -32,7 +32,7 @@ Verified against the code at `e99058c` (2026-11-20).
 ├── tests/                  Playwright specs (e2e/), shared fixtures (fixtures/), CSP teardown
 ├── docs/                   Feature pages, ADRs, runbooks, architecture report, QA, security, research
 ├── .github/                CI, Deploy, nightly backup, first-time setup, Dependabot
-├── .claude/                Standards hooks and settings (owner only); skills/ is VENDORED
+├── .claude/                Standards hooks and settings (Aaron only); skills/ is VENDORED
 ├── .agents/                VENDORED skills. Never edit by hand.
 ├── .devcontainer/          Dev container
 ├── legecy php_project/     RETIRED PHP system, reference only. Never edit.
@@ -47,7 +47,7 @@ Do not edit by hand:
 | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------- |
 | [convex/\_generated/](../../../convex/_generated/)                                                 | Convex codegen                                           | `npx convex dev` or `npx convex codegen`     |
 | [.claude/skills/](../../../.claude/skills/), [.agents/](../../../.agents/)                         | Vendored ([skills-lock.json](../../../skills-lock.json)) | `npx skills update`                          |
-| [.claude/settings.json](../../../.claude/settings.json), [.claude/hooks/](../../../.claude/hooks/) | Enforcement; the owner decides                           | A reviewed commit by the owner               |
+| [.claude/settings.json](../../../.claude/settings.json), [.claude/hooks/](../../../.claude/hooks/) | Enforcement; Aaron decides                               | A reviewed commit by Aaron                   |
 | [legecy php_project/](../../../legecy%20php_project/)                                              | Retired system                                           | Never                                        |
 | [convex/\_\_golden\_\_/](../../../convex/__golden__/)                                              | Test baselines                                           | Rerun the test with `-u` and review the diff |
 

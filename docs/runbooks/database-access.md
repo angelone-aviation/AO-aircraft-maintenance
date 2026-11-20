@@ -6,7 +6,7 @@ Policy: [ADR-0005](../adr/0005-audit-log-protection-by-access-and-backups.md) pr
 
 Only **the named administrators recorded in [accounts.md](accounts.md#production-dashboard-administrators)** may hold access to the production deployment in the Convex dashboard, or its deploy key. Nobody else is invited to the Convex team. Pilots, mechanics and Flight Program administrators use the app, never the dashboard.
 
-There is exactly one named administrator ([ADR-0010](../adr/0010-one-convex-administrator.md)): the technical owner, who is the only member of the Convex account. Nobody else holds dashboard access or a production deploy key.
+There is exactly one named administrator ([ADR-0010](../adr/0010-one-convex-administrator.md)): Aaron, who is the only member of the Convex account. Nobody else holds dashboard access or a production deploy key.
 
 When an administrator changes, update the table in `accounts.md` in the same change that adds or removes their Convex access, then rotate the deploy key if the person leaving held it.
 

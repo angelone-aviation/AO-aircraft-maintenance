@@ -1,4 +1,4 @@
-# Technical and owner FAQ
+# Technical FAQ
 
 Questions Aaron and the program ask about running Angel One. Questions from pilots and mechanics about using it are in the user guide, [Using the app](../../wiki/Home.md).
 
@@ -79,10 +79,10 @@ The load test held 20 years of a six-aircraft fleet: every load and save succeed
 That is the biggest risk ([risks R3, R4](../4-money-and-risk/risks.md)). The break-glass account and the organisation's sealed credentials are planned but not set up yet; this handbook and the runbooks say what to do. Fill in the [accounts](../../runbooks/accounts.md) and [incident contacts](../../runbooks/incident-response.md#who-to-notify).
 
 **Could we move off Convex?**
-Yes, but it is a rewrite of `convex/`. The business rules in `src/domain` and the exported data would carry over ([risks R6](../4-money-and-risk/risks.md)).
+Yes, but it is a rewrite of `convex/`. The business rules in `src/domain` and the exported data would carry over ([risks R6](../4-money-and-risk/risks.md#r6-vendor-lock-in-to-convex)).
 
 **Are the backups encrypted?**
-No, by Aaron's decision of 20 Nov 2026; one secret turns encryption back on. They sit in a private, locked R2 bucket ([risks R2](../4-money-and-risk/risks.md)).
+No ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)); they sit in a private, locked R2 bucket ([risks R2](../4-money-and-risk/risks.md#r2-unencrypted-backups)).
 
 **Why is the repository public?**
-GitHub Actions and security features are free for public repositories. No secrets are in it; a scan checks every push ([risks R13](../4-money-and-risk/risks.md)).
+GitHub Actions and security features are free for public repositories. No secrets are in it; a scan checks every push ([risks R13](../4-money-and-risk/risks.md#r13-public-repository)).

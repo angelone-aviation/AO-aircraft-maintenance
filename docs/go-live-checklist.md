@@ -5,7 +5,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 ## Status
 
 - [x] Code moved to the organization repository `angelone-aviation/AO-aircraft-maintenance`.
-- [x] Convex plan: Pro, **one** member, the technical owner ([ADR-0010](adr/0010-one-convex-administrator.md)).
+- [x] Convex plan: Pro, **one** member, Aaron ([ADR-0010](adr/0010-one-convex-administrator.md)).
 - [x] Hosting: the website runs on **Cloudflare** (`ops.angeloneaviation.org`); the backend stays on Convex.
 - [x] New Convex Pro account created.
 - [x] Old production deployment retired (2026-11-03): deleted, with nothing migrated. It held only test data and still ran the auth library with the critical flaw (security review S1). Production starts fresh on the new Convex Pro account. Still to do if not done yet: remove the old site files from A2 Hosting and revoke any API keys only the old deployment used.
@@ -14,9 +14,10 @@ The remaining work before Angel One is used for real records. Decisions are reco
 - [ ] File clean-up: the hourly sweep of stored files no record refers to starts in report-only mode (`FILE_SWEEP` unset) and deletes nothing. Review its first report, then set `FILE_SWEEP=delete` ([file sweep runbook](runbooks/file-sweep.md#review-the-first-pass-then-switch-to-delete)).
 - [x] Release process: CI checks, Cloudflare hosting with security headers, the Deploy workflow (it starts after a green CI push to `main`, or by hand), rollback steps and Dependabot updates are in the repository and in use ([release runbook](runbooks/release.md)).
   - [x] Cloudflare, the Convex deploy key and the GitHub `production` environment are set up, and the first release was made on 2026-11-03.
+  - [ ] Cloudflare's Git build for the `angel-one` Worker is disconnected (Workers & Pages → `angel-one` → Settings → Build), so only Deploy publishes ([release runbook](runbooks/release.md#cloudflare), [risks R22](handbook/4-money-and-risk/risks.md#r22-cloudflares-git-build-publishes-the-site)).
   - [ ] Preview deployments per change are not built yet ([release runbook](runbooks/release.md#not-set-up-yet)).
 - [ ] Error monitoring: service, alerts and who receives them.
-- [ ] Ownership and runbooks: technical owner, plus onboarding, release and incident-response runbooks.
+- [ ] Ownership and runbooks: Aaron, plus onboarding, release and incident-response runbooks.
   - [ ] Fill in the names and places left blank in [incident response](runbooks/incident-response.md) (including who reads accounts@angeloneonline.org, the [`SECURITY.md`](../SECURITY.md) contact) and [break-glass administrator access](runbooks/break-glass-admin.md), and set up the break-glass account.
 - [ ] Data on shared or lost devices: offline copy, sign-out, device unlock. Decided 2026-11-19: the seven-day offline copy stays as it is, signing out clears the device after warning about unsynced work ([signing out](offline.md#signing-out-and-shared-devices)), and phones and tablets need a screen lock. File links now expire after five minutes ([file links](file-links.md)). Still to do: tell users about the screen lock, and the release step in [file links](file-links.md#what-is-left).
 - [x] Per-aircraft records export (FAA inspection access and aircraft sale): [records package](records-export.md).
@@ -33,7 +34,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 
 Policy: [ADR-0008](adr/0008-daily-backups-off-site-90-days-monthly-forever.md). Runbook: [backup and restore](runbooks/backup-restore.md).
 
-Backups are not encrypted, by Aaron's decision on 20 Nov 2026 ([ADR-0014](adr/0014-backups-stored-unencrypted.md)). Anyone holding the R2 keys or the Cloudflare login can read every record, user, password hash and file in them, but cannot sign in with a copied session. There is no key step; to turn encryption on later, see [the runbook](runbooks/backup-restore.md#to-turn-encryption-on).
+Backups are unencrypted ([ADR-0014](adr/0014-backups-stored-unencrypted.md)), so there is no key step ([to turn encryption on](runbooks/backup-restore.md#to-turn-encryption-on)).
 
 - [x] Convex Pro account.
 - [ ] Turn on the **daily scheduled backup, including file storage**, on the production deployment (Convex dashboard → Backups).
@@ -41,12 +42,12 @@ Backups are not encrypted, by Aaron's decision on 20 Nov 2026 ([ADR-0014](adr/00
 - [ ] Add R2 bucket lock rules: `daily/` 90 days; `monthly/` and `env/` indefinite. Leave `state/` unlocked (the job replaces a small file there). Add a lifecycle rule deleting `daily/` objects after 91 days.
 - [ ] In GitHub, Settings → Environments → **New environment** `backups`. Deployment branches: `main` only. No required reviewers (they would hold every nightly run). The secrets below go into this environment as **environment secrets**, not repository secrets.
 - [ ] Create an R2 API token with object read and write on that bucket only; save it as `backups` environment secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_ACCOUNT_ID`. If the bucket is not `angelone-backups`, add the environment variable `R2_BUCKET`.
-- [ ] Do **not** add `BACKUP_AGE_PUBLIC_KEY`: without it the copies are stored unencrypted, as Aaron decided. Only accounts that may read every record should hold the R2 token or the Cloudflare login.
+- [ ] Do **not** add `BACKUP_AGE_PUBLIC_KEY` ([ADR-0014](adr/0014-backups-stored-unencrypted.md)). Only accounts that may read every record should hold the R2 token or the Cloudflare login.
 - [ ] Create a production deploy key for backups → `backups` environment secret `CONVEX_BACKUP_DEPLOY_KEY`. Convex deploy keys are scoped: it needs to export the data with file storage and run the internal mutation `backups:recordOffsiteCopy` (`deployment:functions:runInternalMutations`), and, only with encryption on, read environment variables (`deployment:env:view`) ([set up from scratch](handbook/3-running-it/setup-from-scratch.md#7-backups)). Confirm on the first run by hand.
-- [ ] Make sure failed runs email the technical owner ([runbook](runbooks/backup-restore.md#who-is-told-when-it-fails)).
-- [ ] The technical owner turns on **Email me a daily alert digest** (Settings → Alerts). The app's "no off-site backup for over 26 hours" warning goes only to system administrators with this switch on, and it is off by default for a system administrator who is not also a Flight Program administrator.
+- [ ] Make sure failed runs email Aaron ([runbook](runbooks/backup-restore.md#who-is-told-when-it-fails)).
+- [ ] Aaron turns on **Email me a daily alert digest** (Settings → Alerts). The app's "no off-site backup for over 26 hours" warning goes only to system administrators with this switch on, and it is off by default for a system administrator who is not also a Flight Program administrator.
 - [ ] Optional readable copy in Dropbox ([runbook](runbooks/dropbox-records-copy.md), ADR-0011): from an **organization** Dropbox account with two-step sign-in, create an App-folder app, get its refresh token, and add `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN` as `backups` environment secrets (and the variable `RECORDS_TIME_ZONE` if the program is not on US Eastern time). Decide who may open the folder: the workbook is readable, not encrypted.
-- [ ] Run the workflow by hand once (Actions → **Nightly backup** → **Run workflow**) after the version with ADR-0014 is deployed (the app refuses to record an `.unencrypted.zip` copy before that), confirm the `.unencrypted.zip` appears in R2 under `daily/` and `monthly/` (nothing in `env/`), and do the first [restore rehearsal](runbooks/backup-restore.md#quarterly-restore-rehearsal).
+- [ ] Run the workflow by hand once (Actions → **Nightly backup** → **Run workflow**), confirm the `.unencrypted.zip` appears in R2 under `daily/` and `monthly/` (nothing in `env/`), and do the first [restore rehearsal](runbooks/backup-restore.md#quarterly-restore-rehearsal).
 - [ ] Optional: save `CREDENTIALS_ENCRYPTION_KEY` in Aaron's password manager. The job no longer saves the environment variables, and without that key a restore onto a new Convex account cannot open the saved FAA, Geoapify and Aircraft Spruce credentials.
 
 ## Recurring tasks

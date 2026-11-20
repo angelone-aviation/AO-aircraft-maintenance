@@ -76,7 +76,19 @@ change again. Other forms show the message only: close and reopen the record.
 | "Too many aircraft document uploads. Wait an hour and try again."                                               | Wait an hour; **Sync now** sends a queued photo again       |
 | "Uploaded file is not a PDF."                                                                                   | Choose a real PDF manual                                    |
 
-Files are limited to 7 MiB (manuals 200 MiB, certificate copies 5 MiB).
+Size limits:
+
+| File                                                                                                              | Largest |
+| ----------------------------------------------------------------------------------------------------------------- | ------- |
+| Aircraft documents, logbook page photos, Form 337 copies, job-card and work-order evidence, stock and order files | 7 MiB   |
+| Aircraft photos                                                                                                   | 5 MiB   |
+| Certificate and licence copies                                                                                    | 5 MiB   |
+| Reference library manuals (PDF)                                                                                   | 200 MiB |
+| Flight-plan PDFs                                                                                                  | 10 MiB  |
+| AD reports (Word .docx)                                                                                           | 10 MiB  |
+| CSV imports (maintenance, aircraft setup, components, tasks)                                                      | 2 MiB   |
+| Flight-log imports                                                                                                | 5 MiB   |
+| Engine data files                                                                                                 | 7 MiB   |
 
 ## Signing a job card
 

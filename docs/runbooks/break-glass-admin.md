@@ -1,6 +1,6 @@
 # Break-glass administrator access
 
-How the technical owner gets system administrator access back when no administrator can sign in, or when Google or Microsoft sign-in is down. It uses only what the app and Convex offer today; what is missing is marked "Gap:". If an intruder may be involved, run [incident response](incident-response.md) alongside this.
+How Aaron gets system administrator access back when no administrator can sign in, or when Google or Microsoft sign-in is down. It uses only what the app and Convex offer today; what is missing is marked "Gap:". If an intruder may be involved, run [incident response](incident-response.md) alongside this.
 
 ## What exists today
 
@@ -9,21 +9,21 @@ How the technical owner gets system administrator access back when no administra
 - The app will not disable or demote the last active system administrator ("Keep at least one active administrator.").
 - `npm run setup:admin` (`scripts/bootstrap-admin.mjs`, which runs the internal `admin:bootstrap`) creates an administrator only on an empty user database. Once any account exists it stops with "Bootstrap is only available on an empty user database.", so it cannot recover production.
 - No function or command resets a password or restores administrator rights from outside the app.
-- The technical owner is the only member of the Convex account ([ADR-0010](../adr/0010-one-convex-administrator.md)) and can edit production data in the Convex dashboard. That is a direct edit: allowed only as a repair the app cannot make, and recorded in the change log ([Production database access](database-access.md)).
+- Aaron is the only member of the Convex account ([ADR-0010](../adr/0010-one-convex-administrator.md)) and can edit production data in the Convex dashboard. That is a direct edit: allowed only as a repair the app cannot make, and recorded in the change log ([Production database access](database-access.md)).
 
 ## The break-glass credentials
 
-| Credential                                                                                                                            | Kept in                                                                   | Held by                                      |
-| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
-| The break-glass account: a system administrator account used only for this, with a password and no linked Google or Microsoft account | The technical owner's password manager, and a sealed paper copy at ______ | The technical owner; the sealed copy: ______ |
-| The Convex account's sign-in details and recovery codes                                                                               | The technical owner's password manager, and a sealed paper copy at ______ | The technical owner only (ADR-0010)          |
+| Credential                                                                                                                            | Kept in                                                     | Held by                        |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------ |
+| The break-glass account: a system administrator account used only for this, with a password and no linked Google or Microsoft account | Aaron's password manager, and a sealed paper copy at ______ | Aaron; the sealed copy: ______ |
+| The Convex account's sign-in details and recovery codes                                                                               | Aaron's password manager, and a sealed paper copy at ______ | Aaron only (ADR-0010)          |
 
-Owner decision: ADR-0010 gives the organization only the sealed backup key, never production credentials. If the organization holds the sealed copy of the break-glass account, record that as an amendment to ADR-0010.
+Aaron's decision: ADR-0010 gives the organization only the sealed backup key, never production credentials. If the organization holds the sealed copy of the break-glass account, record that as an amendment to ADR-0010.
 
 ### Set up once
 
 1. A system administrator: Administration → Users → **Add user**. Name "Break-glass administrator"; an email address the organization controls and publishes nowhere (anyone who knows it can lock the account for an hour); a password of six or more random words from the password manager, which is easy to type from paper. Tick **Global administrator (all aircraft and settings)**, add no Flight Program groups, then **Create account**.
-2. Save it in the technical owner's password manager. Write the email and password on paper, seal it in an envelope, sign and date it across the flap, and hand it to the holder named above.
+2. Save it in Aaron's password manager. Write the email and password on paper, seal it in an envelope, sign and date it across the flap, and hand it to the holder named above.
 3. [Test it](#test-twice-a-year) and log the test.
 
 Use the account only for this runbook and its tests. Any other "User · signed in" entry for it is an incident.
@@ -51,15 +51,15 @@ Start at the first row that fits.
 
 ### Repair in the Convex dashboard
 
-The last resort, by the technical owner.
+The last resort, by Aaron.
 
 1. Sign in to the Convex dashboard. If you cannot, use the Convex account's recovery.
 
-   Gap: what Convex needs to recover the account, or to move it to a new owner (ADR-0010), is not written down. Ask Convex support and record the answer here.
+   Gap: what Convex needs to recover the account, or to hand it to Aaron's successor (ADR-0010), is not written down. Ask Convex support and record the answer here.
 
 2. Write down the problem and the exact change, in an issue or the incident timeline ([direct edits](database-access.md#direct-edits-to-production-data-are-banned)).
 
-   Gap: that runbook asks a second administrator to agree in writing, but ADR-0010 left one. The owner decides who agrees instead.
+   Gap: that runbook asks a second administrator to agree in writing, but ADR-0010 left one. Aaron decides who agrees instead.
 
 3. Take a backup: Convex dashboard → Backups → **Backup now**, and note its time.
 4. Make the smallest edit, in Production → Data. Copy each document's JSON before you change it.
@@ -99,7 +99,7 @@ Do it during two quarterly restore rehearsals six months apart ([backup runbook]
 1. Check the sealed copy is where the table says, with its seal and date intact.
 2. Sign in with the break-glass account from the password manager, in a private browser window; open Administration; sign out. Once a year use the sealed copy instead, then [rotate](#rotate-after-use), since it has been opened.
 3. In Change history, with **Unassigned records** chosen, check every "User · signed in" entry for the account is a logged test or use. Any other is an [account compromise](incident-response.md#suspected-account-compromise).
-4. Check the technical owner can sign in to the Convex dashboard, and the recovery codes are where the table says.
+4. Check Aaron can sign in to the Convex dashboard, and the recovery codes are where the table says.
 5. In the rehearsal's scratch deployment, never production, practise the repair: set `isAdmin` to `false` on your own restored account, check Administration disappears after reloading, set it back to `true`, then record it with `npx convex run --deployment <scratch> audit:recordManualEntry` as in [the repair](#repair-in-the-convex-dashboard), step 5.
 6. Log it:
 

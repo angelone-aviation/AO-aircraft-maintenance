@@ -5,7 +5,7 @@ date: 2026-11-03
 
 # One Convex administrator; no second dashboard user
 
-The Convex Pro account has exactly **one member**: the technical owner. There is no second dashboard user and no second break-glass holder with Convex access. This settles the tension recorded in ADR-0007 and replaces ADR-0005's "two named administrators" with one.
+The Convex Pro account has exactly **one member**: Aaron. There is no second dashboard user and no second break-glass holder with Convex access. This settles the tension recorded in ADR-0007 and replaces ADR-0005's "two named administrators" with one.
 
 The change log stays protected the way ADR-0005 intends, through controls that do not depend on a second dashboard user:
 
@@ -17,7 +17,7 @@ The change log stays protected the way ADR-0005 intends, through controls that d
 
 - A single person can reach production data. Tamper evidence relies on the locked backups and on the rule that every direct edit is recorded, not on a second person watching.
 - The backup decryption key (ADR-0008) must not depend on that one person alone: keep a **sealed copy held by the organization** (for example its board or executive director), never by a Convex user. Losing every copy makes every archive unreadable.
-- If the technical owner leaves or is unavailable, the organization uses the sealed key and the Convex account's recovery to appoint a new owner; record the handover in `docs/runbooks/accounts.md`.
+- If Aaron leaves or is unavailable, the organization uses the sealed key and the Convex account's recovery to appoint a successor; record the handover in `docs/runbooks/accounts.md`.
 
 ## Considered options
 
