@@ -3,7 +3,7 @@
 #   to R2 (ADR-0008), then the readable Dropbox copy when set up (ADR-0011).
 # Layer: Script. Never deletes or overwrites a backup in the bucket, and never
 #   prints a secret or the environment variables.
-# Dependencies: npx convex, aws, age, unzip, jq, sha256sum, node;
+# Dependencies: npx convex, aws, age or zip, unzip, jq, sha256sum, node;
 #   scripts/backup/records-workbook.mjs, scripts/backup/dropbox-upload.mjs.
 #
 # Runbook: docs/runbooks/backup-restore.md. Tests: npm run test:backup.
@@ -12,7 +12,8 @@
 #   a. `npx convex export --include-file-storage`, checked: a valid ZIP that
 #      includes file storage and at least one user account;
 #   b. encrypted with age to BACKUP_AGE_PUBLIC_KEY when it is set; without it
-#      the ZIP is stored as it is, named .unencrypted.zip (ADR-0014);
+#      the ZIP is stored unencrypted, named .unencrypted.zip, with its sign-in
+#      tables emptied (ADR-0014);
 #   c. uploaded to R2 under daily/YYYY/MM/DD/ with a manifest, then checked;
 #   d. also uploaded to monthly/YYYY-MM/ when that month has no copy yet;
 #   e. environment variables, encrypted, uploaded to env/ when they or the
@@ -116,7 +117,11 @@ unset DROPBOX_APP_KEY DROPBOX_APP_SECRET DROPBOX_REFRESH_TOKEN
 for cmd in npx aws unzip jq sha256sum; do
   command -v "$cmd" >/dev/null || fail "$cmd is not installed."
 done
-[[ "$encrypted" == false ]] || command -v age >/dev/null || fail "age is not installed."
+if [[ "$encrypted" == true ]]; then
+  command -v age >/dev/null || fail "age is not installed."
+else
+  command -v zip >/dev/null || fail "zip is not installed."
+fi
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 [[ -x node_modules/.bin/convex ]] || fail "Run npm ci first: the Convex CLI must come from package-lock.json."
@@ -188,12 +193,19 @@ summary() {
   [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || step_summary >>"$GITHUB_STEP_SUMMARY"
 }
 
+join_tables() {
+  local joined
+  joined=$(printf '%s, ' "${SIGN_IN_TABLES[@]}")
+  printf '%s\n' "${joined%, }"
+}
+
 step_summary() {
   local line
   if [[ "$encrypted" == true ]]; then
     printf '### Off-site backup %s\n\n' "$stamp"
   else
     printf '### Off-site backup %s: NOT ENCRYPTED\n\n**%s**\n\n' "$stamp" "$PLAIN_WARNING"
+    printf 'Sign-in records removed: %s. %s\n\n' "$(join_tables)" "$SIGN_IN_REASON"
   fi
   echo "| Object in \`$bucket\` | Bytes |"
   echo "|---|---|"
@@ -236,6 +248,23 @@ save_environment() {
   env_uploaded=true
 }
 
+# Replaces each sign-in table's documents.jsonl in the export with an empty
+# one. The table stays in the ZIP, so an import still creates it.
+empty_sign_in_tables() {
+  local blank="$work/blank" table entries=()
+  for table in "${SIGN_IN_TABLES[@]}"; do
+    mkdir -p "$blank/$table"
+    : >"$blank/$table/documents.jsonl"
+    entries+=("$table/documents.jsonl")
+  done
+  (cd "$blank" && zip -qXD "$EXPORT_ZIP" "${entries[@]}") ||
+    fail "Could not remove the sign-in records from the export."
+  rm -rf -- "$blank"
+  unzip -tq "$EXPORT_ZIP" >/dev/null 2>&1 ||
+    fail "The export is not a valid ZIP file after removing the sign-in records."
+  echo "Sign-in records removed from the unencrypted copy: ${SIGN_IN_TABLES[*]}."
+}
+
 uploaded=()
 env_uploaded=false
 read -r year month day stamp iso < <(date -u '+%Y %m %d %Y%m%dT%H%M%SZ %Y-%m-%dT%H:%M:%SZ')
@@ -247,7 +276,14 @@ else
   base="angelone-${stamp}.unencrypted"
   stored_ext=".zip"
 fi
-PLAIN_WARNING="NOT ENCRYPTED: this backup is stored unencrypted in R2 (ADR-0014). Anyone with the R2 keys or the Cloudflare login can read every record, user and password hash in it."
+PLAIN_WARNING="NOT ENCRYPTED: this backup is stored unencrypted in R2 (ADR-0014). Anyone with the R2 keys or the Cloudflare login can read every record, user, password hash and file in it."
+# The Convex Auth tables that let a copy be used to sign in: live sessions,
+# refresh tokens (the token is its row id and the session id), sign-in and
+# password-reset codes, and OAuth verifiers. A plain copy keeps them, empty.
+# users and authAccounts stay: a restore needs them, and a password hash
+# signs nobody in without being cracked.
+SIGN_IN_TABLES=(authSessions authRefreshTokens authVerificationCodes authVerifiers)
+SIGN_IN_REASON="Emptied so that a copy cannot be used to sign in. After a restore everyone must sign in again."
 daily_key="daily/${year}/${month}/${day}/${base}${stored_ext}"
 daily_manifest_key="daily/${year}/${month}/${day}/${base}.manifest.json"
 monthly_prefix="monthly/${year}-${month}/"
@@ -264,6 +300,8 @@ echo "Exporting the production deployment with file storage..."
 convex export --include-file-storage --path "$EXPORT_ZIP" || fail "npx convex export failed."
 [[ -s "$EXPORT_ZIP" ]] || fail "npx convex export produced no file."
 unzip -tq "$EXPORT_ZIP" >/dev/null 2>&1 || fail "The export is not a valid ZIP file (unzip -t failed)."
+# Before counting and hashing, so the manifest describes the uploaded ZIP.
+[[ "$encrypted" == true ]] || empty_sign_in_tables
 
 # Document count per table: one JSON document per line of <table>/documents.jsonl
 # (components are under _components/<name>/). Uploaded files are not read.
@@ -309,8 +347,9 @@ stored_type=application/octet-stream
 convex_version=$(npx convex --version 2>/dev/null | head -n 1) || convex_version=unknown
 commit=${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}
 manifest="$work/${base}.manifest.json"
-# Without a key, "encrypted" is false and "notice" says so in plain words;
-# with one, the manifest is the same as before ADR-0014.
+# Without a key, "encrypted" is false, "notice" says so in plain words and
+# "signInRecordsRemoved" names the emptied tables; with one, the manifest is
+# the same as before ADR-0014.
 jq -n \
   --arg file "${base}${stored_ext}" \
   --arg exportStartedAt "$iso" \
@@ -318,11 +357,14 @@ jq -n \
   --arg convexCliVersion "$convex_version" \
   --argjson isEncrypted "$encrypted" --arg recipient "$recipient" \
   --arg notice "$PLAIN_WARNING" \
+  --argjson signInTables "$(printf '%s\n' "${SIGN_IN_TABLES[@]}" | jq -R . | jq -s .)" \
+  --arg signInReason "$SIGN_IN_REASON" \
   --arg plainSha "$plain_sha" --argjson plainBytes "$plain_bytes" \
   --arg encSha "$stored_sha" --argjson encBytes "$stored_bytes" \
   --argjson tables "$tables_json" \
   '{format: 1, file: $file}
-   + (if $isEncrypted then {} else {encrypted: false, notice: $notice} end)
+   + (if $isEncrypted then {} else {encrypted: false, notice: $notice,
+      signInRecordsRemoved: {tables: $signInTables, reason: $signInReason}} end)
    + {exportStartedAt: $exportStartedAt, gitCommit: $gitCommit,
       convexCliVersion: $convexCliVersion}
    + (if $isEncrypted then {encryptedTo: $recipient} else {} end)

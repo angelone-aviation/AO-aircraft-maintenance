@@ -11,7 +11,8 @@
 # An .age file is decrypted beside itself, without ".age"; an export with its
 # .manifest.json beside it is then checked. An .unencrypted.zip is not changed
 # and must have its manifest beside it, since checking it is the whole job.
-# Both print the documents per table, to compare after the import. Runbook:
+# Both print the documents per table, to compare after the import, and say
+# when a plain copy's sign-in records were removed. Runbook:
 # docs/runbooks/backup-restore.md. Tests: npm run test:backup.
 
 set -euo pipefail
@@ -46,6 +47,11 @@ if (manifest.plaintext.sha256 !== actual) {
   process.exit(1);
 }
 console.log(`SHA-256 matches the manifest (export started ${manifest.exportStartedAt}).`);
+const removed = manifest.signInRecordsRemoved;
+if (removed) {
+  console.log(`Sign-in records were removed from this copy (${removed.tables.join(", ")}):`);
+  console.log("after restoring it everyone must sign in again, which is harmless.");
+}
 console.log("Documents per table in the export:");
 for (const [table, count] of Object.entries(manifest.tables)) {
   console.log(`  ${table.padEnd(40)} ${count}`);

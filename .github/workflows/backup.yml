@@ -4,7 +4,7 @@
 #   the readable Excel copy to Dropbox (ADR-0011) and pings the heartbeat.
 # Layer: Tooling (scheduled workflow). Runs from main only, nightly or by hand.
 # Dependencies: scripts/backup/nightly.sh, the Convex CLI, the AWS CLI, age,
-#   curl and the "backups" environment. Runbooks in docs/runbooks:
+#   zip, curl and the "backups" environment. Runbooks in docs/runbooks:
 #   backup-restore.md, monitoring.md.
 #
 # A failed run emails the person who last changed the schedule below (see the
@@ -48,12 +48,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Used only when BACKUP_AGE_PUBLIC_KEY is set; cheap enough to keep, so
-      # adding the secret is all it takes to turn encryption on.
-      - name: Install age
+      # age encrypts when BACKUP_AGE_PUBLIC_KEY is set, so adding the secret is
+      # all it takes to turn encryption on; zip empties the sign-in tables of
+      # an unencrypted copy (ADR-0014).
+      - name: Install age and zip
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends age
+          sudo apt-get install -y -qq --no-install-recommends age zip
           age --version
 
       # Secrets live on the "backups" environment, never on the repository.

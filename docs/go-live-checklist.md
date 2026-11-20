@@ -33,7 +33,7 @@ The remaining work before Angel One is used for real records. Decisions are reco
 
 Policy: [ADR-0008](adr/0008-daily-backups-off-site-90-days-monthly-forever.md). Runbook: [backup and restore](runbooks/backup-restore.md).
 
-Backups are not encrypted, by Aaron's decision on 20 Nov 2026 ([ADR-0014](adr/0014-backups-stored-unencrypted.md)). Anyone holding the R2 keys or the Cloudflare login can read every record, user and password hash in them. There is no key step; to turn encryption on later, see [the runbook](runbooks/backup-restore.md#to-turn-encryption-on).
+Backups are not encrypted, by Aaron's decision on 20 Nov 2026 ([ADR-0014](adr/0014-backups-stored-unencrypted.md)). Anyone holding the R2 keys or the Cloudflare login can read every record, user, password hash and file in them, but cannot sign in with a copied session. There is no key step; to turn encryption on later, see [the runbook](runbooks/backup-restore.md#to-turn-encryption-on).
 
 - [x] Convex Pro account.
 - [ ] Turn on the **daily scheduled backup, including file storage**, on the production deployment (Convex dashboard → Backups).

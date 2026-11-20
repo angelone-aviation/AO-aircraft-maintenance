@@ -2,7 +2,7 @@
 
 Policy: [ADR-0008](../adr/0008-daily-backups-off-site-90-days-monthly-forever.md), changed by [ADR-0014](../adr/0014-backups-stored-unencrypted.md). Plan and deployments: [ADR-0007](../adr/0007-convex-pro-single-seat.md). The nightly job is built; the bucket, R2 token and GitHub environment are set up by hand ([go-live checklist](../go-live-checklist.md#backup-setup-remaining)).
 
-**Backups are not encrypted, by Aaron's decision on 20 Nov 2026. Anyone holding the R2 keys or the Cloudflare login can read every record, user and password hash in them.** A copy also holds emails, certificate numbers, licence copies, sessions and the saved (still sealed) third-party credentials. Keep the bucket private and the R2 token and Cloudflare login to people who may read all of that. Encryption comes back by adding one secret: [To turn encryption on](#to-turn-encryption-on).
+**Backups are not encrypted, by Aaron's decision on 20 Nov 2026. Anyone holding the R2 keys or the Cloudflare login can read every record, user, password hash and file in them, but cannot sign in with a copied session.** A copy also holds emails, certificate numbers, licence copies and the saved (still sealed) third-party credentials. Its sessions, refresh tokens, sign-in codes and OAuth verifiers are emptied before upload. Keep the bucket private and the R2 token and Cloudflare login to people who may read all of that. Encryption comes back by adding one secret: [To turn encryption on](#to-turn-encryption-on).
 
 ## What is backed up, where
 
@@ -19,7 +19,7 @@ Policy: [ADR-0008](../adr/0008-daily-backups-off-site-90-days-monthly-forever.md
 The **Nightly backup** workflow (`.github/workflows/backup.yml`) runs `scripts/backup/nightly.sh` every day at 08:41 UTC (about 3:41 am US Eastern). It:
 
 1. exports production with its uploaded files (`npx convex export --include-file-storage`) and checks that the ZIP is valid, includes file storage and holds at least one user account. It does not compare the table counts with earlier nights; the manifest keeps them so a person can;
-2. with no `BACKUP_AGE_PUBLIC_KEY` (the set-up today), keeps the ZIP as it is and names it `.unencrypted.zip`; with the key, encrypts it with `age` to that public key (`.zip.age`);
+2. with no `BACKUP_AGE_PUBLIC_KEY` (the set-up today), empties the sign-in tables `authSessions`, `authRefreshTokens`, `authVerificationCodes` and `authVerifiers` (they stay in the ZIP, with no rows; `users` and `authAccounts` stay whole) and names the ZIP `.unencrypted.zip`; with the key, keeps the full export and encrypts it with `age` to that public key (`.zip.age`);
 3. uploads it to `daily/` with a manifest, and checks that the object is there at the right size;
 4. on the first successful night of each month, uploads the same file to `monthly/` (if the 1st was missed, the next good night counts);
 5. only with the key: saves the environment variables, encrypted, to `env/` when they or the backup key have changed since the last copy. Without the key it neither reads nor uploads them: they hold the credential and sign-in keys, and are never stored unencrypted;
@@ -38,7 +38,7 @@ angelone-backups/
   monthly/2026-11/angelone-20261120T084112Z.unencrypted.manifest.json
 ```
 
-The time in each name is when the export started, in UTC, so names sort by time. The **manifest** holds no personal data or secrets: `"encrypted": false`, a `notice` that starts `NOT ENCRYPTED`, `exportStartedAt`, `gitCommit`, `convexCliVersion`, the SHA-256 and size of the ZIP, and the document count per table. The run's summary heading ends `NOT ENCRYPTED` and says who can read the copy.
+The time in each name is when the export started, in UTC, so names sort by time. The **manifest** holds no personal data or secrets: `"encrypted": false`, a `notice` that starts `NOT ENCRYPTED`, `signInRecordsRemoved` (the emptied tables and why), `exportStartedAt`, `gitCommit`, `convexCliVersion`, the SHA-256 and size of the uploaded ZIP (after the tables were emptied), and the document count per table. The run's summary heading ends `NOT ENCRYPTED`; it says who can read the copy and which tables were emptied.
 
 With a backup key the names end `.zip.age` and `.manifest.json`, and `env/` and `state/` appear ([To turn encryption on](#to-turn-encryption-on)).
 
@@ -88,7 +88,7 @@ While encryption is off, the job does not save the environment variables, and a 
      --endpoint-url "https://<account-id>.r2.cloudflarestorage.com" --region auto
    ```
 
-2. Check it against its manifest. The helper checks the SHA-256, prints the document count per table, and leaves the ZIP as it is, ready to import:
+2. Check it against its manifest. The helper checks the SHA-256, prints the document count per table, reminds you that the sign-in records were removed, and leaves the ZIP as it is, ready to import:
 
    ```sh
    scripts/backup/decrypt.sh angelone-20261120T084112Z.unencrypted.zip
@@ -105,7 +105,7 @@ Use the newest monthly copy.
 3. Create a scratch deployment (a preview deployment, per ADR-0007). Never use one other people can sign in to.
 4. Set its variables. With no `env/` copy, make new sign-in keys and the site address with `SITE_URL=<scratch site> npm run setup:auth` against the scratch deployment, and set `CREDENTIALS_ENCRYPTION_KEY` from Aaron's password manager if he keeps it (`npx convex env set --deployment <scratch> CREDENTIALS_ENCRYPTION_KEY '<value>'`) before `setup:auth`, so that it does not make a new one. For a copy made while encryption was on, use the matching `env/` file as in [Decrypt an encrypted copy](#decrypt-an-encrypted-copy).
 5. `npx convex import --deployment <scratch> --replace-all -y angelone-20261120T084112Z.unencrypted.zip`
-6. Check: the document count of each table in the Convex dashboard (scratch deployment → Data) matches the counts `decrypt.sh` printed from the manifest; an administrator can sign in with their password; one aircraft's records and one attachment open. Without the credential key, saved FAA, Geoapify and Aircraft Spruce credentials do not open; that is expected while encryption is off.
+6. Check: the document count of each table in the Convex dashboard (scratch deployment → Data) matches the counts `decrypt.sh` printed from the manifest; an administrator can sign in with their password; one aircraft's records and one attachment open. Without the credential key, saved FAA, Geoapify and Aircraft Spruce credentials do not open; that is expected while encryption is off. Nobody is signed in after the import: the copy has no sessions.
 7. Run the history paging steps, each until it reports 0: `npx convex run --deployment <scratch> migrations:backfillHistoryColumns`, then `migrations:rebuildRecordNumbers`, then `migrations:rebuildCostLedger`; then `migrations:reconcileCostLedger` must answer `differing: 0`. Check that **Load older** on the Flight log loads older flights.
 8. Delete the scratch deployment and the downloaded files (and `key.txt`, for an encrypted copy).
 9. Log it below.
@@ -119,7 +119,7 @@ Use the newest monthly copy.
 1. Stop writes: tell users, and take the site offline if needed.
 2. Take a fresh Convex backup first. Restores are destructive.
 3. Restore from the Convex dashboard (last 7 days), or from R2 for anything older: download and check the `daily/` or `monthly/` copy ([above](#download-and-check)), then `npx convex import --prod --replace-all angelone-<time>.unencrypted.zip` (or the decrypted `angelone-<time>.zip`).
-4. If the deployment is new, set its environment variables: from the matching `env/` file for a copy made while encryption was on; otherwise as in step 4 of the [rehearsal](#quarterly-restore-rehearsal), then the other variables in the README's "Settings that live on the deployment". Administrators re-enter saved credentials that no longer open.
+4. If the deployment is new, set its environment variables: from the matching `env/` file for a copy made while encryption was on; otherwise as in step 4 of the [rehearsal](#quarterly-restore-rehearsal), then the other variables in the README's "Settings that live on the deployment". Administrators re-enter saved credentials that no longer open. After restoring an unencrypted copy everyone must sign in again with their password (or Google or Microsoft), which is harmless: the copy holds no sessions or refresh tokens.
 5. Re-apply access changes made since the backup. A restore brings accounts, passwords, memberships and sessions back as they were: disable again anyone disabled since, reset again any password reset since, and remove again any member removed since.
 6. Rebuild what the workspace's history window reads, in this order and each until it reports 0: `npx convex run --prod migrations:backfillHistoryColumns` (rows from before a column or a lookup key carry none), `migrations:rebuildRecordNumbers`, `migrations:rebuildCostLedger`; then `migrations:reconcileCostLedger` must answer `differing: 0` ([history paging](../history-paging.md#before-deploying-s7)). Until the backfill reaches 0 the workspace loads more than it needs, the history pages refuse, and a parts-request or purchase-order save can miss a reused request id, an open repair or an allocation on an older record; until the rebuilds do, a blank number can repeat an older one and the board can show less than was spent.
 7. Verify as in the rehearsal.
