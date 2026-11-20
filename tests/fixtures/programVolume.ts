@@ -146,13 +146,19 @@ export async function seedProgramVolume(
 }
 
 /**
- * Adds job cards and work orders without files to the first aircraft, to show
- * whether what the snapshot reads grows with them.
+ * Adds older history to the first aircraft: a work order completed two years
+ * before `at` with completed job cards, a photo on every tenth, which the
+ * workspace's window leaves out, to show that what the snapshot reads does
+ * not grow with it.
  *
- * @param count - Job cards to add; one work order is added per 10.
+ * @param count - Job cards to add to the order.
  */
-export async function addJobCards(ctx: MutationCtx, at: number, count: number) {
-  const gen = new Generator(at + DAY, "e");
+export async function addOlderHistory(
+  ctx: MutationCtx,
+  at: number,
+  count: number,
+) {
+  const gen = new Generator(at - 2 * YEAR, "e");
   gen.users = {
     admin: "admin",
     pilot: "pilot",
@@ -160,12 +166,22 @@ export async function addJobCards(ctx: MutationCtx, at: number, count: number) {
     board: "board",
   };
   const aircraft = demoAircraft(0);
+  const blob = await ctx.storage.store(new Blob(["%PDF-1.4 evidence"]));
+  const order = gen.workOrder(aircraft, 0, true);
+  await ctx.db.insert("workOrders", encode("workOrders", order));
   for (let n = 0; n < count; n++) {
-    const card = gen.taskCard(aircraft.uuid, gen.uuid(), n, false);
+    const card = gen.taskCard(aircraft.uuid, order.uuid, n, true);
     await ctx.db.insert("taskCards", encode("taskCards", card));
-    if (n % 10 !== 0) continue;
-    const order = gen.workOrder(aircraft, n, false);
-    await ctx.db.insert("workOrders", encode("workOrders", order));
+    if (n % VOLUME.evidenceEvery === 0)
+      await ctx.db.insert("taskEvidence", {
+        taskCardUuid: card.uuid,
+        aircraftUuid: aircraft.uuid,
+        storageId: blob,
+        name: `card-${card.uuid.slice(-6)}.pdf`,
+        size: 2048,
+        uploadedAt: at - 2 * YEAR,
+        category: "photo",
+      });
   }
 }
 

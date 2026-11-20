@@ -4,7 +4,8 @@
  * Layer: Server. Pure: no Convex context, no I/O, and only type imports from
  *   convex, so the backup scripts can bundle it.
  * Dependencies: src/domain (model, componentTemplates, the stored-record
- *   schemas and number rules), convex/server and ./_generated (types).
+ *   schemas and number rules, retention), convex/server and ./_generated
+ *   (types).
  *
  * Component templates and setups decode as written, without a schema: their
  * readers have always taken the stored JSON as it is, and parsing it would
@@ -40,6 +41,7 @@ import { checklistRecordSchema } from "../src/domain/checklists";
 import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
 import { costRecordSchema } from "../src/domain/costs";
 import { faaMonitorSchema } from "../src/domain/faa";
+import { costEntryActivity, workOrderActivity } from "../src/domain/retention";
 import { flightPlanSchema } from "../src/domain/flightPlans";
 import { expiringItemSchema } from "../src/domain/expiringItems";
 
@@ -144,14 +146,16 @@ export function encode<N extends PayloadCollection>(
  * The columns a row copies from its record for the history window's indexes
  * (ADR-0013); none for the other collections.
  *
- * - Work orders: `status`, `completionDate`, `numberKey`, and once closed
- *   `closedAt`: the later of the close-out and the completion date's UTC
- *   midnight, absent for an order cancelled with neither.
+ * - Work orders: `status`, `completionDate`, `numberKey`, `changedAt` (the
+ *   latest of the order's own dated events, workOrderActivity), and once
+ *   closed `closedAt`: the later of the close-out and the completion date's
+ *   UTC midnight, absent for an order cancelled with neither.
  * - Job cards: `workOrderUuid`, `numberKey`, and once closed `closedAt`, the
  *   card's last update: a closed card takes no more edits.
  * - Archived job cards: `workOrderUuid` and `numberKey`. The card records no
  *   archive time; its work order dates the removal.
- * - Costs: `kind`, and a work order's record its `workOrderUuid`.
+ * - Costs: `kind`, and a work order's record its `workOrderUuid` and
+ *   `changedAt`, its latest labor or other entry (0 for none).
  * - Parts requests: the source's `workOrderUuid` and `uuid` as
  *   `sourceWorkOrderUuid` and `sourceUuid`, and `numberValue`.
  * - Purchase orders: `numberValue`.
@@ -173,18 +177,23 @@ export interface FlightColumns {
   /** The start time in milliseconds: the stored text keeps the pilot's
    * offset, so it does not sort by instant. */
   startedAt: number;
+  /** The later of the start and the submission: the window keeps a flight
+   * while either is recent, so one range finds it. */
+  latestAt: number;
 }
 
 /**
  * The columns a flight's row adds for the history window's indexes
  * (ADR-0013). Every write of a flight's start time writes them with it.
  *
- * @param flight - The flight, or the fields a review sets on it.
+ * @param flight - The flight, or the fields a review sets on it with the
+ *   stored submission time.
  */
 export function flightColumns(
-  flight: Pick<Flight, "startTime">,
+  flight: Pick<Flight, "startTime" | "submittedAt">,
 ): FlightColumns {
-  return { startedAt: Date.parse(flight.startTime) };
+  const startedAt = Date.parse(flight.startTime);
+  return { startedAt, latestAt: Math.max(startedAt, flight.submittedAt) };
 }
 
 /**
@@ -198,7 +207,7 @@ export function flightColumns(
 export function decodeFlight<
   R extends Pick<Flight, "startTime"> & Partial<FlightColumns>,
 >(row: R): Omit<R, keyof FlightColumns> {
-  const { startedAt: _derived, ...flight } = row;
+  const { startedAt: _started, latestAt: _latest, ...flight } = row;
   return flight;
 }
 
@@ -331,6 +340,7 @@ const DERIVED: {
     closedAt: workOrderClosedAt(r),
     completionDate: r.completionDate,
     numberKey: workOrderNumberKey(r.number),
+    changedAt: workOrderActivity(r),
   }),
   taskCards: (r) => ({
     workOrderUuid: r.workOrderUuid,
@@ -344,6 +354,7 @@ const DERIVED: {
   costs: (r) => ({
     kind: r.kind,
     workOrderUuid: r.kind === "workOrder" ? r.workOrderUuid : undefined,
+    changedAt: r.kind === "workOrder" ? costEntryActivity(r) : undefined,
   }),
   partsRequests: (r) => ({
     sourceWorkOrderUuid: r.source.workOrderUuid,

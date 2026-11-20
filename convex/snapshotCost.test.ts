@@ -19,7 +19,7 @@ import type { QueryCtx } from "./_generated/server";
 import schema from "./schema";
 import { snapshot as snapshotQuery } from "./operations";
 import {
-  addJobCards,
+  addOlderHistory,
   seedProgramVolume,
   VOLUME,
   type VolumeAccounts,
@@ -41,6 +41,8 @@ const SEEDED_AT = Date.UTC(2026, 10, 3, 12);
 const N206 = demoSnapshot().aircraft[0].uuid;
 const SECOND_CARD = "00000000-0000-4000-8000-00000000beef";
 const ROLES = ["admin", "pilot", "owner", "board"] as const;
+// A kept work order's job cards, archived job cards, costs and files.
+const LOOKUPS_PER_ORDER = 4;
 // Seeding about ten thousand rows takes a while on a shared machine.
 const VOLUME_TIMEOUT_MS = 120_000;
 // Tables the owner and board whitelists never pass, so never worth reading.
@@ -128,19 +130,28 @@ describe("the workspace snapshot at one year of records", () => {
     expect(reads.board.documents * 3).toBeLessThan(reads.admin.documents);
   });
 
-  it("looks files up once per aircraft, not once per job card or work order", async () => {
+  it("reads nothing more for history the window leaves out (S7)", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: SEEDED_AT });
     const before = { pilot: reads.pilot, admin: reads.admin };
-    await t.run((ctx) => addJobCards(ctx, SEEDED_AT, 100));
+    await t.run((ctx) => addOlderHistory(ctx, SEEDED_AT, 100));
     for (const role of ["pilot", "admin"] as const) {
       const after = await measure(t, accounts[role]);
       expect(after.lookups, role).toBe(before[role].lookups);
-      expect(after.documents, role).toBe(before[role].documents + 110);
+      expect(after.documents, role).toBe(before[role].documents);
     }
   });
 
-  it("keeps the pilot's lookups to a few per aircraft and table", () => {
-    expect(reads.pilot.lookups).toBeLessThan(VOLUME.aircraft * 30);
+  // Since S7 a kept record's files are looked up by the record: one lookup
+  // per job card, and a work order's cards, removed cards, costs and files.
+  it("keeps the pilot's lookups to a few per aircraft and table, and per kept record", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: SEEDED_AT });
+    const s = (await t
+      .withIdentity({ subject: accounts.pilot })
+      .query(api.operations.snapshot, {}))!;
+    const cards = s.taskCards!.length + s.archivedTaskCards!.length;
+    expect(reads.pilot.lookups).toBeLessThan(
+      VOLUME.aircraft * 30 + cards + LOOKUPS_PER_ORDER * s.workOrders!.length,
+    );
   });
 });
 

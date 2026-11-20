@@ -3,9 +3,10 @@
  *   across ties and page boundaries, and that each page equals historyPage
  *   on the caller's own scoped snapshot.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex (history, operations, schema, collections,
- *   memberships, _generated), tests/fixtures/derivedColumns.ts,
- *   src/data/demo.ts, src/domain (retention, historyReads, record schemas).
+ * Dependencies: convex (history, schema, collections, memberships,
+ *   _generated), tests/fixtures (derivedColumns, legacySnapshot),
+ *   src/data/demo.ts, src/domain (retention, historyReads, programs, record
+ *   schemas).
  *
  * Within a tie the rows are inserted out of uuid order, so a server that
  * left ties in creation order would fail.
@@ -21,6 +22,7 @@ import type { MutationCtx } from "./_generated/server";
 import { encode, flightColumns } from "./collections";
 import { syncMemberships } from "./memberships";
 import { forgetDerivedColumns } from "../tests/fixtures/derivedColumns";
+import { legacySnapshot } from "../tests/fixtures/legacySnapshot";
 import {
   expectOraclePages,
   queryHistoryPage,
@@ -40,6 +42,7 @@ import {
   workOrderHistory,
 } from "../src/domain/historyReads";
 import type { Discrepancy, Flight, Snapshot } from "../src/domain/model";
+import { scopedSnapshot } from "../src/domain/programs";
 import { workOrderSchema, type WorkOrder } from "../src/domain/workOrders";
 import { taskCardDefaults, taskCardSchema } from "../src/domain/taskCards";
 import { costRecordSchema } from "../src/domain/costs";
@@ -416,8 +419,12 @@ function aircraftOf(pages: HistoryPage[]): string[] {
   return [...new Set(rows.map((r) => r.aircraftUuid))].sort();
 }
 
+// The caller's scoped whole history, the oracle's input: the workspace
+// itself holds only the window since S7.
 async function snapshotOf(role: Role): Promise<Snapshot> {
-  const s = await as(role).query(api.operations.snapshot, {});
+  const s = await as(role).query((ctx) =>
+    legacySnapshot(ctx, (full) => scopedSnapshot(full)),
+  );
   if (!s) throw new Error(`No snapshot for the ${role}.`);
   return s;
 }

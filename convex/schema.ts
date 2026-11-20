@@ -473,6 +473,7 @@ export default defineSchema({
     closedAt: v.optional(v.number()),
     completionDate: v.optional(v.string()),
     numberKey: v.optional(v.string()),
+    changedAt: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
@@ -480,7 +481,10 @@ export default defineSchema({
     // ties as src/domain/retention.ts does.
     .index("status", ["aircraftUuid", "status", "completionDate", "uuid"])
     .index("closed", ["aircraftUuid", "closedAt"])
-    .index("number", ["aircraftUuid", "numberKey"]),
+    .index("number", ["aircraftUuid", "numberKey"])
+    // The workspace finds a closed order revised, corrected or with an item
+    // removed within the window here: closedAt dates only the closing.
+    .index("changed", ["aircraftUuid", "changedAt"]),
   inventoryFiles: defineTable({
     stockUuid: v.string(),
     storageId: v.id("_storage"),
@@ -532,6 +536,8 @@ export default defineSchema({
     // Derived: startTime in milliseconds. The stored text keeps the pilot's
     // offset, so it does not sort by instant.
     startedAt: v.optional(v.number()),
+    // Derived: the later of startedAt and submittedAt.
+    latestAt: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
@@ -539,7 +545,8 @@ export default defineSchema({
     // History pages read this range; the uuid orders ties as
     // src/domain/retention.ts does.
     .index("started", ["aircraftUuid", "startedAt", "uuid"])
-    .index("submitted", ["aircraftUuid", "submittedAt"])
+    // The workspace reads the flights the window keeps by date here.
+    .index("latest", ["aircraftUuid", "latestAt"])
     .index("status", ["aircraftUuid", "status"]),
   discrepancies: defineTable({
     // A problem report has no version of its own; this one guards edits to
@@ -636,7 +643,7 @@ export default defineSchema({
     programUuid: v.string(),
     aircraftUuid: v.string(),
     payload: v.string(),
-    // Derived; workOrderUuid only on a work order's record.
+    // Derived; workOrderUuid and changedAt only on a work order's record.
     kind: v.optional(
       v.union(
         v.literal("workOrder"),
@@ -645,11 +652,13 @@ export default defineSchema({
       ),
     ),
     workOrderUuid: v.optional(v.string()),
+    changedAt: v.optional(v.number()),
   })
     .index("uuid", ["uuid"])
     .index("aircraft", ["aircraftUuid"])
     .index("program", ["programUuid", "aircraftUuid"])
-    .index("kind", ["programUuid", "kind"])
+    // With changedAt, a work order's cost records changed within the window.
+    .index("kind", ["programUuid", "kind", "changedAt"])
     .index("workOrder", ["workOrderUuid"]),
   // The next two tables are derived, not records: rebuilt from the records
   // after a restore, never written to the change log (ADR-0013). Empty until

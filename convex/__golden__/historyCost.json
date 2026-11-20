@@ -1,153 +1,153 @@
 {
  "snapshot.admin": {
   "1": {
-   "bytes": 7558519,
-   "documents": 6099,
-   "indexRanges": 1011
+   "bytes": 8302348,
+   "documents": 5716,
+   "indexRanges": 2474
   },
   "2": {
-   "bytes": 12700196,
-   "documents": 10179,
-   "indexRanges": 1011
+   "bytes": 8978177,
+   "documents": 6376,
+   "indexRanges": 2474
   },
   "3": {
-   "bytes": 17840124,
-   "documents": 14259,
-   "indexRanges": 1011
+   "bytes": 9652257,
+   "documents": 7036,
+   "indexRanges": 2474
   }
  },
  "snapshot.pilot": {
   "1": {
-   "bytes": 7519767,
-   "documents": 5947,
-   "indexRanges": 96
+   "bytes": 4916888,
+   "documents": 3784,
+   "indexRanges": 619
   },
   "2": {
-   "bytes": 12624436,
-   "documents": 9883,
-   "indexRanges": 96
+   "bytes": 5592717,
+   "documents": 4444,
+   "indexRanges": 619
   },
   "3": {
-   "bytes": 17727356,
-   "documents": 13819,
-   "indexRanges": 96
+   "bytes": 6266797,
+   "documents": 5104,
+   "indexRanges": 619
   }
  },
  "snapshot.owner": {
   "1": {
-   "bytes": 1066715,
-   "documents": 1711,
-   "indexRanges": 39
+   "bytes": 1094369,
+   "documents": 1759,
+   "indexRanges": 75
   },
   "2": {
-   "bytes": 1210127,
-   "documents": 1963,
-   "indexRanges": 39
+   "bytes": 1094369,
+   "documents": 1759,
+   "indexRanges": 75
   },
   "3": {
-   "bytes": 1353539,
-   "documents": 2215,
-   "indexRanges": 39
+   "bytes": 1094369,
+   "documents": 1759,
+   "indexRanges": 75
   }
  },
  "snapshot.board": {
   "1": {
-   "bytes": 1086592,
-   "documents": 1784,
-   "indexRanges": 47
+   "bytes": 1114246,
+   "documents": 1832,
+   "indexRanges": 83
   },
   "2": {
-   "bytes": 1230004,
-   "documents": 2036,
-   "indexRanges": 47
+   "bytes": 1114246,
+   "documents": 1832,
+   "indexRanges": 83
   },
   "3": {
-   "bytes": 1373416,
-   "documents": 2288,
-   "indexRanges": 47
+   "bytes": 1114246,
+   "documents": 1832,
+   "indexRanges": 83
   }
  },
  "workOrder.save": {
   "1": {
-   "bytes": 980731,
+   "bytes": 980769,
    "documents": 1485,
    "indexRanges": 50
   },
   "2": {
-   "bytes": 980731,
+   "bytes": 980769,
    "documents": 1485,
    "indexRanges": 50
   },
   "3": {
-   "bytes": 980731,
+   "bytes": 980769,
    "documents": 1485,
    "indexRanges": 50
   }
  },
  "taskCard.save": {
   "1": {
-   "bytes": 787150,
+   "bytes": 787169,
    "documents": 1239,
    "indexRanges": 36
   },
   "2": {
-   "bytes": 787150,
+   "bytes": 787169,
    "documents": 1239,
    "indexRanges": 36
   },
   "3": {
-   "bytes": 787150,
+   "bytes": 787169,
    "documents": 1239,
    "indexRanges": 36
   }
  },
  "taskCard.evidence": {
   "1": {
-   "bytes": 7798,
+   "bytes": 7817,
    "documents": 16,
    "indexRanges": 15
   },
   "2": {
-   "bytes": 7798,
+   "bytes": 7817,
    "documents": 16,
    "indexRanges": 15
   },
   "3": {
-   "bytes": 7798,
+   "bytes": 7817,
    "documents": 16,
    "indexRanges": 15
   }
  },
  "partsRequest.save": {
   "1": {
-   "bytes": 1330908,
+   "bytes": 1331022,
    "documents": 1766,
    "indexRanges": 36
   },
   "2": {
-   "bytes": 1729588,
+   "bytes": 1729702,
    "documents": 2066,
    "indexRanges": 36
   },
   "3": {
-   "bytes": 2128268,
+   "bytes": 2128382,
    "documents": 2366,
    "indexRanges": 36
   }
  },
  "cost.partUnitCost": {
   "1": {
-   "bytes": 767177,
+   "bytes": 767272,
    "documents": 1079,
    "indexRanges": 58
   },
   "2": {
-   "bytes": 767177,
+   "bytes": 767272,
    "documents": 1079,
    "indexRanges": 58
   },
   "3": {
-   "bytes": 767177,
+   "bytes": 767272,
    "documents": 1079,
    "indexRanges": 58
   }
@@ -188,19 +188,36 @@
  },
  "history.costReport": {
   "1": {
-   "bytes": 18481,
+   "bytes": 18709,
    "documents": 38,
    "indexRanges": 27
   },
   "2": {
-   "bytes": 18481,
+   "bytes": 18709,
    "documents": 38,
    "indexRanges": 27
   },
   "3": {
-   "bytes": 18481,
+   "bytes": 18709,
    "documents": 38,
    "indexRanges": 27
+  }
+ },
+ "snapshot.window": {
+  "1": {
+   "bytes": 5147866,
+   "documents": 2823,
+   "indexRanges": 355
+  },
+  "2": {
+   "bytes": 5147866,
+   "documents": 2823,
+   "indexRanges": 355
+  },
+  "3": {
+   "bytes": 5147866,
+   "documents": 2823,
+   "indexRanges": 355
   }
  }
 }

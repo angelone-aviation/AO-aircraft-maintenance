@@ -47,6 +47,7 @@ import type * as groupAudit from "../groupAudit.js";
 import type * as groupDeletion from "../groupDeletion.js";
 import type * as history from "../history.js";
 import type * as historyScan from "../historyScan.js";
+import type * as historyWindow from "../historyWindow.js";
 import type * as http from "../http.js";
 import type * as identities from "../identities.js";
 import type * as inspectionTemplates from "../inspectionTemplates.js";
@@ -134,6 +135,7 @@ declare const fullApi: ApiFromModules<{
   groupDeletion: typeof groupDeletion;
   history: typeof history;
   historyScan: typeof historyScan;
+  historyWindow: typeof historyWindow;
   http: typeof http;
   identities: typeof identities;
   inspectionTemplates: typeof inspectionTemplates;

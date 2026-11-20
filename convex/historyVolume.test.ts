@@ -4,8 +4,8 @@
  *   every record exactly once.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex (schema, operations, migrations, history, _generated),
- *   tests/fixtures/programVolume.ts, tests/fixtures/historyPages.ts,
- *   src/domain (retention, model).
+ *   tests/fixtures (programVolume, historyPages, legacySnapshot), src/domain
+ *   (retention, programs, model).
  *
  * The fixture stores flights without their derived column, as rows written
  * before S2 are, so the backfill runs first, as on a deployment.
@@ -20,7 +20,9 @@ import {
   type VolumeAccounts,
 } from "../tests/fixtures/programVolume";
 import { expectOraclePages } from "../tests/fixtures/historyPages";
+import { legacySnapshot } from "../tests/fixtures/legacySnapshot";
 import { retainedSnapshot, type HistoryRecords } from "../src/domain/retention";
+import { scopedSnapshot } from "../src/domain/programs";
 import type { Snapshot } from "../src/domain/model";
 
 const modules = import.meta.glob([
@@ -63,9 +65,14 @@ describe("two fleet-years of history", () => {
     "pages the %s's older records as historyPage does, and the window and pages hold each record once",
     async (role) => {
       const client = t.withIdentity({ subject: accounts[role] });
-      const s = (await client.query(api.operations.snapshot, {}))!;
+      const s = (await client.query((ctx) =>
+        legacySnapshot(ctx, (full) => scopedSnapshot(full)),
+      ))!;
+      const served = (await client.query(api.operations.snapshot, {}))!;
       const paged = await pageEveryList(client, s);
       const kept = retainedSnapshot(s, SEEDED_AT);
+      for (const key of COLLECTIONS)
+        expect(uuids(served[key]).sort(), key).toEqual(uuids(kept[key]).sort());
       for (const key of COLLECTIONS) {
         const keptUuids = uuids(kept[key]);
         const pagedUuids = uuids(paged[key]);

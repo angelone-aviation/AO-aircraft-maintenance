@@ -1,21 +1,27 @@
 /**
- * Responsibility: Characterizes what the workspace snapshot and the saves
- *   that load whole history read at one, two and three fleet-years.
+ * Responsibility: Pins what the workspace snapshot and the saves that once
+ *   loaded whole history read at one, two and three fleet-years.
  * Layer: Test. convex-test suite; never shipped in the build.
- * Dependencies: convex (operations, schema), tests/fixtures (programVolume,
- *   volumeSaves).
+ * Dependencies: convex (operations, historyWindow, programContext, schema,
+ *   migrations), tests/fixtures (programVolume, volumeSaves), src/domain
+ *   (programs).
  *
  * The counts are convex-test's transaction metrics: documents and bytes read
  * as Convex counts them against its 16 MiB limit, and index ranges against
- * its 4,096. They are the baseline for history paging (ADR-0013,
- * docs/history-paging.md): each stage that bounds a read turns its growth
- * into a flat line, and these tests flip with it.
+ * its 4,096. They began as the baseline for history paging (ADR-0013,
+ * docs/history-paging.md); each stage that bounded a read turned its growth
+ * into a flat line, and these tests flipped with it. Each database runs the
+ * backfill first, as a deployment does before the window is trusted.
  */
-import { convexTest } from "convex-test";
+import { convexTest, type TestConvex } from "convex-test";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { QueryCtx } from "./_generated/server";
 import schema from "./schema";
 import { snapshot } from "./operations";
+import { internal } from "./_generated/api";
+import { windowedHistory } from "./historyWindow";
+import { context } from "./programContext";
+import { activeProgram } from "../src/domain/programs";
 import { seedProgramVolume, VOLUME } from "../tests/fixtures/programVolume";
 import {
   findVolumeTargets,
@@ -38,6 +44,10 @@ const FLAT = 1.1;
 // The parts requests and purchase orders each fleet-year adds.
 const PURCHASING_ROWS_PER_YEAR =
   VOLUME.aircraft * (VOLUME.partsRequests + VOLUME.purchaseOrders);
+// With the flight plans, what H5 keeps complete in the workspace.
+const COMPLETE_ROWS_PER_YEAR =
+  PURCHASING_ROWS_PER_YEAR +
+  (VOLUME.aircraft * VOLUME.flights) / VOLUME.flightPlanEvery;
 
 type Reads = { documents: number; bytes: number; indexRanges: number };
 type Handler<C> = (ctx: C, args: object) => Promise<unknown>;
@@ -51,15 +61,25 @@ beforeAll(async () => {
 
 afterAll(() => vi.useRealTimers());
 
-it("matches the reads recorded before history paging", async () => {
+it("matches the recorded reads", async () => {
   await expect(
     JSON.stringify(Object.fromEntries(reads), null, 1),
   ).toMatchFileSnapshot("./__golden__/historyCost.json");
 });
 
-describe("Characterizes current behaviour: reads grow with each year of history", () => {
-  it.each(ROLES)("the %s's workspace snapshot", (role) =>
-    expectGrowth(`snapshot.${role}`),
+describe("the windowed workspace (S7)", () => {
+  it("reads the window's history the same at three years as at one", () =>
+    expectFlat("snapshot.window"));
+
+  it.each(["owner", "board"])("the %s's snapshot reads the same", (role) =>
+    expectFlat(`snapshot.${role}`),
+  );
+
+  // H5 keeps parts requests, purchase orders and flight plans complete, so
+  // the workspace grows by those rows alone.
+  it.each(["admin", "pilot"])(
+    "the %s's snapshot grows by the collections H5 keeps complete alone",
+    (role) => expectGrowthOf(`snapshot.${role}`, COMPLETE_ROWS_PER_YEAR),
   );
 });
 
@@ -81,18 +101,6 @@ describe("Characterizes current behaviour: saves that read every parts request a
     expectGrowthOf(operation, PURCHASING_ROWS_PER_YEAR),
   );
 });
-
-// Documents and bytes rise every year. Index ranges do not: each loader
-// reads one range per aircraft or program, however many rows it holds, so
-// the 16 MiB read limit, not the range limit, is the one history reaches.
-function expectGrowth(name: string) {
-  const [one, two, three] = yearsOf(name);
-  expect(two.documents, name).toBeGreaterThan(one.documents);
-  expect(three.documents, name).toBeGreaterThan(two.documents);
-  expect(two.bytes, name).toBeGreaterThan(one.bytes);
-  expect(three.bytes, name).toBeGreaterThan(two.bytes);
-  expectSameRanges(name);
-}
 
 // The plan's bar for a bounded read (ADR-0013): within 10% of year 1.
 function expectFlat(name: string) {
@@ -128,6 +136,7 @@ async function measureYear(years: number) {
   const { accounts } = await t.run((ctx) =>
     seedProgramVolume(ctx, SEEDED_AT, years),
   );
+  await t.action(internal.migrations.backfillHistoryColumns, {});
   const targets = await t.run(findVolumeTargets);
   for (const role of ROLES)
     await measure(t, years, accounts[role], {
@@ -138,6 +147,28 @@ async function measureYear(years: number) {
     });
   for (const operation of volumeOperations(targets))
     await measure(t, years, accounts.admin, operation);
+  record("snapshot.window", years, await windowReads(t, accounts.admin));
+}
+
+// The administrator's windowed history alone, without the collections that
+// stay complete.
+function windowReads(
+  t: TestConvex<typeof schema>,
+  subject: string,
+): Promise<Reads> {
+  return t.withIdentity({ subject }).query(async (ctx) => {
+    const state = await context(ctx);
+    const before = await ctx.meta.getTransactionMetrics();
+    const fleet = state.aircraft;
+    const scope = { program: activeProgram(state), fleet, readable: fleet };
+    await windowedHistory(ctx, scope, Date.now());
+    const after = await ctx.meta.getTransactionMetrics();
+    return {
+      documents: after.documentsRead.used - before.documentsRead.used,
+      bytes: after.bytesRead.used - before.bytesRead.used,
+      indexRanges: after.databaseQueries.used - before.databaseQueries.used,
+    };
+  });
 }
 
 async function measure(
@@ -146,11 +177,11 @@ async function measure(
   subject: string,
   operation: VolumeOperation,
 ) {
-  const measured = await readsOf(t, subject, operation);
-  reads.set(operation.name, {
-    ...reads.get(operation.name),
-    [years]: measured,
-  });
+  record(operation.name, years, await readsOf(t, subject, operation));
+}
+
+function record(name: string, years: number, measured: Reads) {
+  reads.set(name, { ...reads.get(name), [years]: measured });
 }
 
 // Runs a registered function's handler inside an inline transaction, so the

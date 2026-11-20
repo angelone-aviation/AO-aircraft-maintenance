@@ -20,7 +20,7 @@ import { isBoardView } from "../src/domain/boardView";
 
 type Ctx = QueryCtx | MutationCtx;
 /** The aircraft a per-aircraft loader reads for. */
-type AircraftRefs = { uuid: string }[];
+type AircraftRefs = readonly { uuid: string }[];
 
 /** How many change-log rows the snapshot's History list holds. */
 export const AUDIT_LIMIT = 250;

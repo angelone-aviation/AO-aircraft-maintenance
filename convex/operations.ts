@@ -5,9 +5,9 @@
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
  *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
  *   ./urgentAlerts, ./memberships, ./validators, ./recordsDate, ./costLedger,
- *   ./workingSet, src/domain (model, programs, flightSubmission,
- *   flightReview, ownerView, boardView, costs, deferrals, requiredParts,
- *   rejection, aircraftStatus).
+ *   ./workingSet, ./historyWindow, src/domain (model, programs, retention,
+ *   flightSubmission, flightReview, ownerView, boardView, costs, deferrals,
+ *   requiredParts, rejection, aircraftStatus).
  */
 import { v } from "convex/values";
 import {
@@ -24,12 +24,8 @@ import {
   context,
   managementDocs,
   inspectionDocs,
-  flightDocs,
   discrepancyDocs,
   openReportDocs,
-  taskCardDocs,
-  archivedTaskCardDocs,
-  workOrderDocs,
   flightPlanDocs,
   faaMonitorDocs,
   airworthinessDocs,
@@ -39,11 +35,10 @@ import {
   componentTemplateDocs,
   componentSetupDocs,
   inspectionTemplateDocs,
-  costDocs,
   auditDocs,
   expiringItemDocs,
-  perAircraft,
 } from "./programContext";
+import { windowedHistory, windowedReducedHistory } from "./historyWindow";
 import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
 import { faaCredentialStatus } from "./faaCredentials";
@@ -66,11 +61,8 @@ import {
   saveDiscrepancyParts as applyDiscrepancyParts,
   requiredPartsSchema,
 } from "../src/domain/requiredParts";
-import {
-  scopedSnapshot,
-  activeProgram,
-  programPermission,
-} from "../src/domain/programs";
+import { activeProgram, programPermission } from "../src/domain/programs";
+import { workspaceWindow, type HistoryRecords } from "../src/domain/retention";
 import {
   isOwnerView,
   ownerPortalAircraft,
@@ -106,8 +98,10 @@ import {
 type Ctx = QueryCtx | MutationCtx;
 
 /**
- * The caller's workspace: the active Flight Program's records, narrowed by
- * scopedSnapshot to what the caller may see, with photo and attachment URLs.
+ * The caller's workspace: the active Flight Program's records within the
+ * retention window (workspaceWindow, ADR-0013), narrowed by scopedSnapshot to
+ * what the caller may see, with photo flags and attachment lists. Older
+ * flights, problem reports and work orders load through convex/history.ts.
  *
  * @returns null without an active account and session. An aircraft owner
  *   gets the owner whitelist, with file links only for their aircraft's
@@ -123,13 +117,14 @@ export const snapshot = query({
     const identity = await activeIdentity(ctx);
     if (!identity) return null;
     const state = await context(ctx, identity.user);
+    const now = Date.now();
     if (!isOwnerView(state) && !isBoardView(state))
-      return workspaceSnapshot(ctx, identity, state);
+      return workspaceSnapshot(ctx, identity, state, now);
     // The board's "this year" and "this quarter" turn over at the program's
     // midnight, not the server's UTC one.
     const today = recordsDate();
-    const records = await reducedViewRecords(ctx, identity, state, today);
-    return addReducedViewExtras(ctx, scopedSnapshot(records, today));
+    const records = await reducedViewRecords(ctx, identity, state, now, today);
+    return addReducedViewExtras(ctx, workspaceWindow(records, now, today));
   },
 });
 
@@ -367,8 +362,12 @@ async function workspaceSnapshot(
   ctx: QueryCtx,
   identity: Identity,
   state: ProgramState,
+  now: number,
 ): Promise<Snapshot> {
-  const snapshot = scopedSnapshot(await fullSnapshot(ctx, identity, state));
+  const snapshot = workspaceWindow(
+    await windowedLoad(ctx, identity, state, now),
+    now,
+  );
   snapshot.aircraft = await withPhotoFlags(ctx, snapshot.aircraft);
   snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
   snapshot.workOrderAttachments = await workOrderAttachments(
@@ -385,28 +384,31 @@ async function workspaceSnapshot(
 
 // What the owner and board whitelists are built from. They show aircraft
 // status only (no flights, change log, plans, templates, purchasing, files or
-// other people), so none of that is read. The board's cost totals come from
+// other people), so none of that is read, and of problem reports and work
+// orders only what the window can keep. The board's cost totals come from
 // the cost ledger and the budgets.
 async function reducedViewRecords(
   ctx: QueryCtx,
   { user, session }: Identity,
   state: ProgramState,
+  now: number,
   today: string,
 ): Promise<Snapshot> {
   const program = activeProgram(state);
   const aircraft = state.aircraft;
   const management = await managementDocs(ctx, program);
+  const history = await windowedReducedHistory(ctx, aircraft, now);
   return {
     ...state,
     user: member(user),
     authenticatedAt: session._creationTime,
     members: [member(user)],
-    discrepancies: await discrepancyDocs(ctx, aircraft),
+    discrepancies: history.discrepancies,
     airworthiness: decode(
       "airworthiness",
       await airworthinessDocs(ctx, aircraft),
     ),
-    workOrders: decode("workOrders", await workOrderDocs(ctx, aircraft)),
+    workOrders: decode("workOrders", history.workOrders),
     ...(isBoardView(state) && program
       ? await boardCosts(ctx, state, program, today)
       : {}),
@@ -446,30 +448,41 @@ async function boardCosts(
   };
 }
 
-// Everything the active program holds, before scopedSnapshot narrows it.
-async function fullSnapshot(
+// What the window can keep of the active program, before workspaceWindow
+// narrows and scopes it: the complete collections whole (H5), history read
+// by the window's indexes (convex/historyWindow.ts). Keys follow the order
+// the full load had, which sets the snapshot's key order.
+async function windowedLoad(
   ctx: QueryCtx,
   { user, session }: Identity,
   state: ProgramState,
+  now: number,
 ): Promise<Snapshot> {
   const program = activeProgram(state);
   const aircraft = state.aircraft;
   const management = await managementDocs(ctx, program);
-  const flights = await flightDocs(ctx, aircraft);
+  const readable = aircraft.filter((a) => can(state, a.uuid, "read"));
+  const history = await windowedHistory(
+    ctx,
+    { program, fleet: aircraft, readable },
+    now,
+  );
   return {
     ...state,
     faaCredential: await faaCredentialStatus(ctx),
     user: member(user),
     authenticatedAt: session._creationTime,
-    members: (await snapshotMembers(ctx, user, program, flights)).map(member),
-    flights,
-    ...(await aircraftRecords(ctx, aircraft)),
+    members: (await snapshotMembers(ctx, user, program, history.flights)).map(
+      member,
+    ),
+    flights: history.flights,
+    ...(await aircraftRecords(ctx, aircraft, history)),
     ...(await programRecords(ctx, program)),
     inspections: await inspectionDocs(ctx, aircraft, management),
     management: decode("management", management),
     audit: await auditDocs(ctx, program, aircraft),
     // scopedSnapshot strips rates and money for non-administrators.
-    costs: decode("costs", await costDocs(ctx, program)),
+    costs: history.costs,
     expiringItems: decode(
       "expiringItems",
       await expiringItemDocs(ctx, program, user.isAdmin === true),
@@ -509,21 +522,24 @@ async function snapshotMembers(
   return [...new Map(users.map((u) => [u._id, u])).values()];
 }
 
-async function aircraftRecords(ctx: QueryCtx, aircraft: Aircraft[]) {
+// The aircraft's windowed history beside the records that stay complete
+// (H5), in the full load's key order.
+async function aircraftRecords(
+  ctx: QueryCtx,
+  aircraft: Aircraft[],
+  history: HistoryRecords,
+) {
   return {
-    taskCards: decode("taskCards", await taskCardDocs(ctx, aircraft)),
-    archivedTaskCards: decode(
-      "archivedTaskCards",
-      await archivedTaskCardDocs(ctx, aircraft),
-    ),
+    taskCards: history.taskCards,
+    archivedTaskCards: history.archivedTaskCards,
     faaMonitors: decode("faaMonitors", await faaMonitorDocs(ctx, aircraft)),
     airworthiness: decode(
       "airworthiness",
       await airworthinessDocs(ctx, aircraft),
     ),
-    workOrders: decode("workOrders", await workOrderDocs(ctx, aircraft)),
+    workOrders: history.workOrders,
     flightPlans: decode("flightPlans", await flightPlanDocs(ctx, aircraft)),
-    discrepancies: await discrepancyDocs(ctx, aircraft),
+    discrepancies: history.discrepancies,
   };
 }
 
@@ -593,80 +609,52 @@ async function inventoryAttachments(ctx: QueryCtx, snapshot: Snapshot) {
   return lists.flat();
 }
 
+// Each kept order's files, by order: the workspace holds only the window's
+// orders, so a read per aircraft would grow with history.
 async function workOrderAttachments(
   ctx: QueryCtx,
   workOrders: NonNullable<Snapshot["workOrders"]>,
 ) {
-  const files = await filesByRecord(
-    workOrders,
-    (aircraftUuid) =>
-      ctx.db
+  const lists = await Promise.all(
+    workOrders.map(async (w) => {
+      const files = await ctx.db
         .query("workOrderFiles")
-        .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
-        .collect(),
-    (f) => f.workOrderUuid,
+        .withIndex("workOrder", (q) => q.eq("workOrderUuid", w.uuid))
+        .collect();
+      return files.map((f) => ({
+        uuid: f._id,
+        workOrderUuid: w.uuid,
+        name: f.name,
+        size: f.size,
+        uploadedAt: f.uploadedAt,
+      }));
+    }),
   );
-  return workOrders.flatMap((w) =>
-    (files.get(w.uuid) ?? []).map((f) => ({
-      uuid: f._id,
-      workOrderUuid: w.uuid,
-      name: f.name,
-      size: f.size,
-      uploadedAt: f.uploadedAt,
-    })),
-  );
+  return lists.flat();
 }
 
+// Each kept job card's evidence, by card, oldest first as its index gives it.
 async function taskEvidence(
   ctx: QueryCtx,
   cards: NonNullable<Snapshot["taskCards"]>,
 ) {
-  const files = await filesByRecord(
-    cards,
-    (aircraftUuid) =>
-      ctx.db
+  const lists = await Promise.all(
+    cards.map(async (t) => {
+      const files = await ctx.db
         .query("taskEvidence")
-        .withIndex("aircraft", (q) => q.eq("aircraftUuid", aircraftUuid))
-        .collect(),
-    (f) => f.taskCardUuid,
+        .withIndex("taskCard", (q) => q.eq("taskCardUuid", t.uuid))
+        .collect();
+      return files.map((f) => ({
+        uuid: f._id,
+        taskCardUuid: t.uuid,
+        name: f.name,
+        size: f.size,
+        uploadedAt: f.uploadedAt,
+        category: f.category,
+      }));
+    }),
   );
-  return cards.flatMap((t) =>
-    (files.get(t.uuid) ?? []).map((f) => ({
-      uuid: f._id,
-      taskCardUuid: t.uuid,
-      name: f.name,
-      size: f.size,
-      uploadedAt: f.uploadedAt,
-      category: f.category,
-    })),
-  );
-}
-
-// Files filed on job cards or work orders, read once per aircraft (a lookup
-// per record passed Convex's limit on index reads at about 4,000 job cards)
-// and grouped by record, each record's oldest first as its own index gave
-// them. Rows uploaded before files carried their aircraft are read once more
-// until attachments:backfillAircraft has run; only the records' own are kept.
-async function filesByRecord<F extends { _creationTime: number }>(
-  records: { aircraftUuid: string }[],
-  readAircraft: (aircraftUuid: string | undefined) => Promise<F[]>,
-  recordOf: (file: F) => string,
-): Promise<Map<string, F[]>> {
-  const aircraft = [...new Set(records.map((r) => r.aircraftUuid))];
-  const files = [
-    ...(await perAircraft(
-      aircraft.map((uuid) => ({ uuid })),
-      readAircraft,
-    )),
-    ...(await readAircraft(undefined)),
-  ].sort((a, b) => a._creationTime - b._creationTime);
-  const byRecord = new Map<string, F[]>();
-  for (const f of files) {
-    const list = byRecord.get(recordOf(f));
-    if (list) list.push(f);
-    else byRecord.set(recordOf(f), [f]);
-  }
-  return byRecord;
+  return lists.flat();
 }
 
 interface SubmissionState {
@@ -963,9 +951,10 @@ async function persistReview(
       flightTimeLogOff: replayed.flightTimeLogOff,
     });
   await patchTotals(ctx, aircraft, changes.aircraft);
-  await ctx.db.patch(idOf(reviewed), {
+  const stored = flights.find((f) => f.uuid === reviewed)!;
+  await ctx.db.patch(stored._id, {
     ...changes.reviewed,
-    ...flightColumns(changes.reviewed),
+    ...flightColumns({ ...stored, ...changes.reviewed }),
   });
 }
 

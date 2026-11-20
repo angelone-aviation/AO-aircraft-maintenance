@@ -93,7 +93,8 @@ async function fixture() {
         description: "Report " + uuid,
         status,
         authorId: "someone",
-        createdAt: 1,
+        // Recent, so the workspace's window keeps the resolved one too.
+        createdAt: Date.now(),
         resolution: status === "resolved" ? "Internal resolution" : undefined,
       });
     const order = completedOrder();

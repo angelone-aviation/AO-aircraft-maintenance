@@ -44,6 +44,7 @@ import { inspectionTemplateSchema } from "../src/domain/inspectionTemplates";
 import { costRecordSchema } from "../src/domain/costs";
 import { closeoutSchema } from "../src/domain/workOrderCloseoutSchema";
 
+const DAY_MS = 86_400_000;
 const modules = import.meta.glob([
   "./**/*.ts",
   "./_generated/*.js",
@@ -281,12 +282,18 @@ it("derives the history window's columns from each record", async () => {
     status: "open",
     completionDate: "",
     numberKey: "wo-7",
+    changedAt: order.recordedAt,
   });
   expect(orderColumns({ ...completed, number: "WO-1" })).toEqual({
     ...completed,
     closedAt: midnight,
     numberKey: "wo-1",
+    changedAt: Math.max(order.recordedAt, midnight),
   });
+  // A revision after the close-out moves changedAt, not closedAt.
+  const later = order.recordedAt + DAY_MS;
+  const revised = orderColumns({ ...completed, revisions: [revision(later)] });
+  expect([revised.closedAt, revised.changedAt]).toEqual([midnight, later]);
   // The later of the close-out and the completion date's UTC midnight.
   for (const recordedAt of [midnight + 1, midnight - 1])
     expect(
@@ -315,10 +322,21 @@ it("derives the history window's columns from each record", async () => {
     other: [],
     partUnitCosts: [],
   });
+  const entry = { createdBy: "admin", date: "2026-02-03" };
+  const entered = {
+    ...orderCost,
+    labor: [{ ...entry, uuid: "l", technician: "T", minutes: 1, createdAt: 5 }],
+    other: [
+      { ...entry, uuid: "o", description: "D", amountCents: 1, createdAt: 9 },
+    ],
+  };
   expect(
-    [orderCost, ...stored.costs].map((c) => derivedColumns("costs", c)),
+    [orderCost, entered, ...stored.costs].map((c) =>
+      derivedColumns("costs", c),
+    ),
   ).toEqual([
-    { kind: "workOrder", workOrderUuid: order.uuid },
+    { kind: "workOrder", workOrderUuid: order.uuid, changedAt: 0 },
+    { kind: "workOrder", workOrderUuid: order.uuid, changedAt: 9 },
     { kind: "settings" },
     { kind: "budget" },
   ]);
@@ -352,9 +370,17 @@ it("derives a flight's start as an instant, which decodeFlight drops again", () 
     uuid: "f",
     status: "accepted",
     startTime: "2026-10-03T21:30:00-05:00",
+    submittedAt: Date.UTC(2026, 9, 5),
   };
   const later = Date.UTC(2026, 9, 4, 2, 30);
-  expect(flightColumns(flight)).toEqual({ startedAt: later });
+  expect(flightColumns(flight)).toEqual({
+    startedAt: later,
+    latestAt: flight.submittedAt,
+  });
+  // A review can move the start past the submission.
+  expect(flightColumns({ ...flight, submittedAt: later - 1 }).latestAt).toBe(
+    later,
+  );
   // Why the column: as text, the later start sorts first.
   expect(flight.startTime < "2026-10-04T01:00:00Z").toBe(true);
   expect(later > Date.parse("2026-10-04T01:00:00Z")).toBe(true);
@@ -362,6 +388,17 @@ it("derives a flight's start as an instant, which decodeFlight drops again", () 
   expect(decodeFlight(row)).toEqual({ _id: "row", ...flight });
   expect(decodeFlight(flight)).toEqual(flight);
 });
+
+function revision(recordedAt: number) {
+  return {
+    number: 1,
+    recordedAt,
+    authorId: "admin",
+    authorName: "Admin",
+    reason: "Typo.",
+    previousRecord: "{}",
+  };
+}
 
 function closeout(recordedAt: number) {
   return closeoutSchema.parse({

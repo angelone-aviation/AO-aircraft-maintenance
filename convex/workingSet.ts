@@ -292,14 +292,10 @@ export async function workOrderCostDocs(
     budgetAndSettingsDocs(ctx, programUuid),
     ...orders.map(ofOrder),
   ]);
-  const rows = unique([
+  return inCostLoadOrder([
     ...ofOrders.flat().filter((r) => r.programUuid === programUuid),
     ...standing,
   ]);
-  return [
-    ...byProgramOrder(rows.filter((r) => r.aircraftUuid)),
-    ...byProgramOrder(rows.filter((r) => !r.aircraftUuid)),
-  ];
 }
 
 /**
@@ -343,6 +339,20 @@ export function highestRequestDocs(ctx: Ctx, programUuid: string) {
     .withIndex("number", (q) => q.eq("programUuid", programUuid))
     .order("desc")
     .take(1);
+}
+
+/**
+ * Cost rows from several bounded reads as the program loader holds them:
+ * each once, records on an aircraft first, by aircraft uuid (as the program
+ * index orders it) then creation time, and the settings row (aircraft "")
+ * last.
+ */
+export function inCostLoadOrder(rows: readonly Doc<"costs">[]): Doc<"costs">[] {
+  const once = unique(rows);
+  return [
+    ...byProgramOrder(once.filter((r) => r.aircraftUuid)),
+    ...byProgramOrder(once.filter((r) => !r.aircraftUuid)),
+  ];
 }
 
 /**
