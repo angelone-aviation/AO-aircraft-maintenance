@@ -3,8 +3,9 @@
  *   and the problem-report and flight-review mutations.
  * Layer: Server. Convex query and mutations; the rules live in src/domain.
  * Dependencies: convex/values, ./_generated, ./runCommand, ./collections,
- *   ./programContext, ./access, ./aircraftFiles, ./backups, ./faaCredentials,
- *   ./urgentAlerts, ./memberships, ./validators, ./recordsDate, ./costLedger,
+ *   ./programContext, ./access, ./aircraftFiles, ./fileColumns, ./backups,
+ *   ./faaCredentials, ./urgentAlerts, ./memberships, ./validators,
+ *   ./recordsDate, ./costLedger,
  *   ./workingSet, ./historyWindow, src/domain (model, programs, retention,
  *   flightSubmission, flightReview, ownerView, boardView, costs, deferrals,
  *   requiredParts, rejection, aircraftStatus).
@@ -41,6 +42,7 @@ import {
 import { windowedHistory, windowedReducedHistory } from "./historyWindow";
 import { authorized, aircraftByUuid, member, activeIdentity } from "./access";
 import { aircraftFileList } from "./aircraftFiles";
+import { evidenceByCard, inventoryFilesByItem } from "./fileColumns";
 import { faaCredentialStatus } from "./faaCredentials";
 import { scheduleUrgentAlerts } from "./urgentAlerts";
 import { recordsDate } from "./recordsDate";
@@ -369,7 +371,11 @@ async function workspaceSnapshot(
     now,
   );
   snapshot.aircraft = await withPhotoFlags(ctx, snapshot.aircraft);
-  snapshot.inventoryAttachments = await inventoryAttachments(ctx, snapshot);
+  snapshot.inventoryAttachments = await inventoryAttachments(
+    ctx,
+    snapshot,
+    activeProgram(state),
+  );
   snapshot.workOrderAttachments = await workOrderAttachments(
     ctx,
     snapshot.workOrders ?? [],
@@ -583,30 +589,29 @@ async function withPhotoFlags(ctx: QueryCtx, aircraft: Aircraft[]) {
   );
 }
 
-// Only program administrators see the files kept with stock and components.
-async function inventoryAttachments(ctx: QueryCtx, snapshot: Snapshot) {
+// Only program administrators see the files kept with stock and components,
+// read by the program the items were read for (two ranges, not one per item).
+async function inventoryAttachments(
+  ctx: QueryCtx,
+  snapshot: Snapshot,
+  program: string | undefined,
+) {
   const records = (snapshot.management ?? []).filter(
     (r) =>
       programPermission(snapshot, "admin") &&
       (r.kind === "stock" || r.kind === "component"),
   );
-  const lists = await Promise.all(
-    records.map(async (stock) => {
-      const files = await ctx.db
-        .query("inventoryFiles")
-        .withIndex("stock", (q) => q.eq("stockUuid", stock.uuid))
-        .collect();
-      return files.map((f) => ({
-        uuid: f._id,
-        stockUuid: f.stockUuid,
-        name: f.name,
-        type: f.type,
-        size: f.size,
-        uploadedAt: f.uploadedAt,
-      }));
-    }),
+  const files = await inventoryFilesByItem(ctx, program, records);
+  return records.flatMap((stock) =>
+    (files.get(stock.uuid) ?? []).map((f) => ({
+      uuid: f._id,
+      stockUuid: f.stockUuid,
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      uploadedAt: f.uploadedAt,
+    })),
   );
-  return lists.flat();
 }
 
 // Each kept order's files, by order: the workspace holds only the window's
@@ -633,28 +638,23 @@ async function workOrderAttachments(
   return lists.flat();
 }
 
-// Each kept job card's evidence, by card, oldest first as its index gives it.
+// Each kept job card's evidence, by card, oldest first as its index gives it,
+// read by work order (one range per kept order, not one per card).
 async function taskEvidence(
   ctx: QueryCtx,
   cards: NonNullable<Snapshot["taskCards"]>,
 ) {
-  const lists = await Promise.all(
-    cards.map(async (t) => {
-      const files = await ctx.db
-        .query("taskEvidence")
-        .withIndex("taskCard", (q) => q.eq("taskCardUuid", t.uuid))
-        .collect();
-      return files.map((f) => ({
-        uuid: f._id,
-        taskCardUuid: t.uuid,
-        name: f.name,
-        size: f.size,
-        uploadedAt: f.uploadedAt,
-        category: f.category,
-      }));
-    }),
+  const files = await evidenceByCard(ctx, cards);
+  return cards.flatMap((t) =>
+    (files.get(t.uuid) ?? []).map((f) => ({
+      uuid: f._id,
+      taskCardUuid: t.uuid,
+      name: f.name,
+      size: f.size,
+      uploadedAt: f.uploadedAt,
+      category: f.category,
+    })),
   );
-  return lists.flat();
 }
 
 interface SubmissionState {

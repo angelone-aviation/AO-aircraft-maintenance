@@ -4,7 +4,7 @@
  * Layer: Server. A public action and mutation over internal steps; the
  *   program's inventory administrators only.
  * Dependencies: convex/programContext, convex/attachments, convex/access,
- *   convex/userErrors, src/domain (programs, purchaseOrders,
+ *   convex/fileColumns, convex/userErrors, src/domain (programs, purchaseOrders,
  *   inventoryAttachments).
  */
 import { ConvexError, v } from "convex/values";
@@ -17,6 +17,7 @@ import {
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { checkContext } from "./programContext";
+import { insertInventoryFile } from "./fileColumns";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
@@ -106,7 +107,7 @@ export const finish = internalMutation({
     // The items share the file's blob; deleteBlobIfUnused keeps it until the
     // last row that uses it goes.
     for (const stockUuid of receiptItemUuids(receipt))
-      await ctx.db.insert("inventoryFiles", { ...fields, stockUuid });
+      await insertInventoryFile(ctx, { ...fields, stockUuid });
     for (const { action, entityUuid, ...row } of poAttachmentChanges(
       po,
       receipt,

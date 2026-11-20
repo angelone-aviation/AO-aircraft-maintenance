@@ -41,6 +41,9 @@ const ROLES = ["admin", "pilot", "owner", "board"] as const;
 // Three databases of up to about 22,000 rows each on a shared machine.
 const SEED_TIMEOUT_MS = 180_000;
 const FLAT = 1.1;
+// The plan's headroom on Convex's 4,096 index ranges a function may read
+// (ADR-0013): a quarter of the limit.
+const INDEX_RANGE_BAR = 1000;
 // The parts requests and purchase orders each fleet-year adds.
 const PURCHASING_ROWS_PER_YEAR =
   VOLUME.aircraft * (VOLUME.partsRequests + VOLUME.purchaseOrders);
@@ -82,6 +85,16 @@ describe("the windowed workspace (S7)", () => {
     (role) => expectGrowthOf(`snapshot.${role}`, COMPLETE_ROWS_PER_YEAR),
   );
 });
+
+// Files are read by program and by work order, not one range per record
+// (convex/fileColumns.ts), so no view nears the limit.
+it.each(ROLES)(
+  "the %s's snapshot reads at most a quarter of Convex's index ranges",
+  (role) => {
+    for (const { indexRanges } of yearsOf(`snapshot.${role}`))
+      expect(indexRanges).toBeLessThanOrEqual(INDEX_RANGE_BAR);
+  },
+);
 
 describe("the bounded saves read the same at three years as at one (S3)", () => {
   it.each([

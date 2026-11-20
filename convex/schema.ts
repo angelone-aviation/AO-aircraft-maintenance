@@ -352,6 +352,10 @@ export default defineSchema({
     // aircraft. Rows uploaded before it was stored lack it until
     // attachments:backfillAircraft runs.
     aircraftUuid: v.optional(v.string()),
+    // The card's work order ("" for none), so the snapshot reads a kept
+    // order's evidence in one range (convex/fileColumns.ts). Rows filed
+    // before it lack it until migrations:backfillHistoryColumns runs.
+    workOrderUuid: v.optional(v.string()),
     storageId: v.id("_storage"),
     name: v.string(),
     size: v.number(),
@@ -364,6 +368,7 @@ export default defineSchema({
   })
     .index("taskCard", ["taskCardUuid"])
     .index("aircraft", ["aircraftUuid"])
+    .index("aircraftWorkOrder", ["aircraftUuid", "workOrderUuid"])
     .index("storage", ["storageId"]),
   rateLimits: defineTable({
     key: v.string(),
@@ -487,6 +492,10 @@ export default defineSchema({
     .index("changed", ["aircraftUuid", "changedAt"]),
   inventoryFiles: defineTable({
     stockUuid: v.string(),
+    // The item's Flight Program ("" for an unassigned item), so the snapshot
+    // reads a program's files in one range (convex/fileColumns.ts). Rows
+    // filed before it lack it until migrations:backfillHistoryColumns runs.
+    programUuid: v.optional(v.string()),
     storageId: v.id("_storage"),
     name: v.string(),
     type: v.string(),
@@ -494,6 +503,7 @@ export default defineSchema({
     uploadedAt: v.number(),
   })
     .index("stock", ["stockUuid"])
+    .index("program", ["programUuid"])
     .index("storage", ["storageId"]),
   workOrderFiles: defineTable({
     workOrderUuid: v.string(),

@@ -468,6 +468,13 @@ it("transfers stored component ownership with requirements and history, while bl
     programUuid: "A",
     payload: JSON.stringify(command(requirement)),
   });
+  await onlyA.action(api.inventoryFiles.upload, {
+    programUuid: "A",
+    stockUuid: component.uuid,
+    name: "tag.pdf",
+    type: "application/pdf",
+    bytes: new TextEncoder().encode("%PDF-1.4 tag").buffer,
+  });
   await system.mutation(api.programs.transfer, {
     programUuid: "A",
     kind: "component",
@@ -475,13 +482,15 @@ it("transfers stored component ownership with requirements and history, while bl
     destination: "B",
     reason: "New base",
   });
-  expect(
-    (await onlyA.query(api.operations.snapshot, {}))?.management?.some(
-      (r) => r.uuid === component.uuid,
-    ),
-  ).toBe(false);
+  const fromA = (await onlyA.query(api.operations.snapshot, {}))!;
+  expect(fromA.management?.some((r) => r.uuid === component.uuid)).toBe(false);
+  expect(fromA.inventoryAttachments).toEqual([]);
   await system.mutation(api.programs.select, { programUuid: "B" });
   const s = (await system.query(api.operations.snapshot, {}))!;
+  // The item's files go with it: the snapshot reads them by program.
+  expect(s.inventoryAttachments).toMatchObject([
+    { stockUuid: component.uuid, name: "tag.pdf" },
+  ]);
   expect(s.management?.find((r) => r.uuid === component.uuid)).toMatchObject({
     programUuid: "B",
     aircraftUuid: "",

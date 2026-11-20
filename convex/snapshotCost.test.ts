@@ -41,8 +41,9 @@ const SEEDED_AT = Date.UTC(2026, 10, 3, 12);
 const N206 = demoSnapshot().aircraft[0].uuid;
 const SECOND_CARD = "00000000-0000-4000-8000-00000000beef";
 const ROLES = ["admin", "pilot", "owner", "board"] as const;
-// A kept work order's job cards, archived job cards, costs and files.
-const LOOKUPS_PER_ORDER = 4;
+// A kept work order's job cards, archived job cards, costs, files and the
+// evidence on its cards.
+const LOOKUPS_PER_ORDER = 5;
 // Seeding about ten thousand rows takes a while on a shared machine.
 const VOLUME_TIMEOUT_MS = 120_000;
 // Tables the owner and board whitelists never pass, so never worth reading.
@@ -141,16 +142,15 @@ describe("the workspace snapshot at one year of records", () => {
     }
   });
 
-  // Since S7 a kept record's files are looked up by the record: one lookup
-  // per job card, and a work order's cards, removed cards, costs and files.
-  it("keeps the pilot's lookups to a few per aircraft and table, and per kept record", async () => {
+  // A kept work order's files and its cards' evidence are looked up by the
+  // order (convex/fileColumns.ts), never once per job card.
+  it("keeps the pilot's lookups to a few per aircraft and table, and per kept work order", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: SEEDED_AT });
     const s = (await t
       .withIdentity({ subject: accounts.pilot })
       .query(api.operations.snapshot, {}))!;
-    const cards = s.taskCards!.length + s.archivedTaskCards!.length;
     expect(reads.pilot.lookups).toBeLessThan(
-      VOLUME.aircraft * 30 + cards + LOOKUPS_PER_ORDER * s.workOrders!.length,
+      VOLUME.aircraft * 30 + LOOKUPS_PER_ORDER * s.workOrders!.length,
     );
   });
 });

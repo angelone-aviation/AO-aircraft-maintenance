@@ -1,36 +1,36 @@
 {
  "snapshot.admin": {
   "1": {
-   "bytes": 8302348,
+   "bytes": 8310096,
    "documents": 5716,
-   "indexRanges": 2474
+   "indexRanges": 580
   },
   "2": {
-   "bytes": 8978177,
+   "bytes": 8985925,
    "documents": 6376,
-   "indexRanges": 2474
+   "indexRanges": 580
   },
   "3": {
-   "bytes": 9652257,
+   "bytes": 9660005,
    "documents": 7036,
-   "indexRanges": 2474
+   "indexRanges": 580
   }
  },
  "snapshot.pilot": {
   "1": {
-   "bytes": 4916888,
+   "bytes": 4919384,
    "documents": 3784,
-   "indexRanges": 619
+   "indexRanges": 287
   },
   "2": {
-   "bytes": 5592717,
+   "bytes": 5595213,
    "documents": 4444,
-   "indexRanges": 619
+   "indexRanges": 287
   },
   "3": {
-   "bytes": 6266797,
+   "bytes": 6269293,
    "documents": 5104,
-   "indexRanges": 619
+   "indexRanges": 287
   }
  },
  "snapshot.owner": {

@@ -4,7 +4,7 @@
  * Layer: Server. Internal mutations run by hand (docs/sample-program.md);
  *   nothing seeds automatically.
  * Dependencies: convex/access, convex/defaultGroups, convex/collections,
- *   convex/recordNumbers, src/domain (management, workOrders, taskCards,
+ *   convex/fileColumns, convex/recordNumbers, src/domain (management, workOrders, taskCards,
  *   airworthiness, checklists, inspectionTemplates, flightPlans,
  *   purchaseOrders).
  *
@@ -13,7 +13,8 @@
  */
 import { writeAudit } from "./access";
 import { ensureDefaultGroups } from "./defaultGroups";
-import { encode, flightColumns } from "./collections";
+import { decode, encode, flightColumns } from "./collections";
+import { insertInventoryFile } from "./fileColumns";
 import { syncRecordNumber } from "./recordNumbers";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -912,9 +913,10 @@ async function attachDocuments(ctx: MutationCtx, at: Attaching) {
     ...stored,
     taskCardUuid: card.uuid,
     aircraftUuid: card.aircraftUuid,
+    workOrderUuid: decode("taskCards", [card])[0].workOrderUuid,
     category: "supporting-document",
   });
-  await ctx.db.insert("inventoryFiles", {
+  await insertInventoryFile(ctx, {
     ...stored,
     stockUuid: `sample-stock-${n}`,
     type,

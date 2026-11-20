@@ -5,7 +5,7 @@
  * Layer: Server. Internal functions run by hand with `npx convex run`, and
  *   the reconcile by crons.ts; no public entry point and no change-log rows.
  * Dependencies: convex/values, convex/server, ./_generated, ./collections,
- *   ./recordNumbers, ./costLedger.
+ *   ./recordNumbers, ./costLedger, ./fileColumns.
  *
  * The window's indexes (ADR-0013) find only rows that carry the columns, and
  * numbering reads only the number rows, so every deployment holding data
@@ -41,6 +41,7 @@ import {
   syncWorkOrderLedger,
   type StoredLedgerRow,
 } from "./costLedger";
+import { storedFileColumns } from "./fileColumns";
 
 const BACKFILL_TABLES = [
   "flights",
@@ -50,9 +51,13 @@ const BACKFILL_TABLES = [
   "costs",
   "partsRequests",
   "purchaseOrders",
+  // After the cards, whose work order their evidence copies.
+  "taskEvidence",
+  "inventoryFiles",
 ] as const;
 type BackfillTable = (typeof BACKFILL_TABLES)[number];
-type PayloadTable = Exclude<BackfillTable, "flights">;
+type FileTable = "taskEvidence" | "inventoryFiles";
+type PayloadTable = Exclude<BackfillTable, "flights" | FileTable>;
 type FilledPage = { filled: number; cursor: string | null };
 // Rows per transaction: a page of job cards, the largest payloads here, stays
 // far inside Convex's per-mutation read and write limits.
@@ -89,8 +94,9 @@ const LOGGED_DIFFERENCES = 20;
 
 /**
  * Fills the derived columns on one page of a table's rows, where any is
- * missing or differs from what the row's record derives. Writes only those
- * columns, never the record, so no change-log row is due.
+ * missing or differs from what the row's record derives (for a file row,
+ * its owner: the card's aircraft and work order, the item's program).
+ * Writes only those columns, never the record, so no change-log row is due.
  *
  * @param table - The table to fill.
  * @param cursor - The page to fill; null for the first.
@@ -110,7 +116,7 @@ export const fillHistoryColumns = internalMutation({
       .paginate({ cursor, numItems: BACKFILL_PAGE });
     let filled = 0;
     for (const row of page.page) {
-      const columns = columnsOf(table, row);
+      const columns = await columnsOf(ctx, table, row);
       if (holdsColumns(row, columns)) continue;
       await ctx.db.patch(row._id, columns);
       filled++;
@@ -159,8 +165,14 @@ async function fillTable(ctx: ActionCtx, table: BackfillTable) {
   return filled;
 }
 
-function columnsOf(table: BackfillTable, row: Doc<BackfillTable>): object {
+async function columnsOf(
+  ctx: MutationCtx,
+  table: BackfillTable,
+  row: Doc<BackfillTable>,
+): Promise<object> {
   if (table === "flights") return flightColumns(row as Doc<"flights">);
+  if (table === "taskEvidence" || table === "inventoryFiles")
+    return storedFileColumns(ctx, table, row as Doc<FileTable>);
   return derivedColumns(table, recordOf(table, row as Doc<PayloadTable>));
 }
 

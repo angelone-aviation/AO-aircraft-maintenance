@@ -4,9 +4,9 @@
  * Layer: Server. Convex mutations, an action and internal functions; the
  *   rules live in src/domain (taskCards, attachments).
  * Dependencies: convex/values, ./_generated, ./programContext, ./access,
- *   ./runCommand, ./collections, ./recordNumbers, ./costLedger, ./workingSet,
- *   ./attachments, ./userErrors, src/domain (taskCards, workOrders,
- *   attachments, inventoryAttachments, model).
+ *   ./runCommand, ./collections, ./recordNumbers, ./costLedger, ./fileColumns,
+ *   ./workingSet, ./attachments, ./userErrors, src/domain (taskCards,
+ *   workOrders, attachments, inventoryAttachments, model).
  */
 import { v, ConvexError } from "convex/values";
 import {
@@ -39,6 +39,7 @@ import {
 import { decode, encode } from "./collections";
 import { readRecordNumbers } from "./recordNumbers";
 import { syncWorkOrderLedger } from "./costLedger";
+import { moveCardEvidence } from "./fileColumns";
 import {
   assertAttachmentRoom,
   deleteBlobIfUnused,
@@ -97,9 +98,12 @@ export const save = mutation({
           docs.filter((d) => d.uuid === next.uuid),
         ).at(0);
         await writeChanged(ctx, "taskCards", docs, [next]);
-        // Parts requests on a card count toward the work order it joins.
-        if (next.workOrderUuid && next.workOrderUuid !== prior?.workOrderUuid)
-          await syncWorkOrderLedger(ctx, next.workOrderUuid);
+        if (!next.workOrderUuid || next.workOrderUuid === prior?.workOrderUuid)
+          return;
+        // Parts requests on a card count toward the work order it joins, and
+        // its evidence is read with that order's.
+        await syncWorkOrderLedger(ctx, next.workOrderUuid);
+        if (prior) await moveCardEvidence(ctx, next.uuid, next.workOrderUuid);
       },
       audit: (log, { snapshot }) => log.replay(snapshot.audit),
       returns: (next) => next.uuid,
@@ -165,6 +169,7 @@ export const finishUpload = internalMutation({
     await ctx.db.insert("taskEvidence", {
       ...fields,
       aircraftUuid: t.aircraftUuid,
+      workOrderUuid: t.workOrderUuid,
       uploadedAt: now,
     });
     const next = withNewEvidence(t, now);

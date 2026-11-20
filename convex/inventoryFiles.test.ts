@@ -92,6 +92,10 @@ it("stores inventory attachments, lists them only to inventory admins, and rejec
     size: args.bytes.byteLength,
   });
   expect(snapshot!.inventoryAttachments![0]).not.toHaveProperty("url");
+  // Filed under the item's program, which the snapshot reads files by.
+  expect(
+    await t.run(async (ctx) => (await ctx.db.query("inventoryFiles").first())!),
+  ).toMatchObject({ stockUuid: "parts-stock", programUuid: "demo-program" });
   expect(snapshot!.audit.some((a) => a.action === "inventory.attachment")).toBe(
     true,
   );

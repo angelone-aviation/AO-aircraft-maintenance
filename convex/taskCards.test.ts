@@ -244,6 +244,46 @@ it("stores a card's derived columns when it is saved and when evidence is filed 
   });
   await expectDerivedColumns(t, "taskCards", [command.uuid]);
 });
+it("files evidence under its card's work order, and moves it with a card that joins one", async () => {
+  const { t, tech } = await fixture();
+  const card = taskCardCommand();
+  const save = (payload: object) =>
+    tech.mutation(api.taskCards.save, {
+      programUuid: "demo-program",
+      payload: JSON.stringify(payload),
+    });
+  await save(card);
+  await tech.action(api.taskCards.upload, {
+    programUuid: "demo-program",
+    taskCardUuid: card.uuid,
+    category: "photo",
+    name: "photo.pdf",
+    type: "application/pdf",
+    bytes: new TextEncoder().encode("%PDF-1.4 test").buffer,
+  });
+  const evidenceOrders = () =>
+    t.run(async (ctx) =>
+      (await ctx.db.query("taskEvidence").collect()).map(
+        (f) => f.workOrderUuid,
+      ),
+    );
+  expect(await evidenceOrders()).toEqual([""]);
+  const order = workOrderCommand();
+  await tech.mutation(api.workOrders.save, {
+    programUuid: "demo-program",
+    payload: JSON.stringify(order),
+  });
+  const stored = (await tech.query(api.operations.snapshot, {}))!.taskCards!;
+  await save({
+    ...card,
+    version: stored.find((c) => c.uuid === card.uuid)!.version,
+    fields: { ...card.fields, workOrderUuid: order.uuid },
+  });
+  expect(await evidenceOrders()).toEqual([order.uuid]);
+  expect(
+    (await tech.query(api.operations.snapshot, {}))!.taskEvidence,
+  ).toMatchObject([{ taskCardUuid: card.uuid, name: "photo.pdf" }]);
+});
 it("shows a refused evidence file to the user, and keeps no file the card refuses", async () => {
   const { t, tech, reader } = await fixture(),
     command = taskCardCommand();

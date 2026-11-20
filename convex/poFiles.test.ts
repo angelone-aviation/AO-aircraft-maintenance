@@ -183,6 +183,16 @@ it("logs a purchase-order attachment on the order (T3)", async () => {
 
 it("files a receipt's file once on each item it received, sharing one blob, and logs the order's and each item's copy (T3)", async () => {
   const { t, admin, upload } = await fixture();
+  // The received items' rows, whose program each copy is filed under.
+  await t.run(async (ctx) => {
+    for (const uuid of ["stock-a", "stock-b"])
+      await ctx.db.insert("management", {
+        uuid,
+        kind: "stock",
+        programUuid: PROGRAM,
+        payload: "{}",
+      });
+  });
   await admin.action(api.poFiles.upload, { ...upload, receiptUuid: "receipt" });
   const stored = await t.run(async (ctx) => ({
     po: await ctx.db.query("poFiles").collect(),
@@ -192,7 +202,10 @@ it("files a receipt's file once on each item it received, sharing one blob, and 
   expect(stored.po).toMatchObject([
     { poUuid: "po", receiptUuid: "receipt", name: "invoice.pdf" },
   ]);
-  expect(stored.items.map((f) => f.stockUuid)).toEqual(["stock-a", "stock-b"]);
+  expect(stored.items).toMatchObject([
+    { stockUuid: "stock-a", programUuid: PROGRAM },
+    { stockUuid: "stock-b", programUuid: PROGRAM },
+  ]);
   for (const item of stored.items)
     expect(item.storageId).toBe(stored.po[0].storageId);
   const file = { name: "invoice.pdf", size: PDF.byteLength };

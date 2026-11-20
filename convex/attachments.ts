@@ -134,7 +134,7 @@ async function recordAircraft(
   ctx: MutationCtx,
   row: Doc<FileTable>,
 ): Promise<string | undefined> {
-  if ("workOrderUuid" in row)
+  if (!("taskCardUuid" in row))
     return (
       await ctx.db
         .query("workOrders")

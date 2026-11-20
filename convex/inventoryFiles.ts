@@ -3,9 +3,9 @@
  *   removing them, with their stored blobs.
  * Layer: Server. A public action and mutation over internal steps; the
  *   program's inventory administrators only, and every change is audited.
- * Dependencies: convex/programContext, convex/attachments, convex/access,
- *   convex/userErrors, convex/runCommand (types), src/domain (management,
- *   inventoryAttachments, programs, rejection).
+ * Dependencies: convex/programContext, convex/attachments, convex/fileColumns,
+ *   convex/access, convex/userErrors, convex/runCommand (types), src/domain
+ *   (management, inventoryAttachments, programs, rejection).
  */
 import { ConvexError, v } from "convex/values";
 import {
@@ -23,6 +23,7 @@ import {
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { checkContext, managementDocs } from "./programContext";
+import { insertInventoryFile } from "./fileColumns";
 import { audit } from "./access";
 import { exposeRejections } from "./userErrors";
 import { recordSchema } from "../src/domain/management";
@@ -84,10 +85,7 @@ export const finishUpload = internalMutation({
         .take(MAX_ATTACHMENTS),
     );
     const { programUuid: _program, ...fields } = args;
-    await ctx.db.insert("inventoryFiles", {
-      ...fields,
-      uploadedAt: Date.now(),
-    });
+    await insertInventoryFile(ctx, { ...fields, uploadedAt: Date.now() });
     await audit(ctx, owner.user.id, "inventory.attachment", args.stockUuid, {
       programUuid: owner.programUuid,
       after: { name: args.name, size: args.size },

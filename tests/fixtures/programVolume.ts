@@ -176,6 +176,7 @@ export async function addOlderHistory(
       await ctx.db.insert("taskEvidence", {
         taskCardUuid: card.uuid,
         aircraftUuid: aircraft.uuid,
+        workOrderUuid: order.uuid,
         storageId: blob,
         name: `card-${card.uuid.slice(-6)}.pdf`,
         size: 2048,

@@ -212,11 +212,12 @@ it("backfills the aircraft on older file rows, page by page, and stops once done
     >("attachments:backfillAircraft");
     const evidence = await t.run(async (ctx) => {
       const storageId = await ctx.storage.store(new Blob(["%PDF"]));
-      const row = (taskCardUuid: string) =>
+      const row = (taskCardUuid: string, workOrderUuid?: string) =>
         ctx.db.insert("taskEvidence", {
           name: FILE.name,
           size: FILE.size,
           taskCardUuid,
+          workOrderUuid,
           storageId,
           uploadedAt: 1,
           category: "photo",
@@ -245,7 +246,12 @@ it("backfills the aircraft on older file rows, page by page, and stops once done
       });
       // More than one page, so the backfill has to schedule itself.
       for (let n = 0; n < 150; n++) await row("card");
-      return { archived: await row("old"), orphan: await row("deleted") };
+      // Evidence copying its card's work order is still evidence: its card
+      // names the aircraft.
+      return {
+        archived: await row("old", "order"),
+        orphan: await row("deleted"),
+      };
     });
     expect(await t.mutation(backfill, {})).toEqual({
       table: "taskEvidence",

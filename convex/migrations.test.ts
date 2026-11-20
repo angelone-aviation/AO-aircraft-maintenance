@@ -1,8 +1,8 @@
 /**
- * Responsibility: Pins the derived-column backfill and the recordNumbers
- *   rebuild: each fills older rows page by page, changes nothing else, writes
- *   no change-log row, reports what it filled, finds nothing on a second
- *   run, and names a damaged row.
+ * Responsibility: Pins the derived-column backfill, with the file rows'
+ *   owner copies, and the recordNumbers rebuild: each fills older rows page
+ *   by page, changes nothing else, writes no change-log row, reports what it
+ *   filled, finds nothing on a second run, and names a damaged row.
  * Layer: Test. convex-test suite; never shipped in the build.
  * Dependencies: convex/migrations.ts, convex/schema.ts,
  *   tests/fixtures (storedCollections, derivedColumns), src/data/demo.ts.
@@ -37,6 +37,8 @@ const TABLES: DerivedTable[] = [
   "partsRequests",
   "purchaseOrders",
 ];
+// File rows that copy their owner, filled after the derived tables.
+const FILE_TABLES = ["taskEvidence", "inventoryFiles"];
 // More than one backfill page, so the backfill has to go on to the next.
 const OLD_FLIGHTS = 150;
 const backfill = makeFunctionReference<
@@ -112,6 +114,8 @@ it("fills the derived columns on older rows, page by page, and changes nothing e
       costs: 2,
       partsRequests: 1,
       purchaseOrders: 1,
+      taskEvidence: 0,
+      inventoryFiles: 0,
     },
   });
   const after = await readRows(t);
@@ -137,7 +141,9 @@ it("finds nothing missing on a second run, and changes nothing", async () => {
   const filled = await readRows(t);
   expect(await t.action(backfill, {})).toEqual({
     missing: 0,
-    tables: Object.fromEntries(TABLES.map((table) => [table, 0])),
+    tables: Object.fromEntries(
+      [...TABLES, ...FILE_TABLES].map((table) => [table, 0]),
+    ),
   });
   expect(await readRows(t)).toEqual(filled);
 });
@@ -154,6 +160,60 @@ it("refills only the rows that lost a column", async () => {
   });
   await expectDerivedColumns(t, "flights", ["old-flight-7"]);
   await expectDerivedColumns(t, "costs", ["budget-206"]);
+});
+
+it("files evidence under its card's aircraft and work order and an inventory file under its item's program, correcting stale copies", async () => {
+  const t = await olderRows();
+  const ids = await t.run(async (ctx) => {
+    const blob = await ctx.storage.store(new Blob(["%PDF-1.4"]));
+    const file = { storageId: blob, name: "f.pdf", size: 8, uploadedAt: 1 };
+    const evidence = (taskCardUuid: string, workOrderUuid?: string) =>
+      ctx.db.insert("taskEvidence", {
+        ...file,
+        taskCardUuid,
+        workOrderUuid,
+        category: "photo",
+      });
+    const item = (stockUuid: string, programUuid?: string) =>
+      ctx.db.insert("inventoryFiles", {
+        ...file,
+        stockUuid,
+        programUuid,
+        type: "application/pdf",
+      });
+    return {
+      live: await evidence(CARD),
+      archived: await evidence(ARCHIVED_CARD),
+      stale: await evidence(CARD, "another-order"),
+      orphan: await evidence("gone-card"),
+      stock: await item("stock-1"),
+      moved: await item("stock-1", "another-program"),
+      lost: await item("gone-stock"),
+    };
+  });
+  const result = await t.action(backfill, {});
+  expect(result.tables).toMatchObject({ taskEvidence: 3, inventoryFiles: 2 });
+  const rows = await t.run(async (ctx) => ({
+    live: await ctx.db.get(ids.live),
+    archived: await ctx.db.get(ids.archived),
+    stale: await ctx.db.get(ids.stale),
+    orphan: await ctx.db.get(ids.orphan),
+    stock: await ctx.db.get(ids.stock),
+    moved: await ctx.db.get(ids.moved),
+    lost: await ctx.db.get(ids.lost),
+  }));
+  // The fixture's cards are on no work order.
+  const card = { aircraftUuid: N206, workOrderUuid: "" };
+  expect(rows).toMatchObject({
+    live: card,
+    archived: { aircraftUuid: N182, workOrderUuid: "" },
+    stale: card,
+    stock: { programUuid: PROGRAM },
+    moved: { programUuid: PROGRAM },
+  });
+  // A file whose owner is gone is shown nowhere, and left as it was.
+  expect(rows.orphan).not.toHaveProperty("workOrderUuid");
+  expect(rows.lost).not.toHaveProperty("programUuid");
 });
 
 it("names a row whose payload its schema refuses, and fills nothing on its page", async () => {

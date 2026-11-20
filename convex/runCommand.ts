@@ -4,8 +4,9 @@
  *   it changed.
  * Layer: Server. Runs inside a Convex mutation; the domain owns the rules.
  * Dependencies: convex/values, convex/server (types), zod, ./_generated,
- *   ./programContext, ./access, ./collections, ./recordNumbers, src/domain
- *   (model, programs, rejection, validationText, commandRequest).
+ *   ./programContext, ./access, ./collections, ./recordNumbers,
+ *   ./fileColumns, src/domain (model, programs, rejection, validationText,
+ *   commandRequest).
  *
  * Production deployments show any error but a ConvexError as "Server Error".
  * A domain Rejection is rethrown as a ConvexError so its message reaches the
@@ -54,6 +55,7 @@ import {
   type AuditRow,
 } from "./access";
 import { syncRecordNumber } from "./recordNumbers";
+import { moveInventoryFiles } from "./fileColumns";
 
 /**
  * One applier-backed command, as {@link runCommand} runs it: `C` is the
@@ -356,7 +358,8 @@ export const RECORD_TAKEN = "Record belongs to another Flight Program.";
  * Writes a collection's records after `apply`, as the codec encodes them:
  * replaces each loaded row whose payload changed, skips one left as stored,
  * and inserts a record with no loaded row, keeping a written work order's or
- * job card's number row in step. Never deletes.
+ * job card's number row, and a moved inventory item's files, in step. Never
+ * deletes.
  *
  * A uuid outside the active Flight Program is never overwritten: a record
  * whose uuid is stored but was not loaded is refused.
@@ -378,6 +381,8 @@ export async function writeChanged<N extends UuidCollection>(
     if (prior) await replaceRow(ctx, prior._id, row);
     else await insertUnclaimed(ctx, collection, row);
     await syncRecordNumber(ctx, collection, row);
+    if (collection === "management" && prior && movedProgram(prior, row))
+      await moveInventoryFiles(ctx, record.uuid, programOf(row));
   }
 }
 
@@ -562,6 +567,17 @@ async function persistCommand<C, W, R, Out>(
   } catch (error) {
     throw exposed(error);
   }
+}
+
+// A transfer moves an inventory item to another program; its files follow.
+function movedProgram(prior: object, row: object) {
+  return programOf(prior) !== programOf(row);
+}
+
+function programOf(row: object): string | undefined {
+  return "programUuid" in row && typeof row.programUuid === "string"
+    ? row.programUuid
+    : undefined;
 }
 
 // A row without system fields is a valid replacement; Convex's types cannot
