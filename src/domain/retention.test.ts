@@ -12,13 +12,24 @@ import {
   FLIGHT_RETENTION_DAYS,
   MAX_HISTORY_PAGE_SIZE,
   RETENTION_DAYS,
+  compareHistoryPositions,
+  historyCursor,
   historyPage,
+  historyPosition,
+  historyStart,
+  isOlderWorkOrder,
+  readHistoryCursor,
+  recentCompletionFloor,
   retainedSnapshot,
   retentionCutoff,
+  type HistoryKind,
   type HistoryPageRequest,
+  type HistoryPosition,
   type HistoryRecords,
+  type HistoryRows,
 } from "./retention";
 import type { Discrepancy, Flight, Snapshot } from "./model";
+import { Rejection } from "./rejection";
 import { workOrderSchema, type WorkOrder } from "./workOrders";
 import { closeoutSchema } from "./workOrderCloseoutSchema";
 import { taskCardDefaults, taskCardSchema, type TaskCard } from "./taskCards";
@@ -31,6 +42,7 @@ const FLIGHT_CUTOFF = Date.UTC(2026, 4, 20);
 const LONG_AGO = Date.UTC(2024, 0, 15);
 const MAX_PAGES = 1000;
 const [A, B] = ["aircraft-a", "aircraft-b"];
+const NO_CONTEXT = { taskCards: [], archivedTaskCards: [], costs: [] };
 const COLLECTIONS = [
   "flights",
   "discrepancies",
@@ -273,17 +285,53 @@ describe("historyPage", () => {
           [...all].sort(),
         );
       }
-      expect(paged.flights.map((f) => [f.startTime, f.uuid])).toEqual(
-        listOrder(paged.flights.map((f) => [f.startTime, f.uuid])),
-      );
-      expect(paged.discrepancies.map((d) => [d.createdAt, d.uuid])).toEqual(
-        listOrder(paged.discrepancies.map((d) => [d.createdAt, d.uuid])),
-      );
-      expect(paged.workOrders.map((w) => [w.recordedAt, w.uuid])).toEqual(
-        listOrder(paged.workOrders.map((w) => [w.recordedAt, w.uuid])),
-      );
+      const flights = paged.flights.map((f) => [startOf(f), f.uuid]);
+      expect(flights).toEqual(listOrder(flights));
+      const reports = paged.discrepancies.map((d) => [d.createdAt, d.uuid]);
+      expect(reports).toEqual(listOrder(reports));
+      const orders = paged.workOrders.map((w) => [w.completionDate, w.uuid]);
+      expect(orders).toEqual(listOrder(orders));
     },
   );
+
+  it("orders flights by start instant, not by the offset text records", () => {
+    const s = snapshotOf({
+      flights: [
+        flight("later-instant", LONG_AGO, {
+          startTime: "2024-01-15T23:30:00-05:00",
+        }),
+        flight("later-text", LONG_AGO, { startTime: "2024-01-16T01:00:00Z" }),
+      ],
+    });
+    const page = historyPage(
+      s,
+      { kind: "flights", cursor: null, numItems: 5 },
+      NOW,
+    );
+    expect(page.records.flights.map((f) => f.uuid)).toEqual([
+      "later-instant",
+      "later-text",
+    ]);
+  });
+
+  it("lists a cancelled order without a completion date after every dated one", () => {
+    const s = snapshotOf({
+      workOrders: [
+        order("undated", { status: "cancelled" }),
+        completed("dated", "2020-01-01"),
+        ...recentWork(5),
+      ],
+    });
+    const page = historyPage(
+      s,
+      { kind: "workOrders", cursor: null, numItems: 5 },
+      NOW,
+    );
+    expect(page.records.workOrders.map((w) => w.number)).toEqual([
+      "dated",
+      "undated",
+    ]);
+  });
 
   it("pages only one aircraft's records, or one flight status, when asked", () => {
     const flights = allPages(s, {
@@ -302,6 +350,35 @@ describe("historyPage", () => {
     );
     expect(uuids(flights).sort()).toEqual(uuids(expected).sort());
     expect(flights.length).toBeGreaterThan(0);
+  });
+
+  it("refuses an aircraft the snapshot does not list, as one that does not exist", () => {
+    const request = {
+      kind: "flights",
+      aircraftUuid: "not-listed",
+      cursor: null,
+      numItems: 5,
+    } as const;
+    expect(() => historyPage(s, request, NOW)).toThrow(
+      new Rejection("History not found."),
+    );
+  });
+
+  it("brings the members its rows name, and no one else", () => {
+    const [pilot, resolver, other] = ["pilot", "resolver", "other"].map(
+      (id) => ({ ...demoSnapshot().members[1], id, name: `Name of ${id}` }),
+    );
+    const named = snapshotOf({
+      members: [other, resolver, pilot],
+      flights: [flight("old", LONG_AGO, { pilotId: "pilot" })],
+      discrepancies: [
+        report("old", LONG_AGO, { authorId: "pilot", resolvedBy: "resolver" }),
+      ],
+    });
+    const membersOf = (kind: "flights" | "discrepancies") =>
+      historyPage(named, { kind, cursor: null, numItems: 5 }, NOW).members;
+    expect(membersOf("flights")).toEqual([pilot]);
+    expect(membersOf("discrepancies")).toEqual([resolver, pilot]);
   });
 
   it("continues after its cursor when newer records arrive between pages", () => {
@@ -351,28 +428,100 @@ describe("historyPage", () => {
     expect(end.records.workOrders.length).toBeGreaterThan(0);
     expect(historyPage(s, past, NOW)).toEqual({
       records: emptyRecords(),
+      members: [],
       isDone: true,
       continueCursor: end.cursor,
     });
   });
 
-  it("refuses a cursor it did not write, or one from another list", () => {
-    const flightCursor = historyPage(
-      s,
-      { kind: "flights", cursor: null, numItems: 1 },
-      NOW,
-    ).continueCursor;
-    for (const cursor of [
-      "",
-      "12",
-      "not json",
-      '["x"]',
-      "[1,2]",
-      flightCursor!,
-    ])
-      expect(() =>
-        historyPage(s, { kind: "discrepancies", cursor, numItems: 1 }, NOW),
-      ).toThrow("Invalid history cursor.");
+  it("refuses a cursor it did not write, or one of another key type", () => {
+    const cursorOf = (kind: "flights" | "workOrders") =>
+      historyPage(s, { kind, cursor: null, numItems: 1 }, NOW).continueCursor!;
+    const refused = (kind: HistoryKind, cursor: string) =>
+      expect(() => historyPage(s, { kind, cursor, numItems: 1 }, NOW)).toThrow(
+        "Invalid history cursor.",
+      );
+    for (const cursor of ["", "12", "not json", '["x"]', "[1,2]"])
+      refused("discrepancies", cursor);
+    refused("discrepancies", cursorOf("workOrders"));
+    refused("flights", cursorOf("workOrders"));
+    refused("workOrders", cursorOf("flights"));
+  });
+});
+
+describe("the paging contract the server shares", () => {
+  const s = history();
+  const older = (kind: HistoryKind) =>
+    allPages(s, { kind, cursor: null, numItems: MAX_HISTORY_PAGE_SIZE })
+      .records[kind];
+
+  it("puts every row the window leaves out after its list's start", () => {
+    for (const kind of ["flights", "discrepancies", "workOrders"] as const) {
+      const start = historyStart(kind, NOW);
+      const rows: HistoryRows[typeof kind][] = older(kind);
+      for (const row of rows)
+        expect(
+          compareHistoryPositions(start, historyPosition(kind, row)),
+          `${kind} ${row.uuid}`,
+        ).toBeLessThan(0);
+    }
+  });
+
+  it("starts at the cutoff's day: a row of that key comes before the start", () => {
+    expect(historyStart("flights", NOW)).toEqual([FLIGHT_CUTOFF, ""]);
+    expect(historyStart("discrepancies", NOW)).toEqual([CUTOFF, ""]);
+    expect(historyStart("workOrders", NOW)).toEqual(["2026-08-21", ""]);
+    const atCutoff: HistoryPosition = ["2026-08-21", "0"];
+    expect(
+      compareHistoryPositions(atCutoff, historyStart("workOrders", NOW)),
+    ).toBeLessThan(0);
+  });
+
+  it("reads back the cursor it writes, for its own key type only", () => {
+    const position: HistoryPosition<"workOrders"> = ["2024-01-10", "u-1"];
+    expect(readHistoryCursor("workOrders", historyCursor(position))).toEqual(
+      position,
+    );
+    expect(readHistoryCursor("flights", null)).toBeUndefined();
+    expect(() => readHistoryCursor("flights", historyCursor(position))).toThrow(
+      "Invalid history cursor.",
+    );
+  });
+
+  it("never keeps an order on its context alone that it pages without one", () => {
+    const contexts = (s.workOrders ?? []).map((w) => {
+      const floor = recentCompletionFloor(
+        (s.workOrders ?? [])
+          .filter((o) => o.status === "completed")
+          .filter((o) => o.aircraftUuid === w.aircraftUuid)
+          .map((o) => o.completionDate),
+      );
+      const bare = { ...NO_CONTEXT, recentFloor: floor };
+      const full = {
+        taskCards: (s.taskCards ?? []).filter(
+          (c) => c.workOrderUuid === w.uuid,
+        ),
+        archivedTaskCards: (s.archivedTaskCards ?? []).filter(
+          (c) => c.workOrderUuid === w.uuid,
+        ),
+        costs: (s.costs ?? []).filter(
+          (c) => c.kind === "workOrder" && c.workOrderUuid === w.uuid,
+        ),
+        recentFloor: floor,
+      };
+      return [isOlderWorkOrder(w, bare, NOW), isOlderWorkOrder(w, full, NOW)];
+    });
+    expect(contexts.filter(([bare, full]) => !bare && full)).toEqual([]);
+    expect(contexts.some(([bare, full]) => bare && !full)).toBe(true);
+  });
+
+  it("takes the fifth latest completion date, the earliest of fewer, ties kept", () => {
+    const dates = ["2020-03-01", "2020-01-01", "2020-05-01", "2020-02-01"];
+    expect(recentCompletionFloor(dates)).toBe("2020-01-01");
+    expect(recentCompletionFloor([...dates, "2020-04-01", "2019-12-01"])).toBe(
+      "2020-01-01",
+    );
+    expect(recentCompletionFloor([])).toBeUndefined();
   });
 });
 
@@ -422,7 +571,13 @@ function emptyRecords(): HistoryRecords {
 }
 
 function snapshotOf(records: Partial<Snapshot>): Snapshot {
-  return { ...demoSnapshot(), ...emptyRecords(), ...records };
+  const demo = demoSnapshot();
+  const aircraft = [A, B].map((uuid) => ({ ...demo.aircraft[0], uuid }));
+  return { ...demo, aircraft, ...emptyRecords(), ...records };
+}
+
+function startOf(f: Flight) {
+  return Date.parse(f.startTime);
 }
 
 function uuids(rows: { uuid: string }[] | undefined) {
@@ -709,12 +864,16 @@ function addWork(s: Snapshot, next: () => number, at: () => number) {
         aircraftUuid: i % 2 ? B : A,
         recordedAt: opened,
         ...(i % 8 === 0 ? { status: "in-progress", completionDate: "" } : {}),
+        ...(i % 10 === 5 ? { status: "cancelled", completionDate: "" } : {}),
       },
     );
     s.workOrders!.push(w);
-    s.costs!.push(cost(`c-${i}`, w, opened));
+    // Some old orders keep a recent cost entry or an open job card.
+    s.costs!.push(cost(`c-${i}`, w, i % 7 === 3 ? CUTOFF + DAY : opened));
     for (let j = 0; j < next() % 4; j++)
       s.taskCards!.push(card(`w-${i}-card-${j}`, w, { updatedAt: opened }));
+    if (i % 11 === 4)
+      s.taskCards!.push(card(`w-${i}-open`, w, { status: "ready" }));
     if (i % 3 === 0) s.archivedTaskCards!.push(card(`w-${i}-archived`, w));
   }
   s.taskCards!.push(card("template", undefined, { inspectionUuid: "i-1" }));
