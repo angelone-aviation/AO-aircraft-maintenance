@@ -1,10 +1,8 @@
 /*
- * Responsibility: Styles for the signed-out screens (the welcome card that
- *   holds sign-in, first-run setup, access expired and failures) and for
- *   sign-in methods: the Google and Microsoft buttons and notice, and a
- *   user's sign-in methods in Settings → My account and Administration.
- * Layer: UI. Selectors are scoped by `welcome-`, `forgot-`, `setup-box` or
- *   `sgn-` classes, so nothing here restyles a workspace screen.
+ * Responsibility: Styles for the signed-out screens: the welcome card that
+ *   holds sign-in, first-run setup, access expired and failures.
+ * Layer: UI. Selectors are scoped by `welcome-`, `forgot-` or `setup-box`
+ *   classes, so nothing here restyles a workspace screen.
  * Dependencies: src/styles/tokens.css (colours, shadows, radii, motion),
  *   src/styles.css (.button, .field).
  *
@@ -174,98 +172,4 @@
   .welcome {
     padding-top: 72px;
   }
-}
-
-/* ---------- Sign-in screen ---------- */
-.sgn-sso {
-  display: grid;
-  gap: 10px;
-}
-/* The base .welcome-divider margin is !important, so only !important can
- * tighten it here. */
-.sgn-sso > .welcome-divider {
-  margin: 8px 0 4px !important;
-}
-.sgn-sso-button.button {
-  width: 100%;
-  min-height: 48px;
-  gap: 12px;
-  font-size: 16px;
-  font-weight: var(--fw-medium);
-}
-.sgn-mark {
-  flex: none;
-  width: 20px;
-  height: 20px;
-}
-.sgn-notice {
-  font-size: 14.5px;
-  line-height: 1.5;
-}
-.sgn-notice strong {
-  color: var(--text);
-}
-
-/* ---------- Sign-in method list ---------- */
-.sgn-methods > ul {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.sgn-methods li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-  min-height: 44px;
-}
-/* The size of the password row's small IconTile, holding a brand mark on
- * a neutral surface so its colours read in both themes. */
-.sgn-method-mark {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-}
-.sgn-method-mark .sgn-mark {
-  width: 18px;
-  height: 18px;
-}
-.sgn-method-text {
-  flex: 1;
-  min-width: 0;
-}
-.sgn-method-text strong {
-  display: block;
-  font-size: 15.5px;
-  font-weight: var(--fw-medium);
-}
-.sgn-method-text small {
-  display: block;
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-light);
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-.sgn-remove.button {
-  flex: none;
-  min-height: 40px;
-}
-.sgn-empty {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-light);
-}
-.sgn-empty > svg {
-  flex: none;
 }

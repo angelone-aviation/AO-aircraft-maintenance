@@ -47,8 +47,8 @@ import { AsyncForm, Field, download, errorText, value } from "./components/ui";
 import { App } from "./App";
 import "./styles/tokens.css";
 import "./styles.css";
+import "./styles/screens/signin.css";
 import { Wordmark, initTheme } from "./components/design";
-import { SignInNotice, SsoSignIn } from "./components/SignInMethods";
 import {
   chooseLiveScreen,
   keptCopyIsTheirs,
@@ -331,7 +331,6 @@ function SignIn({ onDemo }: { onDemo?: () => void }) {
     <Welcome>
       <h1>Welcome back.</h1>
       <p>Sign in to your aircraft operations workspace.</p>
-      <SignInNotice />
       <AsyncForm
         submitLabel="Sign in"
         disabled={!online}
@@ -342,7 +341,6 @@ function SignIn({ onDemo }: { onDemo?: () => void }) {
         </Field>
         <PasswordField />
       </AsyncForm>
-      <SsoSignIn disabled={!online} />
       {!online && (
         <p className="callout">
           Connect to sign in for the first time on this device.

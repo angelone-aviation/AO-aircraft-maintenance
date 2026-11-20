@@ -7,7 +7,7 @@
  *   groupAircraft, model, groupAccessReview, accountRules, usersByGroup),
  *   ./CertificateApprovals, ./DeleteGroupButton, ./PermissionGroupForm,
  *   ./GroupAccessReview, ./ProgramUsers, ./UserProfile, ./Fleet,
- *   ./SignInMethods, ./charts, ./ui, ./design, src/styles/screens/admin.css.
+ *   ./charts, ./ui, ./design, src/styles/screens/admin.css.
  */
 import { CertificateApprovals } from "./CertificateApprovals";
 import { DeleteGroupButton } from "./DeleteGroupButton";
@@ -30,7 +30,6 @@ import {
   Key,
   PencilSimple,
   Plus,
-  SignIn,
   Users,
   WifiSlash,
 } from "@phosphor-icons/react";
@@ -45,7 +44,6 @@ import {
 } from "../domain/model";
 import type { GroupAccessReport } from "../domain/groupAccessReview";
 import { AsyncForm, Field, Modal, errorText } from "./ui";
-import { SignInMethodList } from "./SignInMethods";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -69,7 +67,6 @@ type UserActions = {
   demo: boolean;
   onEdit: (member: Member) => void;
   onReset: (member: Member) => void;
-  onMethods: (member: Member) => void;
 };
 type Dialogs = ReturnType<typeof useAdminDialogs>;
 type FormProps = {
@@ -114,8 +111,8 @@ export function Administration() {
     dialogs.groupSaves,
   );
   if (!s.user.isAdmin) return <ProgramAdministration s={s} />;
-  const { setDialog, setReset, setMethods } = dialogs;
-  const actions = { enabled, demo, onReset: setReset, onMethods: setMethods };
+  const { setDialog, setReset } = dialogs;
+  const actions = { enabled, demo, onReset: setReset };
   return (
     <div className="adm-page">
       <AdminHeader
@@ -149,7 +146,6 @@ export function Administration() {
 function useAdminDialogs() {
   const [dialog, setDialog] = useState<AdminDialog | null>(null),
     [reset, setReset] = useState<Member | null>(null),
-    [methods, setMethods] = useState<Member | null>(null),
     // Bumped when a group form closes, so the access check runs again even
     // when a save left the group's fields as they were.
     [groupSaves, setGroupSaves] = useState(0);
@@ -162,8 +158,6 @@ function useAdminDialogs() {
     setDialog,
     reset,
     setReset,
-    methods,
-    setMethods,
     groupSaves,
     groupDone,
   };
@@ -190,9 +184,6 @@ function AdminDialogs({
           enabled={enabled}
           onClose={() => d.setReset(null)}
         />
-      )}
-      {d.methods && (
-        <SignInMethods member={d.methods} onClose={() => d.setMethods(null)} />
       )}
     </>
   );
@@ -407,15 +398,6 @@ function UserButtons({ user, ...a }: UserActions & { user: Member }) {
       >
         <Key size={16} aria-hidden="true" />
       </button>
-      <button
-        className="button small adm-icon-button"
-        aria-label="Sign-in methods"
-        title="Sign-in methods"
-        disabled={!a.enabled}
-        onClick={() => a.onMethods(user)}
-      >
-        <SignIn size={16} aria-hidden="true" />
-      </button>
     </div>
   );
 }
@@ -599,24 +581,5 @@ function NewPasswordField() {
         autoComplete="new-password"
       />
     </Field>
-  );
-}
-
-function SignInMethods({
-  member,
-  onClose,
-}: {
-  member: Member;
-  onClose: () => void;
-}) {
-  return (
-    <Modal title={`Sign-in methods · ${member.name}`} onClose={onClose}>
-      <p className="muted">
-        Google or Microsoft accounts are linked when the person first signs in
-        with one whose verified email is {member.email}. Every sign-in and
-        change is in the change log.
-      </p>
-      <SignInMethodList member={member} />
-    </Modal>
   );
 }
