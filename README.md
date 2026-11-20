@@ -14,7 +14,7 @@ Angel One keeps the maintenance and status records a 14 CFR Part 91 operator mus
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **What it is**    | An installable web app (PWA) built with React, Vite, TanStack Router and Zustand, on a Convex backend                                                                   |
 | **Who uses it**   | Pilots, mechanics and inspectors, program administrators, aircraft owners and board members                                                                             |
-| **Status**        | Deployed. Four releases reached production on 20 November 2026, ending at `8df41a2`; real records begin when the program decides. See [Project status](#project-status) |
+| **Status**        | Deployed. Five releases reached production on 20 November 2026, ending at `8b40038`; real records begin when the program decides. See [Project status](#project-status) |
 | **Where it runs** | Website on Cloudflare, backend on Convex, releases through GitHub Actions                                                                                               |
 | **Try it**        | `npm ci`, then `npm run dev`, then choose **Explore the local demo**                                                                                                    |
 
@@ -92,7 +92,7 @@ _The walk-around: every part looked at in turn, grouped by who uses it._
 - **One design across the app**: white pages and cards, the Outfit font, one cobalt accent (#2563EB), and status colours kept for status only (green for airworthy, amber for due soon, red for grounded or overdue), always with a word and an icon.
 - **Navigation**: a white sidebar on desktops grouped under Fly, Maintain and Manage, an icon rail on tablets, and a bottom tab bar with **Log flight** and a **More** sheet on phones. Lists restack on phones instead of scrolling sideways.
 - **Charts** for fleet readiness and hours flown, inspections, the flight log, work orders, stock levels, costs and more, each with a text alternative.
-- **The owner's Cessna picture** on every aircraft card, and icons from Phosphor. Motion is subtle and stops when the device asks for reduced motion.
+- **One Cessna picture** on every aircraft card, and icons from Phosphor. Motion is subtle and stops when the device asks for reduced motion.
 
 <details>
 <summary><strong>Details worth knowing before you enter data</strong></summary>
@@ -205,32 +205,29 @@ npm run setup:admin
 - It also creates `CREDENTIALS_ENCRYPTION_KEY` (32 random bytes, base64) if the deployment has none. That key encrypts saved Aircraft Spruce, FAA and Geoapify credentials with AES-GCM; saving those credentials fails until it is set. To set it by hand: `openssl rand -base64 32 | npx convex env set CREDENTIALS_ENCRYPTION_KEY`. Never change or delete it in place on a deployment with saved credentials, or administrators must re-enter them; to rotate it, follow [the credential key runbook](docs/runbooks/credentials-key.md). Unencrypted values are refused.
 - `setup:admin` prompts for name, email, and a hidden password (15–128 characters, not a common password). It passes the password to the deployment through a temporary `BOOTSTRAP_ADMIN_PASSWORD` environment variable (over stdin, never in process arguments) and removes it afterward. It only works with an empty user database and invokes an internal function, never a public signup endpoint. Keep credentials private.
 
-**3. Set up access in the app.** System administrators create Flight Programs, permission groups, and users. Assign each user to program-specific groups to grant access. Select the active Flight Program in the header; aircraft and locations inherit it automatically. See [Flight Program access](docs/flight-program-access.md) for setup, roles, transfers, and offline isolation.
+**3. Set up access in the app.** System administrators create Flight Programs, permission groups, and users. Assign each user to program-specific groups to grant access. Select the active Flight Program at the top of the sidebar (under **All sections** on a phone); aircraft and locations inherit it automatically. See [Flight Program access](docs/flight-program-access.md) for setup, roles, transfers, and offline isolation.
 
 ### Settings that live on the deployment
 
 Some settings are set on the Convex deployment, not in the app's **Settings** page.
 
-| Setting                                                  | What it turns on                                                                                                                                                       | More                                                                             |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `SITE_URL`                                               | Sign-in redirects and the links in emails                                                                                                                              | Set by `npm run setup:auth`                                                      |
-| `CREDENTIALS_ENCRYPTION_KEY`                             | Encryption of saved Aircraft Spruce, FAA and Geoapify credentials                                                                                                      | [Credential key runbook](docs/runbooks/credentials-key.md)                       |
-| `RESEND_API_KEY`, `RESEND_FROM`                          | The daily alert digest and urgent alert emails                                                                                                                         | [Alerts](docs/alerts.md)                                                         |
-| `RECORDS_TIME_ZONE`                                      | The calendar day that alerts use, as an IANA zone name such as `America/Chicago`; the default is `America/New_York`. Set this if the program is not on US Eastern time | [Monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Urgent alerts on devices (Web Push)                                                                                                                                    | [Monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) |
+| Setting                                                  | What it turns on                                                                                                                                            | More                                                                             |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `SITE_URL`                                               | The links in alert emails                                                                                                                                   | Set by `npm run setup:auth`                                                      |
+| `CREDENTIALS_ENCRYPTION_KEY`                             | Encryption of saved Aircraft Spruce, FAA and Geoapify credentials                                                                                           | [Credential key runbook](docs/runbooks/credentials-key.md)                       |
+| `RESEND_API_KEY`, `RESEND_FROM`                          | The daily alert digest and urgent alert emails                                                                                                              | [Alerts](docs/alerts.md)                                                         |
+| `RECORDS_TIME_ZONE`                                      | The calendar day that alerts use, as an IANA zone name such as `America/Chicago`. Default `America/New_York` (US Eastern); production is `America/Edmonton` | [Monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Urgent alerts on devices (Web Push)                                                                                                                         | [Monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) |
 
 In the app, **Settings → System** shows which of these features are on (Deployment status) and holds the FAA and Geoapify keys, the deployment's expiring dates, the off-site backup status and a partial CSV extract (not a backup); **Settings → Flight Program** holds each program's details, labor rate, expiring dates, Aircraft Spruce account and partial CSV extract.
 
 ### Alerts by email and on devices
 
-- Maintenance alerts appear under the bell in the header for everyone, including demo mode.
-- To also email a daily digest (13:00 UTC) of new alerts, set a [Resend](https://resend.com) API key and a verified sender on the deployment: `npx convex env set RESEND_API_KEY re_...` and `npx convex env set RESEND_FROM "Angel One <alerts@your-domain>"`. Without both, email is skipped and in-app alerts keep working. Digests link back to `SITE_URL`.
-- Program administrators receive digests by default; anyone can change this under Settings → Alerts.
-- Urgent alerts (a grounded aircraft, an overdue inspection or AD, a component past its limit, an expired date) also go out at once, by email and to devices.
-  - Email goes to program administrators and maintenance members (switch under Settings → Alerts), at most 60 a day so the digest fits Resend's free 100.
-  - Device alerts reach members who switch them on under Settings → Alerts, once the deployment has Web Push keys; until then Settings says they are not turned on.
-  - See the [monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices) and [alerts](docs/alerts.md).
-- System administrators whose alert email is on also get an "Off-site backups" warning, at the top of their digest or on its own, while the newest nightly off-site backup is more than 26 hours old or none has been recorded; Settings → System shows the newest copy.
+- Maintenance alerts appear under the bell in the header for everyone, including demo mode, with no set-up.
+- **Email** (a daily digest at 13:00 UTC, and urgent alerts at once) needs a [Resend](https://resend.com) API key and a verified sender on the deployment: `npx convex env set RESEND_API_KEY re_...` and `npx convex env set RESEND_FROM "Angel One <alerts@your-domain>"`. Without both, email is skipped and in-app alerts keep working. The emails link back to `SITE_URL`.
+- **Alerts on devices** (Web Push) need the three `VAPID_*` variables; until then Settings → Alerts says they are not turned on.
+- Who gets which alert, the switches under Settings → Alerts and the cap of 60 urgent emails a day are in [alerts](docs/alerts.md); the operator's steps are in the [monitoring runbook](docs/runbooks/monitoring.md#alerts-by-email-and-on-devices).
+- System administrators whose alert email is on also get an "Off-site backups" warning, at the top of their digest or on its own, while the newest nightly off-site backup is more than 26 hours old or none has been recorded ([backup runbook](docs/runbooks/backup-restore.md#who-is-told-when-it-fails)); Settings → System shows the newest copy.
 
 ### Accounts and sign-in
 
@@ -260,7 +257,7 @@ Open the preview URL online, sign in, and allow the app to cache before testing 
 | Take a photo of the paper logbook line for a flight that has not synced | Switching Flight Program                    |
 | Open reference manuals kept on the device                               | Everything else                             |
 
-- The copy on the device is the workspace: six months of flights, three months of closed maintenance, every open item, and the records that stay complete (aircraft, inspections, ADs, checklists, flight plans, parts requests and purchase orders), which is what logging a flight needs. Older records load with **Load older** and need a connection ([history paging](docs/history-paging.md)).
+- The copy on the device is the workspace: six months of flights, three months of closed maintenance, every open item, and the records that stay complete (aircraft, inspections, ADs, components, checklists and inventory), which is what logging a flight needs. Closed parts requests, closed purchase orders and older flight plans page in like other history: older records load with **Load older** and need a connection ([history paging](docs/history-paging.md#the-window)).
 - A photo taken for a flight that has not synced waits on the device and uploads after it ([logbook page photos](docs/logbook-photos.md)).
 - Reference manuals a user keeps on the device (**Keep on this device** in the Reference library) also open offline; see [reference library](docs/reference-library.md#keep-on-this-device).
 - Pending entries appear in **Sync center** and sync automatically when connected. Conflicting flights go to administrator review without changing aircraft totals.
@@ -307,8 +304,8 @@ The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.j
 | A release by hand      | Run the **Deploy** workflow from `main`; it refuses unless you confirm a backup was taken and CI has passed for the newest commit                                                                      |
 | Every night, 08:41 UTC | **Nightly backup** copies production off-site to Cloudflare R2, unencrypted ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)), plus an optional readable Excel workbook in Dropbox             |
 
-- First-time setup (Cloudflare account and API token, domain, Convex deploy key, GitHub secrets and the `production` environment), releasing and rollback are in the [release runbook](docs/runbooks/release.md).
-- Without a terminal, set up a new, empty production deployment with the manual **First-time setup** workflow, once, before the first Deploy: see [First-time setup (no terminal)](docs/runbooks/release.md#first-time-setup-no-terminal).
+- First-time setup (the accounts, the Convex deployment and its deploy keys, Cloudflare, the GitHub environments and backups) is in [Set up from scratch](docs/handbook/3-running-it/setup-from-scratch.md). A new, empty production deployment needs no terminal: run the manual **First-time setup** workflow once, before the first Deploy ([First-time setup (no terminal)](docs/runbooks/release.md#first-time-setup-no-terminal)).
+- Releasing, the emergency override and rollback are in the [release runbook](docs/runbooks/release.md).
 - Only Deploy publishes the site: keep Cloudflare's own Git build disconnected; a production build refuses to run there ([release runbook](docs/runbooks/release.md#cloudflare)).
 - Before deploying by hand, take a Convex backup (dashboard > Backups).
 - The nightly backup is unencrypted ([ADR-0014](docs/adr/0014-backups-stored-unencrypted.md)). Running it by hand, checking it and restoring are in the [backup runbook](docs/runbooks/backup-restore.md); `npm run test:backup` tests it without credentials.
@@ -317,53 +314,20 @@ The website runs on Cloudflare (Workers Static Assets, configured in `wrangler.j
 
 ### One-off steps for deployments with older data
 
-**Fresh deployments skip this section.** The production deployment started empty on 2026-11-03 (no data was migrated; the old test deployment was deleted), so the first two steps below have nothing to do there; the last applies to production too. Each repairs data written by earlier versions and stays documented for any deployment that holds such data.
+**A fresh deployment skips the first two.** Production started empty on 2026-11-03 (no data was migrated; the old test deployment was deleted), so they have nothing to do there. Each repairs data written by earlier versions and stays documented for any deployment that holds such data. Both are safe to rerun, batch themselves and do nothing once complete.
 
-After deploying a version that adds the `memberships` table, populate it once from existing accounts. It is safe to rerun, batches itself until every user is processed, and does nothing once complete:
+| Run once                                      | After deploying the version that                              | Until it runs                                                                                                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx convex run memberships:backfill`         | adds the `memberships` table                                  | Flight Program member lists (pilot pickers, group-deletion reviews) show only accounts changed after the deploy. Permissions are unaffected: they still come from each user's group list |
+| `npx convex run attachments:backfillAircraft` | stores the aircraft on job-card evidence and work-order files | Those older files still show: the workspace snapshot reads them through a slower fallback on every load                                                                                  |
 
-```bash
-npx convex run memberships:backfill
-```
+**The history migrations apply to production too.** After a release that adds derived columns or lookup keys, and after restoring any backup, run these in order, each until it reports 0:
 
-Until it runs, Flight Program member lists (pilot pickers, group-deletion reviews) show only accounts changed after the deploy. Permissions are unaffected: they still come from each user's group list.
+1. `migrations:backfillHistoryColumns`, the derived columns and lookup keys;
+2. `migrations:rebuildRecordNumbers`, the work order and job card number rows;
+3. `migrations:rebuildCostLedger`, the cost ledger the board and the cost report total from.
 
-After deploying the version that stores the aircraft on job-card evidence and work-order files, fill it in on files uploaded before, once. It is safe to rerun, batches itself through both tables, and does nothing on a fresh deployment or once complete:
-
-```bash
-npx convex run attachments:backfillAircraft
-```
-
-Until it runs, those older files still show: the workspace snapshot reads them through a slower fallback on every load.
-
-History paging (stages S2 to S7) adds three one-off steps. Run them in this order after deploying it, and again after restoring any backup, each until it reports 0:
-
-1. `migrations:backfillHistoryColumns`, the derived columns, S7's `changedAt` and `latestAt` among them, each job-card evidence file's work order and inventory file's program, and the parts requests' and purchase orders' lookup keys (H5);
-2. `migrations:rebuildRecordNumbers`, the number rows;
-3. `migrations:rebuildCostLedger`, the cost ledger; then check that `npx convex run migrations:reconcileCostLedger` answers `differing: 0` and logs no "The cost ledger differs from its records."
-
-After deploying the version that adds the history window's derived columns (history paging stage S2, and the columns S7 adds), fill them in on rows written before, and again after restoring a backup taken before that version. It writes no change-log row and changes no record; it answers how many rows were missing their columns. Run it until that count is 0:
-
-```bash
-npx convex run migrations:backfillHistoryColumns
-```
-
-Saves read the columns from stage S3, so on a deployment holding rows from before S2, the backfill must reach 0 before S3 serves saves: a bounded save does not see a row without its columns. Since H5 the parts-request and purchase-order saves find other requests and orders by their lookup keys, which the same backfill fills: until it reaches 0 they can miss a reused request id, an open repair or an allocation on a record written before the keys. Since S7 the workspace reads the window through them too; until the count reaches 0 it reads the rows without them as well, so it loads more, never less, and the history pages refuse until then. Details: [history paging](docs/history-paging.md#before-deploying-s7).
-
-After deploying stage S3, and again after restoring any backup, rebuild the work order and job card number rows that numbering reads. It writes no change-log row and changes no record; it answers how many rows it wrote or deleted. Run it until that count is 0:
-
-```bash
-npx convex run migrations:rebuildRecordNumbers
-```
-
-Until it reaches 0, a blank work order or job card number can repeat one an older record holds. Details: [history paging](docs/history-paging.md#rebuilding-the-number-rows).
-
-After deploying stage S4, after restoring any backup, and whenever the nightly reconcile logs "The cost ledger differs from its records.", rebuild the cost ledger the board and the cost report total from. It writes no change-log row and changes no record; it answers how many rows it wrote or deleted. Run it until that count is 0:
-
-```bash
-npx convex run migrations:rebuildCostLedger
-```
-
-Until it reaches 0, the board can show less than was spent. Details: [history paging](docs/history-paging.md#rebuilding-the-cost-ledger).
+Then `migrations:reconcileCostLedger` must answer `differing: 0`. None of them changes a record or writes a change-log row. The commands, and what goes wrong until each finishes, are in the handbook's [operations page](docs/handbook/3-running-it/operations.md#after-a-release-or-a-restore-the-migrations); why each exists is in [history paging](docs/history-paging.md#before-deploying-s7). They were run on production after releases 2 and 3 on 20 November 2026, and each returned 0.
 
 ## Operations
 
@@ -371,61 +335,64 @@ _En route: keeping it flying._
 
 ### Project status
 
-**Deployed, with real records beginning when the program decides.** There is no launch date. Four releases reached production on 20 November 2026, ending at `8df41a2`: every open bug and decision ([changelog](docs/handbook/5-history/changelog.md)), history paging, the purchasing window with lighter saves and a bounded Weekly summary, and backups without encryption. The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes finishing the off-site backup setup, the backup heartbeat secret, and acceptance testing on actual pilot and mechanic devices. Outside monitoring is Better Stack, set up on 20 November; Sentry error reporting stays off for now ([monitoring runbook](docs/runbooks/monitoring.md)).
+**Deployed, with real records beginning when the program decides.** There is no launch date. Five releases reached production on 20 November 2026, ending at `8b40038`: every open bug and decision ([changelog](docs/handbook/5-history/changelog.md)), history paging, the purchasing window with lighter saves and a bounded Weekly summary, backups without encryption, and the handbook and user guide with password-only sign-in. The remaining work is tracked in the [go-live checklist](docs/go-live-checklist.md); it includes the backup heartbeat secret, the first backup run by hand and restore rehearsal, and acceptance testing on actual pilot and mechanic devices. Outside monitoring is Better Stack, set up on 20 November; Sentry error reporting stays off for now ([monitoring runbook](docs/runbooks/monitoring.md)).
 
 - **Security**: an [in-house review](docs/security/review-2026-11-02.md) was completed on 2026-11-02. Its critical finding (an auth-library flaw that let anyone delete records) and its Medium and Low fixes are merged. The old test deployment that predated it has been deleted; production starts fresh on the fixed code. A [second review](docs/security/review-2026-11-04.md) on 2026-11-04 found nothing Critical or High; its fixes are merged, its two Cloudflare dashboard findings (C1, C4) were closed on 19 November, and its remaining open items are listed there. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 - **Bug hunts**: two full rounds of testing before real records begin, on [3 November](docs/qa/bug-hunt-2026-11-03/README.md) and [10 November](docs/qa/bug-hunt-2026-11-10/README.md). Each lists every finding, its fix or the decision it waits on, and a script that reproduces it.
 - **Known limit**: the workspace loads a retention window of history, and older records page in ([history paging](docs/history-paging.md), ADR-0013). Since H5, closed parts requests, purchase orders and flight plans page in too; ADs' compliance history and component movements still load whole, and Convex caps each request at 16 MiB read. At the size test's volume (six aircraft, 300 flights, 30 parts requests and 20 purchase orders a year each) an administrator's workspace reads 7.3 MiB at one year and 8.8 MiB at twenty, growing about 0.1 MiB a year, and every save stays under 3.5 MiB ([measured](docs/history-paging.md#measured-at-20-fleet-years-s8-h5-release)). Two known exceptions: accepting a held flight from long ago replays its aircraft's flights and passes Convex's one-second limit at about 20 years (S9), and a Weekly summary of a month or longer can say it was cut short. If the load fails, the app shows a page saying so instead of a blank screen.
-- **Recurring tasks**: the quarterly and yearly upkeep is in the [recurring tasks table](docs/go-live-checklist.md#recurring-tasks).
+- **Recurring tasks**: the daily to yearly upkeep, with who does each task and how long it takes, is in the handbook's [checklists](docs/handbook/3-running-it/checklists.md).
 
 ### Runbooks
 
-| When you need to                                   | Open                                                                   |
-| -------------------------------------------------- | ---------------------------------------------------------------------- |
-| Release, roll back or change hosting               | [Release and rollback](docs/runbooks/release.md)                       |
-| Back up, check a backup or restore                 | [Backup and restore](docs/runbooks/backup-restore.md)                  |
-| Keep the readable Excel copy of the records        | [Dropbox records copy](docs/runbooks/dropbox-records-copy.md)          |
-| Switch on error reporting, uptime checks or alerts | [Monitoring](docs/runbooks/monitoring.md)                              |
-| Respond to an incident                             | [Incident response](docs/runbooks/incident-response.md)                |
-| Get in when every administrator is locked out      | [Break-glass administrator access](docs/runbooks/break-glass-admin.md) |
-| See who owns each outside account                  | [Accounts](docs/runbooks/accounts.md)                                  |
-| Reach the production database                      | [Production database access](docs/runbooks/database-access.md)         |
-| Rotate the credential encryption key               | [Credential encryption key](docs/runbooks/credentials-key.md)          |
+| When you need to                                                  | Open                                                                   |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Release, roll back or change hosting                              | [Release and rollback](docs/runbooks/release.md)                       |
+| Back up, check a backup or restore                                | [Backup and restore](docs/runbooks/backup-restore.md)                  |
+| Keep the readable Excel copy of the records                       | [Dropbox records copy](docs/runbooks/dropbox-records-copy.md)          |
+| Switch on error reporting, uptime checks or alerts                | [Monitoring](docs/runbooks/monitoring.md)                              |
+| Respond to an incident                                            | [Incident response](docs/runbooks/incident-response.md)                |
+| Get in when every administrator is locked out                     | [Break-glass administrator access](docs/runbooks/break-glass-admin.md) |
+| See who owns each outside account                                 | [Accounts](docs/runbooks/accounts.md)                                  |
+| Reach the production database                                     | [Production database access](docs/runbooks/database-access.md)         |
+| Rotate the credential encryption key                              | [Credential encryption key](docs/runbooks/credentials-key.md)          |
+| Review the clean-up of unreferenced files, or switch it to delete | [Unreferenced file sweep](docs/runbooks/file-sweep.md)                 |
 
 ## Documentation map
 
 _The chart table: where everything is written down._
 
-| Looking for                           | Start at                                                                                                                           |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| What a word means                     | [GLOSSARY.md](GLOSSARY.md)                                                                                                         |
-| How a feature behaves                 | [`docs/`](docs/), one page per feature; the tour in [What it does](#what-it-does) links to each                                    |
-| Why something was decided             | [`docs/adr/`](docs/adr/), one record per standing decision                                                                         |
-| How the system fits together          | [CONTEXT.md](CONTEXT.md) and the [architecture report](docs/architecture/README.md)                                                |
-| What is left before and after go-live | [Go-live checklist](docs/go-live-checklist.md)                                                                                     |
-| How to operate production             | [`docs/runbooks/`](docs/runbooks/), listed under [Runbooks](#runbooks)                                                             |
-| Security reviews and reporting        | [2 Nov review](docs/security/review-2026-11-02.md), [4 Nov review](docs/security/review-2026-11-04.md), [SECURITY.md](SECURITY.md) |
-| Bug hunts and how to reproduce them   | [3 Nov](docs/qa/bug-hunt-2026-11-03/README.md) and [10 Nov](docs/qa/bug-hunt-2026-11-10/README.md)                                 |
-| The agreed scope and original brief   | [First delivery](docs/first-delivery.md) and [requirements.md](requirements.md)                                                    |
-| A sample program to explore           | [Hosted sample aviation program](docs/sample-program.md)                                                                           |
+| Looking for                            | Start at                                                                                                                           |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Where to start, and how to run the app | The [handbook](docs/handbook/README.md): what the app is, how it works, operations, costs, risks and history                       |
+| How to use a screen                    | The [user guide](docs/wiki/Home.md), by role and by screen                                                                         |
+| What a word means                      | [GLOSSARY.md](GLOSSARY.md)                                                                                                         |
+| How a feature behaves                  | [`docs/`](docs/), one page per feature; the tour in [What it does](#what-it-does) links to each                                    |
+| Why something was decided              | [`docs/adr/`](docs/adr/), one record per standing decision                                                                         |
+| How the system fits together           | [CONTEXT.md](CONTEXT.md) and the [architecture report](docs/architecture/README.md)                                                |
+| What is left before and after go-live  | [Go-live checklist](docs/go-live-checklist.md)                                                                                     |
+| How to operate production              | [`docs/runbooks/`](docs/runbooks/), listed under [Runbooks](#runbooks)                                                             |
+| Security reviews and reporting         | [2 Nov review](docs/security/review-2026-11-02.md), [4 Nov review](docs/security/review-2026-11-04.md), [SECURITY.md](SECURITY.md) |
+| Bug hunts and how to reproduce them    | [3 Nov](docs/qa/bug-hunt-2026-11-03/README.md) and [10 Nov](docs/qa/bug-hunt-2026-11-10/README.md)                                 |
+| The agreed scope and original brief    | [First delivery](docs/first-delivery.md) and [requirements.md](requirements.md)                                                    |
+| A sample program to explore            | [Hosted sample aviation program](docs/sample-program.md)                                                                           |
 
 ## Repository layout
 
 _Stowage: where things are kept._
 
-| Path                 | Holds                                                                                              |
-| -------------------- | -------------------------------------------------------------------------------------------------- |
-| `src/components`     | Screens and forms                                                                                  |
-| `src/domain`         | The business rules: types, schemas and calculations shared by the browser and the server           |
-| `src/data`           | The workspace store, the offline outbox, the demo backend, and PDF and export writers              |
-| `src/styles`         | Design tokens and per-screen styles                                                                |
-| `convex`             | The backend: schema, sign-in, every function, permission checks, the change log and scheduled jobs |
-| `scripts`            | Setup scripts, the local smoke test, the production-headers server, and the nightly backup job     |
-| `tests`              | Browser tests and shared fixtures; unit and server tests sit beside the code they test             |
-| `docs`               | Feature pages, decisions, runbooks, security reviews and the architecture report                   |
-| `public`             | Security headers, icons and fonts                                                                  |
-| `.github`            | CI, Deploy, Nightly backup, First-time setup and dependency updates                                |
-| `legecy php_project` | The retired PHP system, kept as a reference for business behavior                                  |
+| Path                 | Holds                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `src/components`     | Screens and forms                                                                                              |
+| `src/domain`         | The business rules: types, schemas and calculations shared by the browser and the server                       |
+| `src/data`           | The workspace store, the offline outbox, the demo backend, and PDF and export writers                          |
+| `src/styles`         | Design tokens and per-screen styles                                                                            |
+| `convex`             | The backend: schema, sign-in, every function, permission checks, the change log and scheduled jobs             |
+| `scripts`            | Setup scripts, the local smoke test, the production-headers server, and the nightly backup job                 |
+| `tests`              | Browser tests and shared fixtures; unit and server tests sit beside the code they test                         |
+| `docs`               | The handbook, the user guide, feature pages, decisions, runbooks, security reviews and the architecture report |
+| `public`             | Security headers, icons and fonts                                                                              |
+| `.github`            | CI, Deploy, Nightly backup, First-time setup and dependency updates                                            |
+| `legecy php_project` | The retired PHP system, kept as a reference for business behavior                                              |
 
 ## Working on the code
 
