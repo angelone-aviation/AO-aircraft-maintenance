@@ -27,6 +27,12 @@ timeline
     21.30 : Release 5 in production : Documentation, password-only sign-in, build guard
 ```
 
+## Release 7: not yet released
+
+Three of Aaron's decisions of 20 Nov:
+
+- RM-77: the job card screens send a signoff as one `sign` command. The unused path that saved today's date on a card without a completion date before signing is deleted; the screens already required the date, so nothing changes for users.
+
 ## Release 6: not yet released
 
 The review of the handbook and wiki that followed release 5:

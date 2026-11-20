@@ -4,7 +4,7 @@
  * Layer: UI. React components; job card rules live in src/domain.
  * Dependencies: react, react-dom, zod (ZodError), src/data (store,
  *   historyPages),
- *   src/domain (model, ata, management, programs, shelfLife, signTaskCard,
+ *   src/domain (model, ata, management, programs, shelfLife,
  *   taskCardValidation, taskCardZone, taskCards, workOrderCards, workOrders,
  *   listSearch), ./PartsRequests, ./WorkOrderRevisions, ./LogbookWording,
  *   ./TaskCsvImport, ./Manuals, ./NumberInput, ./design, ./FileLink,
@@ -18,7 +18,6 @@ import { RequestPartsButton } from "./PartsRequests";
 import { localDate } from "../domain/model";
 import { WorkOrderRevisions } from "./WorkOrderRevisions";
 import { taskCardZone as cardZone } from "../domain/taskCardZone";
-import { signTaskCard } from "../domain/signTaskCard";
 import {
   taskCardSaveWarnings,
   taskCardSigningWarnings,
@@ -610,7 +609,12 @@ function JobCardSignoffs({ card }: { card: TaskCard }) {
     if (!backend || !writable || busy) return;
     setBusy(kind);
     await withCardError(setError, () =>
-      signTaskCard(card, kind, (command) => backend.taskCard(command)),
+      backend.taskCard({
+        action: "sign",
+        uuid: card.uuid,
+        version: card.version,
+        kind,
+      }),
     );
     setBusy(undefined);
   }
@@ -2121,7 +2125,12 @@ async function signCard(e: Editor, kind: SignKind) {
   if (!initial) return;
   e.setBusy(true);
   await withCardError(e.setError, () =>
-    signTaskCard(initial, kind, (command) => e.backend!.taskCard(command)),
+    e.backend!.taskCard({
+      action: "sign",
+      uuid: initial.uuid,
+      version: initial.version,
+      kind,
+    }),
   );
   e.setBusy(false);
 }
