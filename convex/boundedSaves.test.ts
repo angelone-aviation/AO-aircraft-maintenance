@@ -99,6 +99,15 @@ it.each([
   "purchaseOrder.save",
   "auditHistory.weeklySummary",
   "history.costReport",
+  "partsRequest.edit",
+  "purchaseOrder.edit",
+  "purchaseOrder.issue",
+  "purchaseOrder.receive",
+  "partsRequest.reserve",
+  "partsRequest.issue",
+  "purchaseOrder.core",
+  "purchaseOrder.close",
+  "partsRequest.cancel",
 ])("%s: the same result and writes at one and three fleet-years", (name) => {
   const [one, three] = outcomes.get(name)!;
   expect(three).toEqual(one);
@@ -110,6 +119,11 @@ it("writes what the saves are for", () => {
   expect(writes("taskCard.newNumber")).toContain('"key":"tc-2026-0001"');
   expect(writes("workOrder.addItem")).toContain("partsRequest.recurring");
   expect(writes("workOrder.addItem")).toContain("workOrderCopyJobs");
+  // The receipt reserves for the request it was allocated to, which holds
+  // the receipt's request id from then on.
+  expect(writes("purchaseOrder.receive")).toContain("Received from PO");
+  for (const [name, [one]] of outcomes)
+    expect(one.result, name).not.toMatch(/^"?refused/);
 });
 
 async function runYear(years: number) {

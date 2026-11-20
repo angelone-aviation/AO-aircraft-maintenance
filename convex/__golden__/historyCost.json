@@ -203,6 +203,159 @@
    "indexRanges": 27
   }
  },
+ "partsRequest.edit": {
+  "1": {
+   "bytes": 1337444,
+   "documents": 1769,
+   "indexRanges": 35
+  },
+  "2": {
+   "bytes": 1736124,
+   "documents": 2069,
+   "indexRanges": 35
+  },
+  "3": {
+   "bytes": 2134804,
+   "documents": 2369,
+   "indexRanges": 35
+  }
+ },
+ "purchaseOrder.edit": {
+  "1": {
+   "bytes": 1138754,
+   "documents": 1522,
+   "indexRanges": 20
+  },
+  "2": {
+   "bytes": 1537434,
+   "documents": 1822,
+   "indexRanges": 20
+  },
+  "3": {
+   "bytes": 1936114,
+   "documents": 2122,
+   "indexRanges": 20
+  }
+ },
+ "purchaseOrder.issue": {
+  "1": {
+   "bytes": 1141262,
+   "documents": 1522,
+   "indexRanges": 20
+  },
+  "2": {
+   "bytes": 1539942,
+   "documents": 1822,
+   "indexRanges": 20
+  },
+  "3": {
+   "bytes": 1938622,
+   "documents": 2122,
+   "indexRanges": 20
+  }
+ },
+ "purchaseOrder.receive": {
+  "1": {
+   "bytes": 1145797,
+   "documents": 1524,
+   "indexRanges": 20
+  },
+  "2": {
+   "bytes": 1544477,
+   "documents": 1824,
+   "indexRanges": 20
+  },
+  "3": {
+   "bytes": 1943157,
+   "documents": 2124,
+   "indexRanges": 20
+  }
+ },
+ "partsRequest.reserve": {
+  "1": {
+   "bytes": 1343785,
+   "documents": 1770,
+   "indexRanges": 35
+  },
+  "2": {
+   "bytes": 1742465,
+   "documents": 2070,
+   "indexRanges": 35
+  },
+  "3": {
+   "bytes": 2141145,
+   "documents": 2370,
+   "indexRanges": 35
+  }
+ },
+ "partsRequest.issue": {
+  "1": {
+   "bytes": 1344949,
+   "documents": 1770,
+   "indexRanges": 35
+  },
+  "2": {
+   "bytes": 1743629,
+   "documents": 2070,
+   "indexRanges": 35
+  },
+  "3": {
+   "bytes": 2142309,
+   "documents": 2370,
+   "indexRanges": 35
+  }
+ },
+ "purchaseOrder.core": {
+  "1": {
+   "bytes": 1145770,
+   "documents": 1522,
+   "indexRanges": 20
+  },
+  "2": {
+   "bytes": 1544450,
+   "documents": 1822,
+   "indexRanges": 20
+  },
+  "3": {
+   "bytes": 1943130,
+   "documents": 2122,
+   "indexRanges": 20
+  }
+ },
+ "purchaseOrder.close": {
+  "1": {
+   "bytes": 1146808,
+   "documents": 1522,
+   "indexRanges": 20
+  },
+  "2": {
+   "bytes": 1545488,
+   "documents": 1822,
+   "indexRanges": 20
+  },
+  "3": {
+   "bytes": 1944168,
+   "documents": 2122,
+   "indexRanges": 20
+  }
+ },
+ "partsRequest.cancel": {
+  "1": {
+   "bytes": 1346291,
+   "documents": 1769,
+   "indexRanges": 35
+  },
+  "2": {
+   "bytes": 1744971,
+   "documents": 2069,
+   "indexRanges": 35
+  },
+  "3": {
+   "bytes": 2143651,
+   "documents": 2369,
+   "indexRanges": 35
+  }
+ },
  "snapshot.window": {
   "1": {
    "bytes": 5147866,

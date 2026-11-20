@@ -28,11 +28,20 @@ import { poDraftSchema } from "../../src/domain/purchaseOrders";
 const MEASURED = "00000000-0000-4000-8000-0000000a0000";
 
 /**
- * A uuid of the records the saves create, distinct from the fixture's.
+ * A uuid of the records and commands the saves create, distinct from the
+ * fixture's.
  *
- * @param n - 0 to 9.
+ * @param n - 0 to 99.
  */
-export const measuredUuid = (n: number) => MEASURED.slice(0, -1) + n;
+export const measuredUuid = (n: number) =>
+  MEASURED.slice(0, -2) + String(n).padStart(2, "0");
+
+// The measured request and order, and their lines.
+const REQUEST = measuredUuid(2);
+const REQUEST_LINE = measuredUuid(3);
+const ORDER = measuredUuid(5);
+const ORDER_LINE = measuredUuid(6);
+const MEASURED_DATE = "2026-11-03";
 
 /** One call to a registered function: its handler and its arguments. */
 export interface VolumeOperation {
@@ -142,6 +151,7 @@ export function volumeOperations(targets: VolumeTargets): VolumeOperation[] {
         to: "2026-12-31",
       },
     },
+    ...purchasingOperations(targets),
   ];
 }
 
@@ -224,33 +234,113 @@ function taskCardSave({ card }: VolumeTargets): VolumeOperation {
 }
 
 function partsRequestSave({ stock }: VolumeTargets): VolumeOperation {
-  return {
-    name: "partsRequest.save",
-    kind: "mutation",
-    fn: executePartsRequest,
-    args: volumeCommand({
-      kind: "save",
-      requestUuid: measuredUuid(1),
-      draft: requestDraftSchema.parse({
-        uuid: measuredUuid(2),
-        version: 0,
-        source: { kind: "stock", uuid: stock.uuid, workOrderUuid: "" },
-        mode: "parts",
-        date: "2026-11-03",
-        engineer: "Mechanic",
-        priority: "P2 Routine",
-        requiredBy: "",
-        currency: "USD",
-        lines: [{ ...partLine(stock), uuid: measuredUuid(3), quantity: 1 }],
-      }),
-    }),
-  };
+  return requestOperation("partsRequest.save", {
+    kind: "save",
+    requestUuid: measuredUuid(1),
+    draft: requestDraft(stock, 0, 1),
+  });
 }
 
 function purchaseOrderSave({ stock }: VolumeTargets): VolumeOperation {
-  const draft = poDraftSchema.parse({
-    uuid: measuredUuid(5),
-    version: 0,
+  return orderOperation("purchaseOrder.save", {
+    kind: "save",
+    requestUuid: measuredUuid(4),
+    drafts: [orderDraft(stock, 0, orderLine(stock))],
+  });
+}
+
+// Every later command on the measured request and order, each valid where
+// it runs: the request grows to two filters, the order allocates one of its
+// two to it as an exchange line, and is issued and received; the request
+// reserves and issues the other from stock; the order's core ships and it
+// closes; the request is cancelled.
+function purchasingOperations({ stock }: VolumeTargets): VolumeOperation[] {
+  const allocation = {
+    requestUuid: REQUEST,
+    lineUuid: REQUEST_LINE,
+    quantity: 1,
+  };
+  const allocated = { ...orderLine(stock), exchange: true };
+  return [
+    requestOperation("partsRequest.edit", {
+      kind: "save",
+      requestUuid: measuredUuid(10),
+      draft: { ...requestDraft(stock, 1, 2), notes: "Measured edit." },
+    }),
+    orderOperation("purchaseOrder.edit", {
+      kind: "save",
+      requestUuid: measuredUuid(11),
+      drafts: [
+        orderDraft(stock, 1, {
+          ...allocated,
+          requestAllocations: [allocation],
+        }),
+      ],
+    }),
+    orderOperation("purchaseOrder.issue", orderAction("issue", 12, 2)),
+    orderOperation("purchaseOrder.receive", orderReceipt(13, 3)),
+    requestOperation(
+      "partsRequest.reserve",
+      stockCommand(stock, "reserve", 14, 3),
+    ),
+    requestOperation("partsRequest.issue", stockCommand(stock, "issue", 15, 4)),
+    orderOperation("purchaseOrder.core", coreShipment(16, 4)),
+    orderOperation("purchaseOrder.close", orderAction("close", 17, 5)),
+    requestOperation("partsRequest.cancel", {
+      kind: "cancel",
+      requestUuid: measuredUuid(18),
+      uuid: REQUEST,
+      version: 5,
+      reason: "Measured cancel.",
+    }),
+  ];
+}
+
+function requestOperation(name: string, command: object): VolumeOperation {
+  return {
+    name,
+    kind: "mutation",
+    fn: executePartsRequest,
+    args: volumeCommand(command),
+  };
+}
+
+function orderOperation(name: string, command: object): VolumeOperation {
+  return {
+    name,
+    kind: "mutation",
+    fn: executePurchaseOrder,
+    args: volumeCommand(command),
+  };
+}
+
+function requestDraft(
+  stock: VolumeTargets["stock"],
+  version: number,
+  quantity: number,
+) {
+  return requestDraftSchema.parse({
+    uuid: REQUEST,
+    version,
+    source: { kind: "stock", uuid: stock.uuid, workOrderUuid: "" },
+    mode: "parts",
+    date: MEASURED_DATE,
+    engineer: "Mechanic",
+    priority: "P2 Routine",
+    requiredBy: "",
+    currency: "USD",
+    lines: [{ ...partLine(stock), uuid: REQUEST_LINE, quantity }],
+  });
+}
+
+function orderDraft(
+  stock: VolumeTargets["stock"],
+  version: number,
+  line: object,
+) {
+  return poDraftSchema.parse({
+    uuid: ORDER,
+    version,
     vendor: "Example Aviation Supply",
     vendorContact: "",
     shipTo: "Hangar 4",
@@ -258,27 +348,70 @@ function purchaseOrderSave({ stock }: VolumeTargets): VolumeOperation {
     currency: "USD",
     shippingCents: 0,
     notes: "",
-    lines: [
-      {
-        ...partLine(stock),
-        uuid: measuredUuid(6),
-        stockUuid: stock.uuid,
-        locationUuid: stock.locationUuid,
-        quantity: 2,
-        unitCents: 2495,
-        kind: "part",
-      },
-    ],
+    lines: [line],
   });
+}
+
+function orderLine(stock: VolumeTargets["stock"]) {
   return {
-    name: "purchaseOrder.save",
-    kind: "mutation",
-    fn: executePurchaseOrder,
-    args: volumeCommand({
-      kind: "save",
-      requestUuid: measuredUuid(4),
-      drafts: [draft],
-    }),
+    ...partLine(stock),
+    uuid: ORDER_LINE,
+    stockUuid: stock.uuid,
+    locationUuid: stock.locationUuid,
+    quantity: 2,
+    unitCents: 2495,
+    kind: "part",
+  };
+}
+
+function orderAction(kind: string, n: number, version: number) {
+  const requestUuid = measuredUuid(n);
+  return { kind, requestUuid, uuid: ORDER, version, reason: "" };
+}
+
+function orderReceipt(n: number, version: number) {
+  return {
+    kind: "receive",
+    requestUuid: measuredUuid(n),
+    uuid: ORDER,
+    version,
+    date: MEASURED_DATE,
+    invoice: "INV-MEASURED",
+    notes: "",
+    lines: [{ lineUuid: ORDER_LINE, quantity: 2, condition: "new" }],
+  };
+}
+
+// The exchange core the receipt (command 13) owes, named as receipts name
+// their cores: the receipt's request id, then the line's uuid.
+function coreShipment(n: number, version: number) {
+  return {
+    kind: "core",
+    requestUuid: measuredUuid(n),
+    uuid: ORDER,
+    version,
+    coreUuid: `${measuredUuid(13)}-${ORDER_LINE}`,
+    status: "shipped",
+    date: MEASURED_DATE,
+    tracking: "1Z-MEASURED",
+    notes: "",
+  };
+}
+
+function stockCommand(
+  stock: VolumeTargets["stock"],
+  kind: string,
+  n: number,
+  version: number,
+) {
+  return {
+    kind,
+    requestUuid: measuredUuid(n),
+    uuid: REQUEST,
+    version,
+    lineUuid: REQUEST_LINE,
+    stockUuid: stock.uuid,
+    quantity: 1,
   };
 }
 

@@ -52,6 +52,21 @@ const COMPLETE_ROWS_PER_YEAR =
   PURCHASING_ROWS_PER_YEAR +
   (VOLUME.aircraft * VOLUME.flights) / VOLUME.flightPlanEvery;
 
+// Every parts-request and purchase-order command the fixture measures.
+const PURCHASING_COMMANDS = [
+  "partsRequest.save",
+  "partsRequest.edit",
+  "partsRequest.reserve",
+  "partsRequest.issue",
+  "partsRequest.cancel",
+  "purchaseOrder.save",
+  "purchaseOrder.edit",
+  "purchaseOrder.issue",
+  "purchaseOrder.receive",
+  "purchaseOrder.core",
+  "purchaseOrder.close",
+];
+
 type Reads = { documents: number; bytes: number; indexRanges: number };
 type Handler<C> = (ctx: C, args: object) => Promise<unknown>;
 
@@ -110,7 +125,7 @@ describe("the bounded saves read the same at three years as at one (S3)", () => 
 // H5 keeps parts requests and purchase orders complete, and these saves read
 // them all; everything else they read is bounded.
 describe("Characterizes current behaviour: saves that read every parts request and purchase order grow by those alone", () => {
-  it.each(["partsRequest.save", "purchaseOrder.save"])("%s", (operation) =>
+  it.each(PURCHASING_COMMANDS)("%s", (operation) =>
     expectGrowthOf(operation, PURCHASING_ROWS_PER_YEAR),
   );
 });
