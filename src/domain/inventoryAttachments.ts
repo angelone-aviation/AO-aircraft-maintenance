@@ -36,10 +36,20 @@ const HEIF_SIGNATURES = [
   "msf1",
 ].map((brand): Signature => [...ANY_SIZE, ...ascii(`ftyp${brand}`)]);
 
+const PDF_HEADER = ascii("%PDF-");
+
+// PDF readers accept the header anywhere in a file's first 1,024 bytes (PDF
+// Reference 1.7, Appendix H, the note on section 3.4.1 "File Header"), and
+// some scanners write bytes before it. Every other signature starts at byte 0.
+const PDF_HEADER_WINDOW = 1024;
+const LATEST_START = new Map<string, number>([
+  ["application/pdf", PDF_HEADER_WINDOW - PDF_HEADER.length],
+]);
+
 // The accepted first bytes of each type. A caller's own type check decides
 // which types it takes, so HEIC is here without photos accepting it.
 const FILE_SIGNATURES = new Map<string, Signature[]>([
-  ["application/pdf", [ascii("%PDF-")]],
+  ["application/pdf", [PDF_HEADER]],
   ["image/jpeg", [[0xff, 0xd8, 0xff]]],
   ["image/png", [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]]],
   ["image/webp", [[...ascii("RIFF"), ...ANY_SIZE, ...ascii("WEBP")]]],
@@ -49,7 +59,9 @@ const FILE_SIGNATURES = new Map<string, Signature[]>([
 
 /** How many leading bytes {@link assertFileContents} needs to tell a type. */
 export const FILE_SIGNATURE_LENGTH = Math.max(
-  ...[...FILE_SIGNATURES.values()].flat().map((s) => s.length),
+  ...[...FILE_SIGNATURES].flatMap(([type, signatures]) =>
+    signatures.map((s) => (LATEST_START.get(type) ?? 0) + s.length),
+  ),
 );
 
 /**
@@ -100,7 +112,8 @@ export function validateInventoryFile(
 /**
  * Checks that a file's first bytes are those of its declared type, so a file
  * renamed past a type and name check (an SVG or web page named as an image or
- * PDF, a HEIC photo named as a JPEG) is refused.
+ * PDF, a HEIC photo named as a JPEG) is refused. A PDF's "%PDF-" header may
+ * start anywhere in its first 1,024 bytes; every other signature at byte 0.
  *
  * @param type - The declared MIME type: PDF, JPEG, PNG, WebP, HEIC or HEIF.
  * @param bytes - The file, or at least its first
@@ -133,12 +146,19 @@ export function matchesFileType(type: string, bytes: ArrayBuffer): boolean {
     Math.min(bytes.byteLength, FILE_SIGNATURE_LENGTH),
   );
   const signatures = FILE_SIGNATURES.get(type) ?? [];
-  return signatures.some((signature) => startsWith(head, signature));
+  const latest = LATEST_START.get(type) ?? 0;
+  return signatures.some((signature) => startsBy(head, signature, latest));
+}
+
+function startsBy(head: Uint8Array, signature: Signature, latest: number) {
+  for (let at = 0; at <= latest; at++)
+    if (startsAt(head, signature, at)) return true;
+  return false;
 }
 
 // A file shorter than the signature fails: its missing bytes read undefined.
-function startsWith(head: Uint8Array, signature: Signature): boolean {
-  return signature.every((b, i) => b === null || head[i] === b);
+function startsAt(head: Uint8Array, signature: Signature, at: number) {
+  return signature.every((b, i) => b === null || head[at + i] === b);
 }
 
 /**

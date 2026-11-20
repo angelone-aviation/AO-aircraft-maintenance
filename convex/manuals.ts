@@ -208,8 +208,8 @@ export const discardUpload = internalMutation({
 });
 
 /**
- * Completes an upload: claims the blob, checks it starts as a PDF, and saves
- * the manual.
+ * Completes an upload: claims the blob, checks it has a PDF header in its
+ * first 1,024 bytes, and saves the manual.
  *
  * @param ticket - From {@link beginUpload}.
  * @param storageId - What the upload URL returned.

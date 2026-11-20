@@ -428,6 +428,25 @@ it("claims only the blob uploaded for its own ticket and never deletes blobs it 
   for (const id of [own, attached, earlier, foreign, unrelated])
     expect(await exists(id)).toBe(true);
 });
+it("saves a manual whose PDF header follows a few leading bytes, as PDF readers allow", async () => {
+  const { t, tech } = await fixture();
+  const late = new Blob(["\r\n%PDF-1.4\nmanual"], {
+    type: "application/pdf",
+  });
+  const { ticket } = await tech.mutation(api.manuals.beginUpload, {
+    payload: JSON.stringify({ ...input, size: late.size }),
+    sha256: await sha256(late),
+    programUuid: "demo-program",
+  });
+  const storageId = await t.run((ctx) => storePdf(ctx, late));
+  await expect(
+    tech.action(api.manuals.finishUpload, {
+      ticket,
+      storageId,
+      programUuid: "demo-program",
+    }),
+  ).resolves.toEqual(expect.any(String));
+});
 it("keeps a matching blob that another record refers to when sweeping its ticket", async () => {
   const { t, tech } = await fixture();
   const { ticket } = await tech.mutation(api.manuals.beginUpload, {

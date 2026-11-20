@@ -76,18 +76,28 @@ describe("attachment contents", () => {
     expect(matchesFileType("image/svg+xml", bytes("<svg"))).toBe(false);
   });
 
-  it("needs exactly the first FILE_SIGNATURE_LENGTH bytes to tell the longest types", () => {
-    const webp = bytes("RIFF", 1, 2, 3, 4, "WEBPVP8 ");
-    const heic = bytes(0, 0, 0, 24, "ftypheicmif1");
-    for (const [type, file] of [
-      ["image/webp", webp],
-      ["image/heic", heic],
-    ] as const) {
-      expect(matches(type, file.slice(0, FILE_SIGNATURE_LENGTH))).toBe(true);
-      expect(matches(type, file.slice(0, FILE_SIGNATURE_LENGTH - 1))).toBe(
-        false,
-      );
-    }
+  it("accepts a PDF header that starts anywhere in the first 1,024 bytes", () => {
+    const after = (leading: number) =>
+      bytes(...new Array<number>(leading).fill(0x20), "%PDF-1.7\n");
+    expect(matches("application/pdf", after(3))).toBe(true);
+    expect(matches("application/pdf", after(1019))).toBe(true);
+    expect(matches("application/pdf", after(1020))).toBe(false);
+    expect(matches("application/pdf", bytes("<html>%PDF"))).toBe(false);
+    // Only a PDF's header may come late.
+    expect(matches("image/png", bytes(0x20, 0x89, "PNG", 13, 10, 26, 10))).toBe(
+      false,
+    );
+  });
+
+  it("needs exactly the first FILE_SIGNATURE_LENGTH bytes to tell any type", () => {
+    const latePdf = bytes(...new Array<number>(1019).fill(0x20), "%PDF-");
+    expect(FILE_SIGNATURE_LENGTH).toBe(1024);
+    expect(
+      matches("application/pdf", latePdf.slice(0, FILE_SIGNATURE_LENGTH)),
+    ).toBe(true);
+    expect(
+      matches("application/pdf", latePdf.slice(0, FILE_SIGNATURE_LENGTH - 1)),
+    ).toBe(false);
   });
 });
 
