@@ -563,6 +563,26 @@ const CASES: Case[] = [
   callQuery(api.history.workOrder, "A's work order", (a) =>
     stampB({ uuid: a.row.workOrders.uuid }),
   ).refuses(HISTORY_NOT_FOUND),
+  callQuery(api.history.records, "A's report, job card and plan", (a) =>
+    stampB({
+      discrepancyUuids: [a.row.discrepancies.uuid],
+      taskCardUuids: [a.row.taskCards.uuid],
+      flightPlanUuids: [a.row.flightPlans.uuid],
+    }),
+  ).returns({
+    discrepancies: [],
+    taskCards: [],
+    archivedTaskCards: [],
+    flights: [],
+    members: [],
+  }),
+  callQuery(api.history.records, "A's report in program A", (a) =>
+    stampA({
+      discrepancyUuids: [a.row.discrepancies.uuid],
+      taskCardUuids: [],
+      flightPlanUuids: [],
+    }),
+  ).refuses(STALE_PROGRAM),
   callQuery(api.history.flightsInRange, "A's aircraft", (a) =>
     stampB({ aircraftUuid: a.row.aircraft.uuid, from: 0, to: Date.now() }),
   ).refuses(HISTORY_NOT_FOUND),
