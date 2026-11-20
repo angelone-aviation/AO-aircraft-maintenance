@@ -195,6 +195,17 @@ export type PurchaseOrder = z.infer<typeof poSchema>;
 export type PODraft = z.infer<typeof poDraftSchema>;
 
 /**
+ * The sequence a purchase order number holds, which the next number
+ * continues.
+ *
+ * @param number - The number as stored, normally `PO-NNNNN`.
+ * @returns The number without a leading "PO-", as a number; 0 when that is
+ *   not a number.
+ */
+export const poNumberValue = (number: string) =>
+  Number(number.replace(/^PO-/, "")) || 0;
+
+/**
  * Whether an order's attachments may be removed: only while it is a draft,
  * because an issued order is a record sent to the vendor.
  */
@@ -614,10 +625,7 @@ function saveDrafts(
   scope: PurchaseOrder[],
 ) {
   assertUnique(c.drafts.map((d) => d.uuid));
-  let seq = Math.max(
-    0,
-    ...scope.map((p) => Number(p.number.replace(/^PO-/, "")) || 0),
-  );
+  let seq = Math.max(0, ...scope.map((p) => poNumberValue(p.number)));
   const saved: PurchaseOrder[] = [];
   for (const d of c.drafts) {
     const previous = orders.find((p) => p.uuid === d.uuid);

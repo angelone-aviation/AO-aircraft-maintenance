@@ -323,6 +323,14 @@ export const isOpenWorkOrder = (w: WorkOrder) =>
   !CLOSED_STATUSES.includes(w.status);
 
 /**
+ * A work order number as the program's uniqueness check compares it.
+ *
+ * @param number - The number as stored.
+ * @returns The number in lower case: numbers are unique ignoring case.
+ */
+export const workOrderNumberKey = (number: string) => number.toLowerCase();
+
+/**
  * The work orders an item can be added to.
  *
  * @param s - The snapshot.
@@ -964,7 +972,7 @@ function firstFreeNumber(orders: WorkOrder[], today: string) {
 }
 
 function isSameNumber(x: string, y: string) {
-  return x.toLowerCase() === y.toLowerCase();
+  return workOrderNumberKey(x) === workOrderNumberKey(y);
 }
 
 // A component's readings are taken when it is first chosen, then kept.

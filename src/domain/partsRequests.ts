@@ -224,6 +224,16 @@ export const requestCommandSchema = z.discriminatedUnion("kind", [
 export type RequestCommand = z.infer<typeof requestCommandSchema>;
 
 /**
+ * The sequence a request number holds, which the next number continues.
+ *
+ * @param number - The number as stored, normally `PR-NNNNN`.
+ * @returns What follows the prefix's length as a number; 0 when that is not
+ *   a number.
+ */
+export const requestNumberValue = (number: string) =>
+  Number(number.slice(REQUEST_NUMBER_PREFIX.length)) || 0;
+
+/**
  * The aircraft, label and component a request source points to, checked
  * against the active Flight Program.
  *
@@ -943,7 +953,7 @@ function hasOpenRepair(
 function nextRequestNumber(requests: PartsRequest[], program: string) {
   const used = requests
     .filter((x) => x.programUuid === program)
-    .map((x) => Number(x.number.slice(REQUEST_NUMBER_PREFIX.length)) || 0);
+    .map((x) => requestNumberValue(x.number));
   const next = String(1 + Math.max(0, ...used));
   return REQUEST_NUMBER_PREFIX + next.padStart(REQUEST_NUMBER_DIGITS, "0");
 }

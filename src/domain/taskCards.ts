@@ -387,6 +387,14 @@ export const isTaskClosed = (t: Pick<TaskCard, "status">) =>
   t.status === "completed" || t.status === "canceled";
 
 /**
+ * A card number as the program's uniqueness check compares it.
+ *
+ * @param cardNumber - The number as stored.
+ * @returns The number in lower case: numbers are unique ignoring case.
+ */
+export const cardNumberKey = (cardNumber: string) => cardNumber.toLowerCase();
+
+/**
  * Whether the signed-in user may change a card: maintenance access to its
  * aircraft, and the card neither archived, closed, nor on a work order that
  * is no longer open.
@@ -1076,7 +1084,7 @@ function assignCardNumber(
 }
 
 const sameNumber = (t: TaskCard, cardNumber: string) =>
-  t.cardNumber.toLowerCase() === cardNumber.toLowerCase();
+  cardNumberKey(t.cardNumber) === cardNumberKey(cardNumber);
 
 function firstFreeNumber(cards: TaskCard[], now: number) {
   const numbered = (n: number) =>
