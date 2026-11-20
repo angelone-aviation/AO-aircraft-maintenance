@@ -6,6 +6,22 @@ What to check, how often, who does it, and how. Copy a section into an issue or 
 - **Times** are rough. The go-live checklist budgets one to two hours a quarter for upkeep.
 - **Aaron** runs the app. "An administrator" means a Flight Program administrator unless it says system administrator.
 
+When the dated tasks fall, with the quarterly round between them:
+
+```mermaid
+timeline
+  title Dated tasks and quarterly rounds, November 2026 to October 2027
+  section 2026
+    Nov to Dec : Finish the backup set-up and the first restore rehearsal : Review the file sweep, then switch it on : Add security.txt to Deployment expiring dates : Save the credential key
+  section 2027
+    Jan to Mar : Quarterly round : Raise node-version before Node 22 ends in April
+    Apr to Jun : Quarterly round
+    Jul to Sep : Quarterly round : Renew security.txt before 4 September
+    Oct to Dec : Quarterly round : Renew the FAA DRS key before 14 October
+```
+
+The twice-a-year and yearly tasks have no fixed date: do each with a quarterly round.
+
 ## Daily
 
 ### In the hangar
@@ -24,15 +40,15 @@ What to check, how often, who does it, and how. Copy a section into an issue or 
 ## Weekly
 
 - [ ] **Parts on order.** An inventory administrator, 15 min. **Purchase orders**: overdue deliveries, shipments to receive, cores and repairs still out ([purchase orders](../../purchase-orders.md), [parts requests](../../parts-and-repair-requests.md)).
-- [ ] **Work orders.** A mechanic or administrator, 10 min. Tasks **delayed for parts**; orders ready to close ([work orders](../../work-orders.md)).
-- [ ] **Planning.** An administrator, 10 min. What falls due across the fleet in the coming weeks; open work orders for it.
+- [ ] **Work orders.** A mechanic or administrator, 10 min. Tasks with a **Parts delay**; orders ready to close ([work orders](../../work-orders.md)).
+- [ ] **Planning.** An administrator, 10 min. **Planning** screen: what falls due across the fleet in the coming weeks; open work orders for it.
 - [ ] **Dependabot.** Aaron, 5 min. Merge any update GitHub marks High or Critical at once, the sign-in library (`@convex-dev/auth`) first. Merging deploys once CI is green ([release runbook](../../runbooks/release.md#what-runs-where)).
 - [ ] **Summary.** An administrator, 10 min. Change history → **Summary** for the last 7 days ([change history](../../change-history.md)).
 
 ## Monthly
 
-- [ ] **Paper check.** An administrator, 15–30 min per aircraft, while paper logbooks run beside the app. Tick each recorded flight and completed work order against the paper logbook ([paper check](../../reconciliation.md)).
-- [ ] **Expiring dates.** An administrator, 5 min. Settings → Flight Program and Settings → System → Expiring dates: insurance, registration, keys, `security.txt`. Alerts start 60 days out ([alerts](../../alerts.md)).
+- [ ] **Paper check.** An administrator, 15–30 min per aircraft, while paper logbooks run beside the app. Flight log → **Paper check (month)**: tick each recorded flight and completed work order against the paper logbook ([paper check](../../reconciliation.md)).
+- [ ] **Expiring dates.** An administrator, 5 min. Settings → Flight Program → **Program expiring dates** (insurance, registration) and Settings → System → **Deployment expiring dates** (keys, `security.txt`). Alerts start 60 days out ([alerts](../../alerts.md)).
 - [ ] **Keep `main` active.** Aaron, 2 min. GitHub stops scheduled workflows in a public repository after **60 days without activity**, which stops the nightly backup. Check Actions → Nightly backup is enabled and ran last night; if it was disabled, **Enable workflow** ([backup runbook](../../runbooks/backup-restore.md#who-is-told-when-it-fails), [GitHub docs](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow)).
 
 ## Quarterly
@@ -48,30 +64,30 @@ Budget 1–2 hours.
 
 ## Twice a year
 
-- [ ] **Test break-glass access.** Aaron with the sealed-copy holder, 30 min, during two rehearsals six months apart. Check the sealed copy; sign in with the break-glass account in a private window; check its sign-ins are all logged tests; practise the dashboard repair in the scratch deployment ([break-glass](../../runbooks/break-glass-admin.md#test-twice-a-year)).
+- [ ] **Test break-glass access.** Aaron with the sealed-copy holder, 30 min, during two rehearsals six months apart. Check the sealed copy; sign in with the break-glass account in a private window (once a year from the sealed copy, then rotate it); check its sign-ins are all logged tests; check the Convex sign-in and recovery codes; practise the dashboard repair in the scratch deployment ([break-glass](../../runbooks/break-glass-admin.md#test-twice-a-year)).
 
 ## Yearly
 
 - [ ] **Node version.** Aaron, 30 min. Raise `node-version` in all four workflows to the current Node LTS before the pinned one ends (Node 22: April 2027). Rebuild from a clean checkout: `npm ci && npm run check`.
-- [ ] **Rotate tokens.** Aaron, 30 min. The Cloudflare API token and the Dropbox tokens; record new expiry dates in [accounts](../../runbooks/accounts.md) and under Expiring dates ([incident runbook: leaked secret](../../runbooks/incident-response.md#leaked-secret) has the steps for each).
-- [ ] **VAPID key review.** Aaron, 5 min. The push key pair's yearly review date under Expiring dates. Rotating it signs every device out of alerts ([monitoring](../../runbooks/monitoring.md#alerts-by-email-and-on-devices)).
-- [ ] **Backup key.** Aaron, 15 min. If backup encryption is switched on, decrypt one backup with the organisation's sealed key copy ([backup runbook](../../runbooks/backup-restore.md)).
+- [ ] **Rotate tokens.** Aaron, 30 min. The Cloudflare API token and, if the Dropbox copy is set up, the Dropbox tokens; record new expiry dates in [accounts](../../runbooks/accounts.md) and under **Deployment expiring dates** ([credentials](credentials.md) says where each lives; [incident runbook: leaked secret](../../runbooks/incident-response.md#leaked-secret) has the steps).
+- [ ] **VAPID key review.** Aaron, 5 min. The push key pair's yearly review date under **Deployment expiring dates**. Rotating it turns alerts off on every device until each is switched on again ([monitoring](../../runbooks/monitoring.md#alerts-by-email-and-on-devices)).
 - [ ] **Cost review.** Aaron, 15 min. Convex usage, R2 size and the Dropbox folder against [services and costs](../4-money-and-risk/services-and-costs.md). Monthly archives grow forever by design ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)).
 
 ## One-off and dated
 
 - [ ] **Review the file sweep, then switch it on.** Aaron, 10 min, from 21 Nov 2026. Convex Logs → search `fileSweep would delete`; check a few ids are referenced nowhere; then `FILE_SWEEP=delete` ([file sweep](../../runbooks/file-sweep.md#review-the-first-pass-then-switch-to-delete)).
-- [ ] **Finish the backup set-up.** Aaron, about 1 hour: backup deploy key, time zone, failure email, heartbeat secret, a manual run, the first rehearsal ([go-live checklist](../../go-live-checklist.md#backup-setup-remaining)).
-- [ ] **Add `security.txt` to Expiring dates.** Aaron, 5 min. Settings → System → Expiring dates, expiring 2027-10-04.
+- [ ] **Finish the backup set-up.** Aaron, about 1 hour. Three steps are left: add the `BACKUP_HEARTBEAT_URL` secret, run the Nightly backup by hand and check it, and do the first restore rehearsal ([set up from scratch](setup-from-scratch.md#7-backups), [rehearsal](../../runbooks/backup-restore.md#quarterly-restore-rehearsal)).
+- [ ] **Add `security.txt` to the expiring dates.** Aaron, 5 min. Settings → System → **Deployment expiring dates**, expiring 2027-10-04.
 - [ ] **Renew `security.txt` before 2027-09-04.** Aaron, 15 min. It expires **2027-10-04**. Set `Expires` about 11 months ahead in [`public/.well-known/security.txt`](../../../public/.well-known/security.txt), check `Contact` still reaches someone, deploy.
 - [ ] **Renew the FAA DRS key before 2027-10-14.** Aaron, 15 min. Renew on the FAA website, then Settings → System → **FAA API key and renewal** with the new expiry ([airworthiness](../../airworthiness.md)).
-- [ ] **Keep the credential key safe.** Aaron, 5 min, once the release with unencrypted backups (ADR-0014) is deployed. Save `CREDENTIALS_ENCRYPTION_KEY` in his password manager: the unencrypted job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.
+- [ ] **Keep the credential key safe.** Aaron, 5 min, now that backups are unencrypted ([ADR-0014](../../adr/0014-backups-stored-unencrypted.md)). Save `CREDENTIALS_ENCRYPTION_KEY` in his password manager: the backup job saves no environment variables, and without the key a restore onto a new Convex account can't open the saved FAA, Geoapify and Aircraft Spruce credentials.
 
 ## Whenever it happens
 
 - [ ] **After any restore:** run, each until it reports 0: `migrations:backfillHistoryColumns`, `migrations:rebuildRecordNumbers`, `migrations:rebuildCostLedger`; then `migrations:reconcileCostLedger` must answer `differing: 0` ([operations](operations.md#after-a-release-or-a-restore-the-migrations)). Then record the restore with `audit:recordManualEntry`.
 - [ ] **After a release that names a one-off command:** run it as the pull request says ([README](../../../README.md#one-off-steps-for-deployments-with-older-data)).
-- [ ] **After changing a Convex environment variable, with backup encryption on:** run the Nightly backup by hand so `env/` holds the new set; after changing the backup key, check the next run's summary lists an `env/` object.
+- [ ] **After changing `CREDENTIALS_ENCRYPTION_KEY` or `CREDENTIALS_ENCRYPTION_KEYS`:** update the copy in Aaron's password manager; no backup holds it while encryption is off ([backup runbook](../../runbooks/backup-restore.md#when-an-environment-variable-changes)).
+- [ ] **After a schema change that renames or removes a table:** do a restore rehearsal ([ADR-0008](../../adr/0008-daily-backups-off-site-90-days-monthly-forever.md)).
 - [ ] **When the reconcile logs "The cost ledger differs from its records.":** run `migrations:rebuildCostLedger` until 0.
 - [ ] **When a person leaves:** a system administrator disables their account; remove them from the Dropbox folder; if they held a Convex key, rotate it ([accounts](../../runbooks/accounts.md#disabling-a-user)).
 - [ ] **When a device is lost:** follow [lost or stolen device](../../runbooks/incident-response.md#lost-or-stolen-device).
